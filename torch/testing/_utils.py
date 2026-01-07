@@ -55,7 +55,6 @@ def freeze_rng_state():
                 accelerator = torch.accelerator.current_accelerator(
                     check_available=True
                 )
-                if accelerator is not None:
                     torch.get_device_module(accelerator.type).set_rng_state(
                         accelerator_rng_state  # type: ignore[possibly-undefined]
                     )
