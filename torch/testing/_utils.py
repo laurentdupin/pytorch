@@ -57,5 +57,4 @@ def freeze_rng_state():
                 )
                     torch.get_device_module(accelerator.type).set_rng_state(
                         accelerator_rng_state  # type: ignore[possibly-undefined]
-                    )
             torch.set_rng_state(rng_state)
