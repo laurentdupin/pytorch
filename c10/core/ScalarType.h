@@ -230,6 +230,8 @@ inline ScalarType toRealValueType(ScalarType t) {
   switch (t) {
     case ScalarType::ComplexHalf:
       return ScalarType::Half;
+    case ScalarType::BComplex32:
+      return ScalarType::BFloat16;
     case ScalarType::ComplexFloat:
       return ScalarType::Float;
     case ScalarType::ComplexDouble:
@@ -242,9 +244,7 @@ inline ScalarType toRealValueType(ScalarType t) {
 inline ScalarType toComplexType(ScalarType t) {
   switch (t) {
     case ScalarType::BFloat16:
-      // BFloat16 has range equivalent to Float,
-      // so we map it to ComplexFloat.
-      return ScalarType::ComplexFloat;
+      return ScalarType::BComplex32;
     case ScalarType::Half:
       return ScalarType::ComplexHalf;
     case ScalarType::Float:
@@ -253,6 +253,8 @@ inline ScalarType toComplexType(ScalarType t) {
       return ScalarType::ComplexDouble;
     case ScalarType::ComplexHalf:
       return ScalarType::ComplexHalf;
+    case ScalarType::BComplex32:
+      return ScalarType::BComplex32;
     case ScalarType::ComplexFloat:
       return ScalarType::ComplexFloat;
     case ScalarType::ComplexDouble:
