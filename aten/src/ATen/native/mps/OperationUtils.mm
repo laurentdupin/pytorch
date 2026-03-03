@@ -1173,6 +1173,7 @@ void MetalShaderLibrary::exec_binary_kernel(TensorIteratorBase& iter,
                                             scalarToMetalTypeString(input),
                                             alpha_suffix);
   }
+  std::cout << __func__ << " kernel_name=" << kernel_name << std::endl;
   dispatch_sync_with_rethrow(mpsStream->queue(), ^() {
     @autoreleasepool {
       auto computeEncoder = mpsStream->commandEncoder();
