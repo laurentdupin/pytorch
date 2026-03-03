@@ -1,10 +1,17 @@
+from __future__ import annotations
+
 import dataclasses
 import itertools
-from collections.abc import Iterable
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import torch
 from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from torch._opaque_base import OpaqueBase
 
 
 # This is technically very similar to SubclassCreatingMeta
@@ -15,10 +22,11 @@ class SubclassCreationMeta:
     start_idx: int
     num_tensors: int
     class_type: Any
-    attrs: dict[str, "SubclassCreationMeta"]
+    attrs: dict[str, SubclassCreationMeta]
     metadata: Any
     outer_size: Iterable[None | int | torch.SymInt]
     outer_stride: Iterable[None | int | torch.SymInt]
+    opaque_attrs: dict[str, OpaqueBase] = dataclasses.field(default_factory=dict)
 
 
 class UnwrapTensorSubclass(torch.nn.Module):
@@ -32,6 +40,7 @@ class UnwrapTensorSubclass(torch.nn.Module):
             for attr, meta in subclass_meta.attrs.items():
                 built_tensor, offset = _unwrap_tensor_subclasses(meta, tensors, offset)
                 inner_tensors[attr] = built_tensor
+            inner_tensors.update(subclass_meta.opaque_attrs)
             rebuilt = subclass_meta.class_type.__tensor_unflatten__(
                 inner_tensors,
                 subclass_meta.metadata,
@@ -54,8 +63,12 @@ class UnwrapTensorSubclass(torch.nn.Module):
             inner_tensors_attrnames, metadata = tensor.__tensor_flatten__()  # type: ignore[attr-defined]
             new_idx = idx
             attr_to_meta = {}
+            opaque_attrs = {}
             for attr in inner_tensors_attrnames:
                 val = getattr(tensor, attr)
+                if not isinstance(val, torch.Tensor):
+                    opaque_attrs[attr] = val
+                    continue
                 subclass_meta, new_idx = _create_subclass_meta(
                     val, new_idx, plain_tensor_container
                 )
@@ -69,6 +82,7 @@ class UnwrapTensorSubclass(torch.nn.Module):
                     metadata=metadata,
                     outer_size=tensor.size(),
                     outer_stride=tensor.stride(),
+                    opaque_attrs=opaque_attrs,
                 ),
                 new_idx,
             )
