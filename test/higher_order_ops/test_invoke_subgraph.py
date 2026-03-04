@@ -2470,8 +2470,8 @@ class GraphModule(torch.nn.Module):
         invoke_subgraph = torch.ops.higher_order.invoke_subgraph(subgraph_0, 'subgraph_0', x, y);  subgraph_0 = x = None
         getitem_4: "f32[5]" = invoke_subgraph[0];  invoke_subgraph = None
 
-        subgraph_1 = self.subgraph_1
-        invoke_subgraph_1 = torch.ops.higher_order.invoke_subgraph(subgraph_1, 'subgraph_1', getitem_4, y);  subgraph_1 = getitem_4 = y = None
+        subgraph_1 = self.subgraph_0
+        invoke_subgraph_1 = torch.ops.higher_order.invoke_subgraph(subgraph_1, 'subgraph_0', getitem_4, y);  subgraph_1 = getitem_4 = y = None
         getitem_5: "f32[5]" = invoke_subgraph_1[0];  invoke_subgraph_1 = None
         return (getitem_5,)
 
@@ -2480,15 +2480,6 @@ class GraphModule(torch.nn.Module):
             o: "f32[5]" = torch.zeros_like(x)
 
             triton_kernel_wrapper_mutation = torch.ops.higher_order.triton_kernel_wrapper_mutation(kernel_idx = 0, constant_args_idx = 0, grid = [(5, 1, 1)], tma_descriptor_metadata = {}, kwargs = {'in_ptr0': x, 'in_ptr1': y, 'out_ptr': o});  x = y = triton_kernel_wrapper_mutation = None
-
-            sin: "f32[5]" = o.sin();  o = None
-            return (sin,)
-
-    class subgraph_1(torch.nn.Module):
-        def forward(self, z: "f32[5]", y: "f32[5]"):
-            o: "f32[5]" = torch.zeros_like(z)
-
-            triton_kernel_wrapper_mutation = torch.ops.higher_order.triton_kernel_wrapper_mutation(kernel_idx = 0, constant_args_idx = 1, grid = [(5, 1, 1)], tma_descriptor_metadata = {}, kwargs = {'in_ptr0': z, 'in_ptr1': y, 'out_ptr': o});  z = y = triton_kernel_wrapper_mutation = None
 
             sin: "f32[5]" = o.sin();  o = None
             return (sin,)
@@ -3372,6 +3363,35 @@ class TestInvokeSubgraphReuse(TestCase):
         ref = fn(x)
         self.assertEqual(ref, x * 5 + x * 10)
 
+        res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
+        self.assertEqual(ref, res)
+
+    def test_subgraph_reuse_mutated_captured_variable(self):
+        """Reuse must be skipped when a captured (non-input) variable is mutated."""
+
+        class Config:
+            def __init__(self, c):
+                self.c = c
+
+        cfg = Config(5)
+
+        @nested_compile_region()
+        def apply(x):
+            # cfg is captured from closure, not an explicit input
+            return x * cfg.c
+
+        def fn(x):
+            a = apply(x)
+            cfg.c = 10
+            b = apply(x)
+            return a + b
+
+        x = torch.randn(8)
+        cfg.c = 5
+        ref = fn(x)
+        self.assertEqual(ref, x * 15)
+
+        cfg.c = 5
         res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
         self.assertEqual(ref, res)
 

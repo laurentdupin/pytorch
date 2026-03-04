@@ -802,6 +802,11 @@ class InvokeSubgraphReuseCondition:
     # On cache hit, we verify the new call has the same treespec.
     treespec: Any = None
 
+    # All sources accessed via VariableBuilder during the subgraph trace.
+    # On cache hit, we check if any modified VT's source is a base of one
+    # of these to detect mutations on captured variables.
+    traced_sources: set[Any] = dataclasses.field(default_factory=set)
+
 
 class InvokeSubgraphCache(HopSubgraphCache):
     def __init__(self) -> None:

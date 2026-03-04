@@ -23,6 +23,7 @@ import functools
 import inspect
 import itertools
 import logging
+import traceback
 import types
 import warnings
 from collections.abc import Sequence
@@ -125,7 +126,9 @@ class SubgraphTracingInfo:
     Future additions may include aliasing info, mutation info, etc.
     """
 
-    has_side_effect: bool = False
+    # User code stack at the point where the first externally-visible side
+    # effect was detected.  None means no side effect was observed.
+    side_effect_stack: traceback.StackSummary | None = None
 
 
 # This function is a syntax sugar for creating a dummy new subtracer so that
@@ -1801,7 +1804,7 @@ def speculate_subgraph_with_auto_output_flattening(
             #   FX graph outputs (basically the vts associated with graph outputs)
             # - `tracing_info`: Properties observed during subgraph tracing
             tracing_info = SubgraphTracingInfo(
-                has_side_effect=subtracer.has_side_effect,
+                side_effect_stack=subtracer.side_effect_stack,
             )
 
             return (
@@ -5216,24 +5219,36 @@ def get_fn_id(fn_var: Any) -> int | None:
     return None
 
 
-def _has_mutated_inputs(
-    tx: "InstructionTranslator", flat_vts: list[tuple[str, Any]]
+def _has_mutated_vars(
+    tx: "InstructionTranslator",
+    traced_sources: set[Any],
 ) -> bool:
-    """Check if any flattened input VT has been mutated via side effects.
+    """Check if any variable accessed by the subgraph has been mutated.
 
     Guards are snapshotted on sources, but if the object behind a source has
-    been mutated (e.g. ``mod.c = 10``), the guard would still resolve to the
+    been mutated (e.g. ``cfg.c = 10``), the guard would still resolve to the
     original (pre-mutation) value because the actual Python object isn't
     updated until codegen. We must bail out of reuse in this case.
+
+    traced_sources contains all sources accessed via VariableBuilder during
+    the subgraph trace, plus cell sources from load_cell. This covers both
+    direct inputs (arg_sources) and captured variables (freevars, cells).
     """
-    side_effects = tx.output.side_effects
-    for _tag, vt in flat_vts:
-        if side_effects.is_modified(vt):
-            hc_log.debug(
-                "subgraph_reuse: mutated input detected -- %s",
-                type(vt).__name__,
-            )
-            return True
+    from torch._dynamo.source import is_from_source
+
+    for var in tx.output.side_effects._get_modified_vars():
+        var_source = getattr(var, "source", None)
+        if var_source is None:
+            continue
+        for ts in traced_sources:
+            if is_from_source(ts, var_source):
+                hc_log.debug(
+                    "subgraph_reuse: mutated variable detected -- %s (source: %r)",
+                    type(var).__name__,
+                    var_source,
+                )
+                return True
+
     return False
 
 
@@ -5241,25 +5256,30 @@ def is_reuse_eligible(
     tx: "InstructionTranslator",
     body_r: Any,
     fingerprint: InputFingerprint,
-    has_side_effect: bool,
+    tracing_info: SubgraphTracingInfo,
+    traced_sources: set[Any] | None = None,
 ) -> bool:
     """Best-effort check for whether a traced subgraph result can be reused.
 
     It is possible that a subgraph is morally reusable but does not fall
     into the limited support that Dynamo has today. Current limitations:
       - The subgraph must not have side effects.
-      - No flattened input may have been mutated via side effects.
+      - No variable accessed by the subgraph may have been mutated.
       - Output must be a single tensor, or a tuple/list of plain tensors.
       - All flattened inputs must be one of: tensor, symnode, constant,
         unspecialized NN module.
     """
-    if has_side_effect:
+    if tracing_info.side_effect_stack is not None:
+        stack_msg = "\n" + "".join(
+            traceback.format_list(tracing_info.side_effect_stack)
+        )
         hc_log.debug(
-            "subgraph_reuse: not eligible -- subgraph has side effects",
+            "subgraph_reuse: not eligible -- subgraph has side effects%s",
+            stack_msg,
         )
         return False
 
-    if _has_mutated_inputs(tx, fingerprint.flat_vts):
+    if traced_sources and _has_mutated_vars(tx, traced_sources):
         return False
 
     if isinstance(body_r, TensorVariable):
@@ -5373,8 +5393,8 @@ def build_reuse_condition(
 
         # TODO(anijain2305): vLLM workaround -- skip CONSTANT_MATCH on
         # strings. Re-evaluate once vLLM migrates off this pattern.
-        # if type_str == "CONSTANT_MATCH" and isinstance(value, str):
-        #     continue
+        if type_str == "CONSTANT_MATCH" and isinstance(value, str):
+            continue
 
         expected = handler.get_metadata_fn(guard, value)
         guard_tuples.append((source, handler, expected))
@@ -5385,6 +5405,7 @@ def build_reuse_condition(
         input_checks=input_checks,
         guards=guard_tuples,
         treespec=treespec,
+        traced_sources=traced_sources,
     )
 
 
@@ -5517,9 +5538,6 @@ def find_reuse_match(
 ) -> Any:
     from torch._guards import InvokeSubgraphCache
 
-    if _has_mutated_inputs(tx, flat_vts):
-        return None
-
     invoke_subgraph_cache = tx.output.tracing_context.hop_dispatch_set_cache.get_cache(
         torch._higher_order_ops.invoke_subgraph
     )
@@ -5529,12 +5547,14 @@ def find_reuse_match(
     if fn_id is None:
         return None
 
-    return invoke_subgraph_cache.find_reuse_entry(
-        fn_id,
-        lambda cond, entry: is_reusable(
-            tx, cond, flat_vts, new_arg_sources, entry, treespec
-        ),
-    )
+    def evaluator(
+        cond: "InvokeSubgraphReuseCondition", entry: Any
+    ) -> bool:
+        if _has_mutated_vars(tx, cond.traced_sources):
+            return False
+        return is_reusable(tx, cond, flat_vts, new_arg_sources, entry, treespec)
+
+    return invoke_subgraph_cache.find_reuse_entry(fn_id, evaluator)
 
 
 def save_reuse_entry(
@@ -5840,6 +5860,7 @@ class InvokeSubgraphHigherOrderVariable(WrapHigherOrderVariable):
 
         # Collect all sources accessed during the subgraph trace so we can
         # look up their guards for building a reuse condition.
+        prev_traced_sources = tx.output.traced_sources
         if reuse:
             tx.output.traced_sources = set()
 
@@ -5860,7 +5881,7 @@ class InvokeSubgraphHigherOrderVariable(WrapHigherOrderVariable):
                 )
         finally:
             traced_sources = tx.output.traced_sources
-            tx.output.traced_sources = None
+            tx.output.traced_sources = prev_traced_sources
 
         if len(p_kwargs) > 0:
             unimplemented(
@@ -5885,8 +5906,8 @@ class InvokeSubgraphHigherOrderVariable(WrapHigherOrderVariable):
         # Subgraph reuse: save entry for future cache hits
         if reuse:
             fingerprint = build_input_fingerprint(tx, fn_args_vt, kwargs)
-            if is_reuse_eligible(tx, body_r, fingerprint, tracing_info.has_side_effect):
-                assert traced_sources is not None
+            assert traced_sources is not None
+            if is_reuse_eligible(tx, body_r, fingerprint, tracing_info, traced_sources):
                 condition = build_reuse_condition(
                     tx,
                     fingerprint.flat_vts,
