@@ -1019,12 +1019,19 @@ class OutputGraph(OutputGraphCommon):
         return [pack_subgraph_name, unpack_subgraph_name]
 
     def synthetic_graph_input(
-        self, fn: Callable[..., Any], args: tuple[Any, ...]
+        self,
+        fn: Callable[..., Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any] | None = None,
+        ctor_arg_sources: tuple[Source | None, ...] | None = None,
+        ctor_kwarg_sources: dict[str, Source | None] | None = None,
     ) -> VariableTracker:
         """
-        call fn(*args) before the graph runs and turn the result into a fake input.
+        call fn(*args, **kwargs) before the graph runs and turn the result into a fake input.
         """
-        example_value = fn(*args)
+        if kwargs is None:
+            kwargs = {}
+        example_value = fn(*args, **kwargs)
         varname = self.new_var()
         cg = PyCodegen(self.root_tx)
         cg.add_push_null(
@@ -1034,7 +1041,14 @@ class OutputGraph(OutputGraphCommon):
             )
         )
         cg.foreach(map(variables.ConstantVariable.create, args))
-        cg.call_function(len(args), False)
+        if kwargs:
+            cg.foreach(map(variables.ConstantVariable.create, kwargs.values()))
+            nargs = len(args) + len(kwargs)
+            cg.extend_output(
+                cg.create_call_function_kw(nargs, tuple(kwargs.keys()), False)
+            )
+        else:
+            cg.call_function(len(args), False)
         cg.store(varname)
         self.pregraph_bytecode.extend(cg.get_instructions())
         source = SyntheticLocalSource(varname)
