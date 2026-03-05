@@ -1988,12 +1988,14 @@ class ProcessGroupNCCLGroupTest(MultiProcessTestCase):
 
         backend = pg._get_backend(device)
         backend.suspend()
-        backend.print_memory_stats()
+        # Confirm that the memory is suspended
+        stats = backend.memory_stats()
+        self.assertEqual(stats["suspended"], 1)
 
     @requires_nccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "NCCL test requires 2+ GPUs")
-    def test_print_memory_stats(self):
-        """Test that print_memory_stats can be called on the NCCL backend."""
+    def test_get_memory_stats(self):
+        """Test that get_memory_stats returns a dict of memory stats."""
         store = c10d.FileStore(self.file_name, self.world_size)
         device = torch.device(f"cuda:{self.rank}")
         pg = self._create_process_group_nccl(store, self.opts(), device_id=device)
@@ -2002,7 +2004,11 @@ class ProcessGroupNCCLGroupTest(MultiProcessTestCase):
         dist.all_reduce(torch.zeros(1024 * 1024 * 512, device=device))
 
         backend = pg._get_backend(device)
-        backend.print_memory_stats()
+        stats = backend.memory_stats()
+        self.assertIsInstance(stats, dict)
+        for key in ("suspend", "suspended", "persist", "total"):
+            self.assertIn(key, stats)
+        print(stats)
 
     @requires_nccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "NCCL test requires 2+ GPUs")
@@ -2011,17 +2017,18 @@ class ProcessGroupNCCLGroupTest(MultiProcessTestCase):
         store = c10d.FileStore(self.file_name, self.world_size)
         device = torch.device(f"cuda:{self.rank}")
         pg = self._create_process_group_nccl(store, self.opts(), device_id=device)
+        backend = pg._get_backend(device)
 
         # Run a large collective to cause NCCL to allocate internal memory
         dist.all_reduce(torch.zeros(1024 * 1024 * 512, device=device))
 
-        backend = pg._get_backend(device)
-
         # Suspend (release memory)
         backend.suspend()
-
         # Resume
         backend.resume()
+        # Confirm that the memory is resumed
+        stats = backend.memory_stats()
+        self.assertEqual(stats["suspended"], 0)
 
         # Run a collective to verify the communicator still works
         tensor = torch.ones(1024, device=device, dtype=torch.float32)

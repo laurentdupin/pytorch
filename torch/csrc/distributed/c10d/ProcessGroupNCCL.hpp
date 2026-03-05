@@ -1062,7 +1062,7 @@ class TORCH_API ProcessGroupNCCL : public Backend {
 
   void resume() override;
 
-  void printMemoryStats() override;
+  std::unordered_map<std::string, uint64_t> getMemoryStats() override;
 
  protected:
   uint64_t getWatchdogHeartbt() const;

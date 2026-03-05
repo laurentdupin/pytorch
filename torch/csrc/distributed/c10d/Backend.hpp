@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -513,24 +515,20 @@ class TORCH_API Backend : public torch::CustomClassHolder {
   virtual void suspend() {
     TORCH_CHECK(
         false,
-        c10::str(
-            "Backend ", getBackendName(), " does not support suspend"));
+        c10::str("Backend ", getBackendName(), " does not support suspend"));
   }
 
   virtual void resume() {
     TORCH_CHECK(
         false,
-        c10::str(
-            "Backend ", getBackendName(), " does not support resume"));
+        c10::str("Backend ", getBackendName(), " does not support resume"));
   }
 
-  virtual void printMemoryStats() {
+  virtual std::unordered_map<std::string, uint64_t> getMemoryStats() {
     TORCH_CHECK(
         false,
         c10::str(
-            "Backend ",
-            getBackendName(),
-            " does not support printMemoryStats"));
+            "Backend ", getBackendName(), " does not support getMemoryStats"));
   }
 
  protected:

@@ -609,19 +609,26 @@ void NCCLComm::resume() {
   C10D_NCCL_CHECK(ncclCommResume(comm), std::nullopt);
 }
 
-void NCCLComm::printMemoryStats() {
+std::unordered_map<std::string, uint64_t> NCCLComm::getMemoryStats() {
   LockType lock(mutex_);
   at::cuda::OptionalCUDAGuard gpuGuard(deviceIndex_);
   auto comm = getNcclComm();
   uint64_t suspend, suspended, persist, total;
-  C10D_NCCL_CHECK(ncclCommMemStats(comm, ncclStatGpuMemSuspend, &suspend), std::nullopt);
-  C10D_NCCL_CHECK(ncclCommMemStats(comm, ncclStatGpuMemSuspended, &suspended), std::nullopt);
-  C10D_NCCL_CHECK(ncclCommMemStats(comm, ncclStatGpuMemPersist, &persist), std::nullopt);
-  C10D_NCCL_CHECK(ncclCommMemStats(comm, ncclStatGpuMemTotal, &total), std::nullopt);
-  fmt::print(
-    "GPU memory stats (Bytes): suspend={}, suspended={}, persist={}, total={}\n",
-    suspend, suspended, persist, total
-  );
+  C10D_NCCL_CHECK(
+      ncclCommMemStats(comm, ncclStatGpuMemSuspend, &suspend), std::nullopt);
+  C10D_NCCL_CHECK(
+      ncclCommMemStats(comm, ncclStatGpuMemSuspended, &suspended),
+      std::nullopt);
+  C10D_NCCL_CHECK(
+      ncclCommMemStats(comm, ncclStatGpuMemPersist, &persist), std::nullopt);
+  C10D_NCCL_CHECK(
+      ncclCommMemStats(comm, ncclStatGpuMemTotal, &total), std::nullopt);
+  return {
+      {"suspend", suspend},
+      {"suspended", suspended},
+      {"persist", persist},
+      {"total", total},
+  };
 }
 
 #if (defined(IS_NCCLX) || defined(USE_ROCM)) && defined(NCCL_COMM_DUMP)

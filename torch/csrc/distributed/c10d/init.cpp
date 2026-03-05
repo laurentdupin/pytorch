@@ -3108,7 +3108,12 @@ Arguments:
               "mem_allocator", &::c10d::Backend::getMemAllocator)
           .def("suspend", &::c10d::Backend::suspend)
           .def("resume", &::c10d::Backend::resume)
-          .def("print_memory_stats", &::c10d::Backend::printMemoryStats);
+          .def("memory_stats", &::c10d::Backend::getMemoryStats, R"(
+            Get the memory statistics of the backend.
+
+            Returns:
+              A dictionary containing the memory statistics.
+            )");
 
   // base Backend::Options binding
   // TODO: Maybe we can consider how to merge this with
