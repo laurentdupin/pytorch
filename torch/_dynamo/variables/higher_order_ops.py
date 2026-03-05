@@ -63,7 +63,7 @@ from ..exc import (
     unimplemented,
     Unsupported,
 )
-from ..source import AttrSource, DictGetItemSource
+from ..source import AttrSource, DictGetItemSource, SyntheticLocalSource
 from ..utils import proxy_args_kwargs, set_example_value
 from .base import VariableTracker
 from .dicts import ConstDictVariable
@@ -5157,6 +5157,19 @@ class InputFingerprint(NamedTuple):
     treespec: Any = None
 
 
+def _classify_vt(vt: Any) -> str | None:
+    """Return the tag for a leaf VT, or None if unsupported."""
+    if isinstance(vt, TensorVariable):
+        return "tensor"
+    elif isinstance(vt, SymNodeVariable):
+        return "symnode"
+    elif isinstance(vt, ConstantVariable):
+        return "constant"
+    elif isinstance(vt, UnspecializedNNModuleVariable):
+        return "module"
+    return None
+
+
 def build_input_fingerprint(
     tx: "InstructionTranslator",
     fn_args_vt: Any,
@@ -5168,7 +5181,43 @@ def build_input_fingerprint(
     the argument structure into leaf VTs, classifying each leaf as
     tensor/symnode/constant/module. Also records the TreeSpec so that
     cache lookups can verify structural equivalence.
+
+    Fast path: when kwargs is empty and all args are already leaf VTs
+    (tensor/symnode/constant/module), skip the expensive pytree flatten.
     """
+    # Fast path: flat args, no kwargs — skip pytree machinery.
+    if not kwargs:
+        all_leaf = True
+        for vt in fn_args_vt:
+            if _classify_vt(vt) is None:
+                all_leaf = False
+                break
+        if all_leaf:
+            return build_fingerprint_fast(fn_args_vt)
+
+    return build_fingerprint_with_pytree(tx, fn_args_vt, kwargs)
+
+
+def build_fingerprint_fast(fn_args_vt: Any) -> InputFingerprint:
+    """Build fingerprint for the common case of flat leaf args, no kwargs."""
+    flat_vts: list[tuple[str, Any]] = []
+    arg_sources: list[Any] = []
+    for vt in fn_args_vt:
+        tag = _classify_vt(vt)
+        assert tag is not None
+        flat_vts.append((tag, vt))
+        source = getattr(vt, "source", None)
+        if source is not None:
+            arg_sources.append(source)
+    return InputFingerprint(flat_vts, arg_sources)
+
+
+def build_fingerprint_with_pytree(
+    tx: "InstructionTranslator",
+    fn_args_vt: Any,
+    kwargs: dict[str, Any],
+) -> InputFingerprint:
+    """Build fingerprint via pytree flatten for nested/kwargs cases."""
     from torch._dynamo.variables.builder import SourcelessBuilder
 
     container_vt = SourcelessBuilder.create(tx, (list(fn_args_vt), kwargs))
@@ -5182,14 +5231,9 @@ def build_input_fingerprint(
     has_unknown = False
 
     for vt in flat_list_vt.unpack_var_sequence(tx):
-        if isinstance(vt, TensorVariable):
-            flat_vts.append(("tensor", vt))
-        elif isinstance(vt, SymNodeVariable):
-            flat_vts.append(("symnode", vt))
-        elif isinstance(vt, ConstantVariable):
-            flat_vts.append(("constant", vt))
-        elif isinstance(vt, UnspecializedNNModuleVariable):
-            flat_vts.append(("module", vt))
+        tag = _classify_vt(vt)
+        if tag is not None:
+            flat_vts.append((tag, vt))
         else:
             has_unknown = True
             continue
@@ -5537,6 +5581,22 @@ def is_reusable(
     return True
 
 
+def has_reuse_entries(
+    tx: "InstructionTranslator",
+    fn_var: Any,
+) -> bool:
+    """Cheap check: does the cache have any entries for this function?"""
+    from torch._guards import InvokeSubgraphCache
+
+    invoke_subgraph_cache = tx.output.tracing_context.hop_dispatch_set_cache.get_cache(
+        torch._higher_order_ops.invoke_subgraph
+    )
+    if not isinstance(invoke_subgraph_cache, InvokeSubgraphCache):
+        return False
+    fn_id = get_fn_id(fn_var)
+    return fn_id is not None and fn_id in invoke_subgraph_cache.subgraph_reuse_cache
+
+
 def find_reuse_match(
     tx: "InstructionTranslator",
     fn_var: Any,
@@ -5594,7 +5654,7 @@ def save_reuse_entry(
     if fn_id is None:
         return
 
-    freevar_mapping = build_freevar_mapping(p_args, fingerprint.flat_vts)
+    freevar_mapping = build_freevar_mapping(tx, p_args, fingerprint.flat_vts)
     single_tensor_output = isinstance(body_r, TensorVariable)
 
     # Cache output tensor metadata so we can construct fresh FakeTensors on
@@ -5645,31 +5705,26 @@ def stamp_out_subgraph(
         old: new for old, new in zip(cached.arg_sources, new_arg_sources) if old != new
     }
 
-    # TODO: consider extracting this placeholder-by-source lookup into a
-    # utility on OutputGraph so other features can reuse it.
-    existing_source_to_node: dict = {}
-    for node in tx.output.graph.find_nodes(op="placeholder"):
-        ga = node.meta.get("grapharg", None)
-        if ga is not None and ga.source is not None:
-            existing_source_to_node[ga.source] = node
-
     new_lifted_args = []
     for user_arg_idx, data in cached.freevar_mapping:
         if user_arg_idx >= 0:
             new_lifted_args.append(flat_proxies[user_arg_idx])
+        elif user_arg_idx == -2:
+            # TorchScriptObject with SyntheticLocalSource: create a
+            # fresh synthetic graph input using the cached constructor.
+            ctor_fn, ctor_args = data
+            vt = tx.output.synthetic_graph_input(ctor_fn, ctor_args)
+            new_lifted_args.append(vt.as_proxy())
         else:
             source = data
             new_source = source
             if source_replacement:
                 new_source = source.clone(lambda s: source_replacement.get(s, s))
-
-            if new_source in existing_source_to_node:
-                node = existing_source_to_node[new_source]
-                new_lifted_args.append(torch.fx.Proxy(node, tx.output.current_tracer))
-            else:
-                value = tx.output.resolve_source_value(new_source)
-                vt = VariableBuilder(tx, new_source)(value)
-                new_lifted_args.append(vt.as_proxy())
+            # VariableBuilder deduplicates via input_source_to_var,
+            # so this reuses existing graph placeholders automatically.
+            value = tx.output.resolve_source_value(new_source)
+            vt = VariableBuilder(tx, new_source)(value)
+            new_lifted_args.append(vt.as_proxy())
 
     assert tx.fake_mode is not None
     with tx.fake_mode:
@@ -5705,7 +5760,9 @@ def stamp_out_subgraph(
 
 
 def build_freevar_mapping(
-    p_args: tuple, flat_vts: list[tuple[str, Any]]
+    tx: "InstructionTranslator",
+    p_args: tuple,
+    flat_vts: list[tuple[str, Any]],
 ) -> list[tuple[int, Any]]:
     """Build a mapping that records the origin of each lifted arg for a subgraph.
 
@@ -5719,6 +5776,9 @@ def build_freevar_mapping(
     (2) A sourceful captured variable (e.g. a weight or parameter) — we
         record its Source so we can re-derive the correct proxy on cache
         hit via source replacement.
+    (3) A TorchScriptObjectVariable with a SyntheticLocalSource — we
+        record its constructor (type, args) so we can call
+        synthetic_graph_input on stamp-out to create a fresh graph input.
     """
     proxy_node_to_idx: dict[torch.fx.Node, int] = {}
     idx = 0
@@ -5742,6 +5802,15 @@ def build_freevar_mapping(
                 f"node.name={outer_proxy.node.name} -- this likely means a "
                 f"function argument was not included in the proxy matching"
             )
+            if isinstance(source, SyntheticLocalSource):
+                # SyntheticLocalSource can't be resolved via
+                # resolve_source_value or cloned via source replacement.
+                # Look up constructor info so stamp-out can call
+                # synthetic_graph_input to recreate the graph input.
+                ctor_info = tx.output.synthetic_source_ctor_info.get(source)
+                if ctor_info is not None:
+                    freevar_mapping.append((-2, ctor_info))
+                    continue
             freevar_mapping.append((-1, source))
     return freevar_mapping
 
@@ -5851,10 +5920,13 @@ class InvokeSubgraphHigherOrderVariable(WrapHigherOrderVariable):
 
         reuse = not tx.output.export
 
-        # Auto-cache lookup
-        if reuse:
+        # Auto-cache lookup: check fn_id first (cheap) to avoid the
+        # expensive pytree flatten in build_input_fingerprint on the
+        # first call when there's nothing in the cache yet.
+        if reuse and has_reuse_entries(tx, fn_var):
             with dynamo_timed("invoke_subgraph_reuse_lookup"):
-                fingerprint = build_input_fingerprint(tx, fn_args_vt, kwargs)
+                with dynamo_timed("invoke_subgraph_build_fingerprint"):
+                    fingerprint = build_input_fingerprint(tx, fn_args_vt, kwargs)
                 match = find_reuse_match(
                     tx,
                     fn_var,

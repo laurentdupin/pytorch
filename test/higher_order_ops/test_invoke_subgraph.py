@@ -3477,6 +3477,45 @@ class TestInvokeSubgraphReuse(TestCase):
         res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
         self.assertEqual(ref, res)
 
+    def test_subgraph_reuse_synthetic_source(self):
+        """Reuse must handle TorchScriptObjectVariable with SyntheticLocalSource.
+
+        Hoisted opaque value types get a SyntheticLocalSource that can't be
+        resolved via VariableBuilder. On cache hit, stamp_out_subgraph must
+        call synthetic_graph_input to create a fresh graph input.
+        """
+        from test_opaque_obj_v2 import HoistedString, op_with_string
+
+        @nested_compile_region
+        def gn(x):
+            return op_with_string(x, HoistedString("double"))
+
+        def fn(x):
+            a = gn(x)
+            b = gn(x)
+            return a + b
+
+        x = torch.randn(8)
+        ref = fn(x)
+
+        call_count = 0
+        orig_speculate = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
+
+        def counting_speculate(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return orig_speculate(*args, **kwargs)
+
+        with mock.patch.object(
+            torch._dynamo.variables.higher_order_ops,
+            "speculate_subgraph_with_auto_output_flattening",
+            counting_speculate,
+        ):
+            res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
+
+        self.assertEqual(ref, res)
+        self.assertEqual(call_count, 1)
+
 
 @skipIfTorchDynamo("Not a torch._dynamo test")
 @parameterized_class(

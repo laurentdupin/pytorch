@@ -816,6 +816,13 @@ class OutputGraph(OutputGraphCommon):
         # Bytecode to insert right before we call the graph
         self.pregraph_bytecode: list[Instruction] = []
 
+        # Maps SyntheticLocalSource → (fn, args) for hoisted graph inputs
+        # created by synthetic_graph_input, so invoke_subgraph reuse can
+        # recreate them on cache hit without walking the bytecode.
+        self.synthetic_source_ctor_info: dict[
+            SyntheticLocalSource, tuple[Callable[..., Any], tuple[Any, ...]]
+        ] = {}
+
         # Use to pass values to backward hooks when using compiled autograd
         self.backward_state: dict[str, VariableTracker] = {}
         self.backward_state_proxy: torch.fx.Proxy | None = None
@@ -1038,6 +1045,7 @@ class OutputGraph(OutputGraphCommon):
         cg.store(varname)
         self.pregraph_bytecode.extend(cg.get_instructions())
         source = SyntheticLocalSource(varname)
+        self.synthetic_source_ctor_info[source] = (fn, args)
         result = VariableTracker.build(self.root_tx, example_value, source)
         # Realize the VT because we will delete the guards on it in the next line.
         result = result.realize()
@@ -2704,7 +2712,8 @@ class OutputGraph(OutputGraphCommon):
                 inline_invoke_subgraph,
             )
 
-            gm = inline_invoke_subgraph(gm)
+            with dynamo_timed("inline_invoke_subgraph"):
+                gm = inline_invoke_subgraph(gm)
 
         try:
             _step_logger()(logging.INFO, f"calling compiler function {name}")
