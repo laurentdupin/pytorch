@@ -28,32 +28,32 @@ using scale_t = std::vector<std::optional<double>>;
 // - recursively compute interpolated output for each dimension
 // - we rely a lot on compiler's code optimization such that implemented operations
 //   can be automatically factorized and vectorized using SSE and AVX2
-template <int n, typename scalar_t, typename opmath_t, typename index_t, int interp_size>
+template <int n, typename scalar_t, typename opmath_t, int interp_size>
 struct Interpolate {
     static inline opmath_t eval(char* src, char** data, const int64_t* strides, int64_t i) {
-      index_t ids = *(index_t*)&data[0][i * strides[0]];
+      int64_t ids = *(int64_t*)&data[0][i * strides[0]];
       opmath_t wts = *(scalar_t*)&data[1][i * strides[1]];
-      opmath_t t = Interpolate<n - 1, scalar_t, opmath_t, index_t, interp_size>::eval(src + ids, &data[2 * interp_size], &strides[2 * interp_size], i);
+      opmath_t t = Interpolate<n - 1, scalar_t, opmath_t, interp_size>::eval(src + ids, &data[2 * interp_size], &strides[2 * interp_size], i);
       opmath_t output = t * wts;
       for (const auto j : c10::irange(1, interp_size)) {
-        ids = *(index_t*)&data[2 * j + 0][i * strides[2 * j + 0]];
+        ids = *(int64_t*)&data[2 * j + 0][i * strides[2 * j + 0]];
         wts = *(scalar_t*)&data[2 * j + 1][i * strides[2 * j + 1]];
-        t = Interpolate<n - 1, scalar_t, opmath_t, index_t, interp_size>::eval(src + ids, &data[2 * interp_size], &strides[2 * interp_size], i);
+        t = Interpolate<n - 1, scalar_t, opmath_t, interp_size>::eval(src + ids, &data[2 * interp_size], &strides[2 * interp_size], i);
         output += t * wts;
       }
       return output;
   }
 };
 
-template <typename scalar_t, typename opmath_t, typename index_t, int interp_size>
-struct Interpolate<1, scalar_t, opmath_t, index_t, interp_size> {
+template <typename scalar_t, typename opmath_t, int interp_size>
+struct Interpolate<1, scalar_t, opmath_t, interp_size> {
     static inline opmath_t eval(char* src, char** data, const int64_t* strides, int64_t i) {
-      index_t ids = *(index_t*)&data[0][i * strides[0]];
+      int64_t ids = *(int64_t*)&data[0][i * strides[0]];
       opmath_t wts = *(scalar_t*)&data[1][i * strides[1]];
       opmath_t t = *(scalar_t *)&src[ids];
       opmath_t output = t * wts;
       for (const auto j : c10::irange(1, interp_size)) {
-        ids = *(index_t*)&data[2 * j + 0][i * strides[2 * j + 0]];
+        ids = *(int64_t*)&data[2 * j + 0][i * strides[2 * j + 0]];
         wts = *(scalar_t*)&data[2 * j + 1][i * strides[2 * j + 1]];
         t = *(scalar_t *)&src[ids];
         output += t * wts;
@@ -62,18 +62,18 @@ struct Interpolate<1, scalar_t, opmath_t, index_t, interp_size> {
     }
 };
 
-template <int n, typename scalar_t, typename opmath_t, typename index_t>
-struct Interpolate<n, scalar_t, opmath_t, index_t, 1> {
+template <int n, typename scalar_t, typename opmath_t>
+struct Interpolate<n, scalar_t, opmath_t, 1> {
     static inline opmath_t eval(char* src, char** data, const int64_t* strides, int64_t i) {
-      index_t ids = *(index_t*)&data[0][i * strides[0]];
-      return Interpolate<n - 1, scalar_t, opmath_t, index_t, 1>::eval(src + ids, &data[2], &strides[2], i);
+      int64_t ids = *(int64_t*)&data[0][i * strides[0]];
+      return Interpolate<n - 1, scalar_t, opmath_t, 1>::eval(src + ids, &data[2], &strides[2], i);
   }
 };
 
-template <typename scalar_t, typename opmath_t, typename index_t>
-struct Interpolate<1, scalar_t, opmath_t, index_t, 1> {
+template <typename scalar_t, typename opmath_t>
+struct Interpolate<1, scalar_t, opmath_t, 1> {
     static inline opmath_t eval(char* src, char** data, const int64_t* strides, int64_t i) {
-      index_t ids = *(index_t*)&data[0][i * strides[0]];
+      int64_t ids = *(int64_t*)&data[0][i * strides[0]];
       return *(scalar_t *)&src[ids];
     }
 };
@@ -81,28 +81,28 @@ struct Interpolate<1, scalar_t, opmath_t, index_t, 1> {
 // There is an unexpected 2x slowdown for upsample_trilinear3d channels_first
 // for both 1 and 6 threads. We have to specialize this case as below:
 // Once the issue is fixed we can keep generic implementation and remove:
-// struct Interpolate<n, scalar_t, index_t, 2> and
-// struct Interpolate<1, scalar_t, index_t, 2>
-template <int n, typename scalar_t, typename opmath_t, typename index_t>
-struct Interpolate<n, scalar_t, opmath_t, index_t, 2> {
+// struct Interpolate<n, scalar_t, opmath_t, 2> and
+// struct Interpolate<1, scalar_t, opmath_t, 2>
+template <int n, typename scalar_t, typename opmath_t>
+struct Interpolate<n, scalar_t, opmath_t, 2> {
     static inline opmath_t eval(char* src, char** data, const int64_t* strides, int64_t i) {
-        index_t i0 = *(index_t*)&data[0][i * strides[0]];
-        index_t i1 = *(index_t*)&data[2][i * strides[2]];
+        int64_t i0 = *(int64_t*)&data[0][i * strides[0]];
+        int64_t i1 = *(int64_t*)&data[2][i * strides[2]];
         opmath_t w0 = *(scalar_t *)&data[1][i * strides[1]];
         opmath_t w1 = *(scalar_t *)&data[3][i * strides[3]];
 
-        opmath_t t0 = Interpolate<n - 1, scalar_t, opmath_t, index_t, 2>::eval(src + i0, &data[4], &strides[4], i);
-        opmath_t t1 = Interpolate<n - 1, scalar_t, opmath_t, index_t, 2>::eval(src + i1, &data[4], &strides[4], i);
+        opmath_t t0 = Interpolate<n - 1, scalar_t, opmath_t, 2>::eval(src + i0, &data[4], &strides[4], i);
+        opmath_t t1 = Interpolate<n - 1, scalar_t, opmath_t, 2>::eval(src + i1, &data[4], &strides[4], i);
 
         return t0 * w0 + t1 * w1;
   }
 };
 
-template <typename scalar_t, typename opmath_t, typename index_t>
-struct Interpolate<1, scalar_t, opmath_t, index_t, 2> {
+template <typename scalar_t, typename opmath_t>
+struct Interpolate<1, scalar_t, opmath_t, 2> {
     static inline opmath_t eval(char* src, char** data, const int64_t* strides, int64_t i) {
-        index_t i0 = *(index_t*)&data[0][i * strides[0]];
-        index_t i1 = *(index_t*)&data[2][i * strides[2]];
+        int64_t i0 = *(int64_t*)&data[0][i * strides[0]];
+        int64_t i1 = *(int64_t*)&data[2][i * strides[2]];
         opmath_t w0 = *(scalar_t *)&data[1][i * strides[1]];
         opmath_t w1 = *(scalar_t *)&data[3][i * strides[3]];
         opmath_t t0 = *(scalar_t *)&src[i0];
@@ -111,24 +111,24 @@ struct Interpolate<1, scalar_t, opmath_t, index_t, 2> {
     }
 };
 
-template <int n, typename scalar_t, typename index_t, int interp_size>
+template <int n, typename scalar_t, int interp_size>
 inline scalar_t interpolate(char* src, char** data, const int64_t* strides, int64_t i) {
   using opmath_t = at::opmath_type<scalar_t>;
-  return Interpolate<n, scalar_t, opmath_t, index_t, interp_size>::eval(src, data, strides, i);
+  return Interpolate<n, scalar_t, opmath_t, interp_size>::eval(src, data, strides, i);
 }
 
-template <typename scalar_t, typename index_t>
+template <typename scalar_t>
 inline scalar_t interpolate_aa_single_dim_zero_strides(
     char* src,
     char** data,
-    const index_t ids_stride) {
-  const index_t ids_min = *(index_t*)&data[0][0];
-  const index_t ids_size = *(index_t*)&data[1][0];
+    const int64_t ids_stride) {
+  const int64_t ids_min = *(int64_t*)&data[0][0];
+  const int64_t ids_size = *(int64_t*)&data[1][0];
 
   char* src_min = src + ids_min;
 
   scalar_t t = *(scalar_t*)&src_min[0];
-  index_t wts_idx = *(index_t*)&data[4][0];
+  int64_t wts_idx = *(int64_t*)&data[4][0];
   scalar_t* wts_ptr = (scalar_t*)&data[3][wts_idx];
   scalar_t wts = wts_ptr[0];
 
@@ -141,20 +141,20 @@ inline scalar_t interpolate_aa_single_dim_zero_strides(
   return output;
 }
 
-template <typename scalar_t, typename index_t>
+template <typename scalar_t>
 inline scalar_t interpolate_aa_single_dim(
     char* src,
     char** data,
     const int64_t* strides,
     int64_t i,
-    const index_t ids_stride) {
-  index_t ids_min = *(index_t*)&data[0][i * strides[0]];
-  index_t ids_size = *(index_t*)&data[1][i * strides[1]];
+    const int64_t ids_stride) {
+  int64_t ids_min = *(int64_t*)&data[0][i * strides[0]];
+  int64_t ids_size = *(int64_t*)&data[1][i * strides[1]];
 
   char* src_min = src + ids_min;
 
   scalar_t t = *(scalar_t*)&src_min[0];
-  index_t wts_idx = *(index_t*)&data[4][i * strides[4]];
+  int64_t wts_idx = *(int64_t*)&data[4][i * strides[4]];
   scalar_t* wts_ptr = (scalar_t*)&data[3][wts_idx];
   scalar_t wts = wts_ptr[0];
 
@@ -176,11 +176,11 @@ inline bool is_zero_stride(const int64_t* strides) {
   return output;
 }
 
-template <typename scalar_t, typename index_t, int interp_size>
+template <typename scalar_t, int interp_size>
 inline bool is_contiguous_stride(const int64_t* strides) {
-  bool output = (strides[0] == sizeof(index_t)) && (strides[1] == sizeof(scalar_t));
+  bool output = (strides[0] == sizeof(int64_t)) && (strides[1] == sizeof(scalar_t));
   for (int i=2; i<2 * interp_size; i+=2) {
-    output &= (strides[i] == sizeof(index_t)) && (strides[i + 1] == sizeof(scalar_t));
+    output &= (strides[i] == sizeof(int64_t)) && (strides[i + 1] == sizeof(scalar_t));
   }
   return output;
 }
@@ -198,7 +198,7 @@ inline bool is_contiguous_stride(const int64_t* strides) {
 //   dimension should be non zero.
 //
 // Unit check of the recursion is to verify whether 4 strides for one interpolated dimension are either zero,
-// see method is_zero_stride, or (sizeof(index_t), sizeof(scalar_t), sizeof(index_t), sizeof(scalar_t)), see
+// see method is_zero_stride, or (sizeof(int64_t), sizeof(scalar_t), sizeof(int64_t), sizeof(scalar_t)), see
 // method is_contiguous_stride.
 //
 // In practice, we have the following cases:
@@ -216,42 +216,42 @@ inline bool is_contiguous_stride(const int64_t* strides) {
 //
 // Using these methods we can hint the compiler to factorize constant indices and weights
 // in cpu_upsample_linear method
-template <int N, int non_zero_stride_dim, typename scalar_t, typename index_t, int interp_size>
+template <int N, int non_zero_stride_dim, typename scalar_t, int interp_size>
 struct CheckAlmostAllZeroStrides {
   static inline bool eval(const int64_t* strides) {
     // N is dim index: N -> dim0, N-1 -> dim1, ...
     // non_zero_stride_dim should be out_dims - dim
     bool output = false;
     if constexpr (N == non_zero_stride_dim) {
-      output = is_contiguous_stride<scalar_t, index_t, interp_size>(strides);
+      output = is_contiguous_stride<scalar_t, interp_size>(strides);
     } else {
       output = is_zero_stride<2 * interp_size>(strides);
     }
     return output &&
-      CheckAlmostAllZeroStrides<N - 1, non_zero_stride_dim, scalar_t, index_t, interp_size>::eval(
+      CheckAlmostAllZeroStrides<N - 1, non_zero_stride_dim, scalar_t, interp_size>::eval(
         &strides[2 * interp_size]);
   }
 };
 
-template <int non_zero_stride_dim, typename scalar_t, typename index_t, int interp_size>
-struct CheckAlmostAllZeroStrides<0, non_zero_stride_dim, scalar_t, index_t, interp_size> {
+template <int non_zero_stride_dim, typename scalar_t, int interp_size>
+struct CheckAlmostAllZeroStrides<0, non_zero_stride_dim, scalar_t, interp_size> {
   static inline bool eval(const int64_t* /*strides*/) {
     return true;
   }
 };
 
-template <int n, int s, typename scalar_t, typename index_t, int interp_size>
+template <int n, int s, typename scalar_t, int interp_size>
 inline bool check_almost_all_zero_stride(const int64_t* strides) {
-  return CheckAlmostAllZeroStrides<n, s, scalar_t, index_t, interp_size>::eval(strides);
+  return CheckAlmostAllZeroStrides<n, s, scalar_t, interp_size>::eval(strides);
 }
 
 // Helper method to compute interpolation for nearest, linear, cubic modes
-template <typename scalar_t, typename index_t, int out_ndims, int interp_size>
+template <typename scalar_t, int out_ndims, int interp_size>
 inline void basic_loop(char** data, const int64_t* strides, int64_t n) {
   char* dst = data[0];
   char* src = data[1];
   for (const auto i : c10::irange(n)) {
-    *(scalar_t*)&dst[i * strides[0]] = interpolate<out_ndims, scalar_t, index_t, interp_size>(
+    *(scalar_t*)&dst[i * strides[0]] = interpolate<out_ndims, scalar_t, interp_size>(
         src + i * strides[1], &data[2], &strides[2], i);
   }
 }
@@ -269,7 +269,7 @@ inline void basic_loop_aa_vertical(
 
   for (const auto i : c10::irange(n)) {
     *(scalar_t*)&dst[i * strides[0]] =
-        interpolate_aa_single_dim_zero_strides<scalar_t, int64_t>(
+        interpolate_aa_single_dim_zero_strides<scalar_t>(
             src + i * strides[1], &data[2], ids_stride);
   }
 }
@@ -326,13 +326,13 @@ inline void basic_loop_aa_horizontal(
   if (strides[1] == 0) {
     for (const auto i : c10::irange(n)) {
       *(scalar_t*)&dst[i * strides[0]] =
-          interpolate_aa_single_dim<scalar_t, int64_t>(
+          interpolate_aa_single_dim<scalar_t>(
               src, &data[2], &strides[2], i, ids_stride);
     }
   } else {
     for (const auto i : c10::irange(n)) {
       *(scalar_t*)&dst[i * strides[0]] =
-          interpolate_aa_single_dim<scalar_t, int64_t>(
+          interpolate_aa_single_dim<scalar_t>(
               src + i * strides[1], &data[2], &strides[2], i, ids_stride);
     }
   }
@@ -399,16 +399,16 @@ void cpu_upsample_generic(at::TensorIterator& iter)
     // special-cases to let the compiler apply compile-time input-specific optimizations
     if ((strides[0] == sizeof(scalar_t) && (strides[1] == 0) &&
         // NOLINTNEXTLINE(bugprone-branch-clone)
-        check_almost_all_zero_stride<out_ndims, 1, scalar_t, int64_t, interp_size>(&strides[2]))) {
+        check_almost_all_zero_stride<out_ndims, 1, scalar_t, interp_size>(&strides[2]))) {
       // contiguous channels-first case
-      basic_loop<scalar_t, int64_t, out_ndims, interp_size>(data, strides, n);
+      basic_loop<scalar_t, out_ndims, interp_size>(data, strides, n);
     } else if ((strides[0] == sizeof(scalar_t) && (strides[1] == sizeof(scalar_t)) &&
-               check_almost_all_zero_stride<out_ndims, -1, scalar_t, int64_t, interp_size>(&strides[2]))) {
+               check_almost_all_zero_stride<out_ndims, -1, scalar_t, interp_size>(&strides[2]))) {
       // contiguous channels-last case
-      basic_loop<scalar_t, int64_t, out_ndims, interp_size>(data, strides, n);
+      basic_loop<scalar_t, out_ndims, interp_size>(data, strides, n);
     } else {
       // fallback
-      basic_loop<scalar_t, int64_t, out_ndims, interp_size>(data, strides, n);
+      basic_loop<scalar_t, out_ndims, interp_size>(data, strides, n);
     }
   };
   iter.for_each(loop);
