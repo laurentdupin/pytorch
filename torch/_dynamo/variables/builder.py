@@ -1521,6 +1521,12 @@ class VariableBuilder:
                 ScriptObjectQualifiedNameSource,
             )
 
+            # Unwrap FakeScriptObject to the underlying real object so the
+            # rest of this branch (guards, graph inputs, etc.) operates on
+            # the real opaque object type.
+            if isinstance(value, torch._library.fake_class_registry.FakeScriptObject):
+                value = value.real_obj
+
             # type: ignore[arg-type]
             if torch._library.fake_class_registry.tracing_with_real(value):
                 proxy = self.tx.output.root_tracer.create_graph_input(
@@ -1583,6 +1589,16 @@ class VariableBuilder:
             )
             if is_opaque_value_type(type(value)) and not should_hoist(type(value)):
                 proxy = value
+
+            elif config.install_free_tensors and (
+                is_from_global_source(self.source)
+                or is_from_nonlocal_source(self.source)
+                or is_from_unspecialized_nn_module_source(self.source)
+            ):
+                return self.tx.output.register_attr_or_module(
+                    value, self.name, source=self.source
+                )
+
             else:
                 proxy = self.tx.output.root_tracer.create_graph_input(
                     re.sub(r"[^a-zA-Z0-9]+", "_", self.name),
