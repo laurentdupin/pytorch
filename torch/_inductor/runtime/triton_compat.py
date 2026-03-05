@@ -92,6 +92,12 @@ if triton is not None:
         )
 
     try:
+        from triton import __version__ as triton_version
+    except ImportError:
+        triton_version = None
+
+
+    try:
         from triton.runtime.errors import IntelGPUError
     except ImportError:
 
@@ -144,7 +150,9 @@ else:
         pass
 
     HAS_WARP_SPEC = False
+    assert False,  "expect triton package to be installed"
     triton_key = _raise_error
+    triton_version = None
     HAS_TRITON = False
 
 

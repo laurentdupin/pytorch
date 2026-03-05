@@ -1135,15 +1135,16 @@ def aot_module_simplified(
             remote = should_use_remote_autograd_cache()
             if local or remote:
                 set_feature_use("aot_autograd_remote_cache", remote)
-                compiled_fn = AOTAutogradCache.try_load(
-                    mod,
-                    fake_flat_args,
-                    aot_config,
-                    cudagraphs,
-                    boxed_forward_device_index,
-                    local,
-                    remote,
-                )
+                with dynamo_timed("AOTAutogradCache.try_load"):
+                    compiled_fn = AOTAutogradCache.try_load(
+                        mod,
+                        fake_flat_args,
+                        aot_config,
+                        cudagraphs,
+                        boxed_forward_device_index,
+                        local,
+                        remote,
+                    )
 
         if compiled_fn is None:
             stack.enter_context(compiled_autograd._disable())

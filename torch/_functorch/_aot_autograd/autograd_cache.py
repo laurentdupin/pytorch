@@ -3,6 +3,7 @@ Utils for caching the outputs of AOTAutograd
 """
 
 from __future__ import annotations
+from torch._dynamo.utils import dynamo_timed
 
 import base64
 import contextlib
@@ -84,6 +85,14 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger(__name__)
+
+
+___num_autograd_cache_key = 0
+def log_next_instant_autograd_cache_key(extra = None):
+    global ___num_autograd_cache_key
+    CompileEventLogger.instant("autograd_cache_key", metadata={"n": ___num_autograd_cache_key, "extra" : extra})
+    ___num_autograd_cache_key += 1
+
 
 
 class BypassAOTAutogradCache(Exception):
@@ -445,6 +454,7 @@ class AOTAutogradCacheDetails(FxGraphHashDetails):
 
         return triton_kernel_source_codes
 
+    @dynamo_timed("AOTAutogradCacheDetails.__init__")
     def __init__(
         self,
         gm: torch.fx.GraphModule,
@@ -452,6 +462,8 @@ class AOTAutogradCacheDetails(FxGraphHashDetails):
         aot_config: AOTConfig,
         fx_config: _CompileFxKwargs,
     ) -> None:
+
+
         # FxGraphHashDetails contains all the keys related to inductor. Also includes some system info
         self.aot_config = aot_config
         self.grad_enabled = torch.is_grad_enabled()
@@ -462,8 +474,14 @@ class AOTAutogradCacheDetails(FxGraphHashDetails):
             [],
             [],
         )
+
+        log_next_instant_autograd_cache_key()
+
         if has_triton_package():
             self.triton_kernel_source_codes = self.get_triton_source_codes_from_gm(gm)
+
+
+        log_next_instant_autograd_cache_key()
 
         if hasattr(gm, "saved_tensors_hooks_pack_0"):
 
@@ -485,7 +503,12 @@ class AOTAutogradCacheDetails(FxGraphHashDetails):
                 self.saved_tensors_hooks_fx_wrap_cache_hashes[1],
             )
 
+
+        log_next_instant_autograd_cache_key()
+
         self.sac_context_fn_hashes: list[str] = _collect_context_fn_hashes(gm)
+
+        log_next_instant_autograd_cache_key()
 
         # Note: We use the live config module, not self.autograd_config (the saved config),
         # because activation_memory_budget_runtime_estimator and activation_memory_budget_solver
@@ -493,15 +516,23 @@ class AOTAutogradCacheDetails(FxGraphHashDetails):
         # We must access the config module directly to get the patched runtime values.
         self.custom_estimator_solver_uuids = _get_custom_estimator_solver_uuids(config)
 
+        log_next_instant_autograd_cache_key()
+
+
         try:
             # FXGraphCache has constraints on what can be pickled in its inductor
             # config. Check that the gm is cacheable by inductor first,
             # and if it raises an exception, also bypass on our end.
+            log_next_instant_autograd_cache_key("before _check_can_cache ")
             FxGraphCache._check_can_cache(gm)
+            log_next_instant_autograd_cache_key()
             super().__init__(gm, example_inputs, fx_config, [])
+            log_next_instant_autograd_cache_key()
         except BypassFxGraphCache as e:
             # Sometimes inductor configs are unpickleable and can fail
             raise BypassAOTAutogradCache(str(e)) from e
+
+        log_next_instant_autograd_cache_key()
 
 
 class AOTAutogradCachePickler(FxGraphCachePickler):
@@ -598,8 +629,11 @@ def normalize_placeholder_names(
         # Now restore the old namespace's used names
         gm.graph._graph_namespace._used_names = old_used_names
         gm.recompile()
+        n = 0
 
 
+
+@dynamo_timed("autograd_cache_key")
 def autograd_cache_key(
     gm: torch.fx.GraphModule,
     example_inputs: Sequence[Any],
@@ -625,16 +659,22 @@ def autograd_cache_key(
 
             if triton.__version__ < "3.2.0":
                 raise BypassAOTAutogradCache("AOTAutogradCache requires triton 3.2.0")
+
         details = AOTAutogradCacheDetails(gm, example_inputs, config, fx_config)
+
         pickler = AOTAutogradCachePickler(gm)
+
         # The prefix distinguishes among the other kinds of objects we cache
         key = "a" + pickler.get_hash(details)
+
         debug_lines = pickler.debug_lines(details)
+
         log.debug(
             "Autograd graph cache hash details for key %s:\n%s",
             key,
             LazyString(lambda: "\n".join(debug_lines)),
         )
+
         return key, debug_lines
     except Exception:
         # If enable_aot_compile is set, we're in AOT precompile mode where we always

@@ -181,39 +181,47 @@ def get_device_information(device_type: str) -> dict[str, str]:
 class CacheBase:
     @staticmethod
     @functools.cache
+    @dynamo_timed("CacheBase.get_system()")
     def get_system() -> dict[str, Any]:
         from torch._inductor.runtime.triton_compat import HAS_TRITON, triton_key
 
         if HAS_TRITON:
             # Use triton_key instead of triton.__version__ as the version
             # is not updated with each code change
-            triton_version = triton_key()
+            with dynamo_timed("triton_key"):
+                triton_version = triton_key()
         else:
             triton_version = None
 
         try:
+            log_next_instant___num_codecache_ev("get_system -- before system:")
             system: dict[str, Any] = {
                 "device": {"name": None},
                 "version": {
                     "triton": triton_version,
                 },
             }
+            log_next_instant___num_codecache_ev()
             device_properties = torch.cuda.get_device_properties(
                 torch.cuda.current_device()
             )
+            log_next_instant___num_codecache_ev()
             if torch.version.cuda is not None:
                 system["device"]["name"] = device_properties.name
                 system["version"]["cuda"] = torch.version.cuda
             else:
                 system["device"]["name"] = device_properties.gcnArchName
                 system["version"]["hip"] = torch.version.hip
+            log_next_instant___num_codecache_ev()
         except (AssertionError, RuntimeError):
             # If cuda is not installed, none of the above config is relevant.
             system = {}
 
+        log_next_instant___num_codecache_ev()
         system["hash"] = hashlib.sha256(
             json.dumps(system, sort_keys=True).encode("utf-8")
         ).hexdigest()
+        log_next_instant___num_codecache_ev()
 
         return system
 
@@ -690,6 +698,7 @@ class FxGraphCachePickler(pickle.Pickler):
         return lines
 
 
+# @dynamo_timed("build_code_hash")
 def build_code_hash(
     roots: list[str] | None, prefix: str, hasher: hashlib._Hash
 ) -> None:
@@ -732,6 +741,7 @@ def torch_key_cache(func: Callable[[], bytes]) -> Callable[[], bytes]:
 
 
 @torch_key_cache
+@dynamo_timed("torch_key")
 def torch_key() -> bytes:
     """
     Compute a key that contains relevant information about torch source files
@@ -739,6 +749,7 @@ def torch_key() -> bytes:
     with dynamo_timed("inductor_codecache_torch_key", log_pt2_compile_event=False):
         if not config.is_fbcode():
 
+            @dynamo_timed("get_code_hash")
             def get_code_hash(root: str) -> bytes:
                 # This function isn't meant to be used outside of torch_key, just a
                 # helper for clarity. Instead, use torch_key() directly when you need
@@ -762,11 +773,20 @@ def torch_key() -> bytes:
 
         from libfb.py import parutil
 
-        return parutil.get_file_contents("torch/src_hash.txt").rstrip().encode("ascii")
+        return  parutil.get_file_contents("torch/src_hash.txt").rstrip().encode("ascii")
 
 
 def get_inductor_root() -> str:
     return os.path.dirname(__file__)
+
+
+
+___num_codecache_ev = 0
+def log_next_instant___num_codecache_ev(extra = None):
+    global ___num_codecache_ev
+    CompileEventLogger.instant("autograd_cache_key", metadata={"n": ___num_codecache_ev, "extra" : extra})
+    ___num_codecache_ev += 1
+
 
 
 @dataclasses.dataclass
@@ -794,6 +814,7 @@ class FxGraphHashDetails:
     # Excluded kwargs param that are not stable between runs
     EXCLUDED_KWARGS = ["graph_id"]
 
+    @dynamo_timed("FxGraphHashDetails.__init__")
     def __init__(
         self,
         gm: torch.fx.GraphModule,
@@ -805,10 +826,13 @@ class FxGraphHashDetails:
         self.example_inputs = example_inputs
         self.cache_key_tag = cconfig.cache_key_tag
 
+        log_next_instant___num_codecache_ev("FxGraphHashDetails.__init__")
+
         # Order kwargs so hashing is stable to changes in kwarg order. Although
         # it's technically a _CompileFxKwargs we don't actually need it typed as
         # such since we're just using it to generate a hash.
         self.fx_kwargs: dict[str, object] = {}
+        log_next_instant___num_codecache_ev()
         for k, v in sorted(fx_kwargs.items()):
             if k not in self.EXCLUDED_KWARGS:
                 if type(v) in (set, OrderedSet):  # noqa: set_linter
@@ -817,6 +841,7 @@ class FxGraphHashDetails:
                     self.fx_kwargs[k] = OrderedSetHolder(sorted(v))  # type: ignore[call-overload]
                 else:
                     self.fx_kwargs[k] = v
+        log_next_instant___num_codecache_ev()
 
         from torch._higher_order_ops.triton_kernel_wrap import (
             kernel_side_table,
@@ -827,11 +852,17 @@ class FxGraphHashDetails:
             user_defined_triton_kernel_transitive_closure_source_code,
         )
 
+        log_next_instant___num_codecache_ev()
+
         # Node meta will not be part of gm's reduce function, so lets remember
         # the kernel source code separately
         self.user_defined_triton_source: list[Any] = []
+
+        log_next_instant___num_codecache_ev()
+
         if gm is not None:
             for module in gm.modules():
+                log_next_instant___num_codecache_ev("module in gm.modules")
                 if not isinstance(module, torch.fx.GraphModule):
                     continue
                 for node in itertools.chain(
@@ -868,8 +899,13 @@ class FxGraphHashDetails:
                         (kernel_source, constant_args, configs)
                     )
 
+
+        log_next_instant___num_codecache_ev()
+
         # Alignment checks
         self.inputs_to_check = inputs_to_check
+
+        log_next_instant___num_codecache_ev()
 
         no_tensor_inputs = not any(isinstance(x, torch.Tensor) for x in example_inputs)
         # This device index is usually already encoded by the device of the inputs
@@ -878,12 +914,16 @@ class FxGraphHashDetails:
         if no_tensor_inputs and torch.accelerator.is_available():
             self.default_cuda_device_index = torch.accelerator.current_device_index()
 
+        log_next_instant___num_codecache_ev("hey")
+
         # 'Deterministic algorithms' can affect codegen via lowering to cuda kernels.
         self.deterministic_algorithms_settings = (
             torch.are_deterministic_algorithms_enabled(),
             torch.is_deterministic_algorithms_warn_only_enabled(),
             torch.utils.deterministic.fill_uninitialized_memory,  # type: ignore[attr-defined]
         )
+
+        log_next_instant___num_codecache_ev()
 
         # Global settings affecting matmul codegen.
         self.cuda_matmul_settings = (
@@ -892,11 +932,16 @@ class FxGraphHashDetails:
             torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction,
         )
 
+        log_next_instant___num_codecache_ev()
+
         # Include cudagraph annotation in cache key only when it changes
         # behavior. When both fwd and bwd are overridden to the same value,
         # normalize to a simple boolean (equivalent to flipping the config).
         # When fwd and bwd differ, include the full annotation.
         if gm is not None:
+
+            log_next_instant___num_codecache_ev("ho")
+
             annotation = gm.meta.get("cudagraph_annotation")
             if annotation is not None:
                 default = config.triton.cudagraphs
@@ -908,14 +953,24 @@ class FxGraphHashDetails:
                 ):
                     self.cudagraph_annotation = annotation
 
+        log_next_instant___num_codecache_ev("hee")
+
         # Also hash on various system info (including the triton compiler version).
-        self.torch_version = torch_key()
-        self.system_info = CacheBase.get_system()
+        log_next_instant___num_codecache_ev()
+        self.torch_version = torch_key() # this one take looong 113 ms, is cached --> only expensive on first invocation? can can the hash be in a generated python file?
+        log_next_instant___num_codecache_ev("before CacheBase.get_system")
+        self.system_info = CacheBase.get_system() # this is very expensive ()
+        log_next_instant___num_codecache_ev()
         self.inductor_config = config.save_config_portable(ignore_private_configs=False)
+        log_next_instant___num_codecache_ev()
         # Custom post grad passes should provide an ID to hash.
+        log_next_instant___num_codecache_ev()
         self.post_grad_custom_pre_pass = self._get_custom_pass_detail(
             config.post_grad_custom_pre_pass
         )
+
+        log_next_instant___num_codecache_ev()
+
         # TODO: change to more holistic config rather than bundled_autograd_cache
         self.precompile_enabled = torch._functorch.config.bundled_autograd_cache
         self.post_grad_custom_post_pass = self._get_custom_pass_detail(
@@ -934,6 +989,8 @@ class FxGraphHashDetails:
             config._fuse_ddp_communication_passes
         )
 
+        log_next_instant___num_codecache_ev()
+
         # Register indcutor backends and custom passes and get their UUIDs.
         init_backend_registration()
         self.custom_backend_passes = tuple(
@@ -947,10 +1004,14 @@ class FxGraphHashDetails:
             if custom_config is not None
         }
 
+        log_next_instant___num_codecache_ev()
+
         # Register the custom partitioner function
         self._custom_partitioner_fn = self._get_custom_partitioner_fn_detail(
             config.custom_partitioner_fn
         )
+
+        log_next_instant___num_codecache_ev()
 
         # Include hint overrides in the cache key because _reduce_symint
         # only hashes symbol names, not hint values.
@@ -963,6 +1024,9 @@ class FxGraphHashDetails:
                     shape_env.var_to_hint_override.items(), key=lambda x: str(x[0])
                 )
             }
+
+        log_next_instant___num_codecache_ev()
+
 
     # This is mainly added to handle these two inductor configs, which are (unfortunately)
     # sometimes cache safe:
