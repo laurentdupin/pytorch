@@ -152,6 +152,16 @@ def register_decomposition(
     return decomp.register_decomposition(ops, decompositions)
 
 
+@register_decomposition([aten.lerp.Scalar])
+def _lerp_scalar(start: torch.Tensor, end: torch.Tensor, weight: float) -> torch.Tensor:
+    # Decompose into sub + add(alpha=weight) so that the add lowering emits FMA,
+    # matching eager CUDA's dual-formula (see aten/src/ATen/native/Lerp.h).
+    diff = end - start
+    if weight >= 0.5 or weight <= -0.5:
+        return torch.add(end, diff, alpha=-(1.0 - weight))
+    return torch.add(start, diff, alpha=weight)
+
+
 @register_decomposition([aten.embedding_dense_backward])
 def _embedding_dense_backward(
     grad_output: torch.Tensor,
