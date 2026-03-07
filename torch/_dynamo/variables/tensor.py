@@ -1430,7 +1430,14 @@ class TensorVariable(VariableTracker):
         *,
         value: Any | None = None,
     ) -> Any | None:
-        if value is not None and config.enable_dynamo_decompositions:
+        # Only decompose when value is a tensor (to avoid item() graph breaks).
+        # For scalar values, let addcmul_ pass through to ATen so that the
+        # inductor lowering can emit FMA + mul_rn for bitwise parity with eager.
+        if (
+            value is not None
+            and isinstance(value, TensorVariable)
+            and config.enable_dynamo_decompositions
+        ):
             from .. import polyfills
 
             return tx.inline_user_function_return(
