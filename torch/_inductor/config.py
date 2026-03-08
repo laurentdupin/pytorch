@@ -48,6 +48,10 @@ def bundle_triton_into_fx_graph_cache_default() -> bool | None:
     )
 
 
+def autotune_at_compile_time_default() -> bool | None:
+    return get_tristate_env("TORCHINDUCTOR_AUTOTUNE_AT_COMPILE_TIME")
+
+
 def static_cuda_launcher_default() -> bool:
     STATIC_CUDA_LAUNCHER_VERSION = 2
 
@@ -268,6 +272,9 @@ prologue_fusion = prologue_fusion_enabled()
 
 # do epilogue fusions before other fusions
 epilogue_fusion_first = False
+
+# do epilogue fusions for user defined triton kernels
+epilogue_fusion_user_defined_triton_kernel = False
 
 # enable pattern match+replace optimizations
 pattern_matcher = True
@@ -820,6 +827,10 @@ max_epilogue_benchmarked_choices = 1
 
 # how many nodes to allow into a single fusion
 max_fusion_size = 64
+
+# Minimum overlap ratio to consider fusion beneficial when inputs are shared by no indices overlapped.
+# Valid range: [0, 1]. Default to not fusion.
+min_overlap_ratio = 1.1
 
 # how many nodes to attempt pairwise fusion with in a buffer group
 max_fusion_buffer_group_pairwise_attempts = 64
@@ -1511,6 +1522,9 @@ class cpp:
         os.environ.get("TORCHINDUCTOR_CPP_USE_CONSTEXPR_FOR_INT_ARRAY", "1") == "1"
     )
 
+    # threshold between two step reduction algorithm and welford reduction algorithm
+    use_two_step_variance_threshold = 1024
+
 
 class triton:
     """
@@ -1620,7 +1634,7 @@ class triton:
 
     # Tune the generated Triton kernels at compile time instead of first time they run
     # Setting to None means uninitialized
-    autotune_at_compile_time: bool | None = None
+    autotune_at_compile_time: bool | None = autotune_at_compile_time_default()
 
     # We use random tensors for autotune by default. Setting this as true will let us
     # use inputs from sample inputs to autotune user defined triton kernels.
@@ -1802,6 +1816,11 @@ class triton:
     # If set to true, will skip some non-critical checks in the mix order reduction
     # this could be helpful to avoid recompilations in some cases
     mix_order_reduction_non_strict_mode = False
+
+    # Don't allow multi-stages by default to avoid out of shared memory
+    mix_order_reduction_allow_multi_stages = (
+        os.environ.get("TORCHINDUCTOR_MIX_ORDER_REDUCTION_ALLOW_MULTI_STAGES") == "1"
+    )
 
     enable_tlx_templates: bool = (
         os.environ.get("TORCHINDUCTOR_ENABLE_TLX_TEMPLATES", "0") == "1"
@@ -2284,6 +2303,11 @@ tpu_backend: Literal["pallas"] = "pallas"
 
 # Backend to use for XPU codegen either "triton"
 xpu_backend: Literal["triton"] = "triton"
+
+
+class mtia:
+    # Configuration to force inductor to never use welford reductions for MTIA backend
+    disable_welford_reduction = False
 
 
 class halide:
