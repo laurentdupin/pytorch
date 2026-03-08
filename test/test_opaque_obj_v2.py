@@ -3,10 +3,12 @@
 import contextlib
 import gc
 import random
+import unittest
 from contextlib import ExitStack
 from dataclasses import dataclass
 
 import torch
+import torch.distributed as dist
 import torch.utils._pytree as pytree
 from torch._dynamo.test_case import run_tests, TestCase
 from torch._dynamo.testing import (
@@ -3066,6 +3068,7 @@ def forward(self, p_linear_weight, p_linear_bias, obj_lifted_custom_0, x):
         x = TensorWithCounter(a, b, Counter(1, 10), SizeStore(4))
         torch.export.export(M(), (x,), strict=False)
 
+    @unittest.skipIf(not dist.is_available(), "requires distributed")
     def test_get_untyped_storages_with_opaque_attrs(self):
         """get_untyped_storages should skip non-tensor attrs without warning."""
         from torch.distributed._tools.common_utils import get_untyped_storages
