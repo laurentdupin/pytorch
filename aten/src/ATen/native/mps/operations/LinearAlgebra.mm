@@ -1079,7 +1079,7 @@ static Tensor& tiled_bmm_out_mps_impl(const Tensor& batch1, const Tensor& batch2
 
 static Tensor& bmm_out_mps_impl(const Tensor& batch1, const Tensor& batch2, Tensor& result) {
   TORCH_CHECK(batch1.scalar_type() == batch2.scalar_type(),
-              "Expected arguments of same time but got ",
+              "Expected arguments of same type but got ",
               batch1.scalar_type(),
               " and ",
               batch2.scalar_type());
