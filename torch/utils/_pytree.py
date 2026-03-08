@@ -998,8 +998,6 @@ def _structseq_serialize(context: Context) -> DumpableContext:
 def _structseq_deserialize(dumpable_context: DumpableContext) -> Context:
     class_module = dumpable_context["class_module"]
     class_name = dumpable_context["class_name"]
-    assert isinstance(class_module, str)
-    assert isinstance(class_name, str)
     module = importlib.import_module(class_module)
     context = getattr(module, class_name)
     return context
