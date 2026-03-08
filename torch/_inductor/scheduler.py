@@ -1491,9 +1491,6 @@ class ExternKernelSchedulerNode(BaseSchedulerNode):
     def is_extern(self) -> bool:
         return True
 
-    def is_template(self) -> bool:
-        return isinstance(self.node, ir.TemplateBuffer)
-
     def has_side_effects(self) -> bool:
         assert self.node is not None
         return hasattr(self.node, "has_side_effects") and self.node.has_side_effects()
