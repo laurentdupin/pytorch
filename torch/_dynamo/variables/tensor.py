@@ -1432,6 +1432,21 @@ class TensorVariable(VariableTracker):
         value: Any | None = None,
     ) -> Any | None:
         if value is not None and config.enable_dynamo_decompositions:
+            if isinstance(value, TensorVariable):
+                # Tensor value: ATen always extracts the scalar and computes
+                # fma(t1*t2, value, self) via nvcc fmad. We match this by
+                # computing mul(t1, t2) then fma(product, value, self) —
+                # same rounding order as the scalar polyfill path.
+                from torch._inductor import inductor_prims
+
+                mul_var = variables.TorchInGraphFunctionVariable(torch.mul)
+                fma_var = variables.TorchInGraphFunctionVariable(inductor_prims.fma)
+                product = mul_var.call_function(tx, [tensor1, tensor2], {})
+                result = fma_var.call_function(tx, [product, value, self], {})
+                return self.call_method(tx, "copy_", [result], {})
+            # Scalar value: polyfill routes through add_(t1*t2, alpha=value).
+            # Inductor's add lowering emits fma(t1*t2, value, self) which
+            # matches ATen's nvcc fusion empirically.
             from .. import polyfills
 
             return tx.inline_user_function_return(
@@ -1555,7 +1570,15 @@ class TensorVariable(VariableTracker):
         *,
         alpha: VariableTracker | None = None,
     ) -> VariableTracker | None:
-        if alpha is not None and config.enable_dynamo_decompositions:
+        # Decompose only for tensor alpha to avoid item() graph breaks.
+        # Scalar alpha passes through to ATen where the inductor lowering emits
+        # FMA. addcmul_ and addcdiv_ route through here via alpha=value so this
+        # is the single place that handles the scalar/tensor distinction.
+        if (
+            alpha is not None
+            and isinstance(alpha, TensorVariable)
+            and config.enable_dynamo_decompositions
+        ):
             result = variables.TorchInGraphFunctionVariable(torch.mul).call_function(
                 tx, [other, alpha], {}
             )
@@ -1574,10 +1597,18 @@ class TensorVariable(VariableTracker):
             result = variables.TorchInGraphFunctionVariable(torch.div).call_function(
                 tx, [tensor1, tensor2], {}
             )
-            result = variables.TorchInGraphFunctionVariable(torch.mul).call_function(
-                tx, [result, value], {}
-            )
-            return self.call_method(tx, "add_", [result], {})
+            if isinstance(value, TensorVariable):
+                # Tensor value: use fma to match ATen's nvcc fusion
+                # fma(value, quotient, self). The old mul+add path had
+                # no fma for tensor values.
+                from torch._inductor import inductor_prims
+
+                fma_var = variables.TorchInGraphFunctionVariable(inductor_prims.fma)
+                fma_result = fma_var.call_function(tx, [result, value, self], {})
+                return self.call_method(tx, "copy_", [fma_result], {})
+            # Scalar value: add_(quotient, alpha=value) lets inductor's
+            # add lowering emit fma(quotient, value, self), matching ATen.
+            return self.call_method(tx, "add_", [result], {"alpha": value})
         return None
 
     def method___contains__(
