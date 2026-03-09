@@ -191,7 +191,7 @@ def varlen_attn(
     window_size: tuple[int, int] = (-1, -1),
     seqused_k: torch.Tensor | None = None,
     block_table: torch.Tensor | None = None,
-    batch_invariant: bool = False,
+    num_splits: int | None = None,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     r"""Compute variable-length attention using Flash Attention.
 
@@ -228,15 +228,17 @@ def varlen_attn(
 
             ``seqused_k[i]`` tells the kernel how many tokens in sequence *i* are
             actually valid, since the last page is typically only partially filled.
-        batch_invariant (bool): If True, disables split-KV by forcing
-            ``num_splits=1``. Split-KV parallelizes the key/value sequence
-            dimension across multiple thread blocks, but the split decision
-            depends on the longest sequence in the batch. Because of this,
-            different batches can influence reduction order, resulting in
-            different floating-point results for the same sequence.
-            Disabling it guarantees bitwise identical output for a
-            given sequence independent of what else is in the batch,
-            but at the cost of lower GPU utilization for small query sizes.
+        num_splits (int, optional): Number of splits for split-KV. Set to ``1``
+            to disable split-KV which enables batch invariance. Split-KV
+            parallelizes the key/value sequence dimension across multiple thread
+            blocks and combines partial results. The split decision depends
+            on ``max_k`` (the longest sequence in the batch), so different batch
+            compositions can change the reduction order and produce different
+            floating-point results for the same sequence. When this is disabled,
+            bitwise identical outputs are guaranteed for a given sequence
+            regardless of what other sequences are in the batch, at the
+            cost of lower GPU utilization when there are few queries. When
+            ``None`` (default), the kernel chooses automatically.
 
     Returns:
         output (Tensor): Output tensor from attention computation; shape :math:`(T_q, H, D)`.
@@ -286,7 +288,6 @@ def varlen_attn(
     """
 
     is_causal = window_size == (-1, 0)
-    num_splits = 1 if batch_invariant else None
     out, lse, _ = torch.ops.torch_attn._varlen_attn(
         query,
         key,
@@ -412,7 +413,7 @@ def varlen_attn_out(
     window_size: tuple[int, int] = (-1, -1),
     seqused_k: torch.Tensor | None = None,
     block_table: torch.Tensor | None = None,
-    batch_invariant: bool = False,
+    num_splits: int | None = None,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     r"""Compute variable-length attention using Flash Attention with a pre-allocated output tensor.
 
@@ -421,7 +422,6 @@ def varlen_attn_out(
 
     """
     is_causal = window_size == (-1, 0)
-    num_splits = 1 if batch_invariant else None
     lse = torch.ops.torch_attn._varlen_attn_out(
         out,
         query,

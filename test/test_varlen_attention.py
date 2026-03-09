@@ -596,7 +596,7 @@ class TestVarlenAttention(NNTestCase):
         ["aotriton", "ck"] if PLATFORM_SUPPORTS_CK_SDPA else ["aotriton"],
     )
     @parametrize("dtype", [torch.bfloat16, torch.float16])
-    @parametrize("batch_invariant", [True, False])
+    @parametrize("num_splits", [1, None])
     @parametrize(
         "window_size",
         [
@@ -607,7 +607,7 @@ class TestVarlenAttention(NNTestCase):
         ],
     )
     def test_batch_invariance(
-        self, device, dtype, batch_invariant, window_size, sdpa_backend=None
+        self, device, dtype, num_splits, window_size, sdpa_backend=None
     ):
         if TEST_WITH_ROCM:
             torch.backends.cuda.preferred_rocm_fa_library(sdpa_backend)
@@ -661,7 +661,7 @@ class TestVarlenAttention(NNTestCase):
                 target_seq_len,
                 target_seq_len,
                 window_size=window_size,
-                batch_invariant=batch_invariant,
+                num_splits=num_splits,
             )
 
             batched_output = varlen_attn(
@@ -673,7 +673,7 @@ class TestVarlenAttention(NNTestCase):
                 extra_seq_len,
                 extra_seq_len,
                 window_size=window_size,
-                batch_invariant=batch_invariant,
+                num_splits=num_splits,
             )
 
             solo_out_buf = torch.empty_like(target_q)
@@ -687,7 +687,7 @@ class TestVarlenAttention(NNTestCase):
                 target_seq_len,
                 target_seq_len,
                 window_size=window_size,
-                batch_invariant=batch_invariant,
+                num_splits=num_splits,
             )
 
             batched_out_buf = torch.empty_like(all_q)
@@ -701,10 +701,10 @@ class TestVarlenAttention(NNTestCase):
                 extra_seq_len,
                 extra_seq_len,
                 window_size=window_size,
-                batch_invariant=batch_invariant,
+                num_splits=num_splits,
             )
 
-            if batch_invariant:
+            if num_splits == 1:
                 self.assertEqual(solo_output, batched_output[:target_seq_len])
                 self.assertEqual(solo_out_buf, batched_out_buf[:target_seq_len])
                 self.assertEqual(solo_output, solo_out_buf)
