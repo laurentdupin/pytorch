@@ -917,9 +917,14 @@ def all_gather_merge_fn_to_trace(
     device = ag_ins[0].device
     new_ag_out = torch.empty(ag_input_numel * group_size, dtype=dtype, device=device)
     new_ag_in = new_ag_out.narrow(0, ag_input_numel * rank, ag_input_numel)
-    foreach_copy_dsts = torch.split(new_ag_in, ins_split_sizes)
     ag_ins_flattened = [ag_in.reshape(-1) for ag_in in ag_ins]
-    torch._foreach_copy_(foreach_copy_dsts, ag_ins_flattened)
+    if torch._inductor.config._foreach_improv:
+        # cat(out=) writes directly into the AG buffer — single kernel, zero
+        # extra allocation (vs cat + copy_ which would allocate a temporary).
+        torch.cat(ag_ins_flattened, out=new_ag_in)
+    else:
+        foreach_copy_dsts = torch.split(new_ag_in, ins_split_sizes)
+        torch._foreach_copy_(foreach_copy_dsts, ag_ins_flattened)
     wait_tensor = torch.ops.c10d_functional.wait_tensor(
         torch.ops._c10d_functional.all_gather_into_tensor_out.default(
             new_ag_in, group_size, group_name, out=new_ag_out
