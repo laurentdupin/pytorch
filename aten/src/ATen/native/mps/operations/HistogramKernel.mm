@@ -1,5 +1,5 @@
 #define TORCH_ASSERT_ONLY_METHOD_OPERATORS
-#include <ATen/Dispatch.h>
+#include <ATen/Dispatch_v2.h>
 #include <ATen/mps/MPSProfiler.h>
 #include <ATen/native/Histogram.h>
 #include <ATen/native/mps/OperationUtils.h>
@@ -167,9 +167,9 @@ static void histogramdd_out_mps_template(const Tensor& self,
     bin_edges_contig[dim] = bin_edges[dim].contiguous();
   }
 
-  AT_DISPATCH_FLOATING_TYPES(self.scalar_type(), "histogram_mps", [&]() {
+  AT_DISPATCH_V2(self.scalar_type(), "histogram_mps", AT_WRAP([&]() {
     mps::histogramdd_kernel_impl<scalar_t, bin_algorithm>(hist, bin_edges_contig, reshaped_input, reshaped_weight);
-  });
+  }), kFloat, kHalf, kBFloat16);
 
   /* Divides each bin's value by the total count/weight in all bins,
    * and by the bin's volume.
