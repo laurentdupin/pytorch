@@ -6,6 +6,11 @@ import unittest
 
 import torch
 from torch.distributed.fsdp import CPUOffloadPolicy, fully_shard, OffloadPolicy
+from torch.distributed.fsdp._fully_shard._fsdp_common import (
+    FSDPMeshInfo,
+    ShardPlacementResult,
+)
+from torch.distributed.tensor import init_device_mesh, Shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest, get_devtype
 from torch.testing._internal.common_utils import (
@@ -343,6 +348,215 @@ class TestFullyShardMemory(FSDPTest):
 
         for param in model.parameters():
             param.register_post_accumulate_grad_hook(optim_hook)
+
+
+class TestFullyShardPerParamMeshMemory(FSDPTest):
+    @property
+    def world_size(self) -> int:
+        return min(8, torch.get_device_module(device_type).device_count())
+
+    @skip_if_lt_x_gpu(8)
+    @unittest.skipIf(TEST_HPU, " 'empty_cache' is not supported on hpu")
+    def test_per_param_mesh_training_memory_no_gc(self):
+        """Memory should not grow across training steps with per-param meshes.
+
+        Verifies that per-PG reduce-scatter state (from shard_placement_fn
+        routing params to different process groups) doesn't accumulate across
+        training steps when GC is disabled.
+        """
+        torch.manual_seed(42)
+        gc.disable()
+        try:
+            # Pre-run a linear forward and backward to allocate the cuBLAS
+            # workspaces before measuring memory
+            lin = torch.nn.Linear(64, 64, device=device_type)
+            inp = torch.randn(2, 64, device=device_type)
+            lin(inp).sum().backward()
+            del lin, inp
+            torch.get_device_module(device_type).empty_cache()
+            base_mem_mb = self._get_peak_active_memory_mb()
+
+            # Set up per-param meshes: dp_mesh for regular params,
+            # efsdp_mesh for expert params (unflattened from dp_mesh)
+            ep_degree = 2
+            efsdp_size = self.world_size // ep_degree
+            dp_mesh = init_device_mesh(
+                device_type.type,
+                (self.world_size,),
+                mesh_dim_names=("dp",),
+            )
+            sparse_mesh = dp_mesh._unflatten(
+                0,
+                (efsdp_size, ep_degree),
+                ("efsdp", "ep"),
+            )
+            ep_mesh = sparse_mesh["ep"]
+            dp_mesh_info = FSDPMeshInfo(mesh=dp_mesh, shard_mesh_dim=0)
+            efsdp_mesh_info = FSDPMeshInfo(mesh=sparse_mesh["efsdp"], shard_mesh_dim=0)
+
+            model_args = ModelArgs(
+                n_layers=2,
+                vocab_size=256,
+                max_seq_len=32,
+                dim=64,
+                n_heads=4,
+                dropout_p=0.0,
+                num_experts=8,
+            )
+            model = Transformer(model_args)
+            Transformer.parallelize(
+                model, tp_mesh=None, use_seq_parallel=False, ep_mesh=ep_mesh
+            )
+
+            # Compute parameter counts before FSDP sharding.
+            # After EP, expert params are DTensors with Shard(0) on ep_mesh.
+            block0_expert_params = set(
+                model.layers[0].expert_layer.experts.parameters()
+            )
+            block_non_expert_numel = sum(
+                p.numel()
+                for p in model.layers[0].parameters()
+                if p not in block0_expert_params
+            )
+            # EP-local expert numel (each rank has num_experts/ep_degree experts)
+            block_expert_local_numel = sum(
+                p.to_local().numel() for p in block0_expert_params
+            )
+            block_unsharded_numel = block_non_expert_numel + block_expert_local_numel
+            non_block_numel = sum(
+                p.numel()
+                for name, p in model.named_parameters()
+                if not name.startswith("layers.")
+            )
+            # Non-expert params sharded across dp_mesh (world_size),
+            # expert params sharded across efsdp (efsdp_size)
+            model_sharded_numel = (
+                model_args.n_layers
+                * (
+                    (block_non_expert_numel + self.world_size - 1) // self.world_size
+                    + (block_expert_local_numel + efsdp_size - 1) // efsdp_size
+                )
+                + (non_block_numel + self.world_size - 1) // self.world_size
+            )
+
+            for block in model.layers:
+                expert_params = set(block.expert_layer.experts.parameters())
+
+                def _shard_placement_fn(
+                    param,
+                    _expert_params=expert_params,
+                ):
+                    if param in _expert_params:
+                        return ShardPlacementResult(
+                            placement=Shard(0),
+                            mesh_info=efsdp_mesh_info,
+                        )
+                    return ShardPlacementResult(
+                        placement=Shard(0),
+                        mesh_info=dp_mesh_info,
+                    )
+
+                fully_shard(
+                    block,
+                    mesh=dp_mesh,
+                    shard_placement_fn=_shard_placement_fn,
+                )
+
+            fully_shard(
+                [model.tok_embeddings, model.norm, model.output],
+                mesh=dp_mesh,
+            )
+            fully_shard(model, mesh=dp_mesh)
+
+            optim = torch.optim.Adam(model.parameters(), lr=1e-2, foreach=False)
+            inp = torch.randint(
+                0,
+                model_args.vocab_size,
+                (2, model_args.max_seq_len),
+                device=device_type.type,
+            )
+
+            buffer_mb = 16 if torch.version.cuda else 18
+
+            # Forward: 3x block unsharded (current all-gather + copy-out
+            # + next block prefetch), non-block params, sharded params
+            loss = model(inp)
+            mem_mb = self._get_peak_active_memory_mb()
+            expected_fwd_mb = (
+                3 * block_unsharded_numel + non_block_numel + model_sharded_numel
+            ) * 4 / 1e6 + buffer_mb
+            self.assertLessEqual(mem_mb - base_mem_mb, expected_fwd_mb)
+
+            # Backward: 2x block unsharded (all-gather + copy-out),
+            # 2x block gradients (grads + reduce-scatter input),
+            # non-block params, 2x sharded params/gradients
+            loss.sum().backward()
+            mem_mb = self._get_peak_active_memory_mb()
+            expected_bwd_mb = (
+                4 * block_unsharded_numel + non_block_numel + 2 * model_sharded_numel
+            ) * 4 / 1e6 + buffer_mb
+            self.assertLessEqual(mem_mb - base_mem_mb, expected_bwd_mb)
+            del loss
+            torch.get_device_module(device_type).reset_peak_memory_stats()
+
+            # Optimizer step: 1x sharded params, 1x sharded grads,
+            # 2x sharded optimizer states (Adam m and v)
+            optim.step()
+            mem_mb = self._get_peak_active_memory_mb()
+            expected_optim_mb = 4 * model_sharded_numel * 4 / 1e6 + buffer_mb
+            self.assertLessEqual(mem_mb - base_mem_mb, expected_optim_mb)
+
+            # Zero grad: sharded gradients freed, leaving
+            # 1x sharded params + 2x optimizer states
+            optim.zero_grad()
+            torch.get_device_module(device_type).reset_peak_memory_stats()
+            mem_mb = self._get_peak_active_memory_mb()
+            expected_post_step_mb = (
+                model_sharded_numel * 4 / 1e6
+                + buffer_mb
+                + 2 * model_sharded_numel * 4 / 1e6
+                + buffer_mb
+            )
+            self.assertLessEqual(mem_mb - base_mem_mb, expected_post_step_mb)
+
+            # Record steady-state memory after warmup step
+            gc.collect()
+            torch.get_device_module(device_type).synchronize()
+            mem_after_warmup = self._get_curr_active_memory_mb()
+
+            # Run N steps and verify no growth (per-PG RS state leak check)
+            num_steps = 10
+            for _ in range(num_steps):
+                loss = model(inp)
+                loss.sum().backward()
+                optim.step()
+                optim.zero_grad()
+
+            torch.get_device_module(device_type).synchronize()
+            mem_after_steps = self._get_curr_active_memory_mb()
+            self.assertLessEqual(
+                mem_after_steps - mem_after_warmup,
+                2,
+                f"Memory grew by {mem_after_steps - mem_after_warmup} MB over "
+                f"{num_steps} steps with per-param meshes and gc disabled, "
+                f"indicating per-PG reduce-scatter state is leaking",
+            )
+        finally:
+            gc.enable()
+
+    def _get_peak_active_memory_mb(self) -> int:
+        mem_stats = torch.get_device_module(device_type).memory_stats()
+        if TEST_CUDA or TEST_XPU:
+            return round(mem_stats["active_bytes.all.peak"] / 1e6)
+        if TEST_HPU:
+            return round(mem_stats["MaxInUse"] / 1e6)
+
+    def _get_curr_active_memory_mb(self) -> int:
+        mem_stats = torch.get_device_module(device_type).memory_stats()
+        if TEST_CUDA or TEST_XPU:
+            return round(mem_stats["active_bytes.all.current"] / 1e6)
+        if TEST_HPU:
+            return round(mem_stats["InUse"] / 1e6)
 
 
 if __name__ == "__main__":

@@ -48,6 +48,9 @@ class FSDPMeshInfo(DataParallelMeshInfo):
         self.shard_mesh_size: int = self.mesh.size(self.shard_mesh_dim)
         self.shard_process_group = self.mesh.get_group(self.shard_mesh_dim)
         self.shard_mesh_rank: int = self.shard_process_group.rank()
+        # Separate PG for all-gather so AG and RS use different NCCL streams;
+        # initialized by _init_ag_process_groups() during lazy init
+        self.ag_shard_process_group: dist.ProcessGroup | None = None
 
 
 @dataclass
