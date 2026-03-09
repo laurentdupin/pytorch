@@ -1432,6 +1432,15 @@ class TensorVariable(VariableTracker):
         value: Any | None = None,
     ) -> Any | None:
         if value is not None and config.enable_dynamo_decompositions:
+            # When value == 1, ATen's addcmul_ kernel uses fma(t1, t2, self)
+            # internally. Using fma directly preserves that precision; the
+            # alternative mul(t1, t2) + add_ would round the product first.
+            if isinstance(value, variables.ConstantVariable) and value.value == 1:
+                from torch._inductor import inductor_prims
+
+                fma_var = variables.TorchInGraphFunctionVariable(inductor_prims.fma)
+                result = fma_var.call_function(tx, [tensor1, tensor2, self], {})
+                return self.call_method(tx, "copy_", [result], {})
             from .. import polyfills
 
             return tx.inline_user_function_return(
