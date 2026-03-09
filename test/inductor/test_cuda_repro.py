@@ -2720,6 +2720,50 @@ def triton_poi_fused_add_reflection_pad2d_0(in_ptr0, in_ptr1, out_ptr0, xnumel, 
         # is already float16 and the output is int64.
         self.assertNotIn(".to(tl.float16)", code[0])
 
+    @config.patch(emulate_precision_casts=True)
+    @parametrize("dtype", [torch.float16, torch.bfloat16])
+    @parametrize("align_corners", [True, False])
+    def test_affine_grid_inductor_float16(self, dtype, align_corners):
+        # Verify that the affine_grid_generator decomposition under inductor
+        # matches the native CUDA kernel for reduced-precision types.
+        # Residual error comes from bmm (cuBLAS) and constant-folded linspace
+        # values differing slightly from the native kernel's computation.
+        atol = 4e-3 if dtype == torch.float16 else 0.032
+
+        # 4D
+        for h, w in [(8, 8), (7, 13), (32, 32)]:
+            torch._dynamo.reset()
+            theta = torch.randn(2, 2, 3, dtype=dtype, device="cuda")
+            size = [2, 1, h, w]
+            expected = torch.ops.aten.affine_grid_generator(
+                theta, size=size, align_corners=align_corners
+            )
+
+            def fn(theta, size, ac=align_corners):
+                return torch.ops.aten.affine_grid_generator(
+                    theta, size=size, align_corners=ac
+                )
+
+            actual = torch.compile(fn, backend="inductor")(theta, size)
+            self.assertEqual(actual, expected, atol=atol, rtol=0)
+
+        # 5D
+        for d, h, w in [(4, 4, 4), (3, 5, 7)]:
+            torch._dynamo.reset()
+            theta = torch.randn(2, 3, 4, dtype=dtype, device="cuda")
+            size = [2, 1, d, h, w]
+            expected = torch.ops.aten.affine_grid_generator(
+                theta, size=size, align_corners=align_corners
+            )
+
+            def fn5d(theta, size, ac=align_corners):
+                return torch.ops.aten.affine_grid_generator(
+                    theta, size=size, align_corners=ac
+                )
+
+            actual = torch.compile(fn5d, backend="inductor")(theta, size)
+            self.assertEqual(actual, expected, atol=atol, rtol=0)
+
 
 if __name__ == "__main__":
     from torch._inductor.test_case import run_tests

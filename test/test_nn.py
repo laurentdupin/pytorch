@@ -6677,51 +6677,6 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
                 self.assertEqual(out_cpu, out_cuda)
                 self.assertEqual(input_cpu.grad, input_gpu.grad)
 
-    @unittest.skipIf(not TEST_CUDA, 'CUDA not available')
-    @torch._inductor.config.patch(emulate_precision_casts=True)
-    @parametrize_test("dtype", [torch.float16, torch.bfloat16])
-    @parametrize_test("align_corners", [True, False])
-    def test_affine_grid_inductor_float16(self, dtype, align_corners):
-        # Verify that the affine_grid_generator decomposition under inductor
-        # matches the native CUDA kernel for reduced-precision types.
-        # Residual error comes from bmm (cuBLAS) and constant-folded linspace
-        # values differing slightly from the native kernel's computation.
-        atol = 4e-3 if dtype == torch.float16 else 0.032
-
-        # 4D
-        for h, w in [(8, 8), (7, 13), (32, 32)]:
-            torch._dynamo.reset()
-            theta = torch.randn(2, 2, 3, dtype=dtype, device="cuda")
-            size = [2, 1, h, w]
-            expected = torch.ops.aten.affine_grid_generator(
-                theta, size=size, align_corners=align_corners
-            )
-
-            def fn(theta, size, ac=align_corners):
-                return torch.ops.aten.affine_grid_generator(
-                    theta, size=size, align_corners=ac
-                )
-
-            actual = torch.compile(fn, backend="inductor")(theta, size)
-            self.assertEqual(actual, expected, atol=atol, rtol=0)
-
-        # 5D
-        for d, h, w in [(4, 4, 4), (3, 5, 7)]:
-            torch._dynamo.reset()
-            theta = torch.randn(2, 3, 4, dtype=dtype, device="cuda")
-            size = [2, 1, d, h, w]
-            expected = torch.ops.aten.affine_grid_generator(
-                theta, size=size, align_corners=align_corners
-            )
-
-            def fn5d(theta, size, ac=align_corners):
-                return torch.ops.aten.affine_grid_generator(
-                    theta, size=size, align_corners=ac
-                )
-
-            actual = torch.compile(fn5d, backend="inductor")(theta, size)
-            self.assertEqual(actual, expected, atol=atol, rtol=0)
-
     def test_channel_shuffle_return_alias_of_self(self):
         # gh-76616: nn.ChannelShuffle will return alias of self with an empty input tensor
         groups = 3
