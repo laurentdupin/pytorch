@@ -5545,7 +5545,10 @@ def _new_group_with_tag(
         # check ranks' sanity
         for rank in ranks:
             if rank < 0 or rank >= global_world_size:
-                raise ValueError(f"Rank {rank} is not within [0, {global_world_size})")
+                raise ValueError(
+                    f"Rank {rank} is out of range. Valid ranks are 0 to {global_world_size - 1} "
+                    f"(world_size={global_world_size})"
+                )
         if global_rank in ranks:
             group_rank = ranks.index(global_rank)
         else:
