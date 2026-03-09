@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterable
 import torch
 from torch import SymInt
 
-from .schemas import PlainTensorMeta, SubclassCreationMeta
+from .schemas import OpaqueMeta, PlainTensorMeta, SubclassCreationMeta
 
 
 log = logging.getLogger(__name__)
@@ -72,15 +72,18 @@ def _codegen_unwrap_subclass(
 ) -> None:
     """Emit code to recursively unwrap a single subclass input."""
     for attr, attr_meta in meta.attrs.items():
-        if isinstance(attr_meta, PlainTensorMeta):
-            state.emit(
-                f"unwrapped_args.append({_safe_attr_access(var, attr)})",
-                indent=indent,
-            )
-        else:
-            inner_var = state.fresh_name("_inner")
-            state.emit(f"{inner_var} = {_safe_attr_access(var, attr)}", indent=indent)
-            _codegen_unwrap_subclass(state, attr_meta, inner_var, indent=indent)
+        match attr_meta:
+            case PlainTensorMeta() | OpaqueMeta():
+                state.emit(
+                    f"unwrapped_args.append({_safe_attr_access(var, attr)})",
+                    indent=indent,
+                )
+            case SubclassCreationMeta():
+                inner_var = state.fresh_name("_inner")
+                state.emit(
+                    f"{inner_var} = {_safe_attr_access(var, attr)}", indent=indent
+                )
+                _codegen_unwrap_subclass(state, attr_meta, inner_var, indent=indent)
 
     # Emit symint extraction
     size_placeholders = _compute_placeholders(meta.outer_size)
@@ -127,13 +130,14 @@ def _codegen_wrap_subclass(
     entries: list[str] = []
 
     for attr, attr_meta in meta.attrs.items():
-        if isinstance(attr_meta, PlainTensorMeta):
-            idx = out_idx_ref[0]
-            out_idx_ref[0] += 1
-            entries.append(f"{attr!r}: unwrapped_outs[{idx}]")
-        else:
-            nested_var = _codegen_wrap_subclass(state, attr_meta, out_idx_ref)
-            entries.append(f"{attr!r}: {nested_var}")
+        match attr_meta:
+            case PlainTensorMeta() | OpaqueMeta():
+                idx = out_idx_ref[0]
+                out_idx_ref[0] += 1
+                entries.append(f"{attr!r}: unwrapped_outs[{idx}]")
+            case SubclassCreationMeta():
+                nested_var = _codegen_wrap_subclass(state, attr_meta, out_idx_ref)
+                entries.append(f"{attr!r}: {nested_var}")
 
     state.emit(f"{inner_dict_var} = {{{', '.join(entries)}}}")
 
@@ -173,16 +177,18 @@ def _codegen_wrap_subclass(
     return result_var
 
 
-def codegen_subclass_wrapper(
-    compiled_fn: Callable[..., object],
+def _codegen_subclass_wrapper_source(
     inp_metas: list[PlainTensorMeta | SubclassCreationMeta],
     out_metas: list[PlainTensorMeta | SubclassCreationMeta],
     num_fw_outs_saved_for_bw: int | None,
     frozen_inp_indices: frozenset[int] = frozenset(),
-) -> Callable[..., object]:
-    """Generate a specialized wrapper function for subclass unwrap/wrap."""
+) -> tuple[str, dict[str, object]]:
+    """Generate source and globals for a subclass wrapper.
+
+    Returns (source, globals_dict).  The globals_dict will NOT contain
+    ``compiled_fn`` — the caller is responsible for adding it before exec.
+    """
     state = _CodegenState()
-    state.add_global("compiled_fn", compiled_fn)
 
     state.emit("def inner_fn(args):", indent=0)
 
@@ -236,6 +242,24 @@ def codegen_subclass_wrapper(
         state.emit("return tuple(wrapped_outs)")
 
     source = "\n".join(state.lines)
+    return source, state.globals
+
+
+def codegen_subclass_wrapper(
+    compiled_fn: Callable[..., object],
+    inp_metas: list[PlainTensorMeta | SubclassCreationMeta],
+    out_metas: list[PlainTensorMeta | SubclassCreationMeta],
+    num_fw_outs_saved_for_bw: int | None,
+    frozen_inp_indices: frozenset[int] = frozenset(),
+) -> Callable[..., object]:
+    """Generate a specialized wrapper function for subclass unwrap/wrap."""
+    source, globals_dict = _codegen_subclass_wrapper_source(
+        inp_metas,
+        out_metas,
+        num_fw_outs_saved_for_bw,
+        frozen_inp_indices,
+    )
+    globals_dict["compiled_fn"] = compiled_fn
 
     if log.isEnabledFor(logging.DEBUG):
         log.debug("Generated subclass wrapper:\n%s", source)
@@ -251,5 +275,5 @@ def codegen_subclass_wrapper(
 
     code = compile(source, "<subclass_wrapper>", "exec")
     local_dict: dict[str, object] = {}
-    exec(code, state.globals, local_dict)  # noqa: S102
+    exec(code, globals_dict, local_dict)  # noqa: S102
     return local_dict["inner_fn"]  # type: ignore[return-value]
