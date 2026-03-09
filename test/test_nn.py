@@ -6678,29 +6678,57 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
                 self.assertEqual(input_cpu.grad, input_gpu.grad)
 
     @unittest.skipIf(not TEST_CUDA, 'CUDA not available')
-    def test_affine_grid_inductor_float16(self):
+    @parametrize_test("emulate_precision_casts", [True, False])
+    @parametrize_test("dtype", [torch.float16, torch.bfloat16])
+    @parametrize_test("align_corners", [True, False])
+    def test_affine_grid_inductor_float16(self, emulate_precision_casts, dtype, align_corners):
         # Verify that the affine_grid_generator decomposition under inductor
         # matches the native CUDA kernel for reduced-precision types.
-        for dtype in [torch.float16, torch.bfloat16]:
-            for align_corners in [True, False]:
-                for h, w in [(8, 8), (7, 13), (32, 32)]:
-                    torch._dynamo.reset()
-                    theta = torch.randn(2, 2, 3, dtype=dtype, device="cuda")
-                    size = [2, 1, h, w]
-                    expected = torch.ops.aten.affine_grid_generator(
-                        theta, size=size, align_corners=align_corners
-                    )
+        # Residual error comes from bmm (cuBLAS) and constant-folded linspace
+        # values differing slightly from the native kernel's computation.
+        import torch._inductor.config as inductor_config
 
-                    def fn(theta, size):
-                        return torch.ops.aten.affine_grid_generator(
-                            theta, size=size, align_corners=align_corners
-                        )
+        atol = 4e-3 if dtype == torch.float16 else 0.032
 
-                    actual = torch.compile(fn, backend="inductor")(theta, size)
-                    # Allow small tolerance for residual fp32-vs-dtype rounding
-                    # from inductor's codegen_upcast_to_fp32
-                    atol = 2e-3 if dtype == torch.float16 else 0.035
-                    self.assertEqual(actual, expected, atol=atol, rtol=0)
+        # 4D
+        for h, w in [(8, 8), (7, 13), (32, 32)]:
+            torch._dynamo.reset()
+            theta = torch.randn(2, 2, 3, dtype=dtype, device="cuda")
+            size = [2, 1, h, w]
+            expected = torch.ops.aten.affine_grid_generator(
+                theta, size=size, align_corners=align_corners
+            )
+
+            def fn(theta, size, ac=align_corners):
+                return torch.ops.aten.affine_grid_generator(
+                    theta, size=size, align_corners=ac
+                )
+
+            with inductor_config.patch(
+                emulate_precision_casts=emulate_precision_casts
+            ):
+                actual = torch.compile(fn, backend="inductor")(theta, size)
+            self.assertEqual(actual, expected, atol=atol, rtol=0)
+
+        # 5D
+        for d, h, w in [(4, 4, 4), (3, 5, 7)]:
+            torch._dynamo.reset()
+            theta = torch.randn(2, 3, 4, dtype=dtype, device="cuda")
+            size = [2, 1, d, h, w]
+            expected = torch.ops.aten.affine_grid_generator(
+                theta, size=size, align_corners=align_corners
+            )
+
+            def fn5d(theta, size, ac=align_corners):
+                return torch.ops.aten.affine_grid_generator(
+                    theta, size=size, align_corners=ac
+                )
+
+            with inductor_config.patch(
+                emulate_precision_casts=emulate_precision_casts
+            ):
+                actual = torch.compile(fn5d, backend="inductor")(theta, size)
+            self.assertEqual(actual, expected, atol=atol, rtol=0)
 
     def test_channel_shuffle_return_alias_of_self(self):
         # gh-76616: nn.ChannelShuffle will return alias of self with an empty input tensor
