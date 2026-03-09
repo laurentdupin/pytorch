@@ -1563,10 +1563,11 @@ class TensorVariable(VariableTracker):
             and isinstance(alpha, TensorVariable)
             and config.enable_dynamo_decompositions
         ):
-            result = variables.TorchInGraphFunctionVariable(torch.mul).call_function(
-                tx, [other, alpha], {}
-            )
-            return self.call_method(tx, "add_", [result], {})
+            from torch._inductor import inductor_prims
+
+            fma_var = variables.TorchInGraphFunctionVariable(inductor_prims.fma)
+            result = fma_var.call_function(tx, [other, alpha, self], {})
+            return self.call_method(tx, "copy_", [result], {})
         return None
 
     def method_addcdiv_(
