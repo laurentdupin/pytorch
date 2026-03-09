@@ -151,6 +151,7 @@ def _register_single_dim_pointwise(
         op,
         schema_info=RuntimeSchemaInfo(static_argnum, static_kwargkey=["out"]),
         allow_uneven_sharding=True,
+        allow_unbacked_sharding=True,
     )(strategy_fn)
 
 
