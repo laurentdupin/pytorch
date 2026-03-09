@@ -78,12 +78,12 @@ _BINARY_ADDITIVE_RULES: list[list[Placement]] = [
     # P(x), R -> P(x): adding/subtracting a replicated value preserves partial types
     # avg, max, min. sum would result in R being added n times, n = num_ranks
     # (the replicated value is constant across ranks, so reduce order is unaffected)
-    [Partial("avg"), Partial("avg"), Replicate()],
-    [Partial("max"), Partial("max"), Replicate()],
-    [Partial("min"), Partial("min"), Replicate()],
+    [Partial("avg"), Replicate(), Partial("avg")],
+    [Partial("max"), Replicate(), Partial("max")],
+    [Partial("min"), Replicate(), Partial("min")],
     # R, P(avg) -> P(avg): avg is linear so this holds for any alpha
     # (R, P(max/min) excluded: negative alpha would flip the ordering)
-    [Partial("avg"), Replicate(), Partial("avg")],
+    [Replicate(), Partial("avg"), Partial("avg")],
 ]
 
 # mul: partials propagate through either arg. div: only through numerator.
@@ -94,15 +94,15 @@ binary_div_ops = [aten.div.Tensor, aten.div_.Tensor, aten.div.out]
 # promote scalars to 0-dim tensors, so aten.mul.Scalar dispatches as aten.mul.Tensor
 # with n_tensors=1, matching the length-2 unary rules.
 _MUL_RULES: list[list[Placement]] = [
-    [Partial("sum"), Partial("sum"), Replicate()],
-    [Partial("avg"), Partial("avg"), Replicate()],
     [Partial("sum"), Replicate(), Partial("sum")],
     [Partial("avg"), Replicate(), Partial("avg")],
+    [Replicate(), Partial("sum"), Partial("sum")],
+    [Replicate(), Partial("avg"), Partial("avg")],
 ]
 
 _DIV_RULES: list[list[Placement]] = [
-    [Partial("sum"), Partial("sum"), Replicate()],
-    [Partial("avg"), Partial("avg"), Replicate()],
+    [Partial("sum"), Replicate(), Partial("sum")],
+    [Partial("avg"), Replicate(), Partial("avg")],
 ]
 
 scalar_linear_ops = [
@@ -744,15 +744,14 @@ def single_mesh_dim_common_pointwise_strategy(
     placements_list: list[list[Placement | _ShardingPlaceholder]] = []
     for i in range(len(common_shape)):
         # Shard output dim i, and then shard the corresponding arguments if they have a corresponding (non broadcast) dim
-        shard_placements: list[Placement | _ShardingPlaceholder] = [
-            _ShardingPlaceholder(i)
-        ]
+        shard_placements: list[Placement | _ShardingPlaceholder] = []
         for arg in tensor_arg_strategies:
             common_dim_to_arg_dim = infer_broadcast_dims_map(common_shape, arg.shape)
             if common_dim_to_arg_dim[i] >= 0:
                 shard_placements.append(_ShardingPlaceholder(common_dim_to_arg_dim[i]))
             else:
                 shard_placements.append(Replicate())
+        shard_placements.append(_ShardingPlaceholder(i))
 
         placements_list.append(shard_placements)
 
@@ -779,8 +778,8 @@ def single_mesh_dim_common_pointwise_strategy(
         # (A * B1) + (A * B2) == A * (B1 + B2)
         if len(tensor_arg_strategies) != 2:
             raise AssertionError("expected two tensor inputs for linearity==2 op")
-        placements_list.append([Partial("sum"), Partial("sum"), Replicate()])
         placements_list.append([Partial("sum"), Replicate(), Partial("sum")])
+        placements_list.append([Replicate(), Partial("sum"), Partial("sum")])
 
     # TODO: handle scalar_tensor_idx
     return placements_list

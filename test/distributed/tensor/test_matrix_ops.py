@@ -257,14 +257,14 @@ class DistMatrixOpsTest(DTensorTestBase):
         )
 
         # Find strategies where output is Partial (contracting dim case)
-        # Strategy format: [output, bias, mat1, mat2]
+        # Strategy format: [bias, mat1, mat2, output]
         for strategies, bias_shape in [
             (strategies_1d, bias_shape_1d),
             (strategies_2d, bias_shape_2d),
         ]:
             for strategy in strategies:
-                output_placement = strategy[0]
-                bias_placement = strategy[1]
+                output_placement = strategy[-1]
+                bias_placement = strategy[0]
 
                 if isinstance(output_placement, Partial):
                     # Bug: _derive_bias_placement was returning Partial() without
@@ -288,16 +288,16 @@ class DistMatrixOpsTest(DTensorTestBase):
         # Convert to repr tuples for comparison since _ShardingPlaceholder lacks __eq__
         actual = [tuple(repr(p) for p in s) for s in strategies]
         expected = [
-            # batch dims: shard output and both inputs on same dim
+            # batch dims: shard both inputs and output on same dim
             (repr(S(0)), repr(S(0)), repr(S(0))),
             (repr(S(1)), repr(S(1)), repr(S(1))),
             (repr(S(2)), repr(S(2)), repr(S(2))),
             (repr(S(3)), repr(S(3)), repr(S(3))),
             # per-input linearity: one input Partial, other Replicate
-            ("Partial(sum)", "Partial(sum)", "Replicate()"),
             ("Partial(sum)", "Replicate()", "Partial(sum)"),
-            ("Partial(avg)", "Partial(avg)", "Replicate()"),
+            ("Replicate()", "Partial(sum)", "Partial(sum)"),
             ("Partial(avg)", "Replicate()", "Partial(avg)"),
+            ("Replicate()", "Partial(avg)", "Partial(avg)"),
             # batch-dimension linearity: all inputs Partial
             ("Partial(sum)", "Partial(sum)", "Partial(sum)"),
             ("Partial(avg)", "Partial(avg)", "Partial(avg)"),

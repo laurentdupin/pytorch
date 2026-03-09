@@ -555,10 +555,10 @@ class TestExpandPlaceholder(TestCase):
         # Strategies with placeholders are dropped since there are no shard builders.
         expected_replicate = [
             [Replicate(), Replicate(), Replicate()],
-            [Partial("sum"), Partial("sum"), Replicate()],
             [Partial("sum"), Replicate(), Partial("sum")],
-            [Partial("avg"), Partial("avg"), Replicate()],
+            [Replicate(), Partial("sum"), Partial("sum")],
             [Partial("avg"), Replicate(), Partial("avg")],
+            [Replicate(), Partial("avg"), Partial("avg")],
         ]
         single_dim_strategies = _insert_single_dim_replication_strategy(
             single_dim_strategies, num_outputs=1, num_input_tensors=2
@@ -574,13 +574,13 @@ class TestExpandPlaceholder(TestCase):
         # plus the per-input linearity strategies (no placeholders), plus implicit replicate
         expected_shard = [
             [Replicate(), Replicate(), Replicate()],
-            [Partial(), Shard(1), Shard(0)],
-            [Shard(0), Shard(0), Replicate()],
-            [Shard(1), Replicate(), Shard(1)],
-            [Partial("sum"), Partial("sum"), Replicate()],
+            [Shard(1), Shard(0), Partial()],
+            [Shard(0), Replicate(), Shard(0)],
+            [Replicate(), Shard(1), Shard(1)],
             [Partial("sum"), Replicate(), Partial("sum")],
-            [Partial("avg"), Partial("avg"), Replicate()],
+            [Replicate(), Partial("sum"), Partial("sum")],
             [Partial("avg"), Replicate(), Partial("avg")],
+            [Replicate(), Partial("avg"), Partial("avg")],
         ]
 
         expanded_shard = _fill_single_dim_strategy_placeholders(
@@ -591,40 +591,40 @@ class TestExpandPlaceholder(TestCase):
         expected_strided_shard = [
             [Replicate(), Replicate(), Replicate()],
             [
-                Partial(),
                 _StridedShard(1, split_factor=2),
                 _StridedShard(0, split_factor=2),
+                Partial(),
             ],
             [
-                Partial(),
                 _StridedShard(1, split_factor=4),
                 _StridedShard(0, split_factor=4),
+                Partial(),
             ],
             [
                 _StridedShard(dim=0, split_factor=2),
+                Replicate(),
                 _StridedShard(dim=0, split_factor=2),
-                Replicate(),
             ],
             [
                 _StridedShard(dim=0, split_factor=4),
+                Replicate(),
                 _StridedShard(dim=0, split_factor=4),
-                Replicate(),
             ],
             [
-                _StridedShard(dim=1, split_factor=2),
                 Replicate(),
+                _StridedShard(dim=1, split_factor=2),
                 _StridedShard(dim=1, split_factor=2),
             ],
             [
+                Replicate(),
                 _StridedShard(dim=1, split_factor=4),
-                Replicate(),
                 _StridedShard(dim=1, split_factor=4),
             ],
             # Per-input linearity strategies (no placeholders, pass through unchanged)
-            [Partial("sum"), Partial("sum"), Replicate()],
             [Partial("sum"), Replicate(), Partial("sum")],
-            [Partial("avg"), Partial("avg"), Replicate()],
+            [Replicate(), Partial("sum"), Partial("sum")],
             [Partial("avg"), Replicate(), Partial("avg")],
+            [Replicate(), Partial("avg"), Partial("avg")],
         ]
         expanded_strided_shard = _fill_single_dim_strategy_placeholders(
             {
@@ -640,29 +640,29 @@ class TestExpandPlaceholder(TestCase):
         # plus per-input linearity strategies, plus implicit replicate
         expected_mixed = [
             [Replicate(), Replicate(), Replicate()],
-            [Partial(), Shard(1), Shard(0)],
+            [Shard(1), Shard(0), Partial()],
             [
+                _StridedShard(1, split_factor=2),
+                _StridedShard(0, split_factor=2),
                 Partial(),
-                _StridedShard(1, split_factor=2),
-                _StridedShard(0, split_factor=2),
             ],
-            [Shard(0), Shard(0), Replicate()],
+            [Shard(0), Replicate(), Shard(0)],
             [
                 _StridedShard(0, split_factor=2),
+                Replicate(),
                 _StridedShard(0, split_factor=2),
-                Replicate(),
             ],
-            [Shard(1), Replicate(), Shard(1)],
+            [Replicate(), Shard(1), Shard(1)],
             [
-                _StridedShard(1, split_factor=2),
                 Replicate(),
+                _StridedShard(1, split_factor=2),
                 _StridedShard(1, split_factor=2),
             ],
             # Per-input linearity strategies (no placeholders, pass through unchanged)
-            [Partial("sum"), Partial("sum"), Replicate()],
             [Partial("sum"), Replicate(), Partial("sum")],
-            [Partial("avg"), Partial("avg"), Replicate()],
+            [Replicate(), Partial("sum"), Partial("sum")],
             [Partial("avg"), Replicate(), Partial("avg")],
+            [Replicate(), Partial("avg"), Partial("avg")],
         ]
 
         expanded_mixed = _fill_single_dim_strategy_placeholders(
@@ -838,15 +838,15 @@ class TestExpandPlaceholder(TestCase):
             kwargs_schema={"out": OpStrategy([OpSpec(out_spec)])},
         )
 
-        # Strategy missing the out kwarg placement: [output, arg1, arg2] = 3
-        # but mul.out has 1 output + 3 inputs (2 args + 1 out kwarg) = 4 expected
+        # Strategy missing the out kwarg placement: [arg1, arg2, output] = 3
+        # but mul.out has 3 inputs (2 args + 1 out kwarg) + 1 output = 4 expected
         def bad_strategy(op, args, kwargs):
             return [[Shard(0), Shard(0), Shard(0)]]
 
         with self.assertRaisesRegex(AssertionError, r"Strategy length 3 != expected 4"):
             _PreparedSingleDimStrategy(bad_strategy, op_schema, meta)
 
-        # Strategy with correct length: [output, arg1, arg2, out_kwarg] = 4
+        # Strategy with correct length: [arg1, arg2, out_kwarg, output] = 4
         def good_strategy(op, args, kwargs):
             return [[Shard(0), Shard(0), Shard(0), Shard(0)]]
 
@@ -890,7 +890,7 @@ class TestExpandPlaceholder(TestCase):
         # 2 outputs + 1 input = 3 placements per strategy
         def mock_multi_output_strategy(op, args_schema, kwargs_schema):
             return [
-                [Partial(), Partial(), Shard(0)],
+                [Shard(0), Partial(), Partial()],
             ]
 
         expanded_strategy_fn = _expand_single_dim_strategy_to_mesh(
@@ -1846,7 +1846,7 @@ class TestCommonPointwiseSingleDimStrategy(TestCase):
         )
         self.assertEqual(
             rules,
-            [(Shard(0), Shard(0), Replicate()), (Shard(1), Shard(1), Shard(0))],
+            [(Shard(0), Replicate(), Shard(0)), (Shard(1), Shard(0), Shard(1))],
         )
 
     def test_partial_extra_rules_filtered_by_arity(self):
@@ -1880,10 +1880,10 @@ class TestCommonPointwiseSingleDimStrategy(TestCase):
             (Shard(1), Shard(1), Shard(1)),
             (Partial("sum"), Partial("sum"), Partial("sum")),
             (Partial("avg"), Partial("avg"), Partial("avg")),
-            (Partial("avg"), Partial("avg"), Replicate()),
-            (Partial("max"), Partial("max"), Replicate()),
-            (Partial("min"), Partial("min"), Replicate()),
             (Partial("avg"), Replicate(), Partial("avg")),
+            (Partial("max"), Replicate(), Partial("max")),
+            (Partial("min"), Replicate(), Partial("min")),
+            (Replicate(), Partial("avg"), Partial("avg")),
         ]
         self.assertEqual(rules, expected)
 
