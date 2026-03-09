@@ -1169,11 +1169,17 @@ def _inductor_extra_samples(op_name, device, dtype, requires_grad):
         SampleInput,
     )
 
-    make_arg = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
+    make_arg = partial(
+        make_tensor, device=device, dtype=dtype, requires_grad=requires_grad
+    )
 
-    if op_name in ("addcmul", "addcdiv") and (dtype.is_floating_point or dtype.is_complex):
+    if op_name in ("addcmul", "addcdiv") and (
+        dtype.is_floating_point or dtype.is_complex
+    ):
         # Tensor value
-        args = tuple(make_arg(shape, exclude_zero=True) for shape in ((S, S), (S, S), (S, S)))
+        args = tuple(
+            make_arg(shape, exclude_zero=True) for shape in ((S, S), (S, S), (S, S))
+        )
         tensor_value = make_arg((), requires_grad=False)
         return [SampleInput(*args, value=tensor_value)]
 
