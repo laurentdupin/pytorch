@@ -292,6 +292,9 @@ non_decreasing_unary_ops = [
     aten.hardshrink.default,
     # I1(x) is monotonically non-decreasing for all real x.
     aten.special_modified_bessel_i1.default,
+    # threshold(x, t, v): x if x > t else v. Non-decreasing for v <= t (the
+    # common case, including the default v=0, t=0).
+    aten.threshold.default,
 ]
 
 _NON_DECREASING_RULES: list[list[Placement]] = [
@@ -320,6 +323,22 @@ _NON_INCREASING_RULES: list[list[Placement]] = [
 for op in non_increasing_unary_ops:
     _register_single_dim_pointwise(op, _NON_INCREASING_RULES)
 
+# Bessel K functions are strictly decreasing for x > 0 but undefined at x <= 0.
+# Only P(min)->P(max) is safe: P(min) offsets add positive values to the
+# non-holding rank, keeping all inputs positive. P(max) offsets subtract,
+# which can push inputs to x <= 0 producing NaN.
+_POSITIVE_DOMAIN_NON_INCREASING_RULES: list[list[Placement]] = [
+    [Partial("max"), Partial("min")],
+]
+
+for op in [
+    aten.special_modified_bessel_k0.default,
+    aten.special_modified_bessel_k1.default,
+    aten.special_scaled_modified_bessel_k0.default,
+    aten.special_scaled_modified_bessel_k1.default,
+]:
+    _register_single_dim_pointwise(op, _POSITIVE_DOMAIN_NON_INCREASING_RULES)
+
 # neg is linear: -(A1 + A2) = -A1 + -A2
 neg_ops = [aten.neg.default, aten.neg_.default, aten.neg.out]
 
@@ -327,6 +346,16 @@ _NEG_RULES: list[list[Placement]] = _UNARY_LINEAR_RULES + _NON_INCREASING_RULES
 
 for op in neg_ops:
     _register_single_dim_pointwise(op, _NEG_RULES)
+
+# xlog1py(x, y) = x * log1p(y). Linear in x with y replicated:
+# (a+b)*log1p(y) = a*log1p(y) + b*log1p(y).
+_XLOG1PY_RULES: list[list[Placement]] = [
+    [Partial("sum"), Partial("sum"), Replicate()],
+    [Partial("avg"), Partial("avg"), Replicate()],
+]
+
+for op in [aten.special_xlog1py.default, aten.special_xlog1py.other_scalar]:
+    _register_single_dim_pointwise(op, _XLOG1PY_RULES)
 
 
 # All-partial-preserving unary ops: P(x)->P(x) for all x.
@@ -695,16 +724,10 @@ pointwise_ops = [
     aten.special_laguerre_polynomial_l.default,
     aten.special_legendre_polynomial_p.default,
     aten.special_modified_bessel_i0.default,
-    aten.special_modified_bessel_k0.default,
-    aten.special_modified_bessel_k1.default,
-    aten.special_scaled_modified_bessel_k0.default,
-    aten.special_scaled_modified_bessel_k1.default,
     aten.special_shifted_chebyshev_polynomial_t.default,
     aten.special_shifted_chebyshev_polynomial_u.default,
     aten.special_shifted_chebyshev_polynomial_v.default,
     aten.special_shifted_chebyshev_polynomial_w.default,
-    aten.special_xlog1py.default,
-    aten.special_xlog1py.other_scalar,
     aten.square.default,
     aten.square.out,
     aten.square_.default,
@@ -713,7 +736,6 @@ pointwise_ops = [
     aten.tan.default,
     aten.tan.out,
     aten.tan_.default,
-    aten.threshold.default,
     aten.true_divide.Tensor,
     aten.where.self,
     aten.where.self_out,
