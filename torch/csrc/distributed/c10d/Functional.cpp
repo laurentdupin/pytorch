@@ -514,7 +514,7 @@ class ReduceScatterTensor
     return c10::Dispatcher::singleton()
         .findSchemaOrThrow("_c10d_functional::reduce_scatter_tensor", "")
         .typed<decltype(c10d::reduce_scatter_tensor)>()
-        .call(input, reduce_op, group_size, group_name);
+        .call(input, reduce_op, group_size, group_name, /*async_op=*/true);
   }
 
   static torch::autograd::variable_list backward(
@@ -530,7 +530,7 @@ class ReduceScatterTensor
         c10::Dispatcher::singleton()
             .findSchemaOrThrow("_c10d_functional::all_gather_into_tensor", "")
             .typed<decltype(c10d::all_gather_into_tensor)>()
-            .call(grad_out, group_size, group_name);
+            .call(grad_out, group_size, group_name, /*async_op=*/true);
 
     // do an explicit wait to avoid cuda stream issues
     // TODO: track active cuda stream in wait
@@ -570,7 +570,7 @@ class AllGatherIntoTensor
     return c10::Dispatcher::singleton()
         .findSchemaOrThrow("_c10d_functional::all_gather_into_tensor", "")
         .typed<decltype(c10d::all_gather_into_tensor)>()
-        .call(input, group_size, group_name);
+        .call(input, group_size, group_name, /*async_op=*/true);
   }
 
   static torch::autograd::variable_list backward(
@@ -586,7 +586,7 @@ class AllGatherIntoTensor
         c10::Dispatcher::singleton()
             .findSchemaOrThrow("_c10d_functional::reduce_scatter_tensor", "")
             .typed<decltype(c10d::reduce_scatter_tensor)>()
-            .call(grad_out, "sum", group_size, group_name);
+            .call(grad_out, "sum", group_size, group_name, /*async_op=*/true);
 
     // do an explicit wait to avoid cuda stream issues
     // TODO: track active cuda stream in wait
