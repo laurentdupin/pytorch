@@ -7781,6 +7781,7 @@ scipy_lobpcg  | {eq_err_scipy:10.2e}  | {eq_err_general_scipy:10.2e}  | {iters2:
         bias_variants = (
             torch.randn(m, 1, device=device, dtype=dtype),
             torch.randn(n, device=device, dtype=dtype),
+            torch.randn(2 * n, device=device, dtype=dtype).as_strided((n,), (2,)),
             torch.randn(1, device=device, dtype=dtype).expand(n),
             torch.randn(1, 1, device=device, dtype=dtype).expand(m, 1),
             torch.randn(1, 1, device=device, dtype=dtype).expand(m, n),
