@@ -212,6 +212,26 @@ class InPlaceCompilationTests(TestCase):
         out = torch.compile(fn, backend="eager")(a)
         self.assertEqual(out, a)
 
+    def test_compile_script_module_error(self):
+        model = torch.nn.Sequential(torch.nn.Linear(3, 3))
+        model.eval()
+        scripted = torch.jit.script(model)
+        with self.assertRaisesRegex(
+            RuntimeError, "torch.compile does not support compiling torch.jit.script"
+        ):
+            torch.compile(scripted, backend="eager")
+
+    def test_compile_frozen_module_error(self):
+        model = torch.nn.Sequential(torch.nn.Linear(3, 3))
+        model.eval()
+        scripted = torch.jit.script(model)
+        with self.assertWarns(DeprecationWarning):
+            frozen = torch.jit.freeze(scripted)
+        with self.assertRaisesRegex(
+            RuntimeError, "torch.compile does not support compiling torch.jit.script"
+        ):
+            torch.compile(frozen, backend="eager")
+
     def test_to_sparse_to_dense_with_graph_break(self):
         def fn(x):
             x = x.to_sparse()
