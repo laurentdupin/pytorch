@@ -2023,10 +2023,28 @@ def cat(inputs, dim=0):
 
         # horizontal fuse in case all inputs will require a copy kernel anyway.
         # only horizontally fuse pointwise kernels
-        horizontal_fuse_cat = all(
-            should_lower_cat_input(inp) for inp in inputs
-        ) and not any(can_fuse_reduction(t) for t in inputs)
-        if fuse_pointwise_use or (horizontal_fuse_cat and not fusable_reduction):
+        #
+        # Skip pointwise_cat when any input has multiple consumers. ConcatKernel
+        # NonOwningLayout lets all consumers share one realized copy.
+        def any_input_has_multi_consumers() -> bool:
+            cat_node = V.current_node
+            if cat_node is None:
+                return False
+            fx_args = cat_node.args[0]  # aten.cat format: cat(input_list, dim)
+            if not isinstance(fx_args, (list, tuple)):
+                return False
+            return any(hasattr(arg, "users") and len(arg.users) > 1 for arg in fx_args)
+
+        has_multi_consumers = any_input_has_multi_consumers()
+
+        horizontal_fuse_cat = (
+            all(should_lower_cat_input(inp) for inp in inputs)
+            and not any(can_fuse_reduction(t) for t in inputs)
+            and not has_multi_consumers
+        )
+        if not has_multi_consumers and (
+            fuse_pointwise_use or (horizontal_fuse_cat and not fusable_reduction)
+        ):
             return pointwise_cat(inputs, dim)
 
     return TensorBox(ir.ConcatKernel.create(inputs, dim))
