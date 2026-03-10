@@ -471,7 +471,7 @@ class FSDPModule:
             module._get_fsdp_state() for module in modules
         ]
 
-    def set_custom_all_gather(self, comm: AllGather) -> None:
+    def set_custom_all_gather(self, comm: AllGather, *, recursive: bool = True) -> None:
         """
         Overrides the default ``all_gather`` communication behavior,
         to have better control over the communication and memory usage.
@@ -479,16 +479,22 @@ class FSDPModule:
 
         Args:
             comm (AllGather): Custom all-gather communication.
+            recursive (bool): Whether to set for all FSDP submodules or just
+                the passed-in module.
         """
-        state = self._get_fsdp_state()
-        if len(state._fsdp_param_groups) > 1:
-            raise ValueError(
-                "set_custom_all_gather is not supported with multiple param "
-                "groups (from per-param mesh via shard_placement_fn). "
-                "The custom comm would be ambiguous across groups with different meshes."
-            )
-        for fsdp_param_group in state._fsdp_param_groups:
-            fsdp_param_group._all_gather_comm = comm
+        self_module = cast(nn.Module, self)
+        modules = list(self_module.modules()) if recursive else [self_module]
+        for module in modules:
+            if isinstance(module, FSDPModule):
+                state = module._get_fsdp_state()
+                if len(state._fsdp_param_groups) > 1:
+                    raise ValueError(
+                        "set_custom_all_gather is not supported with multiple param "
+                        "groups (from per-param mesh via shard_placement_fn). "
+                        "The custom comm would be ambiguous across groups with different meshes."
+                    )
+                for fsdp_param_group in state._fsdp_param_groups:
+                    fsdp_param_group._all_gather_comm = comm
 
     def set_custom_reduce_scatter(self, comm: ReduceScatter) -> None:
         """
@@ -644,9 +650,10 @@ class FSDPModule:
                 ``"NCCL"``. Currently, only ``"NCCL"`` is supported.
         """
         state = self._get_fsdp_state()
-        if (fsdp_param_group := state._fsdp_param_group) is not None:
-            group = fsdp_param_group._all_gather_process_group
-            self.set_custom_all_gather(SymmMemAllGather(group, backend))
+        if not state._fsdp_param_groups:
+            return
+        group = state._fsdp_param_groups[0]._all_gather_process_group
+        self.set_custom_all_gather(SymmMemAllGather(group, backend))
 
     def set_allocate_memory_from_process_group_for_comm(self, enable: bool) -> None:
         """

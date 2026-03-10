@@ -1908,6 +1908,23 @@ class TestFullyShardSymmMem(MultiProcContinuousTest):
         opts.config.cta_policy = dist.ProcessGroupNCCL.NCCL_CTA_POLICY_ZERO
         return opts
 
+    @classmethod
+    def _init_pg(cls, rank, world_size, rdvz_file):
+        import os
+
+        os.environ["LOCAL_RANK"] = str(rank)
+        store = dist.FileStore(rdvz_file, world_size)
+        dist.init_process_group(
+            backend=cls.backend_str(),
+            world_size=world_size,
+            rank=rank,
+            store=store,
+            pg_options=cls.opts(),
+            timeout=cls.timeout,
+            device_id=torch.device("cuda", rank),
+        )
+        cls.pg = dist.distributed_c10d._get_default_group()
+
     @property
     def device(self) -> torch.device:
         return torch.device("cuda", self.rank)
@@ -1928,7 +1945,6 @@ class TestFullyShardSymmMem(MultiProcContinuousTest):
         for module in model.modules():
             if isinstance(module, TransformerBlock):
                 fully_shard(module)
-                module.set_symm_mem_for_comm()
         fully_shard(model)
         model.set_symm_mem_for_comm()
 
