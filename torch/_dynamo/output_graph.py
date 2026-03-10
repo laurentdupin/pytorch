@@ -2390,38 +2390,38 @@ class OutputGraph(OutputGraphCommon):
             if any(inp in tainted_nodes for inp in node.all_input_nodes):
                 tainted_nodes.add(node)
 
-        # Check if any output variable with requires_grad is tainted
-        leaked = False
+        # Check leaked outputs: tainted + requires_grad means the output
+        # carries autograd state that AOTAutograd would silently drop.
+        # Detached outputs (requires_grad=False) are fine — no autograd to lose.
         for var in rv:
             if (
                 isinstance(var, TensorVariable)
                 and var.requires_grad
                 and var.as_proxy().node in tainted_nodes
             ):
-                leaked = True
-                break
-        if not leaked:
-            return
-
-        if tx.one_graph:
-            unimplemented(
-                gb_type="returning intermediate with requires_grad_()",
-                context="graph output depends on source-less requires_grad_()",
-                explanation="An intermediate tensor that had requires_grad_() called on it "
-                "(or a tensor derived from it) is being returned from the compiled region. "
-                "AOTAutograd's functionalization drops the requires_grad_() effect on graph "
-                "outputs, producing wrong results.",
-                hints=[
-                    "Consume the gradient inside the compiled function (call backward() and use .grad), "
-                    "or move requires_grad_() outside torch.compile.",
-                ],
-            )
-        else:
-            raise exc.SkipFrame(
-                "An intermediate tensor with requires_grad_() (or derived tensor) is being "
-                "returned. Skipping frame to avoid silent incorrectness from AOTAutograd "
-                "functionalization."
-            )
+                if tx.one_graph:
+                    unimplemented(
+                        gb_type="returning intermediate with requires_grad_()",
+                        context="graph output depends on source-less requires_grad_()",
+                        explanation="An intermediate tensor that had requires_grad_() "
+                        "called on it (or a tensor derived from it) is being returned "
+                        "from the compiled region. AOTAutograd's functionalization "
+                        "drops the requires_grad_() effect on graph outputs, "
+                        "producing wrong results.",
+                        hints=[
+                            "If you only need the tensor values without gradients, "
+                            "call .detach() before returning.",
+                            "Consume the gradient inside the compiled function "
+                            "(call backward() and use .grad), "
+                            "or move requires_grad_() outside torch.compile.",
+                        ],
+                    )
+                else:
+                    raise exc.SkipFrame(
+                        "An intermediate tensor with requires_grad_() (or derived "
+                        "tensor) is being returned. Skipping frame to avoid silent "
+                        "incorrectness from AOTAutograd functionalization."
+                    )
 
     def compile_and_call_fx_graph(
         self,
@@ -2450,11 +2450,14 @@ class OutputGraph(OutputGraphCommon):
             assert isinstance(rv, list)
             assert isinstance(root, FakeRootModule)
 
+            # Auto-detach or error on source-less requires_grad_() outputs.
+            # Must run before autograd validation since detaching resolves the
+            # "consumed grad_fn" conflict for backward-consumed intermediates.
+            self._check_requires_grad_intermediate_outputs(rv, tx)
+
             # Check if autograd.grad is used with outputs that require grad
             # This would cause double backward issues in aot_autograd
             self._validate_outputs_safe_for_autograd_nodes(rv, tx)
-
-            self._check_requires_grad_intermediate_outputs(rv, tx)
 
             output_node = self.create_node(
                 "output",
