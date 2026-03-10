@@ -938,14 +938,6 @@ def enable_activation_quantization(
     bwd_module: fx.GraphModule,
     static_lifetime_input_nodes: OrderedSet[fx.Node] | None = None,
 ) -> None:
-    if (
-        inductor_config.post_grad_fusion_options.get(
-            "activation_quantization_aten_pass", None
-        )
-        is None
-    ):
-        return
-
     static_input_names: list[str] = (
         [node.name for node in static_lifetime_input_nodes]
         if static_lifetime_input_nodes
@@ -1183,7 +1175,12 @@ def _extract_fwd_bwd_modules(
 
     fwd_module = fx._lazy_graph_module._make_graph_module(joint_module, fwd_graph)
     bwd_module = fx._lazy_graph_module._make_graph_module(joint_module, bwd_graph)
-    if not omit_aot_autograd_runtime:
+    if (
+        inductor_config.post_grad_fusion_options.get(
+            "activation_quantization_aten_pass", None
+        )
+        is not None
+    ):
         enable_activation_quantization(
             saved_values, fwd_module, bwd_module, static_lifetime_input_nodes
         )

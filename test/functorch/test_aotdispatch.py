@@ -59,13 +59,13 @@ from torch._functorch.aot_autograd import (
     aot_export_module,
     SerializableAOTDispatchCompiler,
 )
-from torch._higher_order_ops.out_dtype import out_dtype
-from torch._inductor.codecache import compiled_fx_graph_hash
 from torch._functorch.partitioners import (
     _extract_fwd_bwd_modules,
     _extract_fwd_bwd_outputs,
     _extract_graph_with_inputs_outputs,
 )
+from torch._higher_order_ops.out_dtype import out_dtype
+from torch._inductor.codecache import compiled_fx_graph_hash
 from torch._inductor.custom_graph_pass import CustomPartitionerFn
 from torch._inductor.output_code import MockFXGraphCacheOutput
 from torch._subclasses.fake_tensor import DynamicOutputShapeException, FakeTensorMode
@@ -6009,20 +6009,28 @@ class TestPartitioning(AOTTestCase):
         )
         args = list(bw_gm.graph.find_nodes(op="placeholder"))
         di_graph = _extract_graph_with_inputs_outputs(
-            bw_gm.graph, args, di_outs, di_descs, "forward",
+            bw_gm.graph,
+            args,
+            di_outs,
+            di_descs,
+            "forward",
             ignore_must_be_in_fw_bw=True,
         )
         di_names = {n.name for n in di_graph.nodes if n.op != "output"}
 
         saved_values = [
-            n for n in bw_gm.graph.nodes
-            if n.name in di_names and not is_sym_node(n)
+            n
+            for n in bw_gm.graph.nodes
+            if n.name in di_names
+            and not is_sym_node(n)
             and "tensor_meta" in n.meta
             and any(n2.name not in di_names for n2 in n.users)
         ]
 
         di_mod, dw_mod = _extract_fwd_bwd_modules(
-            bw_gm, saved_values, saved_sym_nodes=[],
+            bw_gm,
+            saved_values,
+            saved_sym_nodes=[],
             num_fwd_outputs=num_di,
             ignore_must_be_in_fw_bw=True,
             omit_aot_autograd_runtime=True,
