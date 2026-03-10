@@ -193,15 +193,17 @@ The sub-oncall team will handle their own triage. Your job is only to route it t
 Only if the issue stays in the general queue:
 - Add 1+ `module: ...` labels based on the affected area
 - Prefer specific labels over general ones when both exist. Check `labels.json` descriptions for guidance on when a specific label supersedes a general one (e.g., `module: sdpa` instead of `module: nn` for SDPA issues, `module: flex attention` instead of `module: nn` for flex attention).
-- If feature request: add `feature` (or `function request` for a new function or new arguments/modes)
-- If small improvement: add `enhancement`
+- `feature` — wholly new functionality that does not exist today in any form
+- `enhancement` — improvement to something that already works (e.g., adding a native backend kernel for an op that already runs via fallback/composite, performance optimization, better error messages). If the enhancement is about performance, also add `module: performance`.
+- `function request` — a new function or new arguments/modes for an existing function
+- If the issue says the operation "currently works" or "falls back to" a slower path, that is `enhancement`, not `feature`
 
 **Commonly missed labels — always check for these:**
 
 | Condition | Label |
 |-----------|-------|
 | Segfault, illegal memory access, SIGSEGV | `module: crash` |
-| Measurable performance regression or slowdown | `module: performance` |
+| Performance issue: regression, slowdown, or optimization request | `module: performance` |
 | Issue on Windows | `module: windows` |
 | Previously working feature now broken | `module: regression` |
 | Broken docs/links that previously worked | `module: docs` + `module: regression` (NOT `enhancement`) |
