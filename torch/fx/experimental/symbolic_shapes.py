@@ -6340,7 +6340,7 @@ class ShapeEnv:
         import torch._dynamo.config as dynamo_config
 
         if (
-            dynamo_config.stable_graph_selection_for_automatic_dynamic
+            dynamo_config.automatic_dynamic_exclusion_guard
             and not dynamo_config.enable_compiler_collectives
             and self.prior_static_signatures
         ):

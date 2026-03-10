@@ -2671,10 +2671,17 @@ class VariableBuilder:
                 self.install_guards(GuardBuilder.CONSTANT_MATCH)
                 return ConstantVariable.create(value=value)
 
+            excluded_scalar = (
+                frame_state_entry.excluded_scalar
+                if frame_state_entry is not None
+                and config.automatic_dynamic_exclusion_guard
+                else None
+            )
             wrapped_value = shape_env.create_unspecified_symint_and_symbol(
                 value,
                 source=self.source,
                 dynamic_dim=dynamic_dim,
+                excluded_value=excluded_scalar,
             )
 
             self.tx.output.tracked_fakes.append(
