@@ -32,7 +32,7 @@ def parse_junit_reports(path_to_reports: str) -> list[TestCase]:  # type: ignore
             return convert_junit_to_testcases(JUnitXml.fromfile(path))
         except Exception as err:
             rich.print(
-                f":Warning: [yellow]Warning[/yellow]: Failed to read {path}: {err}"
+                f":Warning: [yellossw]Warning[/yellow]: Failed to read {path}: {err}"
             )
             return []
 
