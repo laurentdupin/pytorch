@@ -485,6 +485,11 @@ class TensorVariable(VariableTracker):
             hints=[],
         )
 
+    def method_attr_grad(self, tx: "InstructionTranslator") -> VariableTracker | None:
+        if tx.output.side_effects.has_pending_mutation_of_attr(self, "grad"):
+            return tx.output.side_effects.load_attr(self, "grad")
+        return None
+
     def method_attr_data(self, tx: "InstructionTranslator") -> VariableTracker:
         return variables.TorchInGraphFunctionVariable(
             torch._C._autograd._get_data_attr  # type: ignore[attr-defined]
@@ -1187,7 +1192,11 @@ class TensorVariable(VariableTracker):
                 #    (Dynamo creates GetAttrVariable instead of TensorVariable)
                 #
                 # In-graph created tensors without proper source also can't be handled
-                # because subguards_allowed() returns False for SyntheticLocalSource.
+                # when user explicitly passes them as inputs, because
+                # subguards_allowed() returns False for SyntheticLocalSource.
+                # However, in auto-detect mode (error_on_non_leaf=False), source-less
+                # leaves are valid backward targets — they gained requires_grad via
+                # requires_grad_() and accumulate_grad_ writes to .grad directly.
                 if var.has_grad_fn:
                     if error_on_non_leaf:
                         unimplemented(
@@ -1209,6 +1218,11 @@ class TensorVariable(VariableTracker):
                                 "Only pass tensors that are inputs to the compiled function or captured from outside",
                             ],
                         )
+                    else:
+                        node = var.proxy.node
+                        if node not in seen_nodes:
+                            seen_nodes.add(node)
+                            result.append(var)
                 else:
                     node = var.proxy.node
                     if node not in seen_nodes:
@@ -1831,16 +1845,46 @@ class TensorVariable(VariableTracker):
         if requires_grad is not True:
             requires_grad = requires_grad.as_python_constant()  # type: ignore[attr-defined]
 
-        if self.as_proxy().node.meta["example_value"].requires_grad != requires_grad:
-            unimplemented(
-                gb_type="Unsupported Tensor.requires_grad_() call",
-                context=f"call_method {self} requires_grad_",
-                explanation="Dynamo does not support changes to a Tensor's "
-                "`requires_grad` through calling `requires_grad_()`.",
-                hints=[],
+        node = self.as_proxy().node
+        example_value = node.meta["example_value"]
+        if example_value.requires_grad != requires_grad:
+            # Wrap requires_grad_() with set_inplace_requires_grad_allowed so
+            # AOTAutograd's functionalization re-trace doesn't reject it.
+            prev_state = torch._C._functorch.get_inplace_requires_grad_allowed()
+            torch._C._functorch.set_inplace_requires_grad_allowed(True)
+            tx.output.create_node(
+                "call_function",
+                torch._C._functorch.set_inplace_requires_grad_allowed,
+                (True,),
+                {},
             )
-        else:
-            return self
+            tx.output.create_proxy(
+                "call_method",
+                "requires_grad_",
+                (self.as_proxy(),),
+                {},
+            )
+            tx.output.create_node(
+                "call_function",
+                torch._C._functorch.set_inplace_requires_grad_allowed,
+                (prev_state,),
+                {},
+            )
+            torch._C._functorch.set_inplace_requires_grad_allowed(prev_state)
+            example_value.requires_grad_(requires_grad)
+            grapharg = node.meta.get("grapharg")
+            if grapharg is not None:
+                grapharg.example.requires_grad_(requires_grad)
+            self.requires_grad = requires_grad
+            if requires_grad:
+                tx.output.leaf_var_creation_order.append(self)
+                # Initialize .grad = None in side effects so the
+                # accumulate_grad polyfill can read/write .grad naturally.
+                if tx.output.side_effects.is_attribute_mutation(self):
+                    tx.output.side_effects.store_attr(
+                        self, "grad", variables.CONSTANT_VARIABLE_NONE
+                    )
+        return self
 
     def method_share_memory_(self) -> NoReturn:
         unimplemented(

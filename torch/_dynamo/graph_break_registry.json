@@ -2686,6 +2686,17 @@
       ]
     }
   ],
+  "GB4970": [
+    {
+      "Gb_type": "returning intermediate with requires_grad_()",
+      "Context": "return value: {ret_val}",
+      "Explanation": "An intermediate tensor that had requires_grad_() called on it is being returned from the compiled region. AOTAutograd's functionalization drops the requires_grad_() effect on graph outputs, producing wrong results.",
+      "Hints": [
+        "Consume the gradient inside the compiled function (call backward() and use .grad), ",
+        "or move requires_grad_() outside torch.compile."
+      ]
+    }
+  ],
   "GB2669": [
     {
       "Gb_type": "Comprehension graph break in resume function with captured variables",

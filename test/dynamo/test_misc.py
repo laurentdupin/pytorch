@@ -14318,6 +14318,152 @@ fn
         result2 = compiled_fn(x2)
         self.assertEqual(result2, x2)
 
+    def test_requires_grad_changes_dynamo_graph(self):
+        def fn(x):
+            x.requires_grad_()
+            if x.requires_grad:
+                return x * 2
+            return x + 1
+
+        x = torch.randn(3, 3)
+        opt_fn = torch.compile(fn, fullgraph=True)
+        result = opt_fn(x)
+        self.assertEqual(result, x * 2)
+
+    def test_requires_grad_backward_outside_compile(self):
+        def fn(x):
+            x.requires_grad_()
+            return (x * 2).sum()
+
+        x_ref = torch.randn(3, 3)
+        x_test = x_ref.clone()
+
+        fn(x_ref).backward()
+        torch.compile(fn, fullgraph=True)(x_test).backward()
+
+        self.assertEqual(x_ref.grad, x_test.grad)
+
+    def test_requires_grad_return_tensor(self):
+        def fn(x):
+            x.requires_grad_()
+            y = x * 2 + x.sin()
+            return x, y
+
+        x_ref = torch.randn(3, 3)
+        x_test = x_ref.clone()
+
+        ref_x, ref_y = fn(x_ref)
+        test_x, test_y = torch.compile(fn, fullgraph=True)(x_test)
+
+        self.assertTrue(test_x.requires_grad)
+        self.assertTrue(test_y.requires_grad)
+        self.assertEqual(ref_y, test_y)
+
+        ref_y.sum().backward()
+        test_y.sum().backward()
+        self.assertEqual(x_ref.grad, x_test.grad)
+
+    def test_requires_grad_on_intermediate(self):
+        def fn(x):
+            y = x * 2
+            y.requires_grad_()
+            return y
+
+        x = torch.randn(3, 3)
+
+        # fullgraph=True should error — AOTAutograd drops requires_grad_()
+        with self.assertRaises(torch._dynamo.exc.Unsupported):
+            torch.compile(fn, fullgraph=True)(x)
+
+        # Without fullgraph, falls back to eager and is correct
+        result = torch.compile(fn)(x)
+        self.assertTrue(result.requires_grad)
+        self.assertEqual(fn(x), result)
+
+    @torch._dynamo.config.patch(trace_autograd_ops=True)
+    def test_requires_grad_on_intermediate_not_returned(self):
+        def fn(x):
+            y = x * 2
+            y.requires_grad_()
+            loss = (y * 3).sum()
+            loss.backward()
+            return y.grad
+
+        x = torch.randn(3, 3)
+
+        ref = fn(x.clone())
+        result = torch.compile(fn, fullgraph=True)(x.clone())
+        self.assertEqual(ref, result)
+
+    @torch._dynamo.config.patch(trace_autograd_ops=True)
+    def test_requires_grad_intermediate_backward_multi_op(self):
+        def fn(x):
+            y = x * 2
+            y.requires_grad_()
+            loss = (y.sin() + y.cos()).sum()
+            loss.backward()
+            return y.grad
+
+        x = torch.randn(3, 3)
+
+        ref = fn(x.clone())
+        result = torch.compile(fn, fullgraph=True)(x.clone())
+        self.assertEqual(ref, result)
+
+    @torch._dynamo.config.patch(trace_autograd_ops=True)
+    def test_requires_grad_intermediate_backward_with_input_grad(self):
+        # Both the graph input and an intermediate are leaves
+        def fn(x):
+            y = x.detach() * 2
+            y.requires_grad_()
+            loss = (x * y).sum()
+            loss.backward()
+            return x.grad, y.grad
+
+        x = torch.randn(3, 3, requires_grad=True)
+
+        x_ref = x.clone().detach().requires_grad_()
+        x_test = x.clone().detach().requires_grad_()
+
+        ref = fn(x_ref)
+        result = torch.compile(fn, fullgraph=True)(x_test)
+        self.assertEqual(ref[0], result[0])
+        self.assertEqual(ref[1], result[1])
+
+    @torch._dynamo.config.patch(trace_autograd_ops=True)
+    def test_requires_grad_intermediate_backward_multiple_intermediates(self):
+        def fn(x):
+            y = x * 2
+            y.requires_grad_()
+            z = x * 3
+            z.requires_grad_()
+            loss = (y * z).sum()
+            loss.backward()
+            return y.grad, z.grad
+
+        x = torch.randn(3, 3)
+
+        ref = fn(x.clone())
+        result = torch.compile(fn, fullgraph=True)(x.clone())
+        self.assertEqual(ref[0], result[0])
+        self.assertEqual(ref[1], result[1])
+
+    @torch._dynamo.config.patch(trace_autograd_ops=True)
+    def test_requires_grad_intermediate_backward_grad_used_in_compute(self):
+        # Use the grad result in further computation within compile
+        def fn(x):
+            y = x * 2
+            y.requires_grad_()
+            loss = (y**2).sum()
+            loss.backward()
+            return y.grad * 2 + 1
+
+        x = torch.randn(3, 3)
+
+        ref = fn(x.clone())
+        result = torch.compile(fn, fullgraph=True)(x.clone())
+        self.assertEqual(ref, result)
+
 
 class MiscTestsPyTree(torch._inductor.test_case.TestCase):
     @parametrize_pytree_module
