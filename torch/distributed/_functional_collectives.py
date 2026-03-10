@@ -1,8 +1,9 @@
 # mypy: allow-untyped-defs
 import contextlib
+import math
 import sys
 import warnings
-from typing import Any, cast, TYPE_CHECKING, Union
+from typing import Any, cast, TYPE_CHECKING
 from typing_extensions import deprecated
 
 import torch
@@ -32,6 +33,7 @@ except Exception:
 
     def is_torchdynamo_compiling():  # type: ignore[misc]
         return False
+        # pyrefly: ignore [unreachable]
         return False
 
 
@@ -91,14 +93,17 @@ Functional collectives can accept any of these types to describe the ranks parti
 
 The different types will be desugared to a canonical format
 """
-RANK_TYPES = Union[
-    list[int],
-    list[list[int]],
-    dist.ProcessGroup,
-    DeviceMesh,
-    tuple["dist.tensor.DeviceMesh", int],
-    c10d.GroupName,
-]
+RANK_TYPES = (
+    list[int]
+    | list[list[int]]
+    | dist.ProcessGroup
+    | DeviceMesh
+    | tuple["dist.tensor.DeviceMesh", int]
+    | c10d.GroupName
+)
+
+
+from torch._utils import _chunk_or_narrow_cat  # noqa: F401
 
 
 """
@@ -209,13 +214,16 @@ def all_gather_tensor(
         self, group_size, _group_or_group_name(group)
     )
     res = _maybe_wrap_tensor(tensor)
-    # TODO this should be done inside AsyncCollectiveTensor to delay the wait() call
     if gather_dim != 0:
-        # torch.cat access the data so we already need to wait here, first do wait
-        # and then chunk + cat avoid us going through ACT dispatching logic again
+        # Check if _maybe_view_chunk_cat can use the view optimization.
+        # If not, it will use torch.cat which needs the data anyway, so
+        # wait early to avoid AsyncCollectiveTensor dispatch overhead.
         if isinstance(res, AsyncCollectiveTensor):
-            res = res.wait()  # type: ignore[attr-defined]
-
+            shape = list(res.shape)
+            numel_between = math.prod(shape[1:gather_dim]) if gather_dim > 1 else 1
+            can_use_view = shape[0] == group_size and numel_between == 1
+            if not can_use_view:
+                res = res.wait()
         res = _maybe_view_chunk_cat(res, group_size, gather_dim)
     return res
 
@@ -243,13 +251,17 @@ def all_gather_tensor_autograd(
         self, group_size, _group_or_group_name(group)
     )
     res = _FromTorchTensor.apply(tensor)
-    # TODO this should be done inside AsyncCollectiveTensor to delay the wait() call
     if gather_dim != 0:
-        # torch.cat access the data so we already need to wait here, first do wait
-        # and then chunk + cat avoid us going through ACT dispatching logic again
+        # Check if _maybe_view_chunk_cat can use the view optimization.
+        # If not, it will use torch.cat which needs the data anyway, so
+        # wait early to avoid AsyncCollectiveTensor dispatch overhead.
         if isinstance(res, AsyncCollectiveTensor):
-            res = res.wait()  # type: ignore[attr-defined]
-        res = torch.cat(torch.chunk(res, group_size, dim=0), dim=gather_dim)
+            shape = list(res.shape)
+            numel_between = math.prod(shape[1:gather_dim]) if gather_dim > 1 else 1
+            can_use_view = shape[0] == group_size and numel_between == 1
+            if not can_use_view:
+                res = res.wait()
+        res = _maybe_view_chunk_cat(res, group_size, gather_dim)
     return res
 
 
@@ -283,8 +295,7 @@ def reduce_scatter_tensor(
             f"input dimension 0 ({self.size(0)} must be a multiple of group_size {group_size})"
         )
     if scatter_dim != 0:
-        tensor_list = torch.chunk(self, group_size, dim=scatter_dim)
-        self = torch.cat(tensor_list)
+        self = _chunk_or_narrow_cat(self, group_size, narrow_dim=scatter_dim, cat_dim=0)
 
     tensor = torch.ops._c10d_functional.reduce_scatter_tensor(
         self,
@@ -323,8 +334,7 @@ def reduce_scatter_tensor_autograd(
             f"input dimension 0 ({self.size(0)} must be a multiple of group_size {group_size}"
         )
     if scatter_dim != 0:
-        tensor_list = torch.chunk(self, group_size, dim=scatter_dim)
-        self = torch.cat(tensor_list)
+        self = _chunk_or_narrow_cat(self, group_size, narrow_dim=scatter_dim, cat_dim=0)
 
     tensor = torch.ops._c10d_functional_autograd.reduce_scatter_tensor(
         self,
@@ -1157,7 +1167,6 @@ def _expand_group(group: RANK_TYPES, tag: str = "") -> tuple[str, list[int], int
             raise AssertionError(
                 "Only 1D mesh is supported, pass in (DeviceMesh, int) together if mesh > 1D"
             )
-        # TODO: it should run collective in the whole mesh instead of dim 0
         pg = group.get_group()
         rankset = dist.get_process_group_ranks(pg)
         group_size = len(rankset)
@@ -1188,7 +1197,7 @@ def _resolve_group(
     group: RANK_TYPES, tag: str = ""
 ) -> dist.ProcessGroup | c10d.GroupName:
     """
-    Given group in RANK_TYPES, return the group name.
+    Given group in RANK_TYPES, return a ProcessGroup or group name.
     """
     # `tag` will be deprecated. See details in:
     # https://github.com/pytorch/pytorch/issues/93173#issuecomment-1907095208
@@ -1199,6 +1208,7 @@ def _resolve_group(
         # - so use a cast instead (the actual newtype representation is
         # literally the underlying type so this is fine). I haven't been able to
         # reproduce it in isolation (see T247631668).
+        # pyrefly: ignore [redundant-cast]
         group_name = cast(c10d.GroupName, group)  # c10d.GroupName(group)
         return group_name
     elif isinstance(group, DeviceMesh):
@@ -1219,7 +1229,9 @@ def _resolve_group(
             group_name = dmesh._dim_group_names[dim]
             return _resolve_process_group(group_name)
         else:
-            raise ValueError("Invalid tuple for group must be (DeviceMesh, int)")
+            raise ValueError(
+                f"Invalid tuple for group must be (DeviceMesh, int). Instead got {(type(group[0]), type(group[1]))}"
+            )
     elif isinstance(group, list):
         if not is_torchdynamo_compiling():
             warnings.warn(
@@ -1411,7 +1423,7 @@ def _broadcast_meta(self, *args):
 
 
 def _all_reduce_meta(self, *args):
-    return torch.empty_like(self)
+    return torch.empty_like(self, memory_format=torch.contiguous_format)
 
 
 def _wait_tensor_meta(self, *args):
@@ -1736,14 +1748,58 @@ from torch.distributed.distributed_c10d import (
 )
 
 
+# Dynamo remaps dist.* collectives to these wrappers via traceable_collective_remaps.
+# Each wrapper calls the in-place functional collective and returns None,
+# matching the return type of the original dist.* APIs when async_op=False.
+# async_op=True already graph-breaks in CollectiveFunctionRewriteVariable.
+# These must be module-level def statements (not closures from a decorator factory)
+# because _traceable_collectives_source resolves Dynamo guard sources by looking up
+# fn.__name__ as a module attribute — a def's __name__ matches its variable name
+# automatically, whereas a closure's would not.
+def _remapped_allgather(*args, **kwargs):
+    if not _are_we_tracing():
+        raise AssertionError("_remapped_allgather should only be called during tracing")
+    all_gather_tensor_inplace(*args, **kwargs)
+
+
+def _remapped_reducescatter(*args, **kwargs):
+    if not _are_we_tracing():
+        raise AssertionError(
+            "_remapped_reducescatter should only be called during tracing"
+        )
+    reduce_scatter_tensor_inplace(*args, **kwargs)
+
+
+def _remapped_allreduce(*args, **kwargs):
+    if not _are_we_tracing():
+        raise AssertionError("_remapped_allreduce should only be called during tracing")
+    all_reduce_inplace(*args, **kwargs)
+
+
+def _remapped_all_to_all_single(*args, **kwargs):
+    if not _are_we_tracing():
+        raise AssertionError(
+            "_remapped_all_to_all_single should only be called during tracing"
+        )
+    all_to_all_inplace(*args, **kwargs)
+
+
+def _remapped_all_gather(*args, **kwargs):
+    if not _are_we_tracing():
+        raise AssertionError(
+            "_remapped_all_gather should only be called during tracing"
+        )
+    all_gather_inplace(*args, **kwargs)
+
+
 # This dict should contain sets of functions that dynamo is allowed to remap.
 # Functions in this set should accept the same args/kwargs 1:1 as their mapping.
 traceable_collective_remaps = {
-    legacy_allgather: all_gather_tensor_inplace,  # type: ignore[has-type]
-    legacy_reducescatter: reduce_scatter_tensor_inplace,  # type: ignore[has-type]
-    legacy_allreduce: all_reduce_inplace,  # type: ignore[has-type]
-    legacy_all_to_all_single: all_to_all_inplace,  # type: ignore[has-type]
-    legacy_all_gather: all_gather_inplace,  # type: ignore[has-type]
-    legacy_reduce_scatter_base: reduce_scatter_tensor_inplace,  # type: ignore[has-type]
-    legacy_all_gather_base: all_gather_tensor_inplace,  # type: ignore[has-type]
+    legacy_allgather: _remapped_allgather,
+    legacy_reducescatter: _remapped_reducescatter,
+    legacy_allreduce: _remapped_allreduce,
+    legacy_all_to_all_single: _remapped_all_to_all_single,
+    legacy_all_gather: _remapped_all_gather,
+    legacy_reduce_scatter_base: _remapped_reducescatter,
+    legacy_all_gather_base: _remapped_allgather,
 }
