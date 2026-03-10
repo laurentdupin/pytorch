@@ -1158,6 +1158,13 @@ def forward(self, x_1, output_1):
             else f"empty_strided_{GPU_TYPE}((10, ), (1, ), torch.float32)"
         )
         num_bufs_allocated = code.count(code_string)
+        if (
+            inductor_config.cpp_wrapper
+            and not inductor_config.triton.autotune_at_compile_time
+        ):
+            # Lazy compile emits aoti_torch_empty_strided for scratch space
+            # allocation (global_scratch + profile_scratch) per unique kernel wrapper
+            num_bufs_allocated -= 2
         self.assertEqual(num_bufs_allocated, 2)
 
         # Check we're reusing buffers if not allocating.
@@ -2226,7 +2233,7 @@ def forward(self, arg0_1, arg1_1):
                 not inductor_config.cpp_wrapper
                 or inductor_config.triton.autotune_at_compile_time
             ):
-                # Lazy kernel compilation implicilty calls TensorDescriptor.from_tensor
+                # Lazy kernel compilation implicitly calls TensorDescriptor.from_tensor
                 # when calling run_triton_kernel_with_autotune
                 self.assertEqual(code.count("TensorDescriptor.from_tensor("), 2)
         else:

@@ -68,9 +68,12 @@ def _wrap_tma_args(args: list[Any], kernel_fn: CachingAutotuner) -> list[Any]:
     for name, sig_type in sig_items:
         if isinstance(sig_type, str) and sig_type == "constexpr":
             continue
-        if isinstance(sig_type, str) and (
-            sig_type == "nvTmaDesc" or sig_type.startswith("tensordesc<")
-        ):
+        if isinstance(sig_type, str) and sig_type == "nvTmaDesc":
+            raise RuntimeError(
+                f"nvTmaDesc (experimental TMA API) is not supported in lazy compile "
+                f"for arg '{name}'. Use the stable tensordesc API instead."
+            )
+        if isinstance(sig_type, str) and sig_type.startswith("tensordesc<"):
             tma_indices.append((arg_idx, name, sig_type))
         arg_idx += 1
 
@@ -82,7 +85,9 @@ def _wrap_tma_args(args: list[Any], kernel_fn: CachingAutotuner) -> list[Any]:
     wrapped = list(args)
     for arg_idx, name, sig_type in tma_indices:
         if arg_idx >= len(wrapped):
-            break
+            raise RuntimeError(
+                f"TMA arg index {arg_idx} for '{name}' exceeds arg count {len(wrapped)}"
+            )
         tensor = wrapped[arg_idx]
         # Parse block_shape from tensordesc<dtype[dim0, dim1, ...]>
         match = re.match(r"tensordesc<[^[]*\[([^\]]*)\]", sig_type)

@@ -256,14 +256,21 @@ class DeferredTritonCallWrapper:
     inductor_meta: dict[str, Any] | None = None
     tma_tensor_args: dict[str, str] | None = None
 
+    @cache_on_self
     def _get_tma_args(self) -> dict[str, str]:
         """Get mapping of TMA descriptor arg names to their signature types."""
         triton_meta = self.triton_meta or {}
         signature = triton_meta.get("signature", {})
+        for name, sig_type in signature.items():
+            if sig_type == "nvTmaDesc":
+                raise RuntimeError(
+                    f"nvTmaDesc (experimental TMA API) is not supported in lazy compile "
+                    f"for arg '{name}'. Use the stable tensordesc API instead."
+                )
         return {
             name: sig_type
             for name, sig_type in signature.items()
-            if isinstance(sig_type, str) and signature_is_tma_desc(sig_type)
+            if isinstance(sig_type, str) and sig_type.startswith("tensordesc<")
         }
 
     def _get_cpp_param_type(
@@ -439,6 +446,12 @@ class DeferredTritonCallWrapper:
             wrapper_arg_names.append(f"_grid_{i}")
 
         # Add TMA tensor args after grid args
+        if tma_tensor_args:
+            sig_tma_keys = list(self._get_tma_args().keys())
+            assert list(tma_tensor_args.keys()) == sig_tma_keys, (
+                f"TMA tensor args order mismatch for {self.kernel_name}: "
+                f"{list(tma_tensor_args.keys())} vs signature order {sig_tma_keys}"
+            )
         for desc_name in tma_tensor_args:
             wrapper_arg_names.append(f"_tma_tensor_{desc_name}")
 
@@ -496,6 +509,58 @@ class DeferredTritonCallWrapper:
                 """
             )
 
+    def _generate_lazy_tma_args(
+        self,
+        prefix: IndentedBuffer,
+        call_args_str: str,
+        kernel_arg_names: list[str],
+        tma_arg_names: OrderedSet[str],
+        signature: dict[str, str],
+    ) -> str:
+        """Unpack TMA descriptor args into kernel launch args."""
+        for arg_name in kernel_arg_names:
+            if arg_name in tma_arg_names:
+                tma_parts = _unpack_tma_descriptor_args(arg_name, signature[arg_name])
+                tma_str = ", ".join(tma_parts)
+                call_args_str = (
+                    f"{call_args_str}, {tma_str}" if call_args_str else tma_str
+                )
+        return call_args_str
+
+    def _generate_lazy_scratch(
+        self,
+        prefix: IndentedBuffer,
+        wrapper: CppWrapperGpu,
+        call_args_str: str,
+    ) -> str:
+        """Generate scratch space allocations with runtime-known sizes."""
+        kernel_name = self.kernel_name
+        dtype_str = wrapper.codegen_dtype(torch.uint8)
+        device_type, _ = wrapper.codegen_device(torch.device(get_gpu_type())).split(
+            ", "
+        )
+        for scratch_name in ("global_scratch", "profile_scratch"):
+            size_expr = f"{kernel_name}_result.{scratch_name}"
+            var = f"{scratch_name}_ptr"
+            prefix.splice(
+                f"""\
+                CUdeviceptr {var} = 0;
+                RAIIAtenTensorHandle {var}_tensor;
+                if ({size_expr} > 0) {{
+                    int64_t {var}_size[] = {{{size_expr}}};
+                    int64_t {var}_stride[] = {{1}};
+                    AtenTensorHandle {var}_handle;
+                    AOTI_TORCH_ERROR_CODE_CHECK(aoti_torch_empty_strided(
+                        1, {var}_size, {var}_stride, {dtype_str},
+                        {device_type}, device_idx_, &{var}_handle));
+                    {var}_tensor = RAIIAtenTensorHandle({var}_handle);
+                    {var} = reinterpret_cast<CUdeviceptr>({var}_tensor.data_ptr());
+                }}
+            """
+            )
+            call_args_str += f", &{var}"
+        return call_args_str
+
     def _generate_lazy_launch(
         self,
         prefix: IndentedBuffer,
@@ -521,14 +586,7 @@ class DeferredTritonCallWrapper:
 
         # Identify TMA args — they are already passed as StableTMADescriptor params,
         # so we just unpack them directly (no need to reconstruct from tensors).
-        tma_arg_names = OrderedSet(
-            [
-                name
-                for name in kernel_arg_names
-                if isinstance(signature.get(name, ""), str)
-                and signature[name].startswith("tensordesc<")
-            ]
-        )
+        tma_arg_names = OrderedSet(self._get_tma_args().keys())
 
         # Non-TMA args go through generate_args_decl
         non_tma_arg_names = [n for n in kernel_arg_names if n not in tma_arg_names]
@@ -544,41 +602,10 @@ class DeferredTritonCallWrapper:
             non_tma_arg_sigs,
         )
 
-        # Add TMA descriptor args — unpack from the existing StableTMADescriptor params
-        for arg_name in kernel_arg_names:
-            if arg_name in tma_arg_names:
-                tma_parts = _unpack_tma_descriptor_args(arg_name, signature[arg_name])
-                tma_str = ", ".join(tma_parts)
-                call_args_str = (
-                    f"{call_args_str}, {tma_str}" if call_args_str else tma_str
-                )
-
-        # Generate scratch space allocations with runtime-known sizes
-        dtype_str = wrapper.codegen_dtype(torch.uint8)
-        device_type, _ = wrapper.codegen_device(torch.device(get_gpu_type())).split(
-            ", "
+        call_args_str = self._generate_lazy_tma_args(
+            prefix, call_args_str, kernel_arg_names, tma_arg_names, signature
         )
-        for scratch_name in ("global_scratch", "profile_scratch"):
-            size_expr = f"{kernel_name}_result.{scratch_name}"
-            var = f"{scratch_name}_ptr"
-            prefix.splice(f"CUdeviceptr {var} = 0;")
-            if tma_arg_names:
-                prefix.splice(
-                    f"""\
-                    RAIIAtenTensorHandle {var}_tensor;
-                    if ({size_expr} > 0) {{
-                        int64_t {var}_size[] = {{{size_expr}}};
-                        int64_t {var}_stride[] = {{1}};
-                        AtenTensorHandle {var}_handle;
-                        AOTI_TORCH_ERROR_CODE_CHECK(aoti_torch_empty_strided(
-                            1, {var}_size, {var}_stride, {dtype_str},
-                            {device_type}, device_idx_, &{var}_handle));
-                        {var}_tensor = RAIIAtenTensorHandle({var}_handle);
-                        {var} = reinterpret_cast<CUdeviceptr>({var}_tensor.data_ptr());
-                    }}
-                """
-                )
-            call_args_str += f", &{var}"
+        call_args_str = self._generate_lazy_scratch(prefix, wrapper, call_args_str)
 
         prefix.splice(
             f"""\
@@ -602,8 +629,8 @@ class DeferredTritonCallWrapper:
         wrapper._lazy_kernel_names.append(kernel_name)
 
         # Include TMA helpers if any args use TMA descriptors
-        tma_args = self._get_tma_args()
-        if tma_args:
+        tma_signature_types = self._get_tma_args()
+        if tma_signature_types:
             wrapper.write_tma_descriptor_helpers_once()
 
         kernel_var_decl = maybe_hipify_code_wrapper(
@@ -630,7 +657,7 @@ class DeferredTritonCallWrapper:
         num_autotune_args = len(wrapper_arg_names) - len(tma_tensor_args)
         autotune_arg_list = []
         for name in wrapper_arg_names[:num_autotune_args]:
-            if name in tma_args:
+            if name in tma_signature_types:
                 autotune_arg_list.append(f"_tma_tensor_{name}")
             else:
                 autotune_arg_list.append(name)
