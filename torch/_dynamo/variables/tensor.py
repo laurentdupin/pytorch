@@ -1849,6 +1849,16 @@ class TensorVariable(VariableTracker):
         node = self.as_proxy().node
         example_value = node.meta["example_value"]
         if example_value.requires_grad != requires_grad:
+            # For graph inputs (tensors with source), requires_grad_() is a
+            # metadata mutation that we can't trace — graph break as before.
+            if self.source:
+                unimplemented(
+                    gb_type="Unsupported Tensor.requires_grad_() call",
+                    context=f"call_method {self} requires_grad_",
+                    explanation="Dynamo does not support changes to a Tensor's "
+                    "`requires_grad` through calling `requires_grad_()`.",
+                    hints=[],
+                )
             # AOTAutograd re-traces the FX graph under functorch transforms
             # (functionalization). Functorch's checkSupportsInplaceRequiresGrad()
             # rejects requires_grad_() when the dynamic layer stack is non-empty.

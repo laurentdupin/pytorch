@@ -14319,6 +14319,7 @@ fn
         self.assertEqual(result2, x2)
 
     def test_requires_grad_changes_dynamo_graph(self):
+        # requires_grad_() on a graph input graph-breaks, so no fullgraph
         def fn(x):
             x.requires_grad_()
             if x.requires_grad:
@@ -14326,11 +14327,13 @@ fn
             return x + 1
 
         x = torch.randn(3, 3)
-        opt_fn = torch.compile(fn, fullgraph=True)
+        opt_fn = torch.compile(fn)
         result = opt_fn(x)
         self.assertEqual(result, x * 2)
 
     def test_requires_grad_backward_outside_compile(self):
+        # requires_grad_() on a graph input graph-breaks, but eager fallback
+        # produces correct results.
         def fn(x):
             x.requires_grad_()
             return (x * 2).sum()
@@ -14339,7 +14342,7 @@ fn
         x_test = x_ref.clone()
 
         fn(x_ref).backward()
-        torch.compile(fn, fullgraph=True)(x_test).backward()
+        torch.compile(fn)(x_test).backward()
 
         self.assertEqual(x_ref.grad, x_test.grad)
 
