@@ -1,49 +1,19 @@
 # Owner(s): ["module: inductor"]
-"""Tests for pad-as-cat and cat multi-consumer optimizations."""
+"""Tests for cat multi-consumer optimization (pytorch#125075)."""
 
 import re
 
 import torch
-from torch._dynamo.utils import counters
 from torch._inductor.test_case import TestCase
 from torch._inductor.utils import run_and_get_code
 from torch.testing._internal.inductor_utils import GPU_TYPE, requires_gpu
 
 
 def _count_triton_kernels(code: str) -> int:
-    """Count the number of triton kernel definitions in generated code."""
     return len(re.findall(r"def triton_\w+\(", code))
 
 
-class TestPadAsCat(TestCase):
-    # ─── Pattern 1: mul + pad + addmm (vllm#24917) ────────────────────
-
-    @requires_gpu()
-    def test_mul_pad_addmm(self):
-        """Multi-consumer F.pad uses ConcatKernel zero-copy."""
-        counters.clear()
-
-        def fn(x, scale, bias, weight):
-            mul_result = x * scale
-            padded = torch.nn.functional.pad(mul_result, [0, 192])
-            mm_result = torch.addmm(bias, mul_result, weight)
-            return padded, mm_result
-
-        x = torch.randn(128, 2880, device=GPU_TYPE, dtype=torch.bfloat16)
-        scale = torch.randn(128, 2880, device=GPU_TYPE, dtype=torch.bfloat16)
-        bias = torch.randn(1024, device=GPU_TYPE, dtype=torch.bfloat16)
-        weight = torch.randn(2880, 1024, device=GPU_TYPE, dtype=torch.bfloat16)
-
-        compiled = torch.compile(fn)
-        result, (code,) = run_and_get_code(compiled, x, scale, bias, weight)
-        ref = fn(x, scale, bias, weight)
-
-        self.assertEqual(result[0], ref[0])
-        self.assertEqual(result[1], ref[1], atol=1e-2, rtol=1e-2)
-        self.assertIn("reinterpret_tensor", code)
-        self.assertGreater(counters["inductor"]["pad_as_cat"], 0)
-
-    # ─── Pattern 2: cat + to_fp16 (pytorch#125075) ────────────────────
+class TestCatMultiConsumer(TestCase):
 
     @requires_gpu()
     def test_cat_to_fp16(self):
@@ -67,26 +37,6 @@ class TestPadAsCat(TestCase):
             2,
             f"Expected at most 2 kernels (fused + fill), got {kernel_count}.",
         )
-
-    # ─── Single consumer unchanged ─────────────────────────────────────
-
-    @requires_gpu()
-    def test_single_consumer_pad_unchanged(self):
-        """Single-consumer F.pad skips _pad_as_cat."""
-        counters.clear()
-
-        def fn(x, scale):
-            return torch.nn.functional.pad(x * scale, [0, 192])
-
-        x = torch.randn(128, 2880, device=GPU_TYPE)
-        scale = torch.randn(128, 2880, device=GPU_TYPE)
-
-        compiled = torch.compile(fn)
-        result = compiled(x, scale)
-        ref = fn(x, scale)
-
-        self.assertEqual(result, ref)
-        self.assertEqual(counters["inductor"]["pad_as_cat"], 0)
 
     @requires_gpu()
     def test_single_consumer_cat_unchanged(self):
