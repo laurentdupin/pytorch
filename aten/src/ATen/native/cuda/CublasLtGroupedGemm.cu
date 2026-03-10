@@ -242,7 +242,11 @@ void cublaslt_grouped_gemm_core(
     bool use_fast_accum,
     void* workspace,
     size_t workspace_size,
-    cudaStream_t stream) {
+    cudaStream_t stream,
+    const void* a_scale_ptr = nullptr,
+    const void* b_scale_ptr = nullptr,
+    int a_scale_mode = -1,
+    int b_scale_mode = -1) {
 
   cublasLtMatmulDesc_t operationDesc = nullptr;
   cublasLtMatrixLayout_t Adesc = nullptr, Bdesc = nullptr, Cdesc = nullptr, Ddesc = nullptr;
@@ -269,6 +273,23 @@ void cublaslt_grouped_gemm_core(
     int8_t fastAccuMode = 1;
     TORCH_CUDABLAS_CHECK(cublasLtMatmulDescSetAttribute(
         operationDesc, CUBLASLT_MATMUL_DESC_FAST_ACCUM, &fastAccuMode, sizeof(fastAccuMode)));
+  }
+
+  if (a_scale_ptr != nullptr) {
+    TORCH_CUDABLAS_CHECK(cublasLtMatmulDescSetAttribute(
+        operationDesc, CUBLASLT_MATMUL_DESC_A_SCALE_POINTER, &a_scale_ptr, sizeof(a_scale_ptr)));
+  }
+  if (b_scale_ptr != nullptr) {
+    TORCH_CUDABLAS_CHECK(cublasLtMatmulDescSetAttribute(
+        operationDesc, CUBLASLT_MATMUL_DESC_B_SCALE_POINTER, &b_scale_ptr, sizeof(b_scale_ptr)));
+  }
+  if (a_scale_mode >= 0) {
+    TORCH_CUDABLAS_CHECK(cublasLtMatmulDescSetAttribute(
+        operationDesc, CUBLASLT_MATMUL_DESC_A_SCALE_MODE, &a_scale_mode, sizeof(a_scale_mode)));
+  }
+  if (b_scale_mode >= 0) {
+    TORCH_CUDABLAS_CHECK(cublasLtMatmulDescSetAttribute(
+        operationDesc, CUBLASLT_MATMUL_DESC_B_SCALE_MODE, &b_scale_mode, sizeof(b_scale_mode)));
   }
 
   int32_t sm_count = at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
@@ -583,6 +604,102 @@ void cublaslt_f8f8bf16_grouped_mm(
       ws.get(), ws_size, stream);
 }
 
+void cublaslt_mxfp8_grouped_mm(
+    at::Tensor mat_a,
+    at::Tensor mat_b,
+    at::Tensor scale_a,
+    at::Tensor scale_b,
+    std::optional<at::Tensor> offs,
+    at::Tensor& out) {
+  // MXFP8: mat_a is fp8 (2d or 3d), mat_b is fp8 (2d or 3d)
+  // scale_a/scale_b are float8_e8m0fnu block scales (swizzled)
+  // The cuBLASLt scale mode VEC32_UE8M0 handles the 1-scale-per-32-elements layout
+  int32_t M = mat_a.size(-2);
+  int32_t N = mat_b.size(-1);
+  int32_t K = mat_a.size(-1);
+  int32_t group_count;
+
+  if (mat_a.dim() == 2 && mat_b.dim() == 2) {
+    group_count = offs->size(0);
+    K = -1;
+  } else if (mat_a.dim() == 2) {
+    group_count = mat_b.size(0);
+    M = -1;
+  } else if (mat_b.dim() == 2) {
+    group_count = mat_a.size(0);
+    N = -1;
+  } else {
+    group_count = mat_a.size(0);
+  }
+
+  TORCH_CHECK(group_count < 1024, "cuBLASLt grouped gemm: cannot process more than 1024 groups");
+
+  auto& allocator = *c10::cuda::CUDACachingAllocator::get();
+  auto stream = at::cuda::getCurrentCUDAStream().stream();
+
+  c10::DataPtr buf;
+  auto layout = allocate_grouped_buffers(allocator, group_count, buf);
+
+  // After row-major swap: cuBLAS A = mat_b, cuBLAS B = mat_a
+  // For MXFP8: mat_a is row-major, mat_b is col-major (transposed)
+  cublasOperation_t transa = cublas_trans(mat_b);
+  cublasOperation_t transb = cublas_trans(mat_a);
+
+  int64_t a_ld = cublas_ld(mat_a);
+  int64_t b_ld = cublas_ld(mat_b);
+  int64_t a_batch_stride = mat_a.dim() == 3 ? mat_a.stride(0) : 0;
+  int64_t b_batch_stride = mat_b.dim() == 3 ? mat_b.stride(0) : 0;
+  int64_t out_batch_stride = out.dim() == 3 ? out.stride(0) : 0;
+  int64_t out_ld = out.stride(-2);
+
+  prepare_cublaslt_grouped_f8<<<1, group_count, 0, stream>>>(
+      static_cast<char*>(mat_a.data_ptr()),
+      static_cast<char*>(mat_b.data_ptr()),
+      static_cast<char*>(out.data_ptr()),
+      layout.m_array, layout.n_array, layout.k_array,
+      layout.lda_array, layout.ldb_array, layout.ldc_array, layout.ldd_array,
+      layout.a_ptrs, layout.b_ptrs, layout.c_ptrs, layout.d_ptrs,
+      layout.alpha_ptrs, layout.beta_ptrs, layout.alpha_values, layout.beta_values,
+      offs.has_value() ? offs->const_data_ptr<int32_t>() : nullptr,
+      M, N, K,
+      a_batch_stride, a_ld,
+      b_batch_stride, b_ld,
+      out_batch_stride, out_ld,
+      mat_a.element_size(), mat_b.element_size(), out.element_size());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  int64_t avg_n = N > 0 ? N : mat_b.size(-1) / std::max(group_count, 1);
+  int64_t avg_m = M > 0 ? M : mat_a.size(-2) / std::max(group_count, 1);
+  int64_t avg_k = K > 0 ? K : mat_a.size(-1) / std::max(group_count, 1);
+
+  size_t ws_size = 1 << 22;
+  auto ws = allocator.allocate(ws_size);
+
+  // After swap: cuBLAS A = mat_b → scale for cuBLAS A is scale_b
+  //             cuBLAS B = mat_a → scale for cuBLAS B is scale_a
+  int scale_mode = static_cast<int>(CUBLASLT_MATMUL_MATRIX_SCALE_VEC32_UE8M0);
+
+  cublaslt_grouped_gemm_core(
+      at::cuda::getCurrentCUDABlasLtHandle(),
+      transa, transb,
+      CUDA_R_8F_E4M3, CUDA_R_8F_E4M3, CUDA_R_16BF, CUDA_R_16BF,
+      group_count,
+      avg_n, avg_m, avg_k,
+      layout.m_array, layout.n_array, layout.k_array,
+      layout.lda_array, layout.ldb_array, layout.ldc_array, layout.ldd_array,
+      const_cast<const void* const*>(layout.a_ptrs),
+      const_cast<const void* const*>(layout.b_ptrs),
+      const_cast<const void* const*>(layout.c_ptrs),
+      layout.d_ptrs,
+      const_cast<const float* const*>(layout.alpha_ptrs),
+      const_cast<const float* const*>(layout.beta_ptrs),
+      false,
+      ws.get(), ws_size, stream,
+      scale_b.data_ptr(),  // cuBLAS A scale = mat_b scale
+      scale_a.data_ptr(),  // cuBLAS B scale = mat_a scale
+      scale_mode, scale_mode);
+}
+
 } // namespace at::cuda::detail
 
 #else // CUDA_VERSION < 13010 or USE_ROCM
@@ -608,6 +725,16 @@ void cublaslt_f8f8bf16_grouped_mm(
     at::Tensor scale_b,
     std::optional<at::Tensor> offs,
     bool use_fast_accum,
+    at::Tensor& out) {
+  TORCH_CHECK(false, "cuBLASLt grouped gemm requires CUDA 13.1 or later");
+}
+
+void cublaslt_mxfp8_grouped_mm(
+    at::Tensor mat_a,
+    at::Tensor mat_b,
+    at::Tensor scale_a,
+    at::Tensor scale_b,
+    std::optional<at::Tensor> offs,
     at::Tensor& out) {
   TORCH_CHECK(false, "cuBLASLt grouped gemm requires CUDA 13.1 or later");
 }

@@ -508,8 +508,11 @@ _scaled_grouped_mm_cuda(
 #endif
 
   if (is_mx8mx8bf16) {
-    // Note: Passing implied SwizzleType here, correctness of scale previously checked
-    //       in `check_scale` call
+    if (_use_cublaslt_grouped_gemm()) {
+      at::cuda::detail::cublaslt_mxfp8_grouped_mm(
+          mat_a, mat_b, scale_a, scale_b, offs, out);
+      return out;
+    }
     return _mx8_mx8_bf16_grouped_mm_mslk(
         mat_a,
         mat_b,

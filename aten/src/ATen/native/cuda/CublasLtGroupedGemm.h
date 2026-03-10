@@ -21,4 +21,12 @@ TORCH_API void cublaslt_f8f8bf16_grouped_mm(
     bool use_fast_accum,
     at::Tensor& out);
 
+TORCH_API void cublaslt_mxfp8_grouped_mm(
+    at::Tensor mat_a,
+    at::Tensor mat_b,
+    at::Tensor scale_a,
+    at::Tensor scale_b,
+    std::optional<at::Tensor> offs,
+    at::Tensor& out);
+
 } // namespace at::cuda::detail
