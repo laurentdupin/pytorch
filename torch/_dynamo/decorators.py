@@ -4,6 +4,7 @@ This module provides decorators and utilities for controlling TorchDynamo's beha
 
 import functools
 import inspect
+import warnings
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -187,6 +188,12 @@ def allow_in_graph(fn):  # type: ignore[no-untyped-def]
 
     WARNING: this API can be a footgun, please read the documentation carefully.
     """
+    warnings.warn(
+        "torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. "
+        "Use torch._dynamo.nonstrict_trace instead.",
+        FutureWarning,
+        stacklevel=2,
+    )
     if isinstance(fn, (list, tuple)):
         return [allow_in_graph(x) for x in fn]
     assert callable(fn), "allow_in_graph expects a callable"
