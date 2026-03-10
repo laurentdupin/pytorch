@@ -5551,8 +5551,7 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
                 contiguous_red = r_coalesce_ratio >= INNER_REDUCTION_RATIO_THRESHOLD
             else:
                 contiguous_red = (
-                    self.features.get_reduction_hint(tiling_scores)
-                    == ReductionHint.INNER
+                    self.features.get_reduction_hint() == ReductionHint.INNER
                 )
 
             looped_mem = memory_stats.looped.memory.bytes
@@ -5631,7 +5630,7 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
                 @triton.jit
             """
         elif self.inside_reduction:
-            reduction_hint = self.features.get_reduction_hint(self.tiling_scores)
+            reduction_hint = self.features.get_reduction_hint()
             heuristics_line = f"""
                 @triton_heuristics.{self._get_heuristic()}(
                     size_hints={size_hints!r},

@@ -16441,17 +16441,44 @@ if RUN_GPU:
             self.assertFalse("out_ptr0" in code)
             self.assertEqual(fn_opt(*inps), fn(*inps))
 
-        def test_reduction_hint_inner_with_high_tiling_ratio(self):
-            """Test inner reduction hint with high tiling score ratio."""
+        def test_reduction_hint_noncontiguous_pw_stays_default(self):
+            """Reduction hint should stay DEFAULT when fused pointwise reads are non-contiguous.
+
+            When a reduction kernel is fused with pointwise ops that have non-contiguous
+            reads (e.g. a transposed tensor), get_reduction_hint() downgrades the hint to
+            DEFAULT so the autotuner favours larger XBLOCK for the PW reads.  Tiling scores
+            alone must not override that decision, because doing so changes the Triton
+            autotune configs in a way that alters floating-point accumulation order and can
+            cause fail_accuracy for models such as vit_base_patch14_dinov2 with AMP.
+            """
 
             def f(x, y):
                 return x.sum(dim=-1, keepdim=True) + (x + y[..., None])
 
             x = torch.randn(2048, 128, 1024, device=GPU_TYPE)
+            # y is transposed → strides are (1, 2048), non-contiguous in the outer dims
             y = torch.randn(128, 2048, device=GPU_TYPE).t()
 
             code = run_and_get_triton_code(torch.compile(f), x, y)
+            # Non-contiguous PW reads should keep the hint at DEFAULT, not INNER.
+            self.assertIn("ReductionHint.DEFAULT", code)
+
+        def test_reduction_hint_inner_contiguous_pw(self):
+            """A pure inner reduction (no non-contiguous PW) keeps INNER hint and matches eager."""
+
+            def f(x):
+                return x.sum(dim=-1, keepdim=True) + x
+
+            x = torch.randn(2048, 128, 1024, device=GPU_TYPE)
+
+            code = run_and_get_triton_code(torch.compile(f), x)
             self.assertIn("ReductionHint.INNER", code)
+
+            # Numerical accuracy: compiled output must match eager within bf16 tolerance.
+            x_bf16 = x.to(torch.bfloat16)
+            ref = f(x_bf16)
+            out = torch.compile(f)(x_bf16)
+            self.assertEqual(ref, out)
 
         def test_numpy_on_gpu(self):
             x = np.arange(10, dtype=np.float32)
