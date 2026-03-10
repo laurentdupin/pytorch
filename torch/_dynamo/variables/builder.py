@@ -2671,7 +2671,7 @@ class VariableBuilder:
             excluded_scalar = (
                 frame_state_entry.excluded_scalar
                 if frame_state_entry is not None
-                and config.stable_graph_selection_for_automatic_dynamic
+                and config.automatic_dynamic_exclusion_guard
                 else None
             )
             wrapped_value = shape_env.create_unspecified_symint_and_symbol(
