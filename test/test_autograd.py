@@ -11151,6 +11151,7 @@ get_out().sum().backward()
             torch.autograd.grad(g2.sum(), x)
 
 
+
 def index_perm_variable(shape, max_indices):
     if not isinstance(shape, tuple):
         shape = (shape,)
