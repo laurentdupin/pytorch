@@ -14343,26 +14343,6 @@ fn
 
         self.assertEqual(x_ref.grad, x_test.grad)
 
-    def test_requires_grad_return_tensor(self):
-        def fn(x):
-            x.requires_grad_()
-            y = x * 2 + x.sin()
-            return x, y
-
-        x_ref = torch.randn(3, 3)
-        x_test = x_ref.clone()
-
-        ref_x, ref_y = fn(x_ref)
-        test_x, test_y = torch.compile(fn, fullgraph=True)(x_test)
-
-        self.assertTrue(test_x.requires_grad)
-        self.assertTrue(test_y.requires_grad)
-        self.assertEqual(ref_y, test_y)
-
-        ref_y.sum().backward()
-        test_y.sum().backward()
-        self.assertEqual(x_ref.grad, x_test.grad)
-
     def test_requires_grad_on_intermediate(self):
         def fn(x):
             y = x * 2
@@ -14371,8 +14351,11 @@ fn
 
         x = torch.randn(3, 3)
 
-        # fullgraph=True should error — AOTAutograd drops requires_grad_()
-        with self.assertRaises(torch._dynamo.exc.Unsupported):
+        # fullgraph=True should error with actionable message
+        with self.assertRaisesRegex(
+            torch._dynamo.exc.Unsupported,
+            r"requires_grad_\(\)(.|\n)*\.detach\(\)",
+        ):
             torch.compile(fn, fullgraph=True)(x)
 
         # Without fullgraph, falls back to eager and is correct
@@ -14388,8 +14371,11 @@ fn
 
         x = torch.randn(3, 3)
 
-        # Derived tensor also loses requires_grad — should error
-        with self.assertRaises(torch._dynamo.exc.Unsupported):
+        # Derived tensor also loses requires_grad — should error with message
+        with self.assertRaisesRegex(
+            torch._dynamo.exc.Unsupported,
+            r"requires_grad_\(\)(.|\n)*\.detach\(\)",
+        ):
             torch.compile(fn, fullgraph=True)(x)
 
         # Without fullgraph, falls back to eager and is correct

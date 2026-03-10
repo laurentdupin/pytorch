@@ -488,6 +488,7 @@ class TensorVariable(VariableTracker):
     def method_attr_grad(self, tx: "InstructionTranslator") -> VariableTracker | None:
         if tx.output.side_effects.has_pending_mutation_of_attr(self, "grad"):
             return tx.output.side_effects.load_attr(self, "grad")
+        # None tells var_getattr to use default .grad handling
         return None
 
     def method_attr_data(self, tx: "InstructionTranslator") -> VariableTracker:
@@ -1848,8 +1849,16 @@ class TensorVariable(VariableTracker):
         node = self.as_proxy().node
         example_value = node.meta["example_value"]
         if example_value.requires_grad != requires_grad:
-            # Wrap requires_grad_() with set_inplace_requires_grad_allowed so
-            # AOTAutograd's functionalization re-trace doesn't reject it.
+            # AOTAutograd re-traces the FX graph under functorch transforms
+            # (functionalization). Functorch's checkSupportsInplaceRequiresGrad()
+            # rejects requires_grad_() when the dynamic layer stack is non-empty.
+            # We wrap the call with set_inplace_requires_grad_allowed(True) to
+            # bypass this check, matching GradInplaceRequiresGradCtxManagerVariable
+            # in ctx_manager.py (which handles the explicit context manager case).
+            #
+            # Lines below do two things in parallel:
+            # 1. Mutate trace-time state so example_value.requires_grad_() works
+            # 2. Emit FX nodes so the same toggle happens during AOTAutograd re-trace
             prev_state = torch._C._functorch.get_inplace_requires_grad_allowed()
             torch._C._functorch.set_inplace_requires_grad_allowed(True)
             tx.output.create_node(
