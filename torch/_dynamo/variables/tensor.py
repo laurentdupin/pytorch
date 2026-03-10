@@ -1208,22 +1208,18 @@ class TensorVariable(VariableTracker):
                                 "Only pass leaf tensors (parameters, graph inputs) to backward(inputs=...)",
                             ],
                         )
-                elif not var.source or isinstance(var.source, SyntheticLocalSource):
-                    if error_on_non_leaf:
-                        unimplemented(
-                            gb_type="backward() with in-graph created tensor",
-                            context=f"backward(inputs=[...]) with in-graph created tensor: {var}",
-                            explanation="backward(inputs=[...]) with tensors created inside the "
-                            "compiled function is not yet supported.",
-                            hints=[
-                                "Only pass tensors that are inputs to the compiled function or captured from outside",
-                            ],
-                        )
-                    else:
-                        node = var.proxy.node
-                        if node not in seen_nodes:
-                            seen_nodes.add(node)
-                            result.append(var)
+                elif error_on_non_leaf and (
+                    not var.source or isinstance(var.source, SyntheticLocalSource)
+                ):
+                    unimplemented(
+                        gb_type="backward() with in-graph created tensor",
+                        context=f"backward(inputs=[...]) with in-graph created tensor: {var}",
+                        explanation="backward(inputs=[...]) with tensors created inside the "
+                        "compiled function is not yet supported.",
+                        hints=[
+                            "Only pass tensors that are inputs to the compiled function or captured from outside",
+                        ],
+                    )
                 else:
                     node = var.proxy.node
                     if node not in seen_nodes:
@@ -1891,9 +1887,6 @@ class TensorVariable(VariableTracker):
             )
             torch._C._functorch.set_inplace_requires_grad_allowed(prev_state)
             example_value.requires_grad_(requires_grad)
-            grapharg = node.meta.get("grapharg")
-            if grapharg is not None:
-                grapharg.example.requires_grad_(requires_grad)
             self.requires_grad = requires_grad
             if requires_grad:
                 tx.output.leaf_var_creation_order.append(self)

@@ -2686,38 +2686,6 @@
       ]
     }
   ],
-  "GB4970": [
-    {
-      "Gb_type": "returning intermediate with requires_grad_()",
-      "Context": "graph output depends on source-less requires_grad_()",
-      "Explanation": "An intermediate tensor that had requires_grad_() called on it (or a tensor derived from it) is being returned from the compiled region. AOTAutograd's functionalization drops the requires_grad_() effect on graph outputs, producing wrong results.",
-      "Hints": [
-        "If you only need the tensor values without gradients, ",
-        "call .detach() before returning.",
-        "Consume the gradient inside the compiled function ",
-        "(call backward() and use .grad), ",
-        "or move requires_grad_() outside torch.compile."
-      ]
-    },
-    {
-      "Gb_type": "returning intermediate with requires_grad_()",
-      "Context": "graph output depends on source-less requires_grad_()",
-      "Explanation": "An intermediate tensor that had requires_grad_() called on it (or a tensor derived from it) is being returned from the compiled region. AOTAutograd's functionalization drops the requires_grad_() effect on graph outputs, producing wrong results.",
-      "Hints": [
-        "Consume the gradient inside the compiled function (call backward() and use .grad), ",
-        "or move requires_grad_() outside torch.compile."
-      ]
-    },
-    {
-      "Gb_type": "returning intermediate with requires_grad_()",
-      "Context": "return value: {ret_val}",
-      "Explanation": "An intermediate tensor that had requires_grad_() called on it is being returned from the compiled region. AOTAutograd's functionalization drops the requires_grad_() effect on graph outputs, producing wrong results.",
-      "Hints": [
-        "Consume the gradient inside the compiled function (call backward() and use .grad), ",
-        "or move requires_grad_() outside torch.compile."
-      ]
-    }
-  ],
   "GB2669": [
     {
       "Gb_type": "Comprehension graph break in resume function with captured variables",
@@ -3425,6 +3393,20 @@
       "Explanation": "Dynamo doesn't support graph break on torch.fx.traceback.annotate.",
       "Hints": [
         "It may be possible to write Dynamo tracing rules for this code. Please report an issue to PyTorch if you encounter this graph break often and it is causing performance issues."
+      ]
+    }
+  ],
+  "GB7324": [
+    {
+      "Gb_type": "returning intermediate with requires_grad_()",
+      "Context": "graph output depends on source-less requires_grad_()",
+      "Explanation": "msg",
+      "Hints": [
+        "If you only need the tensor values without gradients, ",
+        "call .detach() before returning.",
+        "Consume the gradient inside the compiled function ",
+        "(call backward() and use .grad), ",
+        "or move requires_grad_() outside torch.compile."
       ]
     }
   ],

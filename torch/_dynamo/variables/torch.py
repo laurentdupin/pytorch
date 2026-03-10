@@ -325,13 +325,18 @@ def _collect_tensors_with_sources(
         if isinstance(fake_tensor, torch._subclasses.fake_tensor.FakeTensor):
             pass
         elif is_traceable_wrapper_subclass(fake_tensor):
-            # For tensor subclasses (e.g. DTensor), unwrap to plain tensors
+            # For tensor subclasses (e.g. DTensor), unwrap to get the inner
+            # FakeTensor whose grad_fn chain reflects the actual autograd graph.
             plain: list[object] = []
             torch._subclasses.fake_tensor.get_plain_tensors(
                 fake_tensor,  # pyrefly: ignore[bad-argument-type]
                 out=plain,  # pyrefly: ignore[bad-argument-type]
             )
-            fake_tensor = next(t for t in plain if isinstance(t, torch.Tensor))
+            fake_tensor = next(
+                t
+                for t in plain
+                if isinstance(t, torch._subclasses.fake_tensor.FakeTensor)
+            )
         else:
             raise AssertionError(
                 f"Expected FakeTensor or subclass, got {type(fake_tensor)}"

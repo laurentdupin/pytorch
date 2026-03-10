@@ -2399,15 +2399,19 @@ class OutputGraph(OutputGraphCommon):
                 and var.requires_grad
                 and var.as_proxy().node in tainted_nodes
             ):
+                msg = (
+                    "An intermediate tensor that had requires_grad_() called "
+                    "on it (or a tensor derived from it) is being returned "
+                    "from the compiled region. AOTAutograd's functionalization "
+                    "drops the requires_grad_() effect on graph outputs, "
+                    "producing wrong results. If you only need the tensor "
+                    "values without gradients, call .detach() before returning."
+                )
                 if tx.one_graph:
                     unimplemented(
                         gb_type="returning intermediate with requires_grad_()",
                         context="graph output depends on source-less requires_grad_()",
-                        explanation="An intermediate tensor that had requires_grad_() "
-                        "called on it (or a tensor derived from it) is being returned "
-                        "from the compiled region. AOTAutograd's functionalization "
-                        "drops the requires_grad_() effect on graph outputs, "
-                        "producing wrong results.",
+                        explanation=msg,
                         hints=[
                             "If you only need the tensor values without gradients, "
                             "call .detach() before returning.",
@@ -2417,11 +2421,7 @@ class OutputGraph(OutputGraphCommon):
                         ],
                     )
                 else:
-                    raise exc.SkipFrame(
-                        "An intermediate tensor with requires_grad_() (or derived "
-                        "tensor) is being returned. Skipping frame to avoid silent "
-                        "incorrectness from AOTAutograd functionalization."
-                    )
+                    raise exc.SkipFrame(msg)
 
     def compile_and_call_fx_graph(
         self,
@@ -2450,7 +2450,7 @@ class OutputGraph(OutputGraphCommon):
             assert isinstance(rv, list)
             assert isinstance(root, FakeRootModule)
 
-            # Auto-detach or error on source-less requires_grad_() outputs.
+            # Error on source-less requires_grad_() outputs.
             # Must run before autograd validation since detaching resolves the
             # "consumed grad_fn" conflict for backward-consumed intermediates.
             self._check_requires_grad_intermediate_outputs(rv, tx)
