@@ -1,5 +1,5 @@
 # Owner(s): ["module: inductor"]
-"""Tests for pad-as-cat and cat multi-consumer optimizations (pytorch#125075, vllm#24917)."""
+"""Tests for pad-as-cat and cat multi-consumer optimizations."""
 
 import re
 
@@ -16,7 +16,6 @@ def _count_triton_kernels(code: str) -> int:
 
 
 class TestPadAsCat(TestCase):
-
     # ─── Pattern 1: mul + pad + addmm (vllm#24917) ────────────────────
 
     @requires_gpu()
@@ -30,8 +29,8 @@ class TestPadAsCat(TestCase):
             mm_result = torch.addmm(bias, mul_result, weight)
             return padded, mm_result
 
-        x = torch.randn(4096, 2880, device=GPU_TYPE, dtype=torch.bfloat16)
-        scale = torch.randn(4096, 2880, device=GPU_TYPE, dtype=torch.bfloat16)
+        x = torch.randn(128, 2880, device=GPU_TYPE, dtype=torch.bfloat16)
+        scale = torch.randn(128, 2880, device=GPU_TYPE, dtype=torch.bfloat16)
         bias = torch.randn(1024, device=GPU_TYPE, dtype=torch.bfloat16)
         weight = torch.randn(2880, 1024, device=GPU_TYPE, dtype=torch.bfloat16)
 
@@ -39,9 +38,8 @@ class TestPadAsCat(TestCase):
         result, (code,) = run_and_get_code(compiled, x, scale, bias, weight)
         ref = fn(x, scale, bias, weight)
 
-        # Correctness
-        self.assertTrue(torch.allclose(result[0], ref[0]))
-        self.assertTrue(torch.allclose(result[1], ref[1], atol=1e-2, rtol=1e-2))
+        self.assertEqual(result[0], ref[0])
+        self.assertEqual(result[1], ref[1], atol=1e-2, rtol=1e-2)
         self.assertIn("reinterpret_tensor", code)
         self.assertGreater(counters["inductor"]["pad_as_cat"], 0)
 
@@ -56,14 +54,13 @@ class TestPadAsCat(TestCase):
             y = x.to(torch.float16)
             return z, y
 
-        x = torch.randn(30522, 768, device=GPU_TYPE)
+        x = torch.randn(1024, 768, device=GPU_TYPE)
         compiled = torch.compile(fn)
         result, (code,) = run_and_get_code(compiled, x)
         ref = fn(x)
 
-        # Correctness
-        self.assertTrue(torch.allclose(result[0], ref[0]))
-        self.assertTrue(torch.allclose(result[1], ref[1]))
+        self.assertEqual(result[0], ref[0])
+        self.assertEqual(result[1], ref[1])
         kernel_count = _count_triton_kernels(code)
         self.assertLessEqual(
             kernel_count,
@@ -81,14 +78,14 @@ class TestPadAsCat(TestCase):
         def fn(x, scale):
             return torch.nn.functional.pad(x * scale, [0, 192])
 
-        x = torch.randn(4096, 2880, device=GPU_TYPE)
-        scale = torch.randn(4096, 2880, device=GPU_TYPE)
+        x = torch.randn(128, 2880, device=GPU_TYPE)
+        scale = torch.randn(128, 2880, device=GPU_TYPE)
 
         compiled = torch.compile(fn)
         result = compiled(x, scale)
         ref = fn(x, scale)
 
-        self.assertTrue(torch.allclose(result, ref))
+        self.assertEqual(result, ref)
         self.assertEqual(counters["inductor"]["pad_as_cat"], 0)
 
     @requires_gpu()
@@ -98,12 +95,12 @@ class TestPadAsCat(TestCase):
         def fn(x):
             return torch.cat([x, torch.zeros([6, 768], device=GPU_TYPE)], dim=0)
 
-        x = torch.randn(30522, 768, device=GPU_TYPE)
+        x = torch.randn(1024, 768, device=GPU_TYPE)
         compiled = torch.compile(fn)
         result = compiled(x)
         ref = fn(x)
 
-        self.assertTrue(torch.allclose(result, ref))
+        self.assertEqual(result, ref)
 
 
 if __name__ == "__main__":
