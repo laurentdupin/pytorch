@@ -64,6 +64,8 @@ from torch.testing._internal.common_fsdp import (
     patch_unshard,
 )
 from torch.testing._internal.common_utils import (
+    instantiate_parametrized_tests,
+    parametrize,
     requires_cuda_p2p_access,
     run_tests,
     skip_but_pass_in_sandcastle_if,
@@ -1726,7 +1728,8 @@ class TestFullyShardSymmMem(MultiProcContinuousTest):
         not PLATFORM_SUPPORTS_SYMM_MEM, "SymmMem is not supported on this platform"
     )
     @skipCUDAIf(not SM90OrLater or TEST_WITH_ROCM, "requires NVIDIA sm90+")
-    def test_fully_shard_symm_mem(self):
+    @parametrize("sum_reduction", [True, False])
+    def test_fully_shard_symm_mem(self, sum_reduction: bool):
         torch.manual_seed(42 + self.rank)
         device = torch.device("cuda", self.rank)
         torch.cuda.set_device(device)
@@ -1739,8 +1742,10 @@ class TestFullyShardSymmMem(MultiProcContinuousTest):
             if isinstance(module, TransformerBlock):
                 fully_shard(module)
                 module.set_symm_mem_for_comm()
+                module.set_force_sum_reduction_for_comms(sum_reduction)
         fully_shard(model)
         model.set_symm_mem_for_comm()
+        model.set_force_sum_reduction_for_comms(sum_reduction)
 
         bs = 4
         inp = torch.randint(0, model_args.vocab_size, (bs, seq_len), device=device)
@@ -1751,6 +1756,9 @@ class TestFullyShardSymmMem(MultiProcContinuousTest):
 
         run()
         torch.cuda.synchronize(device)
+
+
+instantiate_parametrized_tests(TestFullyShardSymmMem)
 
 
 class TestFullyShardForceSumReduction(FSDPTest):
