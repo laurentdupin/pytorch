@@ -485,8 +485,10 @@ def _expand_single_dim_strategy_to_mesh(
             return _create_expanded_strategy_impl(op_schema, output_tensor_meta)
 
     def _translate_list_op_schema(
-        op_schema: OpSchema, output_tensor_meta: Sequence[TensorMeta], index: int
-    ) -> tuple[OpSchema, TensorMeta]:
+        op_schema: OpSchema,
+        output_tensor_meta: Sequence[TensorMeta] | None,
+        index: int,
+    ) -> tuple[OpSchema, TensorMeta | None]:
         """Translate foreach/fused op to per-element version of schema."""
         op_parts = str(op_schema.op).split(".")
         op_name = op_parts[-2]
@@ -499,7 +501,10 @@ def _expand_single_dim_strategy_to_mesh(
             (op_schema.args_schema, op_schema.kwargs_schema),
             is_leaf=lambda x: isinstance(x, TupleStrategy),
         )
-        target_output_meta = output_tensor_meta[index]
+        # For inplace ops, output_tensor_meta is None
+        target_output_meta = (
+            output_tensor_meta[index] if output_tensor_meta is not None else None
+        )
 
         # Strip the prefix to get the base op name and find the per-element op.
         # Fused ops (e.g. _fused_adam) have no per-element ATen equivalent,
