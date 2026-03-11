@@ -11,9 +11,11 @@ Reports:
 4. High priority / UBN issues closed by each user
 5. Number of PRs reviewed per user across linked PRs
 6. Number of landed issues per assignee (from sheet status column)
+7. Number of landed issues per area (from sheet status column)
 
 Requires: gh CLI (authenticated), openpyxl
 """
+
 import argparse
 import json
 import re
@@ -128,9 +130,7 @@ def extract_pr_numbers_from_timeline(events: list[dict]) -> set[int]:
     return pr_numbers
 
 
-def find_closer_from_timeline(
-    events: list[dict], owner: str, repo: str
-) -> str | None:
+def find_closer_from_timeline(events: list[dict], owner: str, repo: str) -> str | None:
     """Find who closed an issue from its timeline events.
 
     If the closer is a bot (e.g. pytorchmergebot), finds the linked
@@ -199,11 +199,20 @@ def extract_landed_by_assignee(sheet) -> dict[str, list[str]]:
     for row in sheet.iter_rows(min_row=2):  # skip header
         assignee_cell = row[0]  # column A
         status_cell = row[4] if len(row) > 4 else None  # column E
+        pr_cell = row[5] if len(row) > 5 else None  # column F
         if not status_cell or not status_cell.value:
             continue
-        if str(status_cell.value).strip().lower() != "landed":
+        status = str(status_cell.value).strip().lower()
+        has_pr = bool(pr_cell and pr_cell.value and str(pr_cell.value).strip())
+        if status == "landed":
+            pass
+        elif status != "investigating" and has_pr:
+            pass
+        else:
             continue
-        assignee = str(assignee_cell.value).strip() if assignee_cell.value else "unknown"
+        assignee = (
+            str(assignee_cell.value).strip() if assignee_cell.value else "unknown"
+        )
         # Find an issue URL in the row for labeling
         issue_label = None
         for cell in row:
@@ -218,7 +227,7 @@ def extract_landed_by_assignee(sheet) -> dict[str, list[str]]:
                     issue_label = f"#{parsed[2]}"
                     break
         if issue_label is None:
-            issue_label = f"row {assignee_cell.row}"
+            continue
         landed[assignee].append(issue_label)
     return landed
 
@@ -242,6 +251,7 @@ def main():
     highpri_closed_by_user: dict[str, list[str]] = defaultdict(list)
     reviews_by_user: dict[str, list[str]] = defaultdict(list)
     landed_by_assignee: dict[str, list[str]] = defaultdict(list)
+    landed_per_area: dict[str, list[str]] = defaultdict(list)
 
     seen_issues: set[tuple[str, str, int]] = set()
     skip = set(args.skip_sheets or [])
@@ -253,6 +263,7 @@ def main():
         sheet = wb[sheet_name]
         for assignee, issues in extract_landed_by_assignee(sheet).items():
             landed_by_assignee[assignee].extend(issues)
+            landed_per_area[sheet_name].extend(issues)
         urls = extract_issue_urls_from_sheet(sheet)
         if not urls:
             continue
@@ -359,6 +370,7 @@ def main():
     )
     print_grouped("5. PR reviews by user (top reviewers):", reviews_by_user)
     print_grouped("6. Landed issues by assignee (from sheet):", landed_by_assignee)
+    print_grouped("7. Landed issues per area (from sheet):", landed_per_area)
 
 
 if __name__ == "__main__":
