@@ -26,7 +26,6 @@ from torch.distributed.tensor._ops.utils import (
     infer_broadcast_dims_map,
     map_placements_after_broadcast,
     normalize_dim,
-    register_op_strategy,
 )
 from torch.distributed.tensor.placement_types import (
     _StridedShard,
@@ -1333,16 +1332,6 @@ def list_linear_pointwise_strategy(op_schema: OpSchema) -> StrategyType:
     return list_pointwise_strategy(op_schema, linearity=True)
 
 
-for op in for_each_ops:
-    register_op_strategy(op, schema_info=RuntimeSchemaInfo(needs_pytree=True))(
-        list_pointwise_strategy
-    )
-
-for op in for_each_linearity_ops:
-    register_op_strategy(op, schema_info=RuntimeSchemaInfo(needs_pytree=True))(
-        list_linear_pointwise_strategy
-    )
-
 fused_ops = [
     aten._fused_adam_.default,
     aten._fused_adam.default,
@@ -1353,9 +1342,3 @@ fused_ops = [
     aten._fused_adamw.tensor_lr,
     aten._fused_adamw_.tensor_lr,
 ]
-
-
-for op in fused_ops:
-    register_op_strategy(op, schema_info=RuntimeSchemaInfo(needs_pytree=True))(
-        list_pointwise_strategy
-    )
