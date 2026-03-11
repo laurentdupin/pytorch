@@ -995,18 +995,6 @@ class UnspecializedNNModuleVariable(UserDefinedObjectVariable):
     """
 
     def __init__(self, value: torch.nn.Module, **kwargs: Any) -> None:
-        if type(value) is torch.jit._script.RecursiveScriptModule:
-            unimplemented(
-                gb_type="torch.jit.script/freeze modules unsupported",
-                context=str(value),
-                explanation="torch.compile cannot trace into torch.jit.script or "
-                "torch.jit.freeze modules because they execute in the TorchScript "
-                "runtime, not Python. Replace the ScriptModule submodule with the "
-                "original eager nn.Module.",
-                hints=[
-                    *graph_break_hints.FUNDAMENTAL,
-                ],
-            )
         if "value_type" in kwargs:
             lazy_value_to_become = getattr(kwargs["value_type"], "cls_to_become", None)
             if type(value) is lazy_value_to_become:
