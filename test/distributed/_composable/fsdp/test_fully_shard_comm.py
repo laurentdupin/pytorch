@@ -53,7 +53,6 @@ from torch.testing._internal.common_distributed import (
     PLATFORM_SUPPORTS_SYMM_MEM,
     skip_if_lt_x_gpu,
 )
-from torch.testing._internal.inductor_utils import skipCUDAIf
 from torch.testing._internal.common_fsdp import (
     check_sharded_parity,
     DoubleLinear,
@@ -78,6 +77,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     Transformer,
     TransformerBlock,
 )
+from torch.testing._internal.inductor_utils import skipCUDAIf
 
 
 c10d_ops = torch.ops.c10d
