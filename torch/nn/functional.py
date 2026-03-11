@@ -5425,11 +5425,16 @@ def pad(
         ):
             if mode == "replicate":
                 # Use slow decomp whose backward will be in terms of index_put.
-                # importlib is required because the import cannot be top level
-                # (cycle) and cannot be nested (TS doesn't support)
-                return importlib.import_module(
-                    "torch._decomp.decompositions"
-                )._replication_pad(input, pad)
+                # Import is nested (not top level) to avoid circular deps;
+                # this is safe because the is_scripting() guard above
+                # prevents TorchScript from seeing it.
+                # nonstrict_trace makes Dynamo skip the function body
+                # (which contains Dynamo-untraceable code) while
+                # AOTAutograd still traces into it for the backward.
+                from torch._decomp.decompositions import _replication_pad
+                from torch._dynamo.decorators import nonstrict_trace
+
+                return nonstrict_trace(_replication_pad)(input, pad)
     return torch._C._nn.pad(input, pad, mode, value)
 
 
