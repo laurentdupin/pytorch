@@ -772,8 +772,7 @@ class OutputGraph(OutputGraphCommon):
         # This returns false if TF Overall (both mode and subclass) is disabled OR that TF Mode stack is empty
         self.torch_function_mode_enabled = torch._C._is_torch_function_mode_enabled()
 
-        # Set to True when __torch_function__ subclass dispatch was inlined
-        # during tracing. Used to wrap the compiled graph at runtime with
+        # Used to wrap the compiled graph at runtime with
         # DisableTorchFunctionSubclass to prevent double dispatch.
         self.torch_function_subclass_inlined = False
 
