@@ -115,6 +115,7 @@ if HAS_GPU:
         add_kernel_with_tma_2d_new_api,
         add_kernel_with_tma_2d_old_api,
         create_tensor_descriptor_shim,
+        masked_add_kernel_with_bool_tensor,
         mul2_inplace_kernel,
         strange_config_matmul_kernel,
         sub_kernel_autotuned,
@@ -250,6 +251,31 @@ class AOTInductorTestsTemplate:
                 return out
 
         inputs = (torch.randn(4, device=self.device),)
+        self.check_model(Model(), inputs)
+
+    def test_triton_kernel_bool_tensor_arg(self):
+        if self.device != GPU_TYPE or self.device == "mps":
+            raise unittest.SkipTest("requires GPU")
+
+        class Model(torch.nn.Module):
+            def forward(self, x, y, mask):
+                out = torch.zeros_like(x)
+                n = x.numel()
+                masked_add_kernel_with_bool_tensor[(n,)](
+                    in_ptr0=x,
+                    in_ptr1=y,
+                    mask_ptr=mask,
+                    out_ptr=out,
+                    n_elements=n,
+                    BLOCK_SIZE=1024,
+                )
+                return out
+
+        n = 128
+        x = torch.randn(n, device=self.device)
+        y = torch.randn(n, device=self.device)
+        mask = torch.arange(n, device=self.device) < n // 2
+        inputs = (x, y, mask)
         self.check_model(Model(), inputs)
 
     @unittest.skipIf(
@@ -3300,10 +3326,12 @@ class AOTInductorTestsTemplate:
         mod(inp)
         mod2 = torch.fx.symbolic_trace(mod, concrete_args=[inp])
         so = torch._export.aot_compile(mod2, (inp,))
-        assert so is not None
+        if so is None:
+            raise AssertionError("Expected aot_compile to return non-None")
         # compile the 2nd time with cache hit
         so = torch._export.aot_compile(mod2, (inp,))
-        assert so is not None
+        if so is None:
+            raise AssertionError("Expected aot_compile to return non-None (cache hit)")
 
     def test_normal_functional(self):
         class Model(torch.nn.Module):
@@ -3522,18 +3550,20 @@ class AOTInductorTestsTemplate:
                 torch.export.export(Model(), example_inputs, strict=True)
             )
         )
-        try:
-            torch.cuda.memory.empty_cache()
-            torch.cuda.memory._record_memory_history(context=None)
-            for _ in range(10):
-                optimized(*example_inputs)
-        finally:
-            torch.cuda.memory._record_memory_history(False)
-        segments = torch.cuda.memory._snapshot()["segments"]
-        self.assertTrue(
-            any(seg["requested_size"] == 400 for seg in segments),
-            f"Expected segment with size 400, got: {[s['requested_size'] for s in segments]}",
-        )
+        expected = torch.sin(example_inputs[0])
+
+        # Warm up to trigger any one-time allocations
+        result = optimized(*example_inputs)
+        torch.cuda.synchronize()
+
+        mem_before = torch.cuda.memory_allocated()
+        for _ in range(10):
+            result = optimized(*example_inputs)
+        torch.cuda.synchronize()
+        mem_after = torch.cuda.memory_allocated()
+
+        self.assertEqual(result, expected)
+        self.assertEqual(mem_before, mem_after)
 
     def test_view_outputs(self):
         class Model(torch.nn.Module):
@@ -5474,6 +5504,52 @@ class AOTInductorTestsTemplate:
 
             self.check_model(Model(N, K, self.device), example_inputs)
 
+    @unittest.skipIf(
+        sys.platform not in ["linux", "win32"],
+        "enable_kernel_profile only supported on linux and win32",
+    )
+    def test_kernel_profile_repeated_kernel_numel(self):
+        # When enable_kernel_profile is on, each kernel call is wrapped in its
+        # own {} scope block. If the same kernel is called multiple times with
+        # symbolic numel, the int64_t declaration must be emitted each time
+        # (not just on first use) since prior declarations go out of scope.
+        class Model(torch.nn.Module):
+            def forward(self, x, y, z):
+                return torch.cat([x, y, z], dim=0)
+
+        example_inputs = tuple(torch.randn(4, 8, device=self.device) for _ in range(3))
+        dim0 = Dim("dim0", min=1, max=32)
+        dynamic_shapes = {"x": {0: dim0}, "y": {0: dim0}, "z": {0: dim0}}
+
+        with config.patch({"cpp.enable_kernel_profile": True}):
+            _, code = run_and_get_cpp_code(
+                AOTIRunnerUtil.compile,
+                Model(),
+                example_inputs,
+                dynamic_shapes=dynamic_shapes,
+            )
+            # When profiling is enabled, every kernel numel variable must have
+            # the int64_t type declaration since each kernel call lives in its
+            # own scope block. Verify no bare assignment (without int64_t)
+            # appears for numel variables.
+            if self.device == GPU_TYPE:
+                # Match bare numel assignments like "foo_xnumel = expr;"
+                # but not declarations like "int64_t foo_xnumel = expr;"
+                bare_numel_assign = re.compile(r"^\s*(\w+_[xr]numel)\s*=\s*.+;$")
+                for line in code.splitlines():
+                    m = bare_numel_assign.match(line)
+                    if m:
+                        self.fail(
+                            f"Found numel assignment without int64_t declaration "
+                            f"in profiling mode: {line.strip()}"
+                        )
+
+            self.check_model(
+                Model(),
+                example_inputs,
+                dynamic_shapes=dynamic_shapes,
+            )
+
     def test_aoti_user_defined_triton_kernel_profiling(self):
         if self.device != GPU_TYPE or self.device == "mps":
             raise unittest.SkipTest("requires GPU")
@@ -6943,30 +7019,39 @@ class AOTInductorTestsTemplate:
 
         def _group_quantize_tensor_xpu(w, n_bit=4, q_group_size=16):
             # w [k, n] = [32, 48]
-            assert w.dim() == 2
+            if w.dim() != 2:
+                raise AssertionError(f"Expected 2D tensor, got {w.dim()}D")
             # w [n, k] = [48, 32]
             w = w.transpose(0, 1).contiguous()
-            assert q_group_size > 1
-            assert w.shape[-1] % q_group_size == 0
+            if q_group_size <= 1:
+                raise AssertionError(f"Expected q_group_size > 1, got {q_group_size}")
+            if w.shape[-1] % q_group_size != 0:
+                raise AssertionError(
+                    f"w.shape[-1] ({w.shape[-1]}) must be divisible by q_group_size ({q_group_size})"
+                )
 
             # to_quant: [n * k / group_size, group_size]
             to_quant = w.reshape(-1, q_group_size)
-            assert torch.isnan(to_quant).sum() == 0
+            if torch.isnan(to_quant).sum() != 0:
+                raise AssertionError("to_quant contains NaN values")
 
             max_val = to_quant.amax(dim=1, keepdim=True)
             min_val = to_quant.amin(dim=1, keepdim=True)
             max_int = 2**n_bit - 1
             min_int = 0
             scales = (max_val - min_val).clamp(min=1e-6) / max_int
-            assert torch.isnan(scales).sum() == 0
+            if torch.isnan(scales).sum() != 0:
+                raise AssertionError("scales contains NaN values")
 
             zeros = min_int - min_val.div(scales).round()
             zeros = torch.clamp(zeros, min_int, max_int)
             zeros = zeros.to(torch.int8)
-            assert torch.isnan(zeros).sum() == 0
+            if torch.isnan(zeros).sum() != 0:
+                raise AssertionError("zeros contains NaN values")
 
             out = to_quant.div(scales).add(zeros).round().clamp_(min_int, max_int)
-            assert torch.isnan(out).sum() == 0
+            if torch.isnan(out).sum() != 0:
+                raise AssertionError("out contains NaN values")
 
             # [n, k]
             out = out.to(dtype=torch.int32).reshape(w.shape)

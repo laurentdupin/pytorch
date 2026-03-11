@@ -4,7 +4,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import cast, Union
+from typing import Any, cast
 
 import torch
 from torch.distributed.device_mesh import DeviceMesh
@@ -16,6 +16,10 @@ from torch.distributed.tensor._op_schema import (
     PlacementList,
     RuntimeSchemaInfo,
     TupleStrategy,
+)
+from torch.distributed.tensor._ops.single_dim_strategy import (
+    _ShardingPlaceholder,
+    register_single_dim_strategy,
 )
 from torch.distributed.tensor._ops.utils import (
     as_list,
@@ -52,7 +56,7 @@ class NormReduction:
     norm_type: int | float
 
 
-ReductionOpType = Union[NormReduction, str]
+ReductionOpType = NormReduction | str
 
 
 @dataclass(frozen=True)
@@ -324,10 +328,8 @@ LINEAR_REDUCTION_OP_MAP = {
     aten.mean.dim: "avg",
     aten.mean.out: "avg",
     aten.max.default: "max",
-    aten.max.dim: "max",
     aten.max.out: "max",
     aten.min.default: "min",
-    aten.min.dim: "min",
     aten.min.out: "min",
     aten.amax.default: "max",
     aten.amax.out: "max",
@@ -369,6 +371,41 @@ def linear_reduction_strategy(op_schema: OpSchema) -> OpStrategy:
     )
 
 
+# max.dim/min.dim return (values, indices). Indices are local to each shard
+# and cannot be combined across ranks, so we force Replicate on reduction dims
+# (same approach as argmax/argmin).
+@register_single_dim_strategy(
+    [aten.max.dim, aten.min.dim], schema_info=RuntimeSchemaInfo(1)
+)
+def max_min_dim_single_dim_strategy(
+    op: torch._ops.OpOverload,
+    args_schema: tuple[Any, ...],
+    kwargs_schema: dict[str, Any],
+) -> list[list[Placement | _ShardingPlaceholder]]:
+    input_meta = args_schema[0]
+    if not isinstance(input_meta, TensorMeta):
+        raise AssertionError(f"Expected TensorMeta, got {type(input_meta)}")
+
+    ndim = len(input_meta.shape)
+    dim = normalize_dim(cast(int, args_schema[1]), ndim)
+    keep_dim = len(args_schema) > 2 and bool(args_schema[2])
+
+    strategies: list[list[Placement | _ShardingPlaceholder]] = []
+    for d in range(ndim):
+        if d == dim:
+            continue
+        out_d = d if keep_dim or d < dim else d - 1
+        # [values, indices, input]: shard on non-reduction dim
+        strategies.append(
+            [
+                _ShardingPlaceholder(out_d),
+                _ShardingPlaceholder(out_d),
+                _ShardingPlaceholder(d),
+            ]
+        )
+    return strategies
+
+
 @register_op_strategy(list(ARGMAX_ARGMIN_OPS.keys()), schema_info=RuntimeSchemaInfo(1))
 def argmax_argmin_strategy(op_schema: OpSchema) -> OpStrategy:
     """
@@ -402,8 +439,11 @@ def argmax_argmin_strategy(op_schema: OpSchema) -> OpStrategy:
     )
 
 
-@register_op_strategy(aten.cumsum.default, schema_info=RuntimeSchemaInfo(1))
-def cumsum_strategy(op_schema: OpSchema) -> OpStrategy:
+@register_op_strategy(
+    [aten.cumsum.default, aten.cumprod.default, aten.logcumsumexp.default],
+    schema_info=RuntimeSchemaInfo(1),
+)
+def scan_strategy(op_schema: OpSchema) -> OpStrategy:
     args_schema = op_schema.args_schema
     input_strategy = args_schema[0]
     if not isinstance(input_strategy, OpStrategy):
@@ -411,10 +451,94 @@ def cumsum_strategy(op_schema: OpSchema) -> OpStrategy:
     dim = args_schema[1]
     if not isinstance(dim, int):
         raise AssertionError(f"Expected int, got {type(dim)}")
-
     return common_reduction_strategy(
         input_strategy, [dim], keep_dim=True, reduction_linear=False
     )
+
+
+@register_op_strategy(
+    [aten.median.default, aten.nanmedian.default],
+    schema_info=RuntimeSchemaInfo(1),
+)
+def global_median_strategy(op_schema: OpSchema) -> OpStrategy:
+    input_strategy = cast(OpStrategy, op_schema.args_schema[0])
+    reduce_dims = list(range(input_strategy.ndim))
+    return common_reduction_strategy(
+        input_strategy, reduce_dims, reduction_linear=False
+    )
+
+
+@register_single_dim_strategy(
+    [aten.median.dim, aten.nanmedian.dim, aten.mode.default],
+    schema_info=RuntimeSchemaInfo(1),
+)
+def dim_reduction_with_indices_strategy(
+    op: torch._ops.OpOverload,
+    args_schema: tuple[Any, ...],
+    kwargs_schema: dict[str, Any],
+) -> list[list[Placement | _ShardingPlaceholder]]:
+    input_meta = args_schema[0]
+    if not isinstance(input_meta, TensorMeta):
+        raise AssertionError(f"Expected TensorMeta, got {type(input_meta)}")
+
+    ndim = len(input_meta.shape)
+    dim = normalize_dim(cast(int, args_schema[1]) if len(args_schema) > 1 else -1, ndim)
+    keep_dim = len(args_schema) > 2 and bool(args_schema[2])
+
+    strategies: list[list[Placement | _ShardingPlaceholder]] = []
+    for d in range(ndim):
+        if d == dim:
+            continue
+        out_d = d if keep_dim or d < dim else d - 1
+        strategies.append(
+            [
+                _ShardingPlaceholder(out_d),
+                _ShardingPlaceholder(out_d),
+                _ShardingPlaceholder(d),
+            ]
+        )
+    return strategies
+
+
+@register_single_dim_strategy(
+    [aten.kthvalue.default],
+    schema_info=RuntimeSchemaInfo(2),
+)
+def kthvalue_strategy(
+    op: torch._ops.OpOverload,
+    args_schema: tuple[Any, ...],
+    kwargs_schema: dict[str, Any],
+) -> list[list[Placement | _ShardingPlaceholder]]:
+    input_meta = args_schema[0]
+    if not isinstance(input_meta, TensorMeta):
+        raise AssertionError(f"Expected TensorMeta, got {type(input_meta)}")
+
+    ndim = len(input_meta.shape)
+    dim = normalize_dim(cast(int, args_schema[2]) if len(args_schema) > 2 else -1, ndim)
+    keep_dim = len(args_schema) > 3 and bool(args_schema[3])
+
+    strategies: list[list[Placement | _ShardingPlaceholder]] = []
+    for d in range(ndim):
+        if d == dim:
+            continue
+        out_d = d if keep_dim or d < dim else d - 1
+        strategies.append(
+            [
+                _ShardingPlaceholder(out_d),
+                _ShardingPlaceholder(out_d),
+                _ShardingPlaceholder(d),
+            ]
+        )
+    return strategies
+
+
+@register_op_strategy(
+    [aten.cummax.default, aten.cummin.default],
+    schema_info=RuntimeSchemaInfo(1),
+)
+def cummax_cummin_strategy(op_schema: OpSchema) -> OpStrategy:
+    dim = cast(int, op_schema.args_schema[1])
+    return sort_strategy(op_schema, dim)
 
 
 @register_op_strategy(
@@ -458,7 +582,8 @@ def _get_norm_reduction_op(norm_type: int | float | str) -> ReductionOpType:
     elif norm_type in (float("-inf"), "-inf"):
         return "min"
     else:
-        assert isinstance(norm_type, (int, float))
+        if not isinstance(norm_type, (int, float)):
+            raise AssertionError
         return NormReduction(norm_type)
 
 
@@ -1099,7 +1224,8 @@ def _common_norm_forward_strategy(
         # out: same shape as input, contiguous strides
         # mean/rstd: shape = input_shape[:axis], contiguous strides
         input_tm = input_src_spec.tensor_meta
-        assert input_tm is not None
+        if input_tm is None:
+            raise AssertionError("input_src_spec.tensor_meta is None")
         input_shape = input_tm.shape
         out_placements = input_target_spec.placements
 

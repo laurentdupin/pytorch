@@ -91,6 +91,10 @@ def _no_grad_trunc_normal_(
     b: float,
     generator: torch.Generator | None = None,
 ) -> Tensor:
+    # Meta tensors have no storage, so sampling is a no-op.
+    if tensor.is_meta:
+        return tensor
+
     def norm_cdf(x: float) -> float:
         return (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
 
@@ -109,44 +113,49 @@ def _no_grad_trunc_normal_(
             # with the tensor's representable values.
             lo = tensor.new_tensor(a, device="cpu").item()
             hi = tensor.new_tensor(b, device="cpu").item()
-            tensor.normal_(mean, std, generator=generator)
+            result = tensor.normal_(mean, std, generator=generator)
             while True:
-                mask = tensor < lo
-                mask |= tensor > hi
-                count = int(mask.sum().item())
-                if count == 0:
+                mask = (result < lo) | (result > hi)
+                if not mask.any():
                     break
-                tensor.masked_scatter_(
+                result = torch.where(
                     mask,
-                    torch.normal(
-                        mean,
-                        std,
-                        size=(count,),
-                        dtype=tensor.dtype,
-                        device=tensor.device,
-                        generator=generator,
-                    ),
+                    torch.empty_like(result).normal_(mean, std, generator=generator),
+                    result,
                 )
+            if tensor is not result:
+                tensor.copy_(result)
         else:
             mode = max(a, min(mean, b))
             log_peak = -0.5 * ((mode - mean) / std) ** 2
 
-            pending = torch.ones_like(tensor, dtype=torch.bool)
-            n = tensor.numel()
-            candidates = torch.empty(n, dtype=tensor.dtype, device=tensor.device)
-            accept_buf = torch.empty(n, dtype=tensor.dtype, device=tensor.device)
-            while True:
-                count = pending.sum().item()
-                if count == 0:
-                    break
-                s = candidates[:count]
-                u = accept_buf[:count]
-                tensor.masked_scatter_(pending, s.uniform_(a, b, generator=generator))
-                # log_pdf = -0.5 * ((s - mean) / std) ** 2
-                s.sub_(mean).div_(std).pow_(2).mul_(-0.5).sub_(log_peak)
-                pending.masked_scatter_(
-                    pending, u.uniform_(generator=generator).log_().gt(s)
-                )
+            candidates = torch.empty_like(tensor)
+            accept_buf = torch.empty_like(tensor)
+
+            # First iteration: sample directly into tensor to avoid
+            # a where() + copy_() if all samples are accepted.
+            tensor.uniform_(a, b, generator=generator)
+            candidates.copy_(tensor)
+            # log_pdf = -0.5 * ((candidates - mean) / std) ** 2
+            candidates.sub_(mean).div_(std).pow_(2).mul_(-0.5).sub_(log_peak)
+            pending = accept_buf.uniform_(generator=generator).log_().gt(candidates)
+            if not pending.any():
+                pass
+            else:
+                result = tensor
+                while True:
+                    candidates.uniform_(a, b, generator=generator)
+                    result = torch.where(pending, candidates, result)
+                    # log_pdf = -0.5 * ((candidates - mean) / std) ** 2
+                    candidates.sub_(mean).div_(std).pow_(2).mul_(-0.5).sub_(log_peak)
+                    pending = torch.where(
+                        pending,
+                        accept_buf.uniform_(generator=generator).log_().gt(candidates),
+                        pending,
+                    )
+                    if not pending.any():
+                        break
+                tensor.copy_(result)
 
         return tensor
 
@@ -415,6 +424,9 @@ def dirac_(tensor: Tensor, groups: int = 1) -> Tensor:
     if sizes[0] % groups != 0:
         raise ValueError("dim 0 must be divisible by groups")
 
+    if tensor.is_meta:
+        return tensor
+
     out_chans_per_grp = sizes[0] // groups
     min_dim = min(out_chans_per_grp, sizes[1])
 
@@ -682,7 +694,7 @@ def orthogonal_(
     if tensor.ndimension() < 2:
         raise ValueError("Only tensors with 2 or more dimensions are supported")
 
-    if tensor.numel() == 0:
+    if tensor.numel() == 0 or tensor.is_meta:
         # no-op
         return tensor
     rows = tensor.size(0)
@@ -733,6 +745,9 @@ def sparse_(
     """
     if tensor.ndimension() != 2:
         raise ValueError("Only tensors with 2 dimensions are supported")
+
+    if tensor.is_meta:
+        return tensor
 
     rows, cols = tensor.shape
     num_zeros = math.ceil(sparsity * rows)
