@@ -238,4 +238,4 @@ torch/backends/cudnn/ @eqy @syed-ahmed @Aidyn-A
 /test/test_sparse_csr.py @amjames @pearu @nikitaved
 
 # Python/DSL native ops
-/torch/_native/ @slayton58
+/torch/_native/ @slayton58 @drisspg
