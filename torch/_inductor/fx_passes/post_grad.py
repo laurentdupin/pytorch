@@ -1512,6 +1512,18 @@ def should_prefer_unfused_addmm(match):
     if not is_gpu(inp.meta["val"].device.type):
         return False
 
+    # When emulating precision casts for low-precision types, keep addmm fused
+    # so cuBLAS preserves the fp32 mm accumulator for bias addition. Unfusing
+    # would store the mm result to low-precision memory first, losing precision.
+    if config.emulate_precision_casts:
+        output = match.output_node()
+        val = output.meta.get("val")
+        if isinstance(val, torch.Tensor) and val.dtype in (
+            torch.bfloat16,
+            torch.float16,
+        ):
+            return False
+
     output = match.output_node()
     return all(is_pointwise_use(use) for use in output.users)
 

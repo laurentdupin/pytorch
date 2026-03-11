@@ -15966,6 +15966,31 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
             check_lowp=False,
         )
 
+    @requires_gpu_and_triton
+    @config.patch(emulate_precision_casts=True)
+    def test_emulate_precision_casts_linear_gated(self):
+        # When emulate_precision_casts is enabled, compiled code should match
+        # eager numerics exactly for gated linear patterns like p_in(x) * g_in(x).sigmoid().
+        # Regression test for unfuse_bias_add_to_pointwise losing precision on the
+        # mm accumulator by storing to bf16 memory before bias addition.
+        torch.manual_seed(42)
+
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.p_in = torch.nn.Linear(64, 64)
+                self.g_in = torch.nn.Linear(64, 64)
+
+            def forward(self, x):
+                return self.p_in(x) * self.g_in(x).sigmoid()
+
+        model = Model().to(GPU_TYPE).to(torch.bfloat16).eval()
+        x = torch.randn(4, 64, device=GPU_TYPE, dtype=torch.bfloat16)
+        with torch.no_grad():
+            eager_result = model(x)
+            compiled_result = torch.compile(model)(x)
+        torch.testing.assert_close(compiled_result, eager_result, atol=0, rtol=0)
+
     # end of class CommonTemplate - add new tests here
 
 
