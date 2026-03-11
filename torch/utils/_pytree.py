@@ -1344,7 +1344,11 @@ class LeafSpec(TreeSpec):
     _children: list[Self] = dataclasses.field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
-        # Override `__post_init__` for `num_leaves` derivation.
+        # Explicitly initialize all slots as simple defaults
+        # don't populate the slots on Python 3.10.0, causing
+        # copy.deepcopy to fail.
+        object.__setattr__(self, "type", None)
+        object.__setattr__(self, "_context", None)
         object.__setattr__(self, "num_nodes", 1)
         object.__setattr__(self, "num_leaves", 1)
         object.__setattr__(self, "num_children", 0)

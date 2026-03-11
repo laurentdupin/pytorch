@@ -892,6 +892,31 @@ if "optree" in sys.modules:
             != python_pytree.TreeSpec(list, None, []),
         )
 
+    def test_treespec_leaf_deepcopy(self):
+        # Regression test: on Python 3.10.0, frozen+slots dataclasses with
+        # init=False fields and simple defaults (default=None) don't populate
+        # the slots, so copy.deepcopy calls _dataclass_getstate which hits
+        # an uninitialized slot and raises AttributeError.
+        import copy
+
+        spec = python_pytree.treespec_leaf()
+        self.assertTrue(spec.is_leaf())
+        copy.deepcopy(spec)
+
+    def test_leafspec_post_init_initializes_all_slots(self):
+        # Simulate previous failure by bypassing __init__ with
+        # object.__new__ and verify __post_init__ initializes all fields
+        import dataclasses
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            spec = object.__new__(python_pytree.LeafSpec)
+        object.__setattr__(spec, "_children", [])
+        spec.__post_init__()
+        for f in dataclasses.fields(spec):
+            getattr(spec, f.name)
+
     def test_treespec_repr(self):
         # Check that it looks sane
         tree = (0, [0, 0, [0]])
