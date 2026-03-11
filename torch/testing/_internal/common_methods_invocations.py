@@ -20398,8 +20398,6 @@ op_db: list[OpInfo] = [
                DecorateInfo(unittest.skip("Expected: empty is not comparable"),
                             'TestCommon', 'test_complex_half_reference_testing'),
                DecorateInfo(unittest.skip('output is non-deterministic'), 'TestCommon', 'test_compare_cpu'),
-               # MPS: The following dtypes worked in forward but are not listed by the OpInfo: {torch.complex128}.
-               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
            )),
     OpInfo('eye',
            dtypes=all_types_complex_float8_and(torch.bool, torch.half, torch.bfloat16),
