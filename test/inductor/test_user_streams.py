@@ -7,6 +7,7 @@ assignments on nodes, including stream utilities, event management, and codegen.
 
 from __future__ import annotations
 
+import re
 import unittest
 
 import torch
@@ -26,6 +27,74 @@ from torch._inductor.test_case import TestCase as InductorTestCase
 from torch._inductor.utils import IndentedBuffer
 from torch.testing._internal.common_cuda import TEST_CUDA
 from torch.testing._internal.common_utils import instantiate_parametrized_tests
+
+
+def _extract_wrapper_body(code):
+    """Extract and normalize the call method body from generated wrapper code.
+
+    Strips noise (comments, assert_size_stride, del statements, args.clear())
+    and normalizes triton kernel names, leaving just structural code:
+    stream declarations, context switches, event ops, kernel calls, buffer allocations.
+    """
+    lines = code.split("\n")
+
+    # Find the call function body
+    call_start = None
+    call_indent = 0
+    for i, line in enumerate(lines):
+        if "def call(" in line:
+            call_indent = len(line) - len(line.lstrip())
+            call_start = i + 1
+            break
+
+    if call_start is None:
+        return ""
+
+    # Extract body until next definition at same indent level or end
+    body_lines = []
+    for i in range(call_start, len(lines)):
+        line = lines[i]
+        stripped = line.strip()
+        if stripped:
+            current_indent = len(line) - len(line.lstrip())
+            if current_indent <= call_indent:
+                break
+        body_lines.append(line)
+
+    # Filter out noise
+    filtered = []
+    for line in body_lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        if "assert_size_stride" in stripped:
+            continue
+        if stripped.startswith("del "):
+            continue
+        if "args.clear()" in stripped:
+            continue
+        # Strip inline comments (e.g., "# reuse")
+        line = re.sub(r"\s+#\s.*", "", line)
+        if not line.strip():
+            continue
+        filtered.append(line)
+
+    if not filtered:
+        return ""
+
+    # Dedent
+    min_indent = min(
+        len(line) - len(line.lstrip()) for line in filtered if line.strip()
+    )
+    dedented = [line[min_indent:] for line in filtered]
+    body = "\n".join(dedented)
+
+    # Normalize triton kernel names
+    body = re.sub(r"triton_\w+", "triton_kernel", body)
+
+    return body
 
 
 class TestStreamUtils(InductorTestCase):
@@ -895,6 +964,197 @@ class TestUserStreamCompile(InductorTestCase):
 
         # These ops should be fused into a single kernel since they're
         # all on the same stream and are pointwise operations
+
+    def test_codegen_structure_single_stream(self):
+        """Verify wrapper structure for pointwise ops with one side stream."""
+        from torch._inductor.utils import run_and_get_code
+
+        def fn(x):
+            s = torch.cuda.Stream()
+            a = x * 2
+            with torch.cuda.stream(s):
+                b = x * 3
+            s.synchronize()
+            return a + b
+
+        x = torch.randn(1024, device="cuda")
+        expected = fn(x)
+        compiled_fn = torch.compile(fn)
+        result, (code,) = run_and_get_code(compiled_fn, x)
+        self.assertEqual(result, expected)
+
+        wrapper_body = _extract_wrapper_body(code)
+        self.assertExpectedInline(
+            wrapper_body,
+            """\
+arg0_1, = args
+with torch.cuda._DeviceGuard(0):
+    torch.cuda.set_device(0)
+    default_stream = torch.cuda.current_stream()
+    stream1 = torch.cuda.Stream(device=0)
+    with torch.cuda.stream(stream1):
+        buf0 = empty_strided_cuda((1024, ), (1, ), torch.float32)
+        stream0 = get_raw_stream(0)
+        triton_kernel.run(arg0_1, buf0, 1024, stream=stream0)
+    return (buf0, )""",
+        )
+
+    def test_codegen_structure_pipeline(self):
+        """Verify wrapper structure for two-stage matmul pipeline."""
+        from torch._inductor.utils import run_and_get_code
+
+        def fn(x, w1, w2):
+            s = torch.cuda.Stream()
+            event = torch.cuda.Event()
+            a = x @ w1
+            event.record()
+            with torch.cuda.stream(s):
+                event.wait()
+                b = a @ w2
+            s.synchronize()
+            return b
+
+        x = torch.randn(32, 32, device="cuda")
+        w1 = torch.randn(32, 32, device="cuda")
+        w2 = torch.randn(32, 32, device="cuda")
+        expected = fn(x, w1, w2)
+        compiled_fn = torch.compile(fn)
+        result, (code,) = run_and_get_code(compiled_fn, x, w1, w2)
+        self.assertEqual(result, expected)
+
+        wrapper_body = _extract_wrapper_body(code)
+        self.assertExpectedInline(
+            wrapper_body,
+            """\
+arg0_1, arg1_1, arg2_1 = args
+torch.ops.streams.record_event.default(1, 2)
+torch.ops.streams.wait_event.default(1, 0)
+with torch.cuda._DeviceGuard(0):
+    torch.cuda.set_device(0)
+    default_stream = torch.cuda.current_stream()
+    stream1 = torch.cuda.Stream(device=0)
+    with torch.cuda.stream(default_stream):
+        buf2 = empty_strided_cuda((32, 32), (32, 1), torch.float32)
+        extern_kernels.mm(arg0_1, arg1_1, out=buf2)
+    with torch.cuda.stream(stream1):
+        buf3 = empty_strided_cuda((32, 32), (32, 1), torch.float32)
+        extern_kernels.mm(buf2, arg2_1, out=buf3)
+    return (buf3, )""",
+        )
+
+    def test_codegen_structure_three_stream_pipeline(self):
+        """Verify wrapper structure for three-stage matmul pipeline."""
+        from torch._inductor.utils import run_and_get_code
+
+        def fn(x, w1, w2, w3):
+            s1 = torch.cuda.Stream()
+            s2 = torch.cuda.Stream()
+            s3 = torch.cuda.Stream()
+            e1 = torch.cuda.Event()
+            e2 = torch.cuda.Event()
+            with torch.cuda.stream(s1):
+                a = x @ w1
+                e1.record(s1)
+            with torch.cuda.stream(s2):
+                e1.wait(s2)
+                b = a @ w2
+                e2.record(s2)
+            with torch.cuda.stream(s3):
+                e2.wait(s3)
+                c = b @ w3
+            s1.synchronize()
+            s2.synchronize()
+            s3.synchronize()
+            return c
+
+        x = torch.randn(32, 32, device="cuda")
+        w1 = torch.randn(32, 32, device="cuda")
+        w2 = torch.randn(32, 32, device="cuda")
+        w3 = torch.randn(32, 32, device="cuda")
+        expected = fn(x, w1, w2, w3)
+        compiled_fn = torch.compile(fn)
+        result, (code,) = run_and_get_code(compiled_fn, x, w1, w2, w3)
+        self.assertEqual(result, expected)
+
+        wrapper_body = _extract_wrapper_body(code)
+        self.assertExpectedInline(
+            wrapper_body,
+            """\
+arg0_1, arg1_1, arg2_1, arg3_1 = args
+torch.ops.streams.record_event.default(3, 0)
+torch.ops.streams.wait_event.default(3, 1)
+torch.ops.streams.record_event.default(4, 1)
+torch.ops.streams.wait_event.default(4, 2)
+with torch.cuda._DeviceGuard(0):
+    torch.cuda.set_device(0)
+    default_stream = torch.cuda.current_stream()
+    stream1 = torch.cuda.Stream(device=0)
+    stream2 = torch.cuda.Stream(device=0)
+    stream3 = torch.cuda.Stream(device=0)
+    with torch.cuda.stream(stream1):
+        buf4 = empty_strided_cuda((32, 32), (32, 1), torch.float32)
+        extern_kernels.mm(arg0_1, arg1_1, out=buf4)
+    with torch.cuda.stream(stream2):
+        buf5 = empty_strided_cuda((32, 32), (32, 1), torch.float32)
+        extern_kernels.mm(buf4, arg2_1, out=buf5)
+    with torch.cuda.stream(stream3):
+        buf6 = buf4; del buf4
+        extern_kernels.mm(buf5, arg3_1, out=buf6)
+    return (buf6, )""",
+        )
+
+    def test_codegen_structure_parallel_matmuls(self):
+        """Verify wrapper structure for parallel matmuls with join."""
+        from torch._inductor.utils import run_and_get_code
+
+        def fn(x, w1, w2):
+            s1 = torch.cuda.Stream()
+            s2 = torch.cuda.Stream()
+            e1 = torch.cuda.Event()
+            e2 = torch.cuda.Event()
+            with torch.cuda.stream(s1):
+                a = x @ w1
+                e1.record(s1)
+            with torch.cuda.stream(s2):
+                b = x @ w2
+                e2.record(s2)
+            e1.wait()
+            e2.wait()
+            c = a + b
+            s1.synchronize()
+            s2.synchronize()
+            return c
+
+        x = torch.randn(32, 32, device="cuda")
+        w1 = torch.randn(32, 32, device="cuda")
+        w2 = torch.randn(32, 32, device="cuda")
+        expected = fn(x, w1, w2)
+        compiled_fn = torch.compile(fn)
+        result, (code,) = run_and_get_code(compiled_fn, x, w1, w2)
+        self.assertEqual(result, expected)
+
+        wrapper_body = _extract_wrapper_body(code)
+        self.assertExpectedInline(
+            wrapper_body,
+            """\
+arg0_1, arg1_1, arg2_1 = args
+torch.ops.streams.record_event.default(2, 0)
+torch.ops.streams.record_event.default(3, 1)
+torch.ops.streams.wait_event.default(2, 4)
+torch.ops.streams.wait_event.default(3, 4)
+with torch.cuda._DeviceGuard(0):
+    torch.cuda.set_device(0)
+    default_stream = torch.cuda.current_stream()
+    stream1 = torch.cuda.Stream(device=0)
+    stream2 = torch.cuda.Stream(device=0)
+    with torch.cuda.stream(stream1):
+        buf4 = empty_strided_cuda((32, 32), (32, 1), torch.float32)
+        extern_kernels.mm(arg0_1, arg1_1, out=buf4)
+    with torch.cuda.stream(default_stream):
+        buf5 = empty_strided_cuda((32, 32), (32, 1), torch.float32)
+        extern_kernels.addmm(buf4, arg0_1, arg2_1, alpha=1, beta=1, out=buf5)
+    return (buf5, )""",  # noqa: B950
+        )
 
 
 @unittest.skipUnless(TEST_CUDA, "requires CUDA")
