@@ -102,9 +102,11 @@
     stride_kv_num_blks_h = {{stride("KV_NUM_BLKS", 1)}}
     stride_kv_idx_h = {{stride("KV_IDX", 1)}}
     stride_kv_idx_m = {{stride("KV_IDX", 2)}}
+    {%- if HAS_FULL_BLOCKS %}
     stride_full_kv_num_blks_h = {{stride("FULL_KV_NUM_BLKS", 1)}}
     stride_full_kv_idx_h = {{stride("FULL_KV_IDX", 1)}}
     stride_full_kv_idx_m = {{stride("FULL_KV_IDX", 2)}}
+    {%- endif %}
 
     # initialize pointer to m and l
     m_i = tl.zeros([BLOCK_M], dtype=tl.float32) - float("inf")
@@ -117,8 +119,10 @@
     sparse_hz_offset = sparse_idx_z * SPARSE_HQ + sparse_idx_hq
     sparse_kv_num_blks_offset = sparse_hz_offset * stride_kv_num_blks_h + q_start // SPARSE_Q_MULTIPLE
     sparse_kv_idx_offset = sparse_hz_offset * stride_kv_idx_h + (q_start // SPARSE_Q_MULTIPLE) * stride_kv_idx_m  # noqa: B950
+    {%- if HAS_FULL_BLOCKS %}
     sparse_full_kv_num_blks_offset = sparse_hz_offset * stride_full_kv_num_blks_h + q_start // SPARSE_Q_MULTIPLE
     sparse_full_kv_idx_offset = sparse_hz_offset * stride_full_kv_idx_h + (q_start // SPARSE_Q_MULTIPLE) * stride_full_kv_idx_m  # noqa: B950
+    {%- endif %}
 
     {%- if USE_TMA %}
     q = tl.load_tensor_descriptor(
