@@ -282,12 +282,20 @@ def sdpa_flop_count(query_shape, key_shape, value_shape):
     """
     Count flops for self-attention.
 
-    NB: We can assume that value_shape == key_shape
+    NB: We can assume that value_shape == key_shape.
+    Supports GQA where K/V heads are broadcast to match Q's head count.
     """
     b, h, s_q, d_q = query_shape
-    _b2, _h2, s_k, _d2 = key_shape
+    _b2, h_kv, s_k, _d2 = key_shape
     _b3, _h3, _s3, d_v = value_shape
-    if not b == _b2 == _b3 or not h == _h2 == _h3 or not d_q == _d2 or not s_k == _s3 or not d_q == _d2:
+    if (
+        not b == _b2 == _b3
+        or not h_kv == _h3
+        or not h >= h_kv
+        or (h_kv > 0 and h % h_kv != 0)
+        or not d_q == _d2
+        or not s_k == _s3
+    ):
         raise AssertionError("sdpa_flop_count: query/key/value shapes are incompatible")
     total_flops = 0
     # q: [b, h, s_q, d_q] @ k: [b, h, d_q, s_k] -> scores: [b, h, s_q, s_k]
@@ -490,12 +498,19 @@ def _efficient_attention_forward_flop(
 
 
 def sdpa_backward_flop_count(grad_out_shape, query_shape, key_shape, value_shape):
-    total_flops = 0
+    """Count flops for self-attention backward. Supports GQA."""
     b, h, s_q, d_q = query_shape
-    _b2, _h2, s_k, _d2 = key_shape
+    _b2, h_kv, s_k, _d2 = key_shape
     _b3, _h3, _s3, d_v = value_shape
     _b4, _h4, _s4, _d4 = grad_out_shape
-    if not b == _b2 == _b3 == _b4 or not h == _h2 == _h3 == _h4 or not d_q == _d2:
+    if (
+        not b == _b2 == _b3 == _b4
+        or not h_kv == _h3
+        or not h == _h4
+        or not h >= h_kv
+        or (h_kv > 0 and h % h_kv != 0)
+        or not d_q == _d2
+    ):
         raise AssertionError("sdpa_backward_flop_count: batch/heads/dimension mismatch among tensors")
     if not d_v == _d4 or not s_k == _s3 or not s_q == _s4:
         raise AssertionError("sdpa_backward_flop_count: grad_out/value/key/query shapes are incompatible")

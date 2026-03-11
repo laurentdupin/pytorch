@@ -1069,6 +1069,41 @@ class TestFlopCounter(TestCase):
         ]
         self.assertEqual(layer1_conv_flops_standard, layer1_conv_flops_inference)
 
+    def test_sdpa_flop_count_gqa(self):
+        from torch.utils.flop_counter import sdpa_backward_flop_count, sdpa_flop_count
+
+        b, h, h_kv, s_q, s_k, d_q, d_v = 2, 8, 2, 128, 256, 64, 64
+
+        # Forward: GQA flops should equal MHA flops with the same Q head count,
+        # since K/V are broadcast to match Q's heads.
+        gqa_flops = sdpa_flop_count(
+            (b, h, s_q, d_q), (b, h_kv, s_k, d_q), (b, h_kv, s_k, d_v)
+        )
+        mha_flops = sdpa_flop_count(
+            (b, h, s_q, d_q), (b, h, s_k, d_q), (b, h, s_k, d_v)
+        )
+        self.assertEqual(gqa_flops, mha_flops)
+
+        # Backward
+        grad_out_shape = (b, h, s_q, d_v)
+        gqa_bw = sdpa_backward_flop_count(
+            grad_out_shape, (b, h, s_q, d_q), (b, h_kv, s_k, d_q), (b, h_kv, s_k, d_v)
+        )
+        mha_bw = sdpa_backward_flop_count(
+            grad_out_shape, (b, h, s_q, d_q), (b, h, s_k, d_q), (b, h, s_k, d_v)
+        )
+        self.assertEqual(gqa_bw, mha_bw)
+
+        # MQA (single KV head) should also work
+        mqa_flops = sdpa_flop_count(
+            (b, h, s_q, d_q), (b, 1, s_k, d_q), (b, 1, s_k, d_v)
+        )
+        self.assertEqual(mqa_flops, mha_flops)
+
+        # Incompatible head counts should raise
+        with self.assertRaises(AssertionError):
+            sdpa_flop_count((b, 7, s_q, d_q), (b, 3, s_k, d_q), (b, 3, s_k, d_v))
+
     @unittest.skipIf(not HAS_CUDA, "CUDA not available")
     @unittest.skipIf(
         not PLATFORM_SUPPORTS_FP8,
