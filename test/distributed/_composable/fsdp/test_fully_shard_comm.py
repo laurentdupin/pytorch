@@ -1711,7 +1711,9 @@ class TestFullyShardSymmMem(MultiProcContinuousTest):
         return "nccl"
 
     @classmethod
-    def opts(cls) -> Optional[dist.ProcessGroupNCCL.Options]:
+    def opts(cls):
+        if not dist.is_nccl_available():
+            return None
         # Enable Zero-CTA policy for CE collectives
         opts = dist.ProcessGroupNCCL.Options()
         opts.config.cta_policy = dist.ProcessGroupNCCL.NCCL_CTA_POLICY_ZERO
@@ -1741,11 +1743,11 @@ class TestFullyShardSymmMem(MultiProcContinuousTest):
         for module in model.modules():
             if isinstance(module, TransformerBlock):
                 fully_shard(module)
-                module.set_symm_mem_for_comm()
                 module.set_force_sum_reduction_for_comms(sum_reduction)
+                module.set_symm_mem_for_comm()
         fully_shard(model)
-        model.set_symm_mem_for_comm()
         model.set_force_sum_reduction_for_comms(sum_reduction)
+        model.set_symm_mem_for_comm()
 
         bs = 4
         inp = torch.randint(0, model_args.vocab_size, (bs, seq_len), device=device)
