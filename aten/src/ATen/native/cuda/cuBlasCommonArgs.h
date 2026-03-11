@@ -39,7 +39,7 @@ c10::MaybeOwned<Tensor> inline prepare_matrix_for_cublas(
       // in the context of the whole operation
       return resolve_conj_if_indicated(tensor, resolve_conj_indicator(transpose_tensor));
   }
-  // Do not use the transposition trick iff the input is col-major-like
+  // Do not use transpose iff the input is col-major-like
   transpose_tensor = !ld_complies(tensor, /*is_row_major_like=*/false);
   // TODO: Conj resolution is not efficient here -- it should be analyzed
   // in the context of the whole operation
