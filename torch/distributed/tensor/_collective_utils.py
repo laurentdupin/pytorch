@@ -31,14 +31,14 @@ logger = logging.getLogger(__name__)
 
 @torch.library.register_fake("_dtensor::shard_dim_alltoall")
 def _shard_dim_alltoall_meta(
-    input, gather_dim, shard_dim, group: GroupName | ProcessGroup
+    input, gather_dim, shard_dim, group_name: GroupName | ProcessGroup
 ):
-    if isinstance(group, str):
+    if isinstance(group_name, str):
         # pyrefly: ignore[bad-argument-type]  # pyrefly bug
-        group = _resolve_process_group(group)
-    group_size = group.size()
+        group_name = _resolve_process_group(group_name)
+    group_size = group_name.size()
     stacked_list = [torch.empty_like(input) for _ in range(group_size)]
-    group_rank = get_group_rank(group, get_rank())
+    group_rank = get_group_rank(group_name, get_rank())
 
     cat_tensor = torch.cat(stacked_list, dim=gather_dim)
     # pyrefly: ignore [unsupported-operation]
