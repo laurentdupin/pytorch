@@ -708,9 +708,6 @@ class TestHopPrintDTensor(DTensorTestBase):
         local_doubled = local_shard + local_shard
         expected = f"[rank {self.rank}] tensor: {local_doubled}\n"
 
-        # TODO: remove this -- temporary to see actual output
-        f(dtensor)
-
         with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
             f(dtensor)
             output = mock_stdout.getvalue()
