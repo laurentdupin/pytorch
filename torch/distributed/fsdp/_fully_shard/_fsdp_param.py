@@ -173,6 +173,7 @@ class FSDPParam:
     # All-gather extension attributes
     _extensions_data: ExtensionsData
     _unsharded_inner_tensors: list[torch.Tensor]
+    _orig_param_id: int
 
     def __init__(
         self,
@@ -250,6 +251,7 @@ class FSDPParam:
         # TODO: Simplify the following sharded parameter padding logic after
         # https://github.com/pytorch/pytorch/issues/113045
         self.is_dtensor = isinstance(param, DTensor)
+        self._orig_param_id = id(param)
         param_data = self._init_sharding_spec(param, fsdp_placement, shard_dim)
         if not param_data.is_contiguous():
             raise AssertionError(
@@ -371,14 +373,22 @@ class FSDPParam:
                     f"'{spmd_mesh.mesh_dim_names[idx]}' (index {idx}) "
                     f"but got {orig_placements[idx]}"
                 )
+        dp_replicate_indices = []
         for rep_name in dp_dim_names.replicate_names:
             rep_idx = spmd_mesh.mesh_dim_names.index(rep_name)
+            dp_replicate_indices.append(rep_idx)
             if not isinstance(orig_placements[rep_idx], Replicate):
                 raise ValueError(
                     f"Expected Replicate() on DP replicate dim "
                     f"'{spmd_mesh.mesh_dim_names[rep_idx]}' (index {rep_idx}) "
                     f"but got {orig_placements[rep_idx]}"
                 )
+
+        # Cache DP dim indices so _get_grad_inner_tensor can skip
+        # redistribution on DP dims and let FSDP's reduce-scatter handle them.
+        self._dp_dim_indices: frozenset[int] = frozenset(
+            dp_shard_indices + dp_replicate_indices
+        )
 
         new_placements = list(orig_placements)
         for dp_idx in dp_shard_indices:
@@ -843,16 +853,29 @@ class FSDPParam:
                 if self._unsharded_param_spec is None:
                     raise AssertionError("Expected _unsharded_param_spec for SPMD mesh")
                 placements = self._unsharded_param_spec.placements
+                # Only redistribute non-DP dims; keep Partial on DP dims
+                # so FSDP's reduce-scatter handles them directly, avoiding
+                # a redundant all-reduce on the DP dimensions.
+                target_placements = tuple(
+                    grad.placements[i] if i in self._dp_dim_indices else placements[i]
+                    for i in range(len(placements))
+                )
+                if target_placements != grad.placements:
+                    if len(placements) != len(grad.placements):
+                        raise AssertionError(
+                            f"Expected same placement length: {placements=} {grad.placements=}"
+                        )
+                    grad = grad.redistribute(placements=target_placements)
             else:
                 if self._tp_spec is None:
                     raise AssertionError("Expected _tp_spec for non-SPMD mesh")
                 placements = self._tp_spec.placements
-            if placements != grad.placements:
-                if len(placements) != len(grad.placements):
-                    raise AssertionError(
-                        f"Expected same placement length: {placements=} {grad.placements=}"
-                    )
-                grad = grad.redistribute(placements=placements)
+                if placements != grad.placements:
+                    if len(placements) != len(grad.placements):
+                        raise AssertionError(
+                            f"Expected same placement length: {placements=} {grad.placements=}"
+                        )
+                    grad = grad.redistribute(placements=placements)
             grad = grad._local_tensor
         return grad
 
