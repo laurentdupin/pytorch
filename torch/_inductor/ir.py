@@ -3613,6 +3613,13 @@ class SliceView(View):
         if any(free_unbacked_symbols(x) for x in (start, end, dim_size)):
             min_func = sympy.Min
             max_func = sympy.Max
+        elif any(
+            x.has(sympy.Min, sympy.Max)
+            for x in (start, end, dim_size)
+            if isinstance(x, Expr)
+        ):
+            min_func = sympy.Min
+            max_func = sympy.Max
         else:
             min_func = sizevars.evaluate_min
             max_func = sizevars.evaluate_max

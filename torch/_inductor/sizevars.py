@@ -555,6 +555,13 @@ class SizeVarAllocator:
         for lhs, rhs in [(left, right), (right, left)]:
             if isinstance(lhs, sympy.Min) and rhs in lhs.args:
                 return lhs  # Min(Min(a, b), b) = Min(a, b)
+            if isinstance(lhs, sympy.Max) and rhs in lhs.args:
+                return rhs  # Min(Max(a, b), b) = b
+            # If lhs = Max(a1, a2, ...) and all ai <= rhs, then Max(...) <= rhs.
+            if isinstance(lhs, sympy.Max) and all(
+                self.guard_or_false(sympy.Le(a, rhs)) for a in lhs.args
+            ):
+                return lhs  # Min(Max(a, b), c) = Max(a, b) when a <= c and b <= c
 
         raise TypeError(
             f"evaluate_min({left}, {right}) with unbacked symints"
