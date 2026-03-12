@@ -5401,8 +5401,8 @@ class ChoiceCaller:
         # Subclass-overridden attributes for subgraph-based choices
         self.gm: torch.fx.GraphModule | None = None
         self.decomposition: Callable[..., Any] | None = None
-        self.decomposition_kwargs: dict[str, Any] | None = None
-        self.config_patches: dict[str, Any] | None = None
+        self.decomposition_kwargs: dict[str, Any] = {}
+        self.config_patches: dict[str, Any] = {}
 
     def benchmark(self, *args: Any, out: torch.Tensor) -> float:
         algo = self.to_callable()
