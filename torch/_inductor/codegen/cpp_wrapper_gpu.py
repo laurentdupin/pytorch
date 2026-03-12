@@ -254,7 +254,7 @@ class DeferredTritonCallWrapper:
     arg_types: list[Any]
     triton_meta: dict[str, Any] | None = None
     inductor_meta: dict[str, Any] | None = None
-    tma_tensor_args: dict[str, str] | None = None
+    tma_tensor_args: dict[str, str] = dataclasses.field(default_factory=dict)
 
     @cache_on_self
     def _get_tma_args(self) -> dict[str, str]:
@@ -412,7 +412,7 @@ class DeferredTritonCallWrapper:
         signature = self.triton_meta.get("signature", {})
         inductor_meta = self.inductor_meta or {}
         extra_launcher_args_count = len(inductor_meta.get("extra_launcher_args", []))
-        tma_tensor_args = self.tma_tensor_args or {}
+        tma_tensor_args = self.tma_tensor_args
         num_tma_tensor_args = len(tma_tensor_args)
 
         internal_config_suffixes = ("BLOCK", "RSPLIT", "RSPLIT_SIZE")
@@ -571,7 +571,7 @@ class DeferredTritonCallWrapper:
         """Generate kernel launch code for lazy-compiled kernels."""
         kernel_name = self.kernel_name
         signature = (self.triton_meta or {}).get("signature", {})
-        tma_tensor_args = self.tma_tensor_args or {}
+        tma_tensor_args = self.tma_tensor_args
         num_tma_tensor_args = len(tma_tensor_args)
 
         # wrapper_arg_names may include grid and TMA tensor args at the end;
@@ -653,7 +653,7 @@ class DeferredTritonCallWrapper:
         # Build autotune args - for TMA, pass tensors instead of descriptors.
         # Only iterate over signature params and grid args, not the trailing
         # TMA tensor params (those are only in the C++ wrapper signature).
-        tma_tensor_args = self.tma_tensor_args or {}
+        tma_tensor_args = self.tma_tensor_args
         num_autotune_args = len(wrapper_arg_names) - len(tma_tensor_args)
         autotune_arg_list = []
         for name in wrapper_arg_names[:num_autotune_args]:
@@ -1369,12 +1369,12 @@ static struct TritonKernelCompileInit {{
                 for key, raw_arg in zip(raw_keys_list, raw_args):
                     sig_type = signature.get(key, "")
                     if isinstance(sig_type, str) and signature_is_tma_desc(sig_type):
-                        if isinstance(
-                            raw_arg, (TMADescriptorExperimental, TMADescriptorStable)
-                        ):
+                        if isinstance(raw_arg, TMADescriptorStable):
                             # Get the underlying tensor name
-                            tensor_name = raw_arg.get_tensor().codegen_reference()
+                            tensor_name = raw_arg.get_tensor().get_name()
                             tma_tensor_args[key] = tensor_name
+                        else:
+                            raise AssertionError("Unsupported TMA descriptor type")
 
             wrapper_name = f"call_{kernel_name}"
             if wrapper_name not in self._triton_call_wrappers:
@@ -1385,7 +1385,7 @@ static struct TritonKernelCompileInit {{
                     arg_types,
                     triton_meta=triton_meta,
                     inductor_meta=inductor_meta,
-                    tma_tensor_args=tma_tensor_args if tma_tensor_args else None,
+                    tma_tensor_args=tma_tensor_args,
                 )
 
             # For TMA in lazy compile mode, add tensor args to the call
