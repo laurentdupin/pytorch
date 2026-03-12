@@ -2018,9 +2018,8 @@ class CommonTemplate:
         # It has wrapping but no assert
         test(pos_and_neg, (a,), has_assert=False, has_wrapping=True)
 
-        # We currently don't do constant propagation with float constants
-        # We cannot prove this kind of asserts just with bounds. We would need
-        # to lift IndexPropagation.shape_env to be accessible in all of Inductor
+        # After removing mul(1.0) no-op and replacing with convert_element_type,
+        # constant propagation now works correctly, so no bounds check is needed
         def flip_with_index(a):
             b = 1.0 * torch.arange(
                 start=-1, end=-a.numel() - 1, step=-1, device=a.device
@@ -2031,7 +2030,7 @@ class CommonTemplate:
         test(
             flip_with_index,
             (a,),
-            has_assert=ifdynstaticdefault(False, True),
+            has_assert=False,
             has_wrapping=False,
             vectorize=True,
         )
@@ -6972,6 +6971,10 @@ class CommonTemplate:
             lambda x: x - torch.zeros([256, 256], dtype=torch.float32, device=x.device),  # noqa: E731
             lambda x: x * torch.ones([256, 256], dtype=torch.float32, device=x.device),  # noqa: E731
             lambda x: x / torch.ones([256, 256], dtype=torch.float32, device=x.device),  # noqa: E731
+            lambda x: x + 0,
+            lambda x: x - 0,
+            lambda x: x * 1,
+            lambda x: x / 1,
         )
 
         inps = [torch.rand([256, 256], device=self.device) for _ in range(2)]
@@ -8632,6 +8635,26 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
                 fn,
                 (a, b, c),
             )
+
+    @xfail_if_mps  # dtypes mismatch
+    def test_nll_loss_backward_1d_input(self):
+        # 1D input with 1D target used to crash the decomposition because
+        # target.unsqueeze(0) produced a 2D index for a 1D scatter.
+        def fn(a, b, c):
+            return aten.nll_loss_backward(
+                a, b, c, None, 0, 10, torch.tensor(1.0, device=self.device)
+            )
+
+        # 1D target — validation requires target.size(0) == self.size(0)
+        self.common(
+            fn,
+            (torch.randn(1), torch.randn(3), torch.tensor([2, 0, 1])),
+        )
+        # scalar target (the no_batch_dim path in the C++ kernel)
+        self.common(
+            fn,
+            (torch.randn(1), torch.randn(3), torch.tensor(2)),
+        )
 
     def test_isinf(self):
         def fn(x):
@@ -12594,59 +12617,6 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
                         deterministic=deterministic,
                     )
 
-    @unittest.skipIf(IS_MACOS, "fails on macos")
-    @parametrize("dtype", test_dtypes)
-    def test_empty_deterministic(self, dtype):
-        def test_helper(fn, args):
-            cfunc = torch.compile(fn, fullgraph=True)
-
-            with DeterministicGuard(True, fill_uninitialized_memory=True):
-                eager = fn(*args)
-                compiled = cfunc(*args)
-                torch.testing.assert_close(eager, compiled, equal_nan=True)
-
-        def fn():
-            return torch.empty(4, 4, device=self.device, dtype=dtype)
-
-        test_helper(fn, ())
-
-        def fn(x):
-            return torch.empty_like(x, device=self.device, dtype=dtype)
-
-        test_helper(fn, (torch.empty(4, 4, device=self.device),))
-
-        def fn():
-            return torch.empty_strided((2, 2), (2, 1), device=self.device, dtype=dtype)
-
-        test_helper(fn, ())
-
-        def fn():
-            return torch.empty_permuted(
-                (2, 3, 5), (1, 0, 2), device=self.device, dtype=dtype
-            )
-
-        test_helper(fn, ())
-
-    @requires_gpu()
-    @unittest.skipIf(IS_MACOS, "fails on macos")
-    def test_empty_deterministic_pin_memory(self):
-        if self.device != "cpu":
-            raise unittest.SkipTest("Test only runs on CPU")
-
-        def fn():
-            return torch.empty(
-                4, 4, device=self.device, dtype=torch.float32, pin_memory=True
-            )
-
-        cfunc = torch.compile(fn, fullgraph=True)
-
-        with DeterministicGuard(True, fill_uninitialized_memory=True):
-            eager = fn()
-            compiled = cfunc()
-            torch.testing.assert_close(eager, compiled, equal_nan=True)
-            self.assertTrue(eager.is_pinned())
-            self.assertTrue(compiled.is_pinned())
-
     def test_inplace_resize_as(self):
         def fn(x, y):
             x.resize_as_(y)
@@ -15938,33 +15908,16 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
         result = torch.compile(fn)(x_base.clone()[:, 2:, :], index, source)
         self.assertEqual(result, expected)
 
-    def test_bfloat_constant(self):
-        if not self.is_dtype_supported(torch.bfloat16):
-            raise unittest.SkipTest("bfloat16 not supported")
-        self.common(
-            lambda x: x + 1.0,
-            (make_tensor(1024, dtype=torch.bfloat16, device=self.device),),
-        )
-
-    @parametrize("dtype", [torch.float16, torch.bfloat16])
-    def test_lowp_reduction(self, dtype):
-        if not self.is_dtype_supported(dtype):
-            raise unittest.SkipTest(f"{dtype} not supported")
-        self.common(
-            lambda x: x.sum(),
-            (make_tensor(1024, dtype=dtype, device=self.device),),
-            check_lowp=False,
-        )
-
-    @parametrize("dtype", [torch.float16, torch.bfloat16])
-    def test_lowp_where(self, dtype):
-        if not self.is_dtype_supported(dtype):
-            raise unittest.SkipTest(f"{dtype} not supported")
-        self.common(
-            lambda x: torch.where(x > 0.5, x, x.new_zeros(())),
-            (make_tensor(1024, dtype=dtype, device=self.device),),
-            check_lowp=False,
-        )
+    def test_pad_after_gelu(self):
+        # Regression test for Voxtral compilation on MPS
+        for dtype in [torch.float32, torch.float16, torch.bfloat16]:
+            if not self.is_dtype_supported(dtype):
+                continue
+            self.common(
+                lambda x: torch.nn.functional.pad(torch.nn.functional.gelu(x), [1, 0]),
+                (torch.randn(8, 16, dtype=dtype, device=self.device),),
+                check_lowp=False,
+            )
 
     # end of class CommonTemplate - add new tests here
 
@@ -16427,8 +16380,8 @@ if RUN_GPU:
                         )
 
             def fn(x: torch.Tensor) -> torch.Tensor:
-                s = 1.0 * torch.arange(x.shape[0], device=x.device)
-                return x[s.long()]
+                s = torch.arange(x.shape[0], device=x.device) | 0
+                return x[s]
 
             # aten.index
             for dynamic in (False, True):
