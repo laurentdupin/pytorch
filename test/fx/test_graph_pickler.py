@@ -879,8 +879,8 @@ class TestIgnoreRawNode(TestCase):
 
     def setUp(self):
         super().setUp()
-        from torch.fx._graph_pickler import GraphPickler, Options
         from torch._subclasses.fake_tensor import FakeTensorMode
+        from torch.fx._graph_pickler import GraphPickler, Options
         from torch.fx.experimental.symbolic_shapes import ShapeEnv
 
         self.GraphPickler = GraphPickler
@@ -896,9 +896,7 @@ class TestIgnoreRawNode(TestCase):
                 return x + 1
 
         gm = symbolic_trace(M())
-        call_node = next(
-            (n for n in gm.graph.nodes if n.op == "call_function"), None
-        )
+        call_node = next((n for n in gm.graph.nodes if n.op == "call_function"), None)
         self.assertIsNotNone(call_node)
         # Store a raw Node reference in meta – this is the problematic case.
         call_node.meta["raw_ref"] = call_node
