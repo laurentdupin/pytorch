@@ -62,6 +62,11 @@ class NoEnterTorchFunctionMode(BaseTorchFunctionMode):
         pass
 
 
+def _fn_with_ctx(ctx, fn, *args, **kwargs):
+    with ctx:
+        return fn(*args, **kwargs)
+
+
 def index(
     iterator: Iterator[T], item: T, start: int = 0, end: int | None = None
 ) -> int:
@@ -404,9 +409,12 @@ def instantiate_user_defined_class_object(
 ) -> T:
     obj = cls.__new__(cls, *args, **kwargs)
 
-    # Only call __init__ if the object is an instance of the class
+    # Only call __init__ if the object's type is a subclass of cls.
+    # CPython uses PyType_IsSubtype(Py_TYPE(obj), type) at the C level, which does NOT
+    # go through metaclass __instancecheck__. Using isinstance() here would be wrong
+    # for classes with custom __instancecheck__ (e.g. torch.ByteStorage).
     # Reference: https://github.com/python/cpython/blob/3.12/Objects/typeobject.c#L1670-L1673
-    if isinstance(obj, cls):
+    if issubclass(type(obj), cls):
         obj.__init__(*args, **kwargs)
     return obj
 
