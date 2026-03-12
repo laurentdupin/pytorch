@@ -177,6 +177,53 @@ def _addmm_like_strategy(
     return mm_strategy
 
 
+def _scaled_mm_scale_spec(
+    data_spec: DTensorSpec,
+    scale_shape: torch.Size,
+    contracting_dim: int,
+) -> DTensorSpec | None:
+    """
+    Compute DTensorSpec for a _scaled_mm scale tensor given its data operand's spec.
+
+    Handles three cases:
+
+    1. Tensor-wise scale (single element): always Replicate.
+    2. 2D (or higher) scale, e.g. row-wise [M,1]: copy data spec directly.
+    3. 1D blockwise scale, e.g. MX format [M*K/block_size]: map
+       non-contracting shard to Shard(0), and filter out contracting-dim
+       shards (returns None) since 1D block scales can't be split along the
+       contracting dimension.
+    """
+    if prod(scale_shape) == 1:
+        # Tensor-wise: always replicate
+        return DTensorSpec(
+            data_spec.mesh,
+            tuple(Replicate() for _ in data_spec.placements),
+        )
+
+    if len(scale_shape) != 1:
+        # 2D (or higher) scale: copy data spec directly (e.g. row-wise)
+        return data_spec
+
+    # 1D blockwise scale: Shard(>=1) is invalid on a 1D tensor, so we need
+    # to map the data operand's placement to a valid 1D placement.
+    new_placements: list[Placement] = []
+    for p in data_spec.placements:
+        if isinstance(p, Replicate | Partial):
+            new_placements.append(Replicate())
+        elif isinstance(p, Shard):
+            if p.dim == contracting_dim:
+                # Can't shard a 1D blockwise scale on the contracting dim
+                return None
+            else:
+                # Non-contracting dim: scale's row-blocks are split
+                new_placements.append(Shard(0))
+        else:
+            new_placements.append(p)
+
+    return DTensorSpec(data_spec.mesh, tuple(new_placements))
+
+
 def _scaled_mm_like_strategy(
     mm_equation: str, mesh: DeviceMesh, op_schema: OpSchema
 ) -> OpStrategy:
@@ -202,6 +249,19 @@ def _scaled_mm_like_strategy(
         raise AssertionError("_scaled_mm on DTensors doesn't support bias")
     if scale_result_strategy is not None:
         raise AssertionError("_scaled_mm on DTensors doesn't support scale_result")
+
+    # Derive contracting dimensions from the einsum equation.
+    # For "mk,kn->mn": contracting char is 'k', self_dim=1, mat2_dim=0.
+    inputs, output = mm_equation.split("->")
+    input_terms = inputs.split(",")
+    contracting_chars = set(input_terms[0]) & set(input_terms[1]) - set(output)
+    self_contracting_dim = next(
+        i for i, c in enumerate(input_terms[0]) if c in contracting_chars
+    )
+    mat2_contracting_dim = next(
+        i for i, c in enumerate(input_terms[1]) if c in contracting_chars
+    )
+
     # generate all possible strategies for mm
     mm_strategy = gen_einsum_strategies(mm_equation, mesh)
     # filter out invalid strategies and associate costs
@@ -214,19 +274,18 @@ def _scaled_mm_like_strategy(
             )
         self_spec = strtg.input_specs[0]
         mat2_spec = strtg.input_specs[1]
-        # propagate the operands' specs to their scales, except for tensor-wise
-        # scaling which can have any numbers of dims (legacy...), hence sharding
-        # dims won't map. for tensor-wise, anyways, we can only do replication.
-        scale_self_spec = (
-            DTensorSpec(self_spec.mesh, (Replicate(),))
-            if prod(scale_self_strategy.shape) == 1
-            else self_spec
+        # Propagate the operands' specs to their scales. For tensor-wise
+        # scales we always replicate. For 2D scales (e.g. row-wise) we copy
+        # the data spec. For 1D blockwise scales (e.g. MX format) we map
+        # non-contracting shards to Shard(0) and filter out contracting shards.
+        scale_self_spec = _scaled_mm_scale_spec(
+            self_spec, scale_self_strategy.shape, self_contracting_dim
         )
-        scale_mat2_spec = (
-            DTensorSpec(mat2_spec.mesh, (Replicate(),))
-            if prod(scale_mat2_strategy.shape) == 1
-            else mat2_spec
+        scale_mat2_spec = _scaled_mm_scale_spec(
+            mat2_spec, scale_mat2_strategy.shape, mat2_contracting_dim
         )
+        if scale_self_spec is None or scale_mat2_spec is None:
+            continue
         strtg.input_specs = list(strtg.input_specs) + [scale_self_spec, scale_mat2_spec]
         if (
             is_tensor_shardable(
