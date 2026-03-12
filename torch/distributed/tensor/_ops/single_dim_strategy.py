@@ -15,7 +15,6 @@ from torch._ops import OpOverload
 from torch.distributed.tensor._collective_utils import (
     _compute_placement_transition_cost,
     MeshTopoInfo,
-    redistribute_cost,
 )
 from torch.distributed.tensor._dtensor_spec import DTensorSpec, TensorMeta
 from torch.distributed.tensor._op_schema import (
@@ -847,6 +846,19 @@ def _dijkstra_expand_single_dim_strategy_to_mesh(
         candidate_placements = tuple(tuple(ps) for ps in new_input_placements)
         if candidate_placements in visited:
             return
+        # Check that the NET transition (original -> proposed) is feasible.
+        # Individual hops may each be valid (e.g. S->R then R->P) while the
+        # net redistribution (S->P) is unsupported by the runtime planner.
+        original_p = initial_placements[input_idx][mesh_dim]
+        net_cost, _ = _compute_placement_transition_cost(
+            original_p,
+            new_placement,
+            mesh_topo,
+            mesh_dim,
+            initial_comm_bytes_gb[input_idx],
+        )
+        if net_cost == float("inf"):
+            return
         step_cost, new_comm_bytes = _compute_placement_transition_cost(
             old_placement,
             new_placement,
@@ -894,31 +906,15 @@ def _dijkstra_expand_single_dim_strategy_to_mesh(
             mesh, candidate.placements, input_specs
         )
         if match_result is not None:
+            # Use pre-computed per-input costs from the PQ search instead of
+            # recomputing via generate_redistribute_costs -> _gen_transform_infos.
             match_spec = match_result.strategies[0]
             if match_spec.input_specs is None:
                 raise AssertionError
-
-            # Validate that the runtime redistribution planner can handle each
-            # input transition.  The PQ search decomposes transitions into
-            # single-step hops (e.g. S->R->P each with finite cost), but the
-            # runtime planner may emit a direct unsupported step (e.g. S->P).
-            # Use redistribute_cost as the source of truth; if any input gets
-            # infinity, skip this match and keep searching.
-            actual_costs: list[float] = []
-            feasible = True
-            for cur_spec, tgt_spec in zip(input_specs, match_spec.input_specs):
-                c = redistribute_cost(cur_spec, tgt_spec)
-                if c == float("inf"):
-                    feasible = False
-                    break
-                actual_costs.append(c)
-            if not feasible:
-                continue
-
             op_spec = OpSpec(
                 output_specs=match_spec.output_specs,
                 input_specs=list(match_spec.input_specs),
-                redistribute_cost=[[cost] for cost in actual_costs],
+                redistribute_cost=[[cost] for cost in candidate.per_input_costs],
             )
 
             exhaustive = len(prepared_strategy.expanded_strategies) ** mesh.ndim
