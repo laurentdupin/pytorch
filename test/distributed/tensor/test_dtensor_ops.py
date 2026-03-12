@@ -445,7 +445,6 @@ dtensor_fails_no_strategy = {
     xfail("median"),
     xfail("mode"),
     xfail("multinomial"),
-    xfail("nanmean"),
     xfail("nanmedian"),
     xfail("nanquantile"),
     xfail("native_batch_norm"),
