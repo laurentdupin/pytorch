@@ -1,8 +1,8 @@
 # Owner(s): ["module: inductor"]
 
+import importlib.util
 import unittest
-from collections.abc import Callable
-from copy import deepcopy
+from collections.abc import Callable, Iterator
 
 from sympy import I, Max, Min, Symbol, sympify
 
@@ -18,6 +18,7 @@ from torch._inductor.fx_utils import (
 )
 from torch._inductor.utils import get_device_tflops, sympy_str, sympy_subs
 from torch._inductor.virtualized import V
+from torch.ops import aten
 from torch.testing._internal.common_device_type import (
     dtypes,
     instantiate_device_type_tests,
@@ -96,6 +97,22 @@ class TestUtils(TestCase):
         expr = Min(2, Max(0, Identity(q0)))
         result = sympy_subs(expr, {q0: I})
         self.assertTrue(result.has(I))
+
+    def testIdentityComparisonNoRecursion(self):
+        self.assertTrue(Identity(sympify("0")) >= 0)
+        self.assertFalse(Identity(sympify("-6")) >= 0)
+        self.assertTrue(0 >= Identity(sympify("-6")))
+
+    def testIdentityComparableNumbersInMinMax(self):
+        expr = Identity(sympify("-6"))
+        self.assertTrue(expr.is_number)
+        self.assertTrue(expr.is_comparable)
+        self.assertEqual(Max(0, expr), 0)
+
+    def testIdentityRationalComparisonNoRecursion(self):
+        expr = Identity(sympify("1/7"))
+        self.assertTrue(expr >= 0)
+        self.assertTrue(Max(0, expr).has(expr))
 
     def test_sympy_str(self):
         self.assertEqual(sympy_str(sympify("a+b+c")), "a + b + c")
@@ -237,84 +254,137 @@ class TestUtils(TestCase):
 instantiate_device_type_tests(TestUtils, globals(), allow_xpu=True)
 
 
+class TestFP4Support(TestCase):
+    """Tests for FP4 (float4_e2m1fn_x2) infrastructure support."""
+
+    @unittest.skipIf(
+        not torch.cuda.is_available()
+        or importlib.util.find_spec("cutlass_api") is None,
+        "requires CUDA and cutlass_api",
+    )
+    def test_ensure_fp4_dtype_registered(self):
+        """_ensure_fp4_dtype_registered should patch cutlass_api for FP4."""
+        from torch._inductor.utils import _ensure_fp4_dtype_registered
+
+        _ensure_fp4_dtype_registered()
+        import cutlass
+        import cutlass_api.utils
+
+        result = cutlass_api.utils.cutlass_type_from_torch_type(torch.float4_e2m1fn_x2)
+        self.assertEqual(result, cutlass.Float4E2M1FN)
+
+        result_fp32 = cutlass_api.utils.cutlass_type_from_torch_type(torch.float32)
+        self.assertEqual(result_fp32, cutlass.Float32)
+
+    def test_rand_strided_fp4(self):
+        """rand_strided should produce valid FP4 tensors."""
+        from torch._dynamo.testing import rand_strided
+
+        t = rand_strided((4, 8), (8, 1), dtype=torch.float4_e2m1fn_x2, device="cpu")
+        self.assertEqual(t.dtype, torch.float4_e2m1fn_x2)
+        self.assertEqual(t.shape, (4, 8))
+        self.assertEqual(t.stride(), (8, 1))
+
+    @unittest.skipIf(not torch.cuda.is_available(), "requires CUDA")
+    def test_rand_strided_fp4_cuda(self):
+        from torch._dynamo.testing import rand_strided
+
+        t = rand_strided((16, 32), (32, 1), dtype=torch.float4_e2m1fn_x2, device="cuda")
+        self.assertEqual(t.dtype, torch.float4_e2m1fn_x2)
+        self.assertEqual(t.shape, (16, 32))
+        self.assertTrue(t.is_cuda)
+
+
 class TestFakeTensorUpdater(TestCase):
-    def _insert_clone(self, main_graph: torch.fx.GraphModule) -> None:
-        updater = FakeTensorUpdater(main_graph)
+    @staticmethod
+    def _get_faketensormode(
+        graph: torch.fx.GraphModule,
+    ) -> torch._subclasses.FakeTensorMode:
+        return (
+            detect_fake_mode(get_fake(next(iter(graph.graph.nodes)), graph))
+            or torch._subclasses.FakeTensorMode()
+        )
 
-        def recursively_test_graph_mod(gm: torch.fx.GraphModule) -> None:
-            for node in gm.graph.find_nodes(op="placeholder"):
-                with gm.graph.inserting_after(node):
-                    clone_node = gm.graph.call_function(
-                        torch.ops.aten.clone.default, (node,)
-                    )
-
-                node.replace_all_uses_with(
-                    clone_node, delete_user_cb=lambda n: n != clone_node
-                )
-
-                # At minimum we should update the cloned node.  We may also update a
-                # variable number of other nodes, so it's difficult to make hard
-                # assertions here.
-                with V.set_fake_mode(detect_fake_mode(get_fake(node, gm))):
-                    self.assertGreaterEqual(updater.incremental_update(), 1, str(node))
-
-            # iterate over subgraphs, updating *main_graph*
-            for subgraph_name in _get_subgraph_names(gm):
-                subgraph = getattr(gm, subgraph_name)
-                self.assertIsInstance(subgraph, torch.fx.GraphModule)
-                recursively_test_graph_mod(subgraph)
-
-        recursively_test_graph_mod(main_graph)
-
-    def _modify_node(self, main_graph: torch.fx.GraphModule) -> None:
-        updater = FakeTensorUpdater(main_graph)
-
-        def recursively_test_graph_mod(gm: torch.fx.GraphModule) -> None:
-            for node in gm.graph.nodes:
-                # If "val" isn't in the meta dict initially, an update will
-                # likely skip the node anyway, so the logic of this test doesn't
-                # work.
-                if "val" not in node.meta:
-                    continue
-
-                val: torch.Tensor = node.meta["val"]
-                dtype = val.dtype
-                shape = val.size()
-                strides = val.stride()
-                del node.meta["val"], val
-
-                self.assertEqual(updater.incremental_update(), 1)
-                self.assertIn("val", node.meta)
-
-                val: torch.Tensor = node.meta["val"]
-                self.assertEqual(val.dtype, dtype)
-                self.assertEqual(val.size(), shape)
-                self.assertEqual(val.stride(), strides)
-
-            # iterate over subgraphs, updating *main_graph*
-            for subgraph_name in _get_subgraph_names(gm):
-                subgraph = getattr(gm, subgraph_name)
-                self.assertIsInstance(subgraph, torch.fx.GraphModule)
-                recursively_test_graph_mod(subgraph)
-
-        recursively_test_graph_mod(main_graph)
-
-    def _common_test(
-        self, fn: Callable[..., torch.Tensor], *args: torch.Tensor
-    ) -> None:
+    @staticmethod
+    def _get_graph(
+        fn: Callable[..., torch.Tensor], *args: torch.Tensor
+    ) -> torch.fx.GraphModule:
         backend = AotEagerAndRecordGraphs()
         # populate the backend with a captured graph
         torch.compile(backend=backend, fullgraph=True)(fn)(*args)
+        # return the FW graph that has been parsed by AOTAutograd
+        return backend.fw_graphs[0]
 
-        self._modify_node(deepcopy(backend.graphs[0]))
-        self._insert_clone(deepcopy(backend.graphs[0]))
+    @staticmethod
+    def _get_call_function_nodes(
+        graph: torch.fx.GraphModule,
+    ) -> Iterator[tuple[torch.fx.GraphModule, torch.fx.Node]]:
+        """Recursively yields all call_function nodes in a GraphModule.  These nodes are
+        ideal to apply transformations to, since callables are the focus of
+        FakeTensorUpdater."""
+        for sn in _get_subgraph_names(graph):
+            yield from TestFakeTensorUpdater._get_call_function_nodes(
+                getattr(graph, sn)
+            )
+
+        yield from ((graph, n) for n in graph.graph.nodes if n.op == "call_function")
+
+    def _add_delete_nodes_test(self, graph: torch.fx.GraphModule) -> None:
+        updater = FakeTensorUpdater(graph)
+        fake_mode = self._get_faketensormode(graph)
+
+        for gm, fn in self._get_call_function_nodes(graph):
+            fake_outputs = get_fake(fn, gm)
+            self.assertIsNot(fake_outputs, fn, msg="No fake outputs for node!")
+            # With the lack of a _foreach_clone operator, doing this test with tuples
+            # is tricky, so skip them for now.
+            if isinstance(fake_outputs, tuple):
+                continue
+
+            # Use torch.clone rather than torch.reshape to preserve shape.  Since
+            # we're testing changes in subgraphs, we've explicitly disallowed changes
+            # other than striding to anything input to a subgraph, and with cascading
+            # changes this is the most straightforward approach.
+            with gm.graph.inserting_after(fn):
+                if "val" in fn.meta and len(fn.meta["val"].size()) == 4:
+                    # Shuffle the strides, testing that subgraph updating still works.
+                    breakpoint()
+                    cloned_node = gm.graph.call_function(
+                        torch.clone, (fn,), {"memory_format": torch.channels_last}
+                    )
+                else:
+                    cloned_node = gm.graph.call_function(torch.clone, (fn,))
+            nodes_modified = fn.replace_all_uses_with(
+                cloned_node, lambda n: n != cloned_node
+            )
+
+            with V.set_fake_mode(fake_mode):
+                clone_num_updated = updater.incremental_update()
+
+            # At a minimum, we have to update the newly inserted node and all the nodes
+            # which had an input replaced.  There may be more nodes modified if the
+            # shape has changed.
+            self.assertGreaterEqual(clone_num_updated, len(nodes_modified) + 1)
+
+            # Erase the added reshape.
+            cloned_node.replace_all_uses_with(fn)
+            gm.graph.erase_node(cloned_node)
+
+            with V.set_fake_mode(fake_mode):
+                erase_num_updated = updater.incremental_update()
+
+            # Deleting the node should update the same number of nodes as previously,
+            # excluding the reshaped node itself.
+            self.assertEqual(clone_num_updated - 1, erase_num_updated)
 
     def test_hop_implicit_subgraph_inputs(self):
         def fn(x: torch.Tensor) -> torch.Tensor:
             return torch.cond(torch.sum(x) < 0, torch.sin, torch.cos, (x,))
 
-        a = torch.randn((32, 32, 32))
-        self._common_test(fn, a)
+        # Use 4-D tensor so that we can test re-striding with channels_last.
+        a = torch.randn((8, 4, 2, 1))
+        graph = self._get_graph(fn, a)
+        self._add_delete_nodes_test(graph)
 
     def test_hop_subgraph_inputs(self):
         @torch.compiler.nested_compile_region
@@ -333,9 +403,44 @@ class TestFakeTensorUpdater(TestCase):
             x, y = nested_section_outer(a, b)
             return x + y
 
-        a = torch.randint(0, (1 << 16), (32, 32, 32), dtype=torch.int32)
-        b = torch.randint(0, (1 << 16), (32, 32, 32), dtype=torch.int32)
-        self._common_test(fn, a, b)
+        # Use 4-D tensor so that we can test re-striding with channels_last.
+        a = torch.randint(0, (1 << 16), (8, 4, 2, 1), dtype=torch.int32)
+        b = torch.randint(0, (1 << 16), (8, 4, 2, 1), dtype=torch.int32)
+        graph = self._get_graph(fn, a, b)
+        self._add_delete_nodes_test(graph)
+
+    def test_reorder_nodes(self):
+        def fn(*args: torch.Tensor) -> torch.Tensor:
+            ret = torch.ones_like(args[0])
+            for a in args:
+                ret = a * ret
+            return ret
+
+        a = torch.rand((8,))
+        b = torch.rand((8, 8))
+        c = torch.rand((8, 8, 8))
+        d = torch.rand((8, 8, 8, 8))
+        graph = self._get_graph(fn, a, b, c, d)
+        updater = FakeTensorUpdater(graph)
+
+        reversed_placeholders: list[torch.fx.Node] = list(
+            reversed(graph.graph.find_nodes(op="placeholder"))
+        )
+        mul_nodes: list[torch.fx.Node] = graph.graph.find_nodes(
+            op="call_function", target=aten.mul.Tensor
+        )
+        for p, m in zip(reversed_placeholders, mul_nodes, strict=True):
+            # The argument tensor is always at index zero.
+            m.replace_input_with(m.all_input_nodes[0], p)
+
+        with V.set_fake_mode(self._get_faketensormode(graph)):
+            num_updated = updater.incremental_update()
+
+        self.assertEqual(num_updated, 4)
+        # With reversed multiplication order, all the mul_nodes should output 4-D
+        # tensors.
+        for m in mul_nodes:
+            self.assertEqual(len(m.meta["val"].size()), 4)
 
 
 if __name__ == "__main__":

@@ -347,10 +347,17 @@ class FakeTensorUpdater:
             args_updated: bool = False
             outputs_updated: bool = False
 
+        # Update self.processed_hashes every time.  This allows us to account for
+        # situations where a node gets modified, updated, then reverted to its original
+        # state.  Without doing this, we wouldn't update downstream nodes, because the
+        # reverted node would already be in our cache.
+        current_graph_hashes = OrderedSet[_FxNodeHash]()
+
         nodes_updated: int = 0
         to_process = OrderedSet[int]()
         subgraph_updatings: dict[torch.fx.GraphModule, SubgraphUpdating] = {}
         for node in self.gm.graph.nodes:
+            current_graph_hashes.add(hash := self.hash_node(node))
             is_valid, args, kwargs = get_fake_args_kwargs(node, self.gm)
             if not is_valid:
                 continue
@@ -362,7 +369,7 @@ class FakeTensorUpdater:
             if (
                 # Always run updates on nodes that invoke subgraphs
                 not (invokes_subgraph := node_invokes_subgraph(node, *args, **kwargs))
-                and self.hash_node(node) in self.processed_hashes
+                and hash in self.processed_hashes
                 and id(node) not in to_process
             ):
                 continue
@@ -425,13 +432,9 @@ class FakeTensorUpdater:
                             subgraph.graph.output_node(), subgraph
                         )
 
-                        # As with subgraph arguments, this may mislabel output argument
-                        # aliasing relationships, but there's no clear way around this
-                        # with multiple subgraph invocations.
                         if not is_fake_tensor_same(
                             new_output_args,
                             orig_output_args,
-                            check_storage=False,
                         ):
                             subgraph_updatings[subgraph].outputs_updated = True
 
@@ -470,7 +473,7 @@ class FakeTensorUpdater:
 
             to_process.update(id(user) for user in node.users)
 
-            self.processed_hashes.add(self.hash_node(node))
+        self.processed_hashes = current_graph_hashes
 
         return nodes_updated
 
