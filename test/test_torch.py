@@ -66,7 +66,7 @@ from torch.testing._internal.common_dtype import (
     get_all_qint_dtypes, all_types_complex_float8_and,
 )
 from torch.testing._internal.two_tensor import TwoTensor
-from torch.testing._internal.common_utils import IS_WINDOWS
+from torch.testing._internal.common_utils import IS_WINDOWS, skipIfXpu
 
 if TEST_WITH_TORCHINDUCTOR:
     from torch._inductor.test_case import TestCase
