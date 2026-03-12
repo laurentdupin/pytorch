@@ -641,6 +641,15 @@ class VariableBuilder:
         )
 
     def wrap_jit_function(self, value: Any) -> WrapperUserFunctionVariable:
+        if not hasattr(value, "_torchdynamo_inline"):
+            unimplemented(
+                gb_type="ScriptFunction without Python equivalent",
+                context="",
+                explanation="Dynamo encountered a torch.jit.ScriptFunction with no Python equivalent to inline. "
+                "This happens with ScriptFunctions created via torch.jit.CompilationUnit, "
+                "which compile from TorchScript source strings rather than Python functions.",
+                hints=[],
+            )
         self.install_guards(GuardBuilder.TYPE_MATCH)
         return WrapperUserFunctionVariable(
             value,
