@@ -1963,7 +1963,8 @@ class FusedSchedulerNode(BaseSchedulerNode):
             return False
         self_sizes = None
         for snode in self.snodes:
-            assert isinstance(snode, SchedulerNode)
+            if not isinstance(snode, SchedulerNode):
+                return False
             if self_sizes is not None and tuple(self_sizes) != tuple(snode._sizes[0]):
                 loop_ordering_log.debug(
                     "Can not reorder fused node due to different sizes"
@@ -4697,6 +4698,13 @@ class Scheduler:
         fused_nodes.remove(node2)
         fused_nodes.add(node3)
         self.name_to_fused_node.update({n.get_name(): node3 for n in node3.get_nodes()})
+
+        # Propagate stream assignment to the fused node so that subsequent
+        # fusion rounds still respect stream boundaries.
+        stream1 = self.node_to_stream.get(node1)
+        if stream1 is not None:
+            self.node_to_stream[node3] = stream1
+
         return node3
 
     def fuse_if_speedup(
