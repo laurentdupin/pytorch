@@ -36,6 +36,7 @@ import itertools
 import logging
 import os
 import pstats
+import random  # noqa: F401 -- eval_frame_cpp.cpp imports random at runtime; torch.package needs this to detect the dependency
 import subprocess
 import sys
 import tempfile
