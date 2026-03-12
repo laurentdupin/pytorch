@@ -211,13 +211,27 @@ py::list _get_frame_value_stack_with_depth(
 static constexpr const char* cache_lookup_profiler_str =
     "TorchDynamo Cache Lookup";
 
+// Cache the random module to avoid calling py::module_::import("random") at
+// arbitrary points during execution. torch.package overrides the import
+// machinery, and importing "random" inside a package archive context would fail
+// if random isn't in the extern list.
+// Stored as raw PyObject* (leaked ref) to avoid destructor running after Python
+// finalizes, same pattern as bytecode_debugger_callback_obj above.
+static PyObject* random_module = nullptr;
+static py::handle get_random_module() {
+  if (random_module == nullptr) {
+    random_module = py::module_::import("random").release().ptr();
+  }
+  return py::handle(random_module);
+}
+
 // Use RAII to save/restore global state across the dynamo callback
 class PreserveGlobalState {
   py::object random_state;
 
  public:
   PreserveGlobalState() {
-    this->random_state = py::module_::import("random").attr("getstate")();
+    this->random_state = get_random_module().attr("getstate")();
   }
   PreserveGlobalState(const PreserveGlobalState&) = delete;
   PreserveGlobalState(PreserveGlobalState&&) = delete;
@@ -225,7 +239,7 @@ class PreserveGlobalState {
   PreserveGlobalState& operator=(PreserveGlobalState&&) = delete;
   ~PreserveGlobalState() {
     try {
-      py::module_::import("random").attr("setstate")(this->random_state);
+      get_random_module().attr("setstate")(this->random_state);
     } catch (py::error_already_set& e) {
       try {
         e.restore();
