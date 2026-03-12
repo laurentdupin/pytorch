@@ -1705,6 +1705,12 @@ class TestFullyShardAllocFromPG(FSDPTest):
 
 
 @requires_cuda_p2p_access()
+@skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "Not enough GPUs to run the test")
+@unittest.skipIf(
+    not PLATFORM_SUPPORTS_SYMM_MEM, "SymmMem is not supported on this platform"
+)
+@skipCUDAIf(TEST_WITH_ROCM, "requires NVIDIA GPUs")
+@skipCUDAIf(not SM90OrLater, "requires sm90+")
 class TestFullyShardSymmMem(MultiProcContinuousTest):
     @classmethod
     def backend_str(cls) -> Optional[str]:
@@ -1723,13 +1729,6 @@ class TestFullyShardSymmMem(MultiProcContinuousTest):
     def device(self) -> torch.device:
         return torch.device("cuda", self.rank)
 
-    @skip_but_pass_in_sandcastle_if(
-        not TEST_MULTIGPU, "Not enough GPUs to run the test"
-    )
-    @unittest.skipIf(
-        not PLATFORM_SUPPORTS_SYMM_MEM, "SymmMem is not supported on this platform"
-    )
-    @skipCUDAIf(not SM90OrLater or TEST_WITH_ROCM, "requires NVIDIA sm90+")
     @parametrize("sum_reduction", [True, False])
     def test_fully_shard_symm_mem(self, sum_reduction: bool):
         torch.manual_seed(42 + self.rank)
