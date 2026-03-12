@@ -287,8 +287,11 @@ def _preserve_node_seq_nr(preserve_seq_nr=True):
 def set_stack_trace(stack: list[str]):
     global current_meta
 
-    if should_preserve_node_meta and stack:
-        current_meta["stack_trace"] = "".join(stack)
+    if should_preserve_node_meta:
+        if stack:
+            current_meta["stack_trace"] = "".join(stack)
+        else:
+            current_meta.pop("stack_trace", None)
 
 
 @compatibility(is_backward_compatible=False)
