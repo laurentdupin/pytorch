@@ -48,18 +48,16 @@ function version_space() {
   };
 }
 
-function Segment(addr, size, stream, frames, version, user_metadata) {
-  return {addr, size, stream, version, frames, user_metadata};
+function Segment(addr, size, stream, frames, version, user_metadata, segment_pool_id) {
+  return {addr, size, stream, version, frames, user_metadata, segment_pool_id};
 }
 
 function Block(addr, size, requested_size, frames, free_requested, version, user_metadata) {
   return {addr, size, requested_size, frames, free_requested, version, user_metadata};
 }
 
-function isPrivatePool(seg) {
-  const id = seg.segment_pool_id;
-  if (!id) return false;
-  return !(id[0] === 0 && id[1] === 0);
+function isPrivatePoolId(pool_id) {
+  return pool_id && !(pool_id[0] === 0 && pool_id[1] === 0);
 }
 
 function EventSelector(outer, events, stack_info, memory_view) {
@@ -244,16 +242,17 @@ function MemoryView(outer, stack_info, snapshot, device) {
     if (seg.device !== device) {
       continue;
     }
-    const s = Segment(
+    sorted_segments.push(
+      Segment(
         seg.address,
         seg.total_size,
         seg.stream,
         seg.frames || [],
         seg.version,
         seg.user_metadata,
+        seg.segment_pool_id,
+      ),
     );
-    s.segment_pool_id = seg.segment_pool_id;
-    sorted_segments.push(s);
     for (const b of seg.blocks) {
       if (b.state !== 'active_pending_free' && b.state !== 'active_allocated') {
         continue;
@@ -497,7 +496,7 @@ function MemoryView(outer, stack_info, snapshot, device) {
           const frames_str = format_frames(t.frames);
           const forward_frames_str = format_forward_frames(t.forward_frames);
           let pool_str = '';
-          if (t.segment_pool_id && !(t.segment_pool_id[0] === 0 && t.segment_pool_id[1] === 0)) {
+          if (isPrivatePoolId(t.segment_pool_id)) {
             pool_str = `, pool_id (${t.segment_pool_id[0]}, ${t.segment_pool_id[1]})`;
           }
           return (
@@ -575,7 +574,7 @@ function MemoryView(outer, stack_info, snapshot, device) {
           const frames_str = format_frames(t.frames);
           const forward_frames_str = format_forward_frames(t.forward_frames);
           let pool_str = '';
-          if (t.segment && t.segment.segment_pool_id && !(t.segment.segment_pool_id[0] === 0 && t.segment.segment_pool_id[1] === 0)) {
+          if (isPrivatePoolId(t.segment?.segment_pool_id)) {
             pool_str = `, pool_id (${t.segment.segment_pool_id[0]}, ${t.segment.segment_pool_id[1]})`;
           }
           return (
@@ -953,6 +952,8 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
       return a.address < b.address ? -1 : 1;
     });
 
+  // Binary search device_segments to find which segment contains addr,
+  // returning that segment's pool_id (or null if not found).
   function find_pool_id(addr) {
     let left = 0;
     let right = device_segments.length - 1;
@@ -1015,7 +1016,7 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
         initially_allocated.push(elements.length - 1);
       }
     } else {
-      const seg_is_private = isPrivatePool(seg);
+      const seg_is_private = isPrivatePoolId(seg.segment_pool_id);
       for (const b of seg.blocks) {
         const is_active = b.state === 'active_allocated';
         const is_private_inactive = include_private_inactive && seg_is_private && b.state === 'inactive';
@@ -1111,22 +1112,43 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
   }
 
   // Pool state tracking (only active when include_private_inactive)
-  // Each pool is a single variable-size element in the global stack whose
-  // height = high-water mark of active block sizes. It never shrinks.
+  // Each pool is a single variable-size envelope in the global stack whose
+  // height = high-water mark. Colored stripes inside show active blocks.
   const pools = {};
   const pool_active_elems = {};
 
   function get_pool_key(elem_idx) {
     const pid = elements[elem_idx].segment_pool_id;
-    if (!pid || (pid[0] === 0 && pid[1] === 0)) return null;
+    if (!isPrivatePoolId(pid)) return null;
     return `${pid[0]},${pid[1]}`;
   }
 
   function get_or_create_pool(pool_key) {
     if (!(pool_key in pools)) {
-      pools[pool_key] = { max: 0, active: 0, envelope_data: null };
+      pools[pool_key] = {
+        max: 0, active: 0, envelope_data: null,
+        block_stack: [],  // [{elem, size, inner_offset, stripe_data}]
+      };
     }
     return pools[pool_key];
+  }
+
+  function elem_color(elem_idx) {
+    if (snapshot.categories.length > 0) {
+      return snapshot.categories.indexOf(elements[elem_idx].category || 'unknown');
+    }
+    return elem_idx;
+  }
+
+  // Shift all active stripes in a pool by delta
+  function shift_pool_stripes(pool, delta) {
+    for (const block of pool.block_stack) {
+      const s = block.stripe_data;
+      s.timesteps.push(timestep);
+      s.offsets.push(s.offsets.at(-1));
+      s.timesteps.push(timestep + 3);
+      s.offsets.push(s.offsets.at(-1) + delta);
+    }
   }
 
   // Shift global stack elements starting at idx by delta
@@ -1140,6 +1162,12 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
       if (Array.isArray(e.size)) {
         e.size.push(e.size.at(-1));
         e.size.push(e.size.at(-1));
+      }
+      // If this is a pool envelope, also shift its stripes
+      const pk = typeof current[j] === 'string' && current[j].startsWith('pool:')
+        ? current[j].slice(5) : null;
+      if (pk && pk in pools) {
+        shift_pool_stripes(pools[pk], delta);
       }
     }
   }
@@ -1182,7 +1210,7 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
     const pool_key = include_private_inactive ? get_pool_key(elem) : null;
 
     if (pool_key) {
-      // Private pool element — absorbed into pool envelope
+      // Private pool element
       if (!(elem in pool_active_elems)) {
         // Pool alloc
         pool_active_elems[elem] = pool_key;
@@ -1203,18 +1231,59 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
           data.push(env);
         }
 
+        const inner_offset = pool.active;
         pool.active += size;
+
+        // Grow envelope first if needed (animates, shifts elements above)
         if (pool.active > pool.max) {
           grow_pool_envelope(pool, pool_key, pool.active);
+        }
+
+        // Create stripe after growth so elements above have already shifted
+        const stripe = {
+          elem,
+          timesteps: [timestep],
+          offsets: [pool.envelope_data.offsets.at(-1) + inner_offset],
+          size,
+          color: elem_color(elem),
+          opacity: 0.5,
+        };
+        pool.block_stack.push({elem, size, inner_offset, stripe_data: stripe});
+        data.push(stripe);
+        advance(1);
+        elements[elem].max_allocated_mem = total_mem + total_summarized_mem;
+      } else {
+        // Pool free — envelope stays at max, end stripe, shift stripes above
+        const pool = pools[pool_key];
+        const block_idx = pool.block_stack.findIndex(b => b.elem === elem);
+        if (block_idx >= 0) {
+          advance(1);
+          const block = pool.block_stack[block_idx];
+          // End stripe
+          block.stripe_data.timesteps.push(timestep);
+          block.stripe_data.offsets.push(block.stripe_data.offsets.at(-1));
+
+          pool.block_stack.splice(block_idx, 1);
+          pool.active -= size;
+
+          // Shift stripes above the freed block down within the pool
+          if (block_idx < pool.block_stack.length) {
+            for (let j = block_idx; j < pool.block_stack.length; j++) {
+              const b = pool.block_stack[j];
+              b.inner_offset -= size;
+              const s = b.stripe_data;
+              s.timesteps.push(timestep);
+              s.offsets.push(s.offsets.at(-1));
+              s.timesteps.push(timestep + 3);
+              s.offsets.push(pool.envelope_data.offsets.at(-1) + b.inner_offset);
+            }
+            advance(3);
+          }
         } else {
+          pool.active -= size;
           advance(1);
         }
-      } else {
-        // Pool free — envelope stays at max, just update active tracking
-        const pool = pools[pool_key];
-        pool.active -= size;
         delete pool_active_elems[elem];
-        advance(1);
       }
       max_size = Math.max(total_mem + total_summarized_mem, max_size);
       continue;
@@ -1260,6 +1329,14 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
     elem.offsets.push(elem.offsets.at(-1));
     if (Array.isArray(elem.size)) {
       elem.size.push(elem.size.at(-1));
+    }
+  }
+  // Close active pool stripes
+  for (const pk in pools) {
+    for (const block of pools[pk].block_stack) {
+      const s = block.stripe_data;
+      s.timesteps.push(timestep);
+      s.offsets.push(s.offsets.at(-1));
     }
   }
   data.push(summarized_mem);
@@ -1366,7 +1443,8 @@ function MemoryPlot(
     .enter()
     .append('polygon')
     .attr('points', format_points)
-    .attr('fill', d => colors[d.color % colors.length]);
+    .attr('fill', d => colors[d.color % colors.length])
+    .attr('opacity', d => d.opacity ?? 1);
 
   const axis = plot_coordinate_space.append('g').call(yaxis);
 
@@ -1555,7 +1633,7 @@ function create_trace_view(
   if (include_private_inactive) {
     dst.append('div')
       .attr('style', 'padding: 4px 8px; background: #fff3cd; border: 1px solid #ffc107; font-size: 13px; margin-bottom: 4px;')
-      .text('Note: Private pool memory is shown as allocated until the pool\'s segment is freed. '
+      .text('Note: Private pool memory (the gray bar) is shown as allocated until the pool\'s segment is freed. '
           + 'This view requires that MemPools are not deleted before torch.cuda.memory._snapshot() is called.');
   }
   const d = dst.append('div');
