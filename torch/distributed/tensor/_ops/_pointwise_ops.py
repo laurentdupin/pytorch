@@ -35,6 +35,33 @@ prims = torch.ops.prims
 unary_linear_ops = [aten.to.dtype]
 
 
+def _kwarg_placements(
+    op: OpOverload,
+    kwargs_schema: KwargsType,
+) -> list[Placement | _ShardingPlaceholder]:
+    """Build per-kwarg placements for tensor kwargs.
+
+    Iterates kwargs in schema order.  ``out`` gets the output placement
+    (represented as _ShardingPlaceholder(-1) to be resolved by the caller);
+    every other tensor kwarg is Replicate (scalar-like, e.g. lr).
+    """
+    # Walk the op schema so we iterate kwargs in declaration order,
+    # matching the order that kwargs_strategy uses downstream.
+    result: list[Placement | _ShardingPlaceholder] = []
+    for schema_arg in op._schema.arguments:
+        if not schema_arg.kwarg_only:
+            continue
+        if schema_arg.name in kwargs_schema and isinstance(
+            kwargs_schema[schema_arg.name], TensorMeta
+        ):
+            if schema_arg.name == "out":
+                # Sentinel: caller replaces with the output placement.
+                result.append(_ShardingPlaceholder(-1))
+            else:
+                result.append(Replicate())
+    return result
+
+
 def _common_pointwise_single_dim_strategy(
     partial_extra_rules: list[list[Placement | _ShardingPlaceholder]] | None = None,
 ) -> Callable[
@@ -56,14 +83,7 @@ def _common_pointwise_single_dim_strategy(
         # For multi-output ops (e.g. frexp), all outputs share the same
         # pointwise sharding, so replicate the output placement.
         num_outputs = sum(1 for r in op._schema.returns if "Tensor" in str(r.type))
-        # Count tensor kwargs (e.g. lr in _fused_adamw_.tensor_lr) that need
-        # a placement entry in the strategy.  Exclude "out" because
-        # _out_wrapper appends the out placement separately.
-        num_tensor_kwargs = sum(
-            1
-            for k, v in kwargs_schema.items()
-            if isinstance(v, TensorMeta) and k != "out"
-        )
+        kw_placements = _kwarg_placements(op, kwargs_schema)
         placements: list[list[Placement | _ShardingPlaceholder]] = []
         for i in range(len(common_shape)):
             shard_placements: list[Placement | _ShardingPlaceholder] = [
@@ -81,8 +101,11 @@ def _common_pointwise_single_dim_strategy(
                     )
                 else:
                     shard_placements.append(Replicate())
-            # Tensor kwargs (e.g. lr) are scalar-like and always replicated.
-            shard_placements.extend([Replicate()] * num_tensor_kwargs)
+            # Resolve kwarg placements: replace out sentinel with output placement.
+            shard_placements.extend(
+                shard_placements[0] if isinstance(p, _ShardingPlaceholder) else p
+                for p in kw_placements
+            )
             placements.append(shard_placements)
         if partial_extra_rules:
             n_tensors = len(tensor_arg_metas)
@@ -94,8 +117,13 @@ def _common_pointwise_single_dim_strategy(
                 # see _MUL_RULES to see how _UNARY_LINEAR_RULES handles the
                 # scalar promotion case
                 if len(rule) == expected_len:
-                    # Append Replicate for tensor kwargs to match expected length
-                    placements.append(rule + [Replicate()] * num_tensor_kwargs)
+                    placements.append(
+                        rule
+                        + [
+                            rule[0] if isinstance(p, _ShardingPlaceholder) else p
+                            for p in kw_placements
+                        ]
+                    )
         return placements
 
     return strategy
@@ -122,33 +150,6 @@ def _register_single_dim_pointwise(
     strategy_fn = _common_pointwise_single_dim_strategy(
         partial_extra_rules=partial_extra_rules  # pyrefly: ignore[bad-argument-type]
     )
-    # For .out ops, append output placement as the out kwarg placement.
-    # Strategy functions author [output, *args] without kwargs. The out tensor
-    # must match the output placement, so we duplicate strategy[0] (output).
-    # This makes strategies [output, *args, out_kwarg] so _get_num_tensor_inputs
-    # (which counts the out kwarg) computes num_outputs correctly.
-    if "out" in op._schema.overload_name:
-        inner_fn = strategy_fn
-
-        def _out_wrapper(
-            op: OpOverload,
-            args: ArgsType,
-            kwargs: KwargsType,
-            _fn: Callable = inner_fn,
-        ) -> list[list[Placement | _ShardingPlaceholder]]:
-            strategies = _fn(op, args, kwargs)
-            n_tensor_args = sum(1 for a in args if isinstance(a, TensorMeta))
-            n_outputs = sum(1 for r in op._schema.returns if "Tensor" in str(r.type))
-            for s in strategies:
-                if len(s) != n_outputs + n_tensor_args:
-                    raise AssertionError(
-                        f"Strategy length {len(s)} != expected {n_outputs + n_tensor_args} "
-                        f"({n_outputs} output(s) + {n_tensor_args} args) for {op}. "
-                        f"out kwarg will be appended by infra."
-                    )
-            return [s + [s[0]] for s in strategies]
-
-        strategy_fn = _out_wrapper
     if _is_list_op(op):
         schema_info = RuntimeSchemaInfo(needs_pytree=True)
     else:
