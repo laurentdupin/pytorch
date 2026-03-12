@@ -272,6 +272,8 @@ C10_API ScalarType promoteTypes(ScalarType a, ScalarType b);
 C10_API std::pair<std::string, std::string> getDtypeNames(
     c10::ScalarType scalarType);
 
+C10_API std::string getScalarTypeAbbr(ScalarType scalarType);
+
 // Returns a map of string name to dtype.
 C10_API const std::unordered_map<std::string, ScalarType>& getStringToDtypeMap();
 

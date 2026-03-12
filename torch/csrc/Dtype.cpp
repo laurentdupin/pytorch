@@ -59,6 +59,12 @@ static PyObject* THPDtype_is_signed(THPDtype* self, PyObject* noargs) {
   END_HANDLE_TH_ERRORS
 }
 
+static PyObject* THPDtype_abbr(THPDtype* self, PyObject* noargs) {
+  HANDLE_TH_ERRORS
+  return THPUtils_packString(c10::getScalarTypeAbbr(self->scalar_type));
+  END_HANDLE_TH_ERRORS
+}
+
 static PyObject* THPDtype_reduce(PyObject* _self, PyObject* noargs) {
   HANDLE_TH_ERRORS
   /*
@@ -112,6 +118,11 @@ static const std::initializer_list<PyGetSetDef> THPDtype_properties = {
      nullptr},
     {"itemsize",
      reinterpret_cast<getter>(THPDtype_itemsize),
+     nullptr,
+     nullptr,
+     nullptr},
+    {"abbr",
+     reinterpret_cast<getter>(THPDtype_abbr),
      nullptr,
      nullptr,
      nullptr},

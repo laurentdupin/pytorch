@@ -199,6 +199,7 @@ class dtype:
     is_complex: _bool
     is_signed: _bool
     itemsize: _int
+    abbr: str
     def to_real(self) -> dtype: ...
     def to_complex(self) -> dtype: ...
 
