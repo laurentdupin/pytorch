@@ -210,23 +210,23 @@ class PartialRender:
         return self._code
 
     def _replace_placeholder(self, hook_key: str, result: str) -> str:
-        """Replace a placeholder in the code with the hook result.
+        """Replace all occurrences of a placeholder in the code with the hook result.
 
         During Jinja template rendering, hooks like ``def_kernel()``,
         ``load_input()``, and ``store_output()`` emit placeholder strings
         (e.g. ``<DEF_KERNEL>``, ``<LOAD_INPUT_A>``, ``<STORE_OUTPUT_0>``)
         into the rendered code and register corresponding hook functions in
         ``self.replacement_hooks``.  When ``finalize_hook()`` is called for
-        each key, the hook function runs and this method splices the result
-        back into the code in place of the placeholder.
+        each key, the hook function runs and this method replaces every
+        occurrence of the placeholder with the result.
 
-        Three replacement modes:
+        Three replacement modes (applied per occurrence):
 
         **Inline placeholder** — direct substitution.
             The placeholder shares a line with other content (e.g.
             ``<ARGDEFS>,`` in flex_attention templates, where it appears
-            as part of a function signature).  The placeholder text is
-            replaced with the result string verbatim — no indent handling.
+            as part of a function signature).  All occurrences are replaced
+            with the result string verbatim — no indent handling.
 
         **Whole-line placeholder, non-empty result** — dedent + re-indent.
             The placeholder sits alone on an indented line.  The result
