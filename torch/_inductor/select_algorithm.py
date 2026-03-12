@@ -258,36 +258,32 @@ class PartialRender:
               ``ExternalTritonTemplateKernel`` outputs that have no
               matching epilogue consumer.
         """
-        idx = self._code.find(hook_key)
-        if idx < 0:
+        if hook_key not in self._code:
             return self._code
 
-        line_start = self._code.rfind("\n", 0, idx) + 1
-        line_end = self._code.find("\n", idx)
-        if line_end == -1:
-            line_end = len(self._code)
+        lines = self._code.split("\n")
+        out: list[str] = []
+        for line in lines:
+            if hook_key not in line:
+                out.append(line)
+                continue
 
-        # Inline placeholder (e.g. ``<ARGDEFS>,`` in flex_attention templates)
-        # — do a direct string substitution without indent handling.
-        if self._code[line_start:line_end].strip() != hook_key:
-            return self._code[:idx] + result + self._code[idx + len(hook_key) :]
+            # Inline placeholder (e.g. ``<ARGDEFS>,`` in flex_attention
+            # templates) — direct substitution without indent handling.
+            if line.strip() != hook_key:
+                out.append(line.replace(hook_key, result))
+                continue
 
-        # Whole-line placeholder with empty result — remove entire line
-        if not (result and result.strip()):
-            suffix = self._code[line_end + 1 :]
-            if not suffix and line_start > 0 and self._code[line_start - 1] == "\n":
-                # Placeholder on the very last line — also remove preceding newline
-                return self._code[: line_start - 1]
-            return self._code[:line_start] + suffix
+            # Whole-line placeholder with empty result — drop the line
+            if not (result and result.strip()):
+                continue
 
-        # Whole-line placeholder — dedent result and re-indent to match
-        indent_str = self._code[line_start:idx]
-        dedented = textwrap.dedent(result.rstrip("\n"))
-        indented = textwrap.indent(dedented, indent_str)
-        if self._code[line_end : line_end + 1] == "\n":
-            return self._code[:line_start] + indented + self._code[line_end:]
-        # Placeholder on the very last line (no trailing newline)
-        return self._code[:line_start] + indented
+            # Whole-line placeholder — dedent result and re-indent to match
+            indent_str = line[: len(line) - len(line.lstrip())]
+            dedented = textwrap.dedent(result.rstrip("\n"))
+            out.append(textwrap.indent(dedented, indent_str))
+
+        return "\n".join(out)
 
     def finalize_hook(self, hook_key: str, strict: bool = True) -> None:
         """
