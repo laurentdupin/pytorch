@@ -3014,7 +3014,7 @@ class GuardManager {
 
   void stash_tensor_requires_grad(
       PyObject* value,
-      std::vector<std::pair<PyObject*, bool>> tensor_requires_grad) {
+      std::vector<std::pair<PyObject*, bool>>&& tensor_requires_grad) {
     _tensor_requires_grad_pointers[value] = std::move(tensor_requires_grad);
   }
 
@@ -3144,7 +3144,7 @@ class GuardManager {
     return true;
   }
 
-  bool check_tensor_requires_grad_fast(PyObject* value) {
+  bool check_tensor_requires_grad_fast(PyObject* value) const {
     auto it = _tensor_requires_grad_pointers.find(value);
     if (it == _tensor_requires_grad_pointers.end()) {
       return true;
@@ -3955,7 +3955,7 @@ class RootGuardManager : public GuardManager {
       _current_tag_safe_root->stash_tensor_pointers(
           value, _recorded_tensor_pointers);
       _current_tag_safe_root->stash_tensor_requires_grad(
-          value, _recorded_tensor_requires_grad);
+          value, std::move(_recorded_tensor_requires_grad));
     }
     reset_dict_tag_recording_variables();
   }
@@ -5120,7 +5120,7 @@ class FrameLocalsGuardAccessor : public GuardAccessor {
   }
 
  private:
-  bool tensor_requires_grad_changed(PyObject* x) {
+  bool tensor_requires_grad_changed(PyObject* x) const {
     return x != nullptr && THPVariable_Check(x) &&
         THPVariable_Unpack(x).requires_grad() != _tensor_requires_grad;
   }
@@ -5230,7 +5230,7 @@ class DictGetItemGuardAccessor : public GuardAccessor {
   }
 
  private:
-  bool tensor_requires_grad_changed(PyObject* x) {
+  bool tensor_requires_grad_changed(PyObject* x) const {
     return x != nullptr && THPVariable_Check(x) &&
         THPVariable_Unpack(x).requires_grad() != _tensor_requires_grad;
   }
