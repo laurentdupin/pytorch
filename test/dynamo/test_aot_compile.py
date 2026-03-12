@@ -41,7 +41,6 @@ from torch.fx.passes.regional_inductor import regional_inductor
 from torch.nn.attention.flex_attention import create_block_mask, flex_attention
 from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
-    skipIfXpu,
     TEST_CUDA,
 )
 from torch.utils.checkpoint import checkpoint
@@ -65,9 +64,6 @@ def aot_eager_regional_inductor():
 class MooType:
     def __init__(self, x):
         self.x = x
-
-
-device_type = acc.type if (acc := torch.accelerator.current_accelerator()) else "cpu"
 
 
 class CustomCompiledFunction(torch._dynamo.aot_compile.SerializableCallable):
@@ -1088,9 +1084,9 @@ from user code:
         actual = compiled_fn(*inputs)
         self.assertEqual(expected, actual)
 
-    @skipIfXpu(msg="CompiledAOTI need XPU support - torch-xpu-ops: 2806")
+    @unittest.skipIf(not TEST_CUDA, "requires cuda")
     def test_aot_compile_with_aoti(self):
-        with torch.device(device_type):
+        with torch.device("cuda"):
             from torch._dynamo.hooks import Hooks
 
             def fn(x, y):
