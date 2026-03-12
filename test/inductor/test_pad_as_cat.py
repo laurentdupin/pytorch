@@ -1,16 +1,10 @@
 # Owner(s): ["module: inductor"]
 """Tests for cat multi-consumer optimization (pytorch#125075)."""
 
-import re
-
 import torch
+from torch._inductor import metrics
 from torch._inductor.test_case import TestCase
-from torch._inductor.utils import run_and_get_code
 from torch.testing._internal.inductor_utils import GPU_TYPE, requires_gpu
-
-
-def _count_triton_kernels(code: str) -> int:
-    return len(re.findall(r"def triton_\w+\(", code))
 
 
 class TestCatMultiConsumer(TestCase):
@@ -26,16 +20,24 @@ class TestCatMultiConsumer(TestCase):
 
         x = torch.randn(1024, 768, device=GPU_TYPE)
         compiled = torch.compile(fn)
-        result, (code,) = run_and_get_code(compiled, x)
+        metrics.reset()
+        result = compiled(x)
         ref = fn(x)
 
         self.assertEqual(result[0], ref[0])
         self.assertEqual(result[1], ref[1])
-        kernel_count = _count_triton_kernels(code)
-        self.assertLessEqual(
-            kernel_count,
-            2,
-            f"Expected at most 2 kernels (fused + fill), got {kernel_count}.",
+
+        # Without the optimization x would be read twice (once by cat, once
+        # by to_fp16). With the optimization ConcatKernel shares x so it is
+        # read only once.
+        x_bytes = x.nelement() * x.element_size()
+        z_bytes = (1024 + 6) * 768 * x.element_size()
+        y_bytes = 1024 * 768 * torch.float16.itemsize
+        unoptimized_bytes = 2 * x_bytes + z_bytes + y_bytes
+        self.assertLess(
+            metrics.num_bytes_accessed,
+            unoptimized_bytes,
+            "Optimization should avoid reading x twice.",
         )
 
     @requires_gpu()
