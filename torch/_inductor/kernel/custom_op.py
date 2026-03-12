@@ -12,6 +12,7 @@ from torch._dynamo.utils import counters
 from torch._inductor.codegen.subgraph import SubgraphTemplate
 from torch._inductor.ir import (
     Buffer,
+    ChoiceCaller,
     FixedLayout,
     ir_node_to_tensor,
     StorageBox,
@@ -444,7 +445,7 @@ def autotune_custom_op(
     config_patches_list: list[dict[str, Any]] | None = None,
     min_speedup_threshold: float = 1.0,
     benchmark_with_cudagraphs: bool = False,
-) -> tuple[Any, Any]:
+) -> tuple[TensorBox, ChoiceCaller]:
     """Autotune custom operations by comparing multiple decomposition implementations.
 
     Currently supports SINGLE OUTPUT custom ops only.
