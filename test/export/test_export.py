@@ -16039,6 +16039,21 @@ def forward(self, x):
         for node in decomposed_program.graph.nodes:
             self.assertEqual(node.meta["custom"]["my_field"], "dummy")
 
+    def test_run_decompositions_leafspec_deepcopy(self):
+        # Regression test: run_decompositions internally deepcopies the module
+        # call graph which contains TreeSpec objects with LeafSpec nodes.
+        # and has uninitialized slots on Python 3.10
+        class SimpleModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(10, 5)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        ep = export(SimpleModel(), (torch.randn(1, 10),))
+        ep.run_decompositions({})
+
     @testing.expectedFailureStrictV2
     def test_run_decompositions_keep_tensor_constant_metadata(self):
         """Make sure the metadata of tensor constants are kept after run_decompositions."""
@@ -18149,6 +18164,47 @@ def forward(self, x):
         original_param_names = [name for name, _ in m.named_parameters()]
         exported_param_names = [name for name, _ in gm.named_parameters()]
         self.assertEqual(original_param_names, exported_param_names)
+
+    def test_run_decompositions_tensor_list_list(self):
+        """run_decompositions should work for custom ops with List[List[Tensor]] args.
+
+        The C++ Functionalize fallback kernel now handles nested list arguments
+        (Tensor[][]) by recursively unwrapping/wrapping functional tensors.
+        """
+        lib = torch.library.Library("test_tll", "DEF")
+        lib.define(
+            "merge_op(Tensor[][] nested, Tensor[] flat, int[] weights)"
+            " -> (Tensor[], Tensor)",
+            tags=[torch.Tag.pt2_compliant_tag],
+        )
+
+        @torch.library.impl("test_tll::merge_op", "cpu", lib=lib)
+        def merge_op_cpu(nested, flat, weights):
+            out = [nested[i][0] + flat[i] for i in range(len(flat))]
+            combined = torch.cat([f.unsqueeze(0) for f in flat], dim=0).sum(dim=0)
+            return out, combined
+
+        @torch.library.register_fake("test_tll::merge_op")
+        def merge_op_fake(nested, flat, weights):
+            out = [torch.empty_like(flat[i]) for i in range(len(flat))]
+            combined = torch.empty_like(flat[0])
+            return out, combined
+
+        class M(torch.nn.Module):
+            def forward(self, a, b, c, d):
+                return torch.ops.test_tll.merge_op([[a, b], [c, d]], [a, c], [1, 2])
+
+        m = M()
+        a, b, c, d = (torch.randn(3, 4) for _ in range(4))
+        ep = export(m, (a, b, c, d))
+        ep2 = ep.run_decompositions({})
+        eager_out = m(a, b, c, d)
+        decomp_out = ep2.module()(a, b, c, d)
+        self.assertEqual(len(eager_out[0]), len(decomp_out[0]))
+        for e, d_ in zip(eager_out[0], decomp_out[0]):
+            self.assertEqual(e, d_)
+        self.assertEqual(eager_out[1], decomp_out[1])
+        del lib
 
 
 @unittest.skipIf(not torchdynamo.is_dynamo_supported(), "dynamo doesn't support")
