@@ -408,6 +408,23 @@ PyObject* THCPModule_cudaJiteratorCompileAndLaunchKernel(
   END_HANDLE_TH_ERRORS
 }
 
+PyObject* THCPModule_allocationTraceback(PyObject* _unused, PyObject* obj) {
+  HANDLE_TH_ERRORS
+  void* ptr = PyLong_AsVoidPtr(obj);
+  if (!ptr && PyErr_Occurred()) {
+    return nullptr;
+  }
+  auto ctx = c10::cuda::CUDACachingAllocator::getContextForPointer(ptr);
+  if (!ctx) {
+    Py_RETURN_NONE;
+  }
+  auto* tb = getCapturedTracebackFromContext(ctx);
+  std::vector<CapturedTraceback*> tbs = {tb};
+  auto frames = py_symbolize(tbs);
+  return frames.at(0).release().ptr();
+  END_HANDLE_TH_ERRORS
+}
+
 PyObject* THCPModule_cudaCachingAllocator_raw_delete(
     PyObject* _unused,
     PyObject* obj) {
@@ -439,6 +456,16 @@ PyObject* THCPModule_cudaCachingAllocator_is_enabled(
     PyObject* noargs) {
   HANDLE_TH_ERRORS
   return PyBool_FromLong(c10::cuda::CUDACachingAllocator::isEnabled());
+  END_HANDLE_TH_ERRORS
+}
+
+PyObject* THCPModule_cudaCachingAllocator_set_allocator_settings(
+    PyObject* _unused,
+    PyObject* env) {
+  HANDLE_TH_ERRORS
+  c10::cuda::CUDACachingAllocator::setAllocatorSettings(
+      THPUtils_unpackString(env));
+  Py_RETURN_NONE;
   END_HANDLE_TH_ERRORS
 }
 
@@ -2094,6 +2121,10 @@ static struct PyMethodDef _THCPModule_methods[] = {
      METH_O,
      nullptr},
     {"_cuda_memorySnapshot", THCPModule_memorySnapshot, METH_O, nullptr},
+    {"_cuda_allocationTraceback",
+     THCPModule_allocationTraceback,
+     METH_O,
+     nullptr},
     {"_cuda_attach_out_of_memory_observer",
      THCPModule_attachOutOfMemoryObserver,
      METH_O,
@@ -2127,6 +2158,10 @@ static struct PyMethodDef _THCPModule_methods[] = {
     {"_cuda_cudaCachingAllocator_is_enabled",
      THCPModule_cudaCachingAllocator_is_enabled,
      METH_NOARGS,
+     nullptr},
+    {"_cuda_cudaCachingAllocator_set_allocator_settings",
+     THCPModule_cudaCachingAllocator_set_allocator_settings,
+     METH_O,
      nullptr},
     {"_cuda_getAllocatorBackend",
      THCPModule_getAllocatorBackend,
