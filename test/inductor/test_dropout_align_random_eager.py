@@ -268,9 +268,7 @@ class TestDropoutAlignRandomEager(InductorTestCase):
             _set_seed(seed)
             y_comp = compiled(x)
 
-            mismatch_ratio = (
-                ((y_eager != 0) != (y_comp != 0)).float().mean().item()
-            )
+            mismatch_ratio = ((y_eager != 0) != (y_comp != 0)).float().mean().item()
             self.assertLessEqual(mismatch_ratio, 1e-5)
 
     # ───────────────────────────────────────────────────────────
