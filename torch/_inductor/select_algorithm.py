@@ -261,9 +261,7 @@ class PartialRender:
         # Empty result — remove every line that contains only the placeholder
         if not (result and result.strip()):
             lines = self._code.split("\n")
-            return "\n".join(
-                line for line in lines if line.strip() != hook_key
-            )
+            return "\n".join(line for line in lines if line.strip() != hook_key)
 
         # Non-empty result — line-by-line replacement
         lines = self._code.split("\n")
@@ -282,8 +280,7 @@ class PartialRender:
                     # ExternalTritonTemplateKernel hooks) — apply the
                     # placeholder indent to every non-empty line.
                     indented = [
-                        indent + rl if rl.strip() else rl
-                        for rl in result_lines
+                        indent + rl if rl.strip() else rl for rl in result_lines
                     ]
                     new_lines.append("\n".join(indented).rstrip())
                 else:
