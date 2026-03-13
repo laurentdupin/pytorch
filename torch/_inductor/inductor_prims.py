@@ -120,6 +120,7 @@ fma = make_prim(
 # don't exist until make_prim() is called above.
 from torch.distributed.tensor._ops._pointwise_ops import register_inductor_prims
 
+
 register_inductor_prims()
 
 prepare_softmax_online = make_prim(
