@@ -92,6 +92,7 @@ class _multiply_invoke(torch.nn.Module):
 """,
         )
 
+    @torch._functorch.config.patch(guess_tangent_strides_as_outputs=True)
     @mock.patch(
         "torch._functorch.aot_autograd.AOT_COUNTER", new_callable=itertools.count
     )
@@ -190,6 +191,7 @@ class GraphModule(torch.nn.Module):
 
             graph = None
 
+    @torch._functorch.config.patch(guess_tangent_strides_as_outputs=True)
     @mock.patch(
         "torch._functorch.aot_autograd.AOT_COUNTER", new_callable=itertools.count
     )
