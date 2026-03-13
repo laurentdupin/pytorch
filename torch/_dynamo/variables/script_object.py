@@ -132,12 +132,11 @@ class OpaqueObjectClassVariable(UserDefinedVariable):
         elif isinstance(obj, property):
             obj = obj.__get__(None, self.value)  # pyrefly: ignore[no-matching-overload]
         elif hasattr(obj, "__get__"):
-            # Check for pybind11 static properties (common in PyTorch C++ bindings)
-            # Reference: https://github.com/python/mypy/blob/131f9d92da58294bb2f273425e8778bd7d5b861f/mypy/stubgenc.py#L590
-            type_name = type(obj).__name__
-            if type_name == "pybind11_static_property":
-                obj = obj.__get__(None, self.value)
+            if not isinstance(type(obj).__dict__.get("__get__"), types.FunctionType):
+                # C-level descriptors are safe to resolve dynamically.
+                obj = getattr(self.value, name)
             else:
+                type_name = type(obj).__name__
                 unimplemented(
                     gb_type="Unsupported descriptor on opaque class",
                     context=f"class={self.value}, attr={name}, descriptor={type_name}",
@@ -218,7 +217,11 @@ class TorchScriptObjectVariable(UserDefinedObjectVariable):
 
     @classmethod
     def is_matching_cls(cls, user_cls: type) -> bool:
-        return issubclass(user_cls, torch.ScriptObject) or is_opaque_type(user_cls)
+        return (
+            issubclass(user_cls, torch.ScriptObject)
+            or is_opaque_type(user_cls)
+            or issubclass(user_cls, FakeScriptObject)
+        )
 
     @staticmethod
     def create(
@@ -312,9 +315,7 @@ class TorchScriptObjectVariable(UserDefinedObjectVariable):
                 else:
                     return super().var_getattr(tx, name)
 
-            elif member_type == MemberType.INLINED or is_opaque_value_type(
-                real_obj_type
-            ):
+            elif member_type == MemberType.INLINED:
                 value = getattr(real_obj, name)
                 if (
                     inspect.ismethod(value)
@@ -325,6 +326,9 @@ class TorchScriptObjectVariable(UserDefinedObjectVariable):
                     return LambdaVariable(
                         lambda *args, **kwargs: self.call_method(tx, name, args, kwargs)
                     )
+                return super().var_getattr(tx, name)
+
+            elif is_opaque_value_type(real_obj_type):
                 return super().var_getattr(tx, name)
 
             elif name in ("__bool__", "__len__") and not hasattr(real_obj, name):
