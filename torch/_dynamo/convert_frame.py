@@ -1537,22 +1537,32 @@ def _compile(
                 payload_fn=lambda: dis.Bytecode(code).dis(),
             )
         out_code = None
+        from .graph_id_filter import get_dynamo_config_override_for_compile_id
+
+        dynamo_config_override = get_dynamo_config_override_for_compile_id(
+            compile_id, config.debug_dynamo_config_override
+        )
         try:
-            dynamo_output = compile_frame(
-                code,
-                globals,
-                locals,
-                builtins,
-                closure,
-                compiler_fn,
-                one_graph,
-                restart_reasons,
-                export=export,
-                export_constraints=export_constraints,
-                frame_state=frame_state,
-                distributed_state=distributed_state,
-                package=package,
-            )
+            with (
+                config.patch(dynamo_config_override)
+                if dynamo_config_override
+                else contextlib.nullcontext()
+            ):
+                dynamo_output = compile_frame(
+                    code,
+                    globals,
+                    locals,
+                    builtins,
+                    closure,
+                    compiler_fn,
+                    one_graph,
+                    restart_reasons,
+                    export=export,
+                    export_constraints=export_constraints,
+                    frame_state=frame_state,
+                    distributed_state=distributed_state,
+                    package=package,
+                )
         except exc.SkipFrame as e:
             if one_graph:
                 log.debug("No graph captured with export/fullgraph=True")
@@ -1656,18 +1666,14 @@ def _compile(
         CleanupManager.instance[out_code] = output.cleanups
         nonlocal cache_entry
         # Temporarily restore the mode stack so guard expressions that
-        # reference modes can evaluate, but disable __torch_function__
-        # dispatch so modes don't execute during guard construction.
-        # We skip compile-time guard verification because GlobalStateGuard
-        # would see torch_function as disabled.  At runtime the modes are
-        # active and guards evaluate before any __torch_function__ fires.
+        # reference modes can evaluate.  DisableTorchFunction prevents
+        # __torch_function__ dispatch during guard construction so modes
+        # with mutable state aren't triggered.
         build_guards_ctx = contextlib.ExitStack()
         if torch_function_mode_stack_state_mgr.stack:
-            output.skip_guards_check = True
             build_guards_ctx.enter_context(
                 torch_function_mode_stack_state_mgr.temp_restore_stack()
             )
-            build_guards_ctx.enter_context(torch._C.DisableTorchFunction())
         with dynamo_timed("build_guards", log_pt2_compile_event=True), build_guards_ctx:
             check_fn = dynamo_output.build_guards(
                 code,
