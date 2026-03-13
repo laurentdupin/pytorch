@@ -115,13 +115,12 @@ fma = make_prim(
     tags=(torch.Tag.pointwise,),
 )
 
-# Register DTensor sharding strategy for fma so it works with DTensor inputs.
-# This must happen after fma is created since DTensor's _pointwise_ops module
-# loads before inductor and cannot reference prims.fma at import time.
-from torch.distributed.tensor._ops._pointwise_ops import _register_single_dim_pointwise
+# Register DTensor sharding strategies for inductor prims ops.
+# This must happen here (not in _pointwise_ops.py) because the ops
+# don't exist until make_prim() is called above.
+from torch.distributed.tensor._ops._pointwise_ops import register_inductor_prims
 
-
-_register_single_dim_pointwise(fma)
+register_inductor_prims()
 
 prepare_softmax_online = make_prim(
     "prepare_softmax_online(Tensor a, int dim) -> (Tensor, Tensor)",
