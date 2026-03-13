@@ -1,11 +1,3 @@
-
-# fmt: off
-# Auto-generated debug instrumentation code.
-import os
-import fbvscode
-if os.environ.get("D"):
-    fbvscode.attach_debugger()
-# fmt: on
 # Owner(s): ["module: dynamo"]
 
 import copy
@@ -2742,7 +2734,7 @@ class AOTAutogradCacheTests(InductorTestCase):
         cache_dir = tempfile.mkdtemp()
         try:
             script = textwrap.dedent(
-                f"""
+                """
                 import json
                 import torch
                 import torch._dynamo
