@@ -1568,8 +1568,12 @@ User code traceback:
 
     @make_logging_test(dynamo=logging.DEBUG)
     def test_lru_cache_warning_logs_user_stack_trace(self, records):
+        y = 0
+
         @lru_cache
         def foo(x):
+            nonlocal y
+            y += 1
             return x + 1
 
         torch.compile(foo, backend="eager")(torch.randn(4))
@@ -1593,8 +1597,11 @@ call to a lru_cache wrapped function at: _dynamo/external_utils.py:N
 
     @make_logging_test(dynamo=logging.DEBUG)
     def test_lru_cache_warning_logs_nested_call(self, records):
+        y = 0
         @lru_cache
         def foo(x):
+            nonlocal y
+            y += 1
             return x + 1
 
         def nested(x):
@@ -1623,8 +1630,11 @@ call to a lru_cache wrapped function at: test_error_messages.py:N
 
     def test_lru_cache_warning(self):
         # test only the warning message itself
+        y = 0
         @lru_cache
         def bax(x):
+            nonlocal y
+            y += 1
             return x + 1
 
         def bar(x):
