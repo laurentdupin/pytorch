@@ -2561,6 +2561,16 @@
       ]
     }
   ],
+  "GB2977": [
+    {
+      "Gb_type": "wrap_jit_function: missing _torchdynamo_inline",
+      "Context": "type: {type(value).__name__}",
+      "Explanation": "Dynamo expected a JIT function with a _torchdynamo_inline attribute, but the object does not have one.",
+      "Hints": [
+        "It may be possible to write Dynamo tracing rules for this code. Please report an issue to PyTorch if you encounter this graph break often and it is causing performance issues."
+      ]
+    }
+  ],
   "GB0211": [
     {
       "Gb_type": "torch.nn.Module with a non-function custom __getattr__",
@@ -4155,14 +4165,6 @@
       "Hints": [
         "This graph break may be difficult to debug. Please report an issue to PyTorch for assistance."
       ]
-    }
-  ],
-  "GB0656": [
-    {
-      "Gb_type": "ScriptFunction without Python equivalent",
-      "Context": "",
-      "Explanation": "Dynamo encountered a torch.jit.ScriptFunction with no Python equivalent to inline. This happens with ScriptFunctions created via torch.jit.CompilationUnit, which compile from TorchScript source strings rather than Python functions.",
-      "Hints": []
     }
   ],
   "GB0343": [
