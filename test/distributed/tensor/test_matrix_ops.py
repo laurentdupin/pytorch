@@ -17,7 +17,6 @@ from torch.distributed.tensor import (
     Replicate,
     Shard,
 )
-from torch.distributed.tensor._dtensor_spec import DTensorSpec
 from torch.distributed.tensor._ops._matrix_ops import (
     gen_single_dim_einsum_strategies,
     mm_single_dim_strategy,
@@ -528,66 +527,68 @@ class DistMatrixOpsTest(DTensorTestBase):
 
             self.assertEqual(comm_mode.get_total_counts(), 0)
 
-    @with_comms
-    def test_scaled_mm_blockwise_1d_scale_spec(self):
-        """Test that _scaled_mm_scale_spec handles 1D blockwise scales correctly.
+    def test_scaled_mm_blockwise_1d_scale_placement(self):
+        """Test that _scaled_mm_scale_placement handles 1D blockwise scales correctly.
 
         1D blockwise scales arise in MX (microscaling) formats where a data
         tensor [M, K] has a flattened scale of shape [M * K / block_size].
         Shard(>=1) is invalid on a 1D tensor, so the strategy must map
         non-contracting shards to Shard(0) and reject contracting-dim shards.
         """
-        from torch.distributed.tensor._ops._matrix_ops import _scaled_mm_scale_spec
-
-        device_mesh = self.build_device_mesh()
+        from torch.distributed.tensor._ops._matrix_ops import _scaled_mm_scale_placement
 
         # --- Tensor-wise scale (single element) -> always Replicate ---
-        data_spec = DTensorSpec(device_mesh, (Shard(0),))
-        result = _scaled_mm_scale_spec(data_spec, torch.Size([1]), contracting_dim=1)
-        self.assertEqual(result.placements, (Replicate(),))
-        result = _scaled_mm_scale_spec(data_spec, torch.Size([]), contracting_dim=1)
-        self.assertEqual(result.placements, (Replicate(),))
-
-        # --- 2D scale -> copy data spec directly (existing row-wise behavior) ---
-        result = _scaled_mm_scale_spec(
-            data_spec, torch.Size([16, 1]), contracting_dim=1
+        result = _scaled_mm_scale_placement(
+            Shard(0), torch.Size([1]), contracting_dim=1
         )
-        self.assertEqual(result.placements, (Shard(0),))
+        self.assertEqual(result, Replicate())
+        result = _scaled_mm_scale_placement(Shard(0), torch.Size([]), contracting_dim=1)
+        self.assertEqual(result, Replicate())
+
+        # --- 2D scale -> copy data placement directly (row-wise) ---
+        result = _scaled_mm_scale_placement(
+            Shard(0), torch.Size([16, 1]), contracting_dim=1
+        )
+        self.assertEqual(result, Shard(0))
 
         # --- 1D blockwise + non-contracting shard -> Shard(0) ---
         # A (mk): dim 0 = m (non-contracting), dim 1 = k (contracting)
-        spec_shard0 = DTensorSpec(device_mesh, (Shard(0),))
-        result = _scaled_mm_scale_spec(spec_shard0, torch.Size([64]), contracting_dim=1)
+        result = _scaled_mm_scale_placement(
+            Shard(0), torch.Size([64]), contracting_dim=1
+        )
         self.assertIsNotNone(result)
-        self.assertEqual(result.placements, (Shard(0),))
+        self.assertEqual(result, Shard(0))
 
         # B_t (kn): dim 1 = n (non-contracting), dim 0 = k (contracting)
-        spec_shard1 = DTensorSpec(device_mesh, (Shard(1),))
-        result = _scaled_mm_scale_spec(spec_shard1, torch.Size([64]), contracting_dim=0)
+        result = _scaled_mm_scale_placement(
+            Shard(1), torch.Size([64]), contracting_dim=0
+        )
         self.assertIsNotNone(result)
-        self.assertEqual(result.placements, (Shard(0),))
+        self.assertEqual(result, Shard(0))
 
         # --- 1D blockwise + contracting shard -> None (unsupported) ---
-        # A with Shard(1) = shard on k (contracting for A)
-        result = _scaled_mm_scale_spec(spec_shard1, torch.Size([64]), contracting_dim=1)
+        result = _scaled_mm_scale_placement(
+            Shard(1), torch.Size([64]), contracting_dim=1
+        )
         self.assertIsNone(result)
-        # B_t with Shard(0) = shard on k (contracting for B_t)
-        result = _scaled_mm_scale_spec(spec_shard0, torch.Size([64]), contracting_dim=0)
+        result = _scaled_mm_scale_placement(
+            Shard(0), torch.Size([64]), contracting_dim=0
+        )
         self.assertIsNone(result)
 
         # --- 1D blockwise + Replicate -> Replicate ---
-        spec_repl = DTensorSpec(device_mesh, (Replicate(),))
-        result = _scaled_mm_scale_spec(spec_repl, torch.Size([64]), contracting_dim=1)
-        self.assertIsNotNone(result)
-        self.assertEqual(result.placements, (Replicate(),))
-
-        # --- 1D blockwise + Partial -> Replicate ---
-        spec_partial = DTensorSpec(device_mesh, (Partial(),))
-        result = _scaled_mm_scale_spec(
-            spec_partial, torch.Size([64]), contracting_dim=0
+        result = _scaled_mm_scale_placement(
+            Replicate(), torch.Size([64]), contracting_dim=1
         )
         self.assertIsNotNone(result)
-        self.assertEqual(result.placements, (Replicate(),))
+        self.assertEqual(result, Replicate())
+
+        # --- 1D blockwise + Partial -> Replicate ---
+        result = _scaled_mm_scale_placement(
+            Partial(), torch.Size([64]), contracting_dim=0
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result, Replicate())
 
     @with_comms
     def test_matmul(self):
