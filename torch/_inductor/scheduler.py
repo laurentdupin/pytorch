@@ -28,6 +28,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
     from types import ModuleType
 
+    from torch._inductor.codegen.wrapper import EnterCudaStreamContextLine
+
     from .codegen.wrapper import PythonWrapperCodegen
 
 import sympy
@@ -40,6 +42,7 @@ from torch._inductor.autotune_process import use_pipelined_autotuning
 from torch._inductor.codecache import LambdaFuture, PyCodeCache
 from torch._inductor.ir import TritonTemplateCallerBase
 from torch._inductor.metrics import get_metric_table, is_metric_table_enabled
+from torch._inductor.stream_utils import get_stream_name
 from torch.fx.experimental.symbolic_shapes import free_symbols
 from torch.utils._sympy.symbol import free_symbol_is_type, symbol_is_type, SymT
 from torch.utils._triton import has_triton
@@ -1981,7 +1984,8 @@ class FusedSchedulerNode(BaseSchedulerNode):
             return False
         self_sizes = None
         for snode in self.snodes:
-            assert isinstance(snode, SchedulerNode)
+            if not isinstance(snode, SchedulerNode):
+                return False
             if self_sizes is not None and tuple(self_sizes) != tuple(snode._sizes[0]):
                 loop_ordering_log.debug(
                     "Can not reorder fused node due to different sizes"
@@ -3135,6 +3139,13 @@ class Scheduler:
             distributed_autotune.schedule(self)
             self.compute_ancestors()
 
+        # Stream assignments must be populated BEFORE fusion
+        # to prevent fusing nodes across stream boundaries
+        self.node_to_stream: dict[BaseSchedulerNode, int] = {}
+        self.buff_to_stream: dict[str, int] = {}
+        self._multi_stream_nodes: bool = False
+        self._populate_stream_assignments()
+
         self.nodes = self.fuse_nodes(self.nodes)
         if config._post_fusion_custom_pass is not None:
             self.nodes = config._post_fusion_custom_pass(self.nodes)
@@ -3256,6 +3267,9 @@ class Scheduler:
         # for debug attribution
         self.origin_to_index: dict[torch.fx.Node, int] = {}
 
+        # The only source of which stream context we are currently in during the codegen phase.
+        self._current_stream_ctx: EnterCudaStreamContextLine | None = None
+
         get_metric_table("graph_stats").add_row(
             lambda: {
                 "graph_id": self.post_grad_graph_id,
@@ -3278,6 +3292,55 @@ class Scheduler:
                     defining_op=None,
                 )
         return name_to_donated_buf
+
+    def _populate_stream_assignments(self) -> None:
+        """Populate node_to_stream and buff_to_stream from FX node metadata.
+
+        Reads the 'custom.stream' metadata from FX nodes to determine which
+        stream each scheduler node should run on. This metadata is set by
+        dynamo when tracing torch.cuda.stream() context managers.
+        """
+        from .stream_constants import DEFAULT_STREAM_IDX
+
+        # Map user_object_index to stream index (1-indexed for side streams)
+        user_obj_to_stream_idx: dict[int, int] = {}
+        next_stream_idx = 1  # 0 is reserved for default stream
+
+        for node in self.nodes:
+            stream_idx = DEFAULT_STREAM_IDX
+
+            # Get the origin FX nodes to read metadata.
+            # Each scheduler node may have multiple origin FX nodes (via origins).
+            if node.node is not None:
+                origins = node.node.get_origins()
+                for fx_node in origins:
+                    if not hasattr(fx_node, "meta"):
+                        continue
+                    custom_meta = fx_node.meta.get("custom", {})
+                    if "stream" in custom_meta:
+                        user_obj_idx = custom_meta["stream"]
+                        if user_obj_idx not in user_obj_to_stream_idx:
+                            user_obj_to_stream_idx[user_obj_idx] = next_stream_idx
+                            next_stream_idx += 1
+                        stream_idx = user_obj_to_stream_idx[user_obj_idx]
+                        # Use the first stream found
+                        break
+
+            self.node_to_stream[node] = stream_idx
+
+            # Also populate buff_to_stream for all buffers produced by this node
+            for buf in node.get_buffer_names():
+                self.buff_to_stream[buf] = stream_idx
+
+        # Check if we have any nodes on non-default streams
+        self._multi_stream_nodes = any(
+            stream_idx != DEFAULT_STREAM_IDX
+            for stream_idx in self.node_to_stream.values()
+        )
+
+    def _has_multi_stream_nodes(self) -> bool:
+        """Check if any nodes are assigned to non-default streams."""
+        return self._multi_stream_nodes
 
     @property
     def current_device(self) -> torch.device | None:
@@ -4656,6 +4719,13 @@ class Scheduler:
         fused_nodes.remove(node2)
         fused_nodes.add(node3)
         self.name_to_fused_node.update({n.get_name(): node3 for n in node3.get_nodes()})
+
+        # Propagate stream assignment to the fused node so that subsequent
+        # fusion rounds still respect stream boundaries.
+        stream1 = self.node_to_stream.get(node1)
+        if stream1 is not None:
+            self.node_to_stream[node3] = stream1
+
         return node3
 
     def fuse_if_speedup(
@@ -5714,6 +5784,13 @@ class Scheduler:
         if node1 is node2:
             return False
 
+        # Prevent fusion across stream boundaries
+        if self._has_multi_stream_nodes():
+            stream1 = self.node_to_stream.get(node1)
+            stream2 = self.node_to_stream.get(node2)
+            if stream1 is not None and stream2 is not None and stream1 != stream2:
+                return False
+
         if isinstance(node1, FusedMixOrderReductions):
             return node1.can_fuse_with(node2)
         if isinstance(node2, FusedMixOrderReductions):
@@ -6014,6 +6091,12 @@ class Scheduler:
         assert isinstance(write, MemoryDep)
 
         if free_symbol_is_type(write.index, SymT.TMP):
+            return False
+
+        # Non-injective scatter: range vars absent from write index mean
+        # multiple iterations hit the same location. Can't fuse the reader
+        # in or it will see partially-written state between iterations.
+        if not OrderedSet(write.var_names) <= write.index.free_symbols:
             return False
 
         real_name = self.mutation_real_name[weak_dep.mutating_buf]
@@ -7120,6 +7203,27 @@ class Scheduler:
             partitions.append(cur_partition)
             skip_cudagraphs.append(skip_cudagraph)
 
+        # Apply minimum partition size threshold: if a cudagraph-eligible partition
+        # has fewer kernels than the threshold, mark it as non-cudagraphable
+        min_size = config.triton.cudagraph_min_partition_size
+        if min_size > 0:
+            for i, (partition, skip) in enumerate(zip(partitions, skip_cudagraphs)):
+                if not skip:
+                    # Count kernels excluding NopKernelSchedulerNode
+                    kernel_count = sum(
+                        1
+                        for n in partition
+                        if not isinstance(n, NopKernelSchedulerNode)
+                    )
+                    if kernel_count < min_size:
+                        skip_cudagraphs[i] = True
+                        cudagraphs_log.debug(
+                            "Partition %d has %d kernels, below minimum size %d, skipping cudagraph",
+                            i,
+                            kernel_count,
+                            min_size,
+                        )
+
         signatures = self.get_graph_partition_signature(
             partitions=partitions, skip_cudagraphs=skip_cudagraphs
         )
@@ -7401,11 +7505,29 @@ class Scheduler:
                     if self.current_device and device_need_guard(
                         self.current_device.type
                     ):
+                        # Exit stream context before exiting device guard
+                        if self.current_stream_idx is not None:
+                            self.generate_stream_ctx_exit()
                         V.graph.wrapper_code.codegen_device_guard_exit()
                     self.current_device = device
                     if device_need_guard(device.type):
                         assert device.index is not None, "device should have an index"
-                        V.graph.wrapper_code.codegen_device_guard_enter(device.index)
+                        # Compute num_streams if we have multi-stream nodes
+                        num_streams = 1
+                        if self._has_multi_stream_nodes():
+                            # Count unique streams (excluding default stream 0)
+                            unique_streams = OrderedSet(self.node_to_stream.values())
+                            num_streams = (
+                                max(unique_streams) + 1 if unique_streams else 1
+                            )
+                        V.graph.wrapper_code.codegen_device_guard_enter(
+                            device.index, num_streams
+                        )
+
+                # Handle stream context switching for multi-stream scheduling
+                # Only do this for nodes with a device, inside the device guard
+                if self._has_multi_stream_nodes():
+                    self.generate_stream_ctx_switching(node)
 
             self.current_node = node
             self.buffer_names_to_free.update(node.last_usage)
@@ -7590,6 +7712,65 @@ class Scheduler:
                         and buffer.get_size() == []
                     ):
                         V.graph.zero_dim_cpu_tensor_list.add(read.name)
+
+    @property
+    def current_stream_idx(self) -> int | None:
+        """CUDA Stream index that current scheduler node assigned to."""
+        if self._current_stream_ctx is not None:
+            return self._current_stream_ctx.stream_idx
+        else:
+            return None
+
+    @property
+    def current_stream_name(self) -> str | None:
+        """CUDA Stream name that current scheduler node assigned to."""
+        if (stream_idx := self.current_stream_idx) is not None:
+            return get_stream_name(stream_idx)
+        else:
+            return None
+
+    def generate_stream_ctx_enter(self, node: BaseSchedulerNode) -> None:
+        """Code-gen to enter the Stream context assigned to node."""
+        assert not isinstance(node, NopKernelSchedulerNode)
+        node_stream = self.node_to_stream[node]
+        self._current_stream_ctx = V.graph.wrapper_code.codegen_cuda_stream_enter(
+            stream_idx=node_stream,
+        )
+
+    def generate_stream_ctx_exit(self) -> None:
+        """Code-gen to exit from the current Stream context."""
+        assert self._current_stream_ctx is not None
+        V.graph.wrapper_code.codegen_cuda_stream_exit()
+        self._current_stream_ctx = None
+
+    def generate_stream_ctx_switching(self, node: BaseSchedulerNode) -> None:
+        """Generate stream entering and exiting to properly run node in a multi-stream scenario.
+
+        Stream context switching is only generated if ``node``'s assigned stream is different from
+        the previous node's stream. NopKernelSchedulerNodes have stream=None and inherit the
+        enclosing stream context (or do nothing if no context is active yet).
+        """
+        assert node in self.node_to_stream
+        stream = (
+            None
+            if isinstance(node, NopKernelSchedulerNode)
+            else self.node_to_stream[node]
+        )
+        if self.current_stream_idx == stream:
+            # Covers: same stream as current (no switch needed), and both None
+            # (nop node before any stream context — nothing to do).
+            return
+        elif self.current_stream_idx is not None and stream is None:
+            # Don't generate ctx switching. Memory planning code (e.g., delete buffers) on current
+            # node goes to previous stream ctx.
+            return
+        elif self.current_stream_idx is None and stream is not None:
+            # Enter new ctx, update current stream status.
+            self.generate_stream_ctx_enter(node)
+        else:
+            # Switching from previous stream ctx to the new stream ctx.
+            self.generate_stream_ctx_exit()
+            self.generate_stream_ctx_enter(node)
 
 
 class BaseScheduling:  # noqa: docstring_linter
