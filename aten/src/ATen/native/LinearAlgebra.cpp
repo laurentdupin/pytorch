@@ -2079,14 +2079,14 @@ static Tensor _matmul_impl(
     const auto t1_folded = t1->reshape({folded_dim1, sizes_1.back()});
     if (!has_out) {
       if (t2_is_matrix) {
-        const auto output = at::_unsafe_view(t1_folded.mm(*t2), output_shape);
+        const auto output = (t1_folded.mm(*t2)).view(output_shape);
         // This copies if we perform a 2D @ 3D and the first tensor requires_grad
         // See should_fold for why.
         // If mm_out were differentiable, we could use it here, and pass a result with the
         // correct strides to avoid this unnecessary copy.
         return transpose ? output.mT().contiguous() : output;
       } else {
-        return at::_unsafe_view(t1_folded.mv(*t2), output_shape);
+        return (t1_folded.mv(*t2)).view(output_shape);
       }
     } else {
       // See the !has_out branch for an explanation
@@ -2168,9 +2168,9 @@ static Tensor _matmul_impl(
 
     if (!has_out) {
       if (vector_rhs) {
-        return at::_unsafe_view(tensor1_expanded.bmm(tensor2_expanded).squeeze(-1), output_shape);
+        return (tensor1_expanded.bmm(tensor2_expanded).squeeze(-1)).view(output_shape);
       } else {
-        return at::_unsafe_view(tensor1_expanded.bmm(tensor2_expanded), output_shape);
+        return (tensor1_expanded.bmm(tensor2_expanded)).view(output_shape);
       }
     } else {
       at::native::resize_output(out, output_shape);
