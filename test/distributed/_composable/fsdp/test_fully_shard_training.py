@@ -1559,6 +1559,7 @@ class TestFullyShardNDTraining(FSDPTest):
             device=device_type.type,
         )
         from torch import profiler as torch_profiler
+
         trace_dir = "/tmp/fsdp_tp_ep_trace"
         prof = torch_profiler.profile(
             activities=[
@@ -1566,7 +1567,11 @@ class TestFullyShardNDTraining(FSDPTest):
                 torch_profiler.ProfilerActivity.CUDA,
             ],
             schedule=torch_profiler.schedule(
-                wait=0, warmup=2, active=1, repeat=1, skip_first=1,
+                wait=0,
+                warmup=2,
+                active=1,
+                repeat=1,
+                skip_first=1,
             ),
             on_trace_ready=torch_profiler.tensorboard_trace_handler(trace_dir),
             record_shapes=True,
@@ -1582,6 +1587,7 @@ class TestFullyShardNDTraining(FSDPTest):
         prof.stop()
         if self.rank == 0:
             import glob as glob_mod
+
             traces = sorted(glob_mod.glob(f"{trace_dir}/*.json"))
             if traces:
                 print(f"\nTrace saved to: {traces[-1]}")
@@ -1590,7 +1596,7 @@ class TestFullyShardNDTraining(FSDPTest):
     def test_shard_placement_fn_fake(self):
         self.run_subtests(
             {
-                "explicit_prefetch": [True, False],
+                "explicit_prefetch": [False],
                 "enable_per_param_mesh": [True],
             },
             self._test_shard_placement_fn_fake,
@@ -1612,9 +1618,9 @@ class TestFullyShardNDTraining(FSDPTest):
         model_args = ModelArgs(
             n_layers=10,
             vocab_size=1024,
-            max_seq_len=512,
-            dim=4096,
-            n_heads=32,
+            max_seq_len=256,
+            dim=2048,
+            n_heads=16,
             dropout_p=0.0,
         )
         torch.manual_seed(42)
@@ -1655,9 +1661,7 @@ class TestFullyShardNDTraining(FSDPTest):
             mesh=dp_mesh,
             reshard_after_forward=True,
         )
-        fully_shard(
-            model, mesh=dp_mesh, reshard_after_forward=True
-        )
+        fully_shard(model, mesh=dp_mesh, reshard_after_forward=True)
         if explicit_prefetch:
             # Forward: block[i] prefetches block[i+1]
             blocks = model.layers
@@ -1675,29 +1679,41 @@ class TestFullyShardNDTraining(FSDPTest):
             device=device_type.type,
         )
         from torch import profiler as torch_profiler
-        trace_dir = f"/tmp/fsdp_trace_prefetch_{explicit_prefetch}_ppm_{enable_per_param_mesh}"
+
+        trace_dir = (
+            f"/tmp/fsdp_trace_prefetch_{explicit_prefetch}_ppm_{enable_per_param_mesh}"
+        )
         prof = torch_profiler.profile(
             activities=[
                 torch_profiler.ProfilerActivity.CPU,
                 torch_profiler.ProfilerActivity.CUDA,
             ],
             schedule=torch_profiler.schedule(
-                wait=0, warmup=2, active=1, repeat=1, skip_first=1,
+                wait=1,
+                warmup=2,
+                active=1,
+                repeat=1,
+                skip_first=1,
             ),
             on_trace_ready=torch_profiler.tensorboard_trace_handler(trace_dir),
             record_shapes=True,
             with_stack=True,
         )
         prof.start()
-        for iter_idx in range(5):
+        for iter_idx in range(6):
+            torch.cuda.synchronize()
+            dist.barrier()
             loss = model(inp).sum()
             loss.backward()
             optim.step()
             optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
+            torch.cuda.synchronize()
+            dist.barrier()
             prof.step()
         prof.stop()
         if self.rank == 0:
             import glob as glob_mod
+
             traces = sorted(glob_mod.glob(f"{trace_dir}/*.json"))
             if traces:
                 print(f"\nTrace saved to: {traces[-1]}")

@@ -489,7 +489,6 @@ class FSDPParamGroup:
             if default_prefetch:
                 self._backward_prefetch()
 
-
     @_dynamo_disable
     def post_backward(self, *unused: Any):
         # This method should be idempotent and safe to call even when this
@@ -527,12 +526,6 @@ class FSDPParamGroup:
                 self.reshard()
         if len(fsdp_params_with_grad) == 0:
             return
-        if self.device.index == 0:
-            grad_numel = sum(g.numel() for g in unsharded_grads)
-            print(
-                f"[RS] {self._module_fqn} peer={self._peer_param_group_index}"
-                f" ngrads={len(unsharded_grads)} numel={grad_numel}"
-            )
         with record_function(self._with_fqn("FSDP::post_backward_reduce")):
             if (
                 self._peer_param_group_index == self._num_peer_param_groups - 1
