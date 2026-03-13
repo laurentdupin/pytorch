@@ -461,6 +461,7 @@ class CompiledFxGraph(OutputCode):
 
     cudagraph_info: Optional[CudagraphCachedInfo]
     partition_maps: Optional[list[GraphPartitionMap]]
+    non_cudagraph_output_idxs: Optional[frozenset[int]]
     fx_kwargs: _CompileFxKwargs
     inputs_to_check: Sequence[int]
 
@@ -538,6 +539,7 @@ class CompiledFxGraph(OutputCode):
         self.guards_expr = None
         self.cudagraph_info = None
         self.partition_maps = graph.partition_maps
+        self.non_cudagraph_output_idxs = graph.non_cudagraph_output_idxs
         self.fx_kwargs = {}
         self.inputs_to_check = ()
 

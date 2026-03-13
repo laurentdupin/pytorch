@@ -401,6 +401,9 @@ class GraphLowering(torch.fx.Interpreter):
         self.graph_inputs: dict[str, Union[TensorBox, TorchBindObject, sympy.Expr]] = {}
         self.graph_inputs_original: dict[str, InputBuffer] = {}
         self.partition_maps: Optional[list[GraphPartitionMap]] = None
+        # Graph output indices whose values were computed by non-cudagraph
+        # (inline) partitions.  Set by the scheduler during partitioning.
+        self.non_cudagraph_output_idxs: Optional[frozenset[int]] = None
         self.zero_dim_cpu_tensor_list: OrderedSet[str] = OrderedSet()
         self.device_types: OrderedSet[str] = (
             const_module.device_types if const_module else OrderedSet()

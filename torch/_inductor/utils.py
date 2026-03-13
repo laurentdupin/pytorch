@@ -3154,17 +3154,17 @@ def count_tangents(fx_g: torch.fx.GraphModule) -> int:
     return len(static_arg_idxs)
 
 
-def get_static_bw_input_idxs(fx_g: torch.fx.GraphModule) -> list[int]:
+def get_static_bw_input_idxs(
+    fx_g: torch.fx.GraphModule,
+    inline_output_names: frozenset[str],
+) -> list[int]:
     """
-    Returns indices of backward graph inputs that are always at fixed
-    addresses: primals (parameters/buffers/user inputs saved for backward).
-    Excludes saved activations which may not be at fixed addresses when
-    the forward is partitioned for CUDA graphs.
+    Returns indices of backward graph inputs that have fixed addresses.
 
-    Uses the AOTInput descriptor on node.meta["desc"] when available:
-    primals that were joint graph placeholders retain their descriptor,
-    while saved activations (originally call_function nodes) do not.
-    Falls back to name-based heuristic (primals_*) otherwise.
+    Uses AOTInput descriptors (node.meta["desc"]) to classify inputs:
+    - Primals (params/buffers/user inputs) are always static.
+    - Saved activations are static only if they were NOT produced by
+      inline (non-cudagraph) code, as identified by inline_output_names.
     """
     from torch._functorch._aot_autograd.descriptors import AOTInput
 
@@ -3174,9 +3174,16 @@ def get_static_bw_input_idxs(fx_g: torch.fx.GraphModule) -> list[int]:
             break
         desc = n.meta.get("desc")
         if isinstance(desc, AOTInput) and not desc.is_tangent():
+            # Primal — always at a fixed address.
             static_idxs.append(idx)
         elif desc is None and n.name.startswith("primals_"):
-            # Fallback for graphs without descriptors (e.g. make_fx)
+            # Fallback for graphs without descriptors (e.g. make_fx).
+            static_idxs.append(idx)
+        elif (
+            not (isinstance(desc, AOTInput) and desc.is_tangent())
+            and n.name not in inline_output_names
+        ):
+            # Saved activation from a cudagraph partition — static.
             static_idxs.append(idx)
     return static_idxs
 

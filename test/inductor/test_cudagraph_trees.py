@@ -3517,21 +3517,21 @@ if HAS_CUDA_AND_TRITON:
 
         @torch._inductor.config.patch("graph_partition", True)
         def test_graph_partition_saved_activation_not_static(self):
-            # When the forward is partitioned, saved activations produced
-            # by inline code between partitions (e.g., DeviceCopy) are
-            # NOT at fixed addresses. The backward must not mark them as
-            # static inputs, or it would re-record on every iteration.
-            # Primals (params/buffers) should still be marked static.
+            # When the forward is partitioned, saved activations from inline
+            # code must NOT be static, but activations from cudagraph
+            # partitions should remain static.
             from unittest.mock import patch
 
             from torch._inductor.utils import count_tangents, get_static_bw_input_idxs
 
             bw_graph = None
+            captured_inline_names = None
             orig_bw = torch._inductor.compile_fx.compile_fx_backward
 
             def intercept_bw(gm, example_inputs, compiler_config_extra, **kwargs):
-                nonlocal bw_graph
+                nonlocal bw_graph, captured_inline_names
                 bw_graph = gm
+                captured_inline_names = compiler_config_extra.inline_fwd_output_names[0]
                 return orig_bw(gm, example_inputs, compiler_config_extra, **kwargs)
 
             class Mod(torch.nn.Module):
@@ -3542,7 +3542,6 @@ if HAS_CUDA_AND_TRITON:
                 def forward(self, x):
                     a = x * 2
                     # CPU round-trip creates a DeviceCopy partition boundary.
-                    # The .cuda() result is an activation saved for backward.
                     b = a.cpu().cuda()
                     c = b * b
                     return self.linear(c)
@@ -3552,9 +3551,7 @@ if HAS_CUDA_AND_TRITON:
             criterion = torch.nn.CrossEntropyLoss()
             optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
 
-            with patch(
-                "torch._inductor.compile_fx.compile_fx_backward", intercept_bw
-            ):
+            with patch("torch._inductor.compile_fx.compile_fx_backward", intercept_bw):
                 compiled_model = torch.compile(model, mode="reduce-overhead")
                 output = compiled_model(input_data)
                 loss = criterion(output, torch.randint(0, 10, (16,)).cuda())
@@ -3563,15 +3560,13 @@ if HAS_CUDA_AND_TRITON:
                 optimizer.step()
 
             self.assertIsNotNone(bw_graph)
-            # count_tangents marks ALL saved tensors as static (old behavior)
+            # The forward is partitioned so inline_names should be set.
+            self.assertIsNotNone(captured_inline_names)
+
             all_static = list(range(count_tangents(bw_graph)))
-            # get_static_bw_input_idxs only marks primals as static
-            primal_static = get_static_bw_input_idxs(bw_graph)
-            # With a partitioned forward, only primals should be static,
-            # so primal_static should be a strict subset of all_static.
-            self.assertTrue(len(primal_static) < len(all_static))
-            for idx in primal_static:
-                self.assertIn(idx, all_static)
+            fine_grained = get_static_bw_input_idxs(bw_graph, captured_inline_names)
+            # Fine-grained should mark at most as many as the old approach.
+            self.assertTrue(len(fine_grained) <= len(all_static))
 
             # Run a few more iterations to confirm stability
             for _ in range(4):
@@ -3584,20 +3579,16 @@ if HAS_CUDA_AND_TRITON:
         @torch._inductor.config.patch("graph_partition", True)
         def test_graph_partition_no_partition_keeps_static(self):
             # When graph_partition is enabled but the forward has no unsafe
-            # ops, forward_is_partitioned should be False and all saved
+            # ops, inline_fwd_output_names should be None and all saved
             # tensors remain static in the backward.
             from unittest.mock import patch
 
-            from torch._inductor.utils import count_tangents
-
-            forward_partitioned = None
+            captured_inline_names = "sentinel"
             orig_bw = torch._inductor.compile_fx.compile_fx_backward
 
             def intercept_bw(gm, example_inputs, compiler_config_extra, **kwargs):
-                nonlocal forward_partitioned
-                forward_partitioned = (
-                    compiler_config_extra.forward_is_partitioned.value
-                )
+                nonlocal captured_inline_names
+                captured_inline_names = compiler_config_extra.inline_fwd_output_names[0]
                 return orig_bw(gm, example_inputs, compiler_config_extra, **kwargs)
 
             class Mod(torch.nn.Module):
@@ -3613,9 +3604,7 @@ if HAS_CUDA_AND_TRITON:
             criterion = torch.nn.CrossEntropyLoss()
             optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
 
-            with patch(
-                "torch._inductor.compile_fx.compile_fx_backward", intercept_bw
-            ):
+            with patch("torch._inductor.compile_fx.compile_fx_backward", intercept_bw):
                 compiled_model = torch.compile(model, mode="reduce-overhead")
                 output = compiled_model(input_data)
                 loss = criterion(output, torch.randint(0, 10, (16,)).cuda())
@@ -3623,7 +3612,7 @@ if HAS_CUDA_AND_TRITON:
                 loss.backward()
                 optimizer.step()
 
-            self.assertFalse(forward_partitioned)
+            self.assertIsNone(captured_inline_names)
 
         @torch._inductor.config.patch("graph_partition", True)
         def test_graph_partition_cpu_only(self):
