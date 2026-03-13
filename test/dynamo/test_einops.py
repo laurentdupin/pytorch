@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import unittest
+import warnings
 
 import torch
 from torch import nn
@@ -11,7 +12,6 @@ from torch._dynamo.test_case import TestCase
 from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
-    xfailIf,
 )
 
 
@@ -206,7 +206,6 @@ print(normalize_gm(graph.print_readable(print_output=False)))
             else:
                 self.assertIn(einops_method, output)
 
-    @xfailIf(einops_version == "0.8.2")
     @parametrize(
         "method",
         ["reduce", "repeat", "pack", "unpack", "einsum", "rearrange"],
@@ -240,13 +239,21 @@ print(normalize_gm(graph.print_readable(print_output=False)))
         self._run_in_subprocess(flag, method, einops_method, snippet)
 
     def test_no_warning(self):
-        # checks that this doesn't produce any warnings
+        # einops uses lru_cache internally for pure functions; since they don't
+        # mutate existing objects, the lru_cache side-effect warning should not
+        # be emitted.
         @torch.compile(backend="eager", fullgraph=True)
         def fn(x):
             return einops.rearrange(x, "... -> (...)")
 
         x = torch.randn(5)
-        self.assertNotWarn(lambda: fn(x))
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            fn(x)
+        lru_cache_warnings = [
+            warning for warning in w if "functools.lru_cache" in str(warning.message)
+        ]
+        self.assertEqual(lru_cache_warnings, [])
 
 
 instantiate_parametrized_tests(
