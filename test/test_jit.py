@@ -2829,8 +2829,8 @@ graph(%Ra, %Rb):
                 x += 1
             return x
 
-        fn_script = torch.jit.script(fn)  # this raises 3 DeprecationWarnings
         with warnings.catch_warnings(record=True) as warns:
+            fn_script = torch.jit.script(fn)
             fn_script(torch.tensor(0))
         warns = [str(w.message) for w in warns]
         self.assertEqual(len(warns), 0)
