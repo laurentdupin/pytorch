@@ -1382,13 +1382,14 @@ def _allow_in_graph_einops() -> None:
 
     # There is a lru_cache logspam issue with einops when allow_in_graph is not
     # used. Disabling this for now until the lru_cache issue is resolved.
-    # if einops.__version__ >= "0.8.2":
-    #     if hasattr(einops, "einops") and hasattr(einops.einops, "get_backend"):
-    #         # trigger backend registration up front to avoid a later guard failure
-    #         # that would otherwise cause a recompilation
-    #         einops.rearrange(torch.randn(1), "i -> i")
-    #     # einops 0.8.2+ don't need explicit allow_in_graph calls
-    #     return
+    # TODO(guilhermeleobas): wrap this in a config flag?
+    if einops.__version__ >= "0.8.2":
+        if hasattr(einops, "einops") and hasattr(einops.einops, "get_backend"):
+            # trigger backend registration up front to avoid a later guard failure
+            # that would otherwise cause a recompilation
+            einops.rearrange(torch.randn(1), "i -> i")
+        # einops 0.8.2+ don't need explicit allow_in_graph calls
+        return
 
     try:
         # requires einops > 0.6.1, torch >= 2.0
