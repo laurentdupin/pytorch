@@ -114,6 +114,15 @@ fma = make_prim(
     doc="Fused multiply add: fma(a, b, c) -> (a * b) + c without rounding after the multiplication",
     tags=(torch.Tag.pointwise,),
 )
+
+# Register DTensor sharding strategy for fma so it works with DTensor inputs.
+# This must happen after fma is created since DTensor's _pointwise_ops module
+# loads before inductor and cannot reference prims.fma at import time.
+from torch.distributed.tensor._ops._pointwise_ops import _register_single_dim_pointwise
+
+
+_register_single_dim_pointwise(fma)
+
 prepare_softmax_online = make_prim(
     "prepare_softmax_online(Tensor a, int dim) -> (Tensor, Tensor)",
     eager_prepare_softmax,
