@@ -4,6 +4,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/util/Exception.h>
 #include <torch/csrc/distributed/c10d/symm_mem/nccl_dev_cap.hpp>
+#include <mutex>
 #include <functional>
 #include <optional>
 #include <string>
@@ -65,6 +66,7 @@ class NCCLDevCommManager {
   std::optional<std::reference_wrapper<ncclDevComm>> get_devcomm(
       const std::string& group_name,
       const char* key = __builtin_FUNCTION()) {
+    std::lock_guard<std::mutex> lock(mutex_);
     // First, look up the group in the registry
     auto group_it = devcomm_registry_.find(group_name);
     if (group_it == devcomm_registry_.end()) {
@@ -87,6 +89,7 @@ class NCCLDevCommManager {
   // @return The host-side NCCL communicator
   // @throws TORCH_CHECK if the communicator is not found
   ncclComm_t get_comm(const std::string& group_name) {
+    std::lock_guard<std::mutex> lock(mutex_);
     auto it = group_to_comm_.find(group_name);
     if (it == group_to_comm_.end()) {
       TORCH_CHECK(
@@ -131,6 +134,7 @@ class NCCLDevCommManager {
       const std::string& group_name,
       ncclDevComm devcomm,
       const char* key = __builtin_FUNCTION()) {
+    std::lock_guard<std::mutex> lock(mutex_);
     // Ensure the group exists in the registry, creating an empty map if needed
     auto [group_it, inserted] = devcomm_registry_.try_emplace(
         group_name, std::unordered_map<std::string, ncclDevComm>());
@@ -161,6 +165,7 @@ class NCCLDevCommManager {
   // @throws TORCH_CHECK if the group is already registered with a different
   // communicator.
   void register_comm(const std::string& group_name, ncclComm_t comm) {
+    std::lock_guard<std::mutex> lock(mutex_);
     auto [it, inserted] = group_to_comm_.try_emplace(group_name, comm);
     // If the communicator is already registered, check if it is the same one.
     // If not, throw an error.
@@ -208,6 +213,9 @@ class NCCLDevCommManager {
   // Device where the NCCL device communicator manager is created.
   // The manager is device-specific and cannot be used across multiple devices.
   const c10::Device device_;
+
+  // Mutex to protect the registry maps.
+  std::mutex mutex_;
 
   // A map from process group name to the host-side NCCL communicator.
   // The host communicator is required for creating and destroying device

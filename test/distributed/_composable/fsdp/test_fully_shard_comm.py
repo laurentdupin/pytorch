@@ -7,15 +7,12 @@ import os
 import tempfile
 import unittest
 from collections.abc import Callable
-from typing import Optional, Union
 from unittest.mock import MagicMock
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-from torch._C._autograd import DeviceType
-from torch._C._distributed_c10d import _SymmetricMemory
 from torch.distributed._composable import checkpoint, replicate
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
     apply_activation_checkpointing,
@@ -47,10 +44,8 @@ from torch.distributed.fsdp._fully_shard._fsdp_param_group import FSDPParamGroup
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.debug import CommDebugMode
 from torch.distributed.tensor.experimental import implicit_replication
-from torch.testing._internal.common_cuda import SM90OrLater, TEST_MULTIGPU
 from torch.testing._internal.common_distributed import (
-    MultiProcContinuousTest,
-    PLATFORM_SUPPORTS_SYMM_MEM,
+    requires_multicast_support,
     skip_if_lt_x_gpu,
 )
 from torch.testing._internal.common_fsdp import (
@@ -64,11 +59,7 @@ from torch.testing._internal.common_fsdp import (
     patch_unshard,
 )
 from torch.testing._internal.common_utils import (
-    instantiate_parametrized_tests,
-    parametrize,
-    requires_cuda_p2p_access,
     run_tests,
-    skip_but_pass_in_sandcastle_if,
     TEST_WITH_ROCM,
     TEST_XPU,
     xfailIf,
@@ -79,7 +70,6 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     Transformer,
     TransformerBlock,
 )
-from torch.testing._internal.inductor_utils import skipCUDAIf
 
 
 c10d_ops = torch.ops.c10d
@@ -129,7 +119,7 @@ class TestFullyShardCollectiveOps(FSDPTestMultiThread):
         return orig_params
 
     def _init_fsdp_param_group(
-        self, params: list[nn.Parameter], reshard_after_forward: Union[bool, int]
+        self, params: list[nn.Parameter], reshard_after_forward: bool | int
     ):
         module = nn.ParameterList([param.detach().clone() for param in params])
         mesh_info = FSDPMeshInfo(_init_default_fully_shard_mesh(), shard_mesh_dim=0)
@@ -180,7 +170,7 @@ class TestFullyShardCollectiveOps(FSDPTestMultiThread):
     def _test_all_gather(
         self,
         param_sizes: list[torch.Size],
-        reshard_after_forward: Union[bool, int],
+        reshard_after_forward: bool | int,
         async_op: bool,
         all_gather_copy_in_stream,
         all_gather_stream,
@@ -355,7 +345,7 @@ class TestFullyShardCommunication(FSDPTest):
 
     def _test_communication_count(
         self,
-        reshard_after_forward: Union[bool, int, None],
+        reshard_after_forward: bool | int | None,
     ):
         torch.manual_seed(42)
         model_args = ModelArgs()
@@ -564,7 +554,7 @@ class TestFullyShardCommunication(FSDPTest):
 
     def _test_set_reshard_after_forward_by_communication_count(
         self,
-        set_reshard_after_forward: Union[bool, None],
+        set_reshard_after_forward: bool | None,
         recurse: bool,
     ):
         torch.manual_seed(42)
@@ -650,8 +640,8 @@ class TestFullyShardPrefetch(FSDPTest):
 
     def _test_backward_prefetch_forward_backward(
         self,
-        reshard_after_forward: Union[bool, int, None],
-        checkpoint_impl: Optional[str],
+        reshard_after_forward: bool | int | None,
+        checkpoint_impl: str | None,
     ):
         n_layers = 3
         model, optim, inp = self._init_transformer(
@@ -708,7 +698,7 @@ class TestFullyShardPrefetch(FSDPTest):
                 optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
 
     def _test_backward_prefetch_multi_forward(
-        self, reshard_after_forward: Union[bool, int], checkpoint_impl: Optional[str]
+        self, reshard_after_forward: bool | int, checkpoint_impl: str | None
     ):
         n_layers = 3
         model, _, inp = self._init_transformer(
@@ -787,7 +777,7 @@ class TestFullyShardPrefetch(FSDPTest):
             events.clear()
 
     def _test_backward_prefetch_unused_in_backward(
-        self, reshard_after_forward: Union[bool, int, None]
+        self, reshard_after_forward: bool | int | None
     ):
         """
         Test a model with a linear module then a split into two linear modules,
@@ -1055,7 +1045,9 @@ class TestFullyShardPrefetch(FSDPTest):
         n_layers = 3
         reshard_after_forward = True
         # use checkpoint wrapper instead of torch.utils
-        model_args = ModelArgs(n_layers=n_layers, checkpoint_activations=False)
+        model_args = ModelArgs(
+            n_layers=n_layers, checkpoint_activations=False, weight_tying=False
+        )
         model = Transformer(model_args)
         apply_activation_checkpointing(
             model, check_fn=lambda m: isinstance(m, TransformerBlock)
@@ -1277,7 +1269,9 @@ class TestFullyShardPrefetch(FSDPTest):
     @skip_if_lt_x_gpu(2)
     def test_fully_shard_multi_module_backward_prefetch(self):
         n_layers = 5
-        model_args = ModelArgs(n_layers=n_layers, checkpoint_activations=True)
+        model_args = ModelArgs(
+            n_layers=n_layers, checkpoint_activations=True, weight_tying=False
+        )
         model = Transformer(model_args)
         for i in range(n_layers):
             if i == 0:
@@ -1451,8 +1445,8 @@ class TestFullyShardPrefetch(FSDPTest):
     def _init_transformer(
         self,
         n_layers: int,
-        reshard_after_forward: Union[bool, int, None],
-        checkpoint_impl: Optional[str],
+        reshard_after_forward: bool | int | None,
+        checkpoint_impl: str | None,
     ):
         model_args = ModelArgs(
             n_layers=n_layers, checkpoint_activations=(checkpoint_impl == "utils")
@@ -1644,15 +1638,8 @@ class TestFullyShardAllocFromPG(FSDPTest):
     @skip_if_lt_x_gpu(2)
     # The NCCL PG refuses to allocate tensors if multicast is unavailable, see
     # https://github.com/pytorch/pytorch/blob/503362d019b3782581492af7767945dbd75ca1c9/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L5634
+    @requires_multicast_support()
     def test_fully_shard_alloc_from_pg(self):
-        # Run this check inside test instead of using @requires_multicast_support().
-        # The decorator would trigger an initialization of SymmMem allocator
-        # when Python statically initializes classes in this file, causing
-        # SymmMem to fix the allocate backend to "CUDA". This is unfriendly for
-        # other tests in this file that requires NCCL backend
-        if not _SymmetricMemory.has_multicast_support(DeviceType.CUDA, 0):
-            self.skipTest("multicast support is not available")
-
         torch.manual_seed(42)
         model_args = ModelArgs()
         model = Transformer(model_args)
@@ -1702,64 +1689,6 @@ class TestFullyShardAllocFromPG(FSDPTest):
         # setting this after custom comm is used is ko
         with self.assertRaises(AssertionError):
             model.set_allocate_memory_from_process_group_for_comm(True)
-
-
-@requires_cuda_p2p_access()
-@skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "Not enough GPUs to run the test")
-@unittest.skipIf(
-    not PLATFORM_SUPPORTS_SYMM_MEM, "SymmMem is not supported on this platform"
-)
-@skipCUDAIf(TEST_WITH_ROCM, "requires NVIDIA GPUs")
-@skipCUDAIf(not SM90OrLater, "requires sm90+")
-class TestFullyShardSymmMem(MultiProcContinuousTest):
-    @classmethod
-    def backend_str(cls) -> Optional[str]:
-        return "nccl"
-
-    @classmethod
-    def opts(cls):
-        if not dist.is_nccl_available():
-            return None
-        # Enable Zero-CTA policy for CE collectives
-        opts = dist.ProcessGroupNCCL.Options()
-        opts.config.cta_policy = dist.ProcessGroupNCCL.NCCL_CTA_POLICY_ZERO
-        return opts
-
-    @property
-    def device(self) -> torch.device:
-        return torch.device("cuda", self.rank)
-
-    @parametrize("sum_reduction", [True, False])
-    def test_fully_shard_symm_mem(self, sum_reduction: bool):
-        torch.manual_seed(42 + self.rank)
-        device = torch.device("cuda", self.rank)
-        torch.cuda.set_device(device)
-        seq_len = 64
-        model_args = ModelArgs()
-        model_args.dim = 4096
-        model_args.max_seq_len = seq_len
-        model = Transformer(model_args).to(device)
-        for module in model.modules():
-            if isinstance(module, TransformerBlock):
-                fully_shard(module)
-                module.set_force_sum_reduction_for_comms(sum_reduction)
-                module.set_symm_mem_for_comm()
-        fully_shard(model)
-        model.set_force_sum_reduction_for_comms(sum_reduction)
-        model.set_symm_mem_for_comm()
-
-        bs = 4
-        inp = torch.randint(0, model_args.vocab_size, (bs, seq_len), device=device)
-
-        def run():
-            loss = model(inp)
-            loss.sum().backward()
-
-        run()
-        torch.cuda.synchronize(device)
-
-
-instantiate_parametrized_tests(TestFullyShardSymmMem)
 
 
 class TestFullyShardForceSumReduction(FSDPTest):

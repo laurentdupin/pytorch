@@ -62,6 +62,17 @@ debug_inductor_config_override: str = os.environ.get(
     "TORCH_COMPILE_OVERRIDE_INDUCTOR_CONFIGS", ""
 )
 
+# Override dynamo config for specific graphs (for debugging/bisecting).
+# Format: "filter1:config1;filter2:config2;..." where filter uses same syntax as
+# debug_backend_override, and config is "key=value" or "key=value,key2=value2".
+# Examples:
+#   "0-5:specialize_float=True"  - Specialize floats for graphs 0-5
+#   ">10:automatic_dynamic_shapes=False"  - Disable dynamic shapes for graphs > 10
+# [@compile_ignored: debug]
+debug_dynamo_config_override: str = os.environ.get(
+    "TORCH_COMPILE_OVERRIDE_DYNAMO_CONFIGS", ""
+)
+
 # Validate that fake_fn and real_fn in @leaf_function decorators produce outputs
 # with matching shapes and dtypes in eager mode. Helps catch mismatches early.
 # Disabled by default to avoid runtime overhead.
@@ -107,8 +118,9 @@ recompile_limit = 8
 # [@compile_ignored: runtime_behaviour] safeguarding to prevent horrible recomps
 accumulated_recompile_limit = 256
 
-# [@compile_ignored: runtime_behaviour] skip tracing recursively if cache limit is hit (deprecated: does not do anything)
-skip_code_recursive_on_recompile_limit_hit = True
+skip_code_recursive_on_recompile_limit_hit: bool = Config(
+    default=True, deprecated=True, deprecation_message="does not do anything"
+)
 
 # raise a hard error if cache limit is hit.  If you are on a model where you
 # know you've sized the cache correctly, this can help detect problems when
@@ -122,10 +134,12 @@ accumulated_cache_size_limit: int = Config(
     alias="torch._dynamo.config.accumulated_recompile_limit"
 )
 
-# (deprecated: does not do anything)
 skip_code_recursive_on_cache_limit_hit: bool = Config(
-    alias="torch._dynamo.config.skip_code_recursive_on_recompile_limit_hit"
+    alias="torch._dynamo.config.skip_code_recursive_on_recompile_limit_hit",
+    deprecated=True,
+    deprecation_message="does not do anything",
 )
+
 fail_on_cache_limit_hit: bool = Config(
     alias="torch._dynamo.config.fail_on_recompile_limit_hit"
 )
