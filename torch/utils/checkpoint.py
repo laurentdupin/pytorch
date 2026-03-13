@@ -920,6 +920,8 @@ To fix this, either:
   - Call torch._C._dynamo.eval_frame._set_lru_cache(False) to disable LRU cache
     reordering, which can change which graph is checked first between forward
     and recompute.
+See https://github.com/pytorch/pytorch/issues/166926 for more details and
+workaround examples.
 """
 
 
