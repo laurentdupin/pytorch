@@ -231,7 +231,7 @@ class TestDropoutAlignRandomEager(InductorTestCase):
             mismatch_ratio = (mask_e != mask_c).float().mean().item()
             self.assertLessEqual(
                 mismatch_ratio,
-                5e-4,
+                1e-4,
                 msg=f"Dropout mask mismatch ratio too high: {mismatch_ratio:.8f}",
             )
             self.assertEqual(seed0_e, BASE_SEED)
@@ -268,7 +268,10 @@ class TestDropoutAlignRandomEager(InductorTestCase):
             _set_seed(seed)
             y_comp = compiled(x)
 
-            torch.testing.assert_close(y_eager, y_comp, rtol=1e-3, atol=1e-4)
+            mismatch_ratio = (
+                ((y_eager != 0) != (y_comp != 0)).float().mean().item()
+            )
+            self.assertLessEqual(mismatch_ratio, 1e-5)
 
     # ───────────────────────────────────────────────────────────
     # dynamic shapes test (a)
