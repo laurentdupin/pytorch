@@ -1130,6 +1130,15 @@ def aot_module_simplified(
 
         compiled_fn = None
 
+        # "early" timing: run pre-grad passes before cache lookup so the
+        # cache key is computed from the already-transformed graph.
+        if (
+            torch._inductor.config.pre_grad_pass_timing == "early"
+            and pre_grad_passes is not None
+            and isinstance(mod, torch.fx.GraphModule)
+        ):
+            mod = pre_grad_passes(mod, fake_flat_args)
+
         if (
             isinstance(fw_compiler, SerializableAOTDispatchCompiler)
             or torch._functorch.config.force_autograd_cache
@@ -1149,8 +1158,13 @@ def aot_module_simplified(
                 )
 
         if compiled_fn is None:
-            # Run pre-grad passes after cache lookup to cache pre-grad transforms.
-            if pre_grad_passes is not None and isinstance(mod, torch.fx.GraphModule):
+            # "late" timing (default): run pre-grad passes after cache lookup,
+            # only on cache miss, to cache pre-grad transforms.
+            if (
+                torch._inductor.config.pre_grad_pass_timing == "late"
+                and pre_grad_passes is not None
+                and isinstance(mod, torch.fx.GraphModule)
+            ):
                 mod = pre_grad_passes(mod, fake_flat_args)
 
             stack.enter_context(compiled_autograd._disable())

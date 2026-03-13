@@ -2729,6 +2729,61 @@ class AOTAutogradCacheTests(InductorTestCase):
             self.assertEqual(result2, result3)
             self.assertEqual(result3, result4)
 
+    @inductor_config.patch("fx_graph_cache", True)
+    @functorch_config.patch("enable_autograd_cache", True)
+    @inductor_config.patch("pre_grad_pass_timing", "early")
+    def test_pre_grad_passes_early_timing(self):
+        """
+        With pre_grad_pass_timing="early", pre-grad passes run before the
+        cache lookup.  This means they execute on every compile, even on
+        a cache hit.
+        """
+
+        from torch._inductor.compile_fx import run_pre_grad_passes
+
+        def fn(x, y):
+            return 1 * x + y
+
+        pre_grad_call_count = 0
+
+        def wrap_run_pre_grad_passes(
+            model: GraphModule, example_inputs: Sequence[InputType]
+        ) -> GraphModule:
+            nonlocal pre_grad_call_count
+            pre_grad_call_count += 1
+            run_pre_grad_passes(model, example_inputs)
+            return model
+
+        x = torch.randn(10)
+        y = torch.randn(10)
+
+        with unittest.mock.patch(
+            "torch._inductor.compile_fx.run_pre_grad_passes",
+            wrap_run_pre_grad_passes,
+        ):
+            self._clear_all_caches()
+
+            # First compilation — cache miss, pre-grad passes should run
+            compiled_fn = torch.compile(fn)
+            result1 = compiled_fn(x, y)
+
+            self.assertEqual(counters["aot_autograd"]["autograd_cache_miss"], 1)
+            self.assertEqual(counters["aot_autograd"]["autograd_cache_hit"], 0)
+            self.assertEqual(pre_grad_call_count, 1)
+
+            torch._dynamo.reset()
+
+            # Second compilation — cache hit, pre-grad passes should STILL run
+            # because "early" timing means they execute before cache lookup
+            compiled_fn2 = torch.compile(fn)
+            result2 = compiled_fn2(x, y)
+
+            self.assertEqual(counters["aot_autograd"]["autograd_cache_miss"], 1)
+            self.assertEqual(counters["aot_autograd"]["autograd_cache_hit"], 1)
+            self.assertEqual(pre_grad_call_count, 2)
+
+            self.assertEqual(result1, result2)
+
     def test_cache_hit_across_processes(self):
         """
         Verify that a second subprocess gets a cache hit from the first subprocess's
