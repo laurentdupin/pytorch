@@ -488,7 +488,7 @@ class _ACTaggingTorchDispatchMode(torch.utils._python_dispatch.TorchDispatchMode
 
         if self.policy_fn is not None:
             policy = self.policy_fn(
-                SelectiveCheckpointContext(is_recompute=False, op_output=out),
+                SelectiveCheckpointContext(is_recompute=False),
                 func,
                 *args,
                 **kwargs,
