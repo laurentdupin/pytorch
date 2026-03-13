@@ -157,6 +157,7 @@ manual_torch_name_rule_map: dict[
     | type[SkipFunctionVariable]
     | type[UserFunctionVariable],
 ] = {
+    "torch.amp.autocast_mode._enter_autocast": TorchInGraphFunctionVariable,
     "torch.onnx.is_in_onnx_export": TorchInGraphFunctionVariable,
     "torch.onnx.operators.shape_as_tensor": TorchInGraphFunctionVariable,
     "torch.overrides.is_tensor_like": TorchInGraphFunctionVariable,
@@ -168,6 +169,7 @@ manual_torch_name_rule_map: dict[
     "torch.distributed.get_rank": TorchInGraphFunctionVariable,
     "torch.distributed.get_world_size": TorchInGraphFunctionVariable,
     "torch.distributed.tensor._api.DTensor#from_local": TorchInGraphFunctionVariable,
+    "torch.distributed.device_mesh.DeviceMesh#__init__": SkipFunctionVariable,
     "torch.distributed.distributed_c10d._get_group_size_by_name": TorchInGraphFunctionVariable,
     "torch.distributed.distributed_c10d._resolve_group_name_by_ranks_and_tag": TorchInGraphFunctionVariable,
     "torch.distributed.distributed_c10d._get_group_tag": TorchInGraphFunctionVariable,
@@ -234,18 +236,13 @@ manual_torch_name_rule_map: dict[
     "torch.Tensor#split": TorchInGraphFunctionVariable,
     "torch.cuda.set_device": SkipFunctionVariable,
     "torch.cuda.current_device": TorchInGraphFunctionVariable,
-    "torch._C.autocast_decrement_nesting": SkipFunctionVariable,
-    "torch._C.autocast_increment_nesting": SkipFunctionVariable,
     "torch.autograd.grad": TorchInGraphFunctionVariable,
     "torch.autograd.backward": SkipFunctionVariable,
-    "torch._C.clear_autocast_cache": SkipFunctionVariable,
     "torch.distributions.constraints.is_dependent": SkipFunctionVariable,
     "torch.jit.isinstance": SkipFunctionVariable,
     "torch._C.set_anomaly_enabled": SkipFunctionVariable,
-    "torch._C.set_autocast_cache_enabled": SkipFunctionVariable,
     "torch._C.set_autocast_cpu_dtype": SkipFunctionVariable,
     "torch._C.set_autocast_cpu_enabled": SkipFunctionVariable,
-    "torch._C.set_autocast_enabled": SkipFunctionVariable,
     "torch._C.set_autocast_gpu_dtype": SkipFunctionVariable,
     "torch._C.set_autocast_ipu_dtype": SkipFunctionVariable,
     "torch._C.set_autocast_ipu_enabled": SkipFunctionVariable,
@@ -360,6 +357,7 @@ manual_torch_name_rule_map: dict[
     "torch._dynamo.error_on_graph_break": UserFunctionVariable,
     "torch._dynamo.override_cudagraphs": UserFunctionVariable,
     "torch.fx.experimental.symbolic_shapes.guard_size_oblivious": TorchInGraphFunctionVariable,
+    "torch.fx.experimental.symbolic_shapes.is_nested_int": UserFunctionVariable,
     "torch.fx.experimental.symbolic_shapes.size_hint": TorchInGraphFunctionVariable,
     "torch.fx.experimental.symbolic_shapes.guard_or_true": TorchInGraphFunctionVariable,
     "torch.fx.experimental.symbolic_shapes.guard_or_false": TorchInGraphFunctionVariable,
@@ -466,7 +464,6 @@ torch_c_binding_in_graph_functions = dict.fromkeys(
         "torch._C._accelerator_getAccelerator",
         "torch._C._accelerator_getDeviceIndex",
         "torch._C._accelerator_getStream",
-        "torch._C._accelerator_getAllocatorSettings",
         "torch._C._accelerator_setAllocatorSettings",
         "torch._C._accelerator_setStream",
         "torch._C._accelerator_synchronizeDevice",
@@ -743,6 +740,7 @@ torch_c_binding_in_graph_functions = dict.fromkeys(
         "torch._C._initExtension",
         "torch._C._is_alias_of",
         "torch._C._is_any_autocast_enabled",
+        "torch._C._is_autocast_available",
         "torch._C._is_cached_tensor",
         "torch._C._is_flash_attention_available",
         "torch._C._is_fwd_grad_enabled",
@@ -1397,6 +1395,9 @@ torch_c_binding_in_graph_functions = dict.fromkeys(
         "torch._C._xpu_resetPeakMemoryStats",
         "torch._C._xpu_setStream",
         "torch._C._xpu_synchronize",
+        "torch._C.autocast_decrement_nesting",
+        "torch._C.autocast_increment_nesting",
+        "torch._C.clear_autocast_cache",
         "torch._C.fork",
         "torch._C.get_autocast_cpu_dtype",
         "torch._C.get_autocast_dtype",
@@ -1423,6 +1424,8 @@ torch_c_binding_in_graph_functions = dict.fromkeys(
         "torch._C.parse_schema",
         "torch._C.parse_type_comment",
         "torch._C.read_vitals",
+        "torch._C.set_autocast_cache_enabled",
+        "torch._C.set_autocast_enabled",
         "torch._C.set_vital",
         "torch._C.unify_type_list",
         "torch._C.vitals_enabled",
@@ -2221,6 +2224,7 @@ torch_c_binding_in_graph_functions = dict.fromkeys(
         "torch.select",
         "torch.selu_",
         "torch.selu",
+        "torch.set_autocast_dtype",
         "torch.sgn",
         "torch.sigmoid_",
         "torch.sigmoid",
@@ -3706,31 +3710,25 @@ class SkipResult:
 def check_file(filename: str | None, is_inlined_call: bool = False) -> SkipResult:
     """Should skip this file?"""
     if filename is None:
-        return SkipResult(True, "filename is None")
+        return SkipResult(
+            True, "cannot determine source file (likely a C extension or builtin)"
+        )
     filename = _as_posix_path(filename)
     if filename in FORCE_SKIP_FILES:
-        return SkipResult(True, "FORCE_SKIP_FILES")
+        return SkipResult(True, f"file is force-skipped ({filename})")
 
-    if any(filename.startswith(d) for d in get_legacy_mod_inlinelist()):
-        return SkipResult(
-            False,
-            "LEGACY_MOD_INLINELIST",
-        )
+    for d in get_legacy_mod_inlinelist():
+        if filename.startswith(d):
+            return SkipResult(False, f"file matches LEGACY_MOD_INLINELIST ({d})")
     if is_inlined_call and is_torch_inline_allowed(filename):
-        return SkipResult(
-            False,
-            "MOD_INLINELIST",
-        )
+        return SkipResult(False, f"file matches MOD_INLINELIST ({filename})")
     if (
         is_fbcode()
         and FBCODE_SKIP_DIRS
         and bool(FBCODE_SKIP_DIRS_RE.match(filename))
         and not bool(FBCODE_INLINE_FILES_IN_SKIPPED_DIRS_RE.match(filename))
     ):
-        return SkipResult(
-            True,
-            "FBCODE_SKIP_DIRS",
-        )
+        return SkipResult(True, "file matches FBCODE_SKIP_DIRS")
 
     if (
         is_fbcode()
@@ -3739,7 +3737,7 @@ def check_file(filename: str | None, is_inlined_call: bool = False) -> SkipResul
         and bool(FBCODE_SKIP_TORCHREC_DIRS_RE.match(filename))
         and not bool(FBCODE_INLINE_FILES_IN_SKIPPED_DIRS_RE.match(filename))
     ):
-        return SkipResult(True, "FBCODE_SKIP_TORCHREC_DIRS")
+        return SkipResult(True, "file matches FBCODE_SKIP_TORCHREC_DIRS")
 
     unittest_dir = _module_dir(unittest)
     if (
@@ -3747,13 +3745,15 @@ def check_file(filename: str | None, is_inlined_call: bool = False) -> SkipResul
         and filename.startswith(unittest_dir)
         and not torch._dynamo.config.enable_trace_unittest
     ):
-        return SkipResult(True, "unittest")
+        return SkipResult(True, "file is in unittest directory")
 
     if bool(SKIP_DIRS_RE.match(filename)):
-        return SkipResult(True, "SKIP_DIRS")
+        matched_dir = next((d for d in SKIP_DIRS if filename.startswith(d)), filename)
+        return SkipResult(True, f"file is under skip directory ({matched_dir})")
 
-    if any(filename.startswith(d) for d in get_mod_skiplist()):
-        return SkipResult(True, "MOD_SKIPLIST")
+    for d in get_mod_skiplist():
+        if filename.startswith(d):
+            return SkipResult(True, f"file matches MOD_SKIPLIST ({d})")
     return SkipResult(False, "inlined by default")
 
 
@@ -3899,25 +3899,33 @@ def check_verbose(
             PolyfilledFunctionVariable,
         ),
     ):
-        return SkipResult(
-            False,
-            f"inlined according trace_rules.lookup {reasons.pop()}",
-        )
+        return SkipResult(False, reasons.pop())
     elif issubclass(rule, TorchInGraphFunctionVariable):
-        return SkipResult(
-            False,
-            f"registered in torch_obj_rule {reasons.pop()}",
-        )
+        return SkipResult(False, reasons.pop())
     else:
         assert rule == SkipFunctionVariable, rule
-        return SkipResult(
-            True,
-            f"skipped according trace_rules.lookup {reasons.pop()}",
-        )
+        return SkipResult(True, reasons.pop())
 
 
 def check(obj: Any, is_inlined_call: bool = False, frame: Any | None = None) -> bool:
     return check_verbose(obj, is_inlined_call, frame).skipped
+
+
+def get_skip_reason(obj: Any) -> str:
+    """Compute a descriptive skip reason for a callable. Only called on graph break."""
+    if is_callable_disallowed(obj):
+        return _disallowed_callable_ids.get_name(id(obj), repr(obj))
+
+    filename = getfile(obj)
+    if filename is not None:
+        skip_result = check_file(filename)
+        if skip_result.reason is not None:
+            return skip_result.reason
+
+    module = getattr(obj, "__module__", None) or ""
+    return (
+        f"cannot determine source file for {module} (likely a C extension or builtin)"
+    )
 
 
 # skip common third party libs
