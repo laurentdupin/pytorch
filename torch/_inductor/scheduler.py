@@ -6199,6 +6199,12 @@ class Scheduler:
         unmet_output_names = OrderedSet(V.graph.get_output_names())
         name_to_node = self.get_name_to_nodes()
 
+        # Track graph output names computed by inline (non-cudagraph) partitions.
+        name_to_graph_output_index = {
+            name: idx for idx, name in enumerate(V.graph.get_output_names())
+        }
+        inline_output_idxs: OrderedSet[int] = OrderedSet()
+
         def is_unallocated_buffer(buf_name: str) -> bool:
             """
             Checks if buf_name resolves to a NoneLayout buffer (following mutation_real_name).
@@ -6230,6 +6236,11 @@ class Scheduler:
                 output_names.update(node.outputs_by_name.keys())
 
             returned_output_names = output_names.intersection(unmet_output_names)
+
+            if skip_cudagraph:
+                for name in output_names:
+                    if name in name_to_graph_output_index:
+                        inline_output_idxs.add(name_to_graph_output_index[name])
 
             # all reads/writes are partition inputs except those generated
             # within the partition and tensor constants
@@ -6325,6 +6336,9 @@ class Scheduler:
             unmet_output_names = partition_input_names.union(
                 unmet_output_names - returned_output_names
             )
+
+        if inline_output_idxs:
+            V.graph.non_cudagraph_output_idxs = frozenset(inline_output_idxs)
 
         return signatures[::-1]
 

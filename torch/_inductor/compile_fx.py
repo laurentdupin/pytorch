@@ -2263,7 +2263,13 @@ class CompilerConfigExtra:
     cudagraphs: BoxedBool
     graph_id: int
     forward_device: BoxedDeviceIndex
-    forward_is_partitioned: BoxedBool
+    # Set by the forward compilation when the forward is partitioned for
+    # CUDA graphs.  Contains the FX node names of forward outputs whose
+    # values were computed by inline (non-cudagraph) code.  The backward
+    # reads this to decide which saved activations can be assumed to have
+    # fixed addresses.  Mutable single-element list: [None] means the
+    # forward was not partitioned.
+    inline_fwd_output_names: list  # [Optional[frozenset[str]]]
 
 
 def create_compiler_config_extra(config: types.ModuleType) -> CompilerConfigExtra:
@@ -2282,16 +2288,30 @@ def create_compiler_config_extra(config: types.ModuleType) -> CompilerConfigExtr
     # See [Backward Generation Handling]
     forward_device = BoxedDeviceIndex(None)
 
-    # Set by the forward compilation when it is partitioned for CUDA graphs.
-    # The backward reads this to decide whether saved tensors can be assumed
-    # to have fixed addresses.
-    forward_is_partitioned = BoxedBool(False)
-
     return CompilerConfigExtra(
         cudagraphs=cudagraphs,
         graph_id=graph_id,
         forward_device=forward_device,
-        forward_is_partitioned=forward_is_partitioned,
+        inline_fwd_output_names=[None],
+    )
+
+
+def _get_inline_output_names(
+    gm: GraphModule,
+    non_cudagraph_output_idxs: Optional[frozenset[int]],
+) -> frozenset[str]:
+    """
+    Maps non-cudagraph graph output indices to the corresponding FX node
+    names so the backward can match them against its placeholders.
+    """
+    if not non_cudagraph_output_idxs:
+        return frozenset()
+    out_node = output_node(gm)
+    output_args = pytree.arg_tree_leaves(*out_node.args)
+    return frozenset(
+        arg.name
+        for i, arg in enumerate(output_args)
+        if isinstance(arg, torch.fx.Node) and i in non_cudagraph_output_idxs
     )
 
 
@@ -2411,7 +2431,9 @@ def compile_fx_forward(
         and result.partition_maps
         and len(result.partition_maps) > 1
     ):
-        compiler_config_extra.forward_is_partitioned.value = True
+        compiler_config_extra.inline_fwd_output_names[0] = _get_inline_output_names(
+            gm, result.non_cudagraph_output_idxs
+        )
 
     return result
 
@@ -2446,11 +2468,13 @@ def compile_fx_backward(
             model_outputs_node.meta["user_visible_output_idxs"] = []
 
         fixed = count_tangents(gm)
-        # When the forward was partitioned, saved activations from inline
-        # code between partitions are NOT at fixed addresses. Only mark
-        # primals (params/buffers) as static.
-        if compiler_config_extra.forward_is_partitioned.value:
-            static_input_idxs: Sequence[int] = get_static_bw_input_idxs(gm)
+        inline_names = compiler_config_extra.inline_fwd_output_names[0]
+        if inline_names is not None:
+            # Forward was partitioned: only mark primals and saved
+            # activations from cudagraph partitions as static.
+            static_input_idxs: Sequence[int] = get_static_bw_input_idxs(
+                gm, inline_names
+            )
         else:
             static_input_idxs = list(range(fixed))
         with (
