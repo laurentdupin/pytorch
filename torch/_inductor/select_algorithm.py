@@ -3054,7 +3054,6 @@ class AlgorithmSelectorCache(PersistentCache):
         precompilation_timeout_seconds: int = 60 * 60,
         return_multi_template=False,
         best_config_future=None,
-        return_choice=False,  # TODO: return_choice is temporary and will be refactored soon
         is_collective=False,
         min_speedup_threshold: float = 1.0,  # Only pick non-fallback if faster by this ratio
         benchmark_with_cudagraphs: bool = False,  # Use CUDA graphs for ExternKernelCaller benchmarking
@@ -3089,16 +3088,12 @@ class AlgorithmSelectorCache(PersistentCache):
             if not isinstance(choices[0], CUTLASSTemplateCaller):
                 # CUTLASSTemplateCaller still needs to go through the autotuning process to retrieve workspace size.
                 node = choices[0].output_node()
-                if return_choice:
-                    return node, choices[0]
-                return node
+                return node, choices[0]
 
         if config.deterministic:
             choice = self.pick_deterministic_choice(choices)
             node = choice.output_node()
-            if return_choice:
-                return node, choice
-            return node
+            return node, choice
 
         inputs_key = create_inputs_key(input_nodes)
 
@@ -3221,14 +3216,18 @@ class AlgorithmSelectorCache(PersistentCache):
                 if isinstance(c, TritonTemplateCaller):
                     allowed_prologue_inps |= c.allowed_prologue_inps
 
-            return torch._inductor.ir.TensorBox.create(
-                torch._inductor.ir.MultiTemplateBuffer(
-                    layout,
-                    input_nodes,
-                    get_timings,
-                    choices,
-                    allowed_prologue_inps,
-                )
+            # No single winning choice yet; selection is deferred to benchmark fusion
+            return (
+                torch._inductor.ir.TensorBox.create(
+                    torch._inductor.ir.MultiTemplateBuffer(
+                        layout,
+                        input_nodes,
+                        get_timings,
+                        choices,
+                        allowed_prologue_inps,
+                    )
+                ),
+                None,
             )
 
         timings = self.do_autotuning(
@@ -3256,18 +3255,14 @@ class AlgorithmSelectorCache(PersistentCache):
                         "Autotuning returned empty timings, falling back to first `ExternKernelCaller`: %s",
                         node,
                     )
-                    if return_choice:
-                        return node, choice
-                    return node
+                    return node, choice
             node = choices[0].output_node()
             choice = choices[0]
             log.debug(
                 "Autotuning returned empty timings, falling back to first choice: %s",
                 node,
             )
-            if return_choice:
-                return node, choice
-            return node
+            return node, choice
 
         # if we got any timings at all, pick the best of those
         best_choice = min(timings, key=timings.__getitem__)
@@ -3328,9 +3323,7 @@ class AlgorithmSelectorCache(PersistentCache):
         node = choice.output_node()
 
         log.debug("Autotuning selected choice: %s", node)
-        if return_choice:
-            return node, choice
-        return node
+        return node, choice
 
     def benchmark(
         self,
@@ -3902,12 +3895,21 @@ class AlgorithmSelectorCache(PersistentCache):
 
                 if needed_size > current_size:
                     # Create a new base tensor with sufficient storage
-                    new_base = torch.randn(
-                        needed_size,
-                        dtype=base.dtype,
-                        device=base.device,
-                        requires_grad=base.requires_grad,
-                    )
+                    if base.dtype == torch.float4_e2m1fn_x2:
+                        new_base = torch.randint(
+                            0,
+                            256,
+                            (needed_size,),
+                            dtype=torch.uint8,
+                            device=base.device,
+                        ).view(torch.float4_e2m1fn_x2)
+                    else:
+                        new_base = torch.randn(
+                            needed_size,
+                            dtype=base.dtype,
+                            device=base.device,
+                            requires_grad=base.requires_grad,
+                        )
                     base = new_base.as_strided(
                         base.size(), base.stride(), base.storage_offset()
                     )
@@ -3929,12 +3931,21 @@ class AlgorithmSelectorCache(PersistentCache):
 
         if needed_out_size > current_out_size:
             # Create a new base tensor with sufficient storage
-            new_out_base = torch.randn(
-                needed_out_size,
-                dtype=out_base.dtype,
-                device=out_base.device,
-                requires_grad=out_base.requires_grad,
-            )
+            if out_base.dtype == torch.float4_e2m1fn_x2:
+                new_out_base = torch.randint(
+                    0,
+                    256,
+                    (needed_out_size,),
+                    dtype=torch.uint8,
+                    device=out_base.device,
+                ).view(torch.float4_e2m1fn_x2)
+            else:
+                new_out_base = torch.randn(
+                    needed_out_size,
+                    dtype=out_base.dtype,
+                    device=out_base.device,
+                    requires_grad=out_base.requires_grad,
+                )
             out_base = new_out_base.as_strided(
                 out_base.size(), out_base.stride(), out_base.storage_offset()
             )
