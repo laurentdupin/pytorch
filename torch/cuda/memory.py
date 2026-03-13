@@ -170,7 +170,7 @@ def caching_allocator_enable(value: bool = True) -> None:
 @contextlib.contextmanager
 def caching_allocator_disabled():
     r"""Context manager that temporarily disables the CUDA caching allocator."""
-    prev = torch._C._cuda_cudaCachingAllocator_is_enabled()  # type: ignore[attr-defined]
+    prev = torch._C._cuda_cudaCachingAllocator_is_enabled()
     caching_allocator_enable(False)
     try:
         yield
