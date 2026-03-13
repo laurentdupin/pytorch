@@ -1598,6 +1598,7 @@ call to a lru_cache wrapped function at: _dynamo/external_utils.py:N
     @make_logging_test(dynamo=logging.DEBUG)
     def test_lru_cache_warning_logs_nested_call(self, records):
         y = 0
+
         @lru_cache
         def foo(x):
             nonlocal y
@@ -1631,6 +1632,7 @@ call to a lru_cache wrapped function at: test_error_messages.py:N
     def test_lru_cache_warning(self):
         # test only the warning message itself
         y = 0
+
         @lru_cache
         def bax(x):
             nonlocal y
