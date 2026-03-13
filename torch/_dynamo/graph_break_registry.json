@@ -4157,6 +4157,14 @@
       ]
     }
   ],
+  "GB0656": [
+    {
+      "Gb_type": "ScriptFunction without Python equivalent",
+      "Context": "",
+      "Explanation": "Dynamo encountered a torch.jit.ScriptFunction with no Python equivalent to inline. This happens with ScriptFunctions created via torch.jit.CompilationUnit, which compile from TorchScript source strings rather than Python functions.",
+      "Hints": []
+    }
+  ],
   "GB0343": [
     {
       "Gb_type": "torch.scan: improper combine_fn number of returns",
