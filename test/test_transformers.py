@@ -1553,6 +1553,29 @@ class TestSDPAFailureModes(NNTestCase):
             "Flash attention: All fused kernels requires query, key and value to be 4 dimensional",
         )
 
+    def test_no_backend_aggregates_rejections_nested_math_cpu(self):
+        q = torch.nested.nested_tensor(
+            [torch.randn(4, 2, 8), torch.randn(3, 2, 8)],
+            layout=torch.jagged,
+        ).transpose(1, 2)
+        k = torch.nested.nested_tensor(
+            [torch.randn(4, 2, 8), torch.randn(5, 2, 8)],
+            layout=torch.jagged,
+        ).transpose(1, 2)
+        v = torch.nested.nested_tensor(
+            [torch.randn(4, 2, 8), torch.randn(5, 2, 8)],
+            layout=torch.jagged,
+        ).transpose(1, 2)
+
+        with sdpa_kernel(backends=[SDPBackend.MATH]):
+            with self.assertRaises(RuntimeError) as error:
+                F.scaled_dot_product_attention(q, k, v, is_causal=True)
+
+        self.assert_rejected_backends_error(
+            error,
+            "Math attention: Nested tensors for query / key are not supported when is_causal=True.",
+        )
+
     @onlyCUDA
     @unittest.skipIf(not PLATFORM_SUPPORTS_FUSED_ATTENTION, "Does not support fused scaled dot product attention")
     def test_no_backend_aggregates_rejections_cuda(self, device):
