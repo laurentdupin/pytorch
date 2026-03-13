@@ -2272,8 +2272,8 @@ class CompilerConfigExtra:
     cudagraphs: BoxedBool
     graph_id: int
     forward_device: BoxedDeviceIndex
-    cudagraphs_bwd_override: bool | None = None
     forward_is_partitioned: BoxedBool
+    cudagraphs_bwd_override: bool | None = None
 
 
 def create_compiler_config_extra(
