@@ -608,6 +608,17 @@ class CtxManagerTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
         self.assertEqual(ref, res)
         self.assertEqual(torch.cuda.current_device(), initial_dev)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "requires cuda")
+    def test_cuda__exchange_device_args(self):
+        @torch.compile(backend="eager", fullgraph=True)
+        def fn(args, kwargs):
+            torch.cuda._exchange_device(*args, **kwargs)
+
+        initial_dev = torch.cuda.current_device()
+        for args, kwargs in (((), ()), ((0, 0), ()), ((), ("kwarg",))):
+            self.assertRaises(torch._dynamo.exc.Unsupported, fn, args, kwargs)
+            self.assertEqual(torch.cuda.current_device(), initial_dev)
+
     def test_autograd_profiler_enabled(self):
         def fn(x):
             if torch.autograd._profiler_enabled():
@@ -1044,7 +1055,8 @@ class CtxManagerTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
             torch.amp.autocast_mode._exit_autocast(m)
             return x
 
-        opt_f = torch.compile(f, backend="eager", fullgraph=True)
+        eager = EagerAndRecordGraphs()
+        opt_f = torch.compile(f, backend=eager, fullgraph=True)
         x = torch.randn(3, 3, dtype=torch.float32)
         y = torch.randn(3, 3, dtype=torch.float32)
         z = f(x, y)
@@ -1052,6 +1064,40 @@ class CtxManagerTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
         self.assertEqual(z, opt_z)
         self.assertEqual(z.dtype, opt_z.dtype)
         self.assertFalse(torch.is_autocast_enabled("cpu"))
+        graph = eager.graphs[0]
+        actual = normalize_gm(graph.print_readable(False))
+
+        self.assertExpectedInline(
+            actual,
+            """\
+class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "f32[3, 3]", L_y_: "f32[3, 3]"):
+        l_x_ = L_x_
+        l_y_ = L_y_
+
+        _is_autocast_available = torch._C._is_autocast_available('cpu');  _is_autocast_available = None
+
+        set_autocast_enabled = torch.set_autocast_enabled('cpu', True);  set_autocast_enabled = None
+
+        set_autocast_dtype = torch.set_autocast_dtype('cpu', torch.bfloat16);  set_autocast_dtype = None
+
+        autocast_increment_nesting = torch.autocast_increment_nesting();  autocast_increment_nesting = None
+        set_autocast_cache_enabled = torch.set_autocast_cache_enabled(True);  set_autocast_cache_enabled = None
+
+        x: "bf16[3, 3]" = l_x_ @ l_y_;  l_x_ = l_y_ = None
+
+        autocast_decrement_nesting = torch.autocast_decrement_nesting();  autocast_decrement_nesting = None
+
+        clear_autocast_cache = torch.clear_autocast_cache();  clear_autocast_cache = None
+
+        set_autocast_enabled_1 = torch.set_autocast_enabled('cpu', False);  set_autocast_enabled_1 = None
+
+        set_autocast_dtype_1 = torch.set_autocast_dtype('cpu', torch.bfloat16);  set_autocast_dtype_1 = None
+
+        set_autocast_cache_enabled_1 = torch.set_autocast_cache_enabled(True);  set_autocast_cache_enabled_1 = None
+        return (x,)
+""",  # NOQA: B950
+        )
 
     def test__enter__exit_autocast_graph_break(self):
         def f(x, y, z):
@@ -1059,10 +1105,12 @@ class CtxManagerTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
             x = x @ y
             torch._dynamo.graph_break()
             x = x @ z
+            # At this point m is wrapped as an AutocastModeVariable, which will graph break on the __exit__ call
             torch.amp.autocast_mode._exit_autocast(m)
             return x
 
-        opt_f = torch.compile(f, backend="eager", fullgraph=False)
+        eager = EagerAndRecordGraphs()
+        opt_f = torch.compile(f, backend=eager, fullgraph=False)
         x = torch.randn(3, 3, dtype=torch.float32)
         y = torch.randn(3, 3, dtype=torch.float32)
         z = torch.randn(3, 3, dtype=torch.float32)
@@ -1071,6 +1119,47 @@ class CtxManagerTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
         self.assertEqual(out, opt_out)
         self.assertEqual(out.dtype, opt_out.dtype)
         self.assertFalse(torch.is_autocast_enabled("cpu"))
+        graph = eager.graphs[0]
+        actual = normalize_gm(graph.print_readable(False))
+
+        self.assertExpectedInline(
+            actual,
+            """\
+class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "f32[3, 3]", L_y_: "f32[3, 3]"):
+        l_x_ = L_x_
+        l_y_ = L_y_
+
+        _is_autocast_available = torch._C._is_autocast_available('cpu');  _is_autocast_available = None
+
+        set_autocast_enabled = torch.set_autocast_enabled('cpu', True);  set_autocast_enabled = None
+
+        set_autocast_dtype = torch.set_autocast_dtype('cpu', torch.bfloat16);  set_autocast_dtype = None
+
+        autocast_increment_nesting = torch.autocast_increment_nesting();  autocast_increment_nesting = None
+        set_autocast_cache_enabled = torch.set_autocast_cache_enabled(True);  set_autocast_cache_enabled = None
+
+        x: "bf16[3, 3]" = l_x_ @ l_y_;  l_x_ = l_y_ = None
+        return (x,)
+""",  # NOQA: B950
+        )
+
+        # Doesn't include autocast functions, see comment above
+        graph = eager.graphs[1]
+        actual = normalize_gm(graph.print_readable(False))
+
+        self.assertExpectedInline(
+            actual,
+            """\
+class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "bf16[3, 3]", L_z_: "f32[3, 3]"):
+        l_x_ = L_x_
+        l_z_ = L_z_
+
+        x: "bf16[3, 3]" = l_x_ @ l_z_;  l_x_ = l_z_ = None
+        return (x,)
+""",  # NOQA: B950
+        )
 
     def test_autocast_low_level_api(self):
         def f(x, y):
