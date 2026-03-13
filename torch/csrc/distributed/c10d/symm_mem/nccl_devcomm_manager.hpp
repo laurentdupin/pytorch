@@ -3,6 +3,7 @@
 #include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/util/Exception.h>
+#include <c10/util/Logging.h>
 #include <torch/csrc/distributed/c10d/symm_mem/nccl_dev_cap.hpp>
 #include <functional>
 #include <mutex>
@@ -204,8 +205,9 @@ class NCCLDevCommManager {
       }
     } catch (...) {
       // Ignore the error - we're in a destructor and can't throw
-      // Log to stderr for debugging purposes
-      std::cerr << "Failed to destroy the NCCL device communicator, skipping\n";
+      // Log a warning for debugging purposes
+      LOG(WARNING)
+          << "Failed to destroy the NCCL device communicator, skipping";
     }
   }
 
