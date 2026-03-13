@@ -451,7 +451,9 @@ at::Tensor& all_reduce__dispatch(
     std::string reduce_op,
     const c10::IValue& group_name) {
   return c10d::all_reduce_(
-      input, std::move(reduce_op), get_process_group(group_name, "all_reduce_"));
+      input,
+      std::move(reduce_op),
+      get_process_group(group_name, "all_reduce_"));
 }
 
 at::Tensor all_reduce_dispatch(
@@ -477,7 +479,9 @@ at::Tensor all_gather_into_tensor_dispatch(
     int64_t group_size,
     const c10::IValue& group_name) {
   return c10d::all_gather_into_tensor(
-      input, group_size, get_process_group(group_name, "all_gather_into_tensor"));
+      input,
+      group_size,
+      get_process_group(group_name, "all_gather_into_tensor"));
 }
 
 at::Tensor& all_gather_into_tensor_out_dispatch(
@@ -554,14 +558,16 @@ at::Tensor& broadcast__dispatch(
     at::Tensor& input,
     int64_t src,
     const c10::IValue& group_name) {
-  return c10d::broadcast_(input, src, get_process_group(group_name, "broadcast_"));
+  return c10d::broadcast_(
+      input, src, get_process_group(group_name, "broadcast_"));
 }
 
 at::Tensor broadcast_dispatch(
     const at::Tensor& input,
     int64_t src,
     const c10::IValue& group_name) {
-  return c10d::broadcast(input, src, get_process_group(group_name, "broadcast"));
+  return c10d::broadcast(
+      input, src, get_process_group(group_name, "broadcast"));
 }
 
 at::Tensor all_to_all_single_dispatch(
