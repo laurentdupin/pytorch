@@ -3160,12 +3160,23 @@ def get_static_bw_input_idxs(fx_g: torch.fx.GraphModule) -> list[int]:
     addresses: primals (parameters/buffers/user inputs saved for backward).
     Excludes saved activations which may not be at fixed addresses when
     the forward is partitioned for CUDA graphs.
+
+    Uses the AOTInput descriptor on node.meta["desc"] when available:
+    primals that were joint graph placeholders retain their descriptor,
+    while saved activations (originally call_function nodes) do not.
+    Falls back to name-based heuristic (primals_*) otherwise.
     """
+    from torch._functorch._aot_autograd.descriptors import AOTInput
+
     static_idxs = []
     for idx, n in enumerate(fx_g.graph.nodes):
         if n.op != "placeholder":
             break
-        if n.name.startswith("primals_"):
+        desc = n.meta.get("desc")
+        if isinstance(desc, AOTInput) and not desc.is_tangent():
+            static_idxs.append(idx)
+        elif desc is None and n.name.startswith("primals_"):
+            # Fallback for graphs without descriptors (e.g. make_fx)
             static_idxs.append(idx)
     return static_idxs
 
