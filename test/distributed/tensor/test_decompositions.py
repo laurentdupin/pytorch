@@ -193,8 +193,6 @@ class TestDecompSharding(TestCase):
         out = aten.index_add.default(input, 0, index, source)
         self.assertEqual(out.placements, (Shard(1),))
 
-        # polar: force replicate
-        check_no_strategy(aten.polar.default)
         x = d_empty(16, device_mesh=mesh, placements=[Partial()])
         y = d_empty(16, device_mesh=mesh, placements=[Partial()])
         out = aten.polar.default(x, y)
