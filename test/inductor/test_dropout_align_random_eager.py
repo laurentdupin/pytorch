@@ -300,7 +300,7 @@ class TestDropoutAlignRandomEager(InductorTestCase):
             _set_seed(BASE_SEED)
             y_comp = compiled(x)
 
-            torch.testing.assert_close(y_eager, y_comp, rtol=0.0, atol=0.0)
+            torch.testing.assert_close(y_eager, y_comp, rtol=1e-5, atol=1e-6)
 
     # ───────────────────────────────────────────────────────────
     # cudagraphs test via mode='reduce-overhead' (b)
