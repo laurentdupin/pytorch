@@ -10662,6 +10662,38 @@ tensor([[[1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j],
         t2 = t[0:0].view(0, 1)
         self.assertEqual(t2.data_ptr(), 0)
 
+    def test_swap_data_ptr(self):
+        x = torch.randn(4)
+        y = torch.randn(4)
+        y_data = y.clone()
+        x_storage = x.untyped_storage()
+        y_storage = y.untyped_storage()
+        x_storage.resize_(0)
+        self.assertEqual(x_storage.nbytes(), 0)
+        # Swap: x gets y's data and nbytes, y gets x's empty state
+        x_storage._swap_data_ptr(y_storage)
+        self.assertEqual(x, y_data)
+        self.assertEqual(y_storage.nbytes(), 0)
+
+    def test_swap_data_ptr_preserves_views(self):
+        x = torch.randn(4, 4)
+        x_view = x[1:3]
+        y = torch.randn(4, 4)
+        y_data = y.clone()
+        x_storage = x.untyped_storage()
+        y_storage = y.untyped_storage()
+        x_storage.resize_(0)
+        x_storage._swap_data_ptr(y_storage)
+        # x's view chain should now see y's data
+        self.assertEqual(x, y_data)
+        self.assertEqual(x_view, y_data[1:3])
+
+    def test_swap_data_ptr_device_mismatch(self):
+        x = torch.randn(4)
+        y = torch.randn(4, device="meta")
+        with self.assertRaisesRegex(RuntimeError, "same device"):
+            x.untyped_storage()._swap_data_ptr(y.untyped_storage())
+
     def test_size_stride(self) -> None:
         t = torch.rand(2, 3, dtype=torch.float32)
         self.assertEqual(t.size(0), 2)
