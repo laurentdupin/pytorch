@@ -6406,6 +6406,7 @@ not ___dict_contains('cccccccc', G['sys'].modules)""",
         opt_fn(torch.int16, torch.ShortTensor)
         opt_fn(torch.bool, torch.BoolTensor)
 
+    @unittest.skipIf(not torch.distributed.is_available(), "requires distributed")
     def test_or_union_type_opaque_class(self):
         # Test that or_ on opaque class types (e.g. Shard | _StridedShard)
         # doesn't cause a graph break.
