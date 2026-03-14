@@ -1193,11 +1193,11 @@ class InputObserver:
                         success = False
                         error = "not the same type"
                         break
-                    err = (torch_tensor - ort_tensor).abs().max().item()
+                    err = float((torch_tensor - ort_tensor).abs().max().item())
                     err_abs = max(err_abs, err)
                     if err_abs > atol:
                         success = False
-                    err = (
+                    err = float(
                         (
                             (torch_tensor - ort_tensor).abs()
                             / (torch_tensor.abs() + rtol)
