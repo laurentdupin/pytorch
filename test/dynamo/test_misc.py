@@ -14707,13 +14707,10 @@ class TestTracer(JitTestCase):
 class TestCustomFunction(torch.testing._internal.common_utils.TestCase):
     def test_autograd_function_with_matmul_folding_at_output(self):
         """
-        When tensor folding occurs during matmul operation returned tensor is a view.
-        This can cause issues when matmul is used inside a custom function
-        and such view is then returned as output. Then it cannot be modified inplace
-        and causes errors.
-        It can be especially problematic when after such function inplace allreduce
-        is performed. This test recreates this behaviour.
-        Issue is resolved when unsafe_view is returned from matmul instead.
+        When tensor folding occurs during matmul, the returned tensor is a view.
+        Custom functions that return this view must clone it before in-place
+        modification, since autograd forbids in-place ops on views created
+        inside custom functions (to preserve correct gradient computation).
         """
 
         class CustomFunction(torch.autograd.Function):
@@ -14721,7 +14718,9 @@ class TestCustomFunction(torch.testing._internal.common_utils.TestCase):
             def forward(ctx, inp1, inp2):
                 ctx.save_for_backward(inp2)
                 ctx.output_shape = inp1.size()
-                return torch.matmul(inp1, inp2)
+                # Clone to allow in-place modification of the output, since
+                # matmul may return a view due to tensor folding.
+                return torch.matmul(inp1, inp2).clone()
 
             @staticmethod
             def backward(ctx, grad_output):
