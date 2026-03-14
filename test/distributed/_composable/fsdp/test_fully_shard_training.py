@@ -1567,7 +1567,7 @@ class TestFullyShardNDTraining(FSDPTest):
                 torch_profiler.ProfilerActivity.CUDA,
             ],
             schedule=torch_profiler.schedule(
-                wait=0,
+                wait=1,
                 warmup=2,
                 active=1,
                 repeat=1,
@@ -1578,11 +1578,15 @@ class TestFullyShardNDTraining(FSDPTest):
             with_stack=True,
         )
         prof.start()
-        for iter_idx in range(5):
+        for iter_idx in range(6):
+            torch.cuda.synchronize()
+            dist.barrier()
             loss = model(inp).sum()
             loss.backward()
             optim.step()
             optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
+            torch.cuda.synchronize()
+            dist.barrier()
             prof.step()
         prof.stop()
         if self.rank == 0:
