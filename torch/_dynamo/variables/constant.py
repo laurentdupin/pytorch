@@ -455,7 +455,12 @@ class EnumVariable(VariableTracker):
         if name == "__contains__" and len(args) == 1 and args[0].is_python_constant():
             assert not kwargs
             search = args[0].as_python_constant()
-            result = search in self.value  # type: ignore[operator]
+            try:
+                result = search in self.value  # type: ignore[operator]
+            except TypeError:
+                # Flag enums raise TypeError for wrong operand types.
+                # Graph break so it runs eagerly and the user sees the TypeError.
+                return super().call_method(tx, name, args, kwargs)
             return ConstantVariable.create(result)
         return super().call_method(tx, name, args, kwargs)
 
