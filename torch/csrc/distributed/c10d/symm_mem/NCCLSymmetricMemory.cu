@@ -541,14 +541,22 @@ class NCCLSymmetricMemoryAllocator : public SymmetricMemoryAllocator {
     size_t offset =
         reinterpret_cast<uintptr_t>(ptr) -
         reinterpret_cast<uintptr_t>(allocation->ptr);
+    // Create the SymmetricMemory handle.
     auto symm_mem = c10::make_intrusive<NCCLSymmetricMemory>(pai, offset);
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      auto it = symm_mems_.find(key);
-      if (it != symm_mems_.end()) {
+      // Insert the SymmetricMemory handle into the map (cache), keyed by the
+      // (Tensor storage ptr, group name) pair.
+      auto [it, inserted] = symm_mems_.emplace(key, symm_mem);
+      if (!inserted) {
+        // This condition should rarely happen, only when another thread happens
+        // to be concurrently rendezvousing with the same allocation for the
+        // same group.  For safety, we return the existing SymmetricMemory
+        // handle and discard the new one.
         return it->second;
       }
-      symm_mems_[key] = symm_mem;
+      // There is no more use of `key`; we can move it into the per-allocation
+      // key set to avoid an extra copy.
       symm_mem_keys_by_alloc_[allocation->ptr].insert(std::move(key));
     }
     return symm_mem;
