@@ -7,7 +7,12 @@ from contextlib import contextmanager
 import torch
 import torch._dynamo.test_case
 import torch._dynamo.testing
-from torch._dynamo.testing import EagerAndRecordGraphs, normalize_gm, same
+from torch._dynamo.testing import (
+    check_dynamic_shape_capture,
+    EagerAndRecordGraphs,
+    normalize_gm,
+    same,
+)
 from torch._dynamo.utils import counters
 from torch.nn import functional as F
 from torch.testing._internal.common_cuda import (
@@ -1067,9 +1072,42 @@ class CtxManagerTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
         graph = eager.graphs[0]
         actual = normalize_gm(graph.print_readable(False))
 
-        self.assertExpectedInline(
-            actual,
-            """\
+        if check_dynamic_shape_capture():
+            self.assertExpectedInline(
+                actual,
+                """\
+class GraphModule(torch.nn.Module):
+    def forward(self, s77: "Sym(s77)", L_x_: "f32[s77, s77]", L_y_: "f32[s77, s77]"):
+        l_x_ = L_x_
+        l_y_ = L_y_
+
+        _is_autocast_available = torch._C._is_autocast_available('cpu');  _is_autocast_available = None
+
+        set_autocast_enabled = torch.set_autocast_enabled('cpu', True);  set_autocast_enabled = None
+
+        set_autocast_dtype = torch.set_autocast_dtype('cpu', torch.bfloat16);  set_autocast_dtype = None
+
+        autocast_increment_nesting = torch.autocast_increment_nesting();  autocast_increment_nesting = None
+        set_autocast_cache_enabled = torch.set_autocast_cache_enabled(True);  set_autocast_cache_enabled = None
+
+        x: "bf16[s77, s77]" = l_x_ @ l_y_;  l_x_ = l_y_ = None
+
+        autocast_decrement_nesting = torch.autocast_decrement_nesting();  autocast_decrement_nesting = None
+
+        clear_autocast_cache = torch.clear_autocast_cache();  clear_autocast_cache = None
+
+        set_autocast_enabled_1 = torch.set_autocast_enabled('cpu', False);  set_autocast_enabled_1 = None
+
+        set_autocast_dtype_1 = torch.set_autocast_dtype('cpu', torch.bfloat16);  set_autocast_dtype_1 = None
+
+        set_autocast_cache_enabled_1 = torch.set_autocast_cache_enabled(True);  set_autocast_cache_enabled_1 = None
+        return (x,)
+""",  # NOQA: B950
+            )
+        else:
+            self.assertExpectedInline(
+                actual,
+                """\
 class GraphModule(torch.nn.Module):
     def forward(self, L_x_: "f32[3, 3]", L_y_: "f32[3, 3]"):
         l_x_ = L_x_
@@ -1097,7 +1135,7 @@ class GraphModule(torch.nn.Module):
         set_autocast_cache_enabled_1 = torch.set_autocast_cache_enabled(True);  set_autocast_cache_enabled_1 = None
         return (x,)
 """,  # NOQA: B950
-        )
+            )
 
     def test__enter__exit_autocast_graph_break(self):
         def f(x, y, z):
@@ -1122,9 +1160,32 @@ class GraphModule(torch.nn.Module):
         graph = eager.graphs[0]
         actual = normalize_gm(graph.print_readable(False))
 
-        self.assertExpectedInline(
-            actual,
-            """\
+        if check_dynamic_shape_capture():
+            self.assertExpectedInline(
+                actual,
+                """\
+class GraphModule(torch.nn.Module):
+    def forward(self, s77: "Sym(s77)", L_x_: "f32[s77, s77]", L_y_: "f32[s77, s77]"):
+        l_x_ = L_x_
+        l_y_ = L_y_
+
+        _is_autocast_available = torch._C._is_autocast_available('cpu');  _is_autocast_available = None
+
+        set_autocast_enabled = torch.set_autocast_enabled('cpu', True);  set_autocast_enabled = None
+
+        set_autocast_dtype = torch.set_autocast_dtype('cpu', torch.bfloat16);  set_autocast_dtype = None
+
+        autocast_increment_nesting = torch.autocast_increment_nesting();  autocast_increment_nesting = None
+        set_autocast_cache_enabled = torch.set_autocast_cache_enabled(True);  set_autocast_cache_enabled = None
+
+        x: "bf16[s77, s77]" = l_x_ @ l_y_;  l_x_ = l_y_ = None
+        return (x,)
+""",  # NOQA: B950
+            )
+        else:
+            self.assertExpectedInline(
+                actual,
+                """\
 class GraphModule(torch.nn.Module):
     def forward(self, L_x_: "f32[3, 3]", L_y_: "f32[3, 3]"):
         l_x_ = L_x_
@@ -1142,15 +1203,29 @@ class GraphModule(torch.nn.Module):
         x: "bf16[3, 3]" = l_x_ @ l_y_;  l_x_ = l_y_ = None
         return (x,)
 """,  # NOQA: B950
-        )
+            )
 
         # Doesn't include autocast functions, see comment above
         graph = eager.graphs[1]
         actual = normalize_gm(graph.print_readable(False))
 
-        self.assertExpectedInline(
-            actual,
-            """\
+        if check_dynamic_shape_capture():
+            self.assertExpectedInline(
+                actual,
+                """\
+class GraphModule(torch.nn.Module):
+    def forward(self, s77: "Sym(s77)", L_x_: "bf16[s77, s77]", L_z_: "f32[s77, s77]"):
+        l_x_ = L_x_
+        l_z_ = L_z_
+
+        x: "bf16[s77, s77]" = l_x_ @ l_z_;  l_x_ = l_z_ = None
+        return (x,)
+""",  # NOQA: B950
+            )
+        else:
+            self.assertExpectedInline(
+                actual,
+                """\
 class GraphModule(torch.nn.Module):
     def forward(self, L_x_: "bf16[3, 3]", L_z_: "f32[3, 3]"):
         l_x_ = L_x_
@@ -1159,7 +1234,7 @@ class GraphModule(torch.nn.Module):
         x: "bf16[3, 3]" = l_x_ @ l_z_;  l_x_ = l_z_ = None
         return (x,)
 """,  # NOQA: B950
-        )
+            )
 
     def test_autocast_low_level_api(self):
         def f(x, y):
