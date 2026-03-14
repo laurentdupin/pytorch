@@ -3713,12 +3713,20 @@ class InstructionTranslatorBase(
                     # do not absorb graph break with skip_frame set
                     raise
                 excp.remove_from_stats()
-            elif not isinstance(right, variables.ConstDictVariable):
-                # ObservedTypeError: only sets/dicts need the __iter__
-                # fallback (CPython handles unhashable internally via
-                # linear scan). For other types like Flag enums,
-                # __contains__ intentionally raised TypeError.
-                raise
+            else:
+                # ObservedTypeError: sets need the __iter__ fallback
+                # for unhashable elements (CPython's set.__contains__
+                # catches TypeError internally and does a linear scan).
+                # For other types like Flag enums, __contains__
+                # intentionally raised TypeError — propagate it.
+                try:
+                    right_type = right.python_type()
+                except NotImplementedError:
+                    right_type = None
+                if not (
+                    right_type is not None and issubclass(right_type, (set, frozenset))
+                ):
+                    raise
             self.push(
                 self.inline_user_function_return(
                     VariableTracker.build(self, impl_CONTAINS_OP_fallback),
