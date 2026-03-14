@@ -3053,6 +3053,7 @@ class BuiltinVariable(VariableTracker):
                 ListVariable,
                 TupleVariable,
                 SetVariable,
+                SymNodeVariable,
             ),
         ):
             from .constant import FakeIdVariable
@@ -3082,6 +3083,22 @@ class BuiltinVariable(VariableTracker):
                 *graph_break_hints.SUPPORTABLE,
             ],
         )
+
+    def call_is_(
+        self,
+        tx: "InstructionTranslator",
+        left: VariableTracker,
+        right: VariableTracker,
+    ) -> VariableTracker:
+        return ConstantVariable.create(left is right)
+
+    def call_is_not(
+        self,
+        tx: "InstructionTranslator",
+        left: VariableTracker,
+        right: VariableTracker,
+    ) -> VariableTracker:
+        return ConstantVariable.create(left is not right)
 
     def _comparison_with_tensor(
         self, tx: "InstructionTranslator", left: VariableTracker, right: VariableTracker
