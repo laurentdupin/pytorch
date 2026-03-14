@@ -446,130 +446,8 @@ c10::intrusive_ptr<c10d::ProcessGroup> get_process_group(
   }
 }
 
-at::Tensor& all_reduce__dispatch(
-    at::Tensor& input,
-    std::string reduce_op,
-    const c10::IValue& group_name) {
-  return c10d::all_reduce_(
-      input,
-      std::move(reduce_op),
-      get_process_group(group_name, "all_reduce_"));
-}
-
-at::Tensor all_reduce_dispatch(
-    const at::Tensor& input,
-    std::string reduce_op,
-    const c10::IValue& group_name) {
-  return c10d::all_reduce(
-      input, std::move(reduce_op), get_process_group(group_name, "all_reduce"));
-}
-
-std::vector<at::Tensor> all_gather_into_tensor_coalesced_dispatch(
-    std::vector<at::Tensor> inputs,
-    int64_t group_size,
-    const c10::IValue& group_name) {
-  return c10d::all_gather_into_tensor_coalesced(
-      inputs,
-      group_size,
-      get_process_group(group_name, "all_gather_into_tensor_coalesced"));
-}
-
-at::Tensor all_gather_into_tensor_dispatch(
-    const at::Tensor& input,
-    int64_t group_size,
-    const c10::IValue& group_name) {
-  return c10d::all_gather_into_tensor(
-      input,
-      group_size,
-      get_process_group(group_name, "all_gather_into_tensor"));
-}
-
-at::Tensor& all_gather_into_tensor_out_dispatch(
-    at::Tensor& input,
-    int64_t group_size,
-    const c10::IValue& group_name,
-    at::Tensor& output) {
-  return c10d::all_gather_into_tensor_out(
-      input,
-      group_size,
-      get_process_group(group_name, "all_gather_into_tensor_out"),
-      output);
-}
-
-std::vector<at::Tensor> all_reduce_coalesced__dispatch(
-    std::vector<at::Tensor> inputs,
-    std::string reduce_op,
-    const c10::IValue& group_name) {
-  return c10d::all_reduce_coalesced_(
-      inputs,
-      std::move(reduce_op),
-      get_process_group(group_name, "all_reduce_coalesced_"));
-}
-
-std::vector<at::Tensor> all_reduce_coalesced_dispatch(
-    std::vector<at::Tensor> inputs,
-    std::string reduce_op,
-    const c10::IValue& group_name) {
-  return c10d::all_reduce_coalesced(
-      inputs,
-      std::move(reduce_op),
-      get_process_group(group_name, "all_reduce_coalesced"));
-}
-
-std::vector<at::Tensor> reduce_scatter_tensor_coalesced_dispatch(
-    std::vector<at::Tensor> inputs,
-    std::string reduce_op,
-    int64_t group_size,
-    const c10::IValue& group_name) {
-  return c10d::reduce_scatter_tensor_coalesced(
-      inputs,
-      std::move(reduce_op),
-      group_size,
-      get_process_group(group_name, "reduce_scatter_tensor_coalesced"));
-}
-
-at::Tensor reduce_scatter_tensor_dispatch(
-    const at::Tensor& input,
-    std::string reduce_op,
-    int64_t group_size,
-    const c10::IValue& group_name) {
-  return c10d::reduce_scatter_tensor(
-      input,
-      std::move(reduce_op),
-      group_size,
-      get_process_group(group_name, "reduce_scatter_tensor"));
-}
-
-at::Tensor reduce_scatter_tensor_out_dispatch(
-    const at::Tensor& input,
-    std::string reduce_op,
-    int64_t group_size,
-    const c10::IValue& group_name,
-    at::Tensor& output) {
-  return c10d::reduce_scatter_tensor_out(
-      input,
-      std::move(reduce_op),
-      group_size,
-      get_process_group(group_name, "reduce_scatter_tensor_out"),
-      output);
-}
-
-at::Tensor& broadcast__dispatch(
-    at::Tensor& input,
-    int64_t src,
-    const c10::IValue& group_name) {
-  return c10d::broadcast_(
-      input, src, get_process_group(group_name, "broadcast_"));
-}
-
-at::Tensor broadcast_dispatch(
-    const at::Tensor& input,
-    int64_t src,
-    const c10::IValue& group_name) {
-  return c10d::broadcast(
-      input, src, get_process_group(group_name, "broadcast"));
-}
-
+// all_to_all_single_dispatch is kept as a named function because it is
+// referenced via decltype inside the AllToAllSingle autograd class.
 at::Tensor all_to_all_single_dispatch(
     const at::Tensor& input,
     c10::SymIntArrayRef output_split_sizes,
@@ -588,69 +466,150 @@ TORCH_LIBRARY(_c10d_functional, m) {
   m.def(
       "all_reduce(Tensor input, str reduce_op, Any group_name) -> Tensor",
       torch::dispatch(
-          c10::DispatchKey::CompositeExplicitAutograd, all_reduce_dispatch),
+          c10::DispatchKey::CompositeExplicitAutograd,
+          [](const at::Tensor& input,
+             std::string reduce_op,
+             const c10::IValue& group) {
+            return c10d::all_reduce(
+                input,
+                std::move(reduce_op),
+                get_process_group(group, "all_reduce"));
+          }),
       {at::Tag::pt2_compliant_tag});
 
   m.def(
       "all_reduce_(Tensor(a!) input, str reduce_op, Any group_name) -> Tensor(a!)",
       torch::dispatch(
-          c10::DispatchKey::CompositeExplicitAutograd, all_reduce__dispatch),
+          c10::DispatchKey::CompositeExplicitAutograd,
+          [](at::Tensor& input, std::string reduce_op, const c10::IValue& group)
+              -> at::Tensor& {
+            return c10d::all_reduce_(
+                input,
+                std::move(reduce_op),
+                get_process_group(group, "all_reduce_"));
+          }),
       {at::Tag::pt2_compliant_tag});
 
   m.def(
       "all_reduce_coalesced(Tensor[] inputs, str reduce_op, Any group_name) -> Tensor[]",
       torch::dispatch(
           c10::DispatchKey::CompositeExplicitAutograd,
-          all_reduce_coalesced_dispatch),
+          [](std::vector<at::Tensor> inputs,
+             std::string reduce_op,
+             const c10::IValue& group) {
+            return c10d::all_reduce_coalesced(
+                inputs,
+                std::move(reduce_op),
+                get_process_group(group, "all_reduce_coalesced"));
+          }),
       {at::Tag::pt2_compliant_tag});
 
   m.def(
       "all_reduce_coalesced_(Tensor[](a!) inputs, str reduce_op, Any group_name) -> Tensor[](a!)",
       torch::dispatch(
           c10::DispatchKey::CompositeExplicitAutograd,
-          all_reduce_coalesced__dispatch),
+          [](std::vector<at::Tensor> inputs,
+             std::string reduce_op,
+             const c10::IValue& group) {
+            return c10d::all_reduce_coalesced_(
+                inputs,
+                std::move(reduce_op),
+                get_process_group(group, "all_reduce_coalesced_"));
+          }),
       {at::Tag::pt2_compliant_tag});
 
   m.def(
       "all_gather_into_tensor_out(Tensor input, int group_size, Any group_name, *, Tensor(a!) out) -> Tensor(a!)",
       torch::dispatch(
           c10::DispatchKey::CompositeExplicitAutograd,
-          all_gather_into_tensor_out_dispatch),
+          [](at::Tensor& input,
+             int64_t group_size,
+             const c10::IValue& group,
+             at::Tensor& output) -> at::Tensor& {
+            return c10d::all_gather_into_tensor_out(
+                input,
+                group_size,
+                get_process_group(group, "all_gather_into_tensor_out"),
+                output);
+          }),
       {at::Tag::pt2_compliant_tag, at::Tag::needs_contiguous_strides});
 
   m.def(
       "all_gather_into_tensor(Tensor input, int group_size, Any group_name) -> Tensor",
       torch::dispatch(
           c10::DispatchKey::CompositeExplicitAutograd,
-          all_gather_into_tensor_dispatch),
+          [](const at::Tensor& input,
+             int64_t group_size,
+             const c10::IValue& group) {
+            return c10d::all_gather_into_tensor(
+                input,
+                group_size,
+                get_process_group(group, "all_gather_into_tensor"));
+          }),
       {at::Tag::pt2_compliant_tag, at::Tag::needs_contiguous_strides});
 
   m.def(
       "all_gather_into_tensor_coalesced(Tensor[] inputs, int group_size, Any group_name) -> Tensor[]",
       torch::dispatch(
           c10::DispatchKey::CompositeExplicitAutograd,
-          all_gather_into_tensor_coalesced_dispatch),
+          [](std::vector<at::Tensor> inputs,
+             int64_t group_size,
+             const c10::IValue& group) {
+            return c10d::all_gather_into_tensor_coalesced(
+                inputs,
+                group_size,
+                get_process_group(group, "all_gather_into_tensor_coalesced"));
+          }),
       {at::Tag::pt2_compliant_tag, at::Tag::needs_contiguous_strides});
 
   m.def(
       "reduce_scatter_tensor(Tensor input, str reduce_op, int group_size, Any group_name) -> Tensor",
       torch::dispatch(
           c10::DispatchKey::CompositeExplicitAutograd,
-          reduce_scatter_tensor_dispatch),
+          [](const at::Tensor& input,
+             std::string reduce_op,
+             int64_t group_size,
+             const c10::IValue& group) {
+            return c10d::reduce_scatter_tensor(
+                input,
+                std::move(reduce_op),
+                group_size,
+                get_process_group(group, "reduce_scatter_tensor"));
+          }),
       {at::Tag::pt2_compliant_tag, at::Tag::needs_contiguous_strides});
 
   m.def(
       "reduce_scatter_tensor_out(Tensor input, str reduce_op, int group_size, Any group_name, *, Tensor(a!) out) -> Tensor(a!)",
       torch::dispatch(
           c10::DispatchKey::CompositeExplicitAutograd,
-          reduce_scatter_tensor_out_dispatch),
+          [](const at::Tensor& input,
+             std::string reduce_op,
+             int64_t group_size,
+             const c10::IValue& group,
+             at::Tensor& output) {
+            return c10d::reduce_scatter_tensor_out(
+                input,
+                std::move(reduce_op),
+                group_size,
+                get_process_group(group, "reduce_scatter_tensor_out"),
+                output);
+          }),
       {at::Tag::pt2_compliant_tag, at::Tag::needs_contiguous_strides});
 
   m.def(
       "reduce_scatter_tensor_coalesced(Tensor[] inputs, str reduce_op, int group_size, Any group_name) -> Tensor[]",
       torch::dispatch(
           c10::DispatchKey::CompositeExplicitAutograd,
-          reduce_scatter_tensor_coalesced_dispatch),
+          [](std::vector<at::Tensor> inputs,
+             std::string reduce_op,
+             int64_t group_size,
+             const c10::IValue& group) {
+            return c10d::reduce_scatter_tensor_coalesced(
+                inputs,
+                std::move(reduce_op),
+                group_size,
+                get_process_group(group, "reduce_scatter_tensor_coalesced"));
+          }),
       {at::Tag::pt2_compliant_tag, at::Tag::needs_contiguous_strides});
 
   m.def(
@@ -667,13 +626,22 @@ TORCH_LIBRARY(_c10d_functional, m) {
   m.def(
       "broadcast(Tensor input, int src, Any group_name) -> Tensor",
       torch::dispatch(
-          c10::DispatchKey::CompositeExplicitAutograd, broadcast_dispatch),
+          c10::DispatchKey::CompositeExplicitAutograd,
+          [](const at::Tensor& input, int64_t src, const c10::IValue& group) {
+            return c10d::broadcast(
+                input, src, get_process_group(group, "broadcast"));
+          }),
       {at::Tag::pt2_compliant_tag});
 
   m.def(
       "broadcast_(Tensor(a!) input, int src, Any group_name) -> Tensor(a!)",
       torch::dispatch(
-          c10::DispatchKey::CompositeExplicitAutograd, broadcast__dispatch),
+          c10::DispatchKey::CompositeExplicitAutograd,
+          [](at::Tensor& input, int64_t src, const c10::IValue& group)
+              -> at::Tensor& {
+            return c10d::broadcast_(
+                input, src, get_process_group(group, "broadcast_"));
+          }),
       {at::Tag::pt2_compliant_tag});
 
   m.def(
@@ -742,19 +710,6 @@ at::Tensor all_to_all_single_autograd(
   return AllToAllSingle::apply(
       input, output_split_sizes, input_split_sizes, group_name);
 }
-
-namespace {
-
-at::Tensor all_to_all_single_autograd_dispatch(
-    const at::Tensor& input,
-    c10::SymIntArrayRef output_split_sizes,
-    c10::SymIntArrayRef input_split_sizes,
-    const c10::IValue& group_name) {
-  return ::all_to_all_single_autograd(
-      input, output_split_sizes, input_split_sizes, group_name);
-}
-
-} // anonymous namespace
 
 class ReduceScatterTensor
     : public torch::autograd::Function<ReduceScatterTensor> {
@@ -881,7 +836,14 @@ TORCH_LIBRARY(_c10d_functional_autograd, m) {
       "SymInt[] input_split_sizes, "
       "Any group_name) -> Tensor",
       torch::dispatch(
-          c10::DispatchKey::Autograd, ::all_to_all_single_autograd_dispatch),
+          c10::DispatchKey::Autograd,
+          [](const at::Tensor& input,
+             c10::SymIntArrayRef output_split_sizes,
+             c10::SymIntArrayRef input_split_sizes,
+             const c10::IValue& group) {
+            return all_to_all_single_autograd(
+                input, output_split_sizes, input_split_sizes, group);
+          }),
       {at::Tag::pt2_compliant_tag});
   m.def(
       "reduce_scatter_tensor("
@@ -952,18 +914,6 @@ at::Tensor shard_dim_alltoall(
                             : output.view(output_sizes);
 }
 
-at::Tensor shard_dim_alltoall_dispatch(
-    const at::Tensor& input,
-    int64_t gather_dim,
-    int64_t shard_dim,
-    const c10::IValue& group_name) {
-  return shard_dim_alltoall(
-      input,
-      gather_dim,
-      shard_dim,
-      get_process_group(group_name, "shard_dim_alltoall"));
-}
-
 } // namespace
 
 // DTensor comm op registry
@@ -972,6 +922,15 @@ TORCH_LIBRARY(_dtensor, m) {
       "shard_dim_alltoall(Tensor input, int gather_dim, int shard_dim, Any group_name) -> Tensor",
       torch::dispatch(
           c10::DispatchKey::CompositeExplicitAutograd,
-          shard_dim_alltoall_dispatch),
+          [](const at::Tensor& input,
+             int64_t gather_dim,
+             int64_t shard_dim,
+             const c10::IValue& group) {
+            return shard_dim_alltoall(
+                input,
+                gather_dim,
+                shard_dim,
+                get_process_group(group, "shard_dim_alltoall"));
+          }),
       {at::Tag::pt2_compliant_tag});
 }
