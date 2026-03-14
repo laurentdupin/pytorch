@@ -457,16 +457,13 @@ class EnumVariable(VariableTracker):
             search = args[0].as_python_constant()
             try:
                 result = search in self.value  # type: ignore[operator]
-            except TypeError:
+            except TypeError as e:
                 # Flag enums raise TypeError for wrong operand types
-                # (e.g., 'test' in SomeFlag.MEMBER). Graph break with
-                # skip_frame so the TypeError propagates in eager.
-                unimplemented(
-                    gb_type="enum __contains__ TypeError",
-                    context=f"{search!r} in {self.value!r}",
-                    explanation="Flag enum __contains__ raised TypeError for incompatible operand type",
-                    hints=[*graph_break_hints.SUPPORTABLE],
-                    skip_frame=True,
+                # (e.g., 'test' in SomeFlag.MEMBER). Raise as observed
+                # exception with from_contains=True so CONTAINS_OP
+                # propagates it instead of falling back to __iter__.
+                raise_observed_exception(
+                    type(e), tx, args=list(map(ConstantVariable.create, e.args))
                 )
             return ConstantVariable.create(result)
         return super().call_method(tx, name, args, kwargs)
