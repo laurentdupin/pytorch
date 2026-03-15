@@ -9,6 +9,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 #ifdef NCCL_HAS_SYMMEM_DEVICE_SUPPORT
@@ -66,7 +67,7 @@ class NCCLDevCommManager {
   // }
   std::optional<std::reference_wrapper<ncclDevComm>> get_devcomm(
       const std::string& group_name,
-      const char* key = __builtin_FUNCTION()) {
+      std::string_view key = __builtin_FUNCTION()) {
     std::lock_guard<std::mutex> lock(mutex_);
     // First, look up the group in the registry
     auto group_it = devcomm_registry_.find(group_name);
@@ -74,7 +75,8 @@ class NCCLDevCommManager {
       return std::nullopt;
     }
     // Then, look up the key within that group's map
-    auto key_it = group_it->second.find(key);
+    // Convert string_view to string for map lookup
+    auto key_it = group_it->second.find(std::string(key));
     if (key_it == group_it->second.end()) {
       return std::nullopt;
     }
@@ -134,16 +136,17 @@ class NCCLDevCommManager {
   std::optional<std::reference_wrapper<ncclDevComm>> register_devcomm(
       const std::string& group_name,
       ncclDevComm devcomm,
-      const char* key = __builtin_FUNCTION()) {
+      std::string_view key = __builtin_FUNCTION()) {
     std::lock_guard<std::mutex> lock(mutex_);
     // Ensure the group exists in the registry, creating an empty map if needed
     auto [group_it, inserted] = devcomm_registry_.try_emplace(
         group_name, std::unordered_map<std::string, ncclDevComm>());
     auto& group_map = group_it->second;
     // Try to insert the device communicator with the given key
+    // Convert string_view to string for map insertion
     // Use std::move to avoid copying the device communicator
     auto [key_it, key_inserted] =
-        group_map.try_emplace(key, std::move(devcomm));
+        group_map.try_emplace(std::string(key), std::move(devcomm));
     if (!key_inserted) {
       // Already registered - this is a programming error, so throw
       TORCH_CHECK(
