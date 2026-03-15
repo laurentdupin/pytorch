@@ -22,6 +22,7 @@ compilation boundaries and optimize PyTorch programs effectively.
 import abc
 import builtins
 import contextlib
+import copy
 import dataclasses
 import functools
 import importlib
@@ -3017,6 +3018,16 @@ def get_torch_obj_rule_map() -> dict[Any, type["VariableTracker"]]:
                     )
                 else:
                     d[obj] = v
+    # Inline copy.deepcopy and its internal helpers so dynamo traces through
+    # the Python implementation rather than graph-breaking.  The copy module
+    # stays in BUILTIN_SKIPLIST so that other copy functions (e.g. copy.copy)
+    # are still skipped.
+    d[copy.deepcopy] = UserFunctionVariable
+    d[copy._deepcopy_atomic] = UserFunctionVariable  # type: ignore[attr-defined]
+    d[copy._deepcopy_list] = UserFunctionVariable  # type: ignore[attr-defined]
+    d[copy._deepcopy_tuple] = UserFunctionVariable  # type: ignore[attr-defined]
+    d[copy._deepcopy_dict] = UserFunctionVariable  # type: ignore[attr-defined]
+    d[copy._keep_alive] = UserFunctionVariable  # type: ignore[attr-defined]
     return d
 
 
@@ -3316,6 +3327,7 @@ def is_numpy_type_info(obj: Any) -> bool:
 
 BUILTIN_SKIPLIST = (
     abc,
+    copy,
     random,
     linecache,
 )
