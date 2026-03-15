@@ -203,7 +203,7 @@ class TestDropoutAlignRandomEager(InductorTestCase):
         device = torch.device(GPU_TYPE)
         H, W = BATCH * SEQ_LEN, FFN_DIM
 
-        dtypes = [torch.float32, torch.float16, torch.bfloat16]
+        dtypes = [torch.float32, torch.float16, torch.bfloat16, torch.float64]
         for dtype in dtypes:
             if dtype is torch.bfloat16 and not torch.cuda.is_bf16_supported():
                 continue
@@ -475,17 +475,6 @@ class TestDropoutAlignRandomEager(InductorTestCase):
             with self.subTest(seed=seed):
                 masks_eq, _, _ = dropout_parity((1024,), seed=seed)
                 self.assertTrue(masks_eq, f"seed={seed}: mask mismatch")
-
-    # ───────────────────────────────────────────────────────────
-    # float64 dtype vec mismatch
-    # _vec_from_dtype returns vec=2 for float64, but the eager CUDA
-    # kernel always uses UNROLL=4 with curand_uniform4. The VEC
-    # mismatch causes different Philox consumption patterns.
-    # ───────────────────────────────────────────────────────────
-    @requires_gpu()
-    def test_float64(self):
-        masks_eq, _, _ = dropout_parity((8, 256, 128), dtype=torch.float64)
-        self.assertTrue(masks_eq, "float64: mask mismatch")
 
 
 if __name__ == "__main__":
