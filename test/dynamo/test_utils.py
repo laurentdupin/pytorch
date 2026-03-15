@@ -84,7 +84,7 @@ class TestUtils(TestCase):
     @dynamo_config.patch(
         {
             "log_compilation_metrics": True,
-            "inline_inbuilt_nn_modules": False,
+            "inline_inbuilt_nn_modules": True,
         }
     )
     def test_graph_break_counting(self):
@@ -445,7 +445,7 @@ class TestDynamoTimed(TestCase):
     @dynamo_config.patch(
         {
             "log_compilation_metrics": True,
-            "inline_inbuilt_nn_modules": False,
+            "inline_inbuilt_nn_modules": True,
         }
     )
     @inductor_config.patch(
@@ -688,7 +688,7 @@ class TestDynamoTimed(TestCase):
  'compile_time_autotune_time_us': None,
  'compiler_config': None,
  'compliant_custom_ops': set(),
- 'config_inline_inbuilt_nn_modules': False,
+ 'config_inline_inbuilt_nn_modules': True,
  'config_suppress_errors': False,
  'cuda_version': None,
  'cudagraph_skip_reason': None,
@@ -781,7 +781,7 @@ class TestDynamoTimed(TestCase):
  'compile_time_autotune_time_us': None,
  'compiler_config': None,
  'compliant_custom_ops': set(),
- 'config_inline_inbuilt_nn_modules': False,
+ 'config_inline_inbuilt_nn_modules': True,
  'config_suppress_errors': False,
  'cuda_version': None,
  'cudagraph_skip_reason': None,
@@ -888,7 +888,7 @@ class TestDynamoTimed(TestCase):
  'compile_time_autotune_time_us': None,
  'compiler_config': None,
  'compliant_custom_ops': None,
- 'config_inline_inbuilt_nn_modules': False,
+ 'config_inline_inbuilt_nn_modules': True,
  'config_suppress_errors': False,
  'cuda_version': None,
  'cudagraph_skip_reason': None,
@@ -981,7 +981,7 @@ class TestDynamoTimed(TestCase):
  'compile_time_autotune_time_us': None,
  'compiler_config': None,
  'compliant_custom_ops': None,
- 'config_inline_inbuilt_nn_modules': False,
+ 'config_inline_inbuilt_nn_modules': True,
  'config_suppress_errors': False,
  'cuda_version': None,
  'cudagraph_skip_reason': None,
