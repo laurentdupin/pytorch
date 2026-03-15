@@ -1090,8 +1090,18 @@ graph():
 
         x = torch.randn(M, N, device="cuda")
 
-        # set_allocator inside compiled region does NOT graph break
-        triton.set_allocator(NullAllocator())
+        from contextlib import contextmanager
+
+        from triton.runtime._allocation import _allocator
+
+        @contextmanager
+        def triton_allocator(allocator):
+            prev = _allocator.get()
+            triton.set_allocator(allocator)
+            try:
+                yield
+            finally:
+                triton.set_allocator(prev)
 
         def fn_with_set_allocator(x):
             triton.set_allocator(
@@ -1104,16 +1114,16 @@ graph():
         opt_fn = torch.compile(
             fn_with_set_allocator, backend="aot_eager", fullgraph=True
         )
-        out = opt_fn(x)
-        self.assertEqual(out, x)
 
-        # Verify set_allocator replays on cache hit (not just tracing)
-        triton.set_allocator(NullAllocator())
-        out2 = opt_fn(x)
-        self.assertEqual(out2, x)
+        # set_allocator inside compiled region does NOT graph break
+        with triton_allocator(NullAllocator()):
+            out = opt_fn(x)
+            self.assertEqual(out, x)
 
-        # Reset
-        triton.set_allocator(NullAllocator())
+            # Verify set_allocator replays on cache hit (not just tracing)
+            triton.set_allocator(NullAllocator())
+            out2 = opt_fn(x)
+            self.assertEqual(out2, x)
 
     def test_closure_recompiles(self):
         cnt = CompileCounter()
