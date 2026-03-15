@@ -170,8 +170,6 @@ class NCCLPeerAllocInfo : public c10::intrusive_ptr_target {
         group->getBackend(c10::DeviceType::CUDA).get());
     TORCH_CHECK(ncclPg != nullptr, "backend must be a NCCL process group");
     comm_ = reinterpret_cast<ncclComm_t>(ncclPg->getCommPtr());
-    auto& manager = NCCLDevCommManager::get(c10::Device(c10::DeviceType::CUDA, device_idx_));
-    manager.register_comm(group_name_, comm_);
 
     C10D_NCCL_CHECK(
       ncclCommWindowRegister(comm_, allocation->ptr, buffer_size_, &buffer_win_, NCCL_WIN_COLL_SYMMETRIC),
@@ -196,8 +194,13 @@ class NCCLPeerAllocInfo : public c10::intrusive_ptr_target {
         " on rank ",
         rank_));
 
-    // Starting from NCCL 2.28, we can get peer pointers.
 #ifdef NCCL_HAS_SYMMEM_DEVICE_SUPPORT
+    // Register the host-side communicator for device communicator management.
+    // `ncclDevCommCreate` will require it.
+    auto& manager = NCCLDevCommManager::get(c10::Device(c10::DeviceType::CUDA, device_idx_));
+    manager.register_comm(group_name_, comm_);
+
+    // Starting from NCCL 2.28, we can get peer pointers.
     const size_t arr_size = sizeof(void*) * world_size_;
     buffers_dev_ = reinterpret_cast<void**>(
         c10::cuda::CUDACachingAllocator::raw_alloc(arr_size));
