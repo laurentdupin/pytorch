@@ -1029,6 +1029,94 @@ graph():
         self.assertEqual(res, torch.ones(5) + 1)
         self.assertTrue(res.offloading_activation)
 
+    @unittest.skipIf(
+        not torch.cuda.is_available()
+        or torch.cuda.get_device_capability() < (9, 0),
+        "requires Hopper+ (SM >= 9.0) for TMA",
+    )
+    @unittest.skipIf(
+        not torch.utils._triton.has_triton()
+        or not hasattr(__import__("triton"), "set_allocator"),
+        "requires triton with set_allocator support",
+    )
+    def test_triton_set_allocator_no_graph_break(self):
+        """Triton TMA kernels require set_allocator. Verify the kernel fails
+        without it (even in eager) and that set_allocator inside torch.compile
+        does not cause a graph break."""
+        import triton
+        import triton.language as tl
+        from triton.runtime._allocation import NullAllocator
+
+        @triton.jit
+        def tma_copy_kernel(
+            x_ptr, out_ptr, M, N, stride_m, stride_n,
+            BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr,
+        ):
+            pid = tl.program_id(0)
+            desc = tl.make_tensor_descriptor(
+                x_ptr, shape=[M, N], strides=[stride_m, stride_n],
+                block_shape=[BLOCK_M, BLOCK_N],
+            )
+            block = tl.load_tensor_descriptor(desc, [pid * BLOCK_M, 0])
+            out_desc = tl.make_tensor_descriptor(
+                out_ptr, shape=[M, N], strides=[stride_m, stride_n],
+                block_shape=[BLOCK_M, BLOCK_N],
+            )
+            tl.store_tensor_descriptor(out_desc, [pid * BLOCK_M, 0], block)
+
+        M, N, BLOCK_M, BLOCK_N = 128, 64, 64, 64
+
+        def run_kernel(x):
+            out = torch.empty_like(x)
+            tma_copy_kernel[(M // BLOCK_M,)](
+                x, out, M, N, x.stride(0), x.stride(1),
+                BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N,
+            )
+            return out
+
+        x = torch.randn(M, N, device="cuda")
+
+        # Without allocator, the kernel must fail even in eager
+        triton.set_allocator(NullAllocator())
+        with self.assertRaisesRegex(
+            RuntimeError, "no allocator was set"
+        ):
+            run_kernel(x)
+
+        # With allocator, eager works
+        triton.set_allocator(
+            lambda size, alignment, stream: torch.empty(
+                size, device="cuda", dtype=torch.int8
+            )
+        )
+        out = run_kernel(x)
+        self.assertEqual(out, x)
+
+        # set_allocator inside compiled region does NOT graph break
+        triton.set_allocator(NullAllocator())
+
+        def fn_with_set_allocator(x):
+            triton.set_allocator(
+                lambda size, alignment, stream: torch.empty(
+                    size, device="cuda", dtype=torch.int8
+                )
+            )
+            return run_kernel(x)
+
+        opt_fn = torch.compile(
+            fn_with_set_allocator, backend="aot_eager", fullgraph=True
+        )
+        out = opt_fn(x)
+        self.assertEqual(out, x)
+
+        # Verify set_allocator replays on cache hit (not just tracing)
+        triton.set_allocator(NullAllocator())
+        out2 = opt_fn(x)
+        self.assertEqual(out2, x)
+
+        # Reset
+        triton.set_allocator(NullAllocator())
+
     def test_closure_recompiles(self):
         cnt = CompileCounter()
 
