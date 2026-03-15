@@ -531,16 +531,10 @@ class NCCLSymmetricMemoryAllocator : public SymmetricMemoryAllocator {
     // for different groups (e.g., forward vs backward).
     std::lock_guard<std::mutex> alloc_lock(allocation->mutex);
     auto& peer_alloc_infos = allocation->peer_alloc_infos_;
-    auto pai_it = peer_alloc_infos.find(*group_name);
-    if (pai_it == peer_alloc_infos.end()) {
-      // Never rendezvoused with this group before, create a new peer alloc info.
-      pai_it = peer_alloc_infos.emplace_hint(
-          pai_it,
-          *group_name,
-          c10::make_intrusive<NCCLPeerAllocInfo>(allocation, *group_name));
+    auto& pai = peer_alloc_infos[*group_name];
+    if (!pai) {
+      pai = c10::make_intrusive<NCCLPeerAllocInfo>(allocation, *group_name);
     }
-
-    auto& pai = pai_it->second;
     size_t offset =
         reinterpret_cast<uintptr_t>(ptr) -
         reinterpret_cast<uintptr_t>(allocation->ptr);
