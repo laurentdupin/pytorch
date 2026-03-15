@@ -185,7 +185,7 @@ void test_example_pattern() {
       devcomm_opt = manager.register_devcomm(group_name, devcomm);
     }
     ncclDevComm& devcomm_ref = devcomm_opt->get();
-    // Use devcomm_ref (in real code, this would be used for NCCL operations)
+    (void)devcomm_ref; // In real code, used for NCCL operations
     EXPECT_TRUE(devcomm_opt.has_value());
   };
 
