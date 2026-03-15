@@ -922,6 +922,33 @@ class TestTemplateRender(TestCase):
         XBLOCK = 128
         render_called = [False]
 
+        # Template source with placeholders filled in by _render()
+        _MOCK_ADD_KERNEL_TEMPLATE = (
+            "import triton\n"
+            "import triton.language as tl\n"
+            "import torch\n"
+            "from torch._inductor.runtime import triton_helpers\n"
+            "\n"
+            "@triton.jit\n"
+            "def _mock_inner_add(A, B, {out_param}{extra_sig},"
+            " numel, XBLOCK: tl.constexpr):\n"
+            "    xoffset = tl.program_id(0) * XBLOCK\n"
+            "    xindex = xoffset + tl.arange(0, XBLOCK)\n"
+            "    xmask = xindex < numel\n"
+            "    a = tl.load(A + xindex, mask=xmask)\n"
+            "{prologue_load_b}"
+            "    _kernel_val_0 = a + b\n"
+            "    x_epilogue0_0 = xindex\n"
+            "    _tile_mask_0 = xmask\n"
+            "    <STORE_OUTPUT_0>\n"
+            "\n"
+            "def {kernel_name}(A, B, {out_param}{extra_sig}, numel):\n"
+            "    grid = ((numel + {xblock} - 1) // {xblock},)\n"
+            "    _mock_inner_add[grid]("
+            "A, B, {out_param}{extra_sig}, numel, XBLOCK={xblock})\n"
+            "    return {out_param}\n"
+        )
+
         class _MockExternalTemplateBuffer(ir.TemplateBuffer):
             def __init__(self, layout, inputs):
                 tb_self = self
@@ -947,27 +974,9 @@ class TestTemplateRender(TestCase):
 
             def _render(self, kernel):
                 render_called[0] = True
-                epilogues = kernel._eligible_epilogues
-                prologue_sources = kernel._prologue_sources
 
-                # Mark prologue buffers
-                for pro_buf, source_bufs in prologue_sources.items():
-                    kernel.store_buffer_names.add(pro_buf)
-                    if not source_bufs:
-                        kernel.removed_buffers.add(pro_buf)
-
-                # Set up epilogue/prologue render hooks
-                for epi_idx in range(len(self.epilogue_fusable_outputs)):
-                    epi = epilogues[epi_idx] if epi_idx < len(epilogues) else None
-                    kernel._setup_epilogue_hook(
-                        output_buf=epi[1] if epi else None,
-                        output_param=epi[2] if epi else None,
-                    )
-                for param_name in self._named_inputs:
-                    kernel._setup_prologue_hook(
-                        param_name, prologue_sources=prologue_sources
-                    )
-                kernel.render_hooks["<DEF_KERNEL>"] = lambda: ""
+                # Set up all fusion hooks in one call
+                kernel._setup_fusion_hooks()
 
                 # --- Prologue handling for B ---
                 b_arg = self.inputs[1].get_name()
@@ -986,15 +995,10 @@ class TestTemplateRender(TestCase):
                 # --- Epilogue handling ---
                 out_param = "result"
                 out_arg = self.name
-                if epilogues:
-                    _, _, _, store_target = epilogues[0]
-                    if store_target is not None:
-                        # Pre-register and use store target param
-                        kernel.args.output(store_target)
-                        st_param = kernel.args.output_buffers.get(store_target)
-                        if st_param is not None:
-                            out_param = st_param
-                            out_arg = store_target
+                for buf, param in kernel._extra_store_targets.items():
+                    out_param = param
+                    out_arg = buf
+                    break
 
                 call_args.append(out_arg)
 
@@ -1007,40 +1011,16 @@ class TestTemplateRender(TestCase):
                 numel = self.get_size()[0]
                 call_args.append(str(numel))
 
-                # Build the inner kernel signature
                 extra_sig = ", " + ", ".join(extra_params) if extra_params else ""
 
-                kn = str(Placeholder.KERNEL_NAME)
-                source = (
-                    "import triton\n"
-                    "import triton.language as tl\n"
-                    "import torch\n"
-                    "from torch._inductor.runtime import triton_helpers\n"
-                    "\n"
-                    "@triton.jit\n"
-                    f"def _mock_inner_add(A, B, {out_param}"
-                    f"{extra_sig},"
-                    " numel, XBLOCK: tl.constexpr):\n"
-                    "    xoffset = tl.program_id(0) * XBLOCK\n"
-                    "    xindex = xoffset + tl.arange(0, XBLOCK)\n"
-                    "    xmask = xindex < numel\n"
-                    "    a = tl.load(A + xindex, mask=xmask)\n"
-                    + prologue_load_b
-                    + "    _kernel_val_0 = a + b\n"
-                    "    x_epilogue0_0 = xindex\n"
-                    "    _tile_mask_0 = xmask\n"
-                    "    <STORE_OUTPUT_0>\n"
-                    "\n"
-                    f"def {kn}(A, B, {out_param}"
-                    f"{extra_sig}, numel):\n"
-                    f"    grid = ((numel + {XBLOCK} - 1) // {XBLOCK},)\n"
-                    f"    _mock_inner_add[grid]("
-                    f"A, B, {out_param}"
-                    f"{extra_sig}, numel, XBLOCK={XBLOCK})\n"
-                    f"    return {out_param}\n"
+                source = _MOCK_ADD_KERNEL_TEMPLATE.format(
+                    out_param=out_param,
+                    extra_sig=extra_sig,
+                    prologue_load_b=prologue_load_b,
+                    kernel_name=str(Placeholder.KERNEL_NAME),
+                    xblock=XBLOCK,
                 )
 
-                # Store call state on kernel
                 kernel._call_preamble = []
                 kernel._call_args = call_args
 
@@ -1052,6 +1032,7 @@ class TestTemplateRender(TestCase):
             b = ir.ExternKernel.require_stride1(ir.ExternKernel.realize_input(b))
             return ir.TensorBox.create(_MockExternalTemplateBuffer(layout, [a, b]))
 
+        # (override_fn, decompose, type_promotion, convert_input_to_bool)
         with patch_lowering(
             {
                 torch.ops.aten.add.Tensor: (
