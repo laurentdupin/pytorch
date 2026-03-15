@@ -3023,11 +3023,16 @@ def get_torch_obj_rule_map() -> dict[Any, type["VariableTracker"]]:
     # stays in BUILTIN_SKIPLIST so that other copy functions (e.g. copy.copy)
     # are still skipped.
     d[copy.deepcopy] = UserFunctionVariable
-    d[copy._deepcopy_atomic] = UserFunctionVariable  # type: ignore[attr-defined]
-    d[copy._deepcopy_list] = UserFunctionVariable  # type: ignore[attr-defined]
-    d[copy._deepcopy_tuple] = UserFunctionVariable  # type: ignore[attr-defined]
-    d[copy._deepcopy_dict] = UserFunctionVariable  # type: ignore[attr-defined]
-    d[copy._keep_alive] = UserFunctionVariable  # type: ignore[attr-defined]
+    for _name in (
+        "_deepcopy_atomic",
+        "_deepcopy_list",
+        "_deepcopy_tuple",
+        "_deepcopy_dict",
+        "_keep_alive",
+    ):
+        _fn = getattr(copy, _name, None)
+        if _fn is not None:
+            d[_fn] = UserFunctionVariable
     return d
 
 
