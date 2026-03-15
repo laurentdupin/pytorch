@@ -3438,7 +3438,6 @@ def emit_noargs_leaf_function_to_graph(
     at the correct position at runtime.
     """
     import torch.utils._pytree as pytree
-
     from torch._higher_order_ops.invoke_leaf_function import (
         _LeafCallable,
         invoke_leaf_function,
@@ -3468,9 +3467,7 @@ def emit_noargs_leaf_function_to_graph(
         make_proxy(f"{name}_input_spec", input_spec),
         "",  # mutated_flat_indices
     )
-    tx.output.create_proxy(
-        "call_function", invoke_leaf_function, invoke_args, {}
-    )
+    tx.output.create_proxy("call_function", invoke_leaf_function, invoke_args, {})
 
 
 class TritonSetAllocatorVariable(VariableTracker):
