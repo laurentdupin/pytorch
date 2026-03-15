@@ -3177,7 +3177,6 @@ def _builtin_function_ids() -> dict[int, str]:
     rv.update(
         {
             id(cast): "typing.cast",
-            id(copy.deepcopy): "copy.deepcopy",
         }
     )
     return rv
@@ -3318,7 +3317,6 @@ def is_numpy_type_info(obj: Any) -> bool:
 
 BUILTIN_SKIPLIST = (
     abc,
-    copy,
     random,
     linecache,
 )
