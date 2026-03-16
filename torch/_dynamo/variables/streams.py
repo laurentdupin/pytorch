@@ -344,6 +344,7 @@ class StreamVariable(StreamContextVariable):
                 proxy=tx.output.create_proxy(
                     "call_method", name, *proxy_args_kwargs([self] + args, kwargs)
                 ),
+                recording_stream_index=self.user_object_index,
             )
         elif name in cmp_name_to_op_mapping and len(args) == 1 and not kwargs:
             from ..guards import GuardBuilder, install_guard
@@ -423,11 +424,17 @@ class StreamVariable(StreamContextVariable):
 
 
 class EventVariable(VariableTracker):
+    _nonvar_fields = {
+        *VariableTracker._nonvar_fields,
+        "recording_stream_index",
+    }
+
     def __init__(
         self,
         proxy: Proxy,
         value: torch.Event,
         user_object_index: int | None,
+        recording_stream_index: int | None = None,
         **kwargs: Any,
     ) -> None:
         if proxy is not None and "example_value" in proxy.node.meta:
@@ -436,6 +443,7 @@ class EventVariable(VariableTracker):
         self.proxy = proxy
         self.value = value
         self.user_object_index = user_object_index
+        self.recording_stream_index = recording_stream_index
 
     def call_method(
         self,
@@ -459,15 +467,17 @@ class EventVariable(VariableTracker):
             )
             return CONSTANT_VARIABLE_NONE
         elif name == "record":
+            stream_arg = EventVariable._get_stream_arg(tx, args, kwargs)
             tx.output.create_proxy(
                 "call_function",
                 torch.ops.streams.record_event,
                 (
                     self.user_object_index,
-                    EventVariable._get_stream_arg(tx, args, kwargs).user_object_index,
+                    stream_arg.user_object_index,
                 ),
                 {},
             )
+            self.recording_stream_index = stream_arg.user_object_index
             return CONSTANT_VARIABLE_NONE
         elif name == "synchronize":
             tx.output.create_proxy(
