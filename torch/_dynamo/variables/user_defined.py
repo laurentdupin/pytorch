@@ -1146,25 +1146,28 @@ def call_random_fn(
 
 def generic_getattr(
     tx: "InstructionTranslator",
-    instance_vt: "UserDefinedObjectVariable",
+    instance_vt: Any,
+    value: object,
     name: str,
     source: Source | None,
 ) -> VariableTracker:
     """CPython PyObject_GenericGetAttr — the 7-step attribute lookup algorithm.
 
+    value is the real Python object backing instance_vt.
+
     instance_vt must provide:
-        .value, .source, .cls_source,
-        .lookup_class_mro_attr(name),
+        .fixup_type_attr(name, type_attr),
         .resolve_data_descriptor(tx, name, type_attr, source),
         .resolve_type_attr(tx, name, type_attr, source),
-        .fixup_type_attr(name, type_attr),
-        ._object_has_getattribute,
-        ._check_for_getattr(),
         .maybe_wrap_nn_module_source_for_instance(tx, name, source),
         .handle_getattr_fallback(tx, name, getattr_fn),
     """
-    # Step 1: Single MRO walk on the type (cached).
-    type_attr = instance_vt.lookup_class_mro_attr(name)
+    # Step 1: Single MRO walk on the type.
+    type_attr = NO_SUCH_SUBOBJ
+    for base in type(value).__mro__:
+        if name in base.__dict__:
+            type_attr = base.__dict__[name]
+            break
 
     # Dynamo patches nn.Module.__init__ at import time to inject tracing
     # hooks.  Undo that here so the unpatched original is traced instead.
@@ -1175,8 +1178,8 @@ def generic_getattr(
         return instance_vt.resolve_data_descriptor(tx, name, type_attr, source)
 
     # Step 3: Instance __dict__ — return as-is, no descriptor invocation.
-    if hasattr(instance_vt.value, "__dict__") and name in instance_vt.value.__dict__:
-        subobj = instance_vt.value.__dict__[name]
+    if hasattr(value, "__dict__") and name in value.__dict__:
+        subobj = value.__dict__[name]
         source = instance_vt.maybe_wrap_nn_module_source_for_instance(tx, name, source)
         return VariableTracker.build(tx, subobj, source)
 
@@ -1198,9 +1201,9 @@ def generic_getattr(
     #
     # Only safe when the class doesn't override __getattribute__,
     # otherwise we'd run arbitrary user code.
-    if not instance_vt._object_has_getattribute:
+    if not object_has_getattribute(value):
         try:
-            resolved = type(instance_vt.value).__getattribute__(instance_vt.value, name)
+            resolved = type(value).__getattribute__(value, name)
             source = instance_vt.maybe_wrap_nn_module_source_for_instance(
                 tx, name, source
             )
@@ -1209,15 +1212,15 @@ def generic_getattr(
             pass
 
     # Step 6: __getattr__ fallback.
-    getattr_fn = instance_vt._check_for_getattr()
+    getattr_fn = get_custom_getattr(value)
     if isinstance(getattr_fn, types.FunctionType):
         return instance_vt.handle_getattr_fallback(tx, name, getattr_fn)
 
     elif getattr_fn is not None:
         unimplemented(
             gb_type="User-defined object with non-function __getattr__",
-            context=f"object={instance_vt.value}, name={name}, getattr_fn={getattr_fn}",
-            explanation=f"Found a non-function __getattr__ {getattr_fn} from a user-defined object {instance_vt.value} "
+            context=f"object={value}, name={name}, getattr_fn={getattr_fn}",
+            explanation=f"Found a non-function __getattr__ {getattr_fn} from a user-defined object {value} "
             f" when attempting to getattr `{name}`",
             hints=[
                 "Ensure the object's __getattr__ is a function type.",
@@ -1226,7 +1229,7 @@ def generic_getattr(
 
     # Step 7: AttributeError.
     error_message = VariableTracker.build(
-        tx, f"'{type(instance_vt.value).__name__}' object has no attribute '{name}'"
+        tx, f"'{type(value).__name__}' object has no attribute '{name}'"
     )
     raise_observed_exception(
         AttributeError,
@@ -1928,7 +1931,7 @@ class UserDefinedObjectVariable(UserDefinedVariable):
                 cls_source = source
             return VariableTracker.build(tx, type(self.value), cls_source)
 
-        return generic_getattr(tx, self, name, source)
+        return generic_getattr(tx, self, self.value, name, source)
 
     def resolve_data_descriptor(
         self,

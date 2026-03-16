@@ -49,7 +49,6 @@ from .. import config, graph_break_hints, variables
 from .._trace_wrapped_higher_order_op import trace_wrapped
 from ..exc import (
     ObservedAttributeError,
-    raise_observed_exception,
     TorchRuntimeError,
     unimplemented,
     UnknownPropertiesDuringBackwardTrace,
@@ -58,14 +57,12 @@ from ..exc import (
 )
 from ..external_utils import _ApplyBackwardHook, call_hook_from_backward_state
 from ..guards import GuardBuilder, install_guard
-from ..source import AttrSource
+from ..source import AttrSource, Source
 from ..utils import (
     fqn,
-    get_custom_getattr,
     get_fake_value,
     get_real_value,
     guard_if_dyn,
-    object_has_getattribute,
     product,
     proxy_args_kwargs,
     raise_args_mismatch,
@@ -76,7 +73,7 @@ from .base import AttributeMutationNew, ValueMutationNew, VariableTracker
 from .constant import CONSTANT_VARIABLE_NONE, CONSTANT_VARIABLE_TRUE, ConstantVariable
 from .lists import ListIteratorVariable, SizeVariable
 from .script_object import TorchScriptObjectVariable
-from .user_defined import UserDefinedClassVariable
+from .user_defined import generic_getattr, UserDefinedClassVariable
 
 
 try:
@@ -357,60 +354,82 @@ class TensorVariable(VariableTracker):
         if not (self.source and self.source.subguards_allowed()):
             raise NotImplementedError
 
-        # For local source, we associate the real value. We use this real value
-        # for implementing getattr fallthrough on the variable tracker base class.
-
         # Note - this scope construction is mirrored in guards
         # A subsequent PR will introduce a util.
         scope = {"L": tx.output.local_scope, "G": tx.output.global_scope}
         try:
-            # We raise in case we get a typerror bug w/ SuperSource.
-            # SuperSource has bugs in it atm, and can produce code like
-            # eval("super(L['mod'].model.model.encoder.embed_positions.forward__class__,
-            # L['mod'].model.model.encoder.embed_positions)", scope)
-            # Which is incorrect, and violates the invariant that all sources should be eval()-able against the scope.
-            _input_associated_real_value = eval(self.source.name, scope)
+            # SuperSource has bugs and can produce non-eval()-able names.
+            real_value = eval(self.source.name, scope)
         except Exception as exc:
             raise NotImplementedError from exc
 
-        if _input_associated_real_value is None:
+        if real_value is None:
             raise NotImplementedError
-
-        if object_has_getattribute(_input_associated_real_value):
-            raise NotImplementedError
-
-        if get_custom_getattr(_input_associated_real_value):
-            raise NotImplementedError
-
-        try:
-            real_value = getattr(_input_associated_real_value, name)
-        except AttributeError:
-            error_message = VariableTracker.build(
-                tx,
-                f"'{type(_input_associated_real_value).__name__}' object has no attribute '{name}'",
-            )
-            raise_observed_exception(
-                AttributeError,
-                tx,
-                args=[error_message],
-            )
 
         attr_source = AttrSource(self.source, name)
 
-        # Typically we'd want to use variable builder here
-        # but unfortunately id(real_value.__self__) is not id(<original value>)
-        if is_bound_tensor_method(real_value):
-            # No need to install the guard because its a bound tensor method
-            from .misc import GetAttrVariable
+        self._real_value = real_value
+        try:
+            return generic_getattr(tx, self, real_value, name, attr_source)
+        finally:
+            self._real_value = None
 
-            return GetAttrVariable(
-                self, name, source=attr_source, py_type=type(real_value)
+    def fixup_type_attr(self, name: str, type_attr: object) -> object:
+        return type_attr
+
+    def _install_hasattr_guard(self, name: str) -> None:
+        if self.source:
+            install_guard(
+                self.source.make_guard(
+                    functools.partial(GuardBuilder.HASATTR, attr=name)
+                )
             )
 
-        install_guard(
-            self.source.make_guard(functools.partial(GuardBuilder.HASATTR, attr=name))
-        )
-        return VariableTracker.build(tx, real_value, attr_source)
+    def resolve_data_descriptor(
+        self,
+        tx: "InstructionTranslator",
+        name: str,
+        type_attr: object,
+        source: Source | None,
+    ) -> VariableTracker:
+        self._install_hasattr_guard(name)
+        resolved = getattr(self._real_value, name)
+        return VariableTracker.build(tx, resolved, source)
+
+    def resolve_type_attr(
+        self,
+        tx: "InstructionTranslator",
+        name: str,
+        type_attr: object,
+        source: Source | None,
+    ) -> VariableTracker:
+        real_value = getattr(self._real_value, name)
+        if is_bound_tensor_method(real_value):
+            from .misc import GetAttrVariable
+
+            return GetAttrVariable(self, name, source=source, py_type=type(real_value))
+        self._install_hasattr_guard(name)
+        return VariableTracker.build(tx, real_value, source)
+
+    def handle_getattr_fallback(
+        self,
+        tx: "InstructionTranslator",
+        name: str,
+        getattr_fn: types.FunctionType,
+    ) -> VariableTracker:
+        self._install_hasattr_guard(name)
+        resolved = getattr_fn(self._real_value, name)
+        attr_source = AttrSource(self.source, name) if self.source else None
+        return VariableTracker.build(tx, resolved, attr_source)
+
+    def maybe_wrap_nn_module_source_for_instance(
+        self,
+        tx: "InstructionTranslator",
+        name: str,
+        source: Source | None,
+    ) -> Source | None:
+        self._install_hasattr_guard(name)
+        return source
 
     def method_attr_ndim(self, tx: "InstructionTranslator") -> VariableTracker:
         if self.ndim is not None:
