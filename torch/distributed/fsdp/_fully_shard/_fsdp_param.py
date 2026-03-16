@@ -173,7 +173,6 @@ class FSDPParam:
     # All-gather extension attributes
     _extensions_data: ExtensionsData
     _unsharded_inner_tensors: list[torch.Tensor]
-    _orig_param_id: int
 
     def __init__(
         self,
