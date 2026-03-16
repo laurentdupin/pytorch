@@ -510,6 +510,12 @@ class StreamFuzzTemplate(DefaultFuzzTemplate):
     synchronization between dependent operations on different streams.
     """
 
+    def __init__(self):
+        super().__init__()
+        from torchfuzz.checks import EagerVsFullGraphDynamicCompileWithBackwardCheck
+
+        self.check = EagerVsFullGraphDynamicCompileWithBackwardCheck()
+
     def imports_codegen(self):
         return [
             "import torch",
