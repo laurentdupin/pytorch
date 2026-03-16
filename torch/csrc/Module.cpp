@@ -2917,32 +2917,31 @@ Call this whenever a new thread is created in order to propagate values from
   });
 
   py_module.def(
-    "_make_fake_tensor",
-    [](const at::Tensor& real,
-        py::object source) -> at::Tensor {
+      "_make_fake_tensor",
+      [](const at::Tensor& real, py::object source) -> at::Tensor {
+        auto mode = c10::impl::FakeTensorModeTLS::get_state();
+        TORCH_CHECK(mode != nullptr, "FakeTensorMode must be active");
 
-      auto mode = c10::impl::FakeTensorModeTLS::get_state();
-      TORCH_CHECK(mode != nullptr, "FakeTensorMode must be active");
+        auto converter = py::reinterpret_borrow<py::object>(
+            mode->fake_tensor_converter_->ptr(getPyInterpreter()));
+        auto shape_env = py::reinterpret_borrow<py::object>(
+            mode->shape_env_->ptr(getPyInterpreter()));
 
-      auto converter = py::reinterpret_borrow<py::object>(
-          mode->fake_tensor_converter_->ptr(getPyInterpreter()));
-      auto shape_env = py::reinterpret_borrow<py::object>(
-          mode->shape_env_->ptr(getPyInterpreter()));
+        auto meta_obj = converter.attr("to_meta_tensor")(
+            real, py::arg("shape_env") = shape_env, py::arg("source") = source);
+        at::Tensor meta_tensor = py::cast<at::Tensor>(meta_obj);
 
-      auto meta_obj = converter.attr("to_meta_tensor")(
-          real, py::arg("shape_env") = shape_env, py::arg("source") = source);
-      at::Tensor meta_tensor = py::cast<at::Tensor>(meta_obj);
+        auto device = real.device();
+        meta_tensor.unsafeGetTensorImpl()->set_fake_device(device);
+        meta_tensor.unsafeGetTensorImpl()->set_fake_tensor_mode(mode);
 
-      auto device = real.device();
-      meta_tensor.unsafeGetTensorImpl()->set_fake_device(device);
-      meta_tensor.unsafeGetTensorImpl()->set_fake_tensor_mode(mode);
+        return meta_tensor;
+      },
+      py::arg("real"),
+      py::arg("source") = py::none());
 
-      return meta_tensor;
-    },
-    py::arg("real"),
-    py::arg("source") = py::none());
-
-  py_module.def("_create_and_enter_fake_tensor_mode",
+  py_module.def(
+      "_create_and_enter_fake_tensor_mode",
       [](py::object converter, py::object shape_env) {
         Py_INCREF(shape_env.ptr());
         Py_INCREF(converter.ptr());
@@ -2956,7 +2955,7 @@ Call this whenever a new thread is created in order to propagate values from
       py::arg("converter"),
       py::arg("shape_env") = py::none());
   py_module.def("_exit_fake_tensor_mode", []() {
-      c10::impl::FakeTensorModeTLS::reset_state();
+    c10::impl::FakeTensorModeTLS::reset_state();
   });
 
   py_module.def("_set_meta_in_tls_dispatch_include", [](bool meta_in_tls) {
