@@ -11,6 +11,7 @@ import torch
 import torch._dynamo.testing
 from torch._dynamo.decorators import leaf_function
 from torch._dynamo.exc import Unsupported
+from torch._dynamo.testing import normalize_gm
 from torch._dynamo.utils import counters
 from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
@@ -2452,6 +2453,120 @@ Detected recompile when torch.compile stance is 'fail_on_recompile'. filename: '
         model.forward = torch._dynamo.disable(model.forward, recursive=False)
         with self.assertRaises(RuntimeError):
             exported_model = torch.export.export(model, (inp,))
+
+    def _assert_models_equal(
+        self,
+        model_expected,
+        model_test,
+        x_expected,
+        x_test,
+    ):
+        out_expected = model_expected(x_expected)
+        out_test = model_test(x_test)
+        self.assertEqual(out_expected, out_test)
+
+        loss_expected = out_expected.sum()
+        loss_test = out_test.sum()
+        loss_expected.backward()
+        loss_test.backward()
+        self.assertEqual(x_expected.grad, x_test.grad)
+
+        expected_grads = {
+            name: param.grad for name, param in model_expected.named_parameters()
+        }
+        test_grads = {name: param.grad for name, param in model_test.named_parameters()}
+
+        self.assertEqual(set(expected_grads.keys()), set(test_grads.keys()))
+        for name in expected_grads:
+            if expected_grads[name] is not None:
+                self.assertEqual(
+                    expected_grads[name],
+                    test_grads[name],
+                    msg=f"Gradient mismatch for parameter {name}",
+                )
+
+    def _test_leaf_function_helper(self, mod_class, args_fn, loss_fn):
+        import torch.utils._pytree as pytree
+        from torch._dynamo.testing import AotEagerAndRecordGraphs, EagerAndRecordGraphs
+
+        mod_eager = mod_class()
+        mod_compile_eager = mod_class()
+        mod_compile_eager.load_state_dict(dict(mod_eager.state_dict()))
+        mod_compile_aot = mod_class()
+        mod_compile_aot.load_state_dict(dict(mod_eager.state_dict()))
+
+        eager_backend = EagerAndRecordGraphs()
+        compiled_eager = torch.compile(
+            mod_compile_eager, backend=eager_backend, fullgraph=True
+        )
+
+        backend = AotEagerAndRecordGraphs()
+        compiled_aot = torch.compile(mod_compile_aot, backend=backend, fullgraph=True)
+
+        for _ in range(2):
+            mod_eager.zero_grad()
+            mod_compile_eager.zero_grad()
+            mod_compile_aot.zero_grad()
+
+            args = args_fn()
+            args_clone = pytree.tree_map(
+                lambda x: x.clone().detach().requires_grad_(x.requires_grad), args
+            )
+            args_clone2 = pytree.tree_map(
+                lambda x: x.clone().detach().requires_grad_(x.requires_grad), args
+            )
+
+            out_eager = mod_eager(*args)
+            loss_fn(out_eager).backward()
+
+            out_compile_eager = compiled_eager(*args_clone)
+            loss_fn(out_compile_eager).backward()
+
+            out_compile_aot = compiled_aot(*args_clone2)
+            loss_fn(out_compile_aot).backward()
+
+            self.assertEqual(out_eager, out_compile_eager)
+            self.assertEqual(out_eager, out_compile_aot)
+
+            for (name_eager, param_eager), (_, param_compile_eager), (
+                _,
+                param_compile_aot,
+            ) in zip(
+                mod_eager.named_parameters(),
+                mod_compile_eager.named_parameters(),
+                mod_compile_aot.named_parameters(),
+            ):
+                self.assertEqual(
+                    param_eager.grad,
+                    param_compile_eager.grad,
+                    msg=f"Gradient mismatch for {name_eager} between eager and compile_eager",
+                )
+                self.assertEqual(
+                    param_eager.grad,
+                    param_compile_aot.grad,
+                    msg=f"Gradient mismatch for {name_eager} between eager and compile_aot",
+                )
+
+            pytree.tree_map(
+                lambda x, compile_x: self.assertEqual(x.grad, compile_x.grad)
+                if isinstance(x, torch.Tensor) and x.requires_grad
+                else None,
+                args,
+                args_clone,
+            )
+            pytree.tree_map(
+                lambda x, compile_x: self.assertEqual(x.grad, compile_x.grad)
+                if isinstance(x, torch.Tensor) and x.requires_grad
+                else None,
+                args,
+                args_clone2,
+            )
+
+        return (
+            normalize_gm(eager_backend.graphs[0].print_readable(print_output=False)),
+            normalize_gm(backend.fw_graphs[0].print_readable(print_output=False)),
+            normalize_gm(backend.bw_graphs[0].print_readable(print_output=False)),
+        )
 
     def test_leaf_function_nested_output(self):
         @leaf_function
