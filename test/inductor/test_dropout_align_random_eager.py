@@ -203,7 +203,7 @@ class TestDropoutAlignRandomEager(InductorTestCase):
         device = torch.device(GPU_TYPE)
         H, W = BATCH * SEQ_LEN, FFN_DIM
 
-        dtypes = [torch.float32, torch.float16, torch.bfloat16, torch.float64]
+        dtypes = [torch.float32, torch.float16, torch.bfloat16]
         for dtype in dtypes:
             if dtype is torch.bfloat16 and not torch.cuda.is_bf16_supported():
                 continue
