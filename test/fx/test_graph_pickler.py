@@ -865,7 +865,7 @@ class TestNodeStateSerialization(TestCase):
                 y = torch.neg(x)
                 return y + 1
 
-        gm = symbolic_trace(M())
+        gm = torch.fx.symbolic_trace(M())
         node = next(n for n in gm.graph.nodes if n.op == "call_function")
         node.type = torch.Tensor
         state = node.__getstate__()
@@ -894,7 +894,7 @@ class TestIgnoreRawNode(TestCase):
             def forward(self, x):
                 return x + 1
 
-        gm = symbolic_trace(M())
+        gm = torch.fx.symbolic_trace(M())
         call_node = next((n for n in gm.graph.nodes if n.op == "call_function"), None)
         self.assertIsNotNone(call_node)
         # Store a raw Node reference in meta – this is the problematic case.
