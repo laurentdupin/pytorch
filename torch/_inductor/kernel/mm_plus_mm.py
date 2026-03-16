@@ -172,7 +172,6 @@ def tuned_mm_plus_mm(mat1, mat2, mat3, mat4, *, layout=None):
         V.choices.get_template_configs(kernel_inputs, templates_to_use, "mm_plus_mm")
     )
 
-    node, _ = autotune_select_algorithm(
+    return autotune_select_algorithm(
         "mm_plus_mm", choices, kernel_inputs.nodes(), layout1
     )
-    return node

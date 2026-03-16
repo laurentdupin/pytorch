@@ -3054,6 +3054,7 @@ class AlgorithmSelectorCache(PersistentCache):
         precompilation_timeout_seconds: int = 60 * 60,
         return_multi_template=False,
         best_config_future=None,
+        return_choice=False,  # TODO: return_choice is temporary and will be refactored soon
         is_collective=False,
         min_speedup_threshold: float = 1.0,  # Only pick non-fallback if faster by this ratio
         benchmark_with_cudagraphs: bool = False,  # Use CUDA graphs for ExternKernelCaller benchmarking
@@ -3088,12 +3089,16 @@ class AlgorithmSelectorCache(PersistentCache):
             if not isinstance(choices[0], CUTLASSTemplateCaller):
                 # CUTLASSTemplateCaller still needs to go through the autotuning process to retrieve workspace size.
                 node = choices[0].output_node()
-                return node, choices[0]
+                if return_choice:
+                    return node, choices[0]
+                return node
 
         if config.deterministic:
             choice = self.pick_deterministic_choice(choices)
             node = choice.output_node()
-            return node, choice
+            if return_choice:
+                return node, choice
+            return node
 
         inputs_key = create_inputs_key(input_nodes)
 
@@ -3216,18 +3221,14 @@ class AlgorithmSelectorCache(PersistentCache):
                 if isinstance(c, TritonTemplateCaller):
                     allowed_prologue_inps |= c.allowed_prologue_inps
 
-            # No single winning choice yet; selection is deferred to benchmark fusion
-            return (
-                torch._inductor.ir.TensorBox.create(
-                    torch._inductor.ir.MultiTemplateBuffer(
-                        layout,
-                        input_nodes,
-                        get_timings,
-                        choices,
-                        allowed_prologue_inps,
-                    )
-                ),
-                None,
+            return torch._inductor.ir.TensorBox.create(
+                torch._inductor.ir.MultiTemplateBuffer(
+                    layout,
+                    input_nodes,
+                    get_timings,
+                    choices,
+                    allowed_prologue_inps,
+                )
             )
 
         timings = self.do_autotuning(
@@ -3255,14 +3256,18 @@ class AlgorithmSelectorCache(PersistentCache):
                         "Autotuning returned empty timings, falling back to first `ExternKernelCaller`: %s",
                         node,
                     )
-                    return node, choice
+                    if return_choice:
+                        return node, choice
+                    return node
             node = choices[0].output_node()
             choice = choices[0]
             log.debug(
                 "Autotuning returned empty timings, falling back to first choice: %s",
                 node,
             )
-            return node, choice
+            if return_choice:
+                return node, choice
+            return node
 
         # if we got any timings at all, pick the best of those
         best_choice = min(timings, key=timings.__getitem__)
@@ -3323,7 +3328,9 @@ class AlgorithmSelectorCache(PersistentCache):
         node = choice.output_node()
 
         log.debug("Autotuning selected choice: %s", node)
-        return node, choice
+        if return_choice:
+            return node, choice
+        return node
 
     def benchmark(
         self,

@@ -87,7 +87,6 @@ if torch.backends.mps.is_available():
             "isfinite",
             "isinf",
             "isreal",
-            "istft",
             "item",
             "kron",
             "linalg.cross",

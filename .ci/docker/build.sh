@@ -195,16 +195,12 @@ case "$tag" in
     NINJA_VERSION=1.9.0
     TRITON=yes
     ;;
-  pytorch-linux-noble-xpu-n-py3 | pytorch-linux-noble-xpu-n-py3-client | pytorch-linux-noble-xpu-n-py3-inductor-benchmarks)
+  pytorch-linux-noble-xpu-n-py3 | pytorch-linux-noble-xpu-n-py3-inductor-benchmarks)
     ANACONDA_PYTHON_VERSION=3.10
     GCC_VERSION=13
     VISION=yes
     XPU_VERSION=2025.3
-    if [[ $tag =~ "client" ]]; then
-      XPU_DRIVER_TYPE=CLIENT
-    else
-      XPU_DRIVER_TYPE=LTS
-    fi
+    XPU_DRIVER_TYPE=LTS
     NINJA_VERSION=1.9.0
     TRITON=yes
     if [[ $tag =~ "benchmarks" ]]; then

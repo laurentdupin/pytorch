@@ -265,13 +265,12 @@ def {{kernel_name}}_kernel():
                 return default_lowering(a, b)
 
             # Use autotuning to select the best variant
-            node, _ = autotune_select_algorithm(
+            return autotune_select_algorithm(
                 "cutedsl_add_autotune",
                 choices,
                 [a, b],
                 a.get_layout(),
             )
-            return node
 
         with patch.dict(lowerings, {torch.ops.aten.add.Tensor: cutedsl_add_lowering}):
             # Test function
