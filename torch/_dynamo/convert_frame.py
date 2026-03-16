@@ -584,6 +584,7 @@ class ConvertFrameAssert:
         export: bool = False,
         export_constraints: Any | None = None,
         package: CompilePackage | None = None,
+        region_recompile_limit: int | None = None,
     ) -> None:
         # assert export_constraints is None
         reset_graph_break_dup_checker()
@@ -592,6 +593,8 @@ class ConvertFrameAssert:
         self._export = export
         self._export_constraints = export_constraints
         self._package = package
+        self._region_recompile_limit = region_recompile_limit
+        self._region_compilation_counts: dict[CodeType, int] = {}
         self._box = ConvertFrameBox()
 
     @property
@@ -601,6 +604,7 @@ class ConvertFrameAssert:
             self._one_graph,
             self._export,
             self._export_constraints,
+            region_recompile_limit=self._region_recompile_limit,
         )
 
     def __call__(
@@ -616,6 +620,10 @@ class ConvertFrameAssert:
         code = frame.f_code
 
         cache_size = compute_cache_size(frame, cache_entry)
+        cache_size.region_recompile_limit = self._region_recompile_limit
+        cache_size.region_num_compilations = self._region_compilation_counts.get(
+            code, 0
+        )
         input_codes.add(code)
         if code in output_codes:
             return ConvertFrameReturn()
@@ -744,6 +752,11 @@ class ConvertFrameAssert:
             # Restore the previous initial_global_state for nested compilation handling
             initial_global_state = prev_initial_global_state
 
+        if result.guarded_code is not None:
+            self._region_compilation_counts[code] = (
+                self._region_compilation_counts.get(code, 0) + 1
+            )
+
         if config.caching_precompile and self._package is not None:
             from .package import DynamoCache
 
@@ -758,10 +771,16 @@ def convert_frame_assert(
     export: bool = False,
     export_constraints: Any | None = None,
     package: CompilePackage | None = None,
+    region_recompile_limit: int | None = None,
 ) -> ConvertFrameAssert:
     """Fully convert a frame into an FX graph, raising an exception if we fail."""
     return ConvertFrameAssert(
-        compiler_fn, one_graph, export, export_constraints, package
+        compiler_fn,
+        one_graph,
+        export,
+        export_constraints,
+        package,
+        region_recompile_limit,
     )
 
 
@@ -1776,45 +1795,58 @@ def _compile(
             }
             metrics_context.set("recompile_user_contexts", user_contexts_msg)
 
-        exceeded, limit_type = exceeds_recompile_limit(cache_size, compile_id)
+        if cache_size.exceeds_region_recompile_limit:
+            exceeded, limit_type = True, "region_recompile_limit"
+        else:
+            exceeded, limit_type = exceeds_recompile_limit(cache_size, compile_id)
         if exceeded:
 
             def format_func_info(code: CodeType) -> str:
                 return f"'{code.co_name}' ({code.co_filename}:{code.co_firstlineno})"
 
+            if limit_type == "region_recompile_limit":
+                limit_value = cache_size.region_recompile_limit
+                limit_source = f"torch.compile(region_recompile_limit={limit_value})"
+                num_recompiles = cache_size.region_num_compilations
+            else:
+                limit_value = getattr(config, limit_type)
+                limit_source = f"config.{limit_type}"
+                num_recompiles = cache_size.num_cache_entries
+
             # NS: Don't add period at the end of string, as it'll be added to URL
             # rendering it incorrect
             log.warning(
-                "torch._dynamo hit config.%s (%s)\n"
+                "torch._dynamo hit %s (%s)\n"
                 "   function: %s\n"
                 "   last reason: %s\n"
                 'To log all recompilation reasons, use TORCH_LOGS="recompiles".\n'
                 "To diagnose recompilation issues, see %s",
-                limit_type,
-                getattr(config, limit_type),
+                limit_source,
+                limit_value,
                 format_func_info(code),
                 recompile_reason,
                 troubleshooting_url,
             )
 
-            def raise_unimplemented_cache_limit_exceeded() -> NoReturn:
+            def raise_unimplemented_recompile_limit_exceeded() -> NoReturn:
                 unimplemented(
                     gb_type="Dynamo recompile limit exceeded",
                     context=f"Limit type: {limit_type}",
-                    explanation="Dynamo attempted to recompile the code object too many times, "
-                    f"exceeding the {limit_type} cache size limit (currently set to {getattr(config, limit_type)}). "
+                    explanation=f"Dynamo attempted to recompile '{code.co_name}' "
+                    f"{num_recompiles} times, "
+                    f"exceeding the {limit_type} (currently set to {limit_value}). "
                     "Excessive recompilations can degrade "
                     "performance due to the compilation overhead of each recompilation.",
                     hints=[
                         "To monitor recompilations, enable TORCH_LOGS=recompiles. "
                         "If recompilations are expected, consider "
-                        f"increasing torch._dynamo.config.{limit_type} to an appropriate value.",
+                        "increasing the recompile limit to an appropriate value.",
                         f"See {troubleshooting_url} for tips on dealing with recompilations.",
                     ],
                 )
 
             try:
-                raise_unimplemented_cache_limit_exceeded()
+                raise_unimplemented_recompile_limit_exceeded()
             except Unsupported as e:
                 if config.fail_on_recompile_limit_hit:
                     raise FailOnRecompileLimitHit(
@@ -2068,18 +2100,24 @@ class ConvertFrame:
         compiler_fn: CompilerFn,
         hooks: Hooks,
         package: CompilePackage | None = None,
+        region_recompile_limit: int | None = None,
     ) -> None:
         self._torchdynamo_orig_backend = compiler_fn
         self._inner_convert = convert_frame_assert(
-            compiler_fn, one_graph=False, package=package
+            compiler_fn,
+            one_graph=False,
+            package=package,
+            region_recompile_limit=region_recompile_limit,
         )
         self._hooks = hooks
+        self._region_recompile_limit = region_recompile_limit
 
     @property
     def _clone_with_backend(self) -> Callable[[WrapBackendDebug], ConvertFrame]:
         return lambda backend: convert_frame(
             backend,
             self._hooks,
+            region_recompile_limit=self._region_recompile_limit,
         )
 
     def __call__(
@@ -2204,9 +2242,15 @@ def convert_frame(
     compiler_fn: CompilerFn,
     hooks: Hooks,
     package: CompilePackage | None = None,
+    region_recompile_limit: int | None = None,
 ) -> ConvertFrame:
     """Try to convert a frame into an FX graph, if error leave frame unmodified"""
-    return ConvertFrame(compiler_fn, hooks, package=package)
+    return ConvertFrame(
+        compiler_fn,
+        hooks,
+        package=package,
+        region_recompile_limit=region_recompile_limit,
+    )
 
 
 # TODO mlazos: add support for same args, or record them

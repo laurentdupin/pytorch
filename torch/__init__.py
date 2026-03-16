@@ -2593,6 +2593,7 @@ def compile(
     mode: str | None = None,
     options: dict[str, str | builtins.int | builtins.bool | _Callable] | None = None,
     disable: builtins.bool = False,
+    region_recompile_limit: builtins.int | None = None,
 ) -> (
     _Callable[[_Callable[_InputT, _RetT]], _Callable[_InputT, _RetT]]
     | _Callable[_InputT, _RetT]
@@ -2683,6 +2684,11 @@ def compile(
 
         - For inductor you can see the full list of configs that it supports by calling `torch._inductor.list_options()`
        disable (bool): Turn torch.compile() into a no-op for testing
+       region_recompile_limit (int or None): Maximum number of recompilations
+        for this specific compiled region. When the limit is reached, further
+        recompilations are suppressed and the function falls back to eager.
+        If None (default), the global ``torch._dynamo.config.recompile_limit``
+        is used instead.
 
     Example::
 
@@ -2720,6 +2726,7 @@ def compile(
                 mode=mode,
                 options=options,
                 disable=disable,
+                region_recompile_limit=region_recompile_limit,
             )
 
         return fn
@@ -2776,6 +2783,7 @@ def compile(
         dynamic=dynamic,
         disable=disable,
         guard_filter_fn=guard_filter_fn,
+        region_recompile_limit=region_recompile_limit,
     )(model)  # type: ignore[return-value]
 
 

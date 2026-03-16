@@ -321,6 +321,177 @@ class RecompileUxTests(torch._dynamo.test_case.TestCase):
         self.assertEqual(res, inp + 3)
 
 
+class RegionRecompileLimitTests(torch._dynamo.test_case.TestCase):
+    @staticmethod
+    def _num_cache_entries(code):
+        return len(torch._dynamo.eval_frame._debug_get_cache_entry_list(code))
+
+    def test_region_recompile_limit_basic(self):
+        cnt = torch._dynamo.testing.CompileCounter()
+
+        def f(x, y):
+            return x + y
+
+        opt_f = torch.compile(f, backend=cnt, region_recompile_limit=2)
+
+        opt_f(torch.randn(3), torch.randn(3))
+        self.assertEqual(self._num_cache_entries(f), 1)
+
+        opt_f(torch.randn(3, dtype=torch.float64), torch.randn(3, dtype=torch.float64))
+        self.assertEqual(self._num_cache_entries(f), 2)
+
+        # Third dtype should NOT trigger recompilation (region_recompile_limit=2 reached)
+        opt_f(torch.randn(3, dtype=torch.float16), torch.randn(3, dtype=torch.float16))
+        self.assertEqual(self._num_cache_entries(f), 2)
+
+    def test_region_recompile_limit_independent_per_function(self):
+        cnt_f = torch._dynamo.testing.CompileCounter()
+        cnt_g = torch._dynamo.testing.CompileCounter()
+
+        def f(x):
+            return x + 1
+
+        def g(x):
+            return x * 2
+
+        opt_f = torch.compile(f, backend=cnt_f, region_recompile_limit=1)
+        opt_g = torch.compile(g, backend=cnt_g, region_recompile_limit=3)
+
+        opt_f(torch.randn(3))
+        self.assertEqual(self._num_cache_entries(f), 1)
+
+        # f should stop recompiling after 1
+        opt_f(torch.randn(3, dtype=torch.float64))
+        self.assertEqual(self._num_cache_entries(f), 1)
+
+        # g should allow up to 3
+        opt_g(torch.randn(3))
+        opt_g(torch.randn(3, dtype=torch.float64))
+        opt_g(torch.randn(3, dtype=torch.float16))
+        self.assertEqual(self._num_cache_entries(g), 3)
+
+        # g should stop at 3
+        opt_g(torch.randn(3, dtype=torch.bfloat16))
+        self.assertEqual(self._num_cache_entries(g), 3)
+
+    def test_region_recompile_limit_none_uses_global(self):
+        cnt = torch._dynamo.testing.CompileCounter()
+
+        def f(x, y):
+            return x + y
+
+        opt_f = torch.compile(f, backend=cnt)
+
+        # Without region_recompile_limit, should use global recompile_limit (default 8)
+        for i in range(10):
+            dtype = [
+                torch.float32,
+                torch.float64,
+                torch.float16,
+                torch.bfloat16,
+                torch.int32,
+                torch.int64,
+                torch.int16,
+                torch.int8,
+                torch.uint8,
+                torch.complex64,
+            ][i]
+            opt_f(torch.ones(3, dtype=dtype), torch.ones(3, dtype=dtype))
+
+        self.assertEqual(
+            self._num_cache_entries(f), torch._dynamo.config.recompile_limit
+        )
+
+    def test_region_recompile_limit_multi_function(self):
+        cnt = torch._dynamo.testing.CompileCounter()
+
+        def helper(x):
+            return x.sin()
+
+        def f(x):
+            y = helper(x)
+            return y.cos()
+
+        opt_f = torch.compile(f, backend=cnt, region_recompile_limit=2)
+
+        opt_f(torch.randn(3))
+        self.assertEqual(self._num_cache_entries(f), 1)
+
+        opt_f(torch.randn(3, dtype=torch.float64))
+        self.assertEqual(self._num_cache_entries(f), 2)
+
+        # Third dtype hits the limit for the whole region
+        opt_f(torch.randn(3, dtype=torch.float16))
+        self.assertEqual(self._num_cache_entries(f), 2)
+
+    def test_region_recompile_limit_same_function_different_regions(self):
+        cnt1 = torch._dynamo.testing.CompileCounter()
+        cnt2 = torch._dynamo.testing.CompileCounter()
+
+        def f(x, y):
+            return x + y
+
+        opt_f = torch.compile(f, backend=cnt1, region_recompile_limit=2)
+        opt_g = torch.compile(f, backend=cnt2, region_recompile_limit=1)
+
+        # opt_f: first compilation
+        opt_f(torch.randn(3), torch.randn(3))
+        self.assertEqual(cnt1.frame_count, 1)
+
+        # opt_f: second compilation (different dtype)
+        opt_f(
+            torch.randn(3, dtype=torch.float64),
+            torch.randn(3, dtype=torch.float64),
+        )
+        self.assertEqual(cnt1.frame_count, 2)
+
+        # opt_g: should still be able to compile once despite f already having
+        # 2 cache entries from opt_f, because opt_g is a separate region
+        opt_g(torch.randn(3, dtype=torch.float16), torch.randn(3, dtype=torch.float16))
+        self.assertEqual(cnt2.frame_count, 1)
+
+        # opt_g: second call with new dtype should NOT compile (limit=1 reached)
+        opt_g(
+            torch.randn(3, dtype=torch.bfloat16),
+            torch.randn(3, dtype=torch.bfloat16),
+        )
+        self.assertEqual(cnt2.frame_count, 1)
+
+        # opt_f: third dtype should NOT compile (limit=2 reached for opt_f)
+        opt_f(
+            torch.randn(3, dtype=torch.float16),
+            torch.randn(3, dtype=torch.float16),
+        )
+        self.assertEqual(cnt1.frame_count, 2)
+
+    def test_region_recompile_limit_graph_break(self):
+        cnt = torch._dynamo.testing.CompileCounter()
+
+        def f(x):
+            a = x.sin()
+            # graph break
+            print("graph break")
+            b = a.cos()
+            return b
+
+        opt_f = torch.compile(f, backend=cnt, region_recompile_limit=2)
+
+        # First dtype: compiles two subgraphs (before and after graph break)
+        opt_f(torch.randn(3))
+        self.assertEqual(self._num_cache_entries(f), 1)
+        self.assertEqual(cnt.frame_count, 2)
+
+        # Second dtype: recompiles both subgraphs
+        opt_f(torch.randn(3, dtype=torch.float64))
+        self.assertEqual(self._num_cache_entries(f), 2)
+        self.assertEqual(cnt.frame_count, 4)
+
+        # Third dtype: both subgraphs should hit the limit
+        opt_f(torch.randn(3, dtype=torch.float16))
+        self.assertEqual(self._num_cache_entries(f), 2)
+        self.assertEqual(cnt.frame_count, 4)
+
+
 if __name__ == "__main__":
     from torch._dynamo.test_case import run_tests
 
