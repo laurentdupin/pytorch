@@ -1392,11 +1392,19 @@ class VariableBuilder:
         elif inspect.getattr_static(value, "__script_if_tracing_wrapper", False):
             self.install_guards(GuardBuilder.TYPE_MATCH)
             return WrapperUserFunctionVariable(
-                value, "__original_fn", source=self.source
+                value,
+                "__original_fn",
+                source=self.source,
+                mutation_type=AttributeMutationExisting(),
             )
         elif is_lru_cache_wrapped_function(value):
             self.install_guards(GuardBuilder.TYPE_MATCH)
-            return WrapperUserFunctionVariable(value, "__wrapped__", source=self.source)
+            return WrapperUserFunctionVariable(
+                value,
+                "__wrapped__",
+                source=self.source,
+                mutation_type=AttributeMutationExisting(),
+            )
         elif value is sys.exc_info or (
             sys.version_info >= (3, 11) and value is sys.exception
         ):
@@ -1406,7 +1414,10 @@ class VariableBuilder:
         ):
             self.install_guards(GuardBuilder.TYPE_MATCH)
             return WrapperUserFunctionVariable(
-                value, "_torchdynamo_inline", source=self.source
+                value,
+                "_torchdynamo_inline",
+                source=self.source,
+                mutation_type=AttributeMutationExisting(),
             )
         elif value is collections.namedtuple:
             self.install_guards(GuardBuilder.ID_MATCH)
@@ -2446,6 +2457,12 @@ class VariableBuilder:
             source=source,
             **options,
         )
+
+        # Track input tensors for attribute mutation, matching how
+        # handle_traced_output tracks intermediate tensors with AttributeMutationNew.
+        # This enables setattr on input tensors (e.g. tensor.custom_attr = val)
+        # without graph breaking.
+        self.tx.output.side_effects.track_object_existing(value, tensor_variable)
 
         if value._is_view():
             # If value is a view, add its base tensor to the tracked fakes list.
