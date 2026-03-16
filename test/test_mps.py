@@ -1222,6 +1222,15 @@ class TestMPS(TestCaseMPS):
         self.assertEqual(output_cpu, output_mps)
         self.assertEqual(output_cpu.size(), output_mps.size())
 
+    def test_bmm_conj(self):
+        # bmm must respect the conjugate bit on input tensors.
+        # See https://github.com/pytorch/pytorch/issues/177474
+        a = torch.randn(4, 3, 5, dtype=torch.complex64, device="mps")
+        b = torch.randn(4, 5, 2, dtype=torch.complex64, device="mps")
+        result_mps = torch.bmm(a, torch.conj(b))
+        result_cpu = torch.bmm(a.cpu(), torch.conj(b.cpu()))
+        self.assertEqual(result_cpu, result_mps)
+
     @xfailIf(MACOS_VERSION < 15.0)
     @parametrize("dtype", [torch.float16, torch.bfloat16])
     def test_large_bmm(self, dtype):

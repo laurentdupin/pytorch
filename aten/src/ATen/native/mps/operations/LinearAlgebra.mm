@@ -1128,7 +1128,8 @@ static Tensor& bmm_out_mps_impl(const Tensor& batch1, const Tensor& batch2, Tens
   // Call tiled implementation if the number of elements exceeds 2^32
   uint64_t resultSize = batch1.size(0) * batch1.size(1) * batch2.size(2);
   if (resultSize > pow(2, 32)) {
-    result = tiled_bmm_out_mps_impl(batch1, batch2, result);
+    // Tiled path uses MPSNDArray directly, so resolve conjugate views upfront
+    result = tiled_bmm_out_mps_impl(batch1.resolve_conj(), batch2.resolve_conj(), result);
     return result;
   }
 
@@ -1148,14 +1149,16 @@ static Tensor& bmm_out_mps_impl(const Tensor& batch1, const Tensor& batch2, Tens
     auto cachedGraph = LookUpOrCreateCachedGraph<CachedGraph>(key, [&](auto mpsGraph, auto newCachedGraph) {
       MPSGraphTensor* batch1Tensor = mps::mpsGraphUnrankedPlaceHolder(mpsGraph, getMPSDataType(batch1.scalar_type()));
       MPSGraphTensor* batch2Tensor = mps::mpsGraphUnrankedPlaceHolder(mpsGraph, getMPSDataType(batch2.scalar_type()));
-      MPSGraphTensor* batch2TensorTranspose = batch2Tensor;
+
+      MPSGraphTensor* batch1TensorOp = batch1.is_conj() ? [mpsGraph conjugateWithTensor:batch1Tensor name:nil] : batch1Tensor;
+      MPSGraphTensor* batch2TensorOp = batch2.is_conj() ? [mpsGraph conjugateWithTensor:batch2Tensor name:nil] : batch2Tensor;
 
       if (doTranspose) {
-        batch2TensorTranspose = [mpsGraph transposeTensor:batch2Tensor dimension:-1 withDimension:-2 name:nil];
+        batch2TensorOp = [mpsGraph transposeTensor:batch2TensorOp dimension:-1 withDimension:-2 name:nil];
       }
 
-      MPSGraphTensor* productTensor = [mpsGraph matrixMultiplicationWithPrimaryTensor:batch1Tensor
-                                                                      secondaryTensor:batch2TensorTranspose
+      MPSGraphTensor* productTensor = [mpsGraph matrixMultiplicationWithPrimaryTensor:batch1TensorOp
+                                                                      secondaryTensor:batch2TensorOp
                                                                                  name:@"MM/(batch1@batch2)"];
 
       newCachedGraph->batch1Tensor_ = batch1Tensor;
