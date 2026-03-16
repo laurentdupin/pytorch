@@ -453,9 +453,6 @@ class TensorVariable(VariableTracker):
                     f"Unknown property {name} during speculating backward, dynamo will insert contiguous call ahead and speculate it again"  # noqa: B950
                 )
 
-        if name == "__class__":
-            return VariableTracker.build(tx, self.python_type())
-
         # Fast path: cached FakeTensor metadata (works for all tensors)
         handler = getattr(self, f"method_attr_{name}", None)
         result = handler(tx) if handler is not None else None

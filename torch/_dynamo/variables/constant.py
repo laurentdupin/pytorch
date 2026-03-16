@@ -13,7 +13,7 @@ from typing import Any, Literal, Optional, overload, TYPE_CHECKING
 from typing_extensions import Never, override
 
 import torch
-from torch._dynamo.source import AttrSource, GetItemSource
+from torch._dynamo.source import AttrSource, GetItemSource, Source
 
 from .. import graph_break_hints, variables
 from ..exc import raise_observed_exception, unimplemented
@@ -480,14 +480,26 @@ class EnumVariable(VariableTracker):
     def as_python_constant(self) -> enum.Enum | enum.IntEnum:
         return self.value
 
+    def resolve_type_attr(
+        self,
+        tx: "InstructionTranslator",
+        name: str,
+        type_attr: object,
+        source: Source | None,
+        real_value: object,
+    ) -> VariableTracker:
+        # Resolve eagerly via getattr so descriptors (functions, classmethods,
+        # etc.) are properly bound, rather than deferring to GetAttrVariable.
+        resolved = getattr(real_value, name)
+        return VariableTracker.build(tx, resolved, source)
+
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
-        if not hasattr(self.value, name):
-            raise NotImplementedError
+        from .user_defined import generic_getattr
+
         if name in cmp_name_to_op_mapping:
             return variables.GetAttrVariable(self, name)
-        member = getattr(self.value, name)
         source = self.source and AttrSource(self.source, name)
-        return VariableTracker.build(tx, member, source=source)
+        return generic_getattr(tx, self, self.value, name, source)
 
     def is_python_hashable(self) -> Literal[True]:
         raise_on_overridden_hash(self.value, self)

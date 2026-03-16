@@ -1156,11 +1156,36 @@ def generic_getattr(
     value is the real Python object backing instance_vt.
 
     instance_vt must provide:
+        .maybe_trace_getattribute(tx, name, source, value),
         .resolve_data_descriptor(tx, name, type_attr, source, real_value),
         .resolve_type_attr(tx, name, type_attr, source, real_value),
         .maybe_wrap_nn_module_source_for_instance(tx, name, source, real_value),
         .handle_getattr_fallback(tx, name, getattr_fn, real_value),
     """
+    # Step -1: __getattribute__ override.
+    result = instance_vt.maybe_trace_getattribute(tx, name, source, value)
+    if result is not None:
+        return result
+
+    # Step 0: Side-effects mutation check.
+    if tx.output.side_effects.has_pending_mutation_of_attr(instance_vt, name):
+        result = tx.output.side_effects.load_attr(instance_vt, name, deleted_ok=True)
+        if isinstance(result, variables.DeletedVariable):
+            error_message = VariableTracker.build(
+                tx,
+                f"'{type(value).__name__}' object has no attribute '{name}'",
+            )
+            raise_observed_exception(
+                AttributeError,
+                tx,
+                args=[error_message],
+            )
+        return result
+
+    # Step 0.5: __class__ — not visible to getattr_static, handle explicitly.
+    if name == "__class__":
+        return VariableTracker.build(tx, type(value), source)
+
     # Step 1: Single MRO walk on the type.
     type_attr = NO_SUCH_SUBOBJ
     for base in type(value).__mro__:
@@ -1881,54 +1906,41 @@ class UserDefinedObjectVariable(UserDefinedVariable):
             getattr_fn, self, source=new_source
         ).call_function(tx, [variables.ConstantVariable.create(name)], {})
 
+    def maybe_trace_getattribute(
+        self,
+        tx: "InstructionTranslator",
+        name: str,
+        source: Source | None,
+        value: object,
+    ) -> VariableTracker | None:
+        if not self._object_has_getattribute:
+            return None
+
+        getattribute_fn = inspect.getattr_static(type(self.value), "__getattribute__")
+        new_source: AttrSource | None = (
+            AttrSource(self.source, "__getattribute__") if self.source else None
+        )
+
+        try:
+            return variables.UserMethodVariable(
+                getattribute_fn,
+                self,
+                source=new_source,
+            ).call_function(tx, [VariableTracker.build(tx, name)], {})
+        except ObservedAttributeError:
+            # Pass through to __getattr__ if __getattribute__ fails
+            handle_observed_exception(tx)
+            return None
+
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
         source: Source | None = AttrSource(self.source, name) if self.source else None
-
-        if self._object_has_getattribute:
-            getattribute_fn = inspect.getattr_static(
-                type(self.value), "__getattribute__"
-            )
-            new_source: AttrSource | None = (
-                AttrSource(self.source, "__getattribute__") if self.source else None
-            )
-
-            try:
-                return variables.UserMethodVariable(
-                    getattribute_fn,
-                    self,
-                    source=new_source,
-                ).call_function(tx, [VariableTracker.build(tx, name)], {})
-            except ObservedAttributeError:
-                # Pass through to __getattr__ if __getattribute__ fails
-                handle_observed_exception(tx)
-
-        if tx.output.side_effects.has_pending_mutation_of_attr(self, name):
-            result = tx.output.side_effects.load_attr(self, name, deleted_ok=True)
-            if isinstance(result, variables.DeletedVariable):
-                error_message = VariableTracker.build(
-                    tx,
-                    f"'{type(self.value).__name__}' object has no attribute '{name}'",
-                )
-                raise_observed_exception(
-                    AttributeError,
-                    tx,
-                    args=[error_message],
-                )
-            return result
 
         if name == "__dict__":
             return self.get_dict_vt(tx)
 
-        # TODO(anijain2305) - Investigate if we need specialization for more
-        # dunder attrs. inspect.getattr_static does not return correct value for
-        # them.
-        if name == "__class__":
-            cls_source: Source | None = source
-            if source is None:
-                cls_source = self.cls_source
-            else:
-                cls_source = source
-            return VariableTracker.build(tx, type(self.value), cls_source)
+        # Sourceless UDOVs may still have a cls_source for __class__ guards.
+        if name == "__class__" and source is None and self.cls_source:
+            return VariableTracker.build(tx, type(self.value), self.cls_source)
 
         return generic_getattr(tx, self, self.value, name, source)
 

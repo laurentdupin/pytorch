@@ -448,6 +448,20 @@ class VariableTracker(metaclass=VariableTrackerMeta):
     # that don't override them (e.g. TensorVariable).  UDOV provides richer
     # overrides that handle Python properties, staticmethod/classmethod, etc.
 
+    def maybe_trace_getattribute(
+        self,
+        tx: "InstructionTranslator",
+        name: str,
+        source: Source | None,
+        value: object,
+    ) -> "VariableTracker | None":
+        """Hook for tracing custom __getattribute__ overrides.
+
+        Returns a VariableTracker if __getattribute__ produced a result,
+        or None to fall through to the normal attribute lookup algorithm.
+        """
+        return None
+
     def resolve_data_descriptor(
         self,
         tx: "InstructionTranslator",
