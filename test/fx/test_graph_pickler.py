@@ -15,7 +15,6 @@ import torch
 import torch.library
 from torch._dynamo.testing import make_test_cls_with_patches
 from torch._inductor.test_case import TestCase
-from torch.fx import symbolic_trace
 from torch.testing._internal.inductor_utils import HAS_CPU
 from torch.utils._import_utils import import_dill
 
