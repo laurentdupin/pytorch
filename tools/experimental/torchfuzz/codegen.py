@@ -527,6 +527,24 @@ class StreamFuzzTemplate(DefaultFuzzTemplate):
             "torch._dynamo.config.capture_scalar_outputs = True",
         ]
 
+    def args_codegen(self, arg_operations):
+        """Generate args with requires_grad=True on float tensors.
+
+        This ensures the backward pass traces through stream-wrapped operations,
+        exercising Inductor's stream handling in the backward graph.
+        """
+        code_lines = super().args_codegen(arg_operations)
+        if arg_operations:
+            for i, (node_id, spec) in enumerate(arg_operations):
+                if isinstance(spec, TensorSpec) and spec.dtype in [
+                    torch.float32,
+                    torch.float64,
+                    torch.float16,
+                    torch.bfloat16,
+                ]:
+                    code_lines.append(f"arg_{i} = arg_{i}.requires_grad_(True)")
+        return code_lines
+
     @staticmethod
     def wrap_body_with_streams(
         generated_code_lines: list[str],
@@ -559,6 +577,10 @@ class StreamFuzzTemplate(DefaultFuzzTemplate):
 
         num_streams = random.randint(2, 3)
         stream_names = [f"s{i + 1}" for i in range(num_streams)]
+
+        # Decide sync strategy: wait_stream or event-based (record + wait_event)
+        use_events = random.choice([True, False])
+        event_counter = 0
 
         # Assign each non-leaf node to a random stream
         node_stream: dict[str, str] = {}
@@ -611,13 +633,20 @@ class StreamFuzzTemplate(DefaultFuzzTemplate):
             stream = node_stream[nid]
             node = graph.nodes[nid]
 
-            # Insert wait_stream for cross-stream dependencies
+            # Insert synchronization for cross-stream dependencies
             waited: set[str] = set()
             for dep_id in node.input_nodes:
                 if dep_id in node_stream and node_stream[dep_id] != stream:
                     dep_stream = node_stream[dep_id]
                     if dep_stream not in waited:
-                        new_lines.append(f"    {stream}.wait_stream({dep_stream})")
+                        if use_events:
+                            ename = f"e{event_counter}"
+                            event_counter += 1
+                            new_lines.append(f"    {ename} = torch.cuda.Event()")
+                            new_lines.append(f"    {ename}.record({dep_stream})")
+                            new_lines.append(f"    {stream}.wait_event({ename})")
+                        else:
+                            new_lines.append(f"    {stream}.wait_stream({dep_stream})")
                         waited.add(dep_stream)
 
             # Wrap the operation in a stream context
@@ -627,8 +656,18 @@ class StreamFuzzTemplate(DefaultFuzzTemplate):
                 new_lines.append("    " + code_line)
 
         # Synchronize all streams before the return statement
-        for sname in stream_names:
-            new_lines.append(f"    torch.cuda.current_stream().wait_stream({sname})")
+        if use_events:
+            for sname in stream_names:
+                ename = f"e{event_counter}"
+                event_counter += 1
+                new_lines.append(f"    {ename} = torch.cuda.Event()")
+                new_lines.append(f"    {ename}.record({sname})")
+                new_lines.append(f"    torch.cuda.current_stream().wait_event({ename})")
+        else:
+            for sname in stream_names:
+                new_lines.append(
+                    f"    torch.cuda.current_stream().wait_stream({sname})"
+                )
 
         return new_lines
 
