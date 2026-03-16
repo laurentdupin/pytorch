@@ -1017,6 +1017,7 @@ inductor_skip_exact_stride = {
     "nn.functional.max_pool2d",
     "nn.functional.unfold",
     "ormqr",
+    "pca_lowrank",
     "rot90",
     "sum",
     "tensordot",
