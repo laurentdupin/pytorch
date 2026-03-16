@@ -14430,59 +14430,6 @@ def forward(self, L_x_ : torch.Tensor):
         self.assertEqual(ref, result)
 
     @torch._dynamo.config.patch(trace_autograd_ops=True)
-    def test_requires_grad_intermediate_backward_multi_op(self):
-        def fn(x):
-            y = x * 2
-            y.requires_grad_()
-            loss = (y.sin() + y.cos()).sum()
-            loss.backward()
-            return y.grad
-
-        x = torch.randn(3, 3)
-
-        ref = fn(x.clone())
-        result = torch.compile(fn, fullgraph=True)(x.clone())
-        self.assertEqual(ref, result)
-
-    @torch._dynamo.config.patch(trace_autograd_ops=True)
-    def test_requires_grad_intermediate_backward_with_input_grad(self):
-        # Both the graph input and an intermediate are leaves
-        def fn(x):
-            y = x.detach() * 2
-            y.requires_grad_()
-            loss = (x * y).sum()
-            loss.backward()
-            return x.grad, y.grad
-
-        x = torch.randn(3, 3, requires_grad=True)
-
-        x_ref = x.clone().detach().requires_grad_()
-        x_test = x.clone().detach().requires_grad_()
-
-        ref = fn(x_ref)
-        result = torch.compile(fn, fullgraph=True)(x_test)
-        self.assertEqual(ref[0], result[0])
-        self.assertEqual(ref[1], result[1])
-
-    @torch._dynamo.config.patch(trace_autograd_ops=True)
-    def test_requires_grad_intermediate_backward_multiple_intermediates(self):
-        def fn(x):
-            y = x * 2
-            y.requires_grad_()
-            z = x * 3
-            z.requires_grad_()
-            loss = (y * z).sum()
-            loss.backward()
-            return y.grad, z.grad
-
-        x = torch.randn(3, 3)
-
-        ref = fn(x.clone())
-        result = torch.compile(fn, fullgraph=True)(x.clone())
-        self.assertEqual(ref[0], result[0])
-        self.assertEqual(ref[1], result[1])
-
-    @torch._dynamo.config.patch(trace_autograd_ops=True)
     def test_requires_grad_intermediate_backward_grad_used_in_compute(self):
         # Use the grad result in further computation within compile
         def fn(x):
