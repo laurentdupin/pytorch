@@ -741,6 +741,11 @@ class OutputGraph(OutputGraphCommon):
         # and restore_graphstate
         self.timestamp = 0
 
+        # Tracks which stream indices have had input mutations during tracing.
+        # Used to detect when a returned event captures an input mutation.
+        self._input_mutation_streams: set[int | None] = set()
+        self._last_checked_input_versions: dict[int, int] | None = None
+
         # A list of register_finalizer_fns to apply to the output graph module
         self.register_finalizer_fns: list[Callable[[fx.GraphModule], None]] = []
 
@@ -1091,6 +1096,71 @@ class OutputGraph(OutputGraphCommon):
     def is_root_tracer(self) -> bool:
         # Helper to tell if we are inside the higher order operator tracing.
         return len(self.tracers) == 1
+
+    def check_input_mutation_on_current_stream(
+        self, tx: "InstructionTranslatorBase"
+    ) -> None:
+        """Record which stream index has input mutations by comparing current
+        tensor versions against the versions captured at graph input creation."""
+        if not hasattr(tx, "symbolic_stream_state"):
+            return
+        if not tx.symbolic_stream_state.in_stream_context():
+            return
+
+        tracer = self.root_tracer
+        if self._last_checked_input_versions is None:
+            self._last_checked_input_versions = dict(
+                enumerate(tracer._input_versions_at_beginning)
+            )
+
+        cur_stream_index = tx.symbolic_stream_state.cur_stream().user_object_index
+        input_idx = 0
+        for node in tracer.graph.nodes:
+            if node.op != "placeholder":
+                break
+            example_value = node.meta.get("example_value")
+            if not isinstance(example_value, torch.Tensor):
+                continue
+            prev_version = self._last_checked_input_versions.get(input_idx)
+            cur_version = example_value._version
+            if prev_version is not None and cur_version > prev_version:
+                self._input_mutation_streams.add(cur_stream_index)
+                self._last_checked_input_versions[input_idx] = cur_version
+            input_idx += 1
+
+    def _check_returned_events_for_input_mutations(
+        self, all_stack_values: list[list[VariableTracker]]
+    ) -> None:
+        """Error if any returned EventVariable was recorded on a stream where
+        an input was mutated. The runtime epilogue applies input mutations via
+        copy_() outside the graph, so an event recorded before that copy_()
+        would not capture the mutation, leading to incorrect synchronization."""
+        if not self._input_mutation_streams:
+            return
+
+        from .variables.streams import EventVariable
+
+        bad_events: list[EventVariable] = []
+
+        def _check(vt: VariableTracker) -> None:
+            if (
+                isinstance(vt, EventVariable)
+                and vt.recording_stream_index in self._input_mutation_streams
+            ):
+                bad_events.append(vt)
+
+        for stack_values in all_stack_values:
+            VariableTracker.visit(_check, stack_values)
+
+        if bad_events:
+            raise RuntimeError(
+                "Returning an event that was recorded on a stream where a "
+                "graph input was mutated is not supported. The input mutation "
+                "is applied via copy_() in the runtime epilogue after the "
+                "graph executes, so the event would not capture it, leading "
+                "to incorrect synchronization. Record the event after the "
+                "compiled region or on a different stream."
+            )
 
     @property
     def graph(self) -> torch.fx.Graph:
@@ -1754,6 +1824,8 @@ class OutputGraph(OutputGraphCommon):
                 block.exit(cur_tx, is_graph_break=reason.graph_break)
 
             cur_tx = cur_tx.parent
+
+        self._check_returned_events_for_input_mutations(all_stack_values)
 
         # "Garbage collect the heap".
         self.side_effects.prune_dead_object_new(tx)
