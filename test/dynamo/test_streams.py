@@ -1527,7 +1527,6 @@ class GraphModule(torch.nn.Module):
             "Expected control_deps nodes in backward graph for stream synchronization",
         )
 
-
     def test_sync_dealloc_has_fake_impl(self):
         """Test that sync_dealloc has a registered fake impl.
 
