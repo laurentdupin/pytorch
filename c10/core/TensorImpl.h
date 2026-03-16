@@ -8,6 +8,7 @@
 #include <c10/core/InferenceMode.h>
 #include <c10/core/Layout.h>
 #include <c10/core/MemoryFormat.h>
+#include <c10/core/SafePyObject.h>
 #include <c10/core/ScalarType.h>
 #include <c10/core/ScalarTypeToTypeMeta.h>
 #include <c10/core/Storage.h>
@@ -16,7 +17,6 @@
 #include <c10/core/SymIntArrayRef.h>
 #include <c10/core/SymbolicShapeMeta.h>
 #include <c10/core/WrapDimMinimal.h>
-#include <c10/core/SafePyObject.h>
 #include <c10/core/impl/PyObjectSlot.h>
 #include <c10/core/impl/SizesAndStrides.h>
 #include <c10/macros/Export.h>
@@ -1453,11 +1453,13 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
   // stays as Meta for dispatch routing, while the fake device is stored in
   // ExtraMeta and returned by device() via the device_policy_ mechanism.
   void set_fake_device(c10::Device fake_device) {
-    TORCH_CHECK(fake_device.type() != c10::DeviceType::Meta,
+    TORCH_CHECK(
+        fake_device.type() != c10::DeviceType::Meta,
         "FakeTensor does not support meta device");
     get_extra_meta().fake_device_ = fake_device;
     key_set_ = key_set_.add(DispatchKey::Fake);
     set_custom_device(true);
+    _change_backend_component_keys(fake_device);
   }
 
   void set_fake_tensor_mode(std::shared_ptr<FakeTensorMode> mode) {
@@ -1465,7 +1467,8 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
   }
 
   std::shared_ptr<FakeTensorMode> fake_tensor_mode() const {
-    if (!extra_meta_) return nullptr;
+    if (!extra_meta_)
+      return nullptr;
     return extra_meta_->fake_tensor_mode_;
   }
 

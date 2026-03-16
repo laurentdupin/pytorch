@@ -136,7 +136,8 @@ void fakeFallback(
   // 3. Redispatch with Fake excluded
   {
     c10::impl::ExcludeDispatchKeyGuard guard(c10::DispatchKey::Fake);
-    op.callBoxed(stack);
+    c10::impl::IncludeDispatchKeyGuard meta_guard(c10::DispatchKey::Meta);
+    op.redispatchBoxed(dispatchKeySet.remove(c10::DispatchKey::Fake), stack);
   }
 
   // 4. Wrap outputs as fake tensors

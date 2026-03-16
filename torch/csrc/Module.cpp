@@ -2922,9 +2922,7 @@ Call this whenever a new thread is created in order to propagate values from
          py::object shape_env,
          py::object source) -> at::Tensor {
         auto meta_obj = converter.attr("to_meta_tensor")(
-            real,
-            py::arg("shape_env") = shape_env,
-            py::arg("source") = source);
+            real, py::arg("shape_env") = shape_env, py::arg("source") = source);
         at::Tensor meta_tensor = py::cast<at::Tensor>(meta_obj);
 
         Py_INCREF(shape_env.ptr());
