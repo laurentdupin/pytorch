@@ -503,8 +503,12 @@ class EnumVariable(VariableTracker):
         args: list[VariableTracker],
         kwargs: dict[str, VariableTracker],
     ) -> VariableTracker:
-        if name == "__contains__" and len(args) == 1 and args[0].is_python_constant():
-            assert not kwargs
+        if (
+            name == "__contains__"
+            and len(args) == 1
+            and not kwargs
+            and args[0].is_python_constant()
+        ):
             search = args[0].as_python_constant()
             try:
                 result = search in self.value  # type: ignore[operator]
