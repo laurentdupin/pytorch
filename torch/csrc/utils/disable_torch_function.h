@@ -10,6 +10,7 @@ namespace torch {
 
 // This is an internal utility, not exposed to users.
 bool torch_function_enabled();
+bool should_skip_torch_function();
 PyObject* disabled_torch_function_impl();
 PyObject* disabled_torch_dispatch_impl();
 void set_disabled_torch_function_impl(PyObject* value);
@@ -41,6 +42,7 @@ PyObject* THPModule_DisableTorchFunctionType();
 PyObject* THPModule_DisableTorchFunctionSubclassType();
 PyObject* THPModule_disable_torch_function(PyObject* self, PyObject* args);
 PyObject* THPModule_disable_torch_dispatch(PyObject* self, PyObject* args);
+PyObject* THPModule_skip_one_hop_torch_function(PyObject* self, PyObject* args);
 PyObject* THPModule_has_torch_function(PyObject* /*unused*/, PyObject* arg);
 PyObject* THPModule_has_torch_function_unary(
     PyObject* /*unused*/,

@@ -58,6 +58,7 @@ __all__ = [
     "is_tensor_method_or_property",
     "wrap_torch_function",
     "enable_reentrant_dispatch",
+    "redispatch_function",
 ]
 
 _P = ParamSpec("_P")
@@ -2132,3 +2133,21 @@ def enable_reentrant_dispatch():
             yield
         finally:
             pass
+
+
+def redispatch_function(func, types, args, kwargs):
+    """An alternative to ``Tensor.__torch_function__`` that reentrantly calls the
+    torch implementation, allowing python functions to re-dispatch component
+    function calls.
+
+    This should only be used inside of a __torch_function__ implementation, and
+    func *must* support ``__torch_function__`` dispatch.
+
+    Example::
+
+        class LoggingTensor:
+            def __torch_function__(func, types, args, kwargs=None):
+                log(func, types, args, kwargs)
+                return torch.overrides.redispatch_function(func, types, args, kwargs)
+    """
+    return torch._C._skip_one_hop_torch_function(func, types, args, kwargs)
