@@ -353,18 +353,18 @@ class NumBytesMetricTests(TestCase):
             T(32, 32, grad=True),
         )
 
-        # Default: mask components may be materialized as output buffers
-        metrics.reset()
-        torch.compile(f, backend=compile_but_use_eager)(*inp)
-        default_bytes = metrics.num_bytes_accessed
-
-        # With deferred realization: mask stays inlined
-        with patch.object(config, "delay_realize_cheap_outputs", True):
+        # Without deferred realization: mask gets materialized as output buffer
+        with patch.object(config, "delay_realize_cheap_outputs", False):
             metrics.reset()
             torch.compile(f, backend=compile_but_use_eager)(*inp)
-            deferred_bytes = metrics.num_bytes_accessed
+            eager_bytes = metrics.num_bytes_accessed
 
-        self.assertLessEqual(deferred_bytes, default_bytes)
+        # Default (deferred realization on): mask stays inlined
+        metrics.reset()
+        torch.compile(f, backend=compile_but_use_eager)(*inp)
+        deferred_bytes = metrics.num_bytes_accessed
+
+        self.assertLessEqual(deferred_bytes, eager_bytes)
 
 
 class FusionTests(TestCase):

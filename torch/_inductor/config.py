@@ -785,7 +785,7 @@ realize_acc_reads_size_threshold: int | None = (
 # counts and can trigger suboptimal Triton block size heuristics.
 delay_realize_cheap_outputs: bool = Config(
     env_name_force="TORCHINDUCTOR_DELAY_REALIZE_CHEAP_OUTPUTS",
-    default=False,
+    default=True,
 )
 
 # fallback to eager for random/dropout, this is slow but useful for debugging
