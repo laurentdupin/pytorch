@@ -27,7 +27,6 @@ from torch.distributed.tensor._ops.utils import (
     expand_to_full_mesh_op_strategy,
     generate_redistribute_costs,
     is_tensor_dim_sharded,
-    is_tensor_evenly_shardable,
     is_tensor_partial,
     normalize_dim,
     register_op_strategy,
@@ -251,14 +250,6 @@ def new_factory_strategy(op_schema: OpSchema) -> StrategyType:
         )
 
         if tuple(input_shape) == tuple(output_shape) and input_spec.is_sharded():
-            # NOTE: for new_empty_strided, currently the non-replicate sharding
-            #       is supported only when the shape is evenly shardable
-            if (
-                op_schema.op == aten.new_empty_strided.default
-                and not is_tensor_evenly_shardable(input_shape, input_spec)
-            ):
-                continue
-
             new_factory_strategy.strategies.append(
                 OpSpec(
                     output_specs=input_spec,
@@ -946,6 +937,7 @@ def index_select_single_dim_strategy(
         raise AssertionError(f"Expected TensorMeta, got {type(values_meta)}")
     if not isinstance(dim, int):
         raise AssertionError(f"Expected int, got {type(dim)}")
+    dim = normalize_dim(dim, len(values_meta.shape))
 
     strategies: list[list[Placement | _ShardingPlaceholder]] = []
 
@@ -974,8 +966,10 @@ def index_single_dim_strategy(
     op: OpOverload, args_schema: ArgsType, kwargs_schema: KwargsType
 ) -> list[list[Placement | _ShardingPlaceholder]]:
     values_meta, multi_indices_meta = args_schema
-    assert isinstance(values_meta, TensorMeta)
-    assert isinstance(multi_indices_meta, (list, tuple))
+    if not isinstance(values_meta, TensorMeta):
+        raise AssertionError(f"Expected TensorMeta, got {type(values_meta)}")
+    if not isinstance(multi_indices_meta, (list, tuple)):
+        raise AssertionError(f"Expected list or tuple, got {type(multi_indices_meta)}")
 
     indexed_dims = [i for i, idx in enumerate(multi_indices_meta) if idx is not None]
     non_indexed_dims = [
@@ -983,7 +977,8 @@ def index_single_dim_strategy(
     ]
 
     index_metas = [idx for idx in multi_indices_meta if idx is not None]
-    assert all(isinstance(m, TensorMeta) for m in index_metas)
+    if not all(isinstance(m, TensorMeta) for m in index_metas):
+        raise AssertionError("Expected all index metas to be TensorMeta")
     broadcast_ndim = max(len(m.shape) for m in index_metas)
     num_indices = len(indexed_dims)
 
