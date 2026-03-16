@@ -1894,8 +1894,6 @@ class ExternalTritonTemplateKernel(TritonTemplateKernel):
         self._extra_inputs: dict[str, str] = {}
         # Prologue primary source buffers, populated by load_input
         self._prologue_source_buffers: dict[str, str | None] = {}
-        # Epilogues that could not be fused into the kernel
-        self._unfused_epilogues: list[Any] = []
         # Simplified epilogue interface: {output_param: epilogue_idx}
         self._epilogue_idx_by_param: dict[str, int] = {}
         # Output params that must keep their original tl.store
@@ -1910,11 +1908,8 @@ class ExternalTritonTemplateKernel(TritonTemplateKernel):
         self._call_preamble: list[str] = []
         self._call_args: list[str] = []
 
-    def get_unfused_epilogues(self) -> list[Any]:
-        return self._unfused_epilogues
-
     def call_kernel(self, name, node=None, deallocate_ws=True):
-        """Emit the kernel call, multi-output unpacking, and unfused epilogues."""
+        """Emit the kernel call and multi-output unpacking."""
         tb = self._template_buffer
         wrapper = V.graph.wrapper_code
         for line in self._call_preamble:
@@ -1928,9 +1923,6 @@ class ExternalTritonTemplateKernel(TritonTemplateKernel):
                 for _, idx in mo.indices:
                     idx_str = f"{idx_str}[{idx}]"
                 wrapper.writeline(f"{mo_name} = {idx_str}")
-        # Unfused epilogues are codegen'd separately after the kernel call
-        for epi_node in self._unfused_epilogues:
-            self._scheduling_ref.codegen_node(epi_node)
 
     def emit_kernel_override(
         self,
