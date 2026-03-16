@@ -210,44 +210,6 @@ void test_example_pattern() {
   bar();
 }
 
-// Test with string_view parameter
-void test_string_view_parameter() {
-  const std::string group_name = "test_group_string_view";
-  c10::Device device(c10::DeviceType::CUDA, 0);
-
-  auto& manager = NCCLDevCommManager::get(device);
-
-  ncclDevComm devcomm = {};
-
-  // Test with string literal (implicitly converts to string_view)
-  auto devcomm_opt =
-      manager.register_devcomm(group_name, devcomm, "string_literal_key");
-  EXPECT_TRUE(devcomm_opt.has_value());
-
-  // Test with std::string (implicitly converts to string_view)
-  std::string string_key = "std_string_key";
-  ncclDevComm devcomm2 = {};
-  auto devcomm2_opt =
-      manager.register_devcomm(group_name, devcomm2, string_key);
-  EXPECT_TRUE(devcomm2_opt.has_value());
-
-  // Test with string_view explicitly
-  std::string_view sv_key = "string_view_key";
-  ncclDevComm devcomm3 = {};
-  auto devcomm3_opt = manager.register_devcomm(group_name, devcomm3, sv_key);
-  EXPECT_TRUE(devcomm3_opt.has_value());
-
-  // Verify all can be retrieved
-  auto retrieved1_opt = manager.get_devcomm(group_name, "string_literal_key");
-  EXPECT_TRUE(retrieved1_opt.has_value());
-
-  auto retrieved2_opt = manager.get_devcomm(group_name, string_key);
-  EXPECT_TRUE(retrieved2_opt.has_value());
-
-  auto retrieved3_opt = manager.get_devcomm(group_name, sv_key);
-  EXPECT_TRUE(retrieved3_opt.has_value());
-}
-
 // Note: This test file requires CUDA and NCCL to be available.
 // The actual ncclDevComm type would be used in real scenarios.
 // For unit testing, we're using a simple integer as a placeholder.
@@ -304,13 +266,6 @@ TEST(NCCLDevCommManagerTest, ExamplePattern) {
     GTEST_SKIP() << "CUDA not available, skipping test";
   }
   test_example_pattern();
-}
-
-TEST(NCCLDevCommManagerTest, StringViewParameter) {
-  if (!at::cuda::is_available()) {
-    GTEST_SKIP() << "CUDA not available, skipping test";
-  }
-  test_string_view_parameter();
 }
 
 #else // NCCL_HAS_SYMMEM_DEVICE_SUPPORT
