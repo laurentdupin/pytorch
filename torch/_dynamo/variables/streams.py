@@ -338,6 +338,7 @@ class StreamVariable(StreamContextVariable):
                 ),
             )
         elif name == "record_event":
+            tx.output.check_event_record_after_input_mutation(self.user_object_index)
             return wrap_fx_proxy_cls(
                 target_cls=EventVariable,
                 tx=tx,
@@ -459,12 +460,16 @@ class EventVariable(VariableTracker):
             )
             return CONSTANT_VARIABLE_NONE
         elif name == "record":
+            stream_arg = EventVariable._get_stream_arg(tx, args, kwargs)
+            tx.output.check_event_record_after_input_mutation(
+                stream_arg.user_object_index
+            )
             tx.output.create_proxy(
                 "call_function",
                 torch.ops.streams.record_event,
                 (
                     self.user_object_index,
-                    EventVariable._get_stream_arg(tx, args, kwargs).user_object_index,
+                    stream_arg.user_object_index,
                 ),
                 {},
             )
