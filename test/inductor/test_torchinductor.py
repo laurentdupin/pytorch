@@ -107,6 +107,8 @@ from torch.testing._internal.common_utils import (
     subtest,
     TEST_WITH_ASAN,
     TEST_WITH_ROCM,
+    IS_ARM64,
+    IS_CPU_EXT_SVE_SUPPORTED,
     xfailIf,
     xfailIfS390X,
 )
@@ -2717,6 +2719,7 @@ class CommonTemplate:
     @skipCPUIf(IS_MACOS, "fails on M1, mismatch in bf16 support reporting")
     @xfail_if_mps_unimplemented
     @xfail_if_triton_cpu
+    @xfailIf(IS_ARM64 and not IS_CPU_EXT_SVE_SUPPORTED)  # see https://github.com/pytorch/pytorch/issues/170787
     @skipCUDAIf(True, "No _dyn_quant_matmul_4bit implementation on CUDA")
     @skipIfXpu(msg="No _dyn_quant_matmul_4bit implementation on XPU")
     @skip_if_halide  # bf16
