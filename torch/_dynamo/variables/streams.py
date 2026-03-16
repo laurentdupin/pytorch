@@ -478,6 +478,10 @@ class EventVariable(VariableTracker):
                 {},
             )
             self.recording_stream_index = stream_arg.user_object_index
+            if self.source:
+                tx.output._input_events_recorded.append(
+                    (stream_arg.user_object_index, self.source)
+                )
             return CONSTANT_VARIABLE_NONE
         elif name == "synchronize":
             tx.output.create_proxy(

@@ -1608,6 +1608,39 @@ class GraphModule(torch.nn.Module):
                 torch.ones(2, 2, device="cuda")
             )
 
+    @requires_cuda
+    def test_input_event_captures_input_mutation_errors(self):
+        def fn(x, e):
+            s = torch.Stream()
+            with s:
+                x.add_(1)
+                e.record()
+            return x
+
+        with self.assertRaisesRegex(
+            RuntimeError, "An input event .* was recorded on a stream"
+        ):
+            torch.compile(fn, backend="eager", fullgraph=True)(
+                torch.ones(2, 2, device="cuda"),
+                torch.Event(),
+            )
+
+    @requires_cuda
+    def test_input_event_no_error_different_stream(self):
+        def fn(x, e):
+            s0 = torch.Stream()
+            s1 = torch.Stream()
+            with s0:
+                x.add_(1)
+            with s1:
+                e.record()
+            return x
+
+        torch.compile(fn, backend="eager", fullgraph=True)(
+            torch.ones(2, 2, device="cuda"),
+            torch.Event(),
+        )
+
 
 if __name__ == "__main__":
     from torch._dynamo.test_case import run_tests

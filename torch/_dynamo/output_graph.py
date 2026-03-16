@@ -745,6 +745,8 @@ class OutputGraph(OutputGraphCommon):
         # Used to detect when a returned event captures an input mutation.
         self._input_mutation_streams: set[int | None] = set()
         self._last_checked_input_versions: dict[int, int] | None = None
+        # Input events that had record() called, with the stream index they recorded on.
+        self._input_events_recorded: list[tuple[int | None, Source]] = []
 
         # A list of register_finalizer_fns to apply to the output graph module
         self.register_finalizer_fns: list[Callable[[fx.GraphModule], None]] = []
@@ -1128,39 +1130,65 @@ class OutputGraph(OutputGraphCommon):
                 self._last_checked_input_versions[input_idx] = cur_version
             input_idx += 1
 
-    def _check_returned_events_for_input_mutations(
+    def _check_events_for_input_mutations(
         self, all_stack_values: list[list[VariableTracker]]
     ) -> None:
-        """Error if any returned EventVariable was recorded on a stream where
-        an input was mutated. The runtime epilogue applies input mutations via
-        copy_() outside the graph, so an event recorded before that copy_()
-        would not capture the mutation, leading to incorrect synchronization."""
+        """Error if any externally-observable event was recorded on a stream
+        where a graph input was mutated. This covers both returned events and
+        input events (the caller already holds a reference). The runtime
+        epilogue applies input mutations via copy_() outside the graph, so an
+        event recorded before that copy_() would not capture the mutation,
+        leading to incorrect synchronization."""
         if not self._input_mutation_streams:
             return
 
         from .variables.streams import EventVariable
 
-        bad_events: list[EventVariable] = []
+        # Check returned events
+        bad_returned: list[EventVariable] = []
 
         def _check(vt: VariableTracker) -> None:
             if (
                 isinstance(vt, EventVariable)
                 and vt.recording_stream_index in self._input_mutation_streams
             ):
-                bad_events.append(vt)
+                bad_returned.append(vt)
 
         for stack_values in all_stack_values:
             VariableTracker.visit(_check, stack_values)
 
-        if bad_events:
+        _FIX_INSTRUCTIONS = (
+            "To fix this, either:\n"
+            "  1. Move the input mutation after the event.record() call.\n"
+            "  2. Record the event outside the compiled region:\n"
+            "       compiled_fn(x)\n"
+            "       event.record(stream)  # after torch.compile returns\n"
+            "  3. Insert a graph break before recording:\n"
+            "       torch._dynamo.graph_break()\n"
+            "       event.record(stream)\n"
+            "  4. Record the event on a stream that has no input mutations."
+        )
+
+        if bad_returned:
             raise RuntimeError(
                 "Returning an event that was recorded on a stream where a "
                 "graph input was mutated is not supported. The input mutation "
                 "is applied via copy_() in the runtime epilogue after the "
-                "graph executes, so the event would not capture it, leading "
-                "to incorrect synchronization. Record the event after the "
-                "compiled region or on a different stream."
+                "graph executes, so the event would not capture the mutation, "
+                "leading to incorrect synchronization.\n\n" + _FIX_INSTRUCTIONS
             )
+
+        # Check input events that had record() called
+        for stream_index, source in self._input_events_recorded:
+            if stream_index in self._input_mutation_streams:
+                raise RuntimeError(
+                    f"An input event (from {source.name}) was recorded on a "
+                    "stream where a graph input was mutated. The input "
+                    "mutation is applied via copy_() in the runtime epilogue "
+                    "after the graph executes, so the event would not capture "
+                    "the mutation, leading to incorrect synchronization.\n\n"
+                    + _FIX_INSTRUCTIONS
+                )
 
     @property
     def graph(self) -> torch.fx.Graph:
@@ -1825,7 +1853,7 @@ class OutputGraph(OutputGraphCommon):
 
             cur_tx = cur_tx.parent
 
-        self._check_returned_events_for_input_mutations(all_stack_values)
+        self._check_events_for_input_mutations(all_stack_values)
 
         # "Garbage collect the heap".
         self.side_effects.prune_dead_object_new(tx)
