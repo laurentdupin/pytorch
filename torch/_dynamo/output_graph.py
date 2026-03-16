@@ -2421,7 +2421,10 @@ class OutputGraph(OutputGraphCommon):
                         ],
                     )
                 else:
-                    raise exc.SkipFrame(msg)
+                    tx.speculation_log.graph_break_on_requires_grad_ = True
+                    raise exc.RequiresGradRestartAnalysis(
+                        restart_reason="source-less requires_grad_() intermediate leaked as output"
+                    )
 
     def compile_and_call_fx_graph(
         self,

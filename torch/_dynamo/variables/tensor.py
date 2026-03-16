@@ -1855,6 +1855,25 @@ class TensorVariable(VariableTracker):
                     "`requires_grad` through calling `requires_grad_()`.",
                     hints=[],
                 )
+            # On a previous attempt, we traced through requires_grad_() but
+            # discovered at compile time that the tainted intermediate leaked
+            # as a graph output. Graph break here to preserve partial
+            # acceleration for code before requires_grad_().
+            if tx.speculation_log.graph_break_on_requires_grad_:
+                unimplemented(
+                    gb_type="requires_grad_() intermediate leaked as output",
+                    context=f"call_method {self} requires_grad_",
+                    explanation="An intermediate tensor with requires_grad_() called "
+                    "on it (or a tensor derived from it) is returned from the "
+                    "compiled region. Graph breaking here to preserve partial "
+                    "acceleration.",
+                    hints=[
+                        "Call .detach() before returning if you only need values.",
+                        "Consume the gradient inside the compiled function "
+                        "(call backward() and use .grad), "
+                        "or move requires_grad_() outside torch.compile.",
+                    ],
+                )
             # AOTAutograd re-traces the FX graph under functorch transforms
             # (functionalization). Functorch's checkSupportsInplaceRequiresGrad()
             # rejects requires_grad_() when the dynamic layer stack is non-empty.
@@ -1867,25 +1886,27 @@ class TensorVariable(VariableTracker):
             # 2. Emit FX nodes so the same toggle happens during AOTAutograd re-trace
             prev_state = torch._C._functorch.get_inplace_requires_grad_allowed()
             torch._C._functorch.set_inplace_requires_grad_allowed(True)
-            tx.output.create_node(
-                "call_function",
-                torch._C._functorch.set_inplace_requires_grad_allowed,
-                (True,),
-                {},
-            )
-            tx.output.create_proxy(
-                "call_method",
-                "requires_grad_",
-                (self.as_proxy(),),
-                {},
-            )
-            tx.output.create_node(
-                "call_function",
-                torch._C._functorch.set_inplace_requires_grad_allowed,
-                (prev_state,),
-                {},
-            )
-            torch._C._functorch.set_inplace_requires_grad_allowed(prev_state)
+            try:
+                tx.output.create_node(
+                    "call_function",
+                    torch._C._functorch.set_inplace_requires_grad_allowed,
+                    (True,),
+                    {},
+                )
+                tx.output.create_proxy(
+                    "call_method",
+                    "requires_grad_",
+                    (self.as_proxy(),),
+                    {},
+                )
+                tx.output.create_node(
+                    "call_function",
+                    torch._C._functorch.set_inplace_requires_grad_allowed,
+                    (prev_state,),
+                    {},
+                )
+            finally:
+                torch._C._functorch.set_inplace_requires_grad_allowed(prev_state)
             example_value.requires_grad_(requires_grad)
             self.requires_grad = requires_grad
             if requires_grad:

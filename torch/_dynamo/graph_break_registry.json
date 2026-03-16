@@ -4321,6 +4321,19 @@
       ]
     }
   ],
+  "GB8985": [
+    {
+      "Gb_type": "requires_grad_() intermediate leaked as output",
+      "Context": "call_method {self} requires_grad_",
+      "Explanation": "An intermediate tensor with requires_grad_() called on it (or a tensor derived from it) is returned from the compiled region. Graph breaking here to preserve partial acceleration.",
+      "Hints": [
+        "Call .detach() before returning if you only need values.",
+        "Consume the gradient inside the compiled function ",
+        "(call backward() and use .grad), ",
+        "or move requires_grad_() outside torch.compile."
+      ]
+    }
+  ],
   "GB0358": [
     {
       "Gb_type": "optimizer: pending mutation on parameter",

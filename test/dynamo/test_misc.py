@@ -14387,6 +14387,33 @@ fn
         self.assertTrue(result.requires_grad)
         self.assertEqual(ref, result)
 
+    def test_requires_grad_on_intermediate_partial_graph(self):
+        # When requires_grad_() on a source-less intermediate leaks as output,
+        # Dynamo should restart and graph break at requires_grad_(), capturing
+        # ops before it in a compiled graph (partial acceleration).
+        def fn(x):
+            a = x.sin()
+            b = a.cos()
+            b.requires_grad_()
+            return b
+
+        backend = torch._dynamo.testing.EagerAndRecordGraphs()
+        x = torch.randn(3, 3)
+        result = torch.compile(fn, backend=backend)(x)
+        self.assertEqual(result, fn(x))
+        self.assertTrue(result.requires_grad)
+        # The graph should capture the ops before requires_grad_()
+        self.assertEqual(len(backend.graphs), 1)
+        self.assertExpectedInline(
+            backend.graphs[0].code.strip(),
+            """\
+def forward(self, L_x_ : torch.Tensor):
+    l_x_ = L_x_
+    a = l_x_.sin();  l_x_ = None
+    b = a.cos();  a = None
+    return (b,)""",
+        )
+
     @torch._dynamo.config.patch(trace_autograd_ops=True)
     def test_requires_grad_on_intermediate_not_returned(self):
         def fn(x):
@@ -14525,6 +14552,46 @@ fn
         self.assertEqual(ref_grad, compiled_grad)
         self.assertEqual(ref_out, compiled_out)
         self.assertFalse(compiled_out.requires_grad)
+
+    @torch._dynamo.config.patch(trace_autograd_ops=True)
+    def test_requires_grad_intermediate_metadata_checks(self):
+        # After requires_grad_() on an intermediate, requires_grad and is_leaf
+        # should report correctly and be usable in control flow.
+        def fn(x):
+            y = x * 2
+            y.requires_grad_()
+            if y.requires_grad and y.is_leaf:
+                loss = (y * 3).sum()
+                loss.backward()
+                return y.grad
+            return y
+
+        x = torch.randn(3, 3)
+        ref = fn(x.clone())
+        result = torch.compile(fn, fullgraph=True)(x.clone())
+        self.assertEqual(ref, result)
+
+    @torch._dynamo.config.patch(trace_autograd_ops=True)
+    def test_requires_grad_intermediate_side_effect_global(self):
+        # requires_grad_() on intermediate, then store grad in a global
+        saved = {}
+
+        def fn(x):
+            y = x * 2
+            y.requires_grad_()
+            loss = (y**2).sum()
+            loss.backward()
+            saved["grad"] = y.grad
+            return y.grad.clone()
+
+        x = torch.randn(3, 3)
+        ref = fn(x.clone())
+        saved_ref = saved["grad"].clone()
+        saved.clear()
+
+        result = torch.compile(fn, fullgraph=True)(x.clone())
+        self.assertEqual(ref, result)
+        self.assertEqual(saved_ref, saved["grad"])
 
 
 class MiscTestsPyTree(torch._inductor.test_case.TestCase):
