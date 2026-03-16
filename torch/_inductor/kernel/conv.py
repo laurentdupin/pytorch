@@ -704,8 +704,7 @@ def convolution(
             groups=groups,
             n_spatial_dimensions=ndim,
         )
-    node, _ = autotune_select_algorithm("convolution", choices, args, layout)
-    return node
+    return autotune_select_algorithm("convolution", choices, args, layout)
 
 
 @register_lowering(aten._convolution)

@@ -225,8 +225,7 @@ def tuned_bmm(mat1, mat2, out_dtype=None, *, layout=None):
 
         add_nv_universal_gemm_choices(choices, layout, kernel_inputs)
 
-    node, _ = autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
-    return node
+    return autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
 
 
 @L.register_lowering(aten.baddbmm)
@@ -286,5 +285,4 @@ def tuned_baddbmm(inp, mat1, mat2, *, alpha=1, beta=1, layout=None):
         V.choices.get_template_configs(kernel_inputs, templates_to_use, name)
     )
 
-    node, _ = autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
-    return node
+    return autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)

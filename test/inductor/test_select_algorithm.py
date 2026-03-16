@@ -869,8 +869,7 @@ class TestTemplateRender(TestCase):
                 XBLOCK=XBLOCK,
                 triton_meta=custom_triton_meta,
             )
-            node, _ = autotune_select_algorithm("add", choices, [a, b], layout)
-            return node
+            return autotune_select_algorithm("add", choices, [a, b], layout)
 
         with patch_lowering(
             {
