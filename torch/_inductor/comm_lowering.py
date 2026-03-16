@@ -1,6 +1,5 @@
 # mypy: allow-untyped-defs
 import logging
-from typing import Literal
 
 import torch
 import torch.utils._pytree as pytree
@@ -184,49 +183,6 @@ def _one_shot_all_reduce(inp: ir.TensorBox, reduce_op, group_name):
     )
 
 
-def _should_pg_alloc(
-    collective_type: Literal["all_gather", "reduce_scatter", "all_reduce"],
-    buffer_role: Literal["input", "output"],
-) -> bool:
-    """Check if pg_alloc should be used for this collective/buffer combination."""
-    if not config.comms_use_pg_alloc:
-        return False
-    strategy = config.comms_use_pg_alloc_strategy
-    if strategy is None:
-        return True
-    if "only_all_gather" in strategy and collective_type != "all_gather":
-        return False
-    if "only_reduce" in strategy and collective_type not in (
-        "reduce_scatter",
-        "all_reduce",
-    ):
-        return False
-    if "only_inputs" in strategy and buffer_role != "input":
-        return False
-    if "only_outputs" in strategy and buffer_role != "output":
-        return False
-    return True
-
-
-def _maybe_realize_as_pg_alloc(
-    x: ir.TensorBox,
-    group_name: "torch.distributed.distributed_c10d.GroupName",
-) -> None:
-    """
-    If the current FX node was annotated by the bucketing pass for pg_alloc,
-    realize the buffer as a PG_ALLOC comm buffer. This makes inductor's memory
-    planning allocate the buffer via backend.allocate_tensor() instead of
-    torch.empty().
-    """
-    current_node = getattr(V.graph, "current_node", None)
-    if current_node is None:
-        return
-    if not current_node.meta.get("pg_alloc_group_name"):
-        return
-    if can_realize_as_comm_buffer(x, ir.CommBufferType.PG_ALLOC):
-        realize_as_comm_buffer(x, ir.CommBufferType.PG_ALLOC, group_name)
-
-
 def register_comm_lowerings():
     """
     Register lowerings for the comm subsystem.
@@ -265,8 +221,6 @@ def register_comm_lowerings():
 
         # Lower as c10d.all_reduce_
         inp = clone(inp)
-        if _should_pg_alloc("all_reduce", "input"):
-            _maybe_realize_as_pg_alloc(inp, group_name)
         if config.reorder_for_compute_comm_overlap:
             # The horizontal fusion of this clone often severely delays the
             # scheduling of the all_reduce_ node. Horizontally fusing this
@@ -361,8 +315,6 @@ def register_comm_lowerings():
 
     @register_comm_lowering(c10d.all_gather_into_tensor_out)
     def _all_gather_into_tensor_out(inp, group_size, group_name, *, out):
-        if _should_pg_alloc("all_gather", "output"):
-            _maybe_realize_as_pg_alloc(out, group_name)
         ir._CollectiveKernel.create_inplace(
             c10d.all_gather_into_tensor_out.default,
             inp,
@@ -374,8 +326,6 @@ def register_comm_lowerings():
 
     @register_comm_lowering(c10d.reduce_scatter_tensor)
     def _reduce_scatter_tensor(inp, reduce_op, group_size, group_name):
-        if _should_pg_alloc("reduce_scatter", "input"):
-            _maybe_realize_as_pg_alloc(inp, group_name)
         return _create_out_of_place(
             c10d.reduce_scatter_tensor.default,
             inp,
@@ -386,10 +336,6 @@ def register_comm_lowerings():
 
     @register_comm_lowering(c10d.reduce_scatter_tensor_out)
     def _reduce_scatter_tensor_out(inp, reduce_op, group_size, group_name, *, out):
-        if _should_pg_alloc("reduce_scatter", "input"):
-            _maybe_realize_as_pg_alloc(inp, group_name)
-        if _should_pg_alloc("reduce_scatter", "output"):
-            _maybe_realize_as_pg_alloc(out, group_name)
         ir._CollectiveKernel.create_inplace(
             c10d.reduce_scatter_tensor_out.default,
             inp,
@@ -455,6 +401,71 @@ def register_comm_lowerings():
 
         ir._WaitKernel.create_wait(c10d.wait_tensor.default, inp)
         return inp
+
+    @register_comm_lowering(c10d.isend)  # type: ignore[misc]
+    def _isend(inp, dst, tag, group_name):
+        inp = ir.ExternKernel.require_contiguous(inp)
+        return _create_out_of_place(c10d.isend.default, inp, dst, tag, group_name)
+
+    @register_comm_lowering(c10d.irecv)  # type: ignore[misc]
+    def _irecv(inp, src, tag, group_name):
+        inp = ir.ExternKernel.require_contiguous(inp)
+        ir._CollectiveKernel.create_inplace(
+            c10d.irecv.default, inp, src, tag, group_name
+        )
+        return inp
+
+    @register_comm_lowering(c10d.batch_p2p_ops)  # type: ignore[misc]
+    def _batch_p2p_ops(op_list, peer_list, tag_list, tensors, group_name):
+        tensors = [ir.ExternKernel.require_contiguous(t) for t in tensors]
+        kernel = c10d.batch_p2p_ops.default
+        with V.graph.fake_mode:
+            (
+                example_output,
+                tensor_args,
+                non_tensor_args,
+                unflatten_args,
+                unbacked_bindings,
+            ) = ir._CollectiveKernel.process_kernel(
+                kernel,
+                op_list,
+                peer_list,
+                tag_list,
+                tensors,
+                group_name,
+            )
+        assert not unbacked_bindings, f"{kernel} {unbacked_bindings}"
+        for op, tensor_arg in zip(op_list, tensor_args):
+            tensor_arg.realize()
+            if op == "irecv":
+                V.graph.mark_buffer_mutated(tensor_arg.get_name())
+
+        device = tensor_args[0].get_device()
+        packed = ir._CollectiveKernel(
+            ir.MultiOutputLayout(device=device),
+            kernel,
+            tensor_args,
+            non_tensor_args,
+            unflatten_args,
+        )
+
+        results = []
+        for i, (op, t, ex_out) in enumerate(zip(op_list, tensors, example_output)):
+            if op == "irecv":
+                packed.mutation_outputs.append(
+                    ir.MutationOutput(ir.NoneLayout(device=device), t, packed)
+                )
+                packed.alias_names.append(t.get_name())
+                results.append(t)
+            else:
+                # isend: 0-element placeholder output connected to the collective
+                placeholder = ir.MultiOutput(
+                    ir._CollectiveKernel.tensor_to_layout(ex_out),
+                    packed,
+                    [(list, i)],
+                )
+                results.append(ir.TensorBox.create(placeholder))
+        return results
 
 
 def register_symm_mem_lowerings():
