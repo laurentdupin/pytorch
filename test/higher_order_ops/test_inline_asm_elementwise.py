@@ -98,6 +98,7 @@ TEST_CASES = [
         torch.float32,
         lambda x: x.float() * 2,
         compile_only=True,
+        min_sm=80,
     ),
     AsmTestCase(
         "fp16_upcast",
@@ -258,20 +259,12 @@ class TestInlineAsmElementwise(TestCase):
 
         if tc.compile_only:
             expected = tc.approx_fn(*inputs)
-            self.assertTrue(
-                torch.allclose(
-                    compiled_result.float(), expected.float(), rtol=1e-5, atol=1e-5
-                ),
-                f"Compiled differs from expected for {tc.name}:\n"
-                f"  max diff: {(compiled_result.float() - expected.float()).abs().max()}",
+            self.assertEqual(
+                compiled_result.float(), expected.float(), atol=1e-5, rtol=1e-5
             )
         else:
             eager_result = fn(*inputs)
-            self.assertTrue(
-                torch.equal(eager_result, compiled_result),
-                f"Eager and compiled differ for {tc.name}:\n"
-                f"  max diff: {(eager_result.float() - compiled_result.float()).abs().max()}",
-            )
+            self.assertEqual(eager_result, compiled_result)
 
     @parametrize(
         "case_idx", list(range(len(TEST_CASES))), name_fn=lambda i: TEST_CASE_NAMES[i]
@@ -299,11 +292,7 @@ class TestInlineAsmElementwise(TestCase):
             result = fn(*inputs)
         expected = tc.approx_fn(*inputs)
 
-        self.assertTrue(
-            torch.allclose(result.float(), expected.float(), rtol=1e-5, atol=1e-5),
-            f"Result differs from expected for {tc.name}:\n"
-            f"  max diff: {(result.float() - expected.float()).abs().max()}",
-        )
+        self.assertEqual(result.float(), expected.float(), atol=1e-5, rtol=1e-5)
 
 
 @unittest.skipIf(not TEST_CUDA, "CUDA not available")
@@ -327,6 +316,18 @@ class TestInlineAsmElementwiseErrors(TestCase):
                 y,
                 asm_str="add.f32 $0, $1, $2;",
                 constraints="=f,f",
+                dtype=torch.float32,
+            )
+
+    def test_error_mixed_dtypes(self):
+        x = torch.randn(100, device="cuda", dtype=torch.float32)
+        y = torch.randint(0, 10, (100,), device="cuda", dtype=torch.int32)
+        with self.assertRaises(ValueError):
+            inline_asm_elementwise(
+                x,
+                y,
+                asm_str="add.f32 $0, $1, $2;",
+                constraints="=f,f,r",
                 dtype=torch.float32,
             )
 
@@ -359,7 +360,7 @@ class TestInlineAsmElementwiseEdgeCases(TestCase):
             x, asm_str="mov.f32 $0, $1;", constraints="=f,f", dtype=torch.float32
         )
         self.assertEqual(result.shape, torch.Size([]))
-        self.assertTrue(torch.allclose(result, x))
+        self.assertEqual(result, x)
 
     def test_4d_tensor(self):
         x = torch.randn(2, 3, 4, 5, device="cuda", dtype=torch.float32)
@@ -367,7 +368,7 @@ class TestInlineAsmElementwiseEdgeCases(TestCase):
             x, asm_str="mov.f32 $0, $1;", constraints="=f,f", dtype=torch.float32
         )
         self.assertEqual(result.shape, x.shape)
-        self.assertTrue(torch.equal(result, x))
+        self.assertEqual(result, x)
 
     def test_composition_with_pytorch_ops(self):
         def fn(x, y):
@@ -388,8 +389,39 @@ class TestInlineAsmElementwiseEdgeCases(TestCase):
         compiled_fn = torch.compile(fn, backend="inductor")
         compiled_result = compiled_fn(x, y)
 
-        self.assertTrue(torch.equal(eager_result, compiled_result))
-        self.assertTrue(torch.allclose(eager_result, x * 2 + y + 1.0))
+        self.assertEqual(eager_result, compiled_result)
+        self.assertEqual(eager_result, x * 2 + y + 1.0)
+
+    def test_output_strides_mixed_inputs(self):
+        """Verify fake mode output strides match eager (TensorIterator) strides."""
+        from torch._subclasses.fake_tensor import FakeTensorMode
+
+        # Two inputs with different strides: one contiguous, one transposed.
+        # This exercises TensorIterator's slow path for stride computation.
+        x = torch.randn(8, 16, device="cuda", dtype=torch.float32)
+        y = torch.randn(16, 8, device="cuda", dtype=torch.float32).t()
+
+        eager_result = inline_asm_elementwise(
+            x,
+            y,
+            asm_str="add.f32 $0, $1, $2;",
+            constraints="=f,f,f",
+            dtype=torch.float32,
+        )
+
+        with FakeTensorMode() as mode:
+            fake_x = mode.from_tensor(x)
+            fake_y = mode.from_tensor(y)
+            fake_result = inline_asm_elementwise(
+                fake_x,
+                fake_y,
+                asm_str="add.f32 $0, $1, $2;",
+                constraints="=f,f,f",
+                dtype=torch.float32,
+            )
+
+        self.assertEqual(eager_result.shape, fake_result.shape)
+        self.assertEqual(eager_result.stride(), fake_result.stride())
 
     def test_dynamic_shapes(self):
         def fn(x, y):
@@ -408,7 +440,7 @@ class TestInlineAsmElementwiseEdgeCases(TestCase):
             y = torch.randn(size, device="cuda", dtype=torch.float32)
             eager_result = fn(x, y)
             compiled_result = compiled_fn(x, y)
-            self.assertTrue(torch.equal(eager_result, compiled_result))
+            self.assertEqual(eager_result, compiled_result)
 
 
 @unittest.skipIf(not TEST_CUDA, "CUDA not available")
@@ -444,7 +476,7 @@ class TestInlineAsmPackPadding(TestCase):
             torch._dynamo.reset()
             result, (code,) = run_and_get_code(torch.compile(fn, backend="inductor"), x)
 
-        self.assertTrue(torch.equal(result, x))
+        self.assertEqual(result, x)
         # Verify padding helpers are emitted in the generated code
         FileCheck().check("inline_asm_pack").check("inline_asm_unpack").run(code)
 
@@ -476,8 +508,77 @@ class TestInlineAsmPackPadding(TestCase):
             torch._dynamo.reset()
             result, (code,) = run_and_get_code(torch.compile(fn, backend="inductor"), x)
 
-        self.assertTrue(torch.equal(result, x))
+        self.assertEqual(result, x)
         FileCheck().check("inline_asm_pack").check("inline_asm_unpack").run(code)
+
+    def test_pack4_xblock2_partial_padding(self):
+        """XBLOCK=2 < pack=4, so 1 round of padding is needed (not 2)."""
+        from torch._inductor.choices import InductorChoices
+        from torch._inductor.codegen.triton import FixedTritonConfig
+        from torch._inductor.utils import run_and_get_code
+        from torch.testing import FileCheck
+
+        class ForceXBlock2(InductorChoices):
+            def triton_kernel_kwargs(self, kernel_cls, features, groups, kernel_kwargs):
+                return {
+                    **kernel_kwargs,
+                    "fixed_config": FixedTritonConfig({"XBLOCK": 2}),
+                }
+
+        def fn(x):
+            return inline_asm_elementwise(
+                x,
+                asm_str="mov.b32 $0, $4; mov.b32 $1, $5; mov.b32 $2, $6; mov.b32 $3, $7;",
+                constraints="=r,=r,=r,=r,r,r,r,r",
+                dtype=torch.float32,
+                pack=4,
+            )
+
+        x = torch.randn(128, device="cuda", dtype=torch.float32)
+        with torch._inductor.virtualized.V.set_choices_handler(ForceXBlock2()):
+            torch._dynamo.reset()
+            result, (code,) = run_and_get_code(torch.compile(fn, backend="inductor"), x)
+
+        self.assertEqual(result, x)
+        FileCheck().check("inline_asm_pack").check("inline_asm_unpack").run(code)
+
+    def test_pack2_xblock1_yblock1_padding(self):
+        """Force XBLOCK=1, YBLOCK=1 with pack=2 on a 2D-tiled kernel."""
+        from torch._inductor.choices import InductorChoices
+        from torch._inductor.codegen.triton import FixedTritonConfig
+        from torch._inductor.utils import run_and_get_code
+        from torch.testing import FileCheck
+
+        class ForceXY1(InductorChoices):
+            def triton_kernel_kwargs(self, kernel_cls, features, groups, kernel_kwargs):
+                return {
+                    **kernel_kwargs,
+                    "fixed_config": FixedTritonConfig({"XBLOCK": 1, "YBLOCK": 1}),
+                }
+
+        def fn(x, y):
+            return inline_asm_elementwise(
+                x,
+                y,
+                asm_str="add.f32 $0, $2, $4; add.f32 $1, $3, $5;",
+                constraints="=f,=f,f,f,f,f",
+                dtype=torch.float32,
+                pack=2,
+            )
+
+        x = torch.randn(8, 16, device="cuda", dtype=torch.float32)
+        # Transposed input triggers 2D tiling (different stride patterns)
+        y = torch.randn(16, 8, device="cuda", dtype=torch.float32).T
+        with torch._inductor.virtualized.V.set_choices_handler(ForceXY1()):
+            torch._dynamo.reset()
+            result, (code,) = run_and_get_code(
+                torch.compile(fn, backend="inductor"), x, y
+            )
+
+        self.assertEqual(result, x + y)
+        FileCheck().check("YBLOCK").check("inline_asm_pack").check(
+            "inline_asm_unpack"
+        ).run(code)
 
 
 if __name__ == "__main__":
