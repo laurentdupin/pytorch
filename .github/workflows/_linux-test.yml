@@ -117,6 +117,7 @@ jobs:
         with:
           no-sudo: true
           checkout-mode: treeless
+          submodules: false
 
       - name: Setup Python
         if: contains(matrix.runner, 'b200')
@@ -178,7 +179,7 @@ jobs:
         id: install-nvidia-driver
         uses: pytorch/test-infra/.github/actions/setup-nvidia@main
         with:
-          driver-version: ${{ matrix.config == 'legacy_nvidia_driver' && '525.105.17' || '580.82.07' }}
+          driver-version: '580.82.07'
         if: ${{ !contains(matrix.runner, 'b200') }}
 
       - name: Setup GPU_FLAG for docker run

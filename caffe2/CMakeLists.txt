@@ -954,6 +954,12 @@ if(USE_ROCM)
     target_compile_definitions(torch_hip PRIVATE USE_NCCL)
   endif()
 
+  # IntraNodeComm loads libamd_smi at runtime via dlopen (avoids linking amd_smi
+  # which would cause bus errors if Python amdsmi loads a different copy).
+  if(USE_DISTRIBUTED)
+    target_link_libraries(torch_hip PRIVATE ${CMAKE_DL_LIBS})
+  endif()
+
   if(USE_PRECOMPILED_HEADERS)
     target_precompile_headers(torch_hip PRIVATE
         "$<$<COMPILE_LANGUAGE:CXX>:ATen/core/ATen_pch.h>")
@@ -1042,7 +1048,7 @@ elseif(USE_CUDA)
     add_library(torch_nvshmem SHARED
         "${TORCH_SRC_DIR}/csrc/distributed/c10d/cuda/utils.cpp"
         "${TORCH_SRC_DIR}/csrc/distributed/c10d/symm_mem/nvshmem_extension.cu"
-        "${TORCH_SRC_DIR}/csrc/distributed/c10d/symm_mem/NVSHMEMSymmetricMemory.cu"
+        "${TORCH_SRC_DIR}/csrc/distributed/c10d/symm_mem/NVSHMEMSymmetricMemory.cpp"
         "${TORCH_SRC_DIR}/csrc/distributed/c10d/symm_mem/CUDASymmetricMemoryUtils.cpp"
     )
     # Add torch_cpu as a dependency to ensure ATen headers are available
@@ -1365,6 +1371,7 @@ if(BUILD_TEST)
     add_subdirectory(${TORCH_ROOT}/test/cpp/lazy ${CMAKE_BINARY_DIR}/test_lazy)
     # NativeRT is disabled
     # add_subdirectory(${TORCH_ROOT}/test/cpp/nativert ${CMAKE_BINARY_DIR}/test_nativert)
+    add_subdirectory(${TORCH_ROOT}/test/cpp/profiler ${CMAKE_BINARY_DIR}/test_profiler)
     add_subdirectory(${TORCH_ROOT}/test/inductor ${CMAKE_BINARY_DIR}/test_inductor)
     add_subdirectory(${TORCH_ROOT}/test/cpp/aoti_abi_check ${CMAKE_BINARY_DIR}/test_aoti_abi_check)
     if(BUILD_AOT_INDUCTOR_TEST)
