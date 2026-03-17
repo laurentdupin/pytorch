@@ -433,7 +433,7 @@ class OverlapScheduler:
             )
 
         # Build and collapse fusion regions FIRST so all subsequent operations
-        # work on the collapsed graph where fused ops are atomic units.
+        # work on the collapsed graph where fused ops are atomic units
         # gather_node_runtime_estimations handles fusion region building when
         # enable_fusion_regions is True, and also estimates all node runtimes.
         self.node_estimations, self.region_of = gather_node_runtime_estimations(
@@ -701,7 +701,7 @@ class OverlapScheduler:
     def _align_compute_nodes_runtime_estimations_across_all_distributed_ranks(
         self,
     ) -> None:
-        """Align runtime estimations across ranks (compute + collectives)."""
+        """Align runtime estimations across ranks using median values."""
         log.info(
             "Overlap scheduling: Aligning runtime estimations across all distributed ranks"
         )
@@ -715,6 +715,7 @@ class OverlapScheduler:
         runtime_estimations_analytical: list[float] = []
 
         for n in self.compute_nodes:
+            # Compute analytical estimation using roofline model
             val_analytical = estimate_roofline_runtime_ms(n)
             runtime_estimations_analytical.append(val_analytical)
 
@@ -723,12 +724,14 @@ class OverlapScheduler:
                     n, self.custom_runtime_estimation
                 )
             else:
+                # Use analytical estimation
                 val, key = val_analytical, None
 
             runtime_estimations.append(val)
             runtime_estimations_keys.append(key)
             compute_key_count += 1
 
+        # Log compute estimations
         from torch._inductor.fx_passes.node_runtime_estimation import (
             _log_compute_estimations,
         )
@@ -844,7 +847,7 @@ class OverlapScheduler:
                     artifact_name="fx_collectives_analytical_estimation",
                 )
 
-        # Update remaining CollectiveInfo with aligned values
+        # Update CollectiveInfo with aligned values
         for start_node, info in self.collective_info.items():
             if start_node in self.node_estimations:
                 aligned_val = self.node_estimations[start_node]

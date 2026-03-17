@@ -1187,14 +1187,14 @@ class TestFusibleNodeOverlap(InductorTestCase):
             "sub"
         ).check("wait_tensor").run(graph_str)
 
-    def test_precomputed_estimations_via_custom_runtime(self):
+    @parametrize("enable_fusion_regions", [False, True])
+    def test_precomputed_estimations_via_custom_runtime(self, enable_fusion_regions):
         """Pre-computed estimations from gather_node_runtime_estimations can be
         fed into OverlapScheduler via custom_runtime_estimation wrapping a dict."""
 
         def func(a):
             group_name = "0"
             group_size = 1
-
             ag = torch.ops._c10d_functional.all_gather_into_tensor(
                 a, group_size, group_name
             )
@@ -1212,13 +1212,13 @@ class TestFusibleNodeOverlap(InductorTestCase):
             OverlapScheduler,
         )
 
-        # Pre-compute estimations externally
-        estimations, _ = gather_node_runtime_estimations(
-            traced, collective_estimator="analytical"
+        estimations, fusion_region_of = gather_node_runtime_estimations(
+            traced,
+            collective_estimator="analytical",
+            enable_fusion_regions=enable_fusion_regions,
         )
-
-        # Wrap dict as custom_runtime_estimation callback
-        custom_fn = lambda node, _: estimations.get(node)  # noqa: E731
+        for node in fusion_region_of:
+            self.assertIn(node, estimations)
 
         scheduler = OverlapScheduler(
             traced,
@@ -1228,16 +1228,13 @@ class TestFusibleNodeOverlap(InductorTestCase):
             insert_overlap_deps=False,
             compute_overlap_multipler=1.0,
             max_coll_distance=200,
-            custom_runtime_estimation=custom_fn,
+            custom_runtime_estimation=lambda node, _: estimations.get(node),
             collective_estimator="analytical",
         )
         out = scheduler.run()
-
-        # Verify the scheduler produced valid output with the pre-computed estimations
-        graph_str = str(out.graph)
-        FileCheck().check("all_gather_into_tensor").check("wait_tensor").run(graph_str)
-
-        # Verify collective was identified with the pre-computed estimation
+        FileCheck().check("all_gather_into_tensor").check("wait_tensor").run(
+            str(out.graph)
+        )
         self.assertEqual(len(scheduler.collective_info), 1)
 
 
