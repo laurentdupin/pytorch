@@ -142,14 +142,21 @@ def _inline_asm_dense(*inputs, asm_str, constraints, dtype, is_pure, pack):
 
     n_outputs, n_inputs = _parse_constraints(constraints)
 
-    if n_outputs != 1:
-        raise NotImplementedError(
-            "Only single-output inline asm is currently supported"
+    # With pack > 1, each logical input/output uses `pack` registers
+    if n_outputs != pack:
+        raise ValueError(
+            f"Expected {pack} output constraint(s) for pack={pack}, got {n_outputs}"
         )
 
-    if n_inputs != len(inputs):
+    if n_inputs != len(inputs) * pack:
         raise ValueError(
-            f"Constraint string specifies {n_inputs} inputs but got {len(inputs)} tensors"
+            f"Constraint string specifies {n_inputs} inputs but expected "
+            f"{len(inputs) * pack} for {len(inputs)} tensor(s) with pack={pack}"
+        )
+
+    if pack > 1:
+        raise RuntimeError(
+            "inline_asm_elementwise with pack > 1 requires torch.compile"
         )
 
     constraint_parts = [p.strip() for p in constraints.split(",")]

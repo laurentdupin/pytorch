@@ -8141,8 +8141,10 @@ def lower_inline_asm_elementwise(
     constraint_parts = [p.strip() for p in constraints.split(",")]
     input_constraints = [p for p in constraint_parts if not p.startswith("=")]
 
+    # With pack > 1, each input has `pack` constraints. Only check
+    # the first constraint per input for upcast decisions.
     loaders = []
-    for inp, constraint in zip(inputs, input_constraints):
+    for inp, constraint in zip(inputs, input_constraints[: len(inputs)]):
         loader = inp.make_loader()
         if _constraint_expects_fp32(constraint) and _should_upcast_to_fp32(
             inp.get_dtype()

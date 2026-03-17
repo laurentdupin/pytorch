@@ -21,7 +21,8 @@ from torch.testing._internal.common_utils import (
 )
 
 
-# Test case definitions: (name, input_gen_fn, asm_str, constraints, dtype, approx_fn)
+# Test case definitions: (name, input_gen_fn, asm_str, constraints, dtype, approx_fn, pack)
+# pack defaults to 1 if not specified (6-element tuple)
 def _get_test_cases():
     """Generate test cases as tuples for parametrization."""
     return [
@@ -149,6 +150,28 @@ def _get_test_cases():
             torch.float32,
             lambda x: x,
         ),
+        # pack=2: each asm invocation processes 2 elements
+        (
+            "identity_pack2",
+            lambda: (torch.randn(128, device="cuda", dtype=torch.float32),),
+            "mov.b32 $0, $2; mov.b32 $1, $3;",
+            "=r,=r,r,r",
+            torch.float32,
+            lambda x: x,
+            2,
+        ),
+        (
+            "add_pack2",
+            lambda: (
+                torch.randn(128, device="cuda", dtype=torch.float32),
+                torch.randn(128, device="cuda", dtype=torch.float32),
+            ),
+            "add.f32 $0, $2, $4; add.f32 $1, $3, $5;",
+            "=f,=f,f,f,f,f",
+            torch.float32,
+            lambda x, y: x + y,
+            2,
+        ),
     ]
 
 
@@ -167,15 +190,18 @@ class TestInlineAsmElementwise(TestCase):
     )
     def test_eager_vs_compiled_bitwise(self, case_idx):
         """Verify eager and compiled produce bitwise identical results."""
-        name, input_gen_fn, asm_str, constraints, dtype, approx_fn = TEST_CASES[
-            case_idx
-        ]
+        tc = TEST_CASES[case_idx]
+        name, input_gen_fn, asm_str, constraints, dtype, approx_fn = tc[:6]
+        pack = tc[6] if len(tc) > 6 else 1
+
+        if pack > 1:
+            self.skipTest("Eager does not support pack > 1")
 
         inputs = input_gen_fn()
 
         def fn(*args):
             return inline_asm_elementwise(
-                *args, asm_str=asm_str, constraints=constraints, dtype=dtype
+                *args, asm_str=asm_str, constraints=constraints, dtype=dtype, pack=pack
             )
 
         eager_result = fn(*inputs)
@@ -193,15 +219,28 @@ class TestInlineAsmElementwise(TestCase):
     )
     def test_correctness(self, case_idx):
         """Verify result matches reference function."""
-        name, input_gen_fn, asm_str, constraints, dtype, approx_fn = TEST_CASES[
-            case_idx
-        ]
+        tc = TEST_CASES[case_idx]
+        name, input_gen_fn, asm_str, constraints, dtype, approx_fn = tc[:6]
+        pack = tc[6] if len(tc) > 6 else 1
 
         inputs = input_gen_fn()
 
-        result = inline_asm_elementwise(
-            *inputs, asm_str=asm_str, constraints=constraints, dtype=dtype
-        )
+        if pack > 1:
+            # pack > 1 only works through inductor
+            def fn(*args):
+                return inline_asm_elementwise(
+                    *args,
+                    asm_str=asm_str,
+                    constraints=constraints,
+                    dtype=dtype,
+                    pack=pack,
+                )
+
+            result = torch.compile(fn, backend="inductor")(*inputs)
+        else:
+            result = inline_asm_elementwise(
+                *inputs, asm_str=asm_str, constraints=constraints, dtype=dtype
+            )
         expected = approx_fn(*inputs)
 
         result_f = result.float() if result.dtype != torch.float32 else result

@@ -1552,7 +1552,26 @@ class TritonOverrides(OpOverrides):
         input_refs = ", ".join([str(i) for i in inputs])
         if constraints is None:
             constraints = ", ".join(["=r"] + ["r" for _ in inputs])
-        return f"tl.inline_asm_elementwise('{asm}', '{constraints}', [{input_refs}], dtype={triton_type}, is_pure={is_pure}, pack={pack})"  # noqa: B950
+        # Use a placeholder for inputs to avoid .format() conflicts with
+        # literal curly braces in asm strings (e.g., "{.reg .f32 tmp; ...}")
+        placeholder = "__INLINE_ASM_INPUTS__"
+        asm_call = f"tl.inline_asm_elementwise('{asm}', '{constraints}', [{placeholder}], dtype={triton_type}, is_pure={is_pure}, pack={pack})"  # noqa: B950
+        if pack <= 1:
+            return asm_call.replace(placeholder, input_refs)
+        # When pack > 1, inline_asm_pack handles ravel + conditional padding,
+        # and inline_asm_unpack handles unpadding + reshape back.
+        first_input = inputs[0]
+        compute = V.kernel.compute
+        cse = V.kernel.cse
+        result = cse.newvar(dtype=dtype, shape=first_input.shape)
+        packed_refs = ", ".join(
+            f"triton_helpers.inline_asm_pack({inp}, {pack})" for inp in inputs
+        )
+        compute.writeline(f"{result} = {asm_call.replace(placeholder, packed_refs)}")
+        compute.writeline(
+            f"{result} = triton_helpers.inline_asm_unpack({result}, {first_input}, {pack})"
+        )
+        return result
 
     @staticmethod
     @maybe_upcast_float32()
