@@ -734,7 +734,10 @@ class TestVarlenAttention(NNTestCase):
             [127, 63, 33, 17],
         ],
     )
-    @parametrize("backend", ["fa2"] + (["fa4"] if SM100OrLater else []))
+    @parametrize(
+        "backend",
+        ["fa2"] + (["fa3"] if IS_SM90 else []) + (["fa4"] if SM100OrLater else []),
+    )
     def test_seqused_k_kv_cache(self, device, dtype, actual_kv_lens, backend):
         torch.manual_seed(42)
 
@@ -761,15 +764,16 @@ class TestVarlenAttention(NNTestCase):
         k_cache_slots = []
         v_cache_slots = []
         for i in range(batch_size):
+            fill = float("nan") if backend == "fa2" else 0.0
             k_slot = torch.full(
                 (cache_size, num_heads, head_dim),
-                float("nan"),
+                fill,
                 device=device,
                 dtype=dtype,
             )
             v_slot = torch.full(
                 (cache_size, num_heads, head_dim),
-                float("nan"),
+                fill,
                 device=device,
                 dtype=dtype,
             )
