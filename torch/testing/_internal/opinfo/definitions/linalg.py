@@ -2657,13 +2657,6 @@ op_db: list[OpInfo] = [
                 dtypes=[torch.float32],
                 active_if=TEST_WITH_ROCM,
             ),
-            # MPS: empty tensor shape mismatch in SVD output
-            DecorateInfo(
-                unittest.expectedFailure,
-                "TestCommon",
-                "test_out_warning",
-                device_type="mps",
-            ),
         ),
     ),
     OpInfo(

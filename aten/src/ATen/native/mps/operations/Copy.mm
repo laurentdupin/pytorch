@@ -295,11 +295,7 @@ at::Tensor& mps_copy_(at::Tensor& dst, const at::Tensor& src, bool non_blocking)
 
   bool needs_broadcasting = false;
 
-  if (dst.is_same(src)) {
-    return dst;
-  }
-  if (src.numel() == 0) {
-    dst.resize_as_(src);
+  if (src.numel() == 0 || dst.is_same(src)) {
     return dst;
   }
   if (dst.numel() == 0) {
@@ -337,6 +333,7 @@ at::Tensor& mps_copy_(at::Tensor& dst, const at::Tensor& src, bool non_blocking)
 } // namespace mps
 
 Tensor _copy_from_and_resize_mps(const at::Tensor& self, const at::Tensor& dst) {
+  const_cast<Tensor&>(dst).resize_as_(self);
   return mps::mps_copy_(const_cast<Tensor&>(dst), self, false);
 }
 
