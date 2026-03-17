@@ -4501,19 +4501,29 @@ Please use `add.register_fake` to add an fake impl.""",
 
 
 class TestLibrarySourceLocation(TestCase):
-    def test_getframe_matches_traceback(self):
-        # Library.__init__ uses sys._getframe(1) instead of
-        # traceback.extract_stack(limit=2)[0] for performance. Verify that _getframe
-        # produces the same filename and line number as traceback.
-        import traceback
-
-        f = sys._getframe(1)
-        frame_file, frame_line = f.f_code.co_filename, f.f_lineno
-        tb = traceback.extract_stack(limit=2)[0]
-        tb_file, tb_line = tb.filename, tb.lineno
-
-        self.assertEqual(frame_file, tb_file)
-        self.assertEqual(frame_line, tb_line)
+    def test_library_source_location(self):
+        # Library.__init__ uses sys._getframe(1) to capture the caller's
+        # filename and line number. Verify this works correctly by creating
+        # a Library and checking the source location in the error message
+        # that appears when a duplicate DEF library is created.
+        script = """\
+import torch
+lib1 = torch.library.Library("_test_loc", "DEF")
+lib1.define("foo(Tensor x) -> Tensor")
+try:
+    lib2 = torch.library.Library("_test_loc", "DEF")
+except RuntimeError as e:
+    print(str(e))
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # The error message should reference <string>:2, since
+        # lib1 = torch.library.Library(...) is on line 2 of the script.
+        self.assertIn("<string>:2", result.stdout)
 
 
 class MiniOpTestOther(CustomOpTestCaseBase):
