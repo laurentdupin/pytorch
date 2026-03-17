@@ -429,6 +429,121 @@ def _create_partial_input(
     return LocalTensor(local_tensors)
 
 
+def _shard_tensors(
+    tensors: list[tuple[str, torch.Tensor]],
+    input_placements: tuple[Placement, ...],
+    world_size: int,
+    mesh: DeviceMesh,
+    mask_shift: int = 0,
+) -> list[LocalTensor | torch.Tensor]:
+    """Create sharded LocalTensors from tensors according to placements."""
+    local_tensors: list[LocalTensor | torch.Tensor] = []
+    for tensor_idx, ((name, tensor), placement) in enumerate(
+        zip(tensors, input_placements)
+    ):
+        if isinstance(placement, Partial):
+            local_tensor = _create_partial_input(
+                tensor, placement, world_size, tensor_idx, mask_shift
+            )
+        elif isinstance(placement, Replicate):
+            _tmp = {r: tensor.clone() for r in range(world_size)}
+            # pyrefly: ignore [bad-argument-type, bad-argument-count]
+            local_tensor = LocalTensor(_tmp)
+        elif isinstance(placement, Shard):
+            shard_dim = placement.dim
+            chunks = tensor.tensor_split(world_size, dim=shard_dim)
+            _tmp = {
+                r: chunks[r].clone(memory_format=torch.contiguous_format)
+                for r in range(world_size)
+            }
+            # pyrefly: ignore [bad-argument-type, bad-argument-count]
+            local_tensor = LocalTensor(_tmp)
+        else:
+            dt = distribute_tensor(tensor.clone(), mesh, (placement,))
+            local_tensor = dt.to_local()
+        local_tensors.append(local_tensor)
+    return local_tensors
+
+
+def _compare_outputs(
+    local_output: Any,
+    ground_truth: torch.Tensor | list[torch.Tensor],
+    output_placements: tuple[Placement, ...],
+    mesh: DeviceMesh,
+    world_size: int,
+) -> tuple[bool, str]:
+    """Compare op output (wrapped as DTensor) against ground truth."""
+    if isinstance(local_output, (list, tuple)):
+        local_outputs = list(local_output)
+    else:
+        local_outputs = [local_output]
+
+    if isinstance(ground_truth, list):
+        ground_truths = ground_truth
+    else:
+        ground_truths = [ground_truth]
+
+    if len(local_outputs) != len(ground_truths):
+        return (
+            False,
+            f"Output count mismatch: got {len(local_outputs)}, "
+            f"expected {len(ground_truths)}",
+        )
+
+    if len(local_outputs) != len(output_placements):
+        return (
+            False,
+            f"Output count mismatch with placements: "
+            f"got {len(local_outputs)}, expected {len(output_placements)}",
+        )
+
+    for i, (local_out, gt, out_plc) in enumerate(
+        zip(local_outputs, ground_truths, output_placements)
+    ):
+        if not isinstance(local_out, torch.Tensor):
+            return False, f"Local output[{i}] is not a tensor: {type(local_out)}"
+
+        if not isinstance(local_out, LocalTensor):
+            return False, f"LocalTensor inputs produced non-LocalTensor output[{i}]"
+
+        output_dt = DTensor.from_local(
+            local_out,
+            mesh,
+            (out_plc,),
+            shape=gt.shape,
+            stride=gt.stride(),
+        )
+
+        if isinstance(out_plc, Replicate):
+            local_values = [local_out._local_tensors[r] for r in range(world_size)]
+            all_same = all(
+                torch.allclose(local_values[0], lv, atol=1e-5, rtol=1e-5)
+                for lv in local_values[1:]
+            )
+            if not all_same:
+                return (
+                    False,
+                    f"Replicate output[{i}] but local values differ across ranks",
+                )
+
+        full_output = output_dt.redistribute(mesh, (Replicate(),)).to_local()
+
+        if isinstance(full_output, LocalTensor):
+            full_output = full_output._local_tensors[0]
+
+        if gt.shape != full_output.shape:
+            return (
+                False,
+                f"Shape mismatch[{i}]: expected {gt.shape}, got {full_output.shape}",
+            )
+
+        if not torch.allclose(gt, full_output, atol=1e-5, rtol=1e-5, equal_nan=True):
+            max_diff = (gt - full_output).abs().max().item()
+            return False, f"Value mismatch[{i}]: max_diff={max_diff:.6f}"
+
+    return True, ""
+
+
 def validate_combination(
     op: Callable[..., Any],
     sample_input: SampleInput,
@@ -467,33 +582,9 @@ def validate_combination(
             device = tensors[0][1].device.type if tensors else "cpu"
             mesh = init_device_mesh(device, (world_size,))
 
-        local_tensors = []
-        for tensor_idx, ((name, tensor), placement) in enumerate(
-            zip(tensors, combination[0])
-        ):
-            if isinstance(placement, Partial):
-                local_tensor = _create_partial_input(
-                    tensor, placement, world_size, tensor_idx, mask_shift
-                )
-            elif isinstance(placement, Replicate):
-                _tmp = {r: tensor.clone() for r in range(world_size)}
-                # pyrefly: ignore [bad-argument-type, bad-argument-count]
-                local_tensor = LocalTensor(_tmp)
-            elif isinstance(placement, Shard):
-                # Create sharded LocalTensor directly to work in LocalTensorMode
-                shard_dim = placement.dim
-                chunks = tensor.tensor_split(world_size, dim=shard_dim)
-                _tmp = {
-                    r: chunks[r].clone(memory_format=torch.contiguous_format)
-                    for r in range(world_size)
-                }
-                # pyrefly: ignore [bad-argument-type, bad-argument-count]
-                local_tensor = LocalTensor(_tmp)
-            else:
-                # Fallback for other placement types
-                dt = distribute_tensor(tensor.clone(), mesh, (placement,))
-                local_tensor = dt.to_local()
-            local_tensors.append(local_tensor)
+        local_tensors = _shard_tensors(
+            tensors, combination[0], world_size, mesh, mask_shift
+        )
 
         local_idx = 0
 
@@ -515,77 +606,9 @@ def validate_combination(
 
         local_output = op(local_input, *local_args, **local_kwargs)
 
-        # Normalize to list for uniform handling of single/multi-output ops
-        if isinstance(local_output, (list, tuple)):
-            local_outputs = list(local_output)
-        else:
-            local_outputs = [local_output]
-
-        if isinstance(ground_truth, list):
-            ground_truths = ground_truth
-        else:
-            ground_truths = [ground_truth]
-
-        if len(local_outputs) != len(ground_truths):
-            return (
-                False,
-                f"Output count mismatch: got {len(local_outputs)}, expected {len(ground_truths)}",
-            )
-
-        if len(local_outputs) != len(combination[1]):
-            return (
-                False,
-                f"Output count mismatch with placements: "
-                f"got {len(local_outputs)}, expected {len(combination[1])}",
-            )
-
-        for i, (local_out, gt, out_plc) in enumerate(
-            zip(local_outputs, ground_truths, combination[1])
-        ):
-            if not isinstance(local_out, torch.Tensor):
-                return False, f"Local output[{i}] is not a tensor: {type(local_out)}"
-
-            if not isinstance(local_out, LocalTensor):
-                return False, f"LocalTensor inputs produced non-LocalTensor output[{i}]"
-
-            output_dt = DTensor.from_local(
-                local_out,
-                mesh,
-                (out_plc,),
-                shape=gt.shape,
-                stride=gt.stride(),
-            )
-
-            if isinstance(out_plc, Replicate):
-                local_values = [local_out._local_tensors[r] for r in range(world_size)]
-                all_same = all(
-                    torch.allclose(local_values[0], lv, atol=1e-3, rtol=1e-5)
-                    for lv in local_values[1:]
-                )
-                if not all_same:
-                    return (
-                        False,
-                        f"Replicate output[{i}] but local values differ across ranks",
-                    )
-
-            full_output = output_dt.redistribute(mesh, (Replicate(),)).to_local()
-
-            if isinstance(full_output, LocalTensor):
-                full_output = full_output._local_tensors[0]
-
-            if gt.shape != full_output.shape:
-                return (
-                    False,
-                    f"Shape mismatch[{i}]: expected {gt.shape}, got {full_output.shape}",
-                )
-
-            if not torch.allclose(
-                gt, full_output, atol=1e-3, rtol=1e-5, equal_nan=True
-            ):
-                max_diff = (gt - full_output).abs().max().item()
-                return False, f"Value mismatch[{i}]: max_diff={max_diff:.6f}"
-
-        return True, ""
+        return _compare_outputs(
+            local_output, ground_truth, combination[1], mesh, world_size
+        )
 
     except Exception as e:
         # TODO: This is too broad. Consider: (1) explicit checks for shard dim
@@ -632,40 +655,18 @@ def validate_aten_combination(
 ) -> tuple[bool, str]:
     """Validate a placement combination using aten-level captured args.
 
-    Similar to validate_combination but works directly with aten op args/kwargs
-    instead of SampleInput pytrees. Replaces tensors in the flat args/kwargs
-    with sharded LocalTensors, calls the aten op, and compares output.
+    Works directly with aten op args/kwargs instead of SampleInput pytrees.
+    Replaces tensors in the flat args/kwargs with sharded LocalTensors,
+    calls the aten op, and compares output.
     """
     try:
         tensors = extract_tensors_from_args(captured_args, captured_kwargs)
         if not tensors:
             return False, "No tensor args in captured aten call"
 
-        local_tensors = []
-        for tensor_idx, ((name, tensor), placement) in enumerate(
-            zip(tensors, combination[0])
-        ):
-            if isinstance(placement, Partial):
-                local_tensor = _create_partial_input(
-                    tensor, placement, world_size, tensor_idx, mask_shift
-                )
-            elif isinstance(placement, Replicate):
-                _tmp = {r: tensor.clone() for r in range(world_size)}
-                # pyrefly: ignore [bad-argument-type, bad-argument-count]
-                local_tensor = LocalTensor(_tmp)
-            elif isinstance(placement, Shard):
-                shard_dim = placement.dim
-                chunks = tensor.tensor_split(world_size, dim=shard_dim)
-                _tmp = {
-                    r: chunks[r].clone(memory_format=torch.contiguous_format)
-                    for r in range(world_size)
-                }
-                # pyrefly: ignore [bad-argument-type, bad-argument-count]
-                local_tensor = LocalTensor(_tmp)
-            else:
-                dt = distribute_tensor(tensor.clone(), mesh, (placement,))
-                local_tensor = dt.to_local()
-            local_tensors.append(local_tensor)
+        local_tensors = _shard_tensors(
+            tensors, combination[0], world_size, mesh, mask_shift
+        )
 
         local_idx = 0
 
@@ -682,77 +683,9 @@ def validate_aten_combination(
 
         local_output = aten_op(*local_args, **local_kwargs)
 
-        if isinstance(local_output, (list, tuple)):
-            local_outputs = list(local_output)
-        else:
-            local_outputs = [local_output]
-
-        if isinstance(ground_truth, list):
-            ground_truths = ground_truth
-        else:
-            ground_truths = [ground_truth]
-
-        if len(local_outputs) != len(ground_truths):
-            return (
-                False,
-                f"Output count mismatch: got {len(local_outputs)}, "
-                f"expected {len(ground_truths)}",
-            )
-
-        if len(local_outputs) != len(combination[1]):
-            return (
-                False,
-                f"Output count mismatch with placements: "
-                f"got {len(local_outputs)}, expected {len(combination[1])}",
-            )
-
-        for i, (local_out, gt, out_plc) in enumerate(
-            zip(local_outputs, ground_truths, combination[1])
-        ):
-            if not isinstance(local_out, torch.Tensor):
-                return False, f"Local output[{i}] is not a tensor: {type(local_out)}"
-
-            if not isinstance(local_out, LocalTensor):
-                return False, f"LocalTensor inputs produced non-LocalTensor output[{i}]"
-
-            output_dt = DTensor.from_local(
-                local_out,
-                mesh,
-                (out_plc,),
-                shape=gt.shape,
-                stride=gt.stride(),
-            )
-
-            if isinstance(out_plc, Replicate):
-                local_values = [local_out._local_tensors[r] for r in range(world_size)]
-                all_same = all(
-                    torch.allclose(local_values[0], lv, atol=1e-3, rtol=1e-5)
-                    for lv in local_values[1:]
-                )
-                if not all_same:
-                    return (
-                        False,
-                        f"Replicate output[{i}] but local values differ across ranks",
-                    )
-
-            full_output = output_dt.redistribute(mesh, (Replicate(),)).to_local()
-
-            if isinstance(full_output, LocalTensor):
-                full_output = full_output._local_tensors[0]
-
-            if gt.shape != full_output.shape:
-                return (
-                    False,
-                    f"Shape mismatch[{i}]: expected {gt.shape}, got {full_output.shape}",
-                )
-
-            if not torch.allclose(
-                gt, full_output, atol=1e-3, rtol=1e-5, equal_nan=True
-            ):
-                max_diff = (gt - full_output).abs().max().item()
-                return False, f"Value mismatch[{i}]: max_diff={max_diff:.6f}"
-
-        return True, ""
+        return _compare_outputs(
+            local_output, ground_truth, combination[1], mesh, world_size
+        )
 
     except Exception as e:
         return False, f"Exception: {type(e).__name__}: {e}"
@@ -1429,8 +1362,10 @@ def _validate_aten_with_mitigations(
         and mitigations.negated_args is not None
         and has_pmin_pmax(input_placements, output_placements)
     ):
-        assert mitigations.negated_kwargs is not None
-        assert mitigations.negated_ground_truth is not None
+        if mitigations.negated_kwargs is None:
+            raise AssertionError("negated_kwargs must not be None")
+        if mitigations.negated_ground_truth is None:
+            raise AssertionError("negated_ground_truth must not be None")
         is_valid, _ = validate_aten_combination(
             aten_op,
             mitigations.negated_args,
