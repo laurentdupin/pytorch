@@ -3281,7 +3281,6 @@ uint64_t ProcessGroupNCCL::getCommSplitCounter() const {
 }
 
 void ProcessGroupNCCL::suspend() {
-  // Get the collective communicator on the current CUDA device.
   auto device = at::Device(at::kCUDA, guessDeviceId());
   std::string deviceKey = getKeyFromDevice(device);
   auto ncclComm = getNCCLComm(deviceKey);
@@ -3290,7 +3289,6 @@ void ProcessGroupNCCL::suspend() {
 }
 
 void ProcessGroupNCCL::resume() {
-  // Get the collective communicator on the current CUDA device.
   auto device = at::Device(at::kCUDA, guessDeviceId());
   std::string deviceKey = getKeyFromDevice(device);
   auto ncclComm = getNCCLComm(deviceKey);
@@ -3299,7 +3297,6 @@ void ProcessGroupNCCL::resume() {
 }
 
 std::unordered_map<std::string, uint64_t> ProcessGroupNCCL::getMemoryStats() {
-  // Get the collective communicator on the current CUDA device.
   auto device = at::Device(at::kCUDA, guessDeviceId());
   std::string deviceKey = getKeyFromDevice(device);
   auto ncclComm = getNCCLComm(deviceKey);

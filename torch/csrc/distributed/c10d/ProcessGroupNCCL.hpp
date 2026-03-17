@@ -1051,7 +1051,7 @@ class TORCH_API ProcessGroupNCCL : public Backend {
 
   void setEnableNanCheck(bool enableNanCheck);
 
-  // APIs related to memory offload
+  // APIs related to memory offload (require NCCL 2.29.7+ at runtime)
   void suspend() override;
 
   void resume() override;
