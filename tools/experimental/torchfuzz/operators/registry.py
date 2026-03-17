@@ -3,11 +3,6 @@
 from torchfuzz.operators.arg import ArgOperator
 from torchfuzz.operators.argsort import ArgsortOperator
 from torchfuzz.operators.base import Operator
-from torchfuzz.operators.collectives import (
-    AllGatherOperator,
-    AllReduceOperator,
-    ReduceScatterOperator,
-)
 from torchfuzz.operators.constant import ConstantOperator
 from torchfuzz.operators.gather import GatherOperator
 from torchfuzz.operators.index_select import IndexSelectOperator
@@ -143,11 +138,6 @@ class OperatorRegistry:
 
         # Regularization
         self.register(DropoutOperator())
-
-        # Collective communication operators
-        self.register(AllGatherOperator())
-        self.register(ReduceScatterOperator())
-        self.register(AllReduceOperator())
 
     def register(self, operator: Operator):
         """Register an operator in the registry."""

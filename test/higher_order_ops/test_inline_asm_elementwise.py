@@ -6,6 +6,7 @@ Tests verify:
 1. Bitwise equivalence between eager (Jiterator) and compiled (Inductor) paths
 2. Correctness via approximate comparison with reference PyTorch ops
 """
+
 import unittest
 
 import torch
@@ -119,7 +120,9 @@ def _get_test_cases():
         # Output dtype conversion
         (
             "exponent_extract",
-            lambda: (torch.tensor([1.0, 2.0, 0.5, 16.0], device="cuda", dtype=torch.float32),),
+            lambda: (
+                torch.tensor([1.0, 2.0, 0.5, 16.0], device="cuda", dtype=torch.float32),
+            ),
             "{.reg .b32 t; mov.b32 t,$1; shr.u32 t,t,23; and.b32 $0,t,0xFF;}",
             "=r,f",
             torch.int32,
@@ -159,10 +162,14 @@ TEST_CASE_NAMES = [tc[0] for tc in TEST_CASES]
 class TestInlineAsmElementwise(TestCase):
     """Parametrized tests for inline_asm_elementwise."""
 
-    @parametrize("case_idx", list(range(len(TEST_CASES))), name_fn=lambda i: TEST_CASE_NAMES[i])
+    @parametrize(
+        "case_idx", list(range(len(TEST_CASES))), name_fn=lambda i: TEST_CASE_NAMES[i]
+    )
     def test_eager_vs_compiled_bitwise(self, case_idx):
         """Verify eager and compiled produce bitwise identical results."""
-        name, input_gen_fn, asm_str, constraints, dtype, approx_fn = TEST_CASES[case_idx]
+        name, input_gen_fn, asm_str, constraints, dtype, approx_fn = TEST_CASES[
+            case_idx
+        ]
 
         inputs = input_gen_fn()
 
@@ -181,10 +188,14 @@ class TestInlineAsmElementwise(TestCase):
             f"  max diff: {(eager_result.float() - compiled_result.float()).abs().max()}",
         )
 
-    @parametrize("case_idx", list(range(len(TEST_CASES))), name_fn=lambda i: TEST_CASE_NAMES[i])
+    @parametrize(
+        "case_idx", list(range(len(TEST_CASES))), name_fn=lambda i: TEST_CASE_NAMES[i]
+    )
     def test_correctness(self, case_idx):
         """Verify result matches reference function."""
-        name, input_gen_fn, asm_str, constraints, dtype, approx_fn = TEST_CASES[case_idx]
+        name, input_gen_fn, asm_str, constraints, dtype, approx_fn = TEST_CASES[
+            case_idx
+        ]
 
         inputs = input_gen_fn()
 
@@ -220,7 +231,8 @@ class TestInlineAsmElementwiseErrors(TestCase):
         y = torch.randn(100, device="cuda", dtype=torch.float32)
         with self.assertRaises(ValueError):
             inline_asm_elementwise(
-                x, y,
+                x,
+                y,
                 asm_str="add.f32 $0, $1, $2;",
                 constraints="=f,f",
                 dtype=torch.float32,
@@ -269,7 +281,11 @@ class TestInlineAsmElementwiseEdgeCases(TestCase):
         def fn(x, y):
             z = x * 2
             w = inline_asm_elementwise(
-                z, y, asm_str="add.f32 $0, $1, $2;", constraints="=f,f,f", dtype=torch.float32
+                z,
+                y,
+                asm_str="add.f32 $0, $1, $2;",
+                constraints="=f,f,f",
+                dtype=torch.float32,
             )
             return w + 1.0
 
@@ -286,7 +302,11 @@ class TestInlineAsmElementwiseEdgeCases(TestCase):
     def test_dynamic_shapes(self):
         def fn(x, y):
             return inline_asm_elementwise(
-                x, y, asm_str="add.f32 $0, $1, $2;", constraints="=f,f,f", dtype=torch.float32
+                x,
+                y,
+                asm_str="add.f32 $0, $1, $2;",
+                constraints="=f,f,f",
+                dtype=torch.float32,
             )
 
         compiled_fn = torch.compile(fn, backend="inductor", dynamic=True)

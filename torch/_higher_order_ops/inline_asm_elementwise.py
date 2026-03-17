@@ -1,23 +1,4 @@
 # mypy: allow-untyped-defs
-"""
-Inline ASM Elementwise Higher-Order Operator.
-
-Provides inline PTX assembly support for both eager and compiled modes:
-- Eager: JIT compiles CUDA kernels via Jiterator with inline asm
-- Compiled: Lowers to tl.inline_asm_elementwise in Triton via Inductor
-
-Example:
-    from torch._higher_order_ops.inline_asm_elementwise import inline_asm_elementwise
-
-    def fast_rsqrt(x):
-        return inline_asm_elementwise(
-            x,
-            asm_str="rsqrt.approx.f32 $0, $1;",
-            constraints="=f,f",
-            dtype=torch.float32,
-        )
-"""
-
 import functools
 import re
 
@@ -33,18 +14,11 @@ from torch.fx.experimental.proxy_tensor import (
     track_tensor_tree,
 )
 
+
 __all__ = ["inline_asm_elementwise"]
 
 
 class InlineAsmElementwiseOp(HigherOrderOperator):
-    """
-    Elementwise inline PTX assembly operation.
-
-    All tensor inputs are broadcast together before the operation.
-    Uses Triton-style $N operand references (automatically converted
-    to CUDA %N syntax for Jiterator).
-    """
-
     def __init__(self):
         super().__init__("inline_asm_elementwise")
 
@@ -57,12 +31,15 @@ class InlineAsmElementwiseOp(HigherOrderOperator):
         is_pure: bool = True,
         pack: int = 1,
     ) -> torch.Tensor:
+        if not is_pure:
+            raise ValueError("inline_asm_elementwise only supports is_pure=True")
+        # pyrefly: ignore [missing-attribute]
         return super().__call__(
             *inputs,
             asm_str=asm_str,
             constraints=constraints,
             dtype=dtype,
-            is_pure=is_pure,
+            is_pure=True,
             pack=pack,
         )
 
@@ -70,13 +47,7 @@ class InlineAsmElementwiseOp(HigherOrderOperator):
 inline_asm_elementwise = InlineAsmElementwiseOp()
 
 
-# -----------------------------------------------------------------------------
-# Constraint parsing utilities
-# -----------------------------------------------------------------------------
-
-
 def _parse_constraints(constraints: str) -> tuple[int, int]:
-    """Parse constraint string to get (n_outputs, n_inputs)."""
     parts = [p.strip() for p in constraints.split(",")]
     n_outputs = sum(1 for p in parts if p.startswith("="))
     n_inputs = len(parts) - n_outputs
@@ -84,18 +55,12 @@ def _parse_constraints(constraints: str) -> tuple[int, int]:
 
 
 def _constraint_expects_fp32(constraint: str) -> bool:
-    """Check if constraint expects fp32 input."""
     return constraint.lstrip("=") == "f"
 
 
 def _should_upcast_to_fp32(dtype: torch.dtype) -> bool:
-    """Check if dtype should be upcast to fp32 for PTX float operations."""
     return dtype in (torch.float16, torch.bfloat16)
 
-
-# -----------------------------------------------------------------------------
-# Eager implementation via Jiterator
-# -----------------------------------------------------------------------------
 
 _DTYPE_TO_CUDA_TYPE = {
     torch.float32: "float",
@@ -114,7 +79,6 @@ _DTYPE_TO_CUDA_TYPE = {
 
 
 def _triton_asm_to_cuda_asm(asm_str: str) -> str:
-    """Convert Triton-style asm ($0, $1) to CUDA-style (%0, %1)."""
     return re.sub(r"\$(\d+)", r"%\1", asm_str)
 
 
@@ -126,7 +90,6 @@ def _get_jiterator_fn(
     input_dtype: torch.dtype,
     output_dtype: torch.dtype,
 ):
-    """Create and cache a Jiterator function for the given asm."""
     from torch.cuda.jiterator import _create_jit_fn
 
     cuda_asm = _triton_asm_to_cuda_asm(asm_str)
@@ -148,7 +111,9 @@ def _get_jiterator_fn(
     in_constraints_str = ", ".join(
         f'"{c}"(in{i})' for i, c in enumerate(input_constraints)
     )
-    escaped_asm = cuda_asm.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    escaped_asm = (
+        cuda_asm.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    )
 
     code = f"""
 template <typename T>
@@ -167,7 +132,6 @@ template <typename T>
 
 
 def _inline_asm_dense(*inputs, asm_str, constraints, dtype, is_pure, pack):
-    """Dense (eager) implementation via Jiterator."""
     if not inputs:
         raise ValueError("inline_asm_elementwise requires at least one input tensor")
 
@@ -227,18 +191,9 @@ def inline_asm_eager(*inputs, asm_str, constraints, dtype, is_pure=True, pack=1)
     )
 
 
-# -----------------------------------------------------------------------------
-# Autograd - not implemented
-# -----------------------------------------------------------------------------
-
 inline_asm_elementwise.py_autograd_impl(
     autograd_not_implemented(inline_asm_elementwise, deferred_error=True)
 )
-
-
-# -----------------------------------------------------------------------------
-# FakeTensor / Meta implementation
-# -----------------------------------------------------------------------------
 
 
 @inline_asm_elementwise.py_impl(FakeTensorMode)
@@ -254,15 +209,9 @@ def inline_asm_meta(*inputs, asm_str, constraints, dtype, is_pure=True, pack=1):
     return torch.empty_like(broadcasted[0], dtype=dtype)
 
 
-# -----------------------------------------------------------------------------
-# ProxyTorchDispatchMode for tracing
-# -----------------------------------------------------------------------------
-
-
 def trace_inline_asm(
     proxy_mode, func_overload, *inputs, asm_str, constraints, dtype, is_pure, pack
 ):
-    """Trace inline_asm_elementwise through proxy mode."""
     with disable_proxy_modes_tracing():
         broadcasted = torch.broadcast_tensors(*inputs)
         out = torch.empty_like(broadcasted[0], dtype=dtype)
@@ -301,11 +250,6 @@ def inline_asm_proxy(mode, *inputs, asm_str, constraints, dtype, is_pure=True, p
     )
 
 
-# -----------------------------------------------------------------------------
-# Functionalization
-# -----------------------------------------------------------------------------
-
-
 @inline_asm_elementwise.py_functionalize_impl
 def inline_asm_func(ctx, *inputs, asm_str, constraints, dtype, is_pure=True, pack=1):
     unwrapped_inputs = ctx.unwrap_tensors(inputs)
@@ -316,7 +260,6 @@ def inline_asm_func(ctx, *inputs, asm_str, constraints, dtype, is_pure=True, pac
             asm_str=asm_str,
             constraints=constraints,
             dtype=dtype,
-            is_pure=is_pure,
             pack=pack,
         )
     return ctx.wrap_tensors(res)
