@@ -135,6 +135,11 @@ def _fa4_forward_support_error(
             return "seqused_k must be int32"
         if not seqused_k.is_cuda:
             return "seqused_k must be CUDA"
+    major = _get_device_major(query.device)
+    if block_table is not None and major != 10:
+        return f"paged KV (block_table) not supported on SM {major}0"
+    if num_splits is not None and num_splits > 1 and major != 10:
+        return f"SplitKV (num_splits > 1) not supported on SM {major}0"
     error = _fa4_common_support_error(
         query,
         (query, key, value),
@@ -144,12 +149,6 @@ def _fa4_forward_support_error(
         if error == "inputs must share device":
             return "query, key, value must be on same device"
         return error
-    # paged KV and SplitKV are only supported on SM100/SM110
-    major = _get_device_major(query.device)
-    if block_table is not None and major != 10:
-        return f"paged KV (block_table) not supported on SM {major}0"
-    if num_splits is not None and num_splits > 1 and major != 10:
-        return f"SplitKV (num_splits > 1) not supported on SM {major}0"
     return None
 
 
@@ -219,7 +218,7 @@ def _fa4_run_forward(
         "cu_seqlens_k": cu_seq_k,
         "max_seqlen_q": max_q,
         "max_seqlen_k": max_k,
-        "seqused_k": seqused_k,
+        "seqused_k": seqused_k.contiguous() if seqused_k is not None else None,
         "page_table": block_table,
         "num_splits": num_splits or 1,
         "out": out,
