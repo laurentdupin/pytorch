@@ -295,7 +295,11 @@ at::Tensor& mps_copy_(at::Tensor& dst, const at::Tensor& src, bool non_blocking)
 
   bool needs_broadcasting = false;
 
-  if (src.numel() == 0 || dst.is_same(src)) {
+  if (dst.is_same(src)) {
+    return dst;
+  }
+  if (src.numel() == 0) {
+    dst.resize_as_(src);
     return dst;
   }
   if (dst.numel() == 0) {
