@@ -109,8 +109,8 @@ jobs:
           source test_venv/bin/activate
           pip install "$PYTORCH_FINAL_PACKAGE_DIR"/*.whl numpy -v
 
-            # shellcheck disable=SC2086
-            python "${PYTORCH_ROOT}/.ci/pytorch/smoke_test/smoke_test.py" --package torchonly ${SMOKE_TEST_PARAMS}
+          # shellcheck disable=SC2086
+          python "${PYTORCH_ROOT}/.ci/pytorch/smoke_test/smoke_test.py" --package torchonly ${SMOKE_TEST_PARAMS}
 {%- endif %}
       - uses: actions/upload-artifact@v4.4.0
         if: always()
