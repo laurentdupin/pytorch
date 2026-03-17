@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+from check_wheel_tags import check_mac_wheel_minos
+
 import torch
 import torch._dynamo
 import torch.nn as nn
@@ -550,6 +552,8 @@ def main() -> None:
     )
 
     smoke_test_nvshmem()
+
+    check_mac_wheel_minos()
 
 
 if __name__ == "__main__":
