@@ -116,9 +116,22 @@ register_experimental_backend = functools.partial(
 )
 
 
+def _torchlite_backend(gm, example_inputs):
+    from torch._torchlite.api import codegen, inference_passes, run_passes
+
+    gm = run_passes(gm, list(example_inputs), pipeline=inference_passes())
+    return codegen(
+        gm,
+        example_inputs=list(example_inputs),
+        inference_codegen=True,
+    )
+
+
 def lookup_backend(compiler_fn: Union[str, CompilerFn]) -> CompilerFn:
     """Expand backend strings to functions"""
     if isinstance(compiler_fn, str):
+        if compiler_fn == "inductor":
+            return _torchlite_backend  # type: ignore[return-value]
         if compiler_fn not in _BACKENDS:
             _lazy_import()
         if compiler_fn not in _BACKENDS:
