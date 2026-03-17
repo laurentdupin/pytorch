@@ -1234,6 +1234,15 @@ class TestMPS(TestCaseMPS):
         result_cpu = torch.bmm(a.cpu().conj(), b.cpu())
         self.assertEqual(result_cpu, result_mps)
 
+    def test_addmm_conj(self):
+        # Regression test: addmm must respect the conjugate bit on the bias tensor.
+        bias = torch.randn(3, 2, dtype=torch.complex64, device="mps")
+        a = torch.randn(3, 5, dtype=torch.complex64, device="mps")
+        b = torch.randn(5, 2, dtype=torch.complex64, device="mps")
+        result_mps = torch.addmm(bias.conj(), a, b)
+        result_cpu = torch.addmm(bias.cpu().conj(), a.cpu(), b.cpu())
+        self.assertEqual(result_cpu, result_mps)
+
     @xfailIf(MACOS_VERSION < 15.0)
     @parametrize("dtype", [torch.float16, torch.bfloat16])
     def test_large_bmm(self, dtype):

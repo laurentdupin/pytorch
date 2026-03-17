@@ -899,7 +899,8 @@ static Tensor& addmm_out_mps_impl(const Tensor& bias,
     std::string key = "addmm_out_mps_impl" + getTensorsStringKey({self, other, *bias_}) + ":" +
         std::to_string(beta.toDouble()) + ":" + std::to_string(alpha.toDouble());
     auto cachedGraph = LookUpOrCreateCachedGraph<CachedGraph>(key, [&](auto mpsGraph, auto newCachedGraph) {
-      MPSGraphTensor* biasTensor = mpsGraphRankedPlaceHolder(mpsGraph, *bias_);
+      auto biasTensor = mpsGraphRankedPlaceHolder(mpsGraph, *bias_);
+      auto biasTensor_ = bias_->is_conj() ? [mpsGraph conjugateWithTensor:biasTensor name:nil] : biasTensor;
 
       // TODO: Use alpha and beta here with fill_.Scalar and mul
       auto [selfTensor, otherTensor, productTensor] = do_mm(mpsGraph, self, other);
@@ -912,11 +913,11 @@ static Tensor& addmm_out_mps_impl(const Tensor& bias,
                                                             secondaryTensor:alphaTensor
                                                                        name:@"MM/alpha*(mat1@mat2)"];
       }
-      auto biasTimesBetaTensor = biasTensor;
+      auto biasTimesBetaTensor = biasTensor_;
       if (is_beta_non_zero && beta.toDouble() != 1.0) {
         auto betaTensor = [mpsGraph constantWithScalar:beta.toDouble()
                                               dataType:getMPSScalarType((*bias_).scalar_type())];
-        biasTimesBetaTensor = [mpsGraph multiplicationWithPrimaryTensor:biasTensor
+        biasTimesBetaTensor = [mpsGraph multiplicationWithPrimaryTensor:biasTensor_
                                                         secondaryTensor:betaTensor
                                                                    name:@"MM/beta*input"];
       }
