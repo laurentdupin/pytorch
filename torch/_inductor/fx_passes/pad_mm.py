@@ -251,10 +251,8 @@ def pad_addmm(
 
     res = aten.addmm(input, mat1, mat2, beta=beta, alpha=alpha)
 
-    if m_padded_length != 0:
-        res = res[:-m_padded_length, :]
-    if n_padded_length != 0:
-        res = res[:, :-n_padded_length]
+    if m_padded_length != 0 or n_padded_length != 0:
+        res = aten.constant_pad_nd(res, [0, -n_padded_length, 0, -m_padded_length])
     return res
 
 
@@ -843,10 +841,8 @@ def pad_mm(
             mat2, k_padded_length=k_padded_length, n_padded_length=n_padded_length
         )
     res = aten.mm(mat1, mat2)
-    if m_padded_length != 0:
-        res = res[:-m_padded_length, :]
-    if n_padded_length != 0:
-        res = res[:, :-n_padded_length]
+    if m_padded_length != 0 or n_padded_length != 0:
+        res = aten.constant_pad_nd(res, [0, -n_padded_length, 0, -m_padded_length])
     return res
 
 
@@ -896,10 +892,10 @@ def pad_bmm(
             is_bmm=True,
         )
     res = aten.bmm(mat1, mat2)
-    if m_padded_length != 0:
-        res = res[:, :-m_padded_length, :]
-    if n_padded_length != 0:
-        res = res[:, :, :-n_padded_length]
+    if m_padded_length != 0 or n_padded_length != 0:
+        res = aten.constant_pad_nd(
+            res, [0, -n_padded_length, 0, -m_padded_length, 0, 0]
+        )
     return res
 
 
