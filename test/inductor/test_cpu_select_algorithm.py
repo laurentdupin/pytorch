@@ -3320,12 +3320,12 @@ _woq_mm_skip = unittest.skipIf(
     IS_ARM64 and not IS_CPU_EXT_SVE_SUPPORTED,
     "flaky on AArch64 (no SVE)",
 )
-for _attr in list(vars(TestSelectAlgorithmCPU)):
+for _attr in list(vars(TestSelectAlgorithmCPU)):  # noqa: F821
     if _attr.startswith("test_int8_woq_mm_"):
         setattr(
-            TestSelectAlgorithmCPU,
+            TestSelectAlgorithmCPU,  # noqa: F821
             _attr,
-            _woq_mm_skip(getattr(TestSelectAlgorithmCPU, _attr)),
+            _woq_mm_skip(getattr(TestSelectAlgorithmCPU, _attr)),  # noqa: F821
         )
 
 
