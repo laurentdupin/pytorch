@@ -55,7 +55,7 @@ class PadMMTest(TestCase):
             compiled_fn = torch.compile(fn)
             res2, (code,) = run_and_get_code(compiled_fn, a)
             FileCheck().check(f"K = {aligned_k}").run(code)
-        self.assertEqual(res1, res2)
+        self.assertEqual(res1, res2, exact_stride=True)
 
     @inductor_config.patch(
         max_autotune=True, max_autotune_gemm_backends="TRITON", force_shape_pad=True
@@ -92,7 +92,7 @@ class PadMMTest(TestCase):
             compiled_fn = torch.compile(fn)
             res2, (code,) = run_and_get_code(compiled_fn, a, b)
             FileCheck().check(f"K = {aligned_k}").run(code)
-        self.assertEqual(res1, res2)
+        self.assertEqual(res1, res2, exact_stride=True)
 
     @inductor_config.patch(
         max_autotune=True, max_autotune_gemm_backends="TRITON", force_shape_pad=True
@@ -121,7 +121,7 @@ class PadMMTest(TestCase):
             compiled_fn = torch.compile(fn)
             res2, (code,) = run_and_get_code(compiled_fn, a, b)
             FileCheck().check(f"K = {aligned_k}").run(code)
-        self.assertEqual(res1, res2)
+        self.assertEqual(res1, res2, exact_stride=True)
 
     @inductor_config.patch(
         max_autotune=True, max_autotune_gemm_backends="TRITON", force_shape_pad=True
@@ -153,7 +153,7 @@ class PadMMTest(TestCase):
             compiled_fn = torch.compile(fn)
             res2, (code,) = run_and_get_code(compiled_fn, a, b)
             FileCheck().check(f"M = {aligned_m}").run(code)
-        self.assertEqual(res1, res2)
+        self.assertEqual(res1, res2, exact_stride=True)
 
     def test_pad_mm_dyn_mnk(self):
         M = 20
@@ -180,7 +180,7 @@ class PadMMTest(TestCase):
             res1 = fn(a, b)
             compiled_fn = torch.compile(fn)
             res2, (_,) = run_and_get_code(compiled_fn, a, b)
-        self.assertEqual(res1, res2)
+        self.assertEqual(res1, res2, exact_stride=True)
 
     @inductor_config.patch(force_shape_pad=True)
     def test_zero_dim(self):
@@ -190,7 +190,9 @@ class PadMMTest(TestCase):
         x = torch.randn(100).to(GPU_TYPE)
         a = torch.randn(0, 10).to(GPU_TYPE)
         b = torch.randn(10, 100).to(GPU_TYPE)
-        self.assertEqual(torch.compile(addmm)(x, a, b), addmm(x, a, b))
+        self.assertEqual(
+            torch.compile(addmm)(x, a, b), addmm(x, a, b), exact_stride=True
+        )
 
     @inductor_config.patch(
         max_autotune=True, max_autotune_gemm_backends="TRITON", force_shape_pad=True
@@ -221,7 +223,7 @@ class PadMMTest(TestCase):
             compiled_fn = torch.compile(fn)
             res2, (code,) = run_and_get_code(compiled_fn, a, b)
             FileCheck().check(f"K = {aligned_k}").run(code)
-        self.assertEqual(res1, res2)
+        self.assertEqual(res1, res2, exact_stride=True)
 
     @inductor_config.patch(
         max_autotune=True, max_autotune_gemm_backends="TRITON", force_shape_pad=True
@@ -252,7 +254,7 @@ class PadMMTest(TestCase):
             compiled_fn = torch.compile(fn)
             res2, (code,) = run_and_get_code(compiled_fn, a, b)
             FileCheck().check(f"N = {aligned_n}").run(code)
-        self.assertEqual(res1, res2)
+        self.assertEqual(res1, res2, exact_stride=True)
 
     @inductor_config.patch(
         max_autotune=True, max_autotune_gemm_backends="TRITON", force_shape_pad=True
@@ -284,7 +286,7 @@ class PadMMTest(TestCase):
             compiled_fn = torch.compile(fn)
             res2, (code,) = run_and_get_code(compiled_fn, a, b)
             FileCheck().check(f"N = {aligned_n}").run(code)
-        self.assertEqual(res1, res2)
+        self.assertEqual(res1, res2, exact_stride=True)
 
     @inductor_config.patch(
         max_autotune=True, max_autotune_gemm_backends="TRITON", force_shape_pad=True
@@ -315,7 +317,7 @@ class PadMMTest(TestCase):
             compiled_fn = torch.compile(fn)
             res2, (code,) = run_and_get_code(compiled_fn, a, b, c)
             FileCheck().check(f"K = {aligned_k}").run(code)
-        self.assertEqual(res1, res2)
+        self.assertEqual(res1, res2, exact_stride=True)
 
     @inductor_config.patch(
         max_autotune=True, max_autotune_gemm_backends="TRITON", force_shape_pad=True
@@ -348,7 +350,7 @@ class PadMMTest(TestCase):
             res2, (code,) = run_and_get_code(compiled_fn, a, b, c)
             # no padding
             FileCheck().check(f"K = {K}").run(code)
-        self.assertEqual(res1, res2)
+        self.assertEqual(res1, res2, exact_stride=True)
 
     @inductor_config.patch(force_shape_pad=True)
     def test_pad_single_cat(self):
@@ -358,7 +360,7 @@ class PadMMTest(TestCase):
 
         inps = [torch.rand([5, 5], device=GPU_TYPE) for _ in range(2)]
         out = foo(*inps)
-        self.assertEqual(out, inps[0] @ inps[1])
+        self.assertEqual(out, inps[0] @ inps[1], exact_stride=True)
 
     @inductor_config.patch(force_shape_pad=True)
     @fresh_cache()
@@ -376,7 +378,7 @@ class PadMMTest(TestCase):
                 )
                 out = foo(*inps)
                 out_eager = torch.ops.aten.addmm(*inps)
-                self.assertEqual(out, out_eager)
+                self.assertEqual(out, out_eager, exact_stride=True)
 
         for a in [1, 6]:
             inps = (
@@ -386,7 +388,7 @@ class PadMMTest(TestCase):
             )
             out = foo(*inps)
             out_eager = torch.ops.aten.addmm(*inps)
-            self.assertEqual(out, out_eager)
+            self.assertEqual(out, out_eager, exact_stride=True)
 
     @inductor_config.patch(force_shape_pad=True)
     def test_pad_batch(self):
