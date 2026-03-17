@@ -811,6 +811,7 @@ def register_op_strategy_map(
 
 
 register_op_strategy_map(aten.squeeze.default, torch.squeeze)
+register_op_strategy_map(aten.squeeze_.default, torch.squeeze)
 register_op_strategy_map(
     aten.squeeze_.dim, torch.squeeze, schema_info=RuntimeSchemaInfo(1)
 )

@@ -96,6 +96,7 @@ register_op_strategy(
         aten.alias.default,
         aten.fill_.Scalar,
         aten.view.dtype,
+        aten.view_copy.dtype,
         aten.zero_.default,
         prims.view_of.default,
     ]
@@ -211,7 +212,9 @@ register_op_strategy(
     [
         aten.ones_like.default,
         aten.rand_like.default,
+        aten.rand_like.generator,
         aten.randn_like.default,
+        aten.randn_like.generator,
         aten.zeros_like.default,
     ],
     schema_info=RuntimeSchemaInfo(1, ["dtype"]),
@@ -223,8 +226,13 @@ register_op_strategy(
 @register_op_strategy(
     [
         aten.randint_like.default,
+        aten.randint_like.generator,
         aten.randint_like.low_dtype,
         aten.randint_like.low_dtype_out,
+        aten.randint_like.low_generator_dtype,
+        # NOTE: randint_like.Tensor and randint_like.Tensor_generator are excluded
+        # because their kernel requires `high` to be a CPU scalar tensor, which is
+        # incompatible with DTensor's FakeTensor-based sharding propagation.
     ],
     schema_info=RuntimeSchemaInfo(3, ["dtype"]),
 )
@@ -237,6 +245,7 @@ def create_like_strategy(op_schema: OpSchema) -> StrategyType:
     create_like_strategy = OpStrategy([])
     if not isinstance(select_strategy, OpStrategy):
         raise AssertionError(f"Expected OpStrategy, got {type(select_strategy)}")
+
     for arg_strategy in select_strategy.strategies:
         arg_spec = arg_strategy.output_spec
         output_spec = DTensorSpec(
@@ -1007,7 +1016,7 @@ def index_select_single_dim_strategy(
 
 
 @register_single_dim_strategy(
-    [aten.index_put.default, aten._index_put_impl_.default],
+    [aten.index_put.default, aten.index_put.hacked_twin, aten._index_put_impl_.default],
     schema_info=RuntimeSchemaInfo(needs_pytree=True),
 )
 def index_put_single_dim_strategy(
@@ -1091,7 +1100,10 @@ def index_put_single_dim_strategy(
     return strategies
 
 
-@register_prop_rule(aten.index.Tensor, schema_info=RuntimeSchemaInfo(needs_pytree=True))
+@register_prop_rule(
+    [aten.index.Tensor, aten.index.Tensor_hacked_twin],
+    schema_info=RuntimeSchemaInfo(needs_pytree=True),
+)
 def prop_index(op_schema: OpSchema) -> OutputSharding:
     """
     Expect replicated on the first input; _mostly_ pointwise on the second input.
@@ -1437,7 +1449,7 @@ def replicate_only_single_dim_strategy(
 
 
 @register_single_dim_strategy(
-    [aten.stft.center],
+    [aten.stft.center, aten.stft.default],
     schema_info=RuntimeSchemaInfo(1),
 )
 def stft_strategy(
@@ -1478,7 +1490,6 @@ def unfold_strategy(
             continue
         strategies.append([_ShardingPlaceholder(d), _ShardingPlaceholder(d)])
     return strategies
-
 
 
 @register_single_dim_strategy(
@@ -1861,7 +1872,6 @@ def pdist_forward_strategy(
     if p == 1.0:
         return [[Partial(), Shard(1)]]
     return []
-
 
 
 @register_single_dim_strategy(
