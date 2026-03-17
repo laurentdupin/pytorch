@@ -3200,6 +3200,22 @@ def count_tangents(fx_g: torch.fx.GraphModule) -> int:
     return len(static_arg_idxs)
 
 
+def get_static_bw_input_idxs(fx_g: torch.fx.GraphModule) -> list[int]:
+    """
+    Returns indices of backward graph inputs that are always at fixed
+    addresses: primals (parameters/buffers/user inputs saved for backward).
+    Excludes saved activations which may not be at fixed addresses when
+    the forward is partitioned for CUDA graphs.
+    """
+    static_idxs = []
+    for idx, n in enumerate(fx_g.graph.nodes):
+        if n.op != "placeholder":
+            break
+        if n.name.startswith("primals_"):
+            static_idxs.append(idx)
+    return static_idxs
+
+
 @dataclasses.dataclass
 class BoxedBool:
     value: bool
@@ -4410,6 +4426,9 @@ COLLECTIVE_OPS = OrderedSet(
         "torch.ops._c10d_functional_autograd.all_gather_into_tensor.default",
         "torch.ops._c10d_functional_autograd.reduce_scatter_tensor.default",
         "torch.ops._c10d_functional_autograd.all_to_all_single.default",
+        "torch.ops._c10d_functional.isend.default",
+        "torch.ops._c10d_functional.irecv.default",
+        "torch.ops._c10d_functional.batch_p2p_ops.default",
     ]
 )
 
