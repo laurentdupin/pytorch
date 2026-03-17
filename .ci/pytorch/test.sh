@@ -716,8 +716,13 @@ test_perf_for_dashboard() {
   shift
 
   local backend=inductor
+  local backend_flag=("--backend" "inductor")
+  if [[ "${TEST_CONFIG}" == *torchlite* ]]; then
+    backend=torchlite
+    backend_flag=("--torchlite-compiled")
+  fi
   local modes=()
-  if [[ "$DASHBOARD_TAG" == *training-true* ]]; then
+  if [[ "$DASHBOARD_TAG" == *training-true* ]] && [[ "$backend" != "torchlite" ]]; then
     modes+=(training)
   fi
   if [[ "$DASHBOARD_TAG" == *inference-true* ]]; then
@@ -772,36 +777,36 @@ test_perf_for_dashboard() {
 
       if [[ "$DASHBOARD_TAG" == *default-true* ]]; then
         $TASKSET python "benchmarks/dynamo/$suite.py" \
-            "${target_flag[@]}" --"$mode" --"$dtype" --backend "$backend" --disable-cudagraphs "$@" \
+            "${target_flag[@]}" --"$mode" --"$dtype" "${backend_flag[@]}" --disable-cudagraphs "$@" \
             --output "$TEST_REPORTS_DIR/${backend}_no_cudagraphs_${suite}_${dtype}_${mode}_${device}_${target}.csv"
       fi
-      if [[ "$DASHBOARD_TAG" == *cudagraphs-true* ]]; then
+      if [[ "$backend" != "torchlite" ]] && [[ "$DASHBOARD_TAG" == *cudagraphs-true* ]]; then
         $TASKSET python "benchmarks/dynamo/$suite.py" \
-            "${target_flag[@]}" --"$mode" --"$dtype" --backend "$backend" "$@" \
+            "${target_flag[@]}" --"$mode" --"$dtype" "${backend_flag[@]}" "$@" \
             --output "$TEST_REPORTS_DIR/${backend}_with_cudagraphs_${suite}_${dtype}_${mode}_${device}_${target}.csv"
       fi
-      if [[ "$DASHBOARD_TAG" == *dynamic-true* ]]; then
+      if [[ "$backend" != "torchlite" ]] && [[ "$DASHBOARD_TAG" == *dynamic-true* ]]; then
         $TASKSET python "benchmarks/dynamo/$suite.py" \
-            "${target_flag[@]}" --"$mode" --"$dtype" --backend "$backend" --dynamic-shapes \
+            "${target_flag[@]}" --"$mode" --"$dtype" "${backend_flag[@]}" --dynamic-shapes \
             --dynamic-batch-only "$@" \
             --output "$TEST_REPORTS_DIR/${backend}_dynamic_${suite}_${dtype}_${mode}_${device}_${target}.csv"
       fi
-      if [[ "$DASHBOARD_TAG" == *cppwrapper-true* ]]; then
+      if [[ "$backend" != "torchlite" ]] && [[ "$DASHBOARD_TAG" == *cppwrapper-true* ]]; then
         TORCHINDUCTOR_CPP_WRAPPER=1 $TASKSET python "benchmarks/dynamo/$suite.py" \
-            "${target_flag[@]}" --"$mode" --"$dtype" --backend "$backend" --disable-cudagraphs "$@" \
+            "${target_flag[@]}" --"$mode" --"$dtype" "${backend_flag[@]}" --disable-cudagraphs "$@" \
             --output "$TEST_REPORTS_DIR/${backend}_cpp_wrapper_${suite}_${dtype}_${mode}_${device}_${target}.csv"
       fi
-      if [[ "$DASHBOARD_TAG" == *freezing_cudagraphs-true* ]] && [[ "$mode" == "inference" ]]; then
+      if [[ "$backend" != "torchlite" ]] && [[ "$DASHBOARD_TAG" == *freezing_cudagraphs-true* ]] && [[ "$mode" == "inference" ]]; then
         $TASKSET python "benchmarks/dynamo/$suite.py" \
-            "${target_flag[@]}" --"$mode" --"$dtype" --backend "$backend" "$@" --freezing \
+            "${target_flag[@]}" --"$mode" --"$dtype" "${backend_flag[@]}" "$@" --freezing \
             --output "$TEST_REPORTS_DIR/${backend}_with_cudagraphs_freezing_${suite}_${dtype}_${mode}_${device}_${target}.csv"
       fi
-      if [[ "$DASHBOARD_TAG" == *freeze_autotune_cudagraphs-true* ]] && [[ "$mode" == "inference" ]]; then
+      if [[ "$backend" != "torchlite" ]] && [[ "$DASHBOARD_TAG" == *freeze_autotune_cudagraphs-true* ]] && [[ "$mode" == "inference" ]]; then
         TORCHINDUCTOR_MAX_AUTOTUNE=1 $TASKSET python "benchmarks/dynamo/$suite.py" \
-            "${target_flag[@]}" --"$mode" --"$dtype" --backend "$backend" "$@" --freezing \
+            "${target_flag[@]}" --"$mode" --"$dtype" "${backend_flag[@]}" "$@" --freezing \
             --output "$TEST_REPORTS_DIR/${backend}_with_cudagraphs_freezing_autotune_${suite}_${dtype}_${mode}_${device}_${target}.csv"
       fi
-      if [[ "$DASHBOARD_TAG" == *aotinductor-true* ]] && [[ "$mode" == "inference" ]]; then
+      if [[ "$backend" != "torchlite" ]] && [[ "$DASHBOARD_TAG" == *aotinductor-true* ]] && [[ "$mode" == "inference" ]]; then
         if [[ "$target" == "accuracy" ]]; then
           # Also collect Export pass rate and display as a separate row
           $TASKSET python "benchmarks/dynamo/$suite.py" \
@@ -812,9 +817,9 @@ test_perf_for_dashboard() {
             "${target_flag[@]}" --"$mode" --"$dtype" --export-aot-inductor --disable-cudagraphs "$@" \
             --output "$TEST_REPORTS_DIR/${backend}_aot_inductor_${suite}_${dtype}_${mode}_${device}_${target}.csv"
       fi
-      if [[ "$DASHBOARD_TAG" == *maxautotune-true* ]]; then
+      if [[ "$backend" != "torchlite" ]] && [[ "$DASHBOARD_TAG" == *maxautotune-true* ]]; then
         TORCHINDUCTOR_MAX_AUTOTUNE=1 $TASKSET python "benchmarks/dynamo/$suite.py" \
-            "${target_flag[@]}" --"$mode" --"$dtype" --backend "$backend" "$@" \
+            "${target_flag[@]}" --"$mode" --"$dtype" "${backend_flag[@]}" "$@" \
             --output "$TEST_REPORTS_DIR/${backend}_max_autotune_${suite}_${dtype}_${mode}_${device}_${target}.csv"
       fi
     done
