@@ -432,10 +432,9 @@ class OverlapScheduler:
                 num_device_put_converted,
             )
 
-        # Build and collapse fusion regions FIRST so all subsequent operations
-        # work on the collapsed graph where fused ops are atomic units
-        # gather_node_runtime_estimations handles fusion region building when
-        # enable_fusion_regions is True, and also estimates all node runtimes.
+        # Build fusion regions (mutates gm.graph) and compute initial node runtime
+        # estimates. Compute nodes use roofline model here; the alignment step in
+        # run() replaces them with benchmarked + cross-rank-aligned values.
         self.node_estimations, self.region_of = gather_node_runtime_estimations(
             gm,
             custom_runtime_estimation,
@@ -701,7 +700,7 @@ class OverlapScheduler:
     def _align_compute_nodes_runtime_estimations_across_all_distributed_ranks(
         self,
     ) -> None:
-        """Align runtime estimations across ranks using median values."""
+        """Align runtime estimations across ranks (compute + collectives)."""
         log.info(
             "Overlap scheduling: Aligning runtime estimations across all distributed ranks"
         )
@@ -742,9 +741,12 @@ class OverlapScheduler:
             runtime_estimations_analytical,
         )
 
-        # Benchmark collectives with CUDA events if enabled
+        # Benchmark collectives if enabled (only CUDA events - others are deterministic)
+        # Skip if custom estimation is provided for collectives
         collective_nodes: list[fx.Node] = []
-        benchmarked_collective_nodes: list[fx.Node] = []
+        benchmarked_collective_nodes: list[
+            fx.Node
+        ] = []  # Track which were actually benchmarked
         if self.collective_estimator == "benchmark":
             from torch._inductor.fx_passes.node_runtime_estimation import (
                 benchmark_collective_with_cuda_events,
@@ -753,20 +755,25 @@ class OverlapScheduler:
             collective_nodes = [
                 info.start_node for info in self.collective_info.values()
             ]
+
+            # Benchmark CUDA events (non-deterministic, needs alignment)
+            # Skip collectives with custom estimation
             for n in collective_nodes:
                 if (
                     get_custom_estimation(n, self.custom_runtime_estimation, None)
                     is not None
                 ):
                     continue
+
+                # Benchmark actual size
                 cuda_val, cuda_key = benchmark_collective_with_cuda_events(n, nruns=5)
                 if cuda_val is not None:
                     runtime_estimations.append(cuda_val)
                     runtime_estimations_keys.append(cuda_key)
                     benchmarked_collective_nodes.append(n)
 
-        # When both estimators are analytical, estimates are deterministic across
-        # ranks (same shapes = same estimates), so skip the all_gather.
+        # When both estimators are analytical, estimates are deterministic across ranks
+        # (same shapes = same estimates), so skip the all_gather to avoid sync.
         import torch.distributed as dist
 
         world_size = dist.get_world_size()
@@ -777,6 +784,7 @@ class OverlapScheduler:
         ):
             median_runtime_estimations = runtime_estimations
         else:
+            # Single all_gather and compute medians
             from torch._subclasses.fake_tensor import unset_fake_temporarily
             from torch.distributed.distributed_c10d import _get_default_group
 
@@ -792,28 +800,29 @@ class OverlapScheduler:
                     torch.tensor(gathered_runtime_estimations), dim=0
                 ).values.tolist()
 
-        # Cache aligned medians and update node_estimations
+        # Cache medians
         collective_keys = []
         collective_medians = []
         for idx, (key, median_runtime_estimation) in enumerate(
             zip(runtime_estimations_keys, median_runtime_estimations)
         ):
+            if key is None:
+                continue
             if idx < compute_key_count:
-                # Update compute node estimation with aligned value
+                # Compute node
                 self.node_estimations[self.compute_nodes[idx]] = (
                     median_runtime_estimation
                 )
-                if key is not None:
-                    set_cached_node_time(key, median_runtime_estimation)
+                set_cached_node_time(key, median_runtime_estimation)
             else:
                 # Collective CUDA event benchmark
                 from torch._inductor.fx_passes.node_runtime_estimation import (
                     set_cached_runtime,
                 )
 
-                if key is not None:
-                    set_cached_runtime(key, median_runtime_estimation)
+                set_cached_runtime(key, median_runtime_estimation)
 
+                # Update CollectiveInfo with aligned benchmark
                 coll_idx = idx - compute_key_count
                 coll_node = benchmarked_collective_nodes[coll_idx]
                 info = self.collective_info[coll_node]
@@ -824,12 +833,12 @@ class OverlapScheduler:
                 collective_keys.append(key)
                 collective_medians.append(median_runtime_estimation)
 
-        # Log benchmarks
-        from torch._inductor.fx_passes.node_runtime_estimation import (
-            _log_collective_benchmarks,
-        )
-
+        # Log benchmarks with analytical comparisons
         if collective_keys:
+            from torch._inductor.fx_passes.node_runtime_estimation import (
+                _log_collective_benchmarks,
+            )
+
             _log_collective_benchmarks(
                 benchmarked_collective_nodes,
                 collective_keys,
@@ -838,6 +847,11 @@ class OverlapScheduler:
                 "fx_collectives_node_runtime_estimation",
             )
         else:
+            # No benchmarking - log analytical estimations for all collectives
+            from torch._inductor.fx_passes.node_runtime_estimation import (
+                _log_collective_benchmarks,
+            )
+
             all_collective_nodes = [
                 info.start_node for info in self.collective_info.values()
             ]
@@ -846,13 +860,6 @@ class OverlapScheduler:
                     all_collective_nodes,
                     artifact_name="fx_collectives_analytical_estimation",
                 )
-
-        # Update CollectiveInfo with aligned values
-        for start_node, info in self.collective_info.items():
-            if start_node in self.node_estimations:
-                aligned_val = self.node_estimations[start_node]
-                info.estimated_time_ms = aligned_val
-                info.exposed_time_ms = aligned_val
 
         log.info("Overlap scheduling: Runtime estimations aligned")
 
@@ -1580,10 +1587,12 @@ def gather_node_runtime_estimations(
     enable_fusion_regions: bool = False,
     log_estimations: bool = False,
 ) -> tuple[dict[fx.Node, float], dict[fx.Node, Any]]:
-    """Gather runtime estimations for all nodes without scheduling.
+    """Gather initial runtime estimations for all nodes without scheduling.
 
-    Single source of truth for all runtime estimations. Estimates collectives,
-    compute nodes, memory-bound ops, and optionally fusion regions.
+    Uses analytical models (roofline) for compute nodes — the alignment step
+    in OverlapScheduler.run() replaces these with benchmarked + cross-rank-aligned
+    values. Collectives use bandwidth formulas or CUDA events depending on
+    collective_estimator.
 
     When enable_fusion_regions is True, builds and collapses fusion regions
     (mutating gm's graph), then includes their costs in the estimations.
@@ -1625,17 +1634,21 @@ def gather_node_runtime_estimations(
             )
             collective_nodes.append(start)
 
-    # Compute nodes (matmul, bmm, etc.)
+    # Compute nodes (matmul, bmm, etc.) — analytical estimates only.
+    # The alignment step in run() replaces these with benchmarked + aligned values.
     compute_nodes: list[fx.Node] = []
-    compute_benchmarked: list[float] = []
     compute_analytical: list[float] = []
 
     for node in nodes:
         if is_compute_node(node):
-            estimations[node] = benchmark_node(node, custom_runtime_estimation)
+            est = estimate_roofline_runtime_ms(node)
+            if custom_runtime_estimation is not None:
+                custom_est = custom_runtime_estimation(node, None)
+                if custom_est is not None:
+                    est = custom_est
+            estimations[node] = est
             compute_nodes.append(node)
-            compute_benchmarked.append(estimations[node])
-            compute_analytical.append(estimate_roofline_runtime_ms(node))
+            compute_analytical.append(est)
         elif node.op == "call_function" and node not in estimations:
             if custom_runtime_estimation is not None:
                 est = custom_runtime_estimation(node, None)
@@ -1658,7 +1671,7 @@ def gather_node_runtime_estimations(
 
         _log_compute_estimations(
             compute_nodes,
-            compute_benchmarked,
+            compute_analytical,
             compute_analytical,
         )
 
