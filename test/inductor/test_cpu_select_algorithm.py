@@ -3322,7 +3322,11 @@ _woq_mm_skip = unittest.skipIf(
 )
 for _attr in list(vars(TestSelectAlgorithmCPU)):
     if _attr.startswith("test_int8_woq_mm_"):
-        setattr(TestSelectAlgorithmCPU, _attr, _woq_mm_skip(getattr(TestSelectAlgorithmCPU, _attr)))
+        setattr(
+            TestSelectAlgorithmCPU,
+            _attr,
+            _woq_mm_skip(getattr(TestSelectAlgorithmCPU, _attr)),
+        )
 
 
 if __name__ == "__main__":
