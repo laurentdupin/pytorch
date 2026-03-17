@@ -1,11 +1,8 @@
 # syntax = docker/dockerfile:experimental
 
-ARG BASE_CUDA_VERSION=12.6
-ARG GPU_IMAGE=arm64v8/almalinux:8
+ARG BASE_CUDA_VERSION=12.8
 
 FROM quay.io/pypa/manylinux_2_28_aarch64 as base
-
-FROM ${GPU_IMAGE} as common
 
 ARG DEVTOOLSET_VERSION=13
 ARG NINJA_VERSION
@@ -53,13 +50,6 @@ RUN yum install -y \
 ENV PATH=/opt/rh/gcc-toolset-${DEVTOOLSET_VERSION}/root/usr/bin:$PATH
 ENV LD_LIBRARY_PATH=/opt/rh/gcc-toolset-${DEVTOOLSET_VERSION}/root/usr/lib64:/opt/rh/gcc-toolset-${DEVTOOLSET_VERSION}/root/usr/lib:$LD_LIBRARY_PATH
 
-# Copy manylinux-provided tooling
-COPY --from=base /opt/python/             /opt/python/
-COPY --from=base /opt/_internal/          /opt/_internal/
-COPY --from=base /usr/local/lib/          /usr/local/lib/
-COPY --from=base /usr/local/bin/auditwheel /usr/local/bin/auditwheel
-COPY --from=base /usr/local/bin/patchelf   /usr/local/bin/patchelf
-
 # Create python3 symlink for tools that expect it in PATH (e.g., NCCL build)
 RUN ln -sf /opt/python/cp310-cp310/bin/python3 /usr/local/bin/python3
 
@@ -74,14 +64,14 @@ RUN bash ./install_libgomp.sh && rm -f install_libgomp.sh
 RUN git config --global --add safe.directory "*"
 
 
-FROM common as openssl
+FROM base as openssl
 # Install OpenSSL used by manylinux tooling
 ADD ./common/install_openssl.sh install_openssl.sh
 RUN bash ./install_openssl.sh && rm -f install_openssl.sh
 ENV SSL_CERT_FILE=/opt/_internal/certs.pem
 
 
-FROM common as openblas
+FROM base as openblas
 # Install openblas
 ARG OPENBLAS_VERSION
 ADD ./common/install_openblas.sh install_openblas.sh
@@ -89,7 +79,7 @@ RUN bash ./install_openblas.sh && rm -f install_openblas.sh
 
 
 # Install Arm Compute Library
-FROM common as arm_compute
+FROM base as arm_compute
 # Install scons using the manylinux-provided CPython 3.9
 RUN /opt/python/cp39-cp39/bin/python -m pip install scons==4.7.0 && \
     ln -sf /opt/python/cp39-cp39/bin/scons /usr/local/bin
@@ -97,7 +87,7 @@ COPY ./common/install_acl.sh install_acl.sh
 RUN bash ./install_acl.sh && rm -f install_acl.sh
 
 
-FROM common as cuda
+FROM base as cuda
 ARG BASE_CUDA_VERSION
 ADD ./common/install_cuda.sh install_cuda.sh
 COPY ./common/install_nccl.sh install_nccl.sh
@@ -108,7 +98,7 @@ RUN bash ./install_cuda.sh ${BASE_CUDA_VERSION} && \
     rm -f /ci_commit_pins/nccl*
 
 
-FROM common as magma
+FROM base as magma
 ARG BASE_CUDA_VERSION
 ADD ./common/install_magma.sh install_magma.sh
 RUN bash ./install_magma.sh ${BASE_CUDA_VERSION} && rm -f install_magma.sh
@@ -122,7 +112,7 @@ RUN bash ./install_nvpl.sh && rm -f install_nvpl.sh
 
 
 # Common “final” base: ACL + OpenSSL + py cleanup + libstdc patch
-FROM common as common_final
+FROM base as common_final
 
 # remove unnecessary python versions
 RUN rm -rf /opt/python/cp26-cp26m /opt/_internal/cpython-2.6.9-ucs2 && \
