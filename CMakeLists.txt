@@ -25,7 +25,39 @@ if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR})
 endif()
 
 # ---[ Project and semantic versioning.
-project(Torch CXX C)
+# When built via scikit-build-core, these are set automatically.
+# Provide fallbacks for standalone cmake invocations.
+if(NOT DEFINED SKBUILD_PROJECT_NAME)
+  set(SKBUILD_PROJECT_NAME "torch")
+endif()
+if(NOT DEFINED SKBUILD_PROJECT_VERSION)
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" SKBUILD_PROJECT_VERSION)
+  string(STRIP "${SKBUILD_PROJECT_VERSION}" SKBUILD_PROJECT_VERSION)
+  # version.txt may contain PEP 440 pre-release suffixes like "a0" that are
+  # not valid CMake version components. Strip everything after the last digit
+  # group so project(VERSION ...) still works.
+  string(REGEX MATCH "^[0-9]+\\.[0-9]+(\\.[0-9]+)?" SKBUILD_PROJECT_VERSION "${SKBUILD_PROJECT_VERSION}")
+endif()
+project(${SKBUILD_PROJECT_NAME}
+        VERSION ${SKBUILD_PROJECT_VERSION}
+        LANGUAGES CXX C)
+
+# Compatibility alias: legacy CMake files reference Torch_SOURCE_DIR (capital T),
+# but SKBUILD_PROJECT_NAME is lowercase "torch", so we set it explicitly.
+set(Torch_SOURCE_DIR ${CMAKE_SOURCE_DIR})
+
+# Forward environment variables to CMake variables, replicating the behavior
+# previously handled by setup.py / tools/setup_helpers/cmake.py.
+# When built via setup.py, these are already set as -D flags; the module
+# skips variables that are already defined, so it is safe to include
+# unconditionally.
+include(cmake/EnvVarForwarding.cmake)
+
+# Pre-build steps: submodule init, NCCL checkout.
+# When built via setup.py, these are handled by build_deps() in setup.py;
+# the module checks for existing state, so it is safe to include
+# unconditionally.
+include(cmake/PreBuildSteps.cmake)
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
   set(LINUX TRUE)
@@ -1453,6 +1485,12 @@ if(BUILD_BUNDLE_PTXAS AND USE_CUDA)
   install(PROGRAMS "${PROJECT_BINARY_DIR}/ptxas"
           DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
+
+# File mirroring: copy source files into torchgen/packaged/, vendored
+# inductor templates, and symlink-replacement copies.  Previously handled
+# by setup.py; now consolidated here for both scikit-build-core and
+# setuptools builds.
+include(cmake/FileMirroring.cmake)
 
 include(cmake/Summary.cmake)
 caffe2_print_configuration_summary()
