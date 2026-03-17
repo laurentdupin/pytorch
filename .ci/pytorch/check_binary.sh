@@ -101,14 +101,6 @@ if [[ "$(uname)" == 'Darwin' ]]; then
       echo "Full dependencies is: $(otool -L $dylib)"
       exit 1
     fi
-
-    # Check for protobuf symbols
-    #proto_symbols="$(nm $dylib | grep protobuf)" || true
-    #if [[ -n "$proto_symbols" ]]; then
-    #  echo "ERROR: Detected protobuf symbols in $dylib"
-    #  echo "Symbols are $proto_symbols"
-    #  exit 1
-    #fi
   done
 else
   all_libs=($(find "$install_root" -name '*.so'))
