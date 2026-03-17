@@ -5,6 +5,7 @@ import sys
 import zipfile
 from pathlib import Path
 
+
 EXPECTED_PLATFORM_TAGS: dict[str, str] = {
     "linux": r"^manylinux.+_x86_64$",
     "linux-aarch64": r"^manylinux.+_aarch64$",
