@@ -2780,13 +2780,11 @@ def compile(
             # torch.compile is a no-op when inside torch.export region
             return model
 
-    if backend == "torchlite":
-        backend = _TorchCompileTorchliteWrapper(mode, options, dynamic)
-    elif backend == "inductor":
-        if use_aoti:
+    if backend == "torchlite" or backend == "inductor":
+        if backend == "inductor" and use_aoti:
             backend = _TorchCompileAOTInductorWrapper(mode, options, dynamic)
         else:
-            backend = _TorchCompileInductorWrapper(mode, options, dynamic)
+            backend = _TorchCompileTorchliteWrapper(mode, options, dynamic)
     else:
         backend = _TorchCompileWrapper(backend, mode, options, dynamic)
 
