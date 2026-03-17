@@ -831,6 +831,7 @@ class outer(torch.nn.Module):
         )
 
 
+@skipIfTorchDynamo("leaf_function tests manage their own compilation")
 class TestLeafFunctionDynamo(PytreeRegisteringTestCase):
     def _assert_models_equal(
         self,
