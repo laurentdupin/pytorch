@@ -3,6 +3,7 @@
 #include <ATen/ExpandUtils.h>
 #include <ATen/TensorUtils.h>
 #include <ATen/native/Pool.h>
+#include <ATen/native/ReduceOps.h>
 #include <ATen/native/ReduceOpsUtils.h>
 #include <ATen/native/mps/OperationUtils.h>
 #include <ATen/native/mps/kernels/ReduceOps.h>
@@ -21,7 +22,7 @@
 #include <ATen/ops/argmax_native.h>
 #include <ATen/ops/argmin_native.h>
 #include <ATen/ops/count_nonzero_native.h>
-#include <ATen/ops/linalg_vector_norm_native.h>
+#include <ATen/ops/linalg_vector_norm.h>
 #include <ATen/ops/max_native.h>
 #include <ATen/ops/mean_native.h>
 #include <ATen/ops/median.h>
@@ -29,7 +30,6 @@
 #include <ATen/ops/min_native.h>
 #include <ATen/ops/nanmedian_native.h>
 #include <ATen/ops/nansum_native.h>
-#include <ATen/ops/norm_native.h>
 #include <ATen/ops/prod_native.h>
 #include <ATen/ops/std_mean_native.h>
 #include <ATen/ops/std_native.h>
@@ -48,10 +48,6 @@ static auto& lib = MetalShaderLibrary::getBundledLibrary();
 #else
 #include <ATen/native/mps/ReduceOps_metallib.h>
 #endif
-
-typedef MPSGraphTensor* (^NormOpBlock)(MPSBinaryCachedGraph*, MPSGraphTensor*, MPSGraphTensor*);
-#define NormOpFn(graph, primary, secondary) \
-  MPSGraphTensor*(MPSBinaryCachedGraph * graph, MPSGraphTensor * primary, MPSGraphTensor * secondary)
 
 enum StdVarType { STANDARD_VARIANCE, STANDARD_DEVIATION };
 
@@ -311,59 +307,36 @@ static void reduction_out_mps(const Tensor& input_t,
   }
 }
 
-static void impl_func_norm_mps(const Tensor& input,
-                               const OptionalScalarRef& opt_p,
-                               IntArrayRef dim,
-                               bool keepdim,
-                               std::optional<ScalarType> opt_dtype,
-                               const Tensor& output) {
-  auto p = opt_p.has_value() ? opt_p.get().to<double>() : Scalar(2.0).to<double>();
+static void norm_kernel_mps(TensorIterator& iter, const Scalar& p_scalar) {
+  const Tensor& output = iter.output(0);
+  const Tensor& input = iter.input(0);
+  auto p = p_scalar.to<double>();
+
   if (input.numel() == 0) {
     output.fill_((p < 0) ? INFINITY : 0);
     return;
-  }
-
-  auto input_cast_dtype = opt_dtype.value_or(input.scalar_type());
-  auto input_view = (input.dim() == 0) ? input.view({1}) : input;
-  IntArrayRef input_shape = input_view.sizes();
-  std::vector<int64_t> output_view_shape = dim.empty() ? std::vector<int64_t>(input_view.dim(), 1)
-                                                       : std::vector<int64_t>(input_shape.begin(), input_shape.end());
-
-  // Number of input elements that are reduced into one output element
-  uint32_t reduction_size = 1;
-
-  if (!dim.empty()) {
-    for (const auto dim_val : dim) {
-      auto wrap_dim = maybe_wrap_dim(dim_val, input_shape.size());
-      TORCH_CHECK(wrap_dim < static_cast<decltype(wrap_dim)>(input_shape.size()),
-                  "norm_out_mps: reduction dim must be in the range of input shape");
-      output_view_shape[wrap_dim] = 1;
-      reduction_size *= input_shape[wrap_dim];
-    }
-  } else {
-    reduction_size = input_view.numel();
   }
 
   if (output.numel() == 0) {
     return;
   }
 
-  uint32_t num_reductions = input.numel() / reduction_size;
-  auto output_view = output.view(output_view_shape);
+  // Number of input elements that are reduced into one output element
+  uint32_t reduction_size = input.numel() / output.numel();
 
-  TORCH_INTERNAL_ASSERT(output_view.dim() == input_view.dim());
+  TORCH_INTERNAL_ASSERT(output.dim() == input.dim());
 
   NormParams params;
 
-  params.ndim = input_view.dim();
+  params.ndim = input.dim();
   params.p = static_cast<float>(p);
   params.reduction_size = reduction_size;
 
-  for (const auto dim_idx : c10::irange(input_view.dim())) {
-    params.input_sizes[dim_idx] = input_view.size(dim_idx);
-    params.input_strides[dim_idx] = input_view.stride(dim_idx);
-    params.output_sizes[dim_idx] = output_view.size(dim_idx);
-    params.output_strides[dim_idx] = output_view.stride(dim_idx);
+  for (const auto dim_idx : c10::irange(input.dim())) {
+    params.input_sizes[dim_idx] = input.size(dim_idx);
+    params.input_strides[dim_idx] = input.stride(dim_idx);
+    params.output_sizes[dim_idx] = output.size(dim_idx);
+    params.output_strides[dim_idx] = output.stride(dim_idx);
   }
 
   MPSStream* stream = getCurrentMPSStream();
@@ -371,16 +344,14 @@ static void impl_func_norm_mps(const Tensor& input,
   dispatch_sync_with_rethrow(stream->queue(), ^() {
     @autoreleasepool {
       id<MTLComputeCommandEncoder> compute_encoder = stream->commandEncoder();
-      auto pipeline_state = lib.getPipelineStateForFunc(fmt::format("norm_{}_{}_{}",
-                                                                    scalarToMetalTypeString(input_view),
-                                                                    scalarToMetalTypeString(input_cast_dtype),
-                                                                    scalarToMetalTypeString(output_view)));
-      getMPSProfiler().beginProfileKernel(pipeline_state, "norm", {input_view});
+      auto pipeline_state = lib.getPipelineStateForFunc(
+          fmt::format("norm_{}_{}", scalarToMetalTypeString(input), scalarToMetalTypeString(output)));
+      getMPSProfiler().beginProfileKernel(pipeline_state, "norm", {input});
       [compute_encoder setComputePipelineState:pipeline_state];
-      mtl_setArgs(compute_encoder, input_view, output_view, params);
+      mtl_setArgs(compute_encoder, input, output, params);
 
       auto threads_per_group = std::min(MAX_THREADGROUP_SIZE, reduction_size);
-      uint32_t num_threads = num_reductions * threads_per_group;
+      uint32_t num_threads = output.numel() * threads_per_group;
 
       [compute_encoder dispatchThreads:MTLSizeMake(num_threads, 1, 1)
                  threadsPerThreadgroup:MTLSizeMake(threads_per_group, 1, 1)];
@@ -1061,31 +1032,6 @@ TORCH_IMPL_FUNC(mean_out_mps)
   reduction_out_mps(input_t, opt_dim, keepdim, dtype, output_t, MPSReductionType::MEAN, "mean_out_mps");
 }
 
-TORCH_IMPL_FUNC(norm_out_mps)
-(const Tensor& self, const OptionalScalarRef opt_p, IntArrayRef dim, bool keepdim, const Tensor& result) {
-  impl_func_norm_mps(self, opt_p, dim, keepdim, /*dtype=*/std::nullopt, result);
-}
-
-TORCH_IMPL_FUNC(norm_dtype_out_mps)
-(const Tensor& self,
- const OptionalScalarRef opt_p,
- IntArrayRef dim,
- bool keepdim,
- ScalarType dtype,
- const Tensor& result) {
-  impl_func_norm_mps(self, opt_p, dim, keepdim, dtype, result);
-}
-
-TORCH_IMPL_FUNC(linalg_vector_norm_out_mps)
-(const Tensor& self,
- const Scalar& scalar_ord,
- OptionalIntArrayRef opt_dim,
- bool keepdim,
- std::optional<ScalarType> opt_dtype,
- const Tensor& result) {
-  impl_func_norm_mps(self, scalar_ord, opt_dim.value_or(IntArrayRef{}), keepdim, opt_dtype, result);
-}
-
 Tensor _cdist_forward_mps(const Tensor& x1, const Tensor& x2, const double p, std::optional<int64_t> compute_mode) {
   TORCH_CHECK(x1.dim() >= 2, "cdist only supports at least 2D tensors, X1 got: ", x1.dim(), "D");
   TORCH_CHECK(x2.dim() >= 2, "cdist only supports at least 2D tensors, X2 got: ", x2.dim(), "D");
@@ -1108,8 +1054,8 @@ Tensor _cdist_forward_mps(const Tensor& x1, const Tensor& x2, const double p, st
   Tensor diff = x1_.sub(x2_);
   IntArrayRef output_shape(diff.sizes().data(), diff.dim() - 1);
   Tensor result = at::empty(output_shape, x1.options());
-  impl_func_norm_mps(
-      diff, OptionalScalarRef(p), makeArrayRef<int64_t>(-1), /*keepdim=*/false, /*dtype=*/std::nullopt, result);
+  linalg_vector_norm_out(result, diff, p, makeArrayRef<int64_t>(-1), /*keepdim=*/false, /*dtype=*/std::nullopt);
+
   return result;
 }
 
@@ -1571,5 +1517,7 @@ std::tuple<Tensor, Tensor> var_mean_mps(const Tensor& self,
   reduction_out_mps(self, dim, keepdim, std::nullopt, mean, MPSReductionType::MEAN, "mean_out_mps");
   return {var, mean};
 }
+
+REGISTER_DISPATCH(norm_stub, &mps::norm_kernel_mps)
 
 } // namespace at::native

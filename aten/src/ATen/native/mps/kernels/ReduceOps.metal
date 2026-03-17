@@ -77,69 +77,91 @@ static uint32_t get_input_offset(
   return input_offset;
 }
 
-template <typename TI, typename TC, typename TO>
+// In this kernel, each threadgroup is responsible for calculating one element
+// of the output.
+// TI - dtype of the input tensor.
+// TO - dtype of the output tensor.
+template <typename TI, typename TO>
 kernel void norm(
     constant TI* input [[buffer(0)]],
     device TO* output [[buffer(1)]],
     constant NormParams<>& params [[buffer(2)]],
     uint tid [[thread_position_in_threadgroup]],
     uint tptg [[threads_per_threadgroup]],
-    uint tgid [[threadgroup_position_in_grid]]) {
+    uint tgid [[threadgroup_position_in_grid]],
+    uint simd_lane_id [[thread_index_in_simdgroup]],
+    uint simdgroup_id [[simdgroup_index_in_threadgroup]],
+    uint simdgroup_size [[threads_per_simdgroup]]) {
   using TA = opmath_t<TO>;
-  threadgroup TA shared_output[MAX_THREADGROUP_SIZE];
-  TA thread_output = 0;
+  TA output_val = 0;
+  const auto p = static_cast<TA>(params.p);
 
-  if (params.p == INFINITY) {
-    thread_output = -INFINITY;
-  } else if (params.p == -INFINITY) {
-    thread_output = INFINITY;
+  if (p == INFINITY) {
+    output_val = -INFINITY;
+  } else if (p == -INFINITY) {
+    output_val = INFINITY;
   }
 
-  // Each thread in the threadgroup reduces one or more element of the input and
-  // places the result in its corresponding element of `shared_output`.
+  // First, all the input elements assigned to the threadgroup are divided
+  // between all the threads in the threadgroup, and each thread reduces those
+  // elements down to one partial `output_val`.
   for (uint32_t reduction_element_idx = tid;
        reduction_element_idx < params.reduction_size;
        reduction_element_idx += tptg) {
-    TC input_elem = norm_cast_functor().call<TI, TC>(
-        input[get_input_offset(reduction_element_idx, tgid, params)]);
-    TA input_abs = static_cast<TA>(norm_abs_functor()(input_elem));
+    auto input_elem =
+        input[get_input_offset(reduction_element_idx, tgid, params)];
+    auto input_abs = static_cast<TA>(norm_abs_functor()(input_elem));
 
-    if (params.p == INFINITY) {
-      thread_output = max(static_cast<TA>(input_abs), thread_output);
+    if (p == INFINITY) {
+      output_val = max(input_abs, output_val);
 
-    } else if (params.p == -INFINITY) {
-      thread_output = min(static_cast<TA>(input_abs), thread_output);
+    } else if (p == -INFINITY) {
+      output_val = min(input_abs, output_val);
 
-    } else if (params.p == 0) {
-      thread_output = (input_abs == 0) ? 0 : 1;
+    } else if (p == 0) {
+      output_val += (input_abs == 0) ? 0 : 1;
 
     } else {
-      thread_output += static_cast<TA>(::precise::pow(
-          static_cast<TA>(norm_abs_functor()(input_abs)),
-          static_cast<TA>(params.p)));
+      output_val += static_cast<TA>(::precise::pow(input_abs, p));
     }
   }
 
-  shared_output[tid] = thread_output;
-  threadgroup_barrier(mem_flags::mem_threadgroup);
+  // Next, all the threads in a threadgroup reduce their `output_val`s together
+  // with a series of SIMD group reductions.
+  auto threads_remaining = tptg;
+  threadgroup TA shared_outputs[MAX_THREADGROUP_SIZE];
 
-  // Binary reduce each element of `shared_output` across the threadgroup
-  for (uint32_t stride = 1; stride < tptg; stride *= 2) {
-    if ((tid % (stride * 2) == 0) && (tid + stride) < tptg) {
-      if (params.p == INFINITY) {
-        shared_output[tid] =
-            max(shared_output[tid], shared_output[tid + stride]);
-      } else if (params.p == -INFINITY) {
-        shared_output[tid] =
-            min(shared_output[tid], shared_output[tid + stride]);
+  while (threads_remaining > 1) {
+    if (p == INFINITY) {
+      output_val = simd_max(output_val);
+    } else if (p == -INFINITY) {
+      output_val = simd_min(output_val);
+    } else {
+      output_val = simd_sum(output_val);
+    }
+
+    threads_remaining =
+        (threads_remaining + simdgroup_size - 1) / simdgroup_size;
+
+    if (threads_remaining > 1) {
+      // One thread from each SIMD group writes to a shared buffer
+      if (simd_lane_id == 0) {
+        shared_outputs[simdgroup_id] = output_val;
+      }
+
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+
+      // The remaining threads each read one of the partial outputs from the
+      // shared buffer
+      if (tid < threads_remaining) {
+        output_val = shared_outputs[tid];
       } else {
-        shared_output[tid] += shared_output[tid + stride];
+        return;
       }
     }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
   }
 
-  // One thread in the threadgroup writes the final reduced value to the output
+  // Finally, one thread in the threadgroup writes the final output
   if (tid == 0) {
     uint32_t output_offset = 0;
     uint32_t reduction_idx = tgid;
@@ -154,35 +176,28 @@ kernel void norm(
       }
     }
 
-    auto output_elem = shared_output[0];
-    if (params.p != 0 && params.p != 1 && params.p != INFINITY &&
-        params.p != -INFINITY) {
-      output_elem = static_cast<TA>(
-          ::precise::pow(output_elem, static_cast<TA>(1 / params.p)));
+    if (p != 0 && p != 1 && p != INFINITY && p != -INFINITY) {
+      output_val = static_cast<TA>(::precise::pow(output_val, 1 / p));
     }
-    output[output_offset] = static_cast<TO>(output_elem);
+    output[output_offset] = static_cast<TO>(output_val);
   }
 }
 
-#define REGISTER_NORM(TI, TC, TO)                     \
-  template [[host_name("norm_" #TI "_" #TC "_" #TO)]] \
-  kernel void norm<TI, TC, TO>(                       \
-      constant TI * input [[buffer(0)]],              \
-      device TO * output [[buffer(1)]],               \
-      constant NormParams<> & params [[buffer(2)]],   \
-      uint tid [[thread_position_in_threadgroup]],    \
-      uint tptg [[threads_per_threadgroup]],          \
-      uint tgid [[threadgroup_position_in_grid]]);
+#define REGISTER_NORM(TI, TO)                               \
+  template [[host_name("norm_" #TI "_" #TO)]]               \
+  kernel void norm<TI, TO>(                                 \
+      constant TI * input [[buffer(0)]],                    \
+      device TO * output [[buffer(1)]],                     \
+      constant NormParams<> & params [[buffer(2)]],         \
+      uint tid [[thread_position_in_threadgroup]],          \
+      uint tptg [[threads_per_threadgroup]],                \
+      uint tgid [[threadgroup_position_in_grid]],           \
+      uint simd_lane_id [[thread_index_in_simdgroup]],      \
+      uint simdgroup_id [[simdgroup_index_in_threadgroup]], \
+      uint simdgroup_size [[threads_per_simdgroup]]);
 
-#define REGISTER_NORM_INPUT_TYPE(TI) \
-  REGISTER_NORM(TI, float, float);   \
-  REGISTER_NORM(TI, half, half);     \
-  REGISTER_NORM(TI, bfloat, bfloat); \
-  REGISTER_NORM(TI, float2, float);  \
-  REGISTER_NORM(TI, half2, half);
-
-REGISTER_NORM_INPUT_TYPE(float)
-REGISTER_NORM_INPUT_TYPE(half)
-REGISTER_NORM_INPUT_TYPE(bfloat)
-REGISTER_NORM_INPUT_TYPE(float2)
-REGISTER_NORM_INPUT_TYPE(half2)
+REGISTER_NORM(float, float);
+REGISTER_NORM(half, half);
+REGISTER_NORM(bfloat, bfloat);
+REGISTER_NORM(float2, float);
+REGISTER_NORM(half2, half);
