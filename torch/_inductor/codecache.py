@@ -909,9 +909,10 @@ class FxGraphHashDetails:
         self.system_info = CacheBase.get_system()
         self.inductor_config = config.save_config_portable(ignore_private_configs=False)
         # Custom passes should provide an ID to hash.
-        self.pre_grad_custom_pass = self._get_custom_pass_detail(
-            config.pre_grad_custom_pass
-        )
+        if config.pre_grad_pass_timing == config.PreGradPassTiming.LATE:
+            self.pre_grad_custom_pass = self._get_custom_pass_detail(
+                config.pre_grad_custom_pass
+            )
         self.post_grad_custom_pre_pass = self._get_custom_pass_detail(
             config.post_grad_custom_pre_pass
         )
@@ -1585,11 +1586,12 @@ class FxGraphCache(GuardedCache[CompiledFxGraph]):
         """
         # Custom passes must implement the CustomGraphPass or we don't
         # know how to include them in the cache key calculation.
-        if config.pre_grad_custom_pass and (
-            not isinstance(config.pre_grad_custom_pass, CustomGraphPass)
-            or not config.pre_grad_custom_pass.uuid()
-        ):
-            raise BypassFxGraphCache("Unsupported pre grad custom pass")
+        if config.pre_grad_pass_timing == config.PreGradPassTiming.LATE:
+            if config.pre_grad_custom_pass and (
+                not isinstance(config.pre_grad_custom_pass, CustomGraphPass)
+                or not config.pre_grad_custom_pass.uuid()
+            ):
+                raise BypassFxGraphCache("Unsupported pre grad custom pass")
         for p in (config.post_grad_custom_pre_pass, config.post_grad_custom_post_pass):
             if p and (not isinstance(p, CustomGraphPass) or not p.uuid()):
                 raise BypassFxGraphCache("Unsupported post grad custom pass")
