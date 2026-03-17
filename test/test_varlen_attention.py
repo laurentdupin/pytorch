@@ -12,6 +12,7 @@ from torch.nn.attention import (
 )
 from torch.nn.attention.varlen import varlen_attn, varlen_attn_out
 from torch.testing._internal.common_cuda import (
+    IS_SM90,
     PLATFORM_SUPPORTS_FLASH_ATTENTION,
     SM100OrLater,
 )
@@ -234,7 +235,10 @@ class TestVarlenAttention(NNTestCase):
         not PLATFORM_SUPPORTS_FLASH_ATTENTION, "Flash Attention not supported"
     )
     @parametrize("dtype", [torch.bfloat16, torch.float16])
-    @parametrize("backend", ["fa2", "fa3", "fa4"])
+    @parametrize(
+        "backend",
+        ["fa2"] + (["fa3"] if IS_SM90 else []) + (["fa4"] if SM100OrLater else []),
+    )
     def test_basic_functionality(self, device, dtype, backend):
         torch.manual_seed(42)
 
@@ -458,7 +462,10 @@ class TestVarlenAttention(NNTestCase):
             (1025, 1025),
         ],
     )
-    @parametrize("backend", ["fa2", "fa3", "fa4"])
+    @parametrize(
+        "backend",
+        ["fa2"] + (["fa3"] if IS_SM90 else []) + (["fa4"] if SM100OrLater else []),
+    )
     def test_varlen_vs_sdpa(self, device, dtype, scale, window_size, backend):
         torch.manual_seed(42)
 
@@ -593,6 +600,7 @@ class TestVarlenAttention(NNTestCase):
     @unittest.skipIf(
         not PLATFORM_SUPPORTS_FLASH_ATTENTION, "Flash Attention not supported"
     )
+    @unittest.skipIf(not IS_SM90, "FA3 requires compute capability 9.0")
     @parametrize("dtype", [torch.bfloat16, torch.float16])
     @parametrize("num_splits", [1, None])
     @parametrize(
@@ -844,7 +852,10 @@ class TestVarlenAttention(NNTestCase):
             [127, 63, 33, 17],
         ],
     )
-    @parametrize("backend", ["fa2", "fa3"] + (["fa4"] if SM100OrLater else []))
+    @parametrize(
+        "backend",
+        ["fa2"] + (["fa3"] if IS_SM90 else []) + (["fa4"] if SM100OrLater else []),
+    )
     def test_block_table_kv_cache(
         self, device, dtype, page_size, compile, actual_kv_lens, backend
     ):
@@ -953,7 +964,7 @@ class TestVarlenAttention(NNTestCase):
             self.assertEqual(output_out.data_ptr(), out_buf.data_ptr())
             self.assertEqual(out_buf, output_paged)
 
-        # compile the lower level aten op (FA3/FA4 only, will cause graph break)
+        # compile the lower level aten op (FA3 only, will cause graph break)
         if compile and backend != "fa2":
             compiled_aten_op = torch.compile(
                 torch.ops.aten._flash_attention_forward_no_dropout_inplace
