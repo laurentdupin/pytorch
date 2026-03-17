@@ -4500,6 +4500,22 @@ Please use `add.register_fake` to add an fake impl.""",
                 torch.library.get_kernel("test_invalid_kernel::cpu_only_op", "CUDA")
 
 
+class TestLibrarySourceLocation(TestCase):
+    def test_getframe_matches_traceback(self):
+        # Library.__init__ uses sys._getframe(1) instead of
+        # traceback.extract_stack(limit=2)[0] for performance. Verify that _getframe
+        # produces the same filename and line number as traceback.
+        import traceback
+
+        f = sys._getframe(1)
+        frame_file, frame_line = f.f_code.co_filename, f.f_lineno
+        tb = traceback.extract_stack(limit=2)[0]
+        tb_file, tb_line = tb.filename, tb.lineno
+
+        self.assertEqual(frame_file, tb_file)
+        self.assertEqual(frame_line, tb_line)
+
+
 class MiniOpTestOther(CustomOpTestCaseBase):
     test_ns = "mini_op_test"
 
