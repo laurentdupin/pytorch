@@ -8,7 +8,6 @@ import unittest
 from torch.testing._internal.common_cuda import TEST_CUDA
 from torch.testing._internal.common_utils import (
     IS_ARM64,
-    IS_CPU_CAPABILITY_SVE256,
     IS_CPU_EXT_SVE_SUPPORTED,
     parse_cmd_line_args,
     run_tests,
