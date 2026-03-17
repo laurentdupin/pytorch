@@ -711,6 +711,10 @@ class CPUReproTests(TestCase):
             ]
         ),
     )
+    @unittest.skipIf(
+        IS_ARM64 and not IS_CPU_EXT_SVE_SUPPORTED,
+        "flaky on AArch64 (no SVE)",
+    )
     def test_lstm_packed(
         self,
         unbatched,
@@ -757,6 +761,10 @@ class CPUReproTests(TestCase):
     @parametrize(
         "unbatched, input_size, hidden_size, num_layers, bidirectional, bias, empty_state, batch_first, batch_size, seq_len",
         _test_lstm_packed_change_input_sizes_cpu_params,
+    )
+    @unittest.skipIf(
+        IS_ARM64 and not IS_CPU_EXT_SVE_SUPPORTED,
+        "flaky on AArch64 (no SVE)",
     )
     def test_lstm_packed_change_input_sizes_cpu(
         self,
@@ -6218,16 +6226,6 @@ class CPUReproTests(TestCase):
             )
         )
 
-
-# see https://github.com/pytorch/pytorch/issues/146483
-# test_lstm_packed is flaky on AArch64 (no SVE). Skip entirely on AArch64 (no SVE).
-_lstm_packed_skip = unittest.skipIf(
-    IS_ARM64 and not IS_CPU_EXT_SVE_SUPPORTED,
-    "flaky on AArch64 (no SVE)",
-)
-for _attr in list(vars(CPUReproTests)):
-    if _attr.startswith("test_lstm_packed_"):
-        setattr(CPUReproTests, _attr, _lstm_packed_skip(getattr(CPUReproTests, _attr)))
 
 if __name__ == "__main__":
     from torch._inductor.test_case import run_tests
