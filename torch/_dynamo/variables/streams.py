@@ -188,6 +188,15 @@ def sync_dealloc(
     torch.ops.streams.wait_event.default(wait_event_index, src_stream_index)
 
 
+@sync_dealloc.register_fake
+def _(
+    wait_event_index: int,
+    src_stream_index: int,
+    to_dealloc: torch.Tensor,
+) -> None:
+    pass
+
+
 has_side_effect(torch.ops.streams.sync_dealloc.default)
 
 
@@ -198,9 +207,8 @@ def record_stream(tensor: torch.Tensor, stream_index: int) -> None:
 
 @record_stream.register_fake
 def _(
-    src_stream_index: int,
-    wait_event_index: int,
-    to_dealloc: torch.Tensor,
+    tensor: torch.Tensor,
+    stream_index: int,
 ) -> None:
     pass
 
@@ -229,7 +237,7 @@ class SymbolicStreamState:
     def exit_stream(self) -> None:
         self.cur_stream_stack.pop()
 
-    def cur_stream(self, device: Optional[torch.device] = None) -> "StreamVariable":
+    def cur_stream(self, device: torch.device | None = None) -> "StreamVariable":
         if device is not None:
             for stream in reversed(self.cur_stream_stack):
                 if stream.device == device:
@@ -294,7 +302,7 @@ class StreamVariable(StreamContextVariable):
         self,
         proxy: Proxy,
         value: torch.Stream,
-        user_object_index: Optional[int] = None,
+        user_object_index: int | None = None,
         **kwargs: Any,
     ) -> None:
         # Index into the user object table
@@ -304,7 +312,6 @@ class StreamVariable(StreamContextVariable):
 
         self.proxy = proxy
         self.value = value
-        # pyrefly: ignore [read-only]
         self.device = value.device
 
         self.user_object_index = user_object_index
@@ -428,7 +435,7 @@ class EventVariable(VariableTracker):
         self,
         proxy: Proxy,
         value: torch.Event,
-        user_object_index: Optional[int],
+        user_object_index: int | None,
         **kwargs: Any,
     ) -> None:
         if proxy is not None and "example_value" in proxy.node.meta:
