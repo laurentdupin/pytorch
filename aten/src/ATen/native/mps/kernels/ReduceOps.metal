@@ -20,32 +20,6 @@ struct norm_abs_functor {
   }
 };
 
-struct norm_cast_functor {
-  template <
-      typename T_from,
-      typename T_to,
-      enable_if_t<is_complex_v<T_from> && !is_complex_v<T_to>, bool> = true>
-  inline T_to call(const T_from x) {
-    return static_cast<T_to>(x.x);
-  }
-
-  template <
-      typename T_from,
-      typename T_to,
-      enable_if_t<!is_complex_v<T_from> && is_complex_v<T_to>, bool> = true>
-  inline T_to call(const T_from x) {
-    return T_to{static_cast<decltype(T_to{}.x)>(x), 0};
-  }
-
-  template <
-      typename T_from,
-      typename T_to,
-      enable_if_t<is_complex_v<T_from> == is_complex_v<T_to>, bool> = true>
-  inline T_to call(const T_from x) {
-    return static_cast<T_to>(x);
-  }
-};
-
 // `reduction_idx` is the index of a particular batch of input elements that all
 // get reduced to one output element. `reduction_element_idx` is the index of
 // just one input element within its batch.
