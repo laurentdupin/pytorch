@@ -24,10 +24,7 @@ import torch.fx
 import torch.utils._pytree as pytree
 from torch._dynamo.utils import counters
 from torch._higher_order_ops.associative_scan import associative_scan_op
-from torch._higher_order_ops.inline_asm_elementwise import (
-    _constraint_expects_fp32,
-    _should_upcast_to_fp32,
-)
+from torch._higher_order_ops.inline_asm_elementwise import _should_upcast_to_fp32
 from torch._higher_order_ops.triton_kernel_wrap import triton_kernel_wrapper_mutation
 from torch._library.fake_class_registry import FakeScriptObject
 from torch._library.opaque_object import is_opaque_value
@@ -8138,26 +8135,8 @@ def lower_inline_asm_elementwise(
 ):
     inputs = broadcast_tensors(*inputs)
 
-    constraint_parts = [p.strip() for p in constraints.split(",")]
-    input_constraints = [p for p in constraint_parts if not p.startswith("=")]
-
-    # With pack > 1, each input has `pack` constraints. Only check
-    # the first constraint per input for upcast decisions.
-    loaders = []
-    for inp, constraint in zip(inputs, input_constraints[: len(inputs)]):
-        loader = inp.make_loader()
-        if _constraint_expects_fp32(constraint) and _should_upcast_to_fp32(
-            inp.get_dtype()
-        ):
-            original_loader = loader
-
-            def upcasting_loader(idx, orig=original_loader):
-                val = orig(idx)
-                return ops.to_dtype(val, torch.float32)
-
-            loaders.append(upcasting_loader)
-        else:
-            loaders.append(loader)
+    input_dtypes = tuple(inp.get_dtype() for inp in inputs)
+    loaders = [inp.make_loader() for inp in inputs]
 
     def inner_fn(idx):
         vals = tuple(loader(idx) for loader in loaders)
@@ -8168,6 +8147,7 @@ def lower_inline_asm_elementwise(
             dtype=dtype,
             is_pure=is_pure,
             pack=pack,
+            input_dtypes=input_dtypes,
         )
         # Inductor computes in fp32 for bf16/fp16. Upcast so fused downstream
         # ops (reductions, etc.) see fp32 values. The Pointwise's storage dtype

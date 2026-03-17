@@ -54,10 +54,6 @@ def _parse_constraints(constraints: str) -> tuple[int, int]:
     return n_outputs, n_inputs
 
 
-def _constraint_expects_fp32(constraint: str) -> bool:
-    return constraint.lstrip("=") == "f"
-
-
 def _should_upcast_to_fp32(dtype: torch.dtype) -> bool:
     return dtype in (torch.float16, torch.bfloat16)
 
@@ -140,50 +136,31 @@ def _inline_asm_dense(*inputs, asm_str, constraints, dtype, is_pure, pack):
     if not inputs[0].is_cuda:
         raise RuntimeError("inline_asm_elementwise only supports CUDA tensors")
 
-    n_outputs, n_inputs = _parse_constraints(constraints)
-
-    # With pack > 1, each logical input/output uses `pack` registers
-    if n_outputs != pack:
-        raise ValueError(
-            f"Expected {pack} output constraint(s) for pack={pack}, got {n_outputs}"
-        )
-
-    if n_inputs != len(inputs) * pack:
-        raise ValueError(
-            f"Constraint string specifies {n_inputs} inputs but expected "
-            f"{len(inputs) * pack} for {len(inputs)} tensor(s) with pack={pack}"
-        )
-
     if pack > 1:
         raise RuntimeError(
             "inline_asm_elementwise with pack > 1 requires torch.compile"
         )
 
-    constraint_parts = [p.strip() for p in constraints.split(",")]
-    input_constraints = [p for p in constraint_parts if not p.startswith("=")]
+    n_outputs, n_inputs = _parse_constraints(constraints)
 
-    processed_inputs = list(inputs)
-    for i, (inp, constraint) in enumerate(zip(inputs, input_constraints)):
-        if _constraint_expects_fp32(constraint) and _should_upcast_to_fp32(inp.dtype):
-            processed_inputs[i] = inp.float()
+    if n_outputs != 1:
+        raise ValueError(f"Expected 1 output constraint, got {n_outputs}")
 
-    effective_input_dtype = processed_inputs[0].dtype
+    if n_inputs != len(inputs):
+        raise ValueError(
+            f"Constraint string specifies {n_inputs} inputs but got "
+            f"{len(inputs)} tensor(s)"
+        )
 
     jit_fn = _get_jiterator_fn(
         asm_str=asm_str,
         constraints=constraints,
-        n_inputs=len(processed_inputs),
-        input_dtype=effective_input_dtype,
+        n_inputs=len(inputs),
+        input_dtype=inputs[0].dtype,
         output_dtype=dtype,
     )
 
-    result = jit_fn(*processed_inputs)
-
-    # Jiterator returns input dtype; convert to requested output dtype if needed
-    if result.dtype != dtype:
-        result = result.to(dtype)
-
-    return result
+    return jit_fn(*inputs)
 
 
 @inline_asm_elementwise.py_impl(DispatchKey.CompositeExplicitAutograd)

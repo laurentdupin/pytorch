@@ -735,7 +735,6 @@ def x_grid_barrier(sem):
     tl.debug_barrier()
 
 
-
 def triton_builtin(f: Callable[..., _T]) -> Callable[..., _T]:
     """
     Decorator to mark a function as a Triton built-in function.  These functions
