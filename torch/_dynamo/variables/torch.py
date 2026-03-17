@@ -943,19 +943,6 @@ class TorchInGraphFunctionVariable(BaseTorchVariable):
             torch._C._set_deterministic_algorithms(value)
             return CONSTANT_VARIABLE_NONE
 
-        @register(torch.amp.autocast_mode._enter_autocast)
-        def handle_enter_autocast(
-            self, tx: "InstructionTranslator", *args: VariableTracker
-        ) -> VariableTracker:
-            # This is kind of ugly, but we need to avoid going through VariableTracker.build, which will wrap this as an
-            # AutocastModeVariable
-            obj = variables.UserDefinedClassVariable(
-                torch.amp.autocast,
-                source=AttrSource(AttrSource(ImportSource("torch"), "amp"), "autocast"),
-            ).call_function(tx, args, {})
-            obj.call_method(tx, "__enter__", [], {})
-            return obj
-
         @register(torch.autocast_increment_nesting)
         def handle_autocast_increment_nesting(
             self, tx: "InstructionTranslator"
