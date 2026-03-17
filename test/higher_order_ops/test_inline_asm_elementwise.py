@@ -411,5 +411,74 @@ class TestInlineAsmElementwiseEdgeCases(TestCase):
             self.assertTrue(torch.equal(eager_result, compiled_result))
 
 
+@unittest.skipIf(not TEST_CUDA, "CUDA not available")
+@unittest.skipIf(not SM70OrLater, "Requires SM70+")
+class TestInlineAsmPackPadding(TestCase):
+    """Test that pack padding works when block size < pack."""
+
+    def test_pack2_xblock1_padding(self):
+        """Force XBLOCK=1 with pack=2 so padding is needed."""
+        from torch._inductor.choices import InductorChoices
+        from torch._inductor.codegen.triton import FixedTritonConfig
+        from torch._inductor.utils import run_and_get_code
+        from torch.testing import FileCheck
+
+        class ForceXBlock1(InductorChoices):
+            def triton_kernel_kwargs(self, kernel_cls, features, groups, kernel_kwargs):
+                return {
+                    **kernel_kwargs,
+                    "fixed_config": FixedTritonConfig({"XBLOCK": 1}),
+                }
+
+        def fn(x):
+            return inline_asm_elementwise(
+                x,
+                asm_str="mov.b32 $0, $2; mov.b32 $1, $3;",
+                constraints="=r,=r,r,r",
+                dtype=torch.float32,
+                pack=2,
+            )
+
+        x = torch.randn(128, device="cuda", dtype=torch.float32)
+        with torch._inductor.virtualized.V.set_choices_handler(ForceXBlock1()):
+            torch._dynamo.reset()
+            result, (code,) = run_and_get_code(torch.compile(fn, backend="inductor"), x)
+
+        self.assertTrue(torch.equal(result, x))
+        # Verify padding helpers are emitted in the generated code
+        FileCheck().check("inline_asm_pack").check("inline_asm_unpack").run(code)
+
+    def test_pack4_xblock1_padding(self):
+        """Force XBLOCK=1 with pack=4 so padding is needed."""
+        from torch._inductor.choices import InductorChoices
+        from torch._inductor.codegen.triton import FixedTritonConfig
+        from torch._inductor.utils import run_and_get_code
+        from torch.testing import FileCheck
+
+        class ForceXBlock1(InductorChoices):
+            def triton_kernel_kwargs(self, kernel_cls, features, groups, kernel_kwargs):
+                return {
+                    **kernel_kwargs,
+                    "fixed_config": FixedTritonConfig({"XBLOCK": 1}),
+                }
+
+        def fn(x):
+            return inline_asm_elementwise(
+                x,
+                asm_str="mov.b32 $0, $4; mov.b32 $1, $5; mov.b32 $2, $6; mov.b32 $3, $7;",
+                constraints="=r,=r,=r,=r,r,r,r,r",
+                dtype=torch.float32,
+                pack=4,
+            )
+
+        x = torch.randn(128, device="cuda", dtype=torch.float32)
+        with torch._inductor.virtualized.V.set_choices_handler(ForceXBlock1()):
+            torch._dynamo.reset()
+            result, (code,) = run_and_get_code(torch.compile(fn, backend="inductor"), x)
+
+        self.assertTrue(torch.equal(result, x))
+        FileCheck().check("inline_asm_pack").check("inline_asm_unpack").run(code)
+
+
 if __name__ == "__main__":
     run_tests()

@@ -24,7 +24,6 @@ import torch.fx
 import torch.utils._pytree as pytree
 from torch._dynamo.utils import counters
 from torch._higher_order_ops.associative_scan import associative_scan_op
-from torch._higher_order_ops.inline_asm_elementwise import _should_upcast_to_fp32
 from torch._higher_order_ops.triton_kernel_wrap import triton_kernel_wrapper_mutation
 from torch._library.fake_class_registry import FakeScriptObject
 from torch._library.opaque_object import is_opaque_value
@@ -8152,7 +8151,7 @@ def lower_inline_asm_elementwise(
         # Inductor computes in fp32 for bf16/fp16. Upcast so fused downstream
         # ops (reductions, etc.) see fp32 values. The Pointwise's storage dtype
         # handles the final downcast on store.
-        if _should_upcast_to_fp32(dtype):
+        if dtype in (torch.float16, torch.bfloat16):
             result = ops.to_dtype(result, torch.float32)
         return result
 

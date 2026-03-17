@@ -54,10 +54,6 @@ def _parse_constraints(constraints: str) -> tuple[int, int]:
     return n_outputs, n_inputs
 
 
-def _should_upcast_to_fp32(dtype: torch.dtype) -> bool:
-    return dtype in (torch.float16, torch.bfloat16)
-
-
 _DTYPE_TO_CUDA_TYPE = {
     torch.float32: "float",
     torch.float64: "double",
