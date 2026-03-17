@@ -2,6 +2,7 @@
 import contextlib
 import sys
 import unittest
+from collections import defaultdict
 from contextlib import contextmanager
 
 import torch
@@ -1219,6 +1220,16 @@ class GraphModule(torch.nn.Module):
         l_z_ = L_z_
 
         x: "bf16[s77, s77]" = l_x_ @ l_z_;  l_x_ = l_z_ = None
+
+        autocast_decrement_nesting = torch.autocast_decrement_nesting();  autocast_decrement_nesting = None
+
+        clear_autocast_cache = torch.clear_autocast_cache();  clear_autocast_cache = None
+
+        set_autocast_enabled = torch.set_autocast_enabled('cpu', False);  set_autocast_enabled = None
+
+        set_autocast_dtype = torch.set_autocast_dtype('cpu', torch.bfloat16);  set_autocast_dtype = None
+
+        set_autocast_cache_enabled = torch.set_autocast_cache_enabled(True);  set_autocast_cache_enabled = None
         return (x,)
 """,  # NOQA: B950
             )
@@ -1232,6 +1243,16 @@ class GraphModule(torch.nn.Module):
         l_z_ = L_z_
 
         x: "bf16[3, 3]" = l_x_ @ l_z_;  l_x_ = l_z_ = None
+
+        autocast_decrement_nesting = torch.autocast_decrement_nesting();  autocast_decrement_nesting = None
+
+        clear_autocast_cache = torch.clear_autocast_cache();  clear_autocast_cache = None
+
+        set_autocast_enabled = torch.set_autocast_enabled('cpu', False);  set_autocast_enabled = None
+
+        set_autocast_dtype = torch.set_autocast_dtype('cpu', torch.bfloat16);  set_autocast_dtype = None
+
+        set_autocast_cache_enabled = torch.set_autocast_cache_enabled(True);  set_autocast_cache_enabled = None
         return (x,)
 """,  # NOQA: B950
             )
@@ -1264,6 +1285,116 @@ class GraphModule(torch.nn.Module):
             torch.set_autocast_enabled("cpu", prev_enabled)
             torch.set_autocast_dtype("cpu", prev_dtype)
             torch.set_autocast_cache_enabled(prev_cache)
+
+    def test__enter__exit_autocast_function_mode(self):
+        class FunctionCount(torch.overrides.TorchFunctionMode):
+            def __init__(self):
+                self.counts = defaultdict(int)
+
+            def __torch_function__(self, func, types, args, kwargs=None):
+                self.counts[func] += 1
+                return func(*args, **(kwargs or {}))
+
+        def f(x, y):
+            m = torch.amp.autocast_mode._enter_autocast("cpu")
+            x = x @ y
+            torch.amp.autocast_mode._exit_autocast(m)
+            return x
+
+        opt_f = torch.compile(f, backend="eager", fullgraph=True)
+        x = torch.randn(3, 3, dtype=torch.float32)
+        y = torch.randn(3, 3, dtype=torch.float32)
+        with FunctionCount() as fc:
+            z = f(x, y)
+            self.assertEqual(fc.counts[torch.amp.autocast_mode._enter_autocast], 1)
+            self.assertEqual(fc.counts[torch.amp.autocast_mode._exit_autocast], 1)
+        with FunctionCount() as fc:
+            opt_z = opt_f(x, y)
+            self.assertEqual(fc.counts[torch.amp.autocast_mode._enter_autocast], 1)
+            self.assertEqual(fc.counts[torch.amp.autocast_mode._exit_autocast], 1)
+        self.assertEqual(z, opt_z)
+        self.assertEqual(z.dtype, opt_z.dtype)
+        self.assertFalse(torch.is_autocast_enabled("cpu"))
+
+    def test__enter__exit_autocast_non_idempotent(self):
+        # Recompile trick doesn't work with dynamic shapes
+        if check_dynamic_shape_capture():
+            return
+
+        def f(x, y):
+            with torch.amp.autocast("cpu"):
+                x = x @ y
+            return x
+
+        eager = EagerAndRecordGraphs()
+        opt_f = torch.compile(f, backend=eager, fullgraph=False)
+        x = torch.randn(3, 3, dtype=torch.float32)
+        y = torch.randn(3, 3, dtype=torch.float32)
+        out = f(x, y)
+        opt_out = opt_f(x, y)
+        self.assertEqual(out, opt_out)
+        self.assertEqual(out.dtype, opt_out.dtype)
+        self.assertFalse(torch.is_autocast_enabled("cpu"))
+        graph = eager.graphs[0]
+        actual = normalize_gm(graph.print_readable(False))
+        self.assertExpectedInline(
+            actual,
+            """\
+class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "f32[3, 3]", L_y_: "f32[3, 3]"):
+        l_x_ = L_x_
+        l_y_ = L_y_
+
+        _enter_autocast = torch.amp.autocast_mode._enter_autocast('cpu', None, True, None)
+
+        x: "bf16[3, 3]" = l_x_ @ l_y_;  l_x_ = l_y_ = None
+
+        _exit_autocast = torch.amp.autocast_mode._exit_autocast(_enter_autocast);  _enter_autocast = _exit_autocast = None
+        return (x,)
+""",  # NOQA: B950
+        )
+
+        # Recompiling will decompose the _enter_autocast and _exit_autocast calls to lower level autocast functions
+        eager = EagerAndRecordGraphs()
+        d = {}
+        exec(actual, globals=globals(), locals=d)
+        retraced = torch.compile(d["GraphModule"], backend=eager, fullgraph=True)
+        retraced_out = retraced()(x, y)[0]
+        self.assertEqual(out, retraced_out)
+        self.assertEqual(out.dtype, retraced_out.dtype)
+        self.assertFalse(torch.is_autocast_enabled("cpu"))
+
+        graph = eager.graphs[0]
+        actual = normalize_gm(graph.print_readable(False))
+        self.assertExpectedInline(
+            actual,
+            """\
+class GraphModule(torch.nn.Module):
+    def forward(self, L_L_x_: "f32[3, 3]", L_L_y_: "f32[3, 3]"):
+        l_l_x_ = L_L_x_
+        l_l_y_ = L_L_y_
+
+        _is_autocast_available = torch._C._is_autocast_available('cpu');  _is_autocast_available = None
+
+        set_autocast_enabled = torch.set_autocast_enabled('cpu', True);  set_autocast_enabled = None
+
+        set_autocast_dtype = torch.set_autocast_dtype('cpu', torch.bfloat16);  set_autocast_dtype = None
+
+        autocast_increment_nesting = torch.autocast_increment_nesting();  autocast_increment_nesting = None
+        set_autocast_cache_enabled = torch.set_autocast_cache_enabled(True);  set_autocast_cache_enabled = None
+        x: "bf16[3, 3]" = l_l_x_ @ l_l_y_;  l_l_x_ = l_l_y_ = None
+        autocast_decrement_nesting = torch.autocast_decrement_nesting();  autocast_decrement_nesting = None
+
+        clear_autocast_cache = torch.clear_autocast_cache();  clear_autocast_cache = None
+
+        set_autocast_enabled_1 = torch.set_autocast_enabled('cpu', False);  set_autocast_enabled_1 = None
+
+        set_autocast_dtype_1 = torch.set_autocast_dtype('cpu', torch.bfloat16);  set_autocast_dtype_1 = None
+
+        set_autocast_cache_enabled_1 = torch.set_autocast_cache_enabled(True);  set_autocast_cache_enabled_1 = None
+        return (x,)
+""",  # NOQA: B950
+        )
 
     @parametrize(
         "Ctx",
