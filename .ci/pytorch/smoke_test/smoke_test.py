@@ -496,7 +496,9 @@ def check_mac_wheel_minos() -> None:
             try:
                 result = subprocess.run(
                     ["otool", "-l", str(dylib)],
-                    capture_output=True, text=True, timeout=30,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                 )
             except Exception:
                 continue
