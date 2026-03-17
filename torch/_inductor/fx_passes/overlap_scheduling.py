@@ -433,19 +433,18 @@ class OverlapScheduler:
             )
 
         # Build and collapse fusion regions FIRST so all subsequent operations
-        # work on the collapsed graph where fused ops are atomic units
-        self.region_of: dict[fx.Node, Any] = {}
-        if enable_fusion_regions:
-            from torch._inductor.fx_passes.fusion_regions import (
-                build_fusion_regions,
-                collapse_fusion_regions,
-            )
-
-            self.region_of = build_fusion_regions(self.gm)
-            if self.region_of:
-                self.region_of = collapse_fusion_regions(self.gm, self.region_of)
-                # fuse_by_partitions replaces gm.graph, so we need to update our reference
-                self.graph = gm.graph
+        # work on the collapsed graph where fused ops are atomic units.
+        # gather_node_runtime_estimations handles fusion region building when
+        # enable_fusion_regions is True, and also estimates all node runtimes.
+        self.node_estimations, self.region_of = gather_node_runtime_estimations(
+            gm,
+            custom_runtime_estimation,
+            enable_fusion_regions=enable_fusion_regions,
+            log_estimations=True,
+        )
+        if self.region_of:
+            # fuse_by_partitions replaces gm.graph, so we need to update our reference
+            self.graph = gm.graph
 
         # Build structures
         stable_topological_sort(self.graph)
@@ -494,15 +493,6 @@ class OverlapScheduler:
         ]
 
         self.memory_tracker = MemoryTracker(self.graph)
-
-        # Runtime estimations for all nodes (ms).
-        self.node_estimations, _ = gather_node_runtime_estimations(
-            gm, custom_runtime_estimation, log_estimations=True
-        )
-
-        # Add fusion region costs to estimations (call_module nodes from collapse)
-        for node, region in self.region_of.items():
-            self.node_estimations[node] = region.cost_ms
 
         self.wait_to_start: dict[fx.Node, fx.Node] = {}
         self._identify_collectives()

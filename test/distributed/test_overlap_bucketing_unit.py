@@ -1187,6 +1187,59 @@ class TestFusibleNodeOverlap(InductorTestCase):
             "sub"
         ).check("wait_tensor").run(graph_str)
 
+    def test_precomputed_estimations_via_custom_runtime(self):
+        """Pre-computed estimations from gather_node_runtime_estimations can be
+        fed into OverlapScheduler via custom_runtime_estimation wrapping a dict."""
+
+        def func(a):
+            group_name = "0"
+            group_size = 1
+
+            ag = torch.ops._c10d_functional.all_gather_into_tensor(
+                a, group_size, group_name
+            )
+            b = a + 1
+            b = b * 2
+            ag_out = torch.ops._c10d_functional.wait_tensor(ag)
+            return ag_out.sum() + b.sum()
+
+        with FakeTensorMode():
+            a = torch.ones(1024, 1024, device=self.device)
+            traced = make_fx(func)(a)
+
+        from torch._inductor.fx_passes.overlap_scheduling import (
+            gather_node_runtime_estimations,
+            OverlapScheduler,
+        )
+
+        # Pre-compute estimations externally
+        estimations, _ = gather_node_runtime_estimations(
+            traced, collective_estimator="analytical"
+        )
+
+        # Wrap dict as custom_runtime_estimation callback
+        custom_fn = lambda node, _: estimations.get(node)  # noqa: E731
+
+        scheduler = OverlapScheduler(
+            traced,
+            max_in_flight_gb=5.0,
+            max_compute_pre_fetch=200,
+            collective_bucketing=False,
+            insert_overlap_deps=False,
+            compute_overlap_multipler=1.0,
+            max_coll_distance=200,
+            custom_runtime_estimation=custom_fn,
+            collective_estimator="analytical",
+        )
+        out = scheduler.run()
+
+        # Verify the scheduler produced valid output with the pre-computed estimations
+        graph_str = str(out.graph)
+        FileCheck().check("all_gather_into_tensor").check("wait_tensor").run(graph_str)
+
+        # Verify collective was identified with the pre-computed estimation
+        self.assertEqual(len(scheduler.collective_info), 1)
+
 
 @requires_accelerator_dist_backend(["nccl", "xccl"])
 @unittest.skipIf(not HAS_GPU, "Inductor+gpu needs triton and recent GPU arch")
