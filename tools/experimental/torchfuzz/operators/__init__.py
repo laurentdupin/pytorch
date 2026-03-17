@@ -3,11 +3,6 @@
 from torchfuzz.operators.arg import ArgOperator
 from torchfuzz.operators.argsort import ArgsortOperator
 from torchfuzz.operators.base import Operator
-from torchfuzz.operators.collectives import (
-    AllGatherOperator,
-    AllReduceOperator,
-    ReduceScatterOperator,
-)
 from torchfuzz.operators.constant import ConstantOperator
 from torchfuzz.operators.gather import GatherOperator
 from torchfuzz.operators.index_select import IndexSelectOperator
@@ -103,10 +98,6 @@ __all__ = [
     "SoftmaxOperator",
     "DropoutOperator",
     "LayerNormOperator",
-    # Collective operators
-    "AllGatherOperator",
-    "ReduceScatterOperator",
-    "AllReduceOperator",
     "get_operator",
     "register_operator",
     "list_operators",

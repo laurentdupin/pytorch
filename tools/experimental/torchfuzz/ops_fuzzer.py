@@ -51,10 +51,6 @@ def _get_template_filtered_operators(
         from torchfuzz.codegen import UnbackedFuzzTemplate
 
         fuzz_template = UnbackedFuzzTemplate()
-    elif template == "distributed_overlap":
-        from torchfuzz.codegen import DistributedOverlapTemplate
-
-        fuzz_template = DistributedOverlapTemplate()
     else:
         from torchfuzz.codegen import DefaultFuzzTemplate
 
