@@ -26,6 +26,7 @@ from torch._dynamo.utils import counters
 from torch._higher_order_ops.associative_scan import associative_scan_op
 from torch._higher_order_ops.triton_kernel_wrap import triton_kernel_wrapper_mutation
 from torch._library.fake_class_registry import FakeScriptObject
+from torch._library.opaque_object import is_opaque_value
 from torch._library.utils import get_layout_constraint_tag
 from torch._prims_common import (
     canonicalize_dim,
@@ -856,13 +857,27 @@ def foreach_group_loop(groups, num_outputs, apply_fn, realize_outputs):
     return outputs
 
 
-def to_dtype(x: TensorBox, dtype: torch.dtype, copy: bool = False):
+def to_dtype(
+    x: TensorBox, dtype: torch.dtype, copy: bool = False, use_compute_types: bool = True
+):
     src_dtype = x.get_dtype()
     if src_dtype == dtype:
         return clone(x) if copy else x
 
     def _to_dtype(x):
-        return ops.to_dtype(x, dtype, src_dtype=src_dtype)
+        result = ops.to_dtype(
+            x,
+            dtype,
+            src_dtype=src_dtype,
+            use_compute_types=use_compute_types,
+        )
+        low_pr_fp = (torch.bfloat16, torch.float16)
+        if not use_compute_types and dtype in low_pr_fp:
+            # Upcast back to compute type so fused consumers see a compute-type
+            # value. Without this, a raw low-precision value gets a redundant
+            # downcast from the consumer's input emulation.
+            result = ops.to_dtype(result, dtype)
+        return result
 
     return make_pointwise(_to_dtype, override_return_dtype=dtype)(x)
 
@@ -925,7 +940,13 @@ def _convert_element_type(x: TensorBox, dtype: torch.dtype):
             return fallback_handler(
                 prims.convert_element_type.default, add_to_fallback_set=False
             )(x, dtype)
-    return to_dtype(x, dtype, copy=True)
+    src_dtype = x.get_dtype()
+    low_pr_fp = (torch.bfloat16, torch.float16)
+    use_compute_types = not (
+        config.emulate_precision_casts
+        and (src_dtype in low_pr_fp or dtype in low_pr_fp)
+    )
+    return to_dtype(x, dtype, copy=True, use_compute_types=use_compute_types)
 
 
 def to_dtype_bitcast(x: TensorBox, dtype: torch.dtype, *, copy=False):
@@ -2315,7 +2336,7 @@ def fallback_handler(kernel, add_to_fallback_set=True):
 
     def handler(*args, **kwargs):
         def wrap_tensors(x):
-            return TensorBox.create(x) if isinstance(x, ir.IRNode) else x
+            return x.wrap_for_lowering() if isinstance(x, ir.IRNode) else x
 
         return pytree.tree_map(
             wrap_tensors, ir.FallbackKernel.create(kernel, *args, **kwargs)
@@ -2904,7 +2925,7 @@ def require_channels_last(_, *args, **kwargs):
 def constrain_to_fake_tensor(arg, fake_arg):
     if fake_arg is None:
         return arg
-    if isinstance(fake_arg, FakeScriptObject):
+    if isinstance(fake_arg, FakeScriptObject) or is_opaque_value(fake_arg):
         return arg
     if isinstance(arg, ir.IRNode):
         return ir.ExternKernel.require_exact_strides(arg, fake_arg.stride())
@@ -2942,6 +2963,12 @@ def constrain_to_fx_strides(fx_node, *args, **kwargs):
     )
     kwargs = {k: apply_constraint(v, fx_node.kwargs[k]) for k, v in kwargs.items()}
     return args, kwargs
+
+
+# native_dropout uses empty_like(input) internally, so bernoulli_ consumes
+# RNG values in the input's stride order. Constrain input strides to match
+# the FX graph (i.e. eager) so the dropout mask is identical.
+add_layout_constraint(aten.native_dropout.default, constrain_to_fx_strides)
 
 
 def sdpa_constraint(fx_node, *args, **kwargs):
@@ -4255,6 +4282,7 @@ def index_put_impl_(self, indices, values, accumulate, check, may_realize=False)
         None,
         check=check,
     )
+
     values = expand(values, expected_vals_size)
     # all guards are set above during broadcast_tensors and expand
 
@@ -4772,6 +4800,12 @@ def _pad_as_cat(
             return None  # trim, not pad
 
     if pad_dim is None:
+        return None
+
+    # CPU cat always uses ConcatKernel (no pointwise_cat), which adds
+    # extra kernel launches for the fill.  Skip pad-as-cat on CPU.
+    device = x.get_device()
+    if device is not None and device.type == "cpu":
         return None
 
     # Build the fill tensor for the padding region
@@ -7995,7 +8029,7 @@ def with_effects(token, op, *args, **kwargs):
     else:
 
         def wrap_tensors(x):
-            return TensorBox.create(x) if isinstance(x, ir.IRNode) else x
+            return x.wrap_for_lowering() if isinstance(x, ir.IRNode) else x
 
         result = pytree.tree_map(
             wrap_tensors, ir.FallbackKernel.create(op, *args, **kwargs)
