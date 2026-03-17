@@ -742,10 +742,12 @@ class OutputGraph(OutputGraphCommon):
         # and restore_graphstate
         self.timestamp = 0
 
-        # Maps stream index → user stack trace for input mutations on that stream.
-        # Used to error when an event records on a stream that already has
-        # an input mutation (the epilogue copy_() wouldn't be captured).
-        self._input_mutation_streams: dict[int | None, traceback.StackSummary] = {}
+        # Maps stream id (id(stream_value)) → user stack trace for input
+        # mutations on that stream.  Used to error when an event records on a
+        # stream that already has an input mutation (the epilogue copy_()
+        # wouldn't be captured).  We key by id() of the underlying
+        # torch.Stream so we can peek lazy variables without realizing them.
+        self._input_mutation_streams: dict[int, traceback.StackSummary] = {}
         self._last_checked_input_versions: dict[int, int] | None = None
 
         # A list of register_finalizer_fns to apply to the output graph module
@@ -1115,7 +1117,7 @@ class OutputGraph(OutputGraphCommon):
                 enumerate(tracer._input_versions_at_beginning)
             )
 
-        cur_stream_index = tx.symbolic_stream_state.cur_stream().user_object_index
+        cur_stream_index = tx.symbolic_stream_state.cur_stream_id()
         input_idx = 0
         for node in tracer.graph.nodes:
             if node.op != "placeholder":
@@ -1145,7 +1147,7 @@ class OutputGraph(OutputGraphCommon):
         "  4. Record the event on a stream that has no input mutations."
     )
 
-    def check_event_record_after_input_mutation(self, stream_index: int | None) -> None:
+    def check_event_record_after_input_mutation(self, stream_index: int) -> None:
         """Error if an event is being recorded on a stream that already has
         an input mutation. Called at record time so ordering is naturally
         respected — records before mutations won't trigger this."""

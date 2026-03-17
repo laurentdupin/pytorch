@@ -248,6 +248,13 @@ class SymbolicStreamState:
     def in_stream_context(self) -> bool:
         return len(self.cur_stream_stack) > 0
 
+    def cur_stream_id(self) -> int:
+        """Get an identifier for the current stream without realizing lazy variables."""
+        stream = self.cur_stream_stack[-1]
+        if isinstance(stream, LazyVariableTracker) and not stream.is_realized():
+            return id(stream.peek_value())
+        return id(stream.value)
+
 
 class StreamContextVariable(FxTracebackAnnotateVariable):
     """This represents torch.cuda.StreamContext"""
@@ -346,7 +353,7 @@ class StreamVariable(StreamContextVariable):
                 ),
             )
         elif name == "record_event":
-            tx.output.check_event_record_after_input_mutation(self.user_object_index)
+            tx.output.check_event_record_after_input_mutation(id(self.value))
             return wrap_fx_proxy_cls(
                 target_cls=EventVariable,
                 tx=tx,
@@ -469,9 +476,7 @@ class EventVariable(VariableTracker):
             return CONSTANT_VARIABLE_NONE
         elif name == "record":
             stream_arg = EventVariable._get_stream_arg(tx, args, kwargs)
-            tx.output.check_event_record_after_input_mutation(
-                stream_arg.user_object_index
-            )
+            tx.output.check_event_record_after_input_mutation(id(stream_arg.value))
             tx.output.create_proxy(
                 "call_function",
                 torch.ops.streams.record_event,
