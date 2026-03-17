@@ -1227,8 +1227,11 @@ class TestMPS(TestCaseMPS):
         # See https://github.com/pytorch/pytorch/issues/177474
         a = torch.randn(4, 3, 5, dtype=torch.complex64, device="mps")
         b = torch.randn(4, 5, 2, dtype=torch.complex64, device="mps")
-        result_mps = torch.bmm(a, torch.conj(b))
-        result_cpu = torch.bmm(a.cpu(), torch.conj(b.cpu()))
+        result_mps = torch.bmm(a, b.conj())
+        result_cpu = torch.bmm(a.cpu(), b.cpu().conj())
+        self.assertEqual(result_cpu, result_mps)
+        result_mps = torch.bmm(a.conj(), b)
+        result_cpu = torch.bmm(a.cpu().conj(), b.cpu())
         self.assertEqual(result_cpu, result_mps)
 
     @xfailIf(MACOS_VERSION < 15.0)
