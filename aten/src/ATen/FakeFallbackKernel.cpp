@@ -37,30 +37,47 @@ static bool has_python_key_arg(
   return false;
 }
 
-// Get the fake device from the first fake tensor input, or nullopt for factory ops.
+// Determine the output device from fake tensor inputs, or nullopt for factory ops.
 static std::optional<c10::Device> get_common_device(
     torch::jit::Stack* stack,
     size_t num_arguments) {
+  std::optional<c10::Device> common_device;
+  bool is_cpu_zero_dim = false;
+
+  auto merge = [&](const at::Tensor& t) {
+    if (!t.defined() || !t.is_fake()) return;
+    bool t_is_cpu_zero_dim = t.device().is_cpu() && t.dim() == 0;
+    if (!common_device.has_value()) {
+      common_device = t.device();
+      is_cpu_zero_dim = t_is_cpu_zero_dim;
+      return;
+    }
+    if (t.device() == *common_device) {
+      if (is_cpu_zero_dim) is_cpu_zero_dim = t_is_cpu_zero_dim;
+      return;
+    }
+    if (t_is_cpu_zero_dim) return;
+    TORCH_CHECK(is_cpu_zero_dim,
+        "Unhandled FakeTensor device propagation: ", *common_device, " vs ", t.device());
+    common_device = t.device();
+    is_cpu_zero_dim = false;
+  };
+
   auto arguments = torch::jit::last(*stack, num_arguments);
   for (size_t idx = 0; idx < num_arguments; ++idx) {
     const auto& ivalue = arguments[idx];
     if (ivalue.isTensor()) {
-      const auto& t = ivalue.toTensor();
-      if (t.defined() && t.is_fake()) return t.device();
+      merge(ivalue.toTensor());
     } else if (ivalue.isTensorList()) {
-      for (const auto& elem : ivalue.toTensorList()) {
-        at::Tensor t = elem;
-        if (t.defined() && t.is_fake()) return t.device();
-      }
+      for (const auto& elem : ivalue.toTensorList()) merge(elem);
     } else if (ivalue.isOptionalTensorList()) {
       for (const auto& elem : ivalue.toOptionalTensorList()) {
         std::optional<at::Tensor> ot = elem;
-        if (ot.has_value() && ot->defined() && ot->is_fake())
-          return ot->device();
+        if (ot.has_value()) merge(*ot);
       }
     }
   }
-  return std::nullopt;
+  return common_device;
 }
 
 // For factory ops: find Device args in the stack, rewrite to meta, return original.
