@@ -10259,6 +10259,22 @@ class TestGatherScatter(TestCaseMPS):
         a_cpu[:, 0] = a_cpu[:, 0] + b_cpu[:, 0]
         self.assertEqual(a_cpu, a_mps)
 
+    def test_scatter_complex(self):
+        cpu_self = torch.zeros((2, 3), dtype=torch.complex64)
+        cpu_index = torch.tensor([[0, 1, 2], [1, 2, 0]], dtype=torch.int64)
+        cpu_src = torch.tensor([[1 + 2j, 3 + 4j, 5 + 6j], [7 + 8j, 9 + 10j, 11 + 12j]], dtype=torch.complex64)
+
+        mps_self = cpu_self.to("mps")
+        mps_index = cpu_index.to("mps")
+        mps_src = cpu_src.to("mps")
+
+        expected = cpu_self.clone().scatter_add_(1, cpu_index, cpu_src)
+        actual = mps_self.clone().scatter_add_(1, mps_index, mps_src).cpu()
+        self.assertEqual(actual, expected)
+
+        expected_set = cpu_self.clone().scatter_(1, cpu_index, cpu_src)
+        actual_set = mps_self.clone().scatter_(1, mps_index, mps_src).cpu()
+        self.assertEqual(actual_set, expected_set)
 # These tests were taken from test/test_view_ops.py
 # They are subset of those tests as currently only this subset is working.
 # This whole `class` will be removed when we add generic device testing. There
