@@ -223,6 +223,9 @@ inline bool is_blas_compliant_batch_dims(const Tensor& A) {
  * 2. The cols and rows dimensions should not be overlapping!
  */
 inline bool is_blas_compliant_matrix_dims(const Tensor& A, bool check_col_major_like = true) {
+  // NOTE: the function body can be potentially simplified to
+  // return is_non_overlapping_matrices(A) && A.stride(non_ld_dim) == 1;
+  // but we keep it verbose just for now, before it is exhaustively tested.
   TORCH_INTERNAL_ASSERT_DEBUG_ONLY(A.dim() >= 2);
   TORCH_INTERNAL_ASSERT_DEBUG_ONLY(is_non_overlapping_matrices(A));
   const int64_t ld_dim = check_col_major_like ? -1 : -2;
