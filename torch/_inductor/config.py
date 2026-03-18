@@ -1114,6 +1114,9 @@ class aten_distributed_optimizations:
     # Prioritize bucketing during overlap scheduling by grouping candidates by bucket key
     prioritize_bucketing_during_scheduling: bool = True
 
+    # Bucket mode for collective bucketing in overlap scheduling
+    bucket_mode: Literal["default", "custom_ops", "custom_ops_multidtype"] | None = None
+
 
 def parallel_compile_enabled_internally() -> bool:
     """

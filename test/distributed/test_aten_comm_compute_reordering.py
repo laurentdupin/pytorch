@@ -58,6 +58,7 @@ def apply_reordering_and_get_graph(graph, out_li) -> None:
         "collective_estimator",
         "bucket_exposed_first",
         "bucket_only_internode_comms",
+        "bucket_mode",
     )
     for key in config_keys:
         if (val := getattr(dist_opts, key)) is not None:
@@ -1167,7 +1168,12 @@ class TestComputeCommReorderingBucketing(TestComputeCommReorderingMultiProc):
             self.assertTrue(same(out, correct))
 
     @unittest.skipIf(not HAS_GPU, "Inductor+gpu needs triton and recent GPU arch")
-    @torch._inductor.config.patch(get_bucket_patches())
+    @torch._inductor.config.patch(
+        {
+            **get_bucket_patches(),
+            "aten_distributed_optimizations.bucket_mode": "custom_ops_multidtype",
+        }
+    )
     def test_bucketing_with_convert_dtype(self):
         """Test that all_gathers with dtype conversion get bucketed and produce correct results."""
 
