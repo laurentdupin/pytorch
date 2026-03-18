@@ -312,6 +312,9 @@ class StreamVariable(StreamContextVariable):
     def python_type(self) -> type:
         return torch.Stream
 
+    def python_value_for_identity(self) -> object:
+        return self.value
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -436,6 +439,9 @@ class EventVariable(VariableTracker):
         self.proxy = proxy
         self.value = value
         self.user_object_index = user_object_index
+
+    def python_value_for_identity(self) -> object:
+        return self.value
 
     def call_method(
         self,
