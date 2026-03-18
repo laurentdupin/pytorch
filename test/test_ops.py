@@ -467,6 +467,7 @@ class TestCommon(TestCase):
     # resulting in possible equality check failures.
     # skip windows case on CPU due to https://github.com/pytorch/pytorch/issues/129947
     # XPU test will be enabled step by step. Skip the tests temporarily.
+    # MPS does not support double precision, so single precision has to be used instead.
     @skipXPU
     @onlyNativeDeviceTypesAnd(["hpu"])
     @suppress_warnings
@@ -483,7 +484,9 @@ class TestCommon(TestCase):
             raise unittest.SkipTest("XXX: raises tensor-likes are not close.")
 
         # Sets the default dtype to NumPy's default dtype of double
-        with set_default_dtype(torch.double):
+        with set_default_dtype(
+            torch.float if torch.device(device).type == "mps" else torch.double
+        ):
             for sample_input in op.reference_inputs(device, dtype):
                 self.compare_with_reference(
                     op, op.ref, sample_input, exact_dtype=(dtype is not torch.long)
@@ -635,9 +638,17 @@ class TestCommon(TestCase):
                 # precise dtypes -- they simply must be close
                 precise_dtype = dtype
             if prims.utils.is_float_dtype(dtype):
-                precise_dtype = torch.double
+                precise_dtype = (
+                    torch.float32
+                    if torch.device(device).type == "mps"
+                    else torch.double
+                )
             if prims.utils.is_complex_dtype(dtype):
-                precise_dtype = torch.cdouble
+                precise_dtype = (
+                    torch.complex32
+                    if torch.device(device).type == "mps"
+                    else torch.cdouble
+                )
 
             # Checks if the results are close
             try:

@@ -369,6 +369,13 @@ def is_noncontiguous_supported(device):
     return device is None or device.type != "hpu"
 
 
+def highest_precision_float(device):
+    if torch.device(device).type == "mps":
+        return torch.float32
+    else:
+        return torch.float64
+
+
 def handle_noncontiguous_outputs(input_tlist, output):
     device = None
     from torch._subclasses.fake_tensor import FakeTensor
@@ -5459,13 +5466,13 @@ def linspace(
             start.dim() == 0,
             lambda: "linspace only supports 0-dimensional start and end tensors",
         )
-        start = _maybe_convert_to_dtype(start, torch.float64)
+        start = _maybe_convert_to_dtype(start, highest_precision_float(device))
     if isinstance(end, TensorLikeType):
         torch._check(
             end.dim() == 0,
             lambda: "linspace only supports 0-dimensional start and end tensors",
         )
-        end = _maybe_convert_to_dtype(end, torch.float64)
+        end = _maybe_convert_to_dtype(end, highest_precision_float(device))
 
     if builtins.any(isinstance(arg, complex) for arg in (start, end, steps)):
         default_complex_dtype = utils.corresponding_complex_dtype(
