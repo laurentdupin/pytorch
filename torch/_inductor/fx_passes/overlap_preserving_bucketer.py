@@ -298,7 +298,6 @@ class OverlapPreservingBucketer:
         the most common root cause of per-rank graph divergence.
         """
         import torch.distributed as dist
-
         from torch._subclasses.fake_tensor import unset_fake_temporarily
         from torch.distributed.distributed_c10d import _get_default_group
 
@@ -324,9 +323,9 @@ class OverlapPreservingBucketer:
 
         # Check count mismatch
         counts = [len(s) for s in all_shapes]
-        if len(set(counts)) > 1:
+        if len(OrderedSet(counts)) > 1:
             lines.append(
-                f"  all-gather count differs: "
+                "  all-gather count differs: "
                 + ", ".join(f"rank{r}={c}" for r, c in enumerate(counts))
             )
 
@@ -334,7 +333,7 @@ class OverlapPreservingBucketer:
         min_len = min(counts)
         for i in range(min_len):
             shapes_i = [tuple(all_shapes[r][i]) for r in range(world_size)]
-            if len(set(shapes_i)) > 1:
+            if len(OrderedSet(shapes_i)) > 1:
                 rank_strs = ", ".join(
                     f"rank{r}={list(shapes_i[r])}" for r in range(world_size)
                 )
@@ -362,8 +361,12 @@ class OverlapPreservingBucketer:
                 continue
             key = str(get_full_bucket_key(b.collectives[0], self.bucket_mode))
             local_details.append(
-                (key, len(b.collectives), b.total_bytes,
-                 [n.name for n in b.collectives])
+                (
+                    key,
+                    len(b.collectives),
+                    b.total_bytes,
+                    [n.name for n in b.collectives],
+                )
             )
         local_details.sort()
 
