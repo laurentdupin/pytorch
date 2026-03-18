@@ -139,7 +139,7 @@ def check_wheel_platform_tag() -> None:
                 raise RuntimeError(msg)
             print(f"WARNING: {msg}")
 
-        if not re.match(platform_pattern, platform_tag):
+        if not re.search(platform_pattern, platform_tag):
             msg = (
                 f"Platform tag mismatch in {source}: "
                 f"got '{platform_tag}', expected pattern matching "
