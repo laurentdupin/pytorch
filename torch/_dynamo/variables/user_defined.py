@@ -316,6 +316,11 @@ class UserDefinedClassVariable(UserDefinedVariable):
         ):
             return super().var_getattr(tx, name)
 
+        # Check if the class has had this attr set via side_effects (e.g.,
+        # functools.total_ordering adds comparison methods via setattr).
+        if tx.output.side_effects.has_pending_mutation_of_attr(self, name):
+            return tx.output.side_effects.load_attr(self, name)
+
         obj = None
         try:
             obj = inspect.getattr_static(self.value, name)
@@ -516,13 +521,19 @@ class UserDefinedClassVariable(UserDefinedVariable):
                 args[0],
                 args[1:],
             )
-        elif name == "__setattr__" and self.ban_mutation:
-            unimplemented(
-                gb_type="Class attribute mutation when the __dict__ was already materialized",
-                context=str(self.value),
-                explanation="Dyanmo does not support tracing mutations on a class when its __dict__ is materialized",
-                hints=graph_break_hints.SUPPORTABLE,
-            )
+        elif name == "__setattr__":
+            if self.ban_mutation:
+                unimplemented(
+                    gb_type="Class attribute mutation when the __dict__ was already materialized",
+                    context=str(self.value),
+                    explanation="Dyanmo does not support tracing mutations on a class when its __dict__ is materialized",
+                    hints=graph_break_hints.SUPPORTABLE,
+                )
+            if not tx.output.side_effects.is_attribute_mutation(self):
+                tx.output.side_effects.track_object_existing(self.value, self)
+            attr_name = args[0].as_python_constant()
+            tx.output.side_effects.store_attr(self, attr_name, args[1])
+            return variables.ConstantVariable.create(None)
         return super().call_method(tx, name, args, kwargs)
 
     def call_function(
@@ -1376,6 +1387,15 @@ class UserDefinedObjectVariable(UserDefinedVariable):
                 install_guard(self.source.make_guard(GuardBuilder.SEQUENCE_LENGTH))
                 return VariableTracker.build(tx, len(self.value))  # type: ignore[arg-type]
 
+        # Check if the class has had this method set via side_effects (e.g.,
+        # functools.total_ordering adds comparison methods via setattr on the class).
+        cls_vt = tx.output.side_effects.id_to_variable.get(id(type(self.value)))
+        if cls_vt is not None and tx.output.side_effects.has_pending_mutation_of_attr(
+            cls_vt, name
+        ):
+            method_vt = tx.output.side_effects.load_attr(cls_vt, name)
+            return method_vt.call_function(tx, [self] + list(args), kwargs)
+
         return super().call_method(tx, name, args, kwargs)
 
     def method_setattr_standard(
@@ -1849,6 +1869,19 @@ class UserDefinedObjectVariable(UserDefinedVariable):
             subobj = self.value.__dict__[name]
             source = self.maybe_wrap_nn_module_source_for_instance(tx, name, source)
             return VariableTracker.build(tx, subobj, source)
+
+        # Check if the class has had this attr set via side_effects (e.g.,
+        # functools.total_ordering adds comparison methods via setattr). This
+        # takes priority over the real MRO result since the mutation is more
+        # recent.
+        cls_vt = tx.output.side_effects.id_to_variable.get(id(type(self.value)))
+        if cls_vt is not None and tx.output.side_effects.has_pending_mutation_of_attr(
+            cls_vt, name
+        ):
+            method_vt = tx.output.side_effects.load_attr(cls_vt, name)
+            if isinstance(method_vt, variables.UserFunctionVariable):
+                return variables.UserMethodVariable(method_vt.fn, self, source=source)
+            return method_vt
 
         # Step 4-5: Non-data descriptor or plain class attribute.
         if type_attr is not NO_SUCH_SUBOBJ:

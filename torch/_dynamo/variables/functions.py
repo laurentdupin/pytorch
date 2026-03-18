@@ -2755,9 +2755,24 @@ class FunctoolsPartialVariable(VariableTracker):
         merged_kwargs = {**self.keywords, **kwargs}
         return self.func.call_function(tx, merged_args, merged_kwargs)
 
+    def call_method(
+        self,
+        tx: "InstructionTranslator",
+        name: str,
+        args: Sequence[VariableTracker],
+        kwargs: dict[str, VariableTracker],
+    ) -> VariableTracker:
+        if name == "__setattr__":
+            attr_name = args[0].as_python_constant()
+            tx.output.side_effects.store_attr(self, attr_name, args[1])
+            return variables.ConstantVariable.create(None)
+        return super().call_method(tx, name, list(args), kwargs)
+
     def call_obj_hasattr(
         self, tx: "InstructionTranslator", name: str
     ) -> ConstantVariable:
+        if tx.output.side_effects.has_pending_mutation_of_attr(self, name):
+            return variables.ConstantVariable.create(True)
         # functools.partial uses slots, so attributes are constant
         return VariableTracker.build(tx, hasattr(functools.partial(identity), name))
 
