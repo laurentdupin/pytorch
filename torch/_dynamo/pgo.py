@@ -394,17 +394,15 @@ class FrameStateSizeEntry:
         # Already-dynamic dims become None and are ignored by the guard.
         # When no dim transitions, clear stale excluded_sizes so later
         # compilations don't inherit exclusions from earlier transitions.
+        new_size = self._merge_atom_tup(self.size, other.size)
         if isinstance(self.size, tuple):
-            new_size = self._merge_atom_tup(self.size, other.size)
             if new_size != self.size:
                 self.excluded_sizes = tuple(
                     s if type(s) is int else None for s in self.size
                 )
             elif self.excluded_sizes is not None:
                 self.excluded_sizes = None
-            self.size = new_size
-        else:
-            self.size = self._merge_atom_tup(self.size, other.size)
+        self.size = new_size
         # Same idea for scalars: record the static value about to become dynamic.
         # Re-derive like excluded_sizes: only set when transitioning from a
         # concrete int, clear when already dynamic.
