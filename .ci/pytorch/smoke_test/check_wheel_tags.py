@@ -39,6 +39,7 @@ def check_wheel_platform_tag() -> None:
       - The platform tag matches the expected platform from TARGET_OS
     """
     wheel_dir = os.getenv("PYTORCH_FINAL_PACKAGE_DIR", "")
+    print(f"found value PYTORCH_FINAL_PACKAGE_DIR: {wheel_dir}")
     if not wheel_dir or not os.path.isdir(wheel_dir):
         print("PYTORCH_FINAL_PACKAGE_DIR not set, skipping wheel tag check")
         return
