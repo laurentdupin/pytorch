@@ -197,6 +197,13 @@ def get_all_math_dtypes(device) -> list[torch.dtype]:
     )
 
 
+def highest_precision_float(device):
+    if torch.device(device).type == "mps":
+        return torch.float32
+    else:
+        return torch.float64
+
+
 def get_all_complex_dtypes(include_complex32=False) -> list[torch.dtype]:
     return (
         [torch.complex32, torch.complex64, torch.complex128]

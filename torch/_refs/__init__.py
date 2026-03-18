@@ -50,6 +50,7 @@ from torch._prims_common.wrappers import (
     elementwise_unary_scalar_wrapper,
     out_wrapper,
 )
+from torch.testing._internal.common_dtype import highest_precision_float
 
 
 # Experimental module containing prototype Python references for existing
@@ -367,13 +368,6 @@ aten = torch._ops.ops.aten
 
 def is_noncontiguous_supported(device):
     return device is None or device.type != "hpu"
-
-
-def highest_precision_float(device):
-    if torch.device(device).type == "mps":
-        return torch.float32
-    else:
-        return torch.float64
 
 
 def handle_noncontiguous_outputs(input_tlist, output):
