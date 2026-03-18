@@ -1,7 +1,7 @@
 """Validate wheel platform tags and macOS dylib minos.
 
 Supports two modes:
-1. Pre-install: reads .whl files from PYTORCH_FINAL_PACKAGE_DIR 
+1. Pre-install: reads .whl files from PYTORCH_FINAL_PACKAGE_DIR
 2. Post-install: reads metadata from installed torch package (soft warnings)
 - (macOS only) dylib minos matches the wheel platform tag
 """
