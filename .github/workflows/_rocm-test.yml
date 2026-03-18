@@ -206,6 +206,7 @@ jobs:
           TESTS_TO_INCLUDE: ${{ inputs.tests-to-include }}
           DASHBOARD_TAG: ${{ inputs.dashboard-tag }}
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
+          FLAG_V
         timeout-minutes: ${{ fromJson(steps.test-timeout.outputs.timeout) }}
         run: |
           set -x
@@ -224,6 +225,8 @@ jobs:
           # shellcheck disable=SC2086,SC2090
           container_name=$(docker run \
             ${GPU_FLAG:-} \
+            ${ROCR_VISIBLE_DEVICES} \
+            ${!ADDITIONAL_FLAGS${DEVICES}} \
             -e BUILD_ENVIRONMENT \
             -e PR_NUMBER \
             -e GITHUB_ACTIONS \
