@@ -4,7 +4,6 @@ import math
 import sys
 import warnings
 from typing import Any, cast, TYPE_CHECKING
-from typing_extensions import deprecated
 
 import torch
 import torch.distributed as dist
