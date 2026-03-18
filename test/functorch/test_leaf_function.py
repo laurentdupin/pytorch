@@ -2044,6 +2044,7 @@ class GraphModule(torch.nn.Module):
             def bad_fn2(x):
                 return (x,)
 
+    @skipIfCrossRef
     def test_leaf_function_no_return_value(self):
         printed = []
 
