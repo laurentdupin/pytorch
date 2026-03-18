@@ -2641,7 +2641,7 @@ op_db: list[OpInfo] = [
                 "test_aot_autograd_symbolic_exhaustive",
                 device_type="cpu",
                 dtypes=[torch.float32],
-                active_if=IS_ARM64,
+                active_if=IS_ARM64 and IS_LINUX,
             ),
         ),
     ),
