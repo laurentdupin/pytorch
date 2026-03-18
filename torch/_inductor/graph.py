@@ -1922,32 +1922,9 @@ class GraphLowering(torch.fx.Interpreter):
                             result.get_size(), torch.channels_last
                         )
                     if not unbacked_symbols_in_strides and len(strides):
-                        # For views, we generally use require_stride_order to avoid
-                        # unnecessary copies. But for user-visible outputs we need
-                        # exact strides (e.g., pad_mm can create views with padded
-                        # base strides that have the same order but wrong values).
-                        if (
-                            n.meta["val"]._is_view()
-                            or isinstance(result.data, ir.BaseView)
-                        ) and (
-                            not is_user_visible
-                            or V.graph.sizevars.statically_known_leq(
-                                result.get_numel(), 1
-                            )
-                        ):
-                            result = ir.ExternKernel.require_stride_order(
-                                result,
-                                ir.get_stride_order(strides),
-                                allow_padding=allow_padding,
-                            )
-                        else:
-                            # Fix for 0-d tensors: if result size is empty,
-                            # strides should also be empty
-                            if len(result.get_size()) == 0 and len(strides) > 0:
-                                strides = []
-                            result = ir.ExternKernel.require_exact_strides(
-                                result, strides, allow_padding=allow_padding
-                            )
+                        result = ir.ExternKernel.require_exact_strides(
+                            result, strides, allow_padding=allow_padding
+                        )
 
             # Realize if (1) any user need inputs realized, or (2) there is
             # already too many reads and rematerializing can be bad.
