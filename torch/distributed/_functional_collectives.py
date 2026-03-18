@@ -1774,7 +1774,7 @@ def isend_inplace(
     else:
         global_dst = dst
 
-    group_name = _resolve_group_name(group)
+    group_name = _resolve_group(group).group_name
     tensor = torch.ops._c10d_functional.isend(tensor, global_dst, tag, group_name)
     if _are_we_tracing():
         return tensor
@@ -1800,7 +1800,7 @@ def irecv_inplace(
         global_src = c10d.get_global_rank(group, group_src)
     else:
         global_src = src
-    group_name = _resolve_group_name(group)
+    group_name = _resolve_group(group).group_name
     tensor = torch.ops._c10d_functional.irecv(tensor, global_src, tag, group_name)
     return _maybe_wrap_tensor(tensor)
 
@@ -1816,7 +1816,8 @@ def batch_p2p_ops_inplace(
         raise AssertionError("torch.distributed must be initialized")
     if group_name is None or group_name == "":
         group_name = c10d._get_default_group()
-    group_name = _resolve_group_name(group_name)
+    resolved = _resolve_group(group_name)
+    group_name = resolved if isinstance(resolved, str) else resolved.group_name
     tensors = torch.ops._c10d_functional.batch_p2p_ops(
         op_list, peer_list, tag_list, tensors, group_name
     )
