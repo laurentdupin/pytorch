@@ -49,6 +49,7 @@ from .. import config, graph_break_hints, variables
 from .._trace_wrapped_higher_order_op import trace_wrapped
 from ..exc import (
     ObservedAttributeError,
+    raise_observed_exception,
     TorchRuntimeError,
     unimplemented,
     UnknownPropertiesDuringBackwardTrace,
@@ -60,9 +61,11 @@ from ..guards import GuardBuilder, install_guard
 from ..source import AttrSource
 from ..utils import (
     fqn,
+    get_custom_getattr,
     get_fake_value,
     get_real_value,
     guard_if_dyn,
+    object_has_getattribute,
     product,
     proxy_args_kwargs,
     raise_args_mismatch,
@@ -73,7 +76,7 @@ from .base import AttributeMutationNew, ValueMutationNew, VariableTracker
 from .constant import CONSTANT_VARIABLE_NONE, CONSTANT_VARIABLE_TRUE, ConstantVariable
 from .lists import ListIteratorVariable, SizeVariable
 from .script_object import TorchScriptObjectVariable
-from .user_defined import generic_getattr, UserDefinedClassVariable
+from .user_defined import UserDefinedClassVariable
 
 
 try:
@@ -124,6 +127,16 @@ supported_tensor_comparison_op_values = dict.fromkeys(
 supported_const_comparison_op_values = dict.fromkeys(
     supported_const_comparison_ops.values()
 )
+
+
+def is_bound_tensor_method(value: object) -> bool:
+    return bool(
+        callable(value)
+        and not torch._dynamo.utils.object_has_getattribute(value)
+        and hasattr(value, "__self__")
+        and isinstance(value.__self__, torch.Tensor)
+        and getattr(value.__self__, value.__name__, None)
+    )
 
 
 # instead of using inspect.getattr_static, we directly lookup the appropriate
@@ -240,9 +253,10 @@ class TensorVariable(VariableTracker):
             version_before is not None
             and version_after is not None
             and version_after > version_before
-            and has_tensor_arg
         ):
-            self.synchronize_attributes(tx)
+            if has_tensor_arg:
+                self.synchronize_attributes(tx)
+            tx.output.check_input_mutation_on_current_stream(tx)
 
     def debug_repr(self) -> str:
         # TODO: strip off fake tensor from repr here
@@ -306,6 +320,98 @@ class TensorVariable(VariableTracker):
                     if value.is_contiguous(memory_format=x)
                 )
         return props
+
+    def dynamic_getattr(
+        self, tx: "InstructionTranslator", name: str
+    ) -> VariableTracker:
+        fake_val = self.proxy.node.meta["example_value"]
+        # For getattrs on tensors without sources,
+        # we can do better than the default (creating a GetAttrVariable)
+        # if:
+        # (1) the tensor is a traceable tensor subclass
+        # (2) We are getattr'ing an inner tensor from that subclass
+        if not self.source and is_traceable_wrapper_subclass(fake_val):
+            attrs, _ctx = fake_val.__tensor_flatten__()
+            proxy = getattr(self.as_proxy(), name)
+            example_value = getattr(fake_val, name)
+            if name in attrs:
+                # attrs returned from tensor_flatten are always tensors or opaques
+                assert isinstance(example_value, (torch.Tensor, OpaqueBase))
+                from .builder import wrap_fx_proxy
+
+                return wrap_fx_proxy(tx=tx, proxy=proxy, example_value=example_value)
+            elif is_opaque_reference_type(type(example_value)):
+                fake_script_obj = torch._library.fake_class_registry.maybe_to_fake_obj(
+                    tx.output.fake_mode, example_value
+                )
+                return TorchScriptObjectVariable.create(proxy, fake_script_obj)
+            elif isinstance(
+                example_value,
+                torch._library.fake_class_registry.FakeScriptObject,
+            ):
+                return TorchScriptObjectVariable.create(proxy, example_value)
+            # any other attributes on the subclass (that are not methods)
+            # are assumed to be constant metadata.
+            elif not callable(example_value):
+                return VariableTracker.build(tx, example_value)
+
+        if not (self.source and self.source.subguards_allowed()):
+            raise NotImplementedError
+
+        # For local source, we associate the real value. We use this real value
+        # for implementing getattr fallthrough on the variable tracker base class.
+
+        # Note - this scope construction is mirrored in guards
+        # A subsequent PR will introduce a util.
+        scope = {"L": tx.output.local_scope, "G": tx.output.global_scope}
+        try:
+            # We raise in case we get a typerror bug w/ SuperSource.
+            # SuperSource has bugs in it atm, and can produce code like
+            # eval("super(L['mod'].model.model.encoder.embed_positions.forward__class__,
+            # L['mod'].model.model.encoder.embed_positions)", scope)
+            # Which is incorrect, and violates the invariant that all sources should be eval()-able against the scope.
+            _input_associated_real_value = eval(self.source.name, scope)
+        except Exception as exc:
+            raise NotImplementedError from exc
+
+        if _input_associated_real_value is None:
+            raise NotImplementedError
+
+        if object_has_getattribute(_input_associated_real_value):
+            raise NotImplementedError
+
+        if get_custom_getattr(_input_associated_real_value):
+            raise NotImplementedError
+
+        try:
+            real_value = getattr(_input_associated_real_value, name)
+        except AttributeError:
+            error_message = VariableTracker.build(
+                tx,
+                f"'{type(_input_associated_real_value).__name__}' object has no attribute '{name}'",
+            )
+            raise_observed_exception(
+                AttributeError,
+                tx,
+                args=[error_message],
+            )
+
+        attr_source = AttrSource(self.source, name)
+
+        # Typically we'd want to use variable builder here
+        # but unfortunately id(real_value.__self__) is not id(<original value>)
+        if is_bound_tensor_method(real_value):
+            # No need to install the guard because its a bound tensor method
+            from .misc import GetAttrVariable
+
+            return GetAttrVariable(
+                self, name, source=attr_source, py_type=type(real_value)
+            )
+
+        install_guard(
+            self.source.make_guard(functools.partial(GuardBuilder.HASATTR, attr=name))
+        )
+        return VariableTracker.build(tx, real_value, attr_source)
 
     def method_attr_ndim(self, tx: "InstructionTranslator") -> VariableTracker:
         if self.ndim is not None:
@@ -436,25 +542,6 @@ class TensorVariable(VariableTracker):
 
         return VariableTracker.build(tx, ret_val)
 
-    def resolve_type_attr(self, tx, name, type_attr, source, real_value):
-        # Defer callable type attributes to GetAttrVariable rather than
-        # resolving eagerly.  TensorVariable has a comprehensive call_method
-        # that handles these, and eager resolution would create identity guards
-        # on ephemeral bound methods.
-        if isinstance(
-            type_attr,
-            (
-                types.MethodDescriptorType,
-                types.WrapperDescriptorType,
-                types.MethodWrapperType,
-                types.FunctionType,
-                types.BuiltinFunctionType,
-                types.BuiltinMethodType,
-            ),
-        ):
-            return variables.GetAttrVariable(self, name, source=source)
-        return super().resolve_type_attr(tx, name, type_attr, source, real_value)
-
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
         if self.is_strict_mode(tx):
             if name in self._strict_mode_banned_ops():
@@ -472,98 +559,79 @@ class TensorVariable(VariableTracker):
                     f"Unknown property {name} during speculating backward, dynamo will insert contiguous call ahead and speculate it again"  # noqa: B950
                 )
 
-        # Fast path: cached FakeTensor metadata (works for all tensors)
+        if name == "__class__":
+            return VariableTracker.build(tx, self.python_type())
+
         handler = getattr(self, f"method_attr_{name}", None)
         result = handler(tx) if handler is not None else None
-        if result is not None:
-            # Add a guard for type matching, these guards are checked before
-            # tensor guards. In some cases, a <tensor>.<attr> guard can be
-            # evaluated first, and break if <tensor> is later changed to
-            # another type.
-            if (
-                self.source
-                and self.source.subguards_allowed()
-                and not (
-                    name not in ("grad", "requires_grad")
-                    and result.is_python_constant()
-                )
-            ):
-                install_guard(self.make_guard(GuardBuilder.TYPE_MATCH))
-                result.source = AttrSource(self.source, name)
-            return result
 
-        # Handle type-level tensor attrs that don't need a real value.
-        static_attr = all_tensor_attrs.get(name, None)
-        if static_attr is not None:
-            # getset_descriptors that produce tensors (.real, .T, .H, etc.).
-            # Skip "grad" — its result can be None, not always a tensor.
-            if type(static_attr) is types.GetSetDescriptorType and name != "grad":
+        # Add a guard for type matching, these guards are checked before tensor guards
+        # In some cases, a <tensor>.<attr> guard can be evaluated first, and break if
+        # <tensor> is later changed to another type
+        if (
+            result is not None
+            and self.source
+            and self.source.subguards_allowed()
+            and not (
+                name not in ("grad", "requires_grad") and result.is_python_constant()
+            )
+        ):
+            install_guard(self.make_guard(GuardBuilder.TYPE_MATCH))
+            result.source = AttrSource(self.source, name)
+
+        # It's hard to get inplace view (metadata mutation) on graph input work properly across
+        # dynamo/aot/inductor, just fall back.
+        if self.source is not None and hasattr(torch.ops.aten, name):
+            fn = getattr(torch.ops.aten, name)
+            if (
+                hasattr(fn, "overloads")
+                and hasattr(fn, fn.overloads()[0])
+                and torch.Tag.inplace_view in getattr(fn, fn.overloads()[0]).tags
+            ):
+                # Delay the graph break to the actual call of unsqueeze_/resize_/resize_as_ etc.
+                return variables.misc.DelayGraphBreakVariable(
+                    source=AttrSource(self.source, name),
+                    msg="Getting an inplace view on a graph input is not supported",
+                )
+
+        # For attributes (not methods) that were not caught in the special handling above,
+        # (e.g. tensor.real), we handle these generically, assuming that the output type is
+        # a tensor.
+        if result is None and name != "grad":
+
+            def try_generic_attr_handling() -> VariableTracker | None:
                 from .builder import wrap_fx_proxy
                 from .misc import GetAttrVariable
+
+                static_attr = all_tensor_attrs.get(name, None)
+                if static_attr is None:
+                    return None
+
+                # Make sure this is an attribute, not a method.
+                # type(torch.Tensor.H) should be "getset_descriptor"
+                # This is a because of CPython implementation, see THPVariableType:
+                # these attributes are implemented under tp_getset, which appear
+                # as `getset_descriptor`s, (compared to, say, methods which appear
+                # as `method_descriptor`s)
+                if type(static_attr) is not types.GetSetDescriptorType:
+                    return None
 
                 proxy = GetAttrVariable.create_getattr_proxy(self.as_proxy(), name)
-                source = AttrSource(self.source, name) if self.source else None
-                return wrap_fx_proxy(tx=tx, proxy=proxy, source=source)
-            elif type(static_attr) is types.MethodDescriptorType:
-                # Inplace views on graph inputs: delay graph break to actual call.
-                if self.source is not None and hasattr(torch.ops.aten, name):
-                    fn = getattr(torch.ops.aten, name)
-                    if (
-                        hasattr(fn, "overloads")
-                        and hasattr(fn, fn.overloads()[0])
-                        and torch.Tag.inplace_view
-                        in getattr(fn, fn.overloads()[0]).tags
-                    ):
-                        return variables.misc.DelayGraphBreakVariable(
-                            source=AttrSource(self.source, name),
-                            msg="Getting an inplace view on a graph input is not supported",
-                        )
-                from .misc import GetAttrVariable
+                if self.source is not None:
+                    return wrap_fx_proxy(
+                        tx=tx, proxy=proxy, source=AttrSource(self.source, name)
+                    )
+                else:
+                    return wrap_fx_proxy(tx=tx, proxy=proxy)
 
-                source = AttrSource(self.source, name) if self.source else None
-                return GetAttrVariable(self, name, source=source)
+            result = try_generic_attr_handling()
 
-        # Sourceless traceable subclass handling
-        fake_val = self.proxy.node.meta["example_value"]
-        if not self.source and is_traceable_wrapper_subclass(fake_val):
-            attrs, _ctx = fake_val.__tensor_flatten__()
-            proxy = getattr(self.as_proxy(), name)
-            example_value = getattr(fake_val, name)
-            if name in attrs:
-                # attrs returned from tensor_flatten are always tensors or opaques
-                assert isinstance(example_value, (torch.Tensor, OpaqueBase))
-                from .builder import wrap_fx_proxy
+        if result is None:
+            result = self.dynamic_getattr(tx, name)
 
-                return wrap_fx_proxy(tx=tx, proxy=proxy, example_value=example_value)
-            elif is_opaque_reference_type(type(example_value)):
-                fake_script_obj = torch._library.fake_class_registry.maybe_to_fake_obj(
-                    tx.output.fake_mode, example_value
-                )
-                return TorchScriptObjectVariable.create(proxy, fake_script_obj)
-            elif isinstance(
-                example_value,
-                torch._library.fake_class_registry.FakeScriptObject,
-            ):
-                return TorchScriptObjectVariable.create(proxy, example_value)
-            # any other attributes on the subclass (that are not methods)
-            # are assumed to be constant metadata.
-            elif not callable(example_value):
-                return VariableTracker.build(tx, example_value)
-
-        # Sourced tensor: recover real value and use generic_getattr
-        if not (self.source and self.source.subguards_allowed()):
+        if result is None:
             raise NotImplementedError
-
-        scope = {"L": tx.output.local_scope, "G": tx.output.global_scope}
-        try:
-            real_value = eval(self.source.name, scope)
-        except Exception as exc:
-            raise NotImplementedError from exc
-        if real_value is None:
-            raise NotImplementedError
-
-        attr_source = AttrSource(self.source, name)
-        return generic_getattr(tx, self, real_value, name, attr_source)
+        return result
 
     def call_id(self, tx: "InstructionTranslator") -> VariableTracker:
         if not self.source:
@@ -707,17 +775,6 @@ class TensorVariable(VariableTracker):
                 explanation="Dynamo currently does not support this method "
                 f"({name}) invocation in strict mode.",
                 hints=[],
-            )
-
-        if name == "__deepcopy__":
-            unimplemented(
-                gb_type="copy.deepcopy(tensor)",
-                context=f"copy.deepcopy({self})",
-                explanation="Dynamo does not support copy.deepcopy() on tensors.",
-                hints=[
-                    "Avoid calling copy.deepcopy() on tensors inside compiled regions.",
-                    *graph_break_hints.SUPPORTABLE,
-                ],
             )
 
         # Only override builtin tensor methods

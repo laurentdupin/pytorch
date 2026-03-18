@@ -13,7 +13,7 @@ from typing import Any, Literal, Optional, overload, TYPE_CHECKING
 from typing_extensions import Never, override
 
 import torch
-from torch._dynamo.source import AttrSource, GetItemSource, Source
+from torch._dynamo.source import AttrSource, GetItemSource
 
 from .. import graph_break_hints, variables
 from ..exc import raise_observed_exception, unimplemented
@@ -390,57 +390,6 @@ CONSTANT_VARIABLE_TRUE = ConstantVariable(True)
 CONSTANT_VARIABLE_FALSE = ConstantVariable(False)
 
 
-class FakeIdVariable(VariableTracker):
-    """A compile-time-only id value that can be used as a dict key but cannot
-    be reconstructed across graph breaks.
-
-    When dynamo evaluates ``id(x)`` on a variable tracker that has no
-    corresponding runtime object (e.g. a ``ConstDictVariable`` created during
-    tracing), we mint a fake integer id.  This variable holds that id and
-    supports the minimal interface needed to participate as a dict key
-    (hashing and equality).  It intentionally blocks reconstruction so that a
-    graph break does not silently bake a stale id into the resumed bytecode.
-    """
-
-    def __init__(self, value: int, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.value = value
-
-    def as_python_constant(self) -> int:
-        return self.value
-
-    def is_python_constant(self) -> bool:
-        return False
-
-    def python_type(self) -> type:
-        return int
-
-    def is_python_hashable(self) -> bool:
-        return True
-
-    def get_python_hash(self) -> int:
-        return hash(self.value)
-
-    def is_python_equal(self, other: object) -> bool:
-        if isinstance(other, (FakeIdVariable, ConstantVariable)):
-            return self.value == other.as_python_constant()
-        return False
-
-    def reconstruct(self, codegen: Any) -> None:
-        unimplemented(
-            gb_type="Reconstruction of FakeIdVariable",
-            context=str(self.value),
-            explanation=(
-                "A fake id produced by id() on a compile-time container "
-                "cannot be reconstructed across a graph break."
-            ),
-            hints=[
-                "Avoid using id() on containers in code that may graph-break.",
-                *graph_break_hints.SUPPORTABLE,
-            ],
-        )
-
-
 class EnumVariable(VariableTracker):
     """VariableTracker for enum.Enum and enum.IntEnum instances
 
@@ -481,17 +430,13 @@ class EnumVariable(VariableTracker):
         return self.value
 
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
-        from .user_defined import generic_getattr
-
-        if name in cmp_name_to_op_mapping:
-            return variables.GetAttrVariable(self, name)
-        # Pre-check: if the attribute doesn't exist, let the caller handle
-        # the fallback (e.g. GetAttrVariable) rather than raising an observed
-        # exception which would trigger an awkward graph break path.
         if not hasattr(self.value, name):
             raise NotImplementedError
+        if name in cmp_name_to_op_mapping:
+            return variables.GetAttrVariable(self, name)
+        member = getattr(self.value, name)
         source = self.source and AttrSource(self.source, name)
-        return generic_getattr(tx, self, self.value, name, source)
+        return VariableTracker.build(tx, member, source=source)
 
     def is_python_hashable(self) -> Literal[True]:
         raise_on_overridden_hash(self.value, self)
