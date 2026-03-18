@@ -29,6 +29,31 @@ _POINTWISE_OPS = _UNARY_POINTWISE_OPS | frozenset({
 })
 
 
+def _broadcast_result_shape(s1, s2):
+    """Return the broadcast result shape of s1 and s2, or None if incompatible.
+
+    Follows NumPy/PyTorch broadcasting rules: dimensions are compared from
+    the trailing end, and each pair must be equal or one of them must be 1.
+    """
+    if s1 is None or s2 is None:
+        return None
+    s1, s2 = list(s1), list(s2)
+    ndim = max(len(s1), len(s2))
+    s1 = [1] * (ndim - len(s1)) + s1
+    s2 = [1] * (ndim - len(s2)) + s2
+    result = []
+    for a, b in zip(s1, s2):
+        if a == b:
+            result.append(a)
+        elif a == 1:
+            result.append(b)
+        elif b == 1:
+            result.append(a)
+        else:
+            return None
+    return result
+
+
 def fuse(gm: GraphModule, example_inputs: List[torch.Tensor]) -> PassResult:
     """Fuse chains of pointwise ops into FusedKernel nodes.
 
@@ -40,6 +65,9 @@ def fuse(gm: GraphModule, example_inputs: List[torch.Tensor]) -> PassResult:
     graph = gm.graph
     groups: List[FusionGroup] = []
     node_to_group: Dict[torch.fx.Node, FusionGroup] = {}
+    name_to_node_map: Dict[str, torch.fx.Node] = {
+        n.name: n for n in graph.nodes
+    }
 
     for node in graph.nodes:
         if node.op != "call_function":
@@ -72,7 +100,24 @@ def fuse(gm: GraphModule, example_inputs: List[torch.Tensor]) -> PassResult:
             if has_blocking_user:
                 continue
             group = node_to_group[arg]
-            if group.shape is not None and group.shape == shape:
+            bcast = _broadcast_result_shape(group.shape, shape)
+            if bcast is not None:
+                # When upgrading the group shape, verify all existing
+                # members are still broadcast-compatible with the new shape
+                if list(bcast) != list(group.shape):
+                    all_compat = True
+                    for existing_name in group.node_names:
+                        existing_node = name_to_node_map.get(existing_name)
+                        if existing_node is None:
+                            all_compat = False
+                            break
+                        es = _node_shape(existing_node)
+                        if _broadcast_result_shape(es, bcast) != bcast:
+                            all_compat = False
+                            break
+                    if not all_compat:
+                        continue
+                group.shape = bcast
                 group.node_names.append(node.name)
                 group.op_names.append(op_name)
                 group.output = node.name
@@ -142,12 +187,18 @@ def fuse(gm: GraphModule, example_inputs: List[torch.Tensor]) -> PassResult:
         input_nodes = [name_to_node[inp] for inp in group.inputs]
         input_shapes = [_node_shape(n) for n in input_nodes]
 
+        output_mem_fmt = name_to_node[group.output].meta.get("memory_format")
+        stride_order = (
+            "channels_last" if output_mem_fmt == "channels_last" else "contiguous"
+        )
+
         kernel = FusedKernel(
             name=kernel_name,
             ops=fused_ops,
             n_inputs=len(group.inputs),
             shape=group.shape,
             input_shapes=input_shapes,
+            stride_order=stride_order,
         )
         output_node = name_to_node[group.output]
 
@@ -158,6 +209,8 @@ def fuse(gm: GraphModule, example_inputs: List[torch.Tensor]) -> PassResult:
         if group.shape:
             fused_node.meta["shape"] = group.shape
         fused_node.meta["dtype"] = output_node.meta.get("dtype", torch.float32)
+        if stride_order == "channels_last":
+            fused_node.meta["memory_format"] = "channels_last"
 
         output_node.replace_all_uses_with(fused_node)
         replaced[group.output] = fused_node.name

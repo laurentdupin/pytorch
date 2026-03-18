@@ -37,7 +37,8 @@ class _DecompRecorder(torch.utils._python_dispatch.TorchDispatchMode):
 
         decomp = self.decomp_table.get(func)
         if decomp is not None:
-            return decomp(*args, **kwargs)
+            with self:
+                return decomp(*args, **kwargs)
 
         if func is torch.ops.aten.view.default:
             func = torch.ops.aten.reshape.default
@@ -94,6 +95,72 @@ class _DecompRecorder(torch.utils._python_dispatch.TorchDispatchMode):
 
 import torch.nn.functional as _F
 
+
+def _unsqueeze_to_dim(t, dim):
+    for _ in range(dim - t.dim()):
+        t = t.unsqueeze(-1)
+    return t
+
+
+def _batch_norm_no_training(
+    input, weight, bias, running_mean, running_var, training, momentum, eps
+):
+    """Decompose native_batch_norm for eval mode without dtype casts.
+
+    Stays in the input dtype to avoid _to_copy ops that would break
+    pointwise fusion chains. The standard PyTorch decomposition upscales
+    to float32 for numerical stability, but for inference with bf16/fp16
+    the precision loss is negligible and the fusion benefit is large.
+    """
+    if training:
+        return torch.ops.aten.native_batch_norm.default(
+            input, weight, bias, running_mean, running_var,
+            training, momentum, eps,
+        )
+    invstd = torch.rsqrt(running_var + eps)
+    mean = _unsqueeze_to_dim(running_mean, input.dim() - 1)
+    invstd = _unsqueeze_to_dim(invstd, input.dim() - 1)
+    output = (input - mean) * invstd
+    if weight is not None:
+        weight = _unsqueeze_to_dim(weight, input.dim() - 1)
+        output = output * weight
+    if bias is not None:
+        bias = _unsqueeze_to_dim(bias, input.dim() - 1)
+        output = output + bias
+    save_mean = running_mean
+    save_rstd = invstd.squeeze()
+    return output, save_mean, save_rstd
+
+
+def _batch_norm_legit_no_training(
+    input, weight, bias, running_mean, running_var, momentum, eps
+):
+    return _batch_norm_no_training(
+        input, weight, bias, running_mean, running_var,
+        False, momentum, eps,
+    )
+
+
+def _ensure_shapes(gm, example_inputs):
+    """Propagate shapes only if nodes are missing shape metadata.
+
+    Only runs shape propagation when at least one call_function node
+    lacks shape metadata, indicating the graph came from dynamo without
+    shape annotations.
+    """
+    needs_prop = False
+    for node in gm.graph.nodes:
+        if node.op == "call_function" and node.meta.get("shape") is None:
+            if _is_torch_op(node.target):
+                needs_prop = True
+                break
+    if not needs_prop:
+        return
+
+    from torch._torchlite.passes.shape_prop import shape_prop
+    shape_prop(gm, example_inputs)
+
+
 _DECOMP_BLOCKLIST = frozenset({
     torch.ops.aten.reshape.default,
     torch.ops.aten.silu.default,
@@ -104,10 +171,16 @@ _DECOMP_BLOCKLIST = frozenset({
 
 
 def decompose(gm: GraphModule, example_inputs: List[torch.Tensor]) -> PassResult:
-    from torch._decomp import core_aten_decompositions
+    from torch._decomp import core_aten_decompositions, get_decompositions
+
+    _ensure_shapes(gm, example_inputs)
 
     graph = gm.graph
-    decomp_table = core_aten_decompositions()
+    decomp_table = dict(core_aten_decompositions())
+    decomp_table[torch.ops.aten.native_batch_norm.default] = _batch_norm_no_training
+    decomp_table[torch.ops.aten._native_batch_norm_legit_no_training.default] = (
+        _batch_norm_legit_no_training
+    )
 
     for node in list(graph.nodes):
         if node.op != "call_function":
