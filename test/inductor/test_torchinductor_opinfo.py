@@ -32,6 +32,7 @@ from torch.testing._internal.common_device_type import (
 from torch.testing._internal.common_methods_invocations import op_db, skipOps
 from torch.testing._internal.common_utils import (
     IS_CI,
+    IS_LINUX,
     IS_MACOS,
     IS_WINDOWS,
     IS_X86,
