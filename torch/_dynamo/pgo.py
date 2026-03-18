@@ -402,6 +402,9 @@ class FrameStateSizeEntry:
                 )
             elif self.excluded_sizes is not None:
                 self.excluded_sizes = None
+            self.size = new_size
+        else:
+            self.size = self._merge_atom_tup(self.size, other.size)
         # Same idea for scalars: record the static value about to become dynamic.
         # Re-derive like excluded_sizes: only set when transitioning from a
         # concrete int, clear when already dynamic.
@@ -414,7 +417,6 @@ class FrameStateSizeEntry:
         elif self.scalar is auto_dynamic and self.excluded_scalar is not None:
             self.excluded_scalar = None
         self.scalar = self._merge_atom(self.scalar, other.scalar)
-        self.size = self._merge_atom_tup(self.size, other.size)
         self.stride = self._merge_atom_tup(self.stride, other.stride)
         return self
 

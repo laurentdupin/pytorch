@@ -6324,7 +6324,8 @@ class ShapeEnv:
         # in the guard cache.  Without an exclusion guard, inputs that exactly
         # match the old graph's static sizes would be captured by the new
         # dynamic graph instead, violating the invariant "once an input is
-        # served by graph X it is always served by graph X".
+        # served by graph X it is always served by graph X". This condition
+        # is true iff there is no branching on dynamic shapes.
         #
         # Soundness argument (cache-flip / LIFO order):
         #   Graph_new sits before Graph_old in the cache.  Graph_old accepts
@@ -6384,9 +6385,16 @@ class ShapeEnv:
                 for sym, val in self.exclusion_constraints
                 if symbol_to_source.get(sym)
             ]
-            if all_pairs and not all(
-                self.backed_var_to_val.get(sym) == val for sym, val in all_pairs
-            ):
+            if all_pairs:
+                if all(
+                    self.backed_var_to_val.get(sym) == val for sym, val in all_pairs
+                ):
+                    raise AssertionError(
+                        "All excluded values match current concrete values — "
+                        "this means no dim actually transitioned static→dynamic, "
+                        "so exclusion_constraints should not have been recorded. "
+                        f"pairs={all_pairs}"
+                    )
                 if len(all_pairs) == 1:
                     excl_expr = sympy.Ne(
                         all_pairs[0][0], all_pairs[0][1], evaluate=False

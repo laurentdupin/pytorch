@@ -170,10 +170,15 @@ automatic_dynamic_shapes = (
 automatic_dynamic_shapes_mark_as: Literal["dynamic", "unbacked"] = "dynamic"
 
 # When True, adds exclusion guards for tensor dims and scalars that transition
-# from static to dynamic via automatic_dynamic_shapes. The exclusion guard
-# rejects inputs matching the prior static graph's sizes, so those inputs
-# fall through to the more specialized static graph instead of being captured
-# by the newer dynamic graph.
+# from static to dynamic via automatic_dynamic_shapes.
+#
+# Invariant: when enabled, automatic_dynamic recompilation preserves graph
+# selection — inputs that matched a previous static cache entry will continue
+# to use that entry, not be intercepted by a newer dynamic entry.
+#
+# Mechanism: the exclusion guard rejects inputs matching the prior static
+# graph's sizes, so those inputs fall through to the more specialized static
+# graph instead of being captured by the newer dynamic graph.
 #
 # Scope: applies only to graph-input-level dimension and scalar transitions
 # (progressive dynamism). Does NOT handle data-dependent branching
