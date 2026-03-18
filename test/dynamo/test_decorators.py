@@ -2568,6 +2568,7 @@ Detected recompile when torch.compile stance is 'fail_on_recompile'. filename: '
             normalize_gm(backend.fw_graphs[0].print_readable(print_output=False)),
             normalize_gm(backend.bw_graphs[0].print_readable(print_output=False)),
         )
+
     @parametrize("backend", ["eager", "aot_eager"])
     def test_leaf_function_input_mutation_error(self, backend):
         @leaf_function
