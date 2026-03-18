@@ -5244,8 +5244,6 @@ def sample_inputs_to(op_info, device, dtype, requires_grad, **kwargs):
         devices = [torch.device('cpu'), torch.device('cuda:0')] if torch.cuda.is_available() else devices
     memory_formats = [torch.preserve_format, torch.channels_last]
 
-    other_dtype = torch.bfloat16 if torch.device(device).type == 'mps' else torch.float64
-
     # TODO: can't switch `to.device` overload to use positional arguments
     # https://github.com/pytorch/pytorch/issues/84265
     # to.device overload
@@ -5253,7 +5251,9 @@ def sample_inputs_to(op_info, device, dtype, requires_grad, **kwargs):
         kwargs = {
             "memory_format": mem_f,
         }
-        yield SampleInput(make_arg((S, S, S, S)), args=(device, other_dtype, nb, cp), kwargs=kwargs)
+        yield SampleInput(make_arg((S, S, S, S)), args=(device, torch.double, nb, cp), kwargs=kwargs)
+
+    other_dtype = torch.float16 if torch.device(device).type == 'mps' else torch.float64
 
     # to.dtype overload
     for nb, cp, mem_f in product([True, False], [True, False], memory_formats):
@@ -17724,6 +17724,11 @@ op_db: list[OpInfo] = [
                 "TestNormalizeOperators",
                 "test_normalize_operator_exhaustive",
             ),
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_noncontiguous_samples', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_variant_consistency_eager', device_type='mps'),
         ),
     ),
     OpInfo('topk',
@@ -20724,8 +20729,6 @@ op_db: list[OpInfo] = [
            check_batched_forward_grad=False,
            assert_autodiffed=True,
            skips=(
-               # https://github.com/pytorch/pytorch/issues/89353
-               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_numpy_ref_mps'),
                # RuntimeError: Arguments for call not valid.
                #               Expected a value of type 'List[Tensor]' for argument
                #               'tensors' but instead found type 'Tensor (inferred)'.
@@ -23736,6 +23739,14 @@ python_ref_db = [
     PythonRefInfo(
         "_refs.to",
         torch_opinfo_name="to",
+        skips=(
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_meta', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback', device_type='mps'),
+        ),
     ),
     PythonRefInfo(
         "_refs.triu",
