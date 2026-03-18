@@ -3320,8 +3320,6 @@ instantiate_device_type_tests(
     TestSelectAlgorithmDynamicShapes, globals(), only_for="cpu"
 )
 
-# see https://github.com/pytorch/pytorch/issues/177327
-
 
 if __name__ == "__main__":
     from torch.testing._internal.inductor_utils import HAS_CPU

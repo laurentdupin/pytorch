@@ -3227,7 +3227,7 @@ class TestConvolutionNNDeviceType(NNTestCase):
                     y_ = conv(x2)
                     self.assertEqual(y, y_)
 
-    @xfailIf(IS_ARM64)
+    @xfailIf(IS_LINUX and IS_ARM64)
     # see https://github.com/pytorch/pytorch/issues/177245
     @onlyCPU
     def test_conv_ic1_channels_last_for_oneDNN(self):
