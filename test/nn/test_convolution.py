@@ -3198,7 +3198,7 @@ class TestConvolutionNNDeviceType(NNTestCase):
             gradgradcheck(convolution, inputs, nondet_tol=gradcheck_nondet_tol)
         )
 
-    @xfailIf(IS_ARM64)
+    @xfailIf(IS_LINUX and IS_ARM64)
     # see https://github.com/pytorch/pytorch/issues/177245
     @onlyCPU
     def test_conv_contiguous_for_oneDNN(self):
