@@ -1247,7 +1247,6 @@ def _resolve_group(
         raise ValueError(f"Unsupported group type: {type(group)}, {group}")
 
 
-@deprecated("`_resolve_group_name()` is deprecated. Use `_resolve_group()` instead")
 def _resolve_group_name(group: RANK_TYPES, tag: str = "") -> c10d.GroupName:
     """
     Given group in RANK_TYPES, return the group name.
@@ -1774,7 +1773,7 @@ def isend_inplace(
     else:
         global_dst = dst
 
-    group_name = _resolve_group(group).group_name
+    group_name = _resolve_group_name(group)
     tensor = torch.ops._c10d_functional.isend(tensor, global_dst, tag, group_name)
     if _are_we_tracing():
         return tensor
@@ -1800,7 +1799,7 @@ def irecv_inplace(
         global_src = c10d.get_global_rank(group, group_src)
     else:
         global_src = src
-    group_name = _resolve_group(group).group_name
+    group_name = _resolve_group_name(group)
     tensor = torch.ops._c10d_functional.irecv(tensor, global_src, tag, group_name)
     return _maybe_wrap_tensor(tensor)
 
