@@ -1,0 +1,5 @@
+dev,name,batch_size,accuracy,calls_captured,unique_graphs,graph_breaks,unique_graph_breaks,autograd_captures,autograd_compiles,cudagraph_skips,compilation_latency
+cuda,DistilBertForMaskedLM,1,fail_to_run,159,1,0,0,0,0,0,1.339570
+cuda,AlbertForMaskedLM,1,fail_to_run,394,1,0,0,0,0,0,1.687298
+cuda,DistillGPT2,1,fail_to_run,280,1,2,1,0,0,0,2.838811
+cuda,resnet50,0,eager_fail_to_run,0,0,0,0,0,0,0,0

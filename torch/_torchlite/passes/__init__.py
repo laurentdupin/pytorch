@@ -112,8 +112,20 @@ from torch._torchlite.passes.simplify import (
     simplify_views,
 )
 
+from torch._torchlite.passes.channels_last import (
+    channels_last,
+)
+
+from torch._torchlite.passes.conv_bn_fold import (
+    conv_bn_fold,
+)
+
 from torch._torchlite.passes.rng import (
     rng_functionalize,
+)
+
+from torch._torchlite.passes.shape_prop import (
+    shape_prop,
 )
 
 # Re-export ops that passes.py used to re-export
@@ -154,5 +166,8 @@ __all__ = [
     "subclass_unwrap",
     "memory_plan",
     "rng_functionalize",
+    "shape_prop",
     "simplify_views",
+    "channels_last",
+    "conv_bn_fold",
 ]

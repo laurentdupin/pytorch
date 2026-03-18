@@ -76,6 +76,7 @@ class FusedKernel:
     n_inputs: int
     shape: Optional[List[int]] = None
     input_shapes: Optional[List[Optional[List[int]]]] = None
+    stride_order: str = "contiguous"
 
     def __post_init__(self):
         self.__name__ = self.name

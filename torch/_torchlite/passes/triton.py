@@ -158,15 +158,68 @@ def triton_codegen(gm: GraphModule, example_inputs: List[torch.Tensor]) -> PassR
     return PassResult(gm=gm)
 
 
+def _broadcast_index_expr(in_shape, out_shape, stride_order="contiguous"):
+    """Compute a Triton index expression to load a broadcast-compatible input.
+
+    Given an input tensor of shape ``in_shape`` that broadcasts to
+    ``out_shape``, returns ``(idx_expr, numel)`` where ``idx_expr`` is a
+    string expression over ``offs`` (the flat output index) that maps to
+    the correct element in the input, and ``numel`` is the number of
+    elements in the input (used for the load mask).
+
+    The approach works by decomposing the flat ``offs`` into per-dimension
+    output coordinates using divmod with output strides, then collapsing
+    broadcast dimensions (size-1 in the input) and recomputing the flat
+    input index from the surviving coordinates.
+
+    When stride_order="channels_last" and shapes are 4D, the flat iteration
+    order is NHWC instead of NCHW, so offs decomposes using permuted
+    physical strides [N, H, W, C] rather than [N, C, H, W].
+    """
+    if stride_order == "channels_last" and len(out_shape) == 4:
+        perm = [0, 2, 3, 1]
+        out_shape = [out_shape[p] for p in perm]
+        if len(in_shape) == 4:
+            in_shape = [in_shape[p] for p in perm]
+
+    n_out = len(out_shape)
+    n_in = len(in_shape)
+    pad = n_out - n_in
+    padded_in = [1] * pad + list(in_shape)
+
+    out_strides = [1] * n_out
+    for d in range(n_out - 2, -1, -1):
+        out_strides[d] = out_strides[d + 1] * out_shape[d + 1]
+
+    in_strides = [1] * n_out
+    for d in range(n_out - 2, -1, -1):
+        in_strides[d] = in_strides[d + 1] * padded_in[d + 1]
+
+    terms = []
+    for d in range(n_out):
+        if padded_in[d] == 1:
+            continue
+        coord = f"(offs // {out_strides[d]}) % {out_shape[d]}" if out_strides[d] > 1 else f"offs % {out_shape[d]}"
+        if in_strides[d] == 1:
+            terms.append(coord)
+        else:
+            terms.append(f"{coord} * {in_strides[d]}")
+
+    numel = 1
+    for s in in_shape:
+        numel *= s
+
+    idx_expr = " + ".join(terms) if terms else "0"
+    return idx_expr, numel
+
+
 def _generate_kernel_source(kernel: FusedKernel) -> str:
     """Generate Triton kernel source for a single FusedKernel.
 
     For inputs whose shape differs from the output shape, broadcast-aware
-    index expressions are emitted. A 1D input of size N (last dimension of
-    a 2D output [M, N]) uses `offs % N`; a column-vector [M, 1] uses
-    `offs // N`.  These cover the two broadcast patterns that appear in
-    RMSNorm-style fusions where rsqrt[M,1] and weight[N] are multiplied
-    with x[M,N].
+    index expressions are emitted using stride-based decomposition that
+    handles arbitrary broadcast-compatible shape pairs (e.g. [C] or [1,C,1,1]
+    input with [N,C,H,W] output).
     """
     out_shape = kernel.shape or []
     in_ptrs = [f"in_ptr{i}" for i in range(kernel.n_inputs)]
@@ -192,21 +245,11 @@ def _generate_kernel_source(kernel: FusedKernel) -> str:
         if in_shape is None or list(in_shape) == list(out_shape):
             idx_expr = "offs"
             load_mask = "mask"
-        elif n_out >= 2 and len(in_shape) == 1 and in_shape[0] == out_shape[-1]:
-            # 1D weight/bias of size D broadcast along all leading dims:
-            # flat index for the last dimension is offs % D.  Works for
-            # both 2D [M, D] and 3D [B, S, D] output tensors.
-            idx_expr = f"offs % {out_n}"
-            load_mask = f"(offs % {out_n}) < {out_n}"
-        elif n_out >= 2 and in_shape[-1] == 1 and list(in_shape[:-1]) == list(out_shape[:-1]):
-            # Column-vector shaped [*, 1] broadcast over the last dim:
-            # drop the last dimension by integer-dividing out D.  Covers
-            # both [M, 1] in 2D and [B, S, 1] in 3D.
-            idx_expr = f"offs // {out_n}"
-            n_rows = 1
-            for s in in_shape[:-1]:
-                n_rows *= s
-            load_mask = f"(offs // {out_n}) < {n_rows}"
+        elif list(in_shape) != list(out_shape):
+            idx_expr, numel = _broadcast_index_expr(
+                in_shape, out_shape, stride_order=kernel.stride_order,
+            )
+            load_mask = f"({idx_expr}) < {numel}"
         else:
             idx_expr = "offs"
             load_mask = "mask"
@@ -260,23 +303,26 @@ def _generate_kernel_source(kernel: FusedKernel) -> str:
 
 class _TritonKernelModule(torch.nn.Module):
     """Wraps a compiled Triton kernel as an nn.Module for use as a call_module node."""
-    def __init__(self, triton_fn, shape, numel, dtype):
+    def __init__(self, triton_fn, shape, numel, dtype, memory_format=None):
         super().__init__()
         self.triton_fn = triton_fn
         self.shape = shape
         self.numel = numel
         self.dtype = dtype
+        self.memory_format = memory_format
 
     def forward(self, *inputs):
-        # The generated kernel assumes contiguous layout for broadcast index
-        # calculations (offs % N, offs // N).  Sliced or permuted tensors
-        # can have non-unit strides that violate this, so force contiguous.
+        fmt = self.memory_format or torch.contiguous_format
         inputs = tuple(
-            x.contiguous() if isinstance(x, torch.Tensor) and not x.is_contiguous()
+            x.contiguous(memory_format=fmt)
+            if isinstance(x, torch.Tensor) and not x.is_contiguous(memory_format=fmt)
             else x
             for x in inputs
         )
-        out = torch.empty(self.shape, dtype=self.dtype, device=inputs[0].device)
+        alloc_kwargs = {"dtype": self.dtype, "device": inputs[0].device}
+        if self.memory_format is not None:
+            alloc_kwargs["memory_format"] = self.memory_format
+        out = torch.empty(self.shape, **alloc_kwargs)
         grid = ((self.numel + 1023) // 1024,)
         self.triton_fn[grid](*inputs, out, self.numel)
         return out
@@ -1339,7 +1385,11 @@ def triton_lower(gm: GraphModule, example_inputs: List[torch.Tensor]) -> PassRes
             for s in shape:
                 numel *= s
             dtype = node.meta.get("dtype", torch.float32)
-            mod = _TritonKernelModule(triton_fn, shape, numel, dtype)
+            memory_format = (
+                torch.channels_last
+                if kernel.stride_order == "channels_last" else None
+            )
+            mod = _TritonKernelModule(triton_fn, shape, numel, dtype, memory_format)
             mod_name = f"_triton_{kernel.name}"
             gm.add_module(mod_name, mod)
             node.op = "call_module"

@@ -117,14 +117,20 @@ register_experimental_backend = functools.partial(
 
 
 def _torchlite_backend(gm, example_inputs):
-    from torch._torchlite.api import codegen, inference_passes, run_passes
+    from torch._torchlite.api import (
+        _cuda_graph_wrap,
+        codegen,
+        inference_passes,
+        run_passes,
+    )
 
     gm = run_passes(gm, list(example_inputs), pipeline=inference_passes())
-    return codegen(
+    forward_fn = codegen(
         gm,
         example_inputs=list(example_inputs),
         inference_codegen=True,
     )
+    return _cuda_graph_wrap(forward_fn, list(example_inputs))
 
 
 def lookup_backend(compiler_fn: Union[str, CompilerFn]) -> CompilerFn:
