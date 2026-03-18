@@ -177,10 +177,9 @@ def mesh_broadcast(
 
 @maybe_run_for_local_tensor
 def pad_tensor(tensor: torch.Tensor, pad_dim: int, pad_size: int) -> torch.Tensor:
-    from torch.fx.experimental.symbolic_shapes import guard_or_false
-
-    if guard_or_false(pad_size == 0):
-        return tensor
+    # Always emit the pad op even when pad_size=0 so all ranks produce
+    # identical FX graph structure (SPMD). Runtime estimations will also
+    # match since the shapes are aligned.
     pad = [0, 0] * (tensor.ndim - pad_dim)
     pad[-1] = pad_size
     return torch.nn.functional.pad(tensor, pad)
