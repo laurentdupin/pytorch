@@ -389,7 +389,7 @@ class OverlapScheduler:
         bucket_exposed_first: bool | None = None,
         enable_fusion_regions: bool = False,
         bucket_only_internode_comms: bool = False,
-        bucket_mode: BucketMode = "default",
+        bucket_mode: BucketMode = "custom_ops_multidtype",
         max_off_bucket_gb: float | None = 0.5,
         prioritize_bucketing_during_scheduling: bool = True,
     ):
@@ -1422,12 +1422,12 @@ class OverlapScheduler:
         if not torch._inductor.config.test_configs.assume_bucketing_reduces_latency:
             return False
 
-        key = bucket_key(node, mode=self.bucket_mode)
+        key = bucket_key(node, mode="custom_ops_multidtype")
         if key is None:
             return False
 
         for in_flight_coll in self.in_flight:
-            if bucket_key(in_flight_coll, mode=self.bucket_mode) == key:
+            if bucket_key(in_flight_coll, mode="custom_ops_multidtype") == key:
                 return True
 
         return False
@@ -1719,67 +1719,6 @@ def align_estimations_across_ranks(
     return dict(zip(nodes, medians))
 
 
-def _find_uneven_sharding(gm: torch.fx.GraphModule) -> list[str]:
-    """Find all-gather inputs with different shard sizes across ranks.
-
-    Inspects all-gather input tensor shapes to detect uneven Shard(0)
-    splits caused by dimensions not divisible by world_size.
-    """
-    import torch.distributed as dist
-    from torch._inductor.fx_passes.bucketing import (
-        is_all_gather_into_tensor as is_all_gather,
-    )
-    from torch._subclasses.fake_tensor import unset_fake_temporarily
-    from torch.distributed.distributed_c10d import _get_default_group
-
-    # Collect (node_name, input_shape) for all all-gathers
-    local_entries: list[tuple[str, list[int]]] = []
-    for node in gm.graph.nodes:
-        if node.op != "call_function" or not is_all_gather(node):
-            continue
-        inp = node.args[0]
-        if isinstance(inp, fx.Node):
-            val = inp.meta.get("val", None)
-            if isinstance(val, torch.Tensor):
-                local_entries.append((node.name, list(val.shape)))
-    local_entries.sort(key=lambda x: x[1])
-
-    pg = _get_default_group()
-    world_size = dist.get_world_size()
-    with unset_fake_temporarily():
-        all_entries: list[list[tuple[str, list[int]]]] = [[] for _ in range(world_size)]
-        dist.all_gather_object(all_entries, local_entries, pg)
-
-    lines: list[str] = []
-
-    counts = [len(e) for e in all_entries]
-    if len(OrderedSet(counts)) > 1:
-        lines.append(
-            "  all-gather count differs: "
-            + ", ".join(f"rank{r}={c}" for r, c in enumerate(counts))
-        )
-
-    min_len = min(counts)
-    for i in range(min_len):
-        shapes_i = [tuple(all_entries[r][i][1]) for r in range(world_size)]
-        if len(OrderedSet(shapes_i)) > 1:
-            # Find which dim(s) differ
-            ndim = len(shapes_i[0])
-            diff_dims = [
-                d
-                for d in range(ndim)
-                if len(OrderedSet([shapes_i[r][d] for r in range(world_size)])) > 1
-            ]
-            name0 = all_entries[0][i][0]
-            dim_info = ", ".join(
-                f"dim {d}: "
-                + ", ".join(f"rank{r}={shapes_i[r][d]}" for r in range(world_size))
-                for d in diff_dims
-            )
-            lines.append(f"  {name0}: shape mismatch on {dim_info}")
-    return lines
-
-
 def schedule_overlap_bucketing(
     gm: torch.fx.GraphModule,
     max_in_flight_gb: float = 5,
@@ -1800,7 +1739,6 @@ def schedule_overlap_bucketing(
     bucket_only_internode_comms=False,
     prioritize_bucketing_during_scheduling: bool = True,
     max_off_bucket_gb: float | None = 0.5,
-    bucket_mode: BucketMode = "default",
 ) -> torch.fx.GraphModule:
     """Schedule nodes to maximize compute-collective overlap.
 
@@ -1858,7 +1796,6 @@ def schedule_overlap_bucketing(
         bucket_only_internode_comms=bucket_only_internode_comms,
         prioritize_bucketing_during_scheduling=prioritize_bucketing_during_scheduling,
         max_off_bucket_gb=max_off_bucket_gb,
-        bucket_mode=bucket_mode,
     ).run()
     trace_structured(
         "artifact",
@@ -1905,7 +1842,6 @@ def schedule_overlap_bucketing_from_inductor_configs(
         "bucket_only_internode_comms",
         "enable_fusion_regions",
         "prioritize_bucketing_during_scheduling",
-        "bucket_mode",
     )
     for key in config_keys:
         if (val := getattr(dist_opts, key, None)) is not None:
