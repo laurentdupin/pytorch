@@ -2273,7 +2273,8 @@ class CompilerConfigExtra:
 
 
 def create_compiler_config_extra(mod: GraphModule) -> CompilerConfigExtra:
-    gm_meta = mod.meta if isinstance(mod, GraphModule) else None
+    assert mod is not None and isinstance(mod, GraphModule)
+    gm_meta = mod.meta
 
     # Although cudagraphs may have been enabled via config, various
     # conditions (which are tested within the bowels of Inductor) may
@@ -2749,7 +2750,6 @@ def _compile_fx_main(
 
         num_example_inputs = len(example_inputs_)
 
-        assert model_ is not None and isinstance(model_, GraphModule)
         compiler_config_extra = create_compiler_config_extra(model_)
 
         decompositions = (
