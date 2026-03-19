@@ -2903,11 +2903,9 @@ def _compile_fx_main(
                     bw_compiler=bw_compiler,
                     inference_compiler=inference_compiler,
                     decompositions=decompositions,
-                    # partition_fn=partition_fn,
-                    # keep_inference_input_mutations=True,
-                    compiler_config_extra = compiler_config_extra,
-                    # cudagraphs=compiler_config_extra.cudagraphs,
-                    # boxed_forward_device_index=compiler_config_extra.forward_device,
+                    partition_fn=partition_fn,
+                    keep_inference_input_mutations=True,
+                    compiler_config_extra=compiler_config_extra,
                     ignore_shape_env=ignore_shape_env,
                 )(model_, example_inputs_)
             except ShortenTraceback as e:
