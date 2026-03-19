@@ -194,7 +194,7 @@ def pad_tensor(
     if guard_or_false(pad_size == 0) and not _are_we_tracing():
         return tensor
     pad = [0, 0] * (tensor.ndim - pad_dim)
-    pad[-1] = pad_size
+    pad[-1] = pad_size  # pyrefly: ignore[unsupported-operation]
     return torch.nn.functional.pad(tensor, pad)
 
 
