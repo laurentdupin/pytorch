@@ -1809,6 +1809,13 @@ def _compile(
 
         if cache_size.exceeds_region_recompile_limit:
             exceeded, limit_type = True, "region_recompile_limit"
+        elif cache_size.region_recompile_limit is not None:
+            # region_recompile_limit overrides config.recompile_limit, but
+            # accumulated_recompile_limit still applies as a hard safety cap.
+            if cache_size.will_compilation_exceed_accumulated_limit():
+                exceeded, limit_type = True, "accumulated_recompile_limit"
+            else:
+                exceeded, limit_type = False, ""
         else:
             exceeded, limit_type = exceeds_recompile_limit(cache_size, compile_id)
         if exceeded:
@@ -2245,7 +2252,13 @@ class ConvertFrame:
                 isinstance(e, exc.TorchDynamoException)
                 and e.frame_exec_strategy is not None
             ):
-                return ConvertFrameReturn(frame_exec_strategy=e.frame_exec_strategy)
+                return ConvertFrameReturn(
+                    frame_exec_strategy=e.frame_exec_strategy,
+                    # Don't apply strategy to the code object when
+                    # region_recompile_limit is set — other regions sharing
+                    # this code object should still be able to compile.
+                    apply_to_code=self._region_recompile_limit is None,
+                )
 
         return ConvertFrameReturn()
 

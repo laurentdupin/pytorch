@@ -539,6 +539,92 @@ class RegionRecompileLimitTests(torch._dynamo.test_case.TestCase):
                 f"{code.co_name} has {len(entries)} entries, exceeds limit of 2",
             )
 
+    @torch._dynamo.config.patch(recompile_limit=1)
+    def test_region_recompile_limit_overrides_global(self):
+        """region_recompile_limit overrides config.recompile_limit. Multiple
+        torch.compile() calls on the same function can each compile
+        independently even when the shared code object's total entries
+        exceed config.recompile_limit. This is the factory pattern fix."""
+        cnt1 = torch._dynamo.testing.CompileCounter()
+        cnt2 = torch._dynamo.testing.CompileCounter()
+
+        def f(x):
+            return x.sin()
+
+        opt_f = torch.compile(f, backend=cnt1, region_recompile_limit=2)
+        opt_g = torch.compile(f, backend=cnt2, region_recompile_limit=2)
+
+        # opt_f compiles twice (under region limit of 2, over global limit of 1)
+        opt_f(torch.randn(3))
+        opt_f(torch.randn(3, dtype=torch.float64))
+        self.assertEqual(cnt1.frame_count, 2)
+
+        # opt_g can still compile despite f.__code__ having 2+ entries
+        # (global recompile_limit=1 would block this without the override)
+        opt_g(torch.randn(4))
+        self.assertEqual(cnt2.frame_count, 1)
+
+        # opt_f hits its own region limit
+        opt_f(torch.randn(3, dtype=torch.float16))
+        self.assertEqual(cnt1.frame_count, 2)
+
+        # opt_g can compile once more (under its region limit of 2)
+        opt_g(torch.randn(4, dtype=torch.float64))
+        self.assertEqual(cnt2.frame_count, 2)
+
+        # opt_g hits its own region limit
+        opt_g(torch.randn(4, dtype=torch.float16))
+        self.assertEqual(cnt2.frame_count, 2)
+
+    @torch._dynamo.config.patch(recompile_limit=1, fail_on_recompile_limit_hit=True)
+    def test_region_recompile_limit_factory_pattern(self):
+        """Reproduces the factory pattern from the workplace post: a cached
+        factory creates torch.compile wrappers around the same inner function.
+        Without region_recompile_limit, the third factory instance hits the
+        global recompile_limit. With region_recompile_limit, each instance
+        gets its own budget."""
+        from functools import cache
+
+        def core(x):
+            return x.sum()
+
+        @cache
+        def factory(key):
+            @torch.compile(
+                fullgraph=True,
+                dynamic=False,
+                region_recompile_limit=1,
+            )
+            def frontend(x, n):
+                return core(x) + n
+
+            return frontend
+
+        # Each factory instance can compile once with its own budget,
+        # even though global recompile_limit=1 and fail_on_recompile_limit_hit=True
+        factory("foo")(torch.ones(3), 3)
+        factory("bar")(torch.ones(4), 3)
+        factory("baz")(torch.ones(5), 3)
+
+    @torch._dynamo.config.patch(accumulated_recompile_limit=3)
+    def test_region_recompile_limit_accumulated_still_applies(self):
+        """accumulated_recompile_limit still applies as a hard safety cap
+        even when region_recompile_limit is set."""
+        cnt = torch._dynamo.testing.CompileCounter()
+
+        def f(x):
+            return x.sin()
+
+        # region limit is high, but accumulated limit is low
+        opt_f = torch.compile(f, backend=cnt, region_recompile_limit=10)
+
+        opt_f(torch.randn(3))
+        opt_f(torch.randn(3, dtype=torch.float64))
+        opt_f(torch.randn(3, dtype=torch.float16))
+        # accumulated_recompile_limit=3 should cap here
+        opt_f(torch.randn(3, dtype=torch.bfloat16))
+        self.assertLessEqual(cnt.frame_count, 3)
+
     def test_region_recompile_limit_resume_exceeds_max_budget(self):
         """Resume function recompiles independently via global changes.
         With region_recompile_limit=3, f compiles once but the resume function
