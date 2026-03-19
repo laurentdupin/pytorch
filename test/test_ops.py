@@ -637,11 +637,7 @@ class TestCommon(TestCase):
                 # precise dtypes -- they simply must be close
                 precise_dtype = dtype
             if prims.utils.is_float_dtype(dtype):
-                precise_dtype = (
-                    torch.float32
-                    if torch.device(device).type == "mps"
-                    else torch.double
-                )
+                precise_dtype = highest_precision_float(device)
             if prims.utils.is_complex_dtype(dtype):
                 precise_dtype = (
                     torch.complex32
