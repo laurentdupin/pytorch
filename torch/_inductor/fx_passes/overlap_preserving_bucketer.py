@@ -1167,6 +1167,7 @@ def finalize_overlap_scheduling(
     region_of: dict[fx.Node, Any] | None = None,
     bucket_exposed_first: bool | None = None,
     bucket_only_internode_comms: bool = False,
+    bucket_mode: BucketMode = "default",
 ) -> None:
     """
     Finalize overlap scheduling by applying deps, inlining fusions, and optionally bucketing.
@@ -1198,5 +1199,6 @@ def finalize_overlap_scheduling(
         bucket_exposed_first=bucket_exposed_first,
         bucket_only_internode_comms=bucket_only_internode_comms,
         region_of=region_of,
+        bucket_mode=bucket_mode,
     )
     bucketer.bucket_collectives()

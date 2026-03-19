@@ -1038,7 +1038,12 @@ class TestComputeCommReorderingBucketing(TestComputeCommReorderingMultiProc):
                 self.assertTrue(same(out, correct))
 
     @unittest.skipIf(not HAS_GPU, "Inductor+gpu needs triton and recent GPU arch")
-    @torch._inductor.config.patch(get_bucket_patches())
+    @torch._inductor.config.patch(
+        {
+            **get_bucket_patches(),
+            "aten_distributed_optimizations.bucket_mode": "custom_ops_multidtype",
+        }
+    )
     def test_multidtype_bucketing(self):
         """Test that all_gathers with different dtypes get bucketed together."""
 

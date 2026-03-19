@@ -1001,6 +1001,7 @@ class OverlapScheduler:
             region_of=self.region_of,
             bucket_exposed_first=self.bucket_exposed_first,
             bucket_only_internode_comms=self.bucket_only_internode_comms,
+            bucket_mode=self.bucket_mode,
         )
 
         if self.log_final_collectives_estimations:
