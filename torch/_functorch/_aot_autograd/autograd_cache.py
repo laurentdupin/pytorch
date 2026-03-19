@@ -564,38 +564,60 @@ class AOTAutogradCachePickler(FxGraphCachePickler):
     # a default implementation here that uses __tensor_flatten__ to recursively
     # hash inner tensors and metadata.
 
-    def _get_stable_hash(self, tensor: torch.Tensor) -> str:
+    def _get_stable_hash(self, obj: Any) -> str:
         """
-        Get stable hash for a tensor, dispatching to custom or default implementation.
+        Get stable hash for a tensor or opaque object, dispatching to custom or default implementation.
         """
+        from torch._opaque_base import OpaqueBase
         from torch.utils._python_dispatch import is_traceable_wrapper_subclass
 
-        if hasattr(tensor, "_stable_hash_for_caching"):
-            return tensor._stable_hash_for_caching()
-        elif is_traceable_wrapper_subclass(tensor):
-            return self._default_stable_hash_for_caching(tensor)
-        else:
-            # Regular tensor
-            metadata = extract_tensor_metadata_for_cache_key(tensor)
+        if hasattr(obj, "_stable_hash_for_caching"):
+            return obj._stable_hash_for_caching()
+        elif isinstance(obj, torch.Tensor) and is_traceable_wrapper_subclass(obj):
+            return self._default_stable_hash_for_caching(obj)
+        elif isinstance(obj, OpaqueBase):
+            # Opaque objects are runtime pass-throughs; only the type matters
+            # for cache key purposes, not the instance identity or value.
+            type_name = type(obj).__qualname__
+            return hashlib.blake2b(type_name.encode(), digest_size=16).hexdigest()
+        elif isinstance(obj, torch.Tensor):
+            metadata = extract_tensor_metadata_for_cache_key(obj)
             return hashlib.blake2b(pickle.dumps(metadata), digest_size=16).hexdigest()
+        else:
+            return hashlib.blake2b(pickle.dumps(obj), digest_size=16).hexdigest()
 
     def _default_stable_hash_for_caching(self, tensor: torch.Tensor) -> str:
         """
         Default stable hash implementation for traceable wrapper subclasses.
         """
+        from torch._opaque_base import OpaqueBase
+
         inner_tensor_names, subclass_metadata = tensor.__tensor_flatten__()  # type: ignore[attr-defined]
 
-        # Recursively get hashes of inner tensors
+        # Recursively get hashes of inner tensors/opaque objects
         inner_hashes: dict[str, str] = {}
         for name in inner_tensor_names:
-            inner_tensor = getattr(tensor, name)
-            inner_hashes[name] = self._get_stable_hash(inner_tensor)
+            inner = getattr(tensor, name)
+            inner_hashes[name] = self._get_stable_hash(inner)
+
+        # Stabilize metadata: replace OpaqueBase instances with their type name
+        # since their repr includes memory addresses
+        def _stabilize(obj: Any) -> Any:
+            if isinstance(obj, OpaqueBase):
+                return type(obj).__qualname__
+            if isinstance(obj, tuple):
+                return tuple(_stabilize(x) for x in obj)
+            if isinstance(obj, list):
+                return [_stabilize(x) for x in obj]
+            if isinstance(obj, dict):
+                return {k: _stabilize(v) for k, v in obj.items()}
+            return obj
 
         cache_data = pickle.dumps(
             (
                 tensor.shape,
                 tensor.requires_grad,
-                subclass_metadata,
+                _stabilize(subclass_metadata),
                 inner_hashes,
             )
         )
