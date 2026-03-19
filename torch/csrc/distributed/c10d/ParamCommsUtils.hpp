@@ -5,6 +5,7 @@
 #include <c10/macros/Macros.h>
 #include <c10/util/ThreadLocalDebugInfo.h>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace torch {
@@ -115,6 +116,20 @@ class TORCH_API ParamCommsDebugInfo : public c10::DebugInfoBase {
   bool isP2P_{false};
 };
 
+// Helper to set sequence info from tuple-typed seq arguments (NCCL backend).
+// No-op fallback for backends that pass non-tuple seq types (e.g., XPU/XCCL).
+template <typename A, typename B>
+inline void maybeSetSequenceInfo(
+    const std::shared_ptr<ParamCommsDebugInfo>& info,
+    const std::tuple<A, B>& seq) {
+  info->setSequenceInfo(std::get<0>(seq), std::get<1>(seq));
+}
+
+template <typename T>
+inline void maybeSetSequenceInfo(
+    const std::shared_ptr<ParamCommsDebugInfo>&,
+    const T&) {}
+
 #define RECORD_PARAM_COMMS(                                                    \
     seq,                                                                       \
     pgName,                                                                    \
@@ -141,11 +156,7 @@ class TORCH_API ParamCommsDebugInfo : public c10::DebugInfoBase {
       globalRankStride,                                                        \
       worldSize,                                                               \
       false);                                                                  \
-  {                                                                            \
-    auto seqTuple = seq;                                                       \
-    paramCommsInfo->setSequenceInfo(                                            \
-        std::get<0>(seqTuple), std::get<1>(seqTuple));                         \
-  }                                                                            \
+  torch::maybeSetSequenceInfo(paramCommsInfo, seq);                            \
   c10::DebugInfoGuard g(c10::DebugInfoKind::PARAM_COMMS_INFO, paramCommsInfo); \
   std::initializer_list<const c10::IValue> paramList = {                       \
       seq,                                                                     \
@@ -222,11 +233,7 @@ class TORCH_API ParamCommsDebugInfo : public c10::DebugInfoBase {
       globalRankStride,                                                        \
       worldSize,                                                               \
       isAsyncOp);                                                              \
-  {                                                                            \
-    auto seqTuple = seq;                                                       \
-    paramCommsInfo->setSequenceInfo(                                            \
-        std::get<0>(seqTuple), std::get<1>(seqTuple));                         \
-  }                                                                            \
+  torch::maybeSetSequenceInfo(paramCommsInfo, seq);                            \
   c10::DebugInfoGuard g(c10::DebugInfoKind::PARAM_COMMS_INFO, paramCommsInfo); \
   std::initializer_list<const c10::IValue> paramList = {                       \
       c10::IValue(InputTensors),                                               \

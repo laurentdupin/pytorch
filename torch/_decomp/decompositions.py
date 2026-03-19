@@ -506,6 +506,12 @@ def _nll_loss_backward(
     if reduction == Reduction.MEAN.value:
         grad_output = grad_output / total_weight
 
+    # When self is 1D (no batch dim), the C++ kernel only uses target[0].
+    # Reduce target to a scalar so the subsequent unsqueeze produces a 1D
+    # tensor matching self's dimensionality.
+    if self.dim() == 1 and target.dim() > 0:
+        target = target[0]
+
     target = target.unsqueeze(channel_dim)
     safe_target = torch.where(target != ignore_index, target, 0)
     grad_input = torch.zeros_like(self)
@@ -4625,6 +4631,9 @@ def binary_cross_entropy_with_logits(
     if weight is not None:
         loss = loss * weight
 
+    # this is to align the resulted data type with the in-place
+    # operation in binary_cross_entropy_with_logits of aten/src/ATen/native/Loss.cpp
+    loss = loss.to(target.dtype)
     return apply_loss_reduction(loss, reduction)
 
 
@@ -5489,3 +5498,22 @@ register_inplace(aten.scatter_, aten.scatter)
 register_inplace(aten.scatter_add_, aten.scatter_add)
 register_inplace(aten.scatter_reduce_, aten.scatter_reduce)
 register_inplace(aten.silu_, aten.silu)
+
+
+@aten.one_hot.default.py_impl(DispatchKey.CompositeImplicitAutograd)
+def one_hot(self: Tensor, num_classes: int = -1) -> Tensor:
+    if num_classes == -1:
+        num_classes = int(self.max().item()) + 1
+    # _assert_async is side-effectful and won't be DCE'd
+    aten._assert_async.msg(
+        torch.all(self >= 0),
+        "one_hot: Class values must be non-negative.",
+    )
+    aten._assert_async.msg(
+        torch.all(self < num_classes),
+        "one_hot: Class values must be smaller than num_classes.",
+    )
+    return (
+        self.unsqueeze(-1)
+        == torch.arange(num_classes, dtype=self.dtype, device=self.device)
+    ).to(torch.int64)
