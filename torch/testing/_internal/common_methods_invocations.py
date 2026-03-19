@@ -23,6 +23,7 @@ from torch.testing._internal.common_dtype import (
     _dispatch_dtypes, floating_types, floating_types_and, complex_types, floating_and_complex_types,
     floating_and_complex_types_and, all_types_and_complex_and, all_types_and, all_types_and_complex, integral_types_and,
     empty_types, complex_types_and, integral_types, custom_types, all_types_complex_float8_and, float8_types,
+    highest_precision_float,
 )
 from torch.testing._internal.common_device_type import (
     onlyCPU, onlyCUDA, onlyNativeDeviceTypes, disablecuDNN, skipCUDAIfNoMagma, skipCUDAIfNoMagmaAndNoCusolver,
@@ -2529,7 +2530,7 @@ def reference_inputs_cat(op, device, dtype, requires_grad, **kwargs):
 
     # Noncontiguous type promoting tensors
     a = make_arg((3, 4, 2))
-    b = make_arg((3, 2, 2), noncontiguous=True, dtype=torch.float32 if torch.device(device).type == 'mps' else torch.double)
+    b = make_arg((3, 2, 2), noncontiguous=True, dtype=highest_precision_float(device))
     c = make_arg((3, 3, 2), dtype=torch.float16).permute(1, 0, 2)
 
     yield SampleInput((a, b, c), kwargs={'dim': 1})
@@ -2827,7 +2828,7 @@ def error_inputs_t(op_info, device, **kwargs):
 
 
 def error_inputs_multinomial(op_info, device, **kwargs):
-    dtype = torch.float32 if torch.device(device).type == 'mps' else torch.double
+    dtype = highest_precision_float(device)
     x = torch.empty(1, 2, 3, dtype=dtype, device=device)
     yield ErrorInput(SampleInput(x, args=(2,)),
                      error_regex="prob_dist must be 1 or 2 dim")
@@ -5251,9 +5252,9 @@ def sample_inputs_to(op_info, device, dtype, requires_grad, **kwargs):
         kwargs = {
             "memory_format": mem_f,
         }
-        yield SampleInput(make_arg((S, S, S, S)), args=(device, torch.double, nb, cp), kwargs=kwargs)
+        yield SampleInput(make_arg((S, S, S, S)), args=(device, torch.float64, nb, cp), kwargs=kwargs)
 
-    other_dtype = torch.float16 if torch.device(device).type == 'mps' else torch.float64
+    other_dtype = torch.bfloat16 if torch.device(device).type == 'mps' else torch.float64
 
     # to.dtype overload
     for nb, cp, mem_f in product([True, False], [True, False], memory_formats):
@@ -9411,7 +9412,7 @@ def sample_inputs_l1_loss(op_info, device, dtype, requires_grad, **kwargs):
     # test COMPLEX_TO_FLOAT promotion
     if dtype.is_complex:
         make = partial(make_tensor, (), device=device, requires_grad=requires_grad)
-        other_dtype = torch.float32 if torch.device(device).type == 'mps' else torch.double
+        other_dtype = highest_precision_float(device)
         yield SampleInput(make(dtype=dtype), args=(make(dtype=other_dtype),))
         yield SampleInput(make(dtype=other_dtype), args=(make(dtype=dtype),))
 
