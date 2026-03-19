@@ -1592,6 +1592,9 @@ class triton:
     # assertions not on the fast path, steady state
     slow_path_cudagraph_asserts = True
 
+    # assert that stack traces are always present on cudagraph outputs
+    cudagraph_assert_stack_traces = False
+
     # TODO - need to debug why this prevents cleanup
     cudagraph_trees_history_recording = False
 

@@ -277,6 +277,16 @@ def _find_input_for_invalid_output(
     return None
 
 
+def _get_output_node_stack_trace(node: fx.Node) -> str | None:
+    """Get the stack trace for a node, falling back to the first user's trace for placeholders."""
+    if st := node.meta.get("stack_trace"):
+        return st
+    for user in node.users:
+        if user.op != "output" and (st := user.meta.get("stack_trace")):
+            return st
+    return None
+
+
 def _extract_graph_with_inputs_outputs(
     joint_graph: fx.Graph,
     inputs: list[fx.Node],
@@ -384,8 +394,11 @@ def _extract_graph_with_inputs_outputs(
     out.meta["desc"] = outputs_descs
     # Snapshot stack traces on the output node before passes run,
     # as later passes may strip stack_trace from individual nodes.
+    # For placeholder outputs (e.g., primals saved for backward), fall back
+    # to the first user's stack trace since placeholders are inputs and don't
+    # have their own stack trace.
     out.meta["output_stack_traces"] = [
-        v.meta.get("stack_trace") if isinstance(v, fx.Node) else None
+        _get_output_node_stack_trace(v) if isinstance(v, fx.Node) else None
         for v in output_values
     ]
 

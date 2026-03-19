@@ -2377,18 +2377,6 @@ def compile_fx_forward(
             ),
         )
 
-        # Snapshot stack traces on the output node before passes run,
-        # as later passes may strip stack_trace from individual nodes.
-        output = output_node(gm)
-        output.meta["output_stack_traces"] = [
-            (
-                arg.meta.get("stack_trace")
-                if isinstance(arg, torch.fx.node.Node)
-                else None
-            )
-            for arg in output.args[0]  # type: ignore[union-attr]
-        ]
-
         # Record original output strides BEFORE joint_graph_passes, because
         # pad_mm (run as part of joint_graph_passes) can introduce views with
         # padded strides that would be incorrectly captured as "original".
