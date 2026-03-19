@@ -9,6 +9,7 @@
 import copy
 import itertools
 import operator
+import sys
 import unittest
 import warnings
 from collections.abc import Callable
@@ -4732,6 +4733,122 @@ def forward(self, tangents_1):
         inp = TwoTensor(a, b)
         out = f(inp)
         self.assertEqual(out.stride(), inp.stride())
+
+    def _make_model_and_input(self, hidden=1024, vocab=4096, seq_len=128):
+        """Build a small model that produces non-scalar output (like an LM head)."""
+        model = nn.Sequential(
+            nn.Linear(hidden, hidden, bias=False),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden, bias=False),
+            nn.ReLU(),
+            nn.Linear(hidden, vocab, bias=False),
+        ).cuda()
+        x = torch.randn(seq_len, hidden, device="cuda", requires_grad=True)
+        labels = torch.randint(0, vocab, (seq_len,), device="cuda")
+        return model, x, labels
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA is unavailable")
+    def test_tangent_freed_compiled_model_and_loss(self):
+        """Scenario: compiled model + compiled loss (torchtitan simple_fsdp pattern).
+
+        Mirrors torchtitan's simple_fsdp training loop:
+          pred = compiled_model(input)   # torch.compile(model)
+          loss = compiled_loss(pred, labels)  # torch.compile(loss_fn)
+          loss.backward()
+
+        The tangent for model backward is created internally by loss backward.
+        No user variable holds it — only the C++ pyInputs tuple on the stack.
+        The boxed calling convention alone frees it (no resize_(0) needed)."""
+        model, x, labels = self._make_model_and_input()
+        compiled_model = torch.compile(model, backend="inductor")
+
+        def loss_fn(pred, labels):
+            return torch.nn.functional.cross_entropy(pred.float(), labels)
+
+        compiled_loss = torch.compile(loss_fn, backend="inductor")
+
+        # Capture tangent storage as it flows from loss bw → model bw.
+        tangent_info = {}
+
+        class CaptureTangent(torch.autograd.Function):
+            @staticmethod
+            def forward(ctx, pred):
+                return pred.clone()
+
+            @staticmethod
+            def backward(ctx, grad):
+                tangent_info["storage"] = grad.untyped_storage()
+                tangent_info["nbytes"] = grad.untyped_storage().nbytes()
+                tangent_info["refcount"] = sys.getrefcount(grad)
+                return grad
+
+        pred = compiled_model(x)
+        pred = CaptureTangent.apply(pred)
+        loss = compiled_loss(pred, labels)
+        del pred
+        loss.backward()
+
+        self.assertIn("storage", tangent_info)
+        self.assertGreater(tangent_info["nbytes"], 0)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA is unavailable")
+    def test_tangent_freed_compiled_model_eager_loss(self):
+        """Scenario: compiled model + eager loss (common training pattern).
+
+        Similar to torchtitan but loss is not compiled. The tangent is
+        created by eager cross_entropy backward. Boxed convention frees it."""
+        model, x, labels = self._make_model_and_input()
+        compiled_model = torch.compile(model, backend="inductor")
+
+        pred = compiled_model(x)
+        loss = torch.nn.functional.cross_entropy(pred.float(), labels)
+        del pred
+        loss.backward()
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA is unavailable")
+    def test_tangent_refcount_during_backward(self):
+        """Verify tangent refcount drops at model/loss boundary.
+
+        Mirrors torchtitan simple_fsdp layout with a probe between compiled
+        model and compiled loss. Checks that boxed calling convention keeps
+        refcount low enough for deallocation when no user ref exists."""
+        model, x, labels = self._make_model_and_input()
+        compiled_model = torch.compile(model, backend="inductor")
+
+        def loss_fn(pred, labels):
+            return torch.nn.functional.cross_entropy(pred.float(), labels)
+
+        compiled_loss = torch.compile(loss_fn, backend="inductor")
+
+        refcount_box = {}
+
+        class CaptureRefcount(torch.autograd.Function):
+            @staticmethod
+            def forward(ctx, pred):
+                return pred.clone()
+
+            @staticmethod
+            def backward(ctx, grad):
+                refcount_box["at_boundary"] = sys.getrefcount(grad)
+                return grad
+
+        pred = compiled_model(x)
+        pred = CaptureRefcount.apply(pred)
+        loss = compiled_loss(pred, labels)
+        del pred
+        loss.backward()
+
+        self.assertIn("at_boundary", refcount_box)
+        # With boxed calling convention, the tangent refcount at the
+        # model/loss boundary should be low (engine + our local = ~3-4).
+        # Without boxed grads it would be higher (~7+) due to tuple refs.
+        self.assertLessEqual(
+            refcount_box["at_boundary"],
+            6,
+            f"Tangent refcount at boundary is {refcount_box['at_boundary']}, "
+            "expected <= 6 with boxed calling convention",
+        )
+
 
 
 def extract_graph(fx_g, _, graph_cell):

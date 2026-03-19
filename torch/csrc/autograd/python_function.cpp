@@ -160,11 +160,36 @@ auto PyNode::apply(variable_list&& inputs) -> variable_list {
 
   // Massage a C++ variable_list into a Python arguments tuple
   THPObjectPtr pyInputs(to_py_args(inputs, &_device_guard));
+  inputs.clear();
+
+  if (py_fn->boxed_grads) {
+    // Move grad tensors from the immutable args tuple into a mutable Python
+    // list on the function object. Replace tuple items with None so pyInputs
+    // doesn't keep tensors alive during the blocking PyObject_CallObject.
+    Py_ssize_t n = PyTuple_GET_SIZE(pyInputs.get());
+    THPObjectPtr gradsList(PyList_New(n));
+    if (!gradsList)
+      throw_python_error();
+    for (Py_ssize_t i = 0; i < n; i++) {
+      PyObject* item = PyTuple_GET_ITEM(pyInputs.get(), i);
+      Py_INCREF(item);
+      PyList_SET_ITEM(gradsList.get(), i, item);
+      Py_INCREF(Py_None);
+      Py_DECREF(PyTuple_GET_ITEM(pyInputs.get(), i));
+      PyTuple_SET_ITEM(pyInputs.get(), i, Py_None);
+    }
+    if (PyObject_SetAttrString(obj, "_boxed_grads", gradsList.get()) < 0)
+      throw_python_error();
+  }
 
   THPObjectPtr apply_fn(PyObject_GetAttrString(obj, "apply"));
   if (!apply_fn)
     throw_python_error();
   THPObjectPtr r(PyObject_CallObject(apply_fn, pyInputs.get()));
+  pyInputs = nullptr;
+  if (py_fn->boxed_grads) {
+    PyObject_SetAttrString(obj, "_boxed_grads", Py_None);
+  }
   if (!r)
     throw_python_error();
   ensure_tuple(r);
@@ -577,6 +602,7 @@ static PyObject* THPFunction_new(
   self->materialize_grads = true;
   self->pure_view = false;
   self->materialize_non_diff_grads = true;
+  self->boxed_grads = false;
   self->clear_saved_tensors_on_access = false;
   self->saved_tensors_accessed_and_cleared = false;
   return obj;
@@ -1509,6 +1535,21 @@ int THPFunction_set_materialize_grads(
   END_HANDLE_TH_ERRORS_RET(-1)
 }
 
+int THPFunction_set_boxed_grads(
+    THPFunction* self,
+    PyObject* value,
+    void* unused) {
+  HANDLE_TH_ERRORS
+  if (!PyBool_Check(value)) {
+    THPUtils_invalidArguments(
+        value, nullptr, "set_boxed_grads", 1, "(bool)");
+    return -1;
+  }
+  self->boxed_grads = (value == Py_True);
+  return 0;
+  END_HANDLE_TH_ERRORS_RET(-1)
+}
+
 int THPFunction_set_pure_view(
     THPFunction* self,
     PyObject* value,
@@ -1842,6 +1883,11 @@ static struct PyGetSetDef THPFunction_properties[] = {
     {"_compiled_autograd_backward_state",
      (getter)THPFunction_get_compiled_autograd_backward_state,
      (setter)THPFunction_set_compiled_autograd_backward_state,
+     nullptr,
+     nullptr},
+    {"_supports_boxed_grads",
+     nullptr,
+     (setter)THPFunction_set_boxed_grads,
      nullptr,
      nullptr},
     {nullptr}};

@@ -1894,7 +1894,7 @@ def _backward_prologue_functional(
     ctx_opaque_objects: Sequence[Any],
     metadata: ViewAndMutationMeta,
     maybe_subclass_metadata: SubclassMeta | None,
-    *flat_args: Any,
+    flat_args: Sequence[Any],
 ) -> list[Any]:
     # Calling convention: we expect a grad_out passed to the backward:
     # - for every output of the fw that does *not* alias an input or graph intermediate
@@ -1938,6 +1938,10 @@ def _backward_prologue_functional(
         ],
         flat_args[num_mutated_runtime_inps + metadata.num_outputs :],
     )
+    # Release grad refs from the caller's list (boxed calling convention).
+    # Slicing already copied refs into sub-lists above.
+    if isinstance(flat_args, list):
+        flat_args.clear()
     # input_info contains info on *every* input,
     # But in the backward(), we are only given grad outputs for every mutated input
     # We then need to filter out the grad outputs that correspond to metadata-only mutations or don't require grad
@@ -2667,6 +2671,7 @@ Your tensor subclass must implement __coerce_same_metadata_as_tangent__."""
                 # Only save tensors that need VC checks via save_for_backward
                 ctx.save_for_backward(*tensors_to_save)
                 ctx._tensors_no_vc_check = tensors_no_vc
+                ctx._supports_boxed_grads = True
 
                 symint_outs = fw_outs[
                     CompiledFunction.metadata.symints_saved_for_backwards_slice
@@ -2775,9 +2780,16 @@ Your tensor subclass must implement __coerce_same_metadata_as_tangent__."""
 
             @staticmethod
             def backward(ctx: Any, *flat_args: Any) -> tuple[Any, ...]:
-                # Combine tensors from both sources:
-                # 1. ctx.saved_tensors - tensors that went through save_for_backward (with VC check)
-                # 2. ctx._tensors_no_vc_check - tensors stashed directly on ctx (no VC check)
+                # Use boxed grads if available: PyNode::apply stores grad
+                # tensors in a mutable list on ctx so we can release them
+                # independently (no immutable tuple keeping refs alive).
+                boxed = getattr(ctx, "_boxed_grads", None)
+                if boxed is not None and isinstance(boxed, list):
+                    grad_args = boxed
+                    ctx._boxed_grads = None
+                else:
+                    grad_args = list(flat_args)
+                del flat_args
                 all_args = _backward_prologue_functional(
                     (
                         list(ctx.saved_tensors) + ctx._tensors_no_vc_check
@@ -2788,7 +2800,7 @@ Your tensor subclass must implement __coerce_same_metadata_as_tangent__."""
                     ctx.opaque_objects,
                     CompiledFunction.metadata,
                     CompiledFunction.maybe_subclass_metadata,
-                    *flat_args,
+                    grad_args,
                 )
 
                 if num_rng:
