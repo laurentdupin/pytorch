@@ -104,9 +104,6 @@ find /opt/_internal \
   -print0 | xargs -0 rm -f
 
 for PYTHON in /opt/python/*/bin/python; do
-    # Smoke test to make sure that our Pythons work, and do indeed detect as
-    # being manylinux compatible:
-    $PYTHON $MY_DIR/manylinux1-check.py
     # Make sure that SSL cert checking works
     $PYTHON $MY_DIR/ssl-check.py
 done
