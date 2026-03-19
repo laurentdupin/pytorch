@@ -155,17 +155,43 @@ EOF
     fi
 
     # ROCm 7.2 needs a fix from procprof sdk that isn't available until 7.2.1
+    # ROCm 7.2.0 also has two bugs fixed in 7.2.1 that cause SIGSEGV after many GPU kernel dispatches:
+    # 1. CLR (libamdhip64):     SWDEV-579687 - wrong doorbell index in batch dispatch
+    # 2. ROCR (libhsa-runtime): InterceptQueue ring-buffer wrap-around heap corruption
     if [[ $(ver $ROCM_VERSION) -eq $(ver 7.2) ]]; then
-        git clone --no-checkout --filter=blob:none https://github.com/ROCm/rocm-systems.git
+        python -m pip install CppHeaderParser
+        apt-get install -y pkg-config libdrm-dev libzstd-dev libdw-dev libsqlite3-dev
+        git clone --no-checkout --filter=blob:none https://github.com/ROCm/rocm-systems.git rocm-systems
         pushd rocm-systems/
         git sparse-checkout init --cone
-        git sparse-checkout set projects/rocprofiler-sdk shared/rocprofiler-compute
-        git checkout develop
-        git checkout rocm-7.2.0
-        git config --global user.email "you@example.com"
-        git config --global user.name "Your Name"
-        git cherry-pick a71cc3cc88ed68b24c40cefec77d764053044862
-        sudo apt install -y cmake libdw-dev libsqlite3-dev
+        git sparse-checkout set projects/clr projects/hip projects/rocr-runtime projects/rocprofiler-sdk
+        git checkout origin/release/rocm-rel-7.2
+        cmake -B clr-build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX=/opt/rocm \
+              -DCMAKE_PREFIX_PATH="/opt/rocm;/opt/rocm/llvm" \
+              -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
+              -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
+              -DCLR_BUILD_HIP=ON -DHIP_PLATFORM=amd \
+              -DROCM_PATH=/opt/rocm \
+              -DHIP_COMMON_DIR=$(readlink -f projects/hip) \
+              -DPython3_EXECUTABLE=/opt/conda/envs/py_${ANACONDA_PYTHON_VERSION}/bin/python3 \
+              projects/clr
+        cmake --build clr-build --target amdhip64 --parallel $(nproc)
+        cp $(find clr-build/hipamd/lib/ -name "libamdhip64.so.*.*" -type f | head -1) \
+            /opt/rocm/lib/libamdhip64.so.7.2.70200
+        cmake -B rocr-build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX=/opt/rocm \
+              -DCMAKE_PREFIX_PATH="/opt/rocm;/opt/rocm/llvm" \
+              -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
+              -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
+              -DROCM_PATH=/opt/rocm \
+              projects/rocr-runtime
+        cmake --build rocr-build --target hsa-runtime64 --parallel $(nproc)
+        cp $(find rocr-build/ -name "libhsa-runtime64.so.*.*.*" -type f | head -1) \
+            /opt/rocm/lib/libhsa-runtime64.so.1.18.70200
+        ldconfig /opt/rocm/lib
         cmake                                         \
               -B rocprofiler-sdk-build                \
               -DCMAKE_INSTALL_PREFIX=/opt/rocm        \
@@ -175,6 +201,7 @@ EOF
         cmake --build rocprofiler-sdk-build --target all --parallel $(nproc)
         cmake --build rocprofiler-sdk-build --target install
         popd
+        rm -rf rocm-systems
     fi
 
     # ROCm 6.0 had a regression where journal_mode was enabled on the kdb files resulting in permission errors at runtime
