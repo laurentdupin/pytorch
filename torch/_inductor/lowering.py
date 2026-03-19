@@ -1429,9 +1429,6 @@ def slice_(x, dim=0, start=0, end=2**63, step=1, clamp=True):
             return size
         elif fn(sympy.Lt(index, -size)):
             return 0
-        elif fn(sympy.Ge(index, 0)):
-            # If index >= 0, the resolved index is at most min(index, size).
-            return sympy.Min(index, size)
         return None
 
     start_index, end_index = None, None
@@ -2596,6 +2593,7 @@ make_fallback(aten.randint)
 # TODO: mlazos reevaluate if we want to codegen something different
 make_fallback(torch.ops.streams.record_event.default)
 make_fallback(torch.ops.streams.wait_event.default)
+make_fallback(torch.ops.streams.synchronize_event.default)
 
 
 @register_lowering(aten.rand)
