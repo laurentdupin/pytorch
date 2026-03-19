@@ -787,7 +787,6 @@ class TestOverlapPreservingBucketing(InductorTestCase):
             traced.graph,
             collective_info,
             scheduled,
-            bucket_mode="custom_ops_multidtype",
         )
         bucketer.bucket_collectives()
 
