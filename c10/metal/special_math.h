@@ -736,6 +736,11 @@ inline float xlogy(T x, T y) {
   return x * precise::log(float(y));
 }
 
+template <>
+inline float xlogy<bool>(bool x, bool y) {
+  return (x && !y) ? -INFINITY : 0;
+}
+
 template <typename T>
 inline float xlog1py(T x, T y) {
   if (::metal::isnan(y)) {

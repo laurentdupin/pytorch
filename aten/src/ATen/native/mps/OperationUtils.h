@@ -28,7 +28,6 @@
 
 #include <MetalPerformanceShaders/MetalPerformanceShaders.h>
 
-
 using namespace at::mps;
 
 namespace at::native::mps {
