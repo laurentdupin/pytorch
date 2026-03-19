@@ -1,7 +1,6 @@
 # mypy: allow-untyped-defs
 import builtins
 import contextlib
-import enum
 import functools
 import inspect
 import logging
@@ -10,7 +9,7 @@ import sys
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, TypeGuard
 
 import torch
 import torch.utils._pytree as pytree
@@ -176,10 +175,6 @@ def fakify(
     sourced_prefixes: _KeyPathTrie | None = None,
 ):
     source = key_path_to_source(kp, sourced_prefixes=sourced_prefixes)
-    if isinstance(t, enum.Enum):
-        from torch._library.opaque_object import _maybe_register_enum_as_opaque
-
-        _maybe_register_enum_as_opaque(type(t))
     if (
         _is_constant_argument(t)
         or isinstance(t, (torch.ScriptObject, torch.nn.Module))
@@ -628,7 +623,7 @@ def produce_guards_and_solve_constraints(
         raise constraint_violation_error
 
 
-def is_int(x: object) -> bool:
+def is_int(x: object) -> TypeGuard[int | torch.SymInt]:
     return isinstance(x, int) or (isinstance(x, torch.SymInt) and x.node.expr.is_number)
 
 

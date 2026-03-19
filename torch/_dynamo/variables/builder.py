@@ -214,7 +214,7 @@ from .functions import (
     FunctoolsPartialVariable,
     SysFunctionVariable,
     TritonKernelVariable,
-    TritonSetAllocatorSkipVariable,
+    TritonSetAllocatorVariable,
     UserFunctionVariable,
     WrapperUserFunctionVariable,
 )
@@ -1183,7 +1183,6 @@ class VariableBuilder:
             # type: ignore[arg-type]
             return StreamContextVariable.create(self.tx, stream_var)
         elif isinstance(value, torch.Stream):
-            # This refers to the device-agnostic torch.Stream
             self.install_guards(GuardBuilder.TYPE_MATCH)
             index = register_user_object(value, self.source)
             stream_proxy = self.tx.output.create_proxy(
@@ -1371,18 +1370,21 @@ class VariableBuilder:
         elif value is TensorDescriptor.from_tensor:
             return CreateTMADescriptorStableVariable()
         elif value is set_allocator:
-            return TritonSetAllocatorSkipVariable(value)
+            return TritonSetAllocatorVariable(value)
         elif isinstance(value, torch.amp.autocast_mode.autocast):
-            self.install_guards(GuardBuilder.ID_MATCH)
-            return AutocastModeVariable(
-                target_values=[
-                    value.device,
-                    value.fast_dtype,
-                    value._enabled,
-                    value._cache_enabled,
-                ],
-                source=self.source,
-            )
+            if isinstance(value, torch.amp.autocast_mode._UnmanagedAutocast):
+                return self.wrap_user_defined(value)
+            else:
+                self.install_guards(GuardBuilder.ID_MATCH)
+                return AutocastModeVariable(
+                    target_values=[
+                        value.device,
+                        value.fast_dtype,
+                        value._enabled,
+                        value._cache_enabled,
+                    ],
+                    source=self.source,
+                )
         elif TorchCtxManagerClassVariable.is_matching_cls(value):
             if inspect.isclass(value):
                 self.install_guards(GuardBuilder.CLASS_MATCH)
@@ -1392,11 +1394,19 @@ class VariableBuilder:
         elif inspect.getattr_static(value, "__script_if_tracing_wrapper", False):
             self.install_guards(GuardBuilder.TYPE_MATCH)
             return WrapperUserFunctionVariable(
-                value, "__original_fn", source=self.source
+                value,
+                "__original_fn",
+                source=self.source,
+                mutation_type=AttributeMutationExisting(),
             )
         elif is_lru_cache_wrapped_function(value):
             self.install_guards(GuardBuilder.TYPE_MATCH)
-            return WrapperUserFunctionVariable(value, "__wrapped__", source=self.source)
+            return WrapperUserFunctionVariable(
+                value,
+                "__wrapped__",
+                source=self.source,
+                mutation_type=AttributeMutationExisting(),
+            )
         elif value is sys.exc_info or (
             sys.version_info >= (3, 11) and value is sys.exception
         ):
@@ -1406,7 +1416,10 @@ class VariableBuilder:
         ):
             self.install_guards(GuardBuilder.TYPE_MATCH)
             return WrapperUserFunctionVariable(
-                value, "_torchdynamo_inline", source=self.source
+                value,
+                "_torchdynamo_inline",
+                source=self.source,
+                mutation_type=AttributeMutationExisting(),
             )
         elif value is collections.namedtuple:
             self.install_guards(GuardBuilder.ID_MATCH)
@@ -1510,14 +1523,16 @@ class VariableBuilder:
                 # ID_MATCH even if its a global variable.
                 self.install_guards(GuardBuilder.CLASS_MATCH)
 
-            if is_opaque_type(value):
-                return OpaqueObjectClassVariable(
+            if isinstance(value, type) and issubclass(value, enum.Enum):
+                # Order this before OpaqueObjectClassVariable since it's better
+                # to use the native UserDefinedEnumClassVariable
+                return UserDefinedEnumClassVariable(
                     value,
                     source=self.source,
                 )
 
-            if isinstance(value, type) and issubclass(value, enum.Enum):
-                return UserDefinedEnumClassVariable(
+            if is_opaque_type(value):
+                return OpaqueObjectClassVariable(
                     value,
                     source=self.source,
                 )
@@ -2448,6 +2463,12 @@ class VariableBuilder:
             **options,
         )
 
+        # Track input tensors for attribute mutation, matching how
+        # handle_traced_output tracks intermediate tensors with AttributeMutationNew.
+        # This enables setattr on input tensors (e.g. tensor.custom_attr = val)
+        # without graph breaking.
+        self.tx.output.side_effects.track_object_existing(value, tensor_variable)
+
         if value._is_view():
             # If value is a view, add its base tensor to the tracked fakes list.
             # This is so we are able to access the correct source for its symbolic
@@ -3135,7 +3156,7 @@ def wrap_fx_proxy_cls(
         )
         and proxy.node.op != "placeholder"
     ):
-        tx.output.current_tracer.record_tensor_or_symint_vt(out)
+        tx.output.current_tracer.record_proxyable_vt(out)
     return out
 
 
@@ -3467,6 +3488,7 @@ def handle_traced_output(
             torch._C._get_mem_efficient_sdp_enabled,
             torch._C._get_math_sdp_enabled,
             torch._C._get_overrideable_sdp_enabled,
+            torch._C._is_autocast_available,
             "is_integer",
         ]
         + list(supported_const_comparison_op_values.keys())
@@ -3483,6 +3505,14 @@ def handle_traced_output(
     elif isinstance(example_value, float) or proxy.node.target in ["hex", "__round__"]:
         set_example_value(proxy.node, example_value)
         return ConstantVariable.create(example_value, **options)
+    elif isinstance(example_value, torch._library.fake_class_registry.FakeScriptObject):
+        # example_value is already a FakeScriptObject (e.g. returned by getitem
+        # on a container whose fake kernel returns a FakeScriptObject).  No need
+        # to convert it — just wrap the proxy directly.
+        return TorchScriptObjectVariable.create(
+            proxy,
+            example_value,
+        )
     elif is_opaque_type(type(example_value)):
         # This is for handling opaque objects in custom ops
         if is_opaque_value_type(type(example_value)):
@@ -4192,7 +4222,7 @@ class SourcelessBuilder:
         if isinstance(value, VariableTracker):
             # This is always valid to call, and useful for recursive calls.
             return value
-        elif is_opaque_value_type(type(value)):
+        elif is_opaque_value_type(type(value)) and not isinstance(value, enum.Enum):
             return TorchScriptObjectVariable.create(value, value)
         elif is_opaque_reference_type(type(value)):
             # This is for handling opaque objects in custom ops
@@ -4200,7 +4230,7 @@ class SourcelessBuilder:
                 tx.output.fake_mode, value
             )
             return TorchScriptObjectVariable.create(
-                value,
+                value,  # pyrefly: ignore[bad-argument-type]
                 fake_script_obj,
             )
         # type: ignore[attr-defined]

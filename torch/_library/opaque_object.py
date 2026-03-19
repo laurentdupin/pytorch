@@ -222,7 +222,9 @@ def register_opaque_type(
                 "for FakeTensor caching."
             )
 
-        if not hasattr(cls, "__fx_repr__"):
+        # Enums get special-cased in get_opaque_obj_repr so they
+        # don't need __fx_repr__.
+        if not issubclass(cls, Enum) and not hasattr(cls, "__fx_repr__"):
             raise TypeError(
                 f"Value-type opaque object of type {cls} is "
                 "expected to have a `__fx_repr__` method "
@@ -248,39 +250,8 @@ def register_opaque_type(
     torch._C._register_opaque_type(name)
 
 
-def _maybe_register_enum_as_opaque(cls: type) -> None:
-    """Auto-register an enum.Enum subclass as an opaque value type if not already registered."""
-    if not issubclass(cls, Enum):
-        return
-
-    if _resolve_opaque_type_info(cls) is not None:
-        return
-
-    if "__fx_repr__" not in cls.__dict__:
-
-        def _enum_fx_repr(self):
-            return (
-                f"{type(self).__name__}.{self.name}",
-                {type(self).__name__: type(self)},
-            )
-
-        try:
-            cls.__fx_repr__ = _enum_fx_repr
-        except TypeError:
-            # C extension enum types (e.g. optree.PyTreeKind) are immutable.
-            # Without __fx_repr__ they cannot be used as inputs to custom ops.
-            log.warning(
-                "Cannot register %s as opaque type: immutable C extension "
-                "enum type. Instances of this type cannot be used as inputs "
-                "to custom operators.",
-                cls,
-            )
-            return
-
-    register_opaque_type(
-        cls,
-        typ="value",
-    )
+# Enums are always opaque value types.
+register_opaque_type(Enum, typ="value")
 
 
 def is_opaque_value(value: object) -> TypeIs[OpaqueType]:
@@ -366,7 +337,15 @@ def get_opaque_obj_repr(obj: Any) -> tuple[str, dict[str, type]]:
 
     For example, if repr_string is "Foo(bar=Bar(1))", the dict should be:
         {"Foo": Foo, "Bar": Bar}
+
+    Enums are special-cased and don't need __fx_repr__.
     """
+    if isinstance(obj, Enum):
+        cls = type(obj)
+        repr_str = f"{cls.__name__}.{obj.name}"
+        globals_dict = {cls.__name__: cls}
+        return repr_str, globals_dict
+
     if not hasattr(obj, "__fx_repr__"):
         raise TypeError(
             f"Value-type opaque object of type {obj} is "
