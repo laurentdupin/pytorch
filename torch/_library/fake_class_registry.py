@@ -76,6 +76,11 @@ class FakeScriptObject:
     def __hash__(self) -> int:
         return hash(self.real_obj)
 
+    def __reduce__(self):
+        # FakeScriptObject is a tracing artifact; when pickled (e.g. for
+        # autograd cache), serialize the real object instead.
+        return self.real_obj.__reduce__()
+
     def __deepcopy__(self, memo: dict[int, Any]) -> "FakeScriptObject":
         if id(self) in memo:
             return memo[id(self)]
