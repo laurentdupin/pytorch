@@ -7406,12 +7406,15 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
             return x
 
         x = torch.randn(16, 256, device=self.device)
-        if config.triton.autotune_at_compile_time is True:
-            _, (code0, code1) = _run_and_get_stripped_kernels(b, x)
-            self.assertEqual(code0, code1)
-        else:
+        if config.cpp_wrapper and config.triton.autotune_at_compile_time is not True:
+            # With lazy compile, both graph segments produce identical code
+            # (no unique .cubin paths), so run_and_get_code deduplicates them
+            # and only 1 kernel is returned.
             _, codes = _run_and_get_stripped_kernels(b, x)
             self.assertEqual(len(codes), 1)
+        else:
+            _, (code0, code1) = _run_and_get_stripped_kernels(b, x)
+            self.assertEqual(code0, code1)
 
     @config.patch(
         {
