@@ -18,7 +18,12 @@ from torch.testing._internal.common_cuda import (
 )
 from torch.testing._internal.common_device_type import instantiate_device_type_tests
 from torch.testing._internal.common_nn import NNTestCase
-from torch.testing._internal.common_utils import parametrize, run_tests, TEST_WITH_ROCM
+from torch.testing._internal.common_utils import (
+    decorateIf,
+    parametrize,
+    run_tests,
+    TEST_WITH_ROCM,
+)
 from torch.utils._python_dispatch import TorchDispatchMode
 
 
@@ -723,6 +728,11 @@ class TestVarlenAttention(NNTestCase):
         not PLATFORM_SUPPORTS_FLASH_ATTENTION, "Flash Attention not supported"
     )
     @unittest.skipIf(TEST_WITH_ROCM, "ROCm does not support seqused_k")
+    @decorateIf(
+        unittest.expectedFailure,
+        lambda params: params["backend"] != "fa2"
+        and any(kv_len < 128 for kv_len in params["actual_kv_lens"]),
+    )
     @parametrize("dtype", [torch.bfloat16, torch.float16])
     @parametrize(
         "actual_kv_lens",
@@ -764,16 +774,15 @@ class TestVarlenAttention(NNTestCase):
         k_cache_slots = []
         v_cache_slots = []
         for i in range(batch_size):
-            fill = float("nan") if backend == "fa2" else 0.0
             k_slot = torch.full(
                 (cache_size, num_heads, head_dim),
-                fill,
+                float("nan"),
                 device=device,
                 dtype=dtype,
             )
             v_slot = torch.full(
                 (cache_size, num_heads, head_dim),
-                fill,
+                float("nan"),
                 device=device,
                 dtype=dtype,
             )
