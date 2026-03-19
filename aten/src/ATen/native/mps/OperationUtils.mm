@@ -25,7 +25,6 @@
 #include <mach-o/dyld.h>
 #include <mach-o/getsect.h>
 
-
 namespace at::native::mps {
 /**
  * Computes distance from lowest to highest element offset in given tensor.
