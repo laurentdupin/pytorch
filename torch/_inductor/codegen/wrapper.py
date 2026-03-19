@@ -1995,11 +1995,6 @@ class PythonWrapperCodegen(CodeGen):
                         line.codegen(self.wrapper_call)
                     else:
                         self.wrapper_call.writeline(line)
-                # Flush asserts for any inputs not read by any scheduler node
-                if self._pending_input_asserts:
-                    self.codegen_deferred_input_asserts(
-                        list(self._pending_input_asserts.keys())
-                    )
 
             self._write_multi_kernel_defs()
 
