@@ -160,7 +160,7 @@ EOF
     # 2. ROCR (libhsa-runtime): InterceptQueue ring-buffer wrap-around heap corruption
     if [[ $(ver $ROCM_VERSION) -eq $(ver 7.2) ]]; then
         python -m pip install CppHeaderParser
-        apt-get install -y pkg-config libdrm-dev libzstd-dev libdw-dev libsqlite3-dev
+        apt-get install -y pkg-config libdrm-dev libzstd-dev libdw-dev libsqlite3-dev xxd
         git clone --no-checkout --filter=blob:none https://github.com/ROCm/rocm-systems.git rocm-systems
         pushd rocm-systems/
         git sparse-checkout init --cone
