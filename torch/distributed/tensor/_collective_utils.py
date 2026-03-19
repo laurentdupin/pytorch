@@ -26,6 +26,7 @@ from torch.distributed.distributed_c10d import (
     Work,
 )
 from torch.fx.experimental.symbolic_shapes import guard_or_false
+from torch.types import IntLikeType
 
 
 logger = logging.getLogger(__name__)
@@ -182,7 +183,9 @@ def mesh_broadcast(
 
 
 @maybe_run_for_local_tensor
-def pad_tensor(tensor: torch.Tensor, pad_dim: int, pad_size: int) -> torch.Tensor:
+def pad_tensor(
+    tensor: torch.Tensor, pad_dim: int, pad_size: IntLikeType
+) -> torch.Tensor:
     # During tracing, always emit the pad op even when pad_size=0 so all
     # ranks produce identical FX graph structure (SPMD).
     # guard_or_false returns False for symbolic sizes, so the pad is always
@@ -196,7 +199,9 @@ def pad_tensor(tensor: torch.Tensor, pad_dim: int, pad_size: int) -> torch.Tenso
 
 
 @maybe_run_for_local_tensor
-def unpad_tensor(tensor: torch.Tensor, pad_dim: int, pad_size: int) -> torch.Tensor:
+def unpad_tensor(
+    tensor: torch.Tensor, pad_dim: int, pad_size: IntLikeType
+) -> torch.Tensor:
     # During tracing, always emit the narrow op even when pad_size=0 so all
     # ranks produce identical FX graph structure (SPMD).
     if guard_or_false(pad_size == 0) and not _are_we_tracing():
