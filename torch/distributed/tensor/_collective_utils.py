@@ -25,6 +25,7 @@ from torch.distributed.distributed_c10d import (
     scatter,
     Work,
 )
+from torch.fx.experimental.symbolic_shapes import guard_or_false
 
 
 logger = logging.getLogger(__name__)
@@ -184,7 +185,10 @@ def mesh_broadcast(
 def pad_tensor(tensor: torch.Tensor, pad_dim: int, pad_size: int) -> torch.Tensor:
     # During tracing, always emit the pad op even when pad_size=0 so all
     # ranks produce identical FX graph structure (SPMD).
-    if pad_size == 0 and not _are_we_tracing():
+    # guard_or_false returns False for symbolic sizes, so the pad is always
+    # emitted during tracing. In eager with concrete pad_size=0, it returns
+    # True and we skip the no-op pad.
+    if guard_or_false(pad_size == 0) and not _are_we_tracing():
         return tensor
     pad = [0, 0] * (tensor.ndim - pad_dim)
     pad[-1] = pad_size
@@ -195,7 +199,7 @@ def pad_tensor(tensor: torch.Tensor, pad_dim: int, pad_size: int) -> torch.Tenso
 def unpad_tensor(tensor: torch.Tensor, pad_dim: int, pad_size: int) -> torch.Tensor:
     # During tracing, always emit the narrow op even when pad_size=0 so all
     # ranks produce identical FX graph structure (SPMD).
-    if pad_size == 0 and not _are_we_tracing():
+    if guard_or_false(pad_size == 0) and not _are_we_tracing():
         return tensor
     return tensor.narrow(
         pad_dim,
