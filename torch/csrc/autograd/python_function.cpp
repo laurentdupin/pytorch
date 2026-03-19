@@ -1541,8 +1541,7 @@ int THPFunction_set_boxed_call(
     void* unused) {
   HANDLE_TH_ERRORS
   if (!PyBool_Check(value)) {
-    THPUtils_invalidArguments(
-        value, nullptr, "set_boxed_call", 1, "(bool)");
+    THPUtils_invalidArguments(value, nullptr, "set_boxed_call", 1, "(bool)");
     return -1;
   }
   self->boxed_call = (value == Py_True);
