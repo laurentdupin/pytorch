@@ -609,6 +609,33 @@ class DictTests(torch._dynamo.test_case.TestCase):
         res = opt_fn(x)
         self.assertEqual(ref, res)
 
+    def test_len_dunder_dict_after_delete(self):
+        # After deleting an attribute during tracing, len(obj.__dict__) must
+        # reflect the deletion. The bug: SideEffectsProxyDict.__len__ returned
+        # len(item_dict) + len(side_effects_table), double-counting deleted
+        # entries and keys mutated from item_dict.
+        class UserDefined:
+            def __init__(self) -> None:
+                self.a = 3
+                self.b = 5
+
+            def run(self, x):
+                del self.a
+                # len should be 1 (only b remains), not 3 (item_dict=2 + mutations=1)
+                return x * len(self.__dict__)
+
+        obj1 = UserDefined()
+        obj2 = UserDefined()
+
+        def fn(x, obj):
+            return obj.run(x)
+
+        x = torch.ones(2)
+        ref = fn(x, obj1)
+        opt_fn = torch.compile(fn, backend="eager", fullgraph=True)
+        res = opt_fn(x, obj2)
+        self.assertEqual(ref, res)
+
     def test_contains_module_dunder_dict(self):
         class MyModule(torch.nn.Module):
             def __init__(self) -> None:
@@ -1488,6 +1515,44 @@ class DictTests(torch._dynamo.test_case.TestCase):
         opt_fn = torch.compile(fn, backend="eager", fullgraph=True)
         self.assertEqual(fn(x), opt_fn(x))
 
+    def test_custom_bool(self):
+        class CustomBoolDict:
+            def __init__(self, bool_result: bool):
+                super().__init__()
+                self._bool_result = bool_result
+
+            def __bool__(self):
+                return self._bool_result
+
+        def fn(t: torch.Tensor, d, apply_not: bool):
+            if apply_not:
+                return t.sin(), bool(not d)
+            else:
+                return t.sin(), bool(d)
+
+        x = torch.randn(4)
+        opt_fn = torch.compile(fn, backend="eager", fullgraph=True)
+
+        t = CustomBoolDict(True)
+        self.assertTrue(
+            opt_fn(x, t, False)[1],
+            "CustomBoolDict(True) should evaluate to True in boolean context",
+        )
+        self.assertFalse(
+            opt_fn(x, t, True)[1],
+            "not CustomBoolDict(True) should evaluate to False in boolean context",
+        )
+
+        f = CustomBoolDict(False)
+        self.assertFalse(
+            opt_fn(x, f, False)[1],
+            "CustomBoolDict(False) should evaluate to False in boolean context",
+        )
+        self.assertTrue(
+            opt_fn(x, f, True)[1],
+            "not CustomBoolDict(False) should evaluate to True in boolean context",
+        )
+
 
 instantiate_parametrized_tests(DictTests)
 
@@ -1632,6 +1697,7 @@ class DictMethodsTests(torch._dynamo.test_case.TestCase):
     thetype = dict
 
     # Methods:
+    # + bool
     # + clear
     # + copy
     # + fromkeys
@@ -2079,6 +2145,19 @@ class DictMethodsTests(torch._dynamo.test_case.TestCase):
 
         x = torch.randn(4)
         self.assertTrue(same(f(A(), x), opt_f(A(), x)))
+
+    @make_dynamo_test
+    def test_bool(self):
+        p = self.thetype()
+        q = self.thetype({"a": 1, "b": 2})
+        if p:
+            self.fail("empty mapping must compare to False")
+        if not q:
+            self.fail("non-empty mapping must compare to True")
+        if bool(p):
+            self.fail("empty mapping must compare to False")
+        if not bool(q):
+            self.fail("non-empty mapping must compare to True")
 
 
 class DictSubclassMethodsTests(DictMethodsTests):

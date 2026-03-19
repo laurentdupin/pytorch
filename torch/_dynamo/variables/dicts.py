@@ -55,6 +55,7 @@ from ..utils import (
 from .base import (
     AttributeMutationExisting,
     AttributeMutationNew,
+    NO_SUCH_SUBOBJ,
     ValueMutationNew,
     VariableTracker,
 )
@@ -77,10 +78,6 @@ if TYPE_CHECKING:
 # [Adding a new supported class within the keys of ConstDictVariable]
 # - Implement is_python_hashable() method in the VariableTracker subclass
 # - Implement get_python_hash() and is_python_equal() methods for hashable types
-
-
-def was_instancecheck_override(obj: Any) -> bool:
-    return type(obj).__dict__.get("__instancecheck__", False)
 
 
 def raise_unhashable(
@@ -1933,26 +1930,24 @@ class SideEffectsProxyDict(collections.abc.MutableMapping[kV, VariableTracker]):
 
     @staticmethod
     def get_example_value_dict(vt: VariableTracker) -> dict[str, object]:
-        if isinstance(vt, variables.UserDefinedVariable):
-            return object.__getattribute__(vt.value, "__dict__")
-        elif istype(vt, variables.BuiltinVariable):
-            return vt.fn.__dict__
-        elif istype(vt, variables.NestedUserFunctionVariable):
+        if istype(vt, variables.NestedUserFunctionVariable):
             # NestedUserFunctionVariable is created with MAKE_FUNCTION and its
             # __dict__ starts empty. Any mutation will actually be recorded in
             # the side effects table
             return {}
-        elif isinstance(vt, variables.BaseUserFunctionVariable):
-            return vt.get_function().__dict__
         else:
-            unimplemented(
-                gb_type="unsupported variable type for __dict__ access",
-                context=f"VariableTracker type: {type(vt)}",
-                explanation=f"Dynamo does not know how to get __dict__ from {type(vt)}",
-                hints=[
-                    *graph_break_hints.DYNAMO_BUG,
-                ],
-            )
+            value = vt.python_value_for_identity()
+            if value is not NO_SUCH_SUBOBJ:
+                return object.__getattribute__(value, "__dict__")
+            else:
+                unimplemented(
+                    gb_type="unsupported variable type for __dict__ access",
+                    context=f"VariableTracker type: {type(vt)}",
+                    explanation=f"Dynamo does not know how to get __dict__ from {type(vt)}",
+                    hints=[
+                        *graph_break_hints.DYNAMO_BUG,
+                    ],
+                )
 
     @staticmethod
     def get_value___dict__(
@@ -1979,15 +1974,14 @@ class SideEffectsProxyDict(collections.abc.MutableMapping[kV, VariableTracker]):
         Hasher = ConstDictVariable._HashableTracker
         return key.vt.as_python_constant() if istype(key, Hasher) else key
 
-    def _mutations_dict(self) -> dict[str, VariableTracker]:
+    def side_effects_table(self) -> dict[str, VariableTracker]:
         return self.side_effects.store_attr_mutations.get(self.item, {})
 
     def __getitem__(self, key: kV) -> VariableTracker:
         name = self._maybe_unwrap_key(key)
-        if val := self._mutations_dict().get(name):
-            return val
-        else:
-            return self.item_dict[name]
+        if self.side_effects.has_pending_mutation_of_attr(self.item, name):
+            return self.side_effects.load_attr(self.item, name, deleted_ok=True)
+        return self.item_dict[name]
 
     def __setitem__(self, key: kV, value: VariableTracker) -> None:
         # Find a way to not hash the key using _HashableTracker
@@ -2001,14 +1995,20 @@ class SideEffectsProxyDict(collections.abc.MutableMapping[kV, VariableTracker]):
 
     def __contains__(self, key: kV) -> bool:  # type: ignore[bad-override]
         name = self._maybe_unwrap_key(key)
-        return name in self.item_dict or name in self._mutations_dict()
+        table = self.side_effects_table()
+        # if name in side effects, then it is only contained if it's not a DeletedVariable
+        # even if the original dict contains it
+        if name in table:
+            return not isinstance(table[name], variables.DeletedVariable)
+        else:
+            return name in self.item_dict
 
     def __len__(self) -> int:
-        return len(self.item_dict) + len(self._mutations_dict())  # this is WRONG!!
+        return sum(1 for _ in self)
 
     def __iter__(self) -> Iterator[ConstDictVariable._HashableTracker]:
         Hasher = ConstDictVariable._HashableTracker
-        d = self._mutations_dict()
+        d = self.side_effects_table()
         for k, v in d.items():
             if isinstance(v, variables.DeletedVariable):
                 continue
