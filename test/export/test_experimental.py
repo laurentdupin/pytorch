@@ -1471,7 +1471,6 @@ def forward(self, arg0_1):
         # Same closure code + different captured value -> different spec
         self.assertNotEqual(spec_a, spec_b)
 
-
     def test_aot_export_closure_buffer_mutation(self):
         class Mod(torch.nn.Module):
             def __init__(self):
@@ -1486,6 +1485,7 @@ def forward(self, arg0_1):
             def fn(x):
                 mod._buffers["buf"].add_(x.sum())
                 return x.sin()
+
             return fn
 
         class Wrapper(torch.nn.Module):
@@ -1506,14 +1506,21 @@ def forward(self, arg0_1):
             gm = capture_fn(wrapped)(x)
 
             with contextlib.ExitStack() as stack:
-                stack.enter_context(torch_tracing(
-                    gm.meta.get("tracing_context", TracingContext(gm.meta["fake_mode"]))
-                ))
+                stack.enter_context(
+                    torch_tracing(
+                        gm.meta.get(
+                            "tracing_context", TracingContext(gm.meta["fake_mode"])
+                        )
+                    )
+                )
                 stack.enter_context(_compiling_state_context())
                 stack.enter_context(gm.meta["fake_mode"])
 
                 jd = aot_export_joint_with_descriptors(
-                    stack, gm, args=(x,), kwargs={},
+                    stack,
+                    gm,
+                    args=(x,),
+                    kwargs={},
                     keep_inference_input_mutations=True,
                     disable_functionalization=True,
                 )
@@ -1545,7 +1552,9 @@ def forward(self, arg0_1):
             buf_input = torch.zeros(())
             (exported_out,) = joint_gm(buf_input, x)
             self.assertEqual(exported_out, eager_out, msg=f"{label}: output mismatch")
-            self.assertEqual(buf_input, eager_buf, msg=f"{label}: buffer mutation mismatch")
+            self.assertEqual(
+                buf_input, eager_buf, msg=f"{label}: buffer mutation mismatch"
+            )
 
 
 if __name__ == "__main__":

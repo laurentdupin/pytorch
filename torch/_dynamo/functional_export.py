@@ -609,9 +609,7 @@ def create_fx_graph_from_captured_output(
         graph_module._buffers = root._buffers
         assert all(not hasattr(graph_module, m) for m in root._modules)
         graph_module._modules.update(root._modules)
-        graph_module._non_persistent_buffers_set = (
-            root._non_persistent_buffers_set
-        )
+        graph_module._non_persistent_buffers_set = root._non_persistent_buffers_set
         if sys.version_info >= (3, 14):
             import annotationlib  # added in 3.14
 
