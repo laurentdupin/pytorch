@@ -131,6 +131,9 @@ struct xlogy_functor {
   inline float operator()(const T a, const T b) {
     return c10::metal::xlogy(float(a), float(b));
   }
+  inline float operator()(const bool a, const bool b) {
+    return (a && !b) ? -INFINITY : 0;
+  }
 };
 
 struct xlog1py_functor {

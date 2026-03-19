@@ -1,7 +1,6 @@
 #include <ATen/native/mps/OperationUtils.h>
 
 #define TORCH_ASSERT_NO_OPERATORS
-#include <ATen/native/BinaryOps.h>
 #include <ATen/native/UnaryOps.h>
 
 #include <ATen/native/TensorIterator.h>
@@ -77,11 +76,6 @@ static void bessel_y1_kernel_mps(TensorIteratorBase& iter) {
   lib.exec_unary_kernel(iter, "bessel_y1_forward");
 }
 
-static void xlogy_mps_kernel(TensorIteratorBase& iter) {
-  lib.exec_binary_kernel(iter, "xlogy");
-}
-
-REGISTER_DISPATCH(xlogy_stub, &xlogy_mps_kernel)
 REGISTER_DISPATCH(i0_stub, &i0_kernel_mps)
 REGISTER_DISPATCH(special_i0e_stub, &i0e_kernel_mps)
 REGISTER_DISPATCH(special_i1_stub, &i1_kernel_mps)

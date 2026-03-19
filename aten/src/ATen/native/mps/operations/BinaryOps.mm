@@ -261,5 +261,4 @@ TORCH_IMPL_FUNC(pow_Scalar_out_mps)(const Scalar& base, const Tensor& exp, const
   }
 }
 
-
 } // namespace at::native
