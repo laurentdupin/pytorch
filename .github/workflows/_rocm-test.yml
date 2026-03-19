@@ -208,8 +208,9 @@ jobs:
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
         timeout-minutes: ${{ fromJson(steps.test-timeout.outputs.timeout) }}
         run: |
-          set -x
-
+          echo "${ROCR_VISIBLE_DEVICES}"
+          FLAGS="ADDITIONAL_FLAGS${DEVICES}"
+          echo "${!FLAGS}"
           if [[ $TEST_CONFIG == 'multigpu' ]]; then
             TEST_COMMAND=.ci/pytorch/multigpu-test.sh
           elif [[ $BUILD_ENVIRONMENT == *onnx* ]]; then
