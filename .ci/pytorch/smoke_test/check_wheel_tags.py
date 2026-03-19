@@ -7,6 +7,7 @@ Supports two modes:
 """
 
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -62,6 +63,8 @@ def check_wheel_platform_tag() -> None:
     wheel_dir = os.getenv("PYTORCH_FINAL_PACKAGE_DIR", "")
 
     target_os = os.getenv("TARGET_OS", sys.platform)
+    if target_os == "linux" and platform.machine() == "aarch64":
+        target_os = "linux-aarch64"
     expected_python = f"cp{sys.version_info.major}{sys.version_info.minor}"
     abiflags = getattr(sys, "abiflags", "")
     expected_abi = f"cp{sys.version_info.major}{sys.version_info.minor}{abiflags}"
