@@ -1080,8 +1080,9 @@ def aot_module_simplified(
     inference_compiler: AOTDispatchCompiler | None = None,
     # TODO: This doesn't seem to be used in any nontrivial way, check if it's
     # actually needed
-    cudagraphs: BoxedBool | None = None,
-    boxed_forward_device_index: BoxedDeviceIndex | None = None,
+    compiler_config_extra : CompilerConfigExtra | None = None,
+    # cudagraphs: BoxedBool | None = None,
+    # boxed_forward_device_index: BoxedDeviceIndex | None = None,
     ignore_shape_env: bool = False,
     disable_functionalization: bool = False,
 ) -> Callable[..., Any]:
@@ -1131,7 +1132,7 @@ def aot_module_simplified(
             remote = should_use_remote_autograd_cache()
             if local or remote:
                 set_feature_use("aot_autograd_remote_cache", remote)
-                fx_config = create_fx_config(cudagraphs, boxed_forward_device_index)
+                fx_config = create_fx_config(compiler_config_extra.cudagraphs, compiler_config_extra.boxed_forward_device_index)
                 compiled_fn = AOTAutogradCache.try_load(
                     mod,
                     fake_flat_args,
