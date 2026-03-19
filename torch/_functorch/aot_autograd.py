@@ -1096,9 +1096,6 @@ def aot_module_simplified(
     :func:`aot_module_simplified` removes these overheads.
     """
 
-    if cudagraphs is None:
-        cudagraphs = BoxedBool(torch._inductor.config.triton.cudagraphs)
-
     with contextlib.ExitStack() as stack:
         (
             functional_call,
