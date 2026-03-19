@@ -115,11 +115,12 @@ def _get_mesh_info_from_named_dims(
     def _get_submesh(names: tuple[str, ...]) -> "DeviceMesh":
         if len(names) == 1:
             return mesh[names[0]]
+        # Flatten multi-dim submesh into a single dim so FSDP's internal
+        # logic (which expects one shard and/or one replicate dim) works
+        # unchanged. This creates a new 1D DeviceMesh and ProcessGroup.
         return mesh[names]._flatten("_".join(names))
 
     if len(shard_names) == 0:  # DDP
-        if len(replicate_names) == 0:
-            raise AssertionError("replicate must not be None for replicate-only (DDP)")
         dp_mesh = _get_submesh(replicate_names)
         return DDPMeshInfo(
             dp_mesh,

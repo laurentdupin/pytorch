@@ -146,6 +146,12 @@ class DataParallelMeshDims:
     shard: str | tuple[str, ...] | None = None
     replicate: str | tuple[str, ...] | None = None
 
+    def __post_init__(self):
+        if self.shard is None and self.replicate is None:
+            raise ValueError(
+                "At least one of shard or replicate must be set in DataParallelMeshDims"
+            )
+
     @property
     def shard_names(self) -> tuple[str, ...]:
         if self.shard is None:

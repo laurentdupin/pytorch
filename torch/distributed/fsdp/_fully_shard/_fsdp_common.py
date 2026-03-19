@@ -34,6 +34,9 @@ class DataParallelMeshInfo:
     shard_mesh_dim: int | None = None
     replicate_mesh_dim: int | None = None
     dp_mesh_dims: DataParallelMeshDims | None = None
+    # The full SPMD mesh (excluding PP dims) that params are distributed on.
+    # Must include all non-PP SPMD dims (e.g. DP + TP); passing a submesh
+    # that omits dims like TP will lead to incorrect behavior.
     spmd_mesh: DeviceMesh | None = field(default=None, repr=False)
     is_spmd_mesh: bool = field(default=False, init=False, repr=False)
 
