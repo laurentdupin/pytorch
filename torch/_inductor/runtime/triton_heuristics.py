@@ -3389,6 +3389,7 @@ def match_target_block_product(
         # just assume even score with no minimum block size
         min_block_size = 1
         tiling_scores = dict.fromkeys(tiling_scores.keys(), target_block_product)
+        total_score = target_block_product * len(tiling_scores)
 
     # First, give each coalescing dimension at least min_block_size
     block_sizes = {}
@@ -4143,7 +4144,10 @@ class GridExpr:
             return items[0]
         if self.mode == "python":
             return f"max({', '.join(map(str, items))})"
-        return functools.reduce(lambda x, y: f"std::max({x}, {y})", items)
+        # Cast int constants to (long) to avoid type deduction errors with std::max
+        # when mixing long variables with int literals
+        cpp_items = [f"(long){x}" if isinstance(x, int) else str(x) for x in items]
+        return functools.reduce(lambda x, y: f"std::max({x}, {y})", cpp_items)
 
     def summation(self, seq: list[int | str]) -> int | str:
         """Codegen for sum function with constant folding, constants are represented as int"""
