@@ -586,7 +586,7 @@ class AOTAutogradCachePickler(FxGraphCachePickler):
         inner_tensor_names, subclass_metadata = tensor.__tensor_flatten__()  # type: ignore[attr-defined]
 
         # Recursively get hashes of inner tensors
-        inner_hashes = {}
+        inner_hashes: dict[str, str] = {}
         for name in inner_tensor_names:
             inner_tensor = getattr(tensor, name)
             inner_hashes[name] = self._get_stable_hash(inner_tensor)
