@@ -6,6 +6,8 @@
 #include <c10/cuda/CUDAGuard.h>
 
 #include <ATen/cuda/detail/OffsetCalculator.cuh>
+#include <ATen/native/TensorIterator.h>
+#include <ATen/native/cuda/DistributionTemplates.h>
 #include <curand_kernel.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
@@ -200,7 +202,7 @@ __global__ void philox_normal_kernel(
 
 } // anonymous namespace
 
-Tensor& _philox_normal_cuda_(Tensor& self, const Tensor& key, double mean, double stddev) {
+Tensor& _philox_normal_cuda_(Tensor& self, const Tensor& key, double mean, double stddev, bool portable) {
   TORCH_CHECK(key.dim() >= 1 && key.size(-1) == 2,
       "_philox_normal: key must have shape (*batch, 2), got shape ",
       key.sizes());
@@ -217,6 +219,46 @@ Tensor& _philox_normal_cuda_(Tensor& self, const Tensor& key, double mean, doubl
   TORCH_CHECK(self.device() == key.device(),
       "_philox_normal: self and key must be on the same device, got ",
       self.device(), " and ", key.device());
+
+  if (!portable) {
+    TORCH_CHECK(key.dim() == 1 && key.size(0) == 2,
+        "_philox_normal: portable=False does not support batched keys");
+
+    at::cuda::CUDAGuard device_guard(key.device());
+
+    PhiloxCudaState philox_state;
+    philox_state.seed_.ptr = reinterpret_cast<int64_t*>(key.data_ptr<uint64_t>());
+    philox_state.offset_.ptr = reinterpret_cast<int64_t*>(key.data_ptr<uint64_t>() + 1);
+    philox_state.offset_intragraph_ = 0;
+    philox_state.captured_ = true;
+
+    auto iter = TensorIterator::borrowing_nullary_op(self);
+    AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "_philox_normal_cuda", [&] {
+      using accscalar_t = at::acc_type<scalar_t, true>;
+      auto fmean = static_cast<accscalar_t>(mean);
+      auto fstd = static_cast<accscalar_t>(stddev);
+      if (std::is_same_v<scalar_t, double>) {
+        distribution_nullary_kernel<scalar_t, accscalar_t, double2>(
+            iter, philox_state,
+            [] __device__ (curandStatePhilox4_32_10_t* state) -> double2 {
+              return curand_normal2_double(state);
+            },
+            [fmean, fstd] __device__ (accscalar_t rand) {
+              return static_cast<scalar_t>(rand * fstd + fmean);
+            });
+      } else {
+        distribution_nullary_kernel<scalar_t, accscalar_t, float4>(
+            iter, philox_state,
+            [] __device__ (curandStatePhilox4_32_10_t* state) -> float4 {
+              return curand_normal4(state);
+            },
+            [fmean, fstd] __device__ (accscalar_t rand) {
+              return static_cast<scalar_t>(rand * fstd + fmean);
+            });
+      }
+    });
+    return self;
+  }
 
   int64_t key_batch_ndim = key.dim() - 1;
   TORCH_CHECK(self.dim() >= key_batch_ndim,
