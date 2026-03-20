@@ -33,6 +33,7 @@ concurrency:
 permissions:
   id-token: write
   contents: read
+  actions: read
 
 jobs:
   # See job-filter.yml for rules on adding job filter conditions
