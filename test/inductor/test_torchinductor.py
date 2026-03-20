@@ -83,7 +83,11 @@ from torch.testing._internal.common_device_type import (
     expectedFailureXPU,
     largeTensorTest,
 )
-from torch.testing._internal.common_dtype import all_types, get_all_dtypes, highest_precision_float
+from torch.testing._internal.common_dtype import (
+    all_types,
+    get_all_dtypes,
+    highest_precision_float,
+)
 from torch.testing._internal.common_quantization import (
     _dynamically_quantize_per_channel,
     _group_quantize_tensor_symmetric,

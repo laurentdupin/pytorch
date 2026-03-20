@@ -44,7 +44,6 @@ from torch.nn.attention import (
 )
 from torch.testing import FileCheck
 from torch.testing._internal import common_utils
-from torch.testing._internal.common_dtype import highest_precision_complex, highest_precision_float
 from torch.testing._internal.common_cuda import (
     CDNA2OrLater,
     PLATFORM_SUPPORTS_FLASH_ATTENTION,
@@ -61,6 +60,10 @@ from torch.testing._internal.common_device_type import (
     e4m3_type,
     e5m2_type,
     skipCUDAIf,
+)
+from torch.testing._internal.common_dtype import (
+    highest_precision_complex,
+    highest_precision_float,
 )
 from torch.testing._internal.common_quantization import (
     _group_quantize_tensor,
