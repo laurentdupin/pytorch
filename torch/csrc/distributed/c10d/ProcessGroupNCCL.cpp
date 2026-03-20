@@ -77,7 +77,7 @@ ncclRedOpRAII unpackPreMulSum(
     const ReduceOp& reduceOp,
     const ncclComm_t& comm) {
   const auto* preMulSupplement =
-      reinterpret_cast<NCCLPreMulSumSupplement*>(reduceOp.supplement_.get());
+      reinterpret_cast<PreMulSumSupplement*>(reduceOp.supplement_.get());
   ncclRedOp_t preMulSum{};
   bool has_tensor = preMulSupplement->tensor_factor.defined();
   auto residence = has_tensor ? ncclScalarDevice : ncclScalarHostImmediate;
@@ -3365,6 +3365,30 @@ uint64_t ProcessGroupNCCL::getCommSplitCounter() const {
     ret += ncclComm->getCommSplitCounter();
   }
   return ret;
+}
+
+void ProcessGroupNCCL::suspend() {
+  auto device = at::Device(at::kCUDA, guessDeviceId());
+  std::string deviceKey = getKeyFromDevice(device);
+  auto ncclComm = getNCCLComm(deviceKey);
+  TORCH_CHECK(ncclComm != nullptr, "NCCL communicator not initialized.");
+  ncclComm->suspend();
+}
+
+void ProcessGroupNCCL::resume() {
+  auto device = at::Device(at::kCUDA, guessDeviceId());
+  std::string deviceKey = getKeyFromDevice(device);
+  auto ncclComm = getNCCLComm(deviceKey);
+  TORCH_CHECK(ncclComm != nullptr, "NCCL communicator not initialized.");
+  ncclComm->resume();
+}
+
+std::unordered_map<std::string, uint64_t> ProcessGroupNCCL::getMemoryStats() {
+  auto device = at::Device(at::kCUDA, guessDeviceId());
+  std::string deviceKey = getKeyFromDevice(device);
+  auto ncclComm = getNCCLComm(deviceKey);
+  TORCH_CHECK(ncclComm != nullptr, "NCCL communicator not initialized.");
+  return ncclComm->getMemoryStats();
 }
 
 namespace {
