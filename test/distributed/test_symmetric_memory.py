@@ -1550,14 +1550,14 @@ class LoweringTest(MultiProcContinuousTest):
     @skip_if_rocm_multiprocess  # requires registered-buffer support
     @skip_if_lt_x_gpu(2)
     @fresh_inductor_cache()
-    def test_symm_mem_placeholder_auto_copy(self):
+    def test_layout_allocator_placeholder(self):
         """
         Verify that when a symm_mem collective's input is a graph placeholder
         (Inductor does not control its allocation), the Layout approach
         annotates the InputBuffer with AllocatorType(kind="symm_mem") and generates
         a .copy_() from the caller's input to a persistent P2P buffer.
 
-        This replaces the old Triton identity-copy kernel with a DMA .copy_()
+        This replaces the Triton identity-copy kernel with a DMA .copy_()
         that runs on the copy engine (not compute SMs).
         """
         self._init_process()
@@ -1600,7 +1600,7 @@ class LoweringTest(MultiProcContinuousTest):
             eager_result,
             rtol=1e-5,
             atol=1e-5,
-            msg="Compiled (auto-copy to P2P) and eager all_reduce do not match",
+            msg="Compiled (Layout approach) and eager all_reduce do not match",
         )
 
         # --- Identity copy fallback ---
@@ -1651,10 +1651,6 @@ class LoweringTest(MultiProcContinuousTest):
         """
         Verify that Layout.as_fixed() propagates the allocator field and that
         Layout.__eq__ distinguishes layouts with different allocators.
-
-        These are unit-level checks for the AllocatorType plumbing in ir.py,
-        ensuring that FlexibleLayout → FixedLayout conversion does not lose
-        the allocator annotation and that buffer-reuse comparisons are correct.
         """
         from torch._inductor.ir import AllocatorType, FixedLayout, FlexibleLayout
 
@@ -1662,8 +1658,6 @@ class LoweringTest(MultiProcContinuousTest):
         size = [8, 8]
 
         # as_fixed() should propagate AllocatorType(kind="symm_mem")
-        # FlexibleLayout.__init__ has its own signature (stride_order, etc.)
-        # without allocator, so set it after construction.
         flex = FlexibleLayout(device, torch.float32, size)
         flex.allocator = AllocatorType(kind="symm_mem")
         fixed = flex.as_fixed()
