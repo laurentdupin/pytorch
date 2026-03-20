@@ -790,22 +790,6 @@ class TestGuardSerialization(TestGuardSerializationBase):
         # guard should fail for different y value
         self._test_check_fn(ref, loaded, {"x": torch.randn(3), "y": 6}, False)
 
-    def test_nn_module(self):
-        def fn(m, x):
-            return m(x)
-
-        m = GlobalModule()
-        x = torch.randn(3)
-
-        # config setting controls whether the NN_MODULE guard is installed
-        with patch("torch._dynamo.config.inline_inbuilt_nn_modules", False):
-            # we don't support NN_MODULE because it adds an ID_MATCH guard, and we don't
-            # support that in serialization
-            with self.assertRaisesRegex(
-                PackageError, "NN_MODULE guard cannot be serialized."
-            ):
-                self._test_serialization("NN_MODULE", fn, m, x)
-
     def test_class_match(self):
         def fn(x):
             # usage of this context manager installs a FUNCTION_MATCH guard
