@@ -124,6 +124,8 @@ if torch.backends.mps.is_available():
             "nn.functional.conv_transpose2d",
             "nn.functional.conv_transpose3d",
             "nn.functional.feature_alpha_dropoutwithout_train",
+            "nn.functional.l1_loss",
+            "nn.functional.normalize",
             "nn.functional.padcircular",
             "nn.functional.pairwise_distance",
             "nn.functional.softminwith_dtype",

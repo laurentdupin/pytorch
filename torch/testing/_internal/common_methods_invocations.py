@@ -25988,6 +25988,15 @@ python_ref_db = [
         "_refs.renorm",
         torch_opinfo_name="renorm",
         skips=(
+            # RuntimeError: Failed to create function state object for: renorm_float2
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref',
+                device_type='mps', dtypes=(torch.complex64,)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback',
+                device_type='mps', dtypes=(torch.complex64,)
+            ),
         ),
     ),
     PythonRefInfo(
