@@ -1741,13 +1741,14 @@ class triton:
         os.environ.get("TORCHINDUCTOR_PERSISTENT_REDUCTIONS", "1") == "1"
     )
 
-    # For small output size reductions uses cross thread-block synchronization to gain more parallelism
-    cooperative_reductions = (
-        os.environ.get("TORCHINDUCTOR_COOPERATIVE_REDUCTIONS", "1") == "1"
-    )
-
     # used for debugging cooperative reduction codegen, always generate cooperative_reductions
     force_cooperative_reductions = False
+
+    # For small output size reductions uses cross thread-block synchronization to gain more parallelism
+    cooperative_reductions = (
+        force_cooperative_reductions
+        or os.environ.get("TORCHINDUCTOR_COOPERATIVE_REDUCTIONS", "1") == "1"
+    )
 
     # 0: disable
     # 1/True: enable, use tuning to pick between different subkernels
@@ -1864,10 +1865,6 @@ class triton:
     # Don't allow multi-stages by default to avoid out of shared memory
     mix_order_reduction_allow_multi_stages = (
         os.environ.get("TORCHINDUCTOR_MIX_ORDER_REDUCTION_ALLOW_MULTI_STAGES") == "1"
-    )
-
-    enable_tlx_templates: bool = (
-        os.environ.get("TORCHINDUCTOR_ENABLE_TLX_TEMPLATES", "0") == "1"
     )
 
     # Map for storing the amount of kernel runs with dumped input tensors
