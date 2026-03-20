@@ -878,7 +878,11 @@ class VariableTracker(metaclass=VariableTrackerMeta):
         other: "VariableTracker",
         op: str,
     ) -> "VariableTracker":
-        """Hook for generic_richcompare. Return result VT or ConstantVariable(NotImplemented)."""
+        """Hook for generic_richcompare. Return result VT or ConstantVariable(NotImplemented).
+
+        CPython: object_richcompare in Objects/typeobject.c
+        https://github.com/python/cpython/blob/main/Objects/typeobject.c
+        """
         if (
             self.is_python_constant()
             and other.is_python_constant()
