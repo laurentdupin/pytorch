@@ -58,6 +58,12 @@ struct TORCH_API KinetoEvent {
   bool isAsync() const;
   uint64_t correlationId() const;
   uint64_t linkedCorrelationId() const;
+<<<<<<< HEAD
+=======
+  uint32_t flowId() const;
+  uint32_t flowType() const;
+  bool flowStart() const;
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
   int64_t externalId() const;
   int64_t deviceResourceId() const;
   std::string backend() const;

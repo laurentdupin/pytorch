@@ -81,12 +81,25 @@ from ..utils import (
     str_methods,
     tensortype_to_dtype,
 )
+<<<<<<< HEAD
 from .base import AsPythonConstantNotImplementedError, ValueMutationNew, VariableTracker
+=======
+from .base import (
+    AsPythonConstantNotImplementedError,
+    NO_SUCH_SUBOBJ,
+    ValueMutationNew,
+    VariableTracker,
+)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 from .constant import (
     CONSTANT_VARIABLE_FALSE,
     CONSTANT_VARIABLE_NONE,
     ConstantVariable,
     EnumVariable,
+<<<<<<< HEAD
+=======
+    FakeIdVariable,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 )
 from .dicts import (
     ConstDictVariable,
@@ -107,7 +120,10 @@ from .lists import (
     TupleIteratorVariable,
     TupleVariable,
 )
+<<<<<<< HEAD
 from .streams import EventVariable, StreamVariable
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 from .tensor import (
     FakeItemVariable,
     supported_comparison_ops,
@@ -484,6 +500,7 @@ class BuiltinVariable(VariableTracker):
         # combinations. Handlers are attempted in order, and will be used if the type checks
         # match. They are expected to have the signature:
         # fn(tx, arg0: VariableTracker, arg1: VariableTracker) -> VariableTracker
+<<<<<<< HEAD
         from .functions import BaseUserFunctionVariable, UserFunctionVariable
         from .nn_module import NNModuleVariable
         from .tensor import supported_const_comparison_ops
@@ -493,6 +510,13 @@ class BuiltinVariable(VariableTracker):
             UserDefinedObjectVariable,
             UserDefinedVariable,
         )
+=======
+        from .functions import BaseUserFunctionVariable
+        from .nn_module import NNModuleVariable
+        from .tensor import supported_const_comparison_ops
+        from .torch import BaseTorchVariable
+        from .user_defined import UserDefinedVariable
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
         # Override table contains: op_fn -> [list of handlers]
         op_handlers: dict[Any, list[Any]] = {}
@@ -826,6 +850,7 @@ class BuiltinVariable(VariableTracker):
                 result.extend(
                     [
                         (
+<<<<<<< HEAD
                             (
                                 (UserFunctionVariable, BuiltinVariable),
                                 (UserFunctionVariable, BuiltinVariable),
@@ -861,6 +886,8 @@ class BuiltinVariable(VariableTracker):
                             compare_by_value,
                         ),
                         (
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
                             (TensorVariable, VariableTracker),
                             op_var._comparison_with_tensor,
                         ),
@@ -884,6 +911,7 @@ class BuiltinVariable(VariableTracker):
                     left: VariableTracker,
                     right: VariableTracker,
                 ) -> VariableTracker | None:
+<<<<<<< HEAD
                     # If the two objects are of different type, we can safely return False
                     # and True for `is` and `is not`, respectively
                     if type(left) is not type(right):
@@ -894,12 +922,49 @@ class BuiltinVariable(VariableTracker):
                         right, variables.ObjectVariable
                     ):
                         return VariableTracker.build(tx, op(left.value, right.value))
+=======
+                    # VT identity → Python identity
+                    if left is right:
+                        return VariableTracker.build(tx, op.__name__ == "is_")
+
+                    # Compare underlying Python objects via hook
+                    left_val = left.get_real_python_backed_value()
+                    right_val = right.get_real_python_backed_value()
+
+                    left_known = left_val is not NO_SUCH_SUBOBJ
+                    right_known = right_val is not NO_SUCH_SUBOBJ
+
+                    if left_known and right_known:
+                        result = left_val is right_val
+                        return VariableTracker.build(
+                            tx, result if op.__name__ == "is_" else not result
+                        )
+
+                    # One side has a concrete value, the other doesn't — they
+                    # can't be identical (if they were the same object, both
+                    # sides would resolve).
+                    if left_known != right_known:
+                        return VariableTracker.build(tx, op.__name__ != "is_")
+
+                    # Mutable containers created during tracing: VT identity
+                    # = Python identity. Already False from `left is right`.
+                    if isinstance(left, (ConstDictVariable, ListVariable)):
+                        return VariableTracker.build(tx, op.__name__ != "is_")
+
+                    # Different exception types are never identical
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
                     if (
                         istype(left, variables.ExceptionVariable)
                         and istype(right, variables.ExceptionVariable)
                         and left.exc_type is not right.exc_type
                     ):
+<<<<<<< HEAD
                         return VariableTracker.build(tx, op(left, right))
+=======
+                        return VariableTracker.build(tx, op.__name__ != "is_")
+
+                    return None
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
                 result.append(((VariableTracker, VariableTracker), handle_is))  # type: ignore[arg-type]
 
@@ -944,6 +1009,12 @@ class BuiltinVariable(VariableTracker):
     def as_python_constant(self) -> Any:
         return self.fn
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> Any:
+        return self.fn
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def as_proxy(self) -> Any:
         DTYPE = {
             bool: torch.bool,
@@ -3037,6 +3108,7 @@ class BuiltinVariable(VariableTracker):
             nn_mod_variable = args[0]
             mod = tx.output.get_submodule(nn_mod_variable.module_key)
             return VariableTracker.build(tx, id(mod))
+<<<<<<< HEAD
         elif len(args) == 1 and isinstance(
             args[0],
             (variables.UserDefinedClassVariable, variables.UserDefinedObjectVariable),
@@ -3057,6 +3129,31 @@ class BuiltinVariable(VariableTracker):
             return VariableTracker.build(tx, id(args[0].value))
         elif istype(args[0], variables.FunctoolsPartialVariable):
             return VariableTracker.build(tx, id(args[0].fake_value))
+=======
+        elif len(args) == 1 and args[0].is_tensor():
+            tensor_variable = cast(TensorVariable, args[0])
+            return tensor_variable.call_id(tx)
+        elif istype(args[0], variables.FunctoolsPartialVariable):
+            return VariableTracker.build(tx, id(args[0].fake_value))
+        elif len(args) == 1:
+            arg = args[0]
+            if isinstance(
+                arg,
+                (
+                    variables.UserDefinedClassVariable,
+                    variables.UserDefinedObjectVariable,
+                ),
+            ):
+                if arg.source:
+                    if isinstance(arg, variables.UserDefinedClassVariable):
+                        install_guard(arg.source.make_guard(GuardBuilder.CLASS_MATCH))
+                    else:
+                        install_guard(arg.source.make_guard(GuardBuilder.ID_MATCH))
+            real_val = arg.get_real_python_backed_value()
+            if real_val is not NO_SUCH_SUBOBJ:
+                return VariableTracker.build(tx, id(real_val))
+            return FakeIdVariable(id(arg))
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         else:
             unimplemented(
                 gb_type="id() with unsupported args",

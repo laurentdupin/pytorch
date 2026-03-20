@@ -2,8 +2,14 @@ import gc
 import types
 import typing
 import weakref
+<<<<<<< HEAD
 
 import torch
+=======
+from typing_extensions import TypeIs
+
+from torch.fx.experimental.symbolic_shapes import TrackedFake
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 
 """
@@ -37,8 +43,13 @@ def _is_globals_or_locals(obj: typing.Any) -> bool:
     return obj is globals() or obj is locals()
 
 
+<<<<<<< HEAD
 def _is_tracked_fake(obj: typing.Any) -> bool:
     return isinstance(obj, torch.fx.experimental.symbolic_shapes.TrackedFake)
+=======
+def _is_tracked_fake(obj: typing.Any) -> TypeIs[TrackedFake]:
+    return isinstance(obj, TrackedFake)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 
 def _is_gm_meta_like_dict(d: dict, o: typing.Any) -> bool:

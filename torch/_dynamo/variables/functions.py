@@ -587,6 +587,14 @@ class UserFunctionVariable(BaseUserFunctionVariable):
         # subclasses (such as methods) usually aren't a constant
         return super().as_python_constant()
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> Any:
+        if istype(self, UserFunctionVariable):
+            return self.fn
+        return super().get_real_python_backed_value()
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def self_args(self) -> list[VariableTracker]:
         return []
 
@@ -2109,6 +2117,12 @@ class SkipFunctionVariable(VariableTracker):
     def as_python_constant(self) -> Any:
         return self.value
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> Any:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     @classmethod
     def create_with_source(cls, value: Any, source: Source) -> "SkipFunctionVariable":
         # Use closure match guard (i.e. guard on __code__ object instead of

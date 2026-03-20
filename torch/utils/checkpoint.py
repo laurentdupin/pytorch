@@ -1316,9 +1316,16 @@ class _CachingTorchDispatchMode(TorchDispatchMode):
         return True
 
     # Used together with _CachedTorchDispatchMode to implement SAC.
+<<<<<<< HEAD
     def __init__(self, policy_fn, storage) -> None:
         self.policy_fn = policy_fn
         self.storage = storage
+=======
+    def __init__(self, policy_fn, storage, ac_graph_id=None) -> None:
+        self.policy_fn = policy_fn
+        self.storage = storage
+        self.ac_graph_id = ac_graph_id
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         if func in SAC_IGNORED_OPS:
@@ -1335,6 +1342,10 @@ class _CachingTorchDispatchMode(TorchDispatchMode):
         if is_compiling:
             # Overwrite each node's "recompute" tag to add in the user annotation.
             fx_traceback.current_meta["recompute"] = policy
+<<<<<<< HEAD
+=======
+            fx_traceback.current_meta["ac_graph_id"] = self.ac_graph_id
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
         out = func(*args, **kwargs)
 

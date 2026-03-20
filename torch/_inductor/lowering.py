@@ -2593,7 +2593,10 @@ make_fallback(aten.randint)
 # TODO: mlazos reevaluate if we want to codegen something different
 make_fallback(torch.ops.streams.record_event.default)
 make_fallback(torch.ops.streams.wait_event.default)
+<<<<<<< HEAD
 make_fallback(torch.ops.streams.synchronize_event.default)
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 
 @register_lowering(aten.rand)

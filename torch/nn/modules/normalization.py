@@ -142,9 +142,15 @@ class LayerNorm(Module):
         eps: a value added to the denominator for numerical stability. Default: 1e-5
         elementwise_affine: a boolean value that when set to ``True``, this module
             has learnable per-element affine parameters initialized to ones (for weights)
+<<<<<<< HEAD
             and zeros (for biases). Default: ``True``.
         bias: If set to ``False``, the layer will not learn an additive bias (only relevant if
             :attr:`elementwise_affine` is ``True``). Default: ``True``.
+=======
+            and zeros (for biases). Default: ``True``
+        bias: If set to ``False``, the layer will not learn an additive bias (only relevant if
+            :attr:`elementwise_affine` is ``True``). Default: ``True``
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
     Attributes:
         weight: the learnable weights of the module of shape
@@ -231,8 +237,13 @@ class LayerNorm(Module):
 
     def extra_repr(self) -> str:
         return (
+<<<<<<< HEAD
             "{normalized_shape}, eps={eps}, "
             "elementwise_affine={elementwise_affine}".format(**self.__dict__)
+=======
+            "{normalized_shape}, eps={eps}, elementwise_affine={elementwise_affine}, "
+            "bias={use_bias}".format(**self.__dict__, use_bias=self.bias is not None)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         )
 
 
@@ -263,7 +274,13 @@ class GroupNorm(Module):
         eps: a value added to the denominator for numerical stability. Default: 1e-5
         affine: a boolean value that when set to ``True``, this module
             has learnable per-channel affine parameters initialized to ones (for weights)
+<<<<<<< HEAD
             and zeros (for biases). Default: ``True``.
+=======
+            and zeros (for biases). Default: ``True``
+        bias: If set to ``False``, the layer will not learn an additive bias (only relevant if
+            :attr:`affine` is ``True``). Default: ``True``
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
     Shape:
         - Input: :math:`(N, C, *)` where :math:`C=\text{num\_channels}`
@@ -296,6 +313,11 @@ class GroupNorm(Module):
         affine: bool = True,
         device=None,
         dtype=None,
+<<<<<<< HEAD
+=======
+        *,
+        bias: bool = True,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     ) -> None:
         factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
@@ -310,7 +332,14 @@ class GroupNorm(Module):
         self.affine = affine
         if self.affine:
             self.weight = Parameter(torch.empty(num_channels, **factory_kwargs))
+<<<<<<< HEAD
             self.bias = Parameter(torch.empty(num_channels, **factory_kwargs))
+=======
+            if bias:
+                self.bias = Parameter(torch.empty(num_channels, **factory_kwargs))
+            else:
+                self.register_parameter("bias", None)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         else:
             self.register_parameter("weight", None)
             self.register_parameter("bias", None)
@@ -320,14 +349,25 @@ class GroupNorm(Module):
     def reset_parameters(self) -> None:
         if self.affine:
             init.ones_(self.weight)
+<<<<<<< HEAD
             init.zeros_(self.bias)
+=======
+            if self.bias is not None:
+                init.zeros_(self.bias)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
     def forward(self, input: Tensor) -> Tensor:
         return F.group_norm(input, self.num_groups, self.weight, self.bias, self.eps)
 
     def extra_repr(self) -> str:
+<<<<<<< HEAD
         return "{num_groups}, {num_channels}, eps={eps}, affine={affine}".format(
             **self.__dict__
+=======
+        return (
+            "{num_groups}, {num_channels}, eps={eps}, affine={affine}, "
+            "bias={use_bias}".format(**self.__dict__, use_bias=self.bias is not None)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         )
 
 

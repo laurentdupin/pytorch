@@ -780,6 +780,15 @@ class BaseConfigHeuristic(metaclass=BaseHeuristicSingleton):
             for num_warps in [2, 4, 8]
         ]
 
+<<<<<<< HEAD
+=======
+    def _get_extra_config_key_and_kwargs(
+        self, conf: BaseConfig
+    ) -> tuple[tuple[int | None, ...], dict[str, Any]]:
+        """Hook for subclasses to extend config dedup key and kwargs."""
+        return (), {}
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def _finalize_mm_configs(
         self,
         configs: list[BaseConfig],
@@ -814,6 +823,7 @@ class BaseConfigHeuristic(metaclass=BaseHeuristicSingleton):
             if isinstance(conf, BlackwellGPUGemmConfig):
                 key += (conf.epilogue_subtile, conf.warp_specialize, conf.flatten)
 
+<<<<<<< HEAD
             # Add TlxGemmConfig specific fields to key if present
             if config.is_fbcode() and config.triton.enable_tlx_templates:
                 from torch._inductor.fb.tlx_templates.registry import (
@@ -824,6 +834,10 @@ class BaseConfigHeuristic(metaclass=BaseHeuristicSingleton):
                 key += tlx_key_fields
             else:
                 tlx_kwargs = {}
+=======
+            extra_key, extra_kwargs = self._get_extra_config_key_and_kwargs(conf)
+            key += extra_key
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
             if key not in used and (
                 max_mm_configs is None or len(used) < max_mm_configs
@@ -844,8 +858,12 @@ class BaseConfigHeuristic(metaclass=BaseHeuristicSingleton):
                     kwargs["WARP_SPECIALIZE"] = conf.warp_specialize
                     kwargs["FLATTEN"] = conf.flatten
 
+<<<<<<< HEAD
                 # Add TlxGemmConfig specific fields if present
                 kwargs.update(tlx_kwargs)
+=======
+                kwargs.update(extra_kwargs)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
                 yield self.triton_config(conf.num_stages, num_warps, **kwargs)
 

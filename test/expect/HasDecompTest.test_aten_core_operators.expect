@@ -351,6 +351,11 @@ aten::lt.Tensor
 aten::lt.Tensor_out
 aten::lt_.Scalar
 aten::lt_.Tensor
+<<<<<<< HEAD
+=======
+aten::max_pool2d_with_indices_backward
+aten::max_pool2d_with_indices_backward.grad_input
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 aten::maximum
 aten::maximum.out
 aten::mean

@@ -486,7 +486,14 @@ convertIValue(
         itemsize,
         device_str);
     return std::make_tuple(
+<<<<<<< HEAD
         tensor_shape, tensor_stride, tensor_type, tensor_value);
+=======
+        std::move(tensor_shape),
+        std::move(tensor_stride),
+        std::move(tensor_type),
+        std::move(tensor_value));
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
   } else if (val.isTuple()) {
     const auto& val_tuple = val.toTupleRef().elements();
     size_t tuple_size = val_tuple.size();
@@ -494,6 +501,13 @@ convertIValue(
     std::vector<std::string> stride_array;
     std::vector<std::string> type_array;
     std::vector<std::string> value_array;
+<<<<<<< HEAD
+=======
+    shape_array.reserve(tuple_size);
+    stride_array.reserve(tuple_size);
+    type_array.reserve(tuple_size);
+    value_array.reserve(tuple_size);
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     for (const auto j : c10::irange(tuple_size)) {
       auto tuple = convertIValue(
           ob,
@@ -505,17 +519,28 @@ convertIValue(
           val_tuple[j],
           false,
           maxArrayLen);
+<<<<<<< HEAD
       shape_array.push_back(std::get<0>(tuple));
       stride_array.push_back(std::get<1>(tuple));
       type_array.push_back(std::get<2>(tuple));
       value_array.push_back(std::get<3>(tuple));
+=======
+      shape_array.push_back(std::move(std::get<0>(tuple)));
+      stride_array.push_back(std::move(std::get<1>(tuple)));
+      type_array.push_back(std::move(std::get<2>(tuple)));
+      value_array.push_back(std::move(std::get<3>(tuple)));
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     }
     type = type + vectorToString(type_array);
     std::string tensor_type = baseType ? fmt::format("\"{}\"", type) : type;
     return std::make_tuple(
         vectorToString(shape_array),
         vectorToString(stride_array),
+<<<<<<< HEAD
         tensor_type,
+=======
+        std::move(tensor_type),
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         vectorToString(value_array));
   } else if (val.isList()) {
     const auto& val_list = val.toList();
@@ -524,6 +549,14 @@ convertIValue(
     std::vector<std::string> stride_array;
     std::vector<std::string> type_array;
     std::vector<std::string> value_array;
+<<<<<<< HEAD
+=======
+    const size_t effective_list_size = std::min(list_size, maxArrayLen + 1);
+    shape_array.reserve(effective_list_size);
+    stride_array.reserve(effective_list_size);
+    type_array.reserve(effective_list_size);
+    value_array.reserve(effective_list_size);
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     for (const auto j : c10::irange(list_size)) {
       auto tuple = convertIValue(
           ob,
@@ -535,10 +568,17 @@ convertIValue(
           val_list.get(j),
           false,
           maxArrayLen);
+<<<<<<< HEAD
       shape_array.push_back(std::get<0>(tuple));
       stride_array.push_back(std::get<1>(tuple));
       type_array.push_back(std::get<2>(tuple));
       value_array.push_back(std::get<3>(tuple));
+=======
+      shape_array.push_back(std::move(std::get<0>(tuple)));
+      stride_array.push_back(std::move(std::get<1>(tuple)));
+      type_array.push_back(std::move(std::get<2>(tuple)));
+      value_array.push_back(std::move(std::get<3>(tuple)));
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
       if (j >= maxArrayLen) {
         LOG(WARNING) << "list size=" << val_list.size()
                      << " exceeded maxArrayLen=" << maxArrayLen;
@@ -550,7 +590,11 @@ convertIValue(
     return std::make_tuple(
         vectorToString(shape_array),
         vectorToString(stride_array),
+<<<<<<< HEAD
         tensor_type,
+=======
+        std::move(tensor_type),
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         vectorToString(value_array));
   } else {
     std::string tensor_shape = "[]";
@@ -559,7 +603,14 @@ convertIValue(
     std::string tensor_value = getScalarValue(val);
 
     return std::make_tuple(
+<<<<<<< HEAD
         tensor_shape, tensor_stride, tensor_type, tensor_value);
+=======
+        std::move(tensor_shape),
+        std::move(tensor_stride),
+        std::move(tensor_type),
+        std::move(tensor_value));
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
   }
 }
 

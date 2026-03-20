@@ -1501,10 +1501,13 @@ class GraphModule(torch.nn.Module):
             torch.ops.streams.record_event.default,
             torch.fx.node._side_effectful_functions,
         )
+<<<<<<< HEAD
         self.assertIn(
             torch.ops.streams.synchronize_event.default,
             torch.fx.node._side_effectful_functions,
         )
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
     @requires_cuda
     def test_backward_sync_control_deps_e2e(self) -> None:
@@ -1706,6 +1709,7 @@ class GraphModule(torch.nn.Module):
                 torch.ones(2, 2, device="cuda")
             )
 
+<<<<<<< HEAD
     @requires_cuda
     def test_cuda_event_record_on_stream(self):
         """torch.cuda.Event should be accepted by torch.Stream.record_event (C++ type check)."""
@@ -1996,6 +2000,8 @@ class <lambda>(torch.nn.Module):
         compiled_result = f_compiled(inputs)
         self.assertEqual(eager_result, compiled_result)
 
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 if __name__ == "__main__":
     from torch._dynamo.test_case import run_tests

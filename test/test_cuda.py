@@ -1704,6 +1704,16 @@ if __name__ == '__main__':
         a = torch.ones(65536).cuda().half()
         self.assertEqual(a.norm(p=0, dtype=torch.float32), 65536)
 
+<<<<<<< HEAD
+=======
+    @unittest.skipIf(not TEST_MEDIUM_TENSOR, "not enough memory")
+    @serialTest()
+    def test_cuda_opaque_type(self):
+        x = torch.ones(600_000_000, dtype=torch.int32, device="cuda")
+        y = torch.where(x > 0, x, x)
+        self.assertEqual(y, x)
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def test_cuda_memory_leak_detection_propagates_errors(self):
         with self.assertRaisesRegex(
             RuntimeError, r"The size of tensor a \(3\) must match"

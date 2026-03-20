@@ -55,6 +55,12 @@ class ItertoolsVariable(VariableTracker):
     def as_python_constant(self) -> Any:
         return self.value
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> Any:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def call_function(
         self,
         tx: "InstructionTranslator",

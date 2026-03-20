@@ -8,7 +8,19 @@ __all__ = ["CheckpointException"]
 
 
 def _wrap_exception(exc: BaseException) -> WRAPPED_EXCEPTION:
+<<<<<<< HEAD
     return (exc, tb.extract_tb(exc.__traceback__))
+=======
+    summary = tb.extract_tb(exc.__traceback__)
+    # Python 3.13+ stores bytecode objects in FrameSummary._code,
+    # which cannot be pickled. Clear them so gather_object succeeds
+    # and the real exception is reported instead of a misleading
+    # "cannot pickle code objects" TypeError.
+    for frame in summary:
+        if hasattr(frame, "_code"):
+            object.__setattr__(frame, "_code", None)
+    return (exc, summary)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 
 def _is_wrapped_exception(obj: Any) -> bool:

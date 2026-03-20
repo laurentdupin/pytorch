@@ -3,6 +3,10 @@
 # flake8: noqa: F821
 from collections.abc import Callable, Collection, Mapping, MutableMapping
 from typing import cast, TypeVar
+<<<<<<< HEAD
+=======
+from typing_extensions import TypeIs
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 import torch
 from torch.distributed._shard.sharded_tensor.api import ShardedTensor
@@ -20,7 +24,11 @@ CONTAINER_TYPE = MutableMapping[PATH_ITEM, STATE_DICT_ITEM]
 __all__ = ["traverse_state_dict", "set_element", "get_element", "print_tensor"]
 
 
+<<<<<<< HEAD
 def _keep_visiting_tensors(value: STATE_DICT_ITEM) -> bool:
+=======
+def _keep_visiting_tensors(value: STATE_DICT_ITEM) -> TypeIs[torch.Tensor]:
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     return isinstance(value, torch.Tensor)
 
 

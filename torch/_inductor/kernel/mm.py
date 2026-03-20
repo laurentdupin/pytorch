@@ -424,6 +424,7 @@ def tuned_mm(mat1, mat2, out_dtype=None, *, layout=None):
             elif use_triton_tma_template(mat1, mat2, output_layout=layout):
                 templates_to_use.append(persistent_tma_mm_template)
 
+<<<<<<< HEAD
             if (
                 inductor_config.is_fbcode()
                 and inductor_config.triton.enable_tlx_templates
@@ -432,6 +433,8 @@ def tuned_mm(mat1, mat2, out_dtype=None, *, layout=None):
 
                 templates_to_use = append_tlx(templates_to_use)
 
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         templates_to_use.append(mm_contiguous_subgraph_template)
 
     choices.extend(

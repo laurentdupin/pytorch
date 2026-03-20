@@ -215,6 +215,12 @@ class NNModuleVariable(VariableTracker):
     def python_type(self) -> type:
         return self.module_type
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> object:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def _wrap_submodule(
         self,
         tx: "InstructionTranslator",

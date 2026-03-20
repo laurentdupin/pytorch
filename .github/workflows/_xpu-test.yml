@@ -91,9 +91,12 @@ jobs:
       - name: Setup XPU
         uses: ./.github/actions/setup-xpu
 
+<<<<<<< HEAD
       - name: Login to ECR
         uses: ./.github/actions/ecr-login
 
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
       - name: Calculate docker image
         id: calculate-docker-image
         uses: pytorch/test-infra/.github/actions/calculate-docker-image@main

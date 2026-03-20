@@ -171,6 +171,10 @@ constant_fold_functions_need_guards = [
     torch.cuda.is_initialized,
     torch.xpu.current_device,
     torch.xpu.is_initialized,
+<<<<<<< HEAD
+=======
+    torch.__future__.get_overwrite_module_params_on_conversion,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 ]
 
 constant_fold_functions = [
@@ -429,6 +433,12 @@ class BaseTorchVariable(VariableTracker):
     def as_python_constant(self) -> Any:
         return self.value
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> Any:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def call_obj_hasattr(
         self, tx: "InstructionTranslator", name: str
     ) -> ConstantVariable:

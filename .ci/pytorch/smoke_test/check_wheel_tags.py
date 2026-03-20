@@ -203,9 +203,10 @@ def check_mac_wheel_minos() -> None:
             print(f"No .whl files in {wheel_dir}, skipping wheel minos check")
             return
 
+        macos_whl_re = re.compile(r"macosx_(\d+)_(\d+)_(\w+)\.whl$")
         for whl in whls:
             print(f"Checking wheel tag minos for: {whl.name}")
-            m = re.search(r"macosx_(\d+)_(\d+)_(\w+)\.whl$", whl.name)
+            m = macos_whl_re.search(whl.name)
             if not m:
                 print(f"No macOS platform tag in {whl.name}, skipping")
                 continue
@@ -248,8 +249,7 @@ def check_mac_wheel_minos() -> None:
         torch_dir = Path(torch.__file__).parent
         dylibs = list(torch_dir.rglob("*.dylib"))
         if not dylibs:
-            print("No .dylib files found in installed torch, skipping")
-            return
+            raise RuntimeError("No .dylib files found in installed torch")
         _check_dylibs_minos(dylibs, expected_minos, "installed torch")
 
 

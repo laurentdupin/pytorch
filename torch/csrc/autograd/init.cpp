@@ -293,6 +293,12 @@ PyObject* THPAutograd_initExtension(PyObject* _unused, PyObject* unused) {
       .def(
           "linked_correlation_id",
           [](const KinetoEvent& e) { return e.linkedCorrelationId(); })
+<<<<<<< HEAD
+=======
+      .def("flow_id", [](const KinetoEvent& e) { return e.flowId(); })
+      .def("flow_type", [](const KinetoEvent& e) { return e.flowType(); })
+      .def("flow_start", [](const KinetoEvent& e) { return e.flowStart(); })
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
       .def("external_id", [](const KinetoEvent& e) { return e.externalId(); })
       // compute flops
       .def("flops", [](const KinetoEvent& e) { return e.flops(); })

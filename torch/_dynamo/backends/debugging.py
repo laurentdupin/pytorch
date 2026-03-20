@@ -166,6 +166,10 @@ def invoke_subgraph_inner_compiler(
     from torch._higher_order_ops.invoke_subgraph import invoke_subgraph_infer
 
     @disable
+<<<<<<< HEAD
+=======
+    # pyrefly: ignore [deprecated]
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     @torch._dynamo.allow_in_graph
     def invoke_subgraph_wrapper_unboxed(*operands: Any) -> Any:
         return invoke_subgraph_infer(subgraph, *operands)

@@ -638,6 +638,12 @@ class FunctionEvent(FormattedTimesMixin):
         kwinputs=None,
         is_user_annotation=False,
         metadata_json=None,
+<<<<<<< HEAD
+=======
+        flow_id=None,
+        flow_type=None,
+        flow_start=None,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         external_id=0,
         linked_correlation_id=0,
     ):
@@ -682,6 +688,12 @@ class FunctionEvent(FormattedTimesMixin):
         self.total_cpu_percent = -1
         self.total_device_percent = -1
         self.metadata_json = metadata_json
+<<<<<<< HEAD
+=======
+        self.flow_id: int | None = flow_id
+        self.flow_type: int | None = flow_type
+        self.flow_start: bool | None = flow_start
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         self.external_id: int = external_id
         self.linked_correlation_id: int = linked_correlation_id
 

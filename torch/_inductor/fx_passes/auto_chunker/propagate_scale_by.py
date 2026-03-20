@@ -136,6 +136,7 @@ def propagate_where(where_node: Node) -> bool:
         aten.exp.default,
         aten.log.default,
         aten.tanh.default,
+<<<<<<< HEAD
     ]
 )
 def propagate_nonlinear_requires_no_scaling(out_node: Node) -> bool:
@@ -144,6 +145,17 @@ def propagate_nonlinear_requires_no_scaling(out_node: Node) -> bool:
     through since f(S*x) != S*f(x). These ops typically appear in the chunking
     subgraph when the final gradient is 1 (i.e. scale_by is None),
     making scaling a no-op.
+=======
+        aten.eq.Tensor,
+    ]
+)
+def propagate_requires_no_scaling(out_node: Node) -> bool:
+    """
+    For nonlinear ops (exp, log, tanh) scale_by cannot be propagated
+    through since f(S*x) != S*f(x). For boolean-output ops (eq) scale_by
+    is meaningless. These ops only appear in the chunking subgraph when
+    scale_by is None (e.g. the final gradient is 1).
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     """
     args_node = get_args_of_node_type(out_node)
     args_meta = get_chunking_metas(args_node)
@@ -165,9 +177,19 @@ def propagate_nonlinear_requires_no_scaling(out_node: Node) -> bool:
         aten.neg.default,
         aten.sum.dim_IntList,
         aten.sum.default,  # sum to scalar
+<<<<<<< HEAD
         aten.mm.default,
         aten.permute.default,
         aten.expand.default,
+=======
+        aten.amax.default,
+        aten.mm.default,
+        aten.permute.default,
+        aten.expand.default,
+        aten.squeeze.dim,
+        aten.unsqueeze.default,
+        aten.view.default,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     ]
 )
 def propagate_general_copy(out_node: Node) -> bool:

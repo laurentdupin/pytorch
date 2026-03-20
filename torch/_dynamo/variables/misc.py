@@ -71,6 +71,10 @@ from ..utils import (
 )
 from .base import (
     AsPythonConstantNotImplementedError,
+<<<<<<< HEAD
+=======
+    NO_SUCH_SUBOBJ,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     raise_type_error_exc,
     VariableTracker,
 )
@@ -84,10 +88,13 @@ if TYPE_CHECKING:
     from torch._dynamo.symbolic_convert import InstructionTranslator
 
 
+<<<<<<< HEAD
 class NO_SUCH_SUBOBJ:
     pass
 
 
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 class SuperVariable(VariableTracker):
     _nonvar_fields = {
         *VariableTracker._nonvar_fields,
@@ -1430,6 +1437,12 @@ class MethodWrapperVariable(VariableTracker):
         super().__init__(**kwargs)
         self.method_wrapper = method_wrapper
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> types.MethodWrapperType:
+        return self.method_wrapper
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def call_function(
         self,
         tx: "InstructionTranslator",
@@ -1567,6 +1580,12 @@ class GetSetDescriptorVariable(VariableTracker):
         super().__init__(**kwargs)
         self.desc = desc
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> types.GetSetDescriptorType:
+        return self.desc
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
         if name == "__get__" and self.source:
             source = AttrSource(self.source, "__get__")
@@ -1602,6 +1621,12 @@ class PythonModuleVariable(VariableTracker):
     def as_python_constant(self) -> types.ModuleType:
         return self.value
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> types.ModuleType:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def __repr__(self) -> str:
         return f"PythonModuleVariable({self.value})"
 
@@ -1677,6 +1702,12 @@ class TypingVariable(VariableTracker):
     def as_python_constant(self) -> Any:
         return self.value
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> Any:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def reconstruct(self, codegen: "PyCodegen") -> None:
         if not isinstance(self.value, types.GenericAlias):
             return super().reconstruct(codegen)
@@ -1760,6 +1791,12 @@ class NumpyVariable(VariableTracker):
         super().__init__(**kwargs)
         self.value = value
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> Any:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     @classmethod
     def can_constant_fold_through(cls, fn: types.FunctionType) -> bool:
         mod = fn.__module__.split(".")
@@ -2002,6 +2039,12 @@ class ObjectVariable(VariableTracker):
         super().__init__(**kwargs)
         self.value = value
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> object:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def python_type(self) -> type[object]:
         return object
 
@@ -2084,6 +2127,12 @@ class IgnoredFunctionVariable(VariableTracker):
         super().__init__(**kwargs)
         self.value = value
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> Any:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def call_function(
         self,
         tx: "InstructionTranslator",
@@ -2102,6 +2151,12 @@ class LoggingLoggerVariable(VariableTracker):
         super().__init__(**kwargs)
         self.value = value
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> logging.Logger:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def call_method(
         self,
         tx: "InstructionTranslator",

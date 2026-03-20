@@ -225,6 +225,10 @@ load("@rules_python//python:repositories.bzl", "python_register_toolchains")
 
 python_register_toolchains(
     name = "python3_10",
+<<<<<<< HEAD
+=======
+    ignore_root_user_error = True,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     python_version = "3.10",
 )
 

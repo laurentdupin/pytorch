@@ -1,7 +1,11 @@
 # Owner(s): ["module: sdpa"]
 import unittest
 from collections import namedtuple
+<<<<<<< HEAD
 from contextlib import contextmanager
+=======
+from contextlib import contextmanager, nullcontext
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 import torch
 import torch.nn as nn
@@ -11,10 +15,26 @@ from torch.nn.attention import (
     restore_flash_attention_impl,
 )
 from torch.nn.attention.varlen import varlen_attn, varlen_attn_out
+<<<<<<< HEAD
 from torch.testing._internal.common_cuda import PLATFORM_SUPPORTS_FLASH_ATTENTION
 from torch.testing._internal.common_device_type import instantiate_device_type_tests
 from torch.testing._internal.common_nn import NNTestCase
 from torch.testing._internal.common_utils import parametrize, run_tests, TEST_WITH_ROCM
+=======
+from torch.testing._internal.common_cuda import (
+    IS_SM90,
+    PLATFORM_SUPPORTS_FLASH_ATTENTION,
+    SM100OrLater,
+)
+from torch.testing._internal.common_device_type import instantiate_device_type_tests
+from torch.testing._internal.common_nn import NNTestCase
+from torch.testing._internal.common_utils import (
+    decorateIf,
+    parametrize,
+    run_tests,
+    TEST_WITH_ROCM,
+)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 from torch.utils._python_dispatch import TorchDispatchMode
 
 
@@ -32,6 +52,25 @@ def use_fa3():
         restore_flash_attention_impl()
 
 
+<<<<<<< HEAD
+=======
+@contextmanager
+def use_fa4():
+    try:
+        activate_flash_attention_impl("FA4")
+    except (ModuleNotFoundError, RuntimeError) as err:
+        raise unittest.SkipTest("FA4 backend not available") from err
+    try:
+        yield
+    finally:
+        restore_flash_attention_impl()
+
+
+def _use_backend(backend):
+    return {"fa2": nullcontext, "fa3": use_fa3, "fa4": use_fa4}[backend]()
+
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 VarlenShape = namedtuple(
     "VarlenShape", ["batch_size", "max_seq_len", "embed_dim", "num_heads"]
 )
@@ -215,7 +254,15 @@ class TestVarlenAttention(NNTestCase):
         not PLATFORM_SUPPORTS_FLASH_ATTENTION, "Flash Attention not supported"
     )
     @parametrize("dtype", [torch.bfloat16, torch.float16])
+<<<<<<< HEAD
     def test_basic_functionality(self, device, dtype):
+=======
+    @parametrize(
+        "backend",
+        ["fa2"] + (["fa3"] if IS_SM90 else []) + (["fa4"] if SM100OrLater else []),
+    )
+    def test_basic_functionality(self, device, dtype, backend):
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         torch.manual_seed(42)
 
         shape = VarlenShape(batch_size=2, max_seq_len=512, embed_dim=1024, num_heads=16)
@@ -236,6 +283,7 @@ class TestVarlenAttention(NNTestCase):
             [0, shape.max_seq_len, total_tokens], device=device, dtype=torch.int32
         )
 
+<<<<<<< HEAD
         output = attention_block.forward_varlen(x_packed, cu_seq, shape.max_seq_len)
 
         self.assertEqual(output.shape, (total_tokens, shape.embed_dim))
@@ -269,6 +317,49 @@ class TestVarlenAttention(NNTestCase):
         self.assertIsNotNone(varlen_grad)
         self.assertEqual(varlen_grad.shape, x_packed.shape)
         self.assertEqual(varlen_grad.dtype, x_packed.dtype)
+=======
+        with _use_backend(backend):
+            output = attention_block.forward_varlen(x_packed, cu_seq, shape.max_seq_len)
+
+            self.assertEqual(output.shape, (total_tokens, shape.embed_dim))
+            self.assertEqual(output.device, torch.device(device))
+            self.assertEqual(output.dtype, dtype)
+
+            # varlen_attn_out should produce the same result and write into the buffer
+            with torch.no_grad():
+                q, k, v = attention_block.get_varlen_qkv(x_packed)
+                expected = varlen_attn(
+                    q, k, v, cu_seq, cu_seq, shape.max_seq_len, shape.max_seq_len
+                )
+                out_buf = torch.empty_like(expected)
+                actual = varlen_attn_out(
+                    out_buf,
+                    q,
+                    k,
+                    v,
+                    cu_seq,
+                    cu_seq,
+                    shape.max_seq_len,
+                    shape.max_seq_len,
+                )
+                self.assertEqual(actual.data_ptr(), out_buf.data_ptr())
+                self.assertEqual(out_buf, expected)
+
+            varlen_grad_out = torch.ones_like(output)
+
+            varlen_grad = torch.autograd.grad(
+                outputs=output,
+                inputs=x_packed,
+                grad_outputs=varlen_grad_out,
+                retain_graph=True,
+                create_graph=False,
+                allow_unused=False,
+            )[0]
+
+            self.assertIsNotNone(varlen_grad)
+            self.assertEqual(varlen_grad.shape, x_packed.shape)
+            self.assertEqual(varlen_grad.dtype, x_packed.dtype)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
     @unittest.skipIf(
         not PLATFORM_SUPPORTS_FLASH_ATTENTION, "Flash Attention not supported"
@@ -430,7 +521,15 @@ class TestVarlenAttention(NNTestCase):
             (1025, 1025),
         ],
     )
+<<<<<<< HEAD
     def test_varlen_vs_sdpa(self, device, dtype, scale, window_size):
+=======
+    @parametrize(
+        "backend",
+        ["fa2"] + (["fa3"] if IS_SM90 else []) + (["fa4"] if SM100OrLater else []),
+    )
+    def test_varlen_vs_sdpa(self, device, dtype, scale, window_size, backend):
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         torch.manual_seed(42)
 
         shape = VarlenShape(
@@ -459,6 +558,7 @@ class TestVarlenAttention(NNTestCase):
                 golden_attention_block.out_proj.weight.to(dtype)
             )
 
+<<<<<<< HEAD
         varlen_output = attention_block.forward_varlen(
             x_packed,
             cu_seq,
@@ -466,6 +566,16 @@ class TestVarlenAttention(NNTestCase):
             scale=scale,
             window_size=window_size,
         )
+=======
+        with _use_backend(backend):
+            varlen_output = attention_block.forward_varlen(
+                x_packed,
+                cu_seq,
+                max_len,
+                scale=scale,
+                window_size=window_size,
+            )
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         sdpa_output = attention_block.forward_sdpa(
             x_padded,
             seq_lengths,
@@ -499,6 +609,7 @@ class TestVarlenAttention(NNTestCase):
 
             start_idx = end_idx
 
+<<<<<<< HEAD
         grad_out = torch.randn_like(varlen_output)
         sdpa_grad_out = torch.zeros_like(sdpa_output)
         golden_sdpa_grad_out = torch.zeros(
@@ -522,6 +633,32 @@ class TestVarlenAttention(NNTestCase):
             inputs=x_packed,
             grad_outputs=grad_out,
         )[0]
+=======
+        with _use_backend(backend):
+            grad_out = torch.randn_like(varlen_output)
+            sdpa_grad_out = torch.zeros_like(sdpa_output)
+            golden_sdpa_grad_out = torch.zeros(
+                shape.batch_size,
+                max_len,
+                shape.embed_dim,
+                device=device,
+                dtype=torch.float32,
+            )
+            start_idx = 0
+            for i, seq_len in enumerate(seq_lengths):
+                end_idx = start_idx + seq_len
+                sdpa_grad_out[i, :seq_len] = grad_out[start_idx:end_idx]
+                golden_sdpa_grad_out[i, :seq_len] = grad_out[start_idx:end_idx].to(
+                    torch.float32
+                )
+                start_idx = end_idx
+
+            varlen_grad = torch.autograd.grad(
+                outputs=varlen_output,
+                inputs=x_packed,
+                grad_outputs=grad_out,
+            )[0]
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
         sdpa_grad = torch.autograd.grad(
             outputs=sdpa_output,
@@ -562,6 +699,10 @@ class TestVarlenAttention(NNTestCase):
     @unittest.skipIf(
         not PLATFORM_SUPPORTS_FLASH_ATTENTION, "Flash Attention not supported"
     )
+<<<<<<< HEAD
+=======
+    @unittest.skipIf(not IS_SM90, "FA3 requires compute capability 9.0")
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     @parametrize("dtype", [torch.bfloat16, torch.float16])
     @parametrize("num_splits", [1, None])
     @parametrize(
@@ -618,6 +759,10 @@ class TestVarlenAttention(NNTestCase):
         all_k = torch.cat([target_k, extra_k], dim=0)
         all_v = torch.cat([target_v, extra_v], dim=0)
 
+<<<<<<< HEAD
+=======
+        # fa4 is batch invariant (num_splits=1) by default
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         with use_fa3(), torch.no_grad():
             solo_output = varlen_attn(
                 target_q,
@@ -683,6 +828,14 @@ class TestVarlenAttention(NNTestCase):
         not PLATFORM_SUPPORTS_FLASH_ATTENTION, "Flash Attention not supported"
     )
     @unittest.skipIf(TEST_WITH_ROCM, "ROCm does not support seqused_k")
+<<<<<<< HEAD
+=======
+    @decorateIf(
+        unittest.expectedFailure,
+        lambda params: params["backend"] != "fa2"
+        and any(kv_len < 128 for kv_len in params["actual_kv_lens"]),
+    )
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     @parametrize("dtype", [torch.bfloat16, torch.float16])
     @parametrize(
         "actual_kv_lens",
@@ -694,7 +847,15 @@ class TestVarlenAttention(NNTestCase):
             [127, 63, 33, 17],
         ],
     )
+<<<<<<< HEAD
     def test_seqused_k_kv_cache(self, device, dtype, actual_kv_lens):
+=======
+    @parametrize(
+        "backend",
+        ["fa2"] + (["fa3"] if IS_SM90 else []) + (["fa4"] if SM100OrLater else []),
+    )
+    def test_seqused_k_kv_cache(self, device, dtype, actual_kv_lens, backend):
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         torch.manual_seed(42)
 
         batch_size = 4
@@ -748,7 +909,11 @@ class TestVarlenAttention(NNTestCase):
         )
         seqused_k = torch.tensor(actual_kv_lens, device=device, dtype=torch.int32)
 
+<<<<<<< HEAD
         with torch.no_grad():
+=======
+        with _use_backend(backend), torch.no_grad():
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
             output_cached = varlen_attn(
                 q_packed,
                 k_cache_packed,
@@ -763,7 +928,11 @@ class TestVarlenAttention(NNTestCase):
         k_real_packed, cu_seq_k_real, max_k_real = pack_sequences(k_seqs, device)
         v_real_packed = torch.cat(v_seqs, dim=0)
 
+<<<<<<< HEAD
         with torch.no_grad():
+=======
+        with _use_backend(backend), torch.no_grad():
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
             output_reference = varlen_attn(
                 q_packed,
                 k_real_packed,
@@ -778,7 +947,11 @@ class TestVarlenAttention(NNTestCase):
         self.assertEqual(output_cached, output_reference)
 
         # varlen_attn_out with seqused_k should match
+<<<<<<< HEAD
         with torch.no_grad():
+=======
+        with _use_backend(backend), torch.no_grad():
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
             out_buf = torch.empty_like(q_packed)
             output_out = varlen_attn_out(
                 out_buf,
@@ -811,9 +984,22 @@ class TestVarlenAttention(NNTestCase):
             [127, 63, 33, 17],
         ],
     )
+<<<<<<< HEAD
     def test_block_table_kv_cache(
         self, device, dtype, page_size, compile, actual_kv_lens
     ):
+=======
+    @parametrize(
+        "backend",
+        ["fa2"] + (["fa3"] if IS_SM90 else []) + (["fa4"] if SM100OrLater else []),
+    )
+    def test_block_table_kv_cache(
+        self, device, dtype, page_size, compile, actual_kv_lens, backend
+    ):
+        if backend == "fa2" and page_size % 256 != 0:
+            self.skipTest("FA2 paged KV requires page_size divisible by 256")
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         torch.manual_seed(42)
 
         batch_size = 4
@@ -860,7 +1046,12 @@ class TestVarlenAttention(NNTestCase):
 
         attn_fn = torch.compile(varlen_attn, fullgraph=True) if compile else varlen_attn
 
+<<<<<<< HEAD
         with torch.no_grad():
+=======
+        # Reference: no block_table
+        with _use_backend(backend), torch.no_grad():
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
             output_reference = varlen_attn(
                 q_packed,
                 k_real_packed,
@@ -879,6 +1070,7 @@ class TestVarlenAttention(NNTestCase):
             dtype=torch.int32,
         )
 
+<<<<<<< HEAD
         # FA2 path: paged KV with block_table (page_size % 256 == 0)
         if page_size % 256 == 0:
             with torch.no_grad():
@@ -899,21 +1091,39 @@ class TestVarlenAttention(NNTestCase):
         # FA3 path: paged KV with block_table
         with use_fa3(), torch.no_grad():
             output_fa3 = attn_fn(
+=======
+        # FA2 requires cu_seq_k for paged KV; FA3/FA4 pass None
+        cu_seq_k_paged = cu_seq_k if backend == "fa2" else None
+
+        with _use_backend(backend), torch.no_grad():
+            output_paged = attn_fn(
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
                 q_packed,
                 k_pages,
                 v_pages,
                 cu_seq_q,
+<<<<<<< HEAD
                 None,
+=======
+                cu_seq_k_paged,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
                 max_q,
                 cache_size,
                 seqused_k=seqused_k,
                 block_table=block_table,
             )
 
+<<<<<<< HEAD
         self.assertEqual(output_fa3, output_reference)
 
         # varlen_attn_out with paged KV cache should match
         with use_fa3(), torch.no_grad():
+=======
+        self.assertEqual(output_paged, output_reference)
+
+        # varlen_attn_out with paged KV cache should match
+        with _use_backend(backend), torch.no_grad():
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
             out_buf = torch.empty_like(q_packed)
             output_out = varlen_attn_out(
                 out_buf,
@@ -921,13 +1131,18 @@ class TestVarlenAttention(NNTestCase):
                 k_pages,
                 v_pages,
                 cu_seq_q,
+<<<<<<< HEAD
                 None,
+=======
+                cu_seq_k_paged,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
                 max_q,
                 cache_size,
                 seqused_k=seqused_k,
                 block_table=block_table,
             )
             self.assertEqual(output_out.data_ptr(), out_buf.data_ptr())
+<<<<<<< HEAD
             self.assertEqual(out_buf, output_fa3)
 
         # compile the lower level aten op, will cause graph break
@@ -936,6 +1151,16 @@ class TestVarlenAttention(NNTestCase):
                 torch.ops.aten._flash_attention_forward_no_dropout_inplace
             )
             with use_fa3(), torch.no_grad():
+=======
+            self.assertEqual(out_buf, output_paged)
+
+        # compile the lower level aten op (FA3 only, will cause graph break)
+        if compile and backend != "fa2":
+            compiled_aten_op = torch.compile(
+                torch.ops.aten._flash_attention_forward_no_dropout_inplace
+            )
+            with _use_backend(backend), torch.no_grad():
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
                 out_buf = torch.empty_like(q_packed)
                 compiled_aten_op(
                     out_buf,

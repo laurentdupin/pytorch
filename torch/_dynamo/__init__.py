@@ -24,7 +24,11 @@ from .callback import callback_handler, on_compile_end, on_compile_start
 from .code_context import code_context
 from .convert_frame import replay
 from .decorators import (
+<<<<<<< HEAD
     allow_in_graph,
+=======
+    allow_in_graph,  # pyrefly: ignore [deprecated]
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     assume_constant_result,
     disable,
     disable_nested_graph_breaks,

@@ -2894,6 +2894,7 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
         self.assertEqual(g1, g2, atol=1e-4, rtol=0)
         self.assertTrue((g1 == g1).all().item())  # check that we don't have NaN
 
+<<<<<<< HEAD
     @skipIfRocm
     @unittest.skipIf(not TEST_CUDNN, 'CUDNN not available')
     def test_CTCLoss_zero_infinity_cudnn(self):
@@ -2949,6 +2950,8 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
         grad_true, = torch.autograd.grad(loss_true, log_probs)
         self.assertTrue(torch.isfinite(grad_true).all())
 
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def test_RNN_cell_no_broadcasting(self):
         def test(cell_module, input, hx, input_size, hidden_size):
             cell = cell_module(input_size, hidden_size)

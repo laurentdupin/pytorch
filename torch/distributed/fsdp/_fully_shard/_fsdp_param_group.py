@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import contextlib
 import logging
+<<<<<<< HEAD
 from typing import Any, cast, NamedTuple, TYPE_CHECKING
+=======
+from typing import Any, cast, Literal, NamedTuple, TYPE_CHECKING
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 import torch
 import torch.distributed as dist
@@ -29,6 +33,11 @@ from ._fsdp_collectives import (
     ProcessGroupAllocAllGather,
     ProcessGroupAllocReduceScatter,
     ReduceScatter,
+<<<<<<< HEAD
+=======
+    SymmMemAllGather,
+    SymmMemReduceScatter,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 )
 from ._fsdp_common import (
     _dynamo_disable,
@@ -275,6 +284,31 @@ class FSDPParamGroup:
         self._init_mp_dtypes()
         self._register_state_dict_hooks()
 
+<<<<<<< HEAD
+=======
+    def set_symm_mem(self, backend: Literal["NCCL"] = "NCCL") -> None:
+        if not isinstance(self._all_gather_comm, (DefaultAllGather | SymmMemAllGather)):
+            raise AssertionError(
+                "cannot call set_symm_mem() "
+                f"when all gather comm is custom: {self._all_gather_comm.__class__.__name__}"
+            )
+        self._all_gather_comm = SymmMemAllGather(
+            self._all_gather_process_group, backend
+        )
+        if not isinstance(
+            self._reduce_scatter_comm, (DefaultReduceScatter | SymmMemReduceScatter)
+        ):
+            raise AssertionError(
+                "cannot call set_symm_mem() "
+                f"when reduce scatter comm is custom: {self._reduce_scatter_comm.__class__.__name__}"
+            )
+        if self.force_sum_reduction_for_comms:
+            # As of NCCL 2.29.3, NCCL symmetric reduce-scatter only supports SUM reduction
+            self._reduce_scatter_comm = SymmMemReduceScatter(
+                self._reduce_scatter_process_group, backend
+            )
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def set_allocate_memory_from_process_group(self, enable: bool) -> None:
         """
         Whether to (try to) use the ProcessGroup's allocate_tensor method for

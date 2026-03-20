@@ -384,12 +384,71 @@ its type to `common_constant_types`.
             and self.as_python_constant() == other.as_python_constant()
         )
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> object:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 CONSTANT_VARIABLE_NONE = ConstantVariable(None)
 CONSTANT_VARIABLE_TRUE = ConstantVariable(True)
 CONSTANT_VARIABLE_FALSE = ConstantVariable(False)
 
 
+<<<<<<< HEAD
+=======
+class FakeIdVariable(VariableTracker):
+    """A compile-time-only id value that can be used as a dict key but cannot
+    be reconstructed across graph breaks.
+
+    When dynamo evaluates ``id(x)`` on a variable tracker that has no
+    corresponding runtime object (e.g. a ``ConstDictVariable`` created during
+    tracing), we mint a fake integer id.  This variable holds that id and
+    supports the minimal interface needed to participate as a dict key
+    (hashing and equality).  It intentionally blocks reconstruction so that a
+    graph break does not silently bake a stale id into the resumed bytecode.
+    """
+
+    def __init__(self, value: int, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.value = value
+
+    def as_python_constant(self) -> int:
+        return self.value
+
+    def is_python_constant(self) -> bool:
+        return False
+
+    def python_type(self) -> type:
+        return int
+
+    def is_python_hashable(self) -> bool:
+        return True
+
+    def get_python_hash(self) -> int:
+        return hash(self.value)
+
+    def is_python_equal(self, other: object) -> bool:
+        if isinstance(other, (FakeIdVariable, ConstantVariable)):
+            return self.value == other.as_python_constant()
+        return False
+
+    def reconstruct(self, codegen: Any) -> None:
+        unimplemented(
+            gb_type="Reconstruction of FakeIdVariable",
+            context=str(self.value),
+            explanation=(
+                "A fake id produced by id() on a compile-time container "
+                "cannot be reconstructed across a graph break."
+            ),
+            hints=[
+                "Avoid using id() on containers in code that may graph-break.",
+            ],
+        )
+
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 class EnumVariable(VariableTracker):
     """VariableTracker for enum.Enum and enum.IntEnum instances
 
@@ -429,6 +488,12 @@ class EnumVariable(VariableTracker):
     def as_python_constant(self) -> enum.Enum | enum.IntEnum:
         return self.value
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> enum.Enum | enum.IntEnum:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
         if not hasattr(self.value, name):
             raise NotImplementedError

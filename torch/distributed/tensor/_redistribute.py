@@ -31,6 +31,10 @@ from torch.distributed.tensor.placement_types import (
     Replicate,
     Shard,
 )
+<<<<<<< HEAD
+=======
+from torch.types import IntLikeType
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 from torch.utils._debug_mode import get_active_debug_mode
 
 
@@ -144,7 +148,11 @@ class _TransformInfo:
     mesh_dim: int
     src_dst_placements: tuple[Placement, Placement]
     # logical_shape on this mesh dimension
+<<<<<<< HEAD
     logical_shape: list[int]
+=======
+    logical_shape: Sequence[IntLikeType]
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
     def __post_init__(self):
         if self.mesh_dim < 0:
@@ -1176,8 +1184,13 @@ class DTensorRedistributePlanner:
         src_state: "DTensorRedistributePlanner.DistState",
         mesh_dim: int,
         full_tensor_shape: tuple[int, ...],
+<<<<<<< HEAD
     ) -> list[int]:
         new_logical_shape = list(full_tensor_shape)
+=======
+    ) -> list[IntLikeType]:
+        new_logical_shape: list[IntLikeType] = list(full_tensor_shape)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         for entry in src_state.tensor_dim_to_mesh_dim:
             tensor_dim = entry.tensor_dim
             mesh_dims = entry.mesh_dims

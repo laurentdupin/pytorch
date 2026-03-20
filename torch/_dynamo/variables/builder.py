@@ -2676,6 +2676,10 @@ class VariableBuilder:
             return self.tx.output.unspec_variable_map[self.name]
 
         shape_env = self.tx.output.shape_env
+<<<<<<< HEAD
+=======
+        frame_state_entry: FrameStateSizeEntry | None = None
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         if TracingContext.get().force_unspec_int_unbacked_size_like:
             wrapped_value = shape_env.create_unbacked_symint()
             _constrain_range_for_size(wrapped_value)
@@ -2739,10 +2743,23 @@ class VariableBuilder:
                 self.install_guards(GuardBuilder.CONSTANT_MATCH)
                 return ConstantVariable.create(value=value)
 
+<<<<<<< HEAD
+=======
+            excluded_scalar = (
+                frame_state_entry.excluded_scalar
+                if config.automatic_dynamic_exclusion_guard
+                and frame_state_entry is not None
+                else None
+            )
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
             wrapped_value = shape_env.create_unspecified_symint_and_symbol(
                 value,
                 source=self.source,
                 dynamic_dim=dynamic_dim,
+<<<<<<< HEAD
+=======
+                excluded_value=excluded_scalar,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
             )
 
             self.tx.output.tracked_fakes.append(
@@ -4019,6 +4036,10 @@ def _automatic_dynamic(
         shape_env_to_source_to_symbol_cache=shape_env_to_source_to_symbol_cache,
         shape_ids=getattr(e, "_dynamo_shape_ids", None),
         unbacked_bounds=getattr(e, "_dynamo_unbacked_bounds", None),
+<<<<<<< HEAD
+=======
+        excluded_sizes=frame_state_entry.excluded_sizes,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     )
 
 

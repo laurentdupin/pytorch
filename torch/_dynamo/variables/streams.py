@@ -157,6 +157,7 @@ def _(
 has_side_effect(torch.ops.streams.wait_event.default)
 
 
+<<<<<<< HEAD
 @custom_op("streams::synchronize_event", mutates_args=())
 def synchronize_event(event_index: int) -> None:
     event = _get_event_by_index(event_index)
@@ -171,6 +172,8 @@ def _(event_index: int) -> None:
 has_side_effect(torch.ops.streams.synchronize_event.default)
 
 
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 @custom_op("streams::wait_stream", mutates_args=())
 def wait_stream(waiting_stream_index: int, waited_on_stream_index: int) -> None:
     waiting = _get_stream_by_index(waiting_stream_index)
@@ -341,6 +344,12 @@ class StreamVariable(StreamContextVariable):
     def python_type(self) -> type:
         return torch.Stream
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> object:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -487,6 +496,12 @@ class EventVariable(VariableTracker):
         self.value = value
         self.user_object_index = user_object_index
 
+<<<<<<< HEAD
+=======
+    def get_real_python_backed_value(self) -> object:
+        return self.value
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -523,10 +538,14 @@ class EventVariable(VariableTracker):
             return CONSTANT_VARIABLE_NONE
         elif name == "synchronize":
             tx.output.create_proxy(
+<<<<<<< HEAD
                 "call_function",
                 torch.ops.streams.synchronize_event,
                 (self.user_object_index,),
                 {},
+=======
+                "call_method", name, *proxy_args_kwargs([self] + args, kwargs)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
             )
             return CONSTANT_VARIABLE_NONE
         elif name == "query":

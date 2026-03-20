@@ -433,6 +433,11 @@ inline Tensor wrap_tensor_node(
   } else { // Slow path
     std::vector<Tensor> flat_tensors;
     std::vector<Tensor> sizes;
+<<<<<<< HEAD
+=======
+    flat_tensors.reserve(tensor_node.degree());
+    sizes.reserve(tensor_node.degree());
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     for (const auto i : c10::irange(tensor_node.degree())) {
       flat_tensors.push_back(tensor_node.children(i).reshape(-1).contiguous());
       sizes.push_back(

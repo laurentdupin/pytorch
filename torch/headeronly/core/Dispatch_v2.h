@@ -54,11 +54,14 @@
   torch::headeronly::ScalarType::UInt16,     \
       torch::headeronly::ScalarType::UInt32, \
       torch::headeronly::ScalarType::UInt64
+<<<<<<< HEAD
 #define AT_OPAQUE_TYPES                                                       \
   torch::headeronly::ScalarType::Byte, torch::headeronly::ScalarType::UInt16, \
       torch::headeronly::ScalarType::UInt32,                                  \
       torch::headeronly::ScalarType::UInt64,                                  \
       torch::headeronly::ScalarType::ComplexDouble
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 #define AT_INTEGRAL_TYPES_V2 \
   AT_EXPAND(AT_INTEGRAL_TYPES), AT_EXPAND(AT_BAREBONES_UNSIGNED_TYPES)
 #define AT_COMPLEX_TYPES                        \

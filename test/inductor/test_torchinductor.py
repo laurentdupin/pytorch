@@ -6304,6 +6304,97 @@ class CommonTemplate:
         actual = compiled()
         self.assertEqual(actual, expected)
 
+<<<<<<< HEAD
+=======
+    def test_complex_uniform_constant_folding(self):
+        # Fix https://github.com/pytorch/pytorch/issues/174891
+        # view.dtype with mismatched element sizes changes element count,
+        # so constant folding must not treat the result as uniform.
+        def fn(x):
+            mask = torch.ones(2, 1, dtype=torch.complex64, device=self.device)
+            return x + mask
+
+        x = torch.full((2, 2), 1.0, dtype=torch.complex64, device=self.device)
+        expected = fn(x)
+        compiled = torch.compile(fn, backend="inductor")
+        actual = compiled(x)
+        self.assertEqual(actual, expected)
+
+    def test_view_dtype_non_0d_larger_to_smaller_element_size(self):
+        # Non-0-d counterpart of test_view_dtype_0d_smaller_to_larger_element_size.
+        # element_size (8) > itemsize (4): complex64 -> float32.
+        import torch.fx as fx
+        from torch._inductor.fx_passes.joint_graph import UniformValueConstantFolder
+
+        graph = fx.Graph()
+
+        full_node = graph.call_function(
+            torch.ops.aten.full.default,
+            args=([2], 1 + 0j),
+            kwargs={
+                "dtype": torch.complex64,
+                "layout": torch.strided,
+                "device": self.device,
+                "pin_memory": False,
+            },
+        )
+        full_node.meta["val"] = torch.full(
+            [2], 1 + 0j, dtype=torch.complex64, device=self.device
+        )
+
+        view_node = graph.call_function(
+            torch.ops.aten.view.dtype, args=(full_node, torch.float32)
+        )
+        view_node.meta["val"] = torch.full(
+            [2], 1 + 0j, dtype=torch.complex64, device=self.device
+        ).view(torch.float32)
+
+        graph.output(view_node)
+        gm = fx.GraphModule(torch.nn.Module(), graph)
+
+        folder = UniformValueConstantFolder(gm)
+        folder.run()
+
+        self.assertNotIn(view_node, folder.node_replacements)
+
+    def test_view_dtype_non_0d_smaller_to_larger_element_size(self):
+        # Non-0-d counterpart of test_view_dtype_0d_smaller_to_larger_element_size.
+        # element_size (4) < itemsize (8): float32 -> complex64.
+        import torch.fx as fx
+        from torch._inductor.fx_passes.joint_graph import UniformValueConstantFolder
+
+        graph = fx.Graph()
+
+        full_node = graph.call_function(
+            torch.ops.aten.full.default,
+            args=([2], 1.0),
+            kwargs={
+                "dtype": torch.float32,
+                "layout": torch.strided,
+                "device": self.device,
+                "pin_memory": False,
+            },
+        )
+        full_node.meta["val"] = torch.full(
+            [2], 1.0, dtype=torch.float32, device=self.device
+        )
+
+        view_node = graph.call_function(
+            torch.ops.aten.view.dtype, args=(full_node, torch.complex64)
+        )
+        view_node.meta["val"] = torch.full(
+            [2], 1.0, dtype=torch.float32, device=self.device
+        ).view(torch.complex64)
+
+        graph.output(view_node)
+        gm = fx.GraphModule(torch.nn.Module(), graph)
+
+        folder = UniformValueConstantFolder(gm)
+        folder.run()
+
+        self.assertNotIn(view_node, folder.node_replacements)
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def test_uniform(self):
         def fn(x):
             return aten.uniform.default(x, 0, 1)
@@ -10372,11 +10463,21 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
                 indices,
             ],
         )
+<<<<<<< HEAD
         assertGeneratedKernelCountEqual(self, 1)
 
     @expectedFailureXPU
     def test_max_pool2d_with_indices_backward5(self):
         # Window size is too big. Should fallback
+=======
+        # Note: Kernel count varies by backend (CUDA ~3, ROCm ~2) due to fusion.
+        # Correctness is validated by self.common() above.
+        self.assertGreater(torch._inductor.metrics.generated_kernel_count, 0)
+
+    @expectedFailureXPU
+    def test_max_pool2d_with_indices_backward5(self):
+        # Large window size - decomposition handles via scatter_add
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         def fn(a, b, c):
             return aten.max_pool2d_with_indices_backward(
                 a, b, [13, 13], [1, 1], [2, 2], [1, 1], False, c
@@ -10400,11 +10501,23 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
                 indices,
             ],
         )
+<<<<<<< HEAD
         assertGeneratedKernelCountEqual(self, 0)
 
     # From https://github.com/pytorch/pytorch/issues/93384
     def test_max_pool2d_with_indices_backward6(self):
         # dilation is not 1. Should fallback
+=======
+        # Note: Kernel count varies by backend (CUDA ~3, ROCm ~2) due to fusion.
+        # Correctness is validated by self.common() above.
+        # MPS: decomposition falls back to native kernel, so no inductor kernels generated
+        if self.device != "mps":
+            self.assertGreater(torch._inductor.metrics.generated_kernel_count, 0)
+
+    # From https://github.com/pytorch/pytorch/issues/93384
+    def test_max_pool2d_with_indices_backward6(self):
+        # dilation != 1 - decomposition handles all dilation cases
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         def fn(a, b, c):
             return aten.max_pool2d_with_indices_backward(
                 a, b, [3, 2], [2, 1], [1, 1], [1, 2], False, c
@@ -10428,7 +10541,15 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
                 indices,
             ],
         )
+<<<<<<< HEAD
         assertGeneratedKernelCountEqual(self, 0)
+=======
+        # Note: Kernel count varies by backend (CUDA ~3, ROCm ~2) due to fusion.
+        # Correctness is validated by self.common() above.
+        # MPS: decomposition falls back to native kernel, so no inductor kernels generated
+        if self.device != "mps":
+            self.assertGreater(torch._inductor.metrics.generated_kernel_count, 0)
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
     def test_issue102546(self):
         def fn(x):

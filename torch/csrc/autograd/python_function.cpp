@@ -1097,6 +1097,10 @@ void _trace_post_record(
   }
 
   std::vector<torch::jit::Value*> trace_outputs;
+<<<<<<< HEAD
+=======
+  trace_outputs.reserve(static_cast<size_t>(std::max(0, num_outputs)));
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
   for (const auto i : c10::irange(num_outputs)) {
     PyObject* obj = PyTuple_GET_ITEM(output_objects, i);
     if (THPVariable_Check(obj)) {

@@ -351,6 +351,10 @@ inline Tensor _move_to_end(const Tensor& self, IntArrayRef axes) {
   const std::vector<int64_t> a = axes.vec();
   const int64_t ndim = self.ndimension();
   std::vector<int64_t> perm;
+<<<<<<< HEAD
+=======
+  perm.reserve(static_cast<size_t>(std::max<int64_t>(0, ndim)));
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
   for (const auto i : c10::irange(ndim)) {
     auto it = std::find(a.begin(), a.end(), i);

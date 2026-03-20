@@ -7,6 +7,10 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from typing import Any, IO, TYPE_CHECKING, TypeAlias
+<<<<<<< HEAD
+=======
+from typing_extensions import TypeIs
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 import torch
 import torch.utils._pytree as pytree
@@ -331,7 +335,11 @@ def _package_aoti_files(
             logger.debug(weights_config)
 
 
+<<<<<<< HEAD
 def _is_fake_tensor(t: torch.Tensor) -> bool:
+=======
+def _is_fake_tensor(t: torch.Tensor) -> TypeIs[FakeTensor]:
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     return isinstance(t, FakeTensor)
 
 

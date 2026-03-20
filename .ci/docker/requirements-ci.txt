@@ -292,6 +292,14 @@ lintrunner==0.12.11
 #Pinned versions: 0.12.11
 #test that import:
 
+<<<<<<< HEAD
+=======
+spin==0.17
+#Description: developer CLI for common build/lint tasks
+#Pinned versions: 0.17
+#test that import:
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 redis>=4.0.0
 #Description: redis database
 #test that import: anything that tests OSS caching/mocking (inductor/test_codecache.py, inductor/test_max_autotune.py)

@@ -724,6 +724,22 @@ inline T logaddexp2(T a, T b) {
 }
 
 template <typename T>
+<<<<<<< HEAD
+=======
+inline float xlogy(T x, T y) {
+  if (::metal::isnan(y)) {
+    return NAN;
+  }
+
+  if (x == 0) {
+    return x;
+  }
+
+  return x * precise::log(float(y));
+}
+
+template <typename T>
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 inline float xlog1py(T x, T y) {
   if (::metal::isnan(y)) {
     return NAN;

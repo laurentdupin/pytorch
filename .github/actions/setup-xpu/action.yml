@@ -65,3 +65,9 @@ runs:
         # Add render group for container creation.
         render_gid=`cat /etc/group | grep render | cut -d: -f3`
         echo "GPU_FLAG=--device=/dev/mem --device=/dev/dri --group-add video --group-add $render_gid" >> "${GITHUB_ENV}"
+<<<<<<< HEAD
+=======
+
+    - name: Login to ECR
+      uses: ./.github/actions/ecr-login
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")

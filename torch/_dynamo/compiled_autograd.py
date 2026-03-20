@@ -223,6 +223,10 @@ class OpNamespace:
         assert not hasattr(self, name)
         result = Op(name, fn, is_custom_function)
         if is_traceable:
+<<<<<<< HEAD
+=======
+            # pyrefly: ignore [deprecated]
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
             setattr(self, name, torch._dynamo.allow_in_graph(result))
         else:
             # C++ autograd function was not marked as traceable

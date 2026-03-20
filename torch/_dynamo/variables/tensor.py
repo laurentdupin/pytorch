@@ -783,6 +783,19 @@ class TensorVariable(VariableTracker):
                 hints=[],
             )
 
+<<<<<<< HEAD
+=======
+        if name == "__deepcopy__":
+            unimplemented(
+                gb_type="Attempted to copy.deepcopy a tensor",
+                context=f"copy.deepcopy({self})",
+                explanation="Dynamo does not support copy.deepcopy() on tensors.",
+                hints=[
+                    "Avoid calling copy.deepcopy() on tensors inside compiled regions.",
+                ],
+            )
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         # Only override builtin tensor methods
         # The user can manually add override handling
         # with a decorator for other methods (e.g. a dispatch subclass with other methods)

@@ -3,6 +3,10 @@ import operator
 import warnings
 from collections import namedtuple
 from typing import Any
+<<<<<<< HEAD
+=======
+from typing_extensions import TypeIs
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 import torch
 import torch.ao.nn.intrinsic as nni
@@ -327,7 +331,13 @@ def node_supports_equalization(node: Node, modules) -> bool:
     return False
 
 
+<<<<<<< HEAD
 def is_equalization_observer(observer: nn.Module) -> bool:
+=======
+def is_equalization_observer(
+    observer: nn.Module,
+) -> TypeIs[_InputEqualizationObserver | _WeightEqualizationObserver]:
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     return isinstance(
         observer, (_InputEqualizationObserver, _WeightEqualizationObserver)
     )

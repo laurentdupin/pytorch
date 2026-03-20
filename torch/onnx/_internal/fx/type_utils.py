@@ -4,11 +4,21 @@
 from __future__ import annotations
 
 from typing import Any
+<<<<<<< HEAD
+=======
+from typing_extensions import TypeIs
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 import torch
 
 
+<<<<<<< HEAD
 def is_torch_symbolic_type(value: Any) -> bool:
+=======
+def is_torch_symbolic_type(
+    value: Any,
+) -> TypeIs[torch.SymBool | torch.SymInt | torch.SymFloat]:
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     return isinstance(value, (torch.SymBool, torch.SymInt, torch.SymFloat))
 
 

@@ -67,6 +67,14 @@ def _fa4_import_module(module_path: str) -> ModuleType:
 def _fa4_register_kernels() -> Library:
     lib = Library("aten", "IMPL", "CUDA")  # noqa: TOR901
     lib.impl("_flash_attention_forward", _fa4_flash_attention_forward_impl, "CUDA")
+<<<<<<< HEAD
+=======
+    lib.impl(
+        "_flash_attention_forward_no_dropout_inplace",
+        _fa4_flash_attention_forward_no_dropout_inplace_impl,
+        "CUDA",
+    )
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     lib.impl("_flash_attention_backward", _fa4_flash_attention_backward_impl, "CUDA")
     lib.impl(
         "_scaled_dot_product_flash_attention",
@@ -116,6 +124,11 @@ def _fa4_forward_support_error(
     alibi_slopes: torch.Tensor | None,
     seqused_k: torch.Tensor | None,
     cum_seq_q: torch.Tensor | None,
+<<<<<<< HEAD
+=======
+    block_table: torch.Tensor | None = None,
+    num_splits: int | None = None,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 ) -> str | None:
     if dropout_p != 0.0:
         return "dropout_p must be 0"
@@ -128,6 +141,14 @@ def _fa4_forward_support_error(
             return "seqused_k must be int32"
         if not seqused_k.is_cuda:
             return "seqused_k must be CUDA"
+<<<<<<< HEAD
+=======
+    major = _get_device_major(query.device)
+    if block_table is not None and major != 10:
+        return f"paged KV (block_table) not supported on SM {major}0"
+    if num_splits is not None and num_splits > 1 and major != 10:
+        return f"SplitKV (num_splits > 1) not supported on SM {major}0"
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     error = _fa4_common_support_error(
         query,
         (query, key, value),
@@ -149,6 +170,7 @@ def _fa4_backward_support_error(
     logsumexp: torch.Tensor,
     dropout_p: float,
     cum_seq_q: torch.Tensor | None,
+<<<<<<< HEAD
     window_size_left: int | None,
     window_size_right: int | None,
 ) -> str | None:
@@ -156,6 +178,11 @@ def _fa4_backward_support_error(
         return "dropout_p must be 0"
     if window_size_left is not None or window_size_right is not None:
         return "windowed attention not supported"
+=======
+) -> str | None:
+    if dropout_p != 0.0:
+        return "dropout_p must be 0"
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     error = _fa4_common_support_error(
         query,
         (grad_out, query, key, value, out, logsumexp),
@@ -167,6 +194,14 @@ def _fa4_backward_support_error(
     return None
 
 
+<<<<<<< HEAD
+=======
+def _aten_to_fa4_window_size(val: int | None) -> int | None:
+    """need to convert -1 to None for FA4"""
+    return None if val == -1 else val
+
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 Ts = TypeVarTuple("Ts")
 
 
@@ -180,12 +215,22 @@ def _fa4_run_forward(
     value: torch.Tensor,
     cu_seq_q: torch.Tensor | None,
     cu_seq_k: torch.Tensor | None,
+<<<<<<< HEAD
+=======
+    max_q: int | None,
+    max_k: int | None,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     scale: float | None,
     is_causal: bool,
     window_size_left: int | None,
     window_size_right: int | None,
     seqused_k: torch.Tensor | None,
     out: torch.Tensor | None = None,
+<<<<<<< HEAD
+=======
+    block_table: torch.Tensor | None = None,
+    num_splits: int | None = None,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if _FA4_MODULE_PATH is None:
         raise RuntimeError("FA4 not registered")
@@ -194,6 +239,7 @@ def _fa4_run_forward(
     kwargs: dict[str, Any] = {
         "softmax_scale": scale,
         "causal": is_causal,
+<<<<<<< HEAD
         "window_size_left": window_size_left,
         "window_size_right": window_size_right,
         "return_lse": True,
@@ -203,6 +249,20 @@ def _fa4_run_forward(
     }
     if out is not None:
         kwargs["out"] = out
+=======
+        "window_size_left": _aten_to_fa4_window_size(window_size_left),
+        "window_size_right": _aten_to_fa4_window_size(window_size_right),
+        "return_lse": True,
+        "cu_seqlens_q": cu_seq_q,
+        "cu_seqlens_k": cu_seq_k,
+        "max_seqlen_q": max_q,
+        "max_seqlen_k": max_k,
+        "seqused_k": seqused_k.contiguous() if seqused_k is not None else None,
+        "page_table": block_table,
+        "num_splits": num_splits or 1,
+        "out": out,
+    }
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     out, lse = module._flash_attn_fwd(query, key, value, **kwargs)
     return out, lse.contiguous()
 
@@ -218,6 +278,11 @@ def _fa4_run_backward(
     cu_seq_k: torch.Tensor | None,
     scale: float | None,
     is_causal: bool,
+<<<<<<< HEAD
+=======
+    window_size_left: int | None,
+    window_size_right: int | None,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     deterministic: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if _FA4_MODULE_PATH is None:
@@ -232,6 +297,11 @@ def _fa4_run_backward(
         logsumexp.contiguous(),
         softmax_scale=scale,
         causal=is_causal,
+<<<<<<< HEAD
+=======
+        window_size_left=_aten_to_fa4_window_size(window_size_left),
+        window_size_right=_aten_to_fa4_window_size(window_size_right),
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         cu_seqlens_q=cu_seq_q,
         cu_seqlens_k=cu_seq_k,
         deterministic=deterministic,
@@ -257,6 +327,12 @@ def _fa4_flash_attention_forward_impl(
     seqused_k: torch.Tensor | None = None,
     alibi_slopes: torch.Tensor | None = None,
     out: torch.Tensor | None = None,
+<<<<<<< HEAD
+=======
+    block_table: torch.Tensor | None = None,
+    compute_auxiliary: bool = True,
+    num_splits: int | None = None,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 ):
     error = _fa4_forward_support_error(
         query,
@@ -267,6 +343,11 @@ def _fa4_flash_attention_forward_impl(
         alibi_slopes,
         seqused_k,
         cum_seq_q,
+<<<<<<< HEAD
+=======
+        block_table,
+        num_splits,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     )
     if error is not None:
         raise RuntimeError(f"FA4 flash_attention forward unsupported: {error}")
@@ -276,12 +357,18 @@ def _fa4_flash_attention_forward_impl(
         value,
         cum_seq_q,
         cum_seq_k,
+<<<<<<< HEAD
+=======
+        max_q,
+        max_k,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         scale,
         is_causal,
         window_size_left,
         window_size_right,
         seqused_k,
         out,
+<<<<<<< HEAD
     )
     rng_state = torch.zeros((2,), dtype=torch.uint64, device=query.device)
     philox_offset = torch.zeros((), dtype=torch.uint64, device=query.device)
@@ -289,6 +376,67 @@ def _fa4_flash_attention_forward_impl(
     return out, lse, rng_state, philox_offset, debug_mask
 
 
+=======
+        block_table,
+        num_splits,
+    )
+    if compute_auxiliary:
+        rng_state = torch.zeros((2,), dtype=torch.uint64, device=query.device)
+        philox_offset = torch.zeros((), dtype=torch.uint64, device=query.device)
+        debug_mask = torch.empty(0, dtype=query.dtype, device=query.device)
+    else:
+        rng_state = None
+        philox_offset = None
+        debug_mask = None
+    return out, lse, rng_state, philox_offset, debug_mask
+
+
+def _fa4_flash_attention_forward_no_dropout_inplace_impl(
+    out: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    cum_seq_q: torch.Tensor | None,
+    cum_seq_k: torch.Tensor | None,
+    max_q: int,
+    max_k: int,
+    dropout_p: float,
+    is_causal: bool,
+    return_debug_mask: bool,
+    *,
+    scale: float | None = None,
+    window_size_left: int | None = None,
+    window_size_right: int | None = None,
+    seqused_k: torch.Tensor | None = None,
+    alibi_slopes: torch.Tensor | None = None,
+    block_table: torch.Tensor | None = None,
+    num_splits: int | None = None,
+):
+    _, lse, _, _, _ = _fa4_flash_attention_forward_impl(
+        query,
+        key,
+        value,
+        cum_seq_q,
+        cum_seq_k,
+        max_q,
+        max_k,
+        dropout_p,
+        is_causal,
+        return_debug_mask,
+        scale=scale,
+        window_size_left=window_size_left,
+        window_size_right=window_size_right,
+        seqused_k=seqused_k,
+        alibi_slopes=alibi_slopes,
+        out=out,
+        block_table=block_table,
+        compute_auxiliary=False,
+        num_splits=num_splits,
+    )
+    return lse
+
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 def _fa4_flash_attention_backward_impl(
     grad_out: torch.Tensor,
     query: torch.Tensor,
@@ -318,8 +466,11 @@ def _fa4_flash_attention_backward_impl(
         logsumexp,
         dropout_p,
         cum_seq_q,
+<<<<<<< HEAD
         window_size_left,
         window_size_right,
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     )
     if error is not None:
         raise RuntimeError(f"FA4 flash_attention backward unsupported: {error}")
@@ -335,6 +486,11 @@ def _fa4_flash_attention_backward_impl(
         cum_seq_k,
         scale,
         is_causal,
+<<<<<<< HEAD
+=======
+        window_size_left,
+        window_size_right,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         deterministic,
     )
     return dq, dk, dv
@@ -428,8 +584,11 @@ def _fa4_scaled_dot_product_flash_attention_backward_impl(
         logsumexp,
         dropout_p,
         None,
+<<<<<<< HEAD
         None,
         None,
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     )
     if error is not None:
         raise RuntimeError(f"FA4 SDPA backward unsupported: {error}")

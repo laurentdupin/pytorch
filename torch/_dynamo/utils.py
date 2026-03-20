@@ -4806,6 +4806,10 @@ def is_tensor_base_attr_getter(value: Any) -> bool:
     return (
         isinstance(value, types.MethodWrapperType)
         and value.__name__ == "__get__"
+<<<<<<< HEAD
+=======
+        and hasattr(value.__self__, "__objclass__")
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         and value.__self__.__objclass__ is torch._C._TensorBase  # type: ignore[attr-defined]
     )
 

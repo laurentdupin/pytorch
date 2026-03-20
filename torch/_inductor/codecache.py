@@ -65,11 +65,19 @@ from torch._inductor.cpp_builder import (
     _LINKER_SCRIPT,
     _set_gpu_runtime_env,
     _TORCH_PATH,
+<<<<<<< HEAD
+=======
+    batch_convert_cubins_to_obj,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     convert_cubin_to_obj,
     CppBuilder,
     CppOptions,
     CppTorchDeviceOptions,
     get_compiler_version_info,
+<<<<<<< HEAD
+=======
+    get_cpp_compiler,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     get_ld_and_objcopy,
     get_name_and_dir_from_output_file_path,
     normalize_path_separator,
@@ -2541,6 +2549,10 @@ end
             cubins_o = []
             asm_files = []
             if not _IS_WINDOWS:
+<<<<<<< HEAD
+=======
+                cubins_to_embed: list[tuple[str, str]] = []
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
                 ld, objcopy = get_ld_and_objcopy(use_relative_path)
                 kernels = getattr(V.graph.wrapper_code, "_kernel_name_to_body", {})
                 for kernel_name, value in CudaKernelParamCache.cache.items():
@@ -2615,10 +2627,37 @@ end
                             log.info("Created multi-arch bundle: %s", cubin_file)
 
                     if config.aot_inductor.embed_kernel_binary:
+<<<<<<< HEAD
                         # Embed cubin files into model.so using objcopy
                         cubins_o.append(
                             convert_cubin_to_obj(cubin_file, kernel_name, ld, objcopy)
                         )
+=======
+                        cubins_to_embed.append((cubin_file, kernel_name))
+
+                if cubins_to_embed:
+                    # Batch all cubins into a single .o using .incbin assembly.
+                    # This replaces N * 3 subprocess calls (ld + 2x objcopy per
+                    # cubin) with a single compiler invocation.
+                    try:
+                        combined_obj = batch_convert_cubins_to_obj(
+                            cubins_to_embed,
+                            os.path.dirname(output_so),
+                            cpp_compiler=get_cpp_compiler(),
+                        )
+                        cubins_o.append(combined_obj)
+                    except subprocess.CalledProcessError:
+                        log.warning(
+                            "Batched cubin embedding failed, "
+                            "falling back to per-cubin objcopy"
+                        )
+                        for cubin_file, kernel_name in cubins_to_embed:
+                            cubins_o.append(
+                                convert_cubin_to_obj(
+                                    cubin_file, kernel_name, ld, objcopy
+                                )
+                            )
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
             output_name, output_dir = get_name_and_dir_from_output_file_path(output_so)
             so_build_options = CppTorchDeviceOptions(

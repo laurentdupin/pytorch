@@ -9,7 +9,11 @@ import sys
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
+<<<<<<< HEAD
 from typing import Any, TYPE_CHECKING
+=======
+from typing import Any, TYPE_CHECKING, TypeGuard
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
 import torch
 import torch.utils._pytree as pytree
@@ -623,7 +627,11 @@ def produce_guards_and_solve_constraints(
         raise constraint_violation_error
 
 
+<<<<<<< HEAD
 def is_int(x: object) -> bool:
+=======
+def is_int(x: object) -> TypeGuard[int | torch.SymInt]:
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     return isinstance(x, int) or (isinstance(x, torch.SymInt) and x.node.expr.is_number)
 
 

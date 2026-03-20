@@ -61,6 +61,10 @@ const ActivityTypeMap kMtiaTypes{
     {libkineto::ActivityType::MTIA_CCP_EVENTS,       "MTIA_CCP_EVENTS"},
     {libkineto::ActivityType::MTIA_RUNTIME,          "MTIA_RUNTIME"},
     {libkineto::ActivityType::MTIA_INSIGHT,          "MTIA_INSIGHT"},
+<<<<<<< HEAD
+=======
+    {libkineto::ActivityType::MTIA_COUNTERS,         "MTIA_COUNTERS"},
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 };
 
 const ActivityTypeMap kHpuTypes{
@@ -356,6 +360,15 @@ void prepareTrace(
       } else {
         LOG(INFO) << "Disabling MTIA insight events";
       }
+<<<<<<< HEAD
+=======
+      if (config.custom_profiler_config.find("disable_counter_events") ==
+          std::string::npos) {
+        k_activities.insert(libkineto::ActivityType::MTIA_COUNTERS);
+      } else {
+        LOG(INFO) << "Disabling MTIA counter events";
+      }
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     }
   }
   if (activities.count(torch::autograd::profiler::ActivityType::HPU)) {
@@ -490,6 +503,10 @@ c10::DeviceType deviceTypeFromActivity(libkineto::ActivityType activity_type) {
     // TODO: T151322015
     case libkineto::ActivityType::MTIA_CCP_EVENTS:
     case libkineto::ActivityType::MTIA_INSIGHT:
+<<<<<<< HEAD
+=======
+    case libkineto::ActivityType::MTIA_COUNTERS:
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
       return device_type_privateuse1_or(c10::DeviceType::MTIA);
     case libkineto::ActivityType::HPU_OP:
       return c10::DeviceType::HPU;

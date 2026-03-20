@@ -37,6 +37,11 @@ Tensor repeat(const Tensor& self, const IntArrayRef repeats) {
 
   std::vector<at::Tensor> tensor_seq_to_concat;
   for (const auto i : c10::irange(out_ndims)) {
+<<<<<<< HEAD
+=======
+    tensor_seq_to_concat.reserve(
+        static_cast<size_t>(std::max<int64_t>(0, repeats[i])));
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     for (const auto k : c10::irange(repeats[i])) {
       (void)k;
       tensor_seq_to_concat.emplace_back(tensor_to_repeat.clone());

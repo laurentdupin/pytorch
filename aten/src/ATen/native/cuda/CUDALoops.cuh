@@ -648,6 +648,10 @@ void gpu_kernel_impl_nocast(TensorIteratorBase& iter, const func_t& f) {
   TORCH_INTERNAL_ASSERT(iter.can_use_32bit_indexing());
   TORCH_INTERNAL_ASSERT(iter.ninputs() == traits::arity);
   TORCH_INTERNAL_ASSERT(iter.noutputs() == 1);
+<<<<<<< HEAD
+=======
+  TORCH_INTERNAL_ASSERT(!needs_dynamic_casting<func_t>::check(iter));
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
   std::array<char*, ntensors> data;
   for (int i = 0; i < ntensors; i++) {

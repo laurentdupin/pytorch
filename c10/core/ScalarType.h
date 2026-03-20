@@ -54,6 +54,7 @@ inline size_t elementSize(ScalarType t) {
 #undef CASE_ELEMENTSIZE_CASE
 }
 
+<<<<<<< HEAD
 inline ScalarType opaqueScalarType(ScalarType t) {
   auto esize = elementSize(t);
   ScalarType result;
@@ -79,6 +80,8 @@ inline ScalarType opaqueScalarType(ScalarType t) {
   return result;
 }
 
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 inline bool isIntegralType(ScalarType t, bool includeBool) {
   bool isIntegral =
       (t == ScalarType::Byte || t == ScalarType::Char || t == ScalarType::Int ||

@@ -1197,6 +1197,12 @@ TYPED_ATTR(Kineto, linkedCorrelationId, [&]() {
   const auto linked = e.linked_activity_.lock();
   return linked ? linked->correlationID() : 0;
 }())
+<<<<<<< HEAD
+=======
+TYPED_ATTR(Kineto, flowId, e.flow.id)
+TYPED_ATTR(Kineto, flowType, e.flow.type)
+TYPED_ATTR(Kineto, flowStart, static_cast<bool>(e.flow.start))
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 #undef TYPED_ATTR
 #undef TYPED_ATTR_WITH_DEFAULT
 

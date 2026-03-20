@@ -5035,7 +5035,12 @@ def max_pool2d_checks_and_compute_shape(
     return nInputPlane, outputHeight, outputWidth
 
 
+<<<<<<< HEAD
 @register_meta(aten.max_pool2d_with_indices_backward.default)
+=======
+@register_meta(aten.max_pool2d_with_indices_backward)
+@out_wrapper("grad_input")
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 def meta_max_pool2d_with_indices_backward(
     grad_output,
     self,

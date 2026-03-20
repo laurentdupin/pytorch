@@ -372,6 +372,12 @@ class CppPrinter(ExprPrinter):
         )
         return f"{c} ? {p} : {q}"
 
+<<<<<<< HEAD
+=======
+    def _print_Or(self, expr: sympy.Expr) -> str:
+        return self.stringify(expr.args, " || ", precedence(expr))
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     def _print_Piecewise(self, expr: sympy.Expr) -> str:
         # Convert Piecewise(expr_cond_pairs) to nested ternary operators
         # Piecewise((e1, c1), (e2, c2), ..., (eN, cN))

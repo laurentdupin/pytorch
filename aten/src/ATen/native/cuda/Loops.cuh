@@ -81,7 +81,11 @@ __device__ inline void elementwise_kernel_helper(func_t f, policy_t policy) {
 namespace at:: native {
 
 template <typename func_t>
+<<<<<<< HEAD
 void gpu_kernel_nocast(TensorIteratorBase& iter, const func_t& f, bool check_cast = true) {
+=======
+void gpu_kernel_nocast(TensorIteratorBase& iter, const func_t& f) {
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 
   for (int arg = 0; arg < iter.ntensors(); arg++) {
     TORCH_INTERNAL_ASSERT(
@@ -95,23 +99,33 @@ void gpu_kernel_nocast(TensorIteratorBase& iter, const func_t& f, bool check_cas
 
   if (!iter.can_use_32bit_indexing()) {
     for (auto& sub_iter : iter.with_32bit_indexing()) {
+<<<<<<< HEAD
       gpu_kernel_nocast(sub_iter, f);
+=======
+      gpu_kernel_nocast(sub_iter, f, check_cast);
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
     }
     return;
   }
 
+<<<<<<< HEAD
   if (check_cast) {
     TORCH_INTERNAL_ASSERT(!needs_dynamic_casting<func_t>::check(iter));
   }
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
   gpu_kernel_impl_nocast(iter, f);
 }
 
 template <typename func_t>
+<<<<<<< HEAD
 void gpu_kernel_opaque(TensorIteratorBase& iter, const func_t& f) {
   gpu_kernel_nocast(iter, f, false);
 }
 
 template <typename func_t>
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 void gpu_kernel(TensorIteratorBase& iter, const func_t& f) {
 
   for (int arg = 0; arg < iter.ntensors(); arg++) {

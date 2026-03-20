@@ -13,6 +13,10 @@ from torch._opaque_base import OpaqueBase
 from torch.distributed import is_available
 from torch.distributed._mesh_layout import _MeshLayout
 from torch.distributed._pycute import IntTuple, is_int, suffix_product
+<<<<<<< HEAD
+=======
+from torch.types import IntLikeType
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 from torch.utils._typing_utils import not_none
 
 
@@ -1235,7 +1239,11 @@ else:
             """
             return self._coordinate_on_dim
 
+<<<<<<< HEAD
         def _sym_get_coordinate(self, index: int) -> int:
+=======
+        def _sym_get_coordinate(self, index: int) -> IntLikeType:
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
             import torch.distributed.config as config
             from torch._guards import detect_fake_mode
 
@@ -1605,6 +1613,10 @@ def _register_distributed_opaque_types():
             "rank": MemberType.USE_REAL,
             "_get_backend_name": MemberType.USE_REAL,
             "group_name": MemberType.USE_REAL,
+<<<<<<< HEAD
+=======
+            "group_desc": MemberType.USE_REAL,
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
             "__eq__": MemberType.USE_REAL,
         },
     )

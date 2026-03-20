@@ -5707,8 +5707,11 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
             if flops is not None:
                 inductor_meta["kernel_flop"] = flops
 
+<<<<<<< HEAD
         triton_meta["configs"] = [config_of(signature)]
 
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         # Triton compiler includes equal_to_1 args into constants even
         # when they are not constexpr. otherwise there may be a segfault
         # during launching the Inductor-compiled Triton kernel.
@@ -5724,6 +5727,17 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
         self.codegen_body()
         self._filter_pdl(self.body)
 
+<<<<<<< HEAD
+=======
+        # Compute configs after codegen_body() so we know if the kernel
+        # uses atomic ops. On HIP, buffer ops don't support atomics, so
+        # we must not tag any args with pointer_range_32 in that case.
+        if torch.version.hip is not None and self.atomic_add_found:
+            triton_meta["configs"] = [config_of(signature, pointer_range_override=())]
+        else:
+            triton_meta["configs"] = [config_of(signature)]
+
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
         for helper in self.helper_functions:
             code.writeline("")
             code.splice(helper)

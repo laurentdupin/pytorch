@@ -26,7 +26,10 @@
 #include <ATen/ops/result_type.h>
 #include <ATen/ops/sub_native.h>
 #include <ATen/ops/view_as_real.h>
+<<<<<<< HEAD
 #include <ATen/ops/xlogy_native.h>
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 #endif
 
 namespace at::native {
@@ -262,6 +265,7 @@ TORCH_IMPL_FUNC(pow_Scalar_out_mps)(const Scalar& base, const Tensor& exp, const
   }
 }
 
+<<<<<<< HEAD
 TORCH_IMPL_FUNC(xlogy_out_mps)(const Tensor& self, const Tensor& other, const Tensor& output) {
   mps::BinaryOpBlock xlogy_op_block = ^BinaryOpFn(cachedGraph, primaryCastTensor, secondaryCastTensor) {
     MPSGraph* mpsGraph = cachedGraph->graph();
@@ -287,4 +291,6 @@ TORCH_IMPL_FUNC(xlogy_out_mps)(const Tensor& self, const Tensor& other, const Te
   mps::binaryOpTensor(self, other, output, "xlogy_out_mps", xlogy_op_block);
 }
 
+=======
+>>>>>>> b0f830d929c (Revert "Support kernels with opaque types (#174211)")
 } // namespace at::native
