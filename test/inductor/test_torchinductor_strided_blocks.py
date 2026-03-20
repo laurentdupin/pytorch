@@ -813,14 +813,7 @@ class CommonTemplate:
         Tests 2D reduction kernels. These arise from "odd" shapes which are not
         expressible with a 1D block pointer.
         """
-        if (
-            self.device == "cpu"
-            and reduction_op == torch.sum
-            and (
-                config.triton.cooperative_reductions
-                or config.triton.force_cooperative_reductions
-            )
-        ):
+        if reduction_op == torch.sum and config.triton.cooperative_reductions:
             num_triton_kernels = 1
             num_block_pointers = 1
 
@@ -893,10 +886,7 @@ class CommonTemplate:
         doesn't generate a block pointer. Since tiling welford reductions depends on
         the block pointer analysis, those cases would fall back to 1D.
         """
-        if self.device == "cpu" and (
-            config.triton.cooperative_reductions
-            or config.triton.force_cooperative_reductions
-        ):
+        if config.triton.cooperative_reductions:
             expected_num_triton_kernels = 1
             expected_num_block_pointers = 1
 
@@ -935,8 +925,8 @@ class CommonTemplate:
         result, (code,) = self._run_and_compare(
             torch.var_mean,
             view,
-            expected_num_block_pointers=6,
-            expected_num_triton_kernels=2,
+            expected_num_block_pointers=0 if config.triton.cooperative_reduction else 6,
+            expected_num_triton_kernels=1 if config.triton.cooperative_reduction else 2,
             config_patches={"triton.prefer_nd_tiling": True},
         )
 
