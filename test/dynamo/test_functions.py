@@ -340,7 +340,7 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
         itertools.permutations(zip([1, 2], [3, 4]))
         itertools.permutations(map(lambda x: x, [1, 2]))
         itertools.permutations(filter(lambda x: True, [1, 2]))
-        return a
+        return a + 0
 
     @make_test
     def test_itertools_filterfalse_basic(a, b):
@@ -531,6 +531,7 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
 
     def test_itertools_compress(self):
         def fn():
+            _ = torch.randn(1) + 0
             return itertools.compress("ABCDEF", [1, 0, 1, 0, 1, 1])
 
         opt_fn = torch.compile(fn, backend="eager", fullgraph=True)
@@ -656,7 +657,7 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
     )
     def test_number_method(self, method, num_type):
         def forward(t, m):
-            return 2 * t if getattr(m, method)() else t
+            return 2 * t if getattr(m, method)() else t + 0
 
         wrapped = torch.compile(backend="eager", fullgraph=True)(forward)
 
@@ -3621,6 +3622,7 @@ class GraphModule(torch.nn.Module):
             with self.subTest(op=op):
 
                 def fn(x):
+                    _ = x + 0
                     return op(-10, x)
 
                 opt_fn = torch.compile(fullgraph=True, backend="eager")(fn)

@@ -355,6 +355,7 @@ def forward(self, arg0_1, arg1_1):
 
     def test_placement_compile(self):
         def fn(x):
+            _ = torch.randn(1) + 0
             a = 0
             if x.is_replicate():
                 a += 1
