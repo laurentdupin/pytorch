@@ -39,6 +39,7 @@ from torch._dynamo.variables.constant import CONSTANT_VARIABLE_NONE, ConstantVar
 from torch._dynamo.variables.ctx_manager import RepararametrizeModuleContextVariable
 from torch._dynamo.variables.functions import UserFunctionVariable
 from torch._dynamo.variables.nn_module import UnspecializedNNModuleVariable
+from torch._dynamo.variables.script_object import TorchScriptObjectVariable
 from torch._dynamo.variables.tensor import SymNodeVariable, TensorVariable
 from torch._guards import Source
 from torch._higher_order_ops.invoke_subgraph import NestedCompileRegionOptions
@@ -322,8 +323,17 @@ def overwrite_tensor_vt_proxy(
     # while still allowing `body_r` to contain arbitrary Python objects.
     # pyrefly: ignore[missing-attribute]
     for orig_vt, subgraph_vt in zip(graph_output_vts, flat_variable.items):
-        if isinstance(orig_vt, (variables.SymNodeVariable, variables.TensorVariable)):
-            assert subgraph_vt.is_tensor() or isinstance(subgraph_vt, SymNodeVariable)
+        if isinstance(
+            orig_vt,
+            (
+                variables.SymNodeVariable,
+                variables.TensorVariable,
+                TorchScriptObjectVariable,
+            ),
+        ):
+            assert subgraph_vt.is_tensor() or isinstance(
+                subgraph_vt, (SymNodeVariable, TorchScriptObjectVariable)
+            )
             orig_vt.proxy = subgraph_vt.proxy
 
 
@@ -574,7 +584,7 @@ def collect_intermediate_outputs(
         tracker.collect_from_inputs(tx)
         tracker.collect_from_outputs(graph_output_vts)
 
-    for out in subtracer.tracked_tensor_or_symint_vt:
+    for out in subtracer.tracked_proxyable_vt:
         proxy = out.as_proxy()
 
         # Skip if already in output
@@ -1696,7 +1706,9 @@ def speculate_subgraph_with_auto_output_flattening(
             graph_output_vt_list = []
 
             def visit(vt: VariableTracker) -> None:
-                if vt.is_tensor() or isinstance(vt, SymNodeVariable):
+                if vt.is_tensor() or isinstance(
+                    vt, (SymNodeVariable, TorchScriptObjectVariable)
+                ):
                     graph_output_vt_list.append(vt)
 
             VariableTracker.visit(visit, output)
@@ -2486,10 +2498,12 @@ def validate_subgraph_output_types(
     ):
         for out in non_tensor_output:
             if (
-                isinstance(out, SymNodeVariable) and out.python_type() in (int, bool)
-            ) or (
-                out.is_python_constant()
-                and isinstance(out.as_python_constant(), (int, bool))
+                (isinstance(out, SymNodeVariable) and out.python_type() in (int, bool))
+                or (
+                    out.is_python_constant()
+                    and isinstance(out.as_python_constant(), (int, bool))
+                )
+                or isinstance(out, TorchScriptObjectVariable)
             ):
                 continue
             unimplemented(
@@ -3966,6 +3980,31 @@ class ExportTracepointHigherOrderVariable(TorchHigherOrderOperatorVariable):
 
 class RunWithRNGStateHigherOrderVariable(TorchHigherOrderOperatorVariable):
     _HOP_NAME = "torch.ops.higher_order.run_with_rng_state"
+
+    def _call_function(
+        self,
+        tx: "InstructionTranslator",
+        args: Sequence[VariableTracker],
+        kwargs: dict[str, VariableTracker],
+    ) -> VariableTracker:
+        from .builder import wrap_fx_proxy
+
+        p_args = tuple(arg.as_proxy() for arg in args)
+        p_kwargs = {key: arg.as_proxy() for key, arg in kwargs.items()}
+        return wrap_fx_proxy(
+            tx=tx,
+            proxy=tx.output.create_proxy(
+                "call_function",
+                self.value,
+                args=p_args,
+                kwargs=p_kwargs,
+            ),
+            example_value=None,
+        )
+
+
+class InlineAsmElementwiseHigherOrderVariable(TorchHigherOrderOperatorVariable):
+    _HOP_NAME = "inline_asm_elementwise"
 
     def _call_function(
         self,
@@ -5574,6 +5613,7 @@ _hop_name_to_variable_class = {
     "dynamo_bypassing_wrapper": DynamoBypassingWrapperHigherOrderVariable,
     "auto_functionalized": AutoFunctionalizeHigherOrderVariable,
     "auto_functionalized_v2": AutoFunctionalizeHigherOrderVariable,
+    "inline_asm_elementwise": InlineAsmElementwiseHigherOrderVariable,
     "invoke_subgraph": InvokeSubgraphHigherOrderVariable,
     "custom_function_call": CustomFunctionHigherOrderOperatorVariable,
     "local_map_hop": LocalMapWrappedHigherOrderVariable,
