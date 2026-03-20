@@ -44,6 +44,7 @@ from torch.sparse import SparseSemiStructuredTensor, to_sparse_semi_structured
 from torch.testing import FileCheck
 from torch.testing._internal.common_cuda import (
     PLATFORM_SUPPORTS_FP8,
+    SM100OrLater,
     SM80OrLater,
     SM90OrLater,
 )
@@ -1168,12 +1169,17 @@ class TestCutlassBackend(TestCase):
             def forward(self, x, w):
                 return x @ w
 
+        allowlist = (
+            r"128x256x64.*stream_k"
+            if SM100OrLater
+            else "128x256x64.*stream_k_warpspecialized_cooperative_epi_nosmem"
+        )
         with config.patch(
             {
                 "max_autotune": True,
                 "autotune_in_subproc": False,
                 "max_autotune_gemm_backends": "CUTLASS",
-                "cutlass.cutlass_op_allowlist_regex": "128x256x64.*stream_k_warpspecialized_cooperative_epi_nosmem",
+                "cutlass.cutlass_op_allowlist_regex": allowlist,
                 "cutlass.cutlass_max_profiling_configs": 1,
             }
         ):
@@ -1305,6 +1311,9 @@ class TestCutlassBackend(TestCase):
         def addmm(x, a, b, alpha, beta):
             return torch.addmm(x, a, b, alpha=alpha, beta=beta)
 
+        # Hopper exposes pingpong kernels while Blackwell+, currently "stream_k"
+        allowlist = "stream_k" if SM100OrLater else "pingpong"
+
         x = torch.randn((128, 128)).cuda().half()
         a = torch.randn(128, 128).cuda().half()
         b = torch.randn(128, 128).cuda().half().t()
@@ -1315,7 +1324,7 @@ class TestCutlassBackend(TestCase):
                     "max_autotune": True,
                     "max_autotune_gemm_backends": "CUTLASS",
                     "cutlass.cutlass_max_profiling_configs": 2,
-                    "cutlass.cutlass_op_allowlist_regex": "pingpong",
+                    "cutlass.cutlass_op_allowlist_regex": allowlist,
                     "cutlass.cutlass_op_denylist_regex": None,
                 }
             ):
@@ -1342,9 +1351,9 @@ class TestCutlassBackend(TestCase):
                                 raise AssertionError(
                                     f"Expected op_conf_name to be str, got {type(op_conf_name)}"
                                 )
-                            if "pingpong" not in op_conf_name:
+                            if allowlist not in op_conf_name:
                                 raise AssertionError(
-                                    "Only pingpong Kernels should have been allowed"
+                                    "Only {allowlist} Kernels should have been allowed"
                                 )
                             cuda_template_count += 1
                     if cuda_template_count <= 0:
