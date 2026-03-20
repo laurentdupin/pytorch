@@ -9,7 +9,6 @@ import unittest
 import weakref
 from collections.abc import Iterator
 from typing import NamedTuple
-from unittest.mock import patch
 
 import torch
 import torch._dynamo.testing
