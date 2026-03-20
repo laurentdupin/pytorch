@@ -1004,6 +1004,8 @@ class ConstDictVariable(VariableTracker):
         other: VariableTracker,
         op: str,
     ) -> VariableTracker:
+        # CPython: dict_richcompare in Objects/dictobject.c
+        # https://github.com/python/cpython/blob/main/Objects/dictobject.c
         from .builder import SourcelessBuilder
 
         if op in ("__eq__", "__ne__"):
@@ -1529,6 +1531,8 @@ class SetVariable(ConstDictVariable):
         other: VariableTracker,
         op: str,
     ) -> VariableTracker:
+        # CPython: set_richcompare in Objects/setobject.c
+        # https://github.com/python/cpython/blob/main/Objects/setobject.c
         if not isinstance(other, (SetVariable, variables.UserDefinedSetVariable)):
             return ConstantVariable.create(NotImplemented)
         if op == "__eq__":
@@ -1905,6 +1909,8 @@ class DictKeysVariable(DictViewVariable):
         other: VariableTracker,
         op: str,
     ) -> VariableTracker:
+        # CPython: dictviews_richcompare in Objects/dictobject.c
+        # https://github.com/python/cpython/blob/main/Objects/dictobject.c
         if not isinstance(other, (SetVariable, DictKeysVariable)):
             return ConstantVariable.create(NotImplemented)
         return VariableTracker.build(
@@ -1980,9 +1986,11 @@ class DictItemsVariable(DictViewVariable):
         other: VariableTracker,
         op: str,
     ) -> VariableTracker:
+        # CPython: dictviews_richcompare in Objects/dictobject.c
+        # https://github.com/python/cpython/blob/main/Objects/dictobject.c
         if op == "__eq__":
             if isinstance(other, DictItemsVariable):
-                return self.dv_dict.call_method(tx, "__eq__", [other.dv_dict], {})
+                return self.dv_dict.richcompare_impl(tx, other.dv_dict, "__eq__")
             return ConstantVariable.create(NotImplemented)
         return ConstantVariable.create(NotImplemented)
 
