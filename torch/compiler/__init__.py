@@ -660,6 +660,7 @@ def skip_all_guards_unsafe(guard_entries):
 
 def nested_compile_region(
     fn=None,
+    *,
     options: NestedCompileRegionOptions | None = None,
     max_reuse_entries: int = 8,
 ):

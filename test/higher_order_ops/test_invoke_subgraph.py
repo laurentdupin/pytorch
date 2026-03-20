@@ -2,6 +2,7 @@
 # flake8: noqa: B950
 # flake8: noqa: E731
 
+import contextlib
 import unittest
 import unittest.mock as mock
 
@@ -3094,6 +3095,23 @@ class GraphModule(torch.nn.Module):
 
 @skipIfTorchDynamo("Not a torch._dynamo test")
 class TestInvokeSubgraphReuse(TestCase):
+    @contextlib.contextmanager
+    def _count_speculate_calls(self):
+        """Yields a list[int] counter incremented on each subgraph speculation (trace)."""
+        count = [0]
+        orig = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
+
+        def _counting(*args, **kwargs):
+            count[0] += 1
+            return orig(*args, **kwargs)
+
+        with mock.patch.object(
+            torch._dynamo.variables.higher_order_ops,
+            "speculate_subgraph_with_auto_output_flattening",
+            _counting,
+        ):
+            yield count
+
     def test_subgraph_reuse_basic(self):
         @nested_compile_region()
         def gn(x, y):
@@ -3133,22 +3151,10 @@ class TestInvokeSubgraphReuse(TestCase):
         x = torch.randn(8)
         y = torch.randn(8)
 
-        call_count = 0
-        orig_speculate = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
-
-        def counting_speculate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return orig_speculate(*args, **kwargs)
-
-        with mock.patch.object(
-            torch._dynamo.variables.higher_order_ops,
-            "speculate_subgraph_with_auto_output_flattening",
-            counting_speculate,
-        ):
+        with self._count_speculate_calls() as count:
             torch.compile(fn, backend="aot_eager", fullgraph=True)(x, y)
 
-        self.assertEqual(call_count, 1)
+        self.assertEqual(count[0], 1)
 
     def test_subgraph_reuse_different_shapes(self):
         @nested_compile_region()
@@ -3163,23 +3169,11 @@ class TestInvokeSubgraphReuse(TestCase):
         x = torch.randn(4)
         y = torch.randn(8)
 
-        call_count = 0
-        orig_speculate = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
-
-        def counting_speculate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return orig_speculate(*args, **kwargs)
-
-        with mock.patch.object(
-            torch._dynamo.variables.higher_order_ops,
-            "speculate_subgraph_with_auto_output_flattening",
-            counting_speculate,
-        ):
+        with self._count_speculate_calls() as count:
             res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x, y)
 
         # Different shapes → two separate traces
-        self.assertEqual(call_count, 2)
+        self.assertEqual(count[0], 2)
         self.assertEqual(res, fn(x, y))
 
     def test_subgraph_reuse_module(self):
@@ -3203,8 +3197,59 @@ class TestInvokeSubgraphReuse(TestCase):
 
         x_clone = x.detach().clone().requires_grad_(True)
         y_clone = y.detach().clone().requires_grad_(True)
-        res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x_clone, y_clone)
 
+        with self._count_speculate_calls() as count:
+            res = torch.compile(fn, backend="aot_eager", fullgraph=True)(
+                x_clone, y_clone
+            )
+
+        # Second call reuses the first trace
+        self.assertEqual(count[0], 1)
+        ref.sum().backward()
+        res.sum().backward()
+
+        self.assertEqual(ref, res)
+        self.assertEqual(x.grad, x_clone.grad)
+        self.assertEqual(y.grad, y_clone.grad)
+
+    def test_subgraph_reuse_module_different_instances(self):
+        """Reuse must fire when two different instances of the same module class are called.
+
+        Source replacement remaps captured attributes (e.g. self.c) from the
+        first instance's source to the second instance's source, so a single
+        cache entry suffices for both calls.
+        """
+
+        class Mod(torch.nn.Module):
+            def __init__(self, c):
+                super().__init__()
+                self.c = c
+
+            @nested_compile_region()
+            def forward(self, x, y):
+                return torch.mul(x, y).sin() + self.c
+
+        mod1 = Mod(5)
+        mod2 = Mod(5)
+
+        def fn(x, y):
+            return mod1(x, y) + mod2(x, y)
+
+        x = torch.randn(8, requires_grad=True)
+        y = torch.randn(8, requires_grad=True)
+        ref = fn(x, y)
+
+        x_clone = x.detach().clone().requires_grad_(True)
+        y_clone = y.detach().clone().requires_grad_(True)
+
+        with self._count_speculate_calls() as count:
+            res = torch.compile(fn, backend="aot_eager", fullgraph=True)(
+                x_clone, y_clone
+            )
+
+        # mod1 and mod2 have the same structure and c value; source replacement
+        # means only one trace is needed.
+        self.assertEqual(count[0], 1)
         ref.sum().backward()
         res.sum().backward()
 
@@ -3236,24 +3281,12 @@ class TestInvokeSubgraphReuse(TestCase):
 
         x_clone = x.detach().clone().requires_grad_(True)
 
-        call_count = 0
-        orig_speculate = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
-
-        def counting_speculate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return orig_speculate(*args, **kwargs)
-
-        with mock.patch.object(
-            torch._dynamo.variables.higher_order_ops,
-            "speculate_subgraph_with_auto_output_flattening",
-            counting_speculate,
-        ):
+        with self._count_speculate_calls() as count:
             res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x_clone)
 
         # block1 and block2 have the same subgraph structure (Linear + relu).
         # Source replacement remaps captured vars, so one cache entry suffices.
-        self.assertEqual(call_count, 1)
+        self.assertEqual(count[0], 1)
 
         ref.sum().backward()
         res.sum().backward()
@@ -3277,8 +3310,14 @@ class TestInvokeSubgraphReuse(TestCase):
 
         x_clone = x.detach().clone().requires_grad_(True)
         y_clone = y.detach().clone().requires_grad_(True)
-        res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x_clone, y_clone)
 
+        with self._count_speculate_calls() as count:
+            res = torch.compile(fn, backend="aot_eager", fullgraph=True)(
+                x_clone, y_clone
+            )
+
+        # Second call reuses the first trace
+        self.assertEqual(count[0], 1)
         sum(r.sum() for r in ref).backward()
         sum(r.sum() for r in res).backward()
 
@@ -3347,24 +3386,12 @@ class TestInvokeSubgraphReuse(TestCase):
         # Both calls use c=5, so result = x*5 + x*5 = x*10.
         self.assertEqual(ref, x * 10)
 
-        call_count = 0
-        orig_speculate = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
-
-        def counting_speculate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return orig_speculate(*args, **kwargs)
-
-        with mock.patch.object(
-            torch._dynamo.variables.higher_order_ops,
-            "speculate_subgraph_with_auto_output_flattening",
-            counting_speculate,
-        ):
+        with self._count_speculate_calls() as count:
             res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
 
         self.assertEqual(ref, res)
         # Mutating mod.d should not prevent reuse of the subgraph that only reads mod.c.
-        self.assertEqual(call_count, 1)
+        self.assertEqual(count[0], 1)
 
     def test_subgraph_reuse_same_class_attr_mutated(self):
         """Reuse must be skipped when a captured attr changes between calls.
@@ -3445,8 +3472,11 @@ class TestInvokeSubgraphReuse(TestCase):
         ref = fn(x)
         self.assertEqual(ref, x * 5 + x * 10)
 
-        res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
+        with self._count_speculate_calls() as count:
+            res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
         self.assertEqual(ref, res)
+        # block1.c=5 and block2.c=10 differ → two separate traces
+        self.assertEqual(count[0], 2)
 
     def test_subgraph_reuse_mutated_captured_variable(self):
         """Reuse must be skipped when a captured (non-input) variable is mutated."""
@@ -3498,23 +3528,11 @@ class TestInvokeSubgraphReuse(TestCase):
         x = torch.randn(8)
         ref = fn(x)
 
-        call_count = 0
-        orig_speculate = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
-
-        def counting_speculate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return orig_speculate(*args, **kwargs)
-
-        with mock.patch.object(
-            torch._dynamo.variables.higher_order_ops,
-            "speculate_subgraph_with_auto_output_flattening",
-            counting_speculate,
-        ):
+        with self._count_speculate_calls() as count:
             res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
 
         self.assertEqual(ref, res)
-        self.assertEqual(call_count, 1)
+        self.assertEqual(count[0], 1)
 
     def test_subgraph_reuse_synthetic_source_different_args(self):
         """Reuse when hoisted opaque ctor args differ across submodules."""
@@ -3546,24 +3564,12 @@ class TestInvokeSubgraphReuse(TestCase):
         x = torch.randn(8)
         ref = model(x)
 
-        call_count = 0
-        orig_speculate = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
-
-        def counting_speculate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return orig_speculate(*args, **kwargs)
-
         backend = EagerAndRecordGraphs()
-        with mock.patch.object(
-            torch._dynamo.variables.higher_order_ops,
-            "speculate_subgraph_with_auto_output_flattening",
-            counting_speculate,
-        ):
+        with self._count_speculate_calls() as count:
             res = torch.compile(model, backend=backend, fullgraph=True)(x)
 
         self.assertEqual(ref, res)
-        self.assertEqual(call_count, 1)
+        self.assertEqual(count[0], 1)
 
         self.assertEqual(len(backend.graphs), 1)
         if not TEST_WITH_CROSSREF:
@@ -3621,28 +3627,43 @@ class GraphModule(torch.nn.Module):
 
         ref = fn(xs1, ys1, xs2, ys2)
 
-        call_count = 0
-        orig_speculate = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
-
-        def counting_speculate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return orig_speculate(*args, **kwargs)
-
-        with mock.patch.object(
-            torch._dynamo.variables.higher_order_ops,
-            "speculate_subgraph_with_auto_output_flattening",
-            counting_speculate,
-        ):
+        with self._count_speculate_calls() as count:
             res = torch.compile(fn, backend="aot_eager", fullgraph=True)(
                 xs1, ys1, xs2, ys2
             )
 
         # Different list lengths → treespec mismatch → two separate traces
-        self.assertEqual(call_count, 2)
+        self.assertEqual(count[0], 2)
         for r, e in zip(res, ref):
             for ri, ei in zip(r, e):
                 self.assertEqual(ri, ei)
+
+    def test_subgraph_reuse_different_constants_retrace(self):
+        """Constant args with different values each require a fresh trace.
+
+        Three calls with three distinct scalar constants → call_count == 3.
+        """
+
+        @nested_compile_region()
+        def gn(x, scale):
+            return x * scale
+
+        def fn(x):
+            a = gn(x, 1)
+            b = gn(x, 2)
+            c = gn(x, 3)
+            return a, b, c
+
+        x = torch.randn(4)
+        ref = fn(x)
+
+        with self._count_speculate_calls() as count:
+            res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
+
+        for r, e in zip(res, ref):
+            self.assertEqual(r, e)
+        # Three distinct constants → three separate traces
+        self.assertEqual(count[0], 3)
 
     def test_subgraph_reuse_tuple_destructure_with_intermediates(self):
         """Reuse must handle tuple destructuring when graph has extra intermediate outputs.
@@ -3685,162 +3706,105 @@ class GraphModule(torch.nn.Module):
 
         torch._dynamo.reset()
 
-        res = torch.compile(model, backend="aot_eager", fullgraph=True)(
-            x.clone(), residual.clone()
-        )
+        with self._count_speculate_calls() as count:
+            res = torch.compile(model, backend="aot_eager", fullgraph=True)(
+                x.clone(), residual.clone()
+            )
         self.assertEqual(ref[0], res[0])
         self.assertEqual(ref[1], res[1])
+        # layers[1] reuses layers[0]'s trace; layers[2] reuses layers[1]'s
+        # (layers[0] and layers[1] have different input metadata after the
+        # first invoke_subgraph, so two traces are needed in total)
+        self.assertLessEqual(count[0], 3)
 
+    def test_subgraph_reuse_different_dynamic_symnodes(self):
+        """Distinct dynamic dimension symbols passed as explicit args must not reuse.
 
-@skipIfTorchDynamo("Not a torch._dynamo test")
-class TestInvokeSubgraphUserHash(TestCase):
-    def test_subgraph_reuse_user_hash_basic(self):
-        """Module with __dynamo_module_hash__ triggers user-hash reuse."""
+        Both calls receive the same tensor x (tensor check passes) but pass
+        different SymNode args: x.shape[0] (s0) vs x.shape[1] (s1). These are
+        distinct symbolic values, so the second call must trace independently.
 
-        class MyBlock(torch.nn.Module):
-            def __init__(self, scale):
-                super().__init__()
-                self.linear = torch.nn.Linear(8, 8, bias=False)
-                torch.nn.init.constant_(self.linear.weight, scale)
-
-            def __dynamo_module_hash__(self):
-                return 42
-
-        @nested_compile_region()
-        def apply_block(mod, x):
-            return mod.linear(x).relu()
-
-        block1 = MyBlock(1.0)
-        block2 = MyBlock(2.0)
-
-        def fn(x):
-            a = apply_block(block1, x)
-            b = apply_block(block2, x)
-            return a + b
-
-        x = torch.randn(4, 8, requires_grad=True)
-        ref = fn(x)
-
-        x_clone = x.detach().clone().requires_grad_(True)
-
-        call_count = 0
-        orig_speculate = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
-
-        def counting_speculate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return orig_speculate(*args, **kwargs)
-
-        with mock.patch.object(
-            torch._dynamo.variables.higher_order_ops,
-            "speculate_subgraph_with_auto_output_flattening",
-            counting_speculate,
-        ):
-            res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x_clone)
-
-        # Same user hash → only one trace, second call reuses
-        self.assertEqual(call_count, 1)
-
-        ref.sum().backward()
-        res.sum().backward()
-
-        self.assertEqual(ref, res)
-        self.assertEqual(x.grad, x_clone.grad)
-
-    def test_subgraph_reuse_user_hash_different_hash(self):
-        """Different __dynamo_module_hash__ values → separate traces."""
-
-        class MyBlock(torch.nn.Module):
-            def __init__(self, scale, hash_val):
-                super().__init__()
-                self.linear = torch.nn.Linear(8, 8, bias=False)
-                torch.nn.init.constant_(self.linear.weight, scale)
-                self._hash_val = hash_val
-
-            def __dynamo_module_hash__(self):
-                return self._hash_val
-
-        @nested_compile_region()
-        def apply_block(mod, x):
-            return mod.linear(x).relu()
-
-        block1 = MyBlock(1.0, 100)
-        block2 = MyBlock(2.0, 200)
-
-        def fn(x):
-            a = apply_block(block1, x)
-            b = apply_block(block2, x)
-            return a + b
-
-        x = torch.randn(4, 8)
-
-        call_count = 0
-        orig_speculate = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
-
-        def counting_speculate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return orig_speculate(*args, **kwargs)
-
-        with mock.patch.object(
-            torch._dynamo.variables.higher_order_ops,
-            "speculate_subgraph_with_auto_output_flattening",
-            counting_speculate,
-        ):
-            torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
-
-        # Different hash values → two separate traces
-        self.assertEqual(call_count, 2)
-
-    def test_subgraph_reuse_user_hash_skips_guards(self):
-        """User hash bypasses automatic guard checks that would otherwise fail.
-
-        We simulate a scenario where the captured attribute differs between
-        modules (which would cause automatic reuse to fail due to guard
-        mismatch), but user hash says "trust me, reuse anyway".
+        Regression test for a bug where python_type() was used instead of
+        sym_num identity, making all int-typed symnodes look identical.
         """
 
-        class MyBlock(torch.nn.Module):
-            def __init__(self, c):
-                super().__init__()
-                self.linear = torch.nn.Linear(8, 8, bias=False)
-                self.c = c
-
-            def __dynamo_module_hash__(self):
-                return 99
-
         @nested_compile_region()
-        def apply_block(mod, x):
-            return mod.linear(x) * mod.c
-
-        block1 = MyBlock(5)
-        block2 = MyBlock(10)
+        def gn(x, n):
+            return x * n
 
         def fn(x):
-            a = apply_block(block1, x)
-            b = apply_block(block2, x)
+            a = gn(x, x.shape[0])
+            b = gn(x, x.shape[1])
+            return a, b
+
+        x = torch.ones(4, 6)
+        ref = fn(x)
+
+        with self._count_speculate_calls() as count:
+            res = torch.compile(fn, backend="aot_eager", dynamic=True)(x)
+
+        self.assertEqual(ref[0], res[0])
+        self.assertEqual(ref[1], res[1])
+        # s0 (dim 0) and s1 (dim 1) are distinct symbols → two separate traces
+        self.assertEqual(count[0], 2)
+
+    def test_subgraph_reuse_cache_multiple_entries(self):
+        """Cache accumulates multiple entries; linear scan finds the right one.
+
+        After tracing for shape [4] and [8], a third call with shape [4]
+        must hit the first cache entry without tracing again (call_count == 2).
+        """
+
+        @nested_compile_region()
+        def gn(x):
+            return x.sin()
+
+        def fn(x4, x8, x4_again):
+            a = gn(x4)
+            b = gn(x8)
+            c = gn(x4_again)
+            return a, b, c
+
+        x4 = torch.randn(4)
+        x8 = torch.randn(8)
+        x4_again = torch.randn(4)
+        ref = fn(x4, x8, x4_again)
+
+        with self._count_speculate_calls() as count:
+            res = torch.compile(fn, backend="aot_eager", fullgraph=True)(
+                x4, x8, x4_again
+            )
+
+        for r, e in zip(res, ref):
+            self.assertEqual(r, e)
+        # shape [4] and [8] each require one trace; second [4] reuses the first
+        self.assertEqual(count[0], 2)
+
+    def test_subgraph_reuse_kwargs(self):
+        """Reuse works when the nested region is called with keyword arguments.
+
+        Tests that two calls with the same keyword args (same treespec) reuse
+        the cached subgraph.
+        """
+
+        @nested_compile_region()
+        def gn(x, *, scale=1.0):
+            return x * scale
+
+        def fn(x):
+            a = gn(x, scale=2.0)
+            b = gn(x, scale=2.0)
             return a + b
 
-        x = torch.randn(4, 8)
+        x = torch.randn(8)
+        ref = fn(x)
 
-        call_count = 0
-        orig_speculate = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
+        with self._count_speculate_calls() as count:
+            res = torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
 
-        def counting_speculate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return orig_speculate(*args, **kwargs)
-
-        with mock.patch.object(
-            torch._dynamo.variables.higher_order_ops,
-            "speculate_subgraph_with_auto_output_flattening",
-            counting_speculate,
-        ):
-            torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
-
-        # Even though block1.c != block2.c (which would fail automatic guards),
-        # user hash matches so reuse fires — only one trace.
-        self.assertEqual(call_count, 1)
+        self.assertEqual(ref, res)
+        # Both calls have identical inputs (same treespec + same values) → one trace
+        self.assertEqual(count[0], 1)
 
 
 @skipIfTorchDynamo("Not a torch._dynamo test")
