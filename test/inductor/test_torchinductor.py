@@ -13189,6 +13189,10 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
 
     @requires_gpu()
     @skip_if_not_triton
+    @unittest.skipIf(
+        config.cpp_wrapper,
+        "Inductor does not generate size/stride asserts for cpp_wrapper",
+    )
     def test_input_asserts_deferred_to_first_use(self):
         def fn(x, y, z):
             a = torch.mm(x, y)
