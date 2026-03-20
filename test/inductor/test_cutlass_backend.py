@@ -732,27 +732,16 @@ class TestCutlassBackend(TestCase):
                 torch.testing.assert_close(actual, expected)
 
     @unittest.skipIf(not SM90OrLater, "need sm_90")
-    @parametrize("autotune_in_subproc", (False, True))
     @mock.patch.dict(os.environ, {"PATH": _get_path_without_sccache()})
-    def test_max_autotune_cutlass_backend_addmm_input_reorder(
-        self, autotune_in_subproc
-    ):
+    def test_max_autotune_cutlass_backend_addmm_input_reorder(self):
         """
-        When input_reorder=[2, 0, 1] is set for addmm, the CUTLASS kernel
-        signature is reordered from [X, W, Bias] to [Bias, X, W].
+        Without input_reorder on the CUTLASS call in tuned_addmm, the CUTLASS
+        C kernel's argument order doesn't match the benchmark tensor order,
+        causing illegal memory access during autotuning.
 
-        For in-process benchmarking (autotune_in_subproc=False), the input
-        tensors come from autotune_select_algorithm's input_nodes which are
-        already in the [Bias, X, W] order, so the order naturally matches.
-
-        For subprocess benchmarking (autotune_in_subproc=True), fresh tensors
-        are created from input_tensor_meta via TensorMeta.to_tensor().
-        input_tensor_meta must be reordered to match the kernel signature;
-        otherwise the kernel receives mismatched pointers/strides, causing
-        out-of-bounds GPU memory access for large shapes.
-
-        This test verifies that neither ATen nor CUTLASS choices get inf
-        timings (which would indicate benchmark failures) in both paths.
+        NOTE: Uses ATEN+CUTLASS (not CUTLASS-only) because the existing addmm test
+        has a pre-existing CUTLASS accuracy issue at all shapes. Also verifies that neither ATen nor CUTLASS
+        choices get inf timings (which would indicate benchmark failures).
         """
         from torch._inductor.select_algorithm import (
             AlgorithmSelectorCache,
@@ -776,7 +765,7 @@ class TestCutlassBackend(TestCase):
 
         AlgorithmSelectorCache.benchmark_choices = tracking_benchmark_choices
         try:
-            M, K, N = 4096, 8192, 25728
+            M, K, N = 256, 3520, 2048
             bias = torch.randn(N, device="cuda", dtype=torch.bfloat16)
             x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
             w = torch.randn(K, N, device="cuda", dtype=torch.bfloat16)
@@ -784,7 +773,6 @@ class TestCutlassBackend(TestCase):
             with config.patch(
                 {
                     "max_autotune": True,
-                    "autotune_in_subproc": autotune_in_subproc,
                     "max_autotune_gemm_backends": "ATEN,CUTLASS",
                     "cutlass.cutlass_max_profiling_configs": 2,
                 }

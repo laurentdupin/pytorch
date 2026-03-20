@@ -578,8 +578,8 @@ class CUTLASSGemmTemplate(CUTLASSTemplate, ABC):
         # and passes them positionally to the compiled kernel.  Without this
         # reorder the kernel receives mismatched pointers/strides, causing
         # out-of-bounds GPU memory access for large shapes.
-        # if self.input_reorder is not None and isinstance(input_tensor_meta, list):
-        #     input_tensor_meta = [input_tensor_meta[idx] for idx in self.input_reorder]
+        if self.input_reorder is not None and isinstance(input_tensor_meta, list):
+            input_tensor_meta = [input_tensor_meta[idx] for idx in self.input_reorder]
         output_tensor_meta: TensorMeta | list[TensorMeta] = TensorMeta.from_irnodes(
             self.output_node
         )
