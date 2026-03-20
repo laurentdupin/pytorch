@@ -36,7 +36,9 @@ if TYPE_CHECKING:
 
     from torch._dynamo.backends.distributed import DDPOptimizerContext
     from torch._dynamo.codegen import PyCodegen
+    from torch._dynamo.guards import GuardCheckSpec
     from torch._functorch._aot_autograd.schemas import ViewAndMutationMeta
+    from torch._higher_order_ops.invoke_subgraph import NestedCompileRegionOptions
     from torch._subclasses.fake_tensor import FakeTensorMode
 
 
@@ -773,19 +775,23 @@ class HopSubgraphCache:
 @dataclass
 class InvokeSubgraphReuseEntry:
     body_name: str
-    body_gmod: Any  # GraphModule
-    config: Any  # NestedCompileRegionOptions | None
-    freevar_mapping: list[Any]  # list[LiftedArgOrigin]
+    body_gmod: torch.fx.GraphModule
+    config: NestedCompileRegionOptions | None
+    subgraph_input_mapping: list[
+        Any
+    ]  # list[LiftedArgOrigin] - defined in invoke_subgraph.py
     single_tensor_output: bool
     # Per-output tensor metadata (shape, stride, dtype, device, requires_grad)
     # cached from the first trace so we can construct fresh FakeTensors on
     # cache hit without re-running body_gmod.
-    output_metadata: list[tuple[Any, ...]]
-    # Sources of all flattened args/kwargs (positional + keyword) from the
-    # first trace. On cache hit, we build a replacement dict mapping old arg
-    # sources → new arg sources so that captured variable sources can be
-    # rewritten for the current invocation.
-    arg_sources: list[Any]  # list[Source]
+    output_metadata: list[
+        tuple[torch.Size, tuple[int, ...], torch.dtype, torch.device, bool]
+    ]
+    # 1-1 mapping to flat_vts: source for each flattened arg/kwarg, or None if
+    # the VT has no source. On cache hit, we build a source replacement mapping
+    # (old arg sources → new arg sources) to rewrite captured variable sources
+    # for the current invocation.
+    arg_sources: list[Source | None]
     # Number of user-visible outputs (from the function return value).
     # The graph may have additional outputs from side-effect intermediates;
     # stamp_out_subgraph uses this to return only the user-visible slice.
@@ -794,29 +800,29 @@ class InvokeSubgraphReuseEntry:
 
 @dataclass
 class InvokeSubgraphReuseCondition:
-    # Per flattened input VT: (tag, metadata).
-    #   ("tensor", (shape, stride, dtype, device, requires_grad))
-    #   ("symnode", python_type)
-    #   ("constant", value)
-    #   ("module", None)
+    # Per flattened input VT: (InputTag, metadata).
+    #   (InputTag.TENSOR, TensorMetadata)
+    #   (InputTag.SYMNODE, sym_num — same object implies same symbol)
+    #   (InputTag.CONSTANT, value)
+    #   (InputTag.MODULE, None)
     # Tensor metadata is checked here because TENSOR_MATCH guards for
     # subgraph inputs may already exist before tracing and thus won't
     # appear in the guard delta.
-    input_checks: list[tuple[str, Any]]
+    input_checks: list[tuple[Any, object]]  # list[tuple[InputTag, object]]
 
     # Guards captured during the trace (delta + source-mapped).
-    # Each entry: (source, handler, expected_value)
-    # handler is a pre-resolved GuardValueHandler from GUARD_VALUE_DISPATCH.
-    guards: list[tuple[Any, Any, Any, Any]]
+    # Each entry: (source, handler, expected_value, guard)
+    # handler is a pre-resolved GuardCheckSpec from GUARD_VALUE_DISPATCH.
+    guards: list[tuple[Source, GuardCheckSpec, object, Guard]]
 
     # TreeSpec from pytree.tree_flatten of the (args, kwargs) structure.
     # On cache hit, we verify the new call has the same treespec.
-    treespec: Any = None
+    treespec: pytree.TreeSpec | None = None
 
     # All sources accessed via VariableBuilder during the subgraph trace.
     # On cache hit, we check if any modified VT's source is a base of one
     # of these to detect mutations on captured variables.
-    traced_sources: OrderedSet[Any] = dataclasses.field(default_factory=OrderedSet)
+    traced_sources: OrderedSet[Source] = dataclasses.field(default_factory=OrderedSet)
 
 
 class InvokeSubgraphCache(HopSubgraphCache):
