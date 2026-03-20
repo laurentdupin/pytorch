@@ -3103,9 +3103,10 @@ class UserDefinedTupleVariable(UserDefinedObjectVariable):
         other: "VariableTracker",
         op: str,
     ) -> "VariableTracker":
-        from .constant import ConstantVariable
-
         assert self._tuple_vt is not None
+        if op in ("__eq__", "__ne__"):
+            result = self.is_python_equal(other)
+            return VariableTracker.build(tx, result if op == "__eq__" else not result)
         other_vt = other._tuple_vt if isinstance(other, UserDefinedTupleVariable) else other  # type: ignore[attr-defined]
         return self._tuple_vt.richcompare_impl(tx, other_vt, op)
 
