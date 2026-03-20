@@ -6385,16 +6385,9 @@ class ShapeEnv:
                 for sym, val in self.exclusion_constraints
                 if symbol_to_source.get(sym)
             ]
-            if all_pairs:
-                if all(
-                    self.backed_var_to_val.get(sym) == val for sym, val in all_pairs
-                ):
-                    raise AssertionError(
-                        "All excluded values match current concrete values — "
-                        "this means no dim actually transitioned static→dynamic, "
-                        "so exclusion_constraints should not have been recorded. "
-                        f"pairs={all_pairs}"
-                    )
+            if all_pairs and not all(
+                self.backed_var_to_val.get(sym) == val for sym, val in all_pairs
+            ):
                 if len(all_pairs) == 1:
                     excl_expr = sympy.Ne(
                         all_pairs[0][0], all_pairs[0][1], evaluate=False
