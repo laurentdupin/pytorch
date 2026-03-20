@@ -1532,6 +1532,7 @@ class VariableBuilder:
                 )
 
             if is_opaque_type(value):
+                assert not (isinstance(value, type) and issubclass(value, enum.Enum))
                 return OpaqueObjectClassVariable(
                     value,
                     source=self.source,

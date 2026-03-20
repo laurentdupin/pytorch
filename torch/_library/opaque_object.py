@@ -204,6 +204,7 @@ def register_opaque_type(
         )
 
     if typ == "value":
+        # Enums use identity-based equality (singletons), which is fine for guarding.
         if not issubclass(cls, Enum) and cls.__eq__ is object.__eq__:  # type: ignore[comparison-overlap]
             raise TypeError(
                 f"Value-type opaque object of type {cls} is "
@@ -222,15 +223,14 @@ def register_opaque_type(
                 "for FakeTensor caching."
             )
 
-        # Enums get special-cased in get_opaque_obj_repr so they
-        # don't need __fx_repr__.
+        # Enums are special-cased in get_opaque_obj_repr.
         if not issubclass(cls, Enum) and not hasattr(cls, "__fx_repr__"):
             raise TypeError(
                 f"Value-type opaque object of type {cls} is "
                 "expected to have a `__fx_repr__` method "
                 "implementation as we will use this to reconstruct "
                 "the object in the FX codegen. __fx_repr__ should return "
-                "a tuple of (repr_string, set_of_types)."
+                "a tuple of (repr_string, dict[str, type])."
             )
 
         if guard_fn is not None:
@@ -337,14 +337,12 @@ def get_opaque_obj_repr(obj: Any) -> tuple[str, dict[str, type]]:
 
     For example, if repr_string is "Foo(bar=Bar(1))", the dict should be:
         {"Foo": Foo, "Bar": Bar}
-
-    Enums are special-cased and don't need __fx_repr__.
     """
+
+    # Enums are special cased
     if isinstance(obj, Enum):
         cls = type(obj)
-        repr_str = f"{cls.__name__}.{obj.name}"
-        globals_dict = {cls.__name__: cls}
-        return repr_str, globals_dict
+        return f"{cls.__name__}.{obj.name}", {cls.__name__: cls}
 
     if not hasattr(obj, "__fx_repr__"):
         raise TypeError(
