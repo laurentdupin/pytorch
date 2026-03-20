@@ -124,7 +124,6 @@ if torch.backends.mps.is_available():
             "nn.functional.conv_transpose2d",
             "nn.functional.conv_transpose3d",
             "nn.functional.feature_alpha_dropoutwithout_train",
-            "nn.functional.normalize",
             "nn.functional.padcircular",
             "nn.functional.pairwise_distance",
             "nn.functional.softminwith_dtype",
@@ -1018,11 +1017,6 @@ if torch.backends.mps.is_available():
             "clamp_max",
             "clamp_min",
             "masked_scatter",
-            # unsupported float64 dtype
-            "multinomial",
-            "gather",
-            "scatter",
-            "scatter_add",
             # MPS does not support tensor dimensions > 16
             "amax",
             "amin",
