@@ -226,7 +226,7 @@ jobs:
           container_name=$(docker run \
             ${GPU_FLAG:-} \
             ${ROCR_VISIBLE_DEVICES} \
-            ${!ADDITIONAL_FLAGS${DEVICES}} \
+            ${FLAGS} \
             -e BUILD_ENVIRONMENT \
             -e PR_NUMBER \
             -e GITHUB_ACTIONS \
