@@ -1504,6 +1504,7 @@ def _optimize(
     disable: bool = False,
     dynamic: bool | None = None,
     package: CompilePackage | None = None,
+    recompile_limit: int | None = None,
 ) -> OptimizeContext | _NullDecorator:
     """
     The main entrypoint of TorchDynamo.  Do graph capture and call
@@ -1585,6 +1586,7 @@ def _optimize(
             backend,
             hooks,
             package=package,
+            recompile_limit=recompile_limit,
         ),
         hooks,
         backend_ctx_ctor,
