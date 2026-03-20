@@ -50,6 +50,7 @@ class InlineAsmElementwiseOp(HigherOrderOperator):
 
     Example::
 
+        >>> # xdoctest: +SKIP(requires CUDA)
         >>> # Float32 fused multiply-add via PTX
         >>> result = inline_asm_elementwise(
         ...     a, b, c,
@@ -58,6 +59,7 @@ class InlineAsmElementwiseOp(HigherOrderOperator):
         ...     dtype=torch.float32,
         ... )
 
+        >>> # xdoctest: +SKIP(requires CUDA)
         >>> # pack=2: each asm invocation processes two elements
         >>> result = inline_asm_elementwise(
         ...     x,
