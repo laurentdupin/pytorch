@@ -1,7 +1,10 @@
 # Owner(s): ["module: dynamo"]
+from unittest.mock import patch
+
 import torch
 import torch._dynamo.test_case
 import torch._dynamo.testing
+from torch._dynamo import config as dc
 
 
 class RecompileTests(torch._dynamo.test_case.TestCase):
