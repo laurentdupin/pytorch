@@ -9,7 +9,11 @@ import csv
 import logging
 import os
 
-from cli.lib.core.pytorch.pytorch_test_library import BenchmarkTestPlan, is_cuda, is_rocm
+from cli.lib.core.pytorch.pytorch_test_library import (
+    BenchmarkTestPlan,
+    is_cuda,
+    is_rocm,
+)
 
 
 logger = logging.getLogger(__name__)

@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from cli.lib.common.pip_helper import pip_install_packages
 from cli.lib.common.utils import run_command, temp_environ, working_directory
-from cli.lib.core.pytorch.pytorch_test_library import (
-    BasePytorchTestPlan,
-    TestStep,
-    resolve_env_vars,
-)
 from cli.lib.core.pytorch.plans.benchmark_tests import BENCHMARK_TEST_PLANS
 from cli.lib.core.pytorch.plans.core_tests import CORE_TEST_PLANS
+from cli.lib.core.pytorch.pytorch_test_library import (
+    BasePytorchTestPlan,
+    resolve_env_vars,
+    TestStep,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -58,7 +57,8 @@ def resolve_plan_for_test_config(
     """
     registry = library if library is not None else PYTORCH_TEST_LIBRARY
     matched = [
-        gid for gid, plan in registry.items()
+        gid
+        for gid, plan in registry.items()
         if plan.is_eligible(build_env, test_config)
     ]
 
@@ -78,6 +78,7 @@ def resolve_plan_for_test_config(
 # ---------------------------------------------------------------------------
 # Repro context + runner
 # ---------------------------------------------------------------------------
+
 
 def _build_repro_context(
     plan: BasePytorchTestPlan,
@@ -139,6 +140,8 @@ def run_test_plan(
         num_shards: Total number of shards.
         library:   Override the default registry (useful for testing).
     """
+    if not build_env:
+        raise RuntimeError("build_env is required and must be non-empty")
     if cmd and not test_id:
         raise RuntimeError("--cmd requires --test-id to identify the setup context")
     registry = library if library is not None else PYTORCH_TEST_LIBRARY
@@ -149,11 +152,7 @@ def run_test_plan(
         )
     plan = registry[group_id]
 
-    steps = (
-        [s for s in plan.steps if s.test_id == test_id]
-        if test_id
-        else plan.steps
-    )
+    steps = [s for s in plan.steps if s.test_id == test_id] if test_id else plan.steps
     if not steps:
         raise RuntimeError(
             f"test_id '{test_id}' not found in '{group_id}'. "
@@ -183,10 +182,17 @@ def run_test_plan(
             ):
                 try:
                     if step.setup_fn:
-                        logger.info("[%s/%s] running step setup", group_id, step.test_id)
+                        logger.info(
+                            "[%s/%s] running step setup", group_id, step.test_id
+                        )
                         step.setup_fn()
                     if cmd:
-                        logger.info("[%s/%s] running custom cmd: %s", group_id, step.test_id, cmd)
+                        logger.info(
+                            "[%s/%s] running custom cmd: %s",
+                            group_id,
+                            step.test_id,
+                            cmd,
+                        )
                         run_command(cmd, use_shell=True)
                     else:
                         step.fn()
@@ -197,6 +203,4 @@ def run_test_plan(
                     failures.append(step.test_id)
 
     if failures:
-        raise RuntimeError(
-            f"[{group_id}] {len(failures)} step(s) failed: {failures}"
-        )
+        raise RuntimeError(f"[{group_id}] {len(failures)} step(s) failed: {failures}")

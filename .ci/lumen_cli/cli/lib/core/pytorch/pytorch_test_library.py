@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import functools
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Union
+from typing import Union
 
 
 # ---------------------------------------------------------------------------
@@ -39,17 +40,22 @@ def resolve_env_vars(spec: EnvVarsSpec, build_env: str) -> dict[str, str]:
 # Common pre-built conditions for readability in plan definitions
 # ---------------------------------------------------------------------------
 
+
 def is_cuda(env: str) -> bool:
     return "cuda" in env and "rocm" not in env
+
 
 def is_rocm(env: str) -> bool:
     return "rocm" in env
 
+
 def is_xpu(env: str) -> bool:
     return "xpu" in env
 
+
 def is_gpu(env: str) -> bool:
     return is_cuda(env) or is_rocm(env) or is_xpu(env)
+
 
 def is_cpu_only(env: str) -> bool:
     return not is_gpu(env)
@@ -58,6 +64,7 @@ def is_cpu_only(env: str) -> bool:
 # ---------------------------------------------------------------------------
 # Core dataclasses
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class TestStep:
@@ -110,9 +117,7 @@ class BasePytorchTestPlan:
     test_configs: list[EnvCondition] = field(default_factory=list)
 
     def is_eligible(self, build_env: str, test_config: str = "") -> bool:
-        env_ok = not self.run_on or any(
-            matches_env(c, build_env) for c in self.run_on
-        )
+        env_ok = not self.run_on or any(matches_env(c, build_env) for c in self.run_on)
         config_ok = not self.test_configs or any(
             matches_env(c, test_config) for c in self.test_configs
         )
@@ -123,10 +128,10 @@ class BasePytorchTestPlan:
 # Concrete plan types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CoreTestPlan(BasePytorchTestPlan):
     """Standard python test/run_test.py based tests."""
-    pass
 
 
 @dataclass

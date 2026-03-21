@@ -77,9 +77,9 @@ def _register_pytorch_core_commands(subparsers: argparse._SubParsersAction) -> N
 
     parser.add_argument(
         "--build-env",
-        default=None,
+        required=True,
         metavar="BUILD_ENVIRONMENT",
-        help="build environment string for plan resolution and env_vars (default: $BUILD_ENVIRONMENT)",
+        help="build environment string for plan resolution and env_vars",
     )
     parser.add_argument(
         "--test-id",
@@ -92,7 +92,7 @@ def _register_pytorch_core_commands(subparsers: argparse._SubParsersAction) -> N
         default=None,
         metavar="CMD",
         help="replay setup context of --test-id but run this command instead "
-             "(e.g. a specific pytest line)",
+        "(e.g. a specific pytest line)",
     )
     parser.add_argument(
         "--shard-id",

@@ -5,7 +5,12 @@ Corresponds to default / cpuonly / dynamo TEST_CONFIG in test.sh.
 
 from __future__ import annotations
 
-from cli.lib.core.pytorch.pytorch_test_library import CoreTestPlan, TestStep, is_cpu_only, is_gpu
+from cli.lib.core.pytorch.pytorch_test_library import (
+    CoreTestPlan,
+    is_cpu_only,
+    is_gpu,
+    TestStep,
+)
 from cli.lib.core.pytorch.run_test_helper import run_test
 
 
