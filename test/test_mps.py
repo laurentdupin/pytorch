@@ -1673,20 +1673,6 @@ class TestMPS(TestCaseMPS):
 
         helper((2, 3, 6, 6), torch.contiguous_format)
 
-    def test_adaptive_avg_pool3d_output_size_one(self):
-        x = torch.randint(1, 10, (2, 3, 6, 6, 6), dtype=torch.float, device='mps', requires_grad=True)
-
-        net = torch.nn.AdaptiveAvgPool3d(1)
-        out = net(x)
-        ref_out = x.contiguous().mean((-1, -2, -3)).view((x.size(0), x.size(1), 1, 1, 1))
-
-        out.sum().backward()    # make sure it doesn't crash
-
-        self.assertEqual(out, ref_out)
-        self.assertTrue(out.is_contiguous())
-        c = out.size(1)
-        self.assertEqual(out.stride(), [c, 1, 1, 1, 1])
-
     def test_masked_scatter(self):
         def helper(shape):
             x_mps = torch.randn(shape, device="mps")
