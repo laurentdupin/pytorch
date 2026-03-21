@@ -1971,6 +1971,22 @@ class <lambda>(torch.nn.Module):
         compiled_result = torch.compile(f)(inp)
         self.assertEqual(eager_result, compiled_result)
 
+    @requires_cuda
+    def test_event_record_wait_on_default_stream(self):
+        e = torch.cuda.Event()
+
+        def f(x):
+            y = x + 1
+            e.record()
+            e.wait()
+            return y + 1
+
+        f_compiled = torch.compile(f)
+        x = torch.randn(10, device="cuda")
+        eager_result = f(x)
+        compiled_result = f_compiled(x)
+        self.assertEqual(eager_result, compiled_result)
+
 
 if __name__ == "__main__":
     from torch._dynamo.test_case import run_tests
