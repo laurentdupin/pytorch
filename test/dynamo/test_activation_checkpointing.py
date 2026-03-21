@@ -2475,9 +2475,8 @@ def forward(self, arg0_1):
         )
 
 
-devices = ["cuda", "hpu"]
 instantiate_device_type_tests(
-    ActivationCheckpointingViaTagsTests, globals(), only_for=devices
+    ActivationCheckpointingViaTagsTests, globals(), except_for="cpu"
 )
 
 if __name__ == "__main__":

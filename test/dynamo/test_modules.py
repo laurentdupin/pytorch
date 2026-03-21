@@ -3637,9 +3637,8 @@ class OptimizedModuleTest(torch._dynamo.test_case.TestCase):
         self.assertTrue(torch.allclose(output_eager, output))
 
 
-devices = ["cuda", "hpu", "xpu"]
 instantiate_device_type_tests(
-    NNModuleTestsDevice, globals(), only_for=devices, allow_xpu=True
+    NNModuleTestsDevice, globals(), except_for="cpu", allow_xpu=True
 )
 
 if __name__ == "__main__":
