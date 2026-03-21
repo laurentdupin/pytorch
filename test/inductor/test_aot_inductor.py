@@ -5053,6 +5053,20 @@ class AOTInductorTestsTemplate:
 
         self.check_model(m, inputs)
 
+    def test_assert_size_stride_guarded_by_env_check(self):
+        # Verify that assert_size_stride calls in AOTI-generated code are
+        # guarded by _check_aoti_runtime_check_inputs_env() so they only
+        # fire when AOTI_RUNTIME_CHECK_INPUTS is set.
+        class Model(torch.nn.Module):
+            def forward(self, x):
+                return torch.linalg.qr(x)[0]
+
+        example_inputs = (torch.randn(4, 4, device=self.device),)
+        _, code = run_and_get_cpp_code(AOTIRunnerUtil.compile, Model(), example_inputs)
+        FileCheck().check(
+            "if (_check_aoti_runtime_check_inputs_env()) { assert_size_stride("
+        ).run(code)
+
     @unittest.skipIf(
         not PLATFORM_SUPPORTS_FP8,
         "FP8 is only supported on H100+, SM 8.9 and MI300+ devices",

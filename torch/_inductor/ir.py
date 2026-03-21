@@ -6964,9 +6964,13 @@ class ExternKernel(InputsKernel):
                 if torch.Tag.inplace_view in self.op_overload.tags:
                     assert isinstance(self.inputs[0], IRNode)
                     name = self.inputs[0].get_name()
-            wrapper.writeline(
-                f'assert_size_stride({name}, {size}, {stride}, "{op_name}");'
-            )
+            stmt = f'assert_size_stride({name}, {size}, {stride}, "{op_name}");'
+            if V.graph.aot_mode:
+                wrapper.writeline(
+                    f"if (_check_aoti_runtime_check_inputs_env()) {{ {stmt} }}"
+                )
+            else:
+                wrapper.writeline(stmt)
         else:
             wrapper.writeline(
                 f"assert_size_stride({name}, {size}, {stride}, {op_name!r})"

@@ -456,11 +456,11 @@ inline void assert_size_stride(
   int64_t ndim;
   AOTI_TORCH_ERROR_CODE_CHECK(aoti_torch_get_dim(tensor, &ndim));
   int64_t expected_ndim = static_cast<int64_t>(expected_sizes.size());
-  std::string op_ctx = op_name ? std::string(" for op: ") + op_name : "";
+  std::string op_msg = op_name ? std::string("\nError in op: ") + op_name : "";
   AOTI_RUNTIME_CHECK(
       ndim == expected_ndim,
       "expected ndim " + std::to_string(expected_ndim) + " but got " +
-          std::to_string(ndim) + op_ctx);
+          std::to_string(ndim) + op_msg);
 
   int64_t numel;
   AOTI_TORCH_ERROR_CODE_CHECK(aoti_torch_get_numel(tensor, &numel));
@@ -491,7 +491,13 @@ inline void assert_size_stride(
   }
 
   if (num_errors) {
-    AOTI_RUNTIME_CHECK(false, msg.str() + op_ctx);
+    AOTI_RUNTIME_CHECK(
+        false,
+        msg.str() + op_msg +
+            "\nThis error most often comes from a incorrect fake (aka meta) "
+            "kernel for a custom op."
+            "\nUse torch.library.opcheck to test your custom op."
+            "\nSee https://pytorch.org/docs/stable/library.html#torch.library.opcheck");
   }
 }
 
