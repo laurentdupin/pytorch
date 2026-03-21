@@ -55,6 +55,8 @@ def resolve_plan_for_test_config(
     Raises RuntimeError if zero or more than one plan matches — ambiguity is
     a configuration error that should be fixed in the plan definitions.
     """
+    if not build_env:
+        raise RuntimeError("build_env is required and must be non-empty")
     registry = library if library is not None else PYTORCH_TEST_LIBRARY
     matched = [
         gid
