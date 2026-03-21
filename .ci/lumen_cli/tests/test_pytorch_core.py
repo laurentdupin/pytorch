@@ -189,6 +189,10 @@ def _make_library(*plans):
 
 
 class TestResolvePlanForTestConfig:
+    def test_raises_when_build_env_missing(self, patch_lib):
+        with pytest.raises(RuntimeError, match="build_env is required"):
+            patch_lib.resolve_plan_for_test_config("default", "", {})
+
     def test_exact_match(self, patch_lib):
         lib = _make_library(
             CoreTestPlan(
@@ -242,6 +246,11 @@ def _simple_step(calls: list, name: str = "step1") -> TestStep:
 
 
 class TestRunTestPlan:
+    def test_raises_when_build_env_missing(self, patch_lib):
+        lib = _make_library(CoreTestPlan(group_id="plan_a", title="A", steps=[]))
+        with pytest.raises(RuntimeError, match="build_env is required"):
+            patch_lib.run_test_plan("plan_a", "", library=lib)
+
     def test_raises_on_unknown_group(self, patch_lib):
         with pytest.raises(RuntimeError, match="not found"):
             patch_lib.run_test_plan("nonexistent", "some-env", library={})
