@@ -630,7 +630,7 @@ jobs:
     needs: [get-label-type, dynamo-cpython-build]
     with:
       build-environment: linux-jammy-py3.13-clang15
-      docker-images: ${{ needs.dynamo-cpython-build.outputs.docker-image }}
+      docker-image: ${{ needs.dynamo-cpython-build.outputs.docker-image }}
       test-matrix: ${{ needs.dynamo-cpython-build.outputs.test-matrix }}
       use-arc: ${{ needs.get-label-type.outputs.use-arc == 'true' }}
       python-version: "3.13"
