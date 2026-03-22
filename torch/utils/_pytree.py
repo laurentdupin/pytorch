@@ -94,9 +94,6 @@ __all__ = [
 ]
 
 
-__name__ = "torch.utils.pytree.python"  # sets the __module__ attribute of all functions in this module
-
-
 T = TypeVar("T")
 S = TypeVar("S")
 U = TypeVar("U")
@@ -1109,7 +1106,7 @@ def _is_leaf(tree: PyTree, is_leaf: Callable[[PyTree], bool] | None = None) -> b
 #   num_children: the number of children of the root Node (i.e., len(children()))
 #   is_leaf(): whether the root Node is a leaf
 @dataclasses.dataclass(init=False, frozen=True, eq=True, repr=False, slots=True)
-class PyTreeSpec:
+class TreeSpec:
     """Representing the structure of the pytree."""
 
     type: Any
@@ -1338,7 +1335,7 @@ class PyTreeSpec:
         return hash((node_type, hashable_context, tuple(self._children)))
 
 
-TreeSpec: TypeAlias = PyTreeSpec
+PyTreeSpec: TypeAlias = TreeSpec
 
 
 # NOTE: subclassing a dataclass is subtle. In order to enable reasoning about
@@ -2246,20 +2243,3 @@ def key_get(obj: Any, kp: KeyPath) -> Any:
     for k in kp:
         obj = k.get(obj)
     return obj
-
-
-# Note [pytree circular import]
-# This import MUST remain at the bottom of this file. It triggers the loading of
-# `torch.utils.pytree`, whose `__init__.py` imports this module (`torch.utils._pytree`)
-# back as `python`. Because this line runs after all classes and functions above are
-# defined, the partially-initialized module seen during the circular import already has
-# every attribute that `torch.utils.pytree.__init__` needs.
-#
-# Purpose: ensures `torch.utils.pytree` is in `sys.modules` immediately after
-# `torch.utils._pytree` is imported (which happens during torch startup), so the public
-# module is available without an explicit user import.
-# See also: `torch/utils/__init__.py` and `torch/utils/pytree/__init__.py`.
-import torch.utils.pytree as _
-
-
-del _
