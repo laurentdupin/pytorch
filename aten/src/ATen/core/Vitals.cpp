@@ -7,9 +7,9 @@ namespace at::vitals {
 APIVitals VitalsAPI;
 
 std::ostream& operator<<(std::ostream& os, TorchVital const& tv) {
-  for (const auto& m : tv.attrs) {
-    os << "[TORCH_VITAL] " << tv.name << '.' << m.first << "\t\t "
-       << m.second.value << '\n';
+  for (const auto& [key, attr] : tv.attrs) {
+    os << "[TORCH_VITAL] " << tv.name << '.' << key << "\t\t "
+       << attr.value << '\n';
   }
   return os;
 }
