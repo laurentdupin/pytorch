@@ -18,12 +18,12 @@ from torch._dynamo.source import AttrSource, GetItemSource
 from .. import graph_break_hints, variables
 from ..exc import raise_observed_exception, unimplemented
 from ..utils import (
-    cmp_name_to_op_mapping,
     common_constant_types,
     istype,
     np,
     raise_args_mismatch,
     raise_on_overridden_hash,
+    richcmp_op,
 )
 from .base import ValueMutationNew, VariableTracker
 
@@ -398,7 +398,7 @@ its type to `common_constant_types`.
         if other.is_python_constant():
             try:
                 return ConstantVariable.create(
-                    cmp_name_to_op_mapping[op](
+                    richcmp_op[op](
                         self.as_python_constant(), other.as_python_constant()
                     )
                 )
@@ -455,9 +455,7 @@ class FakeIdVariable(VariableTracker):
         if not isinstance(other, (FakeIdVariable, ConstantVariable)):
             return ConstantVariable.create(NotImplemented)
         return ConstantVariable.create(
-            cmp_name_to_op_mapping[op](
-                self.as_python_constant(), other.as_python_constant()
-            )
+            richcmp_op[op](self.as_python_constant(), other.as_python_constant())
         )
 
     def reconstruct(self, codegen: Any) -> None:
@@ -519,7 +517,7 @@ class EnumVariable(VariableTracker):
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
         if not hasattr(self.value, name):
             raise NotImplementedError
-        if name in cmp_name_to_op_mapping:
+        if name in richcmp_op:
             return variables.GetAttrVariable(self, name)
         member = getattr(self.value, name)
         source = self.source and AttrSource(self.source, name)
@@ -547,7 +545,7 @@ class EnumVariable(VariableTracker):
         if other.is_python_constant():
             try:
                 return ConstantVariable.create(
-                    cmp_name_to_op_mapping[op](
+                    richcmp_op[op](
                         self.as_python_constant(),  # pyrefly: ignore[bad-argument-type]
                         other.as_python_constant(),
                     )

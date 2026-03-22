@@ -29,7 +29,7 @@ from ..current_scope_id import current_scope_id
 from ..exc import raise_observed_exception, unimplemented
 from ..guards import GuardBuilder, install_guard
 from ..source import AttrSource, Source
-from ..utils import cmp_name_to_op_mapping, istype
+from ..utils import istype, richcmp_op
 
 
 if TYPE_CHECKING:
@@ -565,7 +565,13 @@ class VariableTracker(metaclass=VariableTrackerMeta):
             and not kwargs
         ):
             return self.var_getattr(tx, args[0].as_python_constant())
-        elif name in cmp_name_to_op_mapping and not kwargs:
+        elif name in richcmp_op and not kwargs:
+            # Unify explicit dunder calls (a.__eq__(b)) and operator calls
+            # (a == b) through generic_richcompare. CPython only runs the full
+            # PyObject_RichCompare 4-step algorithm for the operator form, but
+            # routing both through the same path is harmless: steps 3-4 only
+            # activate when step 2 returns NotImplemented, the same outcome
+            # the caller would see from an explicit dunder call anyway.
             if len(args) == 1:
                 from .object_protocol import generic_richcompare
 
@@ -884,14 +890,9 @@ class VariableTracker(metaclass=VariableTrackerMeta):
         other: "VariableTracker",
         op: str,
     ) -> "VariableTracker":
-        """Hook for generic_richcompare. Return result VT or ConstantVariable(NotImplemented).
-
-        Every concrete VariableTracker subclass that can appear in a comparison
-        must override this. Reaching this base means richcompare_impl is missing
-        for the subclass — add one rather than silently falling through.
-
-        CPython: object_richcompare in Objects/typeobject.c
-        https://github.com/python/cpython/blob/main/Objects/typeobject.c
+        """
+        Subclasses must override this for their type. Reaching this base is a
+        bug — it means richcompare_impl is missing for that VT subclass.
         """
         unimplemented(
             gb_type="Missing richcompare_impl",

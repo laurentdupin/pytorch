@@ -60,13 +60,13 @@ from ..source import (
 )
 from ..utils import (
     check_unspec_or_constant_args,
-    cmp_name_to_op_mapping,
     identity,
     is_tensor_base_attr_getter,
     istype,
     list_methods,
     proxy_args_kwargs,
     raise_args_mismatch,
+    richcmp_op,
     tuple_methods,
 )
 from .base import (
@@ -1728,16 +1728,16 @@ class TypingVariable(VariableTracker):
         # trace time, so constant-fold.
         if not istype(other, TypingVariable):
             return variables.ConstantVariable.create(NotImplemented)
-        from ..utils import cmp_name_to_op_mapping
+        from ..utils import richcmp_op
 
         return variables.ConstantVariable.create(
-            cmp_name_to_op_mapping[op](self.value, other.value)  # type: ignore[attr-defined]
+            richcmp_op[op](self.value, other.value)  # type: ignore[attr-defined]
         )
 
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
         from .builder import SourcelessBuilder, VariableBuilder
 
-        if name in cmp_name_to_op_mapping:
+        if name in richcmp_op:
             return variables.GetAttrVariable(self, name)
 
         if tx.output.side_effects.has_pending_mutation_of_attr(self, name):

@@ -40,12 +40,12 @@ from ..exc import raise_observed_exception, unimplemented
 from ..guards import GuardBuilder, install_guard
 from ..source import AttrSource, is_constant_source, is_from_local_source
 from ..utils import (
-    cmp_name_to_op_mapping,
     dict_items,
     dict_keys,
     dict_values,
     istype,
     raise_args_mismatch,
+    richcmp_op,
     specialize_symnode,
 )
 from .base import (
@@ -1074,7 +1074,7 @@ class MappingProxyVariable(VariableTracker):
         args: list[VariableTracker],
         kwargs: dict[str, VariableTracker],
     ) -> VariableTracker:
-        if name in cmp_name_to_op_mapping:
+        if name in richcmp_op:
             # Comparison ops are handled via richcompare_impl; don't delegate to dv_dict
             return super().call_method(tx, name, args, kwargs)
         if self.source and tx.output.side_effects.has_existing_dict_mutation():
@@ -1563,7 +1563,7 @@ class SetVariable(ConstDictVariable):
             return VariableTracker.build(tx, len(r.set_items) == 0)  # type: ignore[attr-defined]
         return VariableTracker.build(
             tx,
-            cmp_name_to_op_mapping[op](self.set_items, other.set_items),  # type: ignore[attr-defined]
+            richcmp_op[op](self.set_items, other.set_items),  # type: ignore[attr-defined]
         )
 
     def python_type_var(self) -> "BuiltinVariable":
@@ -1990,7 +1990,7 @@ class DictKeysVariable(DictViewVariable):
             # correctly implementing subset/superset semantics.
             return VariableTracker.build(
                 tx,
-                cmp_name_to_op_mapping[op](self.set_items, other.set_items),  # type: ignore[attr-defined]
+                richcmp_op[op](self.set_items, other.set_items),  # type: ignore[attr-defined]
             )
         return VariableTracker.build(tx, _dictview_richcompare(a_elems, b_elems, op))
 

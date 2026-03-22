@@ -74,7 +74,6 @@ from ..source import (
 )
 from ..utils import (
     check_constant_args,
-    cmp_name_to_op_mapping,
     dict_methods,
     enum_type_methods,
     frozenset_methods,
@@ -91,6 +90,7 @@ from ..utils import (
     proxy_args_kwargs,
     raise_args_mismatch,
     raise_on_overridden_hash,
+    richcmp_op,
     set_methods,
     tensortype_to_dtype,
     tuple_methods,
@@ -104,7 +104,7 @@ from .base import (
     VariableTracker,
 )
 from .dicts import ConstDictVariable, DefaultDictVariable, SetVariable
-from .object_protocol import _is_richcompare_not_implemented
+from .object_protocol import is_richcompare_not_implemented
 
 
 try:
@@ -340,7 +340,7 @@ class UserDefinedClassVariable(UserDefinedVariable):
         if name == "__new__" and UserDefinedClassVariable.is_supported_new_method(obj):
             return super().var_getattr(tx, name)
 
-        if name in cmp_name_to_op_mapping and not isinstance(obj, types.FunctionType):
+        if name in richcmp_op and not isinstance(obj, types.FunctionType):
             return variables.GetAttrVariable(self, name, None, source=source)
 
         if isinstance(obj, staticmethod):
@@ -1279,7 +1279,7 @@ class UserDefinedObjectVariable(UserDefinedVariable):
                 result = SourcelessBuilder.create(tx, eq_method).call_function(
                     tx, [self, other], {}
                 )
-                if _is_richcompare_not_implemented(result):
+                if is_richcompare_not_implemented(result):
                     return result
                 if result.is_python_constant():
                     return variables.ConstantVariable.create(

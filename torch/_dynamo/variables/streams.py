@@ -339,7 +339,7 @@ class StreamVariable(StreamContextVariable):
     ) -> VariableTracker:
         assert hasattr(self.value, name), f"no stream method found named {name}"
 
-        from ..utils import cmp_name_to_op_mapping, proxy_args_kwargs
+        from ..utils import proxy_args_kwargs, richcmp_op
         from .builder import wrap_fx_proxy_cls
 
         if name in ("wait_stream", "synchronize", "wait_event"):
@@ -364,7 +364,7 @@ class StreamVariable(StreamContextVariable):
                     "call_method", name, *proxy_args_kwargs([self] + args, kwargs)
                 ),
             )
-        elif name in cmp_name_to_op_mapping and len(args) == 1 and not kwargs:
+        elif name in richcmp_op and len(args) == 1 and not kwargs:
             from ..guards import GuardBuilder, install_guard
 
             if self.source:
@@ -381,7 +381,7 @@ class StreamVariable(StreamContextVariable):
                 install_guard(self.source.make_guard(GuardBuilder.EQUALS_MATCH))
             return VariableTracker.build(
                 tx,
-                cmp_name_to_op_mapping[name](self.value, other.value),  # type: ignore[arg-type]
+                richcmp_op[name](self.value, other.value),  # type: ignore[arg-type]
             )
 
         return super().call_method(tx, name, args, kwargs)

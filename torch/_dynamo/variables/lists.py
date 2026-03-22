@@ -36,7 +36,6 @@ from ..bytecode_transformation import (
 from ..exc import raise_observed_exception, unimplemented
 from ..source import AttrSource, NamedTupleFieldsSource
 from ..utils import (
-    cmp_name_to_op_mapping,
     get_fake_value,
     guard_if_dyn,
     istype,
@@ -45,6 +44,7 @@ from ..utils import (
     odict_values,
     raise_args_mismatch,
     range_iterator,
+    richcmp_op,
     set_example_value,
 )
 from .base import AsPythonConstantNotImplementedError, ValueMutationNew, VariableTracker
@@ -398,7 +398,7 @@ class BaseListVariable(VariableTracker):
             return ConstantVariable.create(NotImplemented)
         return SourcelessBuilder.create(tx, polyfills.list_cmp).call_function(
             tx,
-            [SourcelessBuilder.create(tx, cmp_name_to_op_mapping[op]), self, other],
+            [SourcelessBuilder.create(tx, richcmp_op[op]), self, other],
             {},
         )
 
@@ -1869,7 +1869,7 @@ class SliceVariable(VariableTracker):
         codegen.append_output(create_instruction("BUILD_SLICE", arg=len(self.items)))
 
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
-        if name in cmp_name_to_op_mapping:
+        if name in richcmp_op:
             return variables.GetAttrVariable(self, name)
         fields = ["start", "stop", "step"]
         if name not in fields:

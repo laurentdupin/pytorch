@@ -65,7 +65,6 @@ from ..utils import (
     check_numpy_ndarray_args,
     check_unspec_or_constant_args,
     check_unspec_python_args,
-    cmp_name_to_op_mapping,
     dict_methods,
     extract_fake_example_value,
     frozenset_methods,
@@ -77,6 +76,7 @@ from ..utils import (
     numpy_operator_wrapper,
     proxy_args_kwargs,
     raise_args_mismatch,
+    richcmp_op,
     set_methods,
     str_methods,
     tensortype_to_dtype,
@@ -775,7 +775,7 @@ class BuiltinVariable(VariableTracker):
                 )
 
                 # Map operator function → dunder name (e.g. operator.eq → "__eq__")
-                _op_to_dunder = {v: k for k, v in cmp_name_to_op_mapping.items()}
+                _op_to_dunder = {v: k for k, v in richcmp_op.items()}
                 dunder_op = _op_to_dunder[op]
 
                 def make_richcompare_handler(
@@ -2731,7 +2731,7 @@ class BuiltinVariable(VariableTracker):
                 member, (torch._ops.OpOverloadPacket, torch._ops.OpOverload)
             ) and torch._dynamo.trace_rules.is_aten_op_or_tensor_method(member):
                 return variables.TorchInGraphFunctionVariable(member, source=source)
-            elif name in cmp_name_to_op_mapping:
+            elif name in richcmp_op:
                 return variables.GetAttrVariable(obj, name, source=source)
             else:
                 return None
@@ -3351,7 +3351,7 @@ class BuiltinVariable(VariableTracker):
         if other.is_python_constant():
             try:
                 return ConstantVariable.create(
-                    cmp_name_to_op_mapping[op](
+                    richcmp_op[op](
                         self.as_python_constant(), other.as_python_constant()
                     )
                 )

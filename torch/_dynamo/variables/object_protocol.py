@@ -9,7 +9,7 @@ Per-type richcompare_impl hooks live in their respective VT files.
 from typing import TYPE_CHECKING
 
 from ..exc import raise_observed_exception, unimplemented
-from ..utils import cmp_name_to_op_str_mapping, istype
+from ..utils import istype, richcmp_op, richcmp_op_str
 from .base import NO_SUCH_SUBOBJ, VariableTracker
 
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from ..symbolic_convert import InstructionTranslator
 
 
-_reflected_richcompare_op: dict[str, str] = {
+reflected_richcompare_op: dict[str, str] = {
     "__eq__": "__eq__",
     "__ne__": "__ne__",
     "__lt__": "__gt__",
@@ -27,16 +27,40 @@ _reflected_richcompare_op: dict[str, str] = {
 }
 
 
-def _is_richcompare_not_implemented(vt: "VariableTracker") -> bool:
+def is_richcompare_not_implemented(vt: "VariableTracker") -> bool:
     from .constant import ConstantVariable
 
     return isinstance(vt, ConstantVariable) and vt.value is NotImplemented
 
 
-def _type_overrides_richcompare(tp: type, op: str) -> bool:
+def type_overrides_richcompare(tp: type, op: str) -> bool:
     method = getattr(tp, op, None)
     obj_method = getattr(object, op, None)
     return method is not None and method is not obj_method
+
+
+def python_constant_richcompare_impl(
+    self: "VariableTracker",
+    tx: "InstructionTranslator",
+    other: "VariableTracker",
+    op: str,
+) -> "VariableTracker":
+    """richcompare_impl for VTs whose identity is their as_python_constant() value.
+
+    Suitable for function VTs (UserFunctionVariable, TorchInGraphFunctionVariable,
+    BuiltinVariable, etc.) where equality is Python object identity.
+    Returns ConstantVariable(NotImplemented) if either side can't be reduced
+    to a Python constant, letting generic_richcompare try the reflected op or
+    fall back to identity comparison.
+    """
+    from .constant import ConstantVariable
+
+    try:
+        return ConstantVariable.create(
+            richcmp_op[op](self.as_python_constant(), other.as_python_constant())
+        )
+    except Exception:
+        return ConstantVariable.create(NotImplemented)
 
 
 def vt_identity_compare(
@@ -100,6 +124,8 @@ def generic_richcompare(
 ) -> "VariableTracker":
     """Implement CPython's PyObject_RichCompare algorithm.
 
+    https://github.com/python/cpython/blob/v3.13.0/Objects/object.c#L972
+
     Steps:
       1. If type(rhs) is a proper subclass of type(lhs) with overriding reflected op: try rhs first
       2. Try lhs.__op__(rhs)
@@ -108,7 +134,7 @@ def generic_richcompare(
     """
     from .. import graph_break_hints
 
-    reflected = _reflected_richcompare_op[op]
+    reflected = reflected_richcompare_op[op]
 
     # Step 1: subclass priority
     try:
@@ -117,25 +143,25 @@ def generic_richcompare(
         rhs_first = (
             lhs_type is not rhs_type
             and issubclass(rhs_type, lhs_type)
-            and _type_overrides_richcompare(rhs_type, reflected)
+            and type_overrides_richcompare(rhs_type, reflected)
         )
     except NotImplementedError:
         rhs_first = False
 
     if rhs_first:
         result = rhs.richcompare_impl(tx, lhs, reflected)
-        if not _is_richcompare_not_implemented(result):
+        if not is_richcompare_not_implemented(result):
             return result
 
     # Step 2: forward
     result = lhs.richcompare_impl(tx, rhs, op)
-    if not _is_richcompare_not_implemented(result):
+    if not is_richcompare_not_implemented(result):
         return result
 
     # Step 3: reflected (if not already tried in step 1)
     if not rhs_first:
         result = rhs.richcompare_impl(tx, lhs, reflected)
-        if not _is_richcompare_not_implemented(result):
+        if not is_richcompare_not_implemented(result):
             return result
 
     # Step 4: fallback
@@ -156,7 +182,7 @@ def generic_richcompare(
     else:
         lhs_name = lhs.python_type_name()
         rhs_name = rhs.python_type_name()
-        op_str = cmp_name_to_op_str_mapping[op]
+        op_str = richcmp_op_str[op]
         msg = VariableTracker.build(
             tx,
             f"'{op_str}' not supported between instances of '{lhs_name}' and '{rhs_name}'",
