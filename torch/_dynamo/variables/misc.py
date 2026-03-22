@@ -1357,6 +1357,21 @@ class GetAttrVariable(VariableTracker):
     ) -> VariableTracker:
         return self.obj.call_method(tx, self.name, list(args), kwargs)
 
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        from .constant import ConstantVariable
+        from .object_protocol import generic_richcompare
+
+        try:
+            resolved = VariableTracker.build(tx, self.as_python_constant())
+        except NotImplementedError:
+            return ConstantVariable.create(NotImplemented)
+        return generic_richcompare(tx, resolved, other, op)
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -1628,6 +1643,17 @@ class PythonModuleVariable(VariableTracker):
 
     def __repr__(self) -> str:
         return f"PythonModuleVariable({self.value})"
+
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        from .constant import ConstantVariable
+
+        # CPython: modules use identity comparison (object_richcompare)
+        return ConstantVariable.create(NotImplemented)
 
     def call_obj_hasattr(
         self, tx: "InstructionTranslator", name: str

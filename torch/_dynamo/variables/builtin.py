@@ -786,7 +786,7 @@ class BuiltinVariable(VariableTracker):
                         a: VariableTracker,
                         b: VariableTracker,
                     ) -> VariableTracker:
-                        from .user_defined import generic_richcompare
+                        from .object_protocol import generic_richcompare
 
                         return generic_richcompare(tx, a, b, dunder)
 
@@ -866,7 +866,7 @@ class BuiltinVariable(VariableTracker):
                     left: VariableTracker,
                     right: VariableTracker,
                 ) -> VariableTracker | None:
-                    from .user_defined import vt_identity_compare
+                    from .object_protocol import vt_identity_compare
 
                     result = vt_identity_compare(tx, left, right)
                     if result is None:
