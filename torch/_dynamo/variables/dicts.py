@@ -1982,17 +1982,16 @@ class DictKeysVariable(DictViewVariable):
         if isinstance(other, DictItemsVariable):
             # Cross-view comparison: keys are single VTs, items are TupleVariable([k, v]).
             # Use trace-time all_contained_in; 'k in items' checks k == (k2,v2) for some item.
-            a_elems = self.view_items_vt
-            b_elems = other.view_items_vt
-        else:
-            # SetVariable or DictKeysVariable: both have set_items as set[_HashableTracker].
-            # Python set operators on _HashableTracker use _HashableTracker.__eq__ (is_python_equal),
-            # correctly implementing subset/superset semantics.
             return VariableTracker.build(
-                tx,
-                richcmp_op[op](self.set_items, other.set_items),  # type: ignore[attr-defined]
+                tx, dictview_richcompare(self.view_items_vt, other.view_items_vt, op)
             )
-        return VariableTracker.build(tx, dictview_richcompare(a_elems, b_elems, op))
+        # SetVariable or DictKeysVariable: both have set_items as set[_HashableTracker].
+        # Python set operators on _HashableTracker use _HashableTracker.__eq__ (is_python_equal),
+        # correctly implementing subset/superset semantics.
+        return VariableTracker.build(
+            tx,
+            richcmp_op[op](self.set_items, other.set_items),  # type: ignore[attr-defined]
+        )
 
 
 class DictValuesVariable(DictViewVariable):
