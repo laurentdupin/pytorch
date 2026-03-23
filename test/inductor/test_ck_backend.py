@@ -17,7 +17,6 @@ from torch.testing._internal.common_cuda import tf32_off
 from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
-    skipIfRocm,
 )
 from torch.testing._internal.inductor_utils import (
     _quantize_rowwise,
@@ -243,15 +242,16 @@ class TestCKBackend(TestCase):
     @unittest.skipIf(not torch.version.hip, "ROCM only")
     @unittest.mock.patch.dict(os.environ, _test_env)
     @parametrize("max_autotune_gemm_backends", ("CK", "ATen,Triton,CK"))
-    @skipIfRocm(msg="Numerical accuracy errors in CK backend on gfx950 as of 06/03/26")
     @parametrize(
-        "x_shape", ([4096, 2048], [2048], [4096, 1])
-    )  # NOTE: the first two shapes create "Tensor-likes are not close" errors
+        "x_shape",
+        ([4096, 2048], [2048], [4096, 1]),
+        name_fn=lambda x_shape: f"x_shape_{'x'.join(map(str, x_shape))}",
+    )
     def test_max_autotune_addmm(self, max_autotune_gemm_backends, x_shape):
         m, k, n = 4096, 224, 2048
         alpha, beta = 1.0, 1.0
 
-        tensor_options = {"device": "cuda", "dtype": torch.float16}
+        tensor_options = {"device": "cuda", "dtype": torch.bfloat16}
         x = torch.ones(x_shape, **tensor_options)
         a = torch.randn(m, k, **tensor_options)
         b = torch.randn(k, n, **tensor_options)
