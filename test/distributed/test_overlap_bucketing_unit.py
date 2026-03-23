@@ -5,7 +5,6 @@ import torch
 import torch._dynamo
 import torch._dynamo.logging
 import torch._dynamo.test_case
-import torch._inductor.config
 import torch.distributed as dist
 import torch.fx as fx
 
@@ -20,6 +19,7 @@ from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
     run_tests,
+    TestCase,
 )
 from torch.testing._internal.inductor_utils import HAS_GPU
 from torch.utils._ordered_set import OrderedSet
@@ -539,165 +539,6 @@ class TestOverlapPreservingBucketing(InductorTestCase):
             target=torch.ops._c10d_functional.reduce_scatter_tensor.default,
         )
         self.assertEqual(len(rs_nodes), 1)
-
-    def test_reduce_scatter_coalesced_mode(self):
-        """
-        Test that 'coalesced' bucket mode uses reduce_scatter_tensor_coalesced
-        instead of cat + single reduce_scatter.
-        """
-
-        def func(a, b):
-            group_name = "0"
-            group_size = 2
-
-            rs1 = torch.ops._c10d_functional.reduce_scatter_tensor(
-                a, "sum", group_size, group_name
-            )
-            rs2 = torch.ops._c10d_functional.reduce_scatter_tensor(
-                b, "sum", group_size, group_name
-            )
-
-            rs1_out = torch.ops._c10d_functional.wait_tensor(rs1)
-            rs2_out = torch.ops._c10d_functional.wait_tensor(rs2)
-
-            return rs1_out.sum() + rs2_out.sum()
-
-        with FakeTensorMode():
-            a = torch.ones(4, 4, device=self.device)
-            b = torch.ones(4, 4, device=self.device) * 2
-            traced = make_fx(func)(a, b)
-
-        rs1, rs2 = traced.graph.find_nodes(
-            op="call_function",
-            target=torch.ops._c10d_functional.reduce_scatter_tensor.default,
-        )
-
-        hiding_annotations = {}
-        collective_info = build_collective_info(traced.graph, hiding_annotations)
-        scheduled = OrderedSet(traced.graph.nodes)
-
-        from torch._inductor.fx_passes.overlap_preserving_bucketer import (
-            OverlapPreservingBucketer,
-        )
-
-        bucketer = OverlapPreservingBucketer(
-            traced.graph,
-            collective_info,
-            scheduled,
-            bucket_mode="coalesced",
-        )
-        bucketer.bucket_collectives()
-
-        graph_str = str(traced.graph)
-        # Coalesced mode should use reduce_scatter_tensor_coalesced, not cat
-        self.assertIn("reduce_scatter_tensor_coalesced", graph_str)
-        # No cat.default should appear (the whole point of coalesced)
-        self.assertNotIn("cat.default", graph_str)
-
-    def test_all_reduce_coalesced_mode(self):
-        """
-        Test that 'coalesced' bucket mode uses all_reduce_coalesced
-        instead of cat + single all_reduce.
-        """
-
-        def func(a, b):
-            group_name = "0"
-
-            ar1 = torch.ops._c10d_functional.all_reduce(a, "sum", group_name)
-            ar2 = torch.ops._c10d_functional.all_reduce(b, "sum", group_name)
-
-            ar1_out = torch.ops._c10d_functional.wait_tensor(ar1)
-            ar2_out = torch.ops._c10d_functional.wait_tensor(ar2)
-
-            return ar1_out.sum() + ar2_out.sum()
-
-        with FakeTensorMode():
-            a = torch.ones(4, 4, device=self.device)
-            b = torch.ones(4, 4, device=self.device) * 2
-            traced = make_fx(func)(a, b)
-
-        ar1, ar2 = traced.graph.find_nodes(
-            op="call_function",
-            target=torch.ops._c10d_functional.all_reduce.default,
-        )
-
-        hiding_annotations = {}
-        collective_info = build_collective_info(traced.graph, hiding_annotations)
-        scheduled = OrderedSet(traced.graph.nodes)
-
-        from torch._inductor.fx_passes.overlap_preserving_bucketer import (
-            OverlapPreservingBucketer,
-        )
-
-        bucketer = OverlapPreservingBucketer(
-            traced.graph,
-            collective_info,
-            scheduled,
-            bucket_mode="coalesced",
-        )
-        bucketer.bucket_collectives()
-
-        graph_str = str(traced.graph)
-        self.assertIn("all_reduce_coalesced", graph_str)
-        self.assertNotIn("cat.default", graph_str)
-
-    def test_all_gather_coalesced_mode(self):
-        """
-        Test that 'coalesced' bucket mode uses all_gather_into_tensor_coalesced
-        instead of foreach_copy_ into a buffer + single all_gather.
-        """
-
-        def func(a, b):
-            group_name = "0"
-            group_size = 2
-
-            ag1 = torch.ops._c10d_functional.all_gather_into_tensor(
-                a, group_size, group_name
-            )
-            ag2 = torch.ops._c10d_functional.all_gather_into_tensor(
-                b, group_size, group_name
-            )
-
-            mm1 = torch.mm(a, a)
-            mm2 = torch.mm(b, b)
-
-            ag1_out = torch.ops._c10d_functional.wait_tensor(ag1)
-            ag2_out = torch.ops._c10d_functional.wait_tensor(ag2)
-
-            return ag1_out.sum() + ag2_out.sum() + mm1.sum() + mm2.sum()
-
-        with FakeTensorMode():
-            a = torch.ones(4, 4, device=self.device)
-            b = torch.ones(4, 4, device=self.device) * 2
-            traced = make_fx(func)(a, b)
-
-        ag1, ag2 = traced.graph.find_nodes(
-            op="call_function",
-            target=torch.ops._c10d_functional.all_gather_into_tensor.default,
-        )
-        mm_nodes = traced.graph.find_nodes(
-            op="call_function", target=torch.ops.aten.mm.default
-        )
-
-        hiding_annotations = {ag1: mm_nodes[0], ag2: mm_nodes[1]}
-        collective_info = build_collective_info(traced.graph, hiding_annotations)
-        scheduled = OrderedSet(traced.graph.nodes)
-
-        from torch._inductor.fx_passes.overlap_preserving_bucketer import (
-            OverlapPreservingBucketer,
-        )
-
-        bucketer = OverlapPreservingBucketer(
-            traced.graph,
-            collective_info,
-            scheduled,
-            bucket_mode="coalesced",
-        )
-        bucketer.bucket_collectives()
-
-        graph_str = str(traced.graph)
-        self.assertIn("all_gather_into_tensor_coalesced", graph_str)
-        self.assertNotIn("foreach_copy_", graph_str)
 
     def test_can_bucket_multidtype_collectives(self):
         """
@@ -1230,6 +1071,7 @@ class TestCrossPGOverlap(InductorTestCase):
 
 @requires_accelerator_dist_backend(["nccl", "xccl"])
 @unittest.skipIf(not HAS_GPU, "Inductor+gpu needs triton and recent GPU arch")
+@instantiate_parametrized_tests
 class TestFusibleNodeOverlap(InductorTestCase):
     """Test that fusible nodes are used for overlapping with collectives."""
 
@@ -1346,6 +1188,56 @@ class TestFusibleNodeOverlap(InductorTestCase):
         FileCheck().check("all_gather_into_tensor").check("add").check("mul").check(
             "sub"
         ).check("wait_tensor").run(graph_str)
+
+    @parametrize("enable_fusion_regions", [False, True])
+    def test_precomputed_estimations_via_custom_runtime(self, enable_fusion_regions):
+        """Pre-computed estimations from gather_node_runtime_estimations can be
+        fed into OverlapScheduler via custom_runtime_estimation wrapping a dict."""
+
+        def func(a):
+            group_name = "0"
+            group_size = 1
+            ag = torch.ops._c10d_functional.all_gather_into_tensor(
+                a, group_size, group_name
+            )
+            b = a + 1
+            b = b * 2
+            ag_out = torch.ops._c10d_functional.wait_tensor(ag)
+            return ag_out.sum() + b.sum()
+
+        with FakeTensorMode():
+            a = torch.ones(1024, 1024, device=self.device)
+            traced = make_fx(func)(a)
+
+        from torch._inductor.fx_passes.overlap_scheduling import (
+            gather_node_runtime_estimations,
+            OverlapScheduler,
+        )
+
+        estimations, fusion_region_of = gather_node_runtime_estimations(
+            traced,
+            collective_estimator="analytical",
+            enable_fusion_regions=enable_fusion_regions,
+        )
+        for node in fusion_region_of:
+            self.assertIn(node, estimations)
+
+        scheduler = OverlapScheduler(
+            traced,
+            max_in_flight_gb=5.0,
+            max_compute_pre_fetch=200,
+            collective_bucketing=False,
+            insert_overlap_deps=False,
+            compute_overlap_multipler=1.0,
+            max_coll_distance=200,
+            custom_runtime_estimation=lambda node, _: estimations.get(node),
+            collective_estimator="analytical",
+        )
+        out = scheduler.run()
+        FileCheck().check("all_gather_into_tensor").check("wait_tensor").run(
+            str(out.graph)
+        )
+        self.assertEqual(len(scheduler.collective_info), 1)
 
 
 @requires_accelerator_dist_backend(["nccl", "xccl"])
@@ -1572,69 +1464,320 @@ class TestForeachGroupsUnit(InductorTestCase):
         self.assertTrue(torch.allclose(result_with, result_without))
 
 
-class TestForeachImprov(InductorTestCase):
-    """Unit tests for _foreach_improv config (cat+copy_ vs _foreach_copy_)."""
+# ---------------------------------------------------------------------------
+# Profile-Guided Latency Estimation (PGLE) unit tests — no GPU required
+# ---------------------------------------------------------------------------
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        from torch.testing._internal.distributed.fake_pg import FakeStore
+import json
+import os
+import tempfile
 
-        store = FakeStore()
-        dist.init_process_group(backend="fake", rank=0, world_size=2, store=store)
-        cls.device = "cuda"
+from torch._inductor.fx_passes.profile_guided_estimation import (
+    _normalize_profile_dtype,
+    _normalize_profile_indices,
+    _rank_stride,
+    ProfileData,
+)
 
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        dist.destroy_process_group()
 
-    @unittest.skipIf(not HAS_GPU, "Requires GPU")
-    def test_foreach_improv_uses_cat_copy(self):
-        """Test that _foreach_improv replaces _foreach_copy_ with cat+copy_."""
-        from torch._inductor.fx_passes.bucketing import all_gather_merge_fn_to_trace
+def _make_pgle_trace(
+    collectives=None,
+    matmuls=None,
+    sdpa_ops=None,
+    pg_config=None,
+):
+    """Build a minimal Chrome Trace JSON dict for PGLE testing."""
+    events = []
+    eid = 1000
 
-        with FakeTensorMode():
-            ag_ins = [
-                torch.randn(4, 4, device=self.device),
-                torch.randn(8, 4, device=self.device),
+    for coll in collectives or []:
+        events.append(
+            {
+                "cat": "kernel",
+                "dur": coll["dur"],
+                "name": "nccl_kernel",
+                "args": {
+                    "Collective name": coll["name"],
+                    "Process Group Name": coll.get("pg_name", "0"),
+                    "Process Group Ranks": coll.get("ranks", "[0, 1]"),
+                    "Group size": coll.get("group_size", 2),
+                    "In msg nelems": coll.get("nelems", 1024),
+                    "dtype": coll.get("dtype", "Float"),
+                },
+            }
+        )
+
+    for mm in matmuls or []:
+        eid += 1
+        events.append(
+            {
+                "cat": "cpu_op",
+                "name": "aten::mm",
+                "dur": 0,
+                "args": {
+                    "External id": eid,
+                    "Input Dims": mm["shapes"],
+                    "Input type": mm.get("dtypes", ["Float", "Float"]),
+                },
+            }
+        )
+        events.append(
+            {
+                "cat": "kernel",
+                "dur": mm["dur"],
+                "name": "sm80_xmma_gemm",
+                "args": {"External id": eid},
+            }
+        )
+
+    for sdpa in sdpa_ops or []:
+        eid += 1
+        op_name = sdpa.get("op_name", "aten::_scaled_dot_product_flash_attention")
+        events.append(
+            {
+                "cat": "cpu_op",
+                "name": op_name,
+                "dur": 0,
+                "args": {
+                    "External id": eid,
+                    "Input Dims": sdpa["input_dims"],
+                    "Input type": sdpa.get("dtypes", ["BFloat16"]),
+                },
+            }
+        )
+        events.append(
+            {
+                "cat": "kernel",
+                "dur": sdpa["dur"],
+                "name": "flash_fwd_kernel",
+                "args": {"External id": eid},
+            }
+        )
+
+    dist_info = {}
+    if pg_config is not None:
+        dist_info["pg_config"] = pg_config
+    else:
+        dist_info["pg_config"] = {"0": {"ranks": [0, 1]}}
+
+    return {"traceEvents": events, "distributedInfo": dist_info}
+
+
+def _load_pgle_profile(data):
+    """Write trace dict to a temp file and load via ProfileData."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(data, f)
+        f.flush()
+        path = f.name
+    try:
+        profile = ProfileData()
+        profile.load(path)
+        return profile
+    finally:
+        os.unlink(path)
+
+
+class TestProfileGuidedEstimation(TestCase):
+    def test_collective_lookup_and_interpolation(self):
+        """Parse collectives, exact lookup, interpolation, stride fallback, name normalization, edge cases."""
+        # _rank_stride
+        self.assertEqual(_rank_stride((0, 2, 4, 6)), 2)
+        self.assertEqual(_rank_stride((0, 1, 2, 3)), 1)
+        self.assertIsNone(_rank_stride((0, 1, 4, 5)))
+        self.assertIsNone(_rank_stride((0,)))
+        self.assertIsNone(_rank_stride(()))
+
+        # Collective name normalization
+        norm = ProfileData._normalize_collective_name
+        self.assertEqual(norm("_allgather_base"), "all_gather")
+        self.assertEqual(norm("allreduce"), "all_reduce")
+        self.assertEqual(norm("reduce_scatter_tensor_coalesced"), "reduce_scatter")
+        self.assertEqual(norm("all_to_all_single"), "all_to_all")
+        self.assertEqual(norm("barrier"), "barrier")
+
+        # Load trace with two data points for interpolation + stride fallback
+        trace = _make_pgle_trace(
+            collectives=[
+                {
+                    "name": "allreduce",
+                    "dur": 100.0,
+                    "nelems": 1000,
+                    "dtype": "Float",
+                    "ranks": "[0, 2, 4, 6]",
+                    "group_size": 4,
+                },
+                {
+                    "name": "allreduce",
+                    "dur": 800.0,
+                    "nelems": 8000,
+                    "dtype": "Float",
+                    "ranks": "[0, 2, 4, 6]",
+                    "group_size": 4,
+                },
+            ],
+            pg_config={"0": {"ranks": [0, 2, 4, 6]}},
+        )
+        profile = _load_pgle_profile(trace)
+        _normalize_profile_indices(profile)
+
+        self.assertEqual(len(profile.collectives), 2)
+
+        # Exact match: 100 us -> 0.1 ms
+        result = profile.lookup_collective("all_reduce", (0, 2, 4, 6), 1000, "Float")
+        self.assertAlmostEqual(result, 0.1, places=4)
+
+        # Interpolation between 1000 and 8000 nelems
+        result = profile.lookup_collective("all_reduce", (0, 2, 4, 6), 4000, "Float")
+        self.assertIsNotNone(result)
+        self.assertGreater(result, 0.1)
+        self.assertLess(result, 0.8)
+
+        # Stride fallback: different ranks, same stride=2 size=4
+        result = profile.lookup_collective("all_reduce", (1, 3, 5, 7), 1000, "Float")
+        self.assertAlmostEqual(result, 0.1, places=4)
+
+        # Miss: wrong collective name
+        self.assertIsNone(
+            profile.lookup_collective("all_to_all", (0, 2, 4, 6), 1000, "Float")
+        )
+
+        # Single-point extrapolation
+        result = profile.lookup_collective("all_reduce", (0, 2, 4, 6), 16000, "Float")
+        self.assertIsNotNone(result)
+        self.assertGreater(result, 0.8)
+
+        # Zero-duration events skipped
+        trace_zero = _make_pgle_trace(
+            collectives=[
+                {"name": "allreduce", "dur": 0.0, "nelems": 1024, "dtype": "Float"}
             ]
-            with torch._inductor.config.patch(_foreach_improv=True):
-                traced = make_fx(all_gather_merge_fn_to_trace)(
-                    ag_ins,
-                    2,
-                    "0",
-                    torch.float32,
-                    [torch.float32, torch.float32],
-                    0,
-                )
-            graph_str = str(traced.graph)
-            # Should use cat + copy_, not _foreach_copy_
-            self.assertIn("cat", graph_str)
-            self.assertIn("copy_", graph_str)
-            self.assertNotIn("_foreach_copy_", graph_str)
+        )
+        self.assertEqual(len(_load_pgle_profile(trace_zero).collectives), 0)
 
-    @unittest.skipIf(not HAS_GPU, "Requires GPU")
-    def test_default_uses_foreach_copy(self):
-        """Test that default mode still uses _foreach_copy_."""
-        from torch._inductor.fx_passes.bucketing import all_gather_merge_fn_to_trace
+        # Empty trace
+        empty = _load_pgle_profile({"traceEvents": []})
+        self.assertEqual(len(empty.collectives), 0)
+        self.assertEqual(len(empty.matmuls), 0)
 
-        with FakeTensorMode():
-            ag_ins = [
-                torch.randn(4, 4, device=self.device),
-                torch.randn(8, 4, device=self.device),
-            ]
-            with torch._inductor.config.patch(_foreach_improv=False):
-                traced = make_fx(all_gather_merge_fn_to_trace)(
-                    ag_ins,
-                    2,
-                    "0",
-                    torch.float32,
-                    [torch.float32, torch.float32],
-                    0,
-                )
-            graph_str = str(traced.graph)
-            self.assertIn("_foreach_copy_", graph_str)
+    def test_matmul_and_sdpa_lookup(self):
+        """Matmul and SDPA: exact match, FLOP-ratio interpolation, backward, dtype miss."""
+        trace = _make_pgle_trace(
+            matmuls=[
+                {
+                    "shapes": [[128, 256], [256, 512]],
+                    "dur": 50.0,
+                    "dtypes": ["Float", "Float"],
+                },
+                {
+                    "shapes": [[64, 128], [128, 64]],
+                    "dur": 10.0,
+                    "dtypes": ["Float", "Float"],
+                },
+            ],
+            sdpa_ops=[
+                {
+                    "input_dims": [[2, 8, 1024, 64]],
+                    "dur": 300.0,
+                    "dtypes": ["BFloat16"],
+                },
+                {
+                    "input_dims": [[2, 8, 512, 64]],
+                    "dur": 100.0,
+                    "dtypes": ["BFloat16"],
+                },
+                {
+                    "input_dims": [[2, 8, 1024, 64]],
+                    "dur": 500.0,
+                    "dtypes": ["BFloat16"],
+                    "op_name": "aten::_scaled_dot_product_flash_attention_backward",
+                },
+            ],
+        )
+        profile = _load_pgle_profile(trace)
+        _normalize_profile_indices(profile)
+
+        # Matmul exact match: 50 us -> 0.05 ms
+        self.assertAlmostEqual(
+            profile.lookup_mm(((128, 256), (256, 512)), "Float"), 0.05, places=4
+        )
+
+        # Matmul FLOP-ratio interpolation
+        result = profile.lookup_mm(((128, 128), (128, 128)), "Float")
+        self.assertIsNotNone(result)
+        ref_flops = 2 * 64 * 64 * 128
+        target_flops = 2 * 128 * 128 * 128
+        self.assertAlmostEqual(
+            result, 10.0 * (target_flops / ref_flops) / 1e3, places=4
+        )
+
+        # Matmul dtype miss
+        self.assertIsNone(profile.lookup_mm(((128, 256), (256, 512)), "Half"))
+
+        # SDPA exact match: 300 us -> 0.3 ms
+        self.assertAlmostEqual(
+            profile.lookup_sdpa(2, 8, 1024, 64, "BFloat16", is_backward=False),
+            0.3,
+            places=4,
+        )
+
+        # SDPA interpolation from 512 data point to a new shape
+        result = profile.lookup_sdpa(2, 8, 2048, 64, "BFloat16", is_backward=False)
+        self.assertIsNotNone(result)
+        self.assertGreater(result, 0.3)
+
+        # SDPA backward
+        self.assertAlmostEqual(
+            profile.lookup_sdpa(2, 8, 1024, 64, "BFloat16", is_backward=True),
+            0.5,
+            places=4,
+        )
+
+    def test_dtype_normalization_and_collision(self):
+        """Dtype normalization, c10:: prefix handling, and collision averaging for matmul/SDPA."""
+        self.assertEqual(_normalize_profile_dtype("c10::Float"), "Float")
+        self.assertEqual(_normalize_profile_dtype("c10::BFloat16"), "BFloat16")
+        self.assertEqual(_normalize_profile_dtype("Float"), "Float")
+        self.assertEqual(_normalize_profile_dtype("CustomType"), "CustomType")
+
+        # Matmul dtype collision: two raw dtypes normalize to same key -> averaged
+        profile = ProfileData()
+        profile._matmul_index = {
+            ((128, 256), (256, 512), "c10::BFloat16"): 100.0,
+            ((128, 256), (256, 512), "BFloat16"): 200.0,
+        }
+        _normalize_profile_indices(profile)
+        key = ((128, 256), (256, 512), "BFloat16")
+        self.assertIn(key, profile._matmul_index)
+        self.assertAlmostEqual(profile._matmul_index[key], 150.0)
+
+        # SDPA dtype collision
+        profile2 = ProfileData()
+        profile2._sdpa_index = {
+            (2, 8, 1024, 64, "c10::BFloat16", False): 100.0,
+            (2, 8, 1024, 64, "BFloat16", False): 300.0,
+        }
+        _normalize_profile_indices(profile2)
+        key2 = (2, 8, 1024, 64, "BFloat16", False)
+        self.assertIn(key2, profile2._sdpa_index)
+        self.assertAlmostEqual(profile2._sdpa_index[key2], 200.0)
+
+        # PG config parsing: dict format
+        trace = _make_pgle_trace(
+            pg_config={"0": {"ranks": [0, 1, 2, 3]}, "1": {"ranks": [0, 2]}},
+        )
+        profile3 = _load_pgle_profile(trace)
+        self.assertEqual(profile3.pg_configs["0"], (0, 1, 2, 3))
+        self.assertEqual(profile3.pg_configs["1"], (0, 2))
+
+        # PG config parsing: list format
+        trace_list = {
+            "traceEvents": [],
+            "distributedInfo": {
+                "pg_config": [{"pg_name": "default", "ranks": [0, 1, 2, 3]}]
+            },
+        }
+        profile4 = _load_pgle_profile(trace_list)
+        self.assertEqual(profile4.pg_configs["default"], (0, 1, 2, 3))
 
 
 if __name__ == "__main__":
