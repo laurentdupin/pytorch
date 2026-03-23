@@ -31,6 +31,7 @@ import inspect
 import logging
 import math
 import re
+from collections import OrderedDict
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import nullcontext
 from typing import Any, NoReturn, TYPE_CHECKING, TypeVar, Union
@@ -2309,15 +2310,11 @@ class TorchInGraphFunctionVariable(BaseTorchVariable):
             )
 
             if inputs_dict_keys is not None:
-                from collections import OrderedDict
-
                 from .lists import BaseListVariable
 
                 assert isinstance(result, BaseListVariable)
                 result_cls = (
-                    OrderedDict
-                    if issubclass(inputs_user_cls, OrderedDict)
-                    else dict
+                    OrderedDict if issubclass(inputs_user_cls, OrderedDict) else dict
                 )
                 items = {
                     ConstantVariable.create(key): val

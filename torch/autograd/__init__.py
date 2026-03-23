@@ -509,6 +509,8 @@ def grad(
     inputs_tuple: tuple[torch.Tensor | graph.GradientEdge, ...]
     if isinstance(inputs, Mapping):
         inputs_tuple = tuple(inputs.values())
+        if len(inputs_tuple) == 0:
+            raise RuntimeError("`inputs` argument to `grad()` cannot be empty.")
     elif is_tensor_like(inputs) or isinstance(inputs, graph.GradientEdge):
         inputs_tuple = cast(tuple[torch.Tensor | graph.GradientEdge, ...], (inputs,))
     else:
