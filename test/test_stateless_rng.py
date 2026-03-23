@@ -367,6 +367,16 @@ class TestPhiloxUniform(TestCase):
         with self.assertRaises(RuntimeError):
             torch.random.uniform(key, (100,))
 
+    def test_offset_shift_consistency_double(self):
+        """Float64 uniform: offset shift of 2 = element shift of 1."""
+        seed = 42
+        n = 100
+        key0 = torch.tensor([seed, 0], dtype=torch.uint64, device="cuda")
+        ref = torch.random.uniform(key0, (n,), dtype=torch.float64)
+        key2 = torch.tensor([seed, 2], dtype=torch.uint64, device="cuda")
+        result = torch.random.uniform(key2, (n - 1,), dtype=torch.float64)
+        self.assertEqual(result, ref[1:])
+
 
 @unittest.skipIf(not TEST_CUDA, "CUDA not available")
 class TestPhiloxCompile(TestCase):
