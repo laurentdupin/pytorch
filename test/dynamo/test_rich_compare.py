@@ -617,6 +617,42 @@ class RichCompareTests(TestCase):
         result = self._compile(fn, torch.tensor(0))
         self.assertIn("not supported", result)
 
+    def test_list_eq_element_raises_assertion(self):
+        # When a list element's __eq__ raises AssertionError, list comparison
+        # should propagate it rather than swallowing it.
+        class AssertEq:
+            def __eq__(self, other):
+                raise AssertionError("comparison not allowed")
+
+        obj = AssertEq()
+
+        def fn(x):
+            lst1 = [obj]
+            lst2 = [obj]
+            try:
+                return lst1 == lst2
+            except AssertionError as e:
+                return str(e)
+
+        result = self._compile(fn, torch.tensor(0))
+        self.assertIn("comparison not allowed", result)
+
+    def test_list_lt_element_raises_type_error(self):
+        # complex doesn't support < — when used as list elements, list's lexicographic
+        # < propagates the TypeError raised by complex.__lt__ returning NotImplemented
+        # (and the reflected op also returning NotImplemented), matching CPython behavior.
+        def fn(x):
+            lst1 = [1 + 2j]
+            lst2 = [3 + 4j]
+            try:
+                return lst1 < lst2
+            except TypeError as e:
+                return str(e)
+
+        result = self._compile(fn, torch.tensor(0))
+        self.assertIn("not supported", result)
+        self.assertIn("complex", result)
+
     def test_exception_lt_exception_raises_type_error(self):
         e1 = ValueError("a")
         e2 = ValueError("b")
