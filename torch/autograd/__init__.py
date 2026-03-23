@@ -10,7 +10,7 @@ half, float, double and bfloat16) and complex :class:`Tensor` types (cfloat, cdo
 
 import warnings
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import cast, overload
 
 import torch
@@ -506,13 +506,16 @@ def grad(
         # pyrefly: ignore [bad-argument-type]
         outputs = tuple(outputs)
 
-    inputs_tuple: tuple[torch.Tensor | graph.GradientEdge, ...]
+    inputs_tuple: tuple[torch.Tensor, ...] | tuple[graph.GradientEdge, ...]
     if isinstance(inputs, Mapping):
+        # pyrefly: ignore [bad-argument-type]
         inputs_tuple = tuple(inputs.values())
         if len(inputs_tuple) == 0:
             raise RuntimeError("`inputs` argument to `grad()` cannot be empty.")
     elif is_tensor_like(inputs) or isinstance(inputs, graph.GradientEdge):
-        inputs_tuple = cast(tuple[torch.Tensor | graph.GradientEdge, ...], (inputs,))
+        inputs_tuple = cast(
+            tuple[torch.Tensor, ...] | tuple[graph.GradientEdge, ...], (inputs,)
+        )
     else:
         # pyrefly: ignore [bad-argument-type]
         inputs_tuple = tuple(inputs)
@@ -525,7 +528,7 @@ def grad(
             grad,
             overridable_args,
             outputs,
-            cast(Sequence[torch.Tensor] | Sequence[graph.GradientEdge], inputs_tuple),
+            inputs_tuple,
             grad_outputs=grad_outputs,
             retain_graph=retain_graph,
             create_graph=create_graph,
