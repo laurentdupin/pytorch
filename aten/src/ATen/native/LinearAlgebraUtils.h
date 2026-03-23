@@ -146,6 +146,17 @@ inline int64_t matrixStride(const Tensor& batched_matrices) {
 }
 
 /*
+ * Returns the leading dimension for a (batched) matrix input.
+ *
+ * IMPORTANT ASSUMPTIONS:
+ * 1. The input dim >= 2.
+ */
+inline int64_t leadingDim(const Tensor& A) {
+  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(A.dim() >= 2);
+  return std::max(A.stride(-1), A.stride(-2));
+}
+
+/*
  * Check whether the input is a (batched) tensor of matrices
  * with non-overlapping (arbitrary strided) memory layout.
  * Only the row and column dimensions are checked!
