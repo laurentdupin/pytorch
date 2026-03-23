@@ -1,5 +1,6 @@
 # mypy: allow-untyped-defs
 import contextlib
+import math
 import warnings
 from collections.abc import Generator, Sequence
 from typing import Optional, TYPE_CHECKING
@@ -78,6 +79,9 @@ class PRNGKey(torch.Tensor):
     def __repr__(self):
         return f"{type(self).__name__}({self._data})"
 
+    def _grid_split(self, shape: tuple, splits: tuple) -> "PRNGKey":
+        raise NotImplementedError
+
     def _split(self, num: int) -> "PRNGKey":
         raise NotImplementedError
 
@@ -101,6 +105,77 @@ class PhiloxKey(PRNGKey):
     @classmethod
     def __tensor_unflatten__(cls, inner_tensors, metadata, outer_size, outer_stride):
         return cls(inner_tensors["_data"])
+
+    def _grid_split(self, shape, splits):
+        ndim = len(shape)
+        tile_shape = tuple(s // sp for s, sp in zip(shape, splits))
+        data = self._data.view(torch.int64)
+        seed = data[..., 0]
+        base_offset = data[..., 1]
+
+        if ndim == 1:
+            # 1D: each tile is a contiguous block of the flat stream.
+            flat_indices = torch.arange(
+                splits[0], dtype=torch.int64, device=self.device
+            )
+            offsets = base_offset + flat_indices * tile_shape[0]
+            seeds = seed.expand_as(offsets)
+            keys = torch.stack([seeds, offsets], dim=-1)
+            return PhiloxKey(keys.view(torch.uint64))
+
+        # N-D: tiles are not contiguous in the flat stream. Each "row" (innermost
+        # slice of size tile_shape[-1]) IS contiguous, so we emit one key per row
+        # within each tile. Returned shape: (*splits, *tile_shape[:-1], 2).
+        # The user generates a tile via uniform(keys[t0, ..., t_{n-1}], tile_shape).
+
+        # Row-major strides of the full shape.
+        strides = []
+        s = 1
+        for d in reversed(shape):
+            strides.append(s)
+            s *= d
+        strides.reverse()
+
+        # Build range tensors for tile indices and inner-tile row indices.
+        ranges = []
+        for j in range(ndim - 1):
+            t = torch.arange(splits[j], dtype=torch.int64, device=self.device)
+            i = torch.arange(tile_shape[j], dtype=torch.int64, device=self.device)
+            global_j = (t * tile_shape[j]).unsqueeze(1) + i.unsqueeze(0)
+            ranges.append(global_j)
+        # Last dim: just tile index * tile_shape[-1]
+        t_last = torch.arange(splits[-1], dtype=torch.int64, device=self.device) * tile_shape[-1]
+        ranges.append(t_last.unsqueeze(1))
+
+        # Broadcast all ranges to compute flat offsets.
+        # Layout: (splits[0], tile_shape[0], ..., splits[n-2], tile_shape[n-2], splits[n-1], 1)
+        total_dims = 2 * (ndim - 1) + 2
+        offset = torch.zeros(1, dtype=torch.int64, device=self.device)
+        for j in range(ndim - 1):
+            view_shape = [1] * total_dims
+            view_shape[2 * j] = splits[j]
+            view_shape[2 * j + 1] = tile_shape[j]
+            offset = offset + ranges[j].reshape(view_shape) * strides[j]
+        view_shape = [1] * total_dims
+        view_shape[2 * (ndim - 1)] = splits[-1]
+        offset = offset + ranges[-1].reshape(view_shape)
+
+        offset = offset + base_offset
+        offset = offset.squeeze(-1)
+        target_shape = []
+        for j in range(ndim - 1):
+            target_shape.extend([splits[j], tile_shape[j]])
+        target_shape.append(splits[-1])
+        offset = offset.reshape(target_shape)
+        # Permute: (sp0, ts0, sp1, ts1, ..., sp_{n-1}) -> (*splits, *tile_shape[:-1])
+        tile_perm = list(range(0, 2 * (ndim - 1), 2))
+        tile_perm.append(2 * (ndim - 1))
+        inner_perm = list(range(1, 2 * (ndim - 1), 2))
+        offset = offset.permute(tile_perm + inner_perm).contiguous()
+
+        seeds = seed.expand_as(offset)
+        keys = torch.stack([seeds, offset], dim=-1)
+        return PhiloxKey(keys.view(torch.uint64))
 
     def _split(self, num):
         return PhiloxKey(torch.ops.aten._philox_key_split(self, num))
@@ -126,6 +201,47 @@ def key(seed: int, impl: str = "philox", device: torch.device = None) -> PRNGKey
         )
     data = torch.tensor([seed, 0], dtype=torch.uint64, device=device)
     return cls(data)
+
+
+def grid_split(key, shape: tuple, splits: tuple):
+    """Split a key into a grid of keys for tiled generation.
+
+    For 1D, each returned key covers a contiguous block of the stream::
+
+        keys = grid_split(key, (100,), (10,))
+        full = uniform(key, (100,))
+        tile_size = 100 // 10  # = 10
+        tiled = torch.cat([uniform(keys[i], (tile_size,)) for i in range(10)])
+        assert torch.equal(full, tiled)
+
+    For N-D, each tile key is a batched key with per-row offsets into the flat
+    stream. The tile shape is ``shape[i] // splits[i]`` along each dimension,
+    and ``uniform(keys[t0, ..., t_{n-1}], tile_shape)`` reproduces the
+    corresponding sub-block of the full generation.
+
+    Args:
+        key: A PRNGKey.
+        shape: Shape of the full tensor to be generated.
+        splits: Number of keys (tiles) along each dimension. Must evenly
+            divide the corresponding element of *shape*.
+
+    Returns:
+        Batched PRNGKey. For 1D: shape ``(*splits, 2)``.
+        For N-D: shape ``(*splits, *tile_shape[:-1], 2)``, where each tile key
+        carries one sub-key per row of the tile.
+    """
+    if not isinstance(key, PRNGKey):
+        raise TypeError("grid_split requires a PRNGKey")
+    if len(shape) != len(splits):
+        raise ValueError(
+            f"shape and splits must have the same length, got {len(shape)} and {len(splits)}"
+        )
+    for i, (s, sp) in enumerate(zip(shape, splits)):
+        if s % sp != 0:
+            raise ValueError(
+                f"splits[{i}]={sp} does not evenly divide shape[{i}]={s}"
+            )
+    return key._grid_split(shape, splits)
 
 
 def split(key, num: int = 2):
