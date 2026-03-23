@@ -35,8 +35,6 @@ static bool has_python_key_arg(torch::jit::Stack* stack, size_t num_arguments) {
   return false;
 }
 
-// Determine the output device from fake tensor inputs, or nullopt for factory
-// ops.
 static std::optional<c10::Device> get_common_device(
     torch::jit::Stack* stack,
     size_t num_arguments) {
@@ -88,7 +86,6 @@ static std::optional<c10::Device> get_common_device(
   return common_device;
 }
 
-// Check if a schema argument has Device or Device? type.
 static bool is_device_type_arg(const c10::Argument& arg) {
   const auto& type = arg.type();
   if (type->kind() == c10::TypeKind::DeviceObjType)
@@ -100,9 +97,6 @@ static bool is_device_type_arg(const c10::Argument& arg) {
   return false;
 }
 
-// For factory ops: find Device args in the stack, rewrite to meta, return
-// original. Handles both explicit Device values and None values for Device?
-// arguments.
 static std::optional<c10::Device> rewrite_device_args_to_meta(
     torch::jit::Stack* stack,
     size_t arguments_begin,
@@ -122,7 +116,6 @@ static std::optional<c10::Device> rewrite_device_args_to_meta(
       (*stack)[arguments_begin + idx] =
           c10::IValue(c10::Device(c10::DeviceType::Meta));
     } else if (ivalue.isNone() && is_device_type_arg(schema.arguments()[idx])) {
-      // Device? argument with None value (defaults to CPU).
       if (!original_device.has_value()) {
         original_device = c10::Device(c10::DeviceType::CPU);
       }
@@ -143,11 +136,6 @@ static void transmute_to_fake(
   }
 }
 
-// A tensor needs transmutation if:
-// - It's not yet fake (fresh meta tensor from the kernel), OR
-// - It is fake but device() is meta (view that inherited the Fake dispatch key
-//   from its parent via shallow_copy_and_detach without set_fake_device ever
-//   being called — custom_device_ is false so device() returns meta)
 static bool needs_transmute(const at::Tensor& t) {
   if (!t.defined())
     return false;
@@ -203,11 +191,9 @@ void fakeFallback(
     return;
   }
 
-  // 2. Determine fake device and mode from inputs
   auto fake_device = get_common_device(stack, num_arguments);
   auto mode = c10::impl::FakeTensorModeTLS::get_state();
 
-  // 3. For factory ops (no fake tensor inputs), rewrite device args to meta
   if (!fake_device.has_value()) {
     fake_device = rewrite_device_args_to_meta(
         stack, arguments_begin, num_arguments, schema);
@@ -219,7 +205,6 @@ void fakeFallback(
   {
     c10::impl::ForceDispatchKeyGuard restore_guard;
     auto local_keyset = c10::impl::tls_local_dispatch_key_set();
-    // Add Meta (MetaBit + Dense) to included
     local_keyset.included_ =
         local_keyset.included_ | c10::DispatchKeySet(c10::DispatchKey::Meta);
     local_keyset.excluded_ = local_keyset.excluded_ |
@@ -232,7 +217,6 @@ void fakeFallback(
     op.redispatchBoxed(ks, stack);
   }
 
-  // 5. Wrap outputs as fake tensors
   const auto num_returns = schema.returns().size();
   const auto returns_begin = stack->size() - num_returns;
   wrap_outputs(stack, returns_begin, num_returns, *fake_device, mode);
