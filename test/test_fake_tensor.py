@@ -1102,6 +1102,30 @@ class FakeTensorTest(TestCase):
                 == torch.channels_last
             )
 
+    def test_convolution_backward_memory_format(self):
+        # https://github.com/pytorch/pytorch/issues/178092
+        with FakeTensorMode():
+            grad_out = torch.rand(2, 4, 4, 4)
+            inp = torch.rand(2, 4, 4, 4).to(memory_format=torch.channels_last)
+            weight = torch.rand(4, 4, 1, 1)
+            grad_input, _, _ = torch.ops.aten.convolution_backward(
+                grad_out,
+                inp,
+                weight,
+                [0],
+                [1, 1],
+                [0, 0],
+                [1, 1],
+                False,
+                [0, 0],
+                1,
+                [True, False, False],
+            )
+            self.assertTrue(
+                torch._prims_common.suggest_memory_format(grad_input)
+                == torch.channels_last
+            )
+
     def test_suggest_memory_format_with_degenerate_dimensions(self):
         """
         Test that suggest_memory_format correctly returns contiguous_format for
