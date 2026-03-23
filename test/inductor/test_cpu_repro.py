@@ -5092,7 +5092,7 @@ class CPUReproTests(TestCase):
 
         torch._dynamo.reset()
         metrics.reset()
-        with torch.no_grad(), config.patch({"cpp.enable_loop_tail_vec": True}):
+        with config.patch({"cpp.enable_loop_tail_vec": True}):
             expected = fn(positions, cache)
             compiled_fn = torch.compile(fn, fullgraph=True)
             actual = compiled_fn(positions, cache)
