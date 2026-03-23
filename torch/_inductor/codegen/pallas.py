@@ -3562,15 +3562,14 @@ class PallasKernel(SIMDKernel):
                         if cshape is not None:
                             code.writeline(f"{param} = {param}.reshape({cshape})")
 
-                    code.writeline("indexer = lambda n: lambda i: [jnp.int32(i)] * n")
                     code.writeline("out_specs_pallas = tuple(")
-                    code.writeline("    pl.BlockSpec(shape, indexer(len(shape)))")
+                    code.writeline("    pallas_make_block_spec_non_tiled(shape)")
                     code.writeline(
                         "    for shape, dtype in zip(_pallas_out_shapes, out_dtypes)"
                     )
                     code.writeline(")")
                     code.writeline("in_specs_pallas = tuple(")
-                    code.writeline("    pl.BlockSpec(i.shape, indexer(len(i.shape)))")
+                    code.writeline("    pallas_make_block_spec_non_tiled(i.shape)")
                     code.writeline(
                         "    for i in [" + ", ".join(ctx.kernel_input_params) + "]"
                     )
@@ -3659,7 +3658,9 @@ from torch.utils._ordered_set import OrderedSet
 from torch._inductor.runtime.runtime_utils import (
     pallas_compute_tiling, pallas_make_block_spec, pallas_permute,
     pallas_gpu_align_output_specs, pallas_gpu_pad_inputs,
-    pallas_gpu_unpad_results, pallas_ensure_nonzero_rank,
+    pallas_gpu_unpad_results,
+    pallas_ensure_nonzero_rank,
+    pallas_make_block_spec_non_tiled,
     torch_dtype_to_jax_runtime,
 )
 """

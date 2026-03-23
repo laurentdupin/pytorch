@@ -685,6 +685,37 @@ class PallasTestsMixin:
         compiled_bcast = self._compile(lambda x, y, s: x + y * s)
         self.assertEqual(compiled_bcast(x, y, s), x + y * s)
 
+    def test_scalar_scalar_ops(self):
+        """Test scalar-scalar operations."""
+
+        def test_add(a, b):
+            return a + b
+
+        def test_mul(a, b):
+            return a * b
+
+        def test_sub(a, b):
+            return a - b
+
+        def test_div(a, b):
+            return a / b
+
+        for fn in [test_add, test_mul, test_sub, test_div]:
+            with self.subTest(op=fn.__name__):
+                compiled = self._compile(fn)
+
+                # Test with 0-D tensors (scalars)
+                a = torch.tensor(3.5, dtype=torch.float32, device=self.DEVICE)
+                b = torch.tensor(2.0, dtype=torch.float32, device=self.DEVICE)
+
+                result = compiled(a, b)
+                expected = fn(a, b)
+                self.assertEqual(result, expected)
+
+                # Ensure result is also scalar
+                self.assertEqual(result.dim(), 0)
+                self.assertEqual(result.dtype, torch.float32)
+
     def test_scalar_tensor_ops(self):
         """Test scalar-tensor operations."""
 
