@@ -3285,7 +3285,7 @@ class Scheduler:
 
         # Map user_object_index to stream index (1-indexed for side streams)
         user_obj_to_stream_idx: dict[int, int] = {}
-        next_stream_idx = 1  # 0 is reserved for default stream
+        stream_idx_counter = itertools.count(1)  # 0 is reserved for default stream
 
         for node in self.nodes:
             stream_idx = DEFAULT_STREAM_IDX
@@ -3301,11 +3301,11 @@ class Scheduler:
                     if "stream" in custom_meta:
                         user_obj_idx = custom_meta["stream"]
                         if user_obj_idx not in user_obj_to_stream_idx:
-                            user_obj_to_stream_idx[user_obj_idx] = next_stream_idx
-                            self.stream_idx_to_user_obj_idx[next_stream_idx] = (
+                            new_stream_idx = next(stream_idx_counter)
+                            user_obj_to_stream_idx[user_obj_idx] = new_stream_idx
+                            self.stream_idx_to_user_obj_idx[new_stream_idx] = (
                                 user_obj_idx
                             )
-                            next_stream_idx += 1
                         stream_idx = user_obj_to_stream_idx[user_obj_idx]
                         # Use the first stream found
                         break
@@ -3315,6 +3315,24 @@ class Scheduler:
             # Also populate buff_to_stream for all buffers produced by this node
             for buf in node.get_buffer_names():
                 self.buff_to_stream[buf] = stream_idx
+
+        # Propagate a device to device-less nodes (e.g. record_event,
+        # wait_event) so they naturally enter the device guard in the
+        # main codegen loop instead of requiring special-case handling.
+        if any(s != DEFAULT_STREAM_IDX for s in self.node_to_stream.values()):
+            device = next(
+                (n.get_device() for n in self.nodes if n.get_device() is not None), None
+            )
+            if device is not None:
+                for node in self.nodes:
+                    ir_node = node.node
+                    if (
+                        node.get_device() is None
+                        and isinstance(ir_node, ir.Buffer)
+                        and isinstance(ir_node.layout, ir.NoneLayout)
+                    ):
+                        # pyrefly: ignore [bad-assignment]
+                        ir_node.layout = ir.NoneLayout(device=device)
 
         # Check if we have any nodes on non-default streams
         self._multi_stream_nodes = any(
@@ -7430,25 +7448,6 @@ class Scheduler:
         # pyrefly: ignore [unbound-name]
         if self.default_device_context and config.triton.autotune_at_compile_time:
             V.graph.wrapper_code.write_get_raw_stream_header()
-
-        # In multi-stream scenarios, open the device guard eagerly so that
-        # device-less sync ops (record_event, wait_event) that precede compute
-        # nodes in topological order are emitted inside the guard where stream
-        # variables are declared.
-        if self._has_multi_stream_nodes() and self.current_device is None:
-            for n in nodes:
-                if d := n.get_device():
-                    if device_need_guard(d.type):
-                        assert d.index is not None
-                        unique_streams = OrderedSet(self.node_to_stream.values())
-                        num_streams = max(unique_streams) + 1 if unique_streams else 1
-                        V.graph.wrapper_code.codegen_device_guard_enter(
-                            d.index,
-                            num_streams,
-                            self.stream_idx_to_user_obj_idx,
-                        )
-                        self.current_device = d
-                    break
 
         for node in nodes:
             if log.isEnabledFor(logging.DEBUG):
