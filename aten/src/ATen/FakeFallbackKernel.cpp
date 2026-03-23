@@ -1,14 +1,12 @@
 #include <ATen/core/dispatch/Dispatcher.h>
-#include <torch/library.h>
-#include <c10/util/irange.h>
 #include <c10/core/impl/FakeTensorModeTLS.h>
 #include <c10/core/impl/LocalDispatchKeySet.h>
+#include <c10/util/irange.h>
+#include <torch/library.h>
 
 namespace {
 
-static bool has_python_key_arg(
-    torch::jit::Stack* stack,
-    size_t num_arguments) {
+static bool has_python_key_arg(torch::jit::Stack* stack, size_t num_arguments) {
   auto arguments = torch::jit::last(*stack, num_arguments);
   for (size_t idx = 0; idx < num_arguments; ++idx) {
     const auto& ivalue = arguments[idx];
@@ -37,7 +35,8 @@ static bool has_python_key_arg(
   return false;
 }
 
-// Determine the output device from fake tensor inputs, or nullopt for factory ops.
+// Determine the output device from fake tensor inputs, or nullopt for factory
+// ops.
 static std::optional<c10::Device> get_common_device(
     torch::jit::Stack* stack,
     size_t num_arguments) {
@@ -45,7 +44,8 @@ static std::optional<c10::Device> get_common_device(
   bool is_cpu_zero_dim = false;
 
   auto merge = [&](const at::Tensor& t) {
-    if (!t.defined() || !t.is_fake()) return;
+    if (!t.defined() || !t.is_fake())
+      return;
     bool t_is_cpu_zero_dim = t.device().is_cpu() && t.dim() == 0;
     if (!common_device.has_value()) {
       common_device = t.device();
@@ -53,12 +53,18 @@ static std::optional<c10::Device> get_common_device(
       return;
     }
     if (t.device() == *common_device) {
-      if (is_cpu_zero_dim) is_cpu_zero_dim = t_is_cpu_zero_dim;
+      if (is_cpu_zero_dim)
+        is_cpu_zero_dim = t_is_cpu_zero_dim;
       return;
     }
-    if (t_is_cpu_zero_dim) return;
-    TORCH_CHECK(is_cpu_zero_dim,
-        "Unhandled FakeTensor device propagation: ", *common_device, " vs ", t.device());
+    if (t_is_cpu_zero_dim)
+      return;
+    TORCH_CHECK(
+        is_cpu_zero_dim,
+        "Unhandled FakeTensor device propagation: ",
+        *common_device,
+        " vs ",
+        t.device());
     common_device = t.device();
     is_cpu_zero_dim = false;
   };
@@ -69,31 +75,57 @@ static std::optional<c10::Device> get_common_device(
     if (ivalue.isTensor()) {
       merge(ivalue.toTensor());
     } else if (ivalue.isTensorList()) {
-      for (const auto& elem : ivalue.toTensorList()) merge(elem);
+      for (const auto& elem : ivalue.toTensorList())
+        merge(elem);
     } else if (ivalue.isOptionalTensorList()) {
       for (const auto& elem : ivalue.toOptionalTensorList()) {
         std::optional<at::Tensor> ot = elem;
-        if (ot.has_value()) merge(*ot);
+        if (ot.has_value())
+          merge(*ot);
       }
     }
   }
   return common_device;
 }
 
-// For factory ops: find Device args in the stack, rewrite to meta, return original.
+// Check if a schema argument has Device or Device? type.
+static bool is_device_type_arg(const c10::Argument& arg) {
+  const auto& type = arg.type();
+  if (type->kind() == c10::TypeKind::DeviceObjType)
+    return true;
+  if (type->kind() == c10::TypeKind::OptionalType) {
+    auto elem = type->castRaw<c10::OptionalType>()->getElementType();
+    return elem->kind() == c10::TypeKind::DeviceObjType;
+  }
+  return false;
+}
+
+// For factory ops: find Device args in the stack, rewrite to meta, return
+// original. Handles both explicit Device values and None values for Device?
+// arguments.
 static std::optional<c10::Device> rewrite_device_args_to_meta(
     torch::jit::Stack* stack,
     size_t arguments_begin,
-    size_t num_arguments) {
+    size_t num_arguments,
+    const c10::FunctionSchema& schema) {
   std::optional<c10::Device> original_device;
   auto arguments = torch::jit::last(*stack, num_arguments);
   for (size_t idx = 0; idx < num_arguments; ++idx) {
     const auto& ivalue = arguments[idx];
     if (ivalue.isDevice()) {
       auto dev = ivalue.toDevice();
-      TORCH_CHECK(dev.type() != c10::DeviceType::Meta,
+      TORCH_CHECK(
+          dev.type() != c10::DeviceType::Meta,
           "FakeTensor does not support meta device inputs");
-      if (!original_device.has_value()) original_device = dev;
+      if (!original_device.has_value())
+        original_device = dev;
+      (*stack)[arguments_begin + idx] =
+          c10::IValue(c10::Device(c10::DeviceType::Meta));
+    } else if (ivalue.isNone() && is_device_type_arg(schema.arguments()[idx])) {
+      // Device? argument with None value (defaults to CPU).
+      if (!original_device.has_value()) {
+        original_device = c10::Device(c10::DeviceType::CPU);
+      }
       (*stack)[arguments_begin + idx] =
           c10::IValue(c10::Device(c10::DeviceType::Meta));
     }
@@ -111,6 +143,19 @@ static void transmute_to_fake(
   }
 }
 
+// A tensor needs transmutation if:
+// - It's not yet fake (fresh meta tensor from the kernel), OR
+// - It is fake but device() is meta (view that inherited the Fake dispatch key
+//   from its parent via shallow_copy_and_detach without set_fake_device ever
+//   being called — custom_device_ is false so device() returns meta)
+static bool needs_transmute(const at::Tensor& t) {
+  if (!t.defined())
+    return false;
+  if (!t.is_fake())
+    return true;
+  return t.device().is_meta();
+}
+
 static void wrap_outputs(
     torch::jit::Stack* stack,
     size_t returns_begin,
@@ -122,14 +167,14 @@ static void wrap_outputs(
     const auto& ivalue = returns[idx];
     if (ivalue.isTensor()) {
       const auto& t = ivalue.toTensor();
-      if (t.defined() && !t.is_fake()) {
+      if (needs_transmute(t)) {
         transmute_to_fake(t, fake_device, mode);
       }
     } else if (ivalue.isTensorList()) {
       auto tensors = ivalue.toTensorList();
       for (const auto i : c10::irange(tensors.size())) {
         at::Tensor t = tensors[i];
-        if (t.defined() && !t.is_fake()) {
+        if (needs_transmute(t)) {
           transmute_to_fake(t, fake_device, mode);
         }
       }
@@ -137,7 +182,7 @@ static void wrap_outputs(
       auto opt_tensors = ivalue.toOptionalTensorList();
       for (const auto i : c10::irange(opt_tensors.size())) {
         std::optional<at::Tensor> ot = opt_tensors[i];
-        if (ot.has_value() && ot->defined() && !ot->is_fake()) {
+        if (ot.has_value() && needs_transmute(*ot)) {
           transmute_to_fake(*ot, fake_device, mode);
         }
       }
@@ -165,20 +210,26 @@ void fakeFallback(
   // 3. For factory ops (no fake tensor inputs), rewrite device args to meta
   if (!fake_device.has_value()) {
     fake_device = rewrite_device_args_to_meta(
-        stack, arguments_begin, num_arguments);
+        stack, arguments_begin, num_arguments, schema);
     if (!fake_device.has_value()) {
       fake_device = c10::Device(c10::DeviceType::CPU);
     }
   }
 
-  // 4. Redispatch to the meta kernel.
   {
-    c10::impl::ExcludeDispatchKeyGuard fake_guard(c10::DispatchKey::Fake);
-    c10::impl::ExcludeDispatchKeyGuard python_guard(c10::DispatchKey::Python);
-    c10::impl::ExcludeDispatchKeyGuard python_tls_guard(
-        c10::DispatchKey::PythonTLSSnapshot);
-    c10::impl::IncludeDispatchKeyGuard meta_guard(c10::DispatchKey::Meta);
-    op.redispatchBoxed(dispatchKeySet.remove(c10::DispatchKey::Fake), stack);
+    c10::impl::ForceDispatchKeyGuard restore_guard;
+    auto local_keyset = c10::impl::tls_local_dispatch_key_set();
+    // Add Meta (MetaBit + Dense) to included
+    local_keyset.included_ =
+        local_keyset.included_ | c10::DispatchKeySet(c10::DispatchKey::Meta);
+    local_keyset.excluded_ = local_keyset.excluded_ |
+        c10::DispatchKeySet(c10::DispatchKey::Fake) |
+        c10::DispatchKeySet(c10::DispatchKey::Python) |
+        c10::DispatchKeySet(c10::DispatchKey::PythonTLSSnapshot);
+    c10::impl::_force_tls_local_dispatch_key_set(local_keyset);
+    auto ks = dispatchKeySet.remove(c10::DispatchKey::Fake) |
+        c10::DispatchKeySet(c10::DispatchKey::Meta);
+    op.redispatchBoxed(ks, stack);
   }
 
   // 5. Wrap outputs as fake tensors
