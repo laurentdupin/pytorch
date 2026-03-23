@@ -506,8 +506,6 @@ def register_symm_mem_lowerings():
         Fallback: insert a Pointwise identity copy allocated in P2P via
         CommBufferLayout.  Used when we don't control the input's allocation.
         """
-        # TODO: Follow-up PR replaces this with a DMA .copy_() outside the graph
-        # for InputBuffer with static shapes.
         inp.realize()
         copy = ir.Pointwise.create(
             device=inp.get_device(),
@@ -515,7 +513,6 @@ def register_symm_mem_lowerings():
             inner_fn=inp.make_loader(),
             ranges=inp.get_size(),
         )
-        assert can_realize_as_comm_buffer(copy, comm_buffer_type)
         realize_as_comm_buffer(copy, comm_buffer_type, group_name)
         return copy
 
@@ -526,14 +523,18 @@ def register_symm_mem_lowerings():
         """
         Helper to realize an input as symmetric memory buffer if possible.
 
-        Three paths, in priority order:
-        1. We control allocation (ComputedBuffer, etc.): CommBufferLayout. Zero-copy.
-        2. Graph placeholder (InputBuffer, static shapes): mark layout.allocator =
-           SYMM_MEM; wrapper generates persistent P2P buffer + DMA .copy_().
-        3. Fallback: insert Pointwise identity copy in P2P via CommBufferLayout.
+        If inductor controls the buffer's allocation (ComputedBuffer,
+        or any buffer with FlexibleLayout/FixedLayout), switch its
+        layout to CommBufferLayout in-place, zero-copy.
 
-        Returns the (possibly replaced) TensorBox.  Callers must use
-        the return value since a new buffer may be created.
+        If the input is an InputBuffer with static shapes, mark its
+        layout allocator as SYMM_MEM; the wrapper pre-allocates P2P
+        memory and DMA .copy_() at call time.
+
+        Otherwise, insert a Pointwise identity copy into a new
+        CommBufferLayout buffer (adds an extra Triton kernel).
+
+        Returns the possibly new TensorBox.
         """
         if can_realize_as_comm_buffer(inp, ir.CommBufferType.SYMM_MEM):
             realize_as_comm_buffer(inp, ir.CommBufferType.SYMM_MEM, group_name)  # type: ignore[arg-type]
