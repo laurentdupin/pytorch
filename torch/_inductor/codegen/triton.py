@@ -5789,7 +5789,6 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
             fast_config, speculative_args = base_config, []
 
         if speculative_args:
-            triton_meta["configs"] = [fast_config]
             self._speculative_args = speculative_args
             self.variants: list[KernelVariant] = [
                 KernelVariant(
@@ -5805,7 +5804,6 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
             ]
         else:
             # No speculation — single kernel, existing path
-            triton_meta["configs"] = [base_config]
             self._speculative_args = []
             self.variants = []
 
@@ -5900,13 +5898,12 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
         # Generate per-variant Triton source by replacing triton_meta in the source.
         # The kernel body is identical across variants — only the @triton_heuristics
         # decorator's triton_meta differs (different divisible_by_16 annotations).
-        # We replace the fast variant's triton_meta repr with each variant's own repr,
-        # which is much cheaper than running full codegen N times.
+        # src_code contains the base config; we replace it with each variant's config.
         if self.variants:
-            fast_meta_repr = repr(self.variants[0].triton_meta)
+            base_meta_repr = repr(triton_meta)
             for variant in self.variants:
                 variant_meta_repr = repr(variant.triton_meta)
-                variant.src_code = src_code.replace(fast_meta_repr, variant_meta_repr)
+                variant.src_code = src_code.replace(base_meta_repr, variant_meta_repr)
 
         return src_code
 
