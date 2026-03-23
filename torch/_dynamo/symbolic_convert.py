@@ -141,7 +141,7 @@ from .utils import (
     LazyString,
     proxy_args_kwargs,
 )
-from .variables.base import typestr, ValueMutationNew, VariableTracker
+from .variables.base import SourceLocation, typestr, ValueMutationNew, VariableTracker
 from .variables.builder import FrameStateSizeEntry, VariableBuilder, wrap_fx_proxy
 from .variables.builtin import BuiltinVariable
 from .variables.constant import CONSTANT_VARIABLE_NONE, ConstantVariable
@@ -1339,9 +1339,20 @@ class InstructionTranslatorBase(
                 return False
 
         if self.is_trace_bytecode_log_enabled:
-            trace_bytecode_log.debug(
-                "TRACE %s %s %s", inst.opname, inst.argval, repr(self.stack)
-            )
+
+            def _trace_bytecode_log_str() -> str:
+                msg = f"TRACE {inst.opname} {inst.argval} {repr(self.stack)}"
+                if (
+                    sys.version_info >= (3, 11)
+                    and inst.positions is not None
+                    and inst.positions.lineno is not None
+                ):
+                    src = get_instruction_source_311(self.f_code, inst).rstrip()
+                    if src:
+                        msg += f"\n{src}"
+                return msg
+
+            trace_bytecode_log.debug("%s", LazyString(_trace_bytecode_log_str))
 
         # Store the latest 20 bytecode execution for the process,
         # Used repr for byte processing and limiting the length to 2048
@@ -1763,6 +1774,27 @@ class InstructionTranslatorBase(
         assert isinstance(val, VariableTracker), (
             f"push expects VariableTracker, got {typestr(val)}"
         )
+        if val.source_loc is None:
+            inst = self.current_instruction
+            if inst is not None:
+                positions = inst.positions
+                if positions is not None and positions.lineno is not None:
+                    val.set_source_loc(
+                        SourceLocation(
+                            filename=self.f_code.co_filename,
+                            lineno=positions.lineno,
+                            end_lineno=positions.end_lineno,
+                            col_offset=positions.col_offset,
+                            end_col_offset=positions.end_col_offset,
+                        )
+                    )
+                elif inst.starts_line is not None:
+                    val.set_source_loc(
+                        SourceLocation(
+                            filename=self.f_code.co_filename,
+                            lineno=inst.starts_line,
+                        )
+                    )
         self.stack.append(val)
 
     def push_many(self, vals: list[VariableTracker]) -> None:
@@ -4399,6 +4431,23 @@ class InstructionTranslatorBase(
         frame_loc_chain_list.append(frame_loc)
         return tuple(frame_loc_chain_list)
 
+    def _format_stack_source_attribution(self) -> str:
+        """Format source attribution for VTs on the symbolic stack that have source_loc."""
+        seen: set[tuple[str, int]] = set()
+        parts = []
+        for vt in self.stack:
+            loc = vt.source_loc
+            if loc is None:
+                continue
+            key = (loc.filename, loc.lineno)
+            if key in seen:
+                continue
+            seen.add(key)
+            parts.append(f"  {vt!r} originated from:\n{loc.format()}")
+        if not parts:
+            return ""
+        return "\nStack variable source attribution:\n" + "\n".join(parts)
+
     def log_graph_break(
         self,
         code_options: dict[str, Any],
@@ -4448,9 +4497,11 @@ class InstructionTranslatorBase(
         if exc is not None:
             reason = augment_exc_message_with_hop_name(exc, reason)
 
+        stack_source_attribution = self._format_stack_source_attribution()
         user_stack_trace = (
             f"Graph break in user code at {frame_loc[0]}:{frame_loc[1]}\n"
             f"Graph Break Reason: {reason}\n"
+            f"{stack_source_attribution}"
             "\nUser code traceback:\n"
         )
 

@@ -14,12 +14,14 @@ computations.
 """
 
 import collections
+import dataclasses
 import functools
+import linecache
 import logging
 from collections.abc import Callable, ItemsView, KeysView, Sequence, ValuesView
 from contextvars import ContextVar
 from enum import Enum
-from typing import Any, NoReturn, TYPE_CHECKING
+from typing import Any, NoReturn, Optional, TYPE_CHECKING
 
 from torch._guards import Guard
 from torch.fx.proxy import Node
@@ -40,6 +42,28 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger(__name__)
+
+
+@dataclasses.dataclass
+class SourceLocation:
+    """Source position of the bytecode instruction that generated a VariableTracker."""
+
+    filename: str
+    lineno: int
+    end_lineno: Optional[int] = None
+    col_offset: Optional[int] = None
+    end_col_offset: Optional[int] = None
+
+    def format(self) -> str:
+        """Return a formatted string like Python's exception source attribution."""
+        line = linecache.getline(self.filename, self.lineno).rstrip()
+        result = f'  File "{self.filename}", line {self.lineno}\n'
+        result += f"    {line}\n"
+        if self.col_offset is not None and self.end_col_offset is not None:
+            num_carets = max(1, self.end_col_offset - self.col_offset)
+            result += "    " + " " * self.col_offset + "^" * num_carets + "\n"
+        return result
+
 
 # Tracks active method calls on VariableTracker instances to detect self-referential
 # calls (e.g., as_python_constant on a list that contains itself). Maps
@@ -286,6 +310,7 @@ class VariableTracker(metaclass=VariableTrackerMeta):
         "mutation_type",
         "parents_tracker",
         "user_code_variable_name",
+        "source_loc",
     }
 
     def clone(self, **kwargs: Any) -> "VariableTracker":
@@ -789,6 +814,9 @@ class VariableTracker(metaclass=VariableTrackerMeta):
     def set_name_hint(self, name: str) -> None:
         pass
 
+    def set_source_loc(self, source_loc: SourceLocation) -> None:
+        self.source_loc = source_loc
+
     def realize(self) -> "VariableTracker":
         """Used by LazyVariableTracker to build the real VariableTracker"""
         return self
@@ -901,10 +929,12 @@ class VariableTracker(metaclass=VariableTrackerMeta):
         *,
         source: Source | None = None,
         mutation_type: MutationType | None = None,
+        source_loc: SourceLocation | None = None,
     ) -> None:
         super().__init__()
         self.source = source
         self.mutation_type = mutation_type
+        self.source_loc = source_loc
 
         # NOTE sometimes mutation_type is set afterwards for implementation
         # convenience, we don't validate those cases at the moment.
