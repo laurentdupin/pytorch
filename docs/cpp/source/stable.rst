@@ -242,7 +242,7 @@ Error Checking
 
    STD_TORCH_CHECK(condition, "Error message with ", variable, " interpolation");
 
-Wherever you used `TORCH_CHECK` before, you can replace usage with `STD_TORCH_CHECK`
+Wherever you used ``TORCH_CHECK`` before, you can replace usage with ``STD_TORCH_CHECK``
 to remove the need to link against libtorch. The only difference is that when the
 condition check fails, ``TORCH_CHECK`` throws a fancier ``c10::Error`` while
 ``STD_TORCH_CHECK`` throws a ``std::runtime_error``.
