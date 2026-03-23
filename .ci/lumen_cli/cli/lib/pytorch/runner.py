@@ -1,29 +1,21 @@
 from __future__ import annotations
 
 import logging
+import os
+from typing import Any
 
+from cli.lib.common.cli_helper import BaseRunner
 from cli.lib.common.pip_helper import pip_install_packages
 from cli.lib.common.utils import run_command, temp_environ, working_directory
-from cli.lib.core.pytorch.plans.benchmark_tests import BENCHMARK_TEST_PLANS
-from cli.lib.core.pytorch.plans.core_tests import CORE_TEST_PLANS
-from cli.lib.core.pytorch.pytorch_test_library import (
+from cli.lib.pytorch.base import (
     BasePytorchTestPlan,
     resolve_env_vars,
     TestStep,
 )
+from cli.lib.pytorch.plans import PYTORCH_TEST_LIBRARY
 
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Central registry — add new plan files here as they are created
-# ---------------------------------------------------------------------------
-
-PYTORCH_TEST_LIBRARY: dict[str, BasePytorchTestPlan] = {
-    **CORE_TEST_PLANS,
-    **BENCHMARK_TEST_PLANS,
-}
 
 
 def resolve_plans_for_env(
@@ -87,14 +79,6 @@ def _build_repro_context(
     step: TestStep,
     build_env: str,
 ) -> dict:
-    """
-    Build the reproducible context for a step.
-
-    env_vars are kept separate (not merged) so the runner can apply them at
-    the right scope:
-      - plan_env_vars: set once around all steps, persist for the whole plan
-      - step_env_vars: scoped to this step only, cleaned up after it finishes
-    """
     return {
         "plan_env_vars": resolve_env_vars(plan.env_vars, build_env),
         "step_env_vars": resolve_env_vars(step.env_vars, build_env),
@@ -153,7 +137,7 @@ def run_test_plan(
     Run a test plan (or a subset of its steps) from the registry.
 
     Args:
-        group_id:   Key in PYTORCH_TEST_LIBRARY, e.g. "pytorch_cpuonly".
+        group_id:   Key in PYTORCH_TEST_LIBRARY, e.g. "pytorch_jit_legacy".
         test_id:    If set, run only the step with this exact id.
         filters:    Key=value pairs matched against step.params — useful for
                     reproducing a specific combo, e.g. {"mode": "training"}.
@@ -179,7 +163,7 @@ def run_test_plan(
             f"group '{group_id}' not found. Available: {sorted(registry)}"
         )
     plan = registry[group_id]
-    all_steps = plan.get_steps(build_env)
+    all_steps = plan.get_steps(build_env, shard_id=shard_id, num_shards=num_shards)
 
     steps = all_steps
     if test_id:
@@ -196,13 +180,20 @@ def run_test_plan(
 
     if plan.setup_fn:
         logger.info("[%s] running setup", group_id)
+        _env_before = dict(os.environ)
         plan.setup_fn()
+        _env_changes = {k: v for k, v in os.environ.items() if _env_before.get(k) != v}
+        if _env_changes:
+            logger.warning(
+                "[%s] setup_fn set env vars outside temp_environ context (not auto-cleaned): %s",
+                group_id,
+                list(_env_changes.keys()),
+            )
 
     failures: list[str] = []
 
     upload_env = {"LUMEN_NO_UPLOAD": "1"} if no_upload else {}
 
-    # Plan-level env_vars wrap all steps — set once, persist across the whole plan.
     first_ctx = _build_repro_context(plan, steps[0], build_env)
     with temp_environ({**first_ctx["plan_env_vars"], **upload_env}):
         for step in steps:
@@ -212,7 +203,6 @@ def run_test_plan(
             for pip_args in ctx["pip_installs"]:
                 pip_install_packages(pip_args)
 
-            # Step-level env_vars are scoped to this step only.
             with (
                 temp_environ(ctx["step_env_vars"]),
                 working_directory(ctx["working_dir"] or ""),
@@ -241,3 +231,38 @@ def run_test_plan(
 
     if failures:
         raise RuntimeError(f"[{group_id}] {len(failures)} step(s) failed: {failures}")
+
+
+# ---------------------------------------------------------------------------
+# CLI runner
+# ---------------------------------------------------------------------------
+
+
+class PytorchTestRunner(BaseRunner):
+    def __init__(self, args: Any) -> None:
+        self.group_id = getattr(args, "group_id", None)
+        self.test_config = getattr(args, "test_config", None)
+        self.build_env = getattr(args, "build_env", None)
+        self.test_id = getattr(args, "test_id", None)
+        self.cmd = getattr(args, "cmd", None)
+        self.shard_id = getattr(args, "shard_id", 1)
+        self.num_shards = getattr(args, "num_shards", 1)
+        self.no_upload = getattr(args, "no_upload", False)
+        raw_filters = getattr(args, "filter", []) or []
+        self.filters = dict(f.split("=", 1) for f in raw_filters) if raw_filters else None
+
+    def run(self) -> None:
+        group_id = self.group_id or resolve_plan_for_test_config(
+            test_config=self.test_config,
+            build_env=self.build_env,
+        )
+        run_test_plan(
+            group_id=group_id,
+            build_env=self.build_env,
+            test_id=self.test_id,
+            cmd=self.cmd,
+            filters=self.filters,
+            shard_id=self.shard_id,
+            num_shards=self.num_shards,
+            no_upload=self.no_upload,
+        )
