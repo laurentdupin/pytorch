@@ -14,7 +14,7 @@ C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wunused-but-set-variable")
 // Determine if the architecture supports rowwise scaled mm
 // Currently failing on windows with:
 // https://github.com/NVIDIA/cutlass/issues/1571
-#if !defined(USE_ROCM) && !defined(_WIN32) && defined(CUDA_VERSION) && CUDA_VERSION >= 12000
+#if !defined(USE_ROCM) && !defined(_WIN32) && defined(CUDA_VERSION)
 
 #define BUILD_ROWWISE_FP8_KERNEL
 #endif
@@ -288,7 +288,7 @@ void f8f8bf16_rowwise_impl(
   }
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
-  status = gemm.initialize(arguments, workspace.data_ptr());
+  status = gemm.initialize(arguments, workspace.data_ptr(), at::cuda::getCurrentCUDAStream());
   if (status != cutlass::Status::kSuccess) {
     throw std::runtime_error("cutlass cannot initialize");
   }
@@ -481,7 +481,7 @@ void f8f8bf16_rowwise_impl_sm100_sm120(
   }
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
-  status = gemm.initialize(arguments, workspace.data_ptr());
+  status = gemm.initialize(arguments, workspace.data_ptr(), at::cuda::getCurrentCUDAStream());
   if (status != cutlass::Status::kSuccess) {
     throw std::runtime_error("cutlass cannot initialize");
   }
@@ -697,7 +697,7 @@ void f8f8bf16_rowwise_impl_sm89(
   }
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
-  status = gemm.initialize(arguments, workspace.data_ptr());
+  status = gemm.initialize(arguments, workspace.data_ptr(), at::cuda::getCurrentCUDAStream());
   if (status != cutlass::Status::kSuccess) {
     throw std::runtime_error("cutlass cannot initialize");
   }

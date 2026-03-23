@@ -1,7 +1,9 @@
+# Owner(s): ["module: pytree"]
+
 """
 Contains utility functions for working with nested python data structures.
 
-A *pytree* is Python nested data structure. It is a tree in the sense that
+A *pytree* is a Python nested data structure. It is a tree in the sense that
 nodes are Python collections (e.g., list, tuple, dict) and the leaves are
 Python values. Furthermore, a pytree should not contain reference cycles.
 
@@ -39,7 +41,6 @@ from typing import (
     TYPE_CHECKING,
     TypeAlias,
     TypeVar,
-    Union,
 )
 from typing_extensions import deprecated, NamedTuple, Self, TypeIs
 
@@ -53,8 +54,8 @@ if TYPE_CHECKING:
 __all__ = [
     "PyTree",
     "Context",
-    "FlattenFunc",
-    "UnflattenFunc",
+    "FlattenFn",
+    "UnflattenFn",
     "DumpableContext",
     "ToDumpableContextFn",
     "FromDumpableContextFn",
@@ -126,15 +127,20 @@ class EnumEncoder(json.JSONEncoder):
 
 Context = Any
 PyTree = Any
-FlattenFunc = Callable[[PyTree], tuple[list[Any], Context]]
-UnflattenFunc = Callable[[Iterable[Any], Context], PyTree]
+FlattenFn = Callable[[PyTree], tuple[list[Any], Context]]
+UnflattenFn = Callable[[Iterable[Any], Context], PyTree]
 DumpableContext = Any  # Any json dumpable text
 ToDumpableContextFn = Callable[[Context], DumpableContext]
 FromDumpableContextFn = Callable[[DumpableContext], Context]
-ToStrFunc = Callable[["TreeSpec", list[str]], str]
-MaybeFromStrFunc = Callable[[str], tuple[Any, Context, str] | None]
+ToStrFunc = Callable[["TreeSpec", list[str]], str]  # deprecated
+MaybeFromStrFunc = Callable[[str], tuple[Any, Context, str] | None]  # deprecated
 KeyPath = tuple[KeyEntry, ...]
-FlattenWithKeysFunc = Callable[[PyTree], tuple[list[tuple[KeyEntry, Any]], Any]]
+FlattenWithKeysFn = Callable[[PyTree], tuple[list[tuple[KeyEntry, Any]], Any]]
+
+# Keep deprecated alias for backward compatibility
+FlattenFunc = FlattenFn  # deprecated
+UnflattenFunc = UnflattenFn  # deprecated
+FlattenWithKeysFunc = FlattenWithKeysFn  # deprecated
 
 
 # A NodeDef holds two callables:
@@ -148,9 +154,9 @@ FlattenWithKeysFunc = Callable[[PyTree], tuple[list[tuple[KeyEntry, Any]], Any]]
 #   pytree and returns a list of (keypath, value) pairs and a context.
 class NodeDef(NamedTuple):
     type: type[Any]
-    flatten_fn: FlattenFunc
-    unflatten_fn: UnflattenFunc
-    flatten_with_keys_fn: FlattenWithKeysFunc | None
+    flatten_fn: FlattenFn
+    unflatten_fn: UnflattenFn
+    flatten_with_keys_fn: FlattenWithKeysFn | None
 
 
 _NODE_REGISTRY_LOCK = threading.RLock()
@@ -201,13 +207,13 @@ _cxx_pytree_pending_imports: list[Any] = []
 
 def register_pytree_node(
     cls: type[Any],
-    flatten_fn: FlattenFunc,
-    unflatten_fn: UnflattenFunc,
+    flatten_fn: FlattenFn,
+    unflatten_fn: UnflattenFn,
     *,
     serialized_type_name: str | None = None,
     to_dumpable_context: ToDumpableContextFn | None = None,
     from_dumpable_context: FromDumpableContextFn | None = None,
-    flatten_with_keys_fn: FlattenWithKeysFunc | None = None,
+    flatten_with_keys_fn: FlattenWithKeysFn | None = None,
 ) -> None:
     """Register a container-like type as pytree node.
 
@@ -475,9 +481,9 @@ def is_constant_class(cls: type[Any]) -> bool:
     return isinstance(cls, type) and cls in CONSTANT_NODES
 
 
-@dataclasses.dataclass(frozen=True)
-class ConstantNode:
-    value: Any
+@dataclasses.dataclass(frozen=True, slots=True)
+class ConstantNode(Generic[T]):
+    value: T
 
 
 def _is_constant_holder(spec: "TreeSpec") -> bool:
@@ -527,15 +533,15 @@ def _register_namedtuple(
 )
 def _register_pytree_node(
     cls: type[Any],
-    flatten_fn: FlattenFunc,
-    unflatten_fn: UnflattenFunc,
+    flatten_fn: FlattenFn,
+    unflatten_fn: UnflattenFn,
     to_str_fn: ToStrFunc | None = None,  # deprecated
     maybe_from_str_fn: MaybeFromStrFunc | None = None,  # deprecated
     *,
     serialized_type_name: str | None = None,
     to_dumpable_context: ToDumpableContextFn | None = None,
     from_dumpable_context: FromDumpableContextFn | None = None,
-    flatten_with_keys_fn: FlattenWithKeysFunc | None = None,
+    flatten_with_keys_fn: FlattenWithKeysFn | None = None,
 ) -> None:
     """Register a container-like type as pytree node for the Python pytree only.
 
@@ -596,13 +602,13 @@ def _deregister_pytree_node(
 
 def _private_register_pytree_node(
     cls: type[Any],
-    flatten_fn: FlattenFunc,
-    unflatten_fn: UnflattenFunc,
+    flatten_fn: FlattenFn,
+    unflatten_fn: UnflattenFn,
     *,
     serialized_type_name: str | None = None,
     to_dumpable_context: ToDumpableContextFn | None = None,
     from_dumpable_context: FromDumpableContextFn | None = None,
-    flatten_with_keys_fn: FlattenWithKeysFunc | None = None,
+    flatten_with_keys_fn: FlattenWithKeysFn | None = None,
 ) -> None:
     """This is an internal function that is used to register a pytree node type
     for the Python pytree only. End-users should use :func:`register_pytree_node`
@@ -610,7 +616,7 @@ def _private_register_pytree_node(
     """
     from torch._library.opaque_object import is_opaque_type
 
-    if is_opaque_type(cls):
+    if isinstance(cls, type) and is_opaque_type(cls):
         raise ValueError(
             f"{cls} cannot be registered as a pytree as it has been "
             "registered as an opaque object. Opaque objects must be pytree leaves."
@@ -647,7 +653,7 @@ def _private_register_pytree_node(
         SERIALIZED_TYPE_TO_PYTHON_TYPE[serialized_type_name] = cls
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class SequenceKey(Generic[T]):
     idx: int
 
@@ -661,7 +667,7 @@ class SequenceKey(Generic[T]):
 K = TypeVar("K", bound=Hashable)
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class MappingKey(Generic[K, T]):
     key: K
 
@@ -672,7 +678,7 @@ class MappingKey(Generic[K, T]):
         return mapping[self.key]
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class GetAttrKey:
     name: str
 
@@ -1099,8 +1105,10 @@ def _is_leaf(tree: PyTree, is_leaf: Callable[[PyTree], bool] | None = None) -> b
 #   num_leaves: the number of leaves
 #   num_children: the number of children of the root Node (i.e., len(children()))
 #   is_leaf(): whether the root Node is a leaf
-@dataclasses.dataclass(init=False, frozen=True, eq=True, repr=False)
+@dataclasses.dataclass(init=False, frozen=True, eq=True, repr=False, slots=True)
 class TreeSpec:
+    """Representing the structure of the pytree."""
+
     type: Any
     _context: Context
     _children: list[Self]
@@ -1122,8 +1130,10 @@ class TreeSpec:
 
     def __post_init__(self) -> None:
         if self.type is None:
-            assert self._context is None
-            assert len(self._children) == 0
+            if self._context is not None:
+                raise AssertionError("leaf node should not have a context")
+            if len(self._children) != 0:
+                raise AssertionError("leaf node should not have children")
             num_nodes = 1
             num_leaves = 1
             num_children = 0
@@ -1182,15 +1192,20 @@ class TreeSpec:
         return self._children
 
     def is_leaf(self) -> bool:
+        """Test whether the treespec represents a leaf."""
         return self.num_nodes == 1 and self.num_leaves == 1
 
     def children(self) -> list[Self]:
+        """Get all the child treespecs."""
         return self._children.copy()
 
     def child(self, index: int) -> Self:
+        """Get the child treespec at the given index."""
         return self._children[index]
 
     def flatten_up_to(self, tree: PyTree) -> list[PyTree]:
+        """Flatten the subtrees in ``tree`` up to the structure of this treespec and return a list of subtrees."""
+
         def helper(treespec: TreeSpec, node: PyTree, subtrees: list[PyTree]) -> None:
             if treespec.is_leaf():
                 subtrees.append(node)
@@ -1274,6 +1289,7 @@ class TreeSpec:
         return subtrees
 
     def unflatten(self, leaves: Iterable[Any]) -> PyTree:
+        """Reconstruct a pytree from the leaves."""
         if not isinstance(leaves, (list, tuple)):
             leaves = list(leaves)
         if len(leaves) != self.num_leaves:
@@ -1331,14 +1347,20 @@ PyTreeSpec: TypeAlias = TreeSpec
     "use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.",
     category=FutureWarning,
 )
-@dataclasses.dataclass(init=True, frozen=True, eq=False, repr=False)
+@dataclasses.dataclass(init=False, frozen=True, eq=False, repr=False, slots=True)
 class LeafSpec(TreeSpec):
     type: Any = dataclasses.field(default=None, init=False)
     _context: Context = dataclasses.field(default=None, init=False)
     _children: list[Self] = dataclasses.field(default_factory=list, init=False)
 
-    def __post_init__(self) -> None:
-        # Override `__post_init__` for `num_leaves` derivation.
+    def __init__(self) -> None:
+        # On Python 3.10.0, the dataclass-generated __init__ for frozen+slots
+        # dataclasses doesn't populate init=False fields with simple defaults,
+        # causing copy.deepcopy to fail with AttributeError. Avoid the bug by
+        # providing a custom __init__ (init=False above) instead.
+        object.__setattr__(self, "type", None)
+        object.__setattr__(self, "_context", None)
+        object.__setattr__(self, "_children", [])
         object.__setattr__(self, "num_nodes", 1)
         object.__setattr__(self, "num_leaves", 1)
         object.__setattr__(self, "num_children", 0)
@@ -1383,7 +1405,7 @@ def treespec_dict(
 
 def _is_pytreespec_instance(
     obj: Any,
-) -> TypeIs[Union[TreeSpec, "cxx_pytree.PyTreeSpec"]]:
+) -> TypeIs["TreeSpec | cxx_pytree.PyTreeSpec"]:
     if isinstance(obj, TreeSpec):
         return True
     if "torch.utils._cxx_pytree" in sys.modules:
@@ -1405,7 +1427,7 @@ def _is_pytreespec_instance(
 
 
 def _ensure_python_treespec_instance(
-    treespec: Union[TreeSpec, "cxx_pytree.PyTreeSpec"],
+    treespec: "TreeSpec | cxx_pytree.PyTreeSpec",
 ) -> TreeSpec:
     if isinstance(treespec, TreeSpec):
         return treespec
@@ -1979,7 +2001,7 @@ def enum_object_hook(obj: dict[str, Any]) -> Enum | dict[str, Any]:
         for attr in classname.split("."):
             enum_cls = getattr(enum_cls, attr)
         enum_cls = cast(type[Enum], enum_cls)
-        # pyrefly: ignore [unsupported-operation]
+
         return enum_cls[obj["name"]]
     return obj
 
@@ -2052,16 +2074,22 @@ def treespec_loads(serialized: str) -> TreeSpec:
     )
 
 
-class _DummyLeaf:
+class _Asterisk(str):
+    __slots__ = ()
+
+    def __new__(cls) -> Self:
+        return super().__new__(cls, "*")
+
     def __repr__(self) -> str:
-        return "*"
+        return "*"  # no quotes
+
+
+_asterisk = _Asterisk()
+del _Asterisk
 
 
 def treespec_pprint(treespec: TreeSpec) -> str:
-    dummy_tree = tree_unflatten(
-        [_DummyLeaf() for _ in range(treespec.num_leaves)],
-        treespec,
-    )
+    dummy_tree = tree_unflatten([_asterisk] * treespec.num_leaves, treespec)
     return repr(dummy_tree)
 
 

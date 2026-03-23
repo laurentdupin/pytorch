@@ -90,7 +90,7 @@ microbench_unbacked_tolist_sum,pass,9
 
 
 
-mnasnet1_0,pass,7
+mnasnet1_0,pass,0
 
 
 
@@ -130,7 +130,6 @@ phlippe_resnet,pass,6
 
 
 
-pytorch_CycleGAN_and_pix2pix,pass,6
 
 
 
@@ -142,7 +141,7 @@ pytorch_unet,pass_due_to_skip,7
 
 
 
-resnet152,pass,7
+resnet152,eager_two_runs_differ,0
 
 
 
