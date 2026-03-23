@@ -5094,7 +5094,7 @@ class CPUReproTests(TestCase):
         metrics.reset()
         with torch.no_grad(), config.patch({"cpp.enable_loop_tail_vec": True}):
             expected = fn(positions, cache)
-            compiled_fn = torch.compile(fn, backend="inductor", fullgraph=True)
+            compiled_fn = torch.compile(fn, fullgraph=True)
             actual = compiled_fn(positions, cache)
 
         torch.testing.assert_close(actual, expected)
