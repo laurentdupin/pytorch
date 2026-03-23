@@ -1960,7 +1960,7 @@ std::tuple<Tensor, Tensor, Tensor> _cudnn_rnn_backward_input(
     dx = dx.transpose_(0, 1);
   }
 
-  return std::make_tuple(dx, dhx, dcx);
+  return std::make_tuple(std::move(dx), std::move(dhx), std::move(dcx));
 }
 
 // NB: This MUST BE CALLED AFTER _cudnn_rnn_backward_input.
@@ -2249,7 +2249,7 @@ std::tuple<Tensor, Tensor, Tensor, std::vector<Tensor>> _cudnn_rnn_backward(
         reserve);
   }
   return std::tuple<Tensor, Tensor, Tensor, std::vector<Tensor>>{
-      dx, dhx, dcx, dw};
+      std::move(dx), std::move(dhx), std::move(dcx), std::move(dw)};
 }
 
 // TODO: I am not sure if we actually need the 'dropout' and 'train' parameters
