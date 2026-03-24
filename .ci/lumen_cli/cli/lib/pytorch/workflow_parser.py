@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
 import yaml
+
 
 WORKFLOWS_DIR = Path(".github/workflows")
 
@@ -28,9 +28,7 @@ def resolve_workflow_path(name: str) -> Path:
             return path
 
     available = sorted(p.stem for p in WORKFLOWS_DIR.glob("*.y*ml") if p.is_file())
-    raise RuntimeError(
-        f"Workflow {name!r} not found. Available: {available}"
-    )
+    raise RuntimeError(f"Workflow {name!r} not found. Available: {available}")
 
 
 def _strip_gha(s: str) -> str:
@@ -98,12 +96,14 @@ def parse_workflow(
                 continue
             seen.add(key)
 
-            results.append({
-                "build_env": build_env,
-                "config": config,
-                "test_runner": test_runner,
-                "build_runner": build_runner,
-                "build_image": build_image,
-            })
+            results.append(
+                {
+                    "build_env": build_env,
+                    "config": config,
+                    "test_runner": test_runner,
+                    "build_runner": build_runner,
+                    "build_image": build_image,
+                }
+            )
 
     return results
