@@ -173,7 +173,7 @@ function install_triton_wheel() {
   fi
 
   echo "Installing triton wheel: ${wheel}"
-  pip install "${index_url}${wheel}"
+  pip install "https://download.pytorch.org/whl/nightly/${wheel}"
 
   # Verify the installed triton matches the pinned commit
   local installed_version
