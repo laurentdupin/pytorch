@@ -481,9 +481,7 @@ class TracebackVariable(VariableTracker):
 
     @staticmethod
     def is_valid_traceback(obj: VariableTracker) -> bool:
-        return istype(obj, TracebackVariable) or (
-            istype(obj, ConstantVariable) and obj.is_constant_none()
-        )
+        return istype(obj, TracebackVariable) or obj.is_constant_none()
 
     def extract_tb(self) -> list[traceback.FrameSummary | FrameSummaryVariable]:
         if istype(self.tb_next, ConstantVariable):
@@ -556,7 +554,7 @@ class ExceptionVariable(VariableTracker):
     def __init__(
         self,
         exc_type: Any,
-        args: tuple[VariableTracker, ...],
+        args: list[VariableTracker],
         init_kwargs: dict[str, VariableTracker] | None = None,
         source: Source | None = None,
         mutation_type: MutationType | None = None,
@@ -627,7 +625,14 @@ class ExceptionVariable(VariableTracker):
         name = name_var.as_python_constant()
         if name == "__context__":
             # Constant can be either an Exceptior or None
-            assert isinstance(val, (ExceptionVariable, ConstantVariable))
+            assert val.is_constant_none() or isinstance(
+                val,
+                (
+                    variables.ExceptionVariable,
+                    variables.UserDefinedExceptionClassVariable,
+                    variables.UserDefinedExceptionObjectVariable,
+                ),
+            ), f"{val} is not a valid exception context"
             self.set_context(val)
         elif name == "__cause__":
             if val.is_constant_none() or isinstance(
@@ -697,7 +702,9 @@ class ExceptionVariable(VariableTracker):
         elif name == "__traceback__":
             return self.__traceback__
         elif name == "args":
-            return variables.ListVariable(list(self.args), source=self.source)
+            return VariableTracker.build(
+                tx, self.args, source=self.source and AttrSource(self.source, "args")
+            )
         return super().var_getattr(tx, name)
 
     def __str__(self) -> str:
