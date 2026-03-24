@@ -4431,22 +4431,44 @@ class InstructionTranslatorBase(
         frame_loc_chain_list.append(frame_loc)
         return tuple(frame_loc_chain_list)
 
-    def _format_stack_source_attribution(self) -> str:
-        """Format source attribution for VTs on the symbolic stack that have source_loc."""
-        seen: set[tuple[str, int]] = set()
+    def _format_graph_break_source_attribution(self) -> str:
+        """Format source attribution for the graph break location.
+
+        Always shows the source snippet for the current instruction (Python 3.11+).
+        Additionally shows source attribution for any VTs on the symbolic stack that
+        have source_loc pointing to a different location (i.e., originated elsewhere).
+        """
         parts = []
+
+        inst = self.current_instruction
+        if (
+            sys.version_info >= (3, 11)
+            and inst is not None
+            and inst.positions is not None
+            and inst.positions.lineno is not None
+        ):
+            src = get_instruction_source_311(self.f_code, inst).rstrip()
+            if src:
+                parts.append(f"Source of graph break:\n{src}")
+
+        seen: set[tuple[str, int, int | None]] = set()
+        vt_parts = []
         for vt in self.stack:
             loc = vt.source_loc
             if loc is None:
                 continue
-            key = (loc.filename, loc.lineno)
+            key = (loc.filename, loc.lineno, loc.col_offset)
             if key in seen:
                 continue
             seen.add(key)
-            parts.append(f"  {vt!r} originated from:\n{loc.format()}")
+            vt_parts.append(f"  {vt!r} originated from:\n{loc.format()}")
+
+        if vt_parts:
+            parts.append("Related values:\n" + "\n".join(vt_parts))
+
         if not parts:
             return ""
-        return "\nStack variable source attribution:\n" + "\n".join(parts)
+        return "\n" + "\n\n".join(parts)
 
     def log_graph_break(
         self,
@@ -4497,11 +4519,11 @@ class InstructionTranslatorBase(
         if exc is not None:
             reason = augment_exc_message_with_hop_name(exc, reason)
 
-        stack_source_attribution = self._format_stack_source_attribution()
+        source_attribution = self._format_graph_break_source_attribution()
         user_stack_trace = (
             f"Graph break in user code at {frame_loc[0]}:{frame_loc[1]}\n"
             f"Graph Break Reason: {reason}\n"
-            f"{stack_source_attribution}"
+            f"{source_attribution}"
             "\nUser code traceback:\n"
         )
 

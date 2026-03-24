@@ -233,6 +233,8 @@ Call to `torch._dynamo.graph_break()`
 
  For more details about this graph break, please visit: https://meta-pytorch.github.io/compile-graph-break-site/gb/gb0025.html
 
+Source of graph break:
+            return fn002(x)
 User code traceback:
   File "test_exc.py", line N, in test_graph_break_log
     torch.compile(fn001, backend="eager")(torch.randn(1))
@@ -458,21 +460,37 @@ class SourceLocationTests(LoggingTestCase):
 
     @unittest.skipIf(sys.version_info < (3, 11), "positions only available in 3.11+")
     @make_logging_test(graph_breaks=True)
-    def test_graph_break_source_attribution_on_stack(self, records):
-        """Graph break messages include source attribution for VTs remaining on the stack."""
+    def test_graph_break_source_attribution(self, records):
+        """Graph break messages always include source attribution for the break location."""
 
         def fn(x):
-            # (x + 1) is computed and left on stack when graph_break() CALL is set up.
-            # The graph break happens during CALL, leaving (x + 1)'s VT on the stack.
-            # At runtime, graph_break() returns None, so tuple indexing avoids TypeError.
+            x = x + 1
+            torch._dynamo.graph_break()
+            return x
+
+        torch.compile(fn, backend="eager")(torch.ones(3))
+        record = self.getRecord(records, "Graph break in user code")
+        msg = record.getMessage()
+        self.assertIn("Source of graph break:", msg)
+        self.assertIn("torch._dynamo.graph_break()", msg)
+
+    @unittest.skipIf(sys.version_info < (3, 11), "positions only available in 3.11+")
+    @make_logging_test(graph_breaks=True)
+    def test_graph_break_source_attribution_with_stack_values(self, records):
+        """Source attribution also reports values on the stack that originated elsewhere."""
+
+        def fn(x):
+            # (x + 1) is computed first and sits on the stack while graph_break() is
+            # set up. The graph break happens during CALL, leaving (x + 1)'s VT on the
+            # stack with a different source_loc than the break instruction itself.
+            # At runtime, graph_break() returns None; tuple indexing avoids TypeError.
             return (x + 1, torch._dynamo.graph_break())[0]  # noqa: GB_REGISTRY
 
         torch.compile(fn, backend="eager")(torch.ones(3))
         record = self.getRecord(records, "Graph break in user code")
         msg = record.getMessage()
-        # When a VT with source_loc remains on the stack at graph break time,
-        # the message should include source attribution.
-        self.assertIn("Stack variable source attribution", msg)
+        self.assertIn("Source of graph break:", msg)
+        self.assertIn("Related values:", msg)
 
 
 if __name__ == "__main__":
