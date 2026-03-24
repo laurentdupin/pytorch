@@ -156,7 +156,6 @@ class _HeadTailLoadBalancer(_LoadBalancer):
         chunks = arange.view(world_size * 2, chunk_size)
         head_idx = torch.arange(world_size, device=self.device)
         tail_idx = 2 * world_size - 1 - head_idx
-        # Stack head and tail chunks for each rank: (world_size, 2, chunk_size)
         paired = torch.stack([chunks[head_idx], chunks[tail_idx]], dim=1)
         all_indices_tensor = paired.reshape(-1)
 
