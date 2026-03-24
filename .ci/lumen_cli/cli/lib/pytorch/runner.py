@@ -104,10 +104,7 @@ def _print_repro(
 
     lines = [
         f"\nTo reproduce {group_id}/{step.test_id}:",
-        f"  # Option 1 — lumen (replays full setup automatically):",
         f"  {lumen_cmd}",
-        f"  # Option 2 — manual:",
-        *manual,
     ]
     logger.error("\n".join(lines))
 
@@ -198,8 +195,20 @@ def run_test_plan(
             for pip_args in ctx["pip_installs"]:
                 pip_install_packages(pip_args)
 
+            lumen_msg = (
+                f"Or via lumen:\n"
+                f"    lumen test pytorch-core"
+                f" --group-id {group_id}"
+                f" --build-env {build_env}"
+                f" --test-id {step.test_id}"
+                f" --no-upload"
+                f' --cmd "{{repro}}"'
+            )
             with (
-                temp_environ(ctx["step_env_vars"]),
+                temp_environ({
+                    **ctx["step_env_vars"],
+                    "PYTORCH_EXTRA_REPRO_MESSAGE": lumen_msg,
+                }),
                 working_directory(ctx["working_dir"] or ""),
             ):
                 try:
