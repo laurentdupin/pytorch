@@ -149,11 +149,10 @@ class _HeadTailLoadBalancer(_LoadBalancer):
             raise AssertionError
         chunk_size = seq_length // (world_size * 2)
 
-        # Build indices using torch ops instead of Python lists.
-        # Split sequence into 2*world_size chunks, then pair chunk r
-        # with chunk (2*world_size - 1 - r) for each rank.
-        arange = torch.arange(seq_length, dtype=torch.int, device=self.device)
-        chunks = arange.view(world_size * 2, chunk_size)
+        # Split sequence into 2*world_size chunks, then pair chunk r with
+        # chunk (2*world_size - 1 - r) for each rank.
+        indices = torch.arange(seq_length, dtype=torch.int, device=self.device)
+        chunks = indices.view(world_size * 2, chunk_size)
         head_idx = torch.arange(world_size, device=self.device)
         tail_idx = 2 * world_size - 1 - head_idx
         paired = torch.stack([chunks[head_idx], chunks[tail_idx]], dim=1)
