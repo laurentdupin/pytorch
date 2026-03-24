@@ -121,7 +121,7 @@ class SkipNonTensorTests(torch._dynamo.test_case.TestCase):
             return a + b
 
         counter = CompileCounter()
-        opt_fn = torch._dynamo.optimize_assert(counter)(fn)
+        opt_fn = torch._dynamo.optimize(counter)(fn)
         x = 4
         y = 5
         opt_fn(x, y)

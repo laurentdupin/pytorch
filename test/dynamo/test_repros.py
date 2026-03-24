@@ -2311,7 +2311,7 @@ class ReproTests(torch._dynamo.test_case.TestCase):
         @torch.compile(backend="eager", fullgraph=True)
         def fn(x):
             isinstance(torch.bfloat16, torch.dtype)
-            return x
+            return x + 0
 
         fn(torch.randn(3))
 
@@ -5192,7 +5192,7 @@ def forward(self, s77 : torch.SymInt, s27 : torch.SymInt, L_x_ : torch.Tensor):
                 self.trainer = None
 
             def foo(self):
-                return self.trainer.foo
+                return self.trainer.foo + 0
 
         x = torch.randn(4)
         model = DummyModel()
@@ -5532,6 +5532,7 @@ def forward(self, s77 : torch.SymInt, s27 : torch.SymInt, L_x_ : torch.Tensor):
                 return x.sin()
 
         def f(m):
+            _ = torch.randn(1) + 0
             return callable(m)
 
         res = torch.compile(f, fullgraph=True, backend="eager")(M())
@@ -5846,7 +5847,7 @@ def forward(self, s77 : torch.SymInt, s27 : torch.SymInt, L_x_ : torch.Tensor):
         def func(x, m):
             if getattr(type(m), "foo", 0):
                 return x + MyClass.foo
-            return x
+            return x + 0
 
         opt_func = torch.compile(func, backend="eager", fullgraph=True)
         m = MyClass()
@@ -6022,6 +6023,7 @@ def forward(self, s77 : torch.SymInt, s27 : torch.SymInt, L_x_ : torch.Tensor):
             return x, y
 
         def g(x, y):
+            _ = x[0] + 0
             return map(f, x, y)
 
         opt_g = torch.compile(g, fullgraph=True, backend="eager")

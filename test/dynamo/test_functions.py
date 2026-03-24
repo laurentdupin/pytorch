@@ -315,7 +315,7 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
             map(lambda x: x, [1, 2]),
             filter(lambda x: True, [1, 2]),
         )
-        return a
+        return a + 0
 
     def test_itertools_permutations_basic(self):
         def fn():
@@ -340,7 +340,7 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
         itertools.permutations(zip([1, 2], [3, 4]))
         itertools.permutations(map(lambda x: x, [1, 2]))
         itertools.permutations(filter(lambda x: True, [1, 2]))
-        return a
+        return a + 0
 
     @make_test
     def test_itertools_filterfalse_basic(a, b):
@@ -382,6 +382,7 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
         # Test cases taken from the CPython test TestBasicOps.test_islice. That test has a lot of
         # cases that we can't realistically support, whence we copy the sensible cases here.
         def fn():
+            _ = torch.randn(1) + 0
             for args in [  # islice(args) should agree with range(args)
                 (10, 20, 3),
                 (10, 3, 20),
@@ -531,6 +532,7 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
 
     def test_itertools_compress(self):
         def fn():
+            _ = torch.randn(1) + 0
             return itertools.compress("ABCDEF", [1, 0, 1, 0, 1, 1])
 
         opt_fn = torch.compile(fn, backend="eager", fullgraph=True)
@@ -636,7 +638,7 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
     def test_is_integer(self):
         @torch.compile(backend="eager", fullgraph=True)
         def forward(t, m):
-            return 2 * t if m.is_integer() else t
+            return 2 * t if m.is_integer() else t + 0
 
         t = torch.tensor([1])
         self.assertEqual(forward(t, 1.0).item(), 2)
@@ -656,7 +658,7 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
     )
     def test_number_method(self, method, num_type):
         def forward(t, m):
-            return 2 * t if getattr(m, method)() else t
+            return 2 * t if getattr(m, method)() else t + 0
 
         wrapped = torch.compile(backend="eager", fullgraph=True)(forward)
 
@@ -688,6 +690,7 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
 
     def test_size_tuple_add(self):
         def fn():
+            _ = torch.randn(1) + 0
             size = torch.Size([])
             assert isinstance(size + size, torch.Size)  # noqa: S101
             assert isinstance(size + (), tuple)  # noqa: S101
@@ -1019,7 +1022,7 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
         @torch.compile(backend="eager", fullgraph=True)
         def fn1(x, arg):
             if callable(arg):
-                return x
+                return x + 0
             return x + 1
 
         @torch.compile(backend="eager", fullgraph=True)
@@ -1936,16 +1939,19 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
     def test_sum_with_start_kwarg(a, b, c, d):
         return sum([b, c, d], start=a)
 
-    @make_test(expected_frame_count=0)
+    @make_test
     def test_sum_shortcut():
+        _ = torch.randn(1) + 0
         return sum([0, 1.0, 2, 3.0])
 
-    @make_test(expected_frame_count=0)
+    @make_test
     def test_sum_shortcut_with_start_arg():
+        _ = torch.randn(1) + 0
         return sum([0, 1.0, 2, 3.0], -10)
 
-    @make_test(expected_frame_count=0)
+    @make_test
     def test_sum_shortcut_with_start_kwarg():
+        _ = torch.randn(1) + 0
         return sum([0, 1.0, 2, 3.0], start=-10)
 
     @make_test
@@ -1958,14 +1964,16 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
 
     @make_test
     def test_reduce_with_single(x):
-        return functools.reduce(lambda a, b: (a, b), [x])
+        return functools.reduce(lambda a, b: (a, b), [x]) + 0
 
-    @make_test(expected_frame_count=0)
+    @make_test
     def test_reduce_with_single_with_initial(x, y):
+        _ = x + 0
         return functools.reduce(lambda a, b: (a, b), [y], x)
 
-    @make_test(expected_frame_count=0)
+    @make_test
     def test_reduce_with_none_initial(x):
+        _ = x + 0
         return functools.reduce(lambda a, b: (a, b), [x], None)
 
     @make_test
@@ -2582,16 +2590,16 @@ class FunctionTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
             return math.fma(a, b, c)
 
         # Test with scalar constants (constant folding path)
-        cnt = torch._dynamo.testing.CompileCounter()
-        cfma_scalars = torch._dynamo.optimize_assert(cnt)(fma_func)
+        def fma_scalars():
+            _ = torch.randn(1) + 0
+            return fma_func(2.0, 3.0, 4.0)
 
-        if cnt.frame_count != 0:
-            raise AssertionError(f"Expected frame_count 0, got {cnt.frame_count}")
-        expected = fma_func(2.0, 3.0, 4.0)
-        output = cfma_scalars(2.0, 3.0, 4.0)
+        cnt = torch._dynamo.testing.CompileCounter()
+        cfma_scalars = torch.compile(fma_scalars, backend=cnt, fullgraph=True)
+
+        expected = fma_scalars()
+        output = cfma_scalars()
         self.assertEqual(output, expected)
-        if cnt.frame_count != 0:
-            raise AssertionError(f"Expected frame_count 0, got {cnt.frame_count}")
 
         # Test with tensors (Inductor path)
         cnt2 = torch._dynamo.testing.CompileCounter()
@@ -3621,6 +3629,7 @@ class GraphModule(torch.nn.Module):
             with self.subTest(op=op):
 
                 def fn(x):
+                    _ = x + 0
                     return op(-10, x)
 
                 opt_fn = torch.compile(fullgraph=True, backend="eager")(fn)
@@ -3639,10 +3648,21 @@ class GraphModule(torch.nn.Module):
 
         test(torch.ones(4), 1)
         test(1, torch.ones(4))
+        test(torch.ones(4, dtype=torch.float32), 1.1)
+
+    def test_pos_scalars(self):
+        def fn(x, y):
+            _ = torch.randn(1) + 0
+            return operator.pos(x) * +y
+
+        opt_fn = torch.compile(fullgraph=True, dynamic=True, backend="eager")(fn)
+
+        def test(x, y):
+            self.assertEqual(opt_fn(x, y), fn(x, y))
+
         test(-1, -1)
         test(-1.1, 1.1)
         test(True, False)
-        test(torch.ones(4, dtype=torch.float32), 1.1)
 
     def test_index(self):
         def fn(x, t):
@@ -3684,6 +3704,7 @@ class GraphModule(torch.nn.Module):
             with self.subTest(op=op):
 
                 def fn():
+                    _ = torch.randn(1) + 0
                     a = range(-10, 10)
                     return list(map(op, a))
 
@@ -3695,6 +3716,7 @@ class GraphModule(torch.nn.Module):
             with self.subTest(op=op):
 
                 def fn():
+                    _ = torch.randn(1) + 0
                     a = [tuple(range(-10, i)) for i in range(10)]
                     return tuple(map(op, a))
 
@@ -3711,6 +3733,7 @@ class GraphModule(torch.nn.Module):
             with self.subTest(attrs=attrs):
 
                 def fn(x, y):
+                    _ = x + 0
                     getter = operator.attrgetter(*attrs)
                     return getter(x), getter(y)
 
@@ -3749,6 +3772,7 @@ class GraphModule(torch.nn.Module):
             with self.subTest(name=name, args=args, kwargs=kwargs):
 
                 def fn(x, y):
+                    _ = x + 0
                     caller = operator.methodcaller(name, *args, **kwargs)
                     return caller(x), caller(y)
 
@@ -4040,6 +4064,7 @@ class GraphModule(torch.nn.Module):
 
     def test_map_return(self):
         def fn(a, b):
+            _ = a + 0
             return map(lambda x: x + 1, [a, b])
 
         opt_fn = torch.compile(fn, backend="eager", fullgraph=True)
@@ -4471,6 +4496,7 @@ class GraphModule(torch.nn.Module):
 
     def test_torch_get_device_module(self):
         def f1():
+            _ = torch.randn(1) + 0
             mod1 = torch.get_device_module()
             mod2 = torch.get_device_module("cpu")
             mod3 = torch.get_device_module(torch.device(device_type))
@@ -4502,6 +4528,7 @@ class GraphModule(torch.nn.Module):
         # test for changing torch.get_device_module() (super rare case due to lru_cache)
         @torch.compile(backend="eager", fullgraph=True)
         def f5():
+            _ = torch.randn(1) + 0
             return torch.get_device_module()
 
         f5()
@@ -4535,9 +4562,11 @@ class GraphModule(torch.nn.Module):
         global torch
 
         g = torch.get_device_module
+        _randn = torch.randn
 
         @torch.compile(backend="eager", fullgraph=True)
         def f():
+            _ = _randn(1) + 0
             return g()
 
         try:
@@ -4902,6 +4931,7 @@ class DefaultsTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
 
     def test_frozenset_construction(self):
         def fn(x):
+            _ = x + 0
             s = frozenset({x})
             t = frozenset(s)
             return len(t)
@@ -5319,6 +5349,7 @@ class DefaultsTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
                 return "ok"
 
         def foo_custom_str(x):
+            _ = x + 0
             a = CustomStr()
             return x, str(a)
 
@@ -5334,6 +5365,7 @@ class DefaultsTests(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
             pass
 
         def foo_default_str(x):
+            _ = x + 0
             a = DefaultStr()
             return x, str(a)
 

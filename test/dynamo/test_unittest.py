@@ -16,6 +16,7 @@ class TestUnittest(torch._dynamo.test_case.TestCase):
 
     @make_dynamo_test
     def test_SkipTest(self):
+        _ = torch.randn(1) + 0
         z = 0
         SkipTest = unittest.SkipTest
         try:

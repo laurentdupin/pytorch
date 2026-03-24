@@ -357,6 +357,7 @@ def forward(self, arg0_1, arg1_1):
 
     def test_placement_compile(self):
         def fn(x):
+            _ = torch.randn(1) + 0
             a = 0
             if x.is_replicate():
                 a += 1
@@ -443,7 +444,7 @@ def forward(self, arg0_1, arg1_1):
 
         # pass in DTensor as inputs/outputs to the function
         def fn(x):
-            return x
+            return x + 0
 
         x = DTensor.from_local(torch.rand(1), mesh, [Shard(0)], run_check=False)
         ref = fn(x)

@@ -231,7 +231,7 @@ class EnumTests(torch._dynamo.test_case.TestCase):
 
         def gn(x, y=Foo.FOO):
             if y is Foo.FOO:
-                return x
+                return x + 0
             else:
                 return x + 1
 

@@ -43,6 +43,7 @@ class TestExitStack(torch._dynamo.test_case.TestCase):
             self.assertIsNotNone(sys.exc_info()[1])
             raise exc
 
+        _ = torch.randn(1) + 0
         try:
             with contextlib.ExitStack() as stack:
                 stack.callback(raise_exc, IndexError)

@@ -186,7 +186,10 @@ def substitute_in_graph(
         >>> import operator
         >>> operator.indexOf([1, 2, 3, 4, 5], 3)
         2
-        >>> torch.compile(operator.indexOf, fullgraph=True)([1, 2, 3, 4, 5], 3)
+        >>> @torch.compile(fullgraph=True)
+        ... def fn(x):
+        ...     return x + operator.indexOf([1, 2, 3, 4, 5], 3)
+        >>> fn(torch.zeros(1))
         ... # xdoctest: +SKIP("Long tracebacks")
         Traceback (most recent call last):
         ...
@@ -199,8 +202,11 @@ def substitute_in_graph(
         ...             return i
         ...     raise ValueError("sequence.index(x): x not in sequence")
         >>>
-        >>> torch.compile(operator.indexOf, fullgraph=True)([1, 2, 3, 4, 5], 3)
-        2
+        >>> @torch.compile(fullgraph=True)
+        ... def fn(x):
+        ...     return x + operator.indexOf([1, 2, 3, 4, 5], 3)
+        >>> fn(torch.zeros(1))
+        tensor([2.])
     """
     import torch._dynamo
 
