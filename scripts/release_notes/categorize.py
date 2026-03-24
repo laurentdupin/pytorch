@@ -1,5 +1,5 @@
 import argparse
-import os
+import subprocess
 import textwrap
 from pathlib import Path
 
@@ -128,7 +128,7 @@ class Categorizer:
         if "module: deprecation" in features.labels:
             breaking_alarm += "\n!!!!!! DEPRECATION !!!!!!"
 
-        os.system("clear")
+        subprocess.run(["clear"], check=False)
         view = textwrap.dedent(
             f"""\
 [{i}/{total}]

@@ -144,9 +144,7 @@ def features_to_dict(features):
 
 def run(command):
     """Returns (return-code, stdout, stderr)"""
-    p = subprocess.Popen(
-        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
-    )
+    p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output, err = p.communicate()
     rc = p.returncode
     enc = locale.getpreferredencoding()
@@ -156,19 +154,19 @@ def run(command):
 
 
 def commit_body(commit_hash):
-    cmd = f"git log -n 1 --pretty=format:%b {commit_hash}"
+    cmd = ["git", "log", "-n", "1", "--pretty=format:%b", commit_hash]
     ret, out, err = run(cmd)
     return out if ret == 0 else None
 
 
 def commit_title(commit_hash):
-    cmd = f"git log -n 1 --pretty=format:%s {commit_hash}"
+    cmd = ["git", "log", "-n", "1", "--pretty=format:%s", commit_hash]
     ret, out, err = run(cmd)
     return out if ret == 0 else None
 
 
 def commit_files_changed(commit_hash):
-    cmd = f"git diff-tree --no-commit-id --name-only -r {commit_hash}"
+    cmd = ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", commit_hash]
     ret, out, err = run(cmd)
     return out.split("\n") if ret == 0 else None
 

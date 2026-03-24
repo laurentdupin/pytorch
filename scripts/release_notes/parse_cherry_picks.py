@@ -25,13 +25,56 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+# --- Input validation helpers (CWE-78 hardening) ---
+# These ensure that externally-sourced values (from GitHub comments, user-provided
+# URLs, etc.) conform to strict expected formats before being interpolated into
+# subprocess arguments.  While subprocess list-mode avoids shell interpretation,
+# defence-in-depth protects against argument-injection and future refactors.
+
+_REPO_RE = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
+_PR_NUMBER_RE = re.compile(r"^\d+$")
+_ISSUE_NUMBER_RE = re.compile(r"^\d+$")
+_COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{4,40}$")
+
+
+def _validate_repo(repo: str) -> str:
+    """Validate that *repo* looks like 'owner/name' with safe characters."""
+    if not _REPO_RE.fullmatch(repo):
+        raise ValueError(
+            f"Invalid repository identifier (expected 'owner/repo'): {repo!r}"
+        )
+    return repo
+
+
+def _validate_pr_number(pr_number: str) -> str:
+    """Validate that *pr_number* is a purely numeric string."""
+    if not _PR_NUMBER_RE.fullmatch(pr_number):
+        raise ValueError(f"Invalid PR number (expected digits only): {pr_number!r}")
+    return pr_number
+
+
+def _validate_issue_number(issue_number: str) -> str:
+    """Validate that *issue_number* is a purely numeric string."""
+    if not _ISSUE_NUMBER_RE.fullmatch(issue_number):
+        raise ValueError(
+            f"Invalid issue number (expected digits only): {issue_number!r}"
+        )
+    return issue_number
+
+
+def _validate_commit_sha(sha: str) -> str:
+    """Validate that *sha* is a hex string between 4 and 40 characters."""
+    if not _COMMIT_SHA_RE.fullmatch(sha):
+        raise ValueError(f"Invalid commit SHA (expected 4-40 hex chars): {sha!r}")
+    return sha
+
 
 def parse_issue_url(url: str) -> tuple[str, str]:
     """Extract owner/repo and issue number from a GitHub issue URL."""
     m = re.match(r"https://github\.com/([^/]+/[^/]+)/issues/(\d+)", url)  # @lint-ignore
     if not m:
         raise ValueError(f"Invalid GitHub issue URL: {url}")
-    return m.group(1), m.group(2)
+    return _validate_repo(m.group(1)), _validate_issue_number(m.group(2))
 
 
 def gh_api(endpoint: str) -> list | dict:
@@ -77,6 +120,8 @@ def gh_api(endpoint: str) -> list | dict:
 
 def fetch_comments(repo: str, issue_number: str) -> list[dict]:
     """Fetch all comments from a GitHub issue."""
+    _validate_repo(repo)
+    _validate_issue_number(issue_number)
     endpoint = f"repos/{repo}/issues/{issue_number}/comments?per_page=100"
     comments = gh_api(endpoint)
     logger.info(f"Fetched {len(comments)} comments from {repo}#{issue_number}")
@@ -85,6 +130,8 @@ def fetch_comments(repo: str, issue_number: str) -> list[dict]:
 
 def fetch_pr_title(repo: str, pr_number: str) -> str:
     """Fetch the title of a PR."""
+    _validate_repo(repo)
+    _validate_pr_number(pr_number)
     try:
         result = subprocess.run(
             ["gh", "api", f"repos/{repo}/pulls/{pr_number}", "--jq", ".title"],
@@ -108,6 +155,8 @@ def fetch_landed_commit(repo: str, pr_number: str) -> str:
     1. Issue events API: look for the 'closed' event with a commit_id
     2. Commit search API: search for commits containing '(#NNNNN)' in message
     """
+    _validate_repo(repo)
+    _validate_pr_number(pr_number)
     # Strategy 1: Issue events API
     try:
         result = subprocess.run(
@@ -251,7 +300,18 @@ def main():
             pr_number = pr_info["pr_number"]
             raw_commit = pr_info["raw_commit"]
             pr_title = ""
-            commit_sha = raw_commit  # Use raw commit if provided
+            commit_sha = ""
+
+            # Validate externally-sourced values before use (CWE-78 hardening)
+            if raw_commit:
+                try:
+                    commit_sha = _validate_commit_sha(raw_commit)
+                except ValueError:
+                    logger.warning(
+                        f"Skipping invalid commit SHA in comment {comment_id}: "
+                        f"{raw_commit!r}"
+                    )
+                    continue
 
             if pr_number:
                 logger.info(f"Fetching info for PR #{pr_number}...")

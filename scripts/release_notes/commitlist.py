@@ -375,13 +375,13 @@ class CommitList:
 
     @staticmethod
     def get_commits_between(base_version, new_version):
-        cmd = f"git merge-base {base_version} {new_version}"
+        cmd = ["git", "merge-base", base_version, new_version]
         rc, merge_base, _ = run(cmd)
         assert rc == 0
 
         # Returns a list of something like
         # b33e38ec47 Allow a higher-precision step type for Vec256::arange (#34555)
-        cmd = f"git log --reverse --oneline {merge_base}..{new_version}"
+        cmd = ["git", "log", "--reverse", "--oneline", f"{merge_base}..{new_version}"]
         rc, commits, _ = run(cmd)
         assert rc == 0
 
