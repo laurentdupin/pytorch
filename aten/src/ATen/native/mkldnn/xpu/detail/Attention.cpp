@@ -16,6 +16,20 @@ using partition = dnnl::graph::partition;
 constexpr logical_tensor::data_type sdpa_intermediate_dtype =
     logical_tensor::data_type::f32;
 
+inline dnnl::graph::tensor make_graph_tensor(
+    const logical_tensor& lt,
+    const dnnl::engine& eng,
+    ReadOnlyUSM mem) {
+  return {lt, eng, mem.raw()};
+}
+
+inline dnnl::graph::tensor make_graph_tensor(
+    const logical_tensor& lt,
+    const dnnl::engine& eng,
+    ReadWriteUSM mem) {
+  return {lt, eng, mem.raw()};
+}
+
 inline data_type to_logical_tensor_data_type(c10::ScalarType scalar_type) {
   return scalar_type == c10::ScalarType::Float   ? data_type::f32
       : scalar_type == c10::ScalarType::Half     ? data_type::f16
@@ -845,10 +859,10 @@ void sdpa(
   compiled_partition = partition.compile(l_inputs, l_outputs, eng);
 
   std::vector<dnnl::graph::tensor> outputs = {
-      {l_outputs[0], eng, attention.data_ptr()},
+      make_graph_tensor(l_outputs[0], eng, usm_rw(attention)),
   };
   if (compute_logsumexp) {
-    outputs.emplace_back(l_outputs[1], eng, logsumexp.data_ptr());
+    outputs.emplace_back(make_graph_tensor(l_outputs[1], eng, usm_rw(logsumexp)));
   }
 
   size_t i = 0;
@@ -856,7 +870,7 @@ void sdpa(
   inputs.reserve(l_inputs.size());
 
 #define ADD_INPUT(variable) \
-  inputs.emplace_back(l_inputs[i++], eng, variable.data_ptr())
+  inputs.emplace_back(make_graph_tensor(l_inputs[i++], eng, usm_ro(variable)))
 
   ADD_INPUT(query);
   ADD_INPUT(key);
@@ -947,9 +961,9 @@ void sdpa_backward(
   compiled_partition = partition.compile(l_inputs, l_outputs, eng);
 
   std::vector<dnnl::graph::tensor> outputs = {
-      {l_outputs[0], eng, grad_query.data_ptr()},
-      {l_outputs[1], eng, grad_key.data_ptr()},
-      {l_outputs[2], eng, grad_value.data_ptr()},
+      make_graph_tensor(l_outputs[0], eng, usm_rw(grad_query)),
+      make_graph_tensor(l_outputs[1], eng, usm_rw(grad_key)),
+      make_graph_tensor(l_outputs[2], eng, usm_rw(grad_value)),
   };
 
   size_t i = 0;
@@ -957,7 +971,7 @@ void sdpa_backward(
   inputs.reserve(l_inputs.size());
 
 #define ADD_INPUT(variable) \
-  inputs.emplace_back(l_inputs[i++], eng, variable.data_ptr())
+  inputs.emplace_back(make_graph_tensor(l_inputs[i++], eng, usm_ro(variable)))
 
   ADD_INPUT(grad_out);
   ADD_INPUT(query);
