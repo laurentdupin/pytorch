@@ -12,7 +12,6 @@ import contextlib
 import copy
 import functools
 import itertools
-import logging
 import pprint
 import typing
 import warnings
@@ -115,12 +114,12 @@ def _describe_arg_for_logging(arg: object) -> str:
     from torch._library import opaque_object
 
     try:
-        is_dtensor = isinstance(arg, torch.distributed._tensor.DTensor)
+        is_dtensor = isinstance(arg, torch.distributed.tensor.DTensor)
     except AttributeError:
         is_dtensor = False
 
     if is_dtensor:
-        arg = typing.cast(torch.distributed._tensor.DTensor, arg)
+        arg = typing.cast(torch.distributed.tensor.DTensor, arg)
         mesh = arg.device_mesh
         return (
             f"DTensor(shape={arg.shape}, dtype={arg.dtype}, "
@@ -934,6 +933,17 @@ class AOTDispatchSubclassWrapper(CompilerWrapper):
         self.maybe_subclass_meta = subclass_meta
         return new_flat_fn, new_flat_args, new_flat_args_descs, fw_metadata
 
+    @staticmethod
+    def _get_frozen_inp_indices() -> frozenset[int]:
+        # fw_compiler_freezing (compile_fx.py) bakes frozen params into the
+        # graph and sets their TracingContext.params_flat entries to None
+        # before post_compile runs.  We pass these indices to codegen so it
+        # can emit straight-line code instead of a runtime None check.
+        tc = TracingContext.try_get()
+        if tc is None or tc.params_flat is None:
+            return frozenset()
+        return frozenset(i for i, p in enumerate(tc.params_flat) if p is None)
+
     def post_compile(
         self,
         compiled_fn: Callable[..., Any],
@@ -944,50 +954,15 @@ class AOTDispatchSubclassWrapper(CompilerWrapper):
         if self.maybe_subclass_meta is None:
             return compiled_fn
 
-        subclass_metas = runtime_metadata.subclass_fw_graph_out_meta
+        from .subclass_codegen import codegen_subclass_wrapper
 
-        @wraps(compiled_fn)
-        def inner_fn(args: list[Any]) -> Any:
-            if aot_graphs_log.isEnabledFor(logging.DEBUG):
-                aot_graphs_log.debug(
-                    "=== AOTDispatchSubclassWrapper.inner_fn START ==="
-                )
-                _log_input_metadata(runtime_metadata)
-                _log_args_list(args, "Incoming args")
-
-            unwrapped_args = runtime_unwrap_tensor_subclasses(
-                args,
-                subclass_metas=runtime_metadata.subclass_inp_meta,
-                append_symints=True,
-            )
-
-            if aot_graphs_log.isEnabledFor(logging.DEBUG):
-                _log_args_list(unwrapped_args, "After unwrapping, unwrapped_args")
-
-            args.clear()
-            # expectation: runtime_fn is a boxed fn
-            unwrapped_outs = compiled_fn(unwrapped_args)
-
-            if aot_graphs_log.isEnabledFor(logging.DEBUG):
-                _log_args_maybe_list(
-                    unwrapped_outs, "After compiled_fn, unwrapped_outs"
-                )
-
-            wrapped_outs = wrap_tensor_subclasses(
-                unwrapped_outs,
-                subclass_metas=subclass_metas,
-                num_fw_outs_saved_for_bw=self.num_fw_outs_saved_for_bw,
-                is_runtime=True,
-                included_subclass_symints=True,
-            )
-
-            if aot_graphs_log.isEnabledFor(logging.DEBUG):
-                _log_args_maybe_list(wrapped_outs, "After wrapping, wrapped_outs")
-                aot_graphs_log.debug("=== AOTDispatchSubclassWrapper.inner_fn END ===")
-
-            return wrapped_outs
-
-        # box it
+        inner_fn = codegen_subclass_wrapper(
+            compiled_fn=compiled_fn,
+            inp_metas=runtime_metadata.subclass_inp_meta,
+            out_metas=runtime_metadata.subclass_fw_graph_out_meta,
+            num_fw_outs_saved_for_bw=self.num_fw_outs_saved_for_bw,
+            frozen_inp_indices=self._get_frozen_inp_indices(),
+        )
         inner_fn._boxed_call = True  # type: ignore[attr-defined]
         return inner_fn
 
@@ -2867,6 +2842,11 @@ Your tensor subclass must implement __coerce_same_metadata_as_tangent__."""
                         out,
                     )
 
+                if (
+                    torch._C._is_key_in_tls("context")
+                    and (config_ctx := torch._C._get_obj_in_tls("context")) is not None
+                ):
+                    impl_fn = functools.partial(config_ctx.run, impl_fn)
                 needs_grad = torch.is_grad_enabled() and any(
                     t.requires_grad for t in all_args if isinstance(t, torch.Tensor)
                 )
