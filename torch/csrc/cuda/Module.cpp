@@ -1,6 +1,7 @@
 #include <ATen/ATen.h>
 #include <ATen/core/TensorBody.h>
 #include <ATen/cuda/CUDAConfig.h>
+#include <ATen/detail/CUDAHooksInterface.h>
 #include <ATen/native/ConvUtils.h>
 #include <c10/core/Device.h>
 #include <c10/core/TensorImpl.h>
@@ -262,6 +263,17 @@ PyObject* THCPModule_getCompiledVersion(PyObject* self, PyObject* noargs) {
 #endif
 }
 
+PyObject* THCPModule_getHipblasltVersion(PyObject* self, PyObject* noargs) {
+  HANDLE_TH_ERRORS
+#if defined(USE_ROCM)
+  return THPUtils_packInt64(
+      (int64_t)at::detail::getCUDAHooks().versionHipBLASLt());
+#else
+  Py_RETURN_NONE;
+#endif
+  END_HANDLE_TH_ERRORS
+}
+
 PyObject* THCPModule_cudaHostAllocator(PyObject* _unused, PyObject* noargs) {
   HANDLE_TH_ERRORS
   c10::Allocator* allocator = at::getHostAllocator(at::kCUDA);
@@ -393,6 +405,23 @@ PyObject* THCPModule_cudaJiteratorCompileAndLaunchKernel(
     return output_tuple;
   }
 
+  END_HANDLE_TH_ERRORS
+}
+
+PyObject* THCPModule_allocationTraceback(PyObject* _unused, PyObject* obj) {
+  HANDLE_TH_ERRORS
+  void* ptr = PyLong_AsVoidPtr(obj);
+  if (!ptr && PyErr_Occurred()) {
+    return nullptr;
+  }
+  auto ctx = c10::cuda::CUDACachingAllocator::getContextForPointer(ptr);
+  if (!ctx) {
+    Py_RETURN_NONE;
+  }
+  auto* tb = getCapturedTracebackFromContext(ctx);
+  std::vector<CapturedTraceback*> tbs = {tb};
+  auto frames = py_symbolize(tbs);
+  return frames.at(0).release().ptr();
   END_HANDLE_TH_ERRORS
 }
 
@@ -701,36 +730,44 @@ PyObject* THCPModule_resetPeakHostMemoryStats(
   Py_RETURN_NONE;
 }
 
-CapturedTraceback* getFromContext(
-    const std::shared_ptr<c10::GatheredContext>& x) {
-  if (CapturedTraceback* sc = dynamic_cast<CapturedTraceback*>(x.get())) {
-    return sc;
-  }
-  TORCH_CHECK(
-      false,
-      "attempting to gather stack context from the wrong StackContext type.");
-}
-
 PyObject* THCPModule_memorySnapshot(PyObject* _unused, PyObject* arg) {
   HANDLE_TH_ERRORS
   c10::cuda::MempoolId_t mempool_id = {0, 0};
+  bool include_traces = true;
+
   if (arg && arg != Py_None) {
-    TORCH_CHECK(PyTuple_Check(arg), "mempool_id must be a tuple");
+    TORCH_CHECK(PyTuple_Check(arg), "Expected tuple or None");
     Py_ssize_t size = PyTuple_Size(arg);
-    TORCH_CHECK(size == 2, "mempool_id must be a tuple of 2 integers");
 
-    auto id1 = THPObjectPtr(PyTuple_GetItem(arg, 0));
-    auto id2 = THPObjectPtr(PyTuple_GetItem(arg, 1));
-    TORCH_CHECK(
-        THPUtils_checkLong(id1) && THPUtils_checkLong(id2),
-        "mempool_id elements must be integers");
-
-    mempool_id = c10::cuda::MempoolId_t(
-        THPUtils_unpackLong(id1), THPUtils_unpackLong(id2));
+    if (size == 2) {
+      // (int, int) - mempool_id only
+      auto id1 = THPObjectPtr(PyTuple_GetItem(arg, 0));
+      auto id2 = THPObjectPtr(PyTuple_GetItem(arg, 1));
+      TORCH_CHECK(
+          THPUtils_checkLong(id1) && THPUtils_checkLong(id2),
+          "mempool_id elements must be integers");
+      mempool_id = c10::cuda::MempoolId_t(
+          THPUtils_unpackLong(id1), THPUtils_unpackLong(id2));
+    } else if (size == 3) {
+      // (int, int, bool) - mempool_id + include_traces
+      auto id1 = THPObjectPtr(PyTuple_GetItem(arg, 0));
+      auto id2 = THPObjectPtr(PyTuple_GetItem(arg, 1));
+      auto traces = THPObjectPtr(PyTuple_GetItem(arg, 2));
+      TORCH_CHECK(
+          THPUtils_checkLong(id1) && THPUtils_checkLong(id2),
+          "mempool_id elements must be integers");
+      TORCH_CHECK(
+          PyBool_Check(traces.get()), "include_traces must be a boolean");
+      mempool_id = c10::cuda::MempoolId_t(
+          THPUtils_unpackLong(id1), THPUtils_unpackLong(id2));
+      include_traces = (traces.get() == Py_True);
+    } else {
+      TORCH_CHECK(false, "Expected tuple of size 2 or 3");
+    }
   }
 
-  using c10::cuda::CUDACachingAllocator::BlockInfo;
-  using c10::cuda::CUDACachingAllocator::SegmentInfo;
+  using c10::CachingDeviceAllocator::BlockInfo;
+  using c10::CachingDeviceAllocator::SegmentInfo;
 
   py::str device_s = "device";
   py::str address_s = "address";
@@ -749,13 +786,14 @@ PyObject* THCPModule_memorySnapshot(PyObject* _unused, PyObject* arg) {
   py::str active_pending_free_s = "active_pending_free";
   py::str inactive_s = "inactive";
   py::str addr_s = "addr";
-  py::str cpp_frames_s = "cpp_frames";
   py::str blocks_s = "blocks";
   py::str is_expandable_s = "is_expandable";
   py::str frames_s = "frames";
+  py::str forward_frames_s = "forward_frames";
   py::str time_us_s = "time_us";
   py::str compile_context_s = "compile_context";
   py::str user_metadata_s = "user_metadata";
+  py::str pool_id_s = "pool_id";
 
   py::list empty_frames;
   std::vector<CapturedTraceback*> to_gather_frames;
@@ -764,7 +802,7 @@ PyObject* THCPModule_memorySnapshot(PyObject* _unused, PyObject* arg) {
   auto add_frame_key = [&](const py::dict& d,
                            const std::shared_ptr<c10::GatheredContext>& ctx) {
     if (ctx) {
-      auto sc = getFromContext(ctx);
+      auto sc = getCapturedTracebackFromContext(ctx);
       to_gather_frames.emplace_back(sc);
       to_gather_dest.emplace_back(d);
     } else {
@@ -808,7 +846,8 @@ PyObject* THCPModule_memorySnapshot(PyObject* _unused, PyObject* arg) {
     return segmentDict;
   };
 
-  auto snapshot = c10::cuda::CUDACachingAllocator::snapshot(mempool_id);
+  auto snapshot =
+      c10::cuda::CUDACachingAllocator::snapshot(mempool_id, include_traces);
 
   py::list segments;
 
@@ -830,7 +869,7 @@ PyObject* THCPModule_memorySnapshot(PyObject* _unused, PyObject* arg) {
   py::str oom_s = "oom";
   py::str device_free_s = "device_free";
 
-  using namespace c10::cuda::CUDACachingAllocator;
+  using c10::CachingDeviceAllocator::TraceEntry;
 
   auto action_to_str = [&](TraceEntry::Action action) {
     switch (action) {
@@ -862,7 +901,7 @@ PyObject* THCPModule_memorySnapshot(PyObject* _unused, PyObject* arg) {
       py::dict trace_entry;
       if (te.context_) {
         // without further compression frames can get really large on dump
-        auto sc = getFromContext(te.context_);
+        auto sc = getCapturedTracebackFromContext(te.context_);
         to_gather_frames.emplace_back(sc);
         to_gather_dest.emplace_back(trace_entry);
       }
@@ -874,6 +913,7 @@ PyObject* THCPModule_memorySnapshot(PyObject* _unused, PyObject* arg) {
       trace_entry[time_us_s] = te.time_.t_;
       trace_entry[compile_context_s] = te.compile_context_;
       trace_entry[user_metadata_s] = te.user_metadata_;
+      trace_entry[pool_id_s] = te.mempool_;
       trace.append(trace_entry);
     }
     traces.append(trace);
@@ -936,6 +976,17 @@ PyObject* THCPModule_memorySnapshot(PyObject* _unused, PyObject* arg) {
   auto frames = py_symbolize(to_gather_frames);
   for (auto i : c10::irange(frames.size())) {
     to_gather_dest.at(i)[frames_s] = frames.at(i);
+
+    // Add forward frames if available
+    auto* tb = to_gather_frames.at(i);
+    const auto& forward_tb = tb->forward_traceback();
+    if (forward_tb.has_value() && !forward_tb->empty()) {
+      py::list forward_list;
+      for (const auto& frame_str : *forward_tb) {
+        forward_list.append(py::str(frame_str));
+      }
+      to_gather_dest.at(i)[forward_frames_s] = forward_list;
+    }
   }
 
   return result.release().ptr();
@@ -1045,8 +1096,8 @@ static void registerCudaDeviceProperties(PyObject* module) {
       .def_readonly(
           "max_threads_per_block", &cudaDeviceProp::maxThreadsPerBlock)
       .def_readonly("warp_size", &cudaDeviceProp::warpSize)
-#ifndef USE_ROCM
-      // NVIDIA-only properties
+      .def_readonly(
+          "shared_memory_per_block", &cudaDeviceProp::sharedMemPerBlock)
       .def_property_readonly(
           "clock_rate",
           [](const cudaDeviceProp&) {
@@ -1067,19 +1118,16 @@ static void registerCudaDeviceProperties(PyObject* module) {
           })
       .def_readonly("memory_bus_width", &cudaDeviceProp::memoryBusWidth)
       .def_readonly(
-          "shared_memory_per_block", &cudaDeviceProp::sharedMemPerBlock)
+          "shared_memory_per_multiprocessor",
+          &cudaDeviceProp::sharedMemPerMultiprocessor)
+
+#ifndef USE_ROCM
+      // NVIDIA-only properties
       .def_readonly(
           "shared_memory_per_block_optin",
           &cudaDeviceProp::sharedMemPerBlockOptin)
-      .def_readonly(
-          "shared_memory_per_multiprocessor",
-          &cudaDeviceProp::sharedMemPerMultiprocessor)
 #endif
-#if USE_ROCM
-      // ROCm: expose shared_memory_per_block for shared memory based pruning
-      .def_readonly(
-          "shared_memory_per_block", &cudaDeviceProp::sharedMemPerBlock)
-#endif
+
       .def_readonly(
           "regs_per_multiprocessor", &cudaDeviceProp::regsPerMultiprocessor)
       // HIP-only property; reuse name attribute for CUDA builds
@@ -2033,6 +2081,10 @@ static struct PyMethodDef _THCPModule_methods[] = {
      THCPModule_getCompiledVersion,
      METH_NOARGS,
      nullptr},
+    {"_cuda_getHipblasltVersion",
+     THCPModule_getHipblasltVersion,
+     METH_NOARGS,
+     nullptr},
     {"_cuda_hasPrimaryContext", THCPModule_hasPrimaryContext, METH_O, nullptr},
     {"_cuda_getMemoryFraction",
      THCPModule_getMemoryFraction,
@@ -2053,6 +2105,10 @@ static struct PyMethodDef _THCPModule_methods[] = {
      METH_O,
      nullptr},
     {"_cuda_memorySnapshot", THCPModule_memorySnapshot, METH_O, nullptr},
+    {"_cuda_allocationTraceback",
+     THCPModule_allocationTraceback,
+     METH_O,
+     nullptr},
     {"_cuda_attach_out_of_memory_observer",
      THCPModule_attachOutOfMemoryObserver,
      METH_O,

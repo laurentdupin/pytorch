@@ -1,7 +1,7 @@
 # mypy: allow-untyped-defs
 import functools
 import logging
-from typing import Any, Optional, Union
+from typing import Any
 
 import torch
 from torch._dynamo.utils import counters
@@ -20,7 +20,7 @@ from torch.nn.functional import ScalingType  # type: ignore[attr-defined]
 from torch.torch_version import TorchVersion
 
 from .. import config as inductor_config, distributed_autotune
-from ..codegen.cuda.gemm_template import CUTLASS2xGemmTemplate, CUTLASS3xGemmTemplate
+from ..codegen.cutlass.gemm_template import CUTLASS2xGemmTemplate, CUTLASS3xGemmTemplate
 from ..codegen.rocm.ck_tile_universal_gemm_template import CKTileGemmTemplate
 from ..codegen.rocm.ck_universal_gemm_template import CKGemmTemplate
 from ..codegen.subgraph import SubgraphChoiceCaller, SubgraphTemplate
@@ -49,6 +49,7 @@ from ..utils import (
     use_cpp_gemm_template,
     use_cutlass_template,
     use_decompose_k_choice,
+    use_nv_universal_gemm_template,
     use_triton_blackwell_tma_template,
     use_triton_scaling_template,
     use_triton_template,
@@ -129,7 +130,7 @@ def lazy_register_extern_choice(fn):
 aten_mm = ExternKernelChoice(torch.mm, "at::mm_out", op_overload=aten.mm.out)
 aten_mm_dtype = ExternKernelChoice(
     torch.mm,
-    "at::_mm_dtype_out_cuda",
+    "at::mm_dtype_out",
     name="mm_dtype",
     op_overload=aten.mm.dtype_out,
 )
@@ -312,8 +313,8 @@ def tuned_mm(mat1, mat2, out_dtype=None, *, layout=None):
             lambda: "input dtypes must be the same",
         )
         torch._check(
-            mat1.get_device().type == "cuda",
-            lambda: "out_dtype is only supported for CUDA",
+            mat1.get_device().type in ("cuda", "xpu"),
+            lambda: "out_dtype is only supported for CUDA or XPU",
         )
         torch._check(
             out_dtype == input_dtype
@@ -395,7 +396,7 @@ def tuned_mm(mat1, mat2, out_dtype=None, *, layout=None):
         aten_handler = aten_mm_dtype
         aten_extra_kwargs = {"out_dtype": out_dtype}
 
-    templates_to_use: list[Union[ExternKernelChoice, KernelTemplate]] = []
+    templates_to_use: list[ExternKernelChoice | KernelTemplate] = []
     kwarg_overrides: dict[str, dict[str, Any]] = {}
     if use_aten_gemm_kernels():
         templates_to_use.append(aten_handler)
@@ -418,11 +419,10 @@ def tuned_mm(mat1, mat2, out_dtype=None, *, layout=None):
         if is_exhaustive or not use_decompose_k_choice(m, n, k, threshold_multiple=2):
             templates_to_use.append(mm_template)
 
-            if use_triton_tma_template(mat1, mat2, output_layout=layout):
-                templates_to_use.append(persistent_tma_mm_template)
-
             if use_triton_blackwell_tma_template(mat1, mat2, output_layout=layout):
                 templates_to_use.append(blackwell_ws_persistent_device_tma_mm_template)
+            elif use_triton_tma_template(mat1, mat2, output_layout=layout):
+                templates_to_use.append(persistent_tma_mm_template)
 
         templates_to_use.append(mm_contiguous_subgraph_template)
 
@@ -449,6 +449,15 @@ def tuned_mm(mat1, mat2, out_dtype=None, *, layout=None):
         CKGemmTemplate.add_ck_gemm_choices(choices, layout, kernel_inputs.nodes())
     if out_dtype is None and is_nonzero and use_ck_tile_gemm_template(layout, m, n, k):
         CKTileGemmTemplate.add_choices(choices, layout, kernel_inputs.nodes())
+
+    if (
+        out_dtype is None
+        and is_nonzero
+        and use_nv_universal_gemm_template(layout, m, n, k, mat1, mat2)
+    ):
+        from ..codegen.nv_universal_gemm import add_nv_universal_gemm_choices
+
+        add_nv_universal_gemm_choices(choices, layout, kernel_inputs)
 
     if out_dtype is None and use_cpp_gemm_template(layout, mat1, mat2):
         CppGemmTemplate.add_choices(
@@ -523,13 +532,14 @@ def tuned_mm(mat1, mat2, out_dtype=None, *, layout=None):
     ):
         return box
 
-    return autotune_select_algorithm(
+    node, _ = autotune_select_algorithm(
         name,
         choices,
         kernel_inputs.nodes(),
         layout,
         best_config_future=best_config_future,
     )
+    return node
 
 
 @register_lowering(aten._int_mm, type_promotion_kind=None)
@@ -559,7 +569,7 @@ def tuned_int_mm(mat1, mat2, *, layout=None):
     kernel_inputs = MMKernelInputs([mat1, mat2], out_dtype=torch.int32)
 
     # Collect all templates for unified call
-    templates_to_use: list[Union[ExternKernelChoice, KernelTemplate]] = []
+    templates_to_use: list[ExternKernelChoice | KernelTemplate] = []
     if use_aten_gemm_kernels():
         templates_to_use.append(aten__int_mm)
 
@@ -578,7 +588,8 @@ def tuned_int_mm(mat1, mat2, *, layout=None):
             choices, layout, kernel_inputs.nodes(), fuseable=True, non_fuseable=True
         )
 
-    return autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
+    node, _ = autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
+    return node
 
 
 @register_lowering(aten.addmm, type_promotion_kind=None)
@@ -637,21 +648,28 @@ def tuned_addmm(inp, mat1, mat2, *, alpha=1, beta=1, layout=None):
                 name,
             )
         )
-        return autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
+        node, _ = autotune_select_algorithm(
+            name, choices, kernel_inputs.nodes(), layout
+        )
+        return node
 
     # Collect all templates for unified call
-    templates_to_use: list[Union[ExternKernelChoice, KernelTemplate]] = []
+    templates_to_use: list[ExternKernelChoice | KernelTemplate] = []
     if use_aten_gemm_kernels():
-        templates_to_use.extend([aten_bias_addmm, aten_addmm])
+        templates_to_use.append(aten_addmm)
+        if (
+            inp_expanded.get_stride()[0] == 0
+            and inductor_config.triton.autotune_cublasLt
+        ):
+            templates_to_use.append(aten_bias_addmm)
 
     if is_nonzero and use_triton_template(layout, check_max_autotune=False):
         templates_to_use.append(mm_template)
 
-        if use_triton_tma_template(mat1, mat2, output_layout=layout):
-            templates_to_use.append(persistent_tma_mm_template)
-
         if use_triton_blackwell_tma_template(mat1, mat2, output_layout=layout):
             templates_to_use.append(blackwell_ws_persistent_device_tma_mm_template)
+        elif use_triton_tma_template(mat1, mat2, output_layout=layout):
+            templates_to_use.append(persistent_tma_mm_template)
 
         templates_to_use.append(addmm_contiguous_subgraph_template)
 
@@ -673,6 +691,7 @@ def tuned_addmm(inp, mat1, mat2, *, alpha=1, beta=1, layout=None):
             kernel_inputs.nodes(reorder=[1, 2, 0]),
             alpha=alpha,
             beta=beta,
+            input_reorder=[2, 0, 1],
         )
 
     if is_nonzero and use_ck_gemm_template(layout, m, n, k):
@@ -697,7 +716,8 @@ def tuned_addmm(inp, mat1, mat2, *, alpha=1, beta=1, layout=None):
             has_bias=True,
         )
 
-    return autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
+    node, _ = autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
+    return node
 
 
 @register_lowering(aten._sparse_semi_structured_mm, type_promotion_kind=None)
@@ -744,9 +764,10 @@ def tuned_sparse_semi_structured_mm(
             choices, layout, [mat1, mat2, mat1_meta], fuseable=True, non_fuseable=True
         )
 
-    return autotune_select_algorithm(
+    node, _ = autotune_select_algorithm(
         "sparse_semi_structured_mm", choices, (mat1, mat1_meta, mat2), layout
     )
+    return node
 
 
 scaling_pairs = [
@@ -754,6 +775,7 @@ scaling_pairs = [
     (ScalingType.RowWise, ScalingType.RowWise),
     (ScalingType.BlockWise1x128, ScalingType.BlockWise128x128),
     (ScalingType.BlockWise1x128, ScalingType.BlockWise1x128),
+    (ScalingType.BlockWise128x128, ScalingType.BlockWise1x128),
 ]
 
 
@@ -903,7 +925,7 @@ def tuned_scaled_mm(
     choices: list[ChoiceCaller] = []
 
     # Collect all templates for unified call
-    templates_to_use: list[Union[ExternKernelChoice, KernelTemplate]] = []
+    templates_to_use: list[ExternKernelChoice | KernelTemplate] = []
     kwarg_overrides = {}
 
     if use_aten_gemm_kernels():
@@ -982,9 +1004,21 @@ def tuned_scaled_mm(
         )
     )
 
+    # NVGEMM get_kernels() will return empty if the scaling mode/dtype is unsupported
+    if is_nonzero and use_nv_universal_gemm_template(layout, m, n, k, mat_a, mat_b):
+        from ..codegen.nv_universal_gemm import add_nv_universal_scaled_gemm_choices
+
+        add_nv_universal_scaled_gemm_choices(
+            choices,
+            layout,
+            input_nodes,
+            kernel_inputs=kernel_inputs,
+        )
+
     # Early return for MX variants
     if scale_a.dtype != torch.float32:
-        return autotune_select_algorithm(name, choices, input_nodes, layout)
+        node, _ = autotune_select_algorithm(name, choices, input_nodes, layout)
+        return node
 
     if (
         is_nonzero
@@ -1001,11 +1035,12 @@ def tuned_scaled_mm(
     if is_nonzero and use_ck_gemm_template(layout, m, n, k):
         CKGemmTemplate.add_ck_gemm_choices(choices, layout, kernel_inputs.nodes())
 
-    return autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
+    node, _ = autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
+    return node
 
 
 @functools.cache
-def _is_sm7x_or_older_gpu(index: Optional[int]) -> bool:
+def _is_sm7x_or_older_gpu(index: int | None) -> bool:
     props = torch.cuda.get_device_properties(index or 0)
     return props.major <= 7
 
@@ -1025,7 +1060,7 @@ def mm_autoheuristic(
     input_nodes,
     ops,
     precondition,
-    top_k: Optional[int] = None,
+    top_k: int | None = None,
     always_included=None,
 ):
     m, n, k = get_size_hints(mat1, mat2, m, n, k)
@@ -1077,16 +1112,10 @@ def mm_autoheuristic(
 
 def get_size_hints(mat1, mat2, m, n, k):
     if not isinstance(m, int) or not isinstance(k, int):
-        (m, k) = V.graph.sizevars.size_hints(
-            mat1.get_size(),
-            fallback=torch._inductor.config.unbacked_symint_fallback,
-        )
+        (m, k) = V.graph.sizevars.optimization_hints(mat1.get_size())
 
     if not isinstance(n, int) or not isinstance(k, int):
-        (k, n) = V.graph.sizevars.size_hints(
-            mat2.get_size(),
-            fallback=torch._inductor.config.unbacked_symint_fallback,
-        )
+        (k, n) = V.graph.sizevars.optimization_hints(mat2.get_size())
     return m, n, k
 
 
@@ -1097,9 +1126,6 @@ def get_size_hints_strides(mat1, mat2):
     strides_hints = []
     for stride in strides:
         if not isinstance(stride, int):
-            stride = V.graph.sizevars.size_hints(
-                stride,
-                fallback=torch._inductor.config.unbacked_symint_fallback,
-            )
+            stride = V.graph.sizevars.optimization_hints(stride)
         strides_hints.append(stride)
     return strides_hints[0], strides_hints[1]

@@ -66,6 +66,7 @@ struct CUDAGuardImpl final : public c10::impl::DeviceGuardImplInterface {
         (1ULL << kIndex_Long) | (1ULL << kIndex_Float) |
         (1ULL << kIndex_Double) | (1ULL << kIndex_ComplexFloat) |
         (1ULL << kIndex_ComplexDouble) | (1ULL << kIndex_Bool);
+#ifndef USE_ROCM
     cudaDeviceProp device_prop{};
     C10_CUDA_CHECK(cudaGetDeviceProperties(&device_prop, d.index()));
     if (device_prop.major >= 5 && device_prop.minor >= 3) {
@@ -75,6 +76,12 @@ struct CUDAGuardImpl final : public c10::impl::DeviceGuardImplInterface {
     if (device_prop.major >= 8) {
       cap.capability_data.capability_bits |= (1ULL << kIndex_BFloat16);
     }
+  #else
+    // ROCm supports half, complex half, and bfloat16 types natively.
+    cap.capability_data.capability_bits |= (1ULL << kIndex_Half);
+    cap.capability_data.capability_bits |= (1ULL << kIndex_ComplexHalf);
+    cap.capability_data.capability_bits |= (1ULL << kIndex_BFloat16);
+  #endif
     return cap;
   }
   Stream getStream(Device d) const override {
@@ -96,6 +103,10 @@ struct CUDAGuardImpl final : public c10::impl::DeviceGuardImplInterface {
     auto old_stream = getCurrentCUDAStream(s.device().index());
     setCurrentCUDAStream(cs);
     return old_stream.unwrap();
+  }
+  void* getStreamNativeHandle(const Stream s) const override {
+    CUDAStream stream{s};
+    return reinterpret_cast<void*>(stream.stream());
   }
   DeviceIndex deviceCount() const noexcept override {
     return device_count();
