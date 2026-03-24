@@ -4000,5 +4000,215 @@ class TestInlineInvokeSubgraph(TestCase):
         self.assertEqual(y.grad, y2.grad)
 
 
+class TestInvokeSubgraphReuseHashFn(TestCase):
+    @contextlib.contextmanager
+    def _count_speculate_calls(self):
+        count = 0
+        orig = torch._dynamo.variables.higher_order_ops.speculate_subgraph_with_auto_output_flattening
+
+        def _counting(*args, **kwargs):
+            nonlocal count
+            count += 1
+            return orig(*args, **kwargs)
+
+        with mock.patch.object(
+            torch._dynamo.variables.higher_order_ops,
+            "speculate_subgraph_with_auto_output_flattening",
+            _counting,
+        ):
+            yield lambda: count
+
+    def test_reuse_hash_fn_module_distinct_hashes(self):
+        """nn.Module arg with hash fn returning different values per layer."""
+
+        def hash_fn(mod, x):
+            return mod.layer_id
+
+        @nested_compile_region(reuse_hash_fn=hash_fn)
+        def layer_fn(mod, x):
+            return x.sin() + mod.weight
+
+        class Layer(torch.nn.Module):
+            def __init__(self, layer_id):
+                super().__init__()
+                self.layer_id = layer_id
+                self.weight = torch.nn.Parameter(torch.randn(8))
+
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.layers = torch.nn.ModuleList(
+                    [Layer(i) for i in range(4)]
+                )
+
+            def forward(self, x):
+                for layer in self.layers:
+                    x = layer_fn(layer, x)
+                return x
+
+        mod = Model()
+        x = torch.randn(8)
+        ref = mod(x)
+
+        with self._count_speculate_calls() as count:
+            res = torch.compile(mod, backend="aot_eager", fullgraph=True)(x)
+
+        # Each layer has a distinct layer_id → 4 separate traces
+        self.assertEqual(count(), 4)
+        self.assertEqual(ref, res)
+
+    def test_reuse_hash_fn_module_same_hash(self):
+        """nn.Module arg with hash fn returning same value → single trace."""
+
+        def hash_fn(mod, x):
+            return 0
+
+        @nested_compile_region(reuse_hash_fn=hash_fn)
+        def layer_fn(mod, x):
+            return x.sin() + mod.weight
+
+        class Layer(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.randn(8))
+
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.layers = torch.nn.ModuleList(
+                    [Layer() for _ in range(4)]
+                )
+
+            def forward(self, x):
+                for layer in self.layers:
+                    x = layer_fn(layer, x)
+                return x
+
+        mod = Model()
+        x = torch.randn(8)
+        ref = mod(x)
+
+        with self._count_speculate_calls() as count:
+            res = torch.compile(mod, backend="aot_eager", fullgraph=True)(x)
+
+        # All layers hash to 0 → single trace + 3 stamp-outs
+        self.assertEqual(count(), 1)
+        self.assertEqual(ref, res)
+
+    def test_reuse_hash_fn_tensor_shape(self):
+        """Hash fn that uses tensor shape to differentiate inputs."""
+
+        def hash_fn(x):
+            return x.shape[0]
+
+        @nested_compile_region(reuse_hash_fn=hash_fn)
+        def gn(x):
+            return x.sin()
+
+        def fn(x4, x8a, x8b):
+            # x8a and x8b have the same shape → same hash → reuse
+            a = gn(x4)
+            b = gn(x8a)
+            c = gn(x8b)
+            return a.sum() + b.sum() + c.sum()
+
+        x4 = torch.randn(4)
+        x8a = torch.randn(8)
+        x8b = torch.randn(8)
+        ref = fn(x4, x8a, x8b)
+
+        with self._count_speculate_calls() as count:
+            res = torch.compile(fn, backend="aot_eager", fullgraph=True)(
+                x4, x8a, x8b
+            )
+
+        # shape[0]=4 and shape[0]=8 → 2 traces, third call reuses shape=8
+        self.assertEqual(count(), 2)
+        self.assertEqual(ref, res)
+
+    def test_reuse_hash_fn_graph_break_raises(self):
+        """reuse_hash_fn with a graph break raises a clear error."""
+
+        def bad_hash_fn(mod, x):
+            print("this causes a graph break")
+            return 0
+
+        @nested_compile_region(reuse_hash_fn=bad_hash_fn)
+        def layer_fn(mod, x):
+            return x.sin() + mod.weight
+
+        class Layer(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.randn(8))
+
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.layers = torch.nn.ModuleList([Layer(), Layer()])
+
+            def forward(self, x):
+                for layer in self.layers:
+                    x = layer_fn(layer, x)
+                return x
+
+        mod = Model()
+        x = torch.randn(8)
+        with self.assertRaisesRegex(
+            RuntimeError, "reuse_hash_fn must be fully traceable"
+        ):
+            torch.compile(mod, backend="aot_eager", fullgraph=True)(x)
+
+    def test_reuse_hash_fn_if_cond_no_guard(self):
+        """if-condition in hash fn should not install guards on the module."""
+
+        def hash_fn(mod, x):
+            if mod.use_gelu:
+                return 1
+            return 0
+
+        @nested_compile_region(reuse_hash_fn=hash_fn)
+        def layer_fn(mod, x):
+            return x.sin() + mod.weight
+
+        class Layer(torch.nn.Module):
+            def __init__(self, use_gelu):
+                super().__init__()
+                self.use_gelu = use_gelu
+                self.weight = torch.nn.Parameter(torch.randn(8))
+
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.layers = torch.nn.ModuleList(
+                    [Layer(True), Layer(False)]
+                )
+
+            def forward(self, x):
+                for layer in self.layers:
+                    x = layer_fn(layer, x)
+                return x
+
+        mod = Model()
+        x = torch.randn(8)
+        ref = mod(x)
+
+        cnt = torch._dynamo.testing.CompileCounter()
+        compiled = torch.compile(mod, backend=cnt)
+        res = compiled(x)
+        self.assertEqual(ref, res)
+
+        # Flip use_gelu on both layers — if hash fn guards leaked, this
+        # would cause a recompilation. With proper guard stripping it
+        # should not recompile (the outer frame guard count stays the same).
+        frame_count_before = cnt.frame_count
+        mod.layers[0].use_gelu = False
+        mod.layers[1].use_gelu = True
+        ref2 = mod(x)
+        res2 = compiled(x)
+        self.assertEqual(ref2, res2)
+        self.assertEqual(cnt.frame_count, frame_count_before)
+
+
 if __name__ == "__main__":
     run_tests()
