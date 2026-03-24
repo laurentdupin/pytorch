@@ -1016,14 +1016,18 @@ class {module_name}(torch.nn.Module):
                         profiled_lines = [f"def _{name}_forward_profiled(self, *args, **kwargs):"]
                         profiled_lines.append(f"    return _{name}_forward_impl(self, *args, **kwargs)")
                         profiled_src = "\n".join(profiled_lines)
+                        dispatcher = (
+                            f"def _{name}_forward(self, *args, **kwargs):\n"
+                            f"    if _autograd_profiler._is_profiler_enabled:\n"
+                            f"        return _{name}_forward_profiled(self, *args, **kwargs)\n"
+                            f"    return _{name}_forward_impl(self, *args, **kwargs)\n"
+                        )
                     else:
                         profiled_src = ""
-                    dispatcher = (
-                        f"def _{name}_forward(self, *args, **kwargs):\n"
-                        f"    if _autograd_profiler._is_profiler_enabled:\n"
-                        f"        return _{name}_forward_profiled(self, *args, **kwargs)\n"
-                        f"    return _{name}_forward_impl(self, *args, **kwargs)\n"
-                    )
+                        dispatcher = (
+                            f"def _{name}_forward(self, *args, **kwargs):\n"
+                            f"    return _{name}_forward_impl(self, *args, **kwargs)\n"
+                        )
                     section = f"\n# ===== Subgraph: {name} =====\n{impl_src}\n\n{profiled_src}\n\n{dispatcher}"
                     subgraph_sections.append(section)
 
