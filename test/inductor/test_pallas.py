@@ -1045,7 +1045,6 @@ class PallasTestsMixin:
                 expected = fn(a, b)
                 self.assertEqual(result, expected)
 
-    @skip_if_tpu
     def test_sign(self):
         """Test sign operation."""
 
