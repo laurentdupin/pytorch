@@ -1401,14 +1401,18 @@ class TestFSDPUseOrigParamsPrefetchWriteback(FSDPTest):
                 compute_done.fill_(1)
                 return out
 
-        orig_writeback = FlatParamHandle._writeback_orig_params
+        orig_pre_unshard = FlatParamHandle.pre_unshard
 
-        def _writeback_with_check(self_handle):
+        def _pre_unshard_with_check(self_handle, compute_stream):
+            ret = orig_pre_unshard(self_handle, compute_stream)
+            # Read the flag after pre_unshard returns. If _writeback_orig_params
+            # properly waited for the compute stream, this clone (on
+            # pre_unshard_stream) is ordered after the wait and reads 1.
             if self_handle._use_orig_params:
                 writeback_reads.append(compute_done.clone())
-            return orig_writeback(self_handle)
+            return ret
 
-        FlatParamHandle._writeback_orig_params = _writeback_with_check
+        FlatParamHandle.pre_unshard = _pre_unshard_with_check
         try:
             torch.manual_seed(42)
             model = nn.Sequential(
@@ -1433,7 +1437,7 @@ class TestFSDPUseOrigParamsPrefetchWriteback(FSDPTest):
                             p -= 0.01 * p.grad
                             p.grad = None
         finally:
-            FlatParamHandle._writeback_orig_params = orig_writeback
+            FlatParamHandle.pre_unshard = orig_pre_unshard
 
         torch.cuda.synchronize()
         for i, val in enumerate(writeback_reads):
