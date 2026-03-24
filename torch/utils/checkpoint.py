@@ -1328,7 +1328,7 @@ class _CachingTorchDispatchMode(TorchDispatchMode):
     def __init__(self, policy_fn, storage, ac_graph_id=None) -> None:
         self.policy_fn = policy_fn
         self.storage = storage
-        self.ac_graph_id = ac_graph_id if ac_graph_id is not None else next(_ac_graph_id_counter)
+        self.ac_graph_id = ac_graph_id
 
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         if func in SAC_IGNORED_OPS:
@@ -1343,6 +1343,7 @@ class _CachingTorchDispatchMode(TorchDispatchMode):
         is_compiling = _is_compiling(func, args, kwargs)
 
         if is_compiling:
+            # Overwrite each node's "recompute" tag to add in the user annotation.
             fx_traceback.current_meta["recompute"] = policy
             fx_traceback.current_meta["ac_graph_id"] = self.ac_graph_id
 
@@ -1555,6 +1556,10 @@ def _checkpoint_without_reentrant_generator(
         )
     else:
         forward_context, recompute_context = context_fn()
+    if _is_compiling(fn, args, kwargs):
+        # Assign ac_graph_id so the partitioner can distinguish checkpoint regions.
+        if hasattr(forward_context, "ac_graph_id") and forward_context.ac_graph_id is None:
+            forward_context.ac_graph_id = next(_ac_graph_id_counter)
     if _is_compiling(fn, args, kwargs) and context_fn is not noop_context_fn:
         if (
             not isinstance(forward_context, TorchDispatchMode)
