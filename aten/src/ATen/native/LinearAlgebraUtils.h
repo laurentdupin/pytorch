@@ -146,17 +146,6 @@ inline int64_t matrixStride(const Tensor& batched_matrices) {
 }
 
 /*
- * Returns the leading dimension for a (batched) matrix input.
- *
- * IMPORTANT ASSUMPTIONS:
- * 1. The input dim >= 2.
- */
-inline int64_t leadingDim(const Tensor& A) {
-  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(A.dim() >= 2);
-  return std::max(A.stride(-1), A.stride(-2));
-}
-
-/*
  * Check whether the input is a (batched) tensor of matrices
  * with non-overlapping (arbitrary strided) memory layout.
  * Only the row and column dimensions are checked!
@@ -184,6 +173,39 @@ inline bool is_non_overlapping_matrices(const Tensor& A) {
       // Checks whether the strides are that of a full matrix with m * n elements
       && (std::max(m * sm, n * sn) >= m * n)
   );
+}
+
+/*
+ * Returns the leading dimension for a (batched) matrix input.
+ *
+ * IMPORTANT ASSUMPTIONS:
+ * 1. The input dim >= 2.
+ * 2. The matrix dimensions (rows/cols) are non-overlapping.
+ */
+inline int64_t leadingDim(const Tensor& A) {
+  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(A.dim() >= 2);
+  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(is_non_overlapping_matrices(A));
+
+  const auto m = A.size(-2);
+  const auto n = A.size(-1);
+
+  // Treating A as col-major when empty
+  if (m == 0 || n == 0) {
+    return std::max<int64_t>(m, 1);
+  }
+
+  const auto sm = A.stride(-2);
+  const auto sn = A.stride(-1);
+
+  if (sm > sn) {
+    // likely row-major, should be at least max(n, 1)
+    return std::max(sm, std::max<int64_t>(n, 1));
+  } else {
+    // likely col-major, should be at least max(m, 1)
+    // NOTE: when sm == sn, the input is likely expanded (*, m) -> (*, m, 1),
+    // so it can be viewed as col-major
+    return std::max(sn, std::max<int64_t>(m, 1));
+  }
 }
 
 /*
