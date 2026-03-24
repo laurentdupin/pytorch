@@ -4,6 +4,7 @@ This module provides decorators and utilities for controlling TorchDynamo's beha
 
 import functools
 import inspect
+import warnings
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -1396,34 +1397,39 @@ def _allow_in_graph_einops() -> None:
     #     # einops 0.8.2+ don't need explicit allow_in_graph calls
     #     return
 
-    try:
-        # requires einops > 0.6.1, torch >= 2.0
-        from einops._torch_specific import (  # type: ignore[attr-defined]  # noqa: F401
-            _ops_were_registered_in_torchdynamo,
-        )
+    # Suppress the allow_in_graph deprecation warning. For einops 0.7.0-0.8.1,
+    # einops._torch_specific itself calls allow_in_graph at import time. For
+    # einops ≤ 0.6.1 and ≥ 0.8.2, we call it in the except branch below.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        try:
+            # requires einops > 0.6.1, torch >= 2.0
+            from einops._torch_specific import (  # type: ignore[attr-defined]  # noqa: F401
+                _ops_were_registered_in_torchdynamo,
+            )
 
-        # einops > 0.6.1 will call the op registration logic as it is imported.
-    except ImportError:
-        # einops <= 0.6.1 doesn't handle unhashable SymInt in its lru_cache'd
-        # helpers. Backport the try/except TypeError fallback from einops 0.7.0+
-        # so allow_in_graph works during fake tensor validation.
-        _patch_einops_symint_compat(einops.einops)  # type: ignore[attr-defined]
-        # pyrefly: ignore [deprecated]
-        allow_in_graph(einops.rearrange)
-        # pyrefly: ignore [deprecated]
-        allow_in_graph(einops.reduce)
-        if hasattr(einops, "repeat"):
+            # einops > 0.6.1 will call the op registration logic as it is imported.
+        except ImportError:
+            # einops <= 0.6.1 doesn't handle unhashable SymInt in its lru_cache'd
+            # helpers. Backport the try/except TypeError fallback from einops 0.7.0+
+            # so allow_in_graph works during fake tensor validation.
+            _patch_einops_symint_compat(einops.einops)  # type: ignore[attr-defined]
             # pyrefly: ignore [deprecated]
-            allow_in_graph(einops.repeat)  # available since einops 0.2.0
-        if hasattr(einops, "einsum"):
+            allow_in_graph(einops.rearrange)
             # pyrefly: ignore [deprecated]
-            allow_in_graph(einops.einsum)  # available since einops 0.5.0
-        if hasattr(einops, "pack"):
-            # pyrefly: ignore [deprecated]
-            allow_in_graph(einops.pack)  # available since einops 0.6.0
-        if hasattr(einops, "unpack"):
-            # pyrefly: ignore [deprecated]
-            allow_in_graph(einops.unpack)  # available since einops 0.6.0
+            allow_in_graph(einops.reduce)
+            if hasattr(einops, "repeat"):
+                # pyrefly: ignore [deprecated]
+                allow_in_graph(einops.repeat)  # available since einops 0.2.0
+            if hasattr(einops, "einsum"):
+                # pyrefly: ignore [deprecated]
+                allow_in_graph(einops.einsum)  # available since einops 0.5.0
+            if hasattr(einops, "pack"):
+                # pyrefly: ignore [deprecated]
+                allow_in_graph(einops.pack)  # available since einops 0.6.0
+            if hasattr(einops, "unpack"):
+                # pyrefly: ignore [deprecated]
+                allow_in_graph(einops.unpack)  # available since einops 0.6.0
 
 
 # Note: this carefully avoids eagerly import einops.
