@@ -2568,6 +2568,7 @@ def compile(
     mode: str | None = None,
     options: dict[str, str | builtins.int | builtins.bool | _Callable] | None = None,
     disable: builtins.bool = False,
+    clone: builtins.bool = False,
 ) -> _Callable[_InputT, _RetT]: ...
 
 
@@ -2581,6 +2582,7 @@ def compile(
     mode: str | None = None,
     options: dict[str, str | builtins.int | builtins.bool | _Callable] | None = None,
     disable: builtins.bool = False,
+    clone: builtins.bool = False,
 ) -> _Callable[[_Callable[_InputT, _RetT]], _Callable[_InputT, _RetT]]: ...
 
 
@@ -2594,6 +2596,7 @@ def compile(
     options: dict[str, str | builtins.int | builtins.bool | _Callable] | None = None,
     disable: builtins.bool = False,
     recompile_limit: builtins.int | None = None,
+    clone: builtins.bool = False,
 ) -> (
     _Callable[[_Callable[_InputT, _RetT]], _Callable[_InputT, _RetT]]
     | _Callable[_InputT, _RetT]
@@ -2721,6 +2724,7 @@ def compile(
                 mode=mode,
                 options=options,
                 disable=disable,
+                clone=clone,
             )
 
         return fn
@@ -2778,6 +2782,7 @@ def compile(
         disable=disable,
         guard_filter_fn=guard_filter_fn,
         recompile_limit=recompile_limit,
+        clone=clone,
     )(model)  # type: ignore[return-value]
 
 

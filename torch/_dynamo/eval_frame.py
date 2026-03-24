@@ -612,6 +612,31 @@ def always_false() -> bool:
     return False
 
 
+def _clone_function(fn: Any) -> Any:
+    """Clone a function by creating a new code object so it gets its own Dynamo cache.
+
+    Dynamo caches compiled code on fn.__code__ via _PyCode_SetExtra. When
+    multiple torch.compile calls target the same function, they share a cache
+    and can thrash each other. Cloning creates a new code object (via
+    code.replace()) so each compiled version gets an independent cache.
+    """
+    if hasattr(fn, "__code__"):
+        cloned = types.FunctionType(
+            fn.__code__.replace(),
+            fn.__globals__,
+            fn.__name__,
+            fn.__defaults__,
+            fn.__closure__,
+        )
+        cloned.__kwdefaults__ = fn.__kwdefaults__
+        cloned.__dict__.update(fn.__dict__)
+        return cloned
+    if isinstance(fn, torch.nn.Module) and hasattr(fn.forward, "__code__"):
+        fn.forward = _clone_function(fn.forward.__func__).__get__(fn, type(fn))
+        return fn
+    return fn
+
+
 def innermost_fn(fn: Callable[..., Any]) -> Callable[..., Any]:
     """
     In case of nesting of _TorchDynamoContext calls, find the innermost
@@ -745,6 +770,7 @@ class _TorchDynamoContext:
         compiler_config: Any | None = None,
         package: CompilePackage | None = None,
         hooks: Hooks | None = None,
+        clone: bool = False,
     ) -> None:
         super().__init__()
         assert callable(callback) or callback is False or callback is None
@@ -761,6 +787,7 @@ class _TorchDynamoContext:
         self.enter_exit_hooks = []
         self._package = package
         self._hooks = hooks
+        self._clone = clone
         patch_fn()
 
         # Save the backends so that we can reset them during torch._dynamo.reset
@@ -847,6 +874,9 @@ class _TorchDynamoContext:
                         )
 
         fn = innermost_fn(fn)
+
+        if self._clone:
+            fn = _clone_function(fn)
 
         def aot_compile(example_inputs: tuple[tuple[Any, ...], dict[str, Any]]) -> Any:
             from torch._dynamo.aot_compile import aot_compile_fullgraph
@@ -1144,6 +1174,7 @@ class OptimizeContext(_TorchDynamoContext):
         rebuild_ctx: Callable[[], OptimizeContext | _NullDecorator] | None = None,
         package: CompilePackage | None = None,
         hooks: Hooks | None = None,
+        clone: bool = False,
     ) -> None:
         def on_enter() -> None:
             install_generation_tagging_init()
@@ -1161,6 +1192,7 @@ class OptimizeContext(_TorchDynamoContext):
             compiler_config=compiler_config,
             package=package,
             hooks=hooks,
+            clone=clone,
         )
 
         if config.compiled_autograd:
@@ -1312,6 +1344,7 @@ def _optimize_catch_errors(
     compiler_config: Any | None = None,
     rebuild_ctx: Callable[[], OptimizeContext | _NullDecorator] | None = None,
     package: CompilePackage | None = None,
+    clone: bool = False,
 ) -> OptimizeContext:
     return OptimizeContext(
         convert_frame.catch_errors_wrapper(compile_fn, hooks),
@@ -1325,6 +1358,7 @@ def _optimize_catch_errors(
         rebuild_ctx=rebuild_ctx,
         package=package,
         hooks=hooks,
+        clone=clone,
     )
 
 
@@ -1511,6 +1545,7 @@ def _optimize(
     dynamic: bool | None = None,
     package: CompilePackage | None = None,
     recompile_limit: int | None = None,
+    clone: bool = False,
 ) -> OptimizeContext | _NullDecorator:
     """
     The main entrypoint of TorchDynamo.  Do graph capture and call
@@ -1570,6 +1605,7 @@ def _optimize(
             rebuild_ctx=rebuild_ctx,
             package=package,
             recompile_limit=recompile_limit,
+            clone=clone,
         )
 
     backend = get_compiler_fn(backend)
@@ -1608,6 +1644,7 @@ def _optimize(
         ),
         rebuild_ctx=rebuild_ctx,
         package=package,
+        clone=clone,
     )
 
 
@@ -2447,6 +2484,7 @@ def _optimize_assert(
     dynamic: bool | None = None,
     package: CompilePackage | None = None,
     recompile_limit: int | None = None,
+    clone: bool = False,
 ) -> OptimizeContext:
     """
     Guarantees single-graph capture.
@@ -2486,6 +2524,7 @@ def _optimize_assert(
         dynamic=dynamic,
         rebuild_ctx=rebuild_ctx,
         package=package,
+        clone=clone,
     )
 
 
