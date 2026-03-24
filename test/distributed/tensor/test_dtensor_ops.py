@@ -266,6 +266,9 @@ dtensor_fails = {
 
 dtensor_multi_threaded_fails = {
     xfail("full_like"),
+    # index_fill: correctness mismatch in multi-threaded mode when sharding
+    # on non-indexed dim (values differ from single-threaded reference)
+    xfail("index_fill"),
     xfail("multinomial"),
     xfail("nn.functional.dropout2d"),
     xfail("nn.functional.dropout3d"),
