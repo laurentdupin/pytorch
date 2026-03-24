@@ -19,7 +19,7 @@ runs:
         # shellcheck disable=SC2046
         docker stop $(docker ps -q) || true
         # Prune all stopped containers.
-        docker container prune -f
+        #docker container prune -f #comment out due to conflicting prunes on the same machine
 
     - name: Runner health check system info
       if: always()
