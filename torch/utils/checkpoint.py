@@ -1320,10 +1320,10 @@ class _CachingTorchDispatchMode(TorchDispatchMode):
         return True
 
     # Used together with _CachedTorchDispatchMode to implement SAC.
-    def __init__(self, policy_fn, storage) -> None:
+    def __init__(self, policy_fn, storage, ac_graph_id=None) -> None:
         self.policy_fn = policy_fn
         self.storage = storage
-        self.ac_graph_id = next(_ac_graph_id_counter)
+        self.ac_graph_id = ac_graph_id if ac_graph_id is not None else next(_ac_graph_id_counter)
 
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         if func in SAC_IGNORED_OPS:
