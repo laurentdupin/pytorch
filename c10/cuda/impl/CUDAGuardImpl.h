@@ -73,15 +73,18 @@ struct CUDAGuardImpl final : public c10::impl::DeviceGuardImplInterface {
       cap.capability_data.capability_bits |= (1ULL << kIndex_Half);
       cap.capability_data.capability_bits |= (1ULL << kIndex_ComplexHalf);
     }
+    // BFloat16 is natively supported (no software emulation) on SM 8.0+ (Ampere
+    // and later). Mirrors the capability check in
+    // torch/cuda/__init__.py:is_bf16_supported().
     if (device_prop.major >= 8) {
       cap.capability_data.capability_bits |= (1ULL << kIndex_BFloat16);
     }
-  #else
+#else
     // ROCm supports half, complex half, and bfloat16 types natively.
     cap.capability_data.capability_bits |= (1ULL << kIndex_Half);
     cap.capability_data.capability_bits |= (1ULL << kIndex_ComplexHalf);
     cap.capability_data.capability_bits |= (1ULL << kIndex_BFloat16);
-  #endif
+#endif
     return cap;
   }
   Stream getStream(Device d) const override {
