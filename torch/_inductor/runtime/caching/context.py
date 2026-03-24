@@ -305,6 +305,17 @@ def _isolation_key(ischema: IsolationSchema = _DEFAULT_ISOLATION_SCHEMA) -> str:
         A 32-character hexadecimal string that uniquely identifies
         the context specified by the isolation schema.
     """
+    def _json_default(obj: object) -> str:
+        if callable(obj):
+            if hasattr(obj, "__module__") and hasattr(obj, "__qualname__"):
+                return f"{obj.__module__}.{obj.__qualname__}"
+            return repr(obj)
+        raise TypeError(
+            f"Object of type {type(obj).__name__} is not JSON serializable"
+        )
+
     return sha256(
-        json.dumps(_isolation_context(ischema), sort_keys=True).encode()
+        json.dumps(
+            _isolation_context(ischema), sort_keys=True, default=_json_default
+        ).encode()
     ).hexdigest()[:32]
