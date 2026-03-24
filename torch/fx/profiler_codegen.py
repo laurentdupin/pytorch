@@ -292,12 +292,22 @@ class ProfilerCodeGen(CodeGen):
             elif node.op == "output":
                 if node.type is not None:
                     maybe_return_annotation[0] = f" -> {type_repr(node.type)}"
-                impl_body.append(
-                    self._call_method_with_signature_check(
-                        self.generate_output,
-                        node.args[0],
+                desc = node.meta.get("desc", None) if expanded_def else None
+                if desc is not None:
+                    impl_body.append(
+                        self._call_method_with_signature_check(
+                            self.generate_output,
+                            node.args[0],
+                            descs=desc,
+                        )
                     )
-                )
+                else:
+                    impl_body.append(
+                        self._call_method_with_signature_check(
+                            self.generate_output,
+                            node.args[0],
+                        )
+                    )
                 return
             raise NotImplementedError(f"node: {node.op} {node.target}")
 
@@ -358,7 +368,7 @@ class ProfilerCodeGen(CodeGen):
             expanded_def=expanded_def,
         )
         impl_code, impl_lineno_map, impl_prologue_start = self._assemble_function(
-            impl_prologue, impl_body, wrap_stmts
+            impl_prologue, impl_body, ""
         )
 
         profiled_prologue = self._gen_fn_def_with_name(
@@ -448,7 +458,7 @@ class ProfilerCodeGen(CodeGen):
             vars_copy.insert(0, "self")
         params = ", ".join(vars_copy)
         # Strip type annotations for call sites (e.g. "input : torch.Tensor" -> "input")
-        call_args = ", ".join(v.split(":")[0].strip() for v in vars_copy)
+        call_args = ", ".join(v.split(":")[0].split("=")[0].strip() for v in vars_copy)
         return (
             f"def forward({params}):\n"
             f"    # _is_profiler_enabled is a module-level bool — single attr read, zero overhead\n"
@@ -512,6 +522,8 @@ class ProfilerCodeGen(CodeGen):
 
         for arg in node.args:
             collect_nodes(arg)
+        for val in node.kwargs.values():
+            collect_nodes(val)
 
         if not parts:
             return "()"
