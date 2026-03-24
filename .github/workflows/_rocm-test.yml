@@ -209,6 +209,7 @@ jobs:
         timeout-minutes: ${{ fromJson(steps.test-timeout.outputs.timeout) }}
         run: |
           FLAGS="ADDITIONAL_FLAGS${DEVICES}"
+          echo "DEVICE_FLAG=${DEVICE_FLAG}"
           if [[ $TEST_CONFIG == 'multigpu' ]]; then
             TEST_COMMAND=.ci/pytorch/multigpu-test.sh
           elif [[ $BUILD_ENVIRONMENT == *onnx* ]]; then
@@ -224,7 +225,7 @@ jobs:
           container_name=$(docker run \
             ${GPU_FLAG:-} \
             ${!FLAGS} \
-            -e SCCACHE_SERVER_PORT \
+            ${!DEVICE_FLAG} \
             -e ROCR_VISIBLE_DEVICES \
             -e BUILD_ENVIRONMENT \
             -e PR_NUMBER \
