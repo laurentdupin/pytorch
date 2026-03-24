@@ -1,4 +1,4 @@
-#if defined(USE_ROCM) || ((defined(CUDA_VERSION) && CUDA_VERSION >= 12000) && (!defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 800)))
+#if defined(USE_ROCM) || (defined(CUDA_VERSION) && (!defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 800)))
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
@@ -133,7 +133,7 @@ inline __host__ __device__ uint32_t getAlignmentRoundUp(const void* p) {
 #define CDNA2_OR_LATER 0
 #endif
 
-#if defined(USE_ROCM) || ((defined(CUDA_VERSION) && CUDA_VERSION >= 12000) && (!defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 800)))
+#if defined(USE_ROCM) || (defined(CUDA_VERSION) && (!defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 800)))
 
 #if defined(USE_ROCM)
 // TODO: Support RDNA
@@ -576,7 +576,14 @@ struct BLayout_TC_int4 {
           // type pun, the __nv_bfloat162 value in bf16x2x4 is a struct and
           // can't be used as a 32-bit asm register argument for `mma`
           static_assert(sizeof(bf16x2x4) == sizeof(out[0][0]), "");
+          // On Windows with ROCm, std::memcpy resolves to a __host__-only
+          // function and cannot be called from __device__ code. Use the raw
+          // memcpy which the HIP compiler provides as a __device__ builtin.
+#if defined(_WIN32) && defined(USE_ROCM)
+          memcpy(&out[i][j], &v, sizeof(bf16x2x4_u32));
+#else
           std::memcpy(&out[i][j], &v, sizeof(bf16x2x4_u32));
+#endif
         }
       }
     }
@@ -1156,7 +1163,7 @@ at::Tensor _weight_int4pack_mm_cuda(
   auto C_final = at::empty(
       {m, n}, at::TensorOptions().dtype(at::kBFloat16).device(A.device()));
 
-#if defined(USE_ROCM) || ((defined(CUDA_VERSION) && CUDA_VERSION >= 12000) && (!defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 800)))
+#if defined(USE_ROCM) || (defined(CUDA_VERSION) && (!defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 800)))
   auto stream = at::cuda::getCurrentCUDAStream();
 #define RUN_GEMM(WARPS, K_TILES_PER_WARP, Q_GROUP_SIZE, REDUCE_TYPE) \
   do {                                                               \

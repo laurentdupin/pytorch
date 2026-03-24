@@ -4,7 +4,6 @@ import functools
 import inspect
 import re
 import sys
-import traceback
 import weakref
 from collections.abc import Callable, Sequence
 from typing import Any, overload, TYPE_CHECKING, TypeVar, Union
@@ -88,16 +87,15 @@ class Library:
         from torch.fx.operator_schemas import _SCHEMA_TO_SIGNATURE_CACHE
 
         if kind not in ("IMPL", "DEF", "FRAGMENT"):
-            raise ValueError("Unsupported kind: ", kind)
+            raise ValueError(f"Unsupported kind: {kind}")
 
         if ns in _reserved_namespaces and (kind == "DEF" or kind == "FRAGMENT"):
             raise ValueError(
-                ns,
-                " is a reserved namespace. Please try creating a library with another name.",
+                f"{ns} is a reserved namespace. Please try creating a library with another name."
             )
 
-        frame = traceback.extract_stack(limit=2)[0]
-        filename, lineno = frame.filename, frame.lineno
+        f = sys._getframe(1)
+        filename, lineno = f.f_code.co_filename, f.f_lineno
         self.m: Any | None = torch._C._dispatch_library(
             kind, ns, dispatch_key, filename, lineno
         )
@@ -302,7 +300,7 @@ class Library:
                          registered.
 
         Example::
-
+            >>> # xdoctest: +SKIP("Requires Python <= 3.11")
             >>> my_lib = Library("aten", "IMPL")
             >>> def div_cpu(self, other):
             >>>     return self * (1 / other)
@@ -632,6 +630,7 @@ def impl(
             will be tied to the lifetime of the Library object.
 
     Examples:
+        >>> # xdoctest: +SKIP("Requires Python <= 3.11")
         >>> import torch
         >>> import numpy as np
         >>> # Example 1: Register function.
@@ -1467,7 +1466,12 @@ def register_vmap(
         def wrapped_func(keyset, *args, **kwargs):
             interpreter = retrieve_current_functorch_interpreter()
             return custom_function_call_vmap_helper(
-                interpreter, func, op, *args, **kwargs
+                # pyrefly: ignore[bad-argument-type]
+                interpreter,
+                func,
+                op,
+                *args,
+                **kwargs,
             )
 
         lib.impl(opname, wrapped_func, "FuncTorchBatched", with_keyset=True)
