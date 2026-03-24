@@ -182,7 +182,7 @@ def assume_constant_result(fn):  # type: ignore[no-untyped-def]
 @deprecated(
     "torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. "
     "Use torch._dynamo.nonstrict_trace instead.",
-    category=FutureWarning,
+    category=None,
 )
 def allow_in_graph(fn):  # type: ignore[no-untyped-def]
     """
@@ -193,6 +193,14 @@ def allow_in_graph(fn):  # type: ignore[no-untyped-def]
 
     WARNING: this API can be a footgun, please read the documentation carefully.
     """
+    from torch._dynamo.utils import warn_once
+
+    warn_once(
+        "torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. "
+        "Use torch._dynamo.nonstrict_trace instead.",
+        stacklevel=2,
+        category=FutureWarning,
+    )
     if isinstance(fn, (list, tuple)):
         # pyrefly: ignore [deprecated]
         return [allow_in_graph(x) for x in fn]
@@ -1396,7 +1404,6 @@ def _allow_in_graph_einops() -> None:
     #         einops.rearrange(torch.randn(1), "i -> i")
     #     # einops 0.8.2+ don't need explicit allow_in_graph calls
     #     return
-
     # Suppress the allow_in_graph deprecation warning. For einops 0.7.0-0.8.1,
     # einops._torch_specific itself calls allow_in_graph at import time. For
     # einops ≤ 0.6.1 and ≥ 0.8.2, we call it in the except branch below.

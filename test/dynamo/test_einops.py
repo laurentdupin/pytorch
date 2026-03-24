@@ -248,6 +248,26 @@ print(normalize_gm(graph.print_readable(print_output=False)))
         x = torch.randn(5)
         self.assertNotWarn(lambda: fn(x))
 
+    def test_no_allow_in_graph_deprecation_warning(self):
+        # einops registration uses allow_in_graph internally but should never
+        # surface the deprecation warning to users.
+        script = """\
+import warnings
+with warnings.catch_warnings(record=True) as ws:
+    warnings.simplefilter("always")
+    import torch
+    import einops
+    # Force einops registration by compiling something that uses it.
+    @torch.compile(backend="eager", fullgraph=True)
+    def fn(x):
+        return einops.rearrange(x, "... -> (...)")
+    fn(torch.randn(5))
+
+future = [w for w in ws if issubclass(w.category, FutureWarning) and "allow_in_graph" in str(w.message)]
+assert len(future) == 0, f"Expected 0 allow_in_graph warnings, got {len(future)}: {[str(w.message) for w in future]}"
+"""
+        subprocess.check_output([sys.executable, "-c", script])
+
 
 instantiate_parametrized_tests(
     TestEinops,

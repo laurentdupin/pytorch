@@ -217,9 +217,40 @@ class DecoratorTests(PytreeRegisteringTestCase):
         self.assertEqual(cnts.op_count, 5)
 
     def test_allow_in_graph_deprecation_warning(self):
+        from torch._dynamo.utils import warn_once_cache
+
+        warn_once_cache.discard(
+            "torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. "
+            "Use torch._dynamo.nonstrict_trace instead."
+        )
         with self.assertWarnsRegex(FutureWarning, "nonstrict_trace"):
             torch._dynamo.allow_in_graph(my_custom_function)
         torch._dynamo.disallow_in_graph(my_custom_function)
+
+    def test_allow_in_graph_warns_once(self):
+        import subprocess
+        import sys
+
+        script = """\
+import warnings
+with warnings.catch_warnings(record=True) as ws:
+    warnings.simplefilter("always")
+    import torch
+
+    def fn1(x):
+        return x + 1
+
+    def fn2(x):
+        return x + 2
+
+    torch._dynamo.allow_in_graph(fn1)
+    torch._dynamo.allow_in_graph(fn2)
+    torch._dynamo.allow_in_graph(fn1)
+
+future = [w for w in ws if issubclass(w.category, FutureWarning) and "allow_in_graph" in str(w.message)]
+assert len(future) == 1, f"Expected 1 warning, got {len(future)}"
+"""
+        subprocess.check_output([sys.executable, "-c", script])
 
     def test_allow_in_graph_no_id_reuse(self):
         cnts = torch._dynamo.testing.CompileCounter()

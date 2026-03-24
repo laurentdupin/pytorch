@@ -5019,7 +5019,11 @@ class Lit:
 warn_once_cache: set[str] = set()
 
 
-def warn_once(msg: str, stacklevel: int = 1) -> None:
+def warn_once(
+    msg: str,
+    stacklevel: int = 1,
+    category: type[Warning] = UserWarning,
+) -> None:
     # Dynamo causes all warnings.warn (in user code and in Dynamo code) to print all the time.
     # https://github.com/pytorch/pytorch/issues/128427.
     # warn_once is a workaround: if the msg has been warned on before, then we will not
@@ -5028,7 +5032,7 @@ def warn_once(msg: str, stacklevel: int = 1) -> None:
     if msg in warn_once_cache:
         return
     warn_once_cache.add(msg)
-    warnings.warn(msg, stacklevel=stacklevel + 1)
+    warnings.warn(msg, category, stacklevel=stacklevel + 1)
 
 
 def strip_color_from_string(text: str) -> str:
