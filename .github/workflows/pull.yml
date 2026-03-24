@@ -88,19 +88,19 @@ jobs:
       docker-image-name: "${{ needs.get-label-type.outputs.use-arc == 'true' && 'ghcr.io/pytorch/test-infra:cpu-x86_64-da76fad' || 'ci-image:pytorch-linux-jammy-py3.10-gcc11' }}"
       test-matrix: |
         { include: [
-          { config: "default", shard: 1, num_shards: 5, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx2-8-32' || 'linux.2xlarge' }}" },
-          { config: "default", shard: 2, num_shards: 5, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx2-8-32' || 'linux.2xlarge' }}" },
-          { config: "default", shard: 3, num_shards: 5, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx2-8-32' || 'linux.2xlarge' }}" },
-          { config: "default", shard: 4, num_shards: 5, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx2-8-32' || 'linux.2xlarge' }}" },
-          { config: "default", shard: 5, num_shards: 5, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx2-8-32' || 'linux.2xlarge' }}" },
-          { config: "docs_test", shard: 1, num_shards: 1,  runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx2-8-32' || 'linux.2xlarge' }}" },
-          { config: "jit_legacy", shard: 1, num_shards: 1, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.c7i.2xlarge' }}" },
+          { config: "default", shard: 1, num_shards: 5, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.2xlarge' }}" },
+          { config: "default", shard: 2, num_shards: 5, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.2xlarge' }}" },
+          { config: "default", shard: 3, num_shards: 5, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.2xlarge' }}" },
+          { config: "default", shard: 4, num_shards: 5, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.2xlarge' }}" },
+          { config: "default", shard: 5, num_shards: 5, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.2xlarge' }}" },
+          { config: "docs_test", shard: 1, num_shards: 1,  runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.2xlarge' }}" },
+          { config: "jit_legacy", shard: 1, num_shards: 1, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.2xlarge' }}" },
           { config: "backwards_compat", shard: 1, num_shards: 1, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.c7i.2xlarge' }}" },
-          { config: "distributed", shard: 1, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx2-8-32' || 'linux.2xlarge' }}" },
-          { config: "distributed", shard: 2, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx2-8-32' || 'linux.2xlarge' }}" },
-          { config: "distributed", shard: 3, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx2-8-32' || 'linux.2xlarge' }}" },
+          { config: "distributed", shard: 1, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.2xlarge' }}" },
+          { config: "distributed", shard: 2, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.2xlarge' }}" },
+          { config: "distributed", shard: 3, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.2xlarge' }}" },
           { config: "numpy_2_x", shard: 1, num_shards: 1, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.c7i.2xlarge' }}" },
-          { config: "libtorch_agnostic_targetting", shard: 1, num_shards: 1, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx2-8-32' || 'linux.2xlarge' }}" },
+          { config: "libtorch_agnostic_targetting", shard: 1, num_shards: 1, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx512-8-64' || 'linux.2xlarge' }}" },
           { config: "openreg", shard: 1, num_shards: 1, runner: "${{ needs.get-label-type.outputs.label-type }}${{ needs.get-label-type.outputs.use-arc == 'true' && 'l-x86iavx2-8-32' || 'linux.2xlarge' }}" },
         ]}
       use-arc: ${{ needs.get-label-type.outputs.use-arc == 'true' }}

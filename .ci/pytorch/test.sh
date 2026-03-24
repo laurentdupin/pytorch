@@ -459,6 +459,7 @@ test_dynamo_core() {
 }
 
 test_dynamo_cpython() {
+  sleep 7200
   time python test/run_test.py \
     --include-cpython-tests \
     --dynamo \
