@@ -96,7 +96,7 @@ class _FilterState:
         s += "  === OP SYMBOL: ===\n"
         for i, op in enumerate(self._op_symbols):
             s += f"    {i}: {op}\n"
-        s += "=== DISPATCH KEYS: ===\n"
+        s += "  === DISPATCH KEYS: ===\n"
         for i, key in enumerate(self._dispatch_keys):
             s += f"    {i}: {key}\n"
 
@@ -108,12 +108,11 @@ _filter_state: _FilterState = _FilterState()
 
 
 # Store torch.library.Library instances
-# libs: dict[[str, str, str], torch.library.Library] = {}
 _libs: dict[tuple[str, str], torch.library.Library] = {}
 
 # store graph structures
 _GraphsType = dict[tuple[str, str], list[_OverrideNode]]
-_graphs: _GraphsType = {}  # dict[[str, str], list[_OverrideNode]] = {}
+_graphs: _GraphsType = {}
 
 _MappingType = dict[str, list[tuple[str, str]]]
 
@@ -178,7 +177,7 @@ def _register_node_impl(
 ) -> None:
     """Helper function to register a single node implementation with proper parameters."""
     lib.impl(
-        "aten",
+        op_symbol,
         node.override_fn,
         dispatch_key,
         with_keyset=not node.unconditional_override,
@@ -187,8 +186,8 @@ def _register_node_impl(
 
 
 def _resolve_iterable(iterable: str | Iterable[str] | None) -> Iterable[str]:
-    if not iterable:
-        return ()
+    if iterable is None:
+        return []
 
     if not isinstance(iterable, Iterable) or isinstance(iterable, str):
         return (iterable,)
