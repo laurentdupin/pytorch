@@ -19,7 +19,8 @@ struct InputBuffer {
       : buffer(size),
         opt_accum_streams(size),
         ready_events(size),
-        ready_streams(size) {}
+        ready_streams(size),
+        saved_versions_(size) {}
   InputBuffer(const InputBuffer& other) = delete;
   InputBuffer(InputBuffer&& other) = default;
   explicit InputBuffer(variable_list&& inputs) : buffer(std::move(inputs)) {}
@@ -42,14 +43,16 @@ struct InputBuffer {
   // Returns the inputs as a list of variables. Destroys given InputBuffer.
   static std::vector<Variable> variables(InputBuffer&& g);
 
-  // Snapshot version counters for all defined tensors in the buffer.
-  // Called when the buffer is finalized (all dependencies satisfied).
-  void save_versions();
-
-  // Check that version counters haven't changed since save_versions().
-  // Errors if a gradient was modified in-place between production and
-  // consumption.
+  // Check that version counters haven't changed since the gradients were
+  // placed in the buffer. Errors if a gradient was modified in-place
+  // between production and consumption.
   void check_versions(const Node& consumer) const;
+
+ private:
+  void save_version_at(size_t pos);
+  void check_version_at(size_t pos, const Node* fn);
+
+ public:
 
   std::vector<Variable> buffer;
   // The stream used for accumulation when a variable is used multiple times.
@@ -60,9 +63,9 @@ struct InputBuffer {
   // The streams corresponding to the events above. This is only used to
   // check if more synchronization is needed or not.
   std::vector<std::optional<c10::Stream>> ready_streams;
-  // Version counters saved when the buffer was finalized (all deps satisfied).
-  // Used to detect in-place modification of gradients between production
-  // and consumption.
+  // Version counters recorded when gradients are placed in the buffer (via
+  // add()) and updated after accumulation. Used to detect in-place
+  // modification of gradients between production and consumption.
   std::vector<uint32_t> saved_versions_;
 };
 
