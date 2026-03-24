@@ -224,12 +224,17 @@ class MetalOverrides(OpOverrides):
 
         other_str = value_to_metal(other)
         scoped_body = IndentedBuffer()
+        # Use a unique prefix per nesting level to avoid variable name collisions
+        # when masked() calls are nested (body() itself contains another masked()).
+        outer_prefix = V.kernel.cse.name_prefix
+        depth = outer_prefix.count("_scoped") + 1 if outer_prefix.startswith("tmp_scoped") else 1
+        scope_prefix = "tmp" + "_scoped" * depth + "_"
         with V.kernel.swap_buffers(scoped_body), scoped_body.indent():
             # Reset the scoped variable counter so that each invocation of the same body
             # generates identical variable names. Without this reset, repeated calls to
             # body() would keep incrementing the counter, resulting in different cache key.
             V.kernel.cse.iter_buffer_ids = itertools.count()
-            V.kernel.cse.name_prefix = "tmp_scoped_"
+            V.kernel.cse.name_prefix = scope_prefix
             rc = body()
 
         # Compute cache key manually as variable name is needed to actually generate the code
