@@ -208,9 +208,7 @@ jobs:
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
         timeout-minutes: ${{ fromJson(steps.test-timeout.outputs.timeout) }}
         run: |
-          echo "${ROCR_VISIBLE_DEVICES}"
           FLAGS="ADDITIONAL_FLAGS${DEVICES}"
-          echo "${!FLAGS}"
           if [[ $TEST_CONFIG == 'multigpu' ]]; then
             TEST_COMMAND=.ci/pytorch/multigpu-test.sh
           elif [[ $BUILD_ENVIRONMENT == *onnx* ]]; then
@@ -226,6 +224,7 @@ jobs:
           container_name=$(docker run \
             ${GPU_FLAG:-} \
             ${!FLAGS} \
+            -e SCCACHE_SERVER_PORT \
             -e ROCR_VISIBLE_DEVICES \
             -e BUILD_ENVIRONMENT \
             -e PR_NUMBER \
@@ -276,7 +275,7 @@ jobs:
           # save container name for later step
           echo "CONTAINER_NAME=${container_name}" >> "$GITHUB_ENV"
           # jenkins user does not have write permission to mounted workspace; work-around by copying within container to jenkins home
-          docker exec -t "${container_name}" sh -c "cd .. && cp -R workspace pytorch && cd pytorch && echo "SCCACHE_DIR=$SCCACHE_DIR" && pip install dist/*.whl && ${TEST_COMMAND}"
+          docker exec -t "${container_name}" sh -c "cd .. && cp -R workspace pytorch && cd pytorch && pip install dist/*.whl && ${TEST_COMMAND}"
 
       - name: Save test results
         if: always()
