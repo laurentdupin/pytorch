@@ -2314,7 +2314,13 @@ class TorchInGraphFunctionVariable(BaseTorchVariable):
                     if issubclass(inputs_var.user_cls, OrderedDict)
                     else dict
                 )
-                items = dict(zip(inputs_var.items.keys(), result.items))
+                items: dict[VariableTracker, VariableTracker] = dict(
+                    zip(
+                        inputs_var.items.keys(),
+                        result.items,
+                        strict=True,
+                    )
+                )
                 return ConstDictVariable(items, result_cls)
             return result
 
