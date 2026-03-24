@@ -783,6 +783,16 @@ class TensorVariable(VariableTracker):
                 hints=[],
             )
 
+        if name == "__deepcopy__":
+            unimplemented(
+                gb_type="Attempted to copy.deepcopy a tensor",
+                context=f"copy.deepcopy({self})",
+                explanation="Dynamo does not support copy.deepcopy() on tensors.",
+                hints=[
+                    "Avoid calling copy.deepcopy() on tensors inside compiled regions.",
+                ],
+            )
+
         # Only override builtin tensor methods
         # The user can manually add override handling
         # with a decorator for other methods (e.g. a dispatch subclass with other methods)
@@ -1874,6 +1884,20 @@ class TensorVariable(VariableTracker):
                     )
         return self
 
+    def method_detach_(self, tx: "InstructionTranslator") -> "TensorVariable":
+        from .builder import wrap_fx_proxy
+
+        proxy = tx.output.create_proxy(
+            "call_method",
+            "detach_",
+            (self.as_proxy(),),
+            {},
+        )
+        # Run the fake op so the proxy metadata reflects the detached tensor state.
+        wrap_fx_proxy(tx, proxy)
+        self.synchronize_attributes(tx)
+        return self
+
     def method_share_memory_(self) -> NoReturn:
         unimplemented(
             gb_type="Unsupported Tensor.share_memory_() call",
@@ -1994,7 +2018,7 @@ class SymNodeVariable(VariableTracker):
 
         out = SymNodeVariable(proxy, sym_num, **options)
         if proxy.node.op != "placeholder":
-            tx.output.current_tracer.record_tensor_or_symint_vt(out)
+            tx.output.current_tracer.record_proxyable_vt(out)
         return out
 
     def __init__(self, proxy: Any, sym_num: Any, **kwargs: Any) -> None:
