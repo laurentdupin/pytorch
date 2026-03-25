@@ -43,6 +43,8 @@ class ConstantVariable(VariableTracker):
     nested collections.
     """
 
+    value: Any
+
     @overload
     @staticmethod
     def create(value: None) -> Never: ...

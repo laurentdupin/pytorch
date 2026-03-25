@@ -3955,6 +3955,7 @@ class InstructionTranslatorBase(
             kw_names = self.pop()
             assert isinstance(kw_names, TupleVariable) and kw_names.is_python_constant()
             kw_names = kw_names.as_python_constant()
+            assert isinstance(kw_names, tuple)
         else:
             kw_names = self.kw_names.value if self.kw_names else ()
 
@@ -4438,7 +4439,7 @@ class InstructionTranslatorBase(
         Additionally shows source attribution for any VTs on the symbolic stack that
         have source_loc pointing to a different location (i.e., originated elsewhere).
         """
-        parts = []
+        parts: list[str] = []
 
         inst = self.current_instruction
         if (
@@ -4468,7 +4469,7 @@ class InstructionTranslatorBase(
                 )
             )
 
-        vt_parts = []
+        vt_parts: list[str] = []
         for vt in self.stack:
             if isinstance(vt, NullVariable):
                 continue
