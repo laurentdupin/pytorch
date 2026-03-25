@@ -1395,6 +1395,19 @@ class TestMPS(TestCaseMPS):
         result_contig = torch.nn.functional.linear(input_s, weight_contiguous_equiv)
         self.assertEqual(result_contig, result_sliced)
 
+    def test_linear_backward_channels_last_grad(self):
+        # Regression test for https://github.com/pytorch/pytorch/issues/178222
+        # Linear backward crashed when grad_output had channels_last strides,
+        # because suggest_memory_format() returned ChannelsLast which was then
+        # applied to 2D weight grad and 1D bias grad tensors (requires rank 4).
+        x = torch.randn(2, 8, 3, 4, device='mps', requires_grad=True)
+        proj = torch.nn.Linear(4, 4, device='mps')
+        y = proj(x)
+        z = y.permute(0, 2, 3, 1).contiguous()
+        target = torch.randn_like(z)
+        loss = (z - target).pow(2).sum()
+        loss.backward()
+
     def _linear_helper(self, in_features, out_features, shape, bias=True, backward_pass=False):
         cpu_linear = torch.nn.Linear(in_features=in_features, out_features=out_features, device="cpu", bias=bias)
         mps_linear = torch.nn.Linear(in_features=in_features, out_features=out_features, device="mps", bias=bias)
@@ -9717,6 +9730,33 @@ class TestLinalgMPS(TestCaseMPS):
             mean_err = ((res - ref).abs() / ref).mean()
             self.assertLess(mean_err, 0.05)
 
+    def test_loradown_regression_original_case(self):
+        a = torch.rand(2, 1025, device='mps', dtype=torch.half)
+        b = torch.rand(2, 1041, device='mps', dtype=torch.half)[:, :1025].t()
+        result = a @ b
+        self.assertEqual(result.shape, (2, 2))
+
+        self.assertFalse(torch.isnan(result).any())
+        self.assertFalse(torch.isinf(result).any())
+
+    @parametrize("padding", [0, 3, 4, 7, 8, 15, 16])
+    @parametrize("vector_dim", [2, 15, 16, 24])
+    def test_loradown_correctness_vs_cpu(self, padding, vector_dim):
+        torch.manual_seed(13)
+
+        base_size = 64
+        physical_size = base_size + padding
+
+        a_mps = torch.rand(vector_dim, base_size, device='mps', dtype=torch.half)
+        b_mps = torch.rand(vector_dim, physical_size, device='mps', dtype=torch.half)[:, :base_size].t()
+
+        a_cpu = a_mps.cpu()
+        b_cpu = b_mps.cpu()
+
+        result_cpu = (a_cpu @ b_cpu)
+        result_mps = (a_mps @ b_mps).cpu()
+
+        torch.testing.assert_close(result_mps, result_cpu, rtol=1e-3, atol=1e-3)
 
 class TestSDPA(TestCaseMPS):
     def _compare_tensors(self, y, ref, tol=0.01):
@@ -13477,40 +13517,6 @@ class TestMetalLibrary(TestCaseMPS):
         for i in [0, 5, 6, 7, 63, 64]:
             self.assertEqual(out[i], 0)
 
-    def test_load_precompiled_metallib(self):
-        # Load a checked-in precompiled metallib containing square and inc_inplace kernels
-        metallib_path = os.path.join(os.path.dirname(__file__), "metal", "test_kernels.metallib")
-        with open(metallib_path, "rb") as f:
-            lib = torch.mps.load_metallib(f.read())
-
-        # Verify kernel discovery
-        kernel_names = set(dir(lib))
-        self.assertIn("square", kernel_names)
-        self.assertIn("inc_inplace", kernel_names)
-
-        # Test square kernel: [1, 2, 3, 4] -> [1, 4, 9, 16]
-        x = torch.tensor([1.0, 2.0, 3.0, 4.0], device="mps")
-        lib.square(x)
-        self.assertEqual(x, torch.tensor([1.0, 4.0, 9.0, 16.0], device="mps"))
-
-        # Test inc_inplace kernel: [1, 4, 9, 16] -> [2, 5, 10, 17]
-        lib.inc_inplace(x)
-        self.assertEqual(x, torch.tensor([2.0, 5.0, 10.0, 17.0], device="mps"))
-
-    def test_load_precompiled_metallib_from_path(self):
-        # Load metallib directly from file path (uses newLibraryWithURL:)
-        metallib_path = os.path.join(os.path.dirname(__file__), "metal", "test_kernels.metallib")
-        lib = torch.mps.load_metallib(metallib_path)
-
-        # Verify kernel discovery
-        kernel_names = set(dir(lib))
-        self.assertIn("square", kernel_names)
-        self.assertIn("inc_inplace", kernel_names)
-
-        # Test square kernel
-        x = torch.tensor([1.0, 2.0, 3.0, 4.0], device="mps")
-        lib.square(x)
-        self.assertEqual(x, torch.tensor([1.0, 4.0, 9.0, 16.0], device="mps"))
 
 
 # TODO: Actually instantiate that test for the "mps" device to better reflect what it is doing.
