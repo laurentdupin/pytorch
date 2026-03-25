@@ -4164,20 +4164,6 @@ class FlexAttentionBackwardHighOrderVariable(TorchHigherOrderOperatorVariable):
         set_example_value(p_submod.node, joint_gm)
         return p_submod
 
-    @staticmethod
-    def _is_graphmodule_variable(var: VariableTracker) -> bool:
-        """Distinguish pre-built GraphModules from raw callables.
-
-        Raw callables (UserFunctionVariable etc.) come from direct user calls
-        and need tracing via speculate_subgraph. GraphModules come from either
-        compiled autograd (UnspecializedNNModuleVariable with DictGetItemSource).
-        """
-        from .user_defined import SourcelessGraphModuleVariable
-
-        return isinstance(
-            var, (UnspecializedNNModuleVariable, SourcelessGraphModuleVariable)
-        )
-
     def _call_function(
         self,
         tx: "InstructionTranslator",
@@ -4214,10 +4200,7 @@ class FlexAttentionBackwardHighOrderVariable(TorchHigherOrderOperatorVariable):
         ):
             return self._call_function_fallback(tx, args, kwargs)
 
-        # Compiled autograd: fw_graph arrives as a pre-built GraphModule from
-        # the autograd context, not as a raw callable. Route to the fallback
-        # which installs it via proxy_submod using its DictGetItemSource.
-        if self._is_graphmodule_variable(fw_graph):
+        if torch._dynamo.compiled_autograd.in_compiled_autograd_region:
             return self._call_function_fallback(tx, args, kwargs)
 
         fw_graph_node, fw_graph_lifted_args, fw_graph_gm = self.create_wrapped_node(
