@@ -2275,10 +2275,8 @@ class CompilerConfigExtra:
 
 
 def create_compiler_config_extra(
-    mod: GraphModule | torch._dynamo.utils.GmWrapper,
+    gm: GraphModule,
 ) -> CompilerConfigExtra:
-    gm = mod.gm if isinstance(mod, torch._dynamo.utils.GmWrapper) else mod
-    assert isinstance(gm, GraphModule)
     gm_meta = gm.meta
 
     # Although cudagraphs may have been enabled via config, various
@@ -2785,6 +2783,7 @@ def _compile_fx_main(
 
         num_example_inputs = len(example_inputs_)
 
+        assert isinstance(model_, GraphModule)
         compiler_config_extra = create_compiler_config_extra(model_)
 
         decompositions = (
