@@ -3708,7 +3708,7 @@ class CacheKeyAPITests(torch._dynamo.test_case.TestCase):
                     side_effect=capturing_cache_key,
                 ),
             ):
-                torch.compile(fn)(*args)
+                torch.compile(fn, fullgraph=True)(*args)
 
         self.assertIsNotNone(captured_key)
         return captured_key, captured_gm, captured_example_inputs
