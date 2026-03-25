@@ -1154,14 +1154,22 @@ def index_put_single_dim_strategy(
         else:
             # Broadcast goes to front (non-contiguous or no indexed dims).
             values_dim = broadcast_ndim + i
+
+        # values may have fewer dims than expected (implicit broadcast).
+        # In that case, the missing leading dims are size 1, so require Replicate.
+        if values_dim >= values_ndim:
+            values_placement: Placement | _ShardingPlaceholder = Replicate()
+        elif values_meta.shape[values_dim] == 1:
+            values_placement = Replicate()
+        else:
+            values_placement = _ShardingPlaceholder(values_dim)
+
         strategies.append(
             [
                 _ShardingPlaceholder(self_dim),
                 _ShardingPlaceholder(self_dim),
                 *([Replicate()] * n_indexed),
-                Replicate()
-                if values_meta.shape[values_dim] == 1
-                else _ShardingPlaceholder(values_dim),
+                values_placement,
             ]
         )
 
