@@ -919,7 +919,6 @@ class _ViewShardingPropagator:
                     guard_or_false(out_size % self.mesh_sizes[shard_mesh_dim] == 0)
                     or is_last_split_dim
                 )
-
         # Only split_id==0 returns the input dim for input_to_output_tensor_dims.
         # Later split_ids refine shard_allowed above but return [] — their
         # output dims are linked via the root-input-dim chase in analyze().
