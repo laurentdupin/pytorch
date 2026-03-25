@@ -4351,7 +4351,7 @@ class Scheduler:
                             fusion_log.debug(  # noqa: G200
                                 "Exception in compiling %s: %s",
                                 "prologue" if not epilogue_fusion else "epilogue",
-                                str(e),
+                                e,
                             )
                         continue
                     with multi_node.swap_as_triton_caller(choice):
@@ -4486,7 +4486,7 @@ class Scheduler:
                             fusion_log.debug(  # noqa: G200
                                 "Exception in compiling %s: %s",
                                 "prologue" if not epilogue_fusion else "epilogue",
-                                str(e),
+                                e,
                             )
                         continue
 
