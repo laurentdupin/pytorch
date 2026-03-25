@@ -3346,7 +3346,7 @@ class AlgorithmSelectorCache(PersistentCache):
         # and PyCodeCache.modules_no_attr (a class-level dict) hold strong
         # references that prevent GC from collecting CompiledKernel objects and
         # triggering hipModuleUnload / cuModuleUnload via __del__.
-        evict_paths = set()
+        evict_paths = OrderedSet()
         for choice in choices:
             bmreq = getattr(choice, "bmreq", None)
             if bmreq is not None:
@@ -3354,7 +3354,7 @@ class AlgorithmSelectorCache(PersistentCache):
                 if path is not None:
                     evict_paths.add(path)
         if evict_paths:
-            evict_mod_names = set()
+            evict_mod_names = OrderedSet()
             for path in evict_paths:
                 PyCodeCache.modules_no_attr.pop(path, None)
             new_modules = []
