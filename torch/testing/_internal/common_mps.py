@@ -56,6 +56,7 @@ if torch.backends.mps.is_available():
             "cosh",
             "cross",
             "cumsum",
+            "cumulative_trapezoid",
             "diag",
             "diag_embed",
             "diagflat",
