@@ -20,7 +20,12 @@ from torch.fx.experimental.proxy_tensor import make_fx
 from torch.testing import FileCheck
 from torch.testing._internal.common_distributed import HAS_ACCELERATOR
 from torch.testing._internal.common_fsdp import get_devtype
-from torch.testing._internal.common_utils import run_tests, skipIfHpu, TestCase
+from torch.testing._internal.common_utils import (
+    parametrize,
+    run_tests,
+    skipIfHpu,
+    TestCase,
+)
 from torch.testing._internal.distributed._tensor.common_dtensor import MLPModule
 from torch.testing._internal.distributed.fake_pg import FakeStore
 from torch.utils._python_dispatch import TorchDispatchMode
@@ -217,6 +222,70 @@ class TestFakePG(TestCase):
                 loss = x.sum()
                 loss.backward()
                 optim.step()
+
+    @parametrize("rank", [0, 1])
+    def test_collective_copy_semantics(self, rank):
+        store = FakeStore()
+        dist.init_process_group(backend="fake", rank=rank, world_size=2, store=store)
+
+        input_tensor = torch.ones(3, 3) * 42
+
+        with self.subTest("reduce_scatter"):
+            to_reduce_scatter = [torch.ones(3, 3) * r for r in range(2)]
+            output = torch.empty(3, 3)
+            dist.reduce_scatter(output, to_reduce_scatter)
+            self.assertEqual(output, to_reduce_scatter[rank])
+
+        with self.subTest("scatter"):
+            to_scatter = [torch.ones(3, 3) * r for r in range(2)]
+            output = torch.empty(3, 3)
+            dist.scatter(output, to_scatter)
+            self.assertEqual(output, to_scatter[rank])
+
+        with self.subTest("alltoall"):
+            input_list = [torch.ones(3, 3) * i for i in range(2)]
+            output_list = [torch.empty(3, 3) for _ in range(2)]
+            dist.all_to_all(output_list, input_list)
+            for i in range(2):
+                self.assertEqual(output_list[i], input_list[i])
+
+        with self.subTest("alltoall_base"):
+            in_tensor = torch.arange(6.0).reshape(3, 2)
+            out_tensor = torch.empty(3, 2)
+            dist.all_to_all_single(out_tensor, in_tensor)
+            self.assertEqual(out_tensor, in_tensor)
+
+        with self.subTest("allgather"):
+            output_tensors = [torch.empty(3, 3) for _ in range(2)]
+            dist.all_gather(output_tensors, input_tensor)
+            for out in output_tensors:
+                self.assertEqual(out, input_tensor)
+
+        with self.subTest("gather"):
+            gather_list = [torch.empty(3, 3) for _ in range(2)]
+            dist.gather(input_tensor, gather_list)
+            for out in gather_list:
+                self.assertEqual(out, input_tensor)
+
+        with self.subTest("allgather_coalesced"):
+            inputs = [torch.ones(3, 3) * i for i in range(3)]
+            output_lists = [[torch.empty(3, 3) for _ in range(2)] for _ in range(3)]
+            dist.all_gather_coalesced(output_lists, inputs)
+            for i, output_list in enumerate(output_lists):
+                for out in output_list:
+                    self.assertEqual(out, inputs[i])
+
+        with self.subTest("_reduce_scatter_base"):
+            in_buf = torch.arange(12.0).reshape(6, 2)
+            out_buf = torch.empty(3, 2)
+            dist._reduce_scatter_base(out_buf, in_buf)
+            self.assertEqual(out_buf, in_buf.chunk(2)[rank])
+
+        with self.subTest("reduce_scatter_tensor"):
+            in_tensor = torch.arange(8.0).reshape(4, 2)
+            out_tensor = torch.empty(2, 2)
+            dist.reduce_scatter_tensor(out_tensor, in_tensor)
+            self.assertEqual(out_tensor, in_tensor.chunk(2)[rank])
 
     def test_error_on_collective(self):
         from torch.testing._internal.distributed.fake_pg import FakeStore
