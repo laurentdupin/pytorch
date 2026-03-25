@@ -2644,10 +2644,7 @@ class AOTAutogradCacheTests(InductorTestCase):
         pre_grad_custom_pass: CustomGraphPassType,
         expect_pre_grad_call_count: tuple[int, int],
     ):
-        from torch._inductor.compile_fx import (
-            compile_fx_forward,
-            run_pre_grad_passes,
-        )
+        from torch._inductor.compile_fx import compile_fx_forward, run_pre_grad_passes
 
         def fn(x, y):
             return 1 * x + y
