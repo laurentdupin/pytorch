@@ -296,12 +296,8 @@ if [[ "$BUILD_ENVIRONMENT" == *asan* ]]; then
     LD_PRELOAD=$(clang --print-file-name=libclang_rt.asan-x86_64.so)
     if [ "$LD_PRELOAD" = "libclang_rt.asan-x86_64.so" ]; then
         # clang returns the bare filename when it can't resolve the path,
-        # so fall back to the new naming convention (ARC runners).
+        # so fall back to the new naming convention.
         LD_PRELOAD=$(clang --print-file-name=libclang_rt.asan.so)
-        # ARC runners install clang-18 under /opt/clang-18 without ldconfig
-        # registration, so add the runtime library directory to the search path.
-        LD_LIBRARY_PATH="$(dirname "$LD_PRELOAD")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-        export LD_LIBRARY_PATH
     fi
     export LD_PRELOAD
     # Disable valgrind for asan
@@ -459,7 +455,6 @@ test_dynamo_core() {
 }
 
 test_dynamo_cpython() {
-  sleep 7200
   time python test/run_test.py \
     --include-cpython-tests \
     --dynamo \
