@@ -4451,9 +4451,27 @@ class InstructionTranslatorBase(
             if src:
                 parts.append(f"Source of graph break:\n{src}")
 
+        # Pre-populate seen with the breaking instruction's location so that stack
+        # values originating from the same spot are not redundantly reported.
         seen: set[tuple[str, int, int | None]] = set()
+        if (
+            sys.version_info >= (3, 11)
+            and inst is not None
+            and inst.positions is not None
+            and inst.positions.lineno is not None
+        ):
+            seen.add(
+                (
+                    self.f_code.co_filename,
+                    inst.positions.lineno,
+                    inst.positions.col_offset,
+                )
+            )
+
         vt_parts = []
         for vt in self.stack:
+            if isinstance(vt, NullVariable):
+                continue
             loc = vt.source_loc
             if loc is None:
                 continue
