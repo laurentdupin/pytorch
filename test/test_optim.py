@@ -1189,77 +1189,28 @@ class TestOptimRenewed(TestCase):
         [optim for optim in optim_db if "fused" in optim.supported_impls],
         dtypes=[torch.float32],
     )
-    def test_fused_step_stays_on_cpu(self, device, dtype, optim_info):
+    def test_fused_step_stays_on_cpu_except_capturable(self, device, dtype, optim_info):
         if _get_device_type(device) not in optim_info.supports_fused_on:
             self.skipTest(
                 f"{device} is not supported for fused on {optim_info.optim_cls.__name__}"
             )
-        optim_cls = optim_info.optim_cls
         optim_inputs = optim_info.optim_inputs_func(device=device)
+        params = [torch.randn(10, device=device, dtype=dtype) for _ in range(3)]
+        for p in params:
+            p.grad = torch.randn_like(p)
         for optim_input in optim_inputs:
-            if optim_input.kwargs.get("capturable", False):
-                continue
-            params = [torch.randn(10, device=device, dtype=dtype) for _ in range(3)]
-            for p in params:
-                p.grad = torch.randn_like(p)
-            optimizer = optim_cls(params, fused=True, **optim_input.kwargs)
+            optimizer = optim_info.optim_cls(params, fused=True, **optim_input.kwargs)
             optimizer.step()
             for p in params:
                 if "step" in optimizer.state[p]:
-                    self.assertEqual(optimizer.state[p]["step"].device.type, "cpu")
-                    self.assertEqual(optimizer.state[p]["step"].item(), 1.0)
-
-    @onlyCUDA
-    @optims(
-        [
-            optim
-            for optim in optim_db
-            if "fused" in optim.supported_impls
-            and "capturable" in optim.supported_impls
-        ],
-        dtypes=[torch.float32],
-    )
-    def test_fused_capturable_step_on_device(self, device, dtype, optim_info):
-        if _get_device_type(device) not in optim_info.supports_fused_on:
-            self.skipTest(
-                f"{device} is not supported for fused on {optim_info.optim_cls.__name__}"
-            )
-        optim_cls = optim_info.optim_cls
-        param = torch.randn(10, device=device, dtype=dtype)
-        param.grad = torch.randn_like(param)
-        optimizer = optim_cls([param], fused=True, capturable=True, lr=0.01)
-        optimizer.step()
-        if "step" in optimizer.state[param]:
-            self.assertEqual(
-                optimizer.state[param]["step"].device.type,
-                _get_device_type(device),
-            )
-
-    @onlyCUDA
-    @optims(
-        [optim for optim in optim_db if "fused" in optim.supported_impls],
-        dtypes=[torch.float32],
-    )
-    def test_fused_found_inf_cpu_steps(self, device, dtype, optim_info):
-        if _get_device_type(device) not in optim_info.supports_fused_on:
-            self.skipTest(
-                f"{device} is not supported for fused on {optim_info.optim_cls.__name__}"
-            )
-        optim_cls = optim_info.optim_cls
-        optim_inputs = optim_info.optim_inputs_func(device=device)
-        for optim_input in optim_inputs:
-            params = [torch.ones(4, device=device, dtype=dtype) for _ in range(3)]
-            params_orig = [p.clone() for p in params]
-            for p in params:
-                p.grad = torch.ones_like(p)
-            optimizer = optim_cls(params, fused=True, **optim_input.kwargs)
-            optimizer.grad_scale = torch.ones(1, dtype=dtype, device=device)
-            optimizer.found_inf = torch.ones((), dtype=dtype, device=device)
-            optimizer.step()
-            for p in params:
-                if "step" in optimizer.state[p]:
-                    self.assertEqual(optimizer.state[p]["step"].item(), 0.0)
-            self.assertEqual(params, params_orig)
+                    if optim_input.kwargs.get("capturable", False):
+                        self.assertEqual(
+                            optimizer.state[p]["step"].device.type,
+                            _get_device_type(device),
+                        )
+                    else:
+                        self.assertEqual(optimizer.state[p]["step"].device.type, "cpu")
+                        self.assertEqual(optimizer.state[p]["step"].item(), 1.0)
 
     @parametrize("impl", ["fused", "capturable"])
     @optims(

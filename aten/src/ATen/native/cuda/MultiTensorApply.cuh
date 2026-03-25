@@ -326,8 +326,9 @@ void multi_tensor_apply_for_fused_optimizer(
   const auto num_tensors = tensor_lists[0].size();
   FusedOptimizerTensorListMetadata<depth> tensorListMeta;
 
-  const bool steps_on_cpu = !state_steps.empty() && state_steps[0].is_cpu();
-  tensorListMeta.state_steps_are_device_pointers = !steps_on_cpu;
+  // if state_steps is on CPU, we pass in values directly through the struct
+  tensorListMeta.state_steps_are_device_pointers =
+      state_steps.empty() || !state_steps[0].is_cpu();
 
   int loc_block_info = 0;
   int loc_tensor_info = 0;
@@ -336,12 +337,12 @@ void multi_tensor_apply_for_fused_optimizer(
     if (tensor_lists[0][tensor_index].numel() == 0) {
       continue;
     }
-    if (steps_on_cpu) {
-      tensorListMeta.state_steps.values[loc_tensor_info] =
-          state_steps[tensor_index].item<float>();
-    } else {
+    if (tensorListMeta.state_steps_are_device_pointers) {
       tensorListMeta.state_steps.addresses[loc_tensor_info] =
           state_steps[tensor_index].const_data_ptr();
+    } else {
+      tensorListMeta.state_steps.values[loc_tensor_info] =
+          state_steps[tensor_index].item<float>();
     }
     tensorListMeta.numel_for_tensor[loc_tensor_info] =
         tensor_lists[0][tensor_index].numel();
@@ -381,12 +382,12 @@ void multi_tensor_apply_for_fused_optimizer(
         } else {
           tensorListMeta.numel_for_tensor[0] =
               tensorListMeta.numel_for_tensor[loc_tensor_info - 1];
-          if (steps_on_cpu) {
-            tensorListMeta.state_steps.values[0] =
-                tensorListMeta.state_steps.values[loc_tensor_info - 1];
-          } else {
+          if (tensorListMeta.state_steps_are_device_pointers) {
             tensorListMeta.state_steps.addresses[0] =
                 tensorListMeta.state_steps.addresses[loc_tensor_info - 1];
+          } else {
+            tensorListMeta.state_steps.values[0] =
+                tensorListMeta.state_steps.values[loc_tensor_info - 1];
           }
           for (const auto& d : c10::irange(depth)) {
             tensorListMeta.addresses[d][0] =

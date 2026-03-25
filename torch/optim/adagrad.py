@@ -622,12 +622,11 @@ def _fused_adagrad(
         )
         if device_found_inf is not None:
             if device_state_steps[0].is_cpu:
-                if device_found_inf.item():
-                    torch._foreach_add_(
-                        device_state_steps,
-                        torch.tensor(-1.0, device="cpu"),
-                        alpha=1.0,
-                    )
+                torch._foreach_add_(
+                    device_state_steps,
+                    torch.tensor(-1.0, device="cpu"),
+                    alpha=1.0,
+                )
             else:
                 torch._foreach_sub_(
                     device_state_steps,

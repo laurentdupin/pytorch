@@ -786,7 +786,7 @@ class Optimizer:
         # Floating-point types are a bit special here. They are the only ones
         # that are assumed to always match the type of params.
         # Make sure state['step'] is not casted https://github.com/pytorch/pytorch/issues/74424
-        # UNLESS fused or capturable, see note [special device hosting for step]
+        # UNLESS capturable, see note [special device hosting for step]
         capturable = False
         if param_groups is None:
             raise AssertionError("Expected param_groups to be set")
@@ -798,7 +798,7 @@ class Optimizer:
             if capturable:
                 return value.to(dtype=torch.float32, device=param.device)
             else:
-                return value.to(dtype=torch.float32)
+                return value
         else:
             if param.is_floating_point():
                 return value.to(dtype=param.dtype, device=param.device)
