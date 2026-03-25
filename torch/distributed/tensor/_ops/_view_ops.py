@@ -680,9 +680,11 @@ class _ViewShardingPropagator:
                 root_spec = cmd.input_dim
                 while isinstance(root_spec, (Flatten, Split)):
                     if isinstance(root_spec, Flatten):
-                        # Must use the same input dim that split_id=0 stored
-                        # into input_to_output_tensor_dims — _analyze_flatten
-                        # returns input_dims[0] by default.
+                        # _analyze_flatten always returns input_dims[0] as
+                        # the first element (either as the only shardable dim
+                        # in non-strict mode, or as the fallback when nothing
+                        # is sharded), so split_id=0 uses it as the key in
+                        # input_to_output_tensor_dims. Use [0] here to match.
                         root_spec = root_spec.input_dims[0]
                     else:
                         root_spec = root_spec.input_dim
