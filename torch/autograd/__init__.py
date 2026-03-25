@@ -457,7 +457,7 @@ def grad(
 
     Args:
         outputs (sequence of Tensor or GradientEdge): outputs of the differentiated function.
-        inputs (sequence of Tensor or GradientEdge or dict[str, Tensor]): Inputs w.r.t. which
+        inputs (sequence of Tensor or GradientEdge or Mapping[str, Tensor]): Inputs w.r.t. which
             the gradient will be returned (and not accumulated into ``.grad``).
             When a dict is provided (e.g. from :meth:`~torch.nn.Module.named_parameters`),
             the result is returned as a dict with matching keys.
