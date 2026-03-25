@@ -1556,7 +1556,7 @@ class TestViewOps(DTensorContinuousTestBase):
             expect_error = False
 
             if shard_dim == unflatten_dim:
-                # When unflatening the sharded dimension, check factor alignment
+                # When unflattening the sharded dimension, check factor alignment
                 uneven_shard = tensor_dims[shard_dim] % mesh.size(0) != 0
                 first_factor_aligned = first_factor % mesh.size(0) == 0
 
@@ -1577,9 +1577,6 @@ class TestViewOps(DTensorContinuousTestBase):
                 comm_mode = CommDebugMode()
                 with comm_mode:
                     inps_viewed = inps.view(tensor_dims_unflatten)
-
-                if expect_error:
-                    continue
 
                 # Verify results for successful cases
                 # Number of new dimensions added by unflatten
@@ -1608,36 +1605,6 @@ class TestViewOps(DTensorContinuousTestBase):
                     src_data_rank=None,
                 )._local_tensor
                 self.assertEqual(inps_viewed._local_tensor, expected_local)
-
-    def generate_tensor_dims_2d(
-        self, tensor_ndim, flatten_start, flatten_end, shard_dim, mesh, mesh_dim_idx
-    ):
-        """Generate tensor dimensions for 2D mesh unflatten tests.
-
-        Similar to generate_tensor_dims_1d but uses the appropriate mesh dimension size.
-        """
-        tensor_dims_unflatten = [2 * mesh.size(mesh_dim_idx) + 1] * tensor_ndim
-        for tensor_dim in [
-            2 * mesh.size(mesh_dim_idx) - 1,
-            2 * mesh.size(mesh_dim_idx),
-            2 * mesh.size(mesh_dim_idx) + 1,
-        ]:
-            tensor_dims_unflatten[shard_dim] = tensor_dim
-            local_tensor_dims_unflatten = list(tensor_dims_unflatten)
-            local_tensor_dims_unflatten[shard_dim] = math.ceil(
-                tensor_dim * 1.0 / mesh.size(mesh_dim_idx)
-            )
-            nelem_flatten = math.prod(tensor_dims_unflatten[flatten_start:flatten_end])
-            tensor_dims_flatten = (
-                tensor_dims_unflatten[0:flatten_start]
-                + [nelem_flatten]
-                + tensor_dims_unflatten[flatten_end:]
-            )
-            yield (
-                tensor_dims_unflatten,
-                local_tensor_dims_unflatten,
-                tensor_dims_flatten,
-            )
 
     def test_dtensor_unflatten_2d(self):
         """
@@ -1930,25 +1897,25 @@ class TestViewOps(DTensorContinuousTestBase):
         dim_size = mesh.size(0) * mesh.size(1) * 2  # divisible by both mesh dims
 
         # Flatten with (S, S) pattern
-        for tensor_ndim in [3]:
-            for flatten_start in range(tensor_ndim):
-                for flatten_end in range(flatten_start + 2, tensor_ndim + 1):
-                    for shard_dim0 in range(flatten_start, flatten_end):
-                        for shard_dim1 in range(shard_dim0, flatten_end):
-                            with self.subTest(
-                                shard0=shard_dim0,
-                                shard1=shard_dim1,
-                                flat=(flatten_start, flatten_end),
-                            ):
-                                tensor_dims = tuple([dim_size] * tensor_ndim)
-                                placements = (Shard(shard_dim0), Shard(shard_dim1))
-                                self._test_dtensor_flatten_2d_ss(
-                                    tensor_dims,
-                                    flatten_start,
-                                    flatten_end,
-                                    mesh,
-                                    placements,
-                                )
+        tensor_ndim = 3
+        for flatten_start in range(tensor_ndim):
+            for flatten_end in range(flatten_start + 2, tensor_ndim + 1):
+                for shard_dim0 in range(flatten_start, flatten_end):
+                    for shard_dim1 in range(shard_dim0, flatten_end):
+                        with self.subTest(
+                            shard0=shard_dim0,
+                            shard1=shard_dim1,
+                            flat=(flatten_start, flatten_end),
+                        ):
+                            tensor_dims = tuple([dim_size] * tensor_ndim)
+                            placements = (Shard(shard_dim0), Shard(shard_dim1))
+                            self._test_dtensor_flatten_2d_ss(
+                                tensor_dims,
+                                flatten_start,
+                                flatten_end,
+                                mesh,
+                                placements,
+                            )
 
         # Unflatten with (SS, SS) pattern — representative factorizations
         factors_list = [(6, 4, 3), (4, 6, 2), (3, 2, 6), (2, 6, 4)]
