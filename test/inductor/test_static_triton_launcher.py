@@ -452,8 +452,7 @@ def kernel_many_args(out_tensor, {decl}):
         # Mirror _gen_launcher_code() behavior where launcher body calls runner(...)
         scope = {"runner": owner.run}
         exec(
-            "def launcher(stream):\n"
-            "    runner(1, 1, 1, stream)\n",
+            "def launcher(stream):\n    runner(1, 1, 1, stream)\n",
             scope,
         )
         launcher = scope.pop("launcher")
