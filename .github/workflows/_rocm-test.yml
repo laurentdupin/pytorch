@@ -208,8 +208,7 @@ jobs:
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
         timeout-minutes: ${{ fromJson(steps.test-timeout.outputs.timeout) }}
         run: |
-          FLAGS="ADDITIONAL_FLAGS${DEVICES}"
-          echo "DEVICE_FLAG=${DEVICE_FLAG}"
+          echo "ADDITIONAL_FLAGS=${ADDITIONAL_FLAGS}"
           if [[ $TEST_CONFIG == 'multigpu' ]]; then
             TEST_COMMAND=.ci/pytorch/multigpu-test.sh
           elif [[ $BUILD_ENVIRONMENT == *onnx* ]]; then
@@ -225,9 +224,8 @@ jobs:
           container_name=$(docker run \
             ${GPU_FLAG:-} \
             ${DEVICE_FLAG:-} \
-            ${!FLAGS} \
+            ${ADDITIONAL_FLAGS:-} \
             -e SCCACHE_SERVER_PORT \
-            -e ROCR_VISIBLE_DEVICES \
             -e BUILD_ENVIRONMENT \
             -e PR_NUMBER \
             -e GITHUB_ACTIONS \
