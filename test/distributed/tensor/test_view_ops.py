@@ -66,6 +66,26 @@ def _get_all_factorizations(n):
     return [f for f in get_sorted_factorizations(n) if len(f) >= 2]
 
 
+# (mesh_shape, placement_patterns) for flatten test consolidation.
+# Each pattern is a tuple of "S" (Shard) or "R" (Replicate) per mesh dim.
+_FLATTEN_CASES = [
+    ((6,), [("S",), ("R",)]),
+    ((3, 2), [("S", "R"), ("R", "S"), ("S", "S"), ("R", "R")]),
+]
+
+# (mesh_shape, num_replicate) for unflatten test consolidation.
+# num_replicate = number of leading Replicate dims in the placement.
+_UNFLATTEN_MULTI_MESH_CASES = [
+    ((3, 2), 0),  # (SS, SS)
+    ((3, 2), 1),  # (R, SS)
+    ((3, 2), 2),  # (R, R)
+    ((2, 2, 2), 0),  # (SS, SS, SS)
+    ((2, 2, 2), 1),  # (R, SS, SS)
+    ((2, 2, 2), 2),  # (R, R, SS)
+    ((2, 2, 2), 3),  # (R, R, R)
+]
+
+
 class TestViewOps(DTensorContinuousTestBase):
     world_size = 6
 
@@ -730,73 +750,148 @@ class TestViewOps(DTensorContinuousTestBase):
             view_shapes.extend(trailing_dims)
         return tuple(view_shapes)
 
-    def test_dtensor_flatten_1d(self):
-        """
-        Test view ops that flatten multiple dimensions on a 1D mesh.
+    def test_dtensor_flatten_multi_mesh(self):
+        """Test flatten operations across 1D and 2D meshes with all placement patterns.
 
-        Coverage:
-        - Tensor ranks: 2D, 3D, and 4D tensors
-        - Flatten ranges: All valid (flatten_start, flatten_end) pairs where
-          at least 2 dimensions are flattened
-        - Placements:
-          - Shard(dim) for each dim within the flattened range
-          - Replicate()
-        - Tensor dimension sizes: Even (divisible by mesh size), uneven-smaller,
-          and uneven-larger relative to mesh size, in all combinations
-        - Error cases: Verifies RuntimeError for uneven sharding on non-last
-          flattened dimensions
-
-        Expected output placements:
-        - Shard on flatten_start -> remains Shard(flatten_start)
-        - Shard on other dims in range -> becomes _StridedShard(flatten_start, split_factor)
-        - Replicate -> remains Replicate
+        Iterates _FLATTEN_CASES to test single-shard (S, SR, RS), multi-shard (SS),
+        and replicate (R, RR) patterns with even/uneven tensor dim sizes.
         """
-        mesh: DeviceMesh = init_device_mesh(self.device_type, (self.world_size,))
-        even = 2 * mesh.size(0)
-        dim_values = [even - 1, even, even + 1]
-        for tensor_ndim in [2, 3, 4]:
-            for flatten_start in range(tensor_ndim):
-                for flatten_end in range(flatten_start + 2, tensor_ndim + 1):
-                    # Shard
-                    for shard_dim in range(flatten_start, flatten_end):
-                        all_dims = list(
-                            itertools.product(dim_values, repeat=tensor_ndim)
-                        )
-                        for tensor_dims in all_dims:
-                            placements = (Shard(shard_dim),)
-                            ctx = contextlib.nullcontext()
-                            # uneven shard on last dim (flatten_end - 1) is supported
-                            if tensor_dims[shard_dim] % mesh.size(
-                                0
-                            ) != 0 and shard_dim != (flatten_end - 1):
-                                ctx = self.assertRaisesRegex(
-                                    RuntimeError,
-                                    "is not evenly divisible by mesh dimension",
-                                )
-                            with (
-                                self.subTest(
-                                    dims=tensor_dims,
-                                    shard=shard_dim,
-                                    flat=(flatten_start, flatten_end),
-                                ),
-                                ctx,
-                            ):
-                                self._test_dtensor_flatten_1d_shard(
-                                    tensor_dims,
+        for mesh_shape, patterns in _FLATTEN_CASES:
+            if self.world_size < math.prod(mesh_shape):
+                continue
+            mesh = init_device_mesh(self.device_type, mesh_shape)
+            mesh_ndim = len(mesh_shape)
+            for pattern in patterns:
+                shard_mesh_dims = [i for i, p in enumerate(pattern) if p == "S"]
+                num_shard = len(shard_mesh_dims)
+                for tensor_ndim in [2, 3, 4]:
+                    for flatten_start in range(tensor_ndim):
+                        for flatten_end in range(flatten_start + 2, tensor_ndim + 1):
+                            if num_shard == 1:
+                                self._run_flatten_single_shard(
+                                    mesh,
+                                    mesh_ndim,
+                                    shard_mesh_dims[0],
+                                    tensor_ndim,
                                     flatten_start,
                                     flatten_end,
-                                    mesh,
-                                    placements,
                                 )
+                            elif num_shard == 2:
+                                self._run_flatten_ss(
+                                    mesh,
+                                    tensor_ndim,
+                                    flatten_start,
+                                    flatten_end,
+                                )
+                            else:
+                                even = 2 * mesh.size(0)
+                                dim_vals = [even - 1, even, even + 1]
+                                all_dims = list(
+                                    itertools.product(dim_vals, repeat=tensor_ndim)
+                                )
+                                rep_placements = tuple([Replicate()] * mesh_ndim)
+                                for tensor_dims in all_dims:
+                                    with self.subTest(
+                                        dims=tensor_dims,
+                                        flat=(flatten_start, flatten_end),
+                                        mesh=mesh_shape,
+                                    ):
+                                        self._test_dtensor_flatten_replicate(
+                                            tensor_dims,
+                                            flatten_start,
+                                            flatten_end,
+                                            mesh,
+                                            rep_placements,
+                                        )
 
-                    # Replicate
-                    all_dims = list(itertools.product(dim_values, repeat=tensor_ndim))
-                    for tensor_dims in all_dims:
-                        placements = (Replicate(),)
-                        with self.subTest(
-                            dims=tensor_dims, flat=(flatten_start, flatten_end)
+    def _run_flatten_single_shard(
+        self,
+        mesh,
+        mesh_ndim,
+        shard_mesh_dim,
+        tensor_ndim,
+        flatten_start,
+        flatten_end,
+    ):
+        even_val = 2 * mesh.size(shard_mesh_dim)
+        dim_vals = [even_val - 1, even_val, even_val + 1]
+        all_dims = list(itertools.product(dim_vals, repeat=tensor_ndim))
+        for shard_dim in range(flatten_start, flatten_end):
+            for tensor_dims in all_dims:
+                ctx = contextlib.nullcontext()
+                if tensor_dims[shard_dim] % mesh.size(
+                    shard_mesh_dim
+                ) != 0 and shard_dim != (flatten_end - 1):
+                    ctx = self.assertRaisesRegex(
+                        RuntimeError,
+                        "is not evenly divisible by mesh dimension",
+                    )
+                with (
+                    self.subTest(
+                        dims=tensor_dims,
+                        shard=shard_dim,
+                        mesh_dim=shard_mesh_dim,
+                        flat=(flatten_start, flatten_end),
+                    ),
+                    ctx,
+                ):
+                    self._test_dtensor_flatten_single_shard(
+                        tensor_dims,
+                        flatten_start,
+                        flatten_end,
+                        mesh,
+                        shard_dim,
+                        shard_mesh_dim,
+                    )
+
+    def _run_flatten_ss(self, mesh, tensor_ndim, flatten_start, flatten_end):
+        for shard_dim0 in range(flatten_start, flatten_end):
+            for shard_dim1 in range(shard_dim0, flatten_end):
+                dim0_values = [
+                    2 * mesh.size(0) - 1,
+                    2 * mesh.size(0),
+                    2 * mesh.size(0) + 1,
+                ]
+                dim1_values = [
+                    2 * mesh.size(1) - 1,
+                    2 * mesh.size(1),
+                    2 * mesh.size(1) + 1,
+                ]
+                other_dim_value = 2 * mesh.size(0) * mesh.size(1)
+                for dim0_val in dim0_values:
+                    for dim1_val in dim1_values:
+                        tensor_dims = [other_dim_value] * tensor_ndim
+                        tensor_dims[shard_dim0] = dim0_val
+                        if shard_dim0 != shard_dim1:
+                            tensor_dims[shard_dim1] = dim1_val
+                        tensor_dims = tuple(tensor_dims)
+                        local_tensor_dims = list(tensor_dims)
+                        placements = (Shard(shard_dim0), Shard(shard_dim1))
+                        ctx = contextlib.nullcontext()
+                        if local_tensor_dims[shard_dim0] % mesh.size(0) != 0:
+                            ctx = self.assertRaisesRegex(
+                                RuntimeError,
+                                "is not evenly divisible by mesh dimension",
+                            )
+                        local_tensor_dims[shard_dim0] = local_tensor_dims[
+                            shard_dim0
+                        ] // mesh.size(0)
+                        if local_tensor_dims[shard_dim1] % mesh.size(
+                            1
+                        ) != 0 and shard_dim1 != (flatten_end - 1):
+                            ctx = self.assertRaisesRegex(
+                                RuntimeError,
+                                "is not evenly divisible by mesh dimension",
+                            )
+                        with (
+                            self.subTest(
+                                dims=tensor_dims,
+                                shard0=shard_dim0,
+                                shard1=shard_dim1,
+                            ),
+                            ctx,
                         ):
-                            self._test_dtensor_flatten_replicate(
+                            self._test_dtensor_flatten_2d_ss(
                                 tensor_dims,
                                 flatten_start,
                                 flatten_end,
@@ -804,10 +899,20 @@ class TestViewOps(DTensorContinuousTestBase):
                                 placements,
                             )
 
-    def _test_dtensor_flatten_1d_shard(
-        self, tensor_dims, flatten_start, flatten_end, mesh, placements
+    def _test_dtensor_flatten_single_shard(
+        self,
+        tensor_dims,
+        flatten_start,
+        flatten_end,
+        mesh,
+        shard_dim,
+        shard_mesh_dim,
     ):
-        shard_dim = placements[0].dim
+        mesh_ndim = mesh.ndim
+        placements = tuple(
+            Shard(shard_dim) if i == shard_mesh_dim else Replicate()
+            for i in range(mesh_ndim)
+        )
         nelem = math.prod(tensor_dims)
         global_inps: Tensor = torch.arange(nelem).view(tensor_dims)
         inps = distribute_tensor(global_inps, mesh, placements, src_data_rank=None)
@@ -817,14 +922,18 @@ class TestViewOps(DTensorContinuousTestBase):
         comm_mode = CommDebugMode()
         with comm_mode:
             inps_viewed = inps.view(viewed_tensor_dims)
-        if placements[0] == Shard(flatten_start):
-            expected_placements = (Shard(flatten_start),)
+        if shard_dim == flatten_start:
+            expected_placement = Shard(flatten_start)
         else:
             split_factor = math.prod(tensor_dims[flatten_start:shard_dim])
             self.assertGreater(split_factor, 1)
-            expected_placements = (
-                _StridedShard(dim=flatten_start, split_factor=split_factor),
+            expected_placement = _StridedShard(
+                dim=flatten_start, split_factor=split_factor
             )
+        expected_placements = tuple(
+            expected_placement if i == shard_mesh_dim else Replicate()
+            for i in range(mesh_ndim)
+        )
         expected_local_tensor = distribute_tensor(
             global_inps.view(viewed_tensor_dims),
             mesh,
@@ -852,196 +961,15 @@ class TestViewOps(DTensorContinuousTestBase):
         with comm_mode:
             inps_viewed = inps.view(viewed_tensor_dims)
         expected_placements = tuple([Replicate()] * mesh_ndim)
-        expected_local_tensor = distribute_tensor(
-            global_inps.view(viewed_tensor_dims),
-            mesh,
-            expected_placements,
-            src_data_rank=None,
-        )._local_tensor
-        self.assertEqual(inps_viewed.placements, expected_placements)
-        self.assertEqual(inps_viewed._local_tensor, expected_local_tensor)
-        self.assertEqual(comm_mode.get_total_counts(), 0)
-
-    def test_dtensor_flatten_2d(self):
-        self.assertEqual(self.world_size, 6)
-        mesh_ndim = 2
-        mesh: DeviceMesh = init_device_mesh(self.device_type, (3, self.world_size // 3))
-
-        for tensor_ndim in [2, 3, 4]:
-            for flatten_start in range(tensor_ndim):
-                for flatten_end in range(flatten_start + 2, tensor_ndim + 1):
-                    # # S, R and R, S
-                    for shard_dim in range(flatten_start, flatten_end):
-                        for shard_placement_idx in range(mesh_ndim):
-                            even_val = 2 * mesh.size(shard_placement_idx)
-                            dim_vals = [even_val - 1, even_val, even_val + 1]
-                            all_dims = list(
-                                itertools.product(dim_vals, repeat=tensor_ndim)
-                            )
-                            for tensor_dims in all_dims:
-                                placements = tuple(
-                                    Shard(shard_dim)
-                                    if idx == shard_placement_idx
-                                    else Replicate()
-                                    for idx in range(mesh_ndim)
-                                )
-                                ctx = contextlib.nullcontext()
-                                # uneven shard on last dim (flatten_end - 1) is supported
-                                if tensor_dims[shard_dim] % mesh.size(
-                                    shard_placement_idx
-                                ) != 0 and shard_dim != (flatten_end - 1):
-                                    ctx = self.assertRaisesRegex(
-                                        RuntimeError,
-                                        "is not evenly divisible by mesh dimension",
-                                    )
-                                with (
-                                    self.subTest(
-                                        dims=tensor_dims,
-                                        shard=shard_dim,
-                                        mesh_dim=shard_placement_idx,
-                                    ),
-                                    ctx,
-                                ):
-                                    self._test_dtensor_flatten_2d_sr_rs(
-                                        tensor_dims,
-                                        flatten_start,
-                                        flatten_end,
-                                        mesh,
-                                        placements,
-                                        shard_placement_idx,
-                                    )
-
-                    # S, S
-                    for shard_dim0 in range(flatten_start, flatten_end):
-                        # Note: only test shard_dim1 >= shard_dim0 as the helper
-                        # _get_expected_placements_ss assumes this ordering
-                        for shard_dim1 in range(shard_dim0, flatten_end):
-                            # Use mesh dimension sizes for proper uneven testing
-                            # shard_dim0 is sharded on mesh dim 0, shard_dim1 on mesh dim 1
-                            dim0_values = [
-                                2 * mesh.size(0) - 1,
-                                2 * mesh.size(0),
-                                2 * mesh.size(0) + 1,
-                            ]
-                            dim1_values = [
-                                2 * mesh.size(1) - 1,
-                                2 * mesh.size(1),
-                                2 * mesh.size(1) + 1,
-                            ]
-                            # For non-sharded dims, use a value divisible by both mesh sizes
-                            other_dim_value = 2 * mesh.size(0) * mesh.size(1)
-
-                            for dim0_val in dim0_values:
-                                for dim1_val in dim1_values:
-                                    # Build tensor_dims with appropriate values
-                                    tensor_dims = [other_dim_value] * tensor_ndim
-                                    tensor_dims[shard_dim0] = dim0_val
-                                    if shard_dim0 != shard_dim1:
-                                        tensor_dims[shard_dim1] = dim1_val
-                                    # else: same dim sharded on both mesh dims, use dim0_val
-
-                                    tensor_dims = tuple(tensor_dims)
-                                    local_tensor_dims = list(tensor_dims)
-                                    placements = (Shard(shard_dim0), Shard(shard_dim1))
-                                    ctx = contextlib.nullcontext()
-                                    # Error if shard_dim0 size not divisible by mesh dim 0 size
-                                    if (
-                                        local_tensor_dims[shard_dim0] % mesh.size(0)
-                                        != 0
-                                    ):
-                                        ctx = self.assertRaisesRegex(
-                                            RuntimeError,
-                                            "is not evenly divisible by mesh dimension",
-                                        )
-                                    local_tensor_dims[shard_dim0] = local_tensor_dims[
-                                        shard_dim0
-                                    ] // mesh.size(0)
-                                    # Error if shard_dim1 size (after first shard) not divisible
-                                    # by mesh dim 1 size, unless it's the last flattened dim
-                                    if local_tensor_dims[shard_dim1] % mesh.size(
-                                        1
-                                    ) != 0 and shard_dim1 != (flatten_end - 1):
-                                        ctx = self.assertRaisesRegex(
-                                            RuntimeError,
-                                            "is not evenly divisible by mesh dimension",
-                                        )
-                                    local_tensor_dims[shard_dim1] = math.ceil(
-                                        local_tensor_dims[shard_dim1]
-                                        * 1.0
-                                        / mesh.size(1)
-                                    )
-                                    with (
-                                        self.subTest(
-                                            dims=tensor_dims,
-                                            shard0=shard_dim0,
-                                            shard1=shard_dim1,
-                                        ),
-                                        ctx,
-                                    ):
-                                        self._test_dtensor_flatten_2d_ss(
-                                            tensor_dims,
-                                            flatten_start,
-                                            flatten_end,
-                                            mesh,
-                                            placements,
-                                        )
-
-                    # Replicate, Replicate
-                    rr_even = 2 * mesh.size(0)
-                    rr_vals = [rr_even - 1, rr_even, rr_even + 1]
-                    all_rr_dims = list(itertools.product(rr_vals, repeat=tensor_ndim))
-                    for tensor_dims in all_rr_dims:
-                        placements = (Replicate(), Replicate())
-                        with self.subTest(
-                            dims=tensor_dims, flat=(flatten_start, flatten_end)
-                        ):
-                            self._test_dtensor_flatten_replicate(
-                                tensor_dims,
-                                flatten_start,
-                                flatten_end,
-                                mesh,
-                                placements,
-                            )
-
-    def _test_dtensor_flatten_2d_sr_rs(
-        self,
-        tensor_dims,
-        flatten_start,
-        flatten_end,
-        mesh,
-        placements,
-        shard_placement_idx,
-    ):
-        shard_placement = placements[shard_placement_idx]
-        shard_dim = shard_placement.dim
-        nelem = math.prod(tensor_dims)
-        global_inps: Tensor = torch.arange(nelem).view(tensor_dims)
-        inps = distribute_tensor(global_inps, mesh, placements, src_data_rank=None)
-        viewed_tensor_dims = self._get_viewed_tensor_dims(
-            tensor_dims, flatten_start, flatten_end
-        )
-        comm_mode = CommDebugMode()
-        with comm_mode:
-            inps_viewed = inps.view(viewed_tensor_dims)
-        if shard_placement == Shard(flatten_start):
-            expected_placement = Shard(flatten_start)
-        else:
-            split_factor = math.prod(tensor_dims[flatten_start:shard_dim])
-            self.assertGreater(split_factor, 1)
-            expected_placement = _StridedShard(
-                dim=flatten_start, split_factor=split_factor
+        expected_local_tensor = (
+            distribute_tensor(
+                global_inps.view(viewed_tensor_dims),
+                mesh,
+                tuple([Replicate()] * mesh_ndim),
             )
-        expected_placements = (
-            (expected_placement, Replicate())
-            if shard_placement_idx == 0
-            else (Replicate(), expected_placement)
+            .redistribute(mesh, expected_placements)
+            ._local_tensor
         )
-        expected_local_tensor = distribute_tensor(
-            global_inps.view(viewed_tensor_dims),
-            mesh,
-            expected_placements,
-            src_data_rank=None,
-        )._local_tensor
         self.assertEqual(inps_viewed.placements, expected_placements)
         self.assertEqual(inps_viewed._local_tensor, expected_local_tensor)
         self.assertEqual(comm_mode.get_total_counts(), 0)
@@ -1373,35 +1301,6 @@ class TestViewOps(DTensorContinuousTestBase):
                 yield list(tensor_dims)
 
     def test_dtensor_unflatten_1d(self):
-        """
-        Test unflatten (view) operations on DTensor with 1D mesh.
-
-        Coverage:
-        - Tensor dimensions: 1D, 2D, 3D, 4D tensors
-        - Unflatten ranges: All valid (flatten_start, flatten_end) pairs
-        - Shard positions: All dimensions within the flattened range
-
-        Placement types tested:
-        - Shard: When shard_dim == flatten_start (split_factor=1)
-        - _StridedShard: When shard_dim > flatten_start (split_factor>1)
-        - Replicate: Preserved through unflatten operations
-
-        Dimension sizes tested:
-        - Even: 2 * mesh.size(0) - divisible by mesh size
-        - Uneven: 2 * mesh.size(0) ± 1 - not divisible by mesh size
-
-        Error cases verified:
-        - Uneven sharding on non-last dimension raises
-          "is not evenly divisible by mesh dimension"
-        - Uneven sharding on last dimension is allowed (becomes _StridedShard)
-
-        Additional coverage:
-        - 1D tensor unflatten: [N] -> [a, b, ...] with Shard(0) input
-        - Arbitrary factorizations: Tests all non-trivial factorizations of
-          dimension sizes (e.g., 36 -> (6,6), (4,9), (2,3,6), etc.)
-        - Cross-dimension sharding: Sharding on dimension != unflatten dimension
-          (sharded dimension passes through unchanged)
-        """
         mesh: DeviceMesh = init_device_mesh(self.device_type, (self.world_size,))
 
         # flatten -> view -> unflatten
@@ -1418,10 +1317,6 @@ class TestViewOps(DTensorContinuousTestBase):
                             tensor_ndim, flatten_start, flatten_end, shard_dim, mesh
                         ):
                             ctx = contextlib.nullcontext()
-                            # Error expected when:
-                            # 1. The shard dimension is not evenly divisible by mesh size
-                            # 2. AND it's NOT the last dimension in the flattened range
-                            # (last dimension allows uneven sharding via _StridedShard)
                             is_uneven = (
                                 tensor_dims_unflatten[shard_dim] % mesh.size(0) != 0
                             )
@@ -1544,10 +1439,6 @@ class TestViewOps(DTensorContinuousTestBase):
             )
 
             # Determine if we expect an error
-            # When shard_dim == unflatten_dim, the sharding propagates to the first new dimension.
-            # This works if first_factor % mesh.size(0) == 0 (even sharding on new dim).
-            # If first_factor < mesh.size(0) and not divisible, we get strided shard or error.
-            # If first_factor > mesh.size(0) and not divisible, we get uneven shard on new dim.
             first_factor = factors[0]
 
             ctx = contextlib.nullcontext()
@@ -1558,13 +1449,7 @@ class TestViewOps(DTensorContinuousTestBase):
                 uneven_shard = tensor_dims[shard_dim] % mesh.size(0) != 0
                 first_factor_aligned = first_factor % mesh.size(0) == 0
 
-                # Error cases:
-                # 1. First factor not aligned with mesh size (too small or not divisible)
-                # 2. Input dimension itself is unevenly sharded
                 expect_error = not first_factor_aligned or uneven_shard
-            # else: shard_dim != unflatten_dim
-            # The sharded dimension is just passed through unchanged.
-            # This works regardless of whether the sharded dim is even/uneven.
 
             if expect_error:
                 ctx = self.assertRaisesRegex(
@@ -1576,26 +1461,20 @@ class TestViewOps(DTensorContinuousTestBase):
                 with comm_mode:
                     inps_viewed = inps.view(tensor_dims_unflatten)
 
-                # Verify results for successful cases
                 # Number of new dimensions added by unflatten
                 num_new_dims = len(factors) - 1
 
                 # Compute expected placements after unflatten
                 if shard_dim < unflatten_dim:
-                    # Shard dim unaffected
                     expected_placements = (Shard(shard_dim),)
                 elif shard_dim == unflatten_dim:
-                    # Sharding on the dim being unflattened
-                    # The sharding applies to the first of the new dimensions
                     expected_placements = (Shard(unflatten_dim),)
                 else:
-                    # shard_dim > unflatten_dim: shifts by number of new dimensions
                     expected_placements = (Shard(shard_dim + num_new_dims),)
 
                 self.assertEqual(inps_viewed.placements, expected_placements)
                 self.assertEqual(comm_mode.get_total_counts(), 0)
 
-                # Verify local tensor values
                 expected_local = distribute_tensor(
                     global_inps.view(tensor_dims_unflatten),
                     mesh,
@@ -1604,266 +1483,143 @@ class TestViewOps(DTensorContinuousTestBase):
                 )._local_tensor
                 self.assertEqual(inps_viewed._local_tensor, expected_local)
 
-    def test_dtensor_unflatten_2d(self):
+    def test_dtensor_unflatten_multi_mesh(self):
+        """Test unflatten across 2D and 3D meshes with all placement patterns.
+
+        Iterates _UNFLATTEN_MULTI_MESH_CASES to test multi-shard (SS, SSS),
+        mixed (R+SS, RR+SS), and replicate (RR, RRR) patterns.
         """
-        Test unflatten (view) operations on DTensor with 2D mesh.
+        for mesh_shape, num_rep in _UNFLATTEN_MULTI_MESH_CASES:
+            if self.world_size < math.prod(mesh_shape):
+                continue
+            mesh = init_device_mesh(self.device_type, mesh_shape)
+            mesh_ndim = len(mesh_shape)
+            num_shard = mesh_ndim - num_rep
+            flattened_size = math.prod(mesh_shape) * 12
+            factorizations = _get_all_factorizations(flattened_size)
 
-        Coverage:
-        - Tensor dimensions: 2D, 3D, 4D tensors
-        - Unflatten ranges: All valid (flatten_start, flatten_end) pairs
-        - Shard positions: All dimensions within the flattened range
-
-        Placement types tested:
-        - (_StridedShard, _StridedShard): Both mesh dims shard same flattened dim,
-          but map to DIFFERENT output dims after unflatten
-        - (Replicate, _StridedShard): Replicate on mesh dim 0, strided shard on mesh dim 1
-        - (Replicate, Replicate): Replicate on both mesh dimensions
-
-        Note: (Shard, Shard) where both mesh dims would shard the SAME output dim
-        is not supported because the view ops can't disambiguate the target.
-        Plain Shard(0) on mesh dim 1 also doesn't propagate correctly through unflatten;
-        we need _StridedShard with split_factor to indicate the target output dim.
-
-        For _StridedShard placements:
-        - _StridedShard(flatten_start, split_factor) -> Shard(shard_dim) after unflatten
-        - split_factor encodes the output dimension to shard
-
-        Dimension sizes tested:
-        - Even: 2 * mesh.size(mesh_dim) - divisible by mesh size
-        - Uneven: 2 * mesh.size(mesh_dim) ± 1 - not divisible by mesh size
-
-        Error cases verified:
-        - Uneven sharding on non-last dimension raises
-          "is not evenly divisible by mesh dimension"
-        - Uneven sharding on last dimension is allowed (becomes _StridedShard)
-        """
-        self.assertEqual(self.world_size, 6)
-        mesh: DeviceMesh = init_device_mesh(self.device_type, (3, self.world_size // 3))
-
-        # Test (_StridedShard, _StridedShard) pattern - both mesh dims shard the same
-        # flattened dim but map to DIFFERENT output dims after unflatten.
-        # Uses all factorizations to comprehensively test unflatten behavior.
-        # For this pattern:
-        # - shard_idx1 can be any index > shard_idx0 (supports non-adjacent sharding)
-        # - We need at least 2 factors in the flatten range for two shard dims
-        # - We need at least 1 factor as prefix (for split_factor > 1)
-        # - We need at least 1 dim outside flatten range (view ops fail on 1D)
-        #
-        # We iterate over factorizations of a fixed flattened size (e.g., 144).
-        # For each factorization with len >= 3, we pick all valid index pairs.
-        flattened_size = 144  # = 12 * 6 * 2, has many factorizations
-        factorizations = _get_all_factorizations(flattened_size)
-
-        # Filter for factorizations with >= 3 factors (need prefix + 2 shard dims)
-        valid_factorizations = [f for f in factorizations if len(f) >= 3]
-
-        for factors in valid_factorizations:
-            num_factors = len(factors)
-            # shard_idx0 is at index 1..num_factors-2 (need prefix before, shard_idx1 after)
-            for shard_idx0 in range(1, num_factors - 1):
-                # shard_idx1 can be any index > shard_idx0 (non-adjacent supported)
-                for shard_idx1 in range(shard_idx0 + 1, num_factors):
-                    # Check divisibility for error detection
-                    factor0 = factors[shard_idx0]
-                    factor1 = factors[shard_idx1]
-                    mesh_size0 = mesh.size(0)  # = 3
-                    mesh_size1 = mesh.size(1)  # = 2
-
-                    # Error only occurs for non-last split dimensions.
-                    # shard_idx0 is never the last (since shard_idx1 > shard_idx0 exists)
-                    # shard_idx1 may or may not be the last
-                    is_last_split_idx1 = shard_idx1 == num_factors - 1
-                    uneven_shard_on_mesh_dim0 = factor0 % mesh_size0 != 0
-                    uneven_shard_on_mesh_dim1 = (
-                        factor1 % mesh_size1 != 0 and not is_last_split_idx1
-                    )
-                    expect_error = (
-                        uneven_shard_on_mesh_dim0 or uneven_shard_on_mesh_dim1
-                    )
-
-                    with self.subTest(factors=factors, s0=shard_idx0, s1=shard_idx1):
-                        if expect_error:
-                            with self.assertRaisesRegex(
-                                RuntimeError,
-                                "is not evenly divisible by mesh dimension",
+            if num_shard == 0:
+                # All-replicate: test that Replicate is preserved
+                for factors in factorizations:
+                    for prefix_size in [0, 1, 2]:
+                        with self.subTest(
+                            factors=factors,
+                            prefix=prefix_size,
+                            mesh=mesh_shape,
+                        ):
+                            tensor_dims_unflatten = (
+                                [6] * prefix_size + list(factors) + [3]
+                            )
+                            nelem_flatten = math.prod(factors)
+                            tensor_dims_flatten = (
+                                [6] * prefix_size + [nelem_flatten] + [3]
+                            )
+                            nelem = math.prod(tensor_dims_flatten)
+                            global_tensor = torch.arange(nelem).view(
+                                tensor_dims_flatten
+                            )
+                            rep_placements = tuple([Replicate()] * mesh_ndim)
+                            dt = distribute_tensor(
+                                global_tensor,
+                                mesh,
+                                rep_placements,
+                                src_data_rank=None,
+                            )
+                            dt_unflattened = dt.view(tensor_dims_unflatten)
+                            self.assertEqual(
+                                dt_unflattened.placements,
+                                rep_placements,
+                            )
+                            self.assertEqual(
+                                dt_unflattened.shape,
+                                torch.Size(tensor_dims_unflatten),
+                            )
+            else:
+                # Sharded cases: pick shard indices from factorizations
+                min_factors = num_shard + 1  # need prefix + num_shard shard dims
+                valid = [f for f in factorizations if len(f) >= min_factors]
+                for factors in valid:
+                    n = len(factors)
+                    for shard_indices in itertools.combinations(
+                        range(1, n),
+                        num_shard,
+                    ):
+                        # Error detection: uneven on non-(last-shard AND last-factor)
+                        expect_error = False
+                        for rank, si in enumerate(shard_indices):
+                            mesh_dim = num_rep + rank
+                            is_last_shard = rank == num_shard - 1
+                            is_last_factor = si == n - 1
+                            if factors[si] % mesh.size(mesh_dim) != 0 and not (
+                                is_last_shard and is_last_factor
                             ):
-                                self._test_dtensor_unflatten_2d_ss_factors(
+                                expect_error = True
+                                break
+                        with self.subTest(
+                            factors=factors,
+                            shard=shard_indices,
+                            mesh=mesh_shape,
+                        ):
+                            if expect_error:
+                                with self.assertRaisesRegex(
+                                    RuntimeError,
+                                    "is not evenly divisible by mesh dimension",
+                                ):
+                                    self._test_dtensor_unflatten_factors(
+                                        factors,
+                                        shard_indices,
+                                        num_rep,
+                                        mesh,
+                                    )
+                            else:
+                                self._test_dtensor_unflatten_factors(
                                     factors,
-                                    shard_idx0,
-                                    shard_idx1,
+                                    shard_indices,
+                                    num_rep,
                                     mesh,
                                 )
-                        else:
-                            self._test_dtensor_unflatten_2d_ss_factors(
-                                factors,
-                                shard_idx0,
-                                shard_idx1,
-                                mesh,
-                            )
 
-        # Test (Replicate, _StridedShard) pattern - mesh dim 0 replicates, mesh dim 1 shards.
-        # Uses all factorizations to comprehensively test unflatten behavior.
-        # For this pattern:
-        # - shard_idx must be > 0 (need prefix for split_factor > 1)
-        # - Factor at shard_idx must be divisible by mesh.size(1) for even sharding
-        #   (except for last split dim where uneven sharding is allowed)
-        flattened_size_rs = 72  # = 12 * 6, has many factorizations
-        factorizations_rs = _get_all_factorizations(flattened_size_rs)
-
-        # Filter for factorizations with >= 2 factors (need prefix + shard dim)
-        valid_factorizations_rs = [f for f in factorizations_rs if len(f) >= 2]
-
-        for factors in valid_factorizations_rs:
-            num_factors = len(factors)
-            # shard_idx is at index 1..num_factors-1 (need prefix before)
-            for shard_idx in range(1, num_factors):
-                factor = factors[shard_idx]
-                mesh_size1 = mesh.size(1)  # = 2
-
-                # Error only occurs for non-last split dimensions
-                is_last_split = shard_idx == num_factors - 1
-                expect_error = factor % mesh_size1 != 0 and not is_last_split
-
-                with self.subTest(factors=factors, shard=shard_idx):
-                    if expect_error:
-                        with self.assertRaisesRegex(
-                            RuntimeError, "is not evenly divisible by mesh dimension"
-                        ):
-                            self._test_dtensor_unflatten_2d_rs_factors(
-                                factors,
-                                shard_idx,
-                                mesh,
-                            )
-                    else:
-                        self._test_dtensor_unflatten_2d_rs_factors(
-                            factors,
-                            shard_idx,
-                            mesh,
-                        )
-
-        # Test (Replicate, Replicate): unflatten should preserve Replicate placement
-        # Uses all factorizations to comprehensively test that Replicate is preserved.
-        flattened_size_rr = 72  # = 12 * 6, has many factorizations
-        factorizations_rr = _get_all_factorizations(flattened_size_rr)
-
-        for factors in factorizations_rr:
-            # Test with the flattened dim at different positions
-            for prefix_size in [0, 1, 2]:
-                with self.subTest(factors=factors, prefix=prefix_size):
-                    tensor_dims_unflatten = [6] * prefix_size + list(factors) + [3]
-                    nelem_flatten = math.prod(factors)
-                    tensor_dims_flatten = [6] * prefix_size + [nelem_flatten] + [3]
-
-                    nelem = math.prod(tensor_dims_flatten)
-                    global_tensor = torch.arange(nelem).view(tensor_dims_flatten)
-                    dt = distribute_tensor(
-                        global_tensor,
-                        mesh,
-                        (Replicate(), Replicate()),
-                        src_data_rank=None,
-                    )
-
-                    dt_unflattened = dt.view(tensor_dims_unflatten)
-                    self.assertEqual(
-                        dt_unflattened.placements, (Replicate(), Replicate())
-                    )
-                    self.assertEqual(
-                        dt_unflattened.shape, torch.Size(tensor_dims_unflatten)
-                    )
-
-    def _test_dtensor_unflatten_2d_rs_factors(
+    def _test_dtensor_unflatten_factors(
         self,
         factors,
-        shard_idx,
+        shard_indices,
+        num_rep,
         mesh,
     ):
-        """Test unflatten with (Replicate, _StridedShard) placements.
+        """Test unflatten with _StridedShard placements for any mesh dimensionality.
 
         Args:
             factors: Tuple of factors representing the unflatten shape
-            shard_idx: Index within factors for mesh dim 1's shard (must be > 0)
-            mesh: 2D DeviceMesh
+            shard_indices: Tuple of indices within factors for each sharded mesh dim
+            num_rep: Number of leading Replicate mesh dims
+            mesh: DeviceMesh
         """
-        self.assertGreater(shard_idx, 0, "shard_idx must be > 0 for split_factor > 1")
-
-        # Build tensor: factors only (no dim outside flatten range needed for RS)
-        tensor_dims_unflatten = list(factors)
-        flatten_start = 0
-        shard_dim = shard_idx
-
-        # Flatten the range
+        num_shard = len(shard_indices)
+        # SS cases need a suffix dim outside the flatten range
+        suffix = [3] if num_shard >= 2 else []
+        tensor_dims_unflatten = list(factors) + suffix
         nelem_flatten = math.prod(factors)
-        tensor_dims_flatten = [nelem_flatten]
+        tensor_dims_flatten = [nelem_flatten] + suffix
 
-        # Compute split_factor: product of dims before shard_dim
-        split_factor = math.prod(factors[:shard_idx])
-        self.assertGreater(
-            split_factor, 1, f"Expected split_factor > 1, got {split_factor}"
-        )
+        # Build input placements and expected output placements
+        placements = []
+        expected_placements = []
+        for i in range(mesh.ndim):
+            if i < num_rep:
+                placements.append(Replicate())
+                expected_placements.append(Replicate())
+            else:
+                rank = i - num_rep
+                si = shard_indices[rank]
+                # split_factor = prod(factors[:si]) / prod(earlier mesh dims)
+                sf = math.prod(factors[:si])
+                for j in range(rank):
+                    sf //= mesh.size(num_rep + j)
+                placements.append(_StridedShard(0, split_factor=sf))
+                expected_placements.append(Shard(si))
 
-        input_placement = _StridedShard(flatten_start, split_factor=split_factor)
-        placements = (Replicate(), input_placement)
-        expected_placements = (Replicate(), Shard(shard_dim))
-
-        nelem = math.prod(tensor_dims_flatten)
-        global_inps = torch.arange(nelem).view(tensor_dims_flatten)
-        inps = distribute_tensor(global_inps, mesh, placements, src_data_rank=None)
-        inps_viewed = inps.view(tensor_dims_unflatten)
-        self.assertEqual(inps_viewed.placements, expected_placements)
-        expected_local_tensor = distribute_tensor(
-            torch.arange(nelem).view(tensor_dims_unflatten),
-            mesh,
-            expected_placements,
-            src_data_rank=None,
-        )._local_tensor
-        self.assertEqual(inps_viewed._local_tensor, expected_local_tensor)
-
-    def _test_dtensor_unflatten_2d_ss_factors(
-        self,
-        factors,
-        shard_idx0,
-        shard_idx1,
-        mesh,
-    ):
-        """Test unflatten with (_StridedShard, _StridedShard) placements.
-
-        Both mesh dims shard the same flattened dim but map to different output dims.
-
-        Args:
-            factors: Tuple of factors representing the unflatten shape within the
-                     flatten range (e.g., (12, 6, 2) means unflatten to these dims)
-            shard_idx0: Index within factors for mesh dim 0's shard (0-indexed)
-            shard_idx1: Index within factors for mesh dim 1's shard (must be > shard_idx0)
-            mesh: 2D DeviceMesh
-        """
-        self.assertGreater(
-            shard_idx1, shard_idx0, "shard_idx1 must be greater than shard_idx0"
-        )
-
-        # Build tensor: factors for flatten range + one dim outside
-        # The flatten range is [0, len(factors)), and we add one dim at the end
-        tensor_dims_unflatten = list(factors) + [3]  # Add dim outside flatten range
-        flatten_start = 0
-        shard_dim0 = shard_idx0
-        shard_dim1 = shard_idx1
-
-        # Flatten the range
-        nelem_flatten = math.prod(factors)
-        tensor_dims_flatten = [nelem_flatten, 3]
-
-        # Compute split_factors for both mesh dims
-        # For mesh dim 0: product of dims before shard_dim0 (using global dims)
-        split_factor0 = math.prod(factors[:shard_idx0])
-
-        # For mesh dim 1: match DTensor's computation in _view_ops.py
-        # prod(group_shape[0:split_id]) // mesh_sizes[earlier_mesh_dims]
-        split_factor1 = math.prod(factors[:shard_idx1])
-        split_factor1 = split_factor1 // mesh.size(0)
-
-        input_placement0 = _StridedShard(flatten_start, split_factor=split_factor0)
-        input_placement1 = _StridedShard(flatten_start, split_factor=split_factor1)
-        placements = (input_placement0, input_placement1)
-        expected_placements = (Shard(shard_dim0), Shard(shard_dim1))
+        placements = tuple(placements)
+        expected_placements = tuple(expected_placements)
 
         nelem = math.prod(tensor_dims_flatten)
         global_inps = torch.arange(nelem).view(tensor_dims_flatten)
@@ -1884,12 +1640,7 @@ class TestViewOps(DTensorContinuousTestBase):
         self.assertEqual(inps_viewed._local_tensor, expected_local_tensor)
 
     def test_dtensor_flatten_unflatten_2d_reversed_mesh(self):
-        """Test flatten/unflatten with reversed mesh shape (2, 3) to catch ordering bugs.
-
-        The main 2D tests use mesh (3, 2). This test uses (2, 3) to verify that
-        the sharding propagation correctly handles different mesh dim sizes in
-        different positions.
-        """
+        """Test flatten/unflatten with reversed mesh shape (2, 3) to catch ordering bugs."""
         self.assertEqual(self.world_size, 6)
         mesh = init_device_mesh(self.device_type, (2, self.world_size // 2))
         dim_size = mesh.size(0) * mesh.size(1) * 2  # divisible by both mesh dims
@@ -1930,30 +1681,28 @@ class TestViewOps(DTensorContinuousTestBase):
                             with self.assertRaisesRegex(
                                 RuntimeError, "is not evenly divisible"
                             ):
-                                self._test_dtensor_unflatten_2d_ss_factors(
-                                    factors, shard_idx0, shard_idx1, mesh
+                                self._test_dtensor_unflatten_factors(
+                                    factors,
+                                    (shard_idx0, shard_idx1),
+                                    0,
+                                    mesh,
                                 )
                         else:
-                            self._test_dtensor_unflatten_2d_ss_factors(
-                                factors, shard_idx0, shard_idx1, mesh
+                            self._test_dtensor_unflatten_factors(
+                                factors,
+                                (shard_idx0, shard_idx1),
+                                0,
+                                mesh,
                             )
 
     def test_dtensor_unflatten_ss_and_s_same_dim(self):
-        """Test unflatten when _StridedShard and Shard both shard the same tensor dim.
-
-        Flattening [Shard(1), Shard(0)] produces [_StridedShard(0, F), Shard(0)]
-        where both mesh dims shard dim 0. Unflattening that dim should preserve
-        both placements on the same output dim.
-        """
+        """Test unflatten when _StridedShard and Shard both shard the same tensor dim."""
         mesh = init_device_mesh(self.device_type, (3, self.world_size // 3))
 
-        # [4, 6, 3] chosen so each sharded dim divides its mesh dim evenly:
-        #   mesh_dim 0: Shard(1), dim 1 (6) / 3 = 2
-        #   mesh_dim 1: Shard(0), dim 0 (4) / 2 = 2
         global_tensor = torch.arange(4 * 6 * 3).view(4, 6, 3)
         inps = distribute_tensor(global_tensor, mesh, [Shard(1), Shard(0)])
 
-        # Flatten dims 0,1 → [24, 3] with [_StridedShard(0, 4), Shard(0)]
+        # Flatten dims 0,1 -> [24, 3] with [_StridedShard(0, 4), Shard(0)]
         comm_mode = CommDebugMode()
         with comm_mode:
             flattened = inps.flatten(0, 1)
@@ -1963,7 +1712,7 @@ class TestViewOps(DTensorContinuousTestBase):
         self.assertEqual(flattened.placements[0].split_factor, 4)
         self.assertIsInstance(flattened.placements[1], Shard)
 
-        # Unflatten dim 0 (24) → (12, 2): both mesh dims stay on output dim 0
+        # Unflatten dim 0 (24) -> (12, 2): both mesh dims stay on output dim 0
         expected_placements = (_StridedShard(0, split_factor=4), Shard(0))
         comm_mode = CommDebugMode()
         with comm_mode:
@@ -2406,412 +2155,6 @@ TestViewOpsWithLocalTensor = create_local_tensor_test_class(
     ],
     base_class=LocalDTensorContinuousTestBase,
 )
-
-
-class TestViewOps3D(DTensorContinuousTestBase):
-    world_size = 8
-
-    def test_dtensor_unflatten_3d(self):
-        """
-        Test unflatten (view) operations on DTensor with 3D mesh.
-
-        Coverage:
-        - Tensor dimensions: Uses factorizations to generate unflatten shapes
-        - Shard positions: All dimensions within the flattened range
-
-        Placement types tested:
-        - (_StridedShard, _StridedShard, _StridedShard): All three mesh dims shard same
-          flattened dim, but map to DIFFERENT output dims after unflatten
-        - (Replicate, _StridedShard, _StridedShard): Mesh dim 0 replicates, mesh dims 1,2 shard
-        - (Replicate, Replicate, _StridedShard): Mesh dims 0,1 replicate, mesh dim 2 shards
-        - (Replicate, Replicate, Replicate): Replicate on all mesh dimensions
-
-        For _StridedShard placements:
-        - _StridedShard(flatten_start, split_factor) -> Shard(shard_dim) after unflatten
-        - split_factor encodes the output dimension to shard
-
-        Error cases verified:
-        - Uneven sharding on non-last dimension raises
-          "is not evenly divisible by mesh dimension"
-        - Uneven sharding on last dimension is allowed
-        """
-        self.assertEqual(self.world_size, 8)
-        mesh: DeviceMesh = init_device_mesh(self.device_type, (2, 2, 2))
-
-        # Test (_StridedShard, _StridedShard, _StridedShard) pattern - all three mesh dims
-        # shard the same flattened dim but map to DIFFERENT output dims after unflatten.
-        # For this pattern:
-        # - shard_idx0 < shard_idx1 < shard_idx2
-        # - We need at least 3 factors in the flatten range for three shard dims
-        # - We need at least 1 factor as prefix (for split_factor > 1 for first shard)
-        # - We need at least 1 dim outside flatten range
-        flattened_size = 72  # = 2 * 2 * 2 * 3 * 3
-        factorizations = _get_all_factorizations(flattened_size)
-
-        # Filter for factorizations with >= 4 factors (need prefix + 3 shard dims)
-        valid_factorizations = [f for f in factorizations if len(f) >= 4]
-
-        for factors in valid_factorizations:
-            num_factors = len(factors)
-            # shard_idx0 is at index 1..num_factors-3 (need prefix before, 2 shard dims after)
-            for shard_idx0 in range(1, num_factors - 2):
-                # shard_idx1 can be any index > shard_idx0, leaving room for shard_idx2
-                for shard_idx1 in range(shard_idx0 + 1, num_factors - 1):
-                    # shard_idx2 can be any index > shard_idx1
-                    for shard_idx2 in range(shard_idx1 + 1, num_factors):
-                        # Check divisibility for error detection
-                        factor0 = factors[shard_idx0]
-                        factor1 = factors[shard_idx1]
-                        factor2 = factors[shard_idx2]
-                        mesh_size0 = mesh.size(0)  # = 2
-                        mesh_size1 = mesh.size(1)  # = 2
-                        mesh_size2 = mesh.size(2)  # = 2
-
-                        # Error only occurs for non-last split dimensions.
-                        is_last_split_idx2 = shard_idx2 == num_factors - 1
-                        uneven_shard_on_mesh_dim0 = factor0 % mesh_size0 != 0
-                        uneven_shard_on_mesh_dim1 = factor1 % mesh_size1 != 0
-                        uneven_shard_on_mesh_dim2 = (
-                            factor2 % mesh_size2 != 0 and not is_last_split_idx2
-                        )
-                        expect_error = (
-                            uneven_shard_on_mesh_dim0
-                            or uneven_shard_on_mesh_dim1
-                            or uneven_shard_on_mesh_dim2
-                        )
-
-                        with self.subTest(
-                            factors=factors, s0=shard_idx0, s1=shard_idx1, s2=shard_idx2
-                        ):
-                            if expect_error:
-                                with self.assertRaisesRegex(
-                                    RuntimeError,
-                                    "is not evenly divisible by mesh dimension",
-                                ):
-                                    self._test_dtensor_unflatten_3d_sss_factors(
-                                        factors,
-                                        shard_idx0,
-                                        shard_idx1,
-                                        shard_idx2,
-                                        mesh,
-                                    )
-                            else:
-                                self._test_dtensor_unflatten_3d_sss_factors(
-                                    factors,
-                                    shard_idx0,
-                                    shard_idx1,
-                                    shard_idx2,
-                                    mesh,
-                                )
-
-        # Test (Replicate, _StridedShard, _StridedShard) pattern - mesh dim 0 replicates,
-        # mesh dims 1,2 shard the same flattened dim but map to different output dims.
-        # For this pattern:
-        # - shard_idx0 < shard_idx1
-        # - We need at least 2 factors in the flatten range for two shard dims
-        # - We need at least 1 factor as prefix (for split_factor > 1 for first shard)
-        flattened_size_rss = 72  # = 2 * 2 * 2 * 3 * 3
-        factorizations_rss = _get_all_factorizations(flattened_size_rss)
-
-        # Filter for factorizations with >= 3 factors (need prefix + 2 shard dims)
-        valid_factorizations_rss = [f for f in factorizations_rss if len(f) >= 3]
-
-        for factors in valid_factorizations_rss:
-            num_factors = len(factors)
-            # shard_idx0 is at index 1..num_factors-2 (need prefix before, shard_idx1 after)
-            for shard_idx0 in range(1, num_factors - 1):
-                # shard_idx1 can be any index > shard_idx0
-                for shard_idx1 in range(shard_idx0 + 1, num_factors):
-                    factor0 = factors[shard_idx0]
-                    factor1 = factors[shard_idx1]
-                    mesh_size1 = mesh.size(1)  # = 2
-                    mesh_size2 = mesh.size(2)  # = 2
-
-                    is_last_split_idx1 = shard_idx1 == num_factors - 1
-                    uneven_shard_on_mesh_dim1 = factor0 % mesh_size1 != 0
-                    uneven_shard_on_mesh_dim2 = (
-                        factor1 % mesh_size2 != 0 and not is_last_split_idx1
-                    )
-                    expect_error = (
-                        uneven_shard_on_mesh_dim1 or uneven_shard_on_mesh_dim2
-                    )
-
-                    with self.subTest(factors=factors, s0=shard_idx0, s1=shard_idx1):
-                        if expect_error:
-                            with self.assertRaisesRegex(
-                                RuntimeError,
-                                "is not evenly divisible by mesh dimension",
-                            ):
-                                self._test_dtensor_unflatten_3d_rss_factors(
-                                    factors,
-                                    shard_idx0,
-                                    shard_idx1,
-                                    mesh,
-                                )
-                        else:
-                            self._test_dtensor_unflatten_3d_rss_factors(
-                                factors,
-                                shard_idx0,
-                                shard_idx1,
-                                mesh,
-                            )
-
-        # Test (Replicate, Replicate, _StridedShard) pattern - mesh dims 0,1 replicate,
-        # mesh dim 2 shards.
-        flattened_size_rrs = 72  # = 12 * 6, has many factorizations
-        factorizations_rrs = _get_all_factorizations(flattened_size_rrs)
-
-        # Filter for factorizations with >= 2 factors (need prefix + shard dim)
-        valid_factorizations_rrs = [f for f in factorizations_rrs if len(f) >= 2]
-
-        for factors in valid_factorizations_rrs:
-            num_factors = len(factors)
-            # shard_idx is at index 1..num_factors-1 (need prefix before)
-            for shard_idx in range(1, num_factors):
-                factor = factors[shard_idx]
-                mesh_size2 = mesh.size(2)  # = 2
-
-                # Error only occurs for non-last split dimensions
-                is_last_split = shard_idx == num_factors - 1
-                expect_error = factor % mesh_size2 != 0 and not is_last_split
-
-                with self.subTest(factors=factors, shard=shard_idx):
-                    if expect_error:
-                        with self.assertRaisesRegex(
-                            RuntimeError, "is not evenly divisible by mesh dimension"
-                        ):
-                            self._test_dtensor_unflatten_3d_rrs_factors(
-                                factors,
-                                shard_idx,
-                                mesh,
-                            )
-                    else:
-                        self._test_dtensor_unflatten_3d_rrs_factors(
-                            factors,
-                            shard_idx,
-                            mesh,
-                        )
-
-        # Test (Replicate, Replicate, Replicate): unflatten should preserve Replicate placement
-        flattened_size_rrr = 72  # = 12 * 6, has many factorizations
-        factorizations_rrr = _get_all_factorizations(flattened_size_rrr)
-
-        for factors in factorizations_rrr:
-            # Test with the flattened dim at different positions
-            for prefix_size in [0, 1, 2]:
-                with self.subTest(factors=factors, prefix=prefix_size):
-                    tensor_dims_unflatten = [6] * prefix_size + list(factors) + [3]
-                    nelem_flatten = math.prod(factors)
-                    tensor_dims_flatten = [6] * prefix_size + [nelem_flatten] + [3]
-
-                    nelem = math.prod(tensor_dims_flatten)
-                    global_tensor = torch.arange(nelem).view(tensor_dims_flatten)
-                    dt = distribute_tensor(
-                        global_tensor,
-                        mesh,
-                        (Replicate(), Replicate(), Replicate()),
-                        src_data_rank=None,
-                    )
-
-                    dt_unflattened = dt.view(tensor_dims_unflatten)
-                    self.assertEqual(
-                        dt_unflattened.placements,
-                        (Replicate(), Replicate(), Replicate()),
-                    )
-                    self.assertEqual(
-                        dt_unflattened.shape, torch.Size(tensor_dims_unflatten)
-                    )
-
-    def _test_dtensor_unflatten_3d_sss_factors(
-        self,
-        factors,
-        shard_idx0,
-        shard_idx1,
-        shard_idx2,
-        mesh,
-    ):
-        """Test unflatten with (_StridedShard, _StridedShard, _StridedShard) placements.
-
-        All three mesh dims shard the same flattened dim but map to different output dims.
-
-        Args:
-            factors: Tuple of factors representing the unflatten shape within the
-                     flatten range (e.g., (2, 6, 6, 4) means unflatten to these dims)
-            shard_idx0: Index within factors for mesh dim 0's shard (0-indexed)
-            shard_idx1: Index within factors for mesh dim 1's shard (must be > shard_idx0)
-            shard_idx2: Index within factors for mesh dim 2's shard (must be > shard_idx1)
-            mesh: 3D DeviceMesh
-        """
-        self.assertGreater(
-            shard_idx1, shard_idx0, "shard_idx1 must be greater than shard_idx0"
-        )
-        self.assertGreater(
-            shard_idx2, shard_idx1, "shard_idx2 must be greater than shard_idx1"
-        )
-
-        # Build tensor: factors for flatten range + one dim outside
-        tensor_dims_unflatten = list(factors) + [3]  # Add dim outside flatten range
-        flatten_start = 0
-        shard_dim0 = shard_idx0
-        shard_dim1 = shard_idx1
-        shard_dim2 = shard_idx2
-
-        # Flatten the range
-        nelem_flatten = math.prod(factors)
-        tensor_dims_flatten = [nelem_flatten, 3]
-
-        # Compute split_factors for all three mesh dims
-        # For mesh dim 0: product of dims before shard_dim0
-        split_factor0 = math.prod(factors[:shard_idx0])
-
-        split_factor1 = math.prod(factors[:shard_idx1]) // mesh.size(0)
-
-        split_factor2 = math.prod(factors[:shard_idx2]) // (mesh.size(0) * mesh.size(1))
-
-        input_placement0 = _StridedShard(flatten_start, split_factor=split_factor0)
-        input_placement1 = _StridedShard(flatten_start, split_factor=split_factor1)
-        input_placement2 = _StridedShard(flatten_start, split_factor=split_factor2)
-        placements = (input_placement0, input_placement1, input_placement2)
-        expected_placements = (Shard(shard_dim0), Shard(shard_dim1), Shard(shard_dim2))
-
-        nelem = math.prod(tensor_dims_flatten)
-        global_inps = torch.arange(nelem).view(tensor_dims_flatten)
-        inps = distribute_tensor(global_inps, mesh, placements, src_data_rank=None)
-
-        comm_mode = CommDebugMode()
-        with comm_mode:
-            inps_viewed = inps.view(tensor_dims_unflatten)
-
-        self.assertEqual(inps_viewed.placements, expected_placements)
-        self.assertEqual(comm_mode.get_total_counts(), 0)
-        expected_local_tensor = distribute_tensor(
-            torch.arange(nelem).view(tensor_dims_unflatten),
-            mesh,
-            expected_placements,
-            src_data_rank=None,
-        )._local_tensor
-        self.assertEqual(inps_viewed._local_tensor, expected_local_tensor)
-
-    def _test_dtensor_unflatten_3d_rss_factors(
-        self,
-        factors,
-        shard_idx0,
-        shard_idx1,
-        mesh,
-    ):
-        """Test unflatten with (Replicate, _StridedShard, _StridedShard) placements.
-
-        Mesh dim 0 replicates, mesh dims 1,2 shard the same flattened dim but map to
-        different output dims.
-
-        Args:
-            factors: Tuple of factors representing the unflatten shape
-            shard_idx0: Index within factors for mesh dim 1's shard (must be > 0)
-            shard_idx1: Index within factors for mesh dim 2's shard (must be > shard_idx0)
-            mesh: 3D DeviceMesh
-        """
-        self.assertGreater(shard_idx0, 0, "shard_idx0 must be > 0 for split_factor > 1")
-        self.assertGreater(
-            shard_idx1, shard_idx0, "shard_idx1 must be greater than shard_idx0"
-        )
-
-        # Build tensor: factors for flatten range + one dim outside
-        tensor_dims_unflatten = list(factors) + [3]
-        flatten_start = 0
-        shard_dim0 = shard_idx0
-        shard_dim1 = shard_idx1
-
-        # Flatten the range
-        nelem_flatten = math.prod(factors)
-        tensor_dims_flatten = [nelem_flatten, 3]
-
-        # Compute split_factors
-        # For mesh dim 1: product of dims before shard_idx0
-        split_factor0 = math.prod(factors[:shard_idx0])
-        self.assertGreater(
-            split_factor0, 1, f"Expected split_factor0 > 1, got {split_factor0}"
-        )
-
-        # For mesh dim 2: product of all dims before shard_idx1, then divide by mesh.size(1)
-        split_factor1 = math.prod(factors[:shard_idx1]) // mesh.size(1)
-
-        input_placement0 = Replicate()
-        input_placement1 = _StridedShard(flatten_start, split_factor=split_factor0)
-        input_placement2 = _StridedShard(flatten_start, split_factor=split_factor1)
-        placements = (input_placement0, input_placement1, input_placement2)
-        expected_placements = (Replicate(), Shard(shard_dim0), Shard(shard_dim1))
-
-        nelem = math.prod(tensor_dims_flatten)
-        global_inps = torch.arange(nelem).view(tensor_dims_flatten)
-        inps = distribute_tensor(global_inps, mesh, placements, src_data_rank=None)
-
-        comm_mode = CommDebugMode()
-        with comm_mode:
-            inps_viewed = inps.view(tensor_dims_unflatten)
-
-        self.assertEqual(inps_viewed.placements, expected_placements)
-        self.assertEqual(comm_mode.get_total_counts(), 0)
-        expected_local_tensor = distribute_tensor(
-            torch.arange(nelem).view(tensor_dims_unflatten),
-            mesh,
-            expected_placements,
-            src_data_rank=None,
-        )._local_tensor
-        self.assertEqual(inps_viewed._local_tensor, expected_local_tensor)
-
-    def _test_dtensor_unflatten_3d_rrs_factors(
-        self,
-        factors,
-        shard_idx,
-        mesh,
-    ):
-        """Test unflatten with (Replicate, Replicate, _StridedShard) placements.
-
-        Mesh dims 0,1 replicate, mesh dim 2 shards.
-
-        Args:
-            factors: Tuple of factors representing the unflatten shape
-            shard_idx: Index within factors for mesh dim 2's shard (must be > 0)
-            mesh: 3D DeviceMesh
-        """
-        self.assertGreater(shard_idx, 0, "shard_idx must be > 0 for split_factor > 1")
-
-        # Build tensor: factors only
-        tensor_dims_unflatten = list(factors)
-        flatten_start = 0
-        shard_dim = shard_idx
-
-        # Flatten the range
-        nelem_flatten = math.prod(factors)
-        tensor_dims_flatten = [nelem_flatten]
-
-        # Compute split_factor: product of dims before shard_dim
-        split_factor = math.prod(factors[:shard_idx])
-        self.assertGreater(
-            split_factor, 1, f"Expected split_factor > 1, got {split_factor}"
-        )
-
-        input_placement = _StridedShard(flatten_start, split_factor=split_factor)
-        placements = (Replicate(), Replicate(), input_placement)
-        expected_placements = (Replicate(), Replicate(), Shard(shard_dim))
-
-        nelem = math.prod(tensor_dims_flatten)
-        global_inps = torch.arange(nelem).view(tensor_dims_flatten)
-        inps = distribute_tensor(global_inps, mesh, placements, src_data_rank=None)
-
-        comm_mode = CommDebugMode()
-        with comm_mode:
-            inps_viewed = inps.view(tensor_dims_unflatten)
-
-        self.assertEqual(inps_viewed.placements, expected_placements)
-        self.assertEqual(comm_mode.get_total_counts(), 0)
-        expected_local_tensor = distribute_tensor(
-            torch.arange(nelem).view(tensor_dims_unflatten),
-            mesh,
-            expected_placements,
-            src_data_rank=None,
-        )._local_tensor
-        self.assertEqual(inps_viewed._local_tensor, expected_local_tensor)
 
 
 if __name__ == "__main__":
