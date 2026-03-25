@@ -4127,30 +4127,6 @@ class FlexAttentionBackwardHighOrderVariable(TorchHigherOrderOperatorVariable):
         body_name = tx.output.install_subgraph(fn_name, gm)
         return make_attr(tx, body_name), tuple(body_lifted_freevars), gm
 
-    def install_graph_module(
-        self,
-        tx: "InstructionTranslator",
-        graph_var: VariableTracker,
-        name: str,
-    ) -> Proxy:
-        gm = self._graph_module_value(graph_var)
-
-        submod_name = tx.output.install_subgraph(name, gm)
-        p_submod = make_attr(tx, submod_name)
-        set_example_value(p_submod.node, gm)
-        return p_submod
-
-    @staticmethod
-    def _graph_module_value(graph_var: VariableTracker) -> GraphModule:
-        from .user_defined import SourcelessGraphModuleVariable
-
-        if isinstance(
-            graph_var,
-            (UnspecializedNNModuleVariable, SourcelessGraphModuleVariable),
-        ):
-            return cast(GraphModule, graph_var.value)
-        return cast(GraphModule, graph_var.as_python_constant())
-
     @staticmethod
     def _buffer_example_value(buffer: VariableTracker) -> Any:
         proxy = buffer.as_proxy()
@@ -4190,6 +4166,12 @@ class FlexAttentionBackwardHighOrderVariable(TorchHigherOrderOperatorVariable):
 
     @staticmethod
     def _is_graphmodule_variable(var: VariableTracker) -> bool:
+        """Distinguish pre-built GraphModules from raw callables.
+
+        Raw callables (UserFunctionVariable etc.) come from direct user calls
+        and need tracing via speculate_subgraph. GraphModules come from either
+        compiled autograd (UnspecializedNNModuleVariable with DictGetItemSource).
+        """
         from .user_defined import SourcelessGraphModuleVariable
 
         return isinstance(
@@ -4232,6 +4214,9 @@ class FlexAttentionBackwardHighOrderVariable(TorchHigherOrderOperatorVariable):
         ):
             return self._call_function_fallback(tx, args, kwargs)
 
+        # Compiled autograd: fw_graph arrives as a pre-built GraphModule from
+        # the autograd context, not as a raw callable. Route to the fallback
+        # which installs it via proxy_submod using its DictGetItemSource.
         if self._is_graphmodule_variable(fw_graph):
             return self._call_function_fallback(tx, args, kwargs)
 
@@ -4239,25 +4224,13 @@ class FlexAttentionBackwardHighOrderVariable(TorchHigherOrderOperatorVariable):
             tx, query, fw_graph, "score_mod", score_mod_other_buffers.items
         )
 
-        joint_graph_is_none = (
-            joint_graph.is_python_constant()
-            and joint_graph.as_python_constant() is None
+        joint_graph_node = self._derive_joint_graph(
+            tx,
+            query,
+            fw_graph_gm,
+            score_mod_other_buffers,
+            fw_graph_lifted_args,
         )
-        if joint_graph_is_none:
-            joint_graph_node = self._derive_joint_graph(
-                tx,
-                query,
-                fw_graph_gm,
-                score_mod_other_buffers,
-                fw_graph_lifted_args,
-            )
-        elif self._is_graphmodule_variable(joint_graph):
-            joint_graph_node = self.install_graph_module(tx, joint_graph, "joint_graph")
-        else:
-            raise ValueError(
-                "Passing a pre-traced joint_graph to flex_attention_backward is not supported. "
-                "Pass joint_graph=None to have it derived automatically from fw_graph."
-            )
 
         mask_fn = block_mask.items[-1]
         if mask_fn.is_python_constant() and mask_fn.as_python_constant() is None:
