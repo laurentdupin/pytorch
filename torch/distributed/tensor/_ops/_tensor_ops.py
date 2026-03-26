@@ -1239,24 +1239,11 @@ def index_fill_tensor_single_dim_strategy(
             Replicate(),
             Replicate(),
         ],
-        _index_partial_rules(("sum", "avg", "max", "min")),
+        [
+            [Partial(op), Partial(op), Replicate(), Partial(op)]
+            for op in ("sum", "avg", "max", "min")
+        ],
     )
-
-
-def _index_partial_rules(
-    reduce_ops: tuple[str, ...],
-) -> list[list[Placement | _ShardingPlaceholder]]:
-    return [[Partial(op), Partial(op), Replicate(), Partial(op)] for op in reduce_ops]
-
-
-def _self_index_source_row(d: int) -> list[Placement | _ShardingPlaceholder]:
-    """Shard row for ops with (self, dim, index, source): shard self/source, replicate index."""
-    return [
-        _ShardingPlaceholder(d),
-        _ShardingPlaceholder(d),
-        Replicate(),
-        _ShardingPlaceholder(d),
-    ]
 
 
 @register_single_dim_strategy(
@@ -1266,7 +1253,15 @@ def _self_index_source_row(d: int) -> list[Placement | _ShardingPlaceholder]:
 def index_reduce_single_dim_strategy(
     op: OpOverload, args_schema: ArgsType, kwargs_schema: KwargsType
 ) -> list[list[Placement | _ShardingPlaceholder]]:
-    return _index_dim_strategy(args_schema, _self_index_source_row)
+    return _index_dim_strategy(
+        args_schema,
+        lambda d: [
+            _ShardingPlaceholder(d),
+            _ShardingPlaceholder(d),
+            Replicate(),
+            _ShardingPlaceholder(d),
+        ],
+    )
 
 
 @register_op_strategy(
