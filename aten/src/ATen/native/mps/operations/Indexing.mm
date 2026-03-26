@@ -377,7 +377,7 @@ Tensor& nonzero_out_mps(const Tensor& self, Tensor& out_) {
     return out_;
   }
 
-  bool contiguous_output = !needsGather(out_);
+  bool contiguous_output = out_.is_contiguous();
   Tensor out = contiguous_output ? out_ : at::empty_like(out_, MemoryFormat::Contiguous);
 
   // Upload block offsets and sizes to GPU
