@@ -3878,18 +3878,11 @@ Tensor& linalg_solve_triangular_out(
     } else {
       // A will be copied, so we need to tell to look at -1 on the diag
       // NOTE: This is the only place A is copied!
-      if (A.is_neg() && unitriangular) {
-        unitriangular = false;
-      }
-      const bool is_out_col_major = out_fully_owned
-        ? (A.stride(-2) == 1)
-        : (out.stride(-2) == 1);
+      if (A.is_neg() && unitriangular) { unitriangular = false; }
       return c10::MaybeOwned<Tensor>::owned(cloneMatrix(
         A,
-        // NOTE: if out is provided and A is cloned, then
-        // making the clone match the layout of out will
-        // guarantee no futher memory allocations down the road
-        /*make_col_major_like=*/is_out_col_major
+        // NOTE: preserve memory format for faster clone
+        /*make_col_major_like=*/(A.stride(-2) == 1)
       ));
     }
   }(A_);
@@ -4022,12 +4015,16 @@ Tensor& linalg_solve_triangular_out(
     // (A, B*) -> needs no optimization
     if (pA->is_conj() && !B_.is_conj()) {
       out.copy_(B.conj());
+      // Here pA->conj() is not conjugated, and so is out,
+      // so no conj is done in the physical memory
       solve_by_trying_to_match_layouts(pA->conj(), out);
       out._set_conj(true);
       return out;
     } else {
-      // Otherwise copy as-is
+      // Otherwise copy as-is and solve
       out.copy_(B_);
+      solve_by_trying_to_match_layouts(*pA, out);
+      return out;
     }
   } else if (!out.is_same(B_)) {
     // Copy B into out and run layout mather solver
