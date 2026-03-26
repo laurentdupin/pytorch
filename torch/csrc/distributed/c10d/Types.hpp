@@ -126,7 +126,6 @@ struct AllreduceOptions {
   std::chrono::milliseconds timeout = kUnsetTimeout;
   bool asyncOp = true;
   std::optional<at::Tensor> sparseIndices = std::nullopt;
-  std::string profilingName = "";
 };
 
 struct AllreduceCoalescedOptions : AllreduceOptions {};
@@ -142,7 +141,6 @@ struct ReduceOptions {
 struct AllgatherOptions {
   std::chrono::milliseconds timeout = kUnsetTimeout;
   bool asyncOp = true;
-  std::string profilingName = "";
 };
 
 struct GatherOptions {
@@ -161,7 +159,6 @@ struct ReduceScatterOptions {
   ReduceOp reduceOp = ReduceOp::SUM;
   std::chrono::milliseconds timeout = kUnsetTimeout;
   bool asyncOp = true;
-  std::string profilingName = "";
 };
 
 struct AllToAllOptions {

@@ -4651,11 +4651,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::allreduce(
       opts.asyncOp); // is asynchronized op
 
   // avoidRecordStreams_ note: collective() will stash tensors.
-  return allreduce_impl(
-      tensor,
-      opts.profilingName.empty() ? "nccl:all_reduce"
-                                 : opts.profilingName,
-      opts);
+  return allreduce_impl(tensor, "nccl:all_reduce", opts);
 }
 
 c10::intrusive_ptr<Work> ProcessGroupNCCL::allreduce_coalesced(
@@ -5241,8 +5237,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::_reduce_scatter_base(
       },
       OpType::_REDUCE_SCATTER_BASE,
       opts.asyncOp,
-      opts.profilingName.empty() ? "nccl:_reduce_scatter_base"
-                                 : opts.profilingName);
+      "nccl:_reduce_scatter_base");
 }
 
 c10::intrusive_ptr<Work> ProcessGroupNCCL::reduce_scatter_tensor_coalesced(
@@ -5942,8 +5937,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::_allgather_base(
       },
       OpType::_ALLGATHER_BASE,
       opts.asyncOp,
-      opts.profilingName.empty() ? "nccl:_all_gather_base"
-                                 : opts.profilingName);
+      "nccl:_all_gather_base");
 }
 
 // Create a memory allocator for NCCL. This allocator is used to allocate memory
