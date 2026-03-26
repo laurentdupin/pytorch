@@ -119,6 +119,12 @@ else:
 
         @staticmethod
         def num_devices_per_host(device_type: str) -> int:
+            if device_type == "meta":
+                # Logical meshes (from_logical) use "meta" device type and
+                # have no real devices. The exact value doesn't affect output
+                # sharding correctness — it only influences cost estimation
+                # for strategy selection, which is irrelevant in explicit mode.
+                return 1
             return _get_device_handle(device_type).device_count()
 
         @staticmethod
@@ -1145,6 +1151,54 @@ else:
             device_mesh._dim_group_names = [group.group_name for group in groups]
             for group in groups:
                 device_mesh._pg_registry[group.group_name] = group
+            return device_mesh
+
+        @staticmethod
+        def from_logical(
+            mesh_shape: "tuple[int, ...] | ArrayLike",
+            *,
+            mesh_dim_names: tuple[str, ...] | None = None,
+        ) -> "DeviceMesh":
+            """
+            Create a logical :class:`DeviceMesh` for sharding propagation without
+            requiring distributed initialization or real devices.
+
+            The returned mesh carries enough metadata (shape, rank coordinates) for
+            DTensor sharding propagation to determine output placements given input
+            placements. It has no process groups and cannot be used for actual
+            collective communication.
+
+            Args:
+                mesh_shape: The shape of the mesh as a tuple of ints (e.g. ``(4,)``
+                    for a 1-D mesh of size 4, or ``(2, 4)`` for a 2-D mesh).
+                mesh_dim_names: Optional tuple of mesh dimension names.
+
+            Returns:
+                A :class:`DeviceMesh` suitable for propagation-only use.
+
+            Example::
+
+                >>> mesh = DeviceMesh.from_logical((4,), mesh_dim_names=("tp",))
+                >>> mesh.size(0)
+                4
+            """
+            if isinstance(mesh_shape, tuple):
+                numel = 1
+                for s in mesh_shape:
+                    numel *= s
+                mesh_tensor = torch.arange(
+                    numel, device="cpu", dtype=torch.int
+                ).reshape(mesh_shape)
+            else:
+                mesh_tensor = torch.tensor(mesh_shape, device="cpu", dtype=torch.int)
+
+            device_mesh = DeviceMesh(
+                "meta",
+                mesh_tensor,
+                mesh_dim_names=mesh_dim_names,
+                _init_backend=False,
+                _rank=0,
+            )
             return device_mesh
 
         def size(self, mesh_dim: int | None = None) -> int:

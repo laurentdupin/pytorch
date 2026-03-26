@@ -66,6 +66,14 @@ class ExplicitRedistributionContext:
         dst_spec: DTensorSpec,
         redistribution_msg: LazyString,
     ):
+        # Logical meshes (device_type="meta") cannot perform redistribution
+        # since they have no process groups. Always raise.
+        if src_spec.mesh.device_type == "meta":
+            raise RuntimeError(
+                f"Implicit redistribution is not supported on a logical mesh "
+                f"(DeviceMesh.from_logical). {redistribution_msg}"
+            )
+
         if instance := getattr(cls._local, "_active", None):
             allowed = True
             if instance._enable:
