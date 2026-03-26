@@ -373,14 +373,23 @@ def maybe_realign_inputs(
     we didn't end up running cudagraphs. Mutates
     `compiled_graph.current_callable` if cudagraphs
     was run. Otherwise, does nothing.
+
+    Non-mutated inputs are handled by deferred alignment copies
+    in the generated code. Only mutated inputs need the wrapper
+    for writeback.
     """
     if not ran_cudagraphs:
-        assert compiled_graph.current_callable is not None
-        new_callable = align_inputs_from_check_idxs(
-            compiled_graph.current_callable, inputs_to_check, mutated_inputs_idxs
-        )
-        if new_callable is not compiled_graph.current_callable:
-            compiled_graph.current_callable = new_callable
+        # Only wrap for mutated inputs — non-mutated are handled in codegen
+        mutated_check = [i for i in inputs_to_check if i in mutated_inputs_idxs]
+        if mutated_check:
+            assert compiled_graph.current_callable is not None
+            new_callable = align_inputs_from_check_idxs(
+                compiled_graph.current_callable,
+                mutated_check,
+                mutated_inputs_idxs,
+            )
+            if new_callable is not compiled_graph.current_callable:
+                compiled_graph.current_callable = new_callable
 
 
 class CompiledFxGraphConstants:
