@@ -539,6 +539,28 @@ class ListWrapper:
         return len(self.data)
 
 
+class ListSubclassCustomLen(list):
+    def __len__(self):
+        return super().__len__() * 2
+
+
+class TupleSubclassCustomLen(tuple):
+    __slots__ = ()
+
+    def __len__(self):
+        return super().__len__() + 1
+
+
+class DictSubclassCustomLen(dict):
+    def __len__(self):
+        return super().__len__() - 1
+
+
+class SetSubclassCustomLen(set):
+    def __len__(self):
+        return 0
+
+
 class TestUserDefinedLen(torch._dynamo.test_case.TestCase):
     """Tests for len() on user-defined classes with __len__"""
 
@@ -585,6 +607,47 @@ class TestUserDefinedLen(torch._dynamo.test_case.TestCase):
         self.assertEqual(len(obj), 5)
         self.assertEqual(obj.__len__(), 5)
         self.assertEqual(ListWrapper.__len__(obj), 5)
+
+
+class TestSubclassOverloadedLen(torch._dynamo.test_case.TestCase):
+    """Tests for custom classes that inherit from builtins and overload __len__"""
+
+    def setUp(self):
+        self.old = torch._dynamo.config.enable_trace_unittest
+        torch._dynamo.config.enable_trace_unittest = True
+        super().setUp()
+
+    def tearDown(self):
+        torch._dynamo.config.enable_trace_unittest = self.old
+        return super().tearDown()
+
+    @make_dynamo_test
+    def test_list_subclass_custom_len(self):
+        obj = ListSubclassCustomLen([1, 2, 3])
+        self.assertEqual(len(obj), 6)
+        self.assertEqual(obj.__len__(), 6)
+        self.assertEqual(ListSubclassCustomLen.__len__(obj), 6)
+
+    @make_dynamo_test
+    def test_tuple_subclass_custom_len(self):
+        obj = TupleSubclassCustomLen([1, 2, 3])
+        self.assertEqual(len(obj), 4)
+        self.assertEqual(obj.__len__(), 4)
+        self.assertEqual(TupleSubclassCustomLen.__len__(obj), 4)
+
+    @make_dynamo_test
+    def test_dict_subclass_custom_len(self):
+        obj = DictSubclassCustomLen({"a": 1, "b": 2, "c": 3})
+        self.assertEqual(len(obj), 2)
+        self.assertEqual(obj.__len__(), 2)
+        self.assertEqual(DictSubclassCustomLen.__len__(obj), 2)
+
+    @make_dynamo_test
+    def test_set_subclass_custom_len(self):
+        obj = SetSubclassCustomLen([1, 2, 3])
+        self.assertEqual(len(obj), 0)
+        self.assertEqual(obj.__len__(), 0)
+        self.assertEqual(SetSubclassCustomLen.__len__(obj), 0)
 
 
 if __name__ == "__main__":

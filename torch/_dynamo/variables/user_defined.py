@@ -1427,15 +1427,13 @@ class UserDefinedObjectVariable(UserDefinedVariable):
         return super().call_method(tx, name, args, kwargs)
 
     def len_impl(self, tx: "InstructionTranslator") -> VariableTracker:
-        from . import UserMethodVariable
-
         method = self._maybe_get_baseclass_method("__len__")
-        if method is None:
-            return super().len_impl(tx)
-        if method is list.__len__ and self.source:
-            install_guard(self.source.make_guard(GuardBuilder.SEQUENCE_LENGTH))
-            return VariableTracker.build(tx, len(self.value))  # type: ignore[arg-type]
-        return UserMethodVariable(method, self).call_function(tx, [], {})
+        if method is not None:
+            source = self.source and AttrSource(self.source, "__len__")
+            return variables.UserMethodVariable(
+                method, self, source=source
+            ).call_function(tx, [], {})
+        return super().len_impl(tx)
 
     def method_setattr_standard(
         self,
