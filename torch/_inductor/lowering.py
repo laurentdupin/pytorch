@@ -4786,6 +4786,10 @@ def _pad_as_cat(
     (fusion) and ConcatKernel (memory planning / zero-copy).  By routing through
     cat() we reuse those heuristics rather than duplicating them here.
     """
+    # Bail out for symbolic padding, dynamic shapes
+    if not all(isinstance(p, int) for p in padding):
+        return None
+
     sizes = x.get_size()
     ndim = len(sizes)
     pad_pairs = list(zip(padding[::2], padding[1::2]))
