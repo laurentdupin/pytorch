@@ -37,12 +37,12 @@ def embedding_strategy(
 
     weight_shape = weight_meta.shape
     indices_shape = indices_meta.shape
-    output_emd_dim = len(indices_shape)
+    output_emb_dim = len(indices_shape)
 
     strategies: list[list[Placement]] = []
 
     # colwise: output shard on last dim, weight shard on dim 1, indices replicate
-    strategies.append([Shard(output_emd_dim), Shard(1), Replicate()])
+    strategies.append([Shard(output_emb_dim), Shard(1), Replicate()])
 
     # rowwise: output is MaskPartial, weight shard on dim 0, indices MaskPartial
     # NOTE: same object for output & indices so the mask buffer is shared
