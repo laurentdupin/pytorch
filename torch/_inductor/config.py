@@ -912,26 +912,8 @@ always_keep_tensor_constants = False
 # assert that indirect indexing does not read / write out of bounds
 assert_indirect_indexing = True
 
-# When compilation encounters a torch._check(...) whose condition involves
-# unbacked symbols (e.g. u0 * u1 == u2), it cannot be verified at compile time.
-# Rather than failing compilation, the compiler assumes the condition holds and
-# inserts a runtime assertion into the generated code so the check is still
-# enforced when the graph executes.
-#
-# Setting this flag to True skips emitting those runtime assertions.
-#
-# This is marked "unsafe" because dropping the assertions can lead to:
-#   - Crashes (e.g. IMA / illegal-memory-access errors) instead of a clean
-#     RuntimeError when the condition does not hold at runtime.
-#   - In rare cases, silently incorrect results if the violated assumption
-#     does not immediately cause a crash.
-#
-# The flag exists because in many workloads these assertions are redundant:
-# the example inputs that reach the compiled graph already satisfy the
-# conditions, and violating them would cause the eager operation to fail
-# anyway.  Skipping the assertions can reduce generated-code size and
-# overhead, but use at your own risk.
-unsafe_do_not_emit_runtime_assertions = False
+# skip emitting runtime assertions for unbacked symbols in generated code
+do_not_emit_runtime_assertions = False
 
 # compute CSE bounds on variables that do not appear in the FX graph
 compute_all_bounds = False

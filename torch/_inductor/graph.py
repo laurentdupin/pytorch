@@ -2148,7 +2148,7 @@ class GraphLowering(torch.fx.Interpreter):
     def create_deferred_runtime_asserts(
         self, n: torch.fx.Node, new_unbacked_defs: OrderedSet[sympy.Symbol]
     ) -> None:
-        if config.unsafe_do_not_emit_runtime_assertions:
+        if config.do_not_emit_runtime_assertions:
             return
         # [NOTE] Codegen runtime asserts in Inductor
         #
