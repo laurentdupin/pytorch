@@ -2401,7 +2401,6 @@ PyObject* initModule() {
   py_module.def("_log_api_usage_once", &LogAPIUsageOnceFromPython);
   py_module.def("_log_api_usage_metadata", &LogAPIUsageMetadataFromPython);
 
-
   py_module.def(
       "init_num_threads",
       torch::wrap_pybind_function(at::init_num_threads),
