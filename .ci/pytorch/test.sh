@@ -9,6 +9,8 @@ export TERM=vt100
 # shellcheck source=./linux_test_setup.sh
 source "$(dirname "${BASH_SOURCE[0]}")/linux_test_setup.sh"
 
+# Set up directories
+# this can be moed to test setup
 TORCH_INSTALL_DIR=$(python -c "import site; print(site.getsitepackages()[0])")/torch
 TORCH_BIN_DIR="$TORCH_INSTALL_DIR"/bin
 TORCH_LIB_DIR="$TORCH_INSTALL_DIR"/lib
@@ -18,6 +20,7 @@ BUILD_DIR="build"
 BUILD_RENAMED_DIR="build_renamed"
 BUILD_BIN_DIR="$BUILD_DIR"/bin
 
+# todo(elainewy): this should be moved to dynamo test setup for test_single_dynamo_benchmark
 # for benchmarks/dynamo/check_accuracy.py, we need to put results in a rocm specific directory to avoid clashes with cuda
 if [[ "$BUILD_ENVIRONMENT" == *rocm* ]]; then
   MAYBE_ROCM="rocm/"
