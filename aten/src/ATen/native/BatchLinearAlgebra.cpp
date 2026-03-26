@@ -4017,18 +4017,14 @@ Tensor& linalg_solve_triangular_out(
       solve_with_matching_layout(A, B);
     } else if (!is_A_col_major) {
       // Here A is row-major and B is col-major
-      // Match layouts by transposing just A
+      // Match layouts by transposing just A with set op(A) = A^T
       upper = !upper;
       solve_with_matching_layout(A.mT(), B, TransposeType::Transpose);
     } else {
-      // Here A is col-major and B is row-major
-      // We cannot transpose B to match the layout of A,
-      // so we solve into external memory using
-      // (A, -B*) = -(A, B*) = -(A*, B)*
-      // for flag resolutions in B
-      auto B_extern = at::empty({0}, A.options());
-      solve_with_owned_out(B.is_conj() ? A.conj() : A, strip_flags(B), B_extern);
-      strip_flags(B).copy_(B_extern);
+      // Here is col-major and B is row-major
+      // Match layouts by transposing the problem and setting op(A) = A^T
+      left = !left;
+      solve_with_matching_layout(A, B.mT(), TransposeType::Transpose);
     }
   };
 
@@ -4038,25 +4034,12 @@ Tensor& linalg_solve_triangular_out(
   } else if (out.is_same(B)) {
     solve_by_trying_to_match_layouts(*pA, out);
   } else {
-    const bool is_A_col_major = pA->stride(-2) == 1;
-    const bool is_out_col_major = out.stride(-2) == 1;
-
-    if (is_A_col_major && !is_out_col_major) {
-      // The case when layout matching is not possible
-      // Solve into external memory and then copy
-      auto out_extern = at::empty({0}, A.options());
-      solve_with_owned_out(*pA, B_, out_extern);
-      out_extern._set_neg(out.is_neg() ^ out_extern.is_neg());
-      out_extern._set_conj(out.is_conj() ^ out_extern.is_conj());
-      strip_flags(out).copy_(out_extern);
-    } else {
-      // Layouts can be matched, so we can avoid external memory allocations
-      auto B_data = B_;
-      if (out.is_neg()) { B_data = B_data._neg_view(); }
-      if (out.is_conj()) { B_data = B_data.conj(); }
-      strip_flags(out).copy_(B_data);
-      solve_by_trying_to_match_layouts(*pA, out);
-    }
+    // Copy B into out and run layout mather solver
+    auto B_data = B_;
+    if (out.is_neg()) { B_data = B_data._neg_view(); }
+    if (out.is_conj()) { B_data = B_data.conj(); }
+    strip_flags(out).copy_(B_data);
+    solve_by_trying_to_match_layouts(*pA, out);
   }
   
   return out;
