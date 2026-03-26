@@ -706,15 +706,13 @@ class InvokeLeafFunctionAutogradOp(torch.autograd.Function):
             )
 
         # Register backward hooks if the leaf function has a hook registered.
-        # We collect gradients from all requires_grad tensor inputs via
-        # per-tensor register_hook and fire the user hook exactly once when
-        # all gradients are available.
+        # Collects gradients from all requires_grad tensor inputs via
+        # per-tensor register_hook and fires the user hook exactly once
+        # when all gradients are available.
         #
-        # We use per-tensor register_hook instead of register_multi_grad_hook
-        # because the latter only fires for tensors in the current backward
-        # graph. For side-effect-only leaf functions (returning None), the
-        # input tensors' gradients come from the outer graph, not through
-        # the leaf function, so register_multi_grad_hook would never fire.
+        # Note: register_multi_grad_hook would be cleaner but doesn't work
+        # under AOT autograd tracing (_will_engine_execute_node is not
+        # supported during autograd.grad()).
         hook_real = getattr(real_fn_callable, "_leaf_hook_real_fn", None)
         hook_fake = getattr(real_fn_callable, "_leaf_hook_fake_fn", None)
         if hook_real is not None:
