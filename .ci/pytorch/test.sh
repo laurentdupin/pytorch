@@ -2050,6 +2050,7 @@ elif [[ "${SHARD_NUMBER}" == 1 && $NUM_TEST_SHARDS -gt 1 ]]; then
   test_lazy_tensor_meta_reference_disabled
   test_without_numpy
   install_torchvision
+  (cd .ci/lumen_cli && python -m pip install -e .)
   lumen test pytorch-core --test-config default --build-env "$BUILD_ENVIRONMENT" --shard-id 1 --num-shards "$NUM_TEST_SHARDS"
   test_aten
   test_libtorch 1
