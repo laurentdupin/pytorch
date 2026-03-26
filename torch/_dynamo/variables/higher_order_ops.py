@@ -4200,7 +4200,7 @@ class FlexAttentionBackwardHighOrderVariable(TorchHigherOrderOperatorVariable):
         ):
             return self._call_function_fallback(tx, args, kwargs)
 
-        if torch._dynamo.compiled_autograd.in_compiled_autograd_region:
+        if isinstance(fw_graph, UnspecializedNNModuleVariable):
             return self._call_function_fallback(tx, args, kwargs)
 
         fw_graph_node, fw_graph_lifted_args, fw_graph_gm = self.create_wrapped_node(
