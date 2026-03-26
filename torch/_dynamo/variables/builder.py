@@ -52,6 +52,7 @@ from torch._dynamo.utils import (
     get_metrics_context,
     is_int_specialization_case,
     is_torch_sym,
+    normalize_count_iter,
     set_feature_use,
 )
 from torch._guards import TracingContext
@@ -222,7 +223,7 @@ from .higher_order_ops import (
     LocalMapWrappedHigherOrderVariable,
     TorchHigherOrderOperatorVariable,
 )
-from .iter import ItertoolsVariable
+from .iter import CountIteratorVariable, ItertoolsVariable
 from .lazy import LazyConstantVariable, LazyVariableTracker
 from .lists import (
     BaseListVariable,
@@ -594,6 +595,7 @@ class VariableBuilder:
                 (tuple, list, odict_values, collections.deque, torch.Size),
                 cls.wrap_listlike,
             ),
+            (itertools.count, cls.wrap_itertools_count),
             (tuple_iterator, cls.wrap_tuple_iterator),
             (range_iterator, cls.wrap_range_iterator),
             ((slice, range), cls.wrap_slice_range),
@@ -1975,6 +1977,22 @@ class VariableBuilder:
         result = ListIteratorVariable(items, source=self.source)
         return self.tx.output.side_effects.track_mutable(value, result)
 
+    def wrap_itertools_count(self, value: Any) -> VariableTracker:
+        current_item, step = normalize_count_iter(value)
+        if not (
+            ConstantVariable.is_literal(current_item)
+            and ConstantVariable.is_literal(step)
+        ):
+            return self.wrap_user_defined(value)
+
+        self.install_guards(GuardBuilder.COUNT_ITERATOR_MATCH)
+        result = CountIteratorVariable(
+            ConstantVariable.create(current_item),
+            ConstantVariable.create(step),
+            source=self.source,
+        )
+        return self.tx.output.side_effects.track_mutable(value, result)
+
     def wrap_slice_range(self, value: slice | range) -> SliceVariable | RangeVariable:
         items = [
             VariableBuilder(self.tx, AttrSource(self.get_source(), k))(
@@ -2494,25 +2512,22 @@ class VariableBuilder:
             if is_dtensor:
                 self.install_guards(GuardBuilder.TYPE_MATCH)
 
-                # The inner tensor name is always _local_tensor. If its not, we
-                # raise assertion to update the check accordingly.
-                inner_tensor_name = value.__tensor_flatten__()[0][0]
-                if inner_tensor_name != "_local_tensor":
+                inner_attrs = value.__tensor_flatten__()[0]
+                if inner_attrs != ["_local_tensor", "device_mesh"]:
                     raise RuntimeError(
-                        "Expecting Dtensor inner tensor name to be _local_tensor"
+                        "Expecting DTensor inner attrs to be ['_local_tensor', 'device_mesh']"
                     )
 
-                # Now selectively guard on the flattening context
                 flattening_ctx = value.__tensor_flatten__()[1]
-                # This is supposed to be (self._spec, self.requires_grad)
                 if not (
-                    len(flattening_ctx) == 2
-                    and flattening_ctx[0] == value._spec
-                    and flattening_ctx[1] == value.requires_grad
+                    len(flattening_ctx) == 4
+                    and flattening_ctx[0] == value._spec.placements
+                    and flattening_ctx[1] == value._spec.tensor_meta
+                    and flattening_ctx[2] == value._spec.shard_order
+                    and flattening_ctx[3] == value.requires_grad
                 ):
-                    # If not, raise an assertion to update to the new guards
                     raise RuntimeError(
-                        "Expecting Dtensor flattening ctx to be _spec, requires_grad"
+                        "Expecting DTensor flattening ctx to be (placements, tensor_meta, shard_order, requires_grad)"
                     )
                 # Guard on the dtensor spec
                 install_guard(
