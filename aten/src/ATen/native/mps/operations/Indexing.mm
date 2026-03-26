@@ -27,10 +27,9 @@
 #include <ATen/NativeFunctions.h>
 #else
 #include <ATen/native/IndexKernel.h>
-#include <ATen/ops/count_nonzero.h>
-#include <ATen/ops/count_nonzero_native.h>
 #include <ATen/ops/embedding_dense_backward_native.h>
 #include <ATen/ops/flip_native.h>
+#include <ATen/ops/from_blob.h>
 #include <ATen/ops/index.h>
 #include <ATen/ops/index_add_native.h>
 #include <ATen/ops/index_copy_native.h>
@@ -46,7 +45,6 @@
 #include <ATen/ops/view_as_real.h>
 #endif
 
-constexpr auto nonZeroMaxSize = 1UL << 24;
 
 namespace at::native {
 namespace mps {
@@ -296,52 +294,11 @@ static Tensor nonzero_fallback(const Tensor& self) {
   return at::nonzero(self.to("cpu")).to("mps");
 }
 
-static Tensor& nonzero_out_native_mps(const Tensor& self, Tensor& out_) {
-  using namespace mps;
-
-  int64_t nDim = self.dim();
-  MPSStream* stream = getCurrentMPSStream();
-  using CachedGraph = MPSUnaryCachedGraph;
-
-  dispatch_sync_with_rethrow(stream->queue(), ^() {
-    stream->synchronize(SyncType::COMMIT_AND_WAIT);
-  });
-  int64_t total_nonzero = at::count_nonzero(self).item<int64_t>();
-  at::native::resize_output(out_, {total_nonzero, nDim});
-  if (out_.numel() == 0) {
-    return out_;
-  }
-
-  bool contiguous_output = !needsGather(out_);
-  Tensor out = out_;
-  if (!contiguous_output) {
-    out = at::empty_like(out_, MemoryFormat::Contiguous);
-  }
-
-  @autoreleasepool {
-    std::string key = "nonzero_out_native_mps" + getTensorsStringKey(self);
-    auto cachedGraph = LookUpOrCreateCachedGraph<CachedGraph>(key, [&](auto mpsGraph, auto newCachedGraph) {
-      MPSGraphTensor* inputTensor = mpsGraphRankedPlaceHolder(mpsGraph, self);
-
-      MPSGraphTensor* outputTensor = [mpsGraph nonZeroIndicesOfTensor:inputTensor name:nil];
-
-      newCachedGraph->inputTensor_ = inputTensor;
-      newCachedGraph->outputTensor_ = outputTensor;
-    });
-
-    Placeholder selfPlaceholder = Placeholder(cachedGraph->inputTensor_, self);
-    Placeholder outputPlaceholder = Placeholder(cachedGraph->outputTensor_, out);
-    auto feeds = dictionaryFromPlaceholders(selfPlaceholder);
-    runMPSGraph(stream, cachedGraph->graph(), feeds, outputPlaceholder);
-  }
-
-  if (!contiguous_output) {
-    out_.copy_(out);
-  }
-
-  return out_;
-}
-
+// Metal kernel-based nonzero using prefix-sum + scatter.
+// Phase 1: Compute per-element exclusive prefix sum of nonzero flags and
+//          per-threadgroup totals.
+// Host:    Read back block totals, compute block offsets, allocate output.
+// Phase 2: Scatter multi-dimensional indices into the output.
 Tensor& nonzero_out_mps(const Tensor& self, Tensor& out_) {
   if (self.is_complex()) {
     TORCH_WARN_ONCE("MPS: nonzero op is not supported for complex datatypes. ",
@@ -359,11 +316,10 @@ Tensor& nonzero_out_mps(const Tensor& self, Tensor& out_) {
   }
 
   using namespace mps;
-  const uint32_t maxDimensions = 16;
 
   TORCH_CHECK(self.numel() < std::numeric_limits<int>::max(),
-              "nonzero is not supported for tensors with more than INT_MAX elements, \
-  See https://github.com/pytorch/pytorch/issues/51871");
+              "nonzero is not supported for tensors with more than INT_MAX elements, "
+              "See https://github.com/pytorch/pytorch/issues/51871");
   TORCH_CHECK(
       out_.dtype() == at::kLong, "Expected object of scalar type ", at::kLong, " as out, but got ", out_.dtype());
   TORCH_CHECK(self.device() == out_.device(),
@@ -371,54 +327,83 @@ Tensor& nonzero_out_mps(const Tensor& self, Tensor& out_) {
               out_.device(),
               " and self on ",
               self.device());
-  TORCH_CHECK(self.dim() <= maxDimensions, "nonzero is not supported for tensor with more than ", 16, " dimensions");
+  TORCH_CHECK(self.dim() <= 16, "nonzero is not supported for tensor with more than 16 dimensions");
   TORCH_CHECK(out_.is_mps());
 
-  if (!is_macos_13_or_newer(MacOSVersion::MACOS_VER_15_0_PLUS) &&
-      (self.numel() >= nonZeroMaxSize || self.is_complex())) {
-    TORCH_WARN_ONCE("MPS: nonzero op is not natively supported for the provided input on MacOS14",
-                    "Falling back on CPU. This may have performance implications.",
-                    "See github.com/pytorch/pytorch/issues/122916 for further info");
-    Tensor out_fallback = nonzero_fallback(self);
-    at::native::resize_output(out_, out_fallback.sizes());
-    out_.copy_(out_fallback);
-    return out_;
-  }
+  Tensor input = self.contiguous();
+  uint32_t numel = static_cast<uint32_t>(input.numel());
+
+  constexpr uint32_t threads_per_group = 256;
+  uint32_t num_blocks = (numel + threads_per_group - 1) / threads_per_group;
+
+  // Allocate temporary buffers for prefix sums and block totals
+  Tensor prefix_buf = at::empty({static_cast<int64_t>(numel)}, input.options().dtype(kInt));
+  Tensor block_sums_buf = at::empty({static_cast<int64_t>(num_blocks)}, input.options().dtype(kInt));
 
   MPSStream* stream = getCurrentMPSStream();
-  using CachedGraph = MPSUnaryCachedGraph;
 
+  // Phase 1: prefix sum + block totals
+  const auto type_str = scalarToMetalTypeString(input);
+  dispatch_sync_with_rethrow(stream->queue(), ^() {
+    @autoreleasepool {
+      id<MTLComputeCommandEncoder> computeEncoder = stream->commandEncoder();
+      auto kernel_name = fmt::format("count_nonzero_prefix_sum_{}", type_str);
+      id<MTLComputePipelineState> pso = lib.getPipelineStateForFunc(kernel_name);
+
+      [computeEncoder setComputePipelineState:pso];
+      mtl_setArgs(computeEncoder, input, prefix_buf, block_sums_buf, numel);
+      [computeEncoder dispatchThreads:MTLSizeMake(numel, 1, 1)
+                threadsPerThreadgroup:MTLSizeMake(threads_per_group, 1, 1)];
+    }
+  });
+
+  // Sync to read back block sums
   dispatch_sync_with_rethrow(stream->queue(), ^() {
     stream->synchronize(SyncType::COMMIT_AND_WAIT);
   });
-  int64_t total_nonzero = at::count_nonzero(self).item<int64_t>();
+
+  // Compute block offsets on CPU (exclusive prefix sum of block totals)
+  Tensor block_sums_cpu = block_sums_buf.to(kCPU);
+  auto* bs_ptr = block_sums_cpu.data_ptr<int>();
+  std::vector<int> block_offsets(num_blocks);
+  int64_t total_nonzero = 0;
+  for (uint32_t i = 0; i < num_blocks; i++) {
+    block_offsets[i] = static_cast<int>(total_nonzero);
+    total_nonzero += bs_ptr[i];
+  }
+
   at::native::resize_output(out_, {total_nonzero, nDim});
-  if (out_.numel() == 0) {
+  if (total_nonzero == 0 || out_.numel() == 0) {
     return out_;
   }
 
   bool contiguous_output = !needsGather(out_);
-  Tensor out = out_;
-  if (!contiguous_output) {
-    out = at::empty_like(out_, MemoryFormat::Contiguous);
-  }
+  Tensor out = contiguous_output ? out_ : at::empty_like(out_, MemoryFormat::Contiguous);
 
-  @autoreleasepool {
-    std::string key = "nonzero_out_native_mps" + getTensorsStringKey(self);
-    auto cachedGraph = LookUpOrCreateCachedGraph<CachedGraph>(key, [&](auto mpsGraph, auto newCachedGraph) {
-      MPSGraphTensor* inputTensor = mpsGraphRankedPlaceHolder(mpsGraph, self);
+  // Upload block offsets and sizes to GPU
+  Tensor block_offsets_buf = at::empty({static_cast<int64_t>(num_blocks)}, input.options().dtype(kInt));
+  block_offsets_buf.copy_(
+      at::from_blob(block_offsets.data(), {static_cast<int64_t>(num_blocks)}, at::kInt));
 
-      MPSGraphTensor* outputTensor = [mpsGraph nonZeroIndicesOfTensor:inputTensor name:nil];
+  std::vector<int64_t> sizes_vec(input.sizes().begin(), input.sizes().end());
+  Tensor sizes_buf = at::empty({nDim}, input.options().dtype(kLong));
+  sizes_buf.copy_(at::from_blob(sizes_vec.data(), {nDim}, at::kLong));
 
-      newCachedGraph->inputTensor_ = inputTensor;
-      newCachedGraph->outputTensor_ = outputTensor;
-    });
+  int ndim_int = static_cast<int>(nDim);
 
-    Placeholder selfPlaceholder = Placeholder(cachedGraph->inputTensor_, self);
-    Placeholder outputPlaceholder = Placeholder(cachedGraph->outputTensor_, out);
-    auto feeds = dictionaryFromPlaceholders(selfPlaceholder);
-    runMPSGraph(stream, cachedGraph->graph(), feeds, outputPlaceholder);
-  }
+  // Phase 2: scatter indices
+  dispatch_sync_with_rethrow(stream->queue(), ^() {
+    @autoreleasepool {
+      id<MTLComputeCommandEncoder> computeEncoder = stream->commandEncoder();
+      auto kernel_name = fmt::format("scatter_nonzero_indices_{}", type_str);
+      id<MTLComputePipelineState> pso = lib.getPipelineStateForFunc(kernel_name);
+
+      [computeEncoder setComputePipelineState:pso];
+      mtl_setArgs(computeEncoder, input, prefix_buf, out, numel, ndim_int, sizes_buf, block_offsets_buf);
+      [computeEncoder dispatchThreads:MTLSizeMake(numel, 1, 1)
+                threadsPerThreadgroup:MTLSizeMake(threads_per_group, 1, 1)];
+    }
+  });
 
   if (!contiguous_output) {
     out_.copy_(out);
