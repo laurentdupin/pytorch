@@ -197,6 +197,18 @@ def generic_richcompare(
             return result
 
     # Step 4: fallback
+    if op == "__ne__":
+        # CPython's object.__ne__ delegates to __eq__ and negates.
+        eq_result = generic_richcompare(tx, lhs, rhs, "__eq__")
+        if tx.output.should_exit:
+            # Nested graph break inside __eq__; output instructions already
+            # emitted. Return dummy; the tracing loop will exit.
+            return eq_result
+        if eq_result.is_python_constant():
+            from .constant import ConstantVariable
+
+            return ConstantVariable.create(not eq_result.as_python_constant())
+
     if op in ("__eq__", "__ne__"):
         # CPython: fall back to identity (a is b)
         identity = vt_identity_compare(lhs, rhs)

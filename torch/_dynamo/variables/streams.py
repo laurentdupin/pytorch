@@ -357,6 +357,28 @@ class StreamVariable(StreamContextVariable):
     def get_real_python_backed_value(self) -> object:
         return self.value
 
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: "VariableTracker",
+        op: str,
+    ) -> VariableTracker:
+        from ..guards import GuardBuilder, install_guard
+        from ..utils import richcmp_op
+
+        if not isinstance(other, StreamVariable):
+            return VariableTracker.build(tx, NotImplemented)
+
+        if self.source:
+            install_guard(self.source.make_guard(GuardBuilder.EQUALS_MATCH))
+        if other.source:
+            install_guard(other.source.make_guard(GuardBuilder.EQUALS_MATCH))
+
+        return VariableTracker.build(
+            tx,
+            richcmp_op[op](self.value, other.value),  # type: ignore[arg-type]
+        )
+
     def call_method(
         self,
         tx: "InstructionTranslator",

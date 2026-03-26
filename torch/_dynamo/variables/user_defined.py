@@ -104,7 +104,6 @@ from .base import (
     VariableTracker,
 )
 from .dicts import ConstDictVariable, DefaultDictVariable, SetVariable
-from .object_protocol import is_richcompare_not_implemented
 
 
 try:
@@ -1309,20 +1308,22 @@ class UserDefinedObjectVariable(UserDefinedVariable):
             )
 
         if op == "__ne__" and method is object.__ne__:
-            # Default object.__ne__ delegates to __eq__ then negates
+            # CPython's object.__ne__ delegates to __eq__ and negates.
+            # Use the cmp_ne polyfill so the negation is in traceable bytecode;
+            # generic_richcompare step 4 does the delegation in Python code,
+            # which loses the negation when nested graph breaks occur.
             eq_method = type(self.value).__eq__
-            if hasattr(eq_method, "__code__"):
+            if eq_method is not object.__eq__ and hasattr(eq_method, "__code__"):
+                from ..polyfills import cmp_ne
                 from .builder import SourcelessBuilder
 
-                result = SourcelessBuilder.create(tx, eq_method).call_function(
+                return SourcelessBuilder.create(tx, cmp_ne).call_function(
                     tx, [self, other], {}
                 )
-                if is_richcompare_not_implemented(result):
-                    return result
-                if result.is_python_constant():
-                    return variables.ConstantVariable.create(
-                        not result.as_python_constant()
-                    )
+            if eq_method is not object.__eq__:
+                from .constant import ConstantVariable
+
+                return ConstantVariable.create(NotImplemented)
 
         # No pure-Python comparison method — inherits object_richcompare
         from .object_protocol import object_richcompare
