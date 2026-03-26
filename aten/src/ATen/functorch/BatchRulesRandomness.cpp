@@ -242,32 +242,28 @@ static std::tuple<Tensor, std::optional<int64_t>> philox_key_fold_in_batch_rule(
 static std::tuple<Tensor, std::optional<int64_t>> philox_normal_batch_rule(
     const Tensor& self, std::optional<int64_t> self_bdim,
     const Tensor& key, std::optional<int64_t> key_bdim,
-    double mean, double std, bool portable) {
-  TORCH_CHECK(portable,
-      "_philox_normal: portable=False does not support batched keys via vmap");
+    double mean, double std) {
   auto self_ = moveBatchDimToFront(self, self_bdim);
   auto key_ = moveBatchDimToFront(key, key_bdim);
   auto batch_size = get_bdim_size2(self, self_bdim, key, key_bdim);
   self_ = ensure_has_bdim(self_, self_bdim.has_value(), batch_size);
   key_ = ensure_has_bdim(key_, key_bdim.has_value(), batch_size);
   auto output = at::empty_like(self_);
-  at::_philox_normal_(output, key_, mean, std, portable);
+  at::_philox_normal_(output, key_, mean, std);
   return {output, 0};
 }
 
 static std::tuple<Tensor, std::optional<int64_t>> philox_uniform_batch_rule(
     const Tensor& self, std::optional<int64_t> self_bdim,
     const Tensor& key, std::optional<int64_t> key_bdim,
-    double low, double high, bool portable) {
-  TORCH_CHECK(portable,
-      "_philox_uniform: portable=False does not support batched keys via vmap");
+    double low, double high) {
   auto self_ = moveBatchDimToFront(self, self_bdim);
   auto key_ = moveBatchDimToFront(key, key_bdim);
   auto batch_size = get_bdim_size2(self, self_bdim, key, key_bdim);
   self_ = ensure_has_bdim(self_, self_bdim.has_value(), batch_size);
   key_ = ensure_has_bdim(key_, key_bdim.has_value(), batch_size);
   auto output = at::empty_like(self_);
-  at::_philox_uniform_(output, key_, low, high, portable);
+  at::_philox_uniform_(output, key_, low, high);
   return {output, 0};
 }
 
@@ -275,16 +271,14 @@ static std::tuple<Tensor, std::optional<int64_t>> philox_uniform_batch_rule(
 // self is unbatched but key is batched, we can create a batched output and
 // reassign self to a BatchedTensor.
 static Tensor& philox_normal_inplace_batched(
-    Tensor& self, const Tensor& key, double mean, double std, bool portable) {
+    Tensor& self, const Tensor& key, double mean, double std) {
   c10::impl::ExcludeDispatchKeyGuard guard(DispatchKey::FuncTorchBatched);
   auto maybe_layer = maybeCurrentDynamicLayer();
   vmap_check_escaped(maybe_layer, "philox_normal_inplace_batched");
   int64_t cur_level = maybe_layer->layerId();
   if (!isBatchedAtLevel(self, cur_level) && !isBatchedAtLevel(key, cur_level)) {
-    return at::_ops::_philox_normal_::call(self, key, mean, std, portable);
+    return at::_ops::_philox_normal_::call(self, key, mean, std);
   }
-  TORCH_CHECK(portable,
-      "_philox_normal: portable=False does not support batched keys via vmap");
   auto [self_value, self_bdim] = unwrapTensorAtLevel(self, cur_level);
   auto [key_value, key_bdim] = unwrapTensorAtLevel(key, cur_level);
   if (!self_bdim && key_bdim) {
@@ -297,7 +291,7 @@ static Tensor& philox_normal_inplace_batched(
     out_sizes.push_back(batch_size);
     out_sizes.insert(out_sizes.end(), event_sizes.begin(), event_sizes.end());
     auto output = at::empty(out_sizes, self.options());
-    at::_philox_normal_(output, key_, mean, std, portable);
+    at::_philox_normal_(output, key_, mean, std);
     self = makeBatched(output, 0, cur_level);
     return self;
   }
@@ -305,21 +299,19 @@ static Tensor& philox_normal_inplace_batched(
   auto key_ = moveBatchDimToFront(key_value, key_bdim);
   auto batch_size = self_.size(0);
   key_ = ensure_has_bdim(key_, key_bdim.has_value(), batch_size);
-  at::_philox_normal_(self_, key_, mean, std, portable);
+  at::_philox_normal_(self_, key_, mean, std);
   return self;
 }
 
 static Tensor& philox_uniform_inplace_batched(
-    Tensor& self, const Tensor& key, double low, double high, bool portable) {
+    Tensor& self, const Tensor& key, double low, double high) {
   c10::impl::ExcludeDispatchKeyGuard guard(DispatchKey::FuncTorchBatched);
   auto maybe_layer = maybeCurrentDynamicLayer();
   vmap_check_escaped(maybe_layer, "philox_uniform_inplace_batched");
   int64_t cur_level = maybe_layer->layerId();
   if (!isBatchedAtLevel(self, cur_level) && !isBatchedAtLevel(key, cur_level)) {
-    return at::_ops::_philox_uniform_::call(self, key, low, high, portable);
+    return at::_ops::_philox_uniform_::call(self, key, low, high);
   }
-  TORCH_CHECK(portable,
-      "_philox_uniform: portable=False does not support batched keys via vmap");
   auto [self_value, self_bdim] = unwrapTensorAtLevel(self, cur_level);
   auto [key_value, key_bdim] = unwrapTensorAtLevel(key, cur_level);
   if (!self_bdim && key_bdim) {
@@ -331,7 +323,7 @@ static Tensor& philox_uniform_inplace_batched(
     out_sizes.push_back(batch_size);
     out_sizes.insert(out_sizes.end(), event_sizes.begin(), event_sizes.end());
     auto output = at::empty(out_sizes, self.options());
-    at::_philox_uniform_(output, key_, low, high, portable);
+    at::_philox_uniform_(output, key_, low, high);
     self = makeBatched(output, 0, cur_level);
     return self;
   }
@@ -339,7 +331,7 @@ static Tensor& philox_uniform_inplace_batched(
   auto key_ = moveBatchDimToFront(key_value, key_bdim);
   auto batch_size = self_.size(0);
   key_ = ensure_has_bdim(key_, key_bdim.has_value(), batch_size);
-  at::_philox_uniform_(self_, key_, low, high, portable);
+  at::_philox_uniform_(self_, key_, low, high);
   return self;
 }
 
