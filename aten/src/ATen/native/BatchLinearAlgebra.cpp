@@ -3841,6 +3841,12 @@ Tensor& linalg_solve_triangular_out(
   // X* := X.conj().
   // -X := X._neg_view().
   // -X* := X.conj()._neg_view() <=> X._neg_view().conj().
+  //
+  // Note the following properties:
+  // X = -(-X) = --X.
+  // X = (X*)* = X**.
+  // -X = -(A, B) = (-A, B) = (A, -B).
+  // X* = (A, B)* = (A*, B*).
 
   bool out_fully_owned = false;
   if (out.numel() == 0) {
@@ -3865,6 +3871,7 @@ Tensor& linalg_solve_triangular_out(
       return c10::MaybeOwned<Tensor>::borrowed(A);
     } else {
       // A will be copied, so we need to tell to look at -1 on the diag
+      // NOTE: This is the only place A is copied!
       if (A.is_neg() && unitriangular) {
         unitriangular = false;
       }
@@ -3892,7 +3899,6 @@ Tensor& linalg_solve_triangular_out(
   // (op(A^T), B^T), otherwise.
   // *^T is done on the strides before the kernel call,
   // op(*) is done in the kernel.
-  // It is assumed that A and B have the same memory layout.
   const auto solve = [&left, &upper, &solve_kernel](
     const Tensor& A,
     const Tensor& B,
@@ -3944,17 +3950,53 @@ Tensor& linalg_solve_triangular_out(
     out._set_conj(A.is_conj());
   };
 
+  const auto strip_flags = [](const Tensor& t) -> Tensor {
+    auto view = t.view(t.sizes());
+    view._set_neg(false);
+    view._set_conj(false);
+    return view;
+  };
+
+  // Solve (A, B) when A and B both have the same memory layout,
+  // i.e. they are both row-major or column-major.
+  // This follows
+  // ([-1]A[*], -B*) = -(A[*], [-1]B*) = -(A[*]*, [-1]B)*
+  //                 = -(A, [-1]B[*]*)([*]*)*
+  // NOTE: B is modified in-place.
+  // NOTE: NO COPY of A is done.
+  const auto solve_with_matching_layout = [&solve, &strip_flags](
+    const Tensor& A,
+    const Tensor& B,
+    TransposeType trans = TransposeType::NoTranspose
+  ) {
+    const bool neg_physical = A.is_neg();
+    const bool conj_physical = A.is_conj() ^ B.is_conj();
+
+    // Compute [-1]B[*]*
+    auto B_data = strip_flags(B);
+    if (neg_physical) { B_data.neg_(); }
+    if (conj_physical) { B_data.conj_physical_(); }
+
+    // Compute (A, [-1]B[*]*)
+    solve(A, B_data);
+
+    // Compute (A, [-1]B[*]*)[*]*
+    if (conj_physical) { B_data.conj_physical_(); }
+
+    // B contains -(A, [-1]B[*]*)([*]*)*, if -/* are present in B
+  };
+
+  // Main logic
   if (out_fully_owned) {
-    // NOTE: A will not be copied
     solve_with_owned_out(*pA, B_, out);
   } else {
-    const auto strip_flags = [](const Tensor& t) -> Tensor {
-      auto view = t.view(t.sizes());
-      view._set_neg(false);
-      view._set_conj(false);
-      return view;
-    };
     if (out.is_same(B)) {
+      const bool is_A_col_major = pA->stride(-2) == 1;
+      const bool is_out_col_major = out.stride(-2) == 1;
+      if (is_A_col_major == is_out_col_major) {
+        solve_with_matching_layout(*pA, B);
+        return out;
+      }
       // NOTE: A will not be copied
       // TODO: optimize for less B copies when possible
       // Now solve into external memory using
