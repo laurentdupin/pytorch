@@ -95,8 +95,6 @@ class DistTensorRandomInitTest(DTensorTestBase):
         self._run_init_op(torch.Tensor.exponential_)
         self._run_init_op(torch.Tensor.geometric_, p=0.3)
 
-    @with_comms
-    def test_init_ops_dtypes(self):
         for dtype in (torch.float32, torch.float16):
             self._run_init_op(torch.rand_like, dtype=dtype)
             self._run_init_op(torch.randn_like, dtype=dtype)
