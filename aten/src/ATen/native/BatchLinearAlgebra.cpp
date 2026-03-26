@@ -3934,37 +3934,8 @@ Tensor& linalg_solve_triangular_out(
     solve_kernel(*pA, *pB, trans);
   };
 
-  // Owned out implies we are safe to alter strides and neg/conj flags.
-  // B is copied into the resized out such that mem_layout(A) == mem_layout(out).
-  // We follow (-A*, B) = -(A*, B) = -(A, B*)*.
-  // NO COPY of A is done.
-  const auto solve_with_owned_out = [&solve](
-    const Tensor& A,
-    const Tensor& B,
-    Tensor& out
-  ) {
-    const auto is_A_col_major = A.stride(-2) == 1;
-    if (is_A_col_major) {
-      // A is col-major -> resize out to be col-major and solve the original problem
-      out.resize_(B.transpose(-2, -1).sizes(), MemoryFormat::Contiguous);
-      out.transpose_(-2, -1);
-    } else {
-      // A is row-major -> risize out to be row-major and solve the transposed problem
-      out.resize_(B.sizes(), MemoryFormat::Contiguous);
-    }
-
-    // X = (A*, B) = (A, B*)*, so
-    // A.is_conj() -> out.copy_(B.conj()) -> solve -> out._set_conj(true)
-    out.copy_(A.is_conj() ? B.conj() : B);
-
-    // Solve the problem
-    solve(A, out);
-
-    // Set the flags
-    out._set_neg(A.is_neg());
-    out._set_conj(A.is_conj());
-  };
-
+  // Returns a Tensor view with neg/conj flags set to false
+  // Think of it as the "storage" variable for X, A, B from above
   const auto strip_flags = [](const Tensor& t) -> Tensor {
     auto view = t.view(t.sizes());
     view._set_neg(false);
@@ -4029,19 +4000,44 @@ Tensor& linalg_solve_triangular_out(
   };
 
   // [Main logic]
+  // Prepare out, then run solve_by_trying_to_match_layouts
   if (out_fully_owned) {
-    solve_with_owned_out(*pA, B_, out);
-  } else if (out.is_same(B)) {
-    solve_by_trying_to_match_layouts(*pA, out);
-  } else {
+    // Resize out to match layout that of A
+    const auto is_A_col_major = A.stride(-2) == 1;
+    if (is_A_col_major) {
+      // A is col-major -> resize out to be col-major and solve the original problem
+      out.resize_(B_.transpose(-2, -1).sizes(), MemoryFormat::Contiguous);
+      out.transpose_(-2, -1);
+    } else {
+      // A is row-major -> risize out to be row-major and solve the transposed problem
+      out.resize_(B_.sizes(), MemoryFormat::Contiguous);
+    }
+    // Optimization: conj is not materialized in the memory unless
+    // A.is_conj() != B.is_conj() (see solve_by_trying_to_match_layouts)
+    // Since we are in the full control of out, we can modify
+    // its conj flags to avoid materializations
+    //
+    // NOTE:
+    // (A*, B) = (A, B*)* -> copy B.conj() -> set to conj after solve
+    // (A, B*) -> needs no optimization
+    if (pA->is_conj() && !B_.is_conj()) {
+      out.copy_(B.conj());
+      solve_by_trying_to_match_layouts(pA->conj(), out);
+      out._set_conj(true);
+      return out;
+    } else {
+      // Otherwise copy as-is
+      out.copy_(B_);
+    }
+  } else if (!out.is_same(B_)) {
     // Copy B into out and run layout mather solver
     auto B_data = B_;
     if (out.is_neg()) { B_data = B_data._neg_view(); }
     if (out.is_conj()) { B_data = B_data.conj(); }
     strip_flags(out).copy_(B_data);
-    solve_by_trying_to_match_layouts(*pA, out);
   }
-  
+
+  solve_by_trying_to_match_layouts(*pA, out);
   return out;
 }
 
