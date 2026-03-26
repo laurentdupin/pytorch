@@ -88,7 +88,16 @@ void initModelRunnerPybind(py::module& m) {
 namespace py = pybind11;
 
 namespace torch::nativert {
-void initModelRunnerPybind(py::module& m) {}
+
+class StubModelRunner {};
+
+// PyModelRunner is referenced from
+// https://github.com/pytorch/benchmark/blob/b8d35ba51a3149b7212888b4010ddee97f19947f/userbenchmark/dynamo/dynamobench/common.py#L45
+void initModelRunnerPybind(py::module& m) {
+  py::class_<StubModelRunner, std::shared_ptr<StubModelRunner>>(
+      m, "PyModelRunner");
+}
+
 } // namespace torch::nativert
 
 #endif // FBCODE_CAFFE2
