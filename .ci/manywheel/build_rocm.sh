@@ -97,6 +97,8 @@ ROCM_SO_FILES=(
     "libhipblaslt.so"
     "libhipsparselt.so"
     "libhiprtc.so"
+    "librocprofiler-sdk.so"
+    "librocprofiler-register.so"
 )
 
 if [[ $ROCM_INT -ge 60100 ]]; then
