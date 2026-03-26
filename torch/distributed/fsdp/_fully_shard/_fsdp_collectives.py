@@ -20,6 +20,12 @@ from ._fsdp_common import (
 from ._fsdp_param import FSDPParam, ShardedState
 
 
+def _label_with_fqn(label: str, module_fqn: str | None) -> str:
+    if module_fqn:
+        return f"{label} ({module_fqn})"
+    return label
+
+
 class AllGatherResult(NamedTuple):
     all_gather_output: torch.Tensor
     all_gather_event: torch.Event | None
@@ -335,13 +341,10 @@ def foreach_all_gather(
     world_size, rank = group.size(), group.rank()
     device_handle = _get_device_handle(device.type)
 
-    def _with_fqn(label: str) -> str:
-        if module_fqn:
-            return f"{label} ({module_fqn})"
-        return label
-
     with device_handle.stream(all_gather_copy_in_stream):
-        with torch.profiler.record_function(_with_fqn("FSDP::all_gather_copy_in")):
+        with torch.profiler.record_function(
+            _label_with_fqn("FSDP::all_gather_copy_in", module_fqn)
+        ):
             param_all_gather_inputs = _get_param_all_gather_inputs(fsdp_params)
             (
                 param_all_gather_input_dtypes,
@@ -369,7 +372,7 @@ def foreach_all_gather(
             del param_all_gather_inputs
     all_gather_stream.wait_stream(all_gather_copy_in_stream)
     with device_handle.stream(all_gather_stream):
-        ag_profiling_name = _with_fqn("FSDP::all_gather")
+        ag_profiling_name = _label_with_fqn("FSDP::all_gather", module_fqn)
         with torch.profiler.record_function(ag_profiling_name):
             with dist.record_comm(ag_profiling_name):
                 all_gather_work = all_gather_comm(
@@ -562,11 +565,6 @@ def foreach_reduce(
     autograd, so clearing the list frees the gradients.
     """
 
-    def _with_fqn(label: str) -> str:
-        if module_fqn:
-            return f"{label} ({module_fqn})"
-        return label
-
     grad_dtypes = {grad.dtype for grad in unsharded_grads}
     if len(grad_dtypes) != 1:
         # Check this at runtime since it could be a real runtime error if e.g.
@@ -634,7 +632,7 @@ def foreach_reduce(
         )
         _div_if_needed(reduce_scatter_input, predivide_factor)
         if world_size > 1:
-            rs_profiling_name = _with_fqn("FSDP::reduce_scatter")
+            rs_profiling_name = _label_with_fqn("FSDP::reduce_scatter", module_fqn)
             with torch.profiler.record_function(rs_profiling_name):
                 with dist.record_comm(rs_profiling_name):
                     reduce_scatter_comm(
@@ -675,7 +673,7 @@ def foreach_reduce(
             else:
                 all_reduce_stream.wait_stream(current_stream)
             with device_handle.stream(all_reduce_stream):
-                ar_profiling_name = _with_fqn("FSDP::all_reduce")
+                ar_profiling_name = _label_with_fqn("FSDP::all_reduce", module_fqn)
                 with torch.profiler.record_function(ar_profiling_name):
                     with dist.record_comm(ar_profiling_name):
                         dist.all_reduce(
