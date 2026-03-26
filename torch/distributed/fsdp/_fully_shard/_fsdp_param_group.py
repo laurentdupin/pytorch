@@ -369,9 +369,6 @@ class FSDPParamGroup:
             return
 
         with record_function(self._with_fqn("FSDP::all_gather")):
-            mesh_dim_names = None
-            if self.mesh_info and self.mesh_info.mesh.mesh_dim_names:
-                mesh_dim_names = self.mesh_info.mesh.mesh_dim_names
             self._all_gather_result = foreach_all_gather(
                 self.fsdp_params,
                 self._all_gather_process_group,
@@ -380,7 +377,6 @@ class FSDPParamGroup:
                 self.device,
                 self._all_gather_comm,
                 self._module_fqn,
-                mesh_dim_names,
             )
 
     def wait_for_unshard(self):
@@ -617,6 +613,7 @@ class FSDPParamGroup:
                 self._partial_reduce_output,
                 self._all_reduce_hook,
                 self.force_sum_reduction_for_comms,
+                self._module_fqn,
             )
             self.comm_ctx.reduce_scatter_states.append(
                 ReduceScatterState(reduce_scatter_input, reduce_scatter_event)

@@ -124,6 +124,7 @@ class ReduceScatter(Comm):
         group: dist.ProcessGroup,
         op: _ReduceOp,
         async_op: bool = False,
+        profiling_name: str = "",
     ) -> dist.Work | None: ...
 
 

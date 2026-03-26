@@ -184,6 +184,7 @@ class DefaultReduceScatter(DefaultAllocMixin, ReduceScatter):
         group: dist.ProcessGroup,
         op: _ReduceOp,
         async_op: bool = False,
+        profiling_name: str = "",
     ) -> dist.Work:
         return dist.reduce_scatter_tensor(
             output=output_tensor,
@@ -191,6 +192,7 @@ class DefaultReduceScatter(DefaultAllocMixin, ReduceScatter):
             group=group,
             op=op,
             async_op=async_op,
+            profiling_name=profiling_name,
         )
 
 
@@ -205,6 +207,7 @@ class ProcessGroupAllocReduceScatter(ProcessGroupAllocMixin, ReduceScatter):
         group: dist.ProcessGroup,
         op: _ReduceOp,
         async_op: bool = False,
+        profiling_name: str = "",
     ) -> dist.Work:
         return dist.reduce_scatter_tensor(
             output=output_tensor,
@@ -212,6 +215,7 @@ class ProcessGroupAllocReduceScatter(ProcessGroupAllocMixin, ReduceScatter):
             group=group,
             op=op,
             async_op=async_op,
+            profiling_name=profiling_name,
         )
 
 
@@ -230,6 +234,7 @@ class SymmMemReduceScatter(SymmMemAllocMixin, ReduceScatter):
         group: dist.ProcessGroup,
         op: _ReduceOp,
         async_op: bool = False,
+        profiling_name: str = "",
     ) -> dist.Work | None:
         symm_mem.rendezvous(input_tensor, group=group.group_name)
         symm_mem.rendezvous(output_tensor, group=group.group_name)
@@ -241,6 +246,7 @@ class SymmMemReduceScatter(SymmMemAllocMixin, ReduceScatter):
             group=group,
             op=op,
             async_op=async_op,
+            profiling_name=profiling_name,
         )
 
 
@@ -335,19 +341,13 @@ def foreach_all_gather(
     device: torch.device,
     all_gather_comm: AllGather,
     module_fqn: str | None = None,
-    mesh_dim_names: tuple[str, ...] | None = None,
 ) -> AllGatherResult | None:
     world_size, rank = group.size(), group.rank()
     device_handle = _get_device_handle(device.type)
 
     def _with_fqn(label: str) -> str:
-        parts = []
         if module_fqn:
-            parts.append(module_fqn)
-        if mesh_dim_names:
-            parts.append(f"mesh=[{','.join(mesh_dim_names)}]")
-        if parts:
-            return f"{label} ({', '.join(parts)})"
+            return f"{label} ({module_fqn})"
         return label
 
     with device_handle.stream(all_gather_copy_in_stream):
@@ -379,7 +379,7 @@ def foreach_all_gather(
             del param_all_gather_inputs
     all_gather_stream.wait_stream(all_gather_copy_in_stream)
     with device_handle.stream(all_gather_stream):
-        profiling_name = _with_fqn("FSDP::all_gather_comm")
+        profiling_name = _with_fqn("FSDP::all_gather")
         with torch.profiler.record_function(profiling_name):
             all_gather_work = all_gather_comm(
                 output_tensor=all_gather_output,
@@ -558,6 +558,7 @@ def foreach_reduce(
     partial_reduce_output: torch.Tensor | None,  # only used for HSDP
     all_reduce_hook: Callable[[torch.Tensor], None] | None,
     force_sum_reduction_for_comms: bool = False,
+    module_fqn: str | None = None,
 ) -> tuple[
     torch.Tensor,
     torch.Event,
@@ -570,6 +571,11 @@ def foreach_reduce(
     ``unsharded_grads`` owns the references to the gradients computed by
     autograd, so clearing the list frees the gradients.
     """
+
+    def _with_fqn(label: str) -> str:
+        if module_fqn:
+            return f"{label} ({module_fqn})"
+        return label
 
     grad_dtypes = {grad.dtype for grad in unsharded_grads}
     if len(grad_dtypes) != 1:
@@ -638,12 +644,15 @@ def foreach_reduce(
         )
         _div_if_needed(reduce_scatter_input, predivide_factor)
         if world_size > 1:
-            reduce_scatter_comm(
-                output_tensor=reduce_output,
-                input_tensor=reduce_scatter_input,
-                group=reduce_scatter_group,
-                op=reduce_scatter_op,
-            )
+            rs_profiling_name = _with_fqn("FSDP::reduce_scatter")
+            with torch.profiler.record_function(rs_profiling_name):
+                reduce_scatter_comm(
+                    output_tensor=reduce_output,
+                    input_tensor=reduce_scatter_input,
+                    group=reduce_scatter_group,
+                    op=reduce_scatter_op,
+                    profiling_name=rs_profiling_name,
+                )
         else:
             # For single GPU, just copy the input to output (no actual reduce-scatter needed), and
             # account for a possible gradient_divide_factor.
@@ -676,11 +685,14 @@ def foreach_reduce(
             else:
                 all_reduce_stream.wait_stream(current_stream)
             with device_handle.stream(all_reduce_stream):
-                dist.all_reduce(
-                    reduce_output,
-                    group=all_reduce_group,
-                    op=all_reduce_op,
-                )
+                ar_profiling_name = _with_fqn("FSDP::all_reduce")
+                with torch.profiler.record_function(ar_profiling_name):
+                    dist.all_reduce(
+                        reduce_output,
+                        group=all_reduce_group,
+                        op=all_reduce_op,
+                        profiling_name=ar_profiling_name,
+                    )
                 all_reduce_input = reduce_output
                 all_reduce_event = all_reduce_stream.record_event()
     # -- END: ops in reduce_scatter stream
