@@ -6,6 +6,8 @@
 #include <c10/cuda/CUDAGuard.h>
 
 #include <ATen/cuda/detail/OffsetCalculator.cuh>
+#include <ATen/native/TensorIterator.h>
+#include <ATen/native/cuda/DistributionTemplates.h>
 #include <curand_kernel.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
@@ -162,45 +164,73 @@ __global__ void philox_normal_kernel(
     // when key_offset is even).
     int misalign = static_cast<int>(key_offset & 3);
     int skip = 0;
-    unsigned long long philox_offset = key_offset +
-        static_cast<unsigned long long>(elem_start) * outputs_per_normal;
+    unsigned long long aligned_base = key_offset;
     if (misalign > 0 && (misalign % outputs_per_normal) == 0) {
       skip = misalign / outputs_per_normal;
-      philox_offset -= misalign;
+      aligned_base -= misalign;
     }
+
+    unsigned long long philox_offset = aligned_base +
+        static_cast<unsigned long long>(elem_start) * outputs_per_normal;
+
+    // Detect if the 64-bit offset wraps within this thread's range.
+    // Use the raw (non-aligned) offset for wrap detection so the split
+    // point matches grid_split's element-level offset arithmetic.
+    unsigned long long raw_offset = key_offset +
+        static_cast<unsigned long long>(elem_start) * outputs_per_normal;
+    auto outputs_in_range =
+        static_cast<unsigned long long>(elem_end - elem_start) * outputs_per_normal;
+    bool range_wraps = raw_offset != 0 &&
+        (raw_offset + outputs_in_range < raw_offset);
+    int64_t wrap_elem = range_wraps
+        ? elem_start + static_cast<int64_t>(
+              (0ULL - raw_offset) / outputs_per_normal)
+        : elem_end;
 
     curandStatePhilox4_32_10_t state;
     curand_init(seed, /*subsequence=*/0, /*offset=*/philox_offset, &state);
 
+    int64_t gen_end = min(wrap_elem, elem_end);
     int64_t elem = elem_start;
 
-    if (skip > 0 && elem < elem_end) {
+    if (skip > 0 && elem < gen_end) {
       normal_generate_skip<scalar_t>(
-          output, base, elem, elem_end, &state, mean, stddev, skip);
+          output, base, elem, gen_end, &state, mean, stddev, skip);
       elem += min(static_cast<int64_t>(elems_per_call - skip),
-                  elem_end - elem);
+                  gen_end - elem);
     }
 
-    int64_t full_end = elem + ((elem_end - elem) / elems_per_call) * elems_per_call;
-    // Vec stores need aligned positions; only possible without prefix skip.
+    int64_t full_end = elem + ((gen_end - elem) / elems_per_call) * elems_per_call;
     if (skip == 0 && (single_key || (base % elems_per_call) == 0)) {
       for (; elem < full_end; elem += elems_per_call) {
         normal_generate_vec<scalar_t>(output, base + elem, &state, mean, stddev);
       }
     } else {
       for (; elem < full_end; elem += elems_per_call) {
-        normal_generate<scalar_t>(output, base, elem, elem_end, &state, mean, stddev);
+        normal_generate<scalar_t>(output, base, elem, gen_end, &state, mean, stddev);
       }
     }
-    if (elem < elem_end) {
-      normal_generate<scalar_t>(output, base, elem, elem_end, &state, mean, stddev);
+    if (elem < gen_end) {
+      normal_generate<scalar_t>(output, base, elem, gen_end, &state, mean, stddev);
+    }
+
+    if (range_wraps) {
+      curand_init(seed, /*subsequence=*/0, /*offset=*/0ULL, &state);
+      elem = wrap_elem;
+      full_end = elem + ((elem_end - elem) / elems_per_call) * elems_per_call;
+      for (; elem < full_end; elem += elems_per_call) {
+        normal_generate<scalar_t>(output, base, elem, elem_end, &state, mean, stddev);
+      }
+      if (elem < elem_end) {
+        normal_generate<scalar_t>(output, base, elem, elem_end, &state, mean, stddev);
+      }
     }
   }
 }
 
 } // anonymous namespace
 
-Tensor& _philox_normal_cuda_(Tensor& self, const Tensor& key, double mean, double stddev) {
+Tensor& _philox_normal_cuda_(Tensor& self, const Tensor& key, double mean, double stddev, bool portable) {
   TORCH_CHECK(key.dim() >= 1 && key.size(-1) == 2,
       "_philox_normal: key must have shape (*batch, 2), got shape ",
       key.sizes());
@@ -217,6 +247,46 @@ Tensor& _philox_normal_cuda_(Tensor& self, const Tensor& key, double mean, doubl
   TORCH_CHECK(self.device() == key.device(),
       "_philox_normal: self and key must be on the same device, got ",
       self.device(), " and ", key.device());
+
+  if (!portable) {
+    TORCH_CHECK(key.dim() == 1 && key.size(0) == 2,
+        "_philox_normal: portable=False does not support batched keys");
+
+    at::cuda::CUDAGuard device_guard(key.device());
+
+    PhiloxCudaState philox_state;
+    philox_state.seed_.ptr = reinterpret_cast<int64_t*>(key.data_ptr<uint64_t>());
+    philox_state.offset_.ptr = reinterpret_cast<int64_t*>(key.data_ptr<uint64_t>() + 1);
+    philox_state.offset_intragraph_ = 0;
+    philox_state.captured_ = true;
+
+    auto iter = TensorIterator::borrowing_nullary_op(self);
+    AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "_philox_normal_cuda", [&] {
+      using accscalar_t = at::acc_type<scalar_t, true>;
+      auto fmean = static_cast<accscalar_t>(mean);
+      auto fstd = static_cast<accscalar_t>(stddev);
+      if (std::is_same_v<scalar_t, double>) {
+        distribution_nullary_kernel<scalar_t, accscalar_t, double2>(
+            iter, philox_state,
+            [] __device__ (curandStatePhilox4_32_10_t* state) -> double2 {
+              return curand_normal2_double(state);
+            },
+            [fmean, fstd] __device__ (accscalar_t rand) {
+              return static_cast<scalar_t>(rand * fstd + fmean);
+            });
+      } else {
+        distribution_nullary_kernel<scalar_t, accscalar_t, float4>(
+            iter, philox_state,
+            [] __device__ (curandStatePhilox4_32_10_t* state) -> float4 {
+              return curand_normal4(state);
+            },
+            [fmean, fstd] __device__ (accscalar_t rand) {
+              return static_cast<scalar_t>(rand * fstd + fmean);
+            });
+      }
+    });
+    return self;
+  }
 
   int64_t key_batch_ndim = key.dim() - 1;
   TORCH_CHECK(self.dim() >= key_batch_ndim,

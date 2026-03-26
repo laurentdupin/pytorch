@@ -6,6 +6,8 @@
 #include <c10/cuda/CUDAGuard.h>
 
 #include <ATen/cuda/detail/OffsetCalculator.cuh>
+#include <ATen/native/TensorIterator.h>
+#include <ATen/native/cuda/DistributionTemplates.h>
 #include <curand_kernel.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
@@ -122,11 +124,24 @@ __global__ void philox_uniform_kernel(
     int64_t base = single_key ? 0 : key_idx * event_numel;
 
     curandStatePhilox4_32_10_t state;
-    curand_init(seed, /*subsequence=*/0,
-        /*offset=*/key_offset + static_cast<unsigned long long>(elem_start) * outputs_per_value,
-        &state);
+    auto philox_offset = key_offset +
+        static_cast<unsigned long long>(elem_start) * outputs_per_value;
+    curand_init(seed, /*subsequence=*/0, /*offset=*/philox_offset, &state);
 
-    int64_t full_end = elem_start + ((elem_end - elem_start) / elems_per_call) * elems_per_call;
+    // Detect if the 64-bit offset wraps within this thread's range. If so,
+    // re-init at offset 0 to stay in subsequence 0, matching grid_split's
+    // modular offset arithmetic.
+    auto outputs_in_chunk =
+        static_cast<unsigned long long>(elem_end - elem_start) * outputs_per_value;
+    bool chunk_wraps = philox_offset != 0 &&
+        (philox_offset + outputs_in_chunk < philox_offset);
+    int64_t wrap_elem = chunk_wraps
+        ? elem_start + static_cast<int64_t>(
+              (0ULL - philox_offset) / outputs_per_value)
+        : elem_end;
+
+    int64_t gen_end = min(wrap_elem, elem_end);
+    int64_t full_end = elem_start + ((gen_end - elem_start) / elems_per_call) * elems_per_call;
     if (single_key || (base % elems_per_call) == 0) {
       for (int64_t elem = elem_start; elem < full_end; elem += elems_per_call) {
         uniform_generate_vec<scalar_t>(output, base + elem, &state, low, high);
@@ -136,15 +151,27 @@ __global__ void philox_uniform_kernel(
         uniform_generate<scalar_t>(output, base, elem, full_end, &state, low, high);
       }
     }
-    if (full_end < elem_end) {
-      uniform_generate<scalar_t>(output, base, full_end, elem_end, &state, low, high);
+    if (full_end < gen_end) {
+      uniform_generate<scalar_t>(output, base, full_end, gen_end, &state, low, high);
+    }
+
+    if (chunk_wraps) {
+      curand_init(seed, /*subsequence=*/0, /*offset=*/0ULL, &state);
+      int64_t post_start = wrap_elem;
+      full_end = post_start + ((elem_end - post_start) / elems_per_call) * elems_per_call;
+      for (int64_t elem = post_start; elem < full_end; elem += elems_per_call) {
+        uniform_generate<scalar_t>(output, base, elem, full_end, &state, low, high);
+      }
+      if (full_end < elem_end) {
+        uniform_generate<scalar_t>(output, base, full_end, elem_end, &state, low, high);
+      }
     }
   }
 }
 
 } // anonymous namespace
 
-Tensor& _philox_uniform_cuda_(Tensor& self, const Tensor& key, double low, double high) {
+Tensor& _philox_uniform_cuda_(Tensor& self, const Tensor& key, double low, double high, bool portable) {
   TORCH_CHECK(key.dim() >= 1 && key.size(-1) == 2,
       "_philox_uniform: key must have shape (*batch, 2), got shape ",
       key.sizes());
@@ -161,6 +188,50 @@ Tensor& _philox_uniform_cuda_(Tensor& self, const Tensor& key, double low, doubl
   TORCH_CHECK(self.device() == key.device(),
       "_philox_uniform: self and key must be on the same device, got ",
       self.device(), " and ", key.device());
+
+  if (!portable) {
+    TORCH_CHECK(key.dim() == 1 && key.size(0) == 2,
+        "_philox_uniform: portable=False does not support batched keys");
+
+    at::cuda::CUDAGuard device_guard(key.device());
+
+    // Point directly at key's device memory — no DtoH sync.
+    PhiloxCudaState philox_state;
+    philox_state.seed_.ptr = reinterpret_cast<int64_t*>(key.data_ptr<uint64_t>());
+    philox_state.offset_.ptr = reinterpret_cast<int64_t*>(key.data_ptr<uint64_t>() + 1);
+    philox_state.offset_intragraph_ = 0;
+    philox_state.captured_ = true;
+
+    auto iter = TensorIterator::borrowing_nullary_op(self);
+    AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "_philox_uniform_cuda", [&] {
+      using opmath_t = at::opmath_type<scalar_t>;
+      auto range = static_cast<opmath_t>(high - low);
+      auto from = static_cast<scalar_t>(low);
+      auto to = static_cast<scalar_t>(high);
+      if (std::is_same_v<scalar_t, double>) {
+        distribution_nullary_kernel<scalar_t, opmath_t, double2>(
+            iter, philox_state,
+            [] __device__ (curandStatePhilox4_32_10_t* state) -> double2 {
+              return curand_uniform2_double(state);
+            },
+            [range, from, to] __device__ (opmath_t rand) {
+              auto value = static_cast<scalar_t>(rand * range + from);
+              return value == to ? from : value;
+            });
+      } else {
+        distribution_nullary_kernel<scalar_t, opmath_t, float4>(
+            iter, philox_state,
+            [] __device__ (curandStatePhilox4_32_10_t* state) -> float4 {
+              return curand_uniform4(state);
+            },
+            [range, from, to] __device__ (opmath_t rand) {
+              auto value = static_cast<scalar_t>(rand * range + from);
+              return value == to ? from : value;
+            });
+      }
+    });
+    return self;
+  }
 
   int64_t key_batch_ndim = key.dim() - 1;
   TORCH_CHECK(self.dim() >= key_batch_ndim,
