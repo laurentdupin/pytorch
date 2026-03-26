@@ -2010,8 +2010,7 @@ class MMTemplateConfigMixin(GemmMaxAutotuneTemplateConfigHeuristics):
         strides = kernel_inputs.strides_symbolic()
         a_stride = strides[kernel_inputs._mat1_idx]
         b_stride = strides[kernel_inputs._mat2_idx]
-        out_layout = kernel_inputs.output_layout(flexible=False)
-        c_stride = out_layout.stride
+        out_layout = kernel_inputs.output_layout(flexible=False)  # noqa: F841
         # Get the appropriate config generator
         configs = self._get_config_generator()
         # Generate and process configs
@@ -2019,7 +2018,7 @@ class MMTemplateConfigMixin(GemmMaxAutotuneTemplateConfigHeuristics):
             try:
                 import origami
             except ImportError:
-                raise ImportError("Origami not imported")
+                raise ImportError("Origami not imported") from None
 
             origami_cfg_gen = self.get_exhaustive_mm_configs()
             allcfgs = origami_cfg_gen(
@@ -2043,7 +2042,7 @@ class MMTemplateConfigMixin(GemmMaxAutotuneTemplateConfigHeuristics):
                 selector._configs,
                 10,
             )
-            seen = set()
+            seen = OrderedSet()
             for result in topk_results:
                 cfg = result.config
                 key = (cfg.mt.m, cfg.mt.n, cfg.mt.k, cfg.occupancy)
