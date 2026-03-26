@@ -160,7 +160,6 @@ class AllreduceOptions:
     timeout: timedelta
     asyncOp: bool
     sparseIndices: Tensor | None
-    profilingName: str
 
 class AllreduceCoalescedOptions(AllreduceOptions): ...
 
@@ -174,7 +173,6 @@ class ReduceOptions:
 class AllgatherOptions:
     timeout: timedelta
     asyncOp: bool
-    profilingName: str
 
 class GatherOptions:
     rootRank: int
@@ -190,7 +188,6 @@ class ReduceScatterOptions:
     reduceOp: ReduceOp
     timeout: timedelta
     asyncOp: bool
-    profilingName: str
 
 class BarrierOptions:
     device_ids: list[int]
@@ -897,3 +894,5 @@ class _Response:
 def _register_handler(
     name: str, handler: Callable[[_Request, _Response], None]
 ) -> None: ...
+def _set_comm_profiling_name(name: str) -> None: ...
+def _get_comm_profiling_name() -> str: ...

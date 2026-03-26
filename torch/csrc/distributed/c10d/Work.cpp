@@ -7,13 +7,29 @@
 
 namespace c10d {
 
+namespace {
+thread_local std::string comm_profiling_name;
+} // namespace
+
+void set_comm_profiling_name(const std::string& name) {
+  comm_profiling_name = name;
+}
+
+const std::string& get_comm_profiling_name() {
+  return comm_profiling_name;
+}
+
 Work::Work(
     int rank,
     OpType opType,
     const char* profilingTitle,
     const std::optional<std::vector<at::Tensor>>& inputTensors)
     : rank_(rank), opType_(opType) {
-  if (profilingTitle != nullptr) {
+  const char* title = profilingTitle;
+  if (!comm_profiling_name.empty()) {
+    title = comm_profiling_name.c_str();
+  }
+  if (title != nullptr) {
     auto recordingFunction =
         std::make_shared<at::RecordFunction>(at::RecordScope::USER_SCOPE);
     if (recordingFunction->isActive()) {
@@ -30,7 +46,7 @@ Work::Work(
         }
       }
       recordingFunction->before(
-          profilingTitle,
+          title,
           c10::ArrayRef<const c10::IValue>(inputs.data(), inputs.size()));
       std::function<void()> end_handler = [recordingFunction]() {
         recordingFunction->end();

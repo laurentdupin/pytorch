@@ -115,14 +115,12 @@ class DefaultAllGather(DefaultAllocMixin, AllGather):
         input_tensor: torch.Tensor,
         group: dist.ProcessGroup,
         async_op: bool = False,
-        profiling_name: str = "",
     ) -> dist.Work | None:
         return dist.all_gather_into_tensor(
             output_tensor,
             input_tensor,
             group=group,
             async_op=async_op,
-            profiling_name=profiling_name,
         )
 
 
@@ -136,14 +134,12 @@ class ProcessGroupAllocAllGather(ProcessGroupAllocMixin, AllGather):
         input_tensor: torch.Tensor,
         group: dist.ProcessGroup,
         async_op: bool = False,
-        profiling_name: str = "",
     ) -> dist.Work | None:
         return dist.all_gather_into_tensor(
             output_tensor,
             input_tensor,
             group=group,
             async_op=async_op,
-            profiling_name=profiling_name,
         )
 
 
@@ -184,7 +180,6 @@ class DefaultReduceScatter(DefaultAllocMixin, ReduceScatter):
         group: dist.ProcessGroup,
         op: _ReduceOp,
         async_op: bool = False,
-        profiling_name: str = "",
     ) -> dist.Work:
         return dist.reduce_scatter_tensor(
             output=output_tensor,
@@ -192,7 +187,6 @@ class DefaultReduceScatter(DefaultAllocMixin, ReduceScatter):
             group=group,
             op=op,
             async_op=async_op,
-            profiling_name=profiling_name,
         )
 
 
@@ -207,7 +201,6 @@ class ProcessGroupAllocReduceScatter(ProcessGroupAllocMixin, ReduceScatter):
         group: dist.ProcessGroup,
         op: _ReduceOp,
         async_op: bool = False,
-        profiling_name: str = "",
     ) -> dist.Work:
         return dist.reduce_scatter_tensor(
             output=output_tensor,
@@ -215,7 +208,6 @@ class ProcessGroupAllocReduceScatter(ProcessGroupAllocMixin, ReduceScatter):
             group=group,
             op=op,
             async_op=async_op,
-            profiling_name=profiling_name,
         )
 
 
@@ -234,7 +226,6 @@ class SymmMemReduceScatter(SymmMemAllocMixin, ReduceScatter):
         group: dist.ProcessGroup,
         op: _ReduceOp,
         async_op: bool = False,
-        profiling_name: str = "",
     ) -> dist.Work | None:
         symm_mem.rendezvous(input_tensor, group=group.group_name)
         symm_mem.rendezvous(output_tensor, group=group.group_name)
@@ -246,7 +237,6 @@ class SymmMemReduceScatter(SymmMemAllocMixin, ReduceScatter):
             group=group,
             op=op,
             async_op=async_op,
-            profiling_name=profiling_name,
         )
 
 
@@ -379,15 +369,15 @@ def foreach_all_gather(
             del param_all_gather_inputs
     all_gather_stream.wait_stream(all_gather_copy_in_stream)
     with device_handle.stream(all_gather_stream):
-        profiling_name = _with_fqn("FSDP::all_gather")
-        with torch.profiler.record_function(profiling_name):
-            all_gather_work = all_gather_comm(
-                output_tensor=all_gather_output,
-                input_tensor=all_gather_input,
-                group=group,
-                async_op=async_op,
-                profiling_name=profiling_name,
-            )
+        ag_profiling_name = _with_fqn("FSDP::all_gather")
+        with torch.profiler.record_function(ag_profiling_name):
+            with dist.record_comm(ag_profiling_name):
+                all_gather_work = all_gather_comm(
+                    output_tensor=all_gather_output,
+                    input_tensor=all_gather_input,
+                    group=group,
+                    async_op=async_op,
+                )
         all_gather_event = all_gather_stream.record_event()
         return AllGatherResult(
             all_gather_output,
@@ -646,13 +636,13 @@ def foreach_reduce(
         if world_size > 1:
             rs_profiling_name = _with_fqn("FSDP::reduce_scatter")
             with torch.profiler.record_function(rs_profiling_name):
-                reduce_scatter_comm(
-                    output_tensor=reduce_output,
-                    input_tensor=reduce_scatter_input,
-                    group=reduce_scatter_group,
-                    op=reduce_scatter_op,
-                    profiling_name=rs_profiling_name,
-                )
+                with dist.record_comm(rs_profiling_name):
+                    reduce_scatter_comm(
+                        output_tensor=reduce_output,
+                        input_tensor=reduce_scatter_input,
+                        group=reduce_scatter_group,
+                        op=reduce_scatter_op,
+                    )
         else:
             # For single GPU, just copy the input to output (no actual reduce-scatter needed), and
             # account for a possible gradient_divide_factor.
@@ -687,12 +677,12 @@ def foreach_reduce(
             with device_handle.stream(all_reduce_stream):
                 ar_profiling_name = _with_fqn("FSDP::all_reduce")
                 with torch.profiler.record_function(ar_profiling_name):
-                    dist.all_reduce(
-                        reduce_output,
-                        group=all_reduce_group,
-                        op=all_reduce_op,
-                        profiling_name=ar_profiling_name,
-                    )
+                    with dist.record_comm(ar_profiling_name):
+                        dist.all_reduce(
+                            reduce_output,
+                            group=all_reduce_group,
+                            op=all_reduce_op,
+                        )
                 all_reduce_input = reduce_output
                 all_reduce_event = all_reduce_stream.record_event()
     # -- END: ops in reduce_scatter stream
