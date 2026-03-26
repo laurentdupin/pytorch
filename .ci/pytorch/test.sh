@@ -143,6 +143,17 @@ fi
 echo "Environment variables"
 env
 
+# Install the pinned triton wheel if not already present. Skip on free-threaded
+# Python 3.14t where triton._C.libtriton hasn't declared GIL-free safety,
+# causing the GIL to be forcibly re-enabled on import. The existing CI image
+# pytorch-linux-jammy-py3.14t-clang15 also doesn't install triton, probably a
+# bug
+if [[ "$BUILD_ENVIRONMENT" != *py3.14t* ]]; then
+  if ! python -c "import triton" 2>/dev/null; then
+    install_triton_wheel
+  fi
+fi
+
 echo "Testing pytorch"
 
 # On k8s (ARC) pods, os.cpu_count() may return the host's CPU count rather than
@@ -150,7 +161,8 @@ echo "Testing pytorch"
 # process, leading to OOM when multiple test processes run in parallel (NUM_PROCS=3).
 # Use nproc (cgroup-aware) to set a sensible default if OMP_NUM_THREADS is unset.
 if [[ -z "${OMP_NUM_THREADS:-}" ]]; then
-  export OMP_NUM_THREADS=$(nproc)
+  OMP_NUM_THREADS=$(nproc)
+  export OMP_NUM_THREADS
 fi
 
 export LANG=C.UTF-8
@@ -302,11 +314,13 @@ if [[ "$BUILD_ENVIRONMENT" == *asan* ]]; then
         # so fall back to the new naming convention.
         LD_PRELOAD=$(clang --print-file-name=libclang_rt.asan.so)
     fi
-    # Workaround for glibc ASAN bug where dlopen of NSS libraries (e.g.
-    # libnss_dns.so) crashes with a null function pointer dereference.
-    # See https://sourceware.org/bugzilla/show_bug.cgi?id=27653#c9
-    echo 'char* dlerror(void) { return "";}'|gcc -fpic -shared -o "${HOME}/dlerror.so" -x c -
-    LD_PRELOAD=${LD_PRELOAD}:${HOME}/dlerror.so
+    # Preload libnss_dns to prevent ASAN SEGV on RHEL 8 / AlmaLinux 8 (glibc 2.28).
+    # clang-18's ASAN runtime uses .preinit_array for initialization, but LD_PRELOAD
+    # only runs constructor functions, not .preinit_array. Combined with glibc 2.28's
+    # older dynamic linker, lazy dlopen of NSS libraries crashes with a null function
+    # pointer dereference. This is resolved in glibc 2.34+ (AlmaLinux 9).
+    # See https://sourceware.org/bugzilla/show_bug.cgi?id=27653
+    LD_PRELOAD=${LD_PRELOAD}:/lib64/libnss_dns.so.2
     export LD_PRELOAD
     # Disable valgrind for asan
     export VALGRIND=OFF

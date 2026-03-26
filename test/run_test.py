@@ -334,7 +334,7 @@ CI_SERIAL_LIST = [
     "inductor/test_max_autotune",
     "inductor/test_cutlass_backend",  # slow due to many nvcc compilation steps,
     "inductor/test_flex_attention",  # OOM
-    "inductor/test_cpu_select_algorithm.py",  # autotune is flaky when running under heavy CPU load with other tests
+    "inductor/test_cpu_select_algorithm",  # autotune is flaky when running under heavy CPU load with other tests
 ]
 # A subset of onnx tests that cannot run in parallel due to high memory usage.
 ONNX_SERIAL_LIST = [
