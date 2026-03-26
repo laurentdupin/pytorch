@@ -2741,6 +2741,40 @@ class AOTAutogradCacheTests(InductorTestCase):
             ):
                 compiled_fn(x, y)
 
+    @inductor_config.patch("fx_graph_cache", True)
+    @functorch_config.patch("enable_autograd_cache", True)
+    def test_pre_grad_pass_default_timing_without_uuid_warns(self):
+        """
+        Default timing with a pass that has no UUID should log a warning about
+        the pre-grad pass cache being bypassed.
+        """
+
+        class NoUuidPass(CustomGraphPass):
+            def __call__(self, g: torch.fx.Graph) -> None:
+                pass
+
+            def uuid(self):
+                return None
+
+        def fn(x, y):
+            return x + y
+
+        x = torch.randn(10)
+        y = torch.randn(10)
+
+        with inductor_config.patch(
+            "pre_grad_custom_pass", NoUuidPass()
+        ), inductor_config.patch("pre_grad_pass_timing", "default"):
+            self._clear_all_caches()
+            compiled_fn = torch.compile(fn)
+            with self.assertLogs(
+                "torch._inductor.codecache", level="WARNING"
+            ) as log_cm:
+                compiled_fn(x, y)
+            self.assertTrue(
+                any("does not implement uuid()" in msg for msg in log_cm.output)
+            )
+
     @parametrize(
         "pre_grad_pass_timing,has_uuid,expect_miss_on_different_uuid",
         [
