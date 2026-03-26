@@ -1459,10 +1459,13 @@ class TensorVariable(VariableTracker):
     def len_impl(self, tx: "InstructionTranslator") -> VariableTracker:
         return self.call_method(tx, "size", [VariableTracker.build(tx, 0)], {})
 
-    def method___iter__(self, tx: "InstructionTranslator") -> ListIteratorVariable:
+    def iter_impl(self, tx: "InstructionTranslator") -> VariableTracker:
         return ListIteratorVariable(
             self.unpack_var_sequence(tx), mutation_type=ValueMutationNew()
         )
+
+    def method___iter__(self, tx: "InstructionTranslator") -> VariableTracker:
+        return self.iter_impl(tx)
 
     def method_addcmul_(
         self,

@@ -270,6 +270,10 @@ class IteratorVariable(VariableTracker):
             return variables.CONSTANT_VARIABLE_TRUE
         return super().call_obj_hasattr(tx, name)
 
+    def iter_impl(self, tx: "InstructionTranslator") -> "VariableTracker":
+        """Iterators are their own iterator."""
+        return self
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -277,9 +281,7 @@ class IteratorVariable(VariableTracker):
         args: list[VariableTracker],
         kwargs: dict[str, VariableTracker],
     ) -> VariableTracker:
-        if name == "__iter__":
-            return self
-        elif name == "__next__":
+        if name == "__next__":
             return self.next_variable(tx)
         return super().call_method(tx, name, args, kwargs)
 
@@ -620,3 +622,38 @@ class FilterVariable(IteratorVariable):
         codegen(self.fn)
         self.reconstruct_items(codegen)
         codegen.extend_output(create_call_function(2, False))
+
+
+class SequenceIterator(IteratorVariable):
+    def __init__(self, seq: VariableTracker, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # seq implements __getitem__ and __len__
+        self.seq = seq
+        self.index = 0
+
+
+#     def next_variable(self, tx: "InstructionTranslator") -> VariableTracker:
+#         # if self.index >= len(self.seq):
+#         #     raise_observed_exception(StopIteration, tx)
+#         # item = self.seq[self.index]
+#         # self.index += 1
+#         # return item
+
+
+class DictIterator(IteratorVariable):
+    def __init__(
+        self, items: dict[VariableTracker, VariableTracker], **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
+        self.iter_items = iter(items)
+
+    def next_variable(self, tx: "InstructionTranslator") -> VariableTracker:
+        try:
+            return next(self.iter_items).vt
+        except (RuntimeError, StopIteration) as e:
+            # RuntimeError can be raised if the dict is mutated during iteration
+            raise_observed_exception(
+                type(e),
+                tx,
+                args=[VariableTracker.build(tx, a) for a in e.args],
+            )
