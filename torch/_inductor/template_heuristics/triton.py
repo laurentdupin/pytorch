@@ -2036,23 +2036,47 @@ class MMTemplateConfigMixin(GemmMaxAutotuneTemplateConfigHeuristics):
                 device,
                 a_stride,
                 b_stride,
-                c_stride,
             )
-            origami_config_kwargs = {
-                "EVEN_K": selector.even_k,
-                "USE_FAST_ACCUM": False,
-                "ACC_TYPE": "tl.float32",
-                "num_stages": 2,
-                "num_warps": 8,
-                "BLOCK_M": selector.block_m,
-                "BLOCK_N": selector.block_n,
-                "BLOCK_K": selector.block_k,
-                "GROUP_M": selector.group_m,
-                "matrix_instr_nonkdim": 16,
-                "waves_per_eu": selector.occupancy,
-                "kpack": 2,
-            }
-            yield origami_config_kwargs
+            topk_results = origami.select_topk_configs(
+                selector._problem,
+                selector._hardware,
+                selector._configs,
+                10,
+            )
+            seen = set()
+            for result in topk_results:
+                cfg = result.config
+                key = (cfg.mt.m, cfg.mt.n, cfg.mt.k, cfg.occupancy)
+                if key in seen:
+                    continue
+                seen.add(key)
+                grid = origami.select_grid_size(
+                    selector._problem,
+                    selector._hardware,
+                    cfg,
+                    origami.grid_selection_t.data_parallel,
+                    selector._hardware.N_CU,
+                )
+                wgm_result = origami.select_workgroup_mapping(
+                    selector._problem,
+                    selector._hardware,
+                    cfg,
+                    grid,
+                )
+                yield {
+                    "EVEN_K": math.gcd(k, cfg.mt.k) == cfg.mt.k,
+                    "USE_FAST_ACCUM": False,
+                    "ACC_TYPE": "tl.float32",
+                    "num_stages": 2,
+                    "num_warps": 8,
+                    "BLOCK_M": cfg.mt.m,
+                    "BLOCK_N": cfg.mt.n,
+                    "BLOCK_K": cfg.mt.k,
+                    "GROUP_M": wgm_result.wgm,
+                    "matrix_instr_nonkdim": 16,
+                    "waves_per_eu": cfg.occupancy,
+                    "kpack": 2,
+                }
         else:
             for c in configs(
                 m,
