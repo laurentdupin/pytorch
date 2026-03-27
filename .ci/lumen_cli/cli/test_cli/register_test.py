@@ -103,6 +103,11 @@ def _register_pytorch_commands(subparsers: argparse._SubParsersAction) -> None:
         help="override plan inputs, e.g. --input changed_files='src/foo.py src/bar.py'",
     )
     parser.add_argument(
+        "--command",
+        type=str,
+        help="custom command to run instead of the default lumen lint command (RE only)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         default=False,

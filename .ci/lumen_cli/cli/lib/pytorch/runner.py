@@ -105,8 +105,17 @@ class PytorchTestRunner(BaseRunner):
         self.commit: str | None = getattr(args, "commit", None)
         self.dry_run: bool = getattr(args, "dry_run", False)
         self.no_follow: bool = getattr(args, "no_follow", False)
+        self.command: str | None = getattr(args, "command", None)
         raw_inputs = getattr(args, "input", []) or []
         self.input_overrides = dict(i.split("=", 1) for i in raw_inputs)
+
+    def re_command(self, plan: LintTestPlan) -> str:
+        """Build the lumen CLI command for RE execution."""
+        cmd = f"lumen test lint --group-id {plan.group_id}"
+        if self.input_overrides:
+            for k, v in self.input_overrides.items():
+                cmd += f" --input {k}='{v}'"
+        return cmd
 
     def run(self) -> None:
         if self.group_id not in LINT_PLANS:
@@ -118,8 +127,13 @@ class PytorchTestRunner(BaseRunner):
 
         if self.remote_execution:
             from cli.lib.pytorch.re_runner import submit_to_re
+            commands = []
+            if self.command:
+                commands.append(self.command)
+            commands.append(self.re_command(plan))
             submit_to_re(
                 plan,
+                commands=commands,
                 pr=self.pr,
                 commit=self.commit,
                 dry_run=self.dry_run,

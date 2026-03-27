@@ -12,8 +12,3 @@ if ! command -v uv &>/dev/null; then
 fi
 
 uv python install "$PYTHON_VERSION"
-
-if [[ "$ACTIVATE_ENVIRONMENT" == "true" ]]; then
-    uv venv --python "$PYTHON_VERSION"
-    source .venv/bin/activate
-fi

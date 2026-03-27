@@ -19,6 +19,7 @@ class TestStep:
 
 
 DEFAULT_BOOTSTRAP = ["git_clone", "setup_uv"]
+DEFAULT_INPUTS: dict[str, str] = {"python_version": "3.12"}
 
 
 @dataclass
@@ -31,7 +32,7 @@ class LintTestPlan:
     setup_commands: list[str] = field(default_factory=list)
     bootstrap: list[str] = field(default_factory=lambda: list(DEFAULT_BOOTSTRAP))
     # Declarative inputs with defaults. CLI can override via --input key=value.
-    inputs: dict[str, str] = field(default_factory=dict)
+    inputs: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_INPUTS))
 
     def resolve_env_vars(self, overrides: dict[str, str] | None = None) -> dict[str, str]:
         """Resolve env_vars by substituting {input_name} placeholders.

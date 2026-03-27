@@ -64,13 +64,12 @@ def _resolve_commit(pr: int | None, commit: str | None) -> dict:
     raise RuntimeError("--pr or --commit is required for remote execution")
 
 
-def _build_run_command(plan: LintTestPlan, input_overrides: dict[str, str] | None = None) -> str:
-    """Build the lumen CLI command that RE will execute after bootstrap."""
-    cmd = f"lumen test lint --group-id {plan.group_id}"
-    if input_overrides:
-        for k, v in input_overrides.items():
-            cmd += f" --input {k}='{v}'"
-    return cmd
+def build_run_command(*commands: str) -> str:
+    """Wrap commands for RE execution using uv run."""
+    wrapped = ["cd .ci/lumen_cli"]
+    for cmd in commands:
+        wrapped.append(f"uv run {cmd}")
+    return "\n".join(wrapped)
 
 
 class LumenScriptBuilder(RunnerScriptBuilder):
@@ -101,21 +100,39 @@ class LumenScriptBuilder(RunnerScriptBuilder):
     def add_install_lumen(self) -> LumenScriptBuilder:
         self._modules.append(
             f"\n# {'=' * 44}\n# MODULE: install_lumen\n# {'=' * 44}\n"
-            "(cd .ci/lumen_cli && python -m pip install -e .)"
+            "cd .ci/lumen_cli"
         )
         return self
 
 
 def submit_to_re(
     plan: LintTestPlan,
+    commands: list[str],
     pr: int | None,
     commit: str | None,
     dry_run: bool,
     no_follow: bool = False,
     input_overrides: dict[str, str] | None = None,
 ) -> None:
-    """Submit a lint test plan to Remote Execution."""
-    command = _build_run_command(plan, input_overrides)
+    """Submit a test plan to Remote Execution."""
+    command = build_run_command(*commands)
+
+    # Build runner_modules: fixed prefix + plan bootstrap + fixed suffix.
+    # Deduplicate while preserving order.
+    modules_list = (
+        ["header", "find_script", "git_clone", "git_checkout"]
+        + plan.bootstrap
+        + ["run_script", "upload_outputs"]
+    )
+    seen: set[str] = set()
+    modules = [m for m in modules_list if not (m in seen or seen.add(m))]
+
+    # Resolve inputs (with overrides) and export as env vars for bootstrap scripts
+    resolved_inputs = {**plan.inputs, **(input_overrides or {})}
+    env_vars = {
+        "PYTHON_VERSION": resolved_inputs.get("python_version", "3.12"),
+        **plan.resolve_env_vars(input_overrides),
+    }
 
     # hard code for now for task_type for demoing
     step = StepConfig(
@@ -123,10 +140,14 @@ def submit_to_re(
         command=command,
         task_type="cpu-large",
         image=plan.image,
+        runner_modules=modules,
+        env_vars=env_vars,
     )
     job_name = f"{plan.group_id}-pr{pr}" if pr else plan.group_id
 
     resolved = _resolve_commit(pr, commit)
+
+    # elainewy(should share this with re_cli.core.job_runner.JobRunner for rerun client)
     client = K8sClient(K8sConfig(namespace="remote-execution-system", timeout=60))
     runner = JobRunner(
         client=client,
