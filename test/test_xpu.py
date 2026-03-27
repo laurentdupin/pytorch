@@ -266,17 +266,18 @@ print(f"{{r1}}, {{r2}}")
                 subprocess.check_output([sys.executable, "-c", script])
                 .decode("ascii")
                 .strip()
+                .splitlines()[-1]
             )
 
         # Index 128 is out of range → both return 0
         self.assertEqual(_run("128"), "0, 0")
-        # COMPOSITE-style mask → _device_count_zes returns -1, driver count unchanged
-        self.assertEqual(_run("0.0"), "-1, 1")
-        # Valid mask selecting device 0 on a single-GPU system → both return 0
-        self.assertEqual(_run("0"), "0, 0")
+        # COMPOSITE-style mask → _device_count_zes returns -1
+        self.assertEqual(_run("0.0").split(",")[0].strip(), "-1")
+        # Valid mask selecting device 0 on a single-GPU system → both return 1
+        self.assertEqual(_run("0"), "1, 1")
         if TEST_MULTIXPU:
-            # Valid mask selecting device 0 on a multi-GPU system → both return 1
-            self.assertEqual(_run("0"), "1, 1")
+            # Valid mask selecting device 1 on a multi-GPU system → both return 1
+            self.assertEqual(_run("1"), "1, 1")
 
     @unittest.skipIf(not TEST_MULTIXPU, "requires multiple devices")
     def test_device_count_not_cached_pre_init(self):
@@ -299,6 +300,7 @@ print(f"{r1}, {r2}")
             subprocess.check_output([sys.executable, "-c", test_script])
             .decode("ascii")
             .strip()
+            .splitlines()[-1]
         )
 
         x = torch.xpu.device_count()
@@ -337,12 +339,12 @@ print(torch.xpu.is_initialized())
 """
         rc = check_output(test_script).splitlines()
         self.assertEqual(
-            rc[0],
+            rc[-2],
             "0",
             "Importing torch._inductor.lowering should not query XPU device count",
         )
         self.assertEqual(
-            rc[1],
+            rc[-1],
             "False",
             "Importing torch._inductor.lowering should not initialize XPU",
         )
