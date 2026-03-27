@@ -6574,8 +6574,9 @@ def record_comm(name: str):
         >>> with dist.record_comm("FSDP::all_gather (layer1)"):
         ...     dist.all_gather_into_tensor(output, input, group=pg)
     """
+    prev = torch._C._distributed_c10d._get_comm_profiling_name()
     torch._C._distributed_c10d._set_comm_profiling_name(name)
     try:
         yield
     finally:
-        torch._C._distributed_c10d._set_comm_profiling_name("")
+        torch._C._distributed_c10d._set_comm_profiling_name(prev)
