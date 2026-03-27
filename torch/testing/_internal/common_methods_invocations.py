@@ -15537,7 +15537,7 @@ op_db: list[OpInfo] = [
             DecorateInfo(
                 unittest.skip("Inconsistent accuracy"),
                 "TestConsistency", "test_output_grad_match",
-                dtypes=(torch.float16, torch.bfloat16),
+                dtypes=(torch.float16, torch.bfloat16, torch.float32),
                 device_type="mps",),
             # torch.allclose(arg, arg_copy, rtol=0, atol=0, equal_nan=True),
             # -> torch.AcceleratorError: HIP error: unspecified launch failure
