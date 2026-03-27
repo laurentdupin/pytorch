@@ -171,6 +171,7 @@ void lookup(
     ExtraState* extra_state,
     FrameLocalsMapping* f_locals,
     PyObject* backend,
+    int64_t region_id,
     PyObject** maybe_cached_code,
     const char** trace_annotation,
     bool is_skip_guard_eval_unsafe);

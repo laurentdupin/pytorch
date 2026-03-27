@@ -16,6 +16,9 @@ CacheEntry::CacheEntry(const py::handle& guarded_code, PyObject* backend)
   } else {
     this->trace_annotation = "Unknown";
   }
+  if (py::hasattr(guarded_code, "region_id")) {
+    this->region_id = guarded_code.attr("region_id").cast<int64_t>();
+  }
   this->root_mgr = torch::dynamo::convert_to_root_guard_manager(
       this->guard_manager.attr("root"));
   this->diff_guard_root_mgr = torch::dynamo::convert_to_root_guard_manager(
