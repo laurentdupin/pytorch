@@ -189,7 +189,7 @@ def normal(
     if dtype is None:
         dtype = torch.float32
     result = torch.empty(shape, dtype=dtype, device=key.device)
-    return normal_(result, key, mean, std, portable)
+    return normal_(key, result, mean=mean, std=std, portable=portable)
 
 
 def uniform_(
@@ -275,4 +275,4 @@ def uniform(
     if dtype is None:
         dtype = torch.float32
     result = torch.empty(shape, dtype=dtype, device=key.device)
-    return uniform_(result, key, low, high, portable)
+    return uniform_(key, result, low=low, high=high, portable=portable)
