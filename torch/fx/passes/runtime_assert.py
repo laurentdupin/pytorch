@@ -98,7 +98,6 @@ def insert_deferred_runtime_asserts(
         _get_placeholder_expr,
         _has_uninterpretable_sympy_function,
         CallMethodKey,
-        cast_symbool_to_symint_guardless,
         ConvertIntKey,
         DivideByKey,
         free_symbols,
@@ -535,9 +534,7 @@ def insert_deferred_runtime_asserts(
                             )
                         elif isinstance(keypath[0], ConvertIntKey):
                             return go(
-                                graph.call_function(
-                                    cast_symbool_to_symint_guardless, (node,)
-                                ),
+                                graph.call_function(torch.sym_ite, (node, 1, 0)),
                                 keypath[1:],
                             )
                         elif isinstance(keypath[0], DivideByKey):
@@ -637,10 +634,7 @@ def insert_deferred_runtime_asserts(
                         except TypeError:
                             return None
 
-                    if (
-                        expr_to_proxy[i0].node.target
-                        is not cast_symbool_to_symint_guardless
-                    ):
+                    if expr_to_proxy[i0].node.target is not torch.sym_ite:
                         # Range assertions are unnecessary for SymBool-backed
                         # symbols since their range is trivially [0, 1].
 
