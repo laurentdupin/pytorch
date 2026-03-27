@@ -45,6 +45,7 @@ from ..exc import (
     ObservedAttributeError,
     ObservedUserStopIteration,
     raise_observed_exception,
+    raise_python_observed_exception,
     unimplemented,
     Unsupported,
     UserError,
@@ -706,10 +707,10 @@ class BuiltinVariable(VariableTracker):
                     mutation_type=ValueMutationNew(),
                 )
             except MemoryError as exc:
-                raise_observed_exception(
+                raise_python_observed_exception(
                     type(exc),
                     tx,
-                    args=[VariableTracker.build(tx, a) for a in exc.args],
+                    args=list(exc.args),
                 )
 
         list_like_expansion_handlers: list[
@@ -734,10 +735,10 @@ class BuiltinVariable(VariableTracker):
                 try:
                     return VariableTracker.build(tx, op(a.value, b.value))  # type: ignore[attr-defined]
                 except TypeError as exc:
-                    raise_observed_exception(
+                    raise_python_observed_exception(
                         type(exc),
                         tx,
-                        args=[VariableTracker.build(tx, a) for a in exc.args],
+                        args=list(exc.args),
                     )
 
             result: list[
@@ -1142,10 +1143,10 @@ class BuiltinVariable(VariableTracker):
                             *[x.as_python_constant() for x in args],
                         )
                     except Exception as exc:
-                        raise_observed_exception(
+                        raise_python_observed_exception(
                             type(exc),
                             tx,
-                            args=[VariableTracker.build(tx, a) for a in exc.args],
+                            args=list(exc.args),
                         )
                     except AsPythonConstantNotImplementedError as exc:
                         unimplemented(
@@ -1182,10 +1183,10 @@ class BuiltinVariable(VariableTracker):
                                 from_exc=exc,
                             )
                         except Exception as exc:
-                            raise_observed_exception(
+                            raise_python_observed_exception(
                                 type(exc),
                                 tx,
-                                args=[VariableTracker.build(tx, a) for a in exc.args],
+                                args=list(exc.args),
                             )
                         return VariableTracker.build(tx, res)
                     return None
@@ -1515,10 +1516,10 @@ class BuiltinVariable(VariableTracker):
                     res = fn(args[0].as_python_constant())
                     return VariableTracker.build(tx, res)
                 except (OverflowError, ValueError) as e:
-                    raise_observed_exception(
+                    raise_python_observed_exception(
                         type(e),
                         tx,
-                        args=[VariableTracker.build(tx, a) for a in e.args],
+                        args=list(e.args),
                     )
 
         if self.fn is object and name == "__init__":
@@ -2263,15 +2264,10 @@ class BuiltinVariable(VariableTracker):
         if not args:
             return SetVariable([], mutation_type=ValueMutationNew())
         if len(args) != 1:
-            raise_observed_exception(
+            raise_python_observed_exception(
                 TypeError,
                 tx,
-                args=[
-                    VariableTracker.build(
-                        tx,
-                        f"set() takes 1 positional argument but {len(args)} were given",
-                    )
-                ],
+                args=[f"set() takes 1 positional argument but {len(args)} were given"],
             )
         arg = args[0]
         if istype(arg, variables.SetVariable):
@@ -2288,10 +2284,10 @@ class BuiltinVariable(VariableTracker):
                 if isinstance(out, SetVariable):
                     return out
                 return SourcelessBuilder.create(tx, set).call_set(tx, out)
-        raise_observed_exception(
+        raise_python_observed_exception(
             TypeError,
             tx,
-            args=[VariableTracker.build(tx, "failed to construct builtin set()")],
+            args=["failed to construct builtin set()"],
         )
 
     def call_frozenset(
@@ -2304,14 +2300,11 @@ class BuiltinVariable(VariableTracker):
         if not args:
             return FrozensetVariable([])
         if len(args) != 1:
-            raise_observed_exception(
+            raise_python_observed_exception(
                 TypeError,
                 tx,
                 args=[
-                    VariableTracker.build(
-                        tx,
-                        f"frozenset() takes 1 positional argument but {len(args)} were given",
-                    )
+                    f"frozenset() takes 1 positional argument but {len(args)} were given"
                 ],
             )
         arg = args[0]
@@ -2320,10 +2313,10 @@ class BuiltinVariable(VariableTracker):
         elif arg.has_force_unpack_var_sequence(tx):
             items = arg.force_unpack_var_sequence(tx)
             return FrozensetVariable(items)
-        raise_observed_exception(
+        raise_python_observed_exception(
             TypeError,
             tx,
-            args=[VariableTracker.build(tx, "failed to construct builtin frozenset()")],
+            args=["failed to construct builtin frozenset()"],
         )
 
     def call_zip(
@@ -2362,7 +2355,7 @@ class BuiltinVariable(VariableTracker):
         try:
             return args[0].call_method(tx, "__len__", list(args[1:]), kwargs)
         except AttributeError as e:
-            raise_observed_exception(type(e), tx, args=list(e.args))
+            raise_python_observed_exception(type(e), tx, args=list(e.args))
 
     def call_getitem(
         self,
@@ -2457,13 +2450,12 @@ class BuiltinVariable(VariableTracker):
         ):
             isinstance_type_tuple = isinstance_type
         else:
-            msg = VariableTracker.build(
-                tx, "isinstance() arg 2 must be a type, a tuple of types, or a union"
-            )
-            raise_observed_exception(
+            raise_python_observed_exception(
                 TypeError,
                 tx,
-                args=[msg],
+                args=[
+                    "isinstance() arg 2 must be a type, a tuple of types, or a union"
+                ],
             )
 
         try:

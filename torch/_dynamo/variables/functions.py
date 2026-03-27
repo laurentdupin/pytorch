@@ -53,6 +53,7 @@ from ..exc import (
     ObservedGeneratorExit,
     ObservedUserStopIteration,
     raise_observed_exception,
+    raise_python_observed_exception,
     StepUnsupported,
     unimplemented,
     Unsupported,
@@ -2687,10 +2688,10 @@ class CollectionsNamedTupleFunction(UserFunctionVariable):
                     **{k: v.as_python_constant() for k, v in kwargs.items()},
                 )
             except TypeError as exc:
-                raise_observed_exception(
+                raise_python_observed_exception(
                     type(exc),
                     tx,
-                    args=[VariableTracker.build(tx, a) for a in exc.args],
+                    args=list(exc.args),
                 )
             return variables.UserDefinedClassVariable(
                 value,

@@ -448,6 +448,44 @@ def raise_observed_exception(
     raise raised_exc
 
 
+def raise_python_observed_exception(
+    exc_type: type[Exception],
+    tx: InstructionTranslatorBase,
+    *,
+    args: list[str] | None = None,
+    kwargs: dict[str, str] | None = None,
+) -> NoReturn:
+    """Raise an observed exception with Python string arguments.
+
+    This is a convenience wrapper around raise_observed_exception that converts
+    Python strings to VariableTrackers. Use this when exception arguments are
+    simple Python strings rather than already-tracked variables.
+
+    Args:
+        exc_type: The exception type to raise.
+        tx: The instruction translator.
+        args: Exception constructor arguments (Python strings to be converted to VariableTrackers).
+        kwargs: Exception constructor keyword arguments (Python strings to be converted).
+
+    Raises:
+        NoReturn: Always raises an exception.
+    """
+    from .variables import VariableTracker
+
+    # Convert string args to VariableTrackers
+    converted_args = None
+    if args:
+        converted_args = [VariableTracker.build(tx, arg) for arg in args]
+
+    converted_kwargs = None
+    if kwargs:
+        converted_kwargs = {
+            k: VariableTracker.build(tx, v) for k, v in kwargs.items()
+        }
+
+    raise_observed_exception(exc_type, tx, args=converted_args, kwargs=converted_kwargs)
+
+
 def handle_observed_exception(tx: Any) -> None:
     # This is essentially exception handling code, equivalent of this pseudo code
     #
