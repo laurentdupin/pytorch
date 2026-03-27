@@ -1647,10 +1647,27 @@ def override_cudagraphs(
 def override_optimization_hint(x: Any, val: int) -> None:
     """Override the optimization hint for a scalar unbacked symbol.
 
+    When the compiler or runtime needs a non-guarding integer hint for an
+    unbacked ``SymInt`` — for example during FX passes, graph partitioning,
+    or inductor autotuning — it calls
+    ``_optimization_hint_base``
+    (see ``torch/fx/experimental/_size_hinting.py``).  By default
+    that function uses internal heuristics to choose a hint and a global fixed
+    fallback;
+    this function lets user code override that choice.  This is similar to
+    the ``hint_override`` parameter in ``mark_unbacked``, but applies to
+    symbols that already exist (e.g. from ``.item()`` calls).
+
+    Typical usage::
+
+        u = x.item()  # unbacked SymInt
+        torch._dynamo.override_optimization_hint(u, 42)
+        # From now on, any call to shape_env.optimization_hint(u, ...)
+        # returns 42 instead of the default heuristic value.
+
     This updates ``shape_env.var_to_hint_override`` so that any consumer
-    of optimization hints (e.g. FX passes, graph partitioning, inductor
-    autotuning) sees *val* as the optimization hint for the unbacked
-    symbol behind *x*.
+    of ``_optimization_hint_base`` sees *val* as the hint for the
+    unbacked symbol behind *x*.
 
     Works both eagerly (during FX passes or outside dynamo) and inside
     ``torch.compile`` regions.
@@ -1663,8 +1680,14 @@ def override_optimization_hint(x: Any, val: int) -> None:
         ``FXGraphCache`` includes ``var_to_hint_override`` in its cache
         key, so cache hits/misses correctly reflect hint changes.
 
+    .. note::
+
+        To maximize performance, it is recommended to pass hints for
+        **all** unbacked symbols in the program to guide optimizations.
+
     Args:
         x: A ``torch.SymInt`` (e.g. from ``.item()``) or a plain ``int``.
+            If *x* is a plain ``int`` the call is a no-op.
         val: The integer hint value to record.
     """
     if not isinstance(val, int):
