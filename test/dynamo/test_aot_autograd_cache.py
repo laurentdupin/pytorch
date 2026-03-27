@@ -231,18 +231,21 @@ class CacheKeyEquivalenceMixin:
         def capturing_compile_fx(model_, example_inputs_, **kwargs):
             record = _CacheKeyRecord()
             self._cache_key_records.append(record)
-            result = real_compile_fx(model_, example_inputs_, **kwargs)
+            print(f"capturing_compile_fx/model_ (1) = {model_}")
+            model_copy = copy.deepcopy(model_)
             self._compute_standalone_key(record, model_, example_inputs_)
-            return result
+            print(f"capturing_compile_fx/model_ (2) = {model_}")
+            assert model_.code == model_copy.code, (
+                "_compute_standalone_key mutated the model"
+            )
+            return real_compile_fx(model_, example_inputs_, **kwargs)
 
         def capturing_cache_key(mod, ei, config, compiler_config_extra=None):
             key, debug_lines = real_cache_key(mod, ei, config, compiler_config_extra)
+            print(f"capturing_cache_key/key = {key}")
             if self._cache_key_records:
-                record = self._cache_key_records[-1]
-                # Only capture the first key as GT (before standalone runs)
-                if record.gt_key is None:
-                    record.gt_key = key
-                    record.gt_debug_lines = debug_lines
+                self._cache_key_records[-1].gt_key = key
+                self._cache_key_records[-1].gt_debug_lines = debug_lines
             return key, debug_lines
 
         return (
@@ -257,13 +260,11 @@ class CacheKeyEquivalenceMixin:
         )
 
     def _compute_standalone_key(self, record, model_, example_inputs_):
-        """Compute the standalone cache key after real compilation.
+        """Compute the standalone cache key before real compilation.
 
-        Runs after real_compile_fx so that FakeTensor shapes have been
-        specialized (e.g. dynamic dims concretized during tracing).
         The cache_key patcher is temporarily stopped so the standalone
         call's inner autograd_cache.autograd_cache_key goes through the
-        real function without overwriting the captured GT key.
+        real function without interfering with GT key capture.
         """
         try:
             self._cache_key_patcher.stop()
@@ -272,6 +273,7 @@ class CacheKeyEquivalenceMixin:
                     model_, example_inputs_, ignore_shape_env=False
                 )
             )
+            print(f"_compute_standalone_key/record.standalone_key = {record.standalone_key}")
         except BypassAOTAutogradCache:
             record.bypassed = True
         finally:
