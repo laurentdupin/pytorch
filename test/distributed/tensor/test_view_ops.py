@@ -1931,6 +1931,30 @@ class TestViewOps(DTensorContinuousTestBase):
         self.assertEqual(result.placements, (Shard(0),))
         self.assertEqual(result.full_tensor(), x.squeeze(0))
 
+    def test_squeeze_inplace_no_comm_when_non_sharded_dim_removed(self):
+        """Inplace squeeze_ on non-sharded singleton reindexes Shard(1) → Shard(0)."""
+        mesh = init_device_mesh(self.device_type, (self.world_size,))
+        x = torch.randn(1, self.world_size, device=self.device_type)
+        dt = distribute_tensor(x, mesh, [Shard(1)])
+        with CommDebugMode() as comm_mode:
+            dt.squeeze_(0)
+        self.assertEqual(comm_mode.get_total_counts(), 0)
+        self.assertEqual(dt.shape, torch.Size([self.world_size]))
+        self.assertEqual(dt.placements, (Shard(0),))
+        self.assertEqual(dt.full_tensor(), x.squeeze(0))
+
+    def test_squeeze_inplace_trailing_singleton_after_shard(self):
+        """squeeze_ on trailing singleton after shard dim: same placements, new shape."""
+        mesh = init_device_mesh(self.device_type, (self.world_size,))
+        x = torch.randn(self.world_size, 3, 1, device=self.device_type)
+        dt = distribute_tensor(x, mesh, [Shard(0)])
+        with CommDebugMode() as comm_mode:
+            dt.squeeze_(2)
+        self.assertEqual(comm_mode.get_total_counts(), 0)
+        self.assertEqual(dt.shape, torch.Size([self.world_size, 3]))
+        self.assertEqual(dt.placements, (Shard(0),))
+        self.assertEqual(dt.full_tensor(), x.squeeze(2))
+
     def test_squeeze_after_explicit_redistribute(self):
         """User redistributes to Replicate first, then squeeze is comm-free."""
         mesh = init_device_mesh(self.device_type, (self.world_size,))

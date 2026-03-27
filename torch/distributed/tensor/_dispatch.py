@@ -491,36 +491,43 @@ class OpDispatcher:
                 if not isinstance(args[0], dtensor.DTensor):
                     raise AssertionError
 
-                # Check if arg 0's input placement actually needs to change.
-                # needs_redistribute can be True for reasons other than
-                # arg 0 placement changes (e.g. squeeze dim rewriting),
-                # so we check the redistribute schema directly.
+                # Fast path: placements unchanged (common case: add_, mul_).
+                if args[0]._spec.placements == output_spec.placements:
+                    # Inplace views (squeeze_) may change tensor_meta even
+                    # when placements match (e.g. removing a trailing
+                    # singleton after the shard dim).
+                    if torch.Tag.inplace_view not in op_call.tags:
+                        return args[0]
+                    if args[0]._spec.tensor_meta == output_spec.tensor_meta:
+                        return args[0]
+                    args[0]._spec = output_spec
+                    return return_and_correct_aliasing(op_call, args, kwargs, args[0])
+
+                # Placements changed. Guard against implicit redistribution
+                # (strict_view should already catch this at the strategy
+                # layer, but defend in depth).
                 if (
                     output_sharding.needs_redistribute
                     and output_sharding.redistribute_schema is not None
                 ):
-                    desired_arg0 = output_sharding.redistribute_schema.args_schema[0]
-                    if not isinstance(desired_arg0, DTensorSpec):
-                        raise AssertionError(
-                            f"Expected DTensorSpec for inplace arg 0, "
-                            f"got {type(desired_arg0)}"
-                        )
-                    if args[0]._spec.placements != desired_arg0.placements:
+                    desired = output_sharding.redistribute_schema.args_schema[0]
+                    if not isinstance(desired, DTensorSpec):
+                        raise AssertionError
+                    if args[0]._spec.placements != desired.placements:
                         raise RuntimeError(
-                            f"{op_call}: in-place operations that require "
-                            f"redistribution of the first argument are not "
-                            f"supported because redistribution replaces the "
-                            f"local tensor, breaking aliasing semantics. "
+                            f"{op_call}: in-place redistribution is not "
+                            f"supported (breaks aliasing). "
                             f"Please redistribute explicitly first."
                         )
 
-                # Fast path: spec unchanged (common case: add_, mul_, etc.)
-                if args[0]._spec == output_spec:
-                    return args[0]
-
-                # Spec changed without redistribution (e.g. dim reindexing
-                # in squeeze_: Shard(1) → Shard(0) after removing dim 0).
-                # Currently only squeeze_ inplace ops hit this path.
+                # Only inplace view ops may change placements without
+                # redistribution (e.g. squeeze_ dim reindexing).
+                if torch.Tag.inplace_view not in op_call.tags:
+                    raise RuntimeError(
+                        f"{op_call}: unexpected placement change from "
+                        f"{args[0]._spec.placements} to "
+                        f"{output_spec.placements}."
+                    )
                 args[0]._spec = output_spec
                 return return_and_correct_aliasing(op_call, args, kwargs, args[0])
             else:
