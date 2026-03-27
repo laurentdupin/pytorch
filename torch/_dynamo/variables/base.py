@@ -548,6 +548,19 @@ class VariableTracker(metaclass=VariableTrackerMeta):
             ],
         )
 
+    def getitem_impl(
+        self,
+        tx: "InstructionTranslator",
+        key: "VariableTracker",
+    ) -> "VariableTracker":
+        # https://github.com/python/cpython/blob/v3.13.3/Objects/abstract.c#L164-L202
+        unimplemented(
+            gb_type="unsupported __getitem__",
+            context=f"getitem_impl {self} {key}",
+            explanation=f"Dynamo does not know how to handle __getitem__ on {self}",
+            hints=[],
+        )
+
     def call_method(
         self,
         tx: Any,
@@ -555,7 +568,9 @@ class VariableTracker(metaclass=VariableTrackerMeta):
         args: list["VariableTracker"],
         kwargs: dict[str, "VariableTracker"],
     ) -> "VariableTracker":
-        if name == "__len__" and self.has_unpack_var_sequence(tx):
+        if name == "__getitem__" and len(args) == 1 and not kwargs:
+            return self.getitem_impl(tx, args[0])
+        elif name == "__len__" and self.has_unpack_var_sequence(tx):
             assert not (args or kwargs)
             return variables.ConstantVariable.create(len(self.unpack_var_sequence(tx)))
         elif (

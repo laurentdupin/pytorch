@@ -1337,6 +1337,25 @@ class UserDefinedObjectVariable(UserDefinedVariable):
         }
         return fns
 
+    def getitem_impl(
+        self,
+        tx: "InstructionTranslator",
+        key: VariableTracker,
+    ) -> VariableTracker:
+        # https://github.com/python/cpython/blob/v3.13.3/Objects/abstract.c#L164-L202
+        from . import UserMethodVariable
+
+        method = self._maybe_get_baseclass_method("__getitem__")
+        if method is not None and isinstance(method, types.FunctionType):
+            source = self.source
+            source_fn = None
+            if source:
+                source_fn = self.get_source_by_walking_mro(tx, "__getitem__")
+            return UserMethodVariable(
+                method, self, source_fn=source_fn, source=source
+            ).call_function(tx, [key], {})
+        return super().getitem_impl(tx, key)
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -2748,6 +2767,25 @@ class UserDefinedDictVariable(UserDefinedObjectVariable):
             self._dict_vt = dict_vt
         self._dict_methods = dict_methods
 
+    def getitem_impl(
+        self,
+        tx: "InstructionTranslator",
+        key: VariableTracker,
+    ) -> VariableTracker:
+        # https://github.com/python/cpython/blob/v3.13.3/Objects/dictobject.c#L2626
+        method = self._maybe_get_baseclass_method("__getitem__")
+        if method in self._dict_methods:
+            try:
+                return self._dict_vt.getitem_impl(tx, key)
+            except ObservedKeyError:
+                if issubclass(
+                    self.python_type(), dict
+                ) and self._maybe_get_baseclass_method("__missing__"):
+                    return self.call_method(tx, "__missing__", [key], {})
+                else:
+                    raise
+        return super().getitem_impl(tx, key)
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -2923,6 +2961,17 @@ class UserDefinedListVariable(UserDefinedObjectVariable):
         else:
             self._list_vt = list_vt
 
+    def getitem_impl(
+        self,
+        tx: "InstructionTranslator",
+        key: VariableTracker,
+    ) -> VariableTracker:
+        assert self._list_vt is not None
+        method = self._maybe_get_baseclass_method("__getitem__")
+        if method in list_methods:
+            return self._list_vt.getitem_impl(tx, key)
+        return super().getitem_impl(tx, key)
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -2998,6 +3047,17 @@ class UserDefinedTupleVariable(UserDefinedObjectVariable):
             _, (idx, _) = type_attr.__reduce__()
             return self._tuple_vt.items[idx]  # type: ignore[union-attr]
         return super().resolve_data_descriptor(tx, name, type_attr, source)
+
+    def getitem_impl(
+        self,
+        tx: "InstructionTranslator",
+        key: VariableTracker,
+    ) -> VariableTracker:
+        assert self._tuple_vt is not None
+        method = self._maybe_get_baseclass_method("__getitem__")
+        if method in tuple_methods:
+            return self._tuple_vt.getitem_impl(tx, key)
+        return super().getitem_impl(tx, key)
 
     def call_method(
         self,

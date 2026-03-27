@@ -3221,6 +3221,13 @@ class TritonKernelVariable(VariableTracker):
             self, args, kwargs, tx
         )
 
+    def getitem_impl(
+        self,
+        tx: "InstructionTranslator",
+        key: VariableTracker,
+    ) -> VariableTracker:
+        return dynamo_triton_hopifier_singleton.call_getitem(self, [key])
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -3228,9 +3235,7 @@ class TritonKernelVariable(VariableTracker):
         args: list[VariableTracker],
         kwargs: dict[str, VariableTracker],
     ) -> VariableTracker:
-        if name == "__getitem__":
-            return dynamo_triton_hopifier_singleton.call_getitem(self, args)
-        elif name == "run":
+        if name == "run":
             return dynamo_triton_hopifier_singleton.call_run(self, args, kwargs, tx)  # type: ignore[return-value]
 
         # Bail out to parent's implementation

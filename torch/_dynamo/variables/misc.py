@@ -1339,6 +1339,52 @@ class GetAttrVariable(VariableTracker):
     ) -> VariableTracker:
         return self.obj.call_method(tx, self.name, list(args), kwargs)
 
+    def _getattr_dict_lookup(
+        self,
+        tx: "InstructionTranslator",
+        key: VariableTracker,
+    ) -> "VariableTracker | None":
+        if (
+            self.name == "__dict__"
+            and key.is_python_constant()
+            and isinstance(
+                self.obj,
+                (
+                    variables.NNModuleVariable,
+                    variables.UserDefinedClassVariable,
+                ),
+            )
+        ):
+            obj = self.obj
+            k = key.as_python_constant()
+            if obj.has_key_in_generic_dict(tx, k):
+                if tx.output.side_effects.has_pending_mutation_of_attr(obj, k):
+                    return tx.output.side_effects.load_attr(obj, k)
+
+                # For instance dicts, read directly from __dict__
+                if isinstance(obj.value.__dict__, dict):
+                    raw_value = obj.value.__dict__[k]
+                    raw_source = (
+                        DictGetItemSource(AttrSource(obj.source, "__dict__"), k)
+                        if obj.source
+                        else None
+                    )
+                    return VariableTracker.build(tx, raw_value, raw_source)
+
+                return obj.var_getattr(tx, k)
+        return None
+
+    def getitem_impl(
+        self,
+        tx: "InstructionTranslator",
+        key: VariableTracker,
+    ) -> VariableTracker:
+        # https://github.com/python/cpython/blob/v3.13.3/Objects/abstract.c#L164-L202
+        result = self._getattr_dict_lookup(tx, key)
+        if result is not None:
+            return result
+        return super().getitem_impl(tx, key)
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -1347,7 +1393,7 @@ class GetAttrVariable(VariableTracker):
         kwargs: dict[str, VariableTracker],
     ) -> VariableTracker:
         if (
-            name in ("__getitem__", "get")
+            name == "get"
             and self.name == "__dict__"
             and not kwargs
             and args[0].is_python_constant()
@@ -1359,30 +1405,15 @@ class GetAttrVariable(VariableTracker):
                 ),
             )
         ):
-            obj = self.obj
-            key = args[0].as_python_constant()
-            if obj.has_key_in_generic_dict(tx, key):
-                if tx.output.side_effects.has_pending_mutation_of_attr(obj, key):
-                    return tx.output.side_effects.load_attr(obj, key)
-
-                # For instance dicts, read directly from __dict__
-                if isinstance(obj.value.__dict__, dict):
-                    raw_value = obj.value.__dict__[key]
-                    raw_source = (
-                        DictGetItemSource(AttrSource(obj.source, "__dict__"), key)
-                        if obj.source
-                        else None
-                    )
-                    return VariableTracker.build(tx, raw_value, raw_source)
-
-                return obj.var_getattr(tx, key)
+            result = self._getattr_dict_lookup(tx, args[0])
+            if result is not None:
+                return result
 
             # Return the default value for get
-            if name == "get":
-                if len(args) == 2:
-                    return args[1]
-                else:
-                    return variables.CONSTANT_VARIABLE_NONE
+            if len(args) == 2:
+                return args[1]
+            else:
+                return variables.CONSTANT_VARIABLE_NONE
 
         elif (
             name == "__contains__"
@@ -1639,6 +1670,15 @@ class TypingVariable(VariableTracker):
         super().__init__(**kwargs)
         self.value = value
 
+    def getitem_impl(
+        self,
+        tx: "InstructionTranslator",
+        key: VariableTracker,
+    ) -> VariableTracker:
+        # e.g., List[int] → typing.List[int]
+        new_typing = self.value[key.as_python_constant()]
+        return TypingVariable(new_typing)
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -1646,11 +1686,7 @@ class TypingVariable(VariableTracker):
         args: list[VariableTracker],
         kwargs: dict[str, VariableTracker],
     ) -> VariableTracker:
-        # Create a new typing variable, e.g., `List[int]`
-        if name == "__getitem__" and len(args) == 1:
-            new_typing = self.value[args[0].as_python_constant()]
-            return TypingVariable(new_typing)
-        elif name == "__eq__":
+        if name == "__eq__":
             if len(args) == 1 and not kwargs:
                 result = istype(args[0], TypingVariable) and self.value == args[0].value
                 return variables.ConstantVariable.create(result)
