@@ -2762,9 +2762,10 @@ class AOTAutogradCacheTests(InductorTestCase):
         x = torch.randn(10)
         y = torch.randn(10)
 
-        with inductor_config.patch(
-            "pre_grad_custom_pass", NoUuidPass()
-        ), inductor_config.patch("pre_grad_pass_timing", "default"):
+        with (
+            inductor_config.patch("pre_grad_custom_pass", NoUuidPass()),
+            inductor_config.patch("pre_grad_pass_timing", "default"),
+        ):
             self._clear_all_caches()
             compiled_fn = torch.compile(fn)
             with self.assertLogs(
