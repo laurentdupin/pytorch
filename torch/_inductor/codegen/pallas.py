@@ -4065,7 +4065,6 @@ from torch._inductor.runtime.runtime_utils import (
                 for e in self.range_tree_nodes.values()
                 if isinstance(e.length, (int, sympy.Integer))
             ]
-            + [t.numel for t in self.range_trees]
         )
 
         def _get_nd_shape_if_matches(buf_name):
