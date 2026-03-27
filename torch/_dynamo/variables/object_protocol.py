@@ -74,44 +74,31 @@ def vt_identity_compare(
     return None
 
 
-def vt_implements_method(obj: "VariableTracker", method_name: str) -> bool:
-    """Helper function to check if a VariableTracker implements a given method."""
+def vt_implements_slot(
+    obj: "VariableTracker",
+    dunder: str,
+    impl_method: str,
+) -> bool:
+    """
+    Check whether obj implements a CPython slot, identified by both its Python
+    dunder name and the corresponding VT impl method name.
+
+    - UserDefinedObjectVariable: check whether the underlying class defines dunder.
+    - ConstantVariable: check hasattr on the wrapped value.
+    - All other VTs: check whether the subclass overrides impl_method.
+    """
     from .base import VariableTracker
-
-    m1 = getattr(obj.__class__, method_name)
-    m2 = getattr(VariableTracker, method_name)
-    return m1 is not m2
-
-
-def vt_implements_tp_iter(obj: "VariableTracker") -> bool:
-    """Helper function to check if a VariableTracker implements the tp_iter slot."""
     from .constant import ConstantVariable
     from .user_defined import UserDefinedObjectVariable
 
-    # for user defined objects this check if a little bit more complicated
-    # because we want to actually check if __iter__ is defined in the
-    # object's class
     if istype(obj, UserDefinedObjectVariable):
-        iter_fn = obj._maybe_get_baseclass_method("__iter__")
-        return iter_fn is not None
+        return obj._maybe_get_baseclass_method(dunder) is not None
     elif istype(obj, ConstantVariable):
-        if hasattr(obj.value, "__iter__"):
-            return True
+        return hasattr(obj.value, dunder)
     else:
-        return vt_implements_method(obj, "iter_impl")
-    return False
-
-
-def vt_sequence_check(obj: "VariableTracker") -> bool:
-    """Implements PySequence_Check semantics for VariableTracker objects."""
-    from .dicts import ConstDictVariable
-
-    if istype(obj, ConstDictVariable):
-        return False
-
-    # needs generic_getitem to be implemented in Dynamo
-    return True
-    # return vt_implements_method(obj, " getitem_impl")
+        m1 = getattr(obj.__class__, impl_method)
+        m2 = getattr(VariableTracker, impl_method)
+        return m1 is not m2
 
 
 def generic_len(
@@ -134,39 +121,20 @@ def generic_getitem(
     return obj.getitem_impl(tx, item)
 
 
-def vt_implements_tp_iternext(obj: "VariableTracker") -> bool:
-    """Helper function to check if a VariableTracker implements the tp_iternext slot."""
-    from .constant import ConstantVariable
-    from .user_defined import UserDefinedObjectVariable
-
-    if istype(obj, UserDefinedObjectVariable):
-        return obj._maybe_get_baseclass_method("__next__") is not None
-    elif istype(obj, ConstantVariable):
-        return hasattr(obj.value, "__next__")
-    else:
-        return vt_implements_method(obj, "iternext_impl")
+def vt_implements_tp_iter(obj: "VariableTracker") -> bool:
+    return vt_implements_slot(obj, "__iter__", "iter_impl")
 
 
-def generic_iternext(
-    tx: "InstructionTranslator", obj: "VariableTracker"
-) -> "VariableTracker":
-    """
-    Implements PyIter_Next / tp_iternext semantics for VariableTracker objects.
+def vt_sequence_check(obj: "VariableTracker") -> bool:
+    """Implements PySequence_Check semantics for VariableTracker objects."""
+    from .dicts import ConstDictVariable
 
-    Calls obj.iternext_impl(tx) if the object is an iterator, otherwise raises
-    TypeError. StopIteration propagation is left to the caller (mirrors
-    CPython's iternext contract where NULL return signals exhaustion).
-    """
-    from .base import VariableTracker
+    if istype(obj, ConstDictVariable):
+        return False
 
-    # ref: https://github.com/python/cpython/blob/v3.13.0/Objects/abstract.c#L2865
-    if not vt_implements_tp_iternext(obj):
-        msg = VariableTracker.build(
-            tx, f"'{obj.python_type_name()}' object is not an iterator"
-        )
-        raise_observed_exception(TypeError, tx, args=[msg])
-
-    return obj.iternext_impl(tx)
+    # needs generic_getitem to be implemented in Dynamo
+    return True
+    # return vt_implements_method(obj, " getitem_impl")
 
 
 # TODO(guilhermeleobas): should we narrow the return type to IteratorVariable?
@@ -210,3 +178,53 @@ def generic_getiter(
             tx,
             args=[msg],
         )
+
+
+def vt_implements_tp_iternext(obj: "VariableTracker") -> bool:
+    return vt_implements_slot(obj, "__next__", "iternext_impl")
+
+
+def generic_iternext(
+    tx: "InstructionTranslator", obj: "VariableTracker"
+) -> "VariableTracker":
+    """
+    Implements PyIter_Next / tp_iternext semantics for VariableTracker objects.
+
+    Calls obj.iternext_impl(tx) if the object is an iterator, otherwise raises
+    TypeError. StopIteration propagation is left to the caller (mirrors
+    CPython's iternext contract where NULL return signals exhaustion).
+    """
+    from .base import VariableTracker
+
+    # ref: https://github.com/python/cpython/blob/v3.13.0/Objects/abstract.c#L2865
+    if not vt_implements_tp_iternext(obj):
+        msg = VariableTracker.build(
+            tx, f"'{obj.python_type_name()}' object is not an iterator"
+        )
+        raise_observed_exception(TypeError, tx, args=[msg])
+
+    return obj.iternext_impl(tx)
+
+
+def vt_implements_sq_contains(obj: "VariableTracker") -> bool:
+    return vt_implements_slot(obj, "__contains__", "contains_impl")
+
+
+def generic_contains(
+    tx: "InstructionTranslator", obj: "VariableTracker", item: "VariableTracker"
+) -> "VariableTracker":
+    """
+    Implements PySequence_Contains semantics for VariableTracker objects.
+
+    If the object has sq_contains (i.e., __contains__), calls obj.contains_impl(tx, item).
+    Otherwise falls back to iterating over obj and comparing each element.
+    """
+    # ref: https://github.com/python/cpython/blob/v3.13.0/Objects/abstract.c#L2148
+    if vt_implements_sq_contains(obj):
+        return obj.contains_impl(tx, item)
+    # Fallback mirrors _PySequence_IterSearch: call PyObject_GetIter first (which
+    # handles both __iter__ and the __getitem__ sequence protocol), then search.
+    it = generic_getiter(tx, obj)
+    return UserFunctionVariable(polyfills.impl_CONTAINS_OP_fallback).call_function(
+        tx, [item, it], {}
+    )

@@ -1912,6 +1912,16 @@
       ]
     }
   ],
+  "GB4830": [
+    {
+      "Gb_type": "Missing contains_impl",
+      "Context": "contains({type(self).__name__}, {item.python_type_name()})",
+      "Explanation": "Dynamo does not support `x in {type(self).__name__}`. Add contains_impl to this VariableTracker subclass.",
+      "Hints": [
+        "It may be possible to write Dynamo tracing rules for this code. Please report an issue to PyTorch if you encounter this graph break often and it is causing performance issues."
+      ]
+    }
+  ],
   "GB0162": [
     {
       "Gb_type": "Unsupported super().__init__() call",
