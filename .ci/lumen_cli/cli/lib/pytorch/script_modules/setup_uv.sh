@@ -11,9 +11,6 @@ if ! command -v uv &>/dev/null; then
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
-uv python install "$PYTHON_VERSION"
-cd .ci/lumen_cli
 uv venv --seed
-uv sync
 source .venv/bin/activate
-cd -
+uv python install "$PYTHON_VERSION"
