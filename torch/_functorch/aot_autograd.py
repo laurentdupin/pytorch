@@ -27,6 +27,7 @@ from torch._dynamo.utils import (
 from torch._functorch._aot_autograd.autograd_cache import create_fx_config
 from torch._guards import detect_fake_mode
 from torch._inductor.codecache import resolve_pre_grad_pass_timing
+from torch._inductor.utils import BoxedBool
 from torch._subclasses import FakeTensor, FakeTensorMode
 from torch.export._tree_utils import reorder_kwargs
 from torch.fx.experimental.proxy_tensor import make_fx
@@ -159,7 +160,7 @@ if TYPE_CHECKING:
 
     from torch._inductor.cudagraph_utils import BoxedDeviceIndex
     from torch._inductor.output_code import OutputCode
-    from torch._inductor.utils import BoxedBool, InputType
+    from torch._inductor.utils import InputType
     from torch._ops import OpOverload
     from torch.fx.experimental.symbolic_shapes import ShapeEnv
 
@@ -1039,7 +1040,7 @@ def prepare_aot_module_simplified(
 
 def aot_module_simplified(
     mod: torch.fx.GraphModule | torch._dynamo.utils.GmWrapper,
-    args: Iterable[Any],
+    args: Sequence[Any],
     fw_compiler: AOTDispatchCompiler,
     bw_compiler: AOTDispatchCompiler | None = None,
     partition_fn: Callable[..., Any] = default_partition,
@@ -1069,6 +1070,18 @@ def aot_module_simplified(
     :func:`aot_module_simplified` removes these overheads.
     """
 
+    if cudagraphs is None:
+        cudagraphs = BoxedBool(torch._inductor.config.triton.cudagraphs)
+
+    pre_grad_pass_timing: Literal["early", "late"] = resolve_pre_grad_pass_timing()
+
+    if (
+        pre_grad_pass_timing == "early"
+        and pre_grad_passes
+        and isinstance(mod, torch.fx.GraphModule)
+    ):
+        mod = pre_grad_passes(mod, args)
+
     with contextlib.ExitStack() as stack:
         (
             functional_call,
@@ -1097,15 +1110,6 @@ def aot_module_simplified(
 
         compiled_fn = None
 
-        pre_grad_pass_timing: Literal["early", "late"] = resolve_pre_grad_pass_timing()
-
-        if (
-            pre_grad_pass_timing == "early"
-            and pre_grad_passes
-            and isinstance(mod, torch.fx.GraphModule)
-        ):
-            mod = pre_grad_passes(mod, fake_flat_args)
-
         if (
             isinstance(fw_compiler, SerializableAOTDispatchCompiler)
             or torch._functorch.config.force_autograd_cache
@@ -1130,7 +1134,7 @@ def aot_module_simplified(
                 and pre_grad_passes
                 and isinstance(mod, torch.fx.GraphModule)
             ):
-                mod = pre_grad_passes(mod, fake_flat_args)
+                mod = pre_grad_passes(mod, args)
 
             stack.enter_context(compiled_autograd._disable())
             aot_state = create_aot_state(

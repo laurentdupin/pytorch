@@ -2644,12 +2644,13 @@ class AOTAutogradCacheTests(InductorTestCase):
         pre_grad_custom_pass: CustomGraphPassType,
         expect_pre_grad_call_count: tuple[int, int],
     ):
-        from torch._inductor.compile_fx import run_pre_grad_passes
+        from torch._inductor.compile_fx import compile_fx_forward, run_pre_grad_passes
 
         def fn(x, y):
             return 1 * x + y
 
         pre_grad_call_count = 0
+        inductor_input_graphs: list[str] = []
 
         def wrap_run_pre_grad_passes(
             model: GraphModule, example_inputs: Sequence[InputType]
@@ -2659,6 +2660,10 @@ class AOTAutogradCacheTests(InductorTestCase):
             run_pre_grad_passes(model, example_inputs)
             return model
 
+        def wrap_compile_fx_forward(gm, example_inputs, **kwargs):
+            inductor_input_graphs.append(gm.print_readable(print_output=False))
+            return compile_fx_forward(gm, example_inputs, **kwargs)
+
         x = torch.randn(10)
         y = torch.randn(10)
 
@@ -2666,6 +2671,10 @@ class AOTAutogradCacheTests(InductorTestCase):
             unittest.mock.patch(
                 "torch._inductor.compile_fx.run_pre_grad_passes",
                 wrap_run_pre_grad_passes,
+            ),
+            unittest.mock.patch(
+                "torch._inductor.compile_fx.compile_fx_forward",
+                wrap_compile_fx_forward,
             ),
             inductor_config.patch("pre_grad_pass_timing", pre_grad_pass_timing),
             inductor_config.patch("pre_grad_custom_pass", pre_grad_custom_pass),
@@ -2682,6 +2691,10 @@ class AOTAutogradCacheTests(InductorTestCase):
 
             # Assert #invocation of pre-grad passe
             self.assertEqual(pre_grad_call_count, expect_pre_grad_call_count[0])
+
+            # Assert the pre-grad pass removed the identity mul before inductor.
+            self.assertEqual(len(inductor_input_graphs), 1)
+            self.assertNotIn("mul", inductor_input_graphs[0])
 
             torch._dynamo.reset()
 
