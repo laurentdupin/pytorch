@@ -103,7 +103,7 @@ class LumenScriptBuilder(RunnerScriptBuilder):
     def add_install_lumen(self) -> LumenScriptBuilder:
         self._modules.append(
             f"\n# {'=' * 44}\n# MODULE: install_lumen\n# {'=' * 44}\n"
-            "(cd .ci/lumen_cli && python -m pip install -e .)"
+            "uv pip install -e .ci/lumen_cli"
         )
         return self
 
