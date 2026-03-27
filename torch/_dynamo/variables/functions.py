@@ -72,12 +72,12 @@ from ..source import (
 from ..utils import (
     check_constant_args,
     check_unspec_or_constant_args,
-    cmp_name_to_op_mapping,
     identity,
     is_function,
     is_wrapper_or_member_descriptor,
     istype,
     make_cell,
+    richcmp_op,
 )
 from .base import (
     AsPythonConstantNotImplementedError,
@@ -422,6 +422,19 @@ class BaseUserFunctionVariable(VariableTracker):
             return self.get_dict_vt(tx).call_method(tx, "__delitem__", list(args), {})
         return super().call_method(tx, name, list(args), kwargs)
 
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        # CPython: PyFunction_Type doesn't set tp_richcompare, so it inherits
+        # object_richcompare (identity-based) from PyBaseObject_Type.
+        # https://github.com/python/cpython/blob/v3.13.0/Objects/funcobject.c (PyFunction_Type)
+        from .object_protocol import object_richcompare
+
+        return object_richcompare(self, tx, other, op)
+
     def get_filename(self) -> str:
         return self.get_code().co_filename
 
@@ -682,7 +695,7 @@ class UserFunctionVariable(BaseUserFunctionVariable):
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
         if name == "__dict__":
             return super().var_getattr(tx, name)
-        elif name in cmp_name_to_op_mapping:
+        elif name in richcmp_op:
             return variables.GetAttrVariable(self, name)
         source = self.get_source()
         return fn_var_getattr(tx, self.fn, source, name)
@@ -1927,7 +1940,7 @@ class NestedUserFunctionVariable(BaseUserFunctionVariable):
         if name == "__defaults__":
             d = getattr(self, "defaults", None)
             return d.as_python_constant() if d else ConstantVariable.create(None)
-        elif name in cmp_name_to_op_mapping:
+        elif name in richcmp_op:
             return variables.GetAttrVariable(self, name)
         else:
             return super().var_getattr(tx, name)
@@ -2116,6 +2129,18 @@ class SkipFunctionVariable(VariableTracker):
 
     def get_real_python_backed_value(self) -> Any:
         return self.value
+
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        # CPython: skip-functions wrap builtin/C functions whose types don't set
+        # tp_richcompare, inheriting object_richcompare (identity-based).
+        from .object_protocol import object_richcompare
+
+        return object_richcompare(self, tx, other, op)
 
     @classmethod
     def create_with_source(cls, value: Any, source: Source) -> "SkipFunctionVariable":
@@ -2319,7 +2344,7 @@ class SkipFunctionVariable(VariableTracker):
         return VariableTracker.build(tx, hasattr(self.value, name))
 
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
-        if name in cmp_name_to_op_mapping:
+        if name in richcmp_op:
             return variables.GetAttrVariable(self, name)
 
         return fn_var_getattr(tx, self.value, self.source, name)
@@ -2709,6 +2734,7 @@ class CollectionsNamedTupleFunction(UserFunctionVariable):
 class FunctoolsPartialVariable(VariableTracker):
     _nonvar_fields = {
         "original_cache_hash",
+        "original_value",
         *VariableTracker._nonvar_fields,
     }
 
@@ -2718,6 +2744,7 @@ class FunctoolsPartialVariable(VariableTracker):
         args: Sequence[VariableTracker],
         keywords: dict[str, VariableTracker],
         original_cache_hash: Any = None,
+        original_value: "functools.partial[Any] | None" = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -2731,6 +2758,9 @@ class FunctoolsPartialVariable(VariableTracker):
         self.fake_value = functools.partial(identity)
         # Store cache_hash from the original partial for SAC context_fn caching
         self.original_cache_hash = original_cache_hash
+        # The original Python partial, when built from a real value.
+        # None when the partial is constructed during tracing.
+        self.original_value = original_value
 
     def python_type(self) -> type:
         return functools.partial
@@ -2775,13 +2805,31 @@ class FunctoolsPartialVariable(VariableTracker):
         if name == "func":
             return self.func
         if name == "args":
-            return variables.ListVariable(self.args, source=source)
+            return variables.TupleVariable(self.args, source=source)
         if name == "keywords":
             items = {VariableTracker.build(tx, k): v for k, v in self.keywords.items()}
             return variables.ConstDictVariable(items, source=source)
-        if name in cmp_name_to_op_mapping:
+        if name in richcmp_op:
             return variables.GetAttrVariable(self, name)
         raise_observed_exception(AttributeError, tx)
+
+    def get_real_python_backed_value(self) -> Any:
+        if self.original_value is not None:
+            return self.original_value
+        return super().get_real_python_backed_value()
+
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        # CPython: partial_type_spec doesn't include Py_tp_richcompare, so partial
+        # inherits object_richcompare (identity-based).
+        # https://github.com/python/cpython/blob/v3.13.0/Modules/_functoolsmodule.c (partial_type_spec)
+        from .object_protocol import object_richcompare
+
+        return object_richcompare(self, tx, other, op)
 
     def as_python_constant(self) -> Any:
         return functools.partial(

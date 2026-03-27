@@ -36,15 +36,15 @@ from ..bytecode_transformation import (
 from ..exc import raise_observed_exception, unimplemented
 from ..source import AttrSource, NamedTupleFieldsSource
 from ..utils import (
-    cmp_name_to_op_mapping,
-    cmp_name_to_op_str_mapping,
     get_fake_value,
     guard_if_dyn,
+    istype,
     iter_contains,
     namedtuple_fields,
     odict_values,
     raise_args_mismatch,
     range_iterator,
+    richcmp_op,
     set_example_value,
 )
 from .base import AsPythonConstantNotImplementedError, ValueMutationNew, VariableTracker
@@ -370,55 +370,37 @@ class BaseListVariable(VariableTracker):
             else:
                 self.items *= val
                 return self
-        elif name in cmp_name_to_op_mapping:
-            if len(args) != 1:
-                raise_args_mismatch(
-                    tx,
-                    name,
-                    "1 args and 0 kwargs",
-                    f"{len(args)} args and {len(kwargs)} kwargs",
-                )
-
-            left = self
-            right = args[0]
-            # TODO this type check logic mirrors the following
-            # https://github.com/python/cpython/blob/a1c52d1265c65bcf0d9edf87e143843ad54f9b8f/Objects/object.c#L991-L1007
-            # But we should probably move it up the stack to so that we don't
-            # need to duplicate it for different VTs.
-            if not isinstance(left, BaseListVariable) or not isinstance(
-                right, BaseListVariable
-            ):
-                if name == "__eq__":
-                    return SourcelessBuilder.create(tx, operator.is_).call_function(
-                        tx, (left, right), {}
-                    )
-                elif name == "__ne__":
-                    return SourcelessBuilder.create(tx, operator.is_not).call_function(
-                        tx, (left, right), {}
-                    )
-                else:
-                    op_str = cmp_name_to_op_str_mapping[name]
-                    left_ty = left.python_type_name()
-                    right_ty = right.python_type_name()
-                    msg = VariableTracker.build(
-                        tx,
-                        f"{op_str} not supported between instances of '{left_ty}' and '{right_ty}'",
-                    )
-                    raise_observed_exception(TypeError, tx, args=[msg])
-
-            return SourcelessBuilder.create(tx, polyfills.list_cmp).call_function(
-                tx,
-                [
-                    SourcelessBuilder.create(tx, cmp_name_to_op_mapping[name]),
-                    left,
-                    right,
-                ],
-                {},
-            )
         elif name == "__iter__":
             return ListIteratorVariable(self.items, mutation_type=ValueMutationNew())
 
         return super().call_method(tx, name, args, kwargs)
+
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        # CPython: list_richcompare / tuplerichcompare in Objects/listobject.c, Objects/tupleobject.c
+        # https://github.com/python/cpython/blob/main/Objects/listobject.c
+        from .builder import SourcelessBuilder
+
+        if not isinstance(other, BaseListVariable):
+            return ConstantVariable.create(NotImplemented)
+        # CPython's list/tuple richcompare only accepts objects of a compatible type
+        # (e.g., list.__eq__ accepts list and its subclasses, but not range or tuple)
+        try:
+            self_type = self.python_type()
+            other_type = other.python_type()
+        except NotImplementedError:
+            return ConstantVariable.create(NotImplemented)
+        if not (issubclass(other_type, self_type) or issubclass(self_type, other_type)):
+            return ConstantVariable.create(NotImplemented)
+        return SourcelessBuilder.create(tx, polyfills.list_cmp).call_function(
+            tx,
+            [SourcelessBuilder.create(tx, richcmp_op[op]), self, other],
+            {},
+        )
 
 
 class RangeVariable(BaseListVariable):
@@ -685,31 +667,27 @@ class RangeVariable(BaseListVariable):
             )
         elif name == "__getitem__":
             return self.getitem_const(tx, *args)
-        elif name in cmp_name_to_op_mapping:
-            other = args[0]
-            pt = other.python_type()
-            if name not in ("__eq__", "__ne__"):
-                msg = f"{name} not supported between instances of 'range' and '{pt}'"
-                raise_observed_exception(
-                    TypeError,
-                    tx,
-                    args=[VariableTracker.build(tx, msg)],
-                )
-
-            if pt is not range:
-                return VariableTracker.build(tx, NotImplemented)
-
-            if isinstance(other, RangeVariable):
-                cmp = self.range_equals(other)
-            else:
-                cmp = False
-
-            # Two ranges are equal if they produce the same sequence of values
-            if name == "__eq__":
-                return SourcelessBuilder.create(tx, cmp)
-            else:
-                return SourcelessBuilder.create(tx, not cmp)
         return super().call_method(tx, name, args, kwargs)
+
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        # CPython: range_richcompare in Objects/rangeobject.c
+        # https://github.com/python/cpython/blob/main/Objects/rangeobject.c
+        from .builder import SourcelessBuilder
+
+        if op not in ("__eq__", "__ne__"):
+            return ConstantVariable.create(NotImplemented)
+        if not isinstance(other, RangeVariable):
+            return ConstantVariable.create(NotImplemented)
+        cmp = self.range_equals(other)
+        if op == "__eq__":
+            return SourcelessBuilder.create(tx, cmp)
+        else:
+            return SourcelessBuilder.create(tx, not cmp)
 
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
         fields = ["start", "stop", "step"]
@@ -1891,7 +1869,7 @@ class SliceVariable(VariableTracker):
         codegen.append_output(create_instruction("BUILD_SLICE", arg=len(self.items)))
 
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
-        if name in cmp_name_to_op_mapping:
+        if name in richcmp_op:
             return variables.GetAttrVariable(self, name)
         fields = ["start", "stop", "step"]
         if name not in fields:
@@ -1903,6 +1881,20 @@ class SliceVariable(VariableTracker):
                 hints=[*graph_break_hints.USER_ERROR],
             )
         return self.items[fields.index(name)]
+
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        # CPython: slice_richcompare packs (start, stop, step) into tuples and delegates
+        # https://github.com/python/cpython/blob/main/Objects/sliceobject.c
+        if not istype(other, SliceVariable):
+            return ConstantVariable.create(NotImplemented)
+        self_tuple = TupleVariable(list(self.items))
+        other_tuple = TupleVariable(list(other.items))
+        return self_tuple.richcompare_impl(tx, other_tuple, op)
 
 
 class ListIteratorVariable(IteratorVariable):

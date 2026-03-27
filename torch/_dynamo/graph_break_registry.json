@@ -2236,6 +2236,16 @@
       ]
     }
   ],
+  "GB7154": [
+    {
+      "Gb_type": "GetAttrVariable comparison",
+      "Context": "GetAttrVariable({self.obj}.{self.name}).{op}({type(other).__name__})",
+      "Explanation": "Cannot resolve GetAttrVariable to a concrete value for comparison.",
+      "Hints": [
+        "It may be possible to write Dynamo tracing rules for this code. Please report an issue to PyTorch if you encounter this graph break often and it is causing performance issues."
+      ]
+    }
+  ],
   "GB0183": [
     {
       "Gb_type": "failed to call dict.fromkeys()",
@@ -2948,6 +2958,26 @@
       "Gb_type": "Attempted to call op with non-contiguous `out=` tensor",
       "Context": "self.value={self.value}, args={args}, kwargs={kwargs}",
       "Explanation": "Dynamo does not support this.",
+      "Hints": [
+        "It may be possible to write Dynamo tracing rules for this code. Please report an issue to PyTorch if you encounter this graph break often and it is causing performance issues."
+      ]
+    }
+  ],
+  "GB1817": [
+    {
+      "Gb_type": "Cannot determine object identity at trace time",
+      "Context": "comparing {type(lhs).__name__} and {type(rhs).__name__}",
+      "Explanation": "Dynamo cannot resolve identity of these objects at trace time.",
+      "Hints": [
+        "This graph break is fundamental - it is unlikely that Dynamo will ever be able to trace through your code. Consider finding a workaround."
+      ]
+    }
+  ],
+  "GB1709": [
+    {
+      "Gb_type": "Missing richcompare_impl",
+      "Context": "{type(self).__name__}.{op}({type(other).__name__})",
+      "Explanation": "Dynamo does not support {op} on {type(self).__name__}. Add richcompare_impl to this VariableTracker subclass.",
       "Hints": [
         "It may be possible to write Dynamo tracing rules for this code. Please report an issue to PyTorch if you encounter this graph break often and it is causing performance issues."
       ]

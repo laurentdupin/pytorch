@@ -92,6 +92,7 @@ from .ctx_manager import (
 from .distributed import DistributedVariable
 from .functions import bind_args_cached, NestedUserFunctionVariable
 from .lists import ListVariable, NamedTupleVariable, TupleVariable
+from .object_protocol import python_constant_richcompare_impl
 from .script_object import TorchScriptObjectVariable
 from .torch_function import (
     can_dispatch_torch_function,
@@ -434,6 +435,14 @@ class BaseTorchVariable(VariableTracker):
 
     def get_real_python_backed_value(self) -> Any:
         return self.value
+
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        return python_constant_richcompare_impl(self, tx, other, op)
 
     def call_obj_hasattr(
         self, tx: "InstructionTranslator", name: str

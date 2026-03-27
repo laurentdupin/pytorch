@@ -1336,7 +1336,7 @@ def is_function(
     )
 
 
-cmp_name_to_op_mapping = {
+richcmp_op = {
     "__eq__": operator.eq,
     "__ne__": operator.ne,
     "__lt__": operator.lt,
@@ -1346,7 +1346,7 @@ cmp_name_to_op_mapping = {
 }
 
 
-cmp_name_to_op_str_mapping = {
+richcmp_op_str = {
     "__eq__": "==",
     "__ne__": "!=",
     "__lt__": "<",

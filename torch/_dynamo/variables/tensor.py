@@ -69,6 +69,7 @@ from ..utils import (
     product,
     proxy_args_kwargs,
     raise_args_mismatch,
+    richcmp_op,
     set_example_value,
     tensortype_to_dtype,
 )
@@ -270,6 +271,56 @@ class TensorVariable(VariableTracker):
 
     def is_tensor(self) -> bool:
         return True
+
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        from ..source import is_constant_source
+        from .builder import wrap_fx_proxy_cls
+
+        op_fn = richcmp_op.get(op)
+        if op_fn is None or op_fn not in supported_tensor_comparison_op_values:
+            return ConstantVariable.create(NotImplemented)
+
+        # Constant-source tensors (e.g. from @assume_constant_result) have
+        # known values at compile time.  Evaluate the comparison eagerly so
+        # that the result can be used in control flow without triggering
+        # data-dependent branching errors.
+        if (
+            self.source is not None
+            and is_constant_source(self.source)
+            and other.is_python_constant()
+        ):
+            result = op_fn(self.get_real_value(), other.as_python_constant())
+            if isinstance(result, torch.Tensor):
+                result = result.item()
+            return VariableTracker.build(tx, result)
+
+        # Check broadcastability for tensor-tensor comparisons
+        if (
+            isinstance(other, TensorVariable)
+            and self._size is not None
+            and other._size is not None
+            and self._size != other._size
+        ):
+            try:
+                torch.broadcast_shapes(self._size, other._size)
+            except RuntimeError:
+                return ConstantVariable.create(NotImplemented)
+
+        if not other.is_tensor() and not other.is_symnode_like():
+            try:
+                other.as_proxy()
+            except NotImplementedError:
+                return ConstantVariable.create(NotImplemented)
+
+        proxy = tx.output.create_proxy(
+            "call_function", op_fn, (self.as_proxy(), other.as_proxy()), {}
+        )
+        return wrap_fx_proxy_cls(type(self), tx, proxy)
 
     @staticmethod
     def specialize(value: torch.Tensor) -> dict[str, Any]:
@@ -2096,6 +2147,33 @@ class SymNodeVariable(VariableTracker):
                 *proxy_args_kwargs([self, *args], kwargs),
             ),
         )
+
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        op_fn = richcmp_op.get(op)
+        if op_fn is None:
+            return ConstantVariable.create(NotImplemented)
+
+        if op_fn not in supported_tensor_comparison_op_values:
+            return ConstantVariable.create(NotImplemented)
+
+        # Seen in inspect signature where we check if the value is a default value.
+        # TODO: figure out what should go in the graph vs what can be returned
+        # as a constant right away.
+        if isinstance(other, UserDefinedClassVariable):
+            return VariableTracker.build(tx, op_fn(object(), None))  # type: ignore[arg-type]
+
+        if not other.is_symnode_like() and not isinstance(other, ConstantVariable):
+            return ConstantVariable.create(NotImplemented)
+
+        proxy = tx.output.create_proxy(
+            "call_function", op_fn, (self.as_proxy(), other.as_proxy()), {}
+        )
+        return SymNodeVariable.create(tx, proxy, sym_num=None)
 
     def is_python_hashable(self) -> bool:
         return True

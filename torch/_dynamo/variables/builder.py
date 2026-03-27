@@ -1029,7 +1029,11 @@ class VariableBuilder:
             # Preserve cache_hash for SAC context_fn caching
             original_cache_hash = getattr(value, "cache_hash", None)
             return FunctoolsPartialVariable(
-                func_obj, args, keywords, original_cache_hash=original_cache_hash
+                func_obj,
+                args,
+                keywords,
+                original_cache_hash=original_cache_hash,
+                original_value=value,
             )
         elif is_typing(value):
             # typing.List, typing.Mapping, etc.

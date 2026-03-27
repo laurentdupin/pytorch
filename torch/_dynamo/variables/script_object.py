@@ -511,5 +511,18 @@ class TorchScriptObjectVariable(UserDefinedObjectVariable):
         real_other = other.as_python_constant()
         return real_self == real_other
 
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        from .object_protocol import python_constant_richcompare_impl
+
+        # Evaluate comparison using real Python objects rather than tracing
+        # into FakeScriptObject.__eq__ (which accesses .real_obj, an unregistered
+        # opaque member).
+        return python_constant_richcompare_impl(self, tx, other, op)
+
     def get_real_value(self) -> Any:
         return self.as_python_constant()

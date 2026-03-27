@@ -218,6 +218,17 @@ class NNModuleVariable(VariableTracker):
     def get_real_python_backed_value(self) -> object:
         return self.value
 
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        # nn.Module doesn't define __eq__, inherits object_richcompare (identity-based).
+        from .object_protocol import object_richcompare
+
+        return object_richcompare(self, tx, other, op)
+
     def _wrap_submodule(
         self,
         tx: "InstructionTranslator",
