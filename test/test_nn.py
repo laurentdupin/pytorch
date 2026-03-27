@@ -48,6 +48,7 @@ from torch.testing._internal.common_device_type import dtypesIfMPS, instantiate_
     skipCUDAIfRocm, skipCUDAIf, skipCUDAIfNotRocm, \
     onlyNativeDeviceTypes, deviceCountAtLeast, largeTensorTest, expectedFailureMeta, expectedFailureMPS, \
     skipMeta, get_all_device_types
+from torch.testing._internal.common_modules import module_inputs_torch_nn_LinearCrossEntropyLoss
 
 from hypothesis import given
 import torch.testing._internal.hypothesis_utils as hu
@@ -7370,6 +7371,41 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
         input_1 = torch.rand([5, 0], dtype=torch.float32)
         input_2 = torch.rand([5, 0], dtype=torch.float32)
         torch.nn.CrossEntropyLoss()(input_1, input_2)
+
+    def test_linear_cross_entropy_loss(self, dtype=torch.float32):
+        # tests LinearCrossEntropyLoss with grad_inplace option enabled
+
+        for module_input in module_inputs_torch_nn_LinearCrossEntropyLoss(
+                module_info=None, device=torch.device('cpu'), dtype=dtype, requires_grad=True, training=None, grad_inplace=True):
+            module_args = module_input.constructor_input.args
+            module_kwargs = module_input.constructor_input.kwargs
+            (input, target) = module_input.forward_input.args
+
+            native_module_kwargs = module_kwargs.copy()
+            native_module_kwargs['options'] = None  # use native implementation, no chunking
+
+            torch.manual_seed(1245)
+            loss = nn.LinearCrossEntropyLoss(*module_args, **module_kwargs)
+
+            torch.manual_seed(1245)  # ensures equal linear weights in loss and ref_loss
+            ref_loss = nn.LinearCrossEntropyLoss(*module_args, **native_module_kwargs)
+            ref_input = input.clone().detach().requires_grad_(True)
+
+            out = loss(input, target)
+            ref_out = ref_loss(ref_input, target)
+
+            self.assertEqual(out, ref_out)
+
+            if (module_kwargs.get('options', F.LinearCrossEntropyOptions()).grad_inplace) or dtype != torch.float64:
+                # checking backward directly because gradcheck may
+                # fail when grad_inplace=True or dtype is not float64
+                out.sum().backward()
+                ref_out.sum().backward()
+
+                self.assertEqual(input.grad, ref_input.grad)
+                self.assertEqual(loss.linear.weight.grad, ref_loss.linear.weight.grad)
+            else:
+                torch.autograd.gradcheck(ref_loss, (ref_input, target))
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_convert_sync_batchnorm(self):
