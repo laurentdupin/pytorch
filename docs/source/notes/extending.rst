@@ -142,7 +142,7 @@ the autograd engine.
   tensors filled with zeros. The default value of this setting is True.
 
 In addition to ``ctx`` methods, the :class:`~Function` class supports the following
-class attribute:
+class attributes:
 
 - :attr:`~Function.clear_saved_tensors_on_access`: When set to ``True`` on the
   :class:`~Function` subclass, accessing ``ctx.saved_tensors`` in the backward pass
@@ -152,6 +152,37 @@ class attribute:
   This can reduce peak memory usage in backward passes where saved tensors are only
   needed once. The default is ``False``. Note that ``saved_tensors`` can only be
   accessed once when this is enabled; a second access will raise an error.
+
+- :attr:`~Function.boxed_grads_call`: When set to ``True`` on the
+  :class:`~Function` subclass, backward receives grads as a single mutable list
+  argument instead of individual args in an immutable tuple. This allows backward
+  to free individual grads mid-execution by removing them from the list, reducing
+  peak memory. When enabled, the backward calling convention changes from
+  ``backward(ctx, *grads)`` to ``backward(ctx, grads)`` where ``grads`` is a list.
+  The default is ``False``.
+
+Here is an example using ``boxed_grads_call`` to free grad tensors as soon as they are
+no longer needed, reducing peak memory during backward::
+
+    class MultiStageBackward(Function):
+        boxed_grads_call = True
+
+        @staticmethod
+        def forward(ctx, x, weight):
+            ctx.save_for_backward(x, weight)
+            return x.mm(weight)
+
+        @staticmethod
+        def backward(ctx, grads):
+            grad_output = grads[0]
+            grads[0] = None  # Free grad_output reference from the list
+
+            x, weight = ctx.saved_tensors
+            grad_x = grad_output.mm(weight.t())
+            grad_weight = x.t().mm(grad_output)
+            del grad_output  # Now grad_output can be freed
+
+            return grad_x, grad_weight
 
 **Step 3:** If your :class:`~Function` does not support double backward
 you should explicitly declare this by decorating backward with the

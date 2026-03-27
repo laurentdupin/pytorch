@@ -1894,7 +1894,7 @@ def _backward_prologue_functional(
     ctx_opaque_objects: Sequence[Any],
     metadata: ViewAndMutationMeta,
     maybe_subclass_metadata: SubclassMeta | None,
-    *flat_args: Any,
+    flat_args: Sequence[Any],
 ) -> list[Any]:
     # Calling convention: we expect a grad_out passed to the backward:
     # - for every output of the fw that does *not* alias an input or graph intermediate
@@ -1938,6 +1938,12 @@ def _backward_prologue_functional(
         ],
         flat_args[num_mutated_runtime_inps + metadata.num_outputs :],
     )
+    # Release grad refs from the caller's list (boxed calling convention).
+    # Slicing already copied refs into sub-lists above, so clearing the
+    # original list only drops redundant refs. The isinstance guard skips
+    # this when flat_args is a tuple (non-boxed path from compiled_autograd).
+    if isinstance(flat_args, list):
+        flat_args.clear()
     # input_info contains info on *every* input,
     # But in the backward(), we are only given grad outputs for every mutated input
     # We then need to filter out the grad outputs that correspond to metadata-only mutations or don't require grad
@@ -2554,6 +2560,7 @@ Your tensor subclass must implement __coerce_same_metadata_as_tangent__."""
             num_symints_saved_for_bw = num_symints_saved_for_bw_
             _aot_id = aot_config.aot_id
             _lazy_backward_info = lazy_backward_info
+            boxed_grads_call = True
 
             @staticmethod
             def _compiled_autograd_key(ctx: Any) -> tuple[Any, ...]:
@@ -2775,6 +2782,22 @@ Your tensor subclass must implement __coerce_same_metadata_as_tangent__."""
 
             @staticmethod
             def backward(ctx: Any, *flat_args: Any) -> tuple[Any, ...]:
+                # With boxed_grads_call, grads arrive as a single mutable
+                # list (not *args) so backward can free them individually
+                # to reduce peak memory.
+                if CompiledFunction.boxed_grads_call:
+                    if len(flat_args) != 1 or not isinstance(flat_args[0], list):
+                        raise AssertionError(
+                            "boxed_grads_call is set but backward received "
+                            f"{len(flat_args)} args instead of a single mutable "
+                            "list. When boxed_grads_call=True, grads must be "
+                            "passed as a single list argument [grad0, grad1, ...] "
+                            "to allow freeing individual grads mid-backward."
+                        )
+                    grad_args = flat_args[0]
+                else:
+                    grad_args = list(flat_args)
+                del flat_args
                 # Combine tensors from both sources:
                 # 1. ctx.saved_tensors - tensors that went through save_for_backward (with VC check)
                 # 2. ctx._tensors_no_vc_check - tensors stashed directly on ctx (no VC check)
@@ -2788,7 +2811,7 @@ Your tensor subclass must implement __coerce_same_metadata_as_tangent__."""
                     ctx.opaque_objects,
                     CompiledFunction.metadata,
                     CompiledFunction.maybe_subclass_metadata,
-                    *flat_args,
+                    grad_args,
                 )
 
                 if num_rng:

@@ -458,6 +458,19 @@ class _SingleLevelFunction(
     """
     clear_saved_tensors_on_access = False
 
+    """
+    Bool that specifies if backward should receive grads as a single mutable
+    list argument instead of individual args in an immutable tuple. This allows
+    backward to free individual grads mid-execution by removing them from the
+    list, reducing peak memory.
+
+    When True, ``backward(ctx, grads)`` receives a single list instead of
+    ``backward(ctx, *grads)``.
+
+    Default is False.
+    """
+    boxed_grads_call = False
+
     @staticmethod
     def jvp(ctx: Any, *grad_inputs: Any) -> Any:
         r"""Define a formula for differentiating the operation with forward mode automatic differentiation.

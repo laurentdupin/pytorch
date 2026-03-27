@@ -490,7 +490,7 @@ class AutogradCompilerInstance:
             ctx_saved_tensors: Sequence[torch.Tensor],
             ctx_symints: Sequence[IntLikeType],
             ctx_opaque_objs: Sequence[Any],
-            *flat_args: Sequence[Any],
+            flat_args: Sequence[Any],
         ) -> Any:
             out = torch._functorch._aot_autograd.runtime_wrappers._backward_prologue_functional(
                 ctx_saved_tensors,
@@ -498,7 +498,7 @@ class AutogradCompilerInstance:
                 ctx_opaque_objs,
                 metadata,
                 maybe_subclass_metadata,
-                *flat_args,
+                flat_args,
             )
             return out
 
@@ -509,7 +509,7 @@ class AutogradCompilerInstance:
                 psaved_tensors,
                 psymints,
                 popaque_objects,
-                *pinputs,
+                pinputs,
             ),
             kwargs={},
         )
