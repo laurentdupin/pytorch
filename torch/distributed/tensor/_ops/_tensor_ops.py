@@ -1,6 +1,6 @@
 # mypy: allow-untyped-defs
 # Copyright (c) Meta Platforms, Inc. and affiliates
-from collections.abc import Sequence, Sized
+from collections.abc import Callable, Sequence, Sized
 from typing import cast
 
 import torch
@@ -1182,6 +1182,86 @@ def index_put_single_dim_strategy(
         ]
     )
     return strategies
+
+
+def _index_dim_strategy(
+    args_schema: ArgsType,
+    shard_row: Callable[[int], list[Placement | _ShardingPlaceholder]],
+    partial_rules: list[list[Placement | _ShardingPlaceholder]] | None = None,
+) -> list[list[Placement | _ShardingPlaceholder]]:
+    """Common strategy for index ops that shard on all dims except the indexed dim.
+
+    Args:
+        shard_row: given a dim d, returns the strategy row for sharding on that dim.
+        partial_rules: additional Partial passthrough strategies.
+    """
+    self_meta = cast(TensorMeta, args_schema[0])
+    ndim = len(self_meta.shape)
+    dim = normalize_dim(cast(int, args_schema[1]), ndim)
+    strategies: list[list[Placement | _ShardingPlaceholder]] = []
+    for d in range(ndim):
+        if d != dim:
+            strategies.append(shard_row(d))
+    if partial_rules:
+        strategies.extend(partial_rules)
+    return strategies
+
+
+@register_single_dim_strategy(
+    [aten.index_fill.int_Scalar, aten.index_fill_.int_Scalar],
+    schema_info=RuntimeSchemaInfo(1),
+)
+def index_fill_scalar_single_dim_strategy(
+    op: OpOverload, args_schema: ArgsType, kwargs_schema: KwargsType
+) -> list[list[Placement | _ShardingPlaceholder]]:
+    # Scalar fill: avg/max/min work (reduce(v,v)=v), but sum does NOT (sum(v,v)=2v).
+    return _index_dim_strategy(
+        args_schema,
+        lambda d: [_ShardingPlaceholder(d), _ShardingPlaceholder(d), Replicate()],
+        [[Partial(op), Partial(op), Replicate()] for op in ("avg", "max", "min")],
+    )
+
+
+@register_single_dim_strategy(
+    [aten.index_fill.int_Tensor, aten.index_fill_.int_Tensor],
+    schema_info=RuntimeSchemaInfo(1),
+)
+def index_fill_tensor_single_dim_strategy(
+    op: OpOverload, args_schema: ArgsType, kwargs_schema: KwargsType
+) -> list[list[Placement | _ShardingPlaceholder]]:
+    # Tensor fill: replacement op, all reduce types valid. Value tensor is Replicate
+    # in shard strategies because it's a 0-dim tensor that can't be sharded.
+    return _index_dim_strategy(
+        args_schema,
+        lambda d: [
+            _ShardingPlaceholder(d),
+            _ShardingPlaceholder(d),
+            Replicate(),
+            Replicate(),
+        ],
+        [
+            [Partial(op), Partial(op), Replicate(), Partial(op)]
+            for op in ("sum", "avg", "max", "min")
+        ],
+    )
+
+
+@register_single_dim_strategy(
+    [aten.index_reduce.default, aten.index_reduce_.default],
+    schema_info=RuntimeSchemaInfo(1),
+)
+def index_reduce_single_dim_strategy(
+    op: OpOverload, args_schema: ArgsType, kwargs_schema: KwargsType
+) -> list[list[Placement | _ShardingPlaceholder]]:
+    return _index_dim_strategy(
+        args_schema,
+        lambda d: [
+            _ShardingPlaceholder(d),
+            _ShardingPlaceholder(d),
+            Replicate(),
+            _ShardingPlaceholder(d),
+        ],
+    )
 
 
 @register_op_strategy(
