@@ -416,6 +416,7 @@ dtensor_fails_no_strategy = {
     xfail("nn.functional.instance_norm"),
     xfail("nn.functional.interpolate", "nearest"),
     xfail("nn.functional.interpolate", "nearest-exact"),
+    xfail("nn.functional.linear_cross_entropy"),
     xfail("nn.functional.max_unpool1d"),
     xfail("nn.functional.max_unpool1d", "grad"),
     xfail("nn.functional.max_unpool2d"),
