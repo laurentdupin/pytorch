@@ -1,13 +1,13 @@
-name: linux-aarch64
+name: linux-aarch64-periodic
 
 on:
+  schedule:
+    - cron: 29 8 * * *  # about 1:29am PDT
   push:
     branches:
-      - main
       - release/*
     tags:
-      - ciflow/linux-aarch64/*
-      - ciflow/trunk/*
+      - ciflow/linux-aarch64-periodic/*
   workflow_dispatch:
 
 concurrency:
@@ -37,10 +37,6 @@ jobs:
       runner: linux.arm64.m7g.4xlarge
       test-matrix: |
         { include: [
-          { config: "default", shard: 1, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}linux.arm64.2xlarge" },
-          { config: "default", shard: 2, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}linux.arm64.2xlarge" },
-          { config: "default", shard: 3, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}linux.arm64.2xlarge" },
-          { config: "openreg", shard: 1, num_shards: 1, runner: "${{ needs.get-label-type.outputs.label-type }}linux.arm64.2xlarge" },
           { config: "default", shard: 1, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}linux.arm64.m7g.4xlarge" },
           { config: "default", shard: 2, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}linux.arm64.m7g.4xlarge" },
           { config: "default", shard: 3, num_shards: 3, runner: "${{ needs.get-label-type.outputs.label-type }}linux.arm64.m7g.4xlarge" },
