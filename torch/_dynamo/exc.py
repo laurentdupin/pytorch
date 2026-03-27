@@ -479,9 +479,7 @@ def raise_python_observed_exception(
 
     converted_kwargs = None
     if kwargs:
-        converted_kwargs = {
-            k: VariableTracker.build(tx, v) for k, v in kwargs.items()
-        }
+        converted_kwargs = {k: VariableTracker.build(tx, v) for k, v in kwargs.items()}
 
     raise_observed_exception(exc_type, tx, args=converted_args, kwargs=converted_kwargs)
 
