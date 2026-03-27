@@ -2,6 +2,8 @@
 import logging
 from typing import TYPE_CHECKING
 
+import sympy
+
 import torch
 from torch._dynamo.utils import counters
 from torch._inductor.codegen.rocm.ck_universal_gemm_template import CKGemmTemplate
@@ -25,6 +27,7 @@ from ..utils import (
     use_nv_universal_gemm_template,
     use_triton_template,
 )
+from ..runtime.runtime_utils import get_max_y_grid
 from ..virtualized import ops, V
 from .mm_common import (
     _is_static_problem,
@@ -44,7 +47,13 @@ aten = torch.ops.aten
 
 @SymbolicGridFn
 def bmm_grid(b, m, n, meta, *, cdiv):
-    return (cdiv(m, meta["BLOCK_M"]) * cdiv(n, meta["BLOCK_N"]), b, 1)
+    tiles = cdiv(m, meta["BLOCK_M"]) * cdiv(n, meta["BLOCK_N"])
+    # Split batch across grid_y and grid_z to avoid exceeding CUDA grid_y limit.
+    # When b <= max_y_grid, grid_z = 1 and behavior is identical to the original.
+    max_y_grid = get_max_y_grid()
+    grid_z = sympy.Max(cdiv(b, max_y_grid), 1)
+    grid_y = cdiv(b, grid_z)
+    return (tiles, grid_y, grid_z)
 
 
 # We define each template kernel in a separate file which is the name of the input to load_kernel_template
