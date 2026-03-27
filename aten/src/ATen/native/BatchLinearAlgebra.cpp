@@ -3941,6 +3941,7 @@ Tensor& linalg_solve_triangular_out(
   // This follows
   // ([-1]A[*], -B*) = -(A[*], [-1]B*) = -(A[*]*, [-1]B)*
   //                 = -(A, [-1]B[*]*)([*]*)*
+  // NOTE: this method does not optimize for conj materialization.
   // NOTE: B is modified in-place.
   // NOTE: NO COPY of A is done.
   const auto solve_with_matching_layout = [&solve, &strip_flags](
@@ -3966,34 +3967,57 @@ Tensor& linalg_solve_triangular_out(
   };
 
   // Solve (A, B) by trying to match layouts of A and B.
-  // It is the highest level function, and a composition of all other functions.
+  // This function is a composition of all other previously defined functions.
   // NOTE: B is modified in-place.
   // NOTE: NO COPY of A is done.
-  const auto solve_by_trying_to_match_layouts = [&](
+  const auto solve_by_layout_match = [&](
     const Tensor& A,
     const Tensor& B
   ) {
     const bool is_A_col_major = A.stride(-2) == 1;
     const bool is_B_col_major = B.stride(-2) == 1;
 
+    // solve_with_matching_layout will materialize conj
+    // when (A.conj() != B.conj())), and that launches TWO conj_physical.
+    // We can avoid conj_physical entirely in certain cases, and
+    // reduce the number of launches to a single one in the others.
     if (is_A_col_major == is_B_col_major) {
-      // Direct match
+      // Here A, B share the same memory layout, i.e.
+      // both are col-major or row-major.
       solve_with_matching_layout(A, B);
     } else if (!is_A_col_major) {
       // Here A is row-major and B is col-major
-      // Match layouts by transposing just A with set op(A) = A^T
+      // Match layouts by transposing just A and picking an op
+      // Optimization for avoiding conj materializations:
+      // (A*, B) -> (A^T^H, B) -> ((A^T)^H, B), op(A) = A^H;
+      // (A, B*) = (A*, B)* -> ((A^T)^H, B)*, op(A) = A^H;
       upper = !upper;
-      solve_with_matching_layout(A.mT(), B, TransposeType::Transpose);
+      if (A.is_conj() != B.is_conj()) {
+        solve_with_matching_layout(A.mH(), B, TransposeType::ConjTranspose);
+      } else {
+        solve_with_matching_layout(A.mT(), B, TransposeType::Transpose);
+      }
     } else {
-      // Here is col-major and B is row-major
-      // Match layouts by transposing the problem and setting op(A) = A^T
+      // Here A is col-major and B is row-major
+      // Match layouts by transposing the problem and picking an op
+      // Optimizations for avoiding conj materializations:
+      // (A*, B) -> (A^H, B^T) = (op(A.conj()), B^T), with op(A)=A^H;
+      // (A, B*) -> (A^T, B*^T) = (A*^T, B^T)* = (A^H, B^T) = (op(A), B^T), with op(A)=A^H;
       left = !left;
-      solve_with_matching_layout(A, B.mT(), TransposeType::Transpose);
+      if (A.is_conj() != B.is_conj()) {
+        solve_with_matching_layout(
+          A.is_conj() ? A.conj() : A,
+          (B.is_conj() ? B.conj() : B).mT(),
+          TransposeType::ConjTranspose
+        );
+      } else {
+        solve_with_matching_layout(A, B.mT(), TransposeType::Transpose);
+      }
     }
   };
 
   // [Main logic]
-  // Prepare out, then run solve_by_trying_to_match_layouts
+  // Prepare out, then run solve_by_layout_match
   if (out_fully_owned) {
     // Resize out to match layout that of A
     const auto is_A_col_major = A.stride(-2) == 1;
@@ -4006,7 +4030,7 @@ Tensor& linalg_solve_triangular_out(
       out.resize_(B_.sizes(), MemoryFormat::Contiguous);
     }
     // Optimization: conj is not materialized in the memory unless
-    // A.is_conj() != B.is_conj() (see solve_by_trying_to_match_layouts)
+    // A.is_conj() != B.is_conj() (see solve_by_layout_match)
     // Since we are in the full control of out, we can modify
     // its conj flags to avoid materializations
     //
@@ -4017,24 +4041,24 @@ Tensor& linalg_solve_triangular_out(
       out.copy_(B.conj());
       // Here pA->conj() is not conjugated, and so is out,
       // so no conj is done in the physical memory
-      solve_by_trying_to_match_layouts(pA->conj(), out);
+      solve_by_layout_match(pA->conj(), out);
       out._set_conj(true);
       return out;
     } else {
       // Otherwise copy as-is and solve
       out.copy_(B_);
-      solve_by_trying_to_match_layouts(*pA, out);
+      solve_by_layout_match(*pA, out);
       return out;
     }
   } else if (!out.is_same(B_)) {
-    // Copy B into out and run layout mather solver
+    // Copy B into out and run layout match solver
     auto B_data = B_;
     if (out.is_neg()) { B_data = B_data._neg_view(); }
     if (out.is_conj()) { B_data = B_data.conj(); }
     strip_flags(out).copy_(B_data);
   }
 
-  solve_by_trying_to_match_layouts(*pA, out);
+  solve_by_layout_match(*pA, out);
   return out;
 }
 
