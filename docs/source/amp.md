@@ -62,6 +62,10 @@ datatype of `torch.bfloat16` only uses {class}`torch.autocast`.
 ```
 
 ```{eval-rst}
+.. autofunction::  autocast_decorator
+```
+
+```{eval-rst}
 .. currentmodule:: torch
 ```
 

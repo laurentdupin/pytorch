@@ -111,6 +111,13 @@
 ```
 
 
+# torch.utils.throughput_benchmark
+```{eval-rst}
+.. currentmodule:: torch.utils.throughput_benchmark
+
+.. autofunction:: format_time
+```
+
 <!-- This module needs to be documented. Adding here in the meantime
 for tracking purposes -->
 ```{eval-rst}

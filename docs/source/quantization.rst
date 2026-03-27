@@ -69,6 +69,11 @@ and supported quantized modules and functions.
 .. py:module:: torch.ao.nn.quantized.dynamic.modules.conv
 .. py:module:: torch.ao.nn.quantized.dynamic.modules.linear
 .. py:module:: torch.ao.nn.quantized.dynamic.modules.rnn
+
+.. currentmodule:: torch.ao.nn.quantized.dynamic.modules.rnn
+
+.. autofunction:: pack_weight_bias
+
 .. py:module:: torch.ao.nn.quantized.modules.activation
 .. py:module:: torch.ao.nn.quantized.modules.batchnorm
 .. py:module:: torch.ao.nn.quantized.modules.conv
