@@ -757,6 +757,107 @@ class IsolatedRegionTests(torch._dynamo.test_case.TestCase):
         self.assertEqual(dispatch(x), x.sin() + x.cos())
 
 
+    def test_per_region_cache_counts(self):
+        """Each region accumulates entries independently; total is the sum."""
+        cnt1 = torch._dynamo.testing.CompileCounter()
+        cnt2 = torch._dynamo.testing.CompileCounter()
+
+        def f(x, y):
+            return x + y
+
+        opt1 = torch.compile(f, backend=cnt1, isolated_region=True)
+        opt2 = torch.compile(f, backend=cnt2, isolated_region=True)
+
+        opt1(torch.randn(3), torch.randn(3))
+        opt1(
+            torch.randn(3, dtype=torch.float64),
+            torch.randn(3, dtype=torch.float64),
+        )
+        self.assertEqual(cnt1.frame_count, 2)
+
+        opt2(
+            torch.randn(3, dtype=torch.float16),
+            torch.randn(3, dtype=torch.float16),
+        )
+        self.assertEqual(cnt2.frame_count, 1)
+
+        # Total cache entries across all regions = 3
+        self.assertEqual(self._num_cache_entries(f), 3)
+
+    def test_region_b_lookup_skips_region_a(self):
+        """Region B lookup doesn't walk region A's entries at all."""
+        cnt_a = torch._dynamo.testing.CompileCounter()
+        cnt_b = torch._dynamo.testing.CompileCounter()
+
+        def f(x):
+            return x.sin()
+
+        opt_a = torch.compile(f, backend=cnt_a, isolated_region=True)
+        opt_b = torch.compile(f, backend=cnt_b, isolated_region=True)
+
+        # Region A compiles with float32
+        opt_a(torch.randn(3))
+        self.assertEqual(cnt_a.frame_count, 1)
+
+        # Region B with same input compiles independently (doesn't reuse A)
+        opt_b(torch.randn(3))
+        self.assertEqual(cnt_b.frame_count, 1)
+
+        # Cache hits — no new compilations
+        opt_a(torch.randn(3))
+        self.assertEqual(cnt_a.frame_count, 1)
+        opt_b(torch.randn(3))
+        self.assertEqual(cnt_b.frame_count, 1)
+
+    @torch._dynamo.config.patch(recompile_limit=2)
+    def test_per_region_recompile_limit(self):
+        """Recompile limit is enforced per-region, not globally."""
+        cnt_a = torch._dynamo.testing.CompileCounter()
+        cnt_b = torch._dynamo.testing.CompileCounter()
+
+        def f(x):
+            return x.cos()
+
+        opt_a = torch.compile(f, backend=cnt_a, isolated_region=True)
+        opt_b = torch.compile(f, backend=cnt_b, isolated_region=True)
+
+        # Region A uses up its 2 compilations
+        opt_a(torch.randn(3))
+        opt_a(torch.randn(3, dtype=torch.float64))
+        self.assertEqual(cnt_a.frame_count, 2)
+
+        # Region A hits limit — no more compilations
+        opt_a(torch.randn(3, dtype=torch.float16))
+        self.assertEqual(cnt_a.frame_count, 2)
+
+        # Region B can still compile (its own limit is independent)
+        opt_b(torch.randn(3))
+        opt_b(torch.randn(3, dtype=torch.float64))
+        self.assertEqual(cnt_b.frame_count, 2)
+
+    def test_non_isolated_entries_visible_to_isolated(self):
+        """Non-isolated (region -1) cache entries are visible to isolated
+        region lookups via the global fallback, provided the backend matches.
+        This exercises the fallback path in lookup() that checks region -1
+        when an isolated region has no hit in its own bucket."""
+        cnt = torch._dynamo.testing.CompileCounter()
+
+        def f(x):
+            return x.exp()
+
+        # Compile without isolation — entry goes into region -1
+        opt_global = torch.compile(f, backend=cnt)
+        opt_global(torch.randn(3))
+        self.assertEqual(cnt.frame_count, 1)
+
+        # Compile with isolation using the SAME backend — the isolated
+        # region's bucket is empty, so lookup falls back to region -1
+        # and finds the matching entry (same backend, guards pass).
+        opt_isolated = torch.compile(f, backend=cnt, isolated_region=True)
+        opt_isolated(torch.randn(3))
+        self.assertEqual(cnt.frame_count, 1)  # cache hit from global fallback
+
+
 if __name__ == "__main__":
     from torch._dynamo.test_case import run_tests
 
