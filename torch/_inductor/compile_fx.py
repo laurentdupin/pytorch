@@ -46,6 +46,7 @@ from torch._dynamo.utils import (
     flatten_graph_inputs,
     get_inputs_devices,
     get_metrics_context,
+    GmWrapper,
     lazy_format_graph_code,
     set_feature_use,
 )
@@ -2283,9 +2284,9 @@ class CompilerConfigExtra:
 
 
 def create_compiler_config_extra(
-    gm: GraphModule,
+    gm: GraphModule | GmWrapper,
 ) -> CompilerConfigExtra:
-    gm_meta = gm.meta
+    gm_meta = gm.meta if isinstance(gm, GraphModule) else None
 
     # Although cudagraphs may have been enabled via config, various
     # conditions (which are tested within the bowels of Inductor) may
@@ -2766,7 +2767,7 @@ def _maybe_wrap_and_compile_fx_main(
 
 
 def _compile_fx_main(
-    model_: GraphModule,
+    model_: GraphModule | GmWrapper,
     example_inputs_: Sequence[InputType],
     inner_compile: Callable[..., OutputCode],
     ignore_shape_env: bool,
@@ -2800,7 +2801,7 @@ def _compile_fx_main(
 
         num_example_inputs = len(example_inputs_)
 
-        assert isinstance(model_, GraphModule)
+        assert isinstance(model_, (GraphModule, GmWrapper))
         compiler_config_extra = create_compiler_config_extra(model_)
 
         decompositions = get_decomp_fn()
