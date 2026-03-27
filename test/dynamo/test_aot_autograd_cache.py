@@ -201,8 +201,121 @@ def _unpack_fp8_with_scale_wrap(x):
     return y.to(dtype)
 
 
+@dataclasses.dataclass
+class _CacheKeyRecord:
+    gt_key: str | None = None
+    gt_debug_lines: list[str] | None = None
+    standalone_key: str | None = None
+    standalone_debug_lines: list[str] | None = None
+    bypassed: bool = False
+
+
+class CacheKeyEquivalenceMixin:
+    """Mixin that verifies the standalone autograd_cache_key API produces the
+    same key as the internal compilation pipeline for every torch.compile
+    invocation in the test."""
+
+    def setUp(self):
+        super().setUp()
+        self._cache_key_records: list[_CacheKeyRecord] = []
+        self._compile_fx_patcher, self._cache_key_patcher = (
+            self._install_cache_key_capture()
+        )
+        self._compile_fx_patcher.start()
+        self._cache_key_patcher.start()
+
+    def _install_cache_key_capture(self):
+        real_compile_fx = torch._inductor.compile_fx.compile_fx
+        real_cache_key = autograd_cache.autograd_cache_key
+
+        def capturing_compile_fx(model_, example_inputs_, **kwargs):
+            record = _CacheKeyRecord()
+            self._cache_key_records.append(record)
+            print(f"capturing_compile_fx/model_ (1) = {model_}")
+            model_copy = copy.deepcopy(model_)
+            self._compute_standalone_key(record, model_, example_inputs_)
+            print(f"capturing_compile_fx/model_ (2) = {model_}")
+            assert model_.code == model_copy.code, (
+                "_compute_standalone_key mutated the model"
+            )
+            return real_compile_fx(model_, example_inputs_, **kwargs)
+
+        def capturing_cache_key(mod, ei, config, compiler_config_extra=None):
+            key, debug_lines = real_cache_key(mod, ei, config, compiler_config_extra)
+            print(f"capturing_cache_key/key = {key}")
+            if self._cache_key_records:
+                self._cache_key_records[-1].gt_key = key
+                self._cache_key_records[-1].gt_debug_lines = debug_lines
+            return key, debug_lines
+
+        return (
+            patch(
+                "torch._inductor.compile_fx.compile_fx",
+                side_effect=capturing_compile_fx,
+            ),
+            patch(
+                "torch._functorch._aot_autograd.autograd_cache.autograd_cache_key",
+                side_effect=capturing_cache_key,
+            ),
+        )
+
+    def _compute_standalone_key(self, record, model_, example_inputs_):
+        """Compute the standalone cache key before real compilation.
+
+        The cache_key patcher is temporarily stopped so the standalone
+        call's inner autograd_cache.autograd_cache_key goes through the
+        real function without interfering with GT key capture.
+        """
+        try:
+            self._cache_key_patcher.stop()
+            record.standalone_key, record.standalone_debug_lines = (
+                compile_fx.autograd_cache_key(
+                    model_, example_inputs_, ignore_shape_env=False
+                )
+            )
+            print(f"_compute_standalone_key/record.standalone_key = {record.standalone_key}")
+        except BypassAOTAutogradCache:
+            record.bypassed = True
+        finally:
+            self._cache_key_patcher.start()
+
+    def tearDown(self):
+        self._compile_fx_patcher.stop()
+        self._cache_key_patcher.stop()
+        self._check_cache_key_equivalence()
+        super().tearDown()
+
+    def _check_cache_key_equivalence(self):
+        for i, record in enumerate(self._cache_key_records):
+            if record.gt_key is None:
+                import warnings
+
+                warnings.warn(
+                    f"compilation {i} in {self.id()} "
+                    "produced no ground-truth cache key, skipping equivalence check"
+                )
+                continue
+            if record.bypassed:
+                continue
+            if record.gt_key != record.standalone_key:
+                import difflib
+
+                diff = "\n".join(
+                    difflib.unified_diff(
+                        record.standalone_debug_lines or [],
+                        record.gt_debug_lines or [],
+                        fromfile="standalone",
+                        tofile="ground_truth",
+                        lineterm="",
+                    )
+                )
+                self.fail(
+                    f"Cache key mismatch for compilation {i}:\n{diff}"
+                )
+
+
 @instantiate_parametrized_tests
-class AOTAutogradCacheTests(InductorTestCase):
+class AOTAutogradCacheTests(CacheKeyEquivalenceMixin, InductorTestCase):
     def setUp(self):
         """
         Reset all counters and caches before each unit test
@@ -3477,7 +3590,7 @@ def _create_sac_ctx_fn(policy, cache_hash=None):
     return ctx_fn
 
 
-class HOPCacheTests(torch._dynamo.test_case.TestCase):
+class HOPCacheTests(CacheKeyEquivalenceMixin, torch._dynamo.test_case.TestCase):
     def setUp(self):
         super().setUp()
         counters.clear()
