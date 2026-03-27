@@ -12944,6 +12944,10 @@ class TestConsistency(TestCaseMPS):
             # CPU implementation is less precise than MPS one so compare MPS to full fp32
             if dtype in [torch.float16, torch.bfloat16] and op.name in ["grid_sampler_2d", "grid_sampler_3d"]:
                 opt_dtype = torch.float32
+
+            if op.name == "histc" and not dtype.is_floating_point and not dtype.is_complex:
+                opt_dtype = dtype
+
             mps_out, cpu_out, cpu_sample = self._run_op(op, mps_sample, opt_dtype)
 
             atol, rtol = self._compute_tolerances(op, dtype)
