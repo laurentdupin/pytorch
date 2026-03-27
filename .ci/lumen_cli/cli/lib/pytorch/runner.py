@@ -10,7 +10,9 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import shlex
 import subprocess
+import sys
 from collections.abc import Iterator
 from typing import Any
 
@@ -54,6 +56,28 @@ def run_plan(group_id: str, plan: TestPlan, input_overrides: dict[str, str] | No
             logger.info("[%s/%s] passed", group_id, step.test_id)
 
 
+# Flags consumed by RE submission, not passed to the remote command.
+_RE_FLAGS = {"--re", "--pr", "--commit", "--dry-run", "--no-follow"}
+
+
+def _build_remote_command() -> str:
+    """Rebuild the user's command from sys.argv, stripping RE-only flags."""
+    args = sys.argv[1:]  # drop 'lumen' (entry point)
+    filtered = []
+    skip_next = False
+    for i, arg in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in _RE_FLAGS:
+            # --pr and --commit take a value; the rest are boolean
+            if arg in ("--pr", "--commit") and i + 1 < len(args):
+                skip_next = True
+            continue
+        filtered.append(arg)
+    return "lumen " + " ".join(shlex.quote(a) for a in filtered)
+
+
 class PytorchTestRunner:
     def __init__(self, args: Any) -> None:
         self.group_id: str = args.group_id
@@ -74,11 +98,8 @@ class PytorchTestRunner:
         plan = LINT_PLANS[self.group_id]
 
         if self.re:
-            cmd = f"lumen test lint --group-id {self.group_id}"
-            for k, v in self.input_overrides.items():
-                cmd += f" --input {k}={v}"
             submit_command(
-                command=cmd,
+                command=_build_remote_command(),
                 name=f"lint-{self.group_id}",
                 pr=self.pr,
                 commit=self.commit,
