@@ -340,6 +340,19 @@ class TestPhiloxNormal(TestCase):
         with self.assertRaises(RuntimeError):
             random.normal(key, (100,))
 
+    def test_portable_default(self, device):
+        key = random.key(42, device=device)
+        a = random.normal(key, (1000,))
+        b = random.normal(key, (1000,), portable=True)
+        self.assertEqual(a, b)
+
+    def test_portable_false_deterministic(self, device):
+        key = random.key(42, device=device)
+        a = random.normal(key, (1000,), portable=False)
+        b = random.normal(key, (1000,), portable=False)
+        self.assertEqual(a, b)
+        self.assertEqual(a.shape, (1000,))
+
 
 instantiate_device_type_tests(TestPhiloxNormal, globals(), only_for=("cpu", "cuda"))
 
@@ -495,6 +508,19 @@ class TestPhiloxUniform(TestCase):
             random.uniform(key_cpu, (1000,), dtype=torch.float64),
             random.uniform(key_cuda, (1000,), dtype=torch.float64).cpu(),
         )
+
+    def test_portable_default(self, device):
+        key = random.key(42, device=device)
+        a = random.uniform(key, (1000,))
+        b = random.uniform(key, (1000,), portable=True)
+        self.assertEqual(a, b)
+
+    def test_portable_false_deterministic(self, device):
+        key = random.key(42, device=device)
+        a = random.uniform(key, (1000,), portable=False)
+        b = random.uniform(key, (1000,), portable=False)
+        self.assertEqual(a, b)
+        self.assertEqual(a.shape, (1000,))
 
 
 instantiate_device_type_tests(TestPhiloxUniform, globals(), only_for=("cpu", "cuda"))
