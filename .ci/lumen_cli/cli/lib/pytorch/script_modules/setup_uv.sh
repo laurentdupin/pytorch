@@ -12,3 +12,4 @@ if ! command -v uv &>/dev/null; then
 fi
 
 uv python install "$PYTHON_VERSION"
+uv venv --seed

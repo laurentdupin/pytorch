@@ -53,7 +53,7 @@ class LintTestPlan:
 
 # Common setup shared by all _lint.yml based jobs
 _LINT_SETUP = [
-    "python -m pip install -r .ci/docker/requirements-ci.txt",
+    "uv pip install -r .ci/docker/requirements-ci.txt",
     "dnf install -y doxygen graphviz nodejs npm",
     "npm install -g markdown-toc",
     "lintrunner init",
