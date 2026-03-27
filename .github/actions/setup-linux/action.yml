@@ -46,7 +46,7 @@ runs:
   using: composite
   steps:
     # ── Common steps (shared) ────────────────────────────────────────
-    - name: Fix Git ownership
+    - name: Ack Git cache ownership
       if: ${{ inputs.use-arc == 'true' }}
       shell: bash
       run: |
