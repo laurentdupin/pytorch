@@ -479,10 +479,7 @@ class CpuInterface(DeviceInterface):
         def get_device_properties(
             device: torch.types.Device = None,
         ) -> CpuDeviceProperties:
-            import multiprocessing
-
-            cpu_count = multiprocessing.cpu_count()
-            return CpuDeviceProperties(cpu_count)
+            return CpuDeviceProperties(torch._utils.cpu_count())
 
     @staticmethod
     def is_available() -> bool:
