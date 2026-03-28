@@ -427,16 +427,24 @@ def raise_observed_exception(
     exc_type: type[Exception],
     tx: InstructionTranslatorBase,
     *,
-    args: list[VariableTracker] | None = None,
+    args: list[VariableTracker] | list[str] | None = None,
     kwargs: dict[str, VariableTracker] | None = None,
 ) -> NoReturn:
     from .symbolic_convert import ExceptionVals
     from .variables.builder import SourcelessBuilder
 
+    if args:
+        args_ = [
+            SourcelessBuilder.create(tx, arg) if isinstance(arg, str) else arg
+            for arg in args
+        ]
+    else:
+        args_: list[VariableTracker] = []
+
     # CPython here raises an exception. Since there is no python code, we have to manually setup the exception
     # stack and raise the exception.
     exception_vt = SourcelessBuilder.create(tx, exc_type).call_function(
-        tx, args or [], kwargs or {}
+        tx, args_, kwargs or {}
     )
     assert isinstance(exception_vt, ExceptionVals)
     tx._attach_traceback_to_exception(exception_vt)
@@ -444,44 +452,8 @@ def raise_observed_exception(
     raised_exc = get_dynamo_observed_exception(exc_type)
     # Store the original exception arguments for better error messages
     if args:
-        raise raised_exc(*args)
+        raise raised_exc(*args_)
     raise raised_exc
-
-
-def raise_python_observed_exception(
-    exc_type: type[Exception],
-    tx: InstructionTranslatorBase,
-    *,
-    args: list[str] | None = None,
-    kwargs: dict[str, str] | None = None,
-) -> NoReturn:
-    """Raise an observed exception with Python string arguments.
-
-    This is a convenience wrapper around raise_observed_exception that converts
-    Python strings to VariableTrackers. Use this when exception arguments are
-    simple Python strings rather than already-tracked variables.
-
-    Args:
-        exc_type: The exception type to raise.
-        tx: The instruction translator.
-        args: Exception constructor arguments (Python strings to be converted to VariableTrackers).
-        kwargs: Exception constructor keyword arguments (Python strings to be converted).
-
-    Raises:
-        NoReturn: Always raises an exception.
-    """
-    from .variables import VariableTracker
-
-    # Convert string args to VariableTrackers
-    converted_args = None
-    if args:
-        converted_args = [VariableTracker.build(tx, arg) for arg in args]
-
-    converted_kwargs = None
-    if kwargs:
-        converted_kwargs = {k: VariableTracker.build(tx, v) for k, v in kwargs.items()}
-
-    raise_observed_exception(exc_type, tx, args=converted_args, kwargs=converted_kwargs)
 
 
 def handle_observed_exception(tx: Any) -> None:

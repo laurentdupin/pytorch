@@ -49,7 +49,7 @@ from .. import config, graph_break_hints, variables
 from .._trace_wrapped_higher_order_op import trace_wrapped
 from ..exc import (
     ObservedAttributeError,
-    raise_python_observed_exception,
+    raise_observed_exception,
     TorchRuntimeError,
     unimplemented,
     UnknownPropertiesDuringBackwardTrace,
@@ -386,7 +386,7 @@ class TensorVariable(VariableTracker):
         try:
             real_value = getattr(_input_associated_real_value, name)
         except AttributeError:
-            raise_python_observed_exception(
+            raise_observed_exception(
                 AttributeError,
                 tx,
                 args=[

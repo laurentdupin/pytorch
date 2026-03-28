@@ -778,7 +778,7 @@ def generic_jump(
                 if result.is_python_constant():
                     result_value = result.as_python_constant()
                     if method_name == "__bool__" and not isinstance(result_value, bool):
-                        exc.raise_python_observed_exception(
+                        exc.raise_observed_exception(
                             TypeError,
                             self,
                             args=[
@@ -2207,7 +2207,7 @@ class InstructionTranslatorBase(
                 f"raised exception {val}", real_stack=python_stack
             )
 
-        exc.raise_python_observed_exception(
+        exc.raise_observed_exception(
             TypeError,
             self,
             args=[
@@ -2218,7 +2218,7 @@ class InstructionTranslatorBase(
     def RAISE_VARARGS(self, inst: Instruction) -> None:
         if inst.arg == 0:
             if not len(self.exn_vt_stack):
-                exc.raise_python_observed_exception(
+                exc.raise_observed_exception(
                     RuntimeError, self, args=["No active exception to reraise"]
                 )
 

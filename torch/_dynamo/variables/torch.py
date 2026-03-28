@@ -63,12 +63,7 @@ from ..create_parameter_op import (
     tracable_create_parameter,
 )
 from ..device_interface import get_registered_device_interfaces
-from ..exc import (
-    raise_python_observed_exception,
-    unimplemented,
-    UserError,
-    UserErrorType,
-)
+from ..exc import raise_observed_exception, unimplemented, UserError, UserErrorType
 from ..guards import GuardBuilder, install_guard
 from ..source import (
     AttrSource,
@@ -2368,7 +2363,7 @@ class TorchInGraphFunctionVariable(BaseTorchVariable):
                     ),
                 )
             except (OverflowError, TypeError, ValueError) as exc:
-                raise_python_observed_exception(
+                raise_observed_exception(
                     type(exc),
                     tx,
                     args=list(exc.args),

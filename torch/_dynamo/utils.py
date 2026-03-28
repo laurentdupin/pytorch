@@ -3057,7 +3057,7 @@ def raise_args_mismatch(
     expect: str = "",
     actual: str = "",
 ) -> None:
-    from torch._dynamo.exc import raise_python_observed_exception
+    from torch._dynamo.exc import raise_observed_exception
 
     msg_str = (
         f"wrong number of arguments or keyword arguments for {name}() call.\n"
@@ -3065,7 +3065,7 @@ def raise_args_mismatch(
         f"  Actual: {actual}"
     )
 
-    raise_python_observed_exception(
+    raise_observed_exception(
         TypeError,
         tx,
         args=[msg_str],

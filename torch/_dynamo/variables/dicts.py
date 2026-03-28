@@ -36,11 +36,7 @@ from ..bytecode_transformation import (
     create_dup_top,
     create_instruction,
 )
-from ..exc import (
-    raise_observed_exception,
-    raise_python_observed_exception,
-    unimplemented,
-)
+from ..exc import raise_observed_exception, unimplemented
 from ..guards import GuardBuilder, install_guard
 from ..source import AttrSource, is_constant_source, is_from_local_source
 from ..utils import (
@@ -96,7 +92,7 @@ def raise_unhashable(
     except Exception:
         arg_type = type(arg)
 
-    raise_python_observed_exception(
+    raise_observed_exception(
         TypeError,
         tx,
         args=[
@@ -522,7 +518,7 @@ class ConstDictVariable(VariableTracker):
                 )
             except Exception:
                 error_message = f"Dict key lookup failed for {str(arg)}"
-            raise_python_observed_exception(KeyError, tx, args=[error_message])
+            raise_observed_exception(KeyError, tx, args=[error_message])
         return self.items[key]
 
     def getitem_const(
@@ -759,7 +755,7 @@ class ConstDictVariable(VariableTracker):
                 raise_args_mismatch(tx, name)
 
             if not self.items:
-                raise_python_observed_exception(
+                raise_observed_exception(
                     KeyError,
                     tx,
                     args=[
@@ -956,7 +952,7 @@ class ConstDictVariable(VariableTracker):
                 new_dict_vt.items.update(args[0].items)  # type: ignore[attr-defined]
                 return new_dict_vt
             else:
-                raise_python_observed_exception(
+                raise_observed_exception(
                     TypeError,
                     tx,
                     args=[
@@ -1304,7 +1300,7 @@ class SetVariable(ConstDictVariable):
                 **{k: v.as_python_constant() for k, v in kwargs.items()},
             )
         except Exception as exc:
-            raise_python_observed_exception(type(exc), tx, args=list(exc.args))
+            raise_observed_exception(type(exc), tx, args=list(exc.args))
         return VariableTracker.build(tx, res)
 
     def call_method(
@@ -1363,7 +1359,7 @@ class SetVariable(ConstDictVariable):
             try:
                 result: VariableTracker = self.set_items.pop().vt  # type: ignore[assignment]
             except KeyError as e:
-                raise_python_observed_exception(KeyError, tx, args=list(e.args))
+                raise_observed_exception(KeyError, tx, args=list(e.args))
             super().call_method(tx, name, [result], kwargs)
             return result
         elif name == "isdisjoint":
@@ -1494,7 +1490,7 @@ class SetVariable(ConstDictVariable):
                 "__sub__": "difference",
             }.get(name)
             if not isinstance(args[0], (SetVariable, variables.UserDefinedSetVariable)):
-                raise_python_observed_exception(
+                raise_observed_exception(
                     TypeError,
                     tx,
                     args=[
@@ -1505,7 +1501,7 @@ class SetVariable(ConstDictVariable):
             return self.call_method(tx, m, args, kwargs)
         elif name in ("__iand__", "__ior__", "__ixor__", "__isub__"):
             if not isinstance(args[0], (SetVariable, variables.UserDefinedSetVariable)):
-                raise_python_observed_exception(
+                raise_observed_exception(
                     TypeError,
                     tx,
                     args=[

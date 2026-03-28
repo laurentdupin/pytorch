@@ -46,11 +46,7 @@ from ..bytecode_transformation import (
     create_instruction,
 )
 from ..create_parameter_op import do_not_convert_to_tracable_parameter
-from ..exc import (
-    raise_observed_exception,
-    raise_python_observed_exception,
-    unimplemented,
-)
+from ..exc import raise_observed_exception, unimplemented
 from ..guards import GuardBuilder, install_guard
 from ..mutation_guard import unpatched_nn_module_init
 from ..source import (
@@ -624,7 +620,7 @@ class ExceptionVariable(VariableTracker):
         val: VariableTracker,
     ) -> VariableTracker:
         def raise_error(msg: str) -> NoReturn:
-            raise_python_observed_exception(TypeError, tx, args=[msg])
+            raise_observed_exception(TypeError, tx, args=[msg])
 
         name = name_var.as_python_constant()
         if name == "__context__":
@@ -652,7 +648,7 @@ class ExceptionVariable(VariableTracker):
                 raise_error("exception cause must be None or derive from BaseException")
         elif name == "__traceback__":
             if not TracebackVariable.is_valid_traceback(val):
-                raise_python_observed_exception(
+                raise_observed_exception(
                     TypeError,
                     tx,
                     args=["__traceback__ must be a traceback object or None"],

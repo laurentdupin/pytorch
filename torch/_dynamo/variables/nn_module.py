@@ -37,7 +37,7 @@ from .. import graph_break_hints, trace_rules, variables
 from ..exc import (
     handle_observed_exception,
     ObservedAttributeError,
-    raise_python_observed_exception,
+    raise_observed_exception,
     unimplemented,
     UnspecializeRestartAnalysis,
     Unsupported,
@@ -116,7 +116,7 @@ def initialize_lazy_module(
             mod._infer_parameters(mod, fake_args, fake_kwargs)  # type: ignore[operator]
         except AttributeError:
             # Re-raise with the original error message from the AttributeError
-            raise_python_observed_exception(
+            raise_observed_exception(
                 AttributeError,
                 tx,
                 args=["AttributeError during lazy module initialization"],
@@ -405,7 +405,7 @@ class NNModuleVariable(VariableTracker):
                 if result is not None:
                     return result
                 # if we can't find a __getattr__, we can't parse this, raise attribute error
-                raise_python_observed_exception(
+                raise_observed_exception(
                     AttributeError,
                     tx,
                     args=[f"'{type(base).__name__}' object has no attribute '{name}'"],
@@ -1336,7 +1336,7 @@ class UnspecializedNNModuleVariable(UserDefinedObjectVariable):
         if out is None:
             out = self.getattr_helper(tx, "_buffers", name_vt)
         if out is None:
-            raise_python_observed_exception(
+            raise_observed_exception(
                 AttributeError,
                 tx,
                 args=[

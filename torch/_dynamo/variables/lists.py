@@ -33,11 +33,7 @@ from ..bytecode_transformation import (
     create_instruction,
     create_rot_n,
 )
-from ..exc import (
-    raise_observed_exception,
-    raise_python_observed_exception,
-    unimplemented,
-)
+from ..exc import raise_observed_exception, unimplemented
 from ..source import AttrSource, NamedTupleFieldsSource
 from ..utils import (
     cmp_name_to_op_mapping,
@@ -126,7 +122,7 @@ class BaseListVariable(VariableTracker):
 
         if isinstance(index, slice):
             if index.step == 0:
-                raise_python_observed_exception(
+                raise_observed_exception(
                     ValueError, tx, args=["slice step cannot be zero"]
                 )
             # Set source to None because slicing a list gives a new local
@@ -140,7 +136,7 @@ class BaseListVariable(VariableTracker):
             try:
                 return self.items[index]
             except IndexError:
-                raise_python_observed_exception(
+                raise_observed_exception(
                     IndexError, tx, args=["list index out of range"]
                 )
 
@@ -273,7 +269,7 @@ class BaseListVariable(VariableTracker):
                 value = args[0]
 
             if value.python_type() not in (int, slice):
-                raise_python_observed_exception(
+                raise_observed_exception(
                     TypeError,
                     tx,
                     args=[
@@ -310,7 +306,7 @@ class BaseListVariable(VariableTracker):
                         tx, items.index(*const_args, **const_kwargs)
                     )
                 except ValueError:
-                    raise_python_observed_exception(
+                    raise_observed_exception(
                         ValueError,
                         tx,
                         args=["tuple.index()"],
@@ -346,7 +342,7 @@ class BaseListVariable(VariableTracker):
             if type(self) is not type(args[0]):
                 tp_name = self.python_type_name()
                 other = args[0].python_type_name()
-                raise_python_observed_exception(
+                raise_observed_exception(
                     TypeError,
                     tx,
                     args=[
@@ -369,7 +365,7 @@ class BaseListVariable(VariableTracker):
                 )
 
             if not (args[0].is_python_constant() and args[0].python_type() is int):
-                raise_python_observed_exception(
+                raise_observed_exception(
                     TypeError,
                     tx,
                     args=[
@@ -414,7 +410,7 @@ class BaseListVariable(VariableTracker):
                     op_str = cmp_name_to_op_str_mapping[name]
                     left_ty = left.python_type_name()
                     right_ty = right.python_type_name()
-                    raise_python_observed_exception(
+                    raise_observed_exception(
                         TypeError,
                         tx,
                         args=[
@@ -555,7 +551,7 @@ class RangeVariable(BaseListVariable):
             index = length + index
 
         if index < 0 or index >= length:
-            raise_python_observed_exception(
+            raise_observed_exception(
                 IndexError,
                 tx,
                 args=["range object index out of range"],
@@ -598,7 +594,7 @@ class RangeVariable(BaseListVariable):
         elif isinstance(index, int):
             return self.apply_index(tx, index)
         else:
-            raise_python_observed_exception(
+            raise_observed_exception(
                 TypeError, tx, args=["range indices must be integers or slices"]
             )
 
@@ -689,7 +685,7 @@ class RangeVariable(BaseListVariable):
             in_range = (start <= x < stop) if step > 0 else (stop < x <= start)
             if in_range and ((x - start) % step) == 0:
                 return VariableTracker.build(tx, (x - start) // step)
-            raise_python_observed_exception(
+            raise_observed_exception(
                 ValueError,
                 tx,
                 args=[f"{x} is not in range"],
@@ -701,7 +697,7 @@ class RangeVariable(BaseListVariable):
             pt = other.python_type()
             if name not in ("__eq__", "__ne__"):
                 msg = f"{name} not supported between instances of 'range' and '{pt}'"
-                raise_python_observed_exception(
+                raise_observed_exception(
                     TypeError,
                     tx,
                     args=[msg],
@@ -784,7 +780,7 @@ class CommonListMethodsVariable(BaseListVariable):
                 )
 
             if not args[0].has_force_unpack_var_sequence(tx):
-                raise_python_observed_exception(
+                raise_observed_exception(
                     TypeError, tx, args=[f"{type(args[0])} object is not iterable"]
                 )
 
@@ -820,14 +816,12 @@ class CommonListMethodsVariable(BaseListVariable):
                 )
 
             if len(self.items) == 0:
-                raise_python_observed_exception(
-                    IndexError, tx, args=["pop from empty list"]
-                )
+                raise_observed_exception(IndexError, tx, args=["pop from empty list"])
 
             if len(args):
                 idx = args[0].as_python_constant()
                 if idx > len(self.items):
-                    raise_python_observed_exception(
+                    raise_observed_exception(
                         IndexError, tx, args=["pop index out of range"]
                     )
             tx.output.side_effects.mutation(self)
@@ -905,14 +899,14 @@ class CommonListMethodsVariable(BaseListVariable):
                     self.items.__delitem__(idx)  # type: ignore[arg-type]
 
                 except (IndexError, ValueError) as exc:
-                    raise_python_observed_exception(
+                    raise_observed_exception(
                         type(exc),
                         tx,
                         args=list(exc.args),
                     )
             else:
                 msg = f"list indices must be integers or slices, not {args[0].python_type_name()}"
-                raise_python_observed_exception(TypeError, tx, args=[msg])
+                raise_observed_exception(TypeError, tx, args=[msg])
             return CONSTANT_VARIABLE_NONE
         elif name == "copy":
             # List copy() doesn't have args and kwargs
@@ -1011,13 +1005,13 @@ class ListVariable(CommonListMethodsVariable):
             tx.output.side_effects.mutation(self)
             if isinstance(key, SliceVariable):
                 if not value.has_force_unpack_var_sequence(tx):
-                    raise_python_observed_exception(
+                    raise_observed_exception(
                         TypeError, tx, args=["can only assign an iterable"]
                     )
 
                 key_as_const = key.as_python_constant()
                 if key_as_const.step == 0:
-                    raise_python_observed_exception(
+                    raise_observed_exception(
                         ValueError, tx, args=["slice step cannot be zero"]
                     )
 
@@ -1025,7 +1019,7 @@ class ListVariable(CommonListMethodsVariable):
                 try:
                     self.items[key_as_const] = value_unpack
                 except Exception as exc:
-                    raise_python_observed_exception(
+                    raise_observed_exception(
                         type(exc),
                         tx,
                         args=list(exc.args),
@@ -1040,7 +1034,7 @@ class ListVariable(CommonListMethodsVariable):
                     # pyrefly: ignore[unsupported-operation]
                     self.items[key] = value
                 except (IndexError, TypeError) as e:
-                    raise_python_observed_exception(type(e), tx, args=list(e.args))
+                    raise_observed_exception(type(e), tx, args=list(e.args))
             return CONSTANT_VARIABLE_NONE
 
         if name == "sort" and self.is_mutable():
@@ -1098,7 +1092,7 @@ class ListVariable(CommonListMethodsVariable):
                 )
                 self.items[:] = [x for x, *_ in sorted_items_with_keys]
             except Exception as e:
-                raise_python_observed_exception(type(e), tx, args=list(e.args))
+                raise_observed_exception(type(e), tx, args=list(e.args))
             return CONSTANT_VARIABLE_NONE
 
         if name == "__init__" and self.is_mutable():
@@ -1287,7 +1281,7 @@ class DequeVariable(CommonListMethodsVariable):
                     f"{len(args)} args and {len(kwargs)} kwargs",
                 )
             if maxlen is not None and len(self.items) == maxlen:
-                raise_python_observed_exception(
+                raise_observed_exception(
                     IndexError, tx, args=["deque already at its maximum size"]
                 )
             result = super().call_method(tx, name, args, kwargs)

@@ -56,7 +56,6 @@ from ..exc import (
     ObservedTypeError,
     ObservedUserStopIteration,
     raise_observed_exception,
-    raise_python_observed_exception,
     unimplemented,
 )
 from ..graph_bytecode_inputs import get_external_object_by_index
@@ -336,7 +335,7 @@ class UserDefinedClassVariable(UserDefinedVariable):
             obj = inspect.getattr_static(self.value, name)
         except AttributeError:
             if type(self.value) is type:
-                raise_python_observed_exception(
+                raise_observed_exception(
                     AttributeError,
                     tx,
                     args=[
@@ -1850,7 +1849,7 @@ class UserDefinedObjectVariable(UserDefinedVariable):
         if tx.output.side_effects.has_pending_mutation_of_attr(self, name):
             result = tx.output.side_effects.load_attr(self, name, deleted_ok=True)
             if isinstance(result, variables.DeletedVariable):
-                raise_python_observed_exception(
+                raise_observed_exception(
                     AttributeError,
                     tx,
                     args=[
@@ -1980,7 +1979,7 @@ class UserDefinedObjectVariable(UserDefinedVariable):
             )
 
         # Step 7: AttributeError.
-        raise_python_observed_exception(
+        raise_observed_exception(
             AttributeError,
             tx,
             args=[f"'{type(self.value).__name__}' object has no attribute '{name}'"],
@@ -2018,7 +2017,7 @@ class UserDefinedObjectVariable(UserDefinedVariable):
         try:
             resolved = type(self.value).__getattribute__(self.value, name)
         except AttributeError:
-            raise_python_observed_exception(
+            raise_observed_exception(
                 AttributeError,
                 tx,
                 args=[

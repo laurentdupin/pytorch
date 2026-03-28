@@ -26,7 +26,7 @@ from torch.fx.proxy import Node
 
 from .. import graph_break_hints, variables
 from ..current_scope_id import current_scope_id
-from ..exc import raise_python_observed_exception, unimplemented
+from ..exc import raise_observed_exception, unimplemented
 from ..guards import GuardBuilder, install_guard
 from ..source import AttrSource, Source
 from ..utils import cmp_name_to_op_mapping, istype
@@ -599,7 +599,7 @@ class VariableTracker(metaclass=VariableTrackerMeta):
                     )
                 )
             except Exception as e:
-                raise_python_observed_exception(
+                raise_observed_exception(
                     type(e),
                     tx,
                     args=list(e.args),
@@ -1005,7 +1005,7 @@ class VariableTracker(metaclass=VariableTrackerMeta):
 
 
 def raise_type_error_exc(tx: Any, msg_str: str) -> NoReturn:
-    raise_python_observed_exception(TypeError, tx, args=[msg_str])
+    raise_observed_exception(TypeError, tx, args=[msg_str])
 
 
 def typestr(*objs: object) -> str:
