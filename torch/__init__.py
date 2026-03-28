@@ -443,6 +443,13 @@ else:
         _load_global_deps()
     from torch._C import *  # noqa: F403
 
+# Preserve the top-level torch.* vitals API even if torch._C.__all__ omits it.
+import torch._C as _C
+
+vitals_enabled = _C.vitals_enabled
+set_vital = _C.set_vital
+read_vitals = _C.read_vitals
+
 
 class SymInt:
     """

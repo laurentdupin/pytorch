@@ -25,6 +25,11 @@ log = logging.getLogger(__name__)
 
 
 class TestPublicBindings(TestCase):
+    def test_vitals_bindings_are_reexported(self):
+        self.assertIs(torch.vitals_enabled, torch._C.vitals_enabled)
+        self.assertIs(torch.set_vital, torch._C.set_vital)
+        self.assertIs(torch.read_vitals, torch._C.read_vitals)
+
     def test_no_new_reexport_callables(self):
         """
         This test aims to stop the introduction of new re-exported callables into
