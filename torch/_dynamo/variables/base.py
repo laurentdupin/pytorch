@@ -595,6 +595,22 @@ class VariableTracker(metaclass=VariableTrackerMeta):
             hints=[*graph_break_hints.SUPPORTABLE],
         )
 
+    def contains_impl(self, tx: Any, item: "VariableTracker") -> "VariableTracker":
+        """
+        Implements sq_contains / mp_contains (tp_as_sequence/tp_as_mapping contains slot).
+        Subclasses must override this to support `item in self`. Reaching this base is a
+        bug — it means contains_impl is missing for that VariableTracker subclass.
+        """
+        unimplemented(
+            gb_type="Missing contains_impl",
+            context=f"contains({type(self).__name__}, {item.python_type_name()})",
+            explanation=(
+                f"Dynamo does not support `x in {type(self).__name__}`."
+                " Add contains_impl to this VariableTracker subclass."
+            ),
+            hints=[*graph_break_hints.SUPPORTABLE],
+        )
+
     def call_method(
         self,
         tx: Any,
@@ -610,6 +626,14 @@ class VariableTracker(metaclass=VariableTrackerMeta):
             from .object_protocol import generic_getiter
 
             return generic_getiter(tx, self)
+        elif name == "__contains__" and not kwargs:
+            from .object_protocol import generic_contains
+
+            if len(args) != 1:
+                msg = VariableTracker.build(tx, f"expected 1 argument, got {len(args)}")
+                raise_observed_exception(TypeError, tx, args=[msg])
+
+            return generic_contains(tx, self, args[0])
         elif (
             name == "__getattr__"
             and len(args) == 1

@@ -144,6 +144,11 @@ class BaseListVariable(VariableTracker):
     def len_impl(self, tx: "InstructionTranslator") -> VariableTracker:
         return VariableTracker.build(tx, len(self.items))
 
+    def contains_impl(
+        self, tx: "InstructionTranslator", item: VariableTracker
+    ) -> VariableTracker:
+        return iter_contains(self.unpack_var_sequence(tx), item, tx)
+
     def call_tree_map_branch(
         self,
         tx: "InstructionTranslator",
@@ -276,15 +281,6 @@ class BaseListVariable(VariableTracker):
                 )
 
             return self.getitem_const(tx, value)
-        elif name == "__contains__":
-            if kwargs or len(args) != 1:
-                raise_args_mismatch(
-                    tx,
-                    name,
-                    "1 args and 0 kwargs",
-                    f"{len(args)} args and {len(kwargs)} kwargs",
-                )
-            return iter_contains(self.unpack_var_sequence(tx), args[0], tx)
         elif name == "index":
             if not len(args):
                 raise_args_mismatch(
@@ -654,6 +650,11 @@ class RangeVariable(BaseListVariable):
             return int(re)
         return 0
 
+    def contains_impl(
+        self, tx: "InstructionTranslator", item: VariableTracker
+    ) -> VariableTracker:
+        return VariableTracker.build(tx, self.range_count(item))
+
     def iter_impl(self, tx: "InstructionTranslator") -> VariableTracker:
         if not all(var.is_python_constant() for var in self.items):
             # Can't represent a `range_iterator` without well defined bounds
@@ -687,7 +688,7 @@ class RangeVariable(BaseListVariable):
             if length > sys.maxsize:
                 raise_observed_exception(OverflowError, tx)
             return VariableTracker.build(tx, self.range_length())
-        elif name in ("count", "__contains__"):
+        elif name == "count":
             return SourcelessBuilder.create(tx, self.range_count(*args))
         elif name == "index":
             x = args[0].as_python_constant()

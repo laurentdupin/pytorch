@@ -1118,32 +1118,23 @@ class UserDefinedEnumClassVariable(UserDefinedClassVariable):
     # pyrefly: ignore[bad-override]
     value: type[enum.Enum]
 
-    def call_method(
-        self,
-        tx: "InstructionTranslator",
-        name: str,
-        args: list[VariableTracker],
-        kwargs: dict[str, VariableTracker],
+    def contains_impl(
+        self, tx: "InstructionTranslator", item: VariableTracker
     ) -> VariableTracker:
-        method = self._maybe_get_baseclass_method(name)
+        method = self._maybe_get_baseclass_method("__contains__")
         if method in enum_type_methods:
-            if name == "__contains__" and len(args) == 1 and not kwargs:
-                arg = args[0]
-                if isinstance(arg, variables.EnumVariable):
-                    # Check if the enum value is a member of this enum class
-                    return VariableTracker.build(tx, arg.value in self.value)
-                elif arg.is_python_constant():
-                    return VariableTracker.build(
-                        tx, arg.as_python_constant() in self.value
-                    )
+            if isinstance(item, variables.EnumVariable):
+                return VariableTracker.build(tx, item.value in self.value)
+            elif item.is_python_constant():
+                return VariableTracker.build(
+                    tx, item.as_python_constant() in self.value
+                )
         elif isinstance(method, types.FunctionType):
-            if name == "__contains__" and len(args) == 1 and not kwargs:
-                source = self.source and AttrSource(self.source, name)
-                return variables.UserMethodVariable(
-                    method, self, source=source
-                ).call_function(tx, args, kwargs)
-
-        return super().call_method(tx, name, args, kwargs)
+            source = self.source and AttrSource(self.source, "__contains__")
+            return variables.UserMethodVariable(
+                method, self, source=source
+            ).call_function(tx, [item], {})
+        return super().contains_impl(tx, item)
 
     def unpack_var_sequence(
         self, tx: "InstructionTranslator"
@@ -1359,6 +1350,18 @@ class UserDefinedObjectVariable(UserDefinedVariable):
             args,
             kwargs,
         )
+
+    def contains_impl(
+        self, tx: "InstructionTranslator", item: VariableTracker
+    ) -> VariableTracker:
+        contains_fn = self._maybe_get_baseclass_method("__contains__")
+        if contains_fn and isinstance(contains_fn, types.FunctionType):
+            return variables.UserMethodVariable(
+                contains_fn,
+                self,
+                source=self.source and AttrSource(self.source, "__contains__"),
+            ).call_function(tx, [item], {})
+        return super().contains_impl(tx, item)
 
     def iter_impl(self, tx: "InstructionTranslator") -> VariableTracker:
         iter_fn = self._maybe_get_baseclass_method("__iter__")
@@ -2829,6 +2832,13 @@ class UserDefinedDictVariable(UserDefinedObjectVariable):
     def iter_impl(self, tx: "InstructionTranslator") -> VariableTracker:
         return self._dict_vt.iter_impl(tx)
 
+    def contains_impl(
+        self, tx: "InstructionTranslator", item: VariableTracker
+    ) -> VariableTracker:
+        if self._maybe_get_baseclass_method("__contains__") in self._dict_methods:
+            return self._dict_vt.contains_impl(tx, item)
+        return super().contains_impl(tx, item)
+
     def unpack_var_sequence(self, tx: "InstructionTranslator") -> list[VariableTracker]:
         if type(self.value).__iter__ in (  # type: ignore[attr-defined]
             dict.__iter__,
@@ -2919,6 +2929,13 @@ class UserDefinedSetVariable(UserDefinedObjectVariable):
     def iter_impl(self, tx: "InstructionTranslator") -> VariableTracker:
         return self._set_vt.iter_impl(tx)
 
+    def contains_impl(
+        self, tx: "InstructionTranslator", item: VariableTracker
+    ) -> VariableTracker:
+        if self._maybe_get_baseclass_method("__contains__") in self._set_methods:
+            return self._set_vt.contains_impl(tx, item)
+        return super().contains_impl(tx, item)
+
     def unpack_var_sequence(self, tx: "InstructionTranslator") -> list[VariableTracker]:
         if inspect.getattr_static(self.value, "__iter__") in (
             set.__iter__,
@@ -2998,6 +3015,13 @@ class UserDefinedListVariable(UserDefinedObjectVariable):
     def iter_impl(self, tx: "InstructionTranslator") -> VariableTracker:
         assert self._list_vt is not None
         return self._list_vt.iter_impl(tx)
+
+    def contains_impl(
+        self, tx: "InstructionTranslator", item: VariableTracker
+    ) -> VariableTracker:
+        if self._maybe_get_baseclass_method("__contains__") in list_methods:
+            return self._list_vt.contains_impl(tx, item)
+        return super().contains_impl(tx, item)
 
     def unpack_var_sequence(self, tx: "InstructionTranslator") -> list[VariableTracker]:
         assert self._list_vt is not None
@@ -3087,6 +3111,13 @@ class UserDefinedTupleVariable(UserDefinedObjectVariable):
     def iter_impl(self, tx: "InstructionTranslator") -> VariableTracker:
         assert self._tuple_vt is not None
         return self._tuple_vt.iter_impl(tx)
+
+    def contains_impl(
+        self, tx: "InstructionTranslator", item: VariableTracker
+    ) -> VariableTracker:
+        if self._maybe_get_baseclass_method("__contains__") in tuple_methods:
+            return self._tuple_vt.contains_impl(tx, item)
+        return super().contains_impl(tx, item)
 
     def unpack_var_sequence(self, tx: "InstructionTranslator") -> list[VariableTracker]:
         assert self._tuple_vt is not None

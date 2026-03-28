@@ -3348,7 +3348,9 @@ class BuiltinVariable(VariableTracker):
     def call_contains(
         self, tx: "InstructionTranslator", a: VariableTracker, b: VariableTracker
     ) -> VariableTracker:
-        return a.call_method(tx, "__contains__", [b], {})
+        from .object_protocol import generic_contains
+
+        return generic_contains(tx, a, b)
 
     def is_python_hashable(self) -> Literal[True]:
         return True
