@@ -19,6 +19,7 @@ from contextlib import closing, redirect_stderr, redirect_stdout
 from unittest import mock, skipIf
 from unittest.mock import MagicMock, Mock, patch
 
+import torch
 import torch.distributed.run as launch
 from torch.distributed.elastic.agent.server.api import RunResult, WorkerState
 from torch.distributed.elastic.multiprocessing import DefaultLogsSpecs
