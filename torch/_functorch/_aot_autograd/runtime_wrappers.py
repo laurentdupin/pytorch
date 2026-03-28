@@ -296,13 +296,28 @@ def make_output_handler(
     return handler_type(info, runtime_metadata, trace_joint)
 
 
-# not sure why AOTDispatcher needs to manually set this
+# _dynamo_propagated_dynamic_indices: A guardless attribute for cross-graph-break
+# dynamism propagation. When AOTAutograd traces a graph and discovers that output
+# dimensions are symbolic (dynamic), it stamps this attribute on the output tensors
+# at runtime. This tells Dynamo to treat those dims as weakly dynamic when the tensor
+# appears as input to a subsequent graph (e.g., after a graph break), avoiding
+# unnecessary specialization and recompilation.
+#
+# Unlike _dynamo_weak_dynamic_indices (which is user-facing, set via maybe_mark_dynamic(),
+# and guarded on), this attribute is compiler-internal and NOT guarded on. This avoids
+# the problem where the compiler mutating an input tensor's attributes (through an
+# input-aliased output) would cause a spurious guard failure and recompilation.
+#
+# Note: this is best-effort. Eager code does not propagate
+# _dynamo_propagated_dynamic_indices, so there is no guarantee that the next graph
+# will have proper dynamism information. It only helps when the output of one compiled
+# graph feeds directly into the next.
 def maybe_mark_dynamic_helper(t: torch.Tensor, dims: set[int]) -> None:
-    if hasattr(t, "_dynamo_weak_dynamic_indices"):
+    if hasattr(t, "_dynamo_propagated_dynamic_indices"):
         # pyrefly: ignore [missing-attribute]
-        t._dynamo_weak_dynamic_indices |= dims
+        t._dynamo_propagated_dynamic_indices |= dims
     else:
-        t._dynamo_weak_dynamic_indices = dims.copy()  # type: ignore[attr-defined]
+        t._dynamo_propagated_dynamic_indices = dims.copy()  # type: ignore[attr-defined]
 
 
 def _should_disable_saved_tensors_hooks() -> bool:
