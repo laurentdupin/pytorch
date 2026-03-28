@@ -13,7 +13,7 @@ import torch.optim
 import torch.utils.data
 from torch._C._profiler import _ExtraFields_PyCall, _TensorMetadata
 from torch.profiler import _utils, profile
-from torch.testing._internal.common_utils import run_tests, TestCase
+from torch.testing._internal.common_utils import run_tests, skipIfTorchDynamo, TestCase
 
 
 # if tqdm is not shutdown properly, it will leave the monitor thread alive.
@@ -826,6 +826,11 @@ class TestTorchTidyProfiler(TestCase):
             True,
         )
 
+    # This test is in test/dynamo_skips, but that mechanism still executes the
+    # test and only converts catchable Python failures into skips. Under
+    # PYTORCH_TEST_WITH_DYNAMO=1 this case can hard-SIGKILL the subprocess
+    # before the wrapper runs, so pre-skip it instead.
+    @skipIfTorchDynamo("hard failure under PYTORCH_TEST_WITH_DYNAMO=1")
     def test_optimizer_parameters_sgd(self):
         self._test_optimizer_parameters(
             lambda params: torch.optim.SGD(params, lr=0.01, momentum=0.9)
