@@ -857,13 +857,24 @@ class VariableTracker(metaclass=VariableTrackerMeta):
         """Used by LazyVariableTracker to indicate an unrealized node"""
         return True
 
-    def next_variable(self, tx: Any) -> "VariableTracker":
+    def iternext_impl(self, tx: Any) -> "VariableTracker":
+        """
+        Implements tp_iternext slot semantics.
+        Subclasses override this to support next(). Reaching this base is a
+        bug — it means iternext_impl is missing for that VariableTracker subclass.
+        """
         unimplemented(
-            gb_type="Unsupported next() call",
-            context=f"next({self})",
-            explanation=f"Dynamo does not know how to trace calling `next()` on variable `{self}`.",
-            hints=[*graph_break_hints.USER_ERROR],
+            gb_type="Missing iternext_impl",
+            context=f"next({self.python_type_name()})",
+            explanation=(
+                f"Dynamo does not support next() on {self.python_type_name()}."
+                " Add iternext_impl to this VariableTracker subclass."
+            ),
+            hints=[*graph_break_hints.SUPPORTABLE],
         )
+
+    def next_variable(self, tx: Any) -> "VariableTracker":
+        return self.iternext_impl(tx)
 
     def is_strict_mode(self, tx: Any) -> bool:
         return bool(tx.strict_checks_fn and tx.strict_checks_fn(self))

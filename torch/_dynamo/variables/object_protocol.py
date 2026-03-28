@@ -134,6 +134,41 @@ def generic_getitem(
     return obj.getitem_impl(tx, item)
 
 
+def vt_implements_tp_iternext(obj: "VariableTracker") -> bool:
+    """Helper function to check if a VariableTracker implements the tp_iternext slot."""
+    from .constant import ConstantVariable
+    from .user_defined import UserDefinedObjectVariable
+
+    if istype(obj, UserDefinedObjectVariable):
+        return obj._maybe_get_baseclass_method("__next__") is not None
+    elif istype(obj, ConstantVariable):
+        return hasattr(obj.value, "__next__")
+    else:
+        return vt_implements_method(obj, "iternext_impl")
+
+
+def generic_iternext(
+    tx: "InstructionTranslator", obj: "VariableTracker"
+) -> "VariableTracker":
+    """
+    Implements PyIter_Next / tp_iternext semantics for VariableTracker objects.
+
+    Calls obj.iternext_impl(tx) if the object is an iterator, otherwise raises
+    TypeError. StopIteration propagation is left to the caller (mirrors
+    CPython's iternext contract where NULL return signals exhaustion).
+    """
+    from .base import VariableTracker
+
+    # ref: https://github.com/python/cpython/blob/v3.13.0/Objects/abstract.c#L2865
+    if not vt_implements_tp_iternext(obj):
+        msg = VariableTracker.build(
+            tx, f"'{obj.python_type_name()}' object is not an iterator"
+        )
+        raise_observed_exception(TypeError, tx, args=[msg])
+
+    return obj.iternext_impl(tx)
+
+
 # TODO(guilhermeleobas): should we narrow the return type to IteratorVariable?
 def generic_getiter(
     tx: "InstructionTranslator", obj: "VariableTracker"
@@ -154,7 +189,14 @@ def generic_getiter(
     # 3. Otherwise, raise a TypeError
 
     if vt_implements_tp_iter(obj):
-        return obj.iter_impl(tx)
+        res = obj.iter_impl(tx)
+        if not vt_implements_tp_iternext(res):
+            msg = VariableTracker.build(
+                tx,
+                f"{obj.python_type_name()}.__iter__() must return an iterator, not {res.python_type_name()}",
+            )
+            raise_observed_exception(TypeError, tx, args=[msg])
+        return res
     elif vt_sequence_check(obj):
         return UserFunctionVariable(polyfills.builtins.sequence_iterator).call_function(
             tx, [obj], {}
