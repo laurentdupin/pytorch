@@ -108,6 +108,38 @@ def _needs_inductor_compile(node: torch.fx.Node):
     )
 
 
+def _relocate_graphmodule_get_attrs(gm, partitions):
+    """Move get_attr nodes for GraphModules to the partition containing their consumer.
+
+    standalone_compile cannot handle GraphModule outputs, so get_attr nodes
+    that reference GraphModules must be co-located with their consumer.
+    This is safe because get_attr nodes have no dependencies.
+    """
+    node_to_partition: dict[torch.fx.Node, int] = {}
+    for i, partition in enumerate(partitions):
+        for node in partition:
+            node_to_partition[node] = i
+
+    nodes_to_move: list[tuple[torch.fx.Node, int, int]] = []
+    for i, partition in enumerate(partitions):
+        for node in list(partition):
+            if node.op != "get_attr":
+                continue
+            if not isinstance(getattr(gm, node.target, None), torch.fx.GraphModule):
+                continue
+            for user in node.users:
+                consumer_idx = node_to_partition.get(user)
+                if consumer_idx is not None and consumer_idx != i:
+                    nodes_to_move.append((node, i, consumer_idx))
+                    break
+
+    for node, from_idx, to_idx in nodes_to_move:
+        del partitions[from_idx][node]
+        partitions[to_idx][node] = None
+
+    return [p for p in partitions if p]
+
+
 class _RegionScooper:
     """
     Scoops out the inductor marked regions. It does NOT compile them.
@@ -133,6 +165,12 @@ class _RegionScooper:
 
         if not partitions:
             logger.info("No inductor marked nodes found")
+            return gm
+
+        partitions = _relocate_graphmodule_get_attrs(gm, partitions)
+
+        if not partitions:
+            logger.info("No inductor marked nodes found after relocation")
             return gm
 
         return fuse_by_partitions(
