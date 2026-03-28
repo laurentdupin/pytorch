@@ -20,7 +20,6 @@ from torch.testing._internal.common_utils import (
     requires_cuda_p2p_access,
     run_tests,
     skip_but_pass_in_sandcastle_if,
-    skipIfRocm,
 )
 
 
@@ -102,7 +101,6 @@ class NVSHMEMSymmetricMemoryTest(MultiProcContinuousTest):
         self.assertEqual(out.device, self.device)
         symm_mem.rendezvous(out, group=group_name)
 
-    @skipIfRocm
     @parametrize(
         "broadcast_op",
         [torch.ops.symm_mem.nvshmem_broadcast, torch.ops.symm_mem.shmem_broadcast],
@@ -153,7 +151,6 @@ class NVSHMEMSymmetricMemoryTest(MultiProcContinuousTest):
             tensor, torch.ones(numel, dtype=dtype, device=self.device) * self.world_size
         )
 
-    @skipIfRocm
     @parametrize(
         "broadcast_op",
         [torch.ops.symm_mem.nvshmem_broadcast, torch.ops.symm_mem.shmem_broadcast],
@@ -259,7 +256,6 @@ class NVSHMEMSymmetricMemoryTest(MultiProcContinuousTest):
         else:
             self.assertEqual(handle.multicast_ptr, 0)
 
-    @skipIfRocm
     @parametrize(
         "put_with_signal_op, wait_for_signal_op",
         [
@@ -292,7 +288,6 @@ class NVSHMEMSymmetricMemoryTest(MultiProcContinuousTest):
                 tensor, torch.zeros(numel, dtype=dtype, device=self.device)
             )
 
-    @skipIfRocm
     @parametrize(
         "get_op",
         [torch.ops.symm_mem.nvshmem_get, torch.ops.symm_mem.shmem_get],
@@ -333,7 +328,6 @@ class NVSHMEMAll2AllTest(MultiProcContinuousTest):
     def device(self) -> torch.device:
         return torch.device(device_type, self.rank)
 
-    @skipIfRocm
     @parametrize(
         "all_to_all_op",
         [torch.ops.symm_mem.nvshmem_all_to_all, torch.ops.symm_mem.shmem_all_to_all],
