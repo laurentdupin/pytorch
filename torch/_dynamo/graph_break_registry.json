@@ -1953,6 +1953,16 @@
       ]
     }
   ],
+  "GB5115": [
+    {
+      "Gb_type": "Missing getitem_impl",
+      "Context": "getitem({self.python_type_name()}, {item.python_type_name()})",
+      "Explanation": "Dynamo does not support getitem() on {self.python_type_name()}. Add getitem_impl to this VariableTracker subclass.",
+      "Hints": [
+        "It may be possible to write Dynamo tracing rules for this code. Please report an issue to PyTorch if you encounter this graph break often and it is causing performance issues."
+      ]
+    }
+  ],
   "GB2549": [
     {
       "Gb_type": "infinite generator detected",
@@ -2432,6 +2442,17 @@
       "Hints": [
         "Use a mapping proxy constructed in the same `torch.compile` region.",
         "It may be possible to write Dynamo tracing rules for this code. Please report an issue to PyTorch if you encounter this graph break often and it is causing performance issues."
+      ]
+    }
+  ],
+  "GB9389": [
+    {
+      "Gb_type": "iter_impl not implemented",
+      "Context": "iter({self})",
+      "Explanation": "Dynamo does not know how to iterate over {self.python_type_name()}",
+      "Hints": [
+        "Avoid calling `iter({self.python_type_name()})` in your code.",
+        "Please report an issue to PyTorch."
       ]
     }
   ],

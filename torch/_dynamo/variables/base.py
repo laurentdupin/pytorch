@@ -532,6 +532,21 @@ class VariableTracker(metaclass=VariableTrackerMeta):
             ],
         )
 
+    def iter_impl(self, tx: "InstructionTranslator") -> "VariableTracker":
+        """
+        Implements PyObject_GetIter semantics (tp_iter slot).
+        Subclasses override this to support iteration.
+        """
+        unimplemented(
+            gb_type="iter_impl not implemented",
+            context=f"iter({self})",
+            explanation=f"Dynamo does not know how to iterate over {self.python_type_name()}",
+            hints=[
+                f"Avoid calling `iter({self.python_type_name()})` in your code.",
+                "Please report an issue to PyTorch.",
+            ],
+        )
+
     def call_function(
         self,
         tx: Any,
@@ -546,6 +561,22 @@ class VariableTracker(metaclass=VariableTrackerMeta):
                 f"Avoid calling `{self.debug_repr()}` in your code.",
                 "Please report an issue to PyTorch.",
             ],
+        )
+
+    def getitem_impl(self, tx: Any, item: "VariableTracker") -> "VariableTracker":
+        """
+        Implements sq_item / mp_item (tp_as_sequence/tp_as_mapping getitem slot).
+        Subclasses must override this to support getitem(). Reaching this base is a
+        bug — it means getitem_impl is missing for that VariableTracker subclass.
+        """
+        unimplemented(
+            gb_type="Missing getitem_impl",
+            context=f"getitem({self.python_type_name()}, {item.python_type_name()})",
+            explanation=(
+                f"Dynamo does not support getitem() on {self.python_type_name()}."
+                " Add getitem_impl to this VariableTracker subclass."
+            ),
+            hints=[*graph_break_hints.SUPPORTABLE],
         )
 
     def len_impl(self, tx: Any) -> "VariableTracker":
@@ -575,6 +606,10 @@ class VariableTracker(metaclass=VariableTrackerMeta):
             from .object_protocol import generic_len
 
             return generic_len(tx, self)
+        elif name == "__iter__" and not args and not kwargs:
+            from .object_protocol import generic_getiter
+
+            return generic_getiter(tx, self)
         elif (
             name == "__getattr__"
             and len(args) == 1

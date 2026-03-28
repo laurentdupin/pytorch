@@ -605,6 +605,13 @@ class ConstDictVariable(VariableTracker):
             else:
                 self.install_dict_keys_match_guard()
 
+    def iter_impl(self, tx: "InstructionTranslator") -> VariableTracker:
+        from .iter import DictIterator
+
+        if self.source and not is_constant_source(self.source):
+            tx.output.guard_on_key_order.add(self.source)
+        return DictIterator(self.items.keys())
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -952,14 +959,6 @@ class ConstDictVariable(VariableTracker):
         elif name == "__ior__":
             self.call_method(tx, "update", args, kwargs)
             return self
-        elif name == "__iter__":
-            from .lists import ListIteratorVariable
-
-            if self.source and not is_constant_source(self.source):
-                tx.output.guard_on_key_order.add(self.source)
-            return ListIteratorVariable(
-                self.unpack_var_sequence(tx), mutation_type=ValueMutationNew()
-            )
         else:
             return super().call_method(tx, name, args, kwargs)
 
@@ -1812,6 +1811,13 @@ class DictViewVariable(VariableTracker):
             return CONSTANT_VARIABLE_TRUE
         return CONSTANT_VARIABLE_FALSE
 
+    def iter_impl(self, tx: "InstructionTranslator") -> VariableTracker:
+        from .lists import ListIteratorVariable
+
+        return ListIteratorVariable(
+            self.view_items_vt, mutation_type=ValueMutationNew()
+        )
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -1825,6 +1831,8 @@ class DictViewVariable(VariableTracker):
             return ListIteratorVariable(
                 self.view_items_vt, mutation_type=ValueMutationNew()
             )
+        elif name == "__len__":
+            return self.dv_dict.call_method(tx, name, args, kwargs)
         elif name == "__repr__":
             return VariableTracker.build(tx, self.debug_repr())
         return super().call_method(tx, name, args, kwargs)
@@ -1939,6 +1947,13 @@ class DictItemsVariable(DictViewVariable):
                 items.append(f"({key_str}, {val_str})")
             return "dict_items([" + ",".join(items) + "])"
 
+    def iter_impl(self, tx: "InstructionTranslator") -> VariableTracker:
+        from .lists import ListIteratorVariable
+
+        return ListIteratorVariable(
+            self.view_items_vt, mutation_type=ValueMutationNew()
+        )
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -1954,12 +1969,6 @@ class DictItemsVariable(DictViewVariable):
             if isinstance(args[0], DictItemsVariable):
                 return self.dv_dict.call_method(tx, "__eq__", [args[0].dv_dict], {})
             return CONSTANT_VARIABLE_FALSE
-        elif name == "__iter__":
-            from .lists import ListIteratorVariable
-
-            return ListIteratorVariable(
-                self.view_items_vt, mutation_type=ValueMutationNew()
-            )
         return super().call_method(tx, name, args, kwargs)
 
     def is_python_hashable(self) -> Literal[False]:

@@ -15,7 +15,7 @@ handling of iterator operations during code transformation and optimization.
 
 import itertools
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, KeysView, Sequence
 from typing import Any, TYPE_CHECKING
 
 from .. import graph_break_hints, polyfills, variables
@@ -34,6 +34,7 @@ from ..exc import (
 )
 from .base import ValueMutationNew, VariableTracker
 from .constant import ConstantVariable
+from .dicts import ConstDictVariable
 
 
 if TYPE_CHECKING:
@@ -280,6 +281,10 @@ class IteratorVariable(VariableTracker):
             return variables.CONSTANT_VARIABLE_TRUE
         return super().call_obj_hasattr(tx, name)
 
+    def iter_impl(self, tx: "InstructionTranslator") -> "VariableTracker":
+        """Iterators are their own iterator."""
+        return self
+
     def call_method(
         self,
         tx: "InstructionTranslator",
@@ -287,43 +292,9 @@ class IteratorVariable(VariableTracker):
         args: list[VariableTracker],
         kwargs: dict[str, VariableTracker],
     ) -> VariableTracker:
-        if name == "__iter__":
-            return self
-        elif name == "__next__":
+        if name == "__next__":
             return self.next_variable(tx)
         return super().call_method(tx, name, args, kwargs)
-
-
-class ObjectIteratorVariable(IteratorVariable):
-    """
-    VariableTracker for iter(obj) that implements the iterator protocol (i.e.,
-    has a `__next__` method).
-
-    We use this class to track the state of the iterator and handle the case
-    when the iterator is exhausted:
-
-    Example usage:
-        > b = iter(obj)
-        > list(b)  # exhaust the iterator
-        > list(b)  # empty list
-    """
-
-    def __init__(self, obj: VariableTracker, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.obj = obj
-        self.generator_exhausted = False
-
-    def next_variable(self, tx: "InstructionTranslator") -> VariableTracker:
-        if self.generator_exhausted:
-            raise_observed_exception(StopIteration, tx)
-
-        try:
-            return self.obj.next_variable(tx)
-        except ObservedUserStopIteration:
-            # Do not rely on the object to always return StopIteration once it
-            # is exhausted.
-            self.generator_exhausted = True
-            raise
 
 
 class RepeatIteratorVariable(IteratorVariable):
@@ -640,3 +611,22 @@ class FilterVariable(IteratorVariable):
         codegen(self.fn)
         self.reconstruct_items(codegen)
         codegen.extend_output(create_call_function(2, False))
+
+
+class DictIterator(IteratorVariable):
+    def __init__(
+        self, items: KeysView[ConstDictVariable._HashableTracker], **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
+        self.iter_items = iter(items)
+
+    def next_variable(self, tx: "InstructionTranslator") -> VariableTracker:
+        try:
+            return next(self.iter_items).vt
+        except (RuntimeError, StopIteration) as e:
+            # RuntimeError can be raised if the dict is mutated during iteration
+            raise_observed_exception(
+                type(e),
+                tx,
+                args=[VariableTracker.build(tx, a) for a in e.args],
+            )
