@@ -6,9 +6,15 @@ comparison dispatch machinery that is independent of any specific type.
 Per-type richcompare_impl hooks live in their respective VT files.
 """
 
+from typing import TYPE_CHECKING
+
 from ..utils import istype
 from .base import NO_SUCH_SUBOBJ, VariableTracker
 from .constant import CONSTANT_VARIABLE_FALSE, CONSTANT_VARIABLE_TRUE
+
+
+if TYPE_CHECKING:
+    from ..symbolic_convert import InstructionTranslator
 
 
 def vt_identity_compare(
@@ -63,3 +69,9 @@ def vt_identity_compare(
         return CONSTANT_VARIABLE_FALSE
 
     return None
+
+
+def generic_len(
+    tx: "InstructionTranslator", obj: "VariableTracker"
+) -> "VariableTracker":
+    return obj.len_impl(tx)
