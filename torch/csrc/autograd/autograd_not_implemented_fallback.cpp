@@ -633,8 +633,22 @@ static void autogradNotImplementedInplaceOrViewFallbackImpl(
 
   {
     at::AutoDispatchBelowADInplaceOrView guard;
-    op.redispatchBoxed(
-        dispatch_keys & c10::after_ADInplaceOrView_keyset, stack);
+    // For view ops on a normal tensor inside InferenceMode, the backend
+    // redispatch must not manufacture an inference tensor as the raw view
+    // result. The ADInplaceOrView wrapper will immediately re-wrap that result
+    // as a view of the base and propagate the base version counter, which is
+    // illegal on an inference tensor. Core strided backends already behave
+    // this way: view ops on a normal tensor in inference mode produce a normal
+    // tensor with CreationMeta::INFERENCE_MODE, while non-view ops still
+    // produce inference tensors.
+    if (is_view && InferenceMode::is_enabled() && !aliased_input.is_inference()) {
+      c10::InferenceMode inference_mode_guard(false);
+      op.redispatchBoxed(
+          dispatch_keys & c10::after_ADInplaceOrView_keyset, stack);
+    } else {
+      op.redispatchBoxed(
+          dispatch_keys & c10::after_ADInplaceOrView_keyset, stack);
+    }
   }
 
   for (const auto i : c10::irange(num_returns)) {

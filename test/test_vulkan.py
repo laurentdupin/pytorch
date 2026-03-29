@@ -427,6 +427,35 @@ class TestVulkanEagerRuntime(TestCase):
             with self.subTest(case=name):
                 self._assert_vulkan_matches_cpu(fn, *args)
 
+    def test_view_ops_with_preexisting_vulkan_input_in_inference_mode(self):
+        torch.manual_seed(0)
+        x_cpu = torch.randn(8, 32)
+        x_vulkan = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            cases = [
+                ("t", lambda t: t.t()),
+                ("transpose", lambda t: t.transpose(0, 1)),
+                ("permute", lambda t: t.permute(1, 0)),
+                ("reshape", lambda t: t.reshape(4, 64)),
+                ("view", lambda t: t.view(4, 64)),
+                ("flatten", lambda t: t.flatten()),
+                ("slice", lambda t: t[:, :16]),
+                ("unsqueeze", lambda t: t.unsqueeze(0)),
+            ]
+
+            for name, fn in cases:
+                with self.subTest(case=name):
+                    expected = fn(x_cpu)
+                    actual_vulkan = fn(x_vulkan)
+                    self.assertFalse(actual_vulkan.is_inference())
+                    actual = actual_vulkan.cpu()
+                    self._assert_outputs_close(
+                        expected,
+                        actual,
+                        atol=1e-4,
+                        rtol=1e-4)
+
     def test_linear_algebra_ops(self):
         torch.manual_seed(0)
         a = torch.randn(4, 5)
@@ -445,6 +474,71 @@ class TestVulkanEagerRuntime(TestCase):
         for name, fn, args in cases:
             with self.subTest(case=name):
                 self._assert_vulkan_matches_cpu(fn, *args)
+
+    def test_mm_and_addmm_with_transposed_vulkan_weight(self):
+        torch.manual_seed(0)
+        x_cpu = torch.randn(16, 32)
+        weight_cpu = torch.randn(8, 32)
+        bias_cpu = torch.randn(8)
+
+        x_vulkan = x_cpu.to("vulkan")
+        weight_vulkan = weight_cpu.to("vulkan")
+        bias_vulkan = bias_cpu.to("vulkan")
+        weight_vulkan_t = weight_vulkan.t()
+
+        with torch.inference_mode():
+            expected_mm = torch.mm(x_cpu, weight_cpu.t())
+            actual_mm = torch.mm(x_vulkan, weight_vulkan_t).cpu()
+            self._assert_outputs_close(
+                expected_mm,
+                actual_mm,
+                atol=1e-4,
+                rtol=1e-4)
+
+            expected_addmm = torch.addmm(bias_cpu, x_cpu, weight_cpu.t())
+            actual_addmm = torch.addmm(
+                bias_vulkan,
+                x_vulkan,
+                weight_vulkan_t).cpu()
+            self._assert_outputs_close(
+                expected_addmm,
+                actual_addmm,
+                atol=1e-4,
+                rtol=1e-4)
+
+    def test_bmm_and_baddbmm_with_transposed_vulkan_weight(self):
+        torch.manual_seed(0)
+        batch_a_cpu = torch.randn(2, 4, 5)
+        batch_b_cpu = torch.randn(2, 3, 5)
+        bias_cpu = torch.randn(2, 4, 3)
+
+        batch_a_vulkan = batch_a_cpu.to("vulkan")
+        batch_b_vulkan = batch_b_cpu.to("vulkan")
+        batch_b_vulkan_t = batch_b_vulkan.transpose(1, 2)
+        bias_vulkan = bias_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected_bmm = torch.bmm(batch_a_cpu, batch_b_cpu.transpose(1, 2))
+            actual_bmm = torch.bmm(batch_a_vulkan, batch_b_vulkan_t).cpu()
+            self._assert_outputs_close(
+                expected_bmm,
+                actual_bmm,
+                atol=1e-4,
+                rtol=1e-4)
+
+            expected_baddbmm = torch.baddbmm(
+                bias_cpu,
+                batch_a_cpu,
+                batch_b_cpu.transpose(1, 2))
+            actual_baddbmm = torch.baddbmm(
+                bias_vulkan,
+                batch_a_vulkan,
+                batch_b_vulkan_t).cpu()
+            self._assert_outputs_close(
+                expected_baddbmm,
+                actual_baddbmm,
+                atol=1e-4,
+                rtol=1e-4)
 
     def test_nn_inference_ops(self):
         torch.manual_seed(0)
@@ -547,6 +641,100 @@ class TestVulkanEagerRuntime(TestCase):
         module = SmallConvBlock().eval()
         x = torch.randn(1, 3, 8, 8)
         self._assert_vulkan_matches_cpu(module, x, atol=1e-4, rtol=1e-4)
+
+    def test_linear_with_preexisting_vulkan_input(self):
+        torch.manual_seed(0)
+        module = torch.nn.Linear(32, 16).eval()
+        x_cpu = torch.randn(1, 16, 32)
+        x_vulkan = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected = module(x_cpu)
+            actual = module(x_vulkan).cpu()
+
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+
+            expected_nobias = F.linear(x_cpu, module.weight, None)
+            actual_nobias = F.linear(x_vulkan, module.weight, None).cpu()
+            self._assert_outputs_close(
+                expected_nobias,
+                actual_nobias,
+                atol=1e-4,
+                rtol=1e-4)
+
+    def test_linear_module_with_vulkan_weights(self):
+        torch.manual_seed(0)
+        module_cpu = torch.nn.Linear(32, 16).eval()
+        module_vulkan = torch.nn.Linear(32, 16).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+
+        x_cpu = torch.randn(1, 16, 32)
+        x_vulkan = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected = module_cpu(x_cpu)
+            actual = module_vulkan(x_vulkan).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+
+            expected_nobias = F.linear(x_cpu, module_cpu.weight, None)
+            actual_nobias = F.linear(x_vulkan, module_vulkan.weight, None).cpu()
+            self._assert_outputs_close(
+                expected_nobias,
+                actual_nobias,
+                atol=1e-4,
+                rtol=1e-4)
+
+            linear_context = torch.ops.vulkan_prepack.create_linear_context(
+                module_vulkan.weight.clone().t(),
+                module_vulkan.bias)
+            actual_prepack = torch.ops.vulkan_prepack.run_linear_context(
+                x_vulkan,
+                linear_context).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual_prepack,
+                atol=1e-4,
+                rtol=1e-4)
+
+    def test_layer_norm_then_linear_in_inference_mode(self):
+        torch.manual_seed(0)
+        x_cpu = torch.randn(1, 16, 32)
+        norm_weight = torch.randn(32)
+        norm_bias = torch.randn(32)
+
+        module_cpu = torch.nn.Linear(32, 64).eval()
+        module_vulkan = torch.nn.Linear(32, 64).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+
+        x_vulkan = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected = module_cpu(
+                F.layer_norm(x_cpu, (32,), norm_weight, norm_bias, 1e-5))
+
+            normalized_vulkan = F.layer_norm(
+                x_vulkan,
+                (32,),
+                norm_weight,
+                norm_bias,
+                1e-5)
+            actual = module_vulkan(normalized_vulkan).cpu()
+
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
 
     def test_depth_anything_v2_style_dpt_decoder(self):
         torch.manual_seed(0)

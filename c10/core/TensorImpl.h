@@ -1268,6 +1268,11 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
     key_set_ = key_set_ - autograd_dispatch_keyset;
   }
 
+  // DON'T USE THIS API!! It's only created for internal view/autograd
+  // plumbing when a backend redispatches a fresh inference tensor for a
+  // view of a normal tensor created under InferenceMode.
+  void add_autograd_key();
+
   // Inference tensor doesn't have autograd or ADInplaceOrView key.
   // Invariant:
   //   Inference tensor has version_counter_.enabled() == false
