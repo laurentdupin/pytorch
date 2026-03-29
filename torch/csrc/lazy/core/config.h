@@ -17,10 +17,9 @@ TORCH_DECLARE_int(torch_lazy_metrics_samples);
 TORCH_DECLARE_int(torch_lazy_trim_graph_check_frequency);
 TORCH_DECLARE_int(torch_lazy_trim_graph_size);
 
-TORCH_DECLARE_string(torch_lazy_metrics_percentiles);
-
 TORCH_DECLARE_int(torch_lazy_shape_cache_size);
 
 namespace torch::lazy {
+TORCH_API const std::string& getTorchLazyMetricsPercentiles();
 TORCH_API std::string& getLTCForceFallback();
 }

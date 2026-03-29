@@ -385,6 +385,7 @@ def _get_package_path(package_name: str) -> Path:
 
 BUILD_LIBTORCH_WHL = str2bool(os.getenv("BUILD_LIBTORCH_WHL"))
 BUILD_PYTHON_ONLY = str2bool(os.getenv("BUILD_PYTHON_ONLY"))
+SKIP_BUILD_DEPS = str2bool(os.getenv("SKIP_BUILD_DEPS"))
 
 if BUILD_PYTHON_ONLY:
     os.environ["BUILD_LIBTORCHLESS"] = "ON"
@@ -1714,7 +1715,7 @@ def main() -> None:
         sys.exit(1)
 
     mirror_files_into_torchgen()
-    if RUN_BUILD_DEPS:
+    if RUN_BUILD_DEPS and not SKIP_BUILD_DEPS:
         build_deps()
         mirror_inductor_external_kernels()
 

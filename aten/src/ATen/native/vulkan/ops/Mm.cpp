@@ -17,6 +17,10 @@ namespace {
 using namespace api::utils;
 using namespace at::native::vulkan::ops;
 
+inline bool has_bias(const std::optional<Tensor>& bias) {
+  return bias && bias->defined();
+}
+
 vTensor pack_inputs_using_width_packing(const Tensor& input_arg) {
   TORCH_INTERNAL_ASSERT(
       !input_arg.is_quantized(),
@@ -151,14 +155,14 @@ vTensor pack_biases(
     const Tensor& weight_arg,
     const std::optional<Tensor>& bias_arg,
     const bool use_batch = false) {
-  if (bias_arg) {
+  if (has_bias(bias_arg)) {
     Tensor bias = *bias_arg;
     if (bias.is_cpu()) {
       bias = bias.vulkan();
     }
     return convert(bias);
   } else {
-    return convert(at::zeros({}, at::device(at::kVulkan).dtype(at::kFloat)));
+    return convert(at::zeros({1}, at::device(at::kVulkan).dtype(at::kFloat)));
   }
 }
 
@@ -172,13 +176,13 @@ vTensor pack_biases_quantized_weights(
       weight_arg.is_quantized(),
       "pack_biases_quantized to be used only when using quantized linear ops");
 
-  if (bias_arg && bias_arg->is_vulkan()) {
+  if (has_bias(bias_arg) && bias_arg->is_vulkan()) {
     return convert(*bias_arg);
   }
 
   api::Context* const context = api::context();
 
-  if (bias_arg) {
+  if (has_bias(bias_arg)) {
     const Tensor bias = bias_arg->contiguous();
     const IntArrayRef b_sizes = bias.sizes();
     const float* const src_bias_ptr = bias.const_data_ptr<float>();
@@ -298,7 +302,7 @@ bool available_check_with_batch(
       (weight.size(Layout::BatchMatrices::width) > 0) &&
       ((weight.device().is_cpu()) ||
        (c10::DeviceType::Vulkan == weight.device().type())) &&
-      (kFloat == weight.scalar_type()) && !weight.requires_grad();
+      (kFloat == weight.scalar_type());
   if (!weight_available) {
     return false;
   }
@@ -339,7 +343,6 @@ bool available_check_with_batch(
              weight.size(Layout::BatchMatrices::width) ||
          bias->size(Layout::BatchMatrices::batch) == 1);
   }
-  bias_available &= !bias->requires_grad();
   return bias_available;
 }
 
@@ -360,8 +363,7 @@ bool available(
       (weight.size(Layout::Parameter::width) > 0) &&
       ((weight.device().is_cpu()) ||
        (c10::DeviceType::Vulkan == weight.device().type())) &&
-      (kFloat == weight.scalar_type() || kQInt8 == weight.scalar_type()) &&
-      !weight.requires_grad();
+      (kFloat == weight.scalar_type() || kQInt8 == weight.scalar_type());
   if (!weight_available) {
     return false;
   }
@@ -375,8 +377,7 @@ bool available(
               ((bias->ndimension() > 1)
                    ? (bias->size(Layout::Parameter::width) ==
                       weight.size(Layout::Parameter::width))
-                   : true) &&
-              !bias->requires_grad())
+                   : true))
            : true);
   return bias_available;
 }
@@ -417,13 +418,17 @@ static Tensor reshape_to_2d(const Tensor& input_arg) {
       input_arg.dim() >= 1,
       "Vulkan Linear op only supports input tensor with dim >= 1");
 
-  if (input_arg.dim() == 1) {
-    return input_arg.unsqueeze(0);
+  const Tensor reshape_input =
+      (input_arg.is_vulkan() && input_arg.is_inference()) ? input_arg.clone()
+                                                          : input_arg;
+
+  if (reshape_input.dim() == 1) {
+    return reshape_input.unsqueeze(0);
   }
-  const IntArrayRef input_sizes = input_arg.sizes();
+  const IntArrayRef input_sizes = reshape_input.sizes();
   const auto d =
       c10::multiply_integers(input_sizes.cbegin(), input_sizes.end() - 1);
-  return input_arg.reshape({d, input_arg.size(-1)});
+  return reshape_input.reshape({d, reshape_input.size(-1)});
 }
 
 Tensor run_quantized_addmm_context(
@@ -893,6 +898,21 @@ Tensor addmm(
       0);
 }
 
+Tensor linear(
+    const Tensor& input,
+    const Tensor& weight,
+    const std::optional<Tensor>& bias) {
+  return run_addmm_context(
+      input,
+      1.0f,
+      1.0f,
+      c10::make_intrusive<LinearPackedContext>(
+          LinearPackedContext(weight.t(), bias)),
+      false,
+      0,
+      0);
+}
+
 Tensor mm(const Tensor& mat1_arg, const Tensor& mat2_arg) {
   return run_addmm_context(
       mat1_arg,
@@ -932,6 +952,7 @@ Tensor baddbmm(
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::addmm"), TORCH_FN(addmm));
+  m.impl(TORCH_SELECTIVE_NAME("aten::linear"), TORCH_FN(linear));
   m.impl(TORCH_SELECTIVE_NAME("aten::mm"), TORCH_FN(mm));
   m.impl(TORCH_SELECTIVE_NAME("aten::bmm"), TORCH_FN(bmm));
   m.impl(TORCH_SELECTIVE_NAME("aten::baddbmm"), TORCH_FN(baddbmm));

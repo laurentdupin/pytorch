@@ -1,3 +1,9 @@
+#ifdef _WIN32
+#define _USE_MATH_DEFINES
+#include <cmath>
+#include <math.h>
+#endif // _WIN32
+
 #include <ATen/native/vulkan/ops/Common.h>
 #include <torch/library.h>
 
@@ -503,7 +509,10 @@ Tensor& activation_scalar_(
 
 Tensor gelu(const Tensor& self, std::string_view approximate) {
   TORCH_CHECK(
-      approximate == "tanh", "Vulkan: gelu only supported for tanh type");
+      approximate == "none" || approximate == "tanh",
+      "Vulkan: gelu only supported for none or tanh type");
+  // The Vulkan backend only has the tanh GELU kernel today, so route the
+  // default eager GELU call through the same implementation for inference.
   Scalar kBetaVec = M_SQRT2 * M_2_SQRTPI * 0.5;
   std::vector<Scalar> scalar;
   scalar.push_back(kBetaVec);
@@ -523,7 +532,10 @@ Tensor gelu(const Tensor& self, std::string_view approximate) {
 
 Tensor& gelu_(Tensor& self, std::string_view approximate) {
   TORCH_CHECK(
-      approximate == "tanh", "Vulkan: gelu only supported for tanh type");
+      approximate == "none" || approximate == "tanh",
+      "Vulkan: gelu only supported for none or tanh type");
+  // The Vulkan backend only has the tanh GELU kernel today, so route the
+  // default eager GELU call through the same implementation for inference.
   Scalar kBetaVec = M_SQRT2 * M_2_SQRTPI * 0.5;
   std::vector<Scalar> scalar;
   scalar.push_back(kBetaVec);

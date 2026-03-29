@@ -28,6 +28,10 @@ namespace ops {
 
 namespace conv2d {
 
+inline bool has_bias(const std::optional<Tensor>& bias) {
+  return bias && bias->defined();
+}
+
 //
 // Convolution type classification
 //
@@ -249,7 +253,7 @@ at::Tensor rearrange_bias(
     const at::Tensor& weight_in,
     bool tconv) {
   // If optional is empty, just return zeros
-  if (!bias_in) {
+  if (!has_bias(bias_in)) {
     uint32_t L = tconv ? get_dim<DimTConv2DKernel::OutChannels>(weight_in)
                        : get_dim<DimConv2DKernel::OutChannels>(weight_in);
     const uint32_t L4 = api::utils::div_up(L, 4u);
@@ -633,7 +637,7 @@ bool bias_valid(
     const Tensor& weight,
     const bool transposed,
     const bool quantized) {
-  if (!bias) {
+  if (!conv2d::has_bias(bias)) {
     return true;
   }
 

@@ -177,7 +177,6 @@ if sys.platform == "win32":
             sysconfig.get_config_var("userbase"), "Library", "bin"
         )
         py_root_bin_path = os.path.join(sys.exec_prefix, "bin")
-
         # When users create a virtualenv that inherits the base environment,
         # we will need to add the corresponding library directory into
         # DLL search directories. Otherwise, it will rely on `PATH` which
