@@ -5,6 +5,7 @@
 #include <ATen/core/boxing/KernelFunction.h>
 #include <ATen/core/dispatch/Dispatcher.h>
 
+#include <torch/csrc/autograd/InferenceMode.h>
 #include <torch/csrc/autograd/edge.h>
 #include <torch/csrc/autograd/function.h>
 #include <torch/csrc/autograd/functions/basic_ops.h>
@@ -202,6 +203,23 @@ inline at::Tensor as_view(
   if (base.is_inference())
     return tensor;
 
+  at::Tensor view_tensor = tensor;
+  if (tensor.defined() && tensor.is_inference()) {
+    // Core backends return non-inference tensors for views of normal tensors
+    // created under inference mode. Some backends instead redispatch a fresh
+    // inference tensor here. Rehydrate the copied tensor back into a normal
+    // tensor before we attach view metadata, so the base version counter can
+    // be shared as usual.
+    c10::InferenceMode inference_mode_guard(false);
+    auto view_tensor_impl = tensor.getIntrusivePtr()->shallow_copy_and_detach(
+        /*version_counter=*/impl::version_counter(base),
+        /*allow_tensor_metadata_change=*/allow_tensor_metadata_change);
+    view_tensor_impl->add_autograd_key();
+    view_tensor_impl->set_version_counter(impl::version_counter(base));
+    view_tensor_impl->set_autograd_meta(nullptr);
+    view_tensor = Variable(std::move(view_tensor_impl));
+  }
+
   auto diff_view_meta = torch::autograd::impl::get_view_autograd_meta(base);
 
   // To speed up the most common case, we specially handle when both the forward
@@ -209,21 +227,21 @@ inline at::Tensor as_view(
   // be used for both of them.
   if ((!diff_view_meta || diff_view_meta->shared_view_info()) &&
       is_bw_differentiable && is_fw_differentiable) {
-    throw_error_if_base_and_tensor_are_same(base, tensor);
+    throw_error_if_base_and_tensor_are_same(base, view_tensor);
     if (diff_view_meta) {
       creation_meta = propagate_creation_meta(
           diff_view_meta->get_creation_meta(), creation_meta);
       return make_variable_differentiable_view(
-          tensor,
+          view_tensor,
           diff_view_meta->get_backward_view().chain(
-              base, tensor, std::move(view_func), std::move(rev_view_func)),
+              base, view_tensor, std::move(view_func), std::move(rev_view_func)),
           std::nullopt,
           /*shared_view_info*/ true,
           creation_meta,
           allow_tensor_metadata_change);
     } else {
       return make_variable_differentiable_view(
-          tensor,
+          view_tensor,
           ViewInfo(base, std::move(view_func), std::move(rev_view_func)),
           std::nullopt,
           /*shared_view_info*/ true,
@@ -241,7 +259,7 @@ inline at::Tensor as_view(
     if (diff_view_meta && diff_view_meta->has_bw_view()) {
       const auto& base_bw_info = diff_view_meta->get_backward_view();
       new_bw_info = base_bw_info.chain(
-          base, tensor, std::move(bw_view_func), rev_view_func);
+          base, view_tensor, std::move(bw_view_func), rev_view_func);
     } else {
       new_bw_info = ViewInfo(base, std::move(bw_view_func), rev_view_func);
     }
@@ -256,7 +274,7 @@ inline at::Tensor as_view(
     if (diff_view_meta && diff_view_meta->has_fw_view()) {
       const auto& base_fw_info = diff_view_meta->get_forward_view();
       new_fw_info = base_fw_info.chain(
-          base, tensor, std::move(view_func), std::move(rev_view_func));
+          base, view_tensor, std::move(view_func), std::move(rev_view_func));
     } else {
       new_fw_info =
           ViewInfo(base, std::move(view_func), std::move(rev_view_func));
@@ -268,9 +286,9 @@ inline at::Tensor as_view(
       creation_meta = propagate_creation_meta(
           diff_view_meta->get_creation_meta(), creation_meta);
     }
-    throw_error_if_base_and_tensor_are_same(base, tensor);
+    throw_error_if_base_and_tensor_are_same(base, view_tensor);
     return make_variable_differentiable_view(
-        tensor,
+        view_tensor,
         std::move(new_bw_info),
         std::move(new_fw_info),
         /*shared_view_info*/ false,
@@ -278,7 +296,7 @@ inline at::Tensor as_view(
         allow_tensor_metadata_change);
   } else {
     return make_variable_non_differentiable_view(
-        base, tensor, allow_tensor_metadata_change);
+        base, view_tensor, allow_tensor_metadata_change);
   }
 }
 

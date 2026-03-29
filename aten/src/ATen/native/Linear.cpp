@@ -7,6 +7,7 @@
 #include <c10/util/irange.h>
 #include <c10/core/Contiguity.h>
 #include <c10/core/GradMode.h>
+#include <c10/core/InferenceMode.h>
 #include <c10/core/SymInt.h>
 #include <c10/util/MaybeOwned.h>
 #include <ATen/TensorSubclassLikeUtils.h>
@@ -81,6 +82,54 @@ static inline Tensor _flatten_nd_linear(const Tensor& input, const Tensor& weigh
   return result_flattened.view_symint(result_sizes);
 }
 
+static inline Tensor _flatten_nd_linear_vulkan(
+    const Tensor& input,
+    const Tensor& weight,
+    const std::optional<Tensor>& bias_opt) {
+  const auto input_sizes = input.sym_sizes();
+  const auto input_ncols = input_sizes.back();
+  const auto input_flattened_nrows = [&]() -> c10::SymInt {
+    auto flattened_nrows = c10::SymInt{1};
+    for (const auto& size : input_sizes.slice(0, input_sizes.size() - 1)) {
+      flattened_nrows *= size;
+    }
+    return flattened_nrows;
+  }();
+
+  Tensor flatten_source = input;
+  Tensor weight_tensor = weight;
+  std::optional<Tensor> bias_tensor = bias_opt;
+  if (c10::InferenceMode::is_enabled()) {
+    // Avoid returning inference-mode views of pre-existing Vulkan tensors.
+    flatten_source = input.clone();
+    if (weight.is_vulkan()) {
+      weight_tensor = weight.clone();
+    }
+    if (bias_tensor.has_value() && bias_tensor->defined() && bias_tensor->is_vulkan()) {
+      bias_tensor = bias_tensor->clone();
+    }
+  } else if (!input.is_contiguous_or_false()) {
+    flatten_source = input.contiguous();
+  }
+
+  const Tensor input_flattened =
+      flatten_source.reshape_symint({input_flattened_nrows, input_ncols});
+  const Tensor bias = bias_tensor.has_value() && bias_tensor->defined()
+      ? *bias_tensor
+      : at::zeros({weight_tensor.size(0)}, weight_tensor.options());
+  const Tensor result_flattened =
+      at::addmm(bias, input_flattened, weight_tensor.t());
+
+  auto result_sizes = c10::SymDimVector{input_sizes.begin(), input_sizes.end()};
+  result_sizes.back() = result_flattened.sym_size(1);
+
+  Tensor result = result_flattened.reshape_symint(result_sizes);
+  if (c10::InferenceMode::is_enabled()) {
+    result = result.clone();
+  }
+  return result;
+}
+
 
 Tensor linear(const Tensor& input, const Tensor& weight, const std::optional<Tensor>& bias_opt) {
   // _matmul_impl checks this again later, but _flatten_nd_linear does not work on scalars inputs,
@@ -106,6 +155,30 @@ Tensor linear(const Tensor& input, const Tensor& weight, const std::optional<Ten
   if (input_dim == 2 && bias->defined()) {
     // Fused op is marginally faster.
     return at::addmm(*bias, input, weight.t());
+  }
+
+  if (input.is_vulkan() && input_dim >= 2) {
+    if (input_dim == 2) {
+      Tensor weight_tensor = weight;
+      std::optional<Tensor> bias_tensor_opt = bias_opt;
+      if (c10::InferenceMode::is_enabled() && weight.is_vulkan()) {
+        weight_tensor = weight.clone();
+        if (bias_tensor_opt.has_value() && bias_tensor_opt->defined() &&
+            bias_tensor_opt->is_vulkan()) {
+          bias_tensor_opt = bias_tensor_opt->clone();
+        }
+      }
+      const Tensor bias_tensor = bias_tensor_opt.has_value() &&
+              bias_tensor_opt->defined()
+          ? *bias_tensor_opt
+          : at::zeros({weight_tensor.size(0)}, weight_tensor.options());
+      Tensor result = at::addmm(bias_tensor, input, weight_tensor.t());
+      if (c10::InferenceMode::is_enabled()) {
+        result = result.clone();
+      }
+      return result;
+    }
+    return _flatten_nd_linear_vulkan(input, weight, bias_opt);
   }
 
   const auto is_bias_likely_fusable = (

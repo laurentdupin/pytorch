@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/api/Tensor.h>
 #include <ATen/native/vulkan/api/Types.h>
 #include <ATen/native/vulkan/impl/Packing.h>
+#include <c10/core/InferenceMode.h>
 #include <c10/util/irange.h>
 
 namespace at {
@@ -19,6 +20,20 @@ using namespace at::native::vulkan::ops;
 
 inline bool has_bias(const std::optional<Tensor>& bias) {
   return bias && bias->defined();
+}
+
+Tensor materialize_inference_vulkan_matrix_arg(const Tensor& tensor) {
+  if (
+      c10::InferenceMode::is_enabled() &&
+      tensor.is_vulkan() &&
+      tensor.dim() == 2 &&
+      !tensor.is_contiguous_or_false()) {
+    // A direct transpose view of a Vulkan parameter can later trip
+    // version-counter propagation in the mm/addmm path. Re-materialize it via
+    // the original layout first, then transpose back.
+    return tensor.t().clone().t();
+  }
+  return tensor;
 }
 
 vTensor pack_inputs_using_width_packing(const Tensor& input_arg) {
@@ -419,8 +434,9 @@ static Tensor reshape_to_2d(const Tensor& input_arg) {
       "Vulkan Linear op only supports input tensor with dim >= 1");
 
   const Tensor reshape_input =
-      (input_arg.is_vulkan() && input_arg.is_inference()) ? input_arg.clone()
-                                                          : input_arg;
+      (input_arg.is_vulkan() && c10::InferenceMode::is_enabled())
+      ? input_arg.clone()
+      : input_arg;
 
   if (reshape_input.dim() == 1) {
     return reshape_input.unsqueeze(0);
@@ -641,7 +657,11 @@ Tensor run_quantized_addmm_context(
       shape.emplace_back(input_arg.size(i));
     }
     shape.emplace_back(output.size(-1));
-    return output.reshape(shape);
+    Tensor reshaped_output = output.reshape(shape);
+    if (c10::InferenceMode::is_enabled()) {
+      reshaped_output = reshaped_output.clone();
+    }
+    return reshaped_output;
   }
 }
 
@@ -678,6 +698,9 @@ Tensor run_addmm_context(
   const std::vector<int64_t> unpacked_weight_sizes =
       linear_context->get_val(LinearPackedContext::Packed::WeightSizes)
           .toIntVector();
+  const bool bias_defined =
+      linear_context->get_val(LinearPackedContext::Packed::BiasDefined)
+          .toBool();
 
   TORCH_CHECK(
       usable(input, unpacked_weight_sizes),
@@ -750,8 +773,13 @@ Tensor run_addmm_context(
 
   Tensor output = convert(v_output);
 
-  // addmm operation, multiplying the alpha and adding bias.
-  output = output.mul(alpha).add(convert(packed_v_bias).mul(beta));
+  // addmm/linear operation, multiplying by alpha and adding bias when present.
+  if (alpha != 1.0f) {
+    output = output.mul(alpha);
+  }
+  if (bias_defined) {
+    output = output.add(convert(packed_v_bias).mul(beta));
+  }
 
   if (input_arg.dim() == 2) {
     return output;
@@ -807,14 +835,6 @@ Tensor run_baddbmm_context(
           api::GPUMemoryLayout::TENSOR_HEIGHT_PACKED,
       "run_addmm_context called for non-quantized version with unpacked weight");
 
-  // In the shader, each batch is computed in separate invocation.
-  // The result is stored in the .x position of the texel.
-  // As the tensor by default is channel packed, the shader is effectively
-  // producing 3 all-zeros layer. We workaround this issue by creating
-  // a vTensor that is 4 times the batch size.
-  // At the end of the computation, we run a "slice" with a step-size of 4
-  // to get back the original shape.
-
   int64_t input_batch = packed_v_input.sizes()[Layout::BatchMatrices::batch];
 
   // Step size is the input's w dimension / 4.
@@ -824,7 +844,7 @@ Tensor run_baddbmm_context(
   vTensor v_output{
       context,
       {
-          input_batch * 4,
+          input_batch,
           packed_v_input.sizes()[Layout::BatchMatrices::height],
           unpacked_weight_sizes.back(), // "w" dimension in weight matrix
       },
@@ -832,11 +852,21 @@ Tensor run_baddbmm_context(
   };
 
   const struct {
-    uvec3 shader_extents;
-    uint32_t mm_step_size;
+    uvec4 shader_extents_and_step;
+    uvec4 batch_info;
   } block_no_bias{
-      v_output.extents(),
-      safe_downcast<uint32_t>(mm_step_size),
+      {
+          v_output.extents().data[0u],
+          v_output.extents().data[1u],
+          v_output.extents().data[2u],
+          safe_downcast<uint32_t>(mm_step_size),
+      },
+      {
+          safe_downcast<uint32_t>(input_batch),
+          0u,
+          0u,
+          0u,
+      },
   };
 
   api::UniformParamsBuffer params(context, block_no_bias);
@@ -845,7 +875,7 @@ Tensor run_baddbmm_context(
 
   context->submit_compute_job(
       // shader descriptor
-      VK_KERNEL(mm),
+      VK_KERNEL(bmm_channel_packed),
       // pipeline barrier
       pipeline_barrier,
       // global work group size
@@ -854,8 +884,7 @@ Tensor run_baddbmm_context(
               v_output.sizes()[Layout::BatchMatrices::width], INT64_C(4))),
           safe_downcast<uint32_t>(div_up(
               v_output.sizes()[Layout::BatchMatrices::height], INT64_C(4))),
-          safe_downcast<uint32_t>(
-              v_output.sizes()[Layout::BatchMatrices::batch]),
+          v_output.extents().data[2u],
       },
       // local work group size
       {8, 8, 1},
@@ -871,14 +900,9 @@ Tensor run_baddbmm_context(
       // params buffer
       params.buffer());
 
-  // After computing the multiplication, we need to slice 4 on the batch
-  // dimension to get the channel packed layout.
-  auto mm_output_unpacked = convert(v_output);
-  int step = 4;
-  auto mm_output = mm_output_unpacked.slice(
-      Layout::BatchMatrices::batch, 0, input_batch * step, step);
-
-  return mm_output.mul(alpha).add(convert(packed_v_bias).mul(beta));
+  // The dedicated batched kernel writes up to four batch results directly into
+  // each channel-packed output texel, so no post-slice is needed here.
+  return convert(v_output).mul(alpha).add(convert(packed_v_bias).mul(beta));
 }
 
 Tensor addmm(
@@ -902,12 +926,19 @@ Tensor linear(
     const Tensor& input,
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
+  Tensor linear_weight = weight;
+  if (c10::InferenceMode::is_enabled() && weight.is_vulkan()) {
+    // Materialize the weight before transposing it. Transposing a Vulkan
+    // parameter directly under inference mode can produce a tensor that later
+    // trips version-counter propagation inside the Vulkan mm/addmm path.
+    linear_weight = weight.clone();
+  }
   return run_addmm_context(
       input,
       1.0f,
       1.0f,
       c10::make_intrusive<LinearPackedContext>(
-          LinearPackedContext(weight.t(), bias)),
+          LinearPackedContext(linear_weight.t(), bias)),
       false,
       0,
       0);
@@ -967,24 +998,26 @@ LinearPackedContext::LinearPackedContext(
     const std::optional<Tensor>& bias,
     const bool use_batch)
     : unpacked_{c10::AnyType::get()} {
+  const Tensor packed_weight =
+      use_batch ? weight : materialize_inference_vulkan_matrix_arg(weight);
   TORCH_CHECK(
-      available(weight, bias, use_batch),
+      available(packed_weight, bias, use_batch),
       "Vulkan Linear not available! "
       "Reason: The provided (weight, bias) parameters are either invalid "
       "individually or their combination is not supported by Vulkan Impl.");
 
   packed_.reserve(Packed::NumArgs);
-  packed_.emplace_back(convert(pack_weights(weight, use_batch)));
-  const auto& packed_biases = weight.is_quantized()
-      ? pack_biases_quantized_weights(weight, bias, use_batch)
-      : pack_biases(weight, bias, use_batch);
+  packed_.emplace_back(convert(pack_weights(packed_weight, use_batch)));
+  const auto& packed_biases = packed_weight.is_quantized()
+      ? pack_biases_quantized_weights(packed_weight, bias, use_batch)
+      : pack_biases(packed_weight, bias, use_batch);
   packed_.emplace_back(convert(packed_biases));
-  packed_.emplace_back(weight.sizes());
+  packed_.emplace_back(packed_weight.sizes());
   packed_.emplace_back(bias && bias->defined());
 
   if (!at::globalContext().releaseWeightsWhenPrepacking()) {
     unpacked_.reserve(Unpacked::NumArgs);
-    unpacked_.emplace_back(weight);
+    unpacked_.emplace_back(packed_weight);
     unpacked_.emplace_back(bias);
   }
 }

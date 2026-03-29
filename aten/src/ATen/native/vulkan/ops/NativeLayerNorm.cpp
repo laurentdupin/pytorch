@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <torch/library.h>
+#include <c10/core/InferenceMode.h>
 
 namespace at {
 namespace native {
@@ -96,6 +97,11 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm(
   // use the formular in this page to compute layer_norm:
   // https://pytorch.org/docs/stable/generated/torch.nn.LayerNorm.html
   auto layernorm = input_minus_mean.mul(std_inv).mul(weight).add(bias);
+  if (c10::InferenceMode::is_enabled()) {
+    // Materialize the affine output through a fresh Vulkan tensor. Without this,
+    // later nD linear ops can crash on the layernorm result under inference mode.
+    layernorm = layernorm.cpu().vulkan();
+  }
   std::tuple<Tensor, Tensor, Tensor> output =
       std::make_tuple(layernorm, mean, std_inv);
   return output;

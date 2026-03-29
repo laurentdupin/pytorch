@@ -195,6 +195,11 @@ void TensorImpl::_change_backend_component_keys(c10::Device device) {
   key_set_ = key_set | DispatchKeySet(new_backend);
 }
 
+void TensorImpl::add_autograd_key() {
+  key_set_ =
+      key_set_ | getAutogradRelatedKeySetFromBackend(key_set_.highestBackendKey());
+}
+
 void TensorImpl::HandleResize() {
   // If needed, we will free the data. the next mutable_data() call
   // will create the data storage.

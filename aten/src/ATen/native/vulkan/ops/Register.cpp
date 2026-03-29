@@ -299,6 +299,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, QuantizedCPU, m) {
 
 TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context"),
+      TORCH_FN(create_linear_context));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_conv2d_context"),
       TORCH_FN(run_conv2d_context));
   m.impl(

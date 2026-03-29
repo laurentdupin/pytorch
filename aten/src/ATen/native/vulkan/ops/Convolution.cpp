@@ -252,17 +252,19 @@ at::Tensor rearrange_bias(
     const std::optional<Tensor>& bias_in,
     const at::Tensor& weight_in,
     bool tconv) {
+  const auto cpu_options = weight_in.options().device(c10::Device(c10::DeviceType::CPU));
+
   // If optional is empty, just return zeros
   if (!has_bias(bias_in)) {
     uint32_t L = tconv ? get_dim<DimTConv2DKernel::OutChannels>(weight_in)
                        : get_dim<DimConv2DKernel::OutChannels>(weight_in);
     const uint32_t L4 = api::utils::div_up(L, 4u);
 
-    at::Tensor bias = at::zeros({4, 1, L4}, weight_in.options());
+    at::Tensor bias = at::zeros({4, 1, L4}, cpu_options);
     return bias;
   }
 
-  at::Tensor bias = bias_in->clone();
+  at::Tensor bias = bias_in->is_vulkan() ? bias_in->cpu() : bias_in->clone();
 
   // Bias should just be a 1D tensor
   uint32_t L = get_dim<Dim1D::Length>(bias);
