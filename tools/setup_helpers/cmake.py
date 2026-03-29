@@ -59,6 +59,12 @@ if "CMAKE_GENERATOR" in os.environ:
 
 CMAKE_MINIMUM_VERSION = Version(CMAKE_MINIMUM_VERSION_STRING)
 
+WINDOWS_CMAKE_GENERATORS_BY_VISUAL_STUDIO_VERSION = {
+    "16": "Visual Studio 16 2019",
+    "17": "Visual Studio 17 2022",
+    "18": "Visual Studio 18 2026",
+}
+
 
 class CMake:
     "Manages cmake."
@@ -136,6 +142,23 @@ class CMake:
             return Version(cmake_version)
         raise RuntimeError(f"Failed to get CMake version from command: {cmd}")
 
+    @staticmethod
+    def _get_windows_cmake_generator() -> tuple[str, list[str]]:
+        supported = list(WINDOWS_CMAKE_GENERATORS_BY_VISUAL_STUDIO_VERSION.values())
+
+        generator = os.getenv("CMAKE_GENERATOR")
+        if generator is not None:
+            return generator, supported
+
+        visual_studio_version = os.getenv("VisualStudioVersion", "").split(".", 1)[0]
+        return (
+            WINDOWS_CMAKE_GENERATORS_BY_VISUAL_STUDIO_VERSION.get(
+                visual_studio_version,
+                "Visual Studio 16 2019",
+            ),
+            supported,
+        )
+
     def run(self, args: list[str], env: dict[str, str]) -> None:
         """Executes cmake with arguments and an environment."""
 
@@ -208,8 +231,7 @@ class CMake:
             os.environ["CMAKE_GENERATOR"] = "Ninja"
             args.append("-GNinja")
         elif IS_WINDOWS:
-            generator = os.getenv("CMAKE_GENERATOR", "Visual Studio 16 2019")
-            supported = ["Visual Studio 16 2019", "Visual Studio 17 2022"]
+            generator, supported = self._get_windows_cmake_generator()
             if generator not in supported:
                 eprint("Unsupported `CMAKE_GENERATOR`: " + generator)
                 eprint("Please set it to one of the following values: ")

@@ -1524,6 +1524,8 @@ class QEmbedding final {
 };
 
 TORCH_LIBRARY_IMPL(quantized, CPU, m) {
+  (void)register_embedding_params();
+
   // Function that works on TorchBind packed weights.
   m.impl(
       TORCH_SELECTIVE_NAME("quantized::embedding_bag_byte"),
