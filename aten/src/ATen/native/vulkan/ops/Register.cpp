@@ -202,7 +202,13 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::create_linear_context(Tensor W, Tensor? B) "
       "-> __torch__.torch.classes.vulkan.LinearPackedContext"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_linear_context_labeled(Tensor W, Tensor? B, str label) "
+      "-> __torch__.torch.classes.vulkan.LinearPackedContext"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_linear_context(Tensor X, "
+      "__torch__.torch.classes.vulkan.LinearPackedContext BW_prepack) -> Tensor Y"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_linear_gelu_context(Tensor X, "
       "__torch__.torch.classes.vulkan.LinearPackedContext BW_prepack) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_qlinear_context(Tensor X, float scale, int zero_point, "
@@ -275,6 +281,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context"),
       TORCH_FN(create_linear_context));
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context_labeled"),
+      TORCH_FN(create_linear_context_labeled));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_layernorm_context"),
       TORCH_FN(create_layernorm_context));
   m.impl(
@@ -302,6 +311,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context"),
       TORCH_FN(create_linear_context));
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context_labeled"),
+      TORCH_FN(create_linear_context_labeled));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_conv2d_context"),
       TORCH_FN(run_conv2d_context));
   m.impl(
@@ -319,6 +331,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_linear_context"),
       TORCH_FN(run_linear_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_linear_gelu_context"),
+      TORCH_FN(run_linear_gelu_context));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_layernorm_context"),
       TORCH_FN(run_layernorm_context));

@@ -8,6 +8,57 @@ namespace native {
 namespace vulkan {
 namespace ops {
 
+namespace {
+
+c10::MemoryFormat memory_format_for_buffer_layout(
+    const api::GPUMemoryLayout memory_layout) {
+  switch (memory_layout) {
+    case api::GPUMemoryLayout::TENSOR_WIDTH_PACKED:
+      return c10::MemoryFormat::Contiguous;
+    case api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED:
+      return c10::MemoryFormat::ChannelsLast;
+    default:
+      VK_THROW("Unsupported buffer memory layout");
+  }
+}
+
+void copy_staging_buffer_to_vtensor_buffer(
+    api::Context* const context,
+    api::StorageBuffer& staging,
+    vTensor& dst,
+    const VkFence fence_handle) {
+  api::PipelineBarrier pipeline_barrier{};
+  context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
+      pipeline_barrier,
+      staging.buffer(),
+      dst.buffer(
+          pipeline_barrier,
+          api::PipelineStage::TRANSFER,
+          api::MemoryAccessType::WRITE),
+      {api::utils::safe_downcast<uint32_t>(staging.buffer().mem_size()), 0u, 0u},
+      {0u, 0u, 0u},
+      {0u, 0u, 0u},
+      fence_handle);
+}
+
+bool copy_vtensor_buffer_to_staging(
+    api::Context* const context,
+    vTensor& src,
+    api::StorageBuffer& staging,
+    const VkFence fence_handle) {
+  api::PipelineBarrier pipeline_barrier{};
+  return context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
+      pipeline_barrier,
+      src.buffer(pipeline_barrier, api::PipelineStage::TRANSFER),
+      staging.buffer(),
+      {api::utils::safe_downcast<uint32_t>(staging.buffer().mem_size()), 0u, 0u},
+      {0u, 0u, 0u},
+      {0u, 0u, 0u},
+      fence_handle);
+}
+
+} // namespace
+
 //
 // Utility functions for memcpy
 //
@@ -152,6 +203,19 @@ static void transfer_vulkan_to_vulkan(vTensor& src, vTensor& dst) {
 void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
   api::Context* const context = api::context();
 
+  if (dst.storage_type() == api::StorageType::BUFFER) {
+    const c10::MemoryFormat target_memory_format =
+        memory_format_for_buffer_layout(dst.gpu_memory_layout());
+    Tensor src_contig = src.contiguous(target_memory_format);
+    api::StorageBuffer staging(context, convert_dtype(src_contig.scalar_type()), dst.gpu_numel());
+    {
+      api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::WRITE);
+      memcpy_to_mapping(src_contig, mapping);
+    }
+    copy_staging_buffer_to_vtensor_buffer(context, staging, dst, VK_NULL_HANDLE);
+    return;
+  }
+
   // Ensure that src is contiguous in its memory format
   Tensor src_contig = src.contiguous(src.suggest_memory_format());
 
@@ -183,6 +247,37 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
       !src.is_quantized(),
       "Copy of vulkan quantized tensors to cpu is currently disabled!");
   api::Context* const context = api::context();
+
+  if (src.storage_type() == api::StorageType::BUFFER) {
+    api::StorageBuffer staging(context, src.dtype(), src.gpu_numel());
+    api::VulkanFence fence = context->fences().get_fence();
+
+    {
+      std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
+      bool submitted_to_gpu = copy_vtensor_buffer_to_staging(
+          context, src, staging, fence.get_submit_handle());
+      if (submitted_to_gpu) {
+        fence.wait();
+      }
+      context->flush();
+    }
+
+    Tensor dst_tmp = at::empty(
+        src.sizes(),
+        at::device(at::kCPU)
+            .dtype(convert_dtype(src.dtype())))
+                         .to(memory_format_for_buffer_layout(src.gpu_memory_layout()));
+
+    {
+      api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::READ);
+      mapping.invalidate();
+      memcpy_from_mapping(mapping, dst_tmp);
+    }
+
+    context->fences().return_fence(fence);
+    dst.copy_(dst_tmp);
+    return;
+  }
 
   // Refer to the comment in pack_cpu_to_vulkan for why at::kFloat is specified
   // for the storage buffer below.

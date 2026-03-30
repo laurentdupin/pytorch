@@ -1,10 +1,439 @@
 #include <ATen/native/vulkan/api/Adapter.h>
 #include <ATen/native/vulkan/api/Resource.h>
+#include <algorithm>
+#include <cstdlib>
+#include <deque>
+#include <fstream>
+#include <sstream>
+#include <unordered_map>
 
 namespace at {
 namespace native {
 namespace vulkan {
 namespace api {
+namespace {
+
+struct AllocationTelemetryState final {
+  std::mutex mutex;
+  uint64_t live_bytes{0u};
+  uint64_t high_water_bytes{0u};
+  std::unordered_map<std::string, uint64_t> live_bytes_by_label;
+  std::unordered_map<std::string, uint64_t> high_water_bytes_by_label;
+  std::deque<std::string> recent_events;
+};
+
+std::string& mutable_current_allocation_label() {
+  static thread_local std::string label = "unlabeled";
+  return label;
+}
+
+AllocationTelemetryState& allocation_telemetry_state() {
+  static AllocationTelemetryState state;
+  return state;
+}
+
+const std::string& allocation_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_ALLOC_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool allocation_telemetry_enabled() {
+  return !allocation_log_path().empty();
+}
+
+std::string format_bytes(const uint64_t bytes) {
+  std::ostringstream stream;
+  const double mib = static_cast<double>(bytes) / (1024.0 * 1024.0);
+  stream.setf(std::ios::fixed);
+  stream.precision(2);
+  stream << mib << " MiB";
+  return stream.str();
+}
+
+const std::string& normalize_allocation_label(const std::string& label) {
+  static const std::string unlabeled = "unlabeled";
+  return label.empty() ? unlabeled : label;
+}
+
+void write_allocation_log_line_locked(
+    AllocationTelemetryState& state,
+    const std::string& line) {
+  if (state.recent_events.size() >= 64u) {
+    state.recent_events.pop_front();
+  }
+  state.recent_events.push_back(line);
+
+  std::ofstream out(allocation_log_path(), std::ios::app);
+  out << line << '\n';
+}
+
+std::string top_label_summary(
+    const std::unordered_map<std::string, uint64_t>& live_bytes_by_label,
+    const size_t limit = 4u) {
+  if (live_bytes_by_label.empty()) {
+    return {};
+  }
+
+  std::vector<std::pair<std::string, uint64_t>> entries(
+      live_bytes_by_label.begin(), live_bytes_by_label.end());
+  std::sort(
+      entries.begin(),
+      entries.end(),
+      [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
+
+  std::ostringstream stream;
+  const size_t count = std::min(limit, entries.size());
+  for (size_t idx = 0u; idx < count; ++idx) {
+    if (idx > 0u) {
+      stream << ", ";
+    }
+    stream << entries[idx].first << ":" << format_bytes(entries[idx].second);
+  }
+  return stream.str();
+}
+
+uint32_t format_element_size(const VkFormat format) {
+  switch (format) {
+    case VK_FORMAT_R32G32B32A32_SFLOAT:
+    case VK_FORMAT_R32G32B32A32_SINT:
+    case VK_FORMAT_R32G32B32A32_UINT:
+      return 16u;
+    case VK_FORMAT_R16G16B16A16_SFLOAT:
+      return 8u;
+    case VK_FORMAT_R8G8B8A8_SINT:
+    case VK_FORMAT_R8G8B8A8_UINT:
+      return 4u;
+    default:
+      return 0u;
+  }
+}
+
+uint64_t estimate_image_bytes(const VulkanImage::ImageProperties& image_props) {
+  const uint32_t element_size = format_element_size(image_props.image_format);
+  return static_cast<uint64_t>(image_props.image_extents.width) *
+      static_cast<uint64_t>(image_props.image_extents.height) *
+      static_cast<uint64_t>(image_props.image_extents.depth) *
+      static_cast<uint64_t>(element_size);
+}
+
+std::string heap_budgets_summary(const VmaAllocator allocator) {
+  VmaBudget budgets[VK_MAX_MEMORY_HEAPS];
+  vmaGetHeapBudgets(allocator, budgets);
+
+  const VkPhysicalDeviceMemoryProperties* mem_props = nullptr;
+  vmaGetMemoryProperties(
+      allocator,
+      reinterpret_cast<const VkPhysicalDeviceMemoryProperties**>(&mem_props));
+
+  std::ostringstream stream;
+  for (uint32_t idx = 0; idx < mem_props->memoryHeapCount; ++idx) {
+    if (idx > 0u) {
+      stream << ", ";
+    }
+    stream << "heap" << idx << ": usage="
+           << format_bytes(static_cast<uint64_t>(budgets[idx].usage))
+           << " budget="
+           << format_bytes(static_cast<uint64_t>(budgets[idx].budget));
+  }
+  return stream.str();
+}
+
+VkDevice allocator_device(const VmaAllocator allocator) {
+  VmaAllocatorInfo allocator_info{};
+  vmaGetAllocatorInfo(allocator, &allocator_info);
+  return allocator_info.device;
+}
+
+std::string format_memory_type_bits(const uint32_t memory_type_bits) {
+  std::ostringstream stream;
+  stream << "0x" << std::hex << memory_type_bits;
+  return stream.str();
+}
+
+std::string memory_requirements_summary(
+    const VmaAllocator allocator,
+    const VkMemoryRequirements& memory_requirements) {
+  VmaBudget budgets[VK_MAX_MEMORY_HEAPS];
+  vmaGetHeapBudgets(allocator, budgets);
+
+  const VkPhysicalDeviceMemoryProperties* mem_props = nullptr;
+  vmaGetMemoryProperties(
+      allocator,
+      reinterpret_cast<const VkPhysicalDeviceMemoryProperties**>(&mem_props));
+
+  std::ostringstream heaps_stream;
+  VkDeviceSize best_available = 0u;
+  bool found_compatible_heap = false;
+  bool first_heap = true;
+
+  for (uint32_t type_index = 0u; type_index < mem_props->memoryTypeCount;
+       ++type_index) {
+    if ((memory_requirements.memoryTypeBits & (1u << type_index)) == 0u) {
+      continue;
+    }
+
+    const uint32_t heap_index = mem_props->memoryTypes[type_index].heapIndex;
+    const VkDeviceSize usage = budgets[heap_index].usage;
+    const VkDeviceSize budget = budgets[heap_index].budget;
+    const VkDeviceSize available = budget > usage ? (budget - usage) : 0u;
+
+    best_available = std::max(best_available, available);
+    found_compatible_heap = true;
+
+    if (!first_heap) {
+      heaps_stream << "; ";
+    }
+    first_heap = false;
+    heaps_stream << "heap" << heap_index << "(type=" << type_index
+                 << ", avail=" << format_bytes(static_cast<uint64_t>(available))
+                 << ", usage=" << format_bytes(static_cast<uint64_t>(usage))
+                 << ", budget=" << format_bytes(static_cast<uint64_t>(budget))
+                 << ")";
+  }
+
+  const int64_t deficit_vs_required =
+      static_cast<int64_t>(memory_requirements.size) -
+      static_cast<int64_t>(best_available);
+
+  std::ostringstream stream;
+  stream << " required_allocation="
+         << format_bytes(static_cast<uint64_t>(memory_requirements.size))
+         << " alignment=" << memory_requirements.alignment
+         << " memoryTypeBits="
+         << format_memory_type_bits(memory_requirements.memoryTypeBits)
+         << " compatible_heaps={";
+  if (found_compatible_heap) {
+    stream << heaps_stream.str();
+  }
+  stream << "} best_compatible_available="
+         << format_bytes(static_cast<uint64_t>(best_available))
+         << " deficit_vs_required="
+         << format_bytes(
+                static_cast<uint64_t>(
+                    deficit_vs_required >= 0 ? deficit_vs_required : 0));
+  if (deficit_vs_required < 0) {
+    stream << " headroom_vs_required="
+           << format_bytes(static_cast<uint64_t>(-deficit_vs_required));
+  }
+  return stream.str();
+}
+
+std::string buffer_failure_requirements_details(
+    const VmaAllocator allocator,
+    const VkBufferCreateInfo& buffer_create_info) {
+  const VkDevice device = allocator_device(allocator);
+  VkBuffer buffer = VK_NULL_HANDLE;
+  const VkResult create_result =
+      vkCreateBuffer(device, &buffer_create_info, nullptr, &buffer);
+  if (VK_SUCCESS != create_result || VK_NULL_HANDLE == buffer) {
+    std::ostringstream stream;
+    stream << " preflight_buffer_create_result=" << create_result;
+    return stream.str();
+  }
+
+  VkMemoryRequirements memory_requirements{};
+  vkGetBufferMemoryRequirements(device, buffer, &memory_requirements);
+  vkDestroyBuffer(device, buffer, nullptr);
+  return memory_requirements_summary(allocator, memory_requirements);
+}
+
+std::string image_failure_requirements_details(
+    const VmaAllocator allocator,
+    const VkImageCreateInfo& image_create_info) {
+  const VkDevice device = allocator_device(allocator);
+  VkImage image = VK_NULL_HANDLE;
+  const VkResult create_result =
+      vkCreateImage(device, &image_create_info, nullptr, &image);
+  if (VK_SUCCESS != create_result || VK_NULL_HANDLE == image) {
+    std::ostringstream stream;
+    stream << " preflight_image_create_result=" << create_result;
+    return stream.str();
+  }
+
+  VkMemoryRequirements memory_requirements{};
+  vkGetImageMemoryRequirements(device, image, &memory_requirements);
+  vkDestroyImage(device, image, nullptr);
+  return memory_requirements_summary(allocator, memory_requirements);
+}
+
+void log_allocation_success(
+    const char* kind,
+    const uint64_t requested_bytes,
+    const uint64_t actual_bytes,
+    const std::string& details,
+    const std::string& label) {
+  if (!allocation_telemetry_enabled()) {
+    return;
+  }
+
+  AllocationTelemetryState& state = allocation_telemetry_state();
+  std::lock_guard<std::mutex> lock(state.mutex);
+  const std::string& normalized_label = normalize_allocation_label(label);
+
+  state.live_bytes += actual_bytes;
+  state.high_water_bytes = std::max(state.high_water_bytes, state.live_bytes);
+  state.live_bytes_by_label[normalized_label] += actual_bytes;
+  state.high_water_bytes_by_label[normalized_label] = std::max(
+      state.high_water_bytes_by_label[normalized_label],
+      state.live_bytes_by_label[normalized_label]);
+
+  std::ostringstream stream;
+  stream << "[alloc] kind=" << kind << " label=" << normalized_label
+         << " requested="
+         << format_bytes(requested_bytes) << " actual="
+         << format_bytes(actual_bytes) << " live="
+         << format_bytes(state.live_bytes) << " high_water="
+         << format_bytes(state.high_water_bytes) << " label_live="
+         << format_bytes(state.live_bytes_by_label[normalized_label])
+         << " label_high_water="
+         << format_bytes(state.high_water_bytes_by_label[normalized_label]);
+  if (!details.empty()) {
+    stream << " " << details;
+  }
+
+  write_allocation_log_line_locked(state, stream.str());
+}
+
+void log_allocation_free(
+    const char* kind,
+    const uint64_t actual_bytes,
+    const std::string& details,
+    const std::string& label) {
+  if (!allocation_telemetry_enabled()) {
+    return;
+  }
+
+  AllocationTelemetryState& state = allocation_telemetry_state();
+  std::lock_guard<std::mutex> lock(state.mutex);
+  const std::string& normalized_label = normalize_allocation_label(label);
+
+  state.live_bytes = state.live_bytes > actual_bytes
+      ? (state.live_bytes - actual_bytes)
+      : 0u;
+  auto label_it = state.live_bytes_by_label.find(normalized_label);
+  if (label_it != state.live_bytes_by_label.end()) {
+    label_it->second = label_it->second > actual_bytes
+        ? (label_it->second - actual_bytes)
+        : 0u;
+  }
+
+  std::ostringstream stream;
+  stream << "[free] kind=" << kind << " label=" << normalized_label
+         << " actual=" << format_bytes(actual_bytes) << " live="
+         << format_bytes(state.live_bytes) << " high_water="
+         << format_bytes(state.high_water_bytes) << " label_live="
+         << format_bytes(
+                label_it != state.live_bytes_by_label.end() ? label_it->second
+                                                            : 0u)
+         << " label_high_water="
+         << format_bytes(state.high_water_bytes_by_label[normalized_label]);
+  if (!details.empty()) {
+    stream << " " << details;
+  }
+
+  write_allocation_log_line_locked(state, stream.str());
+}
+
+void log_allocation_failure(
+    const char* kind,
+    const VkResult result,
+    const uint64_t requested_bytes,
+    const std::string& details,
+    const VmaAllocator allocator,
+    const std::string& label) {
+  if (!allocation_telemetry_enabled()) {
+    return;
+  }
+
+  AllocationTelemetryState& state = allocation_telemetry_state();
+  std::lock_guard<std::mutex> lock(state.mutex);
+  const std::string& normalized_label = normalize_allocation_label(label);
+
+  std::ostringstream stream;
+  stream << "[alloc-fail] kind=" << kind << " label=" << normalized_label
+         << " result=" << result
+         << " requested=" << format_bytes(requested_bytes) << " live="
+         << format_bytes(state.live_bytes) << " high_water="
+         << format_bytes(state.high_water_bytes);
+  if (!details.empty()) {
+    stream << " " << details;
+  }
+  stream << " budgets={" << heap_budgets_summary(allocator) << "}";
+  const std::string top_labels = top_label_summary(state.live_bytes_by_label);
+  if (!top_labels.empty()) {
+    stream << " top_live_labels={" << top_labels << "}";
+  }
+
+  write_allocation_log_line_locked(state, stream.str());
+
+  const size_t recent_count = std::min<size_t>(state.recent_events.size(), 12u);
+  if (recent_count == 0u) {
+    return;
+  }
+
+  std::ofstream out(allocation_log_path(), std::ios::app);
+  out << "[alloc-fail] recent-events-begin\n";
+  for (size_t idx = state.recent_events.size() - recent_count;
+       idx < state.recent_events.size();
+       ++idx) {
+    out << state.recent_events[idx] << '\n';
+  }
+  out << "[alloc-fail] recent-events-end\n";
+}
+
+VkDeviceSize query_allocation_size(
+    const VmaAllocator allocator,
+    const VmaAllocation allocation) {
+  if (VK_NULL_HANDLE == allocation) {
+    return 0u;
+  }
+  VmaAllocationInfo allocation_info{};
+  vmaGetAllocationInfo(allocator, allocation, &allocation_info);
+  return allocation_info.size;
+}
+
+std::string buffer_details(
+    const VkDeviceSize size,
+    const VkBufferUsageFlags usage) {
+  std::ostringstream stream;
+  stream << "size=" << size << " usage=0x" << std::hex << usage;
+  return stream.str();
+}
+
+std::string image_details(const VulkanImage::ImageProperties& image_props) {
+  std::ostringstream stream;
+  stream << "extents=(" << image_props.image_extents.width << ","
+         << image_props.image_extents.height << ","
+         << image_props.image_extents.depth << ") format="
+         << image_props.image_format << " usage=0x" << std::hex
+         << image_props.image_usage;
+  return stream.str();
+}
+
+} // namespace
+
+const std::string& current_allocation_label() {
+  return mutable_current_allocation_label();
+}
+
+AllocationScope::AllocationScope(const char* label)
+    : previous_(current_allocation_label()) {
+  mutable_current_allocation_label() =
+      (label && label[0] != '\0') ? std::string(label) : std::string("unlabeled");
+}
+
+AllocationScope::AllocationScope(const std::string& label)
+    : previous_(current_allocation_label()) {
+  mutable_current_allocation_label() =
+      label.empty() ? std::string("unlabeled") : label;
+}
+
+AllocationScope::~AllocationScope() {
+  mutable_current_allocation_label() = previous_;
+}
 
 //
 // MemoryBarrier
@@ -78,6 +507,8 @@ VulkanBuffer::VulkanBuffer()
     : buffer_properties_{},
       allocator_(VK_NULL_HANDLE),
       memory_{},
+      allocated_size_(0u),
+      allocation_label_(),
       owns_memory_(false),
       handle_(VK_NULL_HANDLE) {}
 
@@ -95,6 +526,8 @@ VulkanBuffer::VulkanBuffer(
       }),
       allocator_(vma_allocator),
       memory_{},
+      allocated_size_(0u),
+      allocation_label_(current_allocation_label()),
       owns_memory_(allocate_memory),
       handle_(VK_NULL_HANDLE) {
   // Only allocate memory if the buffer has non-zero size
@@ -116,13 +549,33 @@ VulkanBuffer::VulkanBuffer(
   memory_.create_info = allocation_create_info;
 
   if (allocate_memory) {
-    VK_CHECK(vmaCreateBuffer(
+    const VkResult create_result = vmaCreateBuffer(
         allocator_,
         &buffer_create_info,
         &allocation_create_info,
         &handle_,
         &(memory_.allocation),
-        nullptr));
+        nullptr);
+    if (VK_SUCCESS != create_result) {
+      const std::string failure_details =
+          buffer_details(size, buffer_properties_.buffer_usage) +
+          buffer_failure_requirements_details(allocator_, buffer_create_info);
+      log_allocation_failure(
+          "buffer",
+          create_result,
+          static_cast<uint64_t>(size),
+          failure_details,
+          allocator_,
+          allocation_label_);
+    }
+    VK_CHECK(create_result);
+    allocated_size_ = query_allocation_size(allocator_, memory_.allocation);
+    log_allocation_success(
+        "buffer",
+        static_cast<uint64_t>(size),
+        static_cast<uint64_t>(allocated_size_),
+        buffer_details(size, buffer_properties_.buffer_usage),
+        allocation_label_);
   } else {
     VmaAllocatorInfo allocator_info{};
     vmaGetAllocatorInfo(allocator_, &allocator_info);
@@ -135,29 +588,45 @@ VulkanBuffer::VulkanBuffer(VulkanBuffer&& other) noexcept
     : buffer_properties_(other.buffer_properties_),
       allocator_(other.allocator_),
       memory_(std::move(other.memory_)),
+      allocated_size_(other.allocated_size_),
+      allocation_label_(std::move(other.allocation_label_)),
       owns_memory_(other.owns_memory_),
       handle_(other.handle_) {
   other.handle_ = VK_NULL_HANDLE;
+  other.allocated_size_ = 0u;
 }
 
 VulkanBuffer& VulkanBuffer::operator=(VulkanBuffer&& other) noexcept {
   VkBuffer tmp_buffer = handle_;
   bool tmp_owns_memory = owns_memory_;
+  VkDeviceSize tmp_allocated_size = allocated_size_;
+  std::string tmp_allocation_label = std::move(allocation_label_);
 
   buffer_properties_ = other.buffer_properties_;
   allocator_ = other.allocator_;
   memory_ = std::move(other.memory_);
+  allocated_size_ = other.allocated_size_;
+  allocation_label_ = std::move(other.allocation_label_);
   owns_memory_ = other.owns_memory_;
   handle_ = other.handle_;
 
   other.handle_ = tmp_buffer;
   other.owns_memory_ = tmp_owns_memory;
+  other.allocated_size_ = tmp_allocated_size;
+  other.allocation_label_ = std::move(tmp_allocation_label);
 
   return *this;
 }
 
 VulkanBuffer::~VulkanBuffer() {
   if (VK_NULL_HANDLE != handle_) {
+    if (owns_memory_ && allocated_size_ > 0u) {
+      log_allocation_free(
+          "buffer",
+          static_cast<uint64_t>(allocated_size_),
+          buffer_details(buffer_properties_.size, buffer_properties_.buffer_usage),
+          allocation_label_);
+    }
     if (owns_memory_) {
       vmaDestroyBuffer(allocator_, handle_, memory_.allocation);
     } else {
@@ -167,6 +636,7 @@ VulkanBuffer::~VulkanBuffer() {
     // freed by vmaDestroyBuffer, or this resource does not own the underlying
     // memory
     memory_.allocation = VK_NULL_HANDLE;
+    allocated_size_ = 0u;
   }
 }
 
@@ -335,6 +805,7 @@ VulkanImage::VulkanImage()
       sampler_properties_{},
       allocator_(VK_NULL_HANDLE),
       memory_{},
+      allocated_size_(0u),
       owns_memory_(false),
       handles_{
           VK_NULL_HANDLE,
@@ -357,6 +828,8 @@ VulkanImage::VulkanImage(
       sampler_properties_(sampler_props),
       allocator_(vma_allocator),
       memory_{},
+      allocated_size_(0u),
+      allocation_label_(current_allocation_label()),
       owns_memory_{allocate_memory},
       handles_{
           VK_NULL_HANDLE,
@@ -395,13 +868,33 @@ VulkanImage::VulkanImage(
   memory_.create_info = allocation_create_info;
 
   if (allocate_memory) {
-    VK_CHECK(vmaCreateImage(
+    const VkResult create_result = vmaCreateImage(
         allocator_,
         &image_create_info,
         &allocation_create_info,
         &(handles_.image),
         &(memory_.allocation),
-        nullptr));
+        nullptr);
+    if (VK_SUCCESS != create_result) {
+      const std::string failure_details =
+          image_details(image_properties_) +
+          image_failure_requirements_details(allocator_, image_create_info);
+      log_allocation_failure(
+          "image",
+          create_result,
+          estimate_image_bytes(image_properties_),
+          failure_details,
+          allocator_,
+          allocation_label_);
+    }
+    VK_CHECK(create_result);
+    allocated_size_ = query_allocation_size(allocator_, memory_.allocation);
+    log_allocation_success(
+        "image",
+        estimate_image_bytes(image_properties_),
+        static_cast<uint64_t>(allocated_size_),
+        image_details(image_properties_),
+        allocation_label_);
     // Only create the image view if the image has been bound to memory
     create_image_view();
   } else {
@@ -416,6 +909,8 @@ VulkanImage::VulkanImage(VulkanImage&& other) noexcept
       sampler_properties_(other.sampler_properties_),
       allocator_(other.allocator_),
       memory_(std::move(other.memory_)),
+      allocated_size_(other.allocated_size_),
+      allocation_label_(std::move(other.allocation_label_)),
       owns_memory_(other.owns_memory_),
       handles_(other.handles_),
       layout_(other.layout_) {
@@ -423,18 +918,23 @@ VulkanImage::VulkanImage(VulkanImage&& other) noexcept
   other.handles_.image_view = VK_NULL_HANDLE;
   other.handles_.sampler = VK_NULL_HANDLE;
   other.owns_memory_ = false;
+  other.allocated_size_ = 0u;
 }
 
 VulkanImage& VulkanImage::operator=(VulkanImage&& other) noexcept {
   VkImage tmp_image = handles_.image;
   VkImageView tmp_image_view = handles_.image_view;
   bool tmp_owns_memory = owns_memory_;
+  VkDeviceSize tmp_allocated_size = allocated_size_;
+  std::string tmp_allocation_label = std::move(allocation_label_);
 
   image_properties_ = other.image_properties_;
   view_properties_ = other.view_properties_;
   sampler_properties_ = other.sampler_properties_;
   allocator_ = other.allocator_;
   memory_ = std::move(other.memory_);
+  allocated_size_ = other.allocated_size_;
+  allocation_label_ = std::move(other.allocation_label_);
   owns_memory_ = other.owns_memory_;
   handles_ = other.handles_;
   layout_ = other.layout_;
@@ -442,6 +942,8 @@ VulkanImage& VulkanImage::operator=(VulkanImage&& other) noexcept {
   other.handles_.image = tmp_image;
   other.handles_.image_view = tmp_image_view;
   other.owns_memory_ = tmp_owns_memory;
+  other.allocated_size_ = tmp_allocated_size;
+  other.allocation_label_ = std::move(tmp_allocation_label);
 
   return *this;
 }
@@ -452,6 +954,13 @@ VulkanImage::~VulkanImage() {
   }
 
   if (VK_NULL_HANDLE != handles_.image) {
+    if (owns_memory_ && allocated_size_ > 0u) {
+      log_allocation_free(
+          "image",
+          static_cast<uint64_t>(allocated_size_),
+          image_details(image_properties_),
+          allocation_label_);
+    }
     if (owns_memory_) {
       vmaDestroyImage(allocator_, handles_.image, memory_.allocation);
     } else {
@@ -461,6 +970,7 @@ VulkanImage::~VulkanImage() {
     // freed by vmaDestroyImage, or this resource does not own the underlying
     // memory
     memory_.allocation = VK_NULL_HANDLE;
+    allocated_size_ = 0u;
   }
 }
 

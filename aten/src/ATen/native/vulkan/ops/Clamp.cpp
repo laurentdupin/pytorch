@@ -508,6 +508,7 @@ Tensor& activation_scalar_(
 }
 
 Tensor gelu(const Tensor& self, std::string_view approximate) {
+  api::AllocationScope allocation_scope("gelu");
   TORCH_CHECK(
       approximate == "none" || approximate == "tanh",
       "Vulkan: gelu only supported for none or tanh type");
@@ -531,6 +532,7 @@ Tensor gelu(const Tensor& self, std::string_view approximate) {
 }
 
 Tensor& gelu_(Tensor& self, std::string_view approximate) {
+  api::AllocationScope allocation_scope("gelu");
   TORCH_CHECK(
       approximate == "none" || approximate == "tanh",
       "Vulkan: gelu only supported for none or tanh type");

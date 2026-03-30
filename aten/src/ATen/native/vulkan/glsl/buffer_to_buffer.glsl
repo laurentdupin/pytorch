@@ -65,6 +65,15 @@ void main() {
     return;
   }
 
+  // When the logical layouts match exactly, avoid the coordinate remap path.
+  // This is both cheaper and avoids ambiguity when degenerate dimensions make
+  // multiple stride values identical, e.g. large [N, C, 1, 1] tensors.
+  if (all(equal(uOutMeta.sizes, uInMeta.sizes)) &&
+      all(equal(uOutMeta.strides, uInMeta.strides))) {
+    uOutput.data[write_idx] = uInput.data[write_idx];
+    return;
+  }
+
   uvec4 write_coord =
       idx_to_coord(write_idx, uOutMeta.strides, uOutMeta.sizes);
 

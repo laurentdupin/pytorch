@@ -7,6 +7,7 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/ops/VulkanPackedContext.h>
 #include <torch/library.h>
+#include <string>
 
 namespace at {
 namespace native {
@@ -57,12 +58,14 @@ class LinearPackedContext final : virtual public VulkanPackedContext,
                                   public torch::jit::CustomClassHolder {
  private:
   c10::impl::GenericList unpacked_;
+  std::string allocation_label_;
 
  public:
   LinearPackedContext(
       const Tensor& weight,
       const std::optional<Tensor>& bias,
-      const bool use_batch = false);
+      const bool use_batch = false,
+      std::string allocation_label = std::string());
 
   /*
    * Assigns a name to each index in the unpacked list.
@@ -93,13 +96,26 @@ class LinearPackedContext final : virtual public VulkanPackedContext,
 
     return unpacked_;
   }
+
+  const std::string& allocation_label() const {
+    return allocation_label_;
+  }
 };
 
 c10::intrusive_ptr<LinearPackedContext> create_linear_context(
     Tensor&& weight,
     std::optional<Tensor>&& bias);
 
+c10::intrusive_ptr<LinearPackedContext> create_linear_context_labeled(
+    Tensor&& weight,
+    std::optional<Tensor>&& bias,
+    std::string label);
+
 Tensor run_linear_context(
+    const Tensor& input,
+    const c10::intrusive_ptr<LinearPackedContext>& context);
+
+Tensor run_linear_gelu_context(
     const Tensor& input,
     const c10::intrusive_ptr<LinearPackedContext>& context);
 

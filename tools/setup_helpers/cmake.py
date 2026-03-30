@@ -62,7 +62,6 @@ CMAKE_MINIMUM_VERSION = Version(CMAKE_MINIMUM_VERSION_STRING)
 WINDOWS_CMAKE_GENERATORS_BY_VISUAL_STUDIO_VERSION = {
     "16": "Visual Studio 16 2019",
     "17": "Visual Studio 17 2022",
-    "18": "Visual Studio 18 2026",
 }
 
 
