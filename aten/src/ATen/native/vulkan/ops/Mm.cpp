@@ -9,6 +9,10 @@
 #include <c10/core/InferenceMode.h>
 #include <c10/util/irange.h>
 
+#include <atomic>
+#include <deque>
+#include <fstream>
+
 namespace at {
 namespace native {
 namespace vulkan {
@@ -18,8 +22,208 @@ namespace {
 using namespace api::utils;
 using namespace at::native::vulkan::ops;
 
+constexpr size_t kLinearContextCacheSize = 128u;
+constexpr float kGeluBeta =
+    static_cast<float>(M_SQRT2 * M_2_SQRTPI * 0.5);
+
+enum class LinearPostOp : uint8_t {
+  None,
+  Gelu,
+};
+
+const std::string& linear_cache_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_LINEAR_CACHE_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool linear_cache_logging_enabled() {
+  return !linear_cache_log_path().empty();
+}
+
+struct LinearCacheLogState final {
+  std::atomic<uint64_t> lookups{0u};
+  std::atomic<uint64_t> hits{0u};
+  std::atomic<uint64_t> stores{0u};
+
+  ~LinearCacheLogState() {
+    if (!linear_cache_logging_enabled()) {
+      return;
+    }
+
+    std::ofstream out(linear_cache_log_path(), std::ios::app);
+    out << "linear_cache: lookups=" << lookups.load(std::memory_order_relaxed)
+        << " hits=" << hits.load(std::memory_order_relaxed)
+        << " stores=" << stores.load(std::memory_order_relaxed) << '\n';
+  }
+};
+
+LinearCacheLogState& linear_cache_log_state() {
+  static LinearCacheLogState state;
+  return state;
+}
+
+struct LinearContextCacheEntry final {
+  Tensor weight_ref;
+  std::optional<Tensor> bias_ref;
+  int64_t weight_version;
+  int64_t bias_version;
+  c10::intrusive_ptr<LinearPackedContext> context;
+};
+
+thread_local std::deque<LinearContextCacheEntry> linear_context_cache;
+
+std::optional<Tensor> normalized_optional_tensor(
+    const std::optional<Tensor>& tensor) {
+  if (tensor && tensor->defined()) {
+    return tensor;
+  }
+  return std::nullopt;
+}
+
+bool same_optional_tensor_impl(
+    const std::optional<Tensor>& lhs,
+    const std::optional<Tensor>& rhs) {
+  if (lhs.has_value() != rhs.has_value()) {
+    return false;
+  }
+  if (!lhs.has_value()) {
+    return true;
+  }
+  return lhs->unsafeGetTensorImpl() == rhs->unsafeGetTensorImpl();
+}
+
+std::optional<c10::intrusive_ptr<LinearPackedContext>> lookup_linear_context(
+    const Tensor& weight,
+    const std::optional<Tensor>& bias) {
+  if (!weight.is_vulkan() || weight.dim() != 2) {
+    return std::nullopt;
+  }
+
+  const auto normalized_bias = normalized_optional_tensor(bias);
+  if (linear_cache_logging_enabled()) {
+    linear_cache_log_state().lookups.fetch_add(1u, std::memory_order_relaxed);
+  }
+
+  const int64_t weight_version = weight._version();
+  const int64_t bias_version = normalized_bias ? normalized_bias->_version() : 0u;
+
+  for (auto it = linear_context_cache.begin(); it != linear_context_cache.end();
+       ++it) {
+    if (it->weight_ref.unsafeGetTensorImpl() != weight.unsafeGetTensorImpl() ||
+        it->weight_version != weight_version ||
+        !same_optional_tensor_impl(it->bias_ref, normalized_bias) ||
+        it->bias_version != bias_version) {
+      continue;
+    }
+
+    auto context = it->context;
+    if (it != linear_context_cache.begin()) {
+      LinearContextCacheEntry entry = std::move(*it);
+      linear_context_cache.erase(it);
+      linear_context_cache.emplace_front(std::move(entry));
+      context = linear_context_cache.front().context;
+    }
+    if (linear_cache_logging_enabled()) {
+      linear_cache_log_state().hits.fetch_add(1u, std::memory_order_relaxed);
+    }
+    return context;
+  }
+
+  return std::nullopt;
+}
+
+void store_linear_context(
+    const Tensor& weight,
+    const std::optional<Tensor>& bias,
+    const c10::intrusive_ptr<LinearPackedContext>& context) {
+  if (!weight.is_vulkan() || weight.dim() != 2) {
+    return;
+  }
+
+  const auto normalized_bias = normalized_optional_tensor(bias);
+  if (linear_cache_logging_enabled()) {
+    linear_cache_log_state().stores.fetch_add(1u, std::memory_order_relaxed);
+  }
+
+  LinearContextCacheEntry entry;
+  entry.weight_ref = weight;
+  entry.bias_ref = normalized_bias;
+  entry.weight_version = weight._version();
+  entry.bias_version = normalized_bias ? normalized_bias->_version() : 0u;
+  entry.context = context;
+
+  linear_context_cache.emplace_front(std::move(entry));
+  if (linear_context_cache.size() > kLinearContextCacheSize) {
+    linear_context_cache.pop_back();
+  }
+}
+
+c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
+    const Tensor& weight,
+    const std::optional<Tensor>& bias) {
+  if (const auto cached_context = lookup_linear_context(weight, bias)) {
+    return *cached_context;
+  }
+
+  const auto context = c10::make_intrusive<LinearPackedContext>(
+      LinearPackedContext(weight.t(), bias));
+  store_linear_context(weight, bias, context);
+  return context;
+}
+
+const std::string& linear_runtime_label(
+    const c10::intrusive_ptr<LinearPackedContext>& linear_context,
+    const char* fallback) {
+  if (
+      linear_context &&
+      !linear_context->allocation_label().empty()) {
+    return linear_context->allocation_label();
+  }
+  static const std::string kLinearLabel = "linear";
+  static const std::string kBmmLabel = "bmm";
+  return std::string(fallback) == "bmm" ? kBmmLabel : kLinearLabel;
+}
+
+std::string linear_pack_label(
+    const std::string& allocation_label,
+    const bool use_batch) {
+  if (allocation_label.empty()) {
+    return use_batch ? "bmm.pack" : "linear.pack";
+  }
+  return allocation_label + ".pack";
+}
+
 inline bool has_bias(const std::optional<Tensor>& bias) {
   return bias && bias->defined();
+}
+
+bool can_fuse_linear_bias(
+    const vTensor& v_output,
+    const vTensor& v_bias,
+    const std::vector<int64_t>& weight_sizes) {
+  if (
+      v_bias.storage_type() != api::StorageType::TEXTURE_3D ||
+      v_bias.gpu_memory_layout() !=
+          api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED) {
+    return false;
+  }
+
+  const IntArrayRef bias_sizes = v_bias.sizes();
+  if (bias_sizes.empty() || bias_sizes.size() > 2) {
+    return false;
+  }
+
+  const int64_t output_width = weight_sizes[Layout::Parameter::width];
+  const int64_t output_height = v_output.sizes()[Layout::Parameter::height];
+  const int64_t bias_width = bias_sizes.back();
+  const int64_t bias_height =
+      bias_sizes.size() == 2 ? bias_sizes.front() : 1;
+
+  return bias_width == output_width &&
+      (bias_height == 1 || bias_height == output_height);
 }
 
 Tensor materialize_inference_vulkan_matrix_arg(const Tensor& tensor) {
@@ -672,7 +876,10 @@ Tensor run_addmm_context(
     const c10::intrusive_ptr<LinearPackedContext>& linear_context,
     bool quantized,
     double output_scale,
-    int64_t output_zero_point) {
+    int64_t output_zero_point,
+    const LinearPostOp post_op = LinearPostOp::None) {
+  api::AllocationScope allocation_scope(
+      linear_runtime_label(linear_context, "linear"));
   if (quantized) {
     return run_quantized_addmm_context(
         input_arg,
@@ -731,54 +938,138 @@ Tensor run_addmm_context(
   api::ShaderInfo compute_shader;
   // Step size is the 2d input's w dimension / 4.
   int step_size = div_up(v_input.sizes()[Layout::Parameter::width], INT64_C(4));
+  const bool fuse_bias =
+      bias_defined && can_fuse_linear_bias(v_output, packed_v_bias, unpacked_weight_sizes);
+  const bool fuse_gelu = post_op == LinearPostOp::Gelu && fuse_bias;
 
-  const struct {
-    uvec3 shader_extents;
-    uint32_t mm_step_size;
-  } block_no_bias{
-      v_output.extents(),
-      safe_downcast<uint32_t>(step_size),
-  };
-  params = api::UniformParamsBuffer(context, block_no_bias);
-  compute_shader = VK_KERNEL(mm);
+  if (fuse_gelu) {
+    const struct {
+      uvec4 shader_extents_and_step;
+      uvec4 bias_extents;
+      vec2 multipliers;
+      vec4 gelu_params;
+    } block_with_bias_gelu{
+        {
+            v_output.extents().data[0u],
+            v_output.extents().data[1u],
+            v_output.extents().data[2u],
+            safe_downcast<uint32_t>(step_size),
+        },
+        {
+            packed_v_bias.extents().data[0u],
+            packed_v_bias.extents().data[1u],
+            packed_v_bias.extents().data[2u],
+            0u,
+        },
+        {alpha, beta},
+        {kGeluBeta, 0.0f, 0.0f, 0.0f},
+    };
+    params = api::UniformParamsBuffer(context, block_with_bias_gelu);
+    compute_shader = VK_KERNEL(mm_bias_gelu);
+  } else if (fuse_bias) {
+    const struct {
+      uvec4 shader_extents_and_step;
+      uvec4 bias_extents;
+      vec2 multipliers;
+    } block_with_bias{
+        {
+            v_output.extents().data[0u],
+            v_output.extents().data[1u],
+            v_output.extents().data[2u],
+            safe_downcast<uint32_t>(step_size),
+        },
+        {
+            packed_v_bias.extents().data[0u],
+            packed_v_bias.extents().data[1u],
+            packed_v_bias.extents().data[2u],
+            0u,
+        },
+        {alpha, beta},
+    };
+    params = api::UniformParamsBuffer(context, block_with_bias);
+    compute_shader = VK_KERNEL(mm_bias);
+  } else {
+    const struct {
+      uvec3 shader_extents;
+      uint32_t mm_step_size;
+    } block_no_bias{
+        v_output.extents(),
+        safe_downcast<uint32_t>(step_size),
+    };
+    params = api::UniformParamsBuffer(context, block_no_bias);
+    compute_shader = VK_KERNEL(mm);
+  }
 
   api::PipelineBarrier pipeline_barrier{};
 
-  context->submit_compute_job(
-      // shader descriptor
-      compute_shader,
-      // pipeline barrier
-      pipeline_barrier,
-      // global work group size
-      {
-          safe_downcast<uint32_t>(
-              div_up(v_output.sizes()[Layout::Parameter::width], INT64_C(4))),
-          safe_downcast<uint32_t>(
-              div_up(v_output.sizes()[Layout::Parameter::height], INT64_C(4))),
-          1,
-      },
-      // local work group size
-      {8, 8, 1},
-      // fence handle
-      VK_NULL_HANDLE,
-      // shader arguments
-      v_output.image(
-          pipeline_barrier,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::WRITE),
-      v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
-      packed_v_weight.image(pipeline_barrier, api::PipelineStage::COMPUTE),
-      // params buffer
-      params.buffer());
+  if (fuse_bias) {
+    context->submit_compute_job(
+        // shader descriptor
+        compute_shader,
+        // pipeline barrier
+        pipeline_barrier,
+        // global work group size
+        {
+            safe_downcast<uint32_t>(div_up(
+                v_output.sizes()[Layout::Parameter::width], INT64_C(4))),
+            safe_downcast<uint32_t>(div_up(
+                v_output.sizes()[Layout::Parameter::height], INT64_C(4))),
+            1,
+        },
+        // local work group size
+        {8, 8, 1},
+        // fence handle
+        VK_NULL_HANDLE,
+        // shader arguments
+        v_output.image(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+        packed_v_weight.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+        packed_v_bias.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+        // params buffer
+        params.buffer());
+  } else {
+    context->submit_compute_job(
+        // shader descriptor
+        compute_shader,
+        // pipeline barrier
+        pipeline_barrier,
+        // global work group size
+        {
+            safe_downcast<uint32_t>(div_up(
+                v_output.sizes()[Layout::Parameter::width], INT64_C(4))),
+            safe_downcast<uint32_t>(div_up(
+                v_output.sizes()[Layout::Parameter::height], INT64_C(4))),
+            1,
+        },
+        // local work group size
+        {8, 8, 1},
+        // fence handle
+        VK_NULL_HANDLE,
+        // shader arguments
+        v_output.image(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+        packed_v_weight.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+        // params buffer
+        params.buffer());
+  }
 
   Tensor output = convert(v_output);
 
   // addmm/linear operation, multiplying by alpha and adding bias when present.
-  if (alpha != 1.0f) {
+  if (!fuse_bias && alpha != 1.0f) {
     output = output.mul(alpha);
   }
-  if (bias_defined) {
+  if (!fuse_bias && bias_defined) {
     output = output.add(convert(packed_v_bias).mul(beta));
+  }
+  if (post_op == LinearPostOp::Gelu && !fuse_gelu) {
+    output = at::gelu(output, "none");
   }
 
   if (input_arg.dim() == 2) {
@@ -799,6 +1090,7 @@ Tensor run_baddbmm_context(
     const float alpha,
     const float beta,
     const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
+  api::AllocationScope allocation_scope("bmm");
   // TODO: Refactor run_baddbmm_context and run_addmm_context into one.
   api::Context* const context = api::context();
 
@@ -926,22 +1218,29 @@ Tensor linear(
     const Tensor& input,
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
-  Tensor linear_weight = weight;
-  if (c10::InferenceMode::is_enabled() && weight.is_vulkan()) {
-    // Materialize the weight before transposing it. Transposing a Vulkan
-    // parameter directly under inference mode can produce a tensor that later
-    // trips version-counter propagation inside the Vulkan mm/addmm path.
-    linear_weight = weight.clone();
-  }
   return run_addmm_context(
       input,
       1.0f,
       1.0f,
-      c10::make_intrusive<LinearPackedContext>(
-          LinearPackedContext(linear_weight.t(), bias)),
+      get_or_create_linear_context(weight, bias),
       false,
       0,
       0);
+}
+
+Tensor linear_gelu(
+    const Tensor& input,
+    const Tensor& weight,
+    const std::optional<Tensor>& bias) {
+  return run_addmm_context(
+      input,
+      1.0f,
+      1.0f,
+      get_or_create_linear_context(weight, bias),
+      false,
+      0,
+      0,
+      LinearPostOp::Gelu);
 }
 
 Tensor mm(const Tensor& mat1_arg, const Tensor& mat2_arg) {
@@ -996,8 +1295,12 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
 LinearPackedContext::LinearPackedContext(
     const Tensor& weight,
     const std::optional<Tensor>& bias,
-    const bool use_batch)
+    const bool use_batch,
+    std::string allocation_label)
     : unpacked_{c10::AnyType::get()} {
+  allocation_label_ = std::move(allocation_label);
+  api::AllocationScope allocation_scope(
+      linear_pack_label(allocation_label_, use_batch));
   const Tensor packed_weight =
       use_batch ? weight : materialize_inference_vulkan_matrix_arg(weight);
   TORCH_CHECK(
@@ -1035,10 +1338,32 @@ c10::intrusive_ptr<LinearPackedContext> create_linear_context(
       LinearPackedContext(weight, bias));
 }
 
+c10::intrusive_ptr<LinearPackedContext> create_linear_context_labeled(
+    Tensor&& weight,
+    std::optional<Tensor>&& bias,
+    std::string label) {
+  return c10::make_intrusive<LinearPackedContext>(
+      LinearPackedContext(weight.t(), bias, false, std::move(label)));
+}
+
 Tensor run_linear_context(
     const Tensor& input,
     const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
   return run_addmm_context(input, 1.0f, 1.0f, linear_context, false, 0, 0);
+}
+
+Tensor run_linear_gelu_context(
+    const Tensor& input,
+    const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
+  return run_addmm_context(
+      input,
+      1.0f,
+      1.0f,
+      linear_context,
+      false,
+      0,
+      0,
+      LinearPostOp::Gelu);
 }
 
 Tensor run_qlinear_context(

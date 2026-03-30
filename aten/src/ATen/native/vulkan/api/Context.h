@@ -16,6 +16,8 @@
 #include <ATen/native/vulkan/api/Shader.h>
 #include <ATen/native/vulkan/api/Utils.h>
 
+#include <atomic>
+
 namespace at {
 namespace native {
 namespace vulkan {
@@ -75,6 +77,11 @@ class Context final {
   std::vector<VulkanBuffer> buffers_to_clear_;
   std::mutex image_clearlist_mutex_;
   std::vector<VulkanImage> images_to_clear_;
+  std::atomic<uint64_t> pending_cleanup_bytes_;
+  std::atomic<uint32_t> submissions_since_reclaim_;
+  uint32_t reclaims_since_pool_flush_;
+
+  void clear_deferred_cleanup_locked();
 
  public:
   // Adapter access
@@ -146,14 +153,35 @@ class Context final {
 
   // Memory Management
   void register_buffer_cleanup(VulkanBuffer& buffer) {
+    if (buffer.owns_memory()) {
+      pending_cleanup_bytes_.fetch_add(
+          static_cast<uint64_t>(buffer.allocated_size()),
+          std::memory_order_relaxed);
+    }
     std::lock_guard<std::mutex> bufferlist_lock(buffer_clearlist_mutex_);
     buffers_to_clear_.emplace_back(std::move(buffer));
   }
 
   void register_image_cleanup(VulkanImage& image) {
+    if (image.owns_memory()) {
+      pending_cleanup_bytes_.fetch_add(
+          static_cast<uint64_t>(image.allocated_size()),
+          std::memory_order_relaxed);
+    }
     std::lock_guard<std::mutex> imagelist_lock(image_clearlist_mutex_);
     images_to_clear_.emplace_back(std::move(image));
   }
+
+  inline uint64_t pending_cleanup_bytes() const {
+    return pending_cleanup_bytes_.load(std::memory_order_relaxed);
+  }
+
+  inline uint32_t submissions_since_reclaim() const {
+    return submissions_since_reclaim_.load(std::memory_order_relaxed);
+  }
+
+  bool should_sync_and_reclaim();
+  void sync_and_reclaim();
 
   // GPU RPC
 

@@ -13,6 +13,7 @@
 #include <mutex>
 #include <ostream>
 #include <stack>
+#include <string>
 #include <unordered_map>
 
 std::ostream& operator<<(std::ostream& out, VmaTotalStatistics stats);
@@ -21,6 +22,25 @@ namespace at {
 namespace native {
 namespace vulkan {
 namespace api {
+
+const std::string& current_allocation_label();
+
+class AllocationScope final {
+ public:
+  explicit AllocationScope(const char* label);
+  explicit AllocationScope(const std::string& label);
+
+  AllocationScope(const AllocationScope&) = delete;
+  AllocationScope& operator=(const AllocationScope&) = delete;
+
+  AllocationScope(AllocationScope&&) = delete;
+  AllocationScope& operator=(AllocationScope&&) = delete;
+
+  ~AllocationScope();
+
+ private:
+  std::string previous_;
+};
 
 using MemoryAccessFlags = uint8_t;
 
@@ -108,6 +128,8 @@ class VulkanBuffer final {
   BufferProperties buffer_properties_;
   VmaAllocator allocator_;
   MemoryAllocation memory_;
+  VkDeviceSize allocated_size_;
+  std::string allocation_label_;
   // Indicates whether the underlying memory is owned by this resource
   bool owns_memory_;
   VkBuffer handle_;
@@ -145,6 +167,10 @@ class VulkanBuffer final {
 
   inline VkDeviceSize mem_size() const {
     return buffer_properties_.size;
+  }
+
+  inline VkDeviceSize allocated_size() const {
+    return allocated_size_;
   }
 
   inline bool has_memory() const {
@@ -308,6 +334,8 @@ class VulkanImage final {
   VmaAllocator allocator_;
   // Handles to the allocated memory
   MemoryAllocation memory_;
+  VkDeviceSize allocated_size_;
+  std::string allocation_label_;
   // Indicates whether the underlying memory is owned by this resource
   bool owns_memory_;
   Handles handles_;
@@ -366,6 +394,10 @@ class VulkanImage final {
 
   inline VkImageLayout layout() const {
     return layout_;
+  }
+
+  inline VkDeviceSize allocated_size() const {
+    return allocated_size_;
   }
 
   inline void set_layout(const VkImageLayout layout) {

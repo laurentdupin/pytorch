@@ -173,6 +173,7 @@ if sys.platform == "win32":
         pfiles_path = os.getenv("ProgramFiles", r"C:\Program Files")
         py_dll_path = os.path.join(sys.exec_prefix, "Library", "bin")
         th_dll_path = os.path.join(os.path.dirname(__file__), "lib")
+        local_build_bin_path = os.getenv("TORCH_LOCAL_BUILD_BIN", "")
         usebase_path = os.path.join(
             sysconfig.get_config_var("userbase"), "Library", "bin"
         )
@@ -189,6 +190,7 @@ if sys.platform == "win32":
         dll_paths = [
             p
             for p in (
+                local_build_bin_path,
                 th_dll_path,
                 py_dll_path,
                 base_py_dll_path,

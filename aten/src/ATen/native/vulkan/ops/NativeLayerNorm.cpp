@@ -10,6 +10,15 @@ namespace {
 
 using namespace api::utils;
 
+void maybe_synchronize_vulkan_context() {
+  api::Context* const context = api::context();
+  if (context->should_sync_and_reclaim()) {
+    // The no-spill path only needs a lightweight device-side reclaim barrier
+    // when deferred Vulkan cleanup pressure or submission age gets too high.
+    context->sync_and_reclaim();
+  }
+}
+
 void _check_layer_norm_inputs(
     const at::Tensor& input,
     IntArrayRef normalized_shape,
@@ -59,6 +68,7 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm(
     const std::optional<Tensor>& weight_opt /* optional */,
     const std::optional<Tensor>& bias_opt /* optional */,
     double eps) {
+  api::AllocationScope allocation_scope("layer_norm");
   _check_layer_norm_inputs(input_arg, normalized_shape, weight_opt, bias_opt);
 
   TORCH_CHECK(
@@ -98,9 +108,7 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm(
   // https://pytorch.org/docs/stable/generated/torch.nn.LayerNorm.html
   auto layernorm = input_minus_mean.mul(std_inv).mul(weight).add(bias);
   if (c10::InferenceMode::is_enabled()) {
-    // Materialize the affine output through a fresh Vulkan tensor. Without this,
-    // later nD linear ops can crash on the layernorm result under inference mode.
-    layernorm = layernorm.cpu().vulkan();
+    maybe_synchronize_vulkan_context();
   }
   std::tuple<Tensor, Tensor, Tensor> output =
       std::make_tuple(layernorm, mean, std_inv);

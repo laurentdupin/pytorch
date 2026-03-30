@@ -1,5 +1,9 @@
 # Owner(s): ["oncall: mobile"]
 
+import os
+import subprocess
+import sys
+import textwrap
 import unittest
 import torch
 import torch.nn as nn
@@ -617,6 +621,162 @@ class TestVulkanEagerRuntime(TestCase):
             with self.subTest(case=name):
                 self._assert_vulkan_matches_cpu(fn, *args, atol=atol, rtol=rtol)
 
+    def test_conv2d_module_with_vulkan_weights(self):
+        torch.manual_seed(0)
+
+        module_cpu = torch.nn.Conv2d(
+            3,
+            12,
+            kernel_size=4,
+            stride=4,
+            bias=True).eval()
+        module_vulkan = torch.nn.Conv2d(
+            3,
+            12,
+            kernel_size=4,
+            stride=4,
+            bias=True).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+
+        module_cpu_nobias = torch.nn.Conv2d(
+            3,
+            12,
+            kernel_size=4,
+            stride=4,
+            bias=False).eval()
+        module_vulkan_nobias = torch.nn.Conv2d(
+            3,
+            12,
+            kernel_size=4,
+            stride=4,
+            bias=False).eval()
+        module_vulkan_nobias.load_state_dict(module_cpu_nobias.state_dict())
+        module_vulkan_nobias = module_vulkan_nobias.to("vulkan")
+
+        x_cpu = torch.randn(1, 3, 16, 20)
+        x_vulkan = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected = module_cpu(x_cpu)
+            actual = module_vulkan(x_vulkan).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+
+            actual_functional = F.conv2d(
+                x_vulkan,
+                module_vulkan.weight,
+                module_vulkan.bias,
+                stride=4).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual_functional,
+                atol=1e-4,
+                rtol=1e-4)
+
+            expected_nobias = module_cpu_nobias(x_cpu)
+            actual_nobias = module_vulkan_nobias(x_vulkan).cpu()
+            self._assert_outputs_close(
+                expected_nobias,
+                actual_nobias,
+                atol=1e-4,
+                rtol=1e-4)
+
+    def test_large_pointwise_conv2d_module_with_vulkan_weights(self):
+        torch.manual_seed(0)
+
+        x_cpu = torch.randn(1, 384, 7, 9)
+        x_vulkan = x_cpu.to("vulkan")
+
+        for out_channels in (192, 384):
+            with self.subTest(out_channels=out_channels):
+                module_cpu = torch.nn.Conv2d(
+                    384,
+                    out_channels,
+                    kernel_size=1,
+                    bias=True).eval()
+                module_vulkan = torch.nn.Conv2d(
+                    384,
+                    out_channels,
+                    kernel_size=1,
+                    bias=True).eval()
+                module_vulkan.load_state_dict(module_cpu.state_dict())
+                module_vulkan = module_vulkan.to("vulkan")
+
+                with torch.inference_mode():
+                    expected = module_cpu(x_cpu)
+                    actual = module_vulkan(x_vulkan).cpu()
+                    self._assert_outputs_close(
+                        expected,
+                        actual,
+                        atol=1e-4,
+                        rtol=1e-4)
+
+    def test_large_pointwise_conv_weight_roundtrip(self):
+        torch.manual_seed(0)
+
+        for out_channels in (192, 384):
+            with self.subTest(out_channels=out_channels):
+                weight_cpu = torch.randn(out_channels, 384, 1, 1)
+
+                with torch.inference_mode():
+                    weight_vulkan = weight_cpu.to("vulkan")
+                    roundtrip = weight_vulkan.cpu()
+                    self._assert_outputs_close(
+                        weight_cpu,
+                        roundtrip,
+                        atol=1e-4,
+                        rtol=1e-4)
+
+    def test_large_spatial_conv2d_module_with_vulkan_weights(self):
+        torch.manual_seed(0)
+
+        x_cpu = torch.randn(1, 384, 37, 56)
+        x_vulkan = x_cpu.to("vulkan")
+
+        module_cpu = torch.nn.Conv2d(
+            384,
+            384,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+            bias=True).eval()
+        module_vulkan = torch.nn.Conv2d(
+            384,
+            384,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+            bias=True).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+
+        with torch.inference_mode():
+            expected = module_cpu(x_cpu)
+            actual = module_vulkan(x_vulkan).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+
+    def test_large_spatial_conv_weight_roundtrip(self):
+        torch.manual_seed(0)
+
+        weight_cpu = torch.randn(384, 384, 3, 3)
+
+        with torch.inference_mode():
+            weight_vulkan = weight_cpu.to("vulkan")
+            roundtrip = weight_vulkan.cpu()
+            self._assert_outputs_close(
+                weight_cpu,
+                roundtrip,
+                atol=1e-4,
+                rtol=1e-4)
+
     def test_small_conv_block(self):
         torch.manual_seed(0)
 
@@ -705,6 +865,29 @@ class TestVulkanEagerRuntime(TestCase):
                 atol=1e-4,
                 rtol=1e-4)
 
+            labeled_context = torch.ops.vulkan_prepack.create_linear_context_labeled(
+                module_vulkan.weight,
+                module_vulkan.bias,
+                "test_linear")
+            actual_labeled = torch.ops.vulkan_prepack.run_linear_context(
+                x_vulkan,
+                labeled_context).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual_labeled,
+                atol=1e-4,
+                rtol=1e-4)
+
+            expected_gelu = F.gelu(expected)
+            actual_gelu = torch.ops.vulkan_prepack.run_linear_gelu_context(
+                x_vulkan,
+                labeled_context).cpu()
+            self._assert_outputs_close(
+                expected_gelu,
+                actual_gelu,
+                atol=1e-4,
+                rtol=1e-4)
+
     def test_layer_norm_then_linear_in_inference_mode(self):
         torch.manual_seed(0)
         x_cpu = torch.randn(1, 16, 32)
@@ -735,6 +918,160 @@ class TestVulkanEagerRuntime(TestCase):
                 actual,
                 atol=1e-4,
                 rtol=1e-4)
+
+    def test_repeated_transformer_block_in_inference_mode(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = os.environ.copy()
+        existing_pythonpath = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = (
+            repo_root
+            if not existing_pythonpath
+            else repo_root + os.pathsep + existing_pythonpath
+        )
+
+        script = textwrap.dedent(
+            """
+            import torch
+            import torch.nn as nn
+            import torch.nn.functional as F
+
+            class TinyTransformerBlock(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.norm1 = nn.LayerNorm(64, eps=1e-6)
+                    self.qkv = nn.Linear(64, 64 * 3, bias=True)
+                    self.proj = nn.Linear(64, 64, bias=True)
+                    self.norm2 = nn.LayerNorm(64, eps=1e-6)
+                    self.fc1 = nn.Linear(64, 256, bias=True)
+                    self.fc2 = nn.Linear(256, 64, bias=True)
+
+                def forward(self, x):
+                    residual = x
+                    qkv = self.qkv(self.norm1(x)).reshape(1, 257, 3, 64)
+                    q = qkv[:, :, 0].reshape(1, 257, 4, 16)
+                    k = qkv[:, :, 1].reshape(1, 257, 4, 16)
+                    v = qkv[:, :, 2].reshape(1, 257, 4, 16)
+                    q = q.permute(0, 2, 1, 3).reshape(4, 257, 16) * (16 ** -0.5)
+                    k = k.permute(0, 2, 1, 3).reshape(4, 257, 16)
+                    v = v.permute(0, 2, 1, 3).reshape(4, 257, 16)
+                    x = F.scaled_dot_product_attention(
+                        q,
+                        k,
+                        v,
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=1.0).reshape(1, 4, 257, 16)
+                    x = x.permute(0, 2, 1, 3).reshape(1, 257, 64)
+                    x = residual + self.proj(x)
+                    residual = x
+                    x = self.norm2(x)
+                    x = self.fc2(F.gelu(self.fc1(x)))
+                    return residual + x
+
+            block = TinyTransformerBlock().eval().to("vulkan")
+            x = torch.randn(1, 257, 64, dtype=torch.float32).to("vulkan")
+
+            with torch.inference_mode():
+                for _ in range(12):
+                    x = block(x)
+
+                print(float(x.cpu().mean()))
+            """
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            env=env,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            msg=(
+                "Repeated inference transformer block crashed on Vulkan.\n"
+                f"stdout:\n{result.stdout}\n"
+                f"stderr:\n{result.stderr}"
+            ),
+        )
+
+    def test_scaled_dot_product_attention(self):
+        torch.manual_seed(0)
+        cases = [
+            (
+                "sdpa_4d",
+                torch.randn(1, 2, 9, 8),
+                torch.randn(1, 2, 7, 8),
+                torch.randn(1, 2, 7, 8),
+            ),
+            (
+                "sdpa_3d",
+                torch.randn(2, 9, 8),
+                torch.randn(2, 7, 8),
+                torch.randn(2, 7, 8),
+            ),
+            (
+                "sdpa_3d_batchpacked_head64",
+                torch.randn(6, 33, 64),
+                torch.randn(6, 29, 64),
+                torch.randn(6, 29, 64),
+            ),
+            (
+                "sdpa_4d_transformerish",
+                torch.randn(1, 6, 33, 64),
+                torch.randn(1, 6, 29, 64),
+                torch.randn(1, 6, 29, 64),
+            ),
+        ]
+
+        with torch.inference_mode():
+            for name, query, key, value in cases:
+                with self.subTest(case=name):
+                    expected = F.scaled_dot_product_attention(
+                        query,
+                        key,
+                        value,
+                        dropout_p=0.0,
+                        scale=0.125)
+                    actual = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0,
+                        scale=0.125).cpu()
+                    self._assert_outputs_close(
+                        expected,
+                        actual,
+                        atol=1e-4,
+                        rtol=1e-4)
+
+                    expected_math = torch.ops.aten._scaled_dot_product_attention_math(
+                        query,
+                        key,
+                        value,
+                        None,
+                        0.0,
+                        False,
+                        None,
+                        scale=0.125,
+                        enable_gqa=False)[0]
+                    actual_math = torch.ops.aten._scaled_dot_product_attention_math(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        None,
+                        0.0,
+                        False,
+                        None,
+                        scale=0.125,
+                        enable_gqa=False)[0].cpu()
+                    self._assert_outputs_close(
+                        expected_math,
+                        actual_math,
+                        atol=1e-4,
+                        rtol=1e-4)
 
     def test_depth_anything_v2_style_dpt_decoder(self):
         torch.manual_seed(0)

@@ -9,7 +9,14 @@
 #include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <c10/core/TensorImpl.h>
 #include <c10/util/irange.h>
+
+#include <atomic>
+#include <array>
+#include <deque>
+#include <fstream>
+#include <sstream>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -514,16 +521,244 @@ namespace {
 
 using namespace api::utils;
 
+constexpr size_t kPackedConv2dContextCacheSize = 128u;
+
+const std::string& conv_cache_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_CONV_CACHE_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool conv_cache_logging_enabled() {
+  return !conv_cache_log_path().empty();
+}
+
+struct ConvCacheLogState final {
+  std::atomic<uint64_t> lookups{0u};
+  std::atomic<uint64_t> hits{0u};
+  std::atomic<uint64_t> stores{0u};
+  std::atomic<uint64_t> vulkan_pack_weights{0u};
+  std::atomic<uint64_t> vulkan_to_cpu_copies{0u};
+
+  ~ConvCacheLogState() {
+    if (!conv_cache_logging_enabled()) {
+      return;
+    }
+
+    std::ofstream out(conv_cache_log_path(), std::ios::app);
+    out << "conv_cache: lookups=" << lookups.load(std::memory_order_relaxed)
+        << " hits=" << hits.load(std::memory_order_relaxed)
+        << " stores=" << stores.load(std::memory_order_relaxed)
+        << " vulkan_pack_weights="
+        << vulkan_pack_weights.load(std::memory_order_relaxed)
+        << " vulkan_to_cpu_copies="
+        << vulkan_to_cpu_copies.load(std::memory_order_relaxed) << '\n';
+  }
+};
+
+ConvCacheLogState& conv_cache_log_state() {
+  static ConvCacheLogState state;
+  return state;
+}
+
+struct PackedConv2dCacheEntry final {
+  Tensor weight_ref;
+  std::optional<Tensor> bias_ref;
+  int64_t weight_version;
+  int64_t bias_version;
+  std::array<int64_t, 2> stride;
+  std::array<int64_t, 2> padding;
+  std::array<int64_t, 2> dilation;
+  std::array<int64_t, 2> output_padding;
+  int64_t groups;
+  bool transposed;
+  bool quantized;
+  bool has_output_min;
+  float output_min;
+  bool has_output_max;
+  float output_max;
+  c10::intrusive_ptr<Conv2dPackedContext> context;
+};
+
+thread_local std::deque<PackedConv2dCacheEntry> packed_conv2d_context_cache;
+
+std::array<int64_t, 2> make_param_key(const IntArrayRef values) {
+  TORCH_INTERNAL_ASSERT(values.size() == 2, "Invalid convolution parameter");
+  return {values[0], values[1]};
+}
+
+std::optional<Tensor> normalized_optional_tensor(
+    const std::optional<Tensor>& tensor) {
+  if (tensor && tensor->defined()) {
+    return tensor;
+  }
+  return std::nullopt;
+}
+
+bool same_optional_tensor_impl(
+    const std::optional<Tensor>& lhs,
+    const std::optional<Tensor>& rhs) {
+  if (lhs.has_value() != rhs.has_value()) {
+    return false;
+  }
+  if (!lhs.has_value()) {
+    return true;
+  }
+  return lhs->unsafeGetTensorImpl() == rhs->unsafeGetTensorImpl();
+}
+
+std::optional<c10::intrusive_ptr<Conv2dPackedContext>> lookup_packed_conv2d_context(
+    const Tensor& weight,
+    const std::optional<Tensor>& bias,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const bool transposed,
+    const bool quantized,
+    const IntArrayRef output_padding,
+    const int64_t groups,
+    const std::optional<Scalar>& output_min,
+    const std::optional<Scalar>& output_max) {
+  const auto normalized_bias = normalized_optional_tensor(bias);
+  if (!weight.is_vulkan() || (normalized_bias && !normalized_bias->is_vulkan())) {
+    return std::nullopt;
+  }
+
+  if (conv_cache_logging_enabled()) {
+    conv_cache_log_state().lookups.fetch_add(1u, std::memory_order_relaxed);
+  }
+
+  const int64_t weight_version = weight._version();
+  const int64_t bias_version = normalized_bias
+      ? normalized_bias->_version()
+      : 0u;
+  const auto stride_key = make_param_key(stride);
+  const auto padding_key = make_param_key(padding);
+  const auto dilation_key = make_param_key(dilation);
+  const auto output_padding_key = make_param_key(output_padding);
+  const bool has_output_min = output_min.has_value();
+  const float output_min_value =
+      has_output_min ? output_min->to<float>() : 0.0f;
+  const bool has_output_max = output_max.has_value();
+  const float output_max_value =
+      has_output_max ? output_max->to<float>() : 0.0f;
+
+  for (auto it = packed_conv2d_context_cache.begin();
+       it != packed_conv2d_context_cache.end();
+       ++it) {
+    if (it->weight_ref.unsafeGetTensorImpl() != weight.unsafeGetTensorImpl() ||
+        it->weight_version != weight_version ||
+        !same_optional_tensor_impl(it->bias_ref, normalized_bias) ||
+        it->bias_version != bias_version || it->stride != stride_key ||
+        it->padding != padding_key || it->dilation != dilation_key ||
+        it->output_padding != output_padding_key || it->groups != groups ||
+        it->transposed != transposed || it->quantized != quantized ||
+        it->has_output_min != has_output_min ||
+        (has_output_min && it->output_min != output_min_value) ||
+        it->has_output_max != has_output_max ||
+        (has_output_max && it->output_max != output_max_value)) {
+      continue;
+    }
+
+    auto context = it->context;
+    if (it != packed_conv2d_context_cache.begin()) {
+      PackedConv2dCacheEntry entry = std::move(*it);
+      packed_conv2d_context_cache.erase(it);
+      packed_conv2d_context_cache.emplace_front(std::move(entry));
+      context = packed_conv2d_context_cache.front().context;
+    }
+    if (conv_cache_logging_enabled()) {
+      conv_cache_log_state().hits.fetch_add(1u, std::memory_order_relaxed);
+    }
+    return context;
+  }
+
+  return std::nullopt;
+}
+
+void store_packed_conv2d_context(
+    const Tensor& weight,
+    const std::optional<Tensor>& bias,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const bool transposed,
+    const bool quantized,
+    const IntArrayRef output_padding,
+    const int64_t groups,
+    const std::optional<Scalar>& output_min,
+    const std::optional<Scalar>& output_max,
+    const c10::intrusive_ptr<Conv2dPackedContext>& context) {
+  const auto normalized_bias = normalized_optional_tensor(bias);
+  if (!weight.is_vulkan() || (normalized_bias && !normalized_bias->is_vulkan())) {
+    return;
+  }
+
+  if (conv_cache_logging_enabled()) {
+    conv_cache_log_state().stores.fetch_add(1u, std::memory_order_relaxed);
+  }
+
+  PackedConv2dCacheEntry entry;
+  entry.weight_ref = weight;
+  entry.bias_ref = normalized_bias;
+  entry.weight_version = weight._version();
+  entry.bias_version = normalized_bias ? normalized_bias->_version() : 0u;
+  entry.stride = make_param_key(stride);
+  entry.padding = make_param_key(padding);
+  entry.dilation = make_param_key(dilation);
+  entry.output_padding = make_param_key(output_padding);
+  entry.groups = groups;
+  entry.transposed = transposed;
+  entry.quantized = quantized;
+  entry.has_output_min = output_min.has_value();
+  entry.output_min = output_min ? output_min->to<float>() : 0.0f;
+  entry.has_output_max = output_max.has_value();
+  entry.output_max = output_max ? output_max->to<float>() : 0.0f;
+  entry.context = context;
+
+  packed_conv2d_context_cache.emplace_front(std::move(entry));
+  if (packed_conv2d_context_cache.size() > kPackedConv2dContextCacheSize) {
+    packed_conv2d_context_cache.pop_back();
+  }
+}
+
+Tensor copy_vulkan_tensor_to_cpu(const Tensor& src) {
+  if (!src.is_vulkan()) {
+    return src;
+  }
+
+  if (conv_cache_logging_enabled()) {
+    conv_cache_log_state().vulkan_to_cpu_copies.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+
+  if (convert(src).storage_type() == api::StorageType::BUFFER) {
+    return src.cpu();
+  }
+
+  Tensor dst;
+  transfer_vulkan_to_cpu(convert(src), dst);
+  return dst;
+}
+
 vTensor pack_weights(
     const Tensor& weight_inp,
     const bool transposed,
     const bool quantized,
     const Conv2dMethod conv_method) {
-  if (weight_inp.is_vulkan()) {
-    return convert(weight_inp);
+  if (conv_cache_logging_enabled() && weight_inp.is_vulkan()) {
+    conv_cache_log_state().vulkan_pack_weights.fetch_add(
+        1u, std::memory_order_relaxed);
   }
 
-  const Tensor weight_arg = quantized ? at::dequantize(weight_inp) : weight_inp;
+  // Raw Vulkan module weights are not in the shader-packed layout that the
+  // convolution kernels expect. Re-materialize them on CPU first so they go
+  // through the same rearrangement path as CPU-resident weights.
+  const Tensor weight_source = copy_vulkan_tensor_to_cpu(weight_inp);
+  const Tensor weight_arg =
+      quantized ? at::dequantize(weight_source) : weight_source;
 
   const Tensor weight = transposed
       ? at::permute(weight_arg, {1, 0, 2, 3}).contiguous()
@@ -778,7 +1013,22 @@ Tensor convolution(
     const bool transposed,
     const IntArrayRef output_padding,
     const int64_t groups) {
-  Conv2dPackedContext conv_context = Conv2dPackedContext(
+  if (const auto cached_context = lookup_packed_conv2d_context(
+          weight,
+          bias,
+          stride,
+          padding,
+          dilation,
+          transposed,
+          false,
+          output_padding,
+          groups,
+          std::nullopt,
+          std::nullopt)) {
+    return run_conv2d_context(input, *cached_context);
+  }
+
+  auto conv_context = c10::make_intrusive<Conv2dPackedContext>(
       weight,
       bias,
       stride,
@@ -788,9 +1038,21 @@ Tensor convolution(
       false,
       output_padding,
       groups);
+  store_packed_conv2d_context(
+      weight,
+      bias,
+      stride,
+      padding,
+      dilation,
+      transposed,
+      false,
+      output_padding,
+      groups,
+      std::nullopt,
+      std::nullopt,
+      conv_context);
 
-  return run_conv2d_context(
-      input, c10::make_intrusive<Conv2dPackedContext>(conv_context));
+  return run_conv2d_context(input, conv_context);
 }
 
 } // namespace

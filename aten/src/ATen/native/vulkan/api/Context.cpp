@@ -1,6 +1,8 @@
 #include <ATen/native/vulkan/api/Context.h>
 
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <sstream>
 
@@ -16,6 +18,46 @@ namespace at {
 namespace native {
 namespace vulkan {
 namespace api {
+
+namespace {
+
+constexpr uint64_t kCleanupSoftThresholdBytes = 512ull * 1024ull * 1024ull;
+constexpr uint64_t kCleanupHardThresholdBytes = 1024ull * 1024ull * 1024ull;
+constexpr uint32_t kCleanupSubmissionThreshold = 8u;
+constexpr uint32_t kCleanupMaxSubmissionThreshold = 16u;
+constexpr uint32_t kSoftReclaimsPerPoolFlush = 8u;
+
+const std::string& sync_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_SYNC_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool sync_logging_enabled() {
+  return !sync_log_path().empty();
+}
+
+std::string format_sync_bytes(const uint64_t bytes) {
+  std::ostringstream stream;
+  const double mib = static_cast<double>(bytes) / (1024.0 * 1024.0);
+  stream.setf(std::ios::fixed);
+  stream.precision(2);
+  stream << mib << " MiB";
+  return stream.str();
+}
+
+void append_sync_log_line(const std::string& line) {
+  if (!sync_logging_enabled()) {
+    return;
+  }
+
+  std::ofstream out(sync_log_path(), std::ios::app);
+  out << line << '\n';
+}
+
+} // namespace
 
 Context::Context(size_t adapter_i, const ContextConfig& config)
     : config_(config),
@@ -39,7 +81,10 @@ Context::Context(size_t adapter_i, const ContextConfig& config)
       buffer_clearlist_mutex_{},
       buffers_to_clear_{},
       image_clearlist_mutex_{},
-      images_to_clear_{} {
+      images_to_clear_{},
+      pending_cleanup_bytes_{0u},
+      submissions_since_reclaim_{0u},
+      reclaims_since_pool_flush_{0u} {
 }
 
 Context::~Context() {
@@ -102,10 +147,88 @@ void Context::submit_cmd_to_gpu(VkFence fence_handle, const bool final_use) {
         queue_, cmd_.get_submit_handle(final_use), fence_handle);
 
     submit_count_ = 0u;
+    submissions_since_reclaim_.fetch_add(1u, std::memory_order_relaxed);
   }
 }
 
+void Context::clear_deferred_cleanup_locked() {
+  std::lock_guard<std::mutex> bufferlist_lock(buffer_clearlist_mutex_);
+  std::lock_guard<std::mutex> imagelist_lock(image_clearlist_mutex_);
+  buffers_to_clear_.clear();
+  images_to_clear_.clear();
+  pending_cleanup_bytes_.store(0u, std::memory_order_relaxed);
+}
+
+bool Context::should_sync_and_reclaim() {
+  const uint64_t pending_cleanup = pending_cleanup_bytes();
+  const uint32_t submitted_work = submissions_since_reclaim();
+
+  return pending_cleanup >= kCleanupHardThresholdBytes ||
+      (pending_cleanup >= kCleanupSoftThresholdBytes &&
+       submitted_work >= kCleanupSubmissionThreshold) ||
+      submitted_work >= kCleanupMaxSubmissionThreshold;
+}
+
+void Context::sync_and_reclaim() {
+  const uint64_t pending_cleanup = pending_cleanup_bytes();
+  const uint32_t submitted_work = submissions_since_reclaim();
+  if (pending_cleanup == 0u && submitted_work == 0u && submit_count_ == 0u) {
+    return;
+  }
+
+  const bool full_pool_flush =
+      pending_cleanup >= kCleanupHardThresholdBytes ||
+      reclaims_since_pool_flush_ >= kSoftReclaimsPerPoolFlush;
+
+  if (sync_logging_enabled()) {
+    std::ostringstream stream;
+    stream << "sync_and_reclaim: pending=" << format_sync_bytes(pending_cleanup)
+           << " submitted=" << submitted_work
+           << " submit_count=" << submit_count_
+           << " full_pool_flush=" << (full_pool_flush ? "1" : "0")
+           << " reclaims_since_pool_flush=" << reclaims_since_pool_flush_;
+    append_sync_log_line(stream.str());
+  }
+
+  std::unique_lock<std::mutex> context_lock(dispatch_lock());
+
+  if (cmd_) {
+    VulkanFence fence = fences_.get_fence();
+    submit_cmd_to_gpu(fence.get_submit_handle(), full_pool_flush);
+    fence.wait();
+    fences_.return_fence(fence);
+  } else if (submitted_work > 0u) {
+    VK_CHECK(vkQueueWaitIdle(queue()));
+  } else {
+    return;
+  }
+
+  descriptor_pool_.flush();
+
+  if (full_pool_flush) {
+    command_pool_.flush();
+    if (cmd_) {
+      cmd_.invalidate();
+    }
+    reclaims_since_pool_flush_ = 0u;
+  } else {
+    reclaims_since_pool_flush_++;
+  }
+  submit_count_ = 0u;
+  submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
+  clear_deferred_cleanup_locked();
+}
+
 void Context::flush() {
+  if (sync_logging_enabled()) {
+    std::ostringstream stream;
+    stream << "flush: pending=" << format_sync_bytes(pending_cleanup_bytes())
+           << " submitted=" << submissions_since_reclaim()
+           << " submit_count=" << submit_count_
+           << " reclaims_since_pool_flush=" << reclaims_since_pool_flush_;
+    append_sync_log_line(stream.str());
+  }
+
   VK_CHECK(vkQueueWaitIdle(queue()));
 
   command_pool_.flush();
@@ -116,10 +239,10 @@ void Context::flush() {
     cmd_.invalidate();
   }
 
-  std::lock_guard<std::mutex> bufferlist_lock(buffer_clearlist_mutex_);
-  std::lock_guard<std::mutex> imagelist_lock(image_clearlist_mutex_);
-  buffers_to_clear_.clear();
-  images_to_clear_.clear();
+  reclaims_since_pool_flush_ = 0u;
+  submit_count_ = 0u;
+  submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
+  clear_deferred_cleanup_locked();
 }
 
 bool available() {
