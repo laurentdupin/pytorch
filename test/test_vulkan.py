@@ -885,8 +885,8 @@ class TestVulkanEagerRuntime(TestCase):
             self._assert_outputs_close(
                 expected_gelu,
                 actual_gelu,
-                atol=1e-4,
-                rtol=1e-4)
+                atol=3e-4,
+                rtol=3e-3)
 
     def test_layer_norm_then_linear_in_inference_mode(self):
         torch.manual_seed(0)

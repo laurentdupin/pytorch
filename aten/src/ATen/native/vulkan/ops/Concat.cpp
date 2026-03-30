@@ -270,6 +270,8 @@ Tensor cat_height(
 }
 
 Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
+  api::AllocationScope allocation_scope("cat");
+
   TORCH_CHECK(!tensors.empty(), "Vulkan cat expects at least one tensor");
   auto materialized = tensors.materialize();
   TORCH_INTERNAL_ASSERT(!materialized.empty(), "Accessing empty array");

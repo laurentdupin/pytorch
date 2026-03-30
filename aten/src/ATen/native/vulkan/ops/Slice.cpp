@@ -235,6 +235,8 @@ Tensor slice(
     std::optional<int64_t> start,
     std::optional<int64_t> end,
     const int64_t step) {
+  api::AllocationScope allocation_scope("slice");
+
   TORCH_CHECK(step > 0, "slice step must be positive");
   auto nDims = safe_downcast<uint32_t>(self.dim());
   dim = maybe_wrap_dim(dim, nDims);

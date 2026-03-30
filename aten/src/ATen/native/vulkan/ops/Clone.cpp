@@ -14,6 +14,8 @@ namespace {
 Tensor clone(
     const Tensor& src,
     std::optional<c10::MemoryFormat> optional_memory_format) {
+  api::AllocationScope allocation_scope("clone");
+
   auto memory_format = optional_memory_format.value_or(MemoryFormat::Preserve);
   TORCH_CHECK(
       (c10::MemoryFormat::Preserve == memory_format) ||

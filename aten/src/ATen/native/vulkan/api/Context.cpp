@@ -3,8 +3,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <algorithm>
 #include <memory>
 #include <sstream>
+#include <unordered_map>
 
 #ifndef VULKAN_DESCRIPTOR_POOL_SIZE
 #define VULKAN_DESCRIPTOR_POOL_SIZE 1024u
@@ -45,6 +47,99 @@ std::string format_sync_bytes(const uint64_t bytes) {
   stream.setf(std::ios::fixed);
   stream.precision(2);
   stream << mib << " MiB";
+  return stream.str();
+}
+
+template <typename Resource>
+void accumulate_cleanup_bytes_by_label(
+    const std::vector<Resource>& resources,
+    std::unordered_map<std::string, uint64_t>& bytes_by_label) {
+  for (const auto& resource : resources) {
+    if (!resource.owns_memory()) {
+      continue;
+    }
+    bytes_by_label[resource.allocation_label()] +=
+        static_cast<uint64_t>(resource.allocated_size());
+  }
+}
+
+std::string cleanup_signature(const VulkanBuffer& buffer) {
+  std::ostringstream stream;
+  stream << "buffer(size=" << format_sync_bytes(static_cast<uint64_t>(buffer.mem_size()))
+         << ",alloc=" << format_sync_bytes(static_cast<uint64_t>(buffer.allocated_size()))
+         << ")";
+  return stream.str();
+}
+
+std::string cleanup_signature(const VulkanImage& image) {
+  const VkExtent3D extents = image.extents();
+  std::ostringstream stream;
+  stream << "image(extents=" << extents.width << "x" << extents.height << "x"
+         << extents.depth << ",alloc="
+         << format_sync_bytes(static_cast<uint64_t>(image.allocated_size())) << ")";
+  return stream.str();
+}
+
+template <typename Resource>
+void accumulate_unlabeled_cleanup_signatures(
+    const std::vector<Resource>& resources,
+    std::unordered_map<std::string, uint64_t>& bytes_by_signature) {
+  for (const auto& resource : resources) {
+    if (!resource.owns_memory() || resource.allocation_label() != "unlabeled") {
+      continue;
+    }
+    bytes_by_signature[cleanup_signature(resource)] +=
+        static_cast<uint64_t>(resource.allocated_size());
+  }
+}
+
+std::string top_cleanup_label_summary(
+    const std::unordered_map<std::string, uint64_t>& bytes_by_label,
+    const size_t limit = 16u) {
+  if (bytes_by_label.empty()) {
+    return {};
+  }
+
+  std::vector<std::pair<std::string, uint64_t>> entries(
+      bytes_by_label.begin(), bytes_by_label.end());
+  std::sort(
+      entries.begin(),
+      entries.end(),
+      [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
+
+  std::ostringstream stream;
+  const size_t count = std::min(limit, entries.size());
+  for (size_t idx = 0u; idx < count; ++idx) {
+    if (idx > 0u) {
+      stream << ", ";
+    }
+    stream << entries[idx].first << ":" << format_sync_bytes(entries[idx].second);
+  }
+  return stream.str();
+}
+
+std::string top_cleanup_signature_summary(
+    const std::unordered_map<std::string, uint64_t>& bytes_by_signature,
+    const size_t limit = 8u) {
+  if (bytes_by_signature.empty()) {
+    return {};
+  }
+
+  std::vector<std::pair<std::string, uint64_t>> entries(
+      bytes_by_signature.begin(), bytes_by_signature.end());
+  std::sort(
+      entries.begin(),
+      entries.end(),
+      [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
+
+  std::ostringstream stream;
+  const size_t count = std::min(limit, entries.size());
+  for (size_t idx = 0u; idx < count; ++idx) {
+    if (idx > 0u) {
+      stream << ", ";
+    }
+    stream << entries[idx].first << ":" << format_sync_bytes(entries[idx].second);
+  }
   return stream.str();
 }
 
@@ -181,12 +276,37 @@ void Context::sync_and_reclaim() {
       reclaims_since_pool_flush_ >= kSoftReclaimsPerPoolFlush;
 
   if (sync_logging_enabled()) {
+    std::unordered_map<std::string, uint64_t> cleanup_bytes_by_label;
+    std::unordered_map<std::string, uint64_t> unlabeled_cleanup_by_signature;
+    {
+      std::lock_guard<std::mutex> bufferlist_lock(buffer_clearlist_mutex_);
+      accumulate_cleanup_bytes_by_label(buffers_to_clear_, cleanup_bytes_by_label);
+      accumulate_unlabeled_cleanup_signatures(
+          buffers_to_clear_, unlabeled_cleanup_by_signature);
+    }
+    {
+      std::lock_guard<std::mutex> imagelist_lock(image_clearlist_mutex_);
+      accumulate_cleanup_bytes_by_label(images_to_clear_, cleanup_bytes_by_label);
+      accumulate_unlabeled_cleanup_signatures(
+          images_to_clear_, unlabeled_cleanup_by_signature);
+    }
+
     std::ostringstream stream;
     stream << "sync_and_reclaim: pending=" << format_sync_bytes(pending_cleanup)
            << " submitted=" << submitted_work
            << " submit_count=" << submit_count_
            << " full_pool_flush=" << (full_pool_flush ? "1" : "0")
            << " reclaims_since_pool_flush=" << reclaims_since_pool_flush_;
+    const std::string top_labels =
+        top_cleanup_label_summary(cleanup_bytes_by_label);
+    if (!top_labels.empty()) {
+      stream << " cleanup_labels={" << top_labels << "}";
+    }
+    const std::string top_unlabeled =
+        top_cleanup_signature_summary(unlabeled_cleanup_by_signature);
+    if (!top_unlabeled.empty()) {
+      stream << " unlabeled_signatures={" << top_unlabeled << "}";
+    }
     append_sync_log_line(stream.str());
   }
 

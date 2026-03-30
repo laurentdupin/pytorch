@@ -181,6 +181,10 @@ class VulkanBuffer final {
     return owns_memory_;
   }
 
+  inline const std::string& allocation_label() const {
+    return allocation_label_;
+  }
+
   operator bool() const {
     return (handle_ != VK_NULL_HANDLE);
   }
@@ -410,6 +414,10 @@ class VulkanImage final {
 
   inline bool owns_memory() const {
     return owns_memory_;
+  }
+
+  inline const std::string& allocation_label() const {
+    return allocation_label_;
   }
 
   inline operator bool() const {

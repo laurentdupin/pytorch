@@ -12,8 +12,7 @@ layout(set = 0, binding = 3) uniform PRECISION sampler3D uBias;
 layout(set = 0, binding = 4) uniform PRECISION restrict Block {
   ivec4 shader_extents_and_step;
   ivec4 bias_extents;
-  vec2 multipliers;
-  vec4 gelu_params;
+  vec4 multipliers_and_gelu;
 }
 uBlock;
 
@@ -22,7 +21,7 @@ layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 float gelu_tanh(float value) {
   const float value_cube = value * value * value;
   const float inner =
-      uBlock.gelu_params.x * (value + 0.044715 * value_cube);
+      uBlock.multipliers_and_gelu.z * (value + 0.044715 * value_cube);
   return 0.5 * value * (1.0 + tanh(inner));
 }
 
@@ -71,8 +70,8 @@ void main() {
         const float bias_value =
             texelFetch(uBias, ivec3(output_col, bias_row, 0), 0).x;
         const float linear_value =
-            uBlock.multipliers.x * results[idx_c][idx_r] +
-            uBlock.multipliers.y * bias_value;
+            uBlock.multipliers_and_gelu.x * results[idx_c][idx_r] +
+            uBlock.multipliers_and_gelu.y * bias_value;
         imageStore(
             uOutput,
             out_pos,

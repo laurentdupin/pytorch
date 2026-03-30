@@ -74,6 +74,8 @@ Tensor transpose_4d(
 }
 
 Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
+  api::AllocationScope allocation_scope("transpose");
+
   TORCH_CHECK(
       self.dim() <= 4,
       "Vulkan transpose only supports tensors <= 4 dimensions");

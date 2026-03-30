@@ -17,6 +17,7 @@ static Tensor binary_op_scalar(
     const Scalar& other,
     const std::optional<Scalar>& alpha_arg,
     const api::ShaderInfo& shader_descriptor) {
+  api::AllocationScope allocation_scope("binary_op");
   api::Context* const context = api::context();
 
   const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
@@ -104,6 +105,7 @@ static Tensor& binary_op_scalar_(
     const Scalar& other,
     const std::optional<Scalar>& alpha_arg,
     const api::ShaderInfo& shader_descriptor) {
+  api::AllocationScope allocation_scope("binary_op_inplace");
   TORCH_CHECK(
       self_arg.is_vulkan(),
       "Vulkan: In-place operator is only supported on Vulkan tensors.");
@@ -154,6 +156,7 @@ static Tensor binary_op_tensor(
     const Tensor& other_arg,
     const std::optional<Scalar>& alpha_arg,
     const api::ShaderInfo& shader_descriptor) {
+  api::AllocationScope allocation_scope("binary_op");
   utils::is_broadcastable(self_arg, other_arg);
   api::Context* const context = api::context();
 
@@ -228,6 +231,7 @@ static Tensor quantized_binary_op_tensor(
     const double scale,
     const int64_t zero_point,
     const api::ShaderInfo& shader_descriptor) {
+  api::AllocationScope allocation_scope("qbinary_op");
   utils::is_broadcastable(self_arg, other_arg);
   api::Context* const context = api::context();
 
