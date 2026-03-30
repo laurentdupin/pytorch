@@ -14,6 +14,7 @@ static Tensor upsample_nearest2d(
     const IntArrayRef output_sizes,
     const std::optional<double> scales_h,
     const std::optional<double> scales_w) {
+  api::AllocationScope allocation_scope("upsample_nearest");
   api::Context* const context = api::context();
 
   TORCH_CHECK(
@@ -100,6 +101,7 @@ static Tensor upsample_bilinear2d(
     bool align_corners,
     const std::optional<double> scales_h,
     const std::optional<double> scales_w) {
+  api::AllocationScope allocation_scope("upsample_bilinear");
   api::Context* const context = api::context();
 
   TORCH_CHECK(

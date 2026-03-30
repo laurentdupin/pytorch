@@ -73,6 +73,8 @@ Tensor permute_4d(
 }
 
 Tensor permute(const Tensor& self, IntArrayRef dims) {
+  api::AllocationScope allocation_scope("permute");
+
   auto nDims = safe_downcast<uint32_t>(self.dim());
   TORCH_CHECK(
       dims.size() == (size_t)nDims, "number of dims don't match in permute");

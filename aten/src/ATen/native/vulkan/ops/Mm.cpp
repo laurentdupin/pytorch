@@ -939,15 +939,15 @@ Tensor run_addmm_context(
   // Step size is the 2d input's w dimension / 4.
   int step_size = div_up(v_input.sizes()[Layout::Parameter::width], INT64_C(4));
   const bool fuse_bias =
-      bias_defined && can_fuse_linear_bias(v_output, packed_v_bias, unpacked_weight_sizes);
-  const bool fuse_gelu = post_op == LinearPostOp::Gelu && fuse_bias;
+      bias_defined &&
+      can_fuse_linear_bias(v_output, packed_v_bias, unpacked_weight_sizes);
+  const bool fuse_gelu = fuse_bias && post_op == LinearPostOp::Gelu;
 
   if (fuse_gelu) {
     const struct {
       uvec4 shader_extents_and_step;
       uvec4 bias_extents;
-      vec2 multipliers;
-      vec4 gelu_params;
+      vec4 multipliers_and_gelu;
     } block_with_bias_gelu{
         {
             v_output.extents().data[0u],
@@ -961,8 +961,7 @@ Tensor run_addmm_context(
             packed_v_bias.extents().data[2u],
             0u,
         },
-        {alpha, beta},
-        {kGeluBeta, 0.0f, 0.0f, 0.0f},
+        {alpha, beta, kGeluBeta, 0.0f},
     };
     params = api::UniformParamsBuffer(context, block_with_bias_gelu);
     compute_shader = VK_KERNEL(mm_bias_gelu);
@@ -1342,8 +1341,11 @@ c10::intrusive_ptr<LinearPackedContext> create_linear_context_labeled(
     Tensor&& weight,
     std::optional<Tensor>&& bias,
     std::string label) {
+  const Tensor prepared_weight =
+      weight.is_vulkan() ? weight.clone().t() : weight.t();
   return c10::make_intrusive<LinearPackedContext>(
-      LinearPackedContext(weight.t(), bias, false, std::move(label)));
+      LinearPackedContext(
+          prepared_weight, bias, false, std::move(label)));
 }
 
 Tensor run_linear_context(

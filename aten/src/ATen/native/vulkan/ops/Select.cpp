@@ -387,6 +387,8 @@ Tensor select_width_4d(const Tensor& input_arg, uint32_t index) {
 }
 
 Tensor select(const Tensor& self, int64_t dim, int64_t index) {
+  api::AllocationScope allocation_scope("select");
+
   TORCH_CHECK(
       self.dim() == 3 || self.dim() == 4,
       "Vulkan select only supports 3d and 4d tensors!");

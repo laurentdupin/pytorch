@@ -1390,6 +1390,7 @@ static Tensor run_conv2d_context_impl(
 
   const auto quantized =
       conv_context->get_val(Conv2dPackedContext::Packed::isQuantized).toBool();
+  api::AllocationScope allocation_scope(quantized ? "qconv" : "conv");
 
   Tensor bias =
       conv_context->get_val(Conv2dPackedContext::Packed::Bias).toTensor();

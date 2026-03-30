@@ -10,6 +10,7 @@ namespace ops {
 
 static Tensor view_internal(const Tensor& self_arg, const IntArrayRef shape) {
   api::Context* const context = api::context();
+  api::AllocationScope allocation_scope("view");
 
   Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
   vTensor& v_self = convert(self);
