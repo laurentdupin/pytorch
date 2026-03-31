@@ -1,5 +1,7 @@
 #include <ATen/InferSize.h>
+#include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -8,56 +10,53 @@ namespace native {
 namespace vulkan {
 namespace ops {
 
-static Tensor view_internal(const Tensor& self_arg, const IntArrayRef shape) {
-  api::Context* const context = api::context();
-  api::AllocationScope allocation_scope("view");
+namespace {
 
-  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
-  vTensor& v_self = convert(self);
-
-  at::DimVector inferred_size = at::infer_size_dv(shape, self.numel());
-  IntArrayRef output_size(inferred_size);
-
-  vTensor v_output{
-      context,
+Tensor view_internal(
+    const Tensor& self_arg,
+    const IntArrayRef output_size,
+    const IntArrayRef output_stride) {
+  // Vulkan views are not true metadata aliases yet. Use the proven CPU
+  // reshape/as_strided path and rematerialize a fresh Vulkan tensor.
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  Tensor cpu = self_arg.cpu();
+  Tensor cpu_view = cpu.as_strided(output_size.vec(), output_stride.vec());
+  Tensor out = at::empty(
       output_size.vec(),
-      v_self.dtype(),
-  };
-  if (v_self.is_quantized()) {
-    v_output.set_is_quantized();
-    v_output.set_scale(v_self.get_scale());
-    v_output.set_zero_point(v_self.get_zero_point());
-  }
-
-  api::StorageBuffer buffer(context, api::kFloat, v_self.gpu_numel(), true);
-
-  utils::pack_vtensor_to_staging(v_self, buffer.buffer());
-
-  api::PipelineBarrier pipeline_barrier{};
-  add_buffer_barrier(
-      pipeline_barrier,
-      buffer.buffer(),
-      // Previous access
-      api::PipelineStage::COMPUTE,
-      api::MemoryAccessType::WRITE,
-      // Next access
-      api::PipelineStage::COMPUTE,
-      api::MemoryAccessType::READ);
-
-  utils::pack_buffer_to_vtensor(buffer.buffer(), v_output, pipeline_barrier);
-
-  return convert(v_output);
+      self_arg.options().device(at::kVulkan));
+  ops::copy_(out, cpu_view);
+  return out;
 }
 
+} // namespace
+
 inline Tensor view(const Tensor& self_arg, IntArrayRef shape) {
-  return view_internal(self_arg, shape);
+  at::DimVector inferred_size = at::infer_size_dv(shape, self_arg.numel());
+  IntArrayRef base_sizes = self_arg.sizes();
+  IntArrayRef base_strides = self_arg.strides();
+  c10::DimVector base_logical_strides;
+  if (self_arg.is_vulkan()) {
+    const vTensor& v_self = convert(self_arg);
+    base_logical_strides = logical_strides(v_self);
+    base_sizes = v_self.sizes();
+    base_strides = base_logical_strides;
+  }
+  auto inferred_stride = at::detail::computeStride(
+      base_sizes,
+      base_strides,
+      inferred_size);
+  TORCH_CHECK(
+      inferred_stride.has_value(),
+      "view size is not compatible with input tensor's size and stride");
+  return view_internal(self_arg, inferred_size, *inferred_stride);
 }
 
 static Tensor _reshape_alias(
     const Tensor& self_arg,
     const IntArrayRef shape,
     const IntArrayRef strides) {
-  return view_internal(self_arg, shape);
+  return view_internal(self_arg, shape, strides);
 }
 
 #ifdef USE_VULKAN_API

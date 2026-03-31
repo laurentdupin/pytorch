@@ -17,6 +17,19 @@ Tensor create_staging_tensor(const vTensor&);
 
 Tensor nc4hw_to_nchw(const Tensor&, IntArrayRef);
 
+bool supports_buffer_view_fast_path(const vTensor&);
+
+vTensor materialize_to_contiguous_buffer(
+    const vTensor&,
+    api::GPUMemoryLayout memory_layout =
+        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+
+Tensor ensure_texture_storage(
+    const Tensor&,
+    api::GPUMemoryLayout memory_layout =
+        api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+    api::StorageType storage_type = api::StorageType::TEXTURE_3D);
+
 void copy_buffer_to_buffer(
     api::Context* const context,
     api::StorageBuffer& src,

@@ -1,5 +1,6 @@
 #include <ATen/NamedTensorUtils.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
 namespace at {
@@ -22,7 +23,10 @@ Tensor slice_4d(
   api::Context* const context = api::context();
 
   const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_self = convert(input);
+  vTensor v_self = convert(input);
+  if (v_self.storage_type() == api::StorageType::BUFFER) {
+    v_self = convert(utils::ensure_texture_storage(input));
+  }
 
   uint32_t out_channels = out_tsize.data[1u];
   uint32_t in_channels = in_tsize.data[1u];
@@ -88,7 +92,10 @@ Tensor slice_width(
   api::Context* const context = api::context();
 
   const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_self = convert(input);
+  vTensor v_self = convert(input);
+  if (v_self.storage_type() == api::StorageType::BUFFER) {
+    v_self = convert(utils::ensure_texture_storage(input));
+  }
 
   uvec3 src_offset{};
   uvec3 dst_offset{};
@@ -164,7 +171,10 @@ Tensor slice_height(
   api::Context* const context = api::context();
 
   const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_self = convert(input);
+  vTensor v_self = convert(input);
+  if (v_self.storage_type() == api::StorageType::BUFFER) {
+    v_self = convert(utils::ensure_texture_storage(input));
+  }
 
   uvec3 src_offset{};
   uvec3 dst_offset{};

@@ -18,7 +18,10 @@ Tensor transpose_4d(
     vTensor& v_output) {
   api::Context* const context = api::context();
 
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  if (convert(input).storage_type() == api::StorageType::BUFFER) {
+    input = utils::ensure_texture_storage(input);
+  }
   const vTensor& v_self = convert(input);
 
   uint32_t out_channels = out_size.data[1u];
@@ -75,7 +78,6 @@ Tensor transpose_4d(
 
 Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
   api::AllocationScope allocation_scope("transpose");
-
   TORCH_CHECK(
       self.dim() <= 4,
       "Vulkan transpose only supports tensors <= 4 dimensions");

@@ -730,6 +730,18 @@ Tensor scaled_dot_product_attention(
     auto out = at::zeros_symint(output_shape, query_.options());
     return out + (query_.sum() + key.sum() + value.sum()) * 0;
   }
+  if (query_.is_vulkan()) {
+    return std::get<0>(at::_scaled_dot_product_attention_math(
+        query_,
+        key,
+        value,
+        convert_boolean_attn_mask(attn_mask_, query_.dtype()),
+        dropout_p,
+        is_causal,
+        std::nullopt,
+        scale,
+        enable_gqa));
+  }
   int64_t choice_int = static_cast<int64_t>(sdp::SDPBackend::math);
   if (_fused_sdp_choice_stub.is_device_supported(query_.device().type())) {
     choice_int = _fused_sdp_choice_stub(query_.device().type(),

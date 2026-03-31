@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 #include <c10/core/InferenceMode.h>
 
@@ -75,7 +76,10 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm(
       input_arg.dim() >= 2 && input_arg.dim() <= 4,
       "Vulkan layernorm expects input of 2d, 3d or 4d!");
 
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  if (convert(input).storage_type() == api::StorageType::BUFFER) {
+    input = utils::ensure_texture_storage(input);
+  }
 
   TORCH_CHECK(
       weight_opt->defined() && bias_opt->defined(),

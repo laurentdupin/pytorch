@@ -1,6 +1,9 @@
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -19,6 +22,95 @@ namespace ops {
 namespace utils {
 
 using namespace api::utils;
+namespace {
+
+const std::string& materialize_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_MATERIALIZE_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool materialize_logging_enabled() {
+  return !materialize_log_path().empty();
+}
+
+const char* storage_type_name(const api::StorageType storage_type) {
+  switch (storage_type) {
+    case api::StorageType::TEXTURE_3D:
+      return "TEXTURE_3D";
+    case api::StorageType::TEXTURE_2D:
+      return "TEXTURE_2D";
+    case api::StorageType::BUFFER:
+      return "BUFFER";
+    case api::StorageType::UNKNOWN:
+      return "UNKNOWN";
+  }
+  return "UNKNOWN";
+}
+
+const char* memory_layout_name(const api::GPUMemoryLayout memory_layout) {
+  switch (memory_layout) {
+    case api::GPUMemoryLayout::TENSOR_WIDTH_PACKED:
+      return "TENSOR_WIDTH_PACKED";
+    case api::GPUMemoryLayout::TENSOR_HEIGHT_PACKED:
+      return "TENSOR_HEIGHT_PACKED";
+    case api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED:
+      return "TENSOR_CHANNELS_PACKED";
+  }
+  return "UNKNOWN";
+}
+
+std::string format_sizes(const std::vector<int64_t>& sizes) {
+  std::ostringstream stream;
+  stream << "[";
+  for (size_t idx = 0; idx < sizes.size(); ++idx) {
+    if (idx > 0) {
+      stream << ",";
+    }
+    stream << sizes[idx];
+  }
+  stream << "]";
+  return stream.str();
+}
+
+void append_materialize_log_line(const std::string& line) {
+  if (!materialize_logging_enabled()) {
+    return;
+  }
+
+  std::ofstream out(materialize_log_path(), std::ios::app);
+  out << line << '\n';
+}
+
+void log_materialize_event(
+    const char* kind,
+    const vTensor& v_in,
+    const api::StorageType dst_storage_type,
+    const api::GPUMemoryLayout dst_memory_layout,
+    const char* path) {
+  if (!materialize_logging_enabled()) {
+    return;
+  }
+
+  std::ostringstream stream;
+  stream << "kind=" << kind
+         << " caller=" << api::current_allocation_label()
+         << " path=" << path
+         << " src_storage=" << storage_type_name(v_in.storage_type())
+         << " src_layout=" << memory_layout_name(v_in.gpu_memory_layout())
+         << " dst_storage=" << storage_type_name(dst_storage_type)
+         << " dst_layout=" << memory_layout_name(dst_memory_layout)
+         << " direct_buffer=" << (v_in.has_direct_buffer_layout() ? 1 : 0)
+         << " storage_offset=" << v_in.storage_offset()
+         << " logical_bytes=" << v_in.nbytes()
+         << " gpu_bytes=" << v_in.gpu_nbytes()
+         << " sizes=" << format_sizes(v_in.sizes());
+  append_materialize_log_line(stream.str());
+}
+
+} // namespace
 
 /*
  * This function formats an input tensor in NCHW layout to NC4HW layout such
@@ -114,6 +206,137 @@ Tensor nc4hw_to_nchw(const Tensor& t_in, IntArrayRef sizes) {
   return t_in_shaved.reshape(sizes).contiguous();
 }
 
+bool supports_buffer_view_fast_path(const vTensor& v_in) {
+  return !v_in.is_quantized() && v_in.dtype() == api::kFloat &&
+      v_in.sizes().size() <= 4;
+}
+
+vTensor materialize_to_contiguous_buffer(
+    const vTensor& v_in,
+    api::GPUMemoryLayout memory_layout) {
+  TORCH_CHECK(
+      supports_buffer_view_fast_path(v_in),
+      "Vulkan buffer-view fast path currently only supports non-quantized "
+      "float tensors with up to 4 dimensions");
+
+  if (
+      v_in.storage_type() == api::StorageType::BUFFER &&
+      v_in.gpu_memory_layout() == memory_layout &&
+      v_in.has_direct_buffer_layout()) {
+    return v_in;
+  }
+
+  log_materialize_event(
+      "materialize_to_contiguous_buffer",
+      v_in,
+      api::StorageType::BUFFER,
+      memory_layout,
+      "materialize");
+
+  api::Context* const context = api::context();
+  api::StorageBuffer staging(context, v_in.dtype(), v_in.numel());
+  vTensor v_src = v_in;
+  pack_vtensor_to_staging(v_src, staging.buffer());
+
+  vTensor v_out{
+      context,
+      v_in.sizes(),
+      v_in.dtype(),
+      api::StorageType::BUFFER,
+      memory_layout,
+  };
+  api::PipelineBarrier pipeline_barrier{};
+  add_buffer_barrier(
+      pipeline_barrier,
+      staging.buffer(),
+      api::PipelineStage::COMPUTE | api::PipelineStage::TRANSFER,
+      api::MemoryAccessType::WRITE,
+      api::PipelineStage::COMPUTE | api::PipelineStage::TRANSFER,
+      api::MemoryAccessType::READ);
+  pack_buffer_to_vtensor(staging.buffer(), v_out, pipeline_barrier);
+  return v_out;
+}
+
+Tensor ensure_texture_storage(
+    const Tensor& input_arg,
+    api::GPUMemoryLayout memory_layout,
+    api::StorageType storage_type) {
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  vTensor v_input = convert(input);
+
+  if (
+      v_input.storage_type() == storage_type &&
+      v_input.gpu_memory_layout() == memory_layout) {
+    return input;
+  }
+
+  if (
+      v_input.storage_type() != api::StorageType::BUFFER &&
+      v_input.storage_type() == api::StorageType::TEXTURE_3D) {
+    if (
+        v_input.gpu_memory_layout() ==
+        api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED) {
+      if (memory_layout == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED) {
+        log_materialize_event(
+            "ensure_texture_storage",
+            v_input,
+            storage_type,
+            memory_layout,
+            "image_layout_convert_width");
+        return convert(
+            packing::convert_image_channels_packed_to_width_packed(v_input));
+      }
+      if (memory_layout == api::GPUMemoryLayout::TENSOR_HEIGHT_PACKED) {
+        log_materialize_event(
+            "ensure_texture_storage",
+            v_input,
+            storage_type,
+            memory_layout,
+            "image_layout_convert_height");
+        return convert(
+            packing::convert_image_channels_packed_to_height_packed(v_input));
+      }
+    }
+  }
+
+  TORCH_CHECK(
+      supports_buffer_view_fast_path(v_input),
+      "Vulkan texture materialization from buffer views currently only "
+      "supports non-quantized float tensors with up to 4 dimensions");
+
+  api::Context* const context = api::context();
+  const bool direct_buffer_path =
+      v_input.storage_type() == api::StorageType::BUFFER &&
+      v_input.gpu_memory_layout() ==
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      v_input.has_direct_buffer_layout();
+  vTensor v_buffer =
+      direct_buffer_path
+      ? v_input
+      : materialize_to_contiguous_buffer(
+            v_input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  log_materialize_event(
+      "ensure_texture_storage",
+      v_input,
+      storage_type,
+      memory_layout,
+      direct_buffer_path ? "direct_buffer_to_texture"
+                         : "buffer_materialize_to_texture");
+
+  vTensor v_out{
+      context,
+      v_input.sizes(),
+      v_input.dtype(),
+      storage_type,
+      memory_layout,
+  };
+  api::PipelineBarrier pipeline_barrier{};
+  api::VulkanBuffer& src_buffer =
+      v_buffer.buffer(pipeline_barrier, api::PipelineStage::COMPUTE);
+  pack_buffer_to_vtensor(src_buffer, v_out, pipeline_barrier);
+  return convert(v_out);
+}
+
 void copy_buffer_to_vtensor(
     api::VulkanBuffer& src_buffer,
     vTensor& v_dst,
@@ -199,6 +422,29 @@ void pack_buffer_to_vtensor(
   api::Context* const context = api::context();
 
   if (v_self.storage_type() == api::StorageType::BUFFER) {
+    if (
+        v_self.has_direct_buffer_layout() &&
+        buffer.mem_size() == v_self.gpu_nbytes()) {
+      add_buffer_barrier(
+          pipeline_barrier,
+          buffer,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE,
+          api::PipelineStage::TRANSFER,
+          api::MemoryAccessType::READ);
+      context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
+          pipeline_barrier,
+          buffer,
+          v_self.buffer(
+              pipeline_barrier,
+              api::PipelineStage::TRANSFER,
+              api::MemoryAccessType::WRITE),
+          {api::utils::safe_downcast<uint32_t>(buffer.mem_size()), 0u, 0u},
+          {0u, 0u, 0u},
+          {0u, 0u, 0u},
+          VK_NULL_HANDLE);
+      return;
+    }
     packing::record_nchw_to_buffer_op(
         context, buffer, v_self, pipeline_barrier, VK_NULL_HANDLE);
   } else {
@@ -226,6 +472,18 @@ bool pack_vtensor_to_staging(
   api::PipelineBarrier pipeline_barrier{};
 
   if (v_self.storage_type() == api::StorageType::BUFFER) {
+    if (
+        v_self.has_direct_buffer_layout() &&
+        v_self.gpu_nbytes() == staging.mem_size()) {
+      return context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
+          pipeline_barrier,
+          v_self.buffer(pipeline_barrier, api::PipelineStage::TRANSFER),
+          staging,
+          {api::utils::safe_downcast<uint32_t>(staging.mem_size()), 0u, 0u},
+          {0u, 0u, 0u},
+          {0u, 0u, 0u},
+          fence_handle);
+    }
     return packing::record_buffer_to_nchw_op(
         context, v_self, staging, pipeline_barrier, fence_handle);
   } else {

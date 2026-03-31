@@ -228,6 +228,7 @@ class Context final {
       const bool final_use = false);
 
   void flush();
+  void flush_after_fence_wait();
 };
 
 class UniformParamsBuffer final {

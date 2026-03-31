@@ -460,6 +460,56 @@ class TestVulkanEagerRuntime(TestCase):
                         atol=1e-4,
                         rtol=1e-4)
 
+    def test_view_then_scalar_mul_then_linear(self):
+        torch.manual_seed(0)
+        x = torch.randn(1, 4, 8)
+        weight = torch.randn(6, 16)
+        bias = torch.randn(6)
+
+        def fn(t):
+            t = t.view(2, 16)
+            t = t * 0.5
+            return F.linear(t, weight, bias)
+
+        self._assert_vulkan_matches_cpu(fn, x, atol=1e-4, rtol=1e-4)
+
+    def test_view_then_select_attention_style(self):
+        torch.manual_seed(0)
+        x = torch.randn(1, 17, 8)
+        weight = torch.randn(24, 8)
+        bias = torch.randn(24)
+
+        def fn(t):
+            qkv = F.linear(t, weight, bias).reshape(1, 17, 3, 8)
+            q = qkv[:, :, 0].reshape(1, 17, 2, 4)
+            q = q.permute(0, 2, 1, 3).reshape(2, 17, 4)
+            return q
+
+        self._assert_vulkan_matches_cpu(fn, x, atol=1e-4, rtol=1e-4)
+
+    def test_permute_reshape_then_linear(self):
+        torch.manual_seed(0)
+        x = torch.randn(1, 2, 17, 8)
+        weight = torch.randn(12, 16)
+        bias = torch.randn(12)
+
+        def fn(t):
+            t = t.permute(0, 2, 1, 3).reshape(1, 17, 16)
+            return F.linear(t, weight, bias)
+
+        self._assert_vulkan_matches_cpu(fn, x, atol=1e-4, rtol=1e-4)
+
+    def test_view_then_slice_tokens(self):
+        torch.manual_seed(0)
+        x = torch.randn(1, 19, 8)
+
+        def fn(t):
+            cls = t[:, :1]
+            patches = t[:, 3:]
+            return torch.cat([cls, patches], dim=1)
+
+        self._assert_vulkan_matches_cpu(fn, x, atol=1e-4, rtol=1e-4)
+
     def test_linear_algebra_ops(self):
         torch.manual_seed(0)
         a = torch.randn(4, 5)
@@ -777,6 +827,31 @@ class TestVulkanEagerRuntime(TestCase):
                 atol=1e-4,
                 rtol=1e-4)
 
+    def test_permute_reshape_then_conv2d_module_with_vulkan_weights(self):
+        torch.manual_seed(0)
+
+        x_cpu = torch.randn(1, 37 * 56, 384)
+        x_vulkan = x_cpu.to("vulkan")
+
+        module_cpu = torch.nn.Conv2d(384, 48, kernel_size=1, bias=True).eval()
+        module_vulkan = torch.nn.Conv2d(
+            384,
+            48,
+            kernel_size=1,
+            bias=True).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+
+        with torch.inference_mode():
+            expected = module_cpu(x_cpu.permute(0, 2, 1).reshape(1, 384, 37, 56))
+            actual = module_vulkan(
+                x_vulkan.permute(0, 2, 1).reshape(1, 384, 37, 56)).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+
     def test_small_conv_block(self):
         torch.manual_seed(0)
 
@@ -1072,6 +1147,26 @@ class TestVulkanEagerRuntime(TestCase):
                         actual_math,
                         atol=1e-4,
                         rtol=1e-4)
+
+    def test_view_then_scaled_dot_product_attention(self):
+        torch.manual_seed(0)
+        query = torch.randn(1, 2, 9, 8)
+        key = torch.randn(1, 2, 7, 8)
+        value = torch.randn(1, 2, 7, 8)
+
+        def fn(q, k, v):
+            q = q.reshape(2, 9, 8)
+            k = k.reshape(2, 7, 8)
+            v = v.reshape(2, 7, 8)
+            return F.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                dropout_p=0.0,
+                is_causal=False,
+                scale=0.125)
+
+        self._assert_vulkan_matches_cpu(fn, query, key, value, atol=1e-4, rtol=1e-4)
 
     def test_depth_anything_v2_style_dpt_decoder(self):
         torch.manual_seed(0)

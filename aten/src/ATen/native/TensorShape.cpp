@@ -51,6 +51,7 @@
 #include <ATen/ops/_mkldnn_reshape.h>
 #include <ATen/ops/_mkldnn_transpose.h>
 #include <ATen/ops/_neg_view_copy_native.h>
+#include <ATen/ops/_reshape_alias.h>
 #include <ATen/ops/_reshape_alias_copy_native.h>
 #include <ATen/ops/_reshape_alias_native.h>
 #include <ATen/ops/_reshape_copy_native.h>
@@ -2093,7 +2094,9 @@ Tensor reshape_symint(const Tensor& self, c10::SymIntArrayRef proposed_shape) {
     //
     // We need to do the checks here instead of in `native_functions.yaml`
     // to preserve backwards compatibility.
-    if (!self.is_xla() && !self.is_lazy() && !self.is_ipu() &&
+    if (self.is_vulkan()) {
+      return at::_ops::_reshape_alias::call(self, shape, stride.value());
+    } else if (!self.is_xla() && !self.is_lazy() && !self.is_ipu() &&
         !at::isTensorSubclassLike(self)) {
       return self._reshape_alias_symint(shape, stride.value());
     } else {
@@ -2156,7 +2159,12 @@ Tensor reshape(const Tensor& self, IntArrayRef proposed_shape) {
     //
     // We need to do the checks here instead of in `native_functions.yaml`
     // to preserve backwards compatibility.
-    if (!self.is_xla() && !self.is_lazy() && !self.is_ipu()) {
+    if (self.is_vulkan()) {
+      return at::_ops::_reshape_alias::call(
+          self,
+          c10::fromIntArrayRefSlow(shape),
+          c10::fromIntArrayRefSlow(*stride));
+    } else if (!self.is_xla() && !self.is_lazy() && !self.is_ipu()) {
       return self._reshape_alias(shape, stride.value());
     } else {
       return self.view(shape);
@@ -4099,6 +4107,12 @@ static inline Tensor view_impl(const Tensor& self, IntArrayRef size) {
       "view size is "
       "not compatible with input tensor's size and stride (at least one dimension"
       " spans across two contiguous subspaces). Use .reshape(...) instead.");
+  if (self.is_vulkan()) {
+    return at::_ops::_reshape_alias::call(
+        self,
+        c10::fromIntArrayRefSlow(inferred_size),
+        c10::fromIntArrayRefSlow(*stride));
+  }
   return alias_with_sizes_and_strides(self, inferred_size, *stride);
 }
 

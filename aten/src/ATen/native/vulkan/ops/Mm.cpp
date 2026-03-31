@@ -257,6 +257,10 @@ vTensor pack_inputs_using_width_packing(const Tensor& input_arg) {
 
   TORCH_CHECK(input.is_vulkan(), "Input must be on Vulkan device!");
 
+  if (convert(input).storage_type() == api::StorageType::BUFFER) {
+    input = utils::ensure_texture_storage(input);
+  }
+
   vTensor v_input = convert(input);
   if (v_input.gpu_memory_layout() ==
       api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED) {
@@ -288,6 +292,10 @@ vTensor pack_weights_using_height_packing(const Tensor& weight_arg) {
   }
 
   TORCH_CHECK(weight.is_vulkan(), "Weight must be on Vulkan device!");
+
+  if (convert(weight).storage_type() == api::StorageType::BUFFER) {
+    weight = utils::ensure_texture_storage(weight);
+  }
 
   vTensor v_weight = convert(weight);
   if (v_weight.gpu_memory_layout() ==
@@ -379,6 +387,9 @@ vTensor pack_biases(
     if (bias.is_cpu()) {
       bias = bias.vulkan();
     }
+    if (bias.is_vulkan() && convert(bias).storage_type() == api::StorageType::BUFFER) {
+      bias = utils::ensure_texture_storage(bias);
+    }
     return convert(bias);
   } else {
     return convert(at::zeros({1}, at::device(at::kVulkan).dtype(at::kFloat)));
@@ -396,7 +407,11 @@ vTensor pack_biases_quantized_weights(
       "pack_biases_quantized to be used only when using quantized linear ops");
 
   if (has_bias(bias_arg) && bias_arg->is_vulkan()) {
-    return convert(*bias_arg);
+    Tensor bias = *bias_arg;
+    if (convert(bias).storage_type() == api::StorageType::BUFFER) {
+      bias = utils::ensure_texture_storage(bias);
+    }
+    return convert(bias);
   }
 
   api::Context* const context = api::context();
@@ -637,10 +652,14 @@ static Tensor reshape_to_2d(const Tensor& input_arg) {
       input_arg.dim() >= 1,
       "Vulkan Linear op only supports input tensor with dim >= 1");
 
-  const Tensor reshape_input =
-      (input_arg.is_vulkan() && c10::InferenceMode::is_enabled())
-      ? input_arg.clone()
-      : input_arg;
+  Tensor reshape_input = input_arg;
+  if (input_arg.is_vulkan() && c10::InferenceMode::is_enabled()) {
+    // View-derived Vulkan tensors can carry logical layouts that are still
+    // correct numerically but not yet suitable for the downstream linear packer.
+    // Materialize once before the flattening reshape so permute/reshape ->
+    // linear matches CPU without requiring model-side x = x + 0 workarounds.
+    reshape_input = at::add(input_arg, 0.0);
+  }
 
   if (reshape_input.dim() == 1) {
     return reshape_input.unsqueeze(0);
@@ -1010,9 +1029,11 @@ Tensor run_addmm_context(
         // global work group size
         {
             safe_downcast<uint32_t>(div_up(
-                v_output.sizes()[Layout::Parameter::width], INT64_C(4))),
+                v_output.sizes()[Layout::Parameter::width],
+                INT64_C(4))),
             safe_downcast<uint32_t>(div_up(
-                v_output.sizes()[Layout::Parameter::height], INT64_C(4))),
+                v_output.sizes()[Layout::Parameter::height],
+                INT64_C(4))),
             1,
         },
         // local work group size
@@ -1038,9 +1059,11 @@ Tensor run_addmm_context(
         // global work group size
         {
             safe_downcast<uint32_t>(div_up(
-                v_output.sizes()[Layout::Parameter::width], INT64_C(4))),
+                v_output.sizes()[Layout::Parameter::width],
+                INT64_C(4))),
             safe_downcast<uint32_t>(div_up(
-                v_output.sizes()[Layout::Parameter::height], INT64_C(4))),
+                v_output.sizes()[Layout::Parameter::height],
+                INT64_C(4))),
             1,
         },
         // local work group size
