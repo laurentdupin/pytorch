@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/api/Tensor.h>
 #include <ATen/native/vulkan/api/Utils.h>
+#include <c10/util/Exception.h>
 
 namespace at {
 namespace native {
@@ -195,6 +196,8 @@ api::UniformParamsBuffer make_metadata_uniform(
     api::Context* const context,
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides,
+    const int64_t buffer_length,
+    const int64_t storage_offset,
     const api::StorageType storage_type) {
   if (storage_type != api::StorageType::BUFFER) {
     return api::UniformParamsBuffer();
@@ -203,8 +206,12 @@ api::UniformParamsBuffer make_metadata_uniform(
   vTensor::BufferMetadata metadata{
       api::utils::make_whcn_uvec4(sizes),
       api::utils::make_whcn_uvec4(strides),
-      api::utils::safe_downcast<uint32_t>(sizes.size()),
-      api::utils::safe_downcast<uint32_t>(api::utils::multiply_integers(sizes)),
+      {
+          api::utils::safe_downcast<uint32_t>(sizes.size()),
+          api::utils::safe_downcast<uint32_t>(buffer_length),
+          api::utils::safe_downcast<uint32_t>(storage_offset),
+          0u,
+      },
   };
 
   return api::UniformParamsBuffer(context, metadata);
@@ -280,6 +287,32 @@ vTensor::vTensor(
           gpu_sizes_,
           dtype_)) {}
 
+vTensor::vTensor(
+    const vTensor& src,
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& strides,
+    const int64_t storage_offset)
+    : dtype_(src.dtype_),
+      memory_layout_(src.memory_layout_),
+      sizes_(sizes),
+      strides_(strides),
+      gpu_sizes_(sizes),
+      gpu_strides_(strides),
+      virtual_extents_(src.virtual_extents_),
+      metadata_uniform_(),
+      cpu_sizes_uniform_(nullptr),
+      gpu_sizes_uniform_(nullptr),
+      extents_uniform_(nullptr),
+      is_quantized_(src.is_quantized_),
+      q_scale_(src.q_scale_),
+      q_zero_point_(src.q_zero_point_),
+      storage_offset_(storage_offset),
+      view_(src.view_) {
+  TORCH_CHECK(
+      src.storage_type() == api::StorageType::BUFFER,
+      "Metadata-only vTensor views currently require BUFFER storage");
+}
+
 api::VulkanImage& vTensor::image(
     api::PipelineBarrier& pipeline_barrier,
     const api::PipelineStageFlags stage) const& {
@@ -313,7 +346,12 @@ api::VulkanBuffer& vTensor::buffer(
 api::VulkanBuffer& vTensor::buffer_metadata() {
   if (!metadata_uniform_.buffer()) {
     metadata_uniform_ = make_metadata_uniform(
-        view_->context_, gpu_sizes_, gpu_strides_, storage_type());
+        view_->context_,
+        gpu_sizes_,
+        gpu_strides_,
+        view_->buffer_length_,
+        storage_offset_,
+        storage_type());
   }
   return metadata_uniform_.buffer();
 }
@@ -350,11 +388,21 @@ std::shared_ptr<api::UniformParamsBuffer> vTensor::extents_ubo() {
 vTensor::BufferMetadata vTensor::get_cpu_buffer_metadata() const {
   return {
       api::utils::make_whcn_uvec4(sizes_),
-      api::utils::make_whcn_uvec4(strides_),
-      api::utils::safe_downcast<uint32_t>(sizes_.size()),
-      api::utils::safe_downcast<uint32_t>(
-          api::utils::multiply_integers(sizes_)),
+      api::utils::make_whcn_uvec4(calc_contiguous_strides(sizes_)),
+      {
+          api::utils::safe_downcast<uint32_t>(sizes_.size()),
+          api::utils::safe_downcast<uint32_t>(numel()),
+          0u,
+          0u,
+      },
   };
+}
+
+bool vTensor::has_direct_buffer_layout() const {
+  if (storage_type() != api::StorageType::BUFFER || storage_offset_ != 0) {
+    return false;
+  }
+  return strides_ == calc_strides(sizes_, memory_layout_, api::StorageType::BUFFER);
 }
 
 VmaAllocationCreateInfo vTensor::get_allocation_create_info() const {

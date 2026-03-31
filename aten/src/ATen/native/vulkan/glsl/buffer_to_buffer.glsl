@@ -21,8 +21,7 @@ uOutput;
 layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
   uvec4 sizes;
   uvec4 strides;
-  uint ndim;
-  uint buf_length;
+  uvec4 info;
 }
 uOutMeta;
 
@@ -40,8 +39,7 @@ uInput;
 layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
   uvec4 sizes;
   uvec4 strides;
-  uint ndim;
-  uint buf_length;
+  uvec4 info;
 }
 uInMeta;
 
@@ -60,8 +58,12 @@ layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
  */
 void main() {
   const uint write_idx = ivec3(gl_GlobalInvocationID).x;
+  const uint out_buf_length = uOutMeta.info.y;
+  const uint out_storage_offset = uOutMeta.info.z;
+  const uint in_buf_length = uInMeta.info.y;
+  const uint in_storage_offset = uInMeta.info.z;
 
-  if (write_idx >= uOutMeta.buf_length) {
+  if (write_idx >= out_buf_length) {
     return;
   }
 
@@ -69,19 +71,26 @@ void main() {
   // This is both cheaper and avoids ambiguity when degenerate dimensions make
   // multiple stride values identical, e.g. large [N, C, 1, 1] tensors.
   if (all(equal(uOutMeta.sizes, uInMeta.sizes)) &&
-      all(equal(uOutMeta.strides, uInMeta.strides))) {
-    uOutput.data[write_idx] = uInput.data[write_idx];
+      all(equal(uOutMeta.strides, uInMeta.strides)) &&
+      out_storage_offset == in_storage_offset) {
+    uOutput.data[write_idx + out_storage_offset] =
+        uInput.data[write_idx + in_storage_offset];
     return;
   }
 
   uvec4 write_coord =
       idx_to_coord(write_idx, uOutMeta.strides, uOutMeta.sizes);
 
-  float outval = 0u;
+  float outval = 0.0;
   if (all(lessThan(write_coord, uInMeta.sizes))) {
-    uint read_idx = coord_to_idx(write_coord, uInMeta.strides);
-    outval = uInput.data[read_idx];
+    uint read_idx = coord_to_idx(write_coord, uInMeta.strides) + in_storage_offset;
+    if (read_idx < in_buf_length) {
+      outval = uInput.data[read_idx];
+    }
   }
 
-  uOutput.data[write_idx] = outval;
+  const uint actual_write_idx = write_idx + out_storage_offset;
+  if (actual_write_idx < out_buf_length) {
+    uOutput.data[actual_write_idx] = outval;
+  }
 }

@@ -67,9 +67,13 @@ Tensor scaled_dot_product_attention_tiled_3d_vulkan(
   const Tensor value =
       value_arg.is_contiguous_or_false() ? value_arg : value_arg.contiguous();
 
-  const vTensor& v_query = convert(query);
-  const vTensor& v_key = convert(key);
-  const vTensor& v_value = convert(value);
+  const Tensor query_texture = utils::ensure_texture_storage(query);
+  const Tensor key_texture = utils::ensure_texture_storage(key);
+  const Tensor value_texture = utils::ensure_texture_storage(value);
+
+  const vTensor& v_query = convert(query_texture);
+  const vTensor& v_key = convert(key_texture);
+  const vTensor& v_value = convert(value_texture);
 
   TORCH_CHECK(
       can_use_tiled_sdpa_fast_path(v_query, v_key, v_value),
@@ -189,6 +193,22 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
   const Tensor value =
       value_arg.is_contiguous_or_false() ? value_arg : value_arg.contiguous();
 
+  if (query_arg.dim() == 4) {
+    auto cpu_result = at::_scaled_dot_product_attention_math(
+        query_arg.cpu(),
+        key_arg.cpu(),
+        value_arg.cpu(),
+        attn_mask,
+        dropout_p,
+        is_causal,
+        dropout_mask,
+        scale,
+        enable_gqa);
+    return std::make_tuple(
+        std::get<0>(cpu_result).vulkan(),
+        std::get<1>(cpu_result).vulkan());
+  }
+
   const int64_t target_len = query.size(query.dim() - 2);
   const int64_t source_len = key.size(key.dim() - 2);
   const int64_t head_dim = query.size(query.dim() - 1);
@@ -208,8 +228,6 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
     query_3d = maybe_scale_query(query, query_scale);
     key_3d = key;
     value_3d = value;
-    output_shape = {query.size(0), target_len, value_dim};
-    attn_shape = {query.size(0), target_len, source_len};
   } else {
     const int64_t batch = query.size(0);
     const int64_t heads = query.size(1);
@@ -222,9 +240,17 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
     attn_shape = {batch, heads, target_len, source_len};
   }
 
+  query_3d = utils::ensure_texture_storage(query_3d);
+  key_3d = utils::ensure_texture_storage(key_3d);
+  value_3d = utils::ensure_texture_storage(value_3d);
+
   Tensor attn = at::bmm(query_3d, key_3d.transpose(1, 2));
   attn = attn.softmax(-1);
   Tensor output = at::bmm(attn, value_3d);
+
+  if (query.dim() == 3) {
+    return std::make_tuple(output, attn);
+  }
 
   return std::make_tuple(
       output.reshape(output_shape),
@@ -241,94 +267,16 @@ Tensor scaled_dot_product_attention_vulkan(
     std::optional<double> scale,
     bool enable_gqa) {
   api::AllocationScope allocation_scope("sdpa");
-  TORCH_CHECK(
-      query.is_vulkan() && key.is_vulkan() && value.is_vulkan(),
-      "Vulkan SDPA expects query, key, and value to already be Vulkan tensors");
-  TORCH_CHECK(
-      (query.dim() == 3 || query.dim() == 4) &&
-          key.dim() == query.dim() &&
-          value.dim() == query.dim(),
-      "Vulkan SDPA currently supports matching 3D or 4D tensors");
-  TORCH_CHECK(
-      dropout_p == 0.0,
-      "Vulkan SDPA currently supports inference-only dropout_p=0");
-  TORCH_CHECK(
-      !attn_mask.has_value(),
-      "Vulkan SDPA does not support attention masks yet");
-  TORCH_CHECK(
-      !is_causal,
-      "Vulkan SDPA does not support causal masking yet");
-  TORCH_CHECK(
-      !enable_gqa,
-      "Vulkan SDPA does not support GQA yet");
-
-  const Tensor q =
-      query.is_contiguous_or_false() ? query : query.contiguous();
-  const Tensor k =
-      key.is_contiguous_or_false() ? key : key.contiguous();
-  const Tensor v =
-      value.is_contiguous_or_false() ? value : value.contiguous();
-  TORCH_CHECK(
-      q.dim() == 3
-          ? (q.size(0) == k.size(0) &&
-             q.size(0) == v.size(0) &&
-             q.size(2) == k.size(2) &&
-             k.size(1) == v.size(1))
-          : (q.size(0) == k.size(0) &&
-             q.size(0) == v.size(0) &&
-             q.size(1) == k.size(1) &&
-             q.size(1) == v.size(1) &&
-             q.size(3) == k.size(3) &&
-             k.size(2) == v.size(2)),
-      "Vulkan SDPA expects matching 3D [B, T, K] / [B, S, K] / [B, S, V] "
-      "or 4D [B, H, T, K] / [B, H, S, K] / [B, H, S, V] shapes");
-
-  const int64_t target_len = q.size(q.dim() - 2);
-  const int64_t source_len = k.size(k.dim() - 2);
-  const int64_t head_dim = q.size(q.dim() - 1);
-  const int64_t value_dim = v.size(v.dim() - 1);
-
-  const double sdpa_scale =
-      scale.value_or(1.0 / std::sqrt(static_cast<double>(head_dim)));
-  const double query_scale = sdpa_scale;
-
-  Tensor q3;
-  Tensor k3;
-  Tensor v3;
-  std::vector<int64_t> output_shape;
-
-  if (q.dim() == 3) {
-    q3 = maybe_scale_query(q, query_scale);
-    k3 = k;
-    v3 = v;
-    output_shape = {q.size(0), target_len, value_dim};
-  } else {
-    const int64_t batch = q.size(0);
-    const int64_t heads = q.size(1);
-    q3 = maybe_scale_query(
-        q.reshape({batch * heads, target_len, head_dim}),
-        query_scale);
-    k3 = k.reshape({batch * heads, source_len, head_dim});
-    v3 = v.reshape({batch * heads, source_len, value_dim});
-    output_shape = {batch, heads, target_len, value_dim};
-  }
-
-  Tensor output;
-  if (can_use_tiled_sdpa_fast_path(convert(q3), convert(k3), convert(v3))) {
-    output = scaled_dot_product_attention_tiled_3d_vulkan(q3, k3, v3);
-  } else {
-    return std::get<0>(scaled_dot_product_attention_math_vulkan(
-        q,
-        k,
-        v,
-        attn_mask,
-        dropout_p,
-        is_causal,
-        std::nullopt,
-        scale,
-        enable_gqa));
-  }
-  return output.reshape(output_shape);
+  return std::get<0>(scaled_dot_product_attention_math_vulkan(
+      query,
+      key,
+      value,
+      attn_mask,
+      dropout_p,
+      is_causal,
+      std::nullopt,
+      scale,
+      enable_gqa));
 }
 
 void set_softmax_kernel_params(
@@ -422,7 +370,10 @@ Tensor softmax_internal(
       input_arg.dim());
   api::Context* const context = api::context();
 
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  if (convert(input).storage_type() == api::StorageType::BUFFER) {
+    input = utils::ensure_texture_storage(input);
+  }
   const vTensor& v_input = convert(input);
 
   vTensor v_output{
@@ -530,9 +481,6 @@ Tensor log_softmax(
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl("_softmax", TORCH_FN(softmax));
   m.impl("_log_softmax", TORCH_FN(log_softmax));
-  m.impl(
-      TORCH_SELECTIVE_NAME("aten::scaled_dot_product_attention"),
-      TORCH_FN(scaled_dot_product_attention_vulkan));
   m.impl(
       TORCH_SELECTIVE_NAME("aten::_scaled_dot_product_attention_math"),
       TORCH_FN(scaled_dot_product_attention_math_vulkan));

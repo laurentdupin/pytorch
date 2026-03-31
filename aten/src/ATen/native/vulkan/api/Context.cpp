@@ -295,6 +295,7 @@ void Context::sync_and_reclaim() {
     stream << "sync_and_reclaim: pending=" << format_sync_bytes(pending_cleanup)
            << " submitted=" << submitted_work
            << " submit_count=" << submit_count_
+           << " caller=" << current_allocation_label()
            << " full_pool_flush=" << (full_pool_flush ? "1" : "0")
            << " reclaims_since_pool_flush=" << reclaims_since_pool_flush_;
     const std::string top_labels =
@@ -355,6 +356,31 @@ void Context::flush() {
   descriptor_pool_.flush();
 
   // If there is an existing command buffer, invalidate it
+  if (cmd_) {
+    cmd_.invalidate();
+  }
+
+  reclaims_since_pool_flush_ = 0u;
+  submit_count_ = 0u;
+  submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
+  clear_deferred_cleanup_locked();
+}
+
+void Context::flush_after_fence_wait() {
+  if (sync_logging_enabled()) {
+    std::ostringstream stream;
+    stream << "flush_after_fence_wait: pending="
+           << format_sync_bytes(pending_cleanup_bytes())
+           << " submitted=" << submissions_since_reclaim()
+           << " submit_count=" << submit_count_
+           << " caller=" << current_allocation_label()
+           << " reclaims_since_pool_flush=" << reclaims_since_pool_flush_;
+    append_sync_log_line(stream.str());
+  }
+
+  command_pool_.flush();
+  descriptor_pool_.flush();
+
   if (cmd_) {
     cmd_.invalidate();
   }

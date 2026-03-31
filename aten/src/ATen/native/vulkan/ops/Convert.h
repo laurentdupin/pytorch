@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/api/Tensor.h>
 #include <ATen/native/vulkan/api/Types.h>
 #include <c10/util/accumulate.h>
+#include <c10/util/strides.h>
 
 namespace at {
 namespace native {
@@ -78,6 +79,14 @@ static inline c10::ScalarType convert_dtype(const api::ScalarType dtype) {
 
 using vTensorImpl = VulkanOpaqueTensorImpl<vTensor>;
 
+inline c10::DimVector logical_strides(const vTensor& tensor) {
+  if (tensor.storage_type() == api::StorageType::BUFFER) {
+    return c10::DimVector(tensor.strides().begin(), tensor.strides().end());
+  }
+
+  return c10::contiguous_strides(tensor.sizes());
+}
+
 inline Tensor convert(const vTensor& tensor) {
   return at::detail::make_tensor<vTensorImpl>(
       DispatchKeySet(DispatchKey::Vulkan),
@@ -85,7 +94,8 @@ inline Tensor convert(const vTensor& tensor) {
       at::Device(at::kVulkan),
       tensor,
       tensor.sizes(),
-      tensor.strides());
+      logical_strides(tensor),
+      tensor.storage_offset());
 }
 
 inline Tensor convert_quantized(const vTensor& tensor) {
@@ -96,7 +106,8 @@ inline Tensor convert_quantized(const vTensor& tensor) {
       at::Device(at::kVulkan),
       tensor,
       tensor.sizes(),
-      tensor.strides());
+      logical_strides(tensor),
+      tensor.storage_offset());
 }
 
 inline vTensor& convert(const Tensor& tensor) {

@@ -115,6 +115,13 @@ class vTensor final {
       const api::GPUMemoryLayout memory_layout =
           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED);
 
+  // Metadata-only constructor for buffer-backed logical views.
+  vTensor(
+      const vTensor& src,
+      const std::vector<int64_t>& sizes,
+      const std::vector<int64_t>& strides,
+      const int64_t storage_offset);
+
   // Copy Constructor and Assignment; Ideally copying  would be disabled
   // (see the reasoning for move assignment below) but it is required for
   // compatibility with OpaqueTensorImpl
@@ -129,8 +136,7 @@ class vTensor final {
   struct BufferMetadata {
     api::utils::uvec4 sizes;
     api::utils::uvec4 strides;
-    uint32_t ndim;
-    uint32_t buffer_length;
+    api::utils::uvec4 info;
   };
 
  private:
@@ -143,6 +149,7 @@ class vTensor final {
   // Sizes and Strides
   std::vector<int64_t> sizes_;
   std::vector<int64_t> strides_;
+  int64_t storage_offset_{0};
 
   // Storage Dimensions. When stored on the GPU, one dimension will be aligned
   // to the next multiple of 4 in order to take advantage of vec4 data types.
@@ -269,6 +276,10 @@ class vTensor final {
     return strides_;
   }
 
+  inline int64_t storage_offset() const {
+    return storage_offset_;
+  }
+
   inline const std::vector<int64_t>& gpu_sizes() const {
     return gpu_sizes_;
   }
@@ -313,6 +324,8 @@ class vTensor final {
    * to pass into a shader.
    */
   BufferMetadata get_cpu_buffer_metadata() const;
+
+  bool has_direct_buffer_layout() const;
 
   inline void set_is_quantized() {
     is_quantized_ = true;

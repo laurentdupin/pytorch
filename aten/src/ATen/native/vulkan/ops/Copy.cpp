@@ -2,6 +2,9 @@
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/vulkan/Context.h>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
 
 namespace at {
 namespace native {
@@ -9,6 +12,63 @@ namespace vulkan {
 namespace ops {
 
 namespace {
+
+const std::string& copy_sync_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_COPY_SYNC_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool copy_sync_logging_enabled() {
+  return !copy_sync_log_path().empty();
+}
+
+const char* storage_type_name(const api::StorageType storage_type) {
+  switch (storage_type) {
+    case api::StorageType::TEXTURE_3D:
+      return "TEXTURE_3D";
+    case api::StorageType::TEXTURE_2D:
+      return "TEXTURE_2D";
+    case api::StorageType::BUFFER:
+      return "BUFFER";
+    case api::StorageType::UNKNOWN:
+      return "UNKNOWN";
+  }
+  return "UNKNOWN";
+}
+
+std::string format_sizes(const std::vector<int64_t>& sizes) {
+  std::ostringstream stream;
+  stream << "[";
+  for (size_t idx = 0; idx < sizes.size(); ++idx) {
+    if (idx > 0) {
+      stream << ",";
+    }
+    stream << sizes[idx];
+  }
+  stream << "]";
+  return stream.str();
+}
+
+void log_copy_sync_event(
+    const char* kind,
+    const vTensor& tensor,
+    const bool direct_buffer_layout) {
+  if (!copy_sync_logging_enabled()) {
+    return;
+  }
+
+  std::ofstream out(copy_sync_log_path(), std::ios::app);
+  out << "kind=" << kind
+      << " caller=" << api::current_allocation_label()
+      << " storage=" << storage_type_name(tensor.storage_type())
+      << " direct_buffer=" << (direct_buffer_layout ? 1 : 0)
+      << " logical_bytes=" << tensor.nbytes()
+      << " gpu_bytes=" << tensor.gpu_nbytes()
+      << " sizes=" << format_sizes(tensor.sizes()) << '\n';
+}
 
 c10::MemoryFormat memory_format_for_buffer_layout(
     const api::GPUMemoryLayout memory_layout) {
@@ -156,7 +216,8 @@ void transfer_vulkan_to_cpu(vTensor& v_src, Tensor& dst) {
 
     fence.wait();
 
-    context->flush();
+    log_copy_sync_event("transfer_vulkan_to_cpu", v_src, false);
+    context->flush_after_fence_wait();
     // cmd_mutex_ will be released when exiting this scope.
   }
 
@@ -254,19 +315,30 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
 
     {
       std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
-      bool submitted_to_gpu = copy_vtensor_buffer_to_staging(
-          context, src, staging, fence.get_submit_handle());
+      bool submitted_to_gpu = false;
+      if (src.has_direct_buffer_layout()) {
+        submitted_to_gpu = copy_vtensor_buffer_to_staging(
+            context, src, staging, fence.get_submit_handle());
+      } else {
+        submitted_to_gpu = utils::pack_vtensor_to_staging(
+            src, staging.buffer(), fence.get_submit_handle());
+      }
       if (submitted_to_gpu) {
         fence.wait();
+        log_copy_sync_event(
+            "pack_vulkan_to_cpu_buffer", src, src.has_direct_buffer_layout());
+        context->flush_after_fence_wait();
+      } else {
+        context->flush();
       }
-      context->flush();
     }
 
     Tensor dst_tmp = at::empty(
         src.sizes(),
-        at::device(at::kCPU)
-            .dtype(convert_dtype(src.dtype())))
-                         .to(memory_format_for_buffer_layout(src.gpu_memory_layout()));
+        at::device(at::kCPU).dtype(convert_dtype(src.dtype())));
+    if (src.has_direct_buffer_layout()) {
+      dst_tmp = dst_tmp.to(memory_format_for_buffer_layout(src.gpu_memory_layout()));
+    }
 
     {
       api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::READ);
@@ -299,9 +371,11 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
     // Otherwise, it will hang indefinitely.
     if (submitted_to_gpu) {
       fence.wait();
+      log_copy_sync_event("pack_vulkan_to_cpu_texture", src, false);
+      context->flush_after_fence_wait();
+    } else {
+      context->flush();
     }
-
-    context->flush();
     // cmd_mutex_ will be released when exiting this scope.
   }
 

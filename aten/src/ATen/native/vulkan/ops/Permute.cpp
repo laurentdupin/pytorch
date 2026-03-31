@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
 namespace at {
@@ -17,7 +18,10 @@ Tensor permute_4d(
     vTensor& v_output) {
   api::Context* const context = api::context();
 
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  if (convert(input).storage_type() == api::StorageType::BUFFER) {
+    input = utils::ensure_texture_storage(input);
+  }
   const vTensor& v_self = convert(input);
 
   uint32_t out_channels = out_size.data[1u];
@@ -74,7 +78,6 @@ Tensor permute_4d(
 
 Tensor permute(const Tensor& self, IntArrayRef dims) {
   api::AllocationScope allocation_scope("permute");
-
   auto nDims = safe_downcast<uint32_t>(self.dim());
   TORCH_CHECK(
       dims.size() == (size_t)nDims, "number of dims don't match in permute");

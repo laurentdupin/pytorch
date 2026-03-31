@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
 namespace at {
@@ -8,11 +9,15 @@ namespace ops {
 namespace {
 
 using namespace api::utils;
+
 Tensor select_batch_4d(const Tensor& input_arg, uint32_t index) {
   api::Context* const context = api::context();
 
   const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_input = convert(input);
+  vTensor v_input = convert(input);
+  if (v_input.storage_type() == api::StorageType::BUFFER) {
+    v_input = convert(utils::ensure_texture_storage(input));
+  }
   const IntArrayRef v_input_sizes = v_input.sizes();
 
   vTensor v_output{
@@ -64,7 +69,10 @@ Tensor select_depth_3d(const Tensor& input_arg, uint32_t index) {
   api::Context* const context = api::context();
 
   const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_input = convert(input);
+  vTensor v_input = convert(input);
+  if (v_input.storage_type() == api::StorageType::BUFFER) {
+    v_input = convert(utils::ensure_texture_storage(input));
+  }
   const IntArrayRef v_input_sizes = v_input.sizes();
 
   vTensor v_output{
@@ -111,7 +119,10 @@ Tensor select_depth_4d(const Tensor& input_arg, uint32_t index) {
   api::Context* const context = api::context();
 
   const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_input = convert(input);
+  vTensor v_input = convert(input);
+  if (v_input.storage_type() == api::StorageType::BUFFER) {
+    v_input = convert(utils::ensure_texture_storage(input));
+  }
   const IntArrayRef v_input_sizes = v_input.sizes();
 
   vTensor v_output{
@@ -164,7 +175,10 @@ Tensor select_height_3d(const Tensor& input_arg, uint32_t index) {
   api::Context* const context = api::context();
 
   const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_input = convert(input);
+  vTensor v_input = convert(input);
+  if (v_input.storage_type() == api::StorageType::BUFFER) {
+    v_input = convert(utils::ensure_texture_storage(input));
+  }
   const IntArrayRef v_input_sizes = v_input.sizes();
 
   vTensor v_output{
@@ -223,7 +237,10 @@ Tensor select_height_4d(const Tensor& input_arg, uint32_t index) {
   api::Context* const context = api::context();
 
   const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_input = convert(input);
+  vTensor v_input = convert(input);
+  if (v_input.storage_type() == api::StorageType::BUFFER) {
+    v_input = convert(utils::ensure_texture_storage(input));
+  }
   const IntArrayRef v_input_sizes = v_input.sizes();
 
   vTensor v_output{
@@ -277,7 +294,10 @@ Tensor select_width_3d(const Tensor& input_arg, uint32_t index) {
   api::Context* const context = api::context();
 
   const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_input = convert(input);
+  vTensor v_input = convert(input);
+  if (v_input.storage_type() == api::StorageType::BUFFER) {
+    v_input = convert(utils::ensure_texture_storage(input));
+  }
   const IntArrayRef v_input_sizes = v_input.sizes();
 
   vTensor v_output{
@@ -337,7 +357,10 @@ Tensor select_width_4d(const Tensor& input_arg, uint32_t index) {
   api::Context* const context = api::context();
 
   const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_input = convert(input);
+  vTensor v_input = convert(input);
+  if (v_input.storage_type() == api::StorageType::BUFFER) {
+    v_input = convert(utils::ensure_texture_storage(input));
+  }
   const IntArrayRef v_input_sizes = v_input.sizes();
 
   vTensor v_output{

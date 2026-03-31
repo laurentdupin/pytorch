@@ -5,6 +5,7 @@
 #endif // _WIN32
 
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
 namespace at {
@@ -24,8 +25,11 @@ Tensor _clamp(
 
   api::Context* const context = api::context();
 
-  const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
-  const vTensor& v_self = convert(self_arg);
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  if (convert(self).storage_type() == api::StorageType::BUFFER) {
+    self = utils::ensure_texture_storage(self);
+  }
+  const vTensor& v_self = convert(self);
 
   vTensor v_output{
       context,
@@ -122,6 +126,9 @@ Tensor& _clamp_(
 
   const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
   vTensor& v_self = convert(self);
+  TORCH_CHECK(
+      v_self.storage_type() != api::StorageType::BUFFER,
+      "In-place Vulkan clamp is not yet supported on buffer-backed logical views");
 
   api::UniformParamsBuffer params;
 
@@ -202,7 +209,10 @@ Tensor activation(
     const api::ShaderInfo& shader_descriptor) {
   api::Context* const context = api::context();
 
-  const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  if (convert(self).storage_type() == api::StorageType::BUFFER) {
+    self = utils::ensure_texture_storage(self);
+  }
   const vTensor& v_self = convert(self);
 
   vTensor v_output{
@@ -255,6 +265,9 @@ Tensor& activation_(
   api::Context* const context = api::context();
 
   vTensor& v_self = convert(self_arg);
+  TORCH_CHECK(
+      v_self.storage_type() != api::StorageType::BUFFER,
+      "In-place Vulkan activation is not yet supported on buffer-backed logical views");
 
   const struct Block final {
     uvec3 extents;
@@ -341,7 +354,10 @@ Tensor activation_scalar(
     const api::ShaderInfo& shader_descriptor) {
   api::Context* const context = api::context();
 
-  const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  if (convert(self).storage_type() == api::StorageType::BUFFER) {
+    self = utils::ensure_texture_storage(self);
+  }
   const vTensor& v_self = convert(self);
 
   vTensor v_output{
@@ -437,6 +453,9 @@ Tensor& activation_scalar_(
   api::Context* const context = api::context();
 
   vTensor& v_self = convert(self_arg);
+  TORCH_CHECK(
+      v_self.storage_type() != api::StorageType::BUFFER,
+      "In-place Vulkan scalar activation is not yet supported on buffer-backed logical views");
 
   api::UniformParamsBuffer params;
 

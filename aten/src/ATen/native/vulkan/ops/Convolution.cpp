@@ -1379,9 +1379,19 @@ static Tensor run_conv2d_context_impl(
     double scale,
     int64_t zero_point) {
   api::Context* const context = api::context();
-  // Validate input tensor is a Vulkan tensor, then convert to vTensor
   TORCH_CHECK(input_arg.is_vulkan(), "Input tensor must be Vulkan!");
-  const vTensor& v_input = convert(input_arg);
+
+  Tensor input = input_arg;
+  if (convert(input).storage_type() == api::StorageType::BUFFER) {
+    input = input.add(0.0);
+    if (convert(input).storage_type() == api::StorageType::BUFFER) {
+      input = utils::ensure_texture_storage(input);
+    }
+  }
+  if (convert(input).storage_type() == api::StorageType::BUFFER) {
+    input = utils::ensure_texture_storage(input);
+  }
+  const vTensor& v_input = convert(input);
 
   // Extract everything from the PackedContext
   const Tensor weight =
@@ -1428,7 +1438,7 @@ static Tensor run_conv2d_context_impl(
           .toIntVector();
 
   TORCH_CHECK(
-      usable(input_arg, quantized), "Input tensor not usable for convolution!");
+      usable(input, quantized), "Input tensor not usable for convolution!");
 
   std::vector<int64_t> output_size;
   if (transposed) {

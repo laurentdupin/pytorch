@@ -20,7 +20,10 @@ static Tensor binary_op_scalar(
   api::AllocationScope allocation_scope("binary_op");
   api::Context* const context = api::context();
 
-  const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  if (convert(self).storage_type() == api::StorageType::BUFFER) {
+    self = utils::ensure_texture_storage(self);
+  }
   const vTensor& v_self = convert(self);
 
   vTensor v_output{
@@ -113,6 +116,9 @@ static Tensor& binary_op_scalar_(
   api::Context* const context = api::context();
 
   vTensor& v_self = convert(self_arg);
+  TORCH_CHECK(
+      v_self.storage_type() != api::StorageType::BUFFER,
+      "In-place Vulkan binary ops do not yet support buffer-backed logical views");
 
   const float other_val = alpha_arg ? other.to<float>() * alpha_arg->to<float>()
                                     : other.to<float>();
@@ -160,10 +166,16 @@ static Tensor binary_op_tensor(
   utils::is_broadcastable(self_arg, other_arg);
   api::Context* const context = api::context();
 
-  const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  if (convert(self).storage_type() == api::StorageType::BUFFER) {
+    self = utils::ensure_texture_storage(self);
+  }
   const vTensor& v_self = convert(self);
 
   Tensor other = binary_op_preprocess_other_arg(other_arg);
+  if (convert(other).storage_type() == api::StorageType::BUFFER) {
+    other = utils::ensure_texture_storage(other);
+  }
 
   const vTensor& v_other = convert(other);
 
@@ -338,8 +350,14 @@ static Tensor& binary_op_tensor_(
   api::Context* const context = api::context();
 
   vTensor& v_self = convert(self_arg);
+  TORCH_CHECK(
+      v_self.storage_type() != api::StorageType::BUFFER,
+      "In-place Vulkan binary ops do not yet support buffer-backed logical views");
 
   Tensor other = binary_op_preprocess_other_arg(other_arg);
+  if (convert(other).storage_type() == api::StorageType::BUFFER) {
+    other = utils::ensure_texture_storage(other);
+  }
 
   const vTensor& v_other = convert(other);
 
