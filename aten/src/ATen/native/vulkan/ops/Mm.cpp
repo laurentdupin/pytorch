@@ -95,6 +95,18 @@ bool same_optional_tensor_impl(
   return lhs->unsafeGetTensorImpl() == rhs->unsafeGetTensorImpl();
 }
 
+int64_t tensor_version_or_zero(const Tensor& tensor) {
+  return tensor.is_inference() ? 0 : tensor._version();
+}
+
+bool has_inference_tensor(
+    const Tensor& weight,
+    const std::optional<Tensor>& bias) {
+  const auto normalized_bias = normalized_optional_tensor(bias);
+  return weight.is_inference() ||
+      (normalized_bias && normalized_bias->is_inference());
+}
+
 std::optional<c10::intrusive_ptr<LinearPackedContext>> lookup_linear_context(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
@@ -107,8 +119,9 @@ std::optional<c10::intrusive_ptr<LinearPackedContext>> lookup_linear_context(
     linear_cache_log_state().lookups.fetch_add(1u, std::memory_order_relaxed);
   }
 
-  const int64_t weight_version = weight._version();
-  const int64_t bias_version = normalized_bias ? normalized_bias->_version() : 0u;
+  const int64_t weight_version = tensor_version_or_zero(weight);
+  const int64_t bias_version =
+      normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
 
   for (auto it = linear_context_cache.begin(); it != linear_context_cache.end();
        ++it) {
@@ -151,8 +164,9 @@ void store_linear_context(
   LinearContextCacheEntry entry;
   entry.weight_ref = weight;
   entry.bias_ref = normalized_bias;
-  entry.weight_version = weight._version();
-  entry.bias_version = normalized_bias ? normalized_bias->_version() : 0u;
+  entry.weight_version = tensor_version_or_zero(weight);
+  entry.bias_version =
+      normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
   entry.context = context;
 
   linear_context_cache.emplace_front(std::move(entry));
@@ -164,12 +178,25 @@ void store_linear_context(
 c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
+  if (has_inference_tensor(weight, bias)) {
+    const Tensor prepared_weight =
+        (weight.is_vulkan() && weight.dim() == 2) ? weight.cpu().t().contiguous()
+                                                  : weight.t();
+    return c10::make_intrusive<LinearPackedContext>(
+        LinearPackedContext(prepared_weight, bias));
+  }
+
   if (const auto cached_context = lookup_linear_context(weight, bias)) {
     return *cached_context;
   }
 
+  const Tensor prepared_weight =
+      (c10::InferenceMode::is_enabled() && weight.is_vulkan() &&
+       weight.dim() == 2)
+      ? weight.cpu().t().contiguous()
+      : weight.t();
   const auto context = c10::make_intrusive<LinearPackedContext>(
-      LinearPackedContext(weight.t(), bias));
+      LinearPackedContext(prepared_weight, bias));
   store_linear_context(weight, bias, context);
   return context;
 }
@@ -240,6 +267,101 @@ Tensor materialize_inference_vulkan_matrix_arg(const Tensor& tensor) {
   return tensor;
 }
 
+Tensor upcast_bfloat16_weight_for_vulkan_linear(const Tensor& tensor) {
+  if (tensor.scalar_type() != kBFloat16) {
+    return tensor;
+  }
+  if (tensor.is_vulkan()) {
+    return convert(tensor).storage_type() == api::StorageType::BUFFER
+        ? utils::upcast_bfloat16_buffer_to_float(tensor)
+        : tensor.cpu().to(kFloat).vulkan();
+  }
+  return tensor.to(kFloat);
+}
+
+std::optional<Tensor> upcast_bfloat16_bias_for_vulkan_linear(
+    const std::optional<Tensor>& tensor) {
+  if (!tensor || !tensor->defined()) {
+    return std::nullopt;
+  }
+  if (tensor->scalar_type() != kBFloat16) {
+    return tensor;
+  }
+  if (tensor->is_vulkan()) {
+    return convert(*tensor).storage_type() == api::StorageType::BUFFER
+        ? utils::upcast_bfloat16_buffer_to_float(*tensor)
+        : tensor->cpu().to(kFloat).vulkan();
+  }
+  return tensor->to(kFloat);
+}
+
+Tensor upcast_bfloat16_input_for_vulkan_linear(const Tensor& tensor) {
+  if (tensor.scalar_type() != kBFloat16) {
+    return tensor;
+  }
+  if (tensor.is_vulkan()) {
+    return convert(tensor).storage_type() == api::StorageType::BUFFER
+        ? utils::upcast_bfloat16_buffer_to_float(tensor)
+        : tensor.cpu().to(kFloat).vulkan();
+  }
+  return tensor.to(kFloat);
+}
+
+vTensor pack_cpu_float_weight_using_height_packing(const Tensor& weight_arg) {
+  TORCH_INTERNAL_ASSERT(weight_arg.is_cpu());
+  TORCH_INTERNAL_ASSERT(weight_arg.scalar_type() == kFloat);
+  TORCH_INTERNAL_ASSERT(weight_arg.dim() == 2);
+
+  api::Context* const context = api::context();
+  const Tensor weight = weight_arg.contiguous();
+  const int64_t height = weight.size(Layout::Parameter::height);
+  const int64_t width = weight.size(Layout::Parameter::width);
+
+  vTensor v_weight{
+      context,
+      weight.sizes().vec(),
+      convert_dtype(weight.scalar_type()),
+      api::StorageType::TEXTURE_3D,
+      api::GPUMemoryLayout::TENSOR_HEIGHT_PACKED,
+  };
+
+  api::StorageBuffer staging(context, api::kFloat, v_weight.gpu_numel());
+  {
+    api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::WRITE);
+    float* const dst = mapping.template data<float>();
+    const float* const src = weight.const_data_ptr<float>();
+    std::fill_n(dst, v_weight.gpu_numel(), 0.0f);
+
+    const api::utils::uvec3 extents = v_weight.extents();
+    const int64_t texel_width =
+        static_cast<int64_t>(extents.data[0u]);
+    const int64_t texel_height =
+        static_cast<int64_t>(extents.data[1u]);
+    const int64_t texel_depth =
+        static_cast<int64_t>(extents.data[2u]);
+
+    for (const auto z : c10::irange(texel_depth)) {
+      for (const auto y : c10::irange(texel_height)) {
+        const int64_t src_base_h = y * 4;
+        for (const auto x : c10::irange(texel_width)) {
+          const int64_t texel_base =
+              (((z * texel_height) + y) * texel_width + x) * 4;
+          for (const auto c : c10::irange(int64_t{4})) {
+            const int64_t src_h = src_base_h + c;
+            if (src_h < height && x < width) {
+              dst[texel_base + c] = src[src_h * width + x];
+            }
+          }
+        }
+      }
+    }
+  }
+
+  api::PipelineBarrier pipeline_barrier{};
+  utils::copy_buffer_to_vtensor(staging.buffer(), v_weight, pipeline_barrier);
+  return v_weight;
+}
+
 vTensor pack_inputs_using_width_packing(const Tensor& input_arg) {
   TORCH_INTERNAL_ASSERT(
       !input_arg.is_quantized(),
@@ -284,6 +406,11 @@ vTensor pack_weights_using_height_packing(const Tensor& weight_arg) {
       weight_arg.dim() == 2 || weight_arg.dim() == 3,
       "Vulkan Linear not usable! "
       "Reason: Weight packing only supports 2D or 3D tensors.");
+
+  if (weight_arg.is_cpu() && weight_arg.scalar_type() == kFloat &&
+      weight_arg.dim() == 2) {
+    return pack_cpu_float_weight_using_height_packing(weight_arg);
+  }
 
   Tensor weight = weight_arg;
 
@@ -670,6 +797,164 @@ static Tensor reshape_to_2d(const Tensor& input_arg) {
   return reshape_input.reshape({d, reshape_input.size(-1)});
 }
 
+static Tensor reshape_to_2d_buffer_linear(const Tensor& input_arg) {
+  TORCH_CHECK(
+      input_arg.dim() >= 1,
+      "Vulkan Linear op only supports input tensor with dim >= 1");
+
+  if (input_arg.dim() == 1) {
+    return input_arg.unsqueeze(0);
+  }
+
+  const IntArrayRef input_sizes = input_arg.sizes();
+  const auto d =
+      c10::multiply_integers(input_sizes.cbegin(), input_sizes.end() - 1);
+  return input_arg.reshape({d, input_arg.size(-1)});
+}
+
+bool can_run_bfloat16_buffer_linear(
+    const Tensor& input,
+    const Tensor& weight,
+    const std::optional<Tensor>& bias) {
+  // Disabled for now. The initial buffer-native BF16 path is not yet reliable
+  // enough for general eager execution, so BF16 linear currently widens through
+  // the proven float path instead.
+  return false;
+
+  if (
+      input.device().type() != c10::DeviceType::Vulkan ||
+      weight.device().type() != c10::DeviceType::Vulkan ||
+      input.scalar_type() != kBFloat16 ||
+      weight.scalar_type() != kBFloat16 ||
+      input.dim() != 2 ||
+      weight.dim() != 2 ||
+      input.requires_grad() ||
+      weight.requires_grad() ||
+      input.size(Layout::Parameter::width) !=
+          weight.size(Layout::Parameter::width)) {
+    return false;
+  }
+
+  vTensor v_input = convert(input);
+  vTensor v_weight = convert(weight);
+  if (
+      v_input.storage_type() != api::StorageType::BUFFER ||
+      v_weight.storage_type() != api::StorageType::BUFFER) {
+    return false;
+  }
+
+  if (bias && bias->defined()) {
+    if (
+        bias->device().type() != c10::DeviceType::Vulkan ||
+        bias->dim() > 2 ||
+        bias->requires_grad()) {
+      return false;
+    }
+
+    if (convert(*bias).storage_type() != api::StorageType::BUFFER) {
+      return false;
+    }
+
+    if (bias->scalar_type() != kBFloat16 && bias->scalar_type() != kFloat) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+Tensor run_bfloat16_buffer_linear(
+    const Tensor& input_arg,
+    const Tensor& weight_arg,
+    const std::optional<Tensor>& bias_arg) {
+  api::AllocationScope allocation_scope("linear.bf16_buffer");
+  api::Context* const context = api::context();
+
+  const Tensor input_arg_2d =
+      input_arg.dim() == 2 ? input_arg : reshape_to_2d_buffer_linear(input_arg);
+  const Tensor input =
+      input_arg_2d.is_vulkan() ? input_arg_2d : input_arg_2d.vulkan();
+  const Tensor weight = weight_arg.is_vulkan() ? weight_arg : weight_arg.vulkan();
+
+  TORCH_INTERNAL_ASSERT(can_run_bfloat16_buffer_linear(input, weight, bias_arg));
+
+  vTensor v_input = convert(input);
+  vTensor v_weight = convert(weight);
+
+  vTensor v_output{
+      context,
+      {
+          input_arg_2d.sizes()[Layout::Parameter::height],
+          weight.sizes()[Layout::Parameter::height],
+      },
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const struct {
+    int32_t out_width;
+    int32_t out_height;
+    int32_t inner_dim;
+    int32_t reserved;
+  } block{
+      api::utils::safe_downcast<int32_t>(weight.size(Layout::Parameter::height)),
+      api::utils::safe_downcast<int32_t>(
+          input_arg_2d.size(Layout::Parameter::height)),
+      api::utils::safe_downcast<int32_t>(
+          input_arg_2d.size(Layout::Parameter::width)),
+      0,
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size{
+      api::utils::safe_downcast<uint32_t>(weight.size(Layout::Parameter::height)),
+      api::utils::safe_downcast<uint32_t>(
+          input_arg_2d.size(Layout::Parameter::height)),
+      1u,
+  };
+
+  context->submit_compute_job(
+      VK_KERNEL(mm_buffer_bfloat16),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_output.buffer_metadata(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      v_input.buffer_metadata(),
+      v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      v_weight.buffer_metadata(),
+      params.buffer());
+
+  Tensor output = convert(v_output);
+
+  std::optional<Tensor> bias = upcast_bfloat16_bias_for_vulkan_linear(bias_arg);
+  if (bias && bias->defined()) {
+    if (!bias->is_vulkan()) {
+      *bias = bias->vulkan();
+    }
+    output = output.add(*bias);
+  }
+
+  if (input_arg.dim() == 2) {
+    return output;
+  }
+
+  std::vector<int64_t> shape;
+  shape.reserve(static_cast<size_t>(std::max<int64_t>(0, input_arg.dim())));
+  for (const auto i : c10::irange(input_arg.dim() - 1)) {
+    shape.emplace_back(input_arg.size(i));
+  }
+  shape.emplace_back(output.size(-1));
+  return output.reshape(shape);
+}
+
 Tensor run_quantized_addmm_context(
     const Tensor& input_arg,
     const float alpha,
@@ -911,8 +1196,11 @@ Tensor run_addmm_context(
 
   api::Context* const context = api::context();
 
+  const Tensor compute_input_arg =
+      upcast_bfloat16_input_for_vulkan_linear(input_arg);
   const Tensor input_arg_2d =
-      input_arg.dim() == 2 ? input_arg : reshape_to_2d(input_arg);
+      compute_input_arg.dim() == 2 ? compute_input_arg
+                                   : reshape_to_2d(compute_input_arg);
   const Tensor input =
       input_arg_2d.is_vulkan() ? input_arg_2d : input_arg_2d.vulkan();
   const vTensor& v_input = pack_inputs_using_width_packing(input);
@@ -1121,7 +1409,11 @@ Tensor run_baddbmm_context(
       "Vulkan Linear not usable! "
       "Reason: The input has the wrong dimension; the tensor of a batch of matrices should contain 3 dimensions: batch, height, width.");
 
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  const Tensor compute_input_arg =
+      upcast_bfloat16_input_for_vulkan_linear(input_arg);
+  const Tensor input =
+      compute_input_arg.is_vulkan() ? compute_input_arg
+                                    : compute_input_arg.vulkan();
   vTensor packed_v_input = pack_inputs_using_width_packing(input);
 
   const vTensor& packed_v_weight = convert(
@@ -1240,6 +1532,16 @@ Tensor linear(
     const Tensor& input,
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
+  const Tensor linear_input =
+      input.dim() == 2 ? input : reshape_to_2d_buffer_linear(input);
+  const Tensor linear_weight = weight.is_vulkan() ? weight : weight.vulkan();
+  const std::optional<Tensor> linear_bias =
+      (bias && bias->defined() && !bias->is_vulkan()) ? bias->vulkan() : bias;
+
+  if (can_run_bfloat16_buffer_linear(linear_input, linear_weight, linear_bias)) {
+    return run_bfloat16_buffer_linear(input, linear_weight, linear_bias);
+  }
+
   return run_addmm_context(
       input,
       1.0f,
@@ -1323,10 +1625,14 @@ LinearPackedContext::LinearPackedContext(
   allocation_label_ = std::move(allocation_label);
   api::AllocationScope allocation_scope(
       linear_pack_label(allocation_label_, use_batch));
-  const Tensor packed_weight =
+  const Tensor prepared_weight =
       use_batch ? weight : materialize_inference_vulkan_matrix_arg(weight);
+  const Tensor packed_weight =
+      upcast_bfloat16_weight_for_vulkan_linear(prepared_weight);
+  const std::optional<Tensor> packed_bias =
+      upcast_bfloat16_bias_for_vulkan_linear(bias);
   TORCH_CHECK(
-      available(packed_weight, bias, use_batch),
+      available(packed_weight, packed_bias, use_batch),
       "Vulkan Linear not available! "
       "Reason: The provided (weight, bias) parameters are either invalid "
       "individually or their combination is not supported by Vulkan Impl.");
@@ -1334,16 +1640,16 @@ LinearPackedContext::LinearPackedContext(
   packed_.reserve(Packed::NumArgs);
   packed_.emplace_back(convert(pack_weights(packed_weight, use_batch)));
   const auto& packed_biases = packed_weight.is_quantized()
-      ? pack_biases_quantized_weights(packed_weight, bias, use_batch)
-      : pack_biases(packed_weight, bias, use_batch);
+      ? pack_biases_quantized_weights(packed_weight, packed_bias, use_batch)
+      : pack_biases(packed_weight, packed_bias, use_batch);
   packed_.emplace_back(convert(packed_biases));
   packed_.emplace_back(packed_weight.sizes());
-  packed_.emplace_back(bias && bias->defined());
+  packed_.emplace_back(packed_bias && packed_bias->defined());
 
   if (!at::globalContext().releaseWeightsWhenPrepacking()) {
     unpacked_.reserve(Unpacked::NumArgs);
     unpacked_.emplace_back(packed_weight);
-    unpacked_.emplace_back(bias);
+    unpacked_.emplace_back(packed_bias);
   }
 }
 
@@ -1365,7 +1671,10 @@ c10::intrusive_ptr<LinearPackedContext> create_linear_context_labeled(
     std::optional<Tensor>&& bias,
     std::string label) {
   const Tensor prepared_weight =
-      weight.is_vulkan() ? weight.clone().t() : weight.t();
+      (c10::InferenceMode::is_enabled() && weight.is_vulkan() &&
+       weight.dim() == 2)
+      ? weight.cpu().t().contiguous()
+      : weight.t();
   return c10::make_intrusive<LinearPackedContext>(
       LinearPackedContext(
           prepared_weight, bias, false, std::move(label)));

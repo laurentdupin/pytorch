@@ -32,6 +32,7 @@ struct PhysicalDevice final {
   uint32_t num_compute_queues;
   bool has_unified_memory;
   bool has_timestamps;
+  bool has_shader_bfloat16;
   float timestamp_period;
 
   explicit PhysicalDevice(VkPhysicalDevice);
@@ -150,6 +151,10 @@ class Adapter final {
 
   inline float timestamp_period() const {
     return physical_device_.timestamp_period;
+  }
+
+  inline bool has_shader_bfloat16() const {
+    return physical_device_.has_shader_bfloat16;
   }
 
   // Queue Management

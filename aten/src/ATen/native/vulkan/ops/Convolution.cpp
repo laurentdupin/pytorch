@@ -33,6 +33,50 @@ namespace native {
 namespace vulkan {
 namespace ops {
 
+namespace {
+
+Tensor upcast_bfloat16_weight_for_vulkan_convolution(const Tensor& tensor) {
+  if (tensor.scalar_type() != kBFloat16) {
+    return tensor;
+  }
+  if (tensor.is_vulkan()) {
+    return convert(tensor).storage_type() == api::StorageType::BUFFER
+        ? utils::upcast_bfloat16_buffer_to_float(tensor)
+        : tensor.cpu().to(kFloat).vulkan();
+  }
+  return tensor.to(kFloat);
+}
+
+std::optional<Tensor> upcast_bfloat16_bias_for_vulkan_convolution(
+    const std::optional<Tensor>& tensor) {
+  if (!tensor || !tensor->defined()) {
+    return std::nullopt;
+  }
+  if (tensor->scalar_type() != kBFloat16) {
+    return tensor;
+  }
+  if (tensor->is_vulkan()) {
+    return convert(*tensor).storage_type() == api::StorageType::BUFFER
+        ? utils::upcast_bfloat16_buffer_to_float(*tensor)
+        : tensor->cpu().to(kFloat).vulkan();
+  }
+  return tensor->to(kFloat);
+}
+
+Tensor upcast_bfloat16_input_for_vulkan_convolution(const Tensor& tensor) {
+  if (tensor.scalar_type() != kBFloat16) {
+    return tensor;
+  }
+  if (tensor.is_vulkan()) {
+    return convert(tensor).storage_type() == api::StorageType::BUFFER
+        ? utils::upcast_bfloat16_buffer_to_float(tensor)
+        : tensor.cpu().to(kFloat).vulkan();
+  }
+  return tensor.to(kFloat);
+}
+
+} // namespace
+
 namespace conv2d {
 
 inline bool has_bias(const std::optional<Tensor>& bias) {
@@ -609,6 +653,18 @@ bool same_optional_tensor_impl(
   return lhs->unsafeGetTensorImpl() == rhs->unsafeGetTensorImpl();
 }
 
+int64_t tensor_version_or_zero(const Tensor& tensor) {
+  return tensor.is_inference() ? 0 : tensor._version();
+}
+
+bool has_inference_tensor(
+    const Tensor& weight,
+    const std::optional<Tensor>& bias) {
+  const auto normalized_bias = normalized_optional_tensor(bias);
+  return weight.is_inference() ||
+      (normalized_bias && normalized_bias->is_inference());
+}
+
 std::optional<c10::intrusive_ptr<Conv2dPackedContext>> lookup_packed_conv2d_context(
     const Tensor& weight,
     const std::optional<Tensor>& bias,
@@ -630,9 +686,9 @@ std::optional<c10::intrusive_ptr<Conv2dPackedContext>> lookup_packed_conv2d_cont
     conv_cache_log_state().lookups.fetch_add(1u, std::memory_order_relaxed);
   }
 
-  const int64_t weight_version = weight._version();
+  const int64_t weight_version = tensor_version_or_zero(weight);
   const int64_t bias_version = normalized_bias
-      ? normalized_bias->_version()
+      ? tensor_version_or_zero(*normalized_bias)
       : 0u;
   const auto stride_key = make_param_key(stride);
   const auto padding_key = make_param_key(padding);
@@ -703,8 +759,9 @@ void store_packed_conv2d_context(
   PackedConv2dCacheEntry entry;
   entry.weight_ref = weight;
   entry.bias_ref = normalized_bias;
-  entry.weight_version = weight._version();
-  entry.bias_version = normalized_bias ? normalized_bias->_version() : 0u;
+  entry.weight_version = tensor_version_or_zero(weight);
+  entry.bias_version =
+      normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
   entry.stride = make_param_key(stride);
   entry.padding = make_param_key(padding);
   entry.dilation = make_param_key(dilation);
@@ -757,8 +814,11 @@ vTensor pack_weights(
   // convolution kernels expect. Re-materialize them on CPU first so they go
   // through the same rearrangement path as CPU-resident weights.
   const Tensor weight_source = copy_vulkan_tensor_to_cpu(weight_inp);
-  const Tensor weight_arg =
+  Tensor weight_arg =
       quantized ? at::dequantize(weight_source) : weight_source;
+  if (!quantized && weight_arg.scalar_type() == kBFloat16) {
+    weight_arg = weight_arg.to(kFloat);
+  }
 
   const Tensor weight = transposed
       ? at::permute(weight_arg, {1, 0, 2, 3}).contiguous()
@@ -795,6 +855,9 @@ vTensor pack_biases(
         bias_arg.scalar_type() == kQInt32))
       ? at::dequantize(bias_arg)
       : bias_arg;
+  if (!quantized && bias_rearranged.scalar_type() == kBFloat16) {
+    bias_rearranged = bias_rearranged.to(kFloat);
+  }
 
   vTensor v_bias{
       api::context(),
@@ -1003,19 +1066,202 @@ static inline std::vector<int64_t> get_conv_transpose_output_size(
   return output_size;
 }
 
-Tensor convolution(
+bool output_padding_is_zero(const IntArrayRef output_padding) {
+  for (const auto value : output_padding) {
+    if (value != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool can_run_bfloat16_buffer_conv2d(
+    const Tensor& input,
+    const Tensor& weight,
+    const std::optional<Tensor>& bias,
+    const bool transposed,
+    const bool quantized,
+    const IntArrayRef output_padding) {
+  // Disabled for now. The first buffer-native BF16 convolution path still
+  // needs more backend bring-up, so BF16 conv currently widens through the
+  // established float execution path.
+  return false;
+
+  if (
+      transposed ||
+      quantized ||
+      !output_padding_is_zero(output_padding) ||
+      input.device().type() != c10::DeviceType::Vulkan ||
+      weight.device().type() != c10::DeviceType::Vulkan ||
+      input.scalar_type() != kBFloat16 ||
+      weight.scalar_type() != kBFloat16 ||
+      input.dim() != 4 ||
+      weight.dim() != 4 ||
+      input.requires_grad() ||
+      weight.requires_grad()) {
+    return false;
+  }
+
+  if (
+      convert(input).storage_type() != api::StorageType::BUFFER ||
+      convert(weight).storage_type() != api::StorageType::BUFFER) {
+    return false;
+  }
+
+  if (bias && bias->defined()) {
+    if (
+        bias->dim() > 2 ||
+        bias->requires_grad() ||
+        (bias->scalar_type() != kBFloat16 && bias->scalar_type() != kFloat)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+Tensor prepare_float_bias_buffer_for_bfloat16_conv2d(
+    const std::optional<Tensor>& bias,
+    const int64_t out_channels) {
+  if (!bias || !bias->defined()) {
+    Tensor cpu_zero_bias =
+        at::zeros({out_channels}, at::device(at::kCPU).dtype(at::kFloat));
+    return convert(ops::to_vulkan(cpu_zero_bias, api::StorageType::BUFFER));
+  }
+
+  std::optional<Tensor> float_bias =
+      upcast_bfloat16_bias_for_vulkan_convolution(bias);
+  Tensor prepared_bias = float_bias.value();
+  if (prepared_bias.is_vulkan()) {
+    vTensor v_bias = convert(prepared_bias);
+    if (
+        v_bias.storage_type() != api::StorageType::BUFFER ||
+        !v_bias.has_direct_buffer_layout() ||
+        v_bias.gpu_memory_layout() != api::GPUMemoryLayout::TENSOR_WIDTH_PACKED) {
+      v_bias = utils::materialize_to_contiguous_buffer(
+          v_bias, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+      prepared_bias = convert(v_bias);
+    }
+    return prepared_bias;
+  }
+
+  return convert(ops::to_vulkan(prepared_bias, api::StorageType::BUFFER));
+}
+
+Tensor run_bfloat16_buffer_conv2d(
     const Tensor& input,
     const Tensor& weight,
     const std::optional<Tensor>& bias,
     const IntArrayRef stride,
     const IntArrayRef padding,
     const IntArrayRef dilation,
+    const int64_t groups) {
+  api::AllocationScope allocation_scope("conv.bf16_buffer");
+  api::Context* const context = api::context();
+
+  vTensor v_input = convert(input);
+  vTensor v_weight = convert(weight);
+  Tensor bias_buffer =
+      prepare_float_bias_buffer_for_bfloat16_conv2d(bias, weight.size(0));
+  vTensor v_bias = convert(bias_buffer);
+
+  const std::vector<int64_t> output_size =
+      conv_output_size(input.sizes(), weight.sizes(), padding, stride, dilation);
+  vTensor v_output{
+      context,
+      output_size,
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const struct {
+    int32_t stride_w;
+    int32_t stride_h;
+    int32_t pad_w;
+    int32_t pad_h;
+    int32_t dil_w;
+    int32_t dil_h;
+    int32_t groups;
+    int32_t has_bias;
+  } block{
+      api::utils::safe_downcast<int32_t>(stride[1]),
+      api::utils::safe_downcast<int32_t>(stride[0]),
+      api::utils::safe_downcast<int32_t>(padding[1]),
+      api::utils::safe_downcast<int32_t>(padding[0]),
+      api::utils::safe_downcast<int32_t>(dilation[1]),
+      api::utils::safe_downcast<int32_t>(dilation[0]),
+      api::utils::safe_downcast<int32_t>(groups),
+      (bias && bias->defined()) ? 1 : 0,
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size{
+      api::utils::safe_downcast<uint32_t>(output_size[3]),
+      api::utils::safe_downcast<uint32_t>(output_size[2]),
+      api::utils::safe_downcast<uint32_t>(output_size[0] * output_size[1]),
+  };
+
+  context->submit_compute_job(
+      VK_KERNEL(conv2d_buffer_bfloat16),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_output.buffer_metadata(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      v_input.buffer_metadata(),
+      v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      v_weight.buffer_metadata(),
+      v_bias.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      v_bias.buffer_metadata(),
+      params.buffer());
+
+  return convert(v_output);
+}
+
+  Tensor convolution(
+      const Tensor& input,
+      const Tensor& weight,
+      const std::optional<Tensor>& bias,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
     const bool transposed,
     const IntArrayRef output_padding,
     const int64_t groups) {
+      if (can_run_bfloat16_buffer_conv2d(
+              input, weight, bias, transposed, false, output_padding)) {
+        return run_bfloat16_buffer_conv2d(
+            input, weight, bias, stride, padding, dilation, groups);
+      }
+      const Tensor compute_weight =
+          upcast_bfloat16_weight_for_vulkan_convolution(weight);
+      const std::optional<Tensor> compute_bias =
+          upcast_bfloat16_bias_for_vulkan_convolution(bias);
+  if (has_inference_tensor(compute_weight, compute_bias)) {
+    auto conv_context = c10::make_intrusive<Conv2dPackedContext>(
+        compute_weight,
+        compute_bias,
+        stride,
+        padding,
+        dilation,
+        transposed,
+        false,
+        output_padding,
+        groups,
+        std::nullopt,
+        std::nullopt);
+    return run_conv2d_context(input, conv_context);
+  }
   if (const auto cached_context = lookup_packed_conv2d_context(
-          weight,
-          bias,
+          compute_weight,
+          compute_bias,
           stride,
           padding,
           dilation,
@@ -1029,8 +1275,8 @@ Tensor convolution(
   }
 
   auto conv_context = c10::make_intrusive<Conv2dPackedContext>(
-      weight,
-      bias,
+      compute_weight,
+      compute_bias,
       stride,
       padding,
       dilation,
@@ -1039,8 +1285,8 @@ Tensor convolution(
       output_padding,
       groups);
   store_packed_conv2d_context(
-      weight,
-      bias,
+      compute_weight,
+      compute_bias,
       stride,
       padding,
       dilation,
@@ -1094,9 +1340,14 @@ static Tensor run_conv1d_context_impl(
     IntArrayRef dilation,
     int64_t groups) {
   api::Context* const context = api::context();
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  Tensor input = upcast_bfloat16_input_for_vulkan_convolution(input_arg);
+  if (!input.is_vulkan()) {
+    input = input.vulkan();
+  }
+  const Tensor compute_weight =
+      upcast_bfloat16_weight_for_vulkan_convolution(weight_arg);
   const Tensor weight =
-      weight_arg.is_vulkan() ? weight_arg : weight_arg.vulkan();
+      compute_weight.is_vulkan() ? compute_weight : compute_weight.vulkan();
 
   const IntArrayRef& input_sizes = input.sizes();
   const IntArrayRef& weight_sizes = weight.sizes();
@@ -1107,10 +1358,12 @@ static Tensor run_conv1d_context_impl(
 
   Tensor bias;
   if (bias_arg_opt) {
-    if (bias_arg_opt->is_vulkan()) {
-      bias = bias_arg_opt.value();
+    const Tensor compute_bias =
+        upcast_bfloat16_bias_for_vulkan_convolution(bias_arg_opt).value();
+    if (compute_bias.is_vulkan()) {
+      bias = compute_bias;
     } else {
-      bias = bias_arg_opt.value().vulkan();
+      bias = compute_bias.vulkan();
     }
   } else {
     bias = at::zeros({out_channels}).vulkan();
@@ -1379,9 +1632,9 @@ static Tensor run_conv2d_context_impl(
     double scale,
     int64_t zero_point) {
   api::Context* const context = api::context();
-  TORCH_CHECK(input_arg.is_vulkan(), "Input tensor must be Vulkan!");
+  Tensor input = upcast_bfloat16_input_for_vulkan_convolution(input_arg);
+  TORCH_CHECK(input.is_vulkan(), "Input tensor must be Vulkan!");
 
-  Tensor input = input_arg;
   if (convert(input).storage_type() == api::StorageType::BUFFER) {
     input = input.add(0.0);
     if (convert(input).storage_type() == api::StorageType::BUFFER) {

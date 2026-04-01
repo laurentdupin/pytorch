@@ -8,32 +8,47 @@ namespace ops {
 
 namespace {
 
+api::GPUMemoryLayout default_memory_layout_for_storage_type(
+    const api::StorageType storage_type) {
+  return storage_type == api::StorageType::BUFFER
+      ? api::GPUMemoryLayout::TENSOR_WIDTH_PACKED
+      : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED;
+}
+
 api::StorageType choose_storage_type(
     const IntArrayRef sizes,
-    const std::optional<MemoryFormat> memory_format) {
+    const std::optional<MemoryFormat> memory_format,
+    const std::optional<ScalarType> dtype) {
   api::StorageType storage_type = api::StorageType::TEXTURE_3D;
 
-  // Generic Vulkan tensors default to TEXTURE_3D storage. For raw 4D tensors,
-  // the effective image depth becomes N * ceil(C / 4). Large module weights
-  // can exceed the device's 3D image limits in that layout before they are
-  // ever repacked into the backend-specific shader formats.
-  if (sizes.size() == 4) {
+  if (dtype && (*dtype == c10::kLong || *dtype == c10::kBFloat16)) {
+    return api::StorageType::BUFFER;
+  }
+
+  // Generic Vulkan tensors default to TEXTURE_3D storage, but raw tensors of
+  // any rank up to 4 can exceed the device image limits in that layout. Large
+  // embedding tables are a common case: a 2D [V, D] matrix maps to a 3D image
+  // with height V under channels-packed storage. When that exceeds the
+  // adapter's image limits, force BUFFER storage instead.
+  if (sizes.size() <= 4) {
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(
         api::context()->adapter_ptr()->physical_handle(), &properties);
+    const auto size_vec = sizes.vec();
 
     const auto memory_layout = memory_format
         ? get_gpu_memory_layout(storage_type, *memory_format)
         : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED;
 
     if (memory_layout == api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED) {
-      const uint32_t width =
-          api::utils::safe_downcast<uint32_t>(sizes[3]);
-      const uint32_t height =
-          api::utils::safe_downcast<uint32_t>(sizes[2]);
-      const uint32_t batch = api::utils::safe_downcast<uint32_t>(sizes[0]);
-      const uint32_t channels =
-          api::utils::safe_downcast<uint32_t>(api::utils::align_up(sizes[1], INT64_C(4)) / 4);
+      const uint32_t width = api::utils::safe_downcast<uint32_t>(
+          api::utils::val_at(-1, size_vec));
+      const uint32_t height = api::utils::safe_downcast<uint32_t>(
+          api::utils::val_at(-2, size_vec));
+      const uint32_t batch = api::utils::safe_downcast<uint32_t>(
+          api::utils::val_at(-4, size_vec));
+      const uint32_t channels = api::utils::safe_downcast<uint32_t>(
+          api::utils::align_up(api::utils::val_at(-3, size_vec), INT64_C(4)) / 4);
       const uint32_t packed_depth = batch * channels;
       if (
           width > properties.limits.maxImageDimension3D ||
@@ -58,7 +73,7 @@ Tensor _empty_affine_quantized(
     const double scale,
     const int64_t zero_point,
     const std::optional<MemoryFormat> memory_format) {
-  api::StorageType storage_type = choose_storage_type(sizes, memory_format);
+  api::StorageType storage_type = choose_storage_type(sizes, memory_format, dtype);
   return convert_quantized(vTensor{
       api::context(),
       sizes.vec(),
@@ -67,7 +82,7 @@ Tensor _empty_affine_quantized(
       convert_dtype(dtype ? *dtype : c10::kFloat),
       storage_type,
       memory_format ? get_gpu_memory_layout(storage_type, *memory_format)
-                    : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+                    : default_memory_layout_for_storage_type(storage_type),
   });
 }
 
@@ -78,14 +93,14 @@ static Tensor empty_memory_format(
     const std::optional<Device> device,
     const std::optional<bool> pin_memory,
     const std::optional<MemoryFormat> memory_format) {
-  api::StorageType storage_type = choose_storage_type(sizes, memory_format);
+  api::StorageType storage_type = choose_storage_type(sizes, memory_format, dtype);
   return convert(vTensor{
       api::context(),
       sizes.vec(),
       convert_dtype(dtype ? *dtype : c10::kFloat),
       storage_type,
       memory_format ? get_gpu_memory_layout(storage_type, *memory_format)
-                    : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+                    : default_memory_layout_for_storage_type(storage_type),
   });
 }
 

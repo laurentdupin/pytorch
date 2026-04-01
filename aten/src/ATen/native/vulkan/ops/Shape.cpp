@@ -3,6 +3,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <optional>
 #include <torch/library.h>
 
 namespace at {
@@ -15,13 +16,16 @@ namespace {
 Tensor view_internal(
     const Tensor& self_arg,
     const IntArrayRef output_size,
-    const IntArrayRef output_stride) {
+    const IntArrayRef output_stride,
+    const std::optional<int64_t> storage_offset = std::nullopt) {
   // Vulkan views are not true metadata aliases yet. Use the proven CPU
   // reshape/as_strided path and rematerialize a fresh Vulkan tensor.
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
   Tensor cpu = self_arg.cpu();
-  Tensor cpu_view = cpu.as_strided(output_size.vec(), output_stride.vec());
+  Tensor cpu_view = storage_offset.has_value()
+      ? cpu.as_strided(output_size.vec(), output_stride.vec(), *storage_offset)
+      : cpu.as_strided(output_size.vec(), output_stride.vec());
   Tensor out = at::empty(
       output_size.vec(),
       self_arg.options().device(at::kVulkan));
@@ -59,9 +63,18 @@ static Tensor _reshape_alias(
   return view_internal(self_arg, shape, strides);
 }
 
+static Tensor as_strided(
+    const Tensor& self_arg,
+    const IntArrayRef shape,
+    const IntArrayRef strides,
+    const std::optional<int64_t> storage_offset) {
+  return view_internal(self_arg, shape, strides, storage_offset);
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
+  m.impl(TORCH_SELECTIVE_NAME("aten::as_strided"), TORCH_FN(as_strided));
   m.impl(TORCH_SELECTIVE_NAME("aten::view"), TORCH_FN(view));
   m.impl(
       TORCH_SELECTIVE_NAME("aten::_reshape_alias"), TORCH_FN(_reshape_alias));

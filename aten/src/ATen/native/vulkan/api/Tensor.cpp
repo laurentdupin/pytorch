@@ -589,7 +589,8 @@ vTensorStorage::vTensorStorage(
           context_,
           extents_,
           storage_type_,
-          api::to_vkformat(dtype),
+          storage_type_ == api::StorageType::BUFFER ? VK_FORMAT_UNDEFINED
+                                                    : api::to_vkformat(dtype),
           allocate_memory)),
       buffer_(allocate_buffer(
           context_,
@@ -713,7 +714,8 @@ void vTensorStorage::discard_and_reallocate(
       context_,
       extents_,
       storage_type_,
-      api::to_vkformat(dtype),
+      storage_type_ == api::StorageType::BUFFER ? VK_FORMAT_UNDEFINED
+                                                : api::to_vkformat(dtype),
       image_owns_memory);
 
   buffer_length_ = api::utils::multiply_integers(gpu_sizes);

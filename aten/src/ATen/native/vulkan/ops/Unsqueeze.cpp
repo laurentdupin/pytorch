@@ -1,4 +1,6 @@
+#include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -16,9 +18,6 @@ struct Block final {
 
 Tensor unsqueeze(const at::Tensor& self, int64_t dim) {
   TORCH_CHECK(
-      self.dim() <= 3,
-      "Vulkan unsqueeze only supports up to 3d tensors as input!");
-  TORCH_CHECK(
       dim >= -self.dim() - 1 && dim <= self.dim(),
       "Vulkan unsqueeze dimension out of range expected to be in range of [",
       -self.dim() - 1,
@@ -26,6 +25,17 @@ Tensor unsqueeze(const at::Tensor& self, int64_t dim) {
       self.dim(),
       "], but got ",
       dim);
+
+  if (self.dim() > 3) {
+    // Vulkan unsqueeze is not a true metadata-only view yet for higher-rank
+    // tensors. Fall back to the proven CPU path and rematerialize a fresh
+    // Vulkan tensor, matching the approach used by view/as_strided.
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    Tensor cpu = self.cpu();
+    Tensor cpu_unsqueezed = cpu.unsqueeze(dim);
+    return convert(ops::to_vulkan(cpu_unsqueezed, api::StorageType::BUFFER));
+  }
 
   // Get the global Vulkan context
   api::Context* const context = api::context();

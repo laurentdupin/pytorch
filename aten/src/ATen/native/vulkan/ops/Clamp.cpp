@@ -600,6 +600,17 @@ Tensor& leaky_relu_(Tensor& self, const Scalar& negative_slope) {
   return ops::activation_scalar_(self, scalar, VK_KERNEL(leaky_relu_));
 }
 
+Tensor softplus(
+    const Tensor& self_arg,
+    const Scalar& beta,
+    const Scalar& threshold) {
+  api::AllocationScope allocation_scope("softplus");
+  std::vector<Scalar> scalar;
+  scalar.push_back(beta);
+  scalar.push_back(threshold);
+  return ops::activation_scalar(self_arg, scalar, VK_KERNEL(softplus));
+}
+
 Tensor sigmoid(const Tensor& self) {
   return ops::activation(self, VK_KERNEL(sigmoid));
 }
@@ -643,6 +654,7 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::leaky_relu_"), leaky_relu_);
   m.impl(TORCH_SELECTIVE_NAME("aten::sigmoid"), sigmoid);
   m.impl(TORCH_SELECTIVE_NAME("aten::sigmoid_"), sigmoid_);
+  m.impl(TORCH_SELECTIVE_NAME("aten::softplus"), softplus);
   m.impl(TORCH_SELECTIVE_NAME("aten::tanh"), tanh);
   m.impl(TORCH_SELECTIVE_NAME("aten::tanh_"), tanh_);
   m.impl(TORCH_SELECTIVE_NAME("aten::abs"), abs);

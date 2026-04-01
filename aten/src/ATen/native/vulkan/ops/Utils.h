@@ -30,6 +30,8 @@ Tensor ensure_texture_storage(
         api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
     api::StorageType storage_type = api::StorageType::TEXTURE_3D);
 
+Tensor upcast_bfloat16_buffer_to_float(const Tensor&);
+
 void copy_buffer_to_buffer(
     api::Context* const context,
     api::StorageBuffer& src,

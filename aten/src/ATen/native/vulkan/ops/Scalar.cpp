@@ -11,9 +11,26 @@ namespace {
 using namespace api::utils;
 
 Scalar _local_scalar_dense(const Tensor& self) {
-  TORCH_CHECK(
-      self.dtype() == ScalarType::Float, "Only float dtype is supported");
-  return Scalar(self.cpu().item<float>());
+  switch (self.scalar_type()) {
+    case c10::ScalarType::Float:
+      return Scalar(self.cpu().item<float>());
+    case c10::ScalarType::Half:
+      return Scalar(self.cpu().item<c10::Half>());
+    case c10::ScalarType::BFloat16:
+      return Scalar(self.cpu().item<c10::BFloat16>());
+    case c10::ScalarType::Bool:
+      return Scalar(self.cpu().item<bool>());
+    case c10::ScalarType::Byte:
+      return Scalar(self.cpu().item<uint8_t>());
+    case c10::ScalarType::Char:
+      return Scalar(self.cpu().item<int8_t>());
+    case c10::ScalarType::Int:
+      return Scalar(self.cpu().item<int32_t>());
+    case c10::ScalarType::Long:
+      return Scalar(self.cpu().item<int64_t>());
+    default:
+      TORCH_CHECK(false, "Unsupported Vulkan dtype for _local_scalar_dense");
+  }
 }
 
 #ifdef USE_VULKAN_API
