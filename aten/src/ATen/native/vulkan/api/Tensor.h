@@ -245,6 +245,19 @@ class vTensor final {
     return view_->extents_;
   }
 
+  inline api::PipelineStageFlags last_access_stage() const {
+    return view_->last_access_.stage;
+  }
+
+  inline api::MemoryAccessFlags last_access_access() const {
+    return view_->last_access_.access;
+  }
+
+  inline bool last_write_was_compute() const {
+    return (view_->last_access_.access & api::MemoryAccessType::WRITE) != 0 &&
+        (view_->last_access_.stage & api::PipelineStage::COMPUTE) != 0;
+  }
+
   /*
    * Extract an `api::ScalarType` from the TensorOptions member
    */
@@ -257,6 +270,9 @@ class vTensor final {
    * texture
    */
   inline api::ScalarType texture_dtype() const {
+    if (storage_type() == api::StorageType::BUFFER) {
+      return dtype();
+    }
     return api::element_scalartype(view_->texture_format());
   }
 

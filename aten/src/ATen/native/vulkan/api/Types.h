@@ -10,6 +10,7 @@
 #include <ATen/native/vulkan/api/vk_api.h>
 
 #include <ATen/native/vulkan/api/Exception.h>
+#include <c10/util/BFloat16.h>
 
 #ifdef USE_VULKAN_FP16_INFERENCE
 #define VK_FORMAT_FLOAT4 VK_FORMAT_R16G16B16A16_SFLOAT
@@ -41,6 +42,8 @@ enum class ScalarType : int8_t {
 #define DEFINE_ENUM_VAL_(ctype, vkformat, name) name,
   VK_FORALL_SCALAR_TYPES(DEFINE_ENUM_VAL_)
 #undef DEFINE_ENUM_VAL_
+      BFloat16,
+      Long,
       Undefined,
   NumOptions
 };
@@ -50,6 +53,9 @@ enum class ScalarType : int8_t {
 
 VK_FORALL_SCALAR_TYPES(DEFINE_CONSTANT)
 #undef DEFINE_CONSTANT
+
+constexpr ScalarType kLong = ScalarType::Long;
+constexpr ScalarType kBFloat16 = ScalarType::BFloat16;
 
 /*
  * Given a `ScalarType`, return the corresponding `VkFormat` that should be used
@@ -63,6 +69,10 @@ inline VkFormat to_vkformat(const ScalarType t) {
 
   switch (t) {
     VK_FORALL_SCALAR_TYPES(CASE_VK_FORMAT)
+    case ScalarType::BFloat16:
+      VK_THROW("BFloat16 does not support texture storage");
+    case ScalarType::Long:
+      VK_THROW("Long does not support texture storage");
     default:
       VK_THROW("Unknown ScalarType: ", t);
   }
@@ -104,6 +114,10 @@ inline size_t element_size(const ScalarType t) {
 
   switch (t) {
     VK_FORALL_SCALAR_TYPES(CASE_ELEMENTSIZE_CASE)
+    case ScalarType::BFloat16:
+      return sizeof(c10::BFloat16);
+    case ScalarType::Long:
+      return sizeof(int64_t);
     default:
       VK_THROW("Unknown ScalarType: ", t);
   }
@@ -117,6 +131,10 @@ inline const char* to_string(const ScalarType t) {
 
   switch (t) {
     VK_FORALL_SCALAR_TYPES(CASE_TO_STRING)
+    case ScalarType::BFloat16:
+      return "BFloat16";
+    case ScalarType::Long:
+      return "Long";
     default:
       return "UNKNOWN_SCALAR_TYPE";
   }
@@ -142,6 +160,16 @@ struct ScalarTypeToCType;
   };
 
 VK_FORALL_SCALAR_TYPES(SPECIALIZE_ScalarTypeToCType)
+
+template <>
+struct ScalarTypeToCType<::at::native::vulkan::api::ScalarType::BFloat16> {
+  using type = c10::BFloat16;
+};
+
+template <>
+struct ScalarTypeToCType<::at::native::vulkan::api::ScalarType::Long> {
+  using type = int64_t;
+};
 
 #undef SPECIALIZE_ScalarTypeToCPPType
 

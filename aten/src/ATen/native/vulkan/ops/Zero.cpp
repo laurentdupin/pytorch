@@ -1,4 +1,6 @@
+#include <ATen/ops/zeros.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -48,6 +50,14 @@ Tensor zeros(
     std::optional<Device> device,
     std::optional<bool> pin_memory) {
   TORCH_CHECK(size.size() <= 4, "Vulkan zeros supports up to 4d tensors");
+
+  const ScalarType target_dtype = dtype ? *dtype : c10::kFloat;
+  if (target_dtype == c10::kLong || target_dtype == c10::kBFloat16) {
+    Tensor cpu_zeros = at::zeros(
+        size,
+        at::TensorOptions().device(at::kCPU).dtype(target_dtype));
+    return convert(ops::to_vulkan(cpu_zeros, api::StorageType::BUFFER));
+  }
 
   // Get the global Vulkan context
   api::Context* const context = api::context();

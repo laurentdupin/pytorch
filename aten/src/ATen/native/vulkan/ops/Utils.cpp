@@ -337,6 +337,64 @@ Tensor ensure_texture_storage(
   return convert(v_out);
 }
 
+Tensor upcast_bfloat16_buffer_to_float(const Tensor& input) {
+  TORCH_CHECK(input.is_vulkan(), "Input must be a Vulkan tensor");
+  vTensor v_input = convert(input);
+  TORCH_CHECK(
+      v_input.storage_type() == api::StorageType::BUFFER,
+      "BF16 buffer upcast requires a buffer-backed Vulkan tensor");
+  TORCH_CHECK(
+      v_input.dtype() == api::kBFloat16,
+      "BF16 buffer upcast requires a BFloat16 Vulkan tensor");
+  TORCH_CHECK(
+      v_input.sizes().size() <= 4,
+      "BF16 buffer upcast currently only supports tensors with up to 4 dimensions");
+
+  // The experimental 16-bit buffer shader path is not numerically stable yet.
+  // Fall back to a proven CPU widening route so BF16 Vulkan callers remain
+  // correct while the device-native path is brought up safely.
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  return input.cpu().to(kFloat).vulkan();
+
+  api::AllocationScope allocation_scope("bf16.buffer_to_float");
+  api::Context* const context = api::context();
+  vTensor v_out{
+      context,
+      v_input.sizes(),
+      api::kFloat,
+      api::StorageType::BUFFER,
+      v_input.gpu_memory_layout(),
+  };
+
+  api::PipelineBarrier pipeline_barrier{};
+  api::utils::uvec3 global_size = {
+      api::utils::safe_downcast<uint32_t>(v_out.numel()),
+      1u,
+      1u,
+  };
+  api::utils::uvec3 local_size = {32u, 1u, 1u};
+
+  context->submit_compute_job(
+      VK_KERNEL(buffer_to_buffer_bfloat16_to_float),
+      pipeline_barrier,
+      global_size,
+      local_size,
+      VK_NULL_HANDLE,
+      v_out.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_out.buffer_metadata(),
+      v_input.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      v_input.buffer_metadata());
+
+  return convert(v_out);
+}
+
 void copy_buffer_to_vtensor(
     api::VulkanBuffer& src_buffer,
     vTensor& v_dst,
@@ -472,8 +530,14 @@ bool pack_vtensor_to_staging(
   api::PipelineBarrier pipeline_barrier{};
 
   if (v_self.storage_type() == api::StorageType::BUFFER) {
+    // Compute-written direct buffer tensors such as large embedding/index_select
+    // gathers can read back incorrectly through the raw transfer-copy fast
+    // path. Transfer-written buffers, such as large weights uploaded from CPU,
+    // still rely on the direct path for exact roundtrips. Use the direct path
+    // only when the buffer was not last written by a compute shader.
     if (
         v_self.has_direct_buffer_layout() &&
+        !v_self.last_write_was_compute() &&
         v_self.gpu_nbytes() == staging.mem_size()) {
       return context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
           pipeline_barrier,

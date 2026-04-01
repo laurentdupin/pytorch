@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/api/Adapter.h>
 
+#include <algorithm>
 #include <bitset>
 #include <cstring>
 #include <iomanip>
@@ -18,11 +19,30 @@ PhysicalDevice::PhysicalDevice(VkPhysicalDevice physical_device_handle)
       queue_families{},
       num_compute_queues(0),
       has_unified_memory(false),
+      has_shader_bfloat16(false),
       has_timestamps(properties.limits.timestampComputeAndGraphics),
       timestamp_period(properties.limits.timestampPeriod) {
   // Extract physical device properties
   vkGetPhysicalDeviceProperties(handle, &properties);
   vkGetPhysicalDeviceMemoryProperties(handle, &memory_properties);
+
+#ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
+  VkPhysicalDeviceShaderBfloat16FeaturesKHR shader_bfloat16_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_BFLOAT16_FEATURES_KHR,
+      nullptr,
+      VK_FALSE,
+      VK_FALSE,
+      VK_FALSE,
+  };
+  VkPhysicalDeviceFeatures2 features2{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+      &shader_bfloat16_features,
+      {},
+  };
+  vkGetPhysicalDeviceFeatures2(handle, &features2);
+  has_shader_bfloat16 =
+      shader_bfloat16_features.shaderBFloat16Type == VK_TRUE;
+#endif
 
   // Check if there are any memory types have both the HOST_VISIBLE and the
   // DEVICE_LOCAL property flags
@@ -134,6 +154,9 @@ VkDevice create_logical_device(
 #ifdef VK_KHR_portability_subset
       VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME,
 #endif /* VK_KHR_portability_subset */
+#ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
+      VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME,
+#endif /* VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME */
   };
 
   std::vector<const char*> enabled_device_extensions;
@@ -142,9 +165,36 @@ VkDevice create_logical_device(
       enabled_device_extensions,
       requested_device_extensions);
 
+  VkPhysicalDeviceShaderBfloat16FeaturesKHR shader_bfloat16_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_BFLOAT16_FEATURES_KHR,
+      nullptr,
+      VK_FALSE,
+      VK_FALSE,
+      VK_FALSE,
+  };
+  VkPhysicalDeviceFeatures2 enabled_features2{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+      nullptr,
+      {},
+  };
+
+#ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
+  const bool enable_shader_bfloat16 =
+      physical_device.has_shader_bfloat16 &&
+      std::find(
+          enabled_device_extensions.begin(),
+          enabled_device_extensions.end(),
+          VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME) !=
+          enabled_device_extensions.end();
+  if (enable_shader_bfloat16) {
+    shader_bfloat16_features.shaderBFloat16Type = VK_TRUE;
+    enabled_features2.pNext = &shader_bfloat16_features;
+  }
+#endif
+
   const VkDeviceCreateInfo device_create_info{
       VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, // sType
-      nullptr, // pNext
+      enabled_features2.pNext ? &enabled_features2 : nullptr, // pNext
       0u, // flags
       static_cast<uint32_t>(queue_create_infos.size()), // queueCreateInfoCount
       queue_create_infos.data(), // pQueueCreateInfos
@@ -364,6 +414,9 @@ std::string Adapter::stringize() const {
   ss << "    driverversion: " << properties.driverVersion << std::endl;
   ss << "    deviceType:    " << device_type << std::endl;
   ss << "    deviceName:    " << properties.deviceName << std::endl;
+  ss << "    shaderBFloat16: "
+     << (physical_device_.has_shader_bfloat16 ? "true" : "false")
+     << std::endl;
 
 #define PRINT_LIMIT_PROP(name)                                         \
   ss << "      " << std::left << std::setw(36) << #name << limits.name \

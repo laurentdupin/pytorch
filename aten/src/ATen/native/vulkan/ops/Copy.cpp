@@ -128,6 +128,16 @@ void memcpy_to_mapping(const Tensor& src, api::MemoryMap& dst_mapping) {
     memcpy_to_mapping_impl<float>(src, dst_mapping);
   } else if (src.dtype() == at::kHalf) {
     memcpy_to_mapping_impl<c10::Half>(src, dst_mapping);
+  } else if (src.dtype() == at::kBFloat16) {
+    memcpy_to_mapping_impl<c10::BFloat16>(src, dst_mapping);
+  } else if (src.dtype() == at::kByte) {
+    memcpy_to_mapping_impl<uint8_t>(src, dst_mapping);
+  } else if (src.dtype() == at::kChar) {
+    memcpy_to_mapping_impl<int8_t>(src, dst_mapping);
+  } else if (src.dtype() == at::kInt) {
+    memcpy_to_mapping_impl<int32_t>(src, dst_mapping);
+  } else if (src.dtype() == at::kLong) {
+    memcpy_to_mapping_impl<int64_t>(src, dst_mapping);
   } else if (src.dtype() == c10::kQUInt8) {
     memcpy_to_mapping_impl<c10::quint8>(src, dst_mapping);
   } else if (src.dtype() == c10::kQInt8) {
@@ -140,7 +150,8 @@ void memcpy_to_mapping(const Tensor& src, api::MemoryMap& dst_mapping) {
     TORCH_CHECK(
         false,
         "Invalid Data Type: expected c10::kQInt32, c10::kQInt8, c10::kQUInt8,",
-        " c10::kBool, at::kHalf, or at::Float but got ",
+        " c10::kBool, at::kByte, at::kChar, at::kInt, at::kLong, at::kHalf,",
+        " at::kBFloat16, or at::kFloat but got ",
         src.dtype());
   }
 }
@@ -150,6 +161,16 @@ void memcpy_from_mapping(api::MemoryMap& src_mapping, Tensor& dst) {
     memcpy_from_mapping_impl<float>(src_mapping, dst);
   } else if (dst.dtype() == at::kHalf) {
     memcpy_from_mapping_impl<c10::Half>(src_mapping, dst);
+  } else if (dst.dtype() == at::kBFloat16) {
+    memcpy_from_mapping_impl<c10::BFloat16>(src_mapping, dst);
+  } else if (dst.dtype() == at::kByte) {
+    memcpy_from_mapping_impl<uint8_t>(src_mapping, dst);
+  } else if (dst.dtype() == at::kChar) {
+    memcpy_from_mapping_impl<int8_t>(src_mapping, dst);
+  } else if (dst.dtype() == at::kInt) {
+    memcpy_from_mapping_impl<int32_t>(src_mapping, dst);
+  } else if (dst.dtype() == at::kLong) {
+    memcpy_from_mapping_impl<int64_t>(src_mapping, dst);
   } else if (dst.dtype() == c10::kQUInt8) {
     memcpy_from_mapping_impl<c10::quint8>(src_mapping, dst);
   } else if (dst.dtype() == c10::kQInt8) {
@@ -162,7 +183,8 @@ void memcpy_from_mapping(api::MemoryMap& src_mapping, Tensor& dst) {
     TORCH_CHECK(
         false,
         "Invalid Data Type: expected c10::kQInt32, c10::kQInt8, c10::kQUInt8,",
-        " c10::kBool, at::kHalf or at::Float but got ",
+        " c10::kBool, at::kByte, at::kChar, at::kInt, at::kLong, at::kHalf,",
+        " at::kBFloat16, or at::kFloat but got ",
         dst.dtype());
   }
 }
@@ -315,18 +337,16 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
 
     {
       std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
-      bool submitted_to_gpu = false;
-      if (src.has_direct_buffer_layout()) {
-        submitted_to_gpu = copy_vtensor_buffer_to_staging(
-            context, src, staging, fence.get_submit_handle());
-      } else {
-        submitted_to_gpu = utils::pack_vtensor_to_staging(
-            src, staging.buffer(), fence.get_submit_handle());
-      }
+      // Even for apparently-direct buffer layouts, route readback through the
+      // metadata-aware staging shader. This keeps raw cpu() / copy_ behavior
+      // aligned with other Vulkan buffer materializations such as embedding and
+      // index_select outputs, which can otherwise read back incorrectly.
+      const bool submitted_to_gpu = utils::pack_vtensor_to_staging(
+          src, staging.buffer(), fence.get_submit_handle());
       if (submitted_to_gpu) {
         fence.wait();
         log_copy_sync_event(
-            "pack_vulkan_to_cpu_buffer", src, src.has_direct_buffer_layout());
+            "pack_vulkan_to_cpu_buffer", src, false);
         context->flush_after_fence_wait();
       } else {
         context->flush();
@@ -446,12 +466,17 @@ vTensor to_vulkan(at::Tensor& src, const api::StorageType storage_type) {
       src.device().type() == at::kCPU,
       "Vulkan to_vulkan(): input tensor must be a CPU tensor!")
 
+  const api::StorageType resolved_storage_type =
+      (src.scalar_type() == at::kLong || src.scalar_type() == at::kBFloat16)
+      ? api::StorageType::BUFFER
+      : storage_type;
+
   vTensor v_ret{
       api::context(),
       src.sizes().vec(),
       convert_dtype(src.scalar_type()),
-      storage_type,
-      get_gpu_memory_layout(storage_type, src.suggest_memory_format()),
+      resolved_storage_type,
+      get_gpu_memory_layout(resolved_storage_type, src.suggest_memory_format()),
   };
 
   ops::pack_cpu_to_vulkan(src, v_ret);
