@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$wd = "C:\Users\Frere\Downloads\AIProspection\PytorchVulkan\pytorch"
+$wd = $PSScriptRoot
 $log = Join-Path $wd "torch_python-build-seq.log"
 
 Set-Location $wd
