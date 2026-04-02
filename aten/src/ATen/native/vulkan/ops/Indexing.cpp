@@ -68,8 +68,18 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
 
   std::vector<int64_t> output_sizes = indices.sizes().vec();
   output_sizes.push_back(row_width);
-  if (v_weight.storage_type() == api::StorageType::BUFFER) {
+  if (weight_arg.scalar_type() == kFloat && num_indices > 65535) {
+    // Large 2D gathers such as BEiT's relative-position-bias lookup still
+    // exceed the reliable Vulkan gather envelope on this backend. Materialize
+    // the rows on CPU, then move the gathered result back to Vulkan.
+    Tensor cpu_result =
+        weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
+    return cpu_result.reshape(output_sizes).vulkan();
+  }
+
+  if (weight_arg.scalar_type() == kFloat) {
     if (
+        v_weight.storage_type() != api::StorageType::BUFFER ||
         !v_weight.has_direct_buffer_layout() ||
         v_weight.gpu_memory_layout() !=
             api::GPUMemoryLayout::TENSOR_WIDTH_PACKED) {
@@ -77,9 +87,9 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
           v_weight, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
     }
 
-    TORCH_CHECK(
-        weight_arg.scalar_type() == kFloat,
-        "Vulkan gather_rows_2d buffer path currently supports float weights only");
+    constexpr int64_t kRowChunk = 4096;
+    const int64_t dispatch_rows = std::min(num_indices, kRowChunk);
+    const int64_t dispatch_depth = div_up(num_indices, kRowChunk);
 
     vTensor v_output{
         context,
@@ -94,7 +104,7 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
     } block{
         safe_downcast<int32_t>(row_width),
         safe_downcast<int32_t>(num_indices),
-        0,
+        safe_downcast<int32_t>(kRowChunk),
         0,
     };
 
@@ -105,12 +115,12 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
         VK_KERNEL(gather_rows_2d_buffer),
         pipeline_barrier,
         {safe_downcast<uint32_t>(row_width),
-         safe_downcast<uint32_t>(num_indices),
-         1u},
+         safe_downcast<uint32_t>(dispatch_rows),
+         safe_downcast<uint32_t>(dispatch_depth)},
         adaptive_work_group_size(
             {safe_downcast<uint32_t>(row_width),
-             safe_downcast<uint32_t>(num_indices),
-             1u}),
+             safe_downcast<uint32_t>(dispatch_rows),
+             safe_downcast<uint32_t>(dispatch_depth)}),
         VK_NULL_HANDLE,
         v_output.buffer(
             pipeline_barrier,

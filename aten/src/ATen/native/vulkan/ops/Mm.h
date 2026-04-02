@@ -65,7 +65,8 @@ class LinearPackedContext final : virtual public VulkanPackedContext,
       const Tensor& weight,
       const std::optional<Tensor>& bias,
       const bool use_batch = false,
-      std::string allocation_label = std::string());
+      std::string allocation_label = std::string(),
+      const bool retain_unpacked = true);
 
   /*
    * Assigns a name to each index in the unpacked list.
@@ -92,7 +93,10 @@ class LinearPackedContext final : virtual public VulkanPackedContext,
   static LinearPackedContext pack(c10::impl::GenericList);
 
   const c10::impl::GenericList unpack() const override {
-    TORCH_CHECK(!unpacked_.empty(), "unpacked_ does not have any elements!");
+    TORCH_CHECK(
+        !unpacked_.empty(),
+        "This LinearPackedContext was created for inference-only Vulkan use "
+        "and does not retain unpacked weights.");
 
     return unpacked_;
   }

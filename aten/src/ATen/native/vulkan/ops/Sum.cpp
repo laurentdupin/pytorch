@@ -1,4 +1,6 @@
+#include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -146,12 +148,65 @@ Tensor sum(const Tensor& self, const std::optional<ScalarType> dtype) {
   return sum_dim_IntList(self, dims, false, dtype);
 }
 
+Tensor all(const Tensor& self) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  return at::all(self.cpu()).vulkan();
+}
+
+Tensor& all_out(const Tensor& self, Tensor& out) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  Tensor cpu_result = at::empty({0}, out.options().device(at::kCPU));
+  at::all_out(cpu_result, self.cpu());
+
+  TORCH_CHECK(
+      out.sizes() == cpu_result.sizes(),
+      "Vulkan all.out requires a pre-sized output tensor; resizing Vulkan outputs is not supported");
+  ops::copy_(out, cpu_result);
+  return out;
+}
+
+Tensor argmax(
+    const Tensor& self,
+    const std::optional<int64_t> dim,
+    bool keepdim) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  return at::argmax(self.cpu(), dim, keepdim).vulkan();
+}
+
+Tensor& argmax_out(
+    const Tensor& self,
+    const std::optional<int64_t> dim,
+    bool keepdim,
+    Tensor& out) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  Tensor cpu_result = at::empty({0}, out.options().device(at::kCPU));
+  at::argmax_out(cpu_result, self.cpu(), dim, keepdim);
+
+  TORCH_CHECK(
+      out.sizes() == cpu_result.sizes(),
+      "Vulkan argmax.out requires a pre-sized output tensor; resizing Vulkan outputs is not supported");
+  ops::copy_(out, cpu_result);
+  return out;
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("aten::sum.dim_IntList"), TORCH_FN(sum_dim_IntList));
   m.impl(TORCH_SELECTIVE_NAME("aten::sum"), TORCH_FN(sum));
+  m.impl(TORCH_SELECTIVE_NAME("aten::all"), TORCH_FN(all));
+  m.impl(TORCH_SELECTIVE_NAME("aten::all.all_out"), TORCH_FN(all_out));
+  m.impl(TORCH_SELECTIVE_NAME("aten::argmax"), TORCH_FN(argmax));
+  m.impl(TORCH_SELECTIVE_NAME("aten::argmax.out"), TORCH_FN(argmax_out));
 }
 
 #endif /* USE_VULKAN_API */

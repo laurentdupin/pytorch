@@ -71,10 +71,51 @@ static Tensor as_strided(
   return view_internal(self_arg, shape, strides, storage_offset);
 }
 
+static Tensor im2col(
+    const Tensor& self_arg,
+    IntArrayRef kernel_size,
+    IntArrayRef dilation,
+    IntArrayRef padding,
+    IntArrayRef stride) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  Tensor cpu = self_arg.cpu();
+  Tensor cpu_result =
+      at::im2col(cpu, kernel_size.vec(), dilation.vec(), padding.vec(), stride.vec());
+  Tensor out = at::empty(
+      cpu_result.sizes(),
+      self_arg.options().device(at::kVulkan));
+  ops::copy_(out, cpu_result);
+  return out;
+}
+
+static Tensor& im2col_out(
+    const Tensor& self_arg,
+    IntArrayRef kernel_size,
+    IntArrayRef dilation,
+    IntArrayRef padding,
+    IntArrayRef stride,
+    Tensor& out) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  Tensor cpu = self_arg.cpu();
+  Tensor cpu_result =
+      at::im2col(cpu, kernel_size.vec(), dilation.vec(), padding.vec(), stride.vec());
+  TORCH_CHECK(
+      out.sizes() == cpu_result.sizes(),
+      "Vulkan im2col.out requires a pre-sized output tensor; resizing Vulkan outputs is not supported");
+  ops::copy_(out, cpu_result);
+  return out;
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::as_strided"), TORCH_FN(as_strided));
+  m.impl(TORCH_SELECTIVE_NAME("aten::im2col"), TORCH_FN(im2col));
+  m.impl(TORCH_SELECTIVE_NAME("aten::im2col.out"), TORCH_FN(im2col_out));
   m.impl(TORCH_SELECTIVE_NAME("aten::view"), TORCH_FN(view));
   m.impl(
       TORCH_SELECTIVE_NAME("aten::_reshape_alias"), TORCH_FN(_reshape_alias));

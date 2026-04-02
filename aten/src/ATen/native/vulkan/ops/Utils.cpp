@@ -211,13 +211,29 @@ bool supports_buffer_view_fast_path(const vTensor& v_in) {
       v_in.sizes().size() <= 4;
 }
 
+std::string describe_buffer_view_fast_path_failure(const vTensor& v_in) {
+  std::ostringstream stream;
+  stream
+      << "Vulkan texture materialization from buffer views currently only "
+      << "supports non-quantized float tensors with up to 4 dimensions"
+      << " (caller=" << api::current_allocation_label()
+      << ", sizes=" << format_sizes(v_in.sizes())
+      << ", ndim=" << v_in.sizes().size()
+      << ", dtype=" << static_cast<int>(v_in.dtype())
+      << ", quantized=" << (v_in.is_quantized() ? 1 : 0)
+      << ", storage=" << storage_type_name(v_in.storage_type())
+      << ", layout=" << memory_layout_name(v_in.gpu_memory_layout())
+      << ", direct_buffer=" << (v_in.has_direct_buffer_layout() ? 1 : 0)
+      << ")";
+  return stream.str();
+}
+
 vTensor materialize_to_contiguous_buffer(
     const vTensor& v_in,
     api::GPUMemoryLayout memory_layout) {
   TORCH_CHECK(
       supports_buffer_view_fast_path(v_in),
-      "Vulkan buffer-view fast path currently only supports non-quantized "
-      "float tensors with up to 4 dimensions");
+      describe_buffer_view_fast_path_failure(v_in));
 
   if (
       v_in.storage_type() == api::StorageType::BUFFER &&
@@ -301,8 +317,7 @@ Tensor ensure_texture_storage(
 
   TORCH_CHECK(
       supports_buffer_view_fast_path(v_input),
-      "Vulkan texture materialization from buffer views currently only "
-      "supports non-quantized float tensors with up to 4 dimensions");
+      describe_buffer_view_fast_path_failure(v_input));
 
   api::Context* const context = api::context();
   const bool direct_buffer_path =

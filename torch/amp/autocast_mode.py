@@ -25,6 +25,14 @@ __all__ = [
 ]
 
 
+def _get_vulkan_autocast_default_dtype():
+    return torch.float16
+
+
+def _get_vulkan_autocast_supported_dtypes():
+    return [torch.float16, torch.bfloat16]
+
+
 def is_autocast_available(device_type: str) -> bool:
     r"""
     Return a bool indicating if autocast is available on :attr:`device_type`.
@@ -34,6 +42,8 @@ def is_autocast_available(device_type: str) -> bool:
             The type is the same as the `type` attribute of a :class:`torch.device`.
             Thus, you may obtain the device type of a tensor using `Tensor.device.type`.
     """
+    if device_type == "vulkan":
+        return True
     return torch._C._is_autocast_available(device_type)
 
 
@@ -230,9 +240,14 @@ class autocast:
             raise ValueError(
                 f"Expected `device_type` of type `str`, got: `{type(device_type)}`"
             )
-        self.fast_dtype = (
-            torch.get_autocast_dtype(device_type) if dtype is None else dtype
-        )
+        if dtype is None:
+            self.fast_dtype = (
+                _get_vulkan_autocast_default_dtype()
+                if device_type == "vulkan"
+                else torch.get_autocast_dtype(device_type)
+            )
+        else:
+            self.fast_dtype = dtype
         if torch._jit_internal.is_scripting():
             self._enabled = enabled
             self.device = device_type
@@ -246,6 +261,9 @@ class autocast:
             )
 
         device_supported_dtypes = [torch.bfloat16, torch.float16]
+        self._vulkan_noop = self.device == "vulkan"
+        if self._vulkan_noop:
+            device_supported_dtypes = _get_vulkan_autocast_supported_dtypes()
 
         self.custom_backend_name = torch._C._get_privateuse1_backend_name()
         if self.device == self.custom_backend_name:
@@ -323,6 +341,10 @@ class autocast:
                 raise AssertionError("fast_dtype must not be None in scripting mode")
             return self
 
+        if self._vulkan_noop:
+            self.prev_cache_enabled = torch.is_autocast_cache_enabled()
+            return self
+
         self.prev_cache_enabled = torch.is_autocast_cache_enabled()
         self.prev = torch.is_autocast_enabled(self.device)
         self.prev_fastdtype = torch.get_autocast_dtype(self.device)
@@ -355,6 +377,9 @@ class autocast:
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any):  # type: ignore[override]
         if torch._jit_internal.is_scripting():
             return
+
+        if self._vulkan_noop:
+            return False
 
         # Drop the cache when we exit to a nesting level that's outside any instance of autocast.
         if torch.autocast_decrement_nesting() == 0:

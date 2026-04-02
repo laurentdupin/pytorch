@@ -8,6 +8,8 @@ namespace ops {
 
 namespace {
 
+constexpr int64_t kLargeFloatMatrixNumelThreshold = 1 << 20;
+
 api::GPUMemoryLayout default_memory_layout_for_storage_type(
     const api::StorageType storage_type) {
   return storage_type == api::StorageType::BUFFER
@@ -22,6 +24,16 @@ api::StorageType choose_storage_type(
   api::StorageType storage_type = api::StorageType::TEXTURE_3D;
 
   if (dtype && (*dtype == c10::kLong || *dtype == c10::kBFloat16)) {
+    return api::StorageType::BUFFER;
+  }
+
+  if (
+      dtype && *dtype == c10::kFloat && sizes.size() == 2 &&
+      c10::multiply_integers(sizes) >= kLargeFloatMatrixNumelThreshold) {
+    return api::StorageType::BUFFER;
+  }
+
+  if (sizes.size() > 4) {
     return api::StorageType::BUFFER;
   }
 

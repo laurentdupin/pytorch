@@ -1,3 +1,4 @@
+#include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
@@ -9,6 +10,22 @@ namespace ops {
 namespace {
 
 using namespace api::utils;
+
+bool needs_select_cpu_fallback(const Tensor& self) {
+  if (!self.is_vulkan()) {
+    return false;
+  }
+  const vTensor& v_self = convert(self);
+  return v_self.storage_type() == api::StorageType::BUFFER &&
+      v_self.dtype() != api::kFloat;
+}
+
+Tensor select_cpu_fallback(const Tensor& self, int64_t dim, int64_t index) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  return at::select(self.cpu(), dim, index).vulkan();
+}
 
 Tensor select_batch_4d(const Tensor& input_arg, uint32_t index) {
   api::Context* const context = api::context();
@@ -411,6 +428,10 @@ Tensor select_width_4d(const Tensor& input_arg, uint32_t index) {
 
 Tensor select(const Tensor& self, int64_t dim, int64_t index) {
   api::AllocationScope allocation_scope("select");
+
+  if (needs_select_cpu_fallback(self)) {
+    return select_cpu_fallback(self, dim, index);
+  }
 
   TORCH_CHECK(
       self.dim() == 3 || self.dim() == 4,

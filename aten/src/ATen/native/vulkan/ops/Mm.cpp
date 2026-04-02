@@ -183,7 +183,12 @@ c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
         (weight.is_vulkan() && weight.dim() == 2) ? weight.cpu().t().contiguous()
                                                   : weight.t();
     return c10::make_intrusive<LinearPackedContext>(
-        LinearPackedContext(prepared_weight, bias));
+        LinearPackedContext(
+            prepared_weight,
+            bias,
+            false,
+            std::string(),
+            false));
   }
 
   if (const auto cached_context = lookup_linear_context(weight, bias)) {
@@ -196,7 +201,12 @@ c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
       ? weight.cpu().t().contiguous()
       : weight.t();
   const auto context = c10::make_intrusive<LinearPackedContext>(
-      LinearPackedContext(prepared_weight, bias));
+      LinearPackedContext(
+          prepared_weight,
+          bias,
+          false,
+          std::string(),
+          false));
   store_linear_context(weight, bias, context);
   return context;
 }
@@ -1620,7 +1630,8 @@ LinearPackedContext::LinearPackedContext(
     const Tensor& weight,
     const std::optional<Tensor>& bias,
     const bool use_batch,
-    std::string allocation_label)
+    std::string allocation_label,
+    const bool retain_unpacked)
     : unpacked_{c10::AnyType::get()} {
   allocation_label_ = std::move(allocation_label);
   api::AllocationScope allocation_scope(
@@ -1646,7 +1657,7 @@ LinearPackedContext::LinearPackedContext(
   packed_.emplace_back(packed_weight.sizes());
   packed_.emplace_back(packed_bias && packed_bias->defined());
 
-  if (!at::globalContext().releaseWeightsWhenPrepacking()) {
+  if (retain_unpacked && !at::globalContext().releaseWeightsWhenPrepacking()) {
     unpacked_.reserve(Unpacked::NumArgs);
     unpacked_.emplace_back(packed_weight);
     unpacked_.emplace_back(packed_bias);

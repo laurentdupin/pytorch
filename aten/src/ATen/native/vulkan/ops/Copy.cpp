@@ -13,6 +13,8 @@ namespace ops {
 
 namespace {
 
+constexpr int64_t kLargeFloatMatrixNumelThreshold = 1 << 20;
+
 const std::string& copy_sync_log_path() {
   static const std::string path = []() {
     const char* env = std::getenv("PYTORCH_VULKAN_COPY_SYNC_LOG");
@@ -23,6 +25,15 @@ const std::string& copy_sync_log_path() {
 
 bool copy_sync_logging_enabled() {
   return !copy_sync_log_path().empty();
+}
+
+bool should_force_buffer_storage_for_to_vulkan(const Tensor& src) {
+  // Large 2D float tensors are typically inference weights such as embedding,
+  // lm_head, and linear matrices. Keeping them buffer-backed avoids expensive
+  // texture residency overhead; Vulkan linear/embedding paths can prepack or
+  // gather from them later as needed.
+  return src.scalar_type() == at::kFloat && src.dim() == 2 &&
+      src.numel() >= kLargeFloatMatrixNumelThreshold;
 }
 
 const char* storage_type_name(const api::StorageType storage_type) {
@@ -434,7 +445,21 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
     // Vulkan -> Vulkan
     if (at::kVulkan == src.device().type()) {
       vTensor& v_src = convert(src);
-      transfer_vulkan_to_vulkan(v_src, v_self);
+      const bool can_direct_copy =
+          v_src.dtype() == v_self.dtype() &&
+          v_src.storage_type() != api::StorageType::BUFFER &&
+          v_self.storage_type() != api::StorageType::BUFFER;
+      if (can_direct_copy) {
+        transfer_vulkan_to_vulkan(v_src, v_self);
+      } else {
+        c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+        c10::InferenceMode inference_mode_guard(false);
+        Tensor cpu_src = from_vulkan(v_src);
+        if (cpu_src.scalar_type() != dst.scalar_type()) {
+          cpu_src = cpu_src.to(dst.scalar_type());
+        }
+        pack_cpu_to_vulkan(cpu_src, v_self);
+      }
     }
     // CPU -> Vulkan
     else {
@@ -467,7 +492,8 @@ vTensor to_vulkan(at::Tensor& src, const api::StorageType storage_type) {
       "Vulkan to_vulkan(): input tensor must be a CPU tensor!")
 
   const api::StorageType resolved_storage_type =
-      (src.scalar_type() == at::kLong || src.scalar_type() == at::kBFloat16)
+      (src.scalar_type() == at::kLong || src.scalar_type() == at::kBFloat16 ||
+       src.dim() > 4 || should_force_buffer_storage_for_to_vulkan(src))
       ? api::StorageType::BUFFER
       : storage_type;
 
@@ -484,18 +510,35 @@ vTensor to_vulkan(at::Tensor& src, const api::StorageType storage_type) {
   return v_ret;
 }
 
+at::Tensor to_vulkan_labeled(at::Tensor src, std::string label) {
+  if (src.is_vulkan()) {
+    return src;
+  }
+  TORCH_CHECK(
+      src.device().type() == at::kCPU,
+      "Vulkan to_vulkan_labeled(): input tensor must be a CPU or Vulkan tensor!");
+  api::AllocationScope allocation_scope(std::move(label));
+  vTensor v_ret = to_vulkan(src, api::StorageType::TEXTURE_3D);
+  return convert(v_ret);
+}
+
 at::Tensor from_vulkan(vTensor& v_src) {
   at::TensorOptions opt(at::kCPU);
   opt = opt.dtype(convert_dtype(v_src.dtype()));
 
-  c10::MemoryFormat v_src_memory_format;
+  c10::MemoryFormat v_src_memory_format = c10::MemoryFormat::Contiguous;
 
   switch (v_src.gpu_memory_layout()) {
     case api::GPUMemoryLayout::TENSOR_WIDTH_PACKED:
       v_src_memory_format = c10::MemoryFormat::Contiguous;
       break;
     case api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED:
-      v_src_memory_format = c10::MemoryFormat::ChannelsLast;
+      // ChannelsLast is only valid for rank-4 CPU tensors. Lower-rank Vulkan
+      // tensors can still use channels-packed GPU layout, but the CPU staging
+      // tensor for readback/conversion must stay contiguous.
+      v_src_memory_format =
+          v_src.sizes().size() == 4 ? c10::MemoryFormat::ChannelsLast
+                                    : c10::MemoryFormat::Contiguous;
       break;
     default:
       TORCH_CHECK(false, "No corresponding memory format");

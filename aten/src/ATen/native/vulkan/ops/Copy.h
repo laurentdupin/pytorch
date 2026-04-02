@@ -2,6 +2,8 @@
 
 #ifdef USE_VULKAN_API
 
+#include <string>
+
 #include <ATen/native/vulkan/ops/Common.h>
 
 namespace at {
@@ -22,6 +24,10 @@ Tensor& copy_(Tensor& dst, const Tensor& src);
 vTensor to_vulkan(
     at::Tensor& src,
     const api::StorageType storage_type = api::StorageType::TEXTURE_3D);
+
+at::Tensor to_vulkan_labeled(
+    at::Tensor src,
+    std::string label);
 
 at::Tensor from_vulkan(vTensor& v_src);
 

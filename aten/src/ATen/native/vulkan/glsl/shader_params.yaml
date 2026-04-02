@@ -82,3 +82,11 @@ unary_op:
       OPERATOR: sqrt(X)
     - NAME: log
       OPERATOR: log(X)
+    - NAME: sin
+      OPERATOR: sin(X)
+    - NAME: cos
+      OPERATOR: cos(X)
+    - NAME: neg
+      OPERATOR: -(X)
+    - NAME: rsqrt
+      OPERATOR: inversesqrt(X)
