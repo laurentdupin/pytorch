@@ -8,6 +8,42 @@ namespace vulkan {
 
 namespace {
 
+api::StorageType resolve_storage_type(
+    const std::vector<int64_t>& sizes,
+    const api::ScalarType dtype,
+    const api::StorageType requested_storage_type) {
+  if (
+      dtype == api::ScalarType::Long || dtype == api::ScalarType::BFloat16 ||
+      sizes.size() > 4) {
+    return api::StorageType::BUFFER;
+  }
+
+  return requested_storage_type;
+}
+
+api::GPUMemoryLayout resolve_memory_layout(
+    const std::vector<int64_t>& sizes,
+    const api::ScalarType dtype,
+    const api::StorageType requested_storage_type,
+    const api::StorageType resolved_storage_type,
+    const api::GPUMemoryLayout requested_memory_layout) {
+  if (
+      resolved_storage_type == api::StorageType::BUFFER &&
+      (requested_storage_type != api::StorageType::BUFFER ||
+       dtype == api::ScalarType::Long || dtype == api::ScalarType::BFloat16 ||
+       sizes.size() > 4)) {
+    if (sizes.size() >= 3 && sizes.size() <= 4 &&
+        requested_memory_layout == api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED &&
+        sizes.size() <= 4 && dtype != api::ScalarType::Long &&
+        dtype != api::ScalarType::BFloat16) {
+      return requested_memory_layout;
+    }
+    return api::GPUMemoryLayout::TENSOR_WIDTH_PACKED;
+  }
+
+  return requested_memory_layout;
+}
+
 /*
  * Calculates the strides of a contiguous tensor. empty_tensor_restride from
  * TensorImpl.h was used as a reference.
@@ -231,14 +267,31 @@ vTensor::vTensor(
     const api::GPUMemoryLayout memory_layout,
     const bool allocate_memory)
     : dtype_(dtype),
-      memory_layout_(memory_layout),
+      memory_layout_(resolve_memory_layout(
+          sizes,
+          dtype,
+          storage_type,
+          resolve_storage_type(sizes, dtype, storage_type),
+          memory_layout)),
       // Calculate sizes and strides
       sizes_(sizes.begin(), sizes.end()),
-      strides_{calc_strides(sizes, memory_layout_, storage_type)},
-      gpu_sizes_{calc_gpu_sizes(sizes, memory_layout_, storage_type)},
-      gpu_strides_{calc_strides(gpu_sizes_, memory_layout_, storage_type)},
+      strides_{calc_strides(
+          sizes,
+          memory_layout_,
+          resolve_storage_type(sizes, dtype, storage_type))},
+      gpu_sizes_{calc_gpu_sizes(
+          sizes,
+          memory_layout_,
+          resolve_storage_type(sizes, dtype, storage_type))},
+      gpu_strides_{calc_strides(
+          gpu_sizes_,
+          memory_layout_,
+          resolve_storage_type(sizes, dtype, storage_type))},
       virtual_extents_(
-          create_image_extents(gpu_sizes_, storage_type, memory_layout)),
+          create_image_extents(
+              gpu_sizes_,
+              resolve_storage_type(sizes, dtype, storage_type),
+              memory_layout_)),
       // Utility Uniform Buffers that can be passed to shaders as arguments
       metadata_uniform_(),
       cpu_sizes_uniform_(nullptr),
@@ -247,7 +300,7 @@ vTensor::vTensor(
       // Construct Tensor storage
       view_(std::make_shared<vTensorStorage>(
           context,
-          storage_type,
+          resolve_storage_type(sizes, dtype, storage_type),
           memory_layout_,
           gpu_sizes_,
           dtype_,
@@ -262,14 +315,31 @@ vTensor::vTensor(
     const api::StorageType storage_type,
     const api::GPUMemoryLayout memory_layout)
     : dtype_(dtype),
-      memory_layout_(memory_layout),
+      memory_layout_(resolve_memory_layout(
+          sizes,
+          dtype,
+          storage_type,
+          resolve_storage_type(sizes, dtype, storage_type),
+          memory_layout)),
       // Calculate sizes and strides
       sizes_(sizes.begin(), sizes.end()),
-      strides_{calc_strides(sizes, memory_layout_, storage_type)},
-      gpu_sizes_{calc_gpu_sizes(sizes, memory_layout_, storage_type)},
-      gpu_strides_{calc_strides(gpu_sizes_, memory_layout_, storage_type)},
+      strides_{calc_strides(
+          sizes,
+          memory_layout_,
+          resolve_storage_type(sizes, dtype, storage_type))},
+      gpu_sizes_{calc_gpu_sizes(
+          sizes,
+          memory_layout_,
+          resolve_storage_type(sizes, dtype, storage_type))},
+      gpu_strides_{calc_strides(
+          gpu_sizes_,
+          memory_layout_,
+          resolve_storage_type(sizes, dtype, storage_type))},
       virtual_extents_(
-          create_image_extents(gpu_sizes_, storage_type, memory_layout)),
+          create_image_extents(
+              gpu_sizes_,
+              resolve_storage_type(sizes, dtype, storage_type),
+              memory_layout_)),
       // Vulkan uniform buffer containing sizes and stride info
       metadata_uniform_(),
       cpu_sizes_uniform_(nullptr),
@@ -282,7 +352,7 @@ vTensor::vTensor(
       // Construct Tensor storage
       view_(std::make_shared<vTensorStorage>(
           context,
-          storage_type,
+          resolve_storage_type(sizes, dtype, storage_type),
           memory_layout_,
           gpu_sizes_,
           dtype_)) {}

@@ -393,7 +393,11 @@ class TestVulkanEagerRuntime(TestCase):
             ("softplus_default", F.softplus, (x,)),
             ("softplus_custom", lambda t: F.softplus(t, beta=0.75, threshold=10.0), (x,)),
             ("exp", torch.exp, (x,)),
+            ("sin", torch.sin, (x,)),
+            ("cos", torch.cos, (x,)),
+            ("neg", torch.neg, (x,)),
             ("sqrt", lambda t: torch.sqrt(t + 1e-3), (positive,)),
+            ("rsqrt", lambda t: torch.rsqrt(t + 1e-3), (positive,)),
             ("clamp", lambda t: torch.clamp(t, -0.2, 0.3), (x,)),
         ]
 
@@ -442,6 +446,74 @@ class TestVulkanEagerRuntime(TestCase):
 
         mat = torch.randn(6, 6)
         self._assert_vulkan_matches_cpu(lambda t: torch.tril(t, diagonal=-1), mat)
+
+    def test_arange_factories(self):
+        with torch.inference_mode():
+            expected_default = torch.arange(7)
+            actual_default = torch.arange(7, device="vulkan").cpu()
+            self._assert_outputs_close(expected_default, actual_default)
+
+            expected_step = torch.arange(1, 9, 2, dtype=torch.float32)
+            actual_step = torch.arange(
+                1, 9, 2, dtype=torch.float32, device="vulkan").cpu()
+            self._assert_outputs_close(expected_step, actual_step)
+
+            out = torch.empty(3, device="vulkan", dtype=torch.long)
+            actual_out = torch.arange(2, 11, 3, out=out).cpu()
+            expected_out = torch.arange(2, 11, 3, dtype=torch.long)
+            self._assert_outputs_close(expected_out, actual_out)
+            self._assert_outputs_close(expected_out, out.cpu())
+
+    def test_linspace_factories(self):
+        with torch.inference_mode():
+            expected_default = torch.linspace(0.0, 1.0, 5)
+            actual_default = torch.linspace(0.0, 1.0, 5, device="vulkan").cpu()
+            self._assert_outputs_close(expected_default, actual_default)
+
+            expected_typed = torch.linspace(-1.0, 1.0, 4, dtype=torch.float32)
+            actual_typed = torch.linspace(
+                -1.0, 1.0, 4, dtype=torch.float32, device="vulkan").cpu()
+            self._assert_outputs_close(expected_typed, actual_typed)
+
+            out = torch.empty(4, device="vulkan", dtype=torch.float32)
+            actual_out = torch.linspace(-2.0, 2.0, 4, out=out).cpu()
+            expected_out = torch.linspace(-2.0, 2.0, 4, dtype=torch.float32)
+            self._assert_outputs_close(expected_out, actual_out)
+            self._assert_outputs_close(expected_out, out.cpu())
+
+    def test_argmax_matches_cpu(self):
+        with torch.inference_mode():
+            x = torch.randn(2, 3, 5)
+            expected = torch.argmax(x, dim=-1)
+            actual = torch.argmax(x.to("vulkan"), dim=-1).cpu()
+            self._assert_outputs_close(expected, actual)
+
+            out = torch.empty((2, 3), device="vulkan", dtype=torch.long)
+            actual_out = torch.argmax(x.to("vulkan"), dim=-1, out=out).cpu()
+            self._assert_outputs_close(expected, actual_out)
+            self._assert_outputs_close(expected, out.cpu())
+
+    def test_all_matches_cpu(self):
+        with torch.inference_mode():
+            x = torch.tensor([[True, True, True], [True, False, True]])
+            expected = torch.all(x)
+            actual = torch.all(x.to("vulkan")).cpu()
+            self._assert_outputs_close(expected, actual)
+
+            out = torch.empty((), device="vulkan", dtype=torch.bool)
+            actual_out = torch.all(x.to("vulkan"), out=out).cpu()
+            self._assert_outputs_close(expected, actual_out)
+            self._assert_outputs_close(expected, out.cpu())
+
+    def test_5d_tensor_roundtrip_uses_buffer_storage(self):
+        with torch.inference_mode():
+            expected = torch.randn(2, 3, 4, 5, 6)
+            actual = expected.to("vulkan").cpu()
+            self._assert_outputs_close(expected, actual)
+
+            empty_vulkan = torch.empty(
+                (2, 3, 4, 5, 6), device="vulkan", dtype=torch.float32)
+            self.assertEqual(tuple(empty_vulkan.shape), (2, 3, 4, 5, 6))
 
     def test_view_ops_with_preexisting_vulkan_input_in_inference_mode(self):
         torch.manual_seed(0)
@@ -519,6 +591,63 @@ class TestVulkanEagerRuntime(TestCase):
                 atol=1e-4,
                 rtol=1e-4)
 
+    def test_unsqueeze_long_buffer_with_preexisting_vulkan_input_in_inference_mode(self):
+        x_cpu = torch.arange(6, dtype=torch.long)
+        x_vulkan = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected = x_cpu.unsqueeze(0)
+            actual_vulkan = x_vulkan.unsqueeze(0)
+            self.assertFalse(actual_vulkan.is_inference())
+            actual = actual_vulkan.cpu()
+            self._assert_outputs_close(expected, actual)
+
+    def test_long_buffer_to_float_after_unsqueeze_with_preexisting_vulkan_input(self):
+        x_cpu = torch.arange(6, dtype=torch.long).unsqueeze(0)
+        x_vulkan = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected = x_cpu[:, None, :].float()
+            actual = x_vulkan[:, None, :].float().cpu()
+            self._assert_outputs_close(expected, actual)
+
+    def test_rank3_vulkan_float_to_long_conversion(self):
+        x_cpu = torch.zeros(1, 1, 2, dtype=torch.float32)
+        x_vulkan = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected = x_cpu.to(torch.long)
+            actual = x_vulkan.to(torch.long).cpu()
+            self._assert_outputs_close(expected, actual)
+
+    def test_im2col_with_preexisting_vulkan_input_in_inference_mode(self):
+        torch.manual_seed(0)
+        x_cpu = torch.randn(1, 3, 8, 8)
+        x_vulkan = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected = F.unfold(
+                x_cpu,
+                kernel_size=(3, 3),
+                dilation=(1, 1),
+                padding=(1, 1),
+                stride=(2, 2),
+            )
+            actual_vulkan = F.unfold(
+                x_vulkan,
+                kernel_size=(3, 3),
+                dilation=(1, 1),
+                padding=(1, 1),
+                stride=(2, 2),
+            )
+            self.assertFalse(actual_vulkan.is_inference())
+            actual = actual_vulkan.cpu()
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+
     def test_view_then_scalar_mul_then_linear(self):
         torch.manual_seed(0)
         x = torch.randn(1, 4, 8)
@@ -560,6 +689,74 @@ class TestVulkanEagerRuntime(TestCase):
                 actual,
                 atol=1e-4,
                 rtol=1e-4)
+
+    def test_index_select_dim0_with_texture_derived_vulkan_weight_and_cpu_indices(self):
+        torch.manual_seed(0)
+        base_cpu = torch.randn(2212, 16)
+        base_vulkan = base_cpu.to("vulkan")
+        old_height = 47
+        old_width = 47
+        new_height = 47
+        new_width = 71
+        index_base = torch.arange(new_height * new_width + 3, dtype=torch.long)
+        indices = index_base.repeat(25)
+
+        with torch.inference_mode():
+            old_sub_cpu = base_cpu[: old_height * old_width].reshape(
+                1, old_width, old_height, -1).permute(0, 3, 1, 2)
+            old_sub_vulkan = base_vulkan[: old_height * old_width].reshape(
+                1, old_width, old_height, -1).permute(0, 3, 1, 2)
+
+            new_sub_cpu = F.interpolate(
+                old_sub_cpu,
+                size=(new_height, new_width),
+                mode="bilinear",
+            )
+            new_sub_vulkan = F.interpolate(
+                old_sub_vulkan,
+                size=(new_height, new_width),
+                mode="bilinear",
+            )
+
+            weight_cpu = torch.cat(
+                (
+                    new_sub_cpu.permute(0, 2, 3, 1).reshape(new_height * new_width, -1),
+                    base_cpu[old_height * old_width:],
+                ),
+                dim=0,
+            )
+            weight_vulkan = torch.cat(
+                (
+                    new_sub_vulkan.permute(0, 2, 3, 1).reshape(new_height * new_width, -1),
+                    base_vulkan[old_height * old_width:],
+                ),
+                dim=0,
+            )
+
+            expected = weight_cpu.index_select(0, indices)
+            actual = weight_vulkan.index_select(0, indices).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+
+    def test_to_vulkan_labeled_roundtrip(self):
+        torch.manual_seed(0)
+        value = torch.randn(128, 64)
+
+        with torch.inference_mode():
+            value_vulkan = torch.ops.vulkan_prepack.to_vulkan_labeled(
+                value,
+                "test.weight",
+            )
+            self.assertTrue(value_vulkan.is_vulkan)
+            self._assert_outputs_close(
+                value,
+                value_vulkan.cpu(),
+                atol=1e-4,
+                rtol=1e-4,
+            )
 
     def test_index_select_dim0_with_large_buffer_backed_vulkan_weight_and_cpu_indices(self):
         torch.manual_seed(0)
@@ -636,6 +833,9 @@ class TestVulkanEagerRuntime(TestCase):
         zeros = torch.zeros((2, 3), dtype=torch.long, device="vulkan")
         self.assertEqual(zeros.cpu(), torch.zeros((2, 3), dtype=torch.long))
 
+        shifted = vulkan + 1
+        self.assertEqual(shifted.cpu(), src + 1)
+
     def test_module_to_vulkan_with_long_buffer(self):
         class BufferModule(nn.Module):
             def __init__(self):
@@ -648,6 +848,13 @@ class TestVulkanEagerRuntime(TestCase):
             module.token_ids.cpu(),
             torch.tensor([3, 1, 4, 1], dtype=torch.long),
         )
+
+    def test_long_slice_and_select_with_vulkan_input(self):
+        src = torch.arange(24, dtype=torch.long).reshape(2, 12)
+        vulkan = src.to("vulkan")
+
+        self.assertEqual(vulkan[:, 2:9:2].cpu(), src[:, 2:9:2])
+        self.assertEqual(vulkan.select(1, 5).cpu(), src.select(1, 5))
 
     def test_bfloat16_tensor_roundtrip_and_zeros(self):
         src = torch.tensor([[1.0, -0.5, 3.25], [4.0, 5.5, -6.0]], dtype=torch.bfloat16)
@@ -673,6 +880,35 @@ class TestVulkanEagerRuntime(TestCase):
         self.assertEqual(
             module.stats.cpu(),
             torch.tensor([1.0, -0.5, 0.25, 2.0], dtype=torch.bfloat16),
+        )
+
+    def test_vulkan_autocast_context_is_available(self):
+        self.assertTrue(torch.amp.is_autocast_available("vulkan"))
+        with torch.autocast(device_type="vulkan", dtype=torch.float16):
+            x = torch.randn(2, 3, device="vulkan")
+            y = x + 1.0
+        self.assertEqual(y.dtype, torch.float32)
+
+    def test_vulkan_autocast_linear_runs_as_safe_noop(self):
+        torch.manual_seed(0)
+        module_cpu = nn.Linear(4, 3).eval()
+        module_vulkan = nn.Linear(4, 3).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+        x_cpu = torch.randn(2, 4)
+        x_vulkan = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected = module_cpu(x_cpu)
+            with torch.autocast(device_type="vulkan", dtype=torch.float16):
+                actual = module_vulkan(x_vulkan)
+
+        self.assertEqual(actual.dtype, torch.float32)
+        self._assert_outputs_close(
+            expected,
+            actual,
+            atol=1e-4,
+            rtol=1e-4,
         )
 
     def test_bfloat16_linear_widens_to_float_for_compute(self):

@@ -125,6 +125,38 @@ Tensor& log_(Tensor& self_arg) {
   return unary_op_(self_arg, VK_KERNEL(log_inplace));
 }
 
+Tensor sin(const Tensor& self_arg) {
+  return unary_op(self_arg, VK_KERNEL(sin));
+}
+
+Tensor& sin_(Tensor& self_arg) {
+  return unary_op_(self_arg, VK_KERNEL(sin_inplace));
+}
+
+Tensor cos(const Tensor& self_arg) {
+  return unary_op(self_arg, VK_KERNEL(cos));
+}
+
+Tensor& cos_(Tensor& self_arg) {
+  return unary_op_(self_arg, VK_KERNEL(cos_inplace));
+}
+
+Tensor neg(const Tensor& self_arg) {
+  return unary_op(self_arg, VK_KERNEL(neg));
+}
+
+Tensor& neg_(Tensor& self_arg) {
+  return unary_op_(self_arg, VK_KERNEL(neg_inplace));
+}
+
+Tensor rsqrt(const Tensor& self_arg) {
+  return unary_op(self_arg, VK_KERNEL(rsqrt));
+}
+
+Tensor& rsqrt_(Tensor& self_arg) {
+  return unary_op_(self_arg, VK_KERNEL(rsqrt_inplace));
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
@@ -134,6 +166,14 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::sqrt_"), TORCH_FN(sqrt_));
   m.impl(TORCH_SELECTIVE_NAME("aten::log"), TORCH_FN(log));
   m.impl(TORCH_SELECTIVE_NAME("aten::log_"), TORCH_FN(log_));
+  m.impl(TORCH_SELECTIVE_NAME("aten::sin"), TORCH_FN(sin));
+  m.impl(TORCH_SELECTIVE_NAME("aten::sin_"), TORCH_FN(sin_));
+  m.impl(TORCH_SELECTIVE_NAME("aten::cos"), TORCH_FN(cos));
+  m.impl(TORCH_SELECTIVE_NAME("aten::cos_"), TORCH_FN(cos_));
+  m.impl(TORCH_SELECTIVE_NAME("aten::neg"), TORCH_FN(neg));
+  m.impl(TORCH_SELECTIVE_NAME("aten::neg_"), TORCH_FN(neg_));
+  m.impl(TORCH_SELECTIVE_NAME("aten::rsqrt"), TORCH_FN(rsqrt));
+  m.impl(TORCH_SELECTIVE_NAME("aten::rsqrt_"), TORCH_FN(rsqrt_));
 }
 
 #endif /* USE_VULKAN_API */

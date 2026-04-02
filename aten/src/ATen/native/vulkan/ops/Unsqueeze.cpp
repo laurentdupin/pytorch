@@ -26,10 +26,24 @@ Tensor unsqueeze(const at::Tensor& self, int64_t dim) {
       "], but got ",
       dim);
 
-  if (self.dim() > 3) {
+  const bool needs_cpu_fallback = [&]() {
+    if (self.dim() > 3) {
+      return true;
+    }
+    if (self.is_vulkan()) {
+      const vTensor& v_self = convert(self);
+      if (v_self.storage_type() == api::StorageType::BUFFER) {
+        return true;
+      }
+    }
+    return false;
+  }();
+
+  if (needs_cpu_fallback) {
     // Vulkan unsqueeze is not a true metadata-only view yet for higher-rank
-    // tensors. Fall back to the proven CPU path and rematerialize a fresh
-    // Vulkan tensor, matching the approach used by view/as_strided.
+    // tensors or buffer-backed tensors. Fall back to the proven CPU path and
+    // rematerialize a fresh Vulkan tensor, matching the approach used by
+    // view/as_strided.
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
     Tensor cpu = self.cpu();

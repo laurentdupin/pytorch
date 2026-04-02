@@ -43,13 +43,15 @@ void main() {
   const ivec3 pos = ivec3(gl_GlobalInvocationID);
   const int row_width = uBlock.info.x;
   const int num_rows = uBlock.info.y;
+  const int row_chunk = uBlock.info.z;
+  const int dst_row = pos.y + (pos.z * row_chunk);
 
-  if (pos.x >= row_width || pos.y >= num_rows) {
+  if (pos.x >= row_width || dst_row >= num_rows) {
     return;
   }
 
-  const int src_row = uIndex.data[pos.y];
+  const int src_row = uIndex.data[dst_row];
   const int src_idx = src_row * row_width + pos.x;
-  const int dst_idx = pos.y * row_width + pos.x;
+  const int dst_idx = dst_row * row_width + pos.x;
   uOutput.data[dst_idx] = uInput.data[src_idx];
 }

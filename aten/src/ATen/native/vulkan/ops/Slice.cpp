@@ -1,3 +1,4 @@
+#include <ATen/Functions.h>
 #include <ATen/NamedTensorUtils.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -10,6 +11,28 @@ namespace ops {
 namespace {
 
 using namespace api::utils;
+
+bool needs_slice_cpu_fallback(const Tensor& self) {
+  if (!self.is_vulkan()) {
+    return false;
+  }
+  const vTensor& v_self = convert(self);
+  return v_self.storage_type() == api::StorageType::BUFFER &&
+      v_self.dtype() != api::kFloat;
+}
+
+Tensor slice_cpu_fallback(
+    const Tensor& self,
+    int64_t dim,
+    std::optional<int64_t> start,
+    std::optional<int64_t> end,
+    int64_t step) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Tensor cpu_result = at::slice(self.cpu(), dim, start, end, step);
+  return cpu_result.vulkan();
+}
 
 Tensor slice_4d(
     const Tensor& input_arg,
@@ -246,6 +269,12 @@ Tensor slice(
     std::optional<int64_t> end,
     const int64_t step) {
   api::AllocationScope allocation_scope("slice");
+
+  if (needs_slice_cpu_fallback(self)) {
+    auto result = slice_cpu_fallback(self, dim, start, end, step);
+    namedinference::propagate_names(result, self);
+    return result;
+  }
 
   TORCH_CHECK(step > 0, "slice step must be positive");
   auto nDims = safe_downcast<uint32_t>(self.dim());
