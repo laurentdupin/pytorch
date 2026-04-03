@@ -1,23 +1,24 @@
 #version 450 core
-
+// clang-format off
 #define PRECISION ${PRECISION}
 #define FORMAT ${FORMAT}
+
+#define INPUT_T ${INPUT_T}
+#define OUTPUT_T ${OUTPUT_T}
+#define CONVERT(X) ${CONVERT}
+// clang-format on
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
 
 #include "indexing.h"
 
 layout(std430) buffer;
 
-/*
- * Output Buffer
- */
 layout(set = 0, binding = 0) buffer PRECISION restrict writeonly OutBuffer {
-  float data[];
+  OUTPUT_T data[];
 }
 uOutput;
 
-/*
- * Output Buffer Metadata
- */
 layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
   uvec4 logical_sizes;
   uvec4 logical_strides;
@@ -26,17 +27,11 @@ layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
 }
 uOutMeta;
 
-/*
- * Input Buffer
- */
 layout(set = 0, binding = 2) buffer PRECISION restrict readonly InBuffer {
-  float data[];
+  INPUT_T data[];
 }
 uInput;
 
-/*
- * Input Buffer Metadata
- */
 layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
   uvec4 logical_sizes;
   uvec4 logical_strides;
@@ -45,21 +40,21 @@ layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
 }
 uInMeta;
 
-/*
- * Local Work Group Size
- */
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
-/*
- * Copies data from the tensor at uInput to the tensor at uOutput based on 4D
- * coordinate. Each element at (x,y,c,n) in uInput will be copied to uOutput at
- * (x,y,c,n). If (x,y,c,n) is outside the bounds of uInput then 0 will be
- * written.
- *
- * Each shader invocation is responsible for one element of the output buffer.
- */
+float bfloat16_to_float(uint16_t raw) {
+  return uintBitsToFloat(uint(raw) << 16);
+}
+
+uint16_t float_to_bfloat16(float value) {
+  const uint bits = floatBitsToUint(value);
+  const uint lsb = (bits >> 16) & 1u;
+  const uint rounding_bias = 0x7FFFu + lsb;
+  return uint16_t((bits + rounding_bias) >> 16);
+}
+
 void main() {
-  const uint write_idx = ivec3(gl_GlobalInvocationID).x;
+  const uint write_idx = uint(gl_GlobalInvocationID.x);
   const uint out_numel = uOutMeta.info.y;
   const uint out_buf_length = uOutMeta.info.z;
   const uint out_storage_offset = uOutMeta.info.w;
@@ -70,16 +65,16 @@ void main() {
     return;
   }
 
-  uvec4 write_coord =
+  const uvec4 write_coord =
       idx_to_coord(
           write_idx, uOutMeta.logical_strides, uOutMeta.logical_sizes);
 
-  float outval = 0.0;
+  OUTPUT_T outval = OUTPUT_T(0);
   if (all(lessThan(write_coord, uInMeta.logical_sizes))) {
-    uint read_idx =
+    const uint read_idx =
         coord_to_idx(write_coord, uInMeta.physical_strides) + in_storage_offset;
     if (read_idx < in_buf_length) {
-      outval = uInput.data[read_idx];
+      outval = CONVERT(uInput.data[read_idx]);
     }
   }
 

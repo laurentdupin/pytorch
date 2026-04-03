@@ -791,11 +791,17 @@ static Tensor reshape_to_2d(const Tensor& input_arg) {
 
   Tensor reshape_input = input_arg;
   if (input_arg.is_vulkan() && c10::InferenceMode::is_enabled()) {
-    // View-derived Vulkan tensors can carry logical layouts that are still
-    // correct numerically but not yet suitable for the downstream linear packer.
-    // Materialize once before the flattening reshape so permute/reshape ->
-    // linear matches CPU without requiring model-side x = x + 0 workarounds.
-    reshape_input = at::add(input_arg, 0.0);
+    const vTensor& v_input = convert(input_arg);
+    const bool needs_materialization =
+        v_input.storage_type() != api::StorageType::BUFFER ||
+        !v_input.has_direct_buffer_layout();
+    if (needs_materialization) {
+      // View-derived Vulkan tensors can carry logical layouts that are still
+      // correct numerically but not yet suitable for the downstream linear
+      // packer. Direct buffer-backed tensors are already safe to flatten, so
+      // only materialize non-direct layouts here.
+      reshape_input = at::add(input_arg, 0.0);
+    }
   }
 
   if (reshape_input.dim() == 1) {
@@ -826,11 +832,6 @@ bool can_run_bfloat16_buffer_linear(
     const Tensor& input,
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
-  // Disabled for now. The initial buffer-native BF16 path is not yet reliable
-  // enough for general eager execution, so BF16 linear currently widens through
-  // the proven float path instead.
-  return false;
-
   if (
       input.device().type() != c10::DeviceType::Vulkan ||
       weight.device().type() != c10::DeviceType::Vulkan ||
@@ -849,7 +850,12 @@ bool can_run_bfloat16_buffer_linear(
   vTensor v_weight = convert(weight);
   if (
       v_input.storage_type() != api::StorageType::BUFFER ||
-      v_weight.storage_type() != api::StorageType::BUFFER) {
+      v_weight.storage_type() != api::StorageType::BUFFER ||
+      v_input.gpu_memory_layout() != api::GPUMemoryLayout::TENSOR_WIDTH_PACKED ||
+      v_weight.gpu_memory_layout() !=
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED ||
+      !v_input.has_direct_buffer_layout() ||
+      !v_weight.has_direct_buffer_layout()) {
     return false;
   }
 

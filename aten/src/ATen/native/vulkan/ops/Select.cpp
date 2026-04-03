@@ -27,6 +27,37 @@ Tensor select_cpu_fallback(const Tensor& self, int64_t dim, int64_t index) {
   return at::select(self.cpu(), dim, index).vulkan();
 }
 
+bool can_use_buffer_select_view(const Tensor& self) {
+  if (!self.is_vulkan()) {
+    return false;
+  }
+  const vTensor& v_self = convert(self);
+  return v_self.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_view_fast_path(v_self);
+}
+
+Tensor select_buffer_view(const Tensor& self_arg, int64_t dim, int64_t index) {
+  const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  const vTensor& v_self = convert(self);
+  c10::DimVector output_sizes(v_self.sizes().begin(), v_self.sizes().end());
+  c10::DimVector output_logical_strides = logical_strides(v_self);
+  c10::DimVector output_physical_strides(
+      v_self.gpu_strides().begin(), v_self.gpu_strides().end());
+  const int64_t storage_offset =
+      v_self.storage_offset() + index * output_physical_strides.at(dim);
+
+  output_sizes.erase(output_sizes.begin() + dim);
+  output_logical_strides.erase(output_logical_strides.begin() + dim);
+  output_physical_strides.erase(output_physical_strides.begin() + dim);
+
+  return utils::make_buffer_metadata_view(
+      self,
+      output_sizes,
+      output_logical_strides,
+      output_physical_strides,
+      storage_offset);
+}
+
 Tensor select_batch_4d(const Tensor& input_arg, uint32_t index) {
   api::Context* const context = api::context();
 
@@ -433,9 +464,7 @@ Tensor select(const Tensor& self, int64_t dim, int64_t index) {
     return select_cpu_fallback(self, dim, index);
   }
 
-  TORCH_CHECK(
-      self.dim() == 3 || self.dim() == 4,
-      "Vulkan select only supports 3d and 4d tensors!");
+  dim = maybe_wrap_dim(dim, self.dim());
 
   const int64_t size = self.size(dim);
 
@@ -452,6 +481,15 @@ Tensor select(const Tensor& self, int64_t dim, int64_t index) {
   if (index < 0) {
     index += size;
   }
+
+  if (can_use_buffer_select_view(self) && self.dim() >= 2 && self.dim() <= 4) {
+    return select_buffer_view(self, dim, index);
+  }
+
+  TORCH_CHECK(
+      self.dim() == 3 || self.dim() == 4,
+      "Vulkan select only supports 3d and 4d tensors!");
+
   if (self.dim() == 3) {
     if (dim == 0) {
       return select_depth_3d(self, index);

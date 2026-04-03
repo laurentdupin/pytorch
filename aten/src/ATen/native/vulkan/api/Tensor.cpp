@@ -12,9 +12,7 @@ api::StorageType resolve_storage_type(
     const std::vector<int64_t>& sizes,
     const api::ScalarType dtype,
     const api::StorageType requested_storage_type) {
-  if (
-      dtype == api::ScalarType::Long || dtype == api::ScalarType::BFloat16 ||
-      sizes.size() > 4) {
+  if (api::requires_buffer_storage(dtype, sizes.size())) {
     return api::StorageType::BUFFER;
   }
 
@@ -30,12 +28,11 @@ api::GPUMemoryLayout resolve_memory_layout(
   if (
       resolved_storage_type == api::StorageType::BUFFER &&
       (requested_storage_type != api::StorageType::BUFFER ||
-       dtype == api::ScalarType::Long || dtype == api::ScalarType::BFloat16 ||
-       sizes.size() > 4)) {
-    if (sizes.size() >= 3 && sizes.size() <= 4 &&
+       api::requires_buffer_storage(dtype, sizes.size()))) {
+    if (
+        api::supports_buffer_channels_packed_layout(dtype, sizes.size()) &&
         requested_memory_layout == api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED &&
-        sizes.size() <= 4 && dtype != api::ScalarType::Long &&
-        dtype != api::ScalarType::BFloat16) {
+        sizes.size() <= 4) {
       return requested_memory_layout;
     }
     return api::GPUMemoryLayout::TENSOR_WIDTH_PACKED;
@@ -137,6 +134,11 @@ std::vector<int64_t> calc_gpu_sizes(
     gpu_sizes.resize(sizes.size());
     for (size_t i = 0; i < sizes.size(); i++) {
       gpu_sizes.at(i) = sizes.at(i);
+    }
+    if (
+        memory_layout == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+        !gpu_sizes.empty()) {
+      gpu_sizes.back() = api::utils::align_up(gpu_sizes.back(), INT64_C(4));
     }
   }
   // For texture storage, tensors are typically stored using 3D image textures.
@@ -360,14 +362,15 @@ vTensor::vTensor(
 vTensor::vTensor(
     const vTensor& src,
     const std::vector<int64_t>& sizes,
-    const std::vector<int64_t>& strides,
+    const std::vector<int64_t>& logical_strides,
+    const std::vector<int64_t>& physical_strides,
     const int64_t storage_offset)
     : dtype_(src.dtype_),
       memory_layout_(src.memory_layout_),
       sizes_(sizes),
-      strides_(strides),
+      strides_(logical_strides),
       gpu_sizes_(sizes),
-      gpu_strides_(strides),
+      gpu_strides_(physical_strides),
       virtual_extents_(src.virtual_extents_),
       metadata_uniform_(),
       cpu_sizes_uniform_(nullptr),
@@ -472,7 +475,8 @@ bool vTensor::has_direct_buffer_layout() const {
   if (storage_type() != api::StorageType::BUFFER || storage_offset_ != 0) {
     return false;
   }
-  return strides_ == calc_strides(sizes_, memory_layout_, api::StorageType::BUFFER);
+  return gpu_sizes_ == sizes_ &&
+      strides_ == calc_strides(sizes_, memory_layout_, api::StorageType::BUFFER);
 }
 
 VmaAllocationCreateInfo vTensor::get_allocation_create_info() const {

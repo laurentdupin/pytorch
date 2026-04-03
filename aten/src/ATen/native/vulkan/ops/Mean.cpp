@@ -1,5 +1,8 @@
+#include <algorithm>
+#include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <c10/util/irange.h>
 #include <torch/library.h>
 
 namespace at {
@@ -10,11 +13,388 @@ namespace {
 
 using namespace api::utils;
 
+uvec4 make_logical_buffer_sizes(const std::vector<int64_t>& sizes) {
+  return api::utils::make_whcn_uvec4(sizes);
+}
+
+std::vector<int64_t> calc_logical_contiguous_strides(
+    const std::vector<int64_t>& sizes) {
+  std::vector<int64_t> strides(sizes.size(), 1);
+  for (int idx = safe_downcast<int>(sizes.size()) - 2; idx >= 0; --idx) {
+    strides[idx] = strides[idx + 1] * std::max<int64_t>(sizes[idx + 1], 1);
+  }
+  return strides;
+}
+
+uvec4 make_logical_buffer_strides(const std::vector<int64_t>& sizes) {
+  return api::utils::make_whcn_uvec4(calc_logical_contiguous_strides(sizes));
+}
+
+uint32_t to_whcn_dim(const int64_t dim, const int64_t ndim) {
+  return safe_downcast<uint32_t>(ndim - 1 - dim);
+}
+
+struct BufferDimReduceBlock final {
+  uvec4 map_out_sizes;
+  uvec4 map_out_strides;
+  uvec4 write_out_sizes;
+  uvec4 write_out_strides;
+  uvec4 info;
+};
+
+std::vector<int64_t> reduced_output_sizes(
+    const std::vector<int64_t>& input_sizes,
+    const int64_t dim,
+    const bool keepdim) {
+  std::vector<int64_t> output_sizes = input_sizes;
+  if (keepdim) {
+    output_sizes.at(dim) = 1;
+  } else {
+    output_sizes.erase(output_sizes.begin() + dim);
+  }
+  return output_sizes;
+}
+
+BufferDimReduceBlock make_buffer_dim_reduce_block(
+    const std::vector<int64_t>& input_sizes,
+    const std::vector<int64_t>& output_sizes,
+    const int64_t dim,
+    const int64_t out_numel,
+    const uint32_t reduce_offset,
+    const uint32_t reduce_size) {
+  std::vector<int64_t> map_out_sizes = input_sizes;
+  map_out_sizes.at(dim) = 1;
+
+  return {
+      make_logical_buffer_sizes(map_out_sizes),
+      make_logical_buffer_strides(map_out_sizes),
+      make_logical_buffer_sizes(output_sizes),
+      make_logical_buffer_strides(output_sizes),
+      {
+          to_whcn_dim(dim, safe_downcast<int64_t>(input_sizes.size())),
+          reduce_size,
+          safe_downcast<uint32_t>(out_numel),
+          reduce_offset,
+      },
+  };
+}
+
+Tensor mean_dim_buffer_chunk(
+    const Tensor& prepared_input,
+    const std::vector<int64_t>& output_sizes,
+    const int64_t dim,
+    const uint32_t reduce_offset,
+    const uint32_t reduce_size) {
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(prepared_input);
+
+  vTensor v_output{
+      context,
+      output_sizes,
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const BufferDimReduceBlock block = make_buffer_dim_reduce_block(
+      v_input.sizes(),
+      output_sizes,
+      dim,
+      v_output.numel(),
+      reduce_offset,
+      reduce_size);
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+  const uvec3 local_size = {64u, 1u, 1u};
+  context->submit_compute_job(
+      VK_KERNEL(buffer_mean_dim),
+      pipeline_barrier,
+      global_size,
+      local_size,
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return convert(v_output);
+}
+
+Tensor finalize_bfloat16_mean_output(
+    const Tensor& output,
+    const std::optional<ScalarType> dtype) {
+  const ScalarType target_dtype =
+      dtype.has_value() ? *dtype : c10::ScalarType::BFloat16;
+  if (target_dtype == c10::ScalarType::Float) {
+    return output;
+  }
+  return utils::cast_vulkan_tensor_dtype(output, target_dtype);
+}
+
+Tensor mean_cpu_fallback(
+    const Tensor& self_arg,
+    const std::optional<ScalarType> dtype) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
+  return at::mean(self_cpu, dtype).vulkan();
+}
+
+Tensor mean_dim_cpu_fallback(
+    const Tensor& self_arg,
+    int64_t dim,
+    bool keepdim,
+    const std::optional<ScalarType> dtype) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
+  return at::mean(self_cpu, dim, keepdim, dtype).vulkan();
+}
+
+bool should_run_buffer_mean_all(const Tensor& self_arg) {
+  if (!self_arg.is_vulkan()) {
+    return false;
+  }
+
+  const vTensor& v_input = convert(self_arg);
+  return utils::supports_buffer_reduction_compute(v_input) &&
+      v_input.storage_type() == api::StorageType::BUFFER;
+}
+
+bool should_run_buffer_mean_dim(const Tensor& self_arg) {
+  return false;
+}
+
+void check_group_norm_inputs(
+    const Tensor& input,
+    const Tensor& weight,
+    const Tensor& bias,
+    const int64_t channels,
+    const int64_t num_groups) {
+  TORCH_CHECK(
+      num_groups > 0, "Expected num_groups to be greater than 0, got ", num_groups);
+  TORCH_CHECK(
+      input.dim() >= 2,
+      "Expected group_norm input to have at least 2 dimensions, got ",
+      input.dim());
+  TORCH_CHECK(
+      channels % num_groups == 0,
+      "Expected number of channels in input to be divisible by num_groups, got input of shape ",
+      input.sizes(),
+      " and num_groups=",
+      num_groups);
+  TORCH_CHECK(
+      !weight.defined() || (weight.dim() == 1 && weight.numel() == channels),
+      "Expected weight to be a vector of size equal to the number of channels in input, but got weight of shape ",
+      weight.sizes(),
+      " and input of shape ",
+      input.sizes());
+  TORCH_CHECK(
+      !bias.defined() || (bias.dim() == 1 && bias.numel() == channels),
+      "Expected bias to be a vector of size equal to the number of channels in input, but got bias of shape ",
+      bias.sizes(),
+      " and input of shape ",
+      input.sizes());
+}
+
+Tensor maybe_to_vulkan(const Tensor& tensor) {
+  return tensor.is_vulkan() ? tensor : tensor.vulkan();
+}
+
+Tensor maybe_to_compute_dtype(
+    const Tensor& tensor,
+    const ScalarType compute_dtype) {
+  if (!tensor.defined()) {
+    return tensor;
+  }
+  Tensor out = maybe_to_vulkan(tensor);
+  if (out.scalar_type() != compute_dtype) {
+    out = utils::cast_vulkan_tensor_dtype(out, compute_dtype);
+  }
+  return out;
+}
+
+Tensor group_norm(
+    const Tensor& input_arg,
+    int64_t num_groups,
+    const std::optional<Tensor>& weight_opt,
+    const std::optional<Tensor>& bias_opt,
+    double eps,
+    bool /* cudnn_enabled */) {
+  Tensor input = maybe_to_vulkan(input_arg).contiguous();
+  const Tensor weight = weight_opt.value_or(Tensor());
+  const Tensor bias = bias_opt.value_or(Tensor());
+
+  const int64_t N = input.size(0);
+  const int64_t C = input.size(1);
+  check_group_norm_inputs(input, weight, bias, C, num_groups);
+
+  int64_t HxW = 1;
+  for (const auto dim : c10::irange(2, input.dim())) {
+    HxW *= input.size(dim);
+  }
+  const int64_t group_size = (C / num_groups) * HxW;
+  const ScalarType output_dtype = input.scalar_type();
+  const ScalarType compute_dtype = c10::ScalarType::Float;
+
+  Tensor compute_input = maybe_to_compute_dtype(input, compute_dtype);
+  Tensor compute_weight = maybe_to_compute_dtype(weight, compute_dtype);
+  Tensor compute_bias = maybe_to_compute_dtype(bias, compute_dtype);
+
+  Tensor reshaped = compute_input.reshape({1, N * num_groups, N ? group_size : 1});
+  Tensor group_mean =
+      at::mean(reshaped, /*dim=*/2, /*keepdim=*/true, c10::ScalarType::Float);
+  Tensor centered = at::sub(reshaped, group_mean);
+  Tensor group_var = at::mean(
+      at::mul(centered, centered),
+      /*dim=*/2,
+      /*keepdim=*/true,
+      c10::ScalarType::Float);
+  Tensor group_rstd = at::rsqrt(at::add(group_var, eps));
+  Tensor normalized =
+      at::mul(centered, group_rstd).reshape(compute_input.sizes());
+
+  std::vector<int64_t> affine_param_shape(input.dim(), 1);
+  affine_param_shape[1] = C;
+  if (compute_weight.defined()) {
+    normalized =
+        at::mul(normalized, compute_weight.reshape(affine_param_shape));
+  }
+  if (compute_bias.defined()) {
+    normalized =
+        at::add(normalized, compute_bias.reshape(affine_param_shape));
+  }
+
+  if (normalized.scalar_type() != output_dtype) {
+    normalized = utils::cast_vulkan_tensor_dtype(normalized, output_dtype);
+  }
+
+  return normalized;
+}
+
+Tensor mean_all_buffer(
+    const Tensor& self_arg,
+    const std::optional<ScalarType> dtype) {
+  api::AllocationScope allocation_scope("mean.buffer_all");
+  api::Context* const context = api::context();
+
+  const ScalarType target_dtype =
+      resolve_vulkan_mean_dtype(self_arg.scalar_type(), dtype);
+  Tensor prepared = self_arg;
+  bool is_bfloat16_input = prepared.scalar_type() == c10::ScalarType::BFloat16;
+  if (!is_bfloat16_input && prepared.scalar_type() != c10::ScalarType::Float) {
+    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
+  }
+
+  prepared = utils::ensure_buffer_storage(prepared);
+  if (is_bfloat16_input) {
+    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
+    is_bfloat16_input = false;
+  }
+  vTensor& v_input = convert(prepared);
+
+  vTensor v_output{
+      context,
+      {},
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  api::PipelineBarrier pipeline_barrier{};
+  context->submit_compute_job(
+      is_bfloat16_input ? VK_KERNEL(buffer_mean_all_bfloat16)
+                        : VK_KERNEL(buffer_mean_all),
+      pipeline_barrier,
+      {1u, 1u, 1u},
+      {1u, 1u, 1u},
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_input.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      in_meta.buffer());
+
+  Tensor output = convert(v_output);
+  if (target_dtype != c10::ScalarType::Float) {
+    output = utils::cast_vulkan_tensor_dtype(output, target_dtype);
+  }
+  return output;
+}
+
+Tensor mean_dim_buffer(
+    const Tensor& self_arg,
+    int64_t dim,
+    bool keepdim,
+    const std::optional<ScalarType> dtype) {
+  api::AllocationScope allocation_scope("mean.buffer_dim");
+
+  const ScalarType target_dtype =
+      resolve_vulkan_mean_dtype(self_arg.scalar_type(), dtype);
+  Tensor prepared = self_arg;
+  if (prepared.scalar_type() == c10::ScalarType::BFloat16) {
+    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
+  }
+
+  if (prepared.scalar_type() != c10::ScalarType::Float) {
+    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
+  }
+
+  prepared = utils::ensure_buffer_storage(prepared);
+  const vTensor& v_input = convert(prepared);
+  const std::vector<int64_t> output_sizes =
+      reduced_output_sizes(v_input.sizes(), dim, keepdim);
+  Tensor output = mean_dim_buffer_chunk(
+      prepared,
+      output_sizes,
+      dim,
+      0u,
+      safe_downcast<uint32_t>(v_input.sizes().at(dim)));
+
+  if (target_dtype != c10::ScalarType::Float) {
+    output = utils::cast_vulkan_tensor_dtype(output, target_dtype);
+  }
+  return output;
+}
+
 Tensor mean_dim(
     const at::Tensor& self,
     int64_t dim,
     bool keepdim,
     const std::optional<ScalarType> dtype) {
+  if (self.scalar_type() == c10::ScalarType::BFloat16) {
+    return finalize_bfloat16_mean_output(
+        at::mean(
+            utils::cast_vulkan_tensor_dtype(self, c10::ScalarType::Float),
+            dim,
+            keepdim,
+            c10::ScalarType::Float),
+        dtype);
+  }
+
   TORCH_CHECK(
       self.dim() >= 2 && self.dim() <= 4,
       "Vulkan mean_dim supports 2d, 3d, 4d tensors as input!");
@@ -27,11 +407,19 @@ Tensor mean_dim(
       "], but got ",
       dim);
 
+  if (should_run_buffer_mean_dim(self)) {
+    dim = utils::normalize(dim, self.dim());
+    return mean_dim_buffer(self, dim, keepdim, dtype);
+  }
+
   // Get the global Vulkan context
   api::Context* const context = api::context();
 
   // Cast the input Tensor to a vTensor
-  const Tensor input = self.is_vulkan() ? self : self.vulkan();
+  Tensor input = self.is_vulkan() ? self : self.vulkan();
+  if (convert(input).storage_type() == api::StorageType::BUFFER) {
+    input = utils::ensure_texture_storage(input);
+  }
   const vTensor& v_input = convert(input);
 
   // Normalize dim into range [0, self.dim()]
@@ -46,10 +434,7 @@ Tensor mean_dim(
     output_size.erase(output_size.begin() + dim);
   }
 
-  ScalarType type = self.scalar_type();
-  if (dtype.has_value()) {
-    type = dtype.value();
-  }
+  const ScalarType type = resolve_vulkan_mean_dtype(self.scalar_type(), dtype);
 
   vTensor v_output{
       context,
@@ -103,6 +488,16 @@ Tensor mean_dim_IntList(
     const OptionalIntArrayRef opt_dim,
     bool keepdim,
     const std::optional<ScalarType> dtype) {
+  if (
+      !self.is_vulkan() ||
+      (!is_vulkan_float_dtype(self.scalar_type()) &&
+       self.scalar_type() != c10::ScalarType::BFloat16)) {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
+    return at::mean(self_cpu, opt_dim, keepdim, dtype).vulkan();
+  }
+
   TORCH_CHECK(
       opt_dim.has_value(), "Vulkan mean without a dim arg is not implemented");
 
@@ -138,10 +533,28 @@ Tensor mean_dim_IntList(
   return self;
 }
 
+Tensor mean(const Tensor& self, const std::optional<ScalarType> dtype) {
+  if (self.scalar_type() == c10::ScalarType::BFloat16) {
+    return finalize_bfloat16_mean_output(
+        at::mean(
+            utils::cast_vulkan_tensor_dtype(self, c10::ScalarType::Float),
+            c10::ScalarType::Float),
+        dtype);
+  }
+
+  if (should_run_buffer_mean_all(self)) {
+    return mean_all_buffer(self, dtype);
+  }
+
+  return mean_cpu_fallback(self, dtype);
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::mean.dim"), TORCH_FN(mean_dim_IntList));
+  m.impl(TORCH_SELECTIVE_NAME("aten::mean"), TORCH_FN(mean));
+  m.impl(TORCH_SELECTIVE_NAME("aten::group_norm"), TORCH_FN(group_norm));
 }
 
 #endif /* USE_VULKAN_API */

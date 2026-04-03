@@ -45,6 +45,150 @@ binary_op_tensor:
       IS_DIV: true
       OPERATOR: floor(X / Y)
 
+buffer_binary_op_scalar:
+  parameter_names_with_default_values:
+    DATA_T: float
+    SCALAR_T: float
+    OPERATOR: X + Y
+  shader_variants:
+    - NAME: buffer_add_scalar
+      DATA_T: float
+      SCALAR_T: float
+      OPERATOR: X + Y
+    - NAME: buffer_mul_scalar
+      DATA_T: float
+      SCALAR_T: float
+      OPERATOR: X * Y
+    - NAME: buffer_pow_tensor_scalar
+      DATA_T: float
+      SCALAR_T: float
+      OPERATOR: pow(X, Y)
+    - NAME: buffer_floor_mul_scalar
+      DATA_T: float
+      SCALAR_T: float
+      OPERATOR: floor(X * Y)
+    - NAME: buffer_int_add_scalar
+      DATA_T: int
+      SCALAR_T: int
+      OPERATOR: X + Y
+    - NAME: buffer_int_sub_scalar
+      DATA_T: int
+      SCALAR_T: int
+      OPERATOR: X - Y
+    - NAME: buffer_int_mul_scalar
+      DATA_T: int
+      SCALAR_T: int
+      OPERATOR: X * Y
+
+buffer_binary_op_scalar_int8:
+  parameter_names_with_default_values:
+    DATA_T: int8_t
+    OPERATOR: X + Y
+  shader_variants:
+    - NAME: buffer_char_add_scalar
+      DATA_T: int8_t
+      OPERATOR: X + Y
+    - NAME: buffer_char_sub_scalar
+      DATA_T: int8_t
+      OPERATOR: X - Y
+    - NAME: buffer_char_mul_scalar
+      DATA_T: int8_t
+      OPERATOR: X * Y
+    - NAME: buffer_byte_add_scalar
+      DATA_T: uint8_t
+      OPERATOR: X + Y
+    - NAME: buffer_byte_sub_scalar
+      DATA_T: uint8_t
+      OPERATOR: X - Y
+    - NAME: buffer_byte_mul_scalar
+      DATA_T: uint8_t
+      OPERATOR: X * Y
+
+buffer_binary_op_scalar_bool:
+  parameter_names_with_default_values:
+    OPERATOR: X || Y
+  shader_variants:
+    - NAME: buffer_bool_add_scalar
+      OPERATOR: X || Y
+    - NAME: buffer_bool_mul_scalar
+      OPERATOR: X && Y
+
+buffer_binary_op_tensor:
+  parameter_names_with_default_values:
+    DATA_T: float
+    ALPHA_T: float
+    OPERATOR: X + A * Y
+  shader_variants:
+    - NAME: buffer_add
+      DATA_T: float
+      ALPHA_T: float
+      OPERATOR: X + A * Y
+    - NAME: buffer_sub
+      DATA_T: float
+      ALPHA_T: float
+      OPERATOR: X - A * Y
+    - NAME: buffer_mul
+      DATA_T: float
+      ALPHA_T: float
+      OPERATOR: X * Y
+    - NAME: buffer_div
+      DATA_T: float
+      ALPHA_T: float
+      OPERATOR: X / Y
+    - NAME: buffer_pow
+      DATA_T: float
+      ALPHA_T: float
+      OPERATOR: pow(X, Y)
+    - NAME: buffer_floor_divide
+      DATA_T: float
+      ALPHA_T: float
+      OPERATOR: floor(X / Y)
+    - NAME: buffer_int_add
+      DATA_T: int
+      ALPHA_T: int
+      OPERATOR: X + A * Y
+    - NAME: buffer_int_sub
+      DATA_T: int
+      ALPHA_T: int
+      OPERATOR: X - A * Y
+    - NAME: buffer_int_mul
+      DATA_T: int
+      ALPHA_T: int
+      OPERATOR: X * Y
+
+buffer_binary_op_tensor_int8:
+  parameter_names_with_default_values:
+    DATA_T: int8_t
+    OPERATOR: X + A * Y
+  shader_variants:
+    - NAME: buffer_char_add
+      DATA_T: int8_t
+      OPERATOR: X + A * Y
+    - NAME: buffer_char_sub
+      DATA_T: int8_t
+      OPERATOR: X - A * Y
+    - NAME: buffer_char_mul
+      DATA_T: int8_t
+      OPERATOR: X * Y
+    - NAME: buffer_byte_add
+      DATA_T: uint8_t
+      OPERATOR: X + A * Y
+    - NAME: buffer_byte_sub
+      DATA_T: uint8_t
+      OPERATOR: X - A * Y
+    - NAME: buffer_byte_mul
+      DATA_T: uint8_t
+      OPERATOR: X * Y
+
+buffer_binary_op_tensor_bool:
+  parameter_names_with_default_values:
+    OPERATOR: X || (A && Y)
+  shader_variants:
+    - NAME: buffer_bool_add
+      OPERATOR: X || (A && Y)
+    - NAME: buffer_bool_mul
+      OPERATOR: X && Y
+
 conv2d_dw_output_tile:
   parameter_names_with_default_values:
     OUTPUT_TILE_SIZE: !!python/tuple [1, 1]
@@ -90,3 +234,82 @@ unary_op:
       OPERATOR: -(X)
     - NAME: rsqrt
       OPERATOR: inversesqrt(X)
+
+buffer_unary_op:
+  parameter_names_with_default_values:
+    OPERATOR: exp(X)
+  shader_variants:
+    - NAME: buffer_exp
+      OPERATOR: exp(X)
+    - NAME: buffer_sqrt
+      OPERATOR: sqrt(X)
+    - NAME: buffer_log
+      OPERATOR: log(X)
+    - NAME: buffer_sin
+      OPERATOR: sin(X)
+    - NAME: buffer_cos
+      OPERATOR: cos(X)
+    - NAME: buffer_neg
+      OPERATOR: -(X)
+    - NAME: buffer_rsqrt
+      OPERATOR: inversesqrt(X)
+
+buffer_cast:
+  parameter_names_with_default_values:
+    INPUT_T: float
+    OUTPUT_T: int
+    CONVERT: int(X)
+  shader_variants:
+    - NAME: buffer_cast_float_to_int
+      INPUT_T: float
+      OUTPUT_T: int
+      CONVERT: int(X)
+    - NAME: buffer_cast_int_to_float
+      INPUT_T: int
+      OUTPUT_T: float
+      CONVERT: float(X)
+
+buffer_reduce_all:
+  parameter_names_with_default_values:
+    INIT: "0.0"
+    REDUCE: ACC + X
+    FINALIZE: ACC
+  shader_variants:
+    - NAME: buffer_sum_all
+      INIT: "0.0"
+      REDUCE: ACC + X
+      FINALIZE: ACC
+    - NAME: buffer_mean_all
+      INIT: "0.0"
+      REDUCE: ACC + X
+      FINALIZE: ACC / max(LEN, 1.0)
+
+buffer_reduce_all_bfloat16:
+  parameter_names_with_default_values:
+    INIT: "0.0"
+    REDUCE: ACC + X
+    FINALIZE: ACC
+  shader_variants:
+    - NAME: buffer_sum_all_bfloat16
+      INIT: "0.0"
+      REDUCE: ACC + X
+      FINALIZE: ACC
+    - NAME: buffer_mean_all_bfloat16
+      INIT: "0.0"
+      REDUCE: ACC + X
+      FINALIZE: ACC / max(LEN, 1.0)
+
+buffer_reduce_dim:
+  parameter_names_with_default_values:
+    INIT: "0.0"
+    REDUCE: ACC + X
+    FINALIZE: ACC
+  shader_variants:
+    - NAME: buffer_sum_dim
+      INIT: "0.0"
+      REDUCE: ACC + X
+      FINALIZE: ACC
+    - NAME: buffer_mean_dim
+      INIT: "0.0"
+      REDUCE: ACC + X
+      FINALIZE: ACC / max(LEN, 1.0)

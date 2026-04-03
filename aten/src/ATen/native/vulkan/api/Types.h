@@ -141,6 +141,44 @@ inline const char* to_string(const ScalarType t) {
 #undef CASE_TO_STRING
 }
 
+inline bool supports_texture_storage(const ScalarType t) {
+  switch (t) {
+    case ScalarType::BFloat16:
+    case ScalarType::Long:
+    case ScalarType::Undefined:
+      return false;
+    default:
+      return true;
+  }
+}
+
+inline bool requires_buffer_storage(const ScalarType t, const size_t ndim) {
+  switch (t) {
+    case ScalarType::Int:
+    case ScalarType::Byte:
+    case ScalarType::Char:
+      return true;
+    default:
+      return !supports_texture_storage(t) || ndim > 4;
+  }
+}
+
+inline bool supports_buffer_channels_packed_layout(
+    const ScalarType t,
+    const size_t ndim) {
+  return ndim >= 3 && ndim <= 4 && supports_texture_storage(t);
+}
+
+inline bool supports_generic_buffer_view_ops(
+    const ScalarType t,
+    const size_t ndim,
+    const bool is_quantized = false) {
+  return !is_quantized && ndim <= 4 &&
+      (t == ScalarType::Float || t == ScalarType::BFloat16 ||
+       t == ScalarType::Int || t == ScalarType::Byte ||
+       t == ScalarType::Char || t == ScalarType::Bool);
+}
+
 inline std::ostream& operator<<(std::ostream& os, const ScalarType dtype) {
   return os << to_string(dtype);
 }

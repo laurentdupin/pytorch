@@ -11,6 +11,13 @@ namespace ops {
 
 namespace utils {
 
+struct LogicalBufferMetadata final {
+  api::utils::uvec4 logical_sizes;
+  api::utils::uvec4 logical_strides;
+  api::utils::uvec4 physical_strides;
+  api::utils::uvec4 info;
+};
+
 Tensor nchw_to_nc4hw(const Tensor&);
 
 Tensor create_staging_tensor(const vTensor&);
@@ -19,8 +26,37 @@ Tensor nc4hw_to_nchw(const Tensor&, IntArrayRef);
 
 bool supports_buffer_view_fast_path(const vTensor&);
 
+bool supports_buffer_elementwise_compute(const vTensor&);
+
+bool supports_buffer_reduction_compute(const vTensor&);
+
+bool can_make_buffer_metadata_view(
+    const vTensor&,
+    IntArrayRef sizes,
+    IntArrayRef logical_strides,
+    IntArrayRef physical_strides,
+    int64_t storage_offset);
+
+Tensor make_buffer_metadata_view(
+    const Tensor&,
+    IntArrayRef sizes,
+    IntArrayRef logical_strides,
+    IntArrayRef physical_strides,
+    int64_t storage_offset);
+
+LogicalBufferMetadata make_buffer_compute_metadata(const vTensor&);
+
+api::UniformParamsBuffer make_buffer_compute_metadata_ubo(
+    api::Context* const,
+    const vTensor&);
+
 vTensor materialize_to_contiguous_buffer(
     const vTensor&,
+    api::GPUMemoryLayout memory_layout =
+        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+
+Tensor ensure_buffer_storage(
+    const Tensor&,
     api::GPUMemoryLayout memory_layout =
         api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
 
@@ -31,6 +67,8 @@ Tensor ensure_texture_storage(
     api::StorageType storage_type = api::StorageType::TEXTURE_3D);
 
 Tensor upcast_bfloat16_buffer_to_float(const Tensor&);
+
+Tensor cast_vulkan_tensor_dtype(const Tensor&, ScalarType);
 
 void copy_buffer_to_buffer(
     api::Context* const context,

@@ -412,6 +412,277 @@ class TestVulkanEagerRuntime(TestCase):
                 atol=1e-3,
                 rtol=1e-3)
 
+    def test_large_buffer_backed_binary_and_unary_ops(self):
+        torch.manual_seed(0)
+        x = torch.randn(2048, 1024)
+        y = torch.randn(2048, 1024)
+
+        with torch.inference_mode():
+            x_vulkan = x.to("vulkan")
+            y_vulkan = y.to("vulkan")
+
+            self._assert_outputs_close(
+                torch.exp(x),
+                torch.exp(x_vulkan).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                x + y,
+                (x_vulkan + y_vulkan).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                x * y,
+                (x_vulkan * y_vulkan).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+
+    def test_large_buffer_backed_full_reductions(self):
+        torch.manual_seed(0)
+        x = torch.randn(2048, 1024)
+
+        with torch.inference_mode():
+            x_vulkan = x.to("vulkan")
+            self._assert_outputs_close(
+                x.sum(),
+                x_vulkan.sum().cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                x.mean(),
+                x_vulkan.mean().cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+
+    def test_large_buffer_backed_dim_reductions(self):
+        torch.manual_seed(0)
+        x = torch.randn(2048, 1024)
+        x_odd = torch.randn(1025, 1027)
+        xb = torch.randn(512, 512, dtype=torch.bfloat16)
+        xb_odd = torch.randn(257, 259, dtype=torch.bfloat16)
+
+        with torch.inference_mode():
+            x_vulkan = x.to("vulkan")
+            x_odd_vulkan = x_odd.to("vulkan")
+            xb_vulkan = xb.to("vulkan")
+            xb_odd_vulkan = xb_odd.to("vulkan")
+
+            self._assert_outputs_close(
+                x.sum(dim=1),
+                x_vulkan.sum(dim=1).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                x.sum(dim=1, keepdim=True),
+                x_vulkan.sum(dim=1, keepdim=True).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                x.mean(dim=0),
+                x_vulkan.mean(dim=0).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                x.sum(dim=(0, 1)),
+                x_vulkan.sum(dim=(0, 1)).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                x_odd.sum(dim=1),
+                x_odd_vulkan.sum(dim=1).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                x_odd.mean(dim=0, keepdim=True),
+                x_odd_vulkan.mean(dim=0, keepdim=True).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                x_odd.sum(dim=(0, 1)),
+                x_odd_vulkan.sum(dim=(0, 1)).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                xb.mean(dim=1, dtype=torch.float32),
+                xb_vulkan.mean(dim=1, dtype=torch.float32).cpu(),
+                atol=1e-2,
+                rtol=1e-2)
+            self._assert_outputs_close(
+                xb_odd.mean(dim=1, dtype=torch.float32),
+                xb_odd_vulkan.mean(dim=1, dtype=torch.float32).cpu(),
+                atol=1e-2,
+                rtol=1e-2)
+
+    def test_large_buffer_backed_metadata_views(self):
+        torch.manual_seed(0)
+        x = torch.randn(1025, 1027)
+
+        with torch.inference_mode():
+            x_vulkan = x.to("vulkan")
+
+            expected_slice = x[3:1000:2, 5:1020:3]
+            actual_slice = x_vulkan[3:1000:2, 5:1020:3]
+            self._assert_outputs_close(
+                expected_slice,
+                actual_slice.cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                expected_slice.sum(dim=1),
+                actual_slice.sum(dim=1).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                expected_slice.mean(dim=0),
+                actual_slice.mean(dim=0).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+
+            expected_select = x.select(0, 17)
+            actual_select = x_vulkan.select(0, 17)
+            self._assert_outputs_close(
+                expected_select,
+                actual_select.cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                expected_select.exp(),
+                actual_select.exp().cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+
+            expected_as_strided = torch.as_strided(
+                x,
+                (128, 96),
+                (1027, 2),
+                storage_offset=9)
+            actual_as_strided = torch.as_strided(
+                x_vulkan,
+                (128, 96),
+                (1027, 2),
+                storage_offset=9)
+            self._assert_outputs_close(
+                expected_as_strided,
+                actual_as_strided.cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                expected_as_strided.sum(dim=1),
+                actual_as_strided.sum(dim=1).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+
+    def test_reduction_dtype_resolution_and_buffer_cast(self):
+        with torch.inference_mode():
+            ints = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.int32)
+            bf16 = torch.randn(512, 512, dtype=torch.bfloat16)
+
+            self._assert_outputs_close(
+                ints.sum(),
+                ints.to("vulkan").sum().cpu())
+            self._assert_outputs_close(
+                ints.mean(dtype=torch.float32),
+                ints.to("vulkan").mean(dtype=torch.float32).cpu(),
+                atol=1e-5,
+                rtol=1e-5)
+            self._assert_outputs_close(
+                bf16.mean(),
+                bf16.to("vulkan").mean().cpu(),
+                atol=1e-2,
+                rtol=1e-2)
+
+    def test_buffer_cast_matrix_core(self):
+        torch.manual_seed(0)
+        floats = (torch.randn(513, 257) * 8.0).clamp(-16.0, 16.0)
+        ints = torch.randint(-32, 32, (513, 257), dtype=torch.int32)
+        longs = torch.randint(-64, 64, (64, 64), dtype=torch.int64)
+        bf16 = (torch.randn(513, 257) * 4.0).to(torch.bfloat16)
+        large_floats = (torch.randn(2048, 1024) * 8.0).clamp(-16.0, 16.0)
+        large_ints = torch.randint(-32, 32, (2048, 1024), dtype=torch.int32)
+
+        with torch.inference_mode():
+            floats_vulkan = floats.to("vulkan")
+            ints_vulkan = ints.to("vulkan")
+            longs_vulkan = longs.to("vulkan")
+            bf16_vulkan = bf16.to("vulkan")
+            large_floats_vulkan = large_floats.to("vulkan")
+            large_ints_vulkan = large_ints.to("vulkan")
+
+            floats_to_int = floats_vulkan.to(torch.int32)
+            ints_to_float = ints_vulkan.to(torch.float32)
+            longs_to_float = longs_vulkan.to(torch.float32)
+            bf16_to_float = bf16_vulkan.to(torch.float32)
+            large_floats_to_int = large_floats_vulkan.to(torch.int32)
+            large_ints_to_float = large_ints_vulkan.to(torch.float32)
+            floats_view_to_int = floats_vulkan[1:, 1:].to(torch.int32)
+            bf16_view_to_float = bf16_vulkan[1:, 1:].to(torch.float32)
+
+            self.assertEqual(floats_to_int.dtype, torch.int32)
+            self.assertEqual(ints_to_float.dtype, torch.float32)
+            self.assertEqual(longs_to_float.dtype, torch.float32)
+            self.assertEqual(bf16_to_float.dtype, torch.float32)
+            self.assertEqual(large_floats_to_int.dtype, torch.int32)
+            self.assertEqual(large_ints_to_float.dtype, torch.float32)
+
+            self._assert_outputs_close(
+                ints,
+                ints_vulkan.cpu())
+            self._assert_outputs_close(
+                floats.to(torch.int32),
+                floats_to_int.cpu())
+            self._assert_outputs_close(
+                ints.to(torch.float32),
+                ints_to_float.cpu(),
+                atol=1e-5,
+                rtol=1e-5)
+            self._assert_outputs_close(
+                longs.to(torch.float32),
+                longs_to_float.cpu(),
+                atol=1e-5,
+                rtol=1e-5)
+            self._assert_outputs_close(
+                bf16.to(torch.float32),
+                bf16_to_float.cpu(),
+                atol=1e-2,
+                rtol=1e-2)
+            self._assert_outputs_close(
+                large_floats.to(torch.int32),
+                large_floats_to_int.cpu())
+            self._assert_outputs_close(
+                large_ints.to(torch.float32),
+                large_ints_to_float.cpu(),
+                atol=1e-5,
+                rtol=1e-5)
+            self._assert_outputs_close(
+                floats[1:, 1:].to(torch.int32),
+                floats_view_to_int.cpu())
+            self._assert_outputs_close(
+                bf16[1:, 1:].to(torch.float32),
+                bf16_view_to_float.cpu(),
+                atol=1e-2,
+                rtol=1e-2)
+
+            copy_dst_vulkan = torch.empty(
+                floats.shape, device="vulkan", dtype=torch.int32)
+            copy_dst_vulkan.copy_(floats_vulkan)
+            self._assert_outputs_close(
+                floats.to(torch.int32),
+                copy_dst_vulkan.cpu())
+
+            copy_dst_large_vulkan = torch.empty(
+                large_floats.shape, device="vulkan", dtype=torch.int32)
+            copy_dst_large_vulkan.copy_(large_floats_vulkan)
+            self._assert_outputs_close(
+                large_floats.to(torch.int32),
+                copy_dst_large_vulkan.cpu())
+
+            copy_dst_from_cpu = torch.empty(
+                floats.shape, device="vulkan", dtype=torch.int32)
+            copy_dst_from_cpu.copy_(floats)
+            self._assert_outputs_close(
+                floats.to(torch.int32),
+                copy_dst_from_cpu.cpu())
+
     def test_reduction_and_shape_ops(self):
         torch.manual_seed(0)
         x = torch.randn(2, 3, 8, 8)
@@ -970,6 +1241,166 @@ class TestVulkanEagerRuntime(TestCase):
             )
 
         self.assertEqual(actual.dtype, torch.float32)
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+
+    def test_bfloat16_buffer_full_reductions(self):
+        torch.manual_seed(0)
+        x = torch.randn(513, 257, dtype=torch.bfloat16)
+        x_vulkan = x.to("vulkan")
+
+        with torch.inference_mode():
+            expected_sum = torch.sum(x, dtype=torch.float32)
+            actual_sum = torch.sum(x_vulkan, dtype=torch.float32).cpu()
+            expected_mean = torch.mean(x, dtype=torch.float32)
+            actual_mean = torch.mean(x_vulkan, dtype=torch.float32).cpu()
+
+        self.assertEqual(actual_sum.dtype, torch.float32)
+        self.assertEqual(actual_mean.dtype, torch.float32)
+        self._assert_outputs_close(expected_sum, actual_sum, atol=1e-4, rtol=1e-4)
+        self._assert_outputs_close(expected_mean, actual_mean, atol=1e-4, rtol=1e-4)
+
+    def test_int32_buffer_binary_tensor_ops(self):
+        torch.manual_seed(0)
+        x = torch.randint(-16, 16, (513, 257), dtype=torch.int32)
+        y = torch.randint(-8, 8, (513, 257), dtype=torch.int32)
+        x_vulkan = x.to("vulkan")
+        y_vulkan = y.to("vulkan")
+
+        with torch.inference_mode():
+            self._assert_outputs_close(x + y, (x_vulkan + y_vulkan).cpu())
+            self._assert_outputs_close(x - y, (x_vulkan - y_vulkan).cpu())
+            self._assert_outputs_close(x * y, (x_vulkan * y_vulkan).cpu())
+
+    def test_int32_buffer_binary_scalar_ops(self):
+        torch.manual_seed(0)
+        x = torch.randint(-16, 16, (513, 257), dtype=torch.int32)
+        x_vulkan = x.to("vulkan")
+
+        with torch.inference_mode():
+            self._assert_outputs_close(x + 3, (x_vulkan + 3).cpu())
+            self._assert_outputs_close(x - 5, (x_vulkan - 5).cpu())
+            self._assert_outputs_close(x * -2, (x_vulkan * -2).cpu())
+
+    def test_int32_buffer_binary_ops_on_metadata_views(self):
+        torch.manual_seed(0)
+        x = torch.randint(-16, 16, (513, 257), dtype=torch.int32)
+        y = torch.randint(-8, 8, (513, 257), dtype=torch.int32)
+        x_view = x[:, 3:203]
+        y_view = y[:, 5:205]
+        x_vulkan = x.to("vulkan")[:, 3:203]
+        y_vulkan = y.to("vulkan")[:, 5:205]
+
+        with torch.inference_mode():
+            self._assert_outputs_close(x_view + y_view, (x_vulkan + y_vulkan).cpu())
+            self._assert_outputs_close(x_view - y_view, (x_vulkan - y_vulkan).cpu())
+            self._assert_outputs_close(x_view * y_view, (x_vulkan * y_vulkan).cpu())
+            self._assert_outputs_close(x_view + 3, (x_vulkan + 3).cpu())
+            self._assert_outputs_close(x_view - 5, (x_vulkan - 5).cpu())
+            self._assert_outputs_close(x_view * -2, (x_vulkan * -2).cpu())
+
+    def test_int8_and_uint8_buffer_binary_ops(self):
+        torch.manual_seed(0)
+        cases = (
+            (torch.int8, -64, 64, -7, 7),
+            (torch.uint8, 0, 256, 0, 32),
+        )
+        with torch.inference_mode():
+            for dtype, x_low, x_high, y_low, y_high in cases:
+                x = torch.randint(x_low, x_high, (513, 200), dtype=dtype)
+                y = torch.randint(y_low, y_high, (513, 200), dtype=dtype)
+                x_vulkan = x.to("vulkan")
+                y_vulkan = y.to("vulkan")
+
+                self._assert_outputs_close(x + y, (x_vulkan + y_vulkan).cpu())
+                self._assert_outputs_close(x - y, (x_vulkan - y_vulkan).cpu())
+                self._assert_outputs_close(x * y, (x_vulkan * y_vulkan).cpu())
+                self._assert_outputs_close(
+                    torch.add(x, y, alpha=2),
+                    torch.add(x_vulkan, y_vulkan, alpha=2).cpu(),
+                )
+                self._assert_outputs_close(
+                    torch.sub(x, y, alpha=2),
+                    torch.sub(x_vulkan, y_vulkan, alpha=2).cpu(),
+                )
+                self._assert_outputs_close(x + 3, (x_vulkan + 3).cpu())
+                self._assert_outputs_close(x - 5, (x_vulkan - 5).cpu())
+                self._assert_outputs_close(x * -2, (x_vulkan * -2).cpu())
+
+    def test_int8_and_uint8_buffer_binary_ops_on_metadata_views(self):
+        torch.manual_seed(0)
+        cases = (
+            (torch.int8, -64, 64, -7, 7),
+            (torch.uint8, 0, 256, 0, 32),
+        )
+        with torch.inference_mode():
+            for dtype, x_low, x_high, y_low, y_high in cases:
+                x = torch.randint(x_low, x_high, (513, 257), dtype=dtype)
+                y = torch.randint(y_low, y_high, (513, 257), dtype=dtype)
+                x_view = x[:, 3:203]
+                y_view = y[:, 5:205]
+                x_vulkan = x.to("vulkan")[:, 3:203]
+                y_vulkan = y.to("vulkan")[:, 5:205]
+
+                self._assert_outputs_close(
+                    x_view + y_view, (x_vulkan + y_vulkan).cpu()
+                )
+                self._assert_outputs_close(
+                    x_view - y_view, (x_vulkan - y_vulkan).cpu()
+                )
+                self._assert_outputs_close(
+                    x_view * y_view, (x_vulkan * y_vulkan).cpu()
+                )
+                self._assert_outputs_close(x_view + 3, (x_vulkan + 3).cpu())
+                self._assert_outputs_close(x_view - 5, (x_vulkan - 5).cpu())
+                self._assert_outputs_close(x_view * -2, (x_vulkan * -2).cpu())
+
+    def test_bool_buffer_binary_ops(self):
+        torch.manual_seed(0)
+        x = torch.randint(0, 2, (513, 200), dtype=torch.int32).to(torch.bool)
+        y = torch.randint(0, 2, (513, 200), dtype=torch.int32).to(torch.bool)
+        x_vulkan = x.to("vulkan")
+        y_vulkan = y.to("vulkan")
+
+        with torch.inference_mode():
+            self.assertTrue(torch.equal(x + y, (x_vulkan + y_vulkan).cpu()))
+            self.assertTrue(torch.equal(x * y, (x_vulkan * y_vulkan).cpu()))
+            self.assertTrue(
+                torch.equal(
+                    torch.add(x, y, alpha=0),
+                    torch.add(x_vulkan, y_vulkan, alpha=0).cpu(),
+                )
+            )
+            self.assertTrue(torch.equal(x + True, (x_vulkan + True).cpu()))
+            self.assertTrue(torch.equal(x * False, (x_vulkan * False).cpu()))
+
+    def test_bool_buffer_binary_ops_on_metadata_views(self):
+        torch.manual_seed(0)
+        x = torch.randint(0, 2, (513, 257), dtype=torch.int32).to(torch.bool)
+        y = torch.randint(0, 2, (513, 257), dtype=torch.int32).to(torch.bool)
+        x_view = x[:, 3:203]
+        y_view = y[:, 5:205]
+        x_vulkan = x.to("vulkan")[:, 3:203]
+        y_vulkan = y.to("vulkan")[:, 5:205]
+
+        with torch.inference_mode():
+            self.assertTrue(torch.equal(x_view + y_view, (x_vulkan + y_vulkan).cpu()))
+            self.assertTrue(torch.equal(x_view * y_view, (x_vulkan * y_vulkan).cpu()))
+            self.assertTrue(torch.equal(x_view + True, (x_vulkan + True).cpu()))
+            self.assertTrue(torch.equal(x_view * False, (x_vulkan * False).cpu()))
+
+    def test_group_norm_with_vulkan_weights(self):
+        torch.manual_seed(0)
+        module_cpu = nn.GroupNorm(4, 8).eval()
+        module_vulkan = nn.GroupNorm(4, 8).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+        x_cpu = torch.randn(2, 8, 5, 7)
+        x_vulkan = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected = module_cpu(x_cpu)
+            actual = module_vulkan(x_vulkan).cpu()
+
         self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
 
     def test_permute_reshape_then_linear(self):

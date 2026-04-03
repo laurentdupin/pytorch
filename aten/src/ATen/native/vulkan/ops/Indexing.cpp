@@ -78,6 +78,54 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
   }
 
   if (weight_arg.scalar_type() == kFloat) {
+    const bool can_use_texture_float_gather =
+        v_weight.storage_type() != api::StorageType::BUFFER &&
+        v_weight.gpu_memory_layout() ==
+            api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED;
+    if (can_use_texture_float_gather) {
+      vTensor v_output{
+          context,
+          output_sizes,
+          convert_dtype(weight_arg.scalar_type()),
+      };
+
+      const int64_t index_rows = indices.dim() == 2 ? indices.size(0) : 1;
+      const int64_t index_cols =
+          indices.dim() == 2 ? indices.size(1) : num_indices;
+      const struct Block final {
+        ivec4 out_extents;
+        ivec4 index_info;
+      } block{
+          {safe_downcast<int32_t>(v_output.extents().data[0u]),
+           safe_downcast<int32_t>(v_output.extents().data[1u]),
+           safe_downcast<int32_t>(v_output.extents().data[2u]),
+           0},
+          {safe_downcast<int32_t>(index_rows),
+           safe_downcast<int32_t>(index_cols),
+           safe_downcast<int32_t>(indices.dim()),
+           0},
+      };
+
+      api::UniformParamsBuffer params(context, block);
+      api::PipelineBarrier pipeline_barrier{};
+
+      context->submit_compute_job(
+          VK_KERNEL(gather_rows_2d),
+          pipeline_barrier,
+          v_output.extents(),
+          adaptive_work_group_size(v_output.extents()),
+          VK_NULL_HANDLE,
+          v_output.image(
+              pipeline_barrier,
+              api::PipelineStage::COMPUTE,
+              api::MemoryAccessType::WRITE),
+          v_weight.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+          index_buffer.buffer(),
+          params.buffer());
+
+      return convert(v_output);
+    }
+
     if (
         v_weight.storage_type() != api::StorageType::BUFFER ||
         !v_weight.has_direct_buffer_layout() ||

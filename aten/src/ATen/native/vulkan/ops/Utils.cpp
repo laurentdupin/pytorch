@@ -24,6 +24,115 @@ namespace utils {
 using namespace api::utils;
 namespace {
 
+bool can_native_buffer_cast_input(const vTensor& v_input) {
+  return (v_input.dtype() == api::kFloat || v_input.dtype() == api::kInt ||
+          v_input.dtype() == api::kBFloat16) &&
+      v_input.storage_type() == api::StorageType::BUFFER &&
+      v_input.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      !v_input.is_quantized();
+}
+
+Tensor cast_vulkan_tensor_dtype_cpu_fallback(
+    const Tensor& input,
+    const ScalarType dtype) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  return input.cpu().to(dtype).vulkan();
+}
+
+std::vector<int64_t> calc_logical_contiguous_strides(
+    const std::vector<int64_t>& sizes) {
+  std::vector<int64_t> strides(sizes.size(), 1);
+  for (int idx = safe_downcast<int>(sizes.size()) - 2; idx >= 0; --idx) {
+    strides[idx] = strides[idx + 1] * std::max<int64_t>(sizes[idx + 1], 1);
+  }
+  return strides;
+}
+
+bool can_make_buffer_metadata_view_impl(
+    const vTensor& v_input,
+    IntArrayRef sizes,
+    IntArrayRef logical_strides,
+    IntArrayRef physical_strides,
+    const int64_t storage_offset) {
+  if (
+      v_input.storage_type() != api::StorageType::BUFFER ||
+      !supports_buffer_view_fast_path(v_input) ||
+      sizes.size() != logical_strides.size() ||
+      sizes.size() != physical_strides.size() || sizes.size() > 4 ||
+      storage_offset < 0) {
+    return false;
+  }
+
+  int64_t max_offset = storage_offset;
+  for (const auto idx : c10::irange(sizes.size())) {
+    if (
+        sizes[idx] < 0 || logical_strides[idx] < 0 ||
+        physical_strides[idx] < 0) {
+      return false;
+    }
+    if (sizes[idx] == 0) {
+      continue;
+    }
+    max_offset += (sizes[idx] - 1) * physical_strides[idx];
+    if (max_offset < 0) {
+      return false;
+    }
+  }
+
+  return max_offset < v_input.buffer_length();
+}
+
+Tensor cast_vulkan_tensor_dtype_buffer_native(
+    const Tensor& input_arg,
+    const ScalarType dtype,
+    const api::ShaderInfo& shader_descriptor) {
+  api::AllocationScope allocation_scope("cast.buffer");
+  api::Context* const context = api::context();
+
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  vTensor v_input = convert(input);
+
+  TORCH_CHECK(
+      can_native_buffer_cast_input(v_input),
+      "Native Vulkan buffer cast requires a float or int32-compatible buffer tensor");
+
+  vTensor v_out{
+      context,
+      v_input.sizes(),
+      convert_dtype(dtype),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_out.numel()),
+      1u,
+      1u,
+  };
+  api::UniformParamsBuffer out_meta =
+      make_buffer_compute_metadata_ubo(context, v_out);
+  api::UniformParamsBuffer in_meta =
+      make_buffer_compute_metadata_ubo(context, v_input);
+
+  context->submit_compute_job(
+      shader_descriptor,
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_out.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer());
+
+  return convert(v_out);
+}
+
 const std::string& materialize_log_path() {
   static const std::string path = []() {
     const char* env = std::getenv("PYTORCH_VULKAN_MATERIALIZE_LOG");
@@ -111,6 +220,26 @@ void log_materialize_event(
 }
 
 } // namespace
+
+LogicalBufferMetadata make_buffer_compute_metadata(const vTensor& tensor) {
+  return {
+      api::utils::make_whcn_uvec4(tensor.sizes()),
+      api::utils::make_whcn_uvec4(tensor.strides()),
+      api::utils::make_whcn_uvec4(tensor.gpu_strides()),
+      {
+          api::utils::safe_downcast<uint32_t>(tensor.sizes().size()),
+          api::utils::safe_downcast<uint32_t>(tensor.numel()),
+          api::utils::safe_downcast<uint32_t>(tensor.buffer_length()),
+          api::utils::safe_downcast<uint32_t>(tensor.storage_offset()),
+      },
+  };
+}
+
+api::UniformParamsBuffer make_buffer_compute_metadata_ubo(
+    api::Context* const context,
+    const vTensor& tensor) {
+  return api::UniformParamsBuffer(context, make_buffer_compute_metadata(tensor));
+}
 
 /*
  * This function formats an input tensor in NCHW layout to NC4HW layout such
@@ -207,8 +336,62 @@ Tensor nc4hw_to_nchw(const Tensor& t_in, IntArrayRef sizes) {
 }
 
 bool supports_buffer_view_fast_path(const vTensor& v_in) {
-  return !v_in.is_quantized() && v_in.dtype() == api::kFloat &&
-      v_in.sizes().size() <= 4;
+  return api::supports_generic_buffer_view_ops(
+      v_in.dtype(), v_in.sizes().size(), v_in.is_quantized());
+}
+
+bool supports_buffer_elementwise_compute(const vTensor& v_in) {
+  return supports_buffer_view_fast_path(v_in);
+}
+
+bool supports_buffer_reduction_compute(const vTensor& v_in) {
+  return supports_buffer_view_fast_path(v_in) &&
+      (v_in.dtype() == api::kFloat || v_in.dtype() == api::kBFloat16);
+}
+
+bool can_make_buffer_metadata_view(
+    const vTensor& v_in,
+    IntArrayRef sizes,
+    IntArrayRef logical_strides,
+    IntArrayRef physical_strides,
+    int64_t storage_offset) {
+  return can_make_buffer_metadata_view_impl(
+      v_in, sizes, logical_strides, physical_strides, storage_offset);
+}
+
+Tensor make_buffer_metadata_view(
+    const Tensor& input_arg,
+    IntArrayRef sizes,
+    IntArrayRef logical_strides,
+    IntArrayRef physical_strides,
+    int64_t storage_offset) {
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  const vTensor& v_input = convert(input);
+
+  TORCH_CHECK(
+      can_make_buffer_metadata_view_impl(
+          v_input,
+          sizes,
+          logical_strides,
+          physical_strides,
+          storage_offset),
+      "Vulkan buffer metadata view requires a float buffer-backed tensor with "
+      "supported logical sizes/strides and in-range storage_offset");
+
+  log_materialize_event(
+      "make_buffer_metadata_view",
+      v_input,
+      api::StorageType::BUFFER,
+      v_input.gpu_memory_layout(),
+      "metadata_view");
+
+  return convert(vTensor{
+      v_input,
+      sizes.vec(),
+      logical_strides.vec(),
+      physical_strides.vec(),
+      storage_offset,
+  });
 }
 
 std::string describe_buffer_view_fast_path_failure(const vTensor& v_in) {
@@ -219,7 +402,7 @@ std::string describe_buffer_view_fast_path_failure(const vTensor& v_in) {
       << " (caller=" << api::current_allocation_label()
       << ", sizes=" << format_sizes(v_in.sizes())
       << ", ndim=" << v_in.sizes().size()
-      << ", dtype=" << static_cast<int>(v_in.dtype())
+      << ", dtype=" << api::to_string(v_in.dtype())
       << ", quantized=" << (v_in.is_quantized() ? 1 : 0)
       << ", storage=" << storage_type_name(v_in.storage_type())
       << ", layout=" << memory_layout_name(v_in.gpu_memory_layout())
@@ -273,6 +456,35 @@ vTensor materialize_to_contiguous_buffer(
   return v_out;
 }
 
+Tensor ensure_buffer_storage(
+    const Tensor& input_arg,
+    api::GPUMemoryLayout memory_layout) {
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  vTensor v_input = convert(input);
+
+  if (
+      v_input.storage_type() == api::StorageType::BUFFER &&
+      v_input.gpu_memory_layout() == memory_layout &&
+      v_input.has_direct_buffer_layout()) {
+    return input;
+  }
+
+  TORCH_CHECK(
+      supports_buffer_view_fast_path(v_input),
+      describe_buffer_view_fast_path_failure(v_input));
+
+  log_materialize_event(
+      "ensure_buffer_storage",
+      v_input,
+      api::StorageType::BUFFER,
+      memory_layout,
+      v_input.storage_type() == api::StorageType::BUFFER
+          ? "buffer_relayout"
+          : "texture_to_buffer");
+
+  return convert(materialize_to_contiguous_buffer(v_input, memory_layout));
+}
+
 Tensor ensure_texture_storage(
     const Tensor& input_arg,
     api::GPUMemoryLayout memory_layout,
@@ -320,23 +532,16 @@ Tensor ensure_texture_storage(
       describe_buffer_view_fast_path_failure(v_input));
 
   api::Context* const context = api::context();
-  const bool direct_buffer_path =
-      v_input.storage_type() == api::StorageType::BUFFER &&
-      v_input.gpu_memory_layout() ==
-          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
-      v_input.has_direct_buffer_layout();
-  vTensor v_buffer =
-      direct_buffer_path
-      ? v_input
-      : materialize_to_contiguous_buffer(
-            v_input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
   log_materialize_event(
       "ensure_texture_storage",
       v_input,
       storage_type,
       memory_layout,
-      direct_buffer_path ? "direct_buffer_to_texture"
-                         : "buffer_materialize_to_texture");
+      "buffer_to_texture_via_staging");
+
+  api::StorageBuffer staging(context, v_input.dtype(), v_input.numel());
+  vTensor v_src = v_input;
+  pack_vtensor_to_staging(v_src, staging.buffer());
 
   vTensor v_out{
       context,
@@ -346,9 +551,14 @@ Tensor ensure_texture_storage(
       memory_layout,
   };
   api::PipelineBarrier pipeline_barrier{};
-  api::VulkanBuffer& src_buffer =
-      v_buffer.buffer(pipeline_barrier, api::PipelineStage::COMPUTE);
-  pack_buffer_to_vtensor(src_buffer, v_out, pipeline_barrier);
+  add_buffer_barrier(
+      pipeline_barrier,
+      staging.buffer(),
+      api::PipelineStage::COMPUTE | api::PipelineStage::TRANSFER,
+      api::MemoryAccessType::WRITE,
+      api::PipelineStage::COMPUTE | api::PipelineStage::TRANSFER,
+      api::MemoryAccessType::READ);
+  pack_buffer_to_vtensor(staging.buffer(), v_out, pipeline_barrier);
   return convert(v_out);
 }
 
@@ -364,13 +574,6 @@ Tensor upcast_bfloat16_buffer_to_float(const Tensor& input) {
   TORCH_CHECK(
       v_input.sizes().size() <= 4,
       "BF16 buffer upcast currently only supports tensors with up to 4 dimensions");
-
-  // The experimental 16-bit buffer shader path is not numerically stable yet.
-  // Fall back to a proven CPU widening route so BF16 Vulkan callers remain
-  // correct while the device-native path is brought up safely.
-  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
-  c10::InferenceMode inference_mode_guard(false);
-  return input.cpu().to(kFloat).vulkan();
 
   api::AllocationScope allocation_scope("bf16.buffer_to_float");
   api::Context* const context = api::context();
@@ -400,14 +603,56 @@ Tensor upcast_bfloat16_buffer_to_float(const Tensor& input) {
           pipeline_barrier,
           api::PipelineStage::COMPUTE,
           api::MemoryAccessType::WRITE),
-      v_out.buffer_metadata(),
+      make_buffer_compute_metadata_ubo(context, v_out).buffer(),
       v_input.buffer(
           pipeline_barrier,
           api::PipelineStage::COMPUTE,
           api::MemoryAccessType::READ),
-      v_input.buffer_metadata());
+      make_buffer_compute_metadata_ubo(context, v_input).buffer());
 
   return convert(v_out);
+}
+
+Tensor cast_vulkan_tensor_dtype(const Tensor& input_arg, ScalarType dtype) {
+  if (input_arg.scalar_type() == dtype) {
+    return input_arg;
+  }
+
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  vTensor v_input = convert(input);
+
+  switch (resolve_vulkan_cast_method(input.scalar_type(), dtype)) {
+    case VulkanCastMethod::Identity:
+      return input;
+    case VulkanCastMethod::NativeBufferFloatToInt:
+      if (!can_native_buffer_cast_input(v_input)) {
+        return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
+      }
+      return cast_vulkan_tensor_dtype_buffer_native(
+          input, dtype, VK_KERNEL(buffer_cast_float_to_int));
+    case VulkanCastMethod::NativeBufferIntToFloat:
+      if (!can_native_buffer_cast_input(v_input)) {
+        return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
+      }
+      return cast_vulkan_tensor_dtype_buffer_native(
+          input, dtype, VK_KERNEL(buffer_cast_int_to_float));
+    case VulkanCastMethod::NativeBufferBFloat16ToFloat:
+      if (!can_native_buffer_cast_input(v_input)) {
+        return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
+      }
+      return upcast_bfloat16_buffer_to_float(input);
+    case VulkanCastMethod::CpuFallback:
+      return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
+    case VulkanCastMethod::Unsupported:
+      TORCH_CHECK(
+          false,
+          "Unsupported Vulkan cast from ",
+          input.scalar_type(),
+          " to ",
+          dtype);
+  }
+
+  TORCH_CHECK(false, "Invalid Vulkan cast dispatch state");
 }
 
 void copy_buffer_to_vtensor(
@@ -495,29 +740,9 @@ void pack_buffer_to_vtensor(
   api::Context* const context = api::context();
 
   if (v_self.storage_type() == api::StorageType::BUFFER) {
-    if (
-        v_self.has_direct_buffer_layout() &&
-        buffer.mem_size() == v_self.gpu_nbytes()) {
-      add_buffer_barrier(
-          pipeline_barrier,
-          buffer,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::WRITE,
-          api::PipelineStage::TRANSFER,
-          api::MemoryAccessType::READ);
-      context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
-          pipeline_barrier,
-          buffer,
-          v_self.buffer(
-              pipeline_barrier,
-              api::PipelineStage::TRANSFER,
-              api::MemoryAccessType::WRITE),
-          {api::utils::safe_downcast<uint32_t>(buffer.mem_size()), 0u, 0u},
-          {0u, 0u, 0u},
-          {0u, 0u, 0u},
-          VK_NULL_HANDLE);
-      return;
-    }
+    // The generic helper is used for both CPU-style logical staging buffers and
+    // already packed GPU buffers. Only the former is safe to assume here, so
+    // always repack through the metadata-aware shader path.
     packing::record_nchw_to_buffer_op(
         context, buffer, v_self, pipeline_barrier, VK_NULL_HANDLE);
   } else {
