@@ -23,7 +23,7 @@ api::StorageType choose_storage_type(
     const std::optional<ScalarType> dtype) {
   api::StorageType storage_type = api::StorageType::TEXTURE_3D;
 
-  if (dtype && (*dtype == c10::kLong || *dtype == c10::kBFloat16)) {
+  if (dtype && api::requires_buffer_storage(convert_dtype(*dtype), sizes.size())) {
     return api::StorageType::BUFFER;
   }
 

@@ -1082,11 +1082,6 @@ bool can_run_bfloat16_buffer_conv2d(
     const bool transposed,
     const bool quantized,
     const IntArrayRef output_padding) {
-  // Disabled for now. The first buffer-native BF16 convolution path still
-  // needs more backend bring-up, so BF16 conv currently widens through the
-  // established float execution path.
-  return false;
-
   if (
       transposed ||
       quantized ||
@@ -1259,21 +1254,6 @@ Tensor run_bfloat16_buffer_conv2d(
         std::nullopt);
     return run_conv2d_context(input, conv_context);
   }
-  if (const auto cached_context = lookup_packed_conv2d_context(
-          compute_weight,
-          compute_bias,
-          stride,
-          padding,
-          dilation,
-          transposed,
-          false,
-          output_padding,
-          groups,
-          std::nullopt,
-          std::nullopt)) {
-    return run_conv2d_context(input, *cached_context);
-  }
-
   auto conv_context = c10::make_intrusive<Conv2dPackedContext>(
       compute_weight,
       compute_bias,
@@ -1284,19 +1264,6 @@ Tensor run_bfloat16_buffer_conv2d(
       false,
       output_padding,
       groups);
-  store_packed_conv2d_context(
-      compute_weight,
-      compute_bias,
-      stride,
-      padding,
-      dilation,
-      transposed,
-      false,
-      output_padding,
-      groups,
-      std::nullopt,
-      std::nullopt,
-      conv_context);
 
   return run_conv2d_context(input, conv_context);
 }

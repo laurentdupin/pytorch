@@ -20,6 +20,8 @@ PhysicalDevice::PhysicalDevice(VkPhysicalDevice physical_device_handle)
       num_compute_queues(0),
       has_unified_memory(false),
       has_shader_bfloat16(false),
+      has_shader_int8(false),
+      has_storage_buffer_8bit(false),
       has_timestamps(properties.limits.timestampComputeAndGraphics),
       timestamp_period(properties.limits.timestampPeriod) {
   // Extract physical device properties
@@ -34,14 +36,58 @@ PhysicalDevice::PhysicalDevice(VkPhysicalDevice physical_device_handle)
       VK_FALSE,
       VK_FALSE,
   };
+#endif
+#ifdef VK_VERSION_1_2
+  VkPhysicalDeviceShaderFloat16Int8Features shader_float16_int8_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES,
+      nullptr,
+      VK_FALSE,
+      VK_FALSE,
+  };
+  VkPhysicalDevice8BitStorageFeatures storage_8bit_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES,
+      nullptr,
+      VK_FALSE,
+      VK_FALSE,
+      VK_FALSE,
+  };
+  void* features2_pnext = nullptr;
+#ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
+  shader_bfloat16_features.pNext = features2_pnext;
+  features2_pnext = &shader_bfloat16_features;
+#endif
+  shader_float16_int8_features.pNext = features2_pnext;
+  features2_pnext = &shader_float16_int8_features;
+  storage_8bit_features.pNext = features2_pnext;
+  features2_pnext = &storage_8bit_features;
   VkPhysicalDeviceFeatures2 features2{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-      &shader_bfloat16_features,
+      features2_pnext,
       {},
   };
   vkGetPhysicalDeviceFeatures2(handle, &features2);
+#ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
   has_shader_bfloat16 =
       shader_bfloat16_features.shaderBFloat16Type == VK_TRUE;
+#endif
+  has_shader_int8 = shader_float16_int8_features.shaderInt8 == VK_TRUE;
+  has_storage_buffer_8bit =
+      storage_8bit_features.storageBuffer8BitAccess == VK_TRUE;
+#else
+  VkPhysicalDeviceFeatures2 features2{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+#ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
+      &shader_bfloat16_features,
+#else
+      nullptr,
+#endif
+      {},
+  };
+  vkGetPhysicalDeviceFeatures2(handle, &features2);
+#ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
+  has_shader_bfloat16 =
+      shader_bfloat16_features.shaderBFloat16Type == VK_TRUE;
+#endif
 #endif
 
   // Check if there are any memory types have both the HOST_VISIBLE and the
@@ -157,6 +203,9 @@ VkDevice create_logical_device(
 #ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
       VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME,
 #endif /* VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME */
+#ifdef VK_KHR_8BIT_STORAGE_EXTENSION_NAME
+      VK_KHR_8BIT_STORAGE_EXTENSION_NAME,
+#endif /* VK_KHR_8BIT_STORAGE_EXTENSION_NAME */
   };
 
   std::vector<const char*> enabled_device_extensions;
@@ -165,6 +214,7 @@ VkDevice create_logical_device(
       enabled_device_extensions,
       requested_device_extensions);
 
+#ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
   VkPhysicalDeviceShaderBfloat16FeaturesKHR shader_bfloat16_features{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_BFLOAT16_FEATURES_KHR,
       nullptr,
@@ -172,6 +222,22 @@ VkDevice create_logical_device(
       VK_FALSE,
       VK_FALSE,
   };
+#endif
+#ifdef VK_VERSION_1_2
+  VkPhysicalDeviceShaderFloat16Int8Features shader_float16_int8_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES,
+      nullptr,
+      VK_FALSE,
+      VK_FALSE,
+  };
+  VkPhysicalDevice8BitStorageFeatures storage_8bit_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES,
+      nullptr,
+      VK_FALSE,
+      VK_FALSE,
+      VK_FALSE,
+  };
+#endif
   VkPhysicalDeviceFeatures2 enabled_features2{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
       nullptr,
@@ -189,6 +255,29 @@ VkDevice create_logical_device(
   if (enable_shader_bfloat16) {
     shader_bfloat16_features.shaderBFloat16Type = VK_TRUE;
     enabled_features2.pNext = &shader_bfloat16_features;
+  }
+#endif
+#ifdef VK_VERSION_1_2
+  if (physical_device.has_shader_int8) {
+    shader_float16_int8_features.shaderInt8 = VK_TRUE;
+    shader_float16_int8_features.pNext = enabled_features2.pNext;
+    enabled_features2.pNext = &shader_float16_int8_features;
+  }
+  const bool enable_storage_buffer_8bit =
+      physical_device.has_storage_buffer_8bit &&
+      std::find(
+          enabled_device_extensions.begin(),
+          enabled_device_extensions.end(),
+#ifdef VK_KHR_8BIT_STORAGE_EXTENSION_NAME
+          VK_KHR_8BIT_STORAGE_EXTENSION_NAME
+#else
+          nullptr
+#endif
+          ) != enabled_device_extensions.end();
+  if (enable_storage_buffer_8bit) {
+    storage_8bit_features.storageBuffer8BitAccess = VK_TRUE;
+    storage_8bit_features.pNext = enabled_features2.pNext;
+    enabled_features2.pNext = &storage_8bit_features;
   }
 #endif
 
@@ -416,6 +505,11 @@ std::string Adapter::stringize() const {
   ss << "    deviceName:    " << properties.deviceName << std::endl;
   ss << "    shaderBFloat16: "
      << (physical_device_.has_shader_bfloat16 ? "true" : "false")
+     << std::endl;
+  ss << "    shaderInt8:    "
+     << (physical_device_.has_shader_int8 ? "true" : "false") << std::endl;
+  ss << "    storage8Bit:   "
+     << (physical_device_.has_storage_buffer_8bit ? "true" : "false")
      << std::endl;
 
 #define PRINT_LIMIT_PROP(name)                                         \

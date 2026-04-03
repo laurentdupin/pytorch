@@ -33,6 +33,8 @@ struct PhysicalDevice final {
   bool has_unified_memory;
   bool has_timestamps;
   bool has_shader_bfloat16;
+  bool has_shader_int8;
+  bool has_storage_buffer_8bit;
   float timestamp_period;
 
   explicit PhysicalDevice(VkPhysicalDevice);
@@ -155,6 +157,18 @@ class Adapter final {
 
   inline bool has_shader_bfloat16() const {
     return physical_device_.has_shader_bfloat16;
+  }
+
+  inline bool has_shader_int8() const {
+    return physical_device_.has_shader_int8;
+  }
+
+  inline bool has_storage_buffer_8bit() const {
+    return physical_device_.has_storage_buffer_8bit;
+  }
+
+  inline bool supports_int8_buffer_arithmetic() const {
+    return has_shader_int8() && has_storage_buffer_8bit();
   }
 
   // Queue Management

@@ -18,6 +18,30 @@ Tensor view_internal(
     const IntArrayRef output_size,
     const IntArrayRef output_stride,
     const std::optional<int64_t> storage_offset = std::nullopt) {
+  if (self_arg.is_vulkan()) {
+    const vTensor& v_self = convert(self_arg);
+    const int64_t resolved_storage_offset =
+        storage_offset.value_or(v_self.storage_offset());
+    const c10::DimVector v_self_logical_strides = logical_strides(v_self);
+    if (
+        v_self.storage_type() == api::StorageType::BUFFER &&
+        c10::IntArrayRef(v_self_logical_strides) ==
+            c10::IntArrayRef(v_self.gpu_strides()) &&
+        utils::can_make_buffer_metadata_view(
+            v_self,
+            output_size,
+            output_stride,
+            output_stride,
+            resolved_storage_offset)) {
+      return utils::make_buffer_metadata_view(
+          self_arg,
+          output_size,
+          output_stride,
+          output_stride,
+          resolved_storage_offset);
+    }
+  }
+
   // Vulkan views are not true metadata aliases yet. Use the proven CPU
   // reshape/as_strided path and rematerialize a fresh Vulkan tensor.
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);

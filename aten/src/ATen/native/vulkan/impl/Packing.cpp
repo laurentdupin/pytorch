@@ -2,11 +2,43 @@
 #include <ATen/native/vulkan/api/Utils.h>
 #include <ATen/native/vulkan/impl/Common.h>
 #include <ATen/native/vulkan/impl/Packing.h>
+#include <ATen/native/vulkan/ops/Utils.h>
+#include <algorithm>
 
 namespace at {
 namespace native {
 namespace vulkan {
 namespace packing {
+
+namespace {
+
+std::vector<int64_t> calc_logical_contiguous_strides(
+    const std::vector<int64_t>& sizes) {
+  std::vector<int64_t> strides(sizes.size(), 1);
+  for (int idx = api::utils::safe_downcast<int>(sizes.size()) - 2; idx >= 0; --idx) {
+    strides[idx] = strides[idx + 1] * std::max<int64_t>(sizes[idx + 1], 1);
+  }
+  return strides;
+}
+
+ops::utils::LogicalBufferMetadata make_cpu_buffer_compute_metadata(
+    const vTensor& tensor) {
+  const std::vector<int64_t> logical_strides =
+      calc_logical_contiguous_strides(tensor.sizes());
+  return {
+      api::utils::make_whcn_uvec4(tensor.sizes()),
+      api::utils::make_whcn_uvec4(logical_strides),
+      api::utils::make_whcn_uvec4(logical_strides),
+      {
+          api::utils::safe_downcast<uint32_t>(tensor.sizes().size()),
+          api::utils::safe_downcast<uint32_t>(tensor.numel()),
+          api::utils::safe_downcast<uint32_t>(tensor.numel()),
+          0u,
+      },
+  };
+}
+
+} // namespace
 
 api::ShaderInfo get_nchw_to_image_shader(const vTensor& v_dst) {
   if (v_dst.is_quantized()) {
@@ -220,7 +252,7 @@ bool record_image_to_nchw_op(
       v_src.image(
           pipeline_barrier,
           api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::WRITE),
+          api::MemoryAccessType::READ),
       dst_buffer,
       // params buffer
       params.buffer());
@@ -232,13 +264,15 @@ void record_nchw_to_buffer_op(
     vTensor& v_dst,
     api::PipelineBarrier pipeline_barrier,
     VkFence fence_handle) {
-  uint32_t gpu_buf_len = api::utils::safe_downcast<uint32_t>(v_dst.gpu_numel());
+  uint32_t gpu_buf_len = api::utils::safe_downcast<uint32_t>(v_dst.numel());
 
   api::utils::uvec3 global_size = {gpu_buf_len, 1u, 1u};
   api::utils::uvec3 local_size = {32u, 1u, 1u};
 
   api::UniformParamsBuffer cpu_buffer_metadata(
-      context, v_dst.get_cpu_buffer_metadata());
+      context, make_cpu_buffer_compute_metadata(v_dst));
+  api::UniformParamsBuffer dst_buffer_metadata =
+      ops::utils::make_buffer_compute_metadata_ubo(context, v_dst);
 
   context->submit_compute_job(
       // shader descriptor
@@ -256,7 +290,7 @@ void record_nchw_to_buffer_op(
           pipeline_barrier,
           api::PipelineStage::COMPUTE,
           api::MemoryAccessType::WRITE),
-      v_dst.buffer_metadata(),
+      dst_buffer_metadata.buffer(),
       src_buffer,
       cpu_buffer_metadata.buffer());
 }
@@ -273,7 +307,9 @@ bool record_buffer_to_nchw_op(
   api::utils::uvec3 local_size = {4u, 1u, 1u};
 
   api::UniformParamsBuffer cpu_buffer_metadata(
-      context, v_src.get_cpu_buffer_metadata());
+      context, make_cpu_buffer_compute_metadata(v_src));
+  api::UniformParamsBuffer src_buffer_metadata =
+      ops::utils::make_buffer_compute_metadata_ubo(context, v_src);
 
   return context->submit_compute_job(
       // shader descriptor
@@ -292,8 +328,8 @@ bool record_buffer_to_nchw_op(
       v_src.buffer(
           pipeline_barrier,
           api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::WRITE),
-      v_src.buffer_metadata());
+          api::MemoryAccessType::READ),
+      src_buffer_metadata.buffer());
 }
 
 static vTensor channel_image_repacking(

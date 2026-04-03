@@ -119,7 +119,8 @@ class vTensor final {
   vTensor(
       const vTensor& src,
       const std::vector<int64_t>& sizes,
-      const std::vector<int64_t>& strides,
+      const std::vector<int64_t>& logical_strides,
+      const std::vector<int64_t>& physical_strides,
       const int64_t storage_offset);
 
   // Copy Constructor and Assignment; Ideally copying  would be disabled
@@ -395,6 +396,10 @@ class vTensor final {
    */
   inline VkDeviceSize gpu_nbytes() const {
     return api::element_size(dtype()) * gpu_numel();
+  }
+
+  inline int64_t buffer_length() const {
+    return view_->buffer_length_;
   }
 
   /*

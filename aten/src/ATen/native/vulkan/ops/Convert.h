@@ -85,6 +85,99 @@ static inline c10::ScalarType convert_dtype(const api::ScalarType dtype) {
 #undef DEFINE_CASE
 }
 
+inline bool is_vulkan_float_dtype(const c10::ScalarType dtype) {
+  return c10::isFloatingType(dtype);
+}
+
+inline bool is_vulkan_integral_or_bool_dtype(const c10::ScalarType dtype) {
+  return dtype == c10::ScalarType::Bool || c10::isIntegralType(dtype, false);
+}
+
+inline bool is_vulkan_cast_matrix_dtype(const c10::ScalarType dtype) {
+  switch (dtype) {
+    case c10::ScalarType::Float:
+    case c10::ScalarType::Half:
+    case c10::ScalarType::BFloat16:
+    case c10::ScalarType::Int:
+    case c10::ScalarType::Long:
+    case c10::ScalarType::Bool:
+    case c10::ScalarType::Byte:
+    case c10::ScalarType::Char:
+      return true;
+    default:
+      return false;
+  }
+}
+
+enum class VulkanCastMethod : uint8_t {
+  Identity,
+  NativeBufferFloatToInt,
+  NativeBufferIntToFloat,
+  NativeBufferBFloat16ToFloat,
+  CpuFallback,
+  Unsupported,
+};
+
+inline VulkanCastMethod resolve_vulkan_cast_method(
+    const c10::ScalarType src,
+    const c10::ScalarType dst) {
+  if (src == dst) {
+    return VulkanCastMethod::Identity;
+  }
+
+  if (!is_vulkan_cast_matrix_dtype(src) || !is_vulkan_cast_matrix_dtype(dst)) {
+    return VulkanCastMethod::Unsupported;
+  }
+
+  if (src == c10::ScalarType::Float && dst == c10::ScalarType::Int) {
+    return VulkanCastMethod::NativeBufferFloatToInt;
+  }
+
+  if (src == c10::ScalarType::Int && dst == c10::ScalarType::Float) {
+    return VulkanCastMethod::NativeBufferIntToFloat;
+  }
+
+  if (src == c10::ScalarType::BFloat16 && dst == c10::ScalarType::Float) {
+    return VulkanCastMethod::NativeBufferBFloat16ToFloat;
+  }
+
+  return VulkanCastMethod::CpuFallback;
+}
+
+inline c10::ScalarType promote_for_vulkan_binary(
+    const c10::ScalarType lhs,
+    const c10::ScalarType rhs) {
+  return c10::promoteTypes(lhs, rhs);
+}
+
+inline c10::ScalarType resolve_vulkan_sum_dtype(
+    const c10::ScalarType input_dtype,
+    const std::optional<c10::ScalarType>& dtype) {
+  if (dtype.has_value()) {
+    return *dtype;
+  }
+
+  if (is_vulkan_integral_or_bool_dtype(input_dtype)) {
+    return c10::ScalarType::Long;
+  }
+
+  return input_dtype;
+}
+
+inline c10::ScalarType resolve_vulkan_mean_dtype(
+    const c10::ScalarType input_dtype,
+    const std::optional<c10::ScalarType>& dtype) {
+  if (dtype.has_value()) {
+    return *dtype;
+  }
+
+  if (!is_vulkan_float_dtype(input_dtype)) {
+    return c10::ScalarType::Float;
+  }
+
+  return input_dtype;
+}
+
 using vTensorImpl = VulkanOpaqueTensorImpl<vTensor>;
 
 inline c10::DimVector logical_strides(const vTensor& tensor) {

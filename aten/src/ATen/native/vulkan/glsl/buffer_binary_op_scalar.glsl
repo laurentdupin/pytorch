@@ -1,23 +1,22 @@
 #version 450 core
-
+// clang-format off
 #define PRECISION ${PRECISION}
 #define FORMAT ${FORMAT}
+
+#define DATA_T ${DATA_T}
+#define SCALAR_T ${SCALAR_T}
+#define OP(X, Y) ${OPERATOR}
+// clang-format on
 
 #include "indexing.h"
 
 layout(std430) buffer;
 
-/*
- * Output Buffer
- */
 layout(set = 0, binding = 0) buffer PRECISION restrict writeonly OutBuffer {
-  float data[];
+  DATA_T data[];
 }
 uOutput;
 
-/*
- * Output Buffer Metadata
- */
 layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
   uvec4 logical_sizes;
   uvec4 logical_strides;
@@ -26,17 +25,11 @@ layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
 }
 uOutMeta;
 
-/*
- * Input Buffer
- */
 layout(set = 0, binding = 2) buffer PRECISION restrict readonly InBuffer {
-  float data[];
+  DATA_T data[];
 }
 uInput;
 
-/*
- * Input Buffer Metadata
- */
 layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
   uvec4 logical_sizes;
   uvec4 logical_strides;
@@ -45,19 +38,13 @@ layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
 }
 uInMeta;
 
-/*
- * Local Work Group Size
- */
+layout(set = 0, binding = 4) uniform PRECISION restrict ScalarBlock {
+  SCALAR_T other;
+}
+uArgs;
+
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
-/*
- * Copies data from the tensor at uInput to the tensor at uOutput based on 4D
- * coordinate. Each element at (x,y,c,n) in uInput will be copied to uOutput at
- * (x,y,c,n). If (x,y,c,n) is outside the bounds of uInput then 0 will be
- * written.
- *
- * Each shader invocation is responsible for one element of the output buffer.
- */
 void main() {
   const uint write_idx = ivec3(gl_GlobalInvocationID).x;
   const uint out_numel = uOutMeta.info.y;
@@ -70,16 +57,16 @@ void main() {
     return;
   }
 
-  uvec4 write_coord =
+  const uvec4 write_coord =
       idx_to_coord(
           write_idx, uOutMeta.logical_strides, uOutMeta.logical_sizes);
 
-  float outval = 0.0;
+  DATA_T outval = DATA_T(0);
   if (all(lessThan(write_coord, uInMeta.logical_sizes))) {
-    uint read_idx =
+    const uint read_idx =
         coord_to_idx(write_coord, uInMeta.physical_strides) + in_storage_offset;
     if (read_idx < in_buf_length) {
-      outval = uInput.data[read_idx];
+      outval = OP(uInput.data[read_idx], uArgs.other);
     }
   }
 

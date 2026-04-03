@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
@@ -12,20 +13,297 @@ namespace {
 
 using namespace api::utils;
 
+uvec4 make_logical_buffer_sizes(const std::vector<int64_t>& sizes) {
+  return api::utils::make_whcn_uvec4(sizes);
+}
+
+std::vector<int64_t> calc_logical_contiguous_strides(
+    const std::vector<int64_t>& sizes) {
+  std::vector<int64_t> strides(sizes.size(), 1);
+  for (int idx = safe_downcast<int>(sizes.size()) - 2; idx >= 0; --idx) {
+    strides[idx] = strides[idx + 1] * std::max<int64_t>(sizes[idx + 1], 1);
+  }
+  return strides;
+}
+
+uvec4 make_logical_buffer_strides(const std::vector<int64_t>& sizes) {
+  return api::utils::make_whcn_uvec4(calc_logical_contiguous_strides(sizes));
+}
+
+uint32_t to_whcn_dim(const int64_t dim, const int64_t ndim) {
+  return safe_downcast<uint32_t>(ndim - 1 - dim);
+}
+
+struct BufferDimReduceBlock final {
+  uvec4 map_out_sizes;
+  uvec4 map_out_strides;
+  uvec4 write_out_sizes;
+  uvec4 write_out_strides;
+  uvec4 info;
+};
+
+std::vector<int64_t> reduced_output_sizes(
+    const std::vector<int64_t>& input_sizes,
+    const int64_t dim,
+    const bool keepdim) {
+  std::vector<int64_t> output_sizes = input_sizes;
+  if (keepdim) {
+    output_sizes.at(dim) = 1;
+  } else {
+    output_sizes.erase(output_sizes.begin() + dim);
+  }
+  return output_sizes;
+}
+
+BufferDimReduceBlock make_buffer_dim_reduce_block(
+    const std::vector<int64_t>& input_sizes,
+    const std::vector<int64_t>& output_sizes,
+    const int64_t dim,
+    const int64_t out_numel,
+    const uint32_t reduce_offset,
+    const uint32_t reduce_size) {
+  std::vector<int64_t> map_out_sizes = input_sizes;
+  map_out_sizes.at(dim) = 1;
+
+  return {
+      make_logical_buffer_sizes(map_out_sizes),
+      make_logical_buffer_strides(map_out_sizes),
+      make_logical_buffer_sizes(output_sizes),
+      make_logical_buffer_strides(output_sizes),
+      {
+          to_whcn_dim(dim, safe_downcast<int64_t>(input_sizes.size())),
+          reduce_size,
+          safe_downcast<uint32_t>(out_numel),
+          reduce_offset,
+      },
+  };
+}
+
+Tensor sum_dim_buffer_chunk(
+    const Tensor& prepared_input,
+    const std::vector<int64_t>& output_sizes,
+    const int64_t dim,
+    const uint32_t reduce_offset,
+    const uint32_t reduce_size) {
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(prepared_input);
+
+  vTensor v_output{
+      context,
+      output_sizes,
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const BufferDimReduceBlock block = make_buffer_dim_reduce_block(
+      v_input.sizes(),
+      output_sizes,
+      dim,
+      v_output.numel(),
+      reduce_offset,
+      reduce_size);
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+  const uvec3 local_size = {64u, 1u, 1u};
+  context->submit_compute_job(
+      VK_KERNEL(buffer_sum_dim),
+      pipeline_barrier,
+      global_size,
+      local_size,
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return convert(v_output);
+}
+
+Tensor sum_cpu_fallback(
+    const Tensor& self_arg,
+    const std::optional<ScalarType> dtype) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
+  return at::sum(self_cpu, dtype).vulkan();
+}
+
+Tensor sum_dim_cpu_fallback(
+    const Tensor& self_arg,
+    int64_t dim,
+    bool keepdim,
+    const std::optional<ScalarType> dtype) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
+  return at::sum(self_cpu, {dim}, keepdim, dtype).vulkan();
+}
+
+Tensor finalize_bfloat16_sum_output(
+    const Tensor& output,
+    const std::optional<ScalarType> dtype) {
+  const ScalarType target_dtype =
+      resolve_vulkan_sum_dtype(c10::ScalarType::BFloat16, dtype);
+  if (target_dtype == c10::ScalarType::Float) {
+    return output;
+  }
+  return utils::cast_vulkan_tensor_dtype(output, target_dtype);
+}
+
+bool should_run_buffer_sum_all(const Tensor& self_arg) {
+  if (!self_arg.is_vulkan()) {
+    return false;
+  }
+
+  const vTensor& v_input = convert(self_arg);
+  return utils::supports_buffer_reduction_compute(v_input) &&
+      v_input.storage_type() == api::StorageType::BUFFER;
+}
+
+bool should_run_buffer_sum_dim(const Tensor& self_arg) {
+  return false;
+}
+
+Tensor sum_all_buffer(
+    const Tensor& self_arg,
+    const std::optional<ScalarType> dtype) {
+  api::AllocationScope allocation_scope("sum.buffer_all");
+  api::Context* const context = api::context();
+
+  const ScalarType target_dtype =
+      resolve_vulkan_sum_dtype(self_arg.scalar_type(), dtype);
+  Tensor prepared = self_arg;
+  bool is_bfloat16_input = prepared.scalar_type() == c10::ScalarType::BFloat16;
+  TORCH_CHECK(
+      prepared.scalar_type() == c10::ScalarType::Float || is_bfloat16_input,
+      "Vulkan buffer full sum currently only supports float and bfloat16 inputs");
+  prepared = utils::ensure_buffer_storage(prepared);
+  if (is_bfloat16_input) {
+    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
+    is_bfloat16_input = false;
+  }
+  vTensor& v_input = convert(prepared);
+
+  vTensor v_output{
+      context,
+      {},
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  api::PipelineBarrier pipeline_barrier{};
+  context->submit_compute_job(
+      is_bfloat16_input ? VK_KERNEL(buffer_sum_all_bfloat16)
+                        : VK_KERNEL(buffer_sum_all),
+      pipeline_barrier,
+      {1u, 1u, 1u},
+      {1u, 1u, 1u},
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_input.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      in_meta.buffer());
+
+  Tensor output = convert(v_output);
+  if (target_dtype != c10::ScalarType::Float) {
+    output = utils::cast_vulkan_tensor_dtype(output, target_dtype);
+  }
+  return output;
+}
+
+Tensor sum_dim_buffer(
+    const Tensor& self_arg,
+    int64_t dim,
+    bool keepdim,
+    const std::optional<ScalarType> dtype) {
+  api::AllocationScope allocation_scope("sum.buffer_dim");
+
+  const ScalarType target_dtype =
+      resolve_vulkan_sum_dtype(self_arg.scalar_type(), dtype);
+  Tensor prepared = self_arg;
+  if (prepared.scalar_type() == c10::ScalarType::BFloat16) {
+    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
+  }
+
+  TORCH_CHECK(
+      prepared.scalar_type() == c10::ScalarType::Float,
+      "Vulkan buffer dim sum currently only supports floating-point inputs");
+
+  prepared = utils::ensure_buffer_storage(prepared);
+  const vTensor& v_input = convert(prepared);
+  const std::vector<int64_t> output_sizes =
+      reduced_output_sizes(v_input.sizes(), dim, keepdim);
+  Tensor output = sum_dim_buffer_chunk(
+      prepared,
+      output_sizes,
+      dim,
+      0u,
+      safe_downcast<uint32_t>(v_input.sizes().at(dim)));
+
+  if (target_dtype != c10::ScalarType::Float) {
+    output = utils::cast_vulkan_tensor_dtype(output, target_dtype);
+  }
+  return output;
+}
+
 Tensor sum_dim(
     const at::Tensor& self,
     int64_t dim,
     bool keepdim,
     const std::optional<ScalarType> dtype) {
+  if (self.scalar_type() == c10::ScalarType::BFloat16) {
+    return finalize_bfloat16_sum_output(
+        at::sum(
+            utils::cast_vulkan_tensor_dtype(self, c10::ScalarType::Float),
+            {dim},
+            keepdim,
+            c10::ScalarType::Float),
+        dtype);
+  }
+
   TORCH_CHECK(
       self.dim() >= 1 && self.dim() <= 4,
       "Vulkan sum.dim_IntList supports 1d, 2d, 3d, 4d tensors as input!");
+
+  if (should_run_buffer_sum_dim(self)) {
+    dim = utils::normalize(dim, self.dim());
+    return sum_dim_buffer(self, dim, keepdim, dtype);
+  }
 
   // Get the global Vulkan context
   api::Context* const context = api::context();
 
   // Cast the input Tensor to a vTensor
-  const Tensor input = self.is_vulkan() ? self : self.vulkan();
+  Tensor input = self.is_vulkan() ? self : self.vulkan();
+  if (convert(input).storage_type() == api::StorageType::BUFFER) {
+    input = utils::ensure_texture_storage(input);
+  }
   const vTensor& v_input = convert(input);
 
   // Create the output texture
@@ -37,10 +315,7 @@ Tensor sum_dim(
     output_size.erase(output_size.begin() + dim);
   }
 
-  ScalarType type = self.scalar_type();
-  if (dtype.has_value()) {
-    type = dtype.value();
-  }
+  const ScalarType type = resolve_vulkan_sum_dtype(self.scalar_type(), dtype);
 
   vTensor v_output{
       context,
@@ -94,6 +369,16 @@ Tensor sum_dim_IntList(
     const OptionalIntArrayRef opt_dim,
     bool keepdim,
     const std::optional<ScalarType> dtype) {
+  if (
+      !self.is_vulkan() ||
+      (!is_vulkan_float_dtype(self.scalar_type()) &&
+       self.scalar_type() != c10::ScalarType::BFloat16)) {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
+    return at::sum(self_cpu, opt_dim, keepdim, dtype).vulkan();
+  }
+
   TORCH_CHECK(
       opt_dim.has_value(),
       "Vulkan sum.dim_IntList without a dim arg is not implemented");
@@ -135,11 +420,30 @@ Tensor sum_dim_IntList(
 }
 
 Tensor sum(const Tensor& self, const std::optional<ScalarType> dtype) {
+  if (self.scalar_type() == c10::ScalarType::BFloat16) {
+    return finalize_bfloat16_sum_output(
+        at::sum(
+            utils::cast_vulkan_tensor_dtype(self, c10::ScalarType::Float),
+            c10::ScalarType::Float),
+        dtype);
+  }
+
+  if (!is_vulkan_float_dtype(self.scalar_type())) {
+    return sum_cpu_fallback(self, dtype);
+  }
+
+  if (should_run_buffer_sum_all(self)) {
+    return sum_all_buffer(self, dtype);
+  }
+
   std::vector<int64_t> dims;
   for (int64_t d = 0; d < self.dim(); d++) {
     // If any dimension has zero elements, we will shortcut to a zero-dim.
     if (self.size(d) == 0) {
-      return self.new_zeros({}, at::device(at::kVulkan).dtype(self.dtype()));
+      return self.new_zeros(
+          {},
+          at::device(at::kVulkan)
+              .dtype(resolve_vulkan_sum_dtype(self.scalar_type(), dtype)));
     }
 
     dims.push_back(d);
