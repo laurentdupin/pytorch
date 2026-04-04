@@ -25,10 +25,8 @@ Tensor _clamp(
 
   api::Context* const context = api::context();
 
-  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
-  if (convert(self).storage_type() == api::StorageType::BUFFER) {
-    self = utils::ensure_texture_storage(self);
-  }
+  Tensor self = utils::prepare_vulkan_execution_tensor(
+      self_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_self = convert(self);
 
   vTensor v_output{
@@ -209,10 +207,8 @@ Tensor activation(
     const api::ShaderInfo& shader_descriptor) {
   api::Context* const context = api::context();
 
-  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
-  if (convert(self).storage_type() == api::StorageType::BUFFER) {
-    self = utils::ensure_texture_storage(self);
-  }
+  Tensor self = utils::prepare_vulkan_execution_tensor(
+      self_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_self = convert(self);
 
   vTensor v_output{
@@ -354,10 +350,8 @@ Tensor activation_scalar(
     const api::ShaderInfo& shader_descriptor) {
   api::Context* const context = api::context();
 
-  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
-  if (convert(self).storage_type() == api::StorageType::BUFFER) {
-    self = utils::ensure_texture_storage(self);
-  }
+  Tensor self = utils::prepare_vulkan_execution_tensor(
+      self_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_self = convert(self);
 
   vTensor v_output{

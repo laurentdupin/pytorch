@@ -17,10 +17,8 @@ Tensor tril(const Tensor& self_arg, int64_t diagonal) {
 
   api::Context* const context = api::context();
 
-  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
-  if (convert(self).storage_type() == api::StorageType::BUFFER) {
-    self = utils::ensure_texture_storage(self);
-  }
+  Tensor self = utils::prepare_vulkan_execution_tensor(
+      self_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_self = convert(self);
 
   vTensor v_output{

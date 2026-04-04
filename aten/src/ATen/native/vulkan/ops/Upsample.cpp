@@ -10,6 +10,11 @@ namespace vulkan {
 namespace ops {
 using namespace api::utils;
 
+Tensor prepare_upsample_texture_input(const Tensor& input_arg) {
+  return utils::prepare_vulkan_execution_tensor(
+      input_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
+}
+
 static Tensor upsample_nearest2d(
     const Tensor& input_arg,
     const IntArrayRef output_sizes,
@@ -22,7 +27,7 @@ static Tensor upsample_nearest2d(
       (4 == input_arg.sizes().size()) && (2 == output_sizes.size()),
       "Invalid input!");
 
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  const Tensor input = prepare_upsample_texture_input(input_arg);
   const vTensor& v_input = convert(input);
   const auto v_input_sizes = v_input.sizes();
 
@@ -109,7 +114,7 @@ static Tensor upsample_bilinear2d(
       (4 == input_arg.sizes().size()) && (2 == output_sizes.size()),
       "Invalid input!");
 
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  const Tensor input = prepare_upsample_texture_input(input_arg);
   const vTensor& v_input = convert(input);
 
   vTensor v_output{
@@ -192,10 +197,7 @@ static Tensor upsample_bicubic2d(
       (4 == input_arg.sizes().size()) && (2 == output_sizes.size()),
       "Invalid input!");
 
-  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  if (convert(input).storage_type() == api::StorageType::BUFFER) {
-    input = utils::ensure_texture_storage(input);
-  }
+  Tensor input = prepare_upsample_texture_input(input_arg);
   const vTensor& v_input = convert(input);
 
   vTensor v_output{

@@ -1,4 +1,3 @@
-#include <ATen/Context.h>
 #include <ATen/native/vulkan/ops/Batchnorm.h>
 #include <torch/library.h>
 
@@ -108,10 +107,7 @@ BatchNormPackedContext::BatchNormPackedContext(
     const std::optional<Tensor>& bias_opt,
     const std::optional<Tensor>& running_mean_opt,
     const std::optional<Tensor>& running_var_opt,
-    double eps)
-    : unpacked_{c10::AnyType::get()} {
-  packed_.reserve(ListArgs::kNumArgs);
-
+    double eps) {
   // Each optional tensor arg, if provided should be a 1 dimensional tensor. To
   // achieve more efficient packing as a texture, they are first reshaped to {N,
   // 1, 1}. Eventually this rearrangement should happen automatically in vTensor
@@ -124,7 +120,7 @@ BatchNormPackedContext::BatchNormPackedContext(
   const int64_t num_features =
       api::utils::safe_downcast<int64_t>(weight_opt->numel());
   const Tensor weight_3d = weight_opt->reshape({num_features, 1, 1});
-  packed_.emplace_back(weight_3d.vulkan());
+  weight_ = weight_3d.vulkan();
 
   // Bias
   TORCH_CHECK(bias_opt, "Bias must be provided!");
@@ -134,7 +130,7 @@ BatchNormPackedContext::BatchNormPackedContext(
       "Bias must have the same numel as weight!");
 
   const Tensor bias_3d = bias_opt->reshape({num_features, 1, 1});
-  packed_.emplace_back(bias_3d.vulkan());
+  bias_ = bias_3d.vulkan();
 
   // Running Mean
   TORCH_CHECK(running_mean_opt, "Running mean must be provided!");
@@ -145,7 +141,7 @@ BatchNormPackedContext::BatchNormPackedContext(
 
   const Tensor running_mean_3d =
       running_mean_opt->reshape({num_features, 1, 1});
-  packed_.emplace_back(running_mean_3d.vulkan());
+  running_mean_ = running_mean_3d.vulkan();
 
   // Running var
   TORCH_CHECK(running_var_opt, "Running var must be provided!");
@@ -155,19 +151,10 @@ BatchNormPackedContext::BatchNormPackedContext(
       "Running var must have the same numel as weight!");
 
   const Tensor running_var_3d = running_var_opt->reshape({num_features, 1, 1});
-  packed_.emplace_back(running_var_3d.vulkan());
+  running_var_ = running_var_3d.vulkan();
 
   // Epsilon
-  packed_.emplace_back(eps);
-
-  if (!at::globalContext().releaseWeightsWhenPrepacking()) {
-    unpacked_.reserve(ListArgs::kNumArgs);
-    unpacked_.emplace_back(weight_opt);
-    unpacked_.emplace_back(bias_opt);
-    unpacked_.emplace_back(running_mean_opt);
-    unpacked_.emplace_back(running_var_opt);
-    unpacked_.emplace_back(eps);
-  }
+  eps_ = eps;
 }
 
 BatchNormPackedContext BatchNormPackedContext::pack(
@@ -178,6 +165,17 @@ BatchNormPackedContext BatchNormPackedContext::pack(
       get_optional_tensor(unpacked, ListArgs::kRunningMean),
       get_optional_tensor(unpacked, ListArgs::kRunningVar),
       unpacked.get(ListArgs::kEps).toDouble());
+}
+
+const c10::impl::GenericList BatchNormPackedContext::unpack() const {
+  c10::impl::GenericList unpacked{c10::AnyType::get()};
+  unpacked.reserve(ListArgs::kNumArgs);
+  unpacked.emplace_back(weight_.cpu().reshape({weight_.numel()}));
+  unpacked.emplace_back(bias_.cpu().reshape({bias_.numel()}));
+  unpacked.emplace_back(running_mean_.cpu().reshape({running_mean_.numel()}));
+  unpacked.emplace_back(running_var_.cpu().reshape({running_var_.numel()}));
+  unpacked.emplace_back(eps_);
+  return unpacked;
 }
 
 c10::intrusive_ptr<BatchNormPackedContext> create_batchnorm_context(
@@ -199,26 +197,11 @@ Tensor run_batchnorm_context(
   api::Context* const context = api::context();
 
   const vTensor& v_input = convert(input_arg);
-
-  const vTensor& v_weight = convert(
-      batchnorm_context->get_val(BatchNormPackedContext::ListArgs::kWeight)
-          .toTensor());
-
-  const vTensor& v_bias = convert(
-      batchnorm_context->get_val(BatchNormPackedContext::ListArgs::kBias)
-          .toTensor());
-
-  const vTensor& v_running_mean = convert(
-      batchnorm_context->get_val(BatchNormPackedContext::ListArgs::kRunningMean)
-          .toTensor());
-
-  const vTensor& v_running_var = convert(
-      batchnorm_context->get_val(BatchNormPackedContext::ListArgs::kRunningVar)
-          .toTensor());
-
-  const float eps = api::utils::safe_downcast<float>(
-      batchnorm_context->get_val(BatchNormPackedContext::ListArgs::kEps)
-          .toDouble());
+  const vTensor& v_weight = convert(batchnorm_context->weight());
+  const vTensor& v_bias = convert(batchnorm_context->bias());
+  const vTensor& v_running_mean = convert(batchnorm_context->running_mean());
+  const vTensor& v_running_var = convert(batchnorm_context->running_var());
+  const float eps = api::utils::safe_downcast<float>(batchnorm_context->eps());
 
   vTensor v_output{
       context,

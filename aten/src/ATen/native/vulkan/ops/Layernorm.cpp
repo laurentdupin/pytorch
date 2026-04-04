@@ -1,9 +1,6 @@
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 
-#include <ATen/Context.h>
-#include <c10/util/irange.h>
-
 #include <ATen/native/vulkan/ops/Common.h>
 #include <torch/library.h>
 
@@ -21,22 +18,12 @@ namespace ops {
 LayernormPackedContext::LayernormPackedContext(
     const std::optional<Tensor>& weight,
     const std::optional<Tensor>& bias,
-    double eps)
-    : unpacked_{c10::AnyType::get()} {
-  packed_.reserve(ListArgs::kNumArgs);
-
+    double eps) {
   TORCH_CHECK(weight, "Weight must be provided!");
-  packed_.emplace_back(weight->vulkan());
+  weight_ = weight->vulkan();
   TORCH_CHECK(bias, "Bias must be provided!");
-  packed_.emplace_back(bias->vulkan());
-  packed_.emplace_back(eps);
-
-  if (!at::globalContext().releaseWeightsWhenPrepacking()) {
-    unpacked_.reserve(ListArgs::kNumArgs);
-    unpacked_.emplace_back(weight);
-    unpacked_.emplace_back(bias);
-    unpacked_.emplace_back(eps);
-  }
+  bias_ = bias->vulkan();
+  eps_ = eps;
 }
 
 LayernormPackedContext LayernormPackedContext::pack(
@@ -45,6 +32,15 @@ LayernormPackedContext LayernormPackedContext::pack(
       get_optional_tensor(unpacked, ListArgs::kWeight),
       get_optional_tensor(unpacked, ListArgs::kBias),
       unpacked.get(ListArgs::kEps).toDouble());
+}
+
+const c10::impl::GenericList LayernormPackedContext::unpack() const {
+  c10::impl::GenericList unpacked{c10::AnyType::get()};
+  unpacked.reserve(ListArgs::kNumArgs);
+  unpacked.emplace_back(weight_.cpu());
+  unpacked.emplace_back(bias_.cpu());
+  unpacked.emplace_back(eps_);
+  return unpacked;
 }
 
 c10::intrusive_ptr<LayernormPackedContext> create_layernorm_context(
@@ -60,16 +56,9 @@ Tensor run_layernorm_context(
     IntArrayRef normalized_shape,
     const c10::intrusive_ptr<LayernormPackedContext>& layernorm_context) {
   const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-
-  const std::optional<Tensor>& weight_opt =
-      layernorm_context->get_val(LayernormPackedContext::ListArgs::kWeight)
-          .toTensor();
-  const std::optional<Tensor>& bias_opt =
-      layernorm_context->get_val(LayernormPackedContext::ListArgs::kBias)
-          .toTensor();
-  const float eps = api::utils::safe_downcast<float>(
-      layernorm_context->get_val(LayernormPackedContext::ListArgs::kEps)
-          .toDouble());
+  const std::optional<Tensor> weight_opt = layernorm_context->weight();
+  const std::optional<Tensor> bias_opt = layernorm_context->bias();
+  const float eps = api::utils::safe_downcast<float>(layernorm_context->eps());
 
   // We invoke native_layer_norm which returns a tuple of tensors: <layer_norm,
   // mean, 1/sqrt(var+eps)>, but we only need the first tensor (layer_norm).

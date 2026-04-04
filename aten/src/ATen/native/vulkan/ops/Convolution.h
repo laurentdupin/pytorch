@@ -3,7 +3,9 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/ops/Common.h>
-#include <ATen/native/vulkan/ops/VulkanPackedContext.h>
+#include <ATen/native/vulkan/ops/PackedWeight.h>
+#include <limits>
+#include <torch/library.h>
 
 namespace at {
 namespace native {
@@ -51,10 +53,21 @@ struct QParams final {
 
 } // namespace qconv2d_vk
 
-class Conv2dPackedContext final : virtual public VulkanPackedContext,
-                                  public torch::jit::CustomClassHolder {
+class Conv2dPackedContext final : public torch::jit::CustomClassHolder {
  private:
   c10::impl::GenericList unpacked_;
+  PackedWeightHandle packed_weight_;
+  std::array<int64_t, 4> overlay_region_{};
+  std::vector<int64_t> stride_;
+  std::vector<int64_t> padding_;
+  std::vector<int64_t> output_padding_;
+  std::vector<int64_t> dilation_;
+  bool transposed_{false};
+  bool quantized_{false};
+  int32_t groups_{1};
+  float output_min_{-std::numeric_limits<float>::infinity()};
+  float output_max_{+std::numeric_limits<float>::infinity()};
+  Conv2dMethod conv_method_{Conv2dPointwise};
   api::ShaderInfo compute_shader_{};
 
  public:
@@ -90,31 +103,9 @@ class Conv2dPackedContext final : virtual public VulkanPackedContext,
     static constexpr uint32_t NumArgs = 11u;
   };
 
-  /*
-   * Assigns a name to each index in the packed list.
-   */
-  struct Packed final {
-    static constexpr uint32_t Weight = 0u;
-    static constexpr uint32_t Bias = 1u;
-    static constexpr uint32_t OverlayRegion = 2u;
-    static constexpr uint32_t Stride = 3u;
-    static constexpr uint32_t Padding = 4u;
-    static constexpr uint32_t OutputPadding = 5u;
-    static constexpr uint32_t Dilation = 6u;
-    static constexpr uint32_t isTransposed = 7u;
-    static constexpr uint32_t isQuantized = 8u;
-    static constexpr uint32_t Groups = 9u;
-    static constexpr uint32_t OutputMin = 10u;
-    static constexpr uint32_t OutputMax = 11u;
-    static constexpr uint32_t ConvMethod = 12u;
-    static constexpr uint32_t WeightSizes = 13u;
-
-    static constexpr uint32_t NumArgs = 14u;
-  };
-
   static Conv2dPackedContext pack(c10::impl::GenericList);
 
-  const c10::impl::GenericList unpack() const override {
+  const c10::impl::GenericList unpack() const {
     TORCH_CHECK(!unpacked_.empty(), "unpacked_ does not have any elements!");
 
     return unpacked_;
@@ -122,6 +113,54 @@ class Conv2dPackedContext final : virtual public VulkanPackedContext,
 
   inline api::ShaderInfo& compute_shader() {
     return compute_shader_;
+  }
+
+  const PackedWeightHandle& packed_weight() const {
+    return packed_weight_;
+  }
+
+  const std::array<int64_t, 4>& overlay_region() const {
+    return overlay_region_;
+  }
+
+  const std::vector<int64_t>& stride() const {
+    return stride_;
+  }
+
+  const std::vector<int64_t>& padding() const {
+    return padding_;
+  }
+
+  const std::vector<int64_t>& output_padding() const {
+    return output_padding_;
+  }
+
+  const std::vector<int64_t>& dilation() const {
+    return dilation_;
+  }
+
+  bool transposed() const {
+    return transposed_;
+  }
+
+  bool quantized() const {
+    return quantized_;
+  }
+
+  int32_t groups() const {
+    return groups_;
+  }
+
+  float output_min() const {
+    return output_min_;
+  }
+
+  float output_max() const {
+    return output_max_;
+  }
+
+  Conv2dMethod conv_method() const {
+    return conv_method_;
   }
 };
 
@@ -228,10 +267,14 @@ c10::intrusive_ptr<Conv2dOpContext> conv2d_clamp_prepack(
     const std::optional<Scalar>& output_min,
     const std::optional<Scalar>& output_max);
 
-class Conv1dPackedContext final : virtual public VulkanPackedContext,
-                                  public torch::jit::CustomClassHolder {
+class Conv1dPackedContext final : public torch::jit::CustomClassHolder {
  private:
   c10::impl::GenericList unpacked_;
+  PackedWeightHandle packed_weight_;
+  std::vector<int64_t> stride_;
+  std::vector<int64_t> padding_;
+  std::vector<int64_t> dilation_;
+  int32_t groups_{1};
   api::ShaderInfo compute_shader_{};
 
  public:
@@ -257,24 +300,9 @@ class Conv1dPackedContext final : virtual public VulkanPackedContext,
     static constexpr uint32_t NumArgs = 6u;
   };
 
-  /*
-   * Assigns a name to each index in the packed list.
-   */
-  struct Packed final {
-    static constexpr uint32_t Weight = 0u;
-    static constexpr uint32_t Bias = 1u;
-    static constexpr uint32_t Stride = 2u;
-    static constexpr uint32_t Padding = 3u;
-    static constexpr uint32_t Dilation = 4u;
-    static constexpr uint32_t Groups = 5u;
-    static constexpr uint32_t WeightSizes = 6u;
-
-    static constexpr uint32_t NumArgs = 7u;
-  };
-
   static Conv1dPackedContext pack(c10::impl::GenericList);
 
-  const c10::impl::GenericList unpack() const override {
+  const c10::impl::GenericList unpack() const {
     TORCH_CHECK(!unpacked_.empty(), "unpacked_ does not have any elements!");
 
     return unpacked_;
@@ -282,6 +310,26 @@ class Conv1dPackedContext final : virtual public VulkanPackedContext,
 
   inline api::ShaderInfo& compute_shader() {
     return compute_shader_;
+  }
+
+  const PackedWeightHandle& packed_weight() const {
+    return packed_weight_;
+  }
+
+  const std::vector<int64_t>& stride() const {
+    return stride_;
+  }
+
+  const std::vector<int64_t>& padding() const {
+    return padding_;
+  }
+
+  const std::vector<int64_t>& dilation() const {
+    return dilation_;
+  }
+
+  int32_t groups() const {
+    return groups_;
   }
 };
 

@@ -3,7 +3,6 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/ops/Common.h>
-#include <ATen/native/vulkan/ops/VulkanPackedContext.h>
 #include <torch/library.h>
 
 namespace at {
@@ -11,10 +10,13 @@ namespace native {
 namespace vulkan {
 namespace ops {
 
-class BatchNormPackedContext final : virtual public VulkanPackedContext,
-                                     public torch::jit::CustomClassHolder {
+class BatchNormPackedContext final : public torch::jit::CustomClassHolder {
  private:
-  c10::impl::GenericList unpacked_;
+  Tensor weight_;
+  Tensor bias_;
+  Tensor running_mean_;
+  Tensor running_var_;
+  double eps_{0.0};
 
  public:
   BatchNormPackedContext(
@@ -39,10 +41,26 @@ class BatchNormPackedContext final : virtual public VulkanPackedContext,
 
   static BatchNormPackedContext pack(c10::impl::GenericList);
 
-  const c10::impl::GenericList unpack() const override {
-    TORCH_CHECK(!unpacked_.empty(), "unpacked_ does not have any elements!");
+  const c10::impl::GenericList unpack() const;
 
-    return unpacked_;
+  const Tensor& weight() const {
+    return weight_;
+  }
+
+  const Tensor& bias() const {
+    return bias_;
+  }
+
+  const Tensor& running_mean() const {
+    return running_mean_;
+  }
+
+  const Tensor& running_var() const {
+    return running_var_;
+  }
+
+  double eps() const {
+    return eps_;
   }
 };
 

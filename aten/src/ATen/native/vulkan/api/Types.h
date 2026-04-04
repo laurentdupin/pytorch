@@ -251,6 +251,33 @@ enum class GPUMemoryLayout : uint32_t {
   TENSOR_CHANNELS_PACKED = 2u,
 };
 
+enum class ExecutionLayout : uint8_t {
+  TEXTURE = 0u,
+  BUFFER_DIRECT = 1u,
+  BUFFER_VIEW = 2u,
+  PACKED_WEIGHT = 3u,
+};
+
+inline const char* to_string(const ExecutionLayout layout) {
+  switch (layout) {
+    case ExecutionLayout::TEXTURE:
+      return "TEXTURE";
+    case ExecutionLayout::BUFFER_DIRECT:
+      return "BUFFER_DIRECT";
+    case ExecutionLayout::BUFFER_VIEW:
+      return "BUFFER_VIEW";
+    case ExecutionLayout::PACKED_WEIGHT:
+      return "PACKED_WEIGHT";
+  }
+  return "UNKNOWN_EXECUTION_LAYOUT";
+}
+
+inline bool uses_buffer_execution(const ExecutionLayout layout) {
+  return layout == ExecutionLayout::BUFFER_DIRECT ||
+      layout == ExecutionLayout::BUFFER_VIEW ||
+      layout == ExecutionLayout::PACKED_WEIGHT;
+}
+
 } // namespace api
 } // namespace vulkan
 } // namespace native

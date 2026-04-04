@@ -537,6 +537,16 @@ class TestVulkanEagerRuntime(TestCase):
                 actual_slice.mean(dim=0).cpu(),
                 atol=1e-4,
                 rtol=1e-4)
+            self._assert_outputs_close(
+                expected_slice + expected_slice,
+                (actual_slice + actual_slice).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                expected_slice.sum(),
+                actual_slice.sum().cpu(),
+                atol=1e-4,
+                rtol=1e-4)
 
             expected_select = x.select(0, 17)
             actual_select = x_vulkan.select(0, 17)
@@ -569,6 +579,11 @@ class TestVulkanEagerRuntime(TestCase):
             self._assert_outputs_close(
                 expected_as_strided.sum(dim=1),
                 actual_as_strided.sum(dim=1).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
+                expected_as_strided * expected_as_strided,
+                (actual_as_strided * actual_as_strided).cpu(),
                 atol=1e-4,
                 rtol=1e-4)
 
@@ -2107,6 +2122,71 @@ class TestVulkanEagerRuntime(TestCase):
                         actual_math,
                         atol=1e-4,
                         rtol=1e-4)
+
+    def test_execution_plan_logging(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = os.environ.copy()
+        existing_pythonpath = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = (
+            repo_root
+            if not existing_pythonpath
+            else repo_root + os.pathsep + existing_pythonpath
+        )
+
+        log_name = "execution_plan_logging_test.log"
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+        env["PYTORCH_VULKAN_EXECUTION_PLAN_LOG"] = log_name
+
+        try:
+            script = textwrap.dedent(
+                """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 16, 32, dtype=torch.float32).to("vulkan")
+                w = torch.randn(64, 32, dtype=torch.float32).to("vulkan")
+                b = torch.randn(64, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    y = F.linear(x, w, b)
+                    z = torch.exp(y)
+                    r = z.sum(dim=-1)
+                    print(float(r.cpu().sum()))
+                """
+            )
+
+            result = subprocess.run(
+                [sys.executable, "-c", script],
+                env=env,
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                msg=(
+                    "Execution-plan logging subprocess failed.\n"
+                    f"stdout:\n{result.stdout}\n"
+                    f"stderr:\n{result.stderr}"
+                ),
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("execution_plan_summary", log_text)
+            self.assertIn("kind=LinearInputSource", log_text)
+            self.assertIn("kind=ElementwiseInput", log_text)
+            self.assertIn("kind=ReductionDimInput", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
 
     def test_view_then_scaled_dot_product_attention(self):
         torch.manual_seed(0)

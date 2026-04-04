@@ -41,6 +41,20 @@ api::GPUMemoryLayout resolve_memory_layout(
   return requested_memory_layout;
 }
 
+api::ExecutionLayout resolve_execution_layout(
+    const api::StorageType storage_type,
+    const bool metadata_view) {
+  if (storage_type != api::StorageType::BUFFER) {
+    return api::ExecutionLayout::TEXTURE;
+  }
+
+  if (metadata_view) {
+    return api::ExecutionLayout::BUFFER_VIEW;
+  }
+
+  return api::ExecutionLayout::BUFFER_DIRECT;
+}
+
 /*
  * Calculates the strides of a contiguous tensor. empty_tensor_restride from
  * TensorImpl.h was used as a reference.
@@ -255,6 +269,45 @@ api::UniformParamsBuffer make_metadata_uniform(
   return api::UniformParamsBuffer(context, metadata);
 }
 
+vTensor::LogicalTensorDesc make_logical_desc(
+    const std::vector<int64_t>& sizes,
+    const api::ScalarType dtype,
+    const api::StorageType storage_type,
+    const api::GPUMemoryLayout memory_layout,
+    const int64_t storage_offset = 0) {
+  return vTensor::LogicalTensorDesc{
+      dtype,
+      std::vector<int64_t>(sizes.begin(), sizes.end()),
+      calc_strides(sizes, memory_layout, storage_type),
+      storage_offset,
+  };
+}
+
+vTensor::PhysicalLayoutDesc make_physical_desc(
+    const std::vector<int64_t>& logical_sizes,
+    const api::StorageType storage_type,
+    const api::GPUMemoryLayout memory_layout) {
+  std::vector<int64_t> physical_sizes =
+      calc_gpu_sizes(logical_sizes, memory_layout, storage_type);
+  return vTensor::PhysicalLayoutDesc{
+      storage_type,
+      memory_layout,
+      physical_sizes,
+      calc_strides(physical_sizes, memory_layout, storage_type),
+      create_image_extents(physical_sizes, storage_type, memory_layout),
+  };
+}
+
+vTensor::ExecutionViewDesc make_execution_desc(
+    const api::StorageType storage_type,
+    const bool metadata_view,
+    const bool persistent = false) {
+  return vTensor::ExecutionViewDesc{
+      resolve_execution_layout(storage_type, metadata_view),
+      persistent,
+  };
+}
+
 } // namespace
 
 //
@@ -268,32 +321,27 @@ vTensor::vTensor(
     const api::StorageType storage_type,
     const api::GPUMemoryLayout memory_layout,
     const bool allocate_memory)
-    : dtype_(dtype),
-      memory_layout_(resolve_memory_layout(
+    : logical_desc_(make_logical_desc(
           sizes,
           dtype,
-          storage_type,
           resolve_storage_type(sizes, dtype, storage_type),
-          memory_layout)),
-      // Calculate sizes and strides
-      sizes_(sizes.begin(), sizes.end()),
-      strides_{calc_strides(
-          sizes,
-          memory_layout_,
-          resolve_storage_type(sizes, dtype, storage_type))},
-      gpu_sizes_{calc_gpu_sizes(
-          sizes,
-          memory_layout_,
-          resolve_storage_type(sizes, dtype, storage_type))},
-      gpu_strides_{calc_strides(
-          gpu_sizes_,
-          memory_layout_,
-          resolve_storage_type(sizes, dtype, storage_type))},
-      virtual_extents_(
-          create_image_extents(
-              gpu_sizes_,
+          resolve_memory_layout(
+              sizes,
+              dtype,
+              storage_type,
               resolve_storage_type(sizes, dtype, storage_type),
-              memory_layout_)),
+              memory_layout))),
+      physical_desc_(make_physical_desc(
+          sizes,
+          resolve_storage_type(sizes, dtype, storage_type),
+          resolve_memory_layout(
+              sizes,
+              dtype,
+              storage_type,
+              resolve_storage_type(sizes, dtype, storage_type),
+              memory_layout))),
+      execution_desc_(
+          make_execution_desc(resolve_storage_type(sizes, dtype, storage_type), false)),
       // Utility Uniform Buffers that can be passed to shaders as arguments
       metadata_uniform_(),
       cpu_sizes_uniform_(nullptr),
@@ -303,9 +351,9 @@ vTensor::vTensor(
       view_(std::make_shared<vTensorStorage>(
           context,
           resolve_storage_type(sizes, dtype, storage_type),
-          memory_layout_,
-          gpu_sizes_,
-          dtype_,
+          physical_desc_.memory_layout,
+          physical_desc_.sizes,
+          logical_desc_.dtype,
           allocate_memory)) {}
 
 vTensor::vTensor(
@@ -316,32 +364,27 @@ vTensor::vTensor(
     const api::ScalarType dtype,
     const api::StorageType storage_type,
     const api::GPUMemoryLayout memory_layout)
-    : dtype_(dtype),
-      memory_layout_(resolve_memory_layout(
+    : logical_desc_(make_logical_desc(
           sizes,
           dtype,
-          storage_type,
           resolve_storage_type(sizes, dtype, storage_type),
-          memory_layout)),
-      // Calculate sizes and strides
-      sizes_(sizes.begin(), sizes.end()),
-      strides_{calc_strides(
-          sizes,
-          memory_layout_,
-          resolve_storage_type(sizes, dtype, storage_type))},
-      gpu_sizes_{calc_gpu_sizes(
-          sizes,
-          memory_layout_,
-          resolve_storage_type(sizes, dtype, storage_type))},
-      gpu_strides_{calc_strides(
-          gpu_sizes_,
-          memory_layout_,
-          resolve_storage_type(sizes, dtype, storage_type))},
-      virtual_extents_(
-          create_image_extents(
-              gpu_sizes_,
+          resolve_memory_layout(
+              sizes,
+              dtype,
+              storage_type,
               resolve_storage_type(sizes, dtype, storage_type),
-              memory_layout_)),
+              memory_layout))),
+      physical_desc_(make_physical_desc(
+          sizes,
+          resolve_storage_type(sizes, dtype, storage_type),
+          resolve_memory_layout(
+              sizes,
+              dtype,
+              storage_type,
+              resolve_storage_type(sizes, dtype, storage_type),
+              memory_layout))),
+      execution_desc_(
+          make_execution_desc(resolve_storage_type(sizes, dtype, storage_type), false)),
       // Vulkan uniform buffer containing sizes and stride info
       metadata_uniform_(),
       cpu_sizes_uniform_(nullptr),
@@ -355,9 +398,9 @@ vTensor::vTensor(
       view_(std::make_shared<vTensorStorage>(
           context,
           resolve_storage_type(sizes, dtype, storage_type),
-          memory_layout_,
-          gpu_sizes_,
-          dtype_)) {}
+          physical_desc_.memory_layout,
+          physical_desc_.sizes,
+          logical_desc_.dtype)) {}
 
 vTensor::vTensor(
     const vTensor& src,
@@ -365,13 +408,20 @@ vTensor::vTensor(
     const std::vector<int64_t>& logical_strides,
     const std::vector<int64_t>& physical_strides,
     const int64_t storage_offset)
-    : dtype_(src.dtype_),
-      memory_layout_(src.memory_layout_),
-      sizes_(sizes),
-      strides_(logical_strides),
-      gpu_sizes_(sizes),
-      gpu_strides_(physical_strides),
-      virtual_extents_(src.virtual_extents_),
+    : logical_desc_{
+          src.logical_desc_.dtype,
+          sizes,
+          logical_strides,
+          storage_offset,
+      },
+      physical_desc_{
+          src.physical_desc_.storage_type,
+          src.physical_desc_.memory_layout,
+          sizes,
+          physical_strides,
+          src.physical_desc_.virtual_extents,
+      },
+      execution_desc_(make_execution_desc(src.storage_type(), true, src.execution_desc_.persistent)),
       metadata_uniform_(),
       cpu_sizes_uniform_(nullptr),
       gpu_sizes_uniform_(nullptr),
@@ -379,7 +429,6 @@ vTensor::vTensor(
       is_quantized_(src.is_quantized_),
       q_scale_(src.q_scale_),
       q_zero_point_(src.q_zero_point_),
-      storage_offset_(storage_offset),
       view_(src.view_) {
   TORCH_CHECK(
       src.storage_type() == api::StorageType::BUFFER,
@@ -420,10 +469,10 @@ api::VulkanBuffer& vTensor::buffer_metadata() {
   if (!metadata_uniform_.buffer()) {
     metadata_uniform_ = make_metadata_uniform(
         view_->context_,
-        gpu_sizes_,
-        gpu_strides_,
+        physical_desc_.sizes,
+        physical_desc_.strides,
         view_->buffer_length_,
-        storage_offset_,
+        logical_desc_.storage_offset,
         storage_type());
   }
   return metadata_uniform_.buffer();
@@ -432,7 +481,7 @@ api::VulkanBuffer& vTensor::buffer_metadata() {
 std::shared_ptr<api::UniformParamsBuffer> vTensor::cpu_sizes_ubo() {
   if (!cpu_sizes_uniform_) {
     cpu_sizes_uniform_.reset(new api::UniformParamsBuffer(
-        view_->context_, api::utils::make_whcn_ivec4(sizes_)));
+        view_->context_, api::utils::make_whcn_ivec4(logical_desc_.sizes)));
   }
   return cpu_sizes_uniform_;
 }
@@ -440,7 +489,7 @@ std::shared_ptr<api::UniformParamsBuffer> vTensor::cpu_sizes_ubo() {
 std::shared_ptr<api::UniformParamsBuffer> vTensor::gpu_sizes_ubo() {
   if (!gpu_sizes_uniform_) {
     gpu_sizes_uniform_.reset(new api::UniformParamsBuffer(
-        view_->context_, api::utils::make_whcn_ivec4(gpu_sizes_)));
+        view_->context_, api::utils::make_whcn_ivec4(physical_desc_.sizes)));
   }
   return gpu_sizes_uniform_;
 }
@@ -460,10 +509,10 @@ std::shared_ptr<api::UniformParamsBuffer> vTensor::extents_ubo() {
 
 vTensor::BufferMetadata vTensor::get_cpu_buffer_metadata() const {
   return {
-      api::utils::make_whcn_uvec4(sizes_),
-      api::utils::make_whcn_uvec4(calc_contiguous_strides(sizes_)),
+      api::utils::make_whcn_uvec4(logical_desc_.sizes),
+      api::utils::make_whcn_uvec4(calc_contiguous_strides(logical_desc_.sizes)),
       {
-          api::utils::safe_downcast<uint32_t>(sizes_.size()),
+          api::utils::safe_downcast<uint32_t>(logical_desc_.sizes.size()),
           api::utils::safe_downcast<uint32_t>(numel()),
           0u,
           0u,
@@ -472,11 +521,16 @@ vTensor::BufferMetadata vTensor::get_cpu_buffer_metadata() const {
 }
 
 bool vTensor::has_direct_buffer_layout() const {
-  if (storage_type() != api::StorageType::BUFFER || storage_offset_ != 0) {
+  if (
+      execution_layout() != api::ExecutionLayout::BUFFER_DIRECT ||
+      logical_desc_.storage_offset != 0) {
     return false;
   }
-  return gpu_sizes_ == sizes_ &&
-      strides_ == calc_strides(sizes_, memory_layout_, api::StorageType::BUFFER);
+  return physical_desc_.sizes == logical_desc_.sizes &&
+      logical_desc_.strides == calc_strides(
+          logical_desc_.sizes,
+          physical_desc_.memory_layout,
+          api::StorageType::BUFFER);
 }
 
 VmaAllocationCreateInfo vTensor::get_allocation_create_info() const {
@@ -520,24 +574,38 @@ void vTensor::bind_allocation(const api::MemoryAllocation& allocation) {
 }
 
 void vTensor::update_size_metadata(const std::vector<int64_t>& new_sizes) {
-  sizes_ = new_sizes;
-  gpu_sizes_ = calc_gpu_sizes(sizes_, memory_layout_, storage_type());
-  virtual_extents_ =
-      create_image_extents(gpu_sizes_, storage_type(), memory_layout_);
+  logical_desc_.sizes = new_sizes;
+  if (execution_layout() != api::ExecutionLayout::BUFFER_VIEW) {
+    logical_desc_.strides = calc_strides(
+        logical_desc_.sizes,
+        physical_desc_.memory_layout,
+        storage_type());
+  }
+  physical_desc_.sizes =
+      calc_gpu_sizes(logical_desc_.sizes, physical_desc_.memory_layout, storage_type());
+  physical_desc_.strides = calc_strides(
+      physical_desc_.sizes,
+      physical_desc_.memory_layout,
+      storage_type());
+  physical_desc_.virtual_extents = create_image_extents(
+      physical_desc_.sizes,
+      storage_type(),
+      physical_desc_.memory_layout);
 
   if (cpu_sizes_uniform_) {
-    cpu_sizes_uniform_->update(api::utils::make_whcn_ivec4(sizes_));
+    cpu_sizes_uniform_->update(api::utils::make_whcn_ivec4(logical_desc_.sizes));
   }
 
   if (gpu_sizes_uniform_) {
-    gpu_sizes_uniform_->update(api::utils::make_whcn_ivec4(gpu_sizes_));
+    gpu_sizes_uniform_->update(
+        api::utils::make_whcn_ivec4(physical_desc_.sizes));
   }
 
   if (extents_uniform_) {
     extents_uniform_->update(api::utils::uvec4(
-        {virtual_extents_.data[0],
-         virtual_extents_.data[1],
-         virtual_extents_.data[2],
+        {physical_desc_.virtual_extents.data[0],
+         physical_desc_.virtual_extents.data[1],
+         physical_desc_.virtual_extents.data[2],
          1u}));
   }
 }
@@ -545,9 +613,9 @@ void vTensor::update_size_metadata(const std::vector<int64_t>& new_sizes) {
 void vTensor::reallocate(const std::vector<int64_t>& new_sizes) {
   update_size_metadata(new_sizes);
   view_->discard_and_reallocate(
-      calc_gpu_sizes(new_sizes, memory_layout_, storage_type()),
-      memory_layout_,
-      dtype_);
+      calc_gpu_sizes(new_sizes, physical_desc_.memory_layout, storage_type()),
+      physical_desc_.memory_layout,
+      logical_desc_.dtype);
 }
 
 void vTensor::virtual_resize(const std::vector<int64_t>& new_sizes) {
@@ -560,13 +628,13 @@ void vTensor::virtual_resize(const std::vector<int64_t>& new_sizes) {
     }
   } else {
     bool valid_resize = true;
-    if (virtual_extents_.data[0] > view_->extents_.data[0]) {
+    if (physical_desc_.virtual_extents.data[0] > view_->extents_.data[0]) {
       valid_resize = false;
     }
-    if (virtual_extents_.data[1] > view_->extents_.data[1]) {
+    if (physical_desc_.virtual_extents.data[1] > view_->extents_.data[1]) {
       valid_resize = false;
     }
-    if (virtual_extents_.data[2] > view_->extents_.data[2]) {
+    if (physical_desc_.virtual_extents.data[2] > view_->extents_.data[2]) {
       valid_resize = false;
     }
 
