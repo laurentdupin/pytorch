@@ -3,6 +3,7 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/PackedWeight.h>
 
 namespace at {
 namespace native {
@@ -18,17 +19,114 @@ struct LogicalBufferMetadata final {
   api::utils::uvec4 info;
 };
 
+enum class VulkanExecutionPlanKind : uint8_t {
+  Generic = 0u,
+  TextureComputeInput,
+  ElementwiseInput,
+  ElementwiseBufferInput,
+  ReductionAllInput,
+  ReductionDimInput,
+  LinearInputSource,
+  LinearWeightSource,
+  LinearBiasSource,
+  LinearPackedBias,
+  LinearPackedInput,
+  LinearPackedWeight,
+  Conv2dWeightSource,
+  Conv2dBiasSource,
+  Conv2dRuntimeInput,
+  Conv1dPrepackWeight,
+  Conv1dPrepackBias,
+  Conv1dRuntimeInput,
+  Conv1dRuntimeWeight,
+  Conv1dRuntimeBias,
+  NumKinds,
+};
+
+enum class VulkanExecutionPolicyBufferRule : uint8_t {
+  Never = 0u,
+  PreferElementwiseBuffer,
+  RequireElementwiseBuffer,
+  PreferReductionBuffer,
+};
+
+enum class VulkanExecutionPolicyMemoryRule : uint8_t {
+  Fixed = 0u,
+  LinearInputSource,
+};
+
+struct VulkanExecutionPlanPolicy final {
+  const char* name{"Generic"};
+  api::ExecutionLayout execution_layout{api::ExecutionLayout::TEXTURE};
+  api::GPUMemoryLayout memory_layout{
+      api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED};
+  api::StorageType storage_type{api::StorageType::TEXTURE_3D};
+  VulkanExecutionPolicyBufferRule buffer_rule{
+      VulkanExecutionPolicyBufferRule::Never};
+  VulkanExecutionPolicyMemoryRule memory_rule{
+      VulkanExecutionPolicyMemoryRule::Fixed};
+  bool force_storage{true};
+  bool force_storage_if_widen_bfloat16{false};
+  bool widen_bfloat16{false};
+  bool materialize_inference_matrix{false};
+  bool persistent{false};
+};
+
+struct VulkanExecutionPlan final {
+  VulkanExecutionPlanKind kind{VulkanExecutionPlanKind::Generic};
+  api::ExecutionLayout execution_layout{api::ExecutionLayout::TEXTURE};
+  api::GPUMemoryLayout memory_layout{
+      api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED};
+  api::StorageType storage_type{api::StorageType::TEXTURE_3D};
+  bool force_storage{true};
+  bool widen_bfloat16{false};
+  bool materialize_inference_matrix{false};
+  bool persistent{false};
+};
+
+const char* execution_layout_name(api::ExecutionLayout);
+
+const char* execution_plan_kind_name(VulkanExecutionPlanKind);
+
+const VulkanExecutionPlanPolicy& execution_plan_policy(VulkanExecutionPlanKind);
+
+bool uses_buffer_execution(const vTensor&);
+
+bool uses_texture_execution(const vTensor&);
+
 Tensor nchw_to_nc4hw(const Tensor&);
 
 Tensor create_staging_tensor(const vTensor&);
 
 Tensor nc4hw_to_nchw(const Tensor&, IntArrayRef);
 
+std::optional<Tensor> normalized_optional_tensor(const std::optional<Tensor>&);
+
+bool same_optional_tensor(
+    const std::optional<Tensor>&,
+    const std::optional<Tensor>&);
+
+int64_t tensor_version_or_zero(const Tensor&);
+
+bool has_inference_tensor(const Tensor&, const std::optional<Tensor>&);
+
 bool supports_buffer_view_fast_path(const vTensor&);
 
 bool supports_buffer_elementwise_compute(const vTensor&);
 
 bool supports_buffer_reduction_compute(const vTensor&);
+
+bool scalar_fits_vulkan_int32(const Scalar&);
+
+int32_t scalar_to_vulkan_int32(const Scalar&);
+
+bool last_dim_is_width_aligned(const Tensor&);
+
+bool supports_native_integral_buffer_compute_dtype(api::ScalarType);
+
+bool supports_native_integral_buffer_compute(const Tensor&);
+
+bool supports_native_bool_buffer_compute(const Tensor&);
 
 bool can_make_buffer_metadata_view(
     const vTensor&,
@@ -69,6 +167,62 @@ Tensor ensure_texture_storage(
 Tensor upcast_bfloat16_buffer_to_float(const Tensor&);
 
 Tensor cast_vulkan_tensor_dtype(const Tensor&, ScalarType);
+
+Tensor mark_tensor_execution(
+    const Tensor&,
+    api::ExecutionLayout,
+    bool persistent = false);
+
+VulkanExecutionPlan build_vulkan_execution_plan(
+    const Tensor&,
+    VulkanExecutionPlanKind);
+
+Tensor execute_vulkan_execution_plan(
+    const Tensor&,
+    const VulkanExecutionPlan&);
+
+Tensor prepare_vulkan_direct_buffer_execution_tensor(
+    const Tensor&,
+    const VulkanExecutionPlan&);
+
+Tensor prepare_vulkan_direct_buffer_execution_tensor(
+    const Tensor&,
+    VulkanExecutionPlanKind);
+
+Tensor prepare_vulkan_execution_tensor(
+    const Tensor&,
+    VulkanExecutionPlanKind);
+
+std::optional<Tensor> prepare_optional_vulkan_execution_tensor(
+    const std::optional<Tensor>&,
+    VulkanExecutionPlanKind);
+
+PackedWeightHandle make_packed_weight_handle(
+    Tensor,
+    Tensor,
+    std::vector<int64_t>,
+    PackedWeightKind,
+    bool bias_defined,
+    bool quantized = false,
+    PackedWeightResidencyClass residency_class =
+        PackedWeightResidencyClass::PersistentInference);
+
+std::optional<PackedWeightHandle> lookup_packed_weight_handle(
+    const Tensor& source_weight,
+    const std::optional<Tensor>& source_bias,
+    IntArrayRef logical_weight_sizes,
+    PackedWeightKind kind,
+    bool quantized = false,
+    uint64_t options_key = 0u);
+
+void store_packed_weight_handle(
+    const Tensor& source_weight,
+    const std::optional<Tensor>& source_bias,
+    IntArrayRef logical_weight_sizes,
+    PackedWeightKind kind,
+    const PackedWeightHandle& handle,
+    bool quantized = false,
+    uint64_t options_key = 0u);
 
 void copy_buffer_to_buffer(
     api::Context* const context,

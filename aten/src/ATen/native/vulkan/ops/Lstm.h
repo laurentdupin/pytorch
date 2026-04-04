@@ -3,7 +3,6 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/ops/Common.h>
-#include <ATen/native/vulkan/ops/VulkanPackedContext.h>
 #include <torch/library.h>
 
 namespace at {
@@ -11,8 +10,18 @@ namespace native {
 namespace vulkan {
 namespace ops {
 
-class LstmPackedContext final : virtual public VulkanPackedContext,
-                                public torch::jit::CustomClassHolder {
+class LinearPackedContext;
+
+class LstmPackedContext final : public torch::jit::CustomClassHolder {
+ private:
+  std::vector<c10::intrusive_ptr<LinearPackedContext>> linear_contexts_;
+  bool has_biases_{true};
+  int64_t num_layers_{0};
+  double dropout_{0.0};
+  bool train_{false};
+  bool bidirectional_{false};
+  bool batch_first_{true};
+
  public:
   LstmPackedContext(
       const std::vector<Tensor>& params_cpu, // weights/biases (cpu)
@@ -38,24 +47,38 @@ class LstmPackedContext final : virtual public VulkanPackedContext,
     static constexpr uint32_t NumArgs = 7u;
   };
 
-  /*
-   * Assigns a name to each index in the packed list.
-   */
-  struct Packed final {
-    static constexpr uint32_t LinearContexts = 0u;
-    static constexpr uint32_t hasBiases = 1u;
-    static constexpr uint32_t NumLayers = 2u;
-    static constexpr uint32_t Dropout = 3u;
-    static constexpr uint32_t Train = 4u;
-    static constexpr uint32_t Bidirectional = 5u;
-    static constexpr uint32_t BatchFirst = 6u;
-
-    static constexpr uint32_t NumArgs = 7u;
-  };
-
   static LstmPackedContext pack(c10::impl::GenericList);
 
-  const c10::impl::GenericList unpack() const override;
+  const c10::impl::GenericList unpack() const;
+
+  const std::vector<c10::intrusive_ptr<LinearPackedContext>>& linear_contexts()
+      const {
+    return linear_contexts_;
+  }
+
+  bool has_biases() const {
+    return has_biases_;
+  }
+
+  int64_t num_layers() const {
+    return num_layers_;
+  }
+
+  double dropout() const {
+    return dropout_;
+  }
+
+  bool train() const {
+    return train_;
+  }
+
+  bool bidirectional() const {
+    return bidirectional_;
+  }
+
+  bool batch_first() const {
+    return batch_first_;
+  }
 };
 
 c10::intrusive_ptr<LstmPackedContext> create_lstm_context(

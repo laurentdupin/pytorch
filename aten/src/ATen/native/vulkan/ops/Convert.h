@@ -182,7 +182,8 @@ using vTensorImpl = VulkanOpaqueTensorImpl<vTensor>;
 
 inline c10::DimVector logical_strides(const vTensor& tensor) {
   if (tensor.storage_type() == api::StorageType::BUFFER) {
-    return c10::DimVector(tensor.strides().begin(), tensor.strides().end());
+    return c10::DimVector(
+        tensor.logical_strides().begin(), tensor.logical_strides().end());
   }
 
   return c10::contiguous_strides(tensor.sizes());

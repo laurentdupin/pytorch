@@ -75,38 +75,6 @@ struct LinearContextCacheEntry final {
 
 thread_local std::deque<LinearContextCacheEntry> linear_context_cache;
 
-std::optional<Tensor> normalized_optional_tensor(
-    const std::optional<Tensor>& tensor) {
-  if (tensor && tensor->defined()) {
-    return tensor;
-  }
-  return std::nullopt;
-}
-
-bool same_optional_tensor_impl(
-    const std::optional<Tensor>& lhs,
-    const std::optional<Tensor>& rhs) {
-  if (lhs.has_value() != rhs.has_value()) {
-    return false;
-  }
-  if (!lhs.has_value()) {
-    return true;
-  }
-  return lhs->unsafeGetTensorImpl() == rhs->unsafeGetTensorImpl();
-}
-
-int64_t tensor_version_or_zero(const Tensor& tensor) {
-  return tensor.is_inference() ? 0 : tensor._version();
-}
-
-bool has_inference_tensor(
-    const Tensor& weight,
-    const std::optional<Tensor>& bias) {
-  const auto normalized_bias = normalized_optional_tensor(bias);
-  return weight.is_inference() ||
-      (normalized_bias && normalized_bias->is_inference());
-}
-
 std::optional<c10::intrusive_ptr<LinearPackedContext>> lookup_linear_context(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
@@ -114,20 +82,20 @@ std::optional<c10::intrusive_ptr<LinearPackedContext>> lookup_linear_context(
     return std::nullopt;
   }
 
-  const auto normalized_bias = normalized_optional_tensor(bias);
+  const auto normalized_bias = utils::normalized_optional_tensor(bias);
   if (linear_cache_logging_enabled()) {
     linear_cache_log_state().lookups.fetch_add(1u, std::memory_order_relaxed);
   }
 
-  const int64_t weight_version = tensor_version_or_zero(weight);
+  const int64_t weight_version = utils::tensor_version_or_zero(weight);
   const int64_t bias_version =
-      normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
+      normalized_bias ? utils::tensor_version_or_zero(*normalized_bias) : 0u;
 
   for (auto it = linear_context_cache.begin(); it != linear_context_cache.end();
        ++it) {
     if (it->weight_ref.unsafeGetTensorImpl() != weight.unsafeGetTensorImpl() ||
         it->weight_version != weight_version ||
-        !same_optional_tensor_impl(it->bias_ref, normalized_bias) ||
+        !utils::same_optional_tensor(it->bias_ref, normalized_bias) ||
         it->bias_version != bias_version) {
       continue;
     }
@@ -156,7 +124,7 @@ void store_linear_context(
     return;
   }
 
-  const auto normalized_bias = normalized_optional_tensor(bias);
+  const auto normalized_bias = utils::normalized_optional_tensor(bias);
   if (linear_cache_logging_enabled()) {
     linear_cache_log_state().stores.fetch_add(1u, std::memory_order_relaxed);
   }
@@ -164,9 +132,9 @@ void store_linear_context(
   LinearContextCacheEntry entry;
   entry.weight_ref = weight;
   entry.bias_ref = normalized_bias;
-  entry.weight_version = tensor_version_or_zero(weight);
+  entry.weight_version = utils::tensor_version_or_zero(weight);
   entry.bias_version =
-      normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
+      normalized_bias ? utils::tensor_version_or_zero(*normalized_bias) : 0u;
   entry.context = context;
 
   linear_context_cache.emplace_front(std::move(entry));
@@ -178,7 +146,7 @@ void store_linear_context(
 c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
-  if (has_inference_tensor(weight, bias)) {
+  if (utils::has_inference_tensor(weight, bias)) {
     const Tensor prepared_weight =
         (weight.is_vulkan() && weight.dim() == 2) ? weight.cpu().t().contiguous()
                                                   : weight.t();
@@ -237,6 +205,26 @@ inline bool has_bias(const std::optional<Tensor>& bias) {
   return bias && bias->defined();
 }
 
+struct LinearPackedRunState final {
+  const PackedWeightHandle& packed_weight;
+  const vTensor& packed_v_weight;
+  const vTensor& packed_v_bias;
+  const std::vector<int64_t>& logical_weight_sizes;
+  bool bias_defined;
+};
+
+LinearPackedRunState get_linear_packed_run_state(
+    const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
+  const PackedWeightHandle& packed_weight = linear_context->packed_weight();
+  return {
+      packed_weight,
+      packed_weight.weight_vtensor(),
+      packed_weight.bias_vtensor(),
+      packed_weight.logical_weight_sizes(),
+      packed_weight.has_bias(),
+  };
+}
+
 bool can_fuse_linear_bias(
     const vTensor& v_output,
     const vTensor& v_bias,
@@ -261,60 +249,6 @@ bool can_fuse_linear_bias(
 
   return bias_width == output_width &&
       (bias_height == 1 || bias_height == output_height);
-}
-
-Tensor materialize_inference_vulkan_matrix_arg(const Tensor& tensor) {
-  if (
-      c10::InferenceMode::is_enabled() &&
-      tensor.is_vulkan() &&
-      tensor.dim() == 2 &&
-      !tensor.is_contiguous_or_false()) {
-    // A direct transpose view of a Vulkan parameter can later trip
-    // version-counter propagation in the mm/addmm path. Re-materialize it via
-    // the original layout first, then transpose back.
-    return tensor.t().clone().t();
-  }
-  return tensor;
-}
-
-Tensor upcast_bfloat16_weight_for_vulkan_linear(const Tensor& tensor) {
-  if (tensor.scalar_type() != kBFloat16) {
-    return tensor;
-  }
-  if (tensor.is_vulkan()) {
-    return convert(tensor).storage_type() == api::StorageType::BUFFER
-        ? utils::upcast_bfloat16_buffer_to_float(tensor)
-        : tensor.cpu().to(kFloat).vulkan();
-  }
-  return tensor.to(kFloat);
-}
-
-std::optional<Tensor> upcast_bfloat16_bias_for_vulkan_linear(
-    const std::optional<Tensor>& tensor) {
-  if (!tensor || !tensor->defined()) {
-    return std::nullopt;
-  }
-  if (tensor->scalar_type() != kBFloat16) {
-    return tensor;
-  }
-  if (tensor->is_vulkan()) {
-    return convert(*tensor).storage_type() == api::StorageType::BUFFER
-        ? utils::upcast_bfloat16_buffer_to_float(*tensor)
-        : tensor->cpu().to(kFloat).vulkan();
-  }
-  return tensor->to(kFloat);
-}
-
-Tensor upcast_bfloat16_input_for_vulkan_linear(const Tensor& tensor) {
-  if (tensor.scalar_type() != kBFloat16) {
-    return tensor;
-  }
-  if (tensor.is_vulkan()) {
-    return convert(tensor).storage_type() == api::StorageType::BUFFER
-        ? utils::upcast_bfloat16_buffer_to_float(tensor)
-        : tensor.cpu().to(kFloat).vulkan();
-  }
-  return tensor.to(kFloat);
 }
 
 vTensor pack_cpu_float_weight_using_height_packing(const Tensor& weight_arg) {
@@ -382,22 +316,10 @@ vTensor pack_inputs_using_width_packing(const Tensor& input_arg) {
       "Vulkan Linear not usable! "
       "Reason: Input packing only supports 2D or 3D tensors.");
 
-  Tensor input = input_arg;
-  if (input.is_cpu()) {
-    input = input.vulkan();
-  }
-
-  TORCH_CHECK(input.is_vulkan(), "Input must be on Vulkan device!");
-
-  if (convert(input).storage_type() == api::StorageType::BUFFER) {
-    input = utils::ensure_texture_storage(input);
-  }
+  const Tensor input = utils::prepare_vulkan_execution_tensor(
+      input_arg, utils::VulkanExecutionPlanKind::LinearPackedInput);
 
   vTensor v_input = convert(input);
-  if (v_input.gpu_memory_layout() ==
-      api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED) {
-    v_input = packing::convert_image_channels_packed_to_width_packed(v_input);
-  }
 
   TORCH_CHECK(
       v_input.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
@@ -422,24 +344,10 @@ vTensor pack_weights_using_height_packing(const Tensor& weight_arg) {
     return pack_cpu_float_weight_using_height_packing(weight_arg);
   }
 
-  Tensor weight = weight_arg;
-
-  if (weight.is_cpu()) {
-    weight = weight.vulkan();
-  }
-
-  TORCH_CHECK(weight.is_vulkan(), "Weight must be on Vulkan device!");
-
-  if (convert(weight).storage_type() == api::StorageType::BUFFER) {
-    weight = utils::ensure_texture_storage(weight);
-  }
+  const Tensor weight = utils::prepare_vulkan_execution_tensor(
+      weight_arg, utils::VulkanExecutionPlanKind::LinearPackedWeight);
 
   vTensor v_weight = convert(weight);
-  if (v_weight.gpu_memory_layout() ==
-      api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED) {
-    v_weight =
-        packing::convert_image_channels_packed_to_height_packed(v_weight);
-  }
 
   TORCH_CHECK(
       v_weight.gpu_memory_layout() ==
@@ -520,13 +428,8 @@ vTensor pack_biases(
     const std::optional<Tensor>& bias_arg,
     const bool use_batch = false) {
   if (has_bias(bias_arg)) {
-    Tensor bias = *bias_arg;
-    if (bias.is_cpu()) {
-      bias = bias.vulkan();
-    }
-    if (bias.is_vulkan() && convert(bias).storage_type() == api::StorageType::BUFFER) {
-      bias = utils::ensure_texture_storage(bias);
-    }
+    Tensor bias = utils::prepare_vulkan_execution_tensor(
+        *bias_arg, utils::VulkanExecutionPlanKind::LinearPackedBias);
     return convert(bias);
   } else {
     return convert(at::zeros({1}, at::device(at::kVulkan).dtype(at::kFloat)));
@@ -544,10 +447,8 @@ vTensor pack_biases_quantized_weights(
       "pack_biases_quantized to be used only when using quantized linear ops");
 
   if (has_bias(bias_arg) && bias_arg->is_vulkan()) {
-    Tensor bias = *bias_arg;
-    if (convert(bias).storage_type() == api::StorageType::BUFFER) {
-      bias = utils::ensure_texture_storage(bias);
-    }
+    Tensor bias = utils::prepare_vulkan_execution_tensor(
+        *bias_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
     return convert(bias);
   }
 
@@ -950,7 +851,8 @@ Tensor run_bfloat16_buffer_linear(
 
   Tensor output = convert(v_output);
 
-  std::optional<Tensor> bias = upcast_bfloat16_bias_for_vulkan_linear(bias_arg);
+  std::optional<Tensor> bias = utils::prepare_optional_vulkan_execution_tensor(
+      bias_arg, utils::VulkanExecutionPlanKind::LinearBiasSource);
   if (bias && bias->defined()) {
     if (!bias->is_vulkan()) {
       *bias = bias->vulkan();
@@ -985,16 +887,13 @@ Tensor run_quantized_addmm_context(
   const Tensor input =
       input_arg_2d.is_vulkan() ? input_arg_2d : input_arg_2d.vulkan();
   const vTensor& v_input = convert(input);
-  const vTensor& packed_v_weight = convert(
-      linear_context->get_val(LinearPackedContext::Packed::Weight).toTensor());
-  const vTensor& packed_v_bias = convert(
-      linear_context->get_val(LinearPackedContext::Packed::Bias).toTensor());
-  const std::vector<int64_t> unpacked_weight_sizes =
-      linear_context->get_val(LinearPackedContext::Packed::WeightSizes)
-          .toIntVector();
-  const bool bias_defined =
-      linear_context->get_val(LinearPackedContext::Packed::BiasDefined)
-          .toBool();
+  const LinearPackedRunState packed_state =
+      get_linear_packed_run_state(linear_context);
+  const vTensor& packed_v_weight = packed_state.packed_v_weight;
+  const vTensor& packed_v_bias = packed_state.packed_v_bias;
+  const std::vector<int64_t>& unpacked_weight_sizes =
+      packed_state.logical_weight_sizes;
+  const bool bias_defined = packed_state.bias_defined;
 
   TORCH_CHECK(
       usable(input, unpacked_weight_sizes),
@@ -1212,8 +1111,8 @@ Tensor run_addmm_context(
 
   api::Context* const context = api::context();
 
-  const Tensor compute_input_arg =
-      upcast_bfloat16_input_for_vulkan_linear(input_arg);
+  const Tensor compute_input_arg = utils::prepare_vulkan_execution_tensor(
+      input_arg, utils::VulkanExecutionPlanKind::LinearInputSource);
   const Tensor input_arg_2d =
       compute_input_arg.dim() == 2 ? compute_input_arg
                                    : reshape_to_2d(compute_input_arg);
@@ -1221,16 +1120,13 @@ Tensor run_addmm_context(
       input_arg_2d.is_vulkan() ? input_arg_2d : input_arg_2d.vulkan();
   const vTensor& v_input = pack_inputs_using_width_packing(input);
 
-  const vTensor& packed_v_weight = convert(
-      linear_context->get_val(LinearPackedContext::Packed::Weight).toTensor());
-  const vTensor& packed_v_bias = convert(
-      linear_context->get_val(LinearPackedContext::Packed::Bias).toTensor());
-  const std::vector<int64_t> unpacked_weight_sizes =
-      linear_context->get_val(LinearPackedContext::Packed::WeightSizes)
-          .toIntVector();
-  const bool bias_defined =
-      linear_context->get_val(LinearPackedContext::Packed::BiasDefined)
-          .toBool();
+  const LinearPackedRunState packed_state =
+      get_linear_packed_run_state(linear_context);
+  const vTensor& packed_v_weight = packed_state.packed_v_weight;
+  const vTensor& packed_v_bias = packed_state.packed_v_bias;
+  const std::vector<int64_t>& unpacked_weight_sizes =
+      packed_state.logical_weight_sizes;
+  const bool bias_defined = packed_state.bias_defined;
 
   TORCH_CHECK(
       usable(input, unpacked_weight_sizes),
@@ -1425,20 +1321,19 @@ Tensor run_baddbmm_context(
       "Vulkan Linear not usable! "
       "Reason: The input has the wrong dimension; the tensor of a batch of matrices should contain 3 dimensions: batch, height, width.");
 
-  const Tensor compute_input_arg =
-      upcast_bfloat16_input_for_vulkan_linear(input_arg);
+  const Tensor compute_input_arg = utils::prepare_vulkan_execution_tensor(
+      input_arg, utils::VulkanExecutionPlanKind::LinearInputSource);
   const Tensor input =
       compute_input_arg.is_vulkan() ? compute_input_arg
                                     : compute_input_arg.vulkan();
   vTensor packed_v_input = pack_inputs_using_width_packing(input);
 
-  const vTensor& packed_v_weight = convert(
-      linear_context->get_val(LinearPackedContext::Packed::Weight).toTensor());
-  const vTensor& packed_v_bias = convert(
-      linear_context->get_val(LinearPackedContext::Packed::Bias).toTensor());
-  const std::vector<int64_t> unpacked_weight_sizes =
-      linear_context->get_val(LinearPackedContext::Packed::WeightSizes)
-          .toIntVector();
+  const LinearPackedRunState packed_state =
+      get_linear_packed_run_state(linear_context);
+  const vTensor& packed_v_weight = packed_state.packed_v_weight;
+  const vTensor& packed_v_bias = packed_state.packed_v_bias;
+  const std::vector<int64_t>& unpacked_weight_sizes =
+      packed_state.logical_weight_sizes;
 
   TORCH_CHECK(
       usable(input, unpacked_weight_sizes, true /*use batch*/),
@@ -1554,7 +1449,10 @@ Tensor linear(
   const std::optional<Tensor> linear_bias =
       (bias && bias->defined() && !bias->is_vulkan()) ? bias->vulkan() : bias;
 
-  if (can_run_bfloat16_buffer_linear(linear_input, linear_weight, linear_bias)) {
+  if (
+      input.dim() == 2 &&
+      can_run_bfloat16_buffer_linear(
+          linear_input, linear_weight, linear_bias)) {
     return run_bfloat16_buffer_linear(input, linear_weight, linear_bias);
   }
 
@@ -1642,31 +1540,56 @@ LinearPackedContext::LinearPackedContext(
   allocation_label_ = std::move(allocation_label);
   api::AllocationScope allocation_scope(
       linear_pack_label(allocation_label_, use_batch));
-  const Tensor prepared_weight =
-      use_batch ? weight : materialize_inference_vulkan_matrix_arg(weight);
-  const Tensor packed_weight =
-      upcast_bfloat16_weight_for_vulkan_linear(prepared_weight);
-  const std::optional<Tensor> packed_bias =
-      upcast_bfloat16_bias_for_vulkan_linear(bias);
-  TORCH_CHECK(
-      available(packed_weight, packed_bias, use_batch),
-      "Vulkan Linear not available! "
-      "Reason: The provided (weight, bias) parameters are either invalid "
-      "individually or their combination is not supported by Vulkan Impl.");
+  const auto normalized_bias = utils::normalized_optional_tensor(bias);
+  const std::vector<int64_t> logical_weight_sizes = weight.sizes().vec();
+  constexpr uint64_t kLinearBatchPackOption = 1u;
+  const uint64_t pack_options = use_batch ? kLinearBatchPackOption : 0u;
+  if (const auto cached_packed_weight = utils::lookup_packed_weight_handle(
+          weight,
+          normalized_bias,
+          logical_weight_sizes,
+          PackedWeightKind::Linear,
+          weight.is_quantized(),
+          pack_options)) {
+    packed_weight_ = *cached_packed_weight;
+  } else {
+    const Tensor packed_weight = utils::prepare_vulkan_execution_tensor(
+        weight, utils::VulkanExecutionPlanKind::LinearWeightSource);
+    const std::optional<Tensor> packed_bias =
+        utils::prepare_optional_vulkan_execution_tensor(
+            bias, utils::VulkanExecutionPlanKind::LinearBiasSource);
+    TORCH_CHECK(
+        available(packed_weight, packed_bias, use_batch),
+        "Vulkan Linear not available! "
+        "Reason: The provided (weight, bias) parameters are either invalid "
+        "individually or their combination is not supported by Vulkan Impl.");
 
-  packed_.reserve(Packed::NumArgs);
-  packed_.emplace_back(convert(pack_weights(packed_weight, use_batch)));
-  const auto& packed_biases = packed_weight.is_quantized()
-      ? pack_biases_quantized_weights(packed_weight, packed_bias, use_batch)
-      : pack_biases(packed_weight, packed_bias, use_batch);
-  packed_.emplace_back(convert(packed_biases));
-  packed_.emplace_back(packed_weight.sizes());
-  packed_.emplace_back(packed_bias && packed_bias->defined());
+    Tensor packed_bias_tensor = packed_weight.is_quantized()
+        ? convert(pack_biases_quantized_weights(
+              packed_weight, packed_bias, use_batch))
+        : convert(pack_biases(packed_weight, packed_bias, use_batch));
+
+    packed_weight_ = utils::make_packed_weight_handle(
+        convert(pack_weights(packed_weight, use_batch)),
+        std::move(packed_bias_tensor),
+        packed_weight.sizes().vec(),
+        PackedWeightKind::Linear,
+        packed_bias && packed_bias->defined(),
+        packed_weight.is_quantized());
+    utils::store_packed_weight_handle(
+        weight,
+        normalized_bias,
+        logical_weight_sizes,
+        PackedWeightKind::Linear,
+        packed_weight_,
+        packed_weight.is_quantized(),
+        pack_options);
+  }
 
   if (retain_unpacked && !at::globalContext().releaseWeightsWhenPrepacking()) {
     unpacked_.reserve(Unpacked::NumArgs);
-    unpacked_.emplace_back(packed_weight);
-    unpacked_.emplace_back(packed_bias);
+    unpacked_.emplace_back(weight);
+    unpacked_.emplace_back(normalized_bias);
   }
 }
 

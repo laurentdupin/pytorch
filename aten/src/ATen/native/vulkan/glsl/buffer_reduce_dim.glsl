@@ -38,23 +38,12 @@ layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
 }
 uInMeta;
 
-layout(set = 0, binding = 4) uniform PRECISION restrict Block {
-  uvec4 map_out_sizes;
-  uvec4 map_out_strides;
-  uvec4 write_out_sizes;
-  uvec4 write_out_strides;
-  uvec4 info;
-}
-uBlock;
-
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
 void main() {
   const uint write_idx = uint(gl_GlobalInvocationID.x);
-  const uint reduce_dim = uBlock.info.x;
-  const uint reduce_size = uBlock.info.y;
-  const uint out_numel = uBlock.info.z;
-  const uint reduce_offset = uBlock.info.w;
+  const uint reduce_size = uInMeta.logical_sizes.x;
+  const uint out_numel = uOutMeta.info.y;
 
   if (write_idx >= out_numel) {
     return;
@@ -64,15 +53,15 @@ void main() {
   const uint out_storage_offset = uOutMeta.info.w;
   const uint in_buf_length = uInMeta.info.z;
   const uint in_storage_offset = uInMeta.info.w;
-  const uvec4 map_out_coord =
-      idx_to_coord(write_idx, uBlock.map_out_strides, uBlock.map_out_sizes);
-  const uvec4 write_out_coord =
-      idx_to_coord(write_idx, uBlock.write_out_strides, uBlock.write_out_sizes);
+  const bool keepdim = uOutMeta.info.x == uInMeta.info.x;
+  const uvec4 write_out_coord = idx_to_coord(
+      write_idx, uOutMeta.logical_strides, uOutMeta.logical_sizes);
 
   float acc = INIT;
   for (uint r = 0u; r < reduce_size; ++r) {
-    uvec4 in_coord = map_out_coord;
-    in_coord[reduce_dim] = reduce_offset + r;
+    const uvec4 in_coord = keepdim
+        ? uvec4(r, write_out_coord.y, write_out_coord.z, write_out_coord.w)
+        : uvec4(r, write_out_coord.x, write_out_coord.y, write_out_coord.z);
     const uint read_idx =
         coord_to_idx(in_coord, uInMeta.physical_strides) + in_storage_offset;
     if (read_idx < in_buf_length) {

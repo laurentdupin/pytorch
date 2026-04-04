@@ -4,8 +4,8 @@
 
 #include <ATen/native/quantized/PackedParams.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/PackedWeight.h>
 #include <ATen/native/vulkan/ops/Utils.h>
-#include <ATen/native/vulkan/ops/VulkanPackedContext.h>
 #include <torch/library.h>
 #include <string>
 
@@ -54,11 +54,11 @@ void stage_pack_weights(
   utils::pack_staging_to_vtensor(staging.buffer(), v_weight);
 }
 
-class LinearPackedContext final : virtual public VulkanPackedContext,
-                                  public torch::jit::CustomClassHolder {
+class LinearPackedContext final : public torch::jit::CustomClassHolder {
  private:
   c10::impl::GenericList unpacked_;
   std::string allocation_label_;
+  PackedWeightHandle packed_weight_;
 
  public:
   LinearPackedContext(
@@ -78,21 +78,9 @@ class LinearPackedContext final : virtual public VulkanPackedContext,
     static constexpr uint32_t NumArgs = 2u;
   };
 
-  /*
-   * Assigns a name to each index in the packed list.
-   */
-  struct Packed final {
-    static constexpr uint32_t Weight = 0u;
-    static constexpr uint32_t Bias = 1u;
-    static constexpr uint32_t WeightSizes = 2u;
-    static constexpr uint32_t BiasDefined = 3u;
-
-    static constexpr uint32_t NumArgs = 4u;
-  };
-
   static LinearPackedContext pack(c10::impl::GenericList);
 
-  const c10::impl::GenericList unpack() const override {
+  const c10::impl::GenericList unpack() const {
     TORCH_CHECK(
         !unpacked_.empty(),
         "This LinearPackedContext was created for inference-only Vulkan use "
@@ -103,6 +91,10 @@ class LinearPackedContext final : virtual public VulkanPackedContext,
 
   const std::string& allocation_label() const {
     return allocation_label_;
+  }
+
+  const PackedWeightHandle& packed_weight() const {
+    return packed_weight_;
   }
 };
 

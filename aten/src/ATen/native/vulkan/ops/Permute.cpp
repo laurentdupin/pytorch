@@ -18,10 +18,8 @@ Tensor permute_4d(
     vTensor& v_output) {
   api::Context* const context = api::context();
 
-  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  if (convert(input).storage_type() == api::StorageType::BUFFER) {
-    input = utils::ensure_texture_storage(input);
-  }
+  Tensor input = utils::prepare_vulkan_execution_tensor(
+      input_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_self = convert(input);
 
   uint32_t out_channels = out_size.data[1u];

@@ -76,10 +76,8 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm(
       input_arg.dim() >= 2 && input_arg.dim() <= 4,
       "Vulkan layernorm expects input of 2d, 3d or 4d!");
 
-  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  if (convert(input).storage_type() == api::StorageType::BUFFER) {
-    input = utils::ensure_texture_storage(input);
-  }
+  Tensor input = utils::prepare_vulkan_execution_tensor(
+      input_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
 
   TORCH_CHECK(
       weight_opt->defined() && bias_opt->defined(),

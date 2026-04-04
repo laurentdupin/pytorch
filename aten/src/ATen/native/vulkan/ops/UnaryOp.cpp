@@ -43,13 +43,6 @@ bool needs_unary_cpu_fallback(const Tensor& tensor) {
       !utils::supports_buffer_elementwise_compute(v_tensor);
 }
 
-bool should_run_buffer_unary(const Tensor& tensor) {
-  return tensor.is_vulkan() &&
-      utils::supports_buffer_elementwise_compute(convert(tensor)) &&
-      convert(tensor).storage_type() == api::StorageType::BUFFER &&
-      convert(tensor).has_direct_buffer_layout();
-}
-
 Tensor unary_op_cpu_fallback(const Tensor& self_arg, const UnaryOpKind op_kind) {
   Tensor cpu_result;
   {
@@ -139,13 +132,15 @@ Tensor unary_op(
   }
 
   Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
-  if (should_run_buffer_unary(self)) {
+  const auto plan = utils::build_vulkan_execution_plan(
+      self, utils::VulkanExecutionPlanKind::ElementwiseInput);
+  if (api::uses_buffer_execution(plan.execution_layout)) {
+    self = utils::prepare_vulkan_direct_buffer_execution_tensor(self, plan);
     return unary_op_buffer(self, buffer_shader_descriptor);
   }
 
-  if (convert(self).storage_type() == api::StorageType::BUFFER) {
-    self = utils::ensure_texture_storage(self);
-  }
+  self = utils::prepare_vulkan_execution_tensor(
+      self, utils::VulkanExecutionPlanKind::TextureComputeInput);
 
   const vTensor& v_self = convert(self);
 

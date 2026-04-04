@@ -200,15 +200,13 @@ GruPackedContext::GruPackedContext(
   TORCH_INTERNAL_ASSERT(
       dropout < std::numeric_limits<double>::epsilon() * 1000,
       "Vulkan gru expects 'dropout' to be 0.0.");
-
-  packed_.reserve(Packed::NumArgs);
-  packed_.emplace_back(pack_linear_op_contexts(params_cpu, num_layers));
-  packed_.emplace_back(has_biases);
-  packed_.emplace_back(num_layers);
-  packed_.emplace_back(dropout);
-  packed_.emplace_back(train);
-  packed_.emplace_back(bidirectional);
-  packed_.emplace_back(batch_first);
+  linear_contexts_ = pack_linear_op_contexts(params_cpu, num_layers);
+  has_biases_ = has_biases;
+  num_layers_ = num_layers;
+  dropout_ = dropout;
+  train_ = train;
+  bidirectional_ = bidirectional;
+  batch_first_ = batch_first;
 }
 
 GruPackedContext GruPackedContext::pack(c10::impl::GenericList unpacked) {
@@ -225,19 +223,16 @@ GruPackedContext GruPackedContext::pack(c10::impl::GenericList unpacked) {
 const c10::impl::GenericList GruPackedContext::unpack() const {
   c10::impl::GenericList unpacked_gru_context{c10::AnyType::get()};
   unpacked_gru_context.reserve(Unpacked::NumArgs);
-
-  const c10::List<c10::IValue> packed_linear_contexts =
-      get_val(Packed::LinearContexts).toList();
-
-  const int64_t num_layers = get_val(Packed::NumLayers).toInt();
+  const int64_t num_layers = num_layers_;
   const int64_t linear_contexts_per_layer = 6;
 
   std::vector<Tensor> params_cpu;
   params_cpu.reserve(num_layers * linear_contexts_per_layer);
 
-  for (c10::IValue packed_linear_context : packed_linear_contexts) {
+  for (const c10::intrusive_ptr<LinearPackedContext>& packed_linear_context :
+       linear_contexts_) {
     const c10::impl::GenericList unpacked_linear_context =
-        packed_linear_context.toCustomClass<LinearPackedContext>()->unpack();
+        packed_linear_context->unpack();
 
     TORCH_CHECK(
         !unpacked_linear_context.empty(),
@@ -252,9 +247,12 @@ const c10::impl::GenericList GruPackedContext::unpack() const {
             .toTensor());
   }
   unpacked_gru_context.emplace_back(params_cpu);
-  for (int64_t i = 1; i < Unpacked::NumArgs; ++i) {
-    unpacked_gru_context.emplace_back(get_val(i));
-  }
+  unpacked_gru_context.emplace_back(has_biases_);
+  unpacked_gru_context.emplace_back(num_layers_);
+  unpacked_gru_context.emplace_back(dropout_);
+  unpacked_gru_context.emplace_back(train_);
+  unpacked_gru_context.emplace_back(bidirectional_);
+  unpacked_gru_context.emplace_back(batch_first_);
 
   return unpacked_gru_context;
 }
@@ -287,10 +285,8 @@ std::tuple<Tensor, Tensor> run_gru_context(
   TORCH_INTERNAL_ASSERT(
       hx_vk.sizes().size() == 3, "Vulkan gru expects 'hx_vk' dims to be 3.");
 
-  const int64_t num_layers =
-      gru_context->get_val(GruPackedContext::Packed::NumLayers).toInt();
-  const bool batch_first =
-      gru_context->get_val(GruPackedContext::Packed::BatchFirst).toBool();
+  const int64_t num_layers = gru_context->num_layers();
+  const bool batch_first = gru_context->batch_first();
   const auto batch_size = input_vk.size(0);
   const auto seq_length = input_vk.size(1);
 
@@ -298,8 +294,7 @@ std::tuple<Tensor, Tensor> run_gru_context(
       (batch_size == 1 && seq_length == 1) || batch_first,
       "Vulkan gru expects batch-first input");
 
-  const c10::List<c10::IValue> packed_linear_contexts =
-      gru_context->get_val(GruPackedContext::Packed::LinearContexts).toList();
+  const auto& packed_linear_contexts = gru_context->linear_contexts();
 
   const int64_t linear_contexts_per_layer = 6;
   // (b_ir, w_ir), (b_hr, w_hr), (b_iz, w_iz),
@@ -314,24 +309,12 @@ std::tuple<Tensor, Tensor> run_gru_context(
     auto h = at::slice(hx_vk, 0, i, i + 1, 1);
     h = h.reshape({h.size(0) * h.size(1), h.size(2)});
 
-    const auto& cxt_ir =
-        packed_linear_contexts[i * linear_contexts_per_layer + 0]
-            .toCustomClass<LinearPackedContext>();
-    const auto& cxt_hr =
-        packed_linear_contexts[i * linear_contexts_per_layer + 1]
-            .toCustomClass<LinearPackedContext>();
-    const auto& cxt_iz =
-        packed_linear_contexts[i * linear_contexts_per_layer + 2]
-            .toCustomClass<LinearPackedContext>();
-    const auto& cxt_hz =
-        packed_linear_contexts[i * linear_contexts_per_layer + 3]
-            .toCustomClass<LinearPackedContext>();
-    const auto& cxt_in =
-        packed_linear_contexts[i * linear_contexts_per_layer + 4]
-            .toCustomClass<LinearPackedContext>();
-    const auto& cxt_hn =
-        packed_linear_contexts[i * linear_contexts_per_layer + 5]
-            .toCustomClass<LinearPackedContext>();
+    const auto& cxt_ir = packed_linear_contexts[i * linear_contexts_per_layer + 0];
+    const auto& cxt_hr = packed_linear_contexts[i * linear_contexts_per_layer + 1];
+    const auto& cxt_iz = packed_linear_contexts[i * linear_contexts_per_layer + 2];
+    const auto& cxt_hz = packed_linear_contexts[i * linear_contexts_per_layer + 3];
+    const auto& cxt_in = packed_linear_contexts[i * linear_contexts_per_layer + 4];
+    const auto& cxt_hn = packed_linear_contexts[i * linear_contexts_per_layer + 5];
 
     const auto& r = at::sigmoid(
         run_linear_context(x, cxt_ir) + run_linear_context(h, cxt_hr));

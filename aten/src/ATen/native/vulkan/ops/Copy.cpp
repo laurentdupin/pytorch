@@ -304,7 +304,8 @@ bool copy_vtensor_buffer_to_staging(
     const VkFence fence_handle) {
   const bool use_float_pack_shader =
       src.dtype() == api::kFloat && src.sizes().size() <= 4 &&
-      src.has_direct_buffer_layout() && src.last_write_was_compute();
+      src.storage_type() == api::StorageType::BUFFER &&
+      src.last_write_was_compute();
   if (use_float_pack_shader) {
     return utils::pack_vtensor_to_staging(
         src, staging.buffer(), fence_handle);
@@ -551,9 +552,12 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
   if (src.storage_type() == api::StorageType::BUFFER) {
     const bool shader_packed_buffer =
         src.dtype() == api::kFloat && src.sizes().size() <= 4 &&
-        src.has_direct_buffer_layout() && src.last_write_was_compute();
+        src.storage_type() == api::StorageType::BUFFER &&
+        src.last_write_was_compute();
     const int64_t staging_length =
-        (src.has_direct_buffer_layout() || shader_packed_buffer)
+        shader_packed_buffer
+        ? api::utils::safe_downcast<int64_t>(src.numel())
+        : src.has_direct_buffer_layout()
         ? api::utils::safe_downcast<int64_t>(src.gpu_numel())
         : src.buffer_length();
     api::StorageBuffer staging(context, src.dtype(), staging_length);

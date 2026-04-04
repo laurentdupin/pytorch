@@ -1,8 +1,15 @@
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <c10/core/InferenceMode.h>
+#include <algorithm>
+#include <array>
+#include <atomic>
 #include <cstdlib>
+#include <deque>
 #include <fstream>
+#include <limits>
+#include <mutex>
 #include <sstream>
 
 #ifndef AT_PER_OPERATOR_HEADERS
@@ -81,6 +88,340 @@ bool can_make_buffer_metadata_view_impl(
   }
 
   return max_offset < v_input.buffer_length();
+}
+
+struct PackedWeightResidencyEntry final {
+  Tensor weight_ref;
+  std::optional<Tensor> bias_ref;
+  int64_t weight_version;
+  int64_t bias_version;
+  std::vector<int64_t> logical_weight_sizes;
+  PackedWeightKind kind;
+  PackedWeightResidencyClass residency_class;
+  bool quantized;
+  uint64_t options_key;
+  PackedWeightHandle handle;
+};
+
+constexpr size_t kPackedWeightResidencyMaxEntries = 256u;
+
+size_t packed_weight_cache_limit_bytes() {
+  static const size_t limit_bytes = []() {
+    constexpr size_t kDefaultLimitBytes = size_t{2} * 1024u * 1024u * 1024u;
+    const char* env =
+        std::getenv("PYTORCH_VULKAN_PACKED_WEIGHT_CACHE_LIMIT_MB");
+    if (!env || *env == '\0') {
+      return kDefaultLimitBytes;
+    }
+
+    std::istringstream stream(env);
+    size_t limit_mb = 0u;
+    stream >> limit_mb;
+    if (!stream || limit_mb == 0u) {
+      return kDefaultLimitBytes;
+    }
+    return limit_mb * 1024u * 1024u;
+  }();
+  return limit_bytes;
+}
+
+const std::string& packed_weight_cache_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_PACKED_WEIGHT_CACHE_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool packed_weight_cache_logging_enabled() {
+  return !packed_weight_cache_log_path().empty();
+}
+
+size_t packed_weight_tensor_nbytes(const Tensor& tensor) {
+  if (!tensor.defined() || !tensor.is_vulkan()) {
+    return 0u;
+  }
+  return static_cast<size_t>(convert(tensor).gpu_nbytes());
+}
+
+size_t packed_weight_handle_nbytes(const Tensor& weight, const Tensor& bias) {
+  return packed_weight_tensor_nbytes(weight) + packed_weight_tensor_nbytes(bias);
+}
+
+api::ExecutionLayout resolve_buffer_execution_layout(const vTensor& v_tensor) {
+  return v_tensor.has_direct_buffer_layout() ? api::ExecutionLayout::BUFFER_DIRECT
+                                             : api::ExecutionLayout::BUFFER_VIEW;
+}
+
+struct PackedWeightResidencyLogState final {
+  std::atomic<uint64_t> lookups{0u};
+  std::atomic<uint64_t> hits{0u};
+  std::atomic<uint64_t> stores{0u};
+  std::atomic<uint64_t> evictions{0u};
+  std::atomic<uint64_t> cache_bytes{0u};
+  std::atomic<uint64_t> peak_cache_bytes{0u};
+  std::atomic<uint64_t> persistent_cache_bytes{0u};
+  std::atomic<uint64_t> peak_persistent_cache_bytes{0u};
+
+  ~PackedWeightResidencyLogState() {
+    if (!packed_weight_cache_logging_enabled()) {
+      return;
+    }
+
+    std::ofstream out(packed_weight_cache_log_path(), std::ios::app);
+    out << "packed_weight_residency: lookups="
+        << lookups.load(std::memory_order_relaxed)
+        << " hits=" << hits.load(std::memory_order_relaxed)
+        << " stores=" << stores.load(std::memory_order_relaxed)
+        << " evictions=" << evictions.load(std::memory_order_relaxed)
+        << " cache_bytes=" << cache_bytes.load(std::memory_order_relaxed)
+        << " peak_cache_bytes="
+        << peak_cache_bytes.load(std::memory_order_relaxed)
+        << " persistent_cache_bytes="
+        << persistent_cache_bytes.load(std::memory_order_relaxed)
+        << " peak_persistent_cache_bytes="
+        << peak_persistent_cache_bytes.load(std::memory_order_relaxed)
+        << " cache_limit_bytes=" << packed_weight_cache_limit_bytes() << '\n';
+  }
+};
+
+PackedWeightResidencyLogState& packed_weight_cache_log_state() {
+  static PackedWeightResidencyLogState state;
+  return state;
+}
+
+class PackedWeightResidencyManager final {
+ private:
+  std::mutex mutex_;
+  std::deque<PackedWeightResidencyEntry> cache_;
+  size_t cache_bytes_{0u};
+  size_t persistent_cache_bytes_{0u};
+
+  static bool matches_entry(
+      const PackedWeightResidencyEntry& entry,
+      const Tensor& source_weight,
+      const std::optional<Tensor>& normalized_bias,
+      const int64_t weight_version,
+      const int64_t bias_version,
+      IntArrayRef logical_weight_sizes,
+      const PackedWeightKind kind,
+      const bool quantized,
+      const uint64_t options_key) {
+    return entry.weight_ref.unsafeGetTensorImpl() ==
+            source_weight.unsafeGetTensorImpl() &&
+        entry.weight_version == weight_version &&
+        same_optional_tensor(entry.bias_ref, normalized_bias) &&
+        entry.bias_version == bias_version &&
+        entry.logical_weight_sizes.size() == logical_weight_sizes.size() &&
+        std::equal(
+            logical_weight_sizes.begin(),
+            logical_weight_sizes.end(),
+            entry.logical_weight_sizes.begin()) &&
+        entry.kind == kind && entry.quantized == quantized &&
+        entry.options_key == options_key;
+  }
+
+  void update_log_snapshot_locked() const {
+    if (!packed_weight_cache_logging_enabled()) {
+      return;
+    }
+    auto& log_state = packed_weight_cache_log_state();
+    const auto cache_bytes = static_cast<uint64_t>(cache_bytes_);
+    const auto persistent_cache_bytes =
+        static_cast<uint64_t>(persistent_cache_bytes_);
+    log_state.cache_bytes.store(cache_bytes, std::memory_order_relaxed);
+    log_state.persistent_cache_bytes.store(
+        persistent_cache_bytes, std::memory_order_relaxed);
+
+    uint64_t observed_peak_cache =
+        log_state.peak_cache_bytes.load(std::memory_order_relaxed);
+    while (
+        cache_bytes > observed_peak_cache &&
+        !log_state.peak_cache_bytes.compare_exchange_weak(
+            observed_peak_cache,
+            cache_bytes,
+            std::memory_order_relaxed,
+            std::memory_order_relaxed)) {
+    }
+
+    uint64_t observed_peak_persistent =
+        log_state.peak_persistent_cache_bytes.load(std::memory_order_relaxed);
+    while (
+        persistent_cache_bytes > observed_peak_persistent &&
+        !log_state.peak_persistent_cache_bytes.compare_exchange_weak(
+            observed_peak_persistent,
+            persistent_cache_bytes,
+            std::memory_order_relaxed,
+            std::memory_order_relaxed)) {
+    }
+  }
+
+  void erase_entry_locked(
+      std::deque<PackedWeightResidencyEntry>::iterator entry_it,
+      const bool count_eviction) {
+    cache_bytes_ -= entry_it->handle.resident_nbytes();
+    if (
+        entry_it->residency_class ==
+        PackedWeightResidencyClass::PersistentInference) {
+      persistent_cache_bytes_ -= entry_it->handle.resident_nbytes();
+    }
+    cache_.erase(entry_it);
+    if (count_eviction && packed_weight_cache_logging_enabled()) {
+      packed_weight_cache_log_state().evictions.fetch_add(
+          1u, std::memory_order_relaxed);
+    }
+  }
+
+  std::deque<PackedWeightResidencyEntry>::iterator
+  select_eviction_candidate_locked() {
+    auto transient_it = cache_.end();
+    for (auto it = cache_.end(); it != cache_.begin();) {
+      --it;
+      if (
+          it->residency_class == PackedWeightResidencyClass::Transient &&
+          it->handle.defined()) {
+        transient_it = it;
+        break;
+      }
+    }
+    if (transient_it != cache_.end()) {
+      return transient_it;
+    }
+    return cache_.empty() ? cache_.end() : std::prev(cache_.end());
+  }
+
+  void trim_locked() {
+    while (
+        cache_.size() > kPackedWeightResidencyMaxEntries ||
+        cache_bytes_ > packed_weight_cache_limit_bytes()) {
+      auto victim = select_eviction_candidate_locked();
+      if (victim == cache_.end()) {
+        break;
+      }
+      erase_entry_locked(victim, true);
+    }
+    update_log_snapshot_locked();
+  }
+
+ public:
+  std::optional<PackedWeightHandle> lookup(
+      const Tensor& source_weight,
+      const std::optional<Tensor>& normalized_bias,
+      IntArrayRef logical_weight_sizes,
+      const PackedWeightKind kind,
+      const bool quantized,
+      const uint64_t options_key) {
+    if (!source_weight.defined()) {
+      return std::nullopt;
+    }
+
+    if (packed_weight_cache_logging_enabled()) {
+      packed_weight_cache_log_state().lookups.fetch_add(
+          1u, std::memory_order_relaxed);
+    }
+
+    const int64_t weight_version = tensor_version_or_zero(source_weight);
+    const int64_t bias_version =
+        normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = cache_.begin(); it != cache_.end(); ++it) {
+      if (!matches_entry(
+              *it,
+              source_weight,
+              normalized_bias,
+              weight_version,
+              bias_version,
+              logical_weight_sizes,
+              kind,
+              quantized,
+              options_key)) {
+        continue;
+      }
+
+      PackedWeightHandle handle = it->handle;
+      if (it != cache_.begin()) {
+        PackedWeightResidencyEntry entry = std::move(*it);
+        cache_.erase(it);
+        cache_.emplace_front(std::move(entry));
+        handle = cache_.front().handle;
+      }
+
+      if (packed_weight_cache_logging_enabled()) {
+        packed_weight_cache_log_state().hits.fetch_add(
+            1u, std::memory_order_relaxed);
+      }
+      update_log_snapshot_locked();
+      return handle;
+    }
+
+    update_log_snapshot_locked();
+    return std::nullopt;
+  }
+
+  void store(
+      const Tensor& source_weight,
+      const std::optional<Tensor>& normalized_bias,
+      IntArrayRef logical_weight_sizes,
+      const PackedWeightKind kind,
+      const PackedWeightHandle& handle,
+      const bool quantized,
+      const uint64_t options_key) {
+    if (!source_weight.defined() || !handle.defined()) {
+      return;
+    }
+
+    PackedWeightResidencyEntry entry;
+    entry.weight_ref = source_weight;
+    entry.bias_ref = normalized_bias;
+    entry.weight_version = tensor_version_or_zero(source_weight);
+    entry.bias_version =
+        normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
+    entry.logical_weight_sizes = std::vector<int64_t>(
+        logical_weight_sizes.begin(), logical_weight_sizes.end());
+    entry.kind = kind;
+    entry.residency_class = handle.residency_class();
+    entry.quantized = quantized;
+    entry.options_key = options_key;
+    entry.handle = handle;
+
+    if (packed_weight_cache_logging_enabled()) {
+      packed_weight_cache_log_state().stores.fetch_add(
+          1u, std::memory_order_relaxed);
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = cache_.begin(); it != cache_.end(); ++it) {
+      if (!matches_entry(
+              *it,
+              source_weight,
+              normalized_bias,
+              entry.weight_version,
+              entry.bias_version,
+              logical_weight_sizes,
+              kind,
+              quantized,
+              options_key)) {
+        continue;
+      }
+      erase_entry_locked(it, false);
+      break;
+    }
+
+    cache_bytes_ += handle.resident_nbytes();
+    if (
+        handle.residency_class() ==
+        PackedWeightResidencyClass::PersistentInference) {
+      persistent_cache_bytes_ += handle.resident_nbytes();
+    }
+    cache_.emplace_front(std::move(entry));
+    trim_locked();
+  }
+};
+
+PackedWeightResidencyManager& packed_weight_residency_manager() {
+  static PackedWeightResidencyManager manager;
+  return manager;
 }
 
 Tensor cast_vulkan_tensor_dtype_buffer_native(
@@ -207,6 +548,7 @@ void log_materialize_event(
   stream << "kind=" << kind
          << " caller=" << api::current_allocation_label()
          << " path=" << path
+         << " exec_layout=" << execution_layout_name(v_in.execution_layout())
          << " src_storage=" << storage_type_name(v_in.storage_type())
          << " src_layout=" << memory_layout_name(v_in.gpu_memory_layout())
          << " dst_storage=" << storage_type_name(dst_storage_type)
@@ -219,15 +561,757 @@ void log_materialize_event(
   append_materialize_log_line(stream.str());
 }
 
+Tensor materialize_inference_vulkan_matrix_arg(const Tensor& tensor) {
+  if (
+      c10::InferenceMode::is_enabled() &&
+      tensor.is_vulkan() &&
+      tensor.dim() == 2 &&
+      !tensor.is_contiguous_or_false()) {
+    return tensor.t().clone().t();
+  }
+  return tensor;
+}
+
+constexpr size_t kVulkanExecutionPlanKindCount =
+    static_cast<size_t>(VulkanExecutionPlanKind::NumKinds);
+
+size_t execution_plan_kind_index(const VulkanExecutionPlanKind kind) {
+  const size_t idx = static_cast<size_t>(kind);
+  TORCH_INTERNAL_ASSERT(
+      idx < kVulkanExecutionPlanKindCount,
+      "Invalid VulkanExecutionPlanKind");
+  return idx;
+}
+
+const std::array<VulkanExecutionPlanPolicy, kVulkanExecutionPlanKindCount>&
+execution_plan_policies() {
+  static const std::array<VulkanExecutionPlanPolicy, kVulkanExecutionPlanKindCount>
+      policies{{
+          {"Generic",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
+          {"TextureComputeInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
+          {"ElementwiseInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::PreferElementwiseBuffer,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
+          {"ElementwiseBufferInput",
+           api::ExecutionLayout::BUFFER_DIRECT,
+           api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+           api::StorageType::BUFFER,
+           VulkanExecutionPolicyBufferRule::RequireElementwiseBuffer,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
+          {"ReductionAllInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::PreferReductionBuffer,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
+          {"ReductionDimInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::PreferReductionBuffer,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
+          {"LinearInputSource",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::LinearInputSource,
+           false,
+           true,
+           true,
+           false,
+           false},
+          {"LinearWeightSource",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_HEIGHT_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           false,
+           true,
+           true,
+           true,
+           false},
+          {"LinearBiasSource",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           false,
+           true,
+           true,
+           false,
+           false},
+          {"LinearPackedBias",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
+          {"LinearPackedInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
+          {"LinearPackedWeight",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_HEIGHT_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
+          {"Conv2dWeightSource",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           false,
+           true,
+           true,
+           false,
+           false},
+          {"Conv2dBiasSource",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           false,
+           true,
+           true,
+           false,
+           false},
+          {"Conv2dRuntimeInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           true,
+           false,
+           false},
+          {"Conv1dPrepackWeight",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           true,
+           false,
+           false},
+          {"Conv1dPrepackBias",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           true,
+           false,
+           false},
+          {"Conv1dRuntimeInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           true,
+           false,
+           false},
+          {"Conv1dRuntimeWeight",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           true,
+           false,
+           false},
+          {"Conv1dRuntimeBias",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           true,
+           false,
+           false},
+      }};
+  return policies;
+}
+
+const std::string& execution_plan_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_EXECUTION_PLAN_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool execution_plan_logging_enabled() {
+  return !execution_plan_log_path().empty();
+}
+
+struct ExecutionPlanLogState final {
+  std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount> builds{};
+  std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount> executes{};
+  std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount> passthrough{};
+  std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount> texture{};
+  std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount> buffer_direct{};
+  std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount> buffer_view{};
+  std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount> packed_weight{};
+  std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount>
+      widened_bfloat16{};
+  std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount>
+      inference_materializations{};
+  std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount>
+      buffer_materializations{};
+  std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount>
+      texture_materializations{};
+
+  ~ExecutionPlanLogState() {
+    if (!execution_plan_logging_enabled()) {
+      return;
+    }
+
+    std::ofstream out(execution_plan_log_path(), std::ios::app);
+    uint64_t total_builds = 0u;
+    uint64_t total_executes = 0u;
+    for (const auto idx : c10::irange(kVulkanExecutionPlanKindCount)) {
+      const auto build_count = builds[idx].load(std::memory_order_relaxed);
+      const auto execute_count = executes[idx].load(std::memory_order_relaxed);
+      const auto passthrough_count =
+          passthrough[idx].load(std::memory_order_relaxed);
+      const auto texture_count = texture[idx].load(std::memory_order_relaxed);
+      const auto buffer_direct_count =
+          buffer_direct[idx].load(std::memory_order_relaxed);
+      const auto buffer_view_count =
+          buffer_view[idx].load(std::memory_order_relaxed);
+      const auto packed_weight_count =
+          packed_weight[idx].load(std::memory_order_relaxed);
+      const auto widened_count =
+          widened_bfloat16[idx].load(std::memory_order_relaxed);
+      const auto inference_materialize_count =
+          inference_materializations[idx].load(std::memory_order_relaxed);
+      const auto buffer_materialize_count =
+          buffer_materializations[idx].load(std::memory_order_relaxed);
+      const auto texture_materialize_count =
+          texture_materializations[idx].load(std::memory_order_relaxed);
+      if (
+          build_count == 0u && execute_count == 0u && passthrough_count == 0u &&
+          texture_count == 0u && buffer_direct_count == 0u &&
+          buffer_view_count == 0u && packed_weight_count == 0u &&
+          widened_count == 0u && inference_materialize_count == 0u &&
+          buffer_materialize_count == 0u &&
+          texture_materialize_count == 0u) {
+        continue;
+      }
+
+      const auto kind =
+          static_cast<VulkanExecutionPlanKind>(safe_downcast<uint8_t>(idx));
+      out << "execution_plan kind=" << execution_plan_kind_name(kind)
+          << " builds=" << build_count << " executes=" << execute_count
+          << " passthrough=" << passthrough_count
+          << " texture=" << texture_count
+          << " buffer_direct=" << buffer_direct_count
+          << " buffer_view=" << buffer_view_count
+          << " packed_weight=" << packed_weight_count
+          << " widened_bfloat16=" << widened_count
+          << " inference_materializations=" << inference_materialize_count
+          << " buffer_materializations=" << buffer_materialize_count
+          << " texture_materializations=" << texture_materialize_count
+          << '\n';
+      total_builds += build_count;
+      total_executes += execute_count;
+    }
+
+    out << "execution_plan_summary builds=" << total_builds
+        << " executes=" << total_executes << '\n';
+  }
+};
+
+ExecutionPlanLogState& execution_plan_log_state() {
+  static ExecutionPlanLogState state;
+  return state;
+}
+
+void log_execution_plan_build(const VulkanExecutionPlanKind kind) {
+  if (!execution_plan_logging_enabled()) {
+    return;
+  }
+  execution_plan_log_state().builds[execution_plan_kind_index(kind)].fetch_add(
+      1u, std::memory_order_relaxed);
+}
+
+void log_execution_plan_execute(
+    const VulkanExecutionPlan& plan,
+    const bool passthrough,
+    const bool widened_bfloat16,
+    const bool materialized_inference_matrix,
+    const bool materialized_buffer,
+    const bool materialized_texture,
+    const std::optional<api::ExecutionLayout>& actual_layout) {
+  if (!execution_plan_logging_enabled()) {
+    return;
+  }
+
+  auto& state = execution_plan_log_state();
+  const size_t idx = execution_plan_kind_index(plan.kind);
+  state.executes[idx].fetch_add(1u, std::memory_order_relaxed);
+  if (passthrough) {
+    state.passthrough[idx].fetch_add(1u, std::memory_order_relaxed);
+  }
+  if (widened_bfloat16) {
+    state.widened_bfloat16[idx].fetch_add(1u, std::memory_order_relaxed);
+  }
+  if (materialized_inference_matrix) {
+    state.inference_materializations[idx].fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (materialized_buffer) {
+    state.buffer_materializations[idx].fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (materialized_texture) {
+    state.texture_materializations[idx].fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (!actual_layout.has_value()) {
+    return;
+  }
+
+  switch (*actual_layout) {
+    case api::ExecutionLayout::TEXTURE:
+      state.texture[idx].fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case api::ExecutionLayout::BUFFER_DIRECT:
+      state.buffer_direct[idx].fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case api::ExecutionLayout::BUFFER_VIEW:
+      state.buffer_view[idx].fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case api::ExecutionLayout::PACKED_WEIGHT:
+      state.packed_weight[idx].fetch_add(1u, std::memory_order_relaxed);
+      break;
+  }
+}
+
+api::GPUMemoryLayout resolve_execution_plan_memory_layout(
+    const Tensor& tensor,
+    const VulkanExecutionPlanPolicy& policy) {
+  switch (policy.memory_rule) {
+    case VulkanExecutionPolicyMemoryRule::Fixed:
+      return policy.memory_layout;
+    case VulkanExecutionPolicyMemoryRule::LinearInputSource:
+      return tensor.dim() == 2 ? api::GPUMemoryLayout::TENSOR_WIDTH_PACKED
+                               : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED;
+  }
+
+  TORCH_CHECK(false, "Unsupported Vulkan execution plan memory rule");
+}
+
+std::optional<api::ExecutionLayout> select_buffer_execution_layout(
+    const Tensor& tensor,
+    const VulkanExecutionPlanPolicy& policy) {
+  if (!tensor.is_vulkan()) {
+    return std::nullopt;
+  }
+
+  const vTensor& v_tensor = convert(tensor);
+  if (v_tensor.storage_type() != api::StorageType::BUFFER) {
+    return std::nullopt;
+  }
+
+  switch (policy.buffer_rule) {
+    case VulkanExecutionPolicyBufferRule::Never:
+      return std::nullopt;
+    case VulkanExecutionPolicyBufferRule::PreferElementwiseBuffer:
+      if (tensor.scalar_type() != c10::ScalarType::Float) {
+        return std::nullopt;
+      }
+      [[fallthrough]];
+    case VulkanExecutionPolicyBufferRule::RequireElementwiseBuffer:
+      if (supports_buffer_elementwise_compute(v_tensor)) {
+        return resolve_buffer_execution_layout(v_tensor);
+      }
+      return std::nullopt;
+    case VulkanExecutionPolicyBufferRule::PreferReductionBuffer:
+      if (supports_buffer_reduction_compute(v_tensor)) {
+        return resolve_buffer_execution_layout(v_tensor);
+      }
+      return std::nullopt;
+  }
+
+  TORCH_CHECK(false, "Unsupported Vulkan execution plan buffer rule");
+}
+
+bool needs_buffer_storage_transition(
+    const Tensor& input,
+    const api::GPUMemoryLayout memory_layout) {
+  if (!input.is_vulkan()) {
+    return true;
+  }
+
+  const vTensor& v_input = convert(input);
+  return !(
+      v_input.storage_type() == api::StorageType::BUFFER &&
+      v_input.gpu_memory_layout() == memory_layout &&
+      v_input.has_direct_buffer_layout());
+}
+
+bool needs_texture_storage_transition(
+    const Tensor& input,
+    const api::GPUMemoryLayout memory_layout,
+    const api::StorageType storage_type) {
+  if (!input.is_vulkan()) {
+    return true;
+  }
+
+  const vTensor& v_input = convert(input);
+  return !(
+      v_input.storage_type() == storage_type &&
+      v_input.gpu_memory_layout() == memory_layout);
+}
+
 } // namespace
+
+const char* execution_layout_name(const api::ExecutionLayout execution_layout) {
+  return api::to_string(execution_layout);
+}
+
+const char* execution_plan_kind_name(const VulkanExecutionPlanKind kind) {
+  return execution_plan_policy(kind).name;
+}
+
+const VulkanExecutionPlanPolicy& execution_plan_policy(
+    const VulkanExecutionPlanKind kind) {
+  return execution_plan_policies()[execution_plan_kind_index(kind)];
+}
+
+std::optional<Tensor> normalized_optional_tensor(
+    const std::optional<Tensor>& tensor) {
+  if (tensor && tensor->defined()) {
+    return tensor;
+  }
+  return std::nullopt;
+}
+
+bool same_optional_tensor(
+    const std::optional<Tensor>& lhs,
+    const std::optional<Tensor>& rhs) {
+  if (lhs.has_value() != rhs.has_value()) {
+    return false;
+  }
+  if (!lhs.has_value()) {
+    return true;
+  }
+  return lhs->unsafeGetTensorImpl() == rhs->unsafeGetTensorImpl();
+}
+
+int64_t tensor_version_or_zero(const Tensor& tensor) {
+  return tensor.is_inference() ? 0 : tensor._version();
+}
+
+bool has_inference_tensor(
+    const Tensor& weight,
+    const std::optional<Tensor>& bias) {
+  const auto normalized_bias = normalized_optional_tensor(bias);
+  return weight.is_inference() ||
+      (normalized_bias && normalized_bias->is_inference());
+}
+
+VulkanExecutionPlan build_vulkan_execution_plan(
+    const Tensor& tensor,
+    const VulkanExecutionPlanKind kind) {
+  const auto& policy = execution_plan_policy(kind);
+  VulkanExecutionPlan plan;
+  plan.kind = kind;
+  plan.execution_layout = policy.execution_layout;
+  plan.memory_layout = resolve_execution_plan_memory_layout(tensor, policy);
+  plan.storage_type = policy.storage_type;
+  plan.force_storage =
+      policy.force_storage ||
+      (policy.force_storage_if_widen_bfloat16 &&
+       tensor.scalar_type() == c10::ScalarType::BFloat16);
+  plan.widen_bfloat16 =
+      policy.widen_bfloat16 && tensor.scalar_type() == c10::ScalarType::BFloat16;
+  plan.materialize_inference_matrix = policy.materialize_inference_matrix;
+  plan.persistent = policy.persistent;
+
+  if (
+      const auto buffer_execution_layout =
+          select_buffer_execution_layout(tensor, policy)) {
+    plan.execution_layout = *buffer_execution_layout;
+    plan.storage_type = api::StorageType::BUFFER;
+    plan.memory_layout = api::GPUMemoryLayout::TENSOR_WIDTH_PACKED;
+  }
+
+  log_execution_plan_build(kind);
+  return plan;
+}
+
+Tensor execute_vulkan_execution_plan(
+    const Tensor& input_arg,
+    const VulkanExecutionPlan& plan) {
+  Tensor input = input_arg;
+  const bool should_materialize_inference_matrix =
+      plan.materialize_inference_matrix &&
+      c10::InferenceMode::is_enabled() && input.is_vulkan() && input.dim() == 2 &&
+      !input.is_contiguous_or_false();
+  if (plan.materialize_inference_matrix) {
+    input = materialize_inference_vulkan_matrix_arg(input);
+  }
+
+  const bool should_widen_bfloat16 =
+      plan.widen_bfloat16 && input.scalar_type() == kBFloat16;
+  if (plan.widen_bfloat16 && input.scalar_type() == kBFloat16) {
+    if (input.is_vulkan()) {
+      input = convert(input).storage_type() == api::StorageType::BUFFER
+          ? upcast_bfloat16_buffer_to_float(input)
+          : input.cpu().to(kFloat).vulkan();
+    } else {
+      input = input.to(kFloat);
+    }
+  }
+
+  if (!plan.force_storage) {
+    log_execution_plan_execute(
+        plan,
+        true,
+        should_widen_bfloat16,
+        should_materialize_inference_matrix,
+        false,
+        false,
+        input.is_vulkan()
+            ? std::optional<api::ExecutionLayout>(convert(input).execution_layout())
+            : std::nullopt);
+    return input;
+  }
+
+  if (!input.is_vulkan()) {
+    input = input.vulkan();
+  }
+
+  switch (plan.execution_layout) {
+    case api::ExecutionLayout::TEXTURE: {
+      const bool materialized_texture = needs_texture_storage_transition(
+          input, plan.memory_layout, plan.storage_type);
+      Tensor output = mark_tensor_execution(
+          ensure_texture_storage(input, plan.memory_layout, plan.storage_type),
+          api::ExecutionLayout::TEXTURE,
+          plan.persistent);
+      log_execution_plan_execute(
+          plan,
+          false,
+          should_widen_bfloat16,
+          should_materialize_inference_matrix,
+          false,
+          materialized_texture,
+          api::ExecutionLayout::TEXTURE);
+      return output;
+    }
+    case api::ExecutionLayout::BUFFER_DIRECT: {
+      const bool materialized_buffer =
+          needs_buffer_storage_transition(input, plan.memory_layout);
+      Tensor output = mark_tensor_execution(
+          ensure_buffer_storage(input, plan.memory_layout),
+          api::ExecutionLayout::BUFFER_DIRECT,
+          plan.persistent);
+      log_execution_plan_execute(
+          plan,
+          false,
+          should_widen_bfloat16,
+          should_materialize_inference_matrix,
+          materialized_buffer,
+          false,
+          api::ExecutionLayout::BUFFER_DIRECT);
+      return output;
+    }
+    case api::ExecutionLayout::BUFFER_VIEW:
+      if (!input.is_vulkan()) {
+        input = input.vulkan();
+      }
+      if (input.is_vulkan()) {
+        const vTensor& v_input = convert(input);
+        if (
+            v_input.storage_type() == api::StorageType::BUFFER &&
+            v_input.gpu_memory_layout() == plan.memory_layout &&
+            supports_buffer_view_fast_path(v_input)) {
+          Tensor output = mark_tensor_execution(
+              input,
+              resolve_buffer_execution_layout(v_input),
+              plan.persistent);
+          log_execution_plan_execute(
+              plan,
+              false,
+              should_widen_bfloat16,
+              should_materialize_inference_matrix,
+              false,
+              false,
+              convert(output).execution_layout());
+          return output;
+        }
+      }
+      input = mark_tensor_execution(
+          ensure_buffer_storage(input, plan.memory_layout),
+          api::ExecutionLayout::BUFFER_DIRECT,
+          plan.persistent);
+      log_execution_plan_execute(
+          plan,
+          false,
+          should_widen_bfloat16,
+          should_materialize_inference_matrix,
+          true,
+          false,
+          api::ExecutionLayout::BUFFER_DIRECT);
+      return input;
+    case api::ExecutionLayout::PACKED_WEIGHT: {
+      const bool materialized_texture = needs_texture_storage_transition(
+          input, plan.memory_layout, plan.storage_type);
+      input = mark_tensor_execution(
+          ensure_texture_storage(input, plan.memory_layout, plan.storage_type),
+          api::ExecutionLayout::PACKED_WEIGHT,
+          plan.persistent);
+      log_execution_plan_execute(
+          plan,
+          false,
+          should_widen_bfloat16,
+          should_materialize_inference_matrix,
+          false,
+          materialized_texture,
+          api::ExecutionLayout::PACKED_WEIGHT);
+      return input;
+    }
+  }
+
+  TORCH_CHECK(false, "Unsupported Vulkan execution layout");
+}
+
+Tensor prepare_vulkan_direct_buffer_execution_tensor(
+    const Tensor& input,
+    const VulkanExecutionPlan& plan) {
+  TORCH_CHECK(
+      api::uses_buffer_execution(plan.execution_layout),
+      "Vulkan direct buffer execution requires a buffer execution plan");
+
+  Tensor prepared = execute_vulkan_execution_plan(input, plan);
+  const vTensor& v_prepared = convert(prepared);
+  if (
+      v_prepared.storage_type() == api::StorageType::BUFFER &&
+      v_prepared.gpu_memory_layout() == plan.memory_layout &&
+      v_prepared.has_direct_buffer_layout()) {
+    return mark_tensor_execution(
+        prepared, api::ExecutionLayout::BUFFER_DIRECT, plan.persistent);
+  }
+
+  return mark_tensor_execution(
+      ensure_buffer_storage(prepared, plan.memory_layout),
+      api::ExecutionLayout::BUFFER_DIRECT,
+      plan.persistent);
+}
+
+Tensor prepare_vulkan_direct_buffer_execution_tensor(
+    const Tensor& input,
+    const VulkanExecutionPlanKind kind) {
+  const VulkanExecutionPlan plan = build_vulkan_execution_plan(input, kind);
+  return prepare_vulkan_direct_buffer_execution_tensor(input, plan);
+}
+
+Tensor prepare_vulkan_execution_tensor(
+    const Tensor& input,
+    const VulkanExecutionPlanKind kind) {
+  return execute_vulkan_execution_plan(
+      input, build_vulkan_execution_plan(input, kind));
+}
+
+std::optional<Tensor> prepare_optional_vulkan_execution_tensor(
+    const std::optional<Tensor>& input,
+    const VulkanExecutionPlanKind kind) {
+  if (!input || !input->defined()) {
+    return std::nullopt;
+  }
+
+  return prepare_vulkan_execution_tensor(*input, kind);
+}
 
 LogicalBufferMetadata make_buffer_compute_metadata(const vTensor& tensor) {
   return {
-      api::utils::make_whcn_uvec4(tensor.sizes()),
-      api::utils::make_whcn_uvec4(tensor.strides()),
-      api::utils::make_whcn_uvec4(tensor.gpu_strides()),
+      api::utils::make_whcn_uvec4(tensor.logical_sizes()),
+      api::utils::make_whcn_uvec4(tensor.logical_strides()),
+      api::utils::make_whcn_uvec4(tensor.physical_strides()),
       {
-          api::utils::safe_downcast<uint32_t>(tensor.sizes().size()),
+          api::utils::safe_downcast<uint32_t>(tensor.logical_sizes().size()),
           api::utils::safe_downcast<uint32_t>(tensor.numel()),
           api::utils::safe_downcast<uint32_t>(tensor.buffer_length()),
           api::utils::safe_downcast<uint32_t>(tensor.storage_offset()),
@@ -340,6 +1424,14 @@ bool supports_buffer_view_fast_path(const vTensor& v_in) {
       v_in.dtype(), v_in.sizes().size(), v_in.is_quantized());
 }
 
+bool uses_buffer_execution(const vTensor& v_in) {
+  return v_in.uses_buffer_execution();
+}
+
+bool uses_texture_execution(const vTensor& v_in) {
+  return !v_in.uses_buffer_execution();
+}
+
 bool supports_buffer_elementwise_compute(const vTensor& v_in) {
   return supports_buffer_view_fast_path(v_in);
 }
@@ -347,6 +1439,57 @@ bool supports_buffer_elementwise_compute(const vTensor& v_in) {
 bool supports_buffer_reduction_compute(const vTensor& v_in) {
   return supports_buffer_view_fast_path(v_in) &&
       (v_in.dtype() == api::kFloat || v_in.dtype() == api::kBFloat16);
+}
+
+bool scalar_fits_vulkan_int32(const Scalar& scalar) {
+  if (!scalar.isIntegral(true)) {
+    return false;
+  }
+  const int64_t value = scalar.to<int64_t>();
+  return value >= static_cast<int64_t>(std::numeric_limits<int32_t>::min()) &&
+      value <= static_cast<int64_t>(std::numeric_limits<int32_t>::max());
+}
+
+int32_t scalar_to_vulkan_int32(const Scalar& scalar) {
+  return safe_downcast<int32_t>(scalar.to<int64_t>());
+}
+
+bool last_dim_is_width_aligned(const Tensor& tensor) {
+  return tensor.dim() == 0 || tensor.sizes().back() % 4 == 0;
+}
+
+bool supports_native_integral_buffer_compute_dtype(const api::ScalarType dtype) {
+  switch (dtype) {
+    case api::kInt:
+      return true;
+    case api::kByte:
+    case api::kChar:
+      return api::context()->adapter_ptr()->supports_int8_buffer_arithmetic();
+    default:
+      return false;
+  }
+}
+
+bool supports_native_integral_buffer_compute(const Tensor& tensor) {
+  if (!tensor.is_vulkan()) {
+    return false;
+  }
+  const vTensor& v_tensor = convert(tensor);
+  return supports_native_integral_buffer_compute_dtype(v_tensor.dtype()) &&
+      v_tensor.storage_type() == api::StorageType::BUFFER &&
+      v_tensor.gpu_memory_layout() ==
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      supports_buffer_elementwise_compute(v_tensor) && !v_tensor.is_quantized();
+}
+
+bool supports_native_bool_buffer_compute(const Tensor& tensor) {
+  if (!tensor.is_vulkan()) {
+    return false;
+  }
+  const vTensor& v_tensor = convert(tensor);
+  return api::context()->adapter_ptr()->supports_int8_buffer_arithmetic() &&
+      v_tensor.dtype() == api::kBool &&
+      supports_buffer_elementwise_compute(v_tensor) && !v_tensor.is_quantized();
 }
 
 bool can_make_buffer_metadata_view(
@@ -404,6 +1547,7 @@ std::string describe_buffer_view_fast_path_failure(const vTensor& v_in) {
       << ", ndim=" << v_in.sizes().size()
       << ", dtype=" << api::to_string(v_in.dtype())
       << ", quantized=" << (v_in.is_quantized() ? 1 : 0)
+      << ", exec_layout=" << execution_layout_name(v_in.execution_layout())
       << ", storage=" << storage_type_name(v_in.storage_type())
       << ", layout=" << memory_layout_name(v_in.gpu_memory_layout())
       << ", direct_buffer=" << (v_in.has_direct_buffer_layout() ? 1 : 0)
@@ -433,10 +1577,6 @@ vTensor materialize_to_contiguous_buffer(
       "materialize");
 
   api::Context* const context = api::context();
-  api::StorageBuffer staging(context, v_in.dtype(), v_in.numel());
-  vTensor v_src = v_in;
-  pack_vtensor_to_staging(v_src, staging.buffer());
-
   vTensor v_out{
       context,
       v_in.sizes(),
@@ -444,6 +1584,40 @@ vTensor materialize_to_contiguous_buffer(
       api::StorageType::BUFFER,
       memory_layout,
   };
+
+  if (
+      v_in.storage_type() == api::StorageType::BUFFER &&
+      v_in.dtype() == api::kFloat) {
+    vTensor v_src = v_in;
+    api::PipelineBarrier pipeline_barrier{};
+    const api::utils::uvec3 global_size = {
+        api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_out.numel(), 1)),
+        1u,
+        1u,
+    };
+    context->submit_compute_job(
+        VK_KERNEL(buffer_to_buffer),
+        pipeline_barrier,
+        global_size,
+        adaptive_work_group_size(global_size),
+        VK_NULL_HANDLE,
+        v_out.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        make_buffer_compute_metadata_ubo(context, v_out).buffer(),
+        v_src.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::READ),
+        make_buffer_compute_metadata_ubo(context, v_src).buffer());
+    return v_out;
+  }
+
+  api::StorageBuffer staging(context, v_in.dtype(), v_in.numel());
+  vTensor v_src = v_in;
+  pack_vtensor_to_staging(v_src, staging.buffer());
+
   api::PipelineBarrier pipeline_barrier{};
   add_buffer_barrier(
       pipeline_barrier,
@@ -611,6 +1785,79 @@ Tensor upcast_bfloat16_buffer_to_float(const Tensor& input) {
       make_buffer_compute_metadata_ubo(context, v_input).buffer());
 
   return convert(v_out);
+}
+
+Tensor mark_tensor_execution(
+    const Tensor& input,
+    const api::ExecutionLayout execution_layout,
+    const bool persistent) {
+  if (!input.is_vulkan()) {
+    return input;
+  }
+
+  vTensor& v_input = convert(input);
+  v_input.set_execution_layout(execution_layout);
+  v_input.set_execution_persistent(persistent);
+  return input;
+}
+
+PackedWeightHandle make_packed_weight_handle(
+    Tensor weight,
+    Tensor bias,
+    std::vector<int64_t> logical_weight_sizes,
+    const PackedWeightKind kind,
+    const bool bias_defined,
+    const bool quantized,
+    const PackedWeightResidencyClass residency_class) {
+  const bool persistent =
+      residency_class == PackedWeightResidencyClass::PersistentInference;
+  const size_t resident_nbytes = packed_weight_handle_nbytes(weight, bias);
+  return PackedWeightHandle(
+      mark_tensor_execution(
+          weight, api::ExecutionLayout::PACKED_WEIGHT, persistent),
+      mark_tensor_execution(
+          bias, api::ExecutionLayout::PACKED_WEIGHT, persistent),
+      std::move(logical_weight_sizes),
+      kind,
+      bias_defined,
+      residency_class,
+      quantized,
+      api::ExecutionLayout::PACKED_WEIGHT,
+      resident_nbytes);
+}
+
+std::optional<PackedWeightHandle> lookup_packed_weight_handle(
+    const Tensor& source_weight,
+    const std::optional<Tensor>& source_bias,
+    IntArrayRef logical_weight_sizes,
+    const PackedWeightKind kind,
+    const bool quantized,
+    const uint64_t options_key) {
+  return packed_weight_residency_manager().lookup(
+      source_weight,
+      normalized_optional_tensor(source_bias),
+      logical_weight_sizes,
+      kind,
+      quantized,
+      options_key);
+}
+
+void store_packed_weight_handle(
+    const Tensor& source_weight,
+    const std::optional<Tensor>& source_bias,
+    IntArrayRef logical_weight_sizes,
+    const PackedWeightKind kind,
+    const PackedWeightHandle& handle,
+    const bool quantized,
+    const uint64_t options_key) {
+  packed_weight_residency_manager().store(
+      source_weight,
+      normalized_optional_tensor(source_bias),
+      logical_weight_sizes,
+      kind,
+      handle,
+      quantized,
+      options_key);
 }
 
 Tensor cast_vulkan_tensor_dtype(const Tensor& input_arg, ScalarType dtype) {

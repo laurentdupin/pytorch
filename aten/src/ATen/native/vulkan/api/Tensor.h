@@ -140,28 +140,39 @@ class vTensor final {
     api::utils::uvec4 info;
   };
 
+  struct LogicalTensorDesc final {
+    api::ScalarType dtype{api::ScalarType::Undefined};
+    std::vector<int64_t> sizes{};
+    std::vector<int64_t> strides{};
+    int64_t storage_offset{0};
+  };
+
+  struct PhysicalLayoutDesc final {
+    api::StorageType storage_type{api::StorageType::UNKNOWN};
+    api::GPUMemoryLayout memory_layout{
+        api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED};
+    std::vector<int64_t> sizes{};
+    std::vector<int64_t> strides{};
+    api::utils::uvec3 virtual_extents{};
+  };
+
+  struct ExecutionViewDesc final {
+    api::ExecutionLayout layout{api::ExecutionLayout::TEXTURE};
+    bool persistent{false};
+  };
+
  private:
-  // Tensor Options
-  api::ScalarType dtype_;
+  // Logical tensor identity: dtype, sizes, logical strides, and storage
+  // offset. This is the semantic tensor seen by callers.
+  LogicalTensorDesc logical_desc_;
 
-  // GPU specific memory layout qualifier
-  api::GPUMemoryLayout memory_layout_;
+  // Physical resource layout: storage type, memory layout, padded physical
+  // sizes/strides, and the virtual extents consumed by execution.
+  PhysicalLayoutDesc physical_desc_;
 
-  // Sizes and Strides
-  std::vector<int64_t> sizes_;
-  std::vector<int64_t> strides_;
-  int64_t storage_offset_{0};
-
-  // Storage Dimensions. When stored on the GPU, one dimension will be aligned
-  // to the next multiple of 4 in order to take advantage of vec4 data types.
-  std::vector<int64_t> gpu_sizes_;
-  std::vector<int64_t> gpu_strides_;
-
-  // The extents that correspond to the tensor's size metadata. Note that this
-  // may not be the same as the extents of the underlying image texture because
-  // vTensor can be virtually resized via virtual_resize() which will cause it
-  // to be interpreted as a tensor with a different size.
-  api::utils::uvec3 virtual_extents_;
+  // Execution contract: texture execution, direct buffer execution,
+  // metadata-view buffer execution, or reserved packed-weight execution.
+  ExecutionViewDesc execution_desc_;
 
   // A Vulkan uniform buffer containing sizes and strides of the GPU buffer that
   // can be passed into a shader.
@@ -210,7 +221,7 @@ class vTensor final {
   */
 
   inline api::StorageType storage_type() const {
-    return view_->storage_type_;
+    return physical_desc_.storage_type;
   }
 
   inline api::VulkanImage& image() const& {
@@ -259,11 +270,47 @@ class vTensor final {
         (view_->last_access_.stage & api::PipelineStage::COMPUTE) != 0;
   }
 
+  inline const LogicalTensorDesc& logical_desc() const {
+    return logical_desc_;
+  }
+
+  inline const PhysicalLayoutDesc& physical_desc() const {
+    return physical_desc_;
+  }
+
+  inline const ExecutionViewDesc& execution_desc() const {
+    return execution_desc_;
+  }
+
+  inline api::ExecutionLayout execution_layout() const {
+    return execution_desc_.layout;
+  }
+
+  inline bool uses_buffer_execution() const {
+    return api::uses_buffer_execution(execution_layout());
+  }
+
+  inline bool is_buffer_view() const {
+    return execution_layout() == api::ExecutionLayout::BUFFER_VIEW;
+  }
+
+  inline bool is_packed_weight() const {
+    return execution_layout() == api::ExecutionLayout::PACKED_WEIGHT;
+  }
+
+  inline void set_execution_layout(const api::ExecutionLayout layout) {
+    execution_desc_.layout = layout;
+  }
+
+  inline void set_execution_persistent(const bool persistent) {
+    execution_desc_.persistent = persistent;
+  }
+
   /*
    * Extract an `api::ScalarType` from the TensorOptions member
    */
   inline api::ScalarType dtype() const {
-    return dtype_;
+    return logical_desc_.dtype;
   }
 
   /*
@@ -278,35 +325,51 @@ class vTensor final {
   }
 
   inline api::GPUMemoryLayout gpu_memory_layout() const {
-    return memory_layout_;
+    return physical_desc_.memory_layout;
   }
 
   inline uint32_t gpu_memory_layout_as_uint() const {
-    return static_cast<uint32_t>(memory_layout_);
+    return static_cast<uint32_t>(physical_desc_.memory_layout);
   }
 
   inline const std::vector<int64_t>& sizes() const {
-    return sizes_;
+    return logical_desc_.sizes;
   }
 
   inline const std::vector<int64_t>& strides() const {
-    return strides_;
+    return logical_desc_.strides;
   }
 
   inline int64_t storage_offset() const {
-    return storage_offset_;
+    return logical_desc_.storage_offset;
+  }
+
+  inline const std::vector<int64_t>& logical_sizes() const {
+    return logical_desc_.sizes;
+  }
+
+  inline const std::vector<int64_t>& logical_strides() const {
+    return logical_desc_.strides;
   }
 
   inline const std::vector<int64_t>& gpu_sizes() const {
-    return gpu_sizes_;
+    return physical_desc_.sizes;
   }
 
   inline const std::vector<int64_t>& gpu_strides() const {
-    return gpu_strides_;
+    return physical_desc_.strides;
+  }
+
+  inline const std::vector<int64_t>& physical_sizes() const {
+    return physical_desc_.sizes;
+  }
+
+  inline const std::vector<int64_t>& physical_strides() const {
+    return physical_desc_.strides;
   }
 
   inline const api::utils::uvec3& virtual_extents() const {
-    return virtual_extents_;
+    return physical_desc_.virtual_extents;
   }
 
   /*
@@ -385,14 +448,16 @@ class vTensor final {
   }
 
   /*
-   * Returns numel but based on gpu_sizes_ instead of sizes_
+   * Returns numel but based on the physical padded sizes instead of the
+   * logical sizes.
    */
   inline size_t gpu_numel() const {
-    return api::utils::multiply_integers(gpu_sizes_);
+    return api::utils::multiply_integers(physical_desc_.sizes);
   }
 
   /*
-   * Return nbytes but bnased on gpu_sizes_ instead of sizes_
+   * Return nbytes based on the physical padded sizes instead of the logical
+   * sizes.
    */
   inline VkDeviceSize gpu_nbytes() const {
     return api::element_size(dtype()) * gpu_numel();

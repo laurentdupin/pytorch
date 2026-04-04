@@ -14,7 +14,6 @@
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <cmath>
-#include <limits>
 #include <torch/library.h>
 
 namespace at {
@@ -34,43 +33,6 @@ enum class BinaryOpKind : uint8_t {
   FloorDivide,
   Pow,
 };
-
-bool supports_int8_buffer_arithmetic() {
-  return api::context()->adapter_ptr()->supports_int8_buffer_arithmetic();
-}
-
-bool scalar_fits_int32(const Scalar& scalar) {
-  if (!scalar.isIntegral(true)) {
-    return false;
-  }
-  const int64_t value = scalar.to<int64_t>();
-  return value >= static_cast<int64_t>(std::numeric_limits<int32_t>::min()) &&
-      value <= static_cast<int64_t>(std::numeric_limits<int32_t>::max());
-}
-
-int32_t scalar_to_int32(const Scalar& scalar) {
-  return safe_downcast<int32_t>(scalar.to<int64_t>());
-}
-
-bool is_integral_buffer_dtype(const api::ScalarType dtype) {
-  return dtype == api::kInt || dtype == api::kByte || dtype == api::kChar;
-}
-
-bool supports_native_integral_buffer_compute_dtype(const api::ScalarType dtype) {
-  switch (dtype) {
-    case api::kInt:
-      return true;
-    case api::kByte:
-    case api::kChar:
-      return supports_int8_buffer_arithmetic();
-    default:
-      return false;
-  }
-}
-
-bool last_dim_is_width_aligned(const Tensor& tensor) {
-  return tensor.dim() == 0 || tensor.sizes().back() % 4 == 0;
-}
 
 const api::ShaderInfo& integral_buffer_scalar_shader(
     const api::ScalarType dtype,
@@ -190,11 +152,6 @@ bool needs_binary_cpu_fallback(const Tensor& tensor) {
   return tensor.is_vulkan() && convert(tensor).dtype() != api::kFloat;
 }
 
-bool is_buffer_elementwise_candidate(const Tensor& tensor) {
-  return tensor.is_vulkan() &&
-      utils::supports_buffer_elementwise_compute(convert(tensor));
-}
-
 bool should_run_buffer_binary_scalar(const Tensor& tensor) {
   // Disabled for now. The first scalar-uniform buffer variant still needs
   // dedicated shader validation; keep scalar math on the proven texture path
@@ -203,24 +160,21 @@ bool should_run_buffer_binary_scalar(const Tensor& tensor) {
 }
 
 bool is_integral_buffer_compute_candidate(const Tensor& tensor) {
-  if (!tensor.is_vulkan()) {
-    return false;
-  }
-  const vTensor& v_tensor = convert(tensor);
-  return is_integral_buffer_dtype(v_tensor.dtype()) &&
-      supports_native_integral_buffer_compute_dtype(v_tensor.dtype()) &&
-      v_tensor.storage_type() == api::StorageType::BUFFER &&
-      v_tensor.gpu_memory_layout() ==
-          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
-      utils::supports_buffer_elementwise_compute(v_tensor) &&
-      !v_tensor.is_quantized();
+  return utils::supports_native_integral_buffer_compute(tensor);
 }
 
 bool should_run_buffer_binary_tensor(const Tensor& self, const Tensor& other) {
   const ScalarType promoted_dtype =
       promote_for_vulkan_binary(self.scalar_type(), other.scalar_type());
-  return is_buffer_elementwise_candidate(self) &&
-      is_buffer_elementwise_candidate(other) &&
+  return self.is_vulkan() && other.is_vulkan() &&
+      api::uses_buffer_execution(
+          utils::build_vulkan_execution_plan(
+              self, utils::VulkanExecutionPlanKind::ElementwiseInput)
+              .execution_layout) &&
+      api::uses_buffer_execution(
+          utils::build_vulkan_execution_plan(
+              other, utils::VulkanExecutionPlanKind::ElementwiseInput)
+              .execution_layout) &&
       promoted_dtype == c10::ScalarType::Float &&
       self.scalar_type() == promoted_dtype &&
       other.scalar_type() == promoted_dtype &&
@@ -248,7 +202,7 @@ bool should_run_buffer_binary_tensor_integral(
   }
   if (
       (self.scalar_type() == kChar || self.scalar_type() == kByte) &&
-      !last_dim_is_width_aligned(self)) {
+      !utils::last_dim_is_width_aligned(self)) {
     return false;
   }
   if (
@@ -259,7 +213,7 @@ bool should_run_buffer_binary_tensor_integral(
   if (!alpha_arg.has_value()) {
     return true;
   }
-  return scalar_fits_int32(*alpha_arg);
+  return utils::scalar_fits_vulkan_int32(*alpha_arg);
 }
 
 bool should_run_buffer_binary_scalar_integral(
@@ -272,7 +226,7 @@ bool should_run_buffer_binary_scalar_integral(
   }
   if (
       (self.scalar_type() == kChar || self.scalar_type() == kByte) &&
-      !last_dim_is_width_aligned(self)) {
+      !utils::last_dim_is_width_aligned(self)) {
     return false;
   }
   if (
@@ -280,24 +234,18 @@ bool should_run_buffer_binary_scalar_integral(
       op_kind != BinaryOpKind::Mul) {
     return false;
   }
-  if (!scalar_fits_int32(other_arg)) {
+  if (!utils::scalar_fits_vulkan_int32(other_arg)) {
     return false;
   }
 
   if (!alpha_arg.has_value()) {
     return true;
   }
-  return scalar_fits_int32(*alpha_arg);
+  return utils::scalar_fits_vulkan_int32(*alpha_arg);
 }
 
 bool is_bool_buffer_compute_candidate(const Tensor& tensor) {
-  if (!tensor.is_vulkan()) {
-    return false;
-  }
-  const vTensor& v_tensor = convert(tensor);
-  return supports_int8_buffer_arithmetic() && v_tensor.dtype() == api::kBool &&
-      utils::supports_buffer_elementwise_compute(v_tensor) &&
-      !v_tensor.is_quantized();
+  return utils::supports_native_bool_buffer_compute(tensor);
 }
 
 bool should_run_buffer_binary_tensor_bool(
@@ -317,13 +265,14 @@ bool should_run_buffer_binary_tensor_bool(
   if (self.sizes().vec() != other.sizes().vec()) {
     return false;
   }
-  if (!last_dim_is_width_aligned(self)) {
+  if (!utils::last_dim_is_width_aligned(self)) {
     return false;
   }
   if (op_kind != BinaryOpKind::Add && op_kind != BinaryOpKind::Mul) {
     return false;
   }
-  return !alpha_arg.has_value() || scalar_fits_int32(*alpha_arg);
+  return !alpha_arg.has_value() ||
+      utils::scalar_fits_vulkan_int32(*alpha_arg);
 }
 
 bool should_run_buffer_binary_scalar_bool(
@@ -337,13 +286,14 @@ bool should_run_buffer_binary_scalar_bool(
   if (!is_bool_buffer_compute_candidate(self)) {
     return false;
   }
-  if (!last_dim_is_width_aligned(self)) {
+  if (!utils::last_dim_is_width_aligned(self)) {
     return false;
   }
   if (op_kind != BinaryOpKind::Add && op_kind != BinaryOpKind::Mul) {
     return false;
   }
-  return !alpha_arg.has_value() || scalar_fits_int32(*alpha_arg);
+  return !alpha_arg.has_value() ||
+      utils::scalar_fits_vulkan_int32(*alpha_arg);
 }
 
 Tensor binary_op_scalar_cpu_fallback(
@@ -548,7 +498,7 @@ static Tensor binary_op_tensor_buffer_bool(
   const struct Block final {
     int32_t alpha;
   } block{
-      alpha_arg ? scalar_to_int32(*alpha_arg) : 1,
+      alpha_arg ? utils::scalar_to_vulkan_int32(*alpha_arg) : 1,
   };
 
   api::UniformParamsBuffer params(context, block);
@@ -594,7 +544,8 @@ static Tensor binary_op_scalar_buffer(
   api::Context* const context = api::context();
 
   Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
-  self = utils::ensure_buffer_storage(self);
+  self = utils::prepare_vulkan_execution_tensor(
+      self, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
   vTensor& v_self = convert(self);
 
   vTensor v_output{
@@ -664,9 +615,10 @@ static Tensor binary_op_scalar_buffer_integral(
 
   const int32_t other_val =
       alpha_arg ? safe_downcast<int32_t>(
-                      static_cast<int64_t>(scalar_to_int32(other)) *
-                      scalar_to_int32(*alpha_arg))
-                : scalar_to_int32(other);
+                      static_cast<int64_t>(
+                          utils::scalar_to_vulkan_int32(other)) *
+                      utils::scalar_to_vulkan_int32(*alpha_arg))
+                : utils::scalar_to_vulkan_int32(other);
 
   const struct Block final {
     int32_t other;
@@ -791,9 +743,8 @@ static Tensor binary_op_scalar(
     return binary_op_scalar_buffer(
         self, other, alpha_arg, buffer_shader_descriptor);
   }
-  if (convert(self).storage_type() == api::StorageType::BUFFER) {
-    self = utils::ensure_texture_storage(self);
-  }
+  self = utils::prepare_vulkan_execution_tensor(
+      self, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_self = convert(self);
 
   vTensor v_output{
@@ -938,8 +889,10 @@ static Tensor binary_op_tensor_buffer(
 
   Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
   Tensor other = other_arg.is_vulkan() ? other_arg : other_arg.vulkan();
-  self = utils::ensure_buffer_storage(self);
-  other = utils::ensure_buffer_storage(other);
+  self = utils::prepare_vulkan_execution_tensor(
+      self, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  other = utils::prepare_vulkan_execution_tensor(
+      other, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
 
   vTensor& v_self = convert(self);
   vTensor& v_other = convert(other);
@@ -1027,13 +980,11 @@ static Tensor binary_op_tensor(
     return binary_op_tensor_buffer(
         self, other, alpha_arg, buffer_shader_descriptor);
   }
-  if (convert(self).storage_type() == api::StorageType::BUFFER) {
-    self = utils::ensure_texture_storage(self);
-  }
+  self = utils::prepare_vulkan_execution_tensor(
+      self, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_self = convert(self);
-  if (convert(other).storage_type() == api::StorageType::BUFFER) {
-    other = utils::ensure_texture_storage(other);
-  }
+  other = utils::prepare_vulkan_execution_tensor(
+      other, utils::VulkanExecutionPlanKind::TextureComputeInput);
 
   const vTensor& v_other = convert(other);
 
@@ -1213,9 +1164,8 @@ static Tensor& binary_op_tensor_(
       "In-place Vulkan binary ops do not yet support buffer-backed logical views");
 
   Tensor other = binary_op_preprocess_other_arg(other_arg);
-  if (convert(other).storage_type() == api::StorageType::BUFFER) {
-    other = utils::ensure_texture_storage(other);
-  }
+  other = utils::prepare_vulkan_execution_tensor(
+      other, utils::VulkanExecutionPlanKind::TextureComputeInput);
 
   const vTensor& v_other = convert(other);
 

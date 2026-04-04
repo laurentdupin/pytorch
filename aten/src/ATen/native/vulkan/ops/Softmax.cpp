@@ -67,9 +67,12 @@ Tensor scaled_dot_product_attention_tiled_3d_vulkan(
   const Tensor value =
       value_arg.is_contiguous_or_false() ? value_arg : value_arg.contiguous();
 
-  const Tensor query_texture = utils::ensure_texture_storage(query);
-  const Tensor key_texture = utils::ensure_texture_storage(key);
-  const Tensor value_texture = utils::ensure_texture_storage(value);
+  const Tensor query_texture = utils::prepare_vulkan_execution_tensor(
+      query, utils::VulkanExecutionPlanKind::TextureComputeInput);
+  const Tensor key_texture = utils::prepare_vulkan_execution_tensor(
+      key, utils::VulkanExecutionPlanKind::TextureComputeInput);
+  const Tensor value_texture = utils::prepare_vulkan_execution_tensor(
+      value, utils::VulkanExecutionPlanKind::TextureComputeInput);
 
   const vTensor& v_query = convert(query_texture);
   const vTensor& v_key = convert(key_texture);
@@ -240,9 +243,12 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
     attn_shape = {batch, heads, target_len, source_len};
   }
 
-  query_3d = utils::ensure_texture_storage(query_3d);
-  key_3d = utils::ensure_texture_storage(key_3d);
-  value_3d = utils::ensure_texture_storage(value_3d);
+  query_3d = utils::prepare_vulkan_execution_tensor(
+      query_3d, utils::VulkanExecutionPlanKind::TextureComputeInput);
+  key_3d = utils::prepare_vulkan_execution_tensor(
+      key_3d, utils::VulkanExecutionPlanKind::TextureComputeInput);
+  value_3d = utils::prepare_vulkan_execution_tensor(
+      value_3d, utils::VulkanExecutionPlanKind::TextureComputeInput);
 
   Tensor attn = at::bmm(query_3d, key_3d.transpose(1, 2));
   attn = attn.softmax(-1);
@@ -370,10 +376,8 @@ Tensor softmax_internal(
       input_arg.dim());
   api::Context* const context = api::context();
 
-  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  if (convert(input).storage_type() == api::StorageType::BUFFER) {
-    input = utils::ensure_texture_storage(input);
-  }
+  Tensor input = utils::prepare_vulkan_execution_tensor(
+      input_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_input = convert(input);
 
   vTensor v_output{

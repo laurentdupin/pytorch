@@ -70,6 +70,11 @@ Tensor slice_buffer_view(
       storage_offset);
 }
 
+Tensor prepare_slice_texture_input(const Tensor& input_arg) {
+  return utils::prepare_vulkan_execution_tensor(
+      input_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
+}
+
 Tensor slice_4d(
     const Tensor& input_arg,
     const int64_t dim,
@@ -81,11 +86,8 @@ Tensor slice_4d(
     vTensor& v_output) {
   api::Context* const context = api::context();
 
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  vTensor v_self = convert(input);
-  if (v_self.storage_type() == api::StorageType::BUFFER) {
-    v_self = convert(utils::ensure_texture_storage(input));
-  }
+  const Tensor input = prepare_slice_texture_input(input_arg);
+  const vTensor& v_self = convert(input);
 
   uint32_t out_channels = out_tsize.data[1u];
   uint32_t in_channels = in_tsize.data[1u];
@@ -150,11 +152,8 @@ Tensor slice_width(
     vTensor& v_output) {
   api::Context* const context = api::context();
 
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  vTensor v_self = convert(input);
-  if (v_self.storage_type() == api::StorageType::BUFFER) {
-    v_self = convert(utils::ensure_texture_storage(input));
-  }
+  const Tensor input = prepare_slice_texture_input(input_arg);
+  const vTensor& v_self = convert(input);
 
   uvec3 src_offset{};
   uvec3 dst_offset{};
@@ -229,11 +228,8 @@ Tensor slice_height(
     vTensor& v_output) {
   api::Context* const context = api::context();
 
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  vTensor v_self = convert(input);
-  if (v_self.storage_type() == api::StorageType::BUFFER) {
-    v_self = convert(utils::ensure_texture_storage(input));
-  }
+  const Tensor input = prepare_slice_texture_input(input_arg);
+  const vTensor& v_self = convert(input);
 
   uvec3 src_offset{};
   uvec3 dst_offset{};
