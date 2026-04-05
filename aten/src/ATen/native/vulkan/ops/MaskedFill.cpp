@@ -1,5 +1,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/Functions.h>
 #include <torch/library.h>
 #include <vector>
 
@@ -15,6 +17,18 @@ Tensor masked_fill_scalar(
     const Tensor& self_arg,
     const Tensor& mask_arg,
     const Scalar& value) {
+  if (self_arg.dim() > 4 || mask_arg.dim() > 4) {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor cpu_result =
+        self_arg.cpu().masked_fill(mask_arg.cpu(), value);
+    Tensor out = at::empty(
+        cpu_result.sizes(),
+        self_arg.options().device(at::kVulkan));
+    ops::copy_(out, cpu_result);
+    return out;
+  }
+
   utils::is_broadcastable(self_arg, mask_arg);
 
   api::Context* const context = api::context();
@@ -132,6 +146,24 @@ Tensor masked_fill_tensor(
   return masked_fill_scalar(self_arg, mask_arg, value.item<float>());
 }
 
+Tensor& masked_fill_scalar_(
+    Tensor& self,
+    const Tensor& mask,
+    const Scalar& value) {
+  Tensor out = masked_fill_scalar(self, mask, value);
+  self.copy_(out);
+  return self;
+}
+
+Tensor& masked_fill_tensor_(
+    Tensor& self,
+    const Tensor& mask,
+    const Tensor& value) {
+  Tensor out = masked_fill_tensor(self, mask, value);
+  self.copy_(out);
+  return self;
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
@@ -141,6 +173,12 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("aten::masked_fill.Tensor"),
       TORCH_FN(masked_fill_tensor));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::masked_fill_.Scalar"),
+      TORCH_FN(masked_fill_scalar_));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::masked_fill_.Tensor"),
+      TORCH_FN(masked_fill_tensor_));
 }
 
 #endif /* USE_VULKAN_API */

@@ -221,6 +221,25 @@ inline vTensor& convert(const Tensor& tensor) {
   return impl->unsafe_opaque_handle();
 }
 
+inline Tensor& rebind_vulkan_output(Tensor& out, const Tensor& result) {
+  TORCH_CHECK(out.is_vulkan(), "Vulkan output tensor expected");
+  TORCH_CHECK(result.is_vulkan(), "Vulkan result tensor expected");
+
+  if (out.unsafeGetTensorImpl() == result.unsafeGetTensorImpl()) {
+    return out;
+  }
+
+  const vTensor& v_result = convert(result);
+  vTensorImpl* const out_impl =
+      static_cast<vTensorImpl*>(out.unsafeGetTensorImpl());
+  out_impl->rebind_from_vulkan(
+      v_result,
+      v_result.sizes(),
+      logical_strides(v_result),
+      v_result.storage_offset());
+  return out;
+}
+
 } // namespace ops
 } // namespace vulkan
 } // namespace native

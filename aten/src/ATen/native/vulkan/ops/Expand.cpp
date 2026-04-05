@@ -1,5 +1,8 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/Functions.h>
+#include <ATen/ExpandUtils.h>
 #include <torch/library.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
@@ -22,9 +25,7 @@ Tensor expand(
     const at::Tensor& self,
     const IntArrayRef output_size,
     bool implicit = false) {
-  TORCH_CHECK(
-      self.dim() > 0 && self.dim() <= 4,
-      "Vulkan expand supports up to 4d tensors");
+  TORCH_CHECK(self.dim() > 0, "Vulkan expand only supports tensors with at least 1 dimension");
   TORCH_CHECK(
       static_cast<size_t>(self.dim()) <= output_size.size(),
       "Vulkan expand: the number of sizes provided (",
@@ -33,38 +34,39 @@ Tensor expand(
       self.dim(),
       ").");
 
-  std::vector<int64_t> repeat_size = std::vector<int64_t>(output_size.size());
-  std::vector<int64_t> input_size = self.sizes().vec();
+  if (self.is_vulkan() && self.dim() <= 4 && output_size.size() <= 4) {
+    const vTensor& v_self = convert(self);
+    if (utils::supports_buffer_view_fast_path(v_self)) {
+      const auto logical_geometry = inferExpandGeometry_dimvector(
+          v_self.sizes(), v_self.logical_strides(), output_size);
+      const auto physical_geometry = inferExpandGeometry_dimvector(
+          v_self.sizes(), v_self.gpu_strides(), output_size);
 
-  int in_idx = input_size.size() - 1;
-  for (int i = output_size.size() - 1; i >= 0; --i) {
-    if (in_idx >= 0) {
-      TORCH_CHECK(
-          input_size[in_idx] == output_size[i] || input_size[in_idx] == 1 ||
-              output_size[i] == -1,
-          "Vulkan expand: the expanded size of the tensor (",
-          output_size[i],
-          ") must match the existing size (",
-          input_size[in_idx],
-          ") at non-singleton dimension ",
-          i);
-
-      if (input_size[in_idx] == output_size[i] || output_size[i] == -1) {
-        repeat_size[i] = 1;
-      } else if (input_size[in_idx] == 1) {
-        repeat_size[i] = output_size[i];
+      if (utils::can_make_buffer_metadata_view(
+              v_self,
+              logical_geometry.sizes,
+              logical_geometry.strides,
+              physical_geometry.strides,
+              v_self.storage_offset())) {
+        return utils::make_buffer_metadata_view(
+            self,
+            logical_geometry.sizes,
+            logical_geometry.strides,
+            physical_geometry.strides,
+            v_self.storage_offset());
       }
-      --in_idx;
-    } else {
-      TORCH_CHECK(
-          output_size[i] != -1,
-          "Vulkan expand: the expanded size of the tensor (-1) is not allowed in a leading, non-existing dimension 0.");
-
-      repeat_size[i] = output_size[i];
     }
   }
 
-  return self.repeat(repeat_size);
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  Tensor cpu = self.cpu();
+  Tensor cpu_expanded = cpu.expand(output_size.vec(), implicit);
+  Tensor out = at::empty(
+      cpu_expanded.sizes(),
+      self.options().device(at::kVulkan));
+  ops::copy_(out, cpu_expanded);
+  return out;
 }
 
 Tensor expand_as(const at::Tensor& self, const at::Tensor& other) {

@@ -107,6 +107,18 @@ struct VulkanOpaqueTensorImpl : public OpaqueTensorImpl<OpaqueHandle> {
     this->refresh_numel();
   }
 
+  void rebind_from_vulkan(
+      OpaqueHandle opaque_handle,
+      c10::IntArrayRef sizes,
+      c10::IntArrayRef strides,
+      int64_t storage_offset) {
+    this->unsafe_opaque_handle() = std::move(opaque_handle);
+    this->set_sizes_and_strides(sizes, strides);
+    strides_ = strides.vec();
+    storage_offset_ = storage_offset;
+    this->refresh_numel();
+  }
+
  private:
   const char* tensorimpl_type_name() const override {
     return "VulkanOpaqueTensorImpl";

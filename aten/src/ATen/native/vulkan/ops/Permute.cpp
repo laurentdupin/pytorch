@@ -1,5 +1,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/Functions.h>
 #include <torch/library.h>
 
 namespace at {
@@ -79,6 +81,17 @@ Tensor permute(const Tensor& self, IntArrayRef dims) {
   auto nDims = safe_downcast<uint32_t>(self.dim());
   TORCH_CHECK(
       dims.size() == (size_t)nDims, "number of dims don't match in permute");
+  if (self.dim() > 4) {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor cpu = self.cpu();
+    const Tensor cpu_permuted = cpu.permute(dims.vec());
+    Tensor out = at::empty(
+        cpu_permuted.sizes(),
+        self.options().device(at::kVulkan));
+    ops::copy_(out, cpu_permuted);
+    return out;
+  }
 
   uvec4 in_size{1u, 1u, 1u, 1u}, out_size{1u, 1u, 1u, 1u};
   uvec4 out_dims{0u, 1u, 2u, 3u};

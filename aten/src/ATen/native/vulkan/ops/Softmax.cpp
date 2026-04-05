@@ -8,6 +8,7 @@ namespace at {
 namespace native {
 namespace vulkan {
 namespace ops {
+
 namespace {
 
 using namespace api::utils;
@@ -23,6 +24,167 @@ Tensor maybe_scale_query(const Tensor& query, const double query_scale) {
     return query;
   }
   return query.mul(query_scale);
+}
+
+Tensor flatten_attention_batch_heads(
+    const Tensor& tensor,
+    const int64_t batch_heads,
+    const int64_t sequence_length,
+    const int64_t feature_size) {
+  if (tensor.dim() == 3) {
+    return tensor;
+  }
+  return tensor.reshape({batch_heads, sequence_length, feature_size});
+}
+
+Tensor repeat_attention_heads_for_gqa(
+    const Tensor& tensor,
+    const int64_t repeat_factor) {
+  if (repeat_factor == 1) {
+    return tensor;
+  }
+
+  TORCH_CHECK(
+      tensor.dim() == 4,
+      "Vulkan SDPA GQA expects 4D [B, H, T, D] key/value tensors");
+
+  std::vector<Tensor> repeated_heads;
+  repeated_heads.reserve(
+      safe_downcast<size_t>(tensor.size(1) * repeat_factor));
+  for (const auto head_idx : c10::irange(tensor.size(1))) {
+    Tensor head = at::narrow(tensor, 1, head_idx, 1);
+    for (const auto _ : c10::irange(repeat_factor)) {
+      repeated_heads.push_back(head);
+    }
+  }
+  return at::cat(repeated_heads, 1);
+}
+
+Tensor expand_attention_mask_3d(
+    const Tensor& attn_mask,
+    const int64_t batch,
+    const int64_t heads,
+    const int64_t target_len,
+    const int64_t source_len) {
+  TORCH_CHECK(
+      attn_mask.dim() >= 2 && attn_mask.dim() <= 4,
+      "Vulkan SDPA expects 2D, 3D, or 4D attention masks");
+
+  if (attn_mask.dim() == 2) {
+    TORCH_CHECK(
+        attn_mask.size(0) == target_len && attn_mask.size(1) == source_len,
+        "Vulkan SDPA 2D attention mask must match [T, S]");
+    return attn_mask.unsqueeze(0).expand({batch * heads, target_len, source_len});
+  }
+
+  if (attn_mask.dim() == 3) {
+    TORCH_CHECK(
+        attn_mask.size(1) == target_len && attn_mask.size(2) == source_len,
+        "Vulkan SDPA 3D attention mask must match [N, T, S]");
+    if (attn_mask.size(0) == batch * heads) {
+      return attn_mask;
+    }
+    TORCH_CHECK(
+        attn_mask.size(0) == batch || attn_mask.size(0) == 1,
+        "Vulkan SDPA 3D attention mask batch dimension must be 1, batch, or batch*heads");
+    return attn_mask.unsqueeze(1)
+        .expand({attn_mask.size(0), heads, target_len, source_len})
+        .reshape({attn_mask.size(0) * heads, target_len, source_len})
+        .expand({batch * heads, target_len, source_len});
+  }
+
+  TORCH_CHECK(
+      attn_mask.size(2) == target_len && attn_mask.size(3) == source_len,
+      "Vulkan SDPA 4D attention mask must match [B, H, T, S]");
+  TORCH_CHECK(
+      (attn_mask.size(0) == batch || attn_mask.size(0) == 1) &&
+          (attn_mask.size(1) == heads || attn_mask.size(1) == 1),
+      "Vulkan SDPA 4D attention mask batch/head dimensions must be 1 or match the input");
+  return attn_mask.expand({batch, heads, target_len, source_len})
+      .reshape({batch * heads, target_len, source_len});
+}
+
+Tensor make_attention_mask_additive(
+    const Tensor& attn_mask,
+    const Tensor& query,
+    const int64_t batch,
+    const int64_t heads,
+    const int64_t target_len,
+    const int64_t source_len) {
+  if (attn_mask.scalar_type() == kBool) {
+    Tensor mask_cpu = expand_attention_mask_3d(
+                           attn_mask.is_vulkan() ? attn_mask.cpu() : attn_mask,
+                           batch,
+                           heads,
+                           target_len,
+                           source_len)
+                          .to(kBool);
+    Tensor additive_mask = at::zeros(
+        mask_cpu.sizes(), query.options().device(at::kCPU).dtype(kFloat));
+    additive_mask.masked_fill_(mask_cpu.logical_not(), -std::numeric_limits<float>::infinity());
+    return additive_mask.to(query.scalar_type());
+  }
+  Tensor mask = expand_attention_mask_3d(
+      attn_mask, batch, heads, target_len, source_len);
+  return mask.to(query.scalar_type());
+}
+
+Tensor make_causal_attention_bias(
+    const Tensor& query,
+    const int64_t batch_heads,
+    const int64_t target_len,
+    const int64_t source_len) {
+  Tensor causal_mask = at::ones(
+      {target_len, source_len},
+      query.options().device(at::kCPU).dtype(kBool));
+  causal_mask = at::triu(causal_mask, 1);
+
+  Tensor causal_bias = at::zeros(
+      {target_len, source_len},
+      query.options().device(at::kCPU).dtype(kFloat));
+  causal_bias.masked_fill_(causal_mask, -std::numeric_limits<float>::infinity());
+  return causal_bias.to(query.scalar_type())
+      .unsqueeze(0)
+      .expand({batch_heads, target_len, source_len});
+}
+
+Tensor prepare_attention_bias(
+    const std::optional<Tensor>& attn_mask,
+    const utils::VulkanAttentionPolicy& attention_policy,
+    const Tensor& query,
+    const int64_t batch,
+    const int64_t heads,
+    const int64_t target_len,
+    const int64_t source_len) {
+  const int64_t batch_heads = batch * heads;
+  Tensor additive_bias;
+  if (attn_mask && attn_mask->defined()) {
+    additive_bias = make_attention_mask_additive(
+        *attn_mask, query, batch, heads, target_len, source_len);
+  }
+
+  if (attention_policy.is_causal) {
+    Tensor causal_bias =
+        make_causal_attention_bias(query, batch_heads, target_len, source_len);
+    if (additive_bias.defined()) {
+      if (!additive_bias.is_vulkan()) {
+        additive_bias = additive_bias.vulkan();
+      }
+      if (!causal_bias.is_vulkan()) {
+        causal_bias = causal_bias.vulkan();
+      }
+      additive_bias = at::add(additive_bias, causal_bias);
+    } else {
+      additive_bias = causal_bias;
+    }
+  }
+
+  if (!additive_bias.defined()) {
+    return additive_bias;
+  }
+
+  return utils::prepare_vulkan_execution_tensor(
+      additive_bias, attention_policy.mask_plan_kind);
 }
 
 bool can_use_tiled_sdpa_fast_path(
@@ -140,7 +302,7 @@ Tensor scaled_dot_product_attention_tiled_3d_vulkan(
   return convert(v_output);
 }
 
-std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
+std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
     const Tensor& query_arg,
     const Tensor& key_arg,
     const Tensor& value_arg,
@@ -149,7 +311,8 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
     bool is_causal,
     const std::optional<Tensor>& dropout_mask,
     std::optional<double> scale,
-    bool enable_gqa) {
+    bool enable_gqa,
+    const utils::VulkanAttentionPolicy& attention_policy) {
   api::AllocationScope allocation_scope("sdpa");
   TORCH_CHECK(
       query_arg.is_vulkan() && key_arg.is_vulkan() && value_arg.is_vulkan(),
@@ -166,15 +329,6 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
       !dropout_mask.has_value(),
       "Vulkan SDPA does not support explicit dropout masks");
   TORCH_CHECK(
-      !attn_mask.has_value(),
-      "Vulkan SDPA does not support attention masks yet");
-  TORCH_CHECK(
-      !is_causal,
-      "Vulkan SDPA does not support causal masking yet");
-  TORCH_CHECK(
-      !enable_gqa,
-      "Vulkan SDPA does not support GQA yet");
-  TORCH_CHECK(
       query_arg.dim() == 3
           ? (query_arg.size(0) == key_arg.size(0) &&
              query_arg.size(0) == value_arg.size(0) &&
@@ -182,34 +336,34 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
              key_arg.size(1) == value_arg.size(1))
           : (query_arg.size(0) == key_arg.size(0) &&
              query_arg.size(0) == value_arg.size(0) &&
-             query_arg.size(1) == key_arg.size(1) &&
-             query_arg.size(1) == value_arg.size(1) &&
              query_arg.size(3) == key_arg.size(3) &&
-             key_arg.size(2) == value_arg.size(2)),
+             key_arg.size(2) == value_arg.size(2) &&
+             (enable_gqa
+                  ? (key_arg.size(1) == value_arg.size(1) &&
+                     key_arg.size(1) > 0 &&
+                     query_arg.size(1) % key_arg.size(1) == 0)
+                  : (query_arg.size(1) == key_arg.size(1) &&
+                     query_arg.size(1) == value_arg.size(1)))),
       "Vulkan SDPA expects matching 3D [B, T, K] / [B, S, K] / [B, S, V] "
       "or 4D [B, H, T, K] / [B, H, S, K] / [B, H, S, V] shapes");
 
   const Tensor query =
       query_arg.is_contiguous_or_false() ? query_arg : query_arg.contiguous();
-  const Tensor key =
-      key_arg.is_contiguous_or_false() ? key_arg : key_arg.contiguous();
-  const Tensor value =
+  Tensor key = key_arg.is_contiguous_or_false() ? key_arg : key_arg.contiguous();
+  Tensor value =
       value_arg.is_contiguous_or_false() ? value_arg : value_arg.contiguous();
 
-  if (query_arg.dim() == 4) {
-    auto cpu_result = at::_scaled_dot_product_attention_math(
-        query_arg.cpu(),
-        key_arg.cpu(),
-        value_arg.cpu(),
-        attn_mask,
-        dropout_p,
-        is_causal,
-        dropout_mask,
-        scale,
-        enable_gqa);
-    return std::make_tuple(
-        std::get<0>(cpu_result).vulkan(),
-        std::get<1>(cpu_result).vulkan());
+  if (enable_gqa) {
+    TORCH_CHECK(
+        query.dim() == 4 && key.dim() == 4 && value.dim() == 4,
+        "Vulkan SDPA GQA currently supports 4D tensors only");
+    TORCH_CHECK(
+        key.size(1) == value.size(1) &&
+            query.size(1) % key.size(1) == 0,
+        "Vulkan SDPA GQA expects query heads to be divisible by key/value heads");
+    const int64_t repeat_factor = query.size(1) / key.size(1);
+    key = repeat_attention_heads_for_gqa(key, repeat_factor);
+    value = repeat_attention_heads_for_gqa(value, repeat_factor);
   }
 
   const int64_t target_len = query.size(query.dim() - 2);
@@ -221,36 +375,37 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
       scale.value_or(1.0 / std::sqrt(static_cast<double>(head_dim)));
   const double query_scale = sdpa_scale;
 
-  Tensor query_3d;
-  Tensor key_3d;
-  Tensor value_3d;
-  std::vector<int64_t> output_shape;
-  std::vector<int64_t> attn_shape;
+  const int64_t batch = query.dim() == 4 ? query.size(0) : query.size(0);
+  const int64_t heads = query.dim() == 4 ? query.size(1) : 1;
+  const int64_t batch_heads = batch * heads;
 
-  if (query.dim() == 3) {
-    query_3d = maybe_scale_query(query, query_scale);
-    key_3d = key;
-    value_3d = value;
-  } else {
-    const int64_t batch = query.size(0);
-    const int64_t heads = query.size(1);
-    query_3d = maybe_scale_query(
-        query.reshape({batch * heads, target_len, head_dim}),
-        query_scale);
-    key_3d = key.reshape({batch * heads, source_len, head_dim});
-    value_3d = value.reshape({batch * heads, source_len, value_dim});
-    output_shape = {batch, heads, target_len, value_dim};
-    attn_shape = {batch, heads, target_len, source_len};
-  }
+  Tensor query_3d = maybe_scale_query(
+      flatten_attention_batch_heads(query, batch_heads, target_len, head_dim),
+      query_scale);
+  Tensor key_3d =
+      flatten_attention_batch_heads(key, batch_heads, source_len, head_dim);
+  Tensor value_3d =
+      flatten_attention_batch_heads(value, batch_heads, source_len, value_dim);
 
   query_3d = utils::prepare_vulkan_execution_tensor(
-      query_3d, utils::VulkanExecutionPlanKind::TextureComputeInput);
+      query_3d, attention_policy.query_plan_kind);
   key_3d = utils::prepare_vulkan_execution_tensor(
-      key_3d, utils::VulkanExecutionPlanKind::TextureComputeInput);
+      key_3d, attention_policy.key_value_plan_kind);
   value_3d = utils::prepare_vulkan_execution_tensor(
-      value_3d, utils::VulkanExecutionPlanKind::TextureComputeInput);
+      value_3d, attention_policy.key_value_plan_kind);
 
   Tensor attn = at::bmm(query_3d, key_3d.transpose(1, 2));
+  Tensor additive_bias = prepare_attention_bias(
+      attn_mask,
+      attention_policy,
+      query,
+      batch,
+      heads,
+      target_len,
+      source_len);
+  if (additive_bias.defined()) {
+    attn = at::add(attn, additive_bias);
+  }
   attn = attn.softmax(-1);
   Tensor output = at::bmm(attn, value_3d);
 
@@ -259,8 +414,32 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
   }
 
   return std::make_tuple(
-      output.reshape(output_shape),
-      attn.reshape(attn_shape));
+      output.reshape({batch, heads, target_len, value_dim}),
+      attn.reshape({batch, heads, target_len, source_len}));
+}
+
+std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
+    const Tensor& query_arg,
+    const Tensor& key_arg,
+    const Tensor& value_arg,
+    const std::optional<Tensor>& attn_mask,
+    double dropout_p,
+    bool is_causal,
+    const std::optional<Tensor>& dropout_mask,
+    std::optional<double> scale,
+    bool enable_gqa) {
+  return scaled_dot_product_attention_math_vulkan_impl(
+      query_arg,
+      key_arg,
+      value_arg,
+      attn_mask,
+      dropout_p,
+      is_causal,
+      dropout_mask,
+      scale,
+      enable_gqa,
+      utils::build_vulkan_attention_policy(
+          attn_mask, is_causal, enable_gqa, false, false));
 }
 
 Tensor scaled_dot_product_attention_vulkan(
@@ -493,6 +672,7 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
 #endif /* USE_VULKAN_API */
 
 } // namespace
+
 } // namespace ops
 } // namespace vulkan
 } // namespace native

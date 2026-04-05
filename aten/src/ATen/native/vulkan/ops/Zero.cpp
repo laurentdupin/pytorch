@@ -4,6 +4,10 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
+#ifndef AT_PER_OPERATOR_HEADERS
+#include <ATen/Functions.h>
+#endif
+
 namespace at {
 namespace native {
 namespace vulkan {
@@ -12,10 +16,21 @@ namespace {
 
 using namespace api::utils;
 
-Tensor& zero_(at::Tensor& self) {
-  TORCH_CHECK(self.dim() <= 4, "Vulkan zero_ supports up to 4d tensors");
+Tensor& zero_cpu_fallback(Tensor& self) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  Tensor cpu_zeros = at::zeros(self.sizes(), self.options().device(at::kCPU));
+  ops::copy_(self, cpu_zeros);
+  return self;
+}
 
+Tensor& zero_(at::Tensor& self) {
   vTensor& v_self = convert(self);
+  if (
+      self.dim() > 4 || v_self.storage_type() == api::StorageType::BUFFER ||
+      !api::supports_texture_storage(v_self.dtype())) {
+    return zero_cpu_fallback(self);
+  }
 
   // Get the global Vulkan context
   api::Context* const context = api::context();
@@ -49,10 +64,8 @@ Tensor zeros(
     std::optional<c10::Layout> layout,
     std::optional<Device> device,
     std::optional<bool> pin_memory) {
-  TORCH_CHECK(size.size() <= 4, "Vulkan zeros supports up to 4d tensors");
-
   const ScalarType target_dtype = dtype ? *dtype : c10::kFloat;
-  if (target_dtype == c10::kLong || target_dtype == c10::kBFloat16) {
+  if (api::requires_buffer_storage(convert_dtype(target_dtype), size.size())) {
     Tensor cpu_zeros = at::zeros(
         size,
         at::TensorOptions().device(at::kCPU).dtype(target_dtype));

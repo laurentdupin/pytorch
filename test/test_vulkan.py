@@ -392,6 +392,7 @@ class TestVulkanEagerRuntime(TestCase):
             ("sigmoid", torch.sigmoid, (x,)),
             ("softplus_default", F.softplus, (x,)),
             ("softplus_custom", lambda t: F.softplus(t, beta=0.75, threshold=10.0), (x,)),
+            ("silu", F.silu, (x,)),
             ("exp", torch.exp, (x,)),
             ("sin", torch.sin, (x,)),
             ("cos", torch.cos, (x,)),
@@ -427,6 +428,11 @@ class TestVulkanEagerRuntime(TestCase):
                 atol=1e-4,
                 rtol=1e-4)
             self._assert_outputs_close(
+                F.silu(x),
+                F.silu(x_vulkan).cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+            self._assert_outputs_close(
                 x + y,
                 (x_vulkan + y_vulkan).cpu(),
                 atol=1e-4,
@@ -436,6 +442,43 @@ class TestVulkanEagerRuntime(TestCase):
                 (x_vulkan * y_vulkan).cpu(),
                 atol=1e-4,
                 rtol=1e-4)
+
+    def test_pow_integer_scalar_negative_base(self):
+        small = torch.linspace(-2.0, 2.0, steps=48, dtype=torch.float32).reshape(2, 3, 8)
+        large = torch.linspace(-2.0, 2.0, steps=1025 * 1027, dtype=torch.float32).reshape(1025, 1027)
+
+        with torch.inference_mode():
+            for exponent in (2, 3, 4):
+                with self.subTest(exponent=exponent, layout="texture_like"):
+                    expected = small.pow(exponent)
+                    actual = small.to("vulkan").pow(exponent).cpu()
+                    self._assert_outputs_close(
+                        expected,
+                        actual,
+                        atol=1e-4,
+                        rtol=1e-4,
+                    )
+
+                    expected_inplace = small.clone()
+                    expected_inplace.pow_(exponent)
+                    actual_inplace = small.to("vulkan")
+                    actual_inplace.pow_(exponent)
+                    self._assert_outputs_close(
+                        expected_inplace,
+                        actual_inplace.cpu(),
+                        atol=1e-4,
+                        rtol=1e-4,
+                    )
+
+                with self.subTest(exponent=exponent, layout="buffer_like"):
+                    expected = large.pow(exponent)
+                    actual = large.to("vulkan").pow(exponent).cpu()
+                    self._assert_outputs_close(
+                        expected,
+                        actual,
+                        atol=1e-4,
+                        rtol=1e-4,
+                    )
 
     def test_large_buffer_backed_full_reductions(self):
         torch.manual_seed(0)
@@ -724,7 +767,7 @@ class TestVulkanEagerRuntime(TestCase):
             with self.subTest(case=name):
                 self._assert_vulkan_matches_cpu(fn, *args)
 
-    def test_fill_and_tril_factories(self):
+    def test_fill_and_triangular_factories(self):
         with torch.inference_mode():
             expected_ones = torch.ones(6, 6)
             actual_ones = torch.ones(6, 6, device="vulkan")
@@ -732,6 +775,33 @@ class TestVulkanEagerRuntime(TestCase):
 
         mat = torch.randn(6, 6)
         self._assert_vulkan_matches_cpu(lambda t: torch.tril(t, diagonal=-1), mat)
+        self._assert_vulkan_matches_cpu(lambda t: torch.triu(t, diagonal=1), mat)
+
+        mask = torch.ones(6, 6, dtype=torch.bool)
+        self._assert_vulkan_matches_cpu(lambda t: torch.triu(t, diagonal=0), mask)
+
+    def test_eye_factory_and_out(self):
+        with torch.inference_mode():
+            expected_square = torch.eye(5, dtype=torch.float32)
+            actual_square = torch.eye(5, dtype=torch.float32, device="vulkan")
+            self._assert_outputs_close(expected_square, actual_square)
+
+            expected_rect = torch.eye(4, 6, dtype=torch.int32)
+            actual_rect = torch.eye(4, 6, dtype=torch.int32, device="vulkan")
+            self._assert_outputs_close(expected_rect, actual_rect)
+
+            out = torch.empty((1, 2), device="vulkan", dtype=torch.int32)
+            actual_out = torch.eye(4, 6, out=out).cpu()
+            self._assert_outputs_close(expected_rect, actual_out)
+            self._assert_outputs_close(expected_rect, out.cpu())
+
+    def test_5d_binary_ops_fallback_match_cpu(self):
+        x = torch.randn(2, 3, 4, 5, 6)
+        y = torch.randn(2, 3, 4, 5, 6)
+        z = torch.randn(2, 3, 4, 5, 1)
+
+        self._assert_vulkan_matches_cpu(lambda a, b: a - b, x, y)
+        self._assert_vulkan_matches_cpu(lambda a, b: a + b, x, z)
 
     def test_arange_factories(self):
         with torch.inference_mode():
@@ -744,9 +814,9 @@ class TestVulkanEagerRuntime(TestCase):
                 1, 9, 2, dtype=torch.float32, device="vulkan").cpu()
             self._assert_outputs_close(expected_step, actual_step)
 
-            out = torch.empty(3, device="vulkan", dtype=torch.long)
-            actual_out = torch.arange(2, 11, 3, out=out).cpu()
             expected_out = torch.arange(2, 11, 3, dtype=torch.long)
+            out = torch.empty(1, device="vulkan", dtype=torch.long)
+            actual_out = torch.arange(2, 11, 3, out=out).cpu()
             self._assert_outputs_close(expected_out, actual_out)
             self._assert_outputs_close(expected_out, out.cpu())
 
@@ -761,7 +831,7 @@ class TestVulkanEagerRuntime(TestCase):
                 -1.0, 1.0, 4, dtype=torch.float32, device="vulkan").cpu()
             self._assert_outputs_close(expected_typed, actual_typed)
 
-            out = torch.empty(4, device="vulkan", dtype=torch.float32)
+            out = torch.empty(1, device="vulkan", dtype=torch.float32)
             actual_out = torch.linspace(-2.0, 2.0, 4, out=out).cpu()
             expected_out = torch.linspace(-2.0, 2.0, 4, dtype=torch.float32)
             self._assert_outputs_close(expected_out, actual_out)
@@ -774,7 +844,7 @@ class TestVulkanEagerRuntime(TestCase):
             actual = torch.argmax(x.to("vulkan"), dim=-1).cpu()
             self._assert_outputs_close(expected, actual)
 
-            out = torch.empty((2, 3), device="vulkan", dtype=torch.long)
+            out = torch.empty((1, 1), device="vulkan", dtype=torch.long)
             actual_out = torch.argmax(x.to("vulkan"), dim=-1, out=out).cpu()
             self._assert_outputs_close(expected, actual_out)
             self._assert_outputs_close(expected, out.cpu())
@@ -786,7 +856,7 @@ class TestVulkanEagerRuntime(TestCase):
             actual = torch.all(x.to("vulkan")).cpu()
             self._assert_outputs_close(expected, actual)
 
-            out = torch.empty((), device="vulkan", dtype=torch.bool)
+            out = torch.empty((2,), device="vulkan", dtype=torch.bool)
             actual_out = torch.all(x.to("vulkan"), out=out).cpu()
             self._assert_outputs_close(expected, actual_out)
             self._assert_outputs_close(expected, out.cpu())
@@ -1141,6 +1211,89 @@ class TestVulkanEagerRuntime(TestCase):
 
         self.assertEqual(vulkan[:, 2:9:2].cpu(), src[:, 2:9:2])
         self.assertEqual(vulkan.select(1, 5).cpu(), src.select(1, 5))
+
+    def test_long_expand_position_ids_style_with_vulkan_input(self):
+        with torch.inference_mode():
+            src = torch.arange(8, dtype=torch.long)
+            vulkan = src.to("vulkan")
+
+            expected = src.view(1, 1, -1).expand(4, 1, -1)[1:]
+            actual = vulkan.view(1, 1, -1).expand(4, 1, -1)[1:].cpu()
+
+            self.assertEqual(actual, expected)
+
+    def test_5d_expand_fallback_match_cpu(self):
+        src = torch.arange(2 * 3 * 4 * 5, dtype=torch.float32).reshape(2, 3, 4, 5)
+        vulkan = src.to("vulkan")
+
+        expected = src.unsqueeze(2).expand(2, 3, 7, 4, 5)
+        actual = vulkan.unsqueeze(2).expand(2, 3, 7, 4, 5).cpu()
+
+        self.assertEqual(actual, expected)
+
+    def test_5d_transpose_and_permute_fallback_match_cpu(self):
+        src = torch.arange(2 * 3 * 4 * 5 * 6, dtype=torch.float32).reshape(2, 3, 4, 5, 6)
+        vulkan = src.to("vulkan")
+
+        expected_transpose = src.transpose(-1, -2)
+        actual_transpose = vulkan.transpose(-1, -2).cpu()
+        self.assertEqual(actual_transpose, expected_transpose)
+
+        expected_permute = src.permute(0, 2, 1, 4, 3)
+        actual_permute = vulkan.permute(0, 2, 1, 4, 3).cpu()
+        self.assertEqual(actual_permute, expected_permute)
+
+    def test_5d_masked_fill_fallback_match_cpu(self):
+        src = torch.arange(2 * 3 * 4 * 5 * 6, dtype=torch.float32).reshape(2, 3, 4, 5, 6)
+        mask = (src.remainder(3) == 0)
+        vulkan = src.to("vulkan")
+        mask_vulkan = mask.to("vulkan")
+
+        expected = src.masked_fill(mask, -1.25)
+        actual = vulkan.masked_fill(mask_vulkan, -1.25).cpu()
+
+        self.assertEqual(actual, expected)
+
+        expected_inplace = src.clone()
+        expected_inplace.masked_fill_(mask, -0.5)
+        actual_inplace = src.to("vulkan")
+        actual_inplace.masked_fill_(mask_vulkan, -0.5)
+        self.assertEqual(actual_inplace.cpu(), expected_inplace)
+
+    def test_5d_select_and_slice_fallback_match_cpu(self):
+        src = torch.arange(2 * 3 * 4 * 5 * 6, dtype=torch.float32).reshape(2, 3, 4, 5, 6)
+        vulkan = src.to("vulkan")
+
+        expected_select = src.select(2, 1)
+        actual_select = vulkan.select(2, 1).cpu()
+        self.assertEqual(actual_select, expected_select)
+
+        expected_slice = src[:, :, 1:3, :, :]
+        actual_slice = vulkan[:, :, 1:3, :, :].cpu()
+        self.assertEqual(actual_slice, expected_slice)
+
+    def test_5d_sum_and_mean_dim_fallback_match_cpu(self):
+        src = torch.arange(2 * 3 * 4 * 5 * 6, dtype=torch.float32).reshape(2, 3, 4, 5, 6)
+        vulkan = src.to("vulkan")
+
+        expected_sum = src.sum(dim=-2)
+        actual_sum = vulkan.sum(dim=-2).cpu()
+        self.assertEqual(actual_sum, expected_sum)
+
+        expected_mean = src.mean(dim=-2)
+        actual_mean = vulkan.mean(dim=-2).cpu()
+        self.assertEqual(actual_mean, expected_mean)
+
+    def test_5d_zeros_and_zero_fallback_match_cpu(self):
+        with torch.inference_mode():
+            expected = torch.zeros((2, 3, 4, 5, 6), dtype=torch.float32)
+            actual = torch.zeros((2, 3, 4, 5, 6), dtype=torch.float32, device="vulkan")
+            self._assert_outputs_close(expected, actual)
+
+            src = torch.randn(2, 3, 4, 5, 6)
+            vulkan = src.to("vulkan")
+            vulkan.zero_()
+            self._assert_outputs_close(torch.zeros_like(src), vulkan)
 
     def test_bfloat16_tensor_roundtrip_and_zeros(self):
         src = torch.tensor([[1.0, -0.5, 3.25], [4.0, 5.5, -6.0]], dtype=torch.bfloat16)
@@ -1635,7 +1788,7 @@ class TestVulkanEagerRuntime(TestCase):
                 size=(11, 13),
                 mode="bicubic",
                 align_corners=False)
-            out_vulkan = torch.empty((1, 3, 11, 13), device="vulkan")
+            out_vulkan = torch.empty((1, 3, 5, 5), device="vulkan")
             actual = torch.ops.aten.upsample_bicubic2d.out(
                 x_vulkan,
                 [11, 13],
@@ -1645,6 +1798,7 @@ class TestVulkanEagerRuntime(TestCase):
                 out=out_vulkan).cpu()
 
         self._assert_outputs_close(expected, actual, atol=1e-3, rtol=1e-3)
+        self._assert_outputs_close(expected, out_vulkan.cpu(), atol=1e-3, rtol=1e-3)
 
     def test_conv2d_module_with_vulkan_weights(self):
         torch.manual_seed(0)
@@ -2122,6 +2276,87 @@ class TestVulkanEagerRuntime(TestCase):
                         actual_math,
                         atol=1e-4,
                         rtol=1e-4)
+
+    def test_scaled_dot_product_attention_masks_and_causal(self):
+        torch.manual_seed(0)
+        q4 = torch.randn(1, 3, 9, 8)
+        k4 = torch.randn(1, 3, 7, 8)
+        v4 = torch.randn(1, 3, 7, 8)
+        q3 = torch.randn(3, 9, 8)
+        k3 = torch.randn(3, 7, 8)
+        v3 = torch.randn(3, 7, 8)
+        q_gqa = torch.randn(1, 6, 9, 8)
+        k_gqa = torch.randn(1, 2, 7, 8)
+        v_gqa = torch.randn(1, 2, 7, 8)
+
+        float_mask = torch.zeros(1, 1, 9, 7)
+        float_mask[..., :, -2:] = -1000.0
+        cases = [
+            ("sdpa_4d_causal", q4, k4, v4, None, True, False, True),
+            ("sdpa_4d_float_mask", q4, k4, v4, float_mask, False, False, True),
+            ("sdpa_3d_causal", q3, k3, v3, None, True, False, True),
+            ("sdpa_4d_gqa", q_gqa, k_gqa, v_gqa, None, False, True, True),
+        ]
+
+        with torch.inference_mode():
+            for name, query, key, value, attn_mask, is_causal, enable_gqa, check_functional in cases:
+                with self.subTest(case=name):
+                    if check_functional:
+                        expected = F.scaled_dot_product_attention(
+                            query,
+                            key,
+                            value,
+                            attn_mask=attn_mask,
+                            dropout_p=0.0,
+                            is_causal=is_causal,
+                            scale=0.125,
+                            enable_gqa=enable_gqa,
+                        )
+                        actual = F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            attn_mask=None if attn_mask is None else attn_mask.to("vulkan"),
+                            dropout_p=0.0,
+                            is_causal=is_causal,
+                            scale=0.125,
+                            enable_gqa=enable_gqa,
+                        ).cpu()
+                        self._assert_outputs_close(
+                            expected,
+                            actual,
+                            atol=1e-4,
+                            rtol=1e-4,
+                        )
+
+                    expected_math = torch.ops.aten._scaled_dot_product_attention_math(
+                        query,
+                        key,
+                        value,
+                        attn_mask,
+                        0.0,
+                        is_causal,
+                        None,
+                        scale=0.125,
+                        enable_gqa=enable_gqa,
+                    )[0]
+                    actual_math = torch.ops.aten._scaled_dot_product_attention_math(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        None if attn_mask is None else attn_mask.to("vulkan"),
+                        0.0,
+                        is_causal,
+                        None,
+                        scale=0.125,
+                        enable_gqa=enable_gqa,
+                    )[0].cpu()
+                    self._assert_outputs_close(
+                        expected_math,
+                        actual_math,
+                        atol=1e-4,
+                        rtol=1e-4,
+                    )
 
     def test_execution_plan_logging(self):
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

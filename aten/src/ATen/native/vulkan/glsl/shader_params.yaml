@@ -234,6 +234,8 @@ unary_op:
       OPERATOR: -(X)
     - NAME: rsqrt
       OPERATOR: inversesqrt(X)
+    - NAME: silu
+      OPERATOR: X / (1.0 + exp(-(X)))
 
 buffer_unary_op:
   parameter_names_with_default_values:
@@ -253,6 +255,8 @@ buffer_unary_op:
       OPERATOR: -(X)
     - NAME: buffer_rsqrt
       OPERATOR: inversesqrt(X)
+    - NAME: buffer_silu
+      OPERATOR: X / (1.0 + exp(-(X)))
 
 buffer_cast:
   parameter_names_with_default_values:
