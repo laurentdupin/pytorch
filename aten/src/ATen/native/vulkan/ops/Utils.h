@@ -22,6 +22,7 @@ struct LogicalBufferMetadata final {
 enum class VulkanExecutionPlanKind : uint8_t {
   Generic = 0u,
   TextureComputeInput,
+  NormInput,
   AttentionInput,
   AttentionMaskInput,
   AttentionCacheInput,
@@ -216,6 +217,8 @@ Tensor mark_tensor_execution(
     const Tensor&,
     api::ExecutionLayout,
     bool persistent = false);
+
+void log_vulkan_op_hit(const char* op_name);
 
 VulkanExecutionPlan build_vulkan_execution_plan(
     const Tensor&,

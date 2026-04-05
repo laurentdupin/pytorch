@@ -609,6 +609,17 @@ execution_plan_policies() {
            false,
            false,
            false},
+          {"NormInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
           {"AttentionInput",
            api::ExecutionLayout::TEXTURE,
            api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
@@ -867,6 +878,34 @@ bool execution_plan_logging_enabled() {
   return !execution_plan_log_path().empty();
 }
 
+const std::string& op_hit_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_OP_HIT_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool op_hit_logging_enabled() {
+  return !op_hit_log_path().empty();
+}
+
+std::mutex& op_hit_log_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+void log_vulkan_op_hit_impl(const char* op_name) {
+  if (!op_hit_logging_enabled()) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(op_hit_log_mutex());
+  std::ofstream out(op_hit_log_path(), std::ios::app);
+  out << "vulkan_op_hit op=" << op_name
+      << " caller=" << api::current_allocation_label() << '\n';
+}
+
 struct ExecutionPlanLogState final {
   std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount> builds{};
   std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount> executes{};
@@ -1089,6 +1128,10 @@ bool needs_texture_storage_transition(
 }
 
 } // namespace
+
+void log_vulkan_op_hit(const char* op_name) {
+  log_vulkan_op_hit_impl(op_name);
+}
 
 const char* execution_layout_name(const api::ExecutionLayout execution_layout) {
   return api::to_string(execution_layout);

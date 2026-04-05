@@ -31,6 +31,11 @@
 #include <c10/core/GradMode.h>
 #endif
 
+#ifdef USE_VULKAN_API
+#include <ATen/native/vulkan/ops/NativeLayerNorm.h>
+#include <ATen/native/vulkan/ops/Layernorm.h>
+#endif
+
 #include <array>
 #include <tuple>
 #include <vector>
@@ -195,6 +200,19 @@ Tensor layer_norm_symint(
     c10::SymIntArrayRef normalized_shape, const std::optional<Tensor>& weight_opt /* optional */, const std::optional<Tensor>& bias_opt /* optional */,
     double eps,
     bool /* cudnn_enable, deprecated */) {
+#ifdef USE_VULKAN_API
+  if (
+      input.is_vulkan() && weight_opt.has_value() && bias_opt.has_value() &&
+      weight_opt->defined() && bias_opt->defined()) {
+    DimVector normalized_shape_int;
+    normalized_shape_int.reserve(normalized_shape.size());
+    for (const auto i : c10::irange(normalized_shape.size())) {
+      normalized_shape_int.emplace_back(normalized_shape[i].expect_int());
+    }
+    return at::native::vulkan::ops::layer_norm_impl(
+        input, normalized_shape_int, weight_opt, bias_opt, eps);
+  }
+#endif
   return std::get<0>(at::native_layer_norm_symint(input, normalized_shape, weight_opt, bias_opt, eps));
 }
 
@@ -206,6 +224,15 @@ std::tuple<Tensor, Tensor, Tensor> math_native_layer_norm(
     const Tensor& input,
     IntArrayRef normalized_shape, const std::optional<Tensor>& weight_opt, const std::optional<Tensor>& bias_opt,
     double eps) {
+#ifdef USE_VULKAN_API
+  if (
+      input.is_vulkan() && weight_opt.has_value() && bias_opt.has_value() &&
+      weight_opt->defined() && bias_opt->defined()) {
+    return at::native::vulkan::ops::native_layer_norm_impl(
+        input, normalized_shape, weight_opt, bias_opt, eps);
+  }
+#endif
+
   // See [Note: hacky wrapper removal for optional tensor]
   c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight_opt);
   const Tensor& weight = *weight_maybe_owned;

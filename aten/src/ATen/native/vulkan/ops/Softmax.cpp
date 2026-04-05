@@ -2,7 +2,11 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/Functions.h>
 #include <torch/library.h>
+#include <cstdlib>
 #include <cmath>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 namespace at {
 namespace native {
@@ -18,6 +22,126 @@ constexpr int32_t kTiledSdpaMaxOutputsPerThread = 32;
 constexpr int64_t kTiledSdpaMaxValueDim =
     static_cast<int64_t>(kTiledSdpaLocalSizeX) *
     static_cast<int64_t>(kTiledSdpaMaxOutputsPerThread);
+
+const std::string& sdpa_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_SDPA_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool sdpa_logging_enabled() {
+  return !sdpa_log_path().empty();
+}
+
+const char* sdpa_storage_type_name(const api::StorageType storage_type) {
+  switch (storage_type) {
+    case api::StorageType::TEXTURE_3D:
+      return "TEXTURE_3D";
+    case api::StorageType::TEXTURE_2D:
+      return "TEXTURE_2D";
+    case api::StorageType::BUFFER:
+      return "BUFFER";
+    case api::StorageType::UNKNOWN:
+      return "UNKNOWN";
+  }
+  return "UNKNOWN";
+}
+
+const char* sdpa_memory_layout_name(const api::GPUMemoryLayout memory_layout) {
+  switch (memory_layout) {
+    case api::GPUMemoryLayout::TENSOR_WIDTH_PACKED:
+      return "TENSOR_WIDTH_PACKED";
+    case api::GPUMemoryLayout::TENSOR_HEIGHT_PACKED:
+      return "TENSOR_HEIGHT_PACKED";
+    case api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED:
+      return "TENSOR_CHANNELS_PACKED";
+  }
+  return "UNKNOWN";
+}
+
+std::string format_sdpa_sizes(IntArrayRef sizes) {
+  std::ostringstream stream;
+  stream << "[";
+  for (const auto idx : c10::irange(sizes.size())) {
+    if (idx > 0) {
+      stream << ",";
+    }
+    stream << sizes[idx];
+  }
+  stream << "]";
+  return stream.str();
+}
+
+void append_sdpa_log_line(const std::string& line) {
+  if (!sdpa_logging_enabled()) {
+    return;
+  }
+
+  std::ofstream out(sdpa_log_path(), std::ios::app);
+  out << line << '\n';
+}
+
+void append_sdpa_tensor_log_details(
+    std::ostringstream& stream,
+    const char* prefix,
+    const Tensor& tensor) {
+  stream << " " << prefix << "_sizes=" << format_sdpa_sizes(tensor.sizes())
+         << " " << prefix << "_dtype=" << tensor.scalar_type();
+  if (!tensor.is_vulkan()) {
+    stream << " " << prefix << "_device=" << tensor.device();
+    return;
+  }
+
+  const vTensor& v_tensor = convert(tensor);
+  stream << " " << prefix << "_exec="
+         << utils::execution_layout_name(v_tensor.execution_layout())
+         << " " << prefix << "_storage="
+         << sdpa_storage_type_name(v_tensor.storage_type())
+         << " " << prefix << "_layout="
+         << sdpa_memory_layout_name(v_tensor.gpu_memory_layout())
+         << " " << prefix << "_direct_buffer="
+         << (v_tensor.has_direct_buffer_layout() ? 1 : 0);
+}
+
+void log_sdpa_event(
+    const char* event,
+    const char* result,
+    const char* reason,
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const std::optional<Tensor>& attn_mask,
+    const double dropout_p,
+    const bool is_causal,
+    const std::optional<double>& scale,
+    const bool enable_gqa) {
+  if (!sdpa_logging_enabled()) {
+    return;
+  }
+
+  std::ostringstream stream;
+  stream << "sdpa event=" << event << " result=" << result
+         << " reason=" << reason
+         << " caller=" << api::current_allocation_label()
+         << " dropout_p=" << dropout_p
+         << " is_causal=" << (is_causal ? 1 : 0)
+         << " enable_gqa=" << (enable_gqa ? 1 : 0)
+         << " has_mask="
+         << ((attn_mask && attn_mask->defined()) ? 1 : 0)
+         << " scale=";
+  if (scale.has_value()) {
+    stream << *scale;
+  } else {
+    stream << "none";
+  }
+
+  append_sdpa_tensor_log_details(stream, "query", query);
+  append_sdpa_tensor_log_details(stream, "key", key);
+  append_sdpa_tensor_log_details(stream, "value", value);
+  append_sdpa_log_line(stream.str());
+}
 
 Tensor maybe_scale_query(const Tensor& query, const double query_scale) {
   if (query_scale == 1.0) {
@@ -302,6 +426,94 @@ Tensor scaled_dot_product_attention_tiled_3d_vulkan(
   return convert(v_output);
 }
 
+std::optional<Tensor> try_scaled_dot_product_attention_tiled_fast_path(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const std::optional<Tensor>& attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa) {
+  const auto normalized_attn_mask =
+      (attn_mask && attn_mask->defined()) ? attn_mask : std::nullopt;
+  if (normalized_attn_mask.has_value()) {
+    log_sdpa_event(
+        "tiled_fast_path", "reject", "explicit_mask", query, key, value,
+        attn_mask, dropout_p, is_causal, scale, enable_gqa);
+    return std::nullopt;
+  }
+  if (dropout_p != 0.0) {
+    log_sdpa_event(
+        "tiled_fast_path", "reject", "dropout", query, key, value, attn_mask,
+        dropout_p, is_causal, scale, enable_gqa);
+    return std::nullopt;
+  }
+  if (is_causal) {
+    log_sdpa_event(
+        "tiled_fast_path", "reject", "causal", query, key, value, attn_mask,
+        dropout_p, is_causal, scale, enable_gqa);
+    return std::nullopt;
+  }
+  if (enable_gqa) {
+    log_sdpa_event(
+        "tiled_fast_path", "reject", "gqa", query, key, value, attn_mask,
+        dropout_p, is_causal, scale, enable_gqa);
+    return std::nullopt;
+  }
+  if (query.dim() != 3 && query.dim() != 4) {
+    log_sdpa_event(
+        "tiled_fast_path", "reject", "unsupported_query_rank", query, key,
+        value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
+    return std::nullopt;
+  }
+  if (key.dim() != query.dim() || value.dim() != query.dim()) {
+    log_sdpa_event(
+        "tiled_fast_path", "reject", "rank_mismatch", query, key, value,
+        attn_mask, dropout_p, is_causal, scale, enable_gqa);
+    return std::nullopt;
+  }
+
+  const int64_t target_len = query.size(query.dim() - 2);
+  const int64_t source_len = key.size(key.dim() - 2);
+  const int64_t head_dim = query.size(query.dim() - 1);
+  const int64_t value_dim = value.size(value.dim() - 1);
+  const int64_t batch = query.dim() == 4 ? query.size(0) : query.size(0);
+  const int64_t heads = query.dim() == 4 ? query.size(1) : 1;
+  const int64_t batch_heads = batch * heads;
+
+  const double sdpa_scale =
+      scale.value_or(1.0 / std::sqrt(static_cast<double>(head_dim)));
+  Tensor query_3d = maybe_scale_query(
+      flatten_attention_batch_heads(query, batch_heads, target_len, head_dim),
+      sdpa_scale);
+  Tensor key_3d =
+      flatten_attention_batch_heads(key, batch_heads, source_len, head_dim);
+  Tensor value_3d = flatten_attention_batch_heads(
+      value, batch_heads, source_len, value_dim);
+
+  if (
+      query_3d.size(0) != key_3d.size(0) ||
+      query_3d.size(0) != value_3d.size(0) ||
+      query_3d.size(2) != key_3d.size(2) ||
+      key_3d.size(1) != value_3d.size(1)) {
+    log_sdpa_event(
+        "tiled_fast_path", "reject", "shape_mismatch", query_3d, key_3d,
+        value_3d, std::nullopt, dropout_p, is_causal, scale, enable_gqa);
+    return std::nullopt;
+  }
+
+  Tensor output =
+      scaled_dot_product_attention_tiled_3d_vulkan(query_3d, key_3d, value_3d);
+  log_sdpa_event(
+      "tiled_fast_path", "hit", "ok", query_3d, key_3d, value_3d,
+      std::nullopt, dropout_p, is_causal, scale, enable_gqa);
+  if (query.dim() == 4) {
+    return output.reshape({batch, heads, target_len, value_dim});
+  }
+  return output;
+}
+
 std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
     const Tensor& query_arg,
     const Tensor& key_arg,
@@ -314,6 +526,18 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
     bool enable_gqa,
     const utils::VulkanAttentionPolicy& attention_policy) {
   api::AllocationScope allocation_scope("sdpa");
+  log_sdpa_event(
+      "math_vulkan_entry",
+      "enter",
+      "ok",
+      query_arg,
+      key_arg,
+      value_arg,
+      attn_mask,
+      dropout_p,
+      is_causal,
+      scale,
+      enable_gqa);
   TORCH_CHECK(
       query_arg.is_vulkan() && key_arg.is_vulkan() && value_arg.is_vulkan(),
       "Vulkan SDPA expects query, key, and value to already be Vulkan tensors");
@@ -352,6 +576,31 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
   Tensor key = key_arg.is_contiguous_or_false() ? key_arg : key_arg.contiguous();
   Tensor value =
       value_arg.is_contiguous_or_false() ? value_arg : value_arg.contiguous();
+
+  if (const auto fast_output = try_scaled_dot_product_attention_tiled_fast_path(
+          query,
+          key,
+          value,
+          attn_mask,
+          dropout_p,
+          is_causal,
+          scale,
+          enable_gqa)) {
+    return std::make_tuple(*fast_output, Tensor());
+  }
+
+  log_sdpa_event(
+      "math_vulkan_entry",
+      "fallback",
+      "math_path",
+      query,
+      key,
+      value,
+      attn_mask,
+      dropout_p,
+      is_causal,
+      scale,
+      enable_gqa);
 
   if (enable_gqa) {
     TORCH_CHECK(
@@ -428,6 +677,7 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
     const std::optional<Tensor>& dropout_mask,
     std::optional<double> scale,
     bool enable_gqa) {
+  utils::log_vulkan_op_hit("aten::_scaled_dot_product_attention_math");
   return scaled_dot_product_attention_math_vulkan_impl(
       query_arg,
       key_arg,
@@ -442,7 +692,7 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
           attn_mask, is_causal, enable_gqa, false, false));
 }
 
-Tensor scaled_dot_product_attention_vulkan(
+Tensor scaled_dot_product_attention_vulkan_impl(
     const Tensor& query,
     const Tensor& key,
     const Tensor& value,
@@ -452,6 +702,41 @@ Tensor scaled_dot_product_attention_vulkan(
     std::optional<double> scale,
     bool enable_gqa) {
   api::AllocationScope allocation_scope("sdpa");
+  log_sdpa_event(
+      "public_vulkan_entry",
+      "enter",
+      "ok",
+      query,
+      key,
+      value,
+      attn_mask,
+      dropout_p,
+      is_causal,
+      scale,
+      enable_gqa);
+  if (const auto fast_output = try_scaled_dot_product_attention_tiled_fast_path(
+          query,
+          key,
+          value,
+          attn_mask,
+          dropout_p,
+          is_causal,
+          scale,
+          enable_gqa)) {
+    return *fast_output;
+  }
+  log_sdpa_event(
+      "public_vulkan_entry",
+      "fallback",
+      "math_path",
+      query,
+      key,
+      value,
+      attn_mask,
+      dropout_p,
+      is_causal,
+      scale,
+      enable_gqa);
   return std::get<0>(scaled_dot_product_attention_math_vulkan(
       query,
       key,
@@ -641,6 +926,7 @@ Tensor softmax(
     const at::Tensor& input_arg,
     const int64_t dim,
     const bool half_to_float) {
+  utils::log_vulkan_op_hit("aten::_softmax");
   return softmax_internal(input_arg, dim, half_to_float);
 }
 
@@ -648,6 +934,7 @@ Tensor log_softmax(
     const at::Tensor& input_arg,
     const int64_t dim,
     const bool half_to_float) {
+  utils::log_vulkan_op_hit("aten::_log_softmax");
   // After computing softmax, some values are so small that they are below the
   // float16 precision. These values are represented as 0 in float16 and result
   // in -inf when log is applied. According to Wikipedia:
@@ -659,19 +946,36 @@ Tensor log_softmax(
   return softmax_internal(input_arg, dim, half_to_float).add(epsilon).log();
 }
 
+} // namespace
+
+Tensor scaled_dot_product_attention_vulkan(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const std::optional<Tensor>& attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa) {
+  utils::log_vulkan_op_hit("aten::scaled_dot_product_attention");
+  return scaled_dot_product_attention_vulkan_impl(
+      query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl("_softmax", TORCH_FN(softmax));
   m.impl("_log_softmax", TORCH_FN(log_softmax));
   m.impl(
+      TORCH_SELECTIVE_NAME("aten::scaled_dot_product_attention"),
+      TORCH_FN(scaled_dot_product_attention_vulkan));
+  m.impl(
       TORCH_SELECTIVE_NAME("aten::_scaled_dot_product_attention_math"),
       TORCH_FN(scaled_dot_product_attention_math_vulkan));
 }
 
 #endif /* USE_VULKAN_API */
-
-} // namespace
 
 } // namespace ops
 } // namespace vulkan

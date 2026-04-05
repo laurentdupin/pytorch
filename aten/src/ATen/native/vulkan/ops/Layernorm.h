@@ -55,6 +55,13 @@ c10::intrusive_ptr<LayernormPackedContext> create_layernorm_context(
     std::optional<Tensor>&& bias,
     double eps);
 
+Tensor layer_norm_impl(
+    const Tensor& input,
+    IntArrayRef normalized_shape,
+    const std::optional<Tensor>& weight,
+    const std::optional<Tensor>& bias,
+    double eps);
+
 Tensor run_layernorm_context(
     const Tensor& input,
     IntArrayRef normalized_shape,

@@ -37,6 +37,9 @@
 #include <ATen/ops/_scaled_dot_product_attention_math_for_mps.h>
 #include <ATen/ops/_scaled_dot_product_attention_math_for_mps_native.h>
 #include <ATen/ops/_scaled_dot_product_attention_math_native.h>
+#ifdef USE_VULKAN_API
+#include <ATen/native/vulkan/ops/Softmax.h>
+#endif
 #include <ATen/ops/_scaled_dot_product_efficient_attention.h>
 #include <ATen/ops/_scaled_dot_product_flash_attention.h>
 #include <ATen/ops/_scaled_dot_product_flash_attention_backward_native.h>
@@ -731,16 +734,15 @@ Tensor scaled_dot_product_attention(
     return out + (query_.sum() + key.sum() + value.sum()) * 0;
   }
   if (query_.is_vulkan()) {
-    return std::get<0>(at::_scaled_dot_product_attention_math(
+    return at::native::vulkan::ops::scaled_dot_product_attention_vulkan(
         query_,
         key,
         value,
         convert_boolean_attn_mask(attn_mask_, query_.dtype()),
         dropout_p,
         is_causal,
-        std::nullopt,
         scale,
-        enable_gqa));
+        enable_gqa);
   }
   int64_t choice_int = static_cast<int64_t>(sdp::SDPBackend::math);
   if (_fused_sdp_choice_stub.is_device_supported(query_.device().type())) {

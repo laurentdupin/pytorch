@@ -1,19 +1,116 @@
 #include <ATen/native/vulkan/ops/Layernorm.h>
-#include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/ops/NativeLayerNorm.h>
 
 #include <ATen/native/vulkan/ops/Common.h>
-#include <torch/library.h>
-
-#ifndef AT_PER_OPERATOR_HEADERS
-#include <ATen/Functions.h>
-#else
-#include <ATen/ops/native_layer_norm.h>
-#endif
+#include <ATen/native/vulkan/ops/Utils.h>
+#include <c10/core/InferenceMode.h>
 
 namespace at {
 namespace native {
 namespace vulkan {
 namespace ops {
+namespace {
+
+using namespace api::utils;
+
+void maybe_synchronize_vulkan_context() {
+  api::Context* const context = api::context();
+  if (context->should_sync_and_reclaim()) {
+    context->sync_and_reclaim();
+  }
+}
+
+Tensor layer_norm_fused_width(
+    const Tensor& input_arg,
+    IntArrayRef normalized_shape,
+    const std::optional<Tensor>& weight_opt,
+    const std::optional<Tensor>& bias_opt,
+    double eps) {
+  api::AllocationScope allocation_scope("layer_norm.output_only");
+  api::Context* const context = api::context();
+
+  Tensor input = utils::prepare_vulkan_execution_tensor(
+      input_arg, utils::VulkanExecutionPlanKind::NormInput);
+  Tensor weight = utils::prepare_vulkan_execution_tensor(
+      *weight_opt, utils::VulkanExecutionPlanKind::NormInput);
+  Tensor bias = utils::prepare_vulkan_execution_tensor(
+      *bias_opt, utils::VulkanExecutionPlanKind::NormInput);
+
+  const vTensor& v_input = convert(input);
+  const vTensor& v_weight = convert(weight);
+  const vTensor& v_bias = convert(bias);
+
+  vTensor v_output{
+      context,
+      v_input.sizes(),
+      v_input.dtype(),
+  };
+
+  const struct Block final {
+    ivec4 output_extents;
+    int32_t normalized_size;
+    float eps;
+    ivec2 fill0;
+  } block{
+      ivec4{
+          safe_downcast<int32_t>(v_output.extents().data[0u]),
+          safe_downcast<int32_t>(v_output.extents().data[1u]),
+          safe_downcast<int32_t>(v_output.extents().data[2u]),
+          0,
+      },
+      safe_downcast<int32_t>(normalized_shape.front()),
+      safe_downcast<float>(eps),
+      ivec2{0, 0},
+  };
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+
+  context->submit_compute_job(
+      VK_KERNEL(layer_norm_width),
+      pipeline_barrier,
+      v_output.extents(),
+      adaptive_work_group_size(v_output.extents()),
+      VK_NULL_HANDLE,
+      v_output.image(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+      v_weight.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+      v_bias.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+      params.buffer());
+
+  utils::log_vulkan_op_hit("aten::layer_norm.fused_width");
+  if (c10::InferenceMode::is_enabled()) {
+    maybe_synchronize_vulkan_context();
+  }
+  return convert(v_output);
+}
+
+} // namespace
+
+Tensor layer_norm_impl(
+    const Tensor& input_arg,
+    IntArrayRef normalized_shape,
+    const std::optional<Tensor>& weight_opt,
+    const std::optional<Tensor>& bias_opt,
+    double eps) {
+  utils::log_vulkan_op_hit("aten::layer_norm");
+  check_layer_norm_inputs(input_arg, normalized_shape, weight_opt, bias_opt);
+
+  TORCH_CHECK(
+      weight_opt->defined() && bias_opt->defined(),
+      "Vulkan layer_norm expects weight and bias arguments");
+
+  if (supports_fused_layer_norm_last_dim(
+          input_arg, normalized_shape, weight_opt, bias_opt)) {
+    return layer_norm_fused_width(
+        input_arg, normalized_shape, weight_opt, bias_opt, eps);
+  }
+
+  return std::get<0>(native_layer_norm_impl(
+      input_arg, normalized_shape, weight_opt, bias_opt, eps));
+}
 
 LayernormPackedContext::LayernormPackedContext(
     const std::optional<Tensor>& weight,
@@ -60,34 +157,8 @@ Tensor run_layernorm_context(
   const std::optional<Tensor> bias_opt = layernorm_context->bias();
   const float eps = api::utils::safe_downcast<float>(layernorm_context->eps());
 
-  // We invoke native_layer_norm which returns a tuple of tensors: <layer_norm,
-  // mean, 1/sqrt(var+eps)>, but we only need the first tensor (layer_norm).
-  std::tuple<Tensor, Tensor, Tensor> native_layer_norm_output =
-      at::native_layer_norm(input, normalized_shape, weight_opt, bias_opt, eps);
-  return std::get<0>(native_layer_norm_output);
+  return layer_norm_impl(input, normalized_shape, weight_opt, bias_opt, eps);
 }
-
-static Tensor layer_norm(
-    const at::Tensor& input_arg,
-    IntArrayRef normalized_shape,
-    const std::optional<Tensor>& weight_opt /* optional */,
-    const std::optional<Tensor>& bias_opt /* optional */,
-    double eps,
-    bool /* cudnn_enable, deprecated */) {
-  return run_layernorm_context(
-      input_arg,
-      normalized_shape,
-      c10::make_intrusive<LayernormPackedContext>(
-          LayernormPackedContext(weight_opt, bias_opt, eps)));
-}
-
-#ifdef USE_VULKAN_API
-
-TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
-  m.impl(TORCH_SELECTIVE_NAME("aten::layer_norm"), TORCH_FN(layer_norm));
-}
-
-#endif /* USE_VULKAN_API */
 
 } // namespace ops
 } // namespace vulkan

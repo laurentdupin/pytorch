@@ -13,6 +13,98 @@ namespace ops {
 
 namespace {
 
+bool is_contiguous_stride(
+    IntArrayRef sizes,
+    IntArrayRef strides) {
+  return strides.equals(c10::contiguous_strides(sizes));
+}
+
+bool can_use_texture_contiguous_reshape(
+    const vTensor& v_self,
+    IntArrayRef output_size,
+    IntArrayRef output_stride,
+    const int64_t storage_offset) {
+  if (
+      v_self.storage_type() != api::StorageType::TEXTURE_3D ||
+      v_self.gpu_memory_layout() !=
+          api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED ||
+      v_self.is_quantized() || v_self.sizes().size() > 4 ||
+      output_size.size() > 4 || storage_offset != 0) {
+    return false;
+  }
+
+  if (
+      !is_contiguous_stride(v_self.sizes(), logical_strides(v_self)) ||
+      !is_contiguous_stride(output_size, output_stride)) {
+    return false;
+  }
+
+  return c10::multiply_integers(v_self.sizes()) ==
+      c10::multiply_integers(output_size);
+}
+
+Tensor reshape_contiguous_texture(
+    const Tensor& self_arg,
+    IntArrayRef output_size) {
+  api::AllocationScope allocation_scope("reshape");
+  api::Context* const context = api::context();
+
+  Tensor input = utils::prepare_vulkan_execution_tensor(
+      self_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
+  const vTensor& v_input = convert(input);
+
+  vTensor v_output{
+      context,
+      output_size.vec(),
+      convert_dtype(self_arg.scalar_type()),
+      api::StorageType::TEXTURE_3D,
+      api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+  };
+
+  const api::utils::uvec4 out_tensor_size =
+      api::utils::make_whcn_uvec4(output_size.vec());
+  const api::utils::uvec4 in_tensor_size =
+      api::utils::make_whcn_uvec4(v_input.sizes());
+
+  const struct Block final {
+    api::utils::ivec3 out_extents;
+    int32_t fill0;
+    api::utils::uvec4 out_tensor_size;
+    api::utils::uvec4 in_tensor_size;
+    api::utils::uvec2 aligned_channels;
+    api::utils::uvec2 fill1;
+  } block{
+      api::utils::make_ivec3(v_output.extents()),
+      0,
+      out_tensor_size,
+      in_tensor_size,
+      {
+          api::utils::align_up(out_tensor_size.data[2u], 4u),
+          api::utils::align_up(in_tensor_size.data[2u], 4u),
+      },
+      {0u, 0u},
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+
+  context->submit_compute_job(
+      VK_KERNEL(reshape_texture),
+      pipeline_barrier,
+      v_output.extents(),
+      adaptive_work_group_size(v_output.extents()),
+      VK_NULL_HANDLE,
+      v_output.image(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+      params.buffer());
+
+  utils::log_vulkan_op_hit("aten::view.texture_contiguous_reshape");
+  return convert(v_output);
+}
+
 Tensor view_internal(
     const Tensor& self_arg,
     const IntArrayRef output_size,
@@ -39,6 +131,11 @@ Tensor view_internal(
           output_stride,
           output_stride,
           resolved_storage_offset);
+    }
+
+    if (can_use_texture_contiguous_reshape(
+            v_self, output_size, output_stride, resolved_storage_offset)) {
+      return reshape_contiguous_texture(self_arg, output_size);
     }
   }
 

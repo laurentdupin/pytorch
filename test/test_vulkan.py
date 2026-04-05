@@ -376,6 +376,43 @@ class TestVulkanEagerRuntime(TestCase):
                 features.append((tokens,))
         return features
 
+    def _run_repo_python_subprocess(
+            self,
+            script,
+            *,
+            extra_env=None,
+            timeout=120,
+            error_prefix="Vulkan subprocess failed."):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = os.environ.copy()
+        existing_pythonpath = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = (
+            repo_root
+            if not existing_pythonpath
+            else repo_root + os.pathsep + existing_pythonpath
+        )
+        if extra_env:
+            env.update(extra_env)
+
+        result = subprocess.run(
+            [sys.executable, "-c", textwrap.dedent(script)],
+            env=env,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            msg=(
+                f"{error_prefix}\n"
+                f"stdout:\n{result.stdout}\n"
+                f"stderr:\n{result.stderr}"
+            ),
+        )
+        return repo_root, result
+
     def test_binary_and_unary_ops(self):
         torch.manual_seed(0)
         x = torch.randn(2, 3, 8, 8)
@@ -2358,25 +2395,279 @@ class TestVulkanEagerRuntime(TestCase):
                         rtol=1e-4,
                     )
 
-    def test_execution_plan_logging(self):
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        env = os.environ.copy()
-        existing_pythonpath = env.get("PYTHONPATH")
-        env["PYTHONPATH"] = (
-            repo_root
-            if not existing_pythonpath
-            else repo_root + os.pathsep + existing_pythonpath
+    def test_vulkan_dispatch_tables_expose_backend_kernels(self):
+        dispatch_expectations = {
+            "aten::linear": ("Vulkan: registered at", "Mm.cpp"),
+            "aten::mm": ("Vulkan: registered at", "Mm.cpp"),
+            "aten::bmm": ("Vulkan: registered at", "Mm.cpp"),
+            "aten::_softmax": ("Vulkan: registered at", "Softmax.cpp"),
+            "aten::_scaled_dot_product_attention_math": (
+                "Vulkan: registered at",
+                "Softmax.cpp",
+            ),
+            "vulkan_prepack::run_linear_context": (
+                "Vulkan: registered at",
+                "Register.cpp",
+            ),
+        }
+
+        for opname, expected_substrings in dispatch_expectations.items():
+            with self.subTest(opname=opname):
+                table = torch._C._dispatch_dump_table(opname)
+                for expected_substring in expected_substrings:
+                    self.assertIn(expected_substring, table)
+
+        public_sdpa_table = torch._C._dispatch_dump_table(
+            "aten::scaled_dot_product_attention"
+        )
+        self.assertIn("CompositeImplicitAutograd", public_sdpa_table)
+        self.assertFalse(
+            hasattr(torch.ops.vulkan_prepack, "scaled_dot_product_attention")
         )
 
-        log_name = "execution_plan_logging_test.log"
+        layer_norm_table = torch._C._dispatch_dump_table("aten::layer_norm")
+        self.assertIn("CompositeImplicitAutograd", layer_norm_table)
+        self.assertNotIn("Layernorm.cpp", layer_norm_table)
+
+        native_layer_norm_table = torch._C._dispatch_dump_table(
+            "aten::native_layer_norm"
+        )
+        self.assertIn("CompositeExplicitAutograd", native_layer_norm_table)
+        self.assertNotIn("NativeLayerNorm.cpp", native_layer_norm_table)
+
+    def test_vulkan_runtime_op_hit_logging(self):
+        log_name = "vulkan_op_hit_logging_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         log_path = os.path.join(repo_root, log_name)
         if os.path.exists(log_path):
             os.remove(log_path)
-        env["PYTORCH_VULKAN_EXECUTION_PLAN_LOG"] = log_name
 
         try:
-            script = textwrap.dedent(
-                """
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                with torch.inference_mode():
+                    x = torch.randn(1, 16, 32, dtype=torch.float32).to("vulkan")
+                    w = torch.randn(64, 32, dtype=torch.float32).to("vulkan")
+                    b = torch.randn(64, dtype=torch.float32).to("vulkan")
+                    F.linear(x, w, b)
+
+                    ctx = torch.ops.vulkan_prepack.create_linear_context(
+                        w.clone().t(),
+                        b,
+                    )
+                    torch.ops.vulkan_prepack.run_linear_context(x, ctx)
+
+                    mm_a = torch.randn(8, 8, dtype=torch.float32).to("vulkan")
+                    mm_b = torch.randn(8, 8, dtype=torch.float32).to("vulkan")
+                    torch.mm(mm_a, mm_b)
+
+                    bmm_a = torch.randn(2, 8, 8, dtype=torch.float32).to("vulkan")
+                    bmm_b = torch.randn(2, 8, 8, dtype=torch.float32).to("vulkan")
+                    torch.bmm(bmm_a, bmm_b)
+
+                    s = torch.randn(2, 3, 4, dtype=torch.float32).to("vulkan")
+                    F.softmax(s, dim=-1)
+
+                    ln_x = torch.randn(1, 17, 32, dtype=torch.float32).to("vulkan")
+                    ln_weight = torch.randn(32, dtype=torch.float32)
+                    ln_bias = torch.randn(32, dtype=torch.float32)
+                    F.layer_norm(
+                        ln_x,
+                        (32,),
+                        ln_weight,
+                        ln_bias,
+                        1e-5,
+                    )
+
+                    q = torch.randn(2, 9, 8, dtype=torch.float32).to("vulkan")
+                    k = torch.randn(2, 7, 8, dtype=torch.float32).to("vulkan")
+                    v = torch.randn(2, 7, 8, dtype=torch.float32).to("vulkan")
+                    torch.ops.aten._scaled_dot_product_attention_math(
+                        q,
+                        k,
+                        v,
+                        None,
+                        0.0,
+                        False,
+                        None,
+                        scale=0.125,
+                        enable_gqa=False,
+                    )[0]
+                print("ok")
+            """
+
+            _, result = self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Vulkan op-hit logging subprocess failed.",
+            )
+            self.assertIn("ok", result.stdout)
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            for op_name in (
+                "aten::linear",
+                "vulkan_prepack::run_linear_context",
+                "aten::mm",
+                "aten::bmm",
+                "aten::_softmax",
+                "aten::layer_norm",
+                "aten::layer_norm.fused_width",
+                "aten::_scaled_dot_product_attention_math",
+            ):
+                with self.subTest(op_name=op_name):
+                    self.assertIn(f"op={op_name}", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_layer_norm_runtime_hits_fused_width_kernel(self):
+        log_name = "vulkan_layer_norm_fused_width_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 257, 384, dtype=torch.float32).to("vulkan")
+                weight = torch.randn(384, dtype=torch.float32)
+                bias = torch.randn(384, dtype=torch.float32)
+                with torch.inference_mode():
+                    y = F.layer_norm(x, (384,), weight, bias, 1e-5)
+                    print(tuple(y.shape))
+                    print(y.cpu()[0, 0, :4])
+            """
+
+            _, result = self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Vulkan layer_norm fused-width subprocess failed.",
+            )
+            self.assertIn("(1, 257, 384)", result.stdout)
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("op=aten::layer_norm", log_text)
+            self.assertIn("op=aten::layer_norm.fused_width", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_native_layer_norm_runtime_hits_fused_width_kernel(self):
+        log_name = "vulkan_native_layer_norm_fused_width_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 257, 384, dtype=torch.float32).to("vulkan")
+                weight = torch.randn(384, dtype=torch.float32)
+                bias = torch.randn(384, dtype=torch.float32)
+                with torch.inference_mode():
+                    y, mean, rstd = torch.native_layer_norm(
+                        x,
+                        (384,),
+                        weight,
+                        bias,
+                        1e-6,
+                    )
+                    print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Native-layer-norm fused-width subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("op=aten::native_layer_norm", log_text)
+            self.assertIn("op=aten::native_layer_norm.fused_width", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_scaled_dot_product_attention_runtime_hits_vulkan_kernel(self):
+        log_name = "vulkan_sdpa_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                q = torch.randn(2, 9, 8, dtype=torch.float32).to("vulkan")
+                k = torch.randn(2, 7, 8, dtype=torch.float32).to("vulkan")
+                v = torch.randn(2, 7, 8, dtype=torch.float32).to("vulkan")
+                with torch.inference_mode():
+                    out = F.scaled_dot_product_attention(
+                        q,
+                        k,
+                        v,
+                        dropout_p=0.0,
+                        scale=0.125,
+                    )
+                    print(float(out.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Scaled-dot-product attention subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertTrue(
+                (
+                    "op=aten::scaled_dot_product_attention" in log_text
+                    or "op=aten::_scaled_dot_product_attention_math" in log_text
+                ),
+                msg=(
+                    "Expected the Vulkan SDPA runtime path to hit either the "
+                    "public aten::scaled_dot_product_attention kernel or the "
+                    "Vulkan aten::_scaled_dot_product_attention_math kernel."
+                ),
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_execution_plan_logging(self):
+        log_name = "execution_plan_logging_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
                 import torch
                 import torch.nn.functional as F
 
@@ -2391,24 +2682,11 @@ class TestVulkanEagerRuntime(TestCase):
                     r = z.sum(dim=-1)
                     print(float(r.cpu().sum()))
                 """
-            )
 
-            result = subprocess.run(
-                [sys.executable, "-c", script],
-                env=env,
-                cwd=repo_root,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            self.assertEqual(
-                result.returncode,
-                0,
-                msg=(
-                    "Execution-plan logging subprocess failed.\n"
-                    f"stdout:\n{result.stdout}\n"
-                    f"stderr:\n{result.stderr}"
-                ),
+            _, result = self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_EXECUTION_PLAN_LOG": log_name},
+                error_prefix="Execution-plan logging subprocess failed.",
             )
 
             self.assertTrue(os.path.exists(log_path))
@@ -2419,6 +2697,89 @@ class TestVulkanEagerRuntime(TestCase):
             self.assertIn("kind=LinearInputSource", log_text)
             self.assertIn("kind=ElementwiseInput", log_text)
             self.assertIn("kind=ReductionDimInput", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_linear_avoids_width_relayout_for_channels_packed_input(self):
+        log_name = "linear_materialize_log_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x = torch.randn(257, 384, dtype=torch.float32).to("vulkan")
+                w = torch.randn(1152, 384, dtype=torch.float32).to("vulkan")
+                b = torch.randn(1152, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    y = F.linear(x, w, b)
+                    print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_MATERIALIZE_LOG": log_name},
+                error_prefix="Linear materialization subprocess failed.",
+            )
+
+            log_text = ""
+            if os.path.exists(log_path):
+                with open(log_path, "r", encoding="utf-8") as log_file:
+                    log_text = log_file.read()
+
+            self.assertNotIn(
+                "caller=linear path=image_layout_convert_width",
+                log_text,
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_texture_contiguous_reshape_hits_backend_fast_path(self):
+        log_name = "texture_contiguous_reshape_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 17, 8, dtype=torch.float32).to("vulkan")
+                weight = torch.randn(24, 8, dtype=torch.float32).to("vulkan")
+                bias = torch.randn(24, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    qkv = F.linear(x, weight, bias).reshape(1, 17, 3, 8)
+                    q = qkv[:, :, 0].reshape(1, 17, 2, 4)
+                    q = q.permute(0, 2, 1, 3).reshape(2, 17, 4)
+                    print(float(q.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Texture contiguous reshape subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn(
+                "op=aten::view.texture_contiguous_reshape",
+                log_text,
+            )
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)
