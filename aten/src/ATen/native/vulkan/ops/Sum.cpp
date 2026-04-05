@@ -186,6 +186,10 @@ Tensor sum_dim(
     int64_t dim,
     bool keepdim,
     const std::optional<ScalarType> dtype) {
+  if (self.dim() > 4) {
+    return sum_dim_cpu_fallback(self, dim, keepdim, dtype);
+  }
+
   if (self.scalar_type() == c10::ScalarType::BFloat16) {
     return finalize_bfloat16_sum_output(
         at::sum(
@@ -381,11 +385,9 @@ Tensor& all_out(const Tensor& self, Tensor& out) {
   Tensor cpu_result = at::empty({0}, out.options().device(at::kCPU));
   at::all_out(cpu_result, self.cpu());
 
-  TORCH_CHECK(
-      out.sizes() == cpu_result.sizes(),
-      "Vulkan all.out requires a pre-sized output tensor; resizing Vulkan outputs is not supported");
-  ops::copy_(out, cpu_result);
-  return out;
+  Tensor vulkan_result = at::empty(cpu_result.sizes(), out.options());
+  ops::copy_(vulkan_result, cpu_result);
+  return rebind_vulkan_output(out, vulkan_result);
 }
 
 Tensor argmax(
@@ -409,11 +411,9 @@ Tensor& argmax_out(
   Tensor cpu_result = at::empty({0}, out.options().device(at::kCPU));
   at::argmax_out(cpu_result, self.cpu(), dim, keepdim);
 
-  TORCH_CHECK(
-      out.sizes() == cpu_result.sizes(),
-      "Vulkan argmax.out requires a pre-sized output tensor; resizing Vulkan outputs is not supported");
-  ops::copy_(out, cpu_result);
-  return out;
+  Tensor vulkan_result = at::empty(cpu_result.sizes(), out.options());
+  ops::copy_(vulkan_result, cpu_result);
+  return rebind_vulkan_output(out, vulkan_result);
 }
 
 #ifdef USE_VULKAN_API

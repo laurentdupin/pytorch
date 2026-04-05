@@ -294,6 +294,10 @@ Tensor mean_dim(
     int64_t dim,
     bool keepdim,
     const std::optional<ScalarType> dtype) {
+  if (self.dim() > 4) {
+    return mean_dim_cpu_fallback(self, dim, keepdim, dtype);
+  }
+
   if (self.scalar_type() == c10::ScalarType::BFloat16) {
     return finalize_bfloat16_mean_output(
         at::mean(

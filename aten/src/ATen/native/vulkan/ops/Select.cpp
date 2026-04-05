@@ -12,6 +12,9 @@ namespace {
 using namespace api::utils;
 
 bool needs_select_cpu_fallback(const Tensor& self) {
+  if (self.dim() > 4) {
+    return true;
+  }
   if (!self.is_vulkan()) {
     return false;
   }

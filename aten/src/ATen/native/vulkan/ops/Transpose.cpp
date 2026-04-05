@@ -1,5 +1,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/Functions.h>
 #include <torch/library.h>
 
 namespace at {
@@ -76,9 +78,17 @@ Tensor transpose_4d(
 
 Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
   api::AllocationScope allocation_scope("transpose");
-  TORCH_CHECK(
-      self.dim() <= 4,
-      "Vulkan transpose only supports tensors <= 4 dimensions");
+  if (self.dim() > 4) {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor cpu = self.cpu();
+    const Tensor cpu_transposed = cpu.transpose(index0, index1);
+    Tensor out = at::empty(
+        cpu_transposed.sizes(),
+        self.options().device(at::kVulkan));
+    ops::copy_(out, cpu_transposed);
+    return out;
+  }
 
   auto nDims = safe_downcast<uint32_t>(self.dim());
   uvec4 in_size{1u, 1u, 1u, 1u}, out_size{1u, 1u, 1u, 1u};
@@ -135,7 +145,8 @@ Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
 
 Tensor t(const Tensor& self) {
   TORCH_CHECK(self.dim() <= 2, "t() only supports tensors <= 2 dimensions");
-  return transpose(self.detach(), 0, self.dim() < 2 ? 0 : 1);
+  return ::at::native::vulkan::ops::transpose(
+      self.detach(), 0, self.dim() < 2 ? 0 : 1);
 }
 
 #ifdef USE_VULKAN_API

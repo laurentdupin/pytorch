@@ -270,13 +270,14 @@ static Tensor& upsample_bicubic2d_out(
   TORCH_CHECK(
       out.is_vulkan(),
       "Vulkan upsample_bicubic2d.out expects a Vulkan output tensor");
-  out.copy_(upsample_bicubic2d(
-      input,
-      output_sizes,
-      align_corners,
-      scales_h,
-      scales_w));
-  return out;
+  return rebind_vulkan_output(
+      out,
+      upsample_bicubic2d(
+          input,
+          output_sizes,
+          align_corners,
+          scales_h,
+          scales_w));
 }
 
 #ifdef USE_VULKAN_API

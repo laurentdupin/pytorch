@@ -7,6 +7,7 @@
 #include <ATen/ops/div.h>
 #include <ATen/ops/floor_divide.h>
 #include <ATen/ops/mul.h>
+#include <ATen/ops/ones_like.h>
 #include <ATen/ops/pow.h>
 #include <ATen/ops/sub.h>
 #endif
@@ -150,6 +151,65 @@ const api::ShaderInfo& bool_buffer_tensor_shader(const BinaryOpKind op_kind) {
 
 bool needs_binary_cpu_fallback(const Tensor& tensor) {
   return tensor.is_vulkan() && convert(tensor).dtype() != api::kFloat;
+}
+
+bool scalar_is_integral_exponent(const Scalar& other) {
+  if (other.isIntegral(false)) {
+    return true;
+  }
+  if (!other.isFloatingPoint()) {
+    return false;
+  }
+  const double value = other.to<double>();
+  if (!std::isfinite(value)) {
+    return false;
+  }
+  return std::nearbyint(value) == value;
+}
+
+int64_t scalar_to_integral_exponent(const Scalar& other) {
+  if (other.isIntegral(false)) {
+    return other.to<int64_t>();
+  }
+  return safe_downcast<int64_t>(std::nearbyint(other.to<double>()));
+}
+
+Tensor pow_tensor_scalar_integral_exponent(
+    const Tensor& self_arg,
+    const int64_t exponent) {
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    result = at::ones_like(self.cpu()).vulkan();
+  }
+  Tensor factor = self;
+
+  const bool negative_exponent = exponent < 0;
+  uint64_t power = negative_exponent
+      ? static_cast<uint64_t>(-(exponent + 1)) + 1
+      : static_cast<uint64_t>(exponent);
+
+  while (power > 0) {
+    if ((power & 1u) != 0u) {
+      result = at::mul(result, factor);
+    }
+    power >>= 1u;
+    if (power > 0) {
+      factor = at::mul(factor, factor);
+    }
+  }
+
+  if (negative_exponent) {
+    Tensor numerator;
+    {
+      c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+      numerator = at::ones_like(result.cpu()).vulkan();
+    }
+    result = at::div(numerator, result);
+  }
+
+  return result;
 }
 
 bool should_run_buffer_binary_scalar(const Tensor& tensor) {
@@ -720,6 +780,10 @@ static Tensor binary_op_scalar(
   api::AllocationScope allocation_scope("binary_op");
   api::Context* const context = api::context();
 
+  if (self_arg.dim() > 4) {
+    return binary_op_scalar_cpu_fallback(self_arg, other, alpha_arg, op_kind);
+  }
+
   if (should_run_buffer_binary_scalar_integral(
           self_arg, other, alpha_arg, op_kind)) {
     return binary_op_scalar_buffer_integral(
@@ -953,6 +1017,11 @@ static Tensor binary_op_tensor(
     const api::ShaderInfo& buffer_shader_descriptor,
     const BinaryOpKind op_kind) {
   api::AllocationScope allocation_scope("binary_op");
+
+  if (self_arg.dim() > 4 || other_arg.dim() > 4) {
+    return binary_op_tensor_cpu_fallback(self_arg, other_arg, alpha_arg, op_kind);
+  }
+
   utils::is_broadcastable(self_arg, other_arg);
   api::Context* const context = api::context();
 
@@ -1416,6 +1485,10 @@ static Tensor& pow_(Tensor& self, const Tensor& other) {
 }
 
 static Tensor pow_tensor_scalar(const Tensor& self, const Scalar& other) {
+  if (scalar_is_integral_exponent(other)) {
+    return pow_tensor_scalar_integral_exponent(
+        self, scalar_to_integral_exponent(other));
+  }
   return binary_op_scalar(
       self,
       other,
@@ -1426,6 +1499,11 @@ static Tensor pow_tensor_scalar(const Tensor& self, const Scalar& other) {
 }
 
 static Tensor& pow_tensor_scalar_(Tensor& self, const Scalar& other) {
+  if (scalar_is_integral_exponent(other)) {
+    self.copy_(pow_tensor_scalar_integral_exponent(
+        self, scalar_to_integral_exponent(other)));
+    return self;
+  }
   return binary_op_scalar_(
       self,
       other,

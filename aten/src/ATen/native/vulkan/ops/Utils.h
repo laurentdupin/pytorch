@@ -22,6 +22,10 @@ struct LogicalBufferMetadata final {
 enum class VulkanExecutionPlanKind : uint8_t {
   Generic = 0u,
   TextureComputeInput,
+  AttentionInput,
+  AttentionMaskInput,
+  AttentionCacheInput,
+  AttentionCacheAppendInput,
   ElementwiseInput,
   ElementwiseBufferInput,
   ReductionAllInput,
@@ -41,6 +45,35 @@ enum class VulkanExecutionPlanKind : uint8_t {
   Conv1dRuntimeWeight,
   Conv1dRuntimeBias,
   NumKinds,
+};
+
+enum class VulkanAttentionMaskKind : uint8_t {
+  None = 0u,
+  Additive,
+  Boolean,
+};
+
+enum class VulkanAttentionCacheMode : uint8_t {
+  Disabled = 0u,
+  Prefill,
+  DecodeAppend,
+};
+
+struct VulkanAttentionPolicy final {
+  VulkanExecutionPlanKind query_plan_kind{
+      VulkanExecutionPlanKind::AttentionInput};
+  VulkanExecutionPlanKind key_value_plan_kind{
+      VulkanExecutionPlanKind::AttentionInput};
+  VulkanExecutionPlanKind mask_plan_kind{
+      VulkanExecutionPlanKind::AttentionMaskInput};
+  VulkanExecutionPlanKind cache_plan_kind{
+      VulkanExecutionPlanKind::AttentionCacheInput};
+  VulkanExecutionPlanKind cache_append_plan_kind{
+      VulkanExecutionPlanKind::AttentionCacheAppendInput};
+  VulkanAttentionMaskKind mask_kind{VulkanAttentionMaskKind::None};
+  VulkanAttentionCacheMode cache_mode{VulkanAttentionCacheMode::Disabled};
+  bool is_causal{false};
+  bool enable_gqa{false};
 };
 
 enum class VulkanExecutionPolicyBufferRule : uint8_t {
@@ -88,7 +121,18 @@ const char* execution_layout_name(api::ExecutionLayout);
 
 const char* execution_plan_kind_name(VulkanExecutionPlanKind);
 
+const char* attention_mask_kind_name(VulkanAttentionMaskKind);
+
+const char* attention_cache_mode_name(VulkanAttentionCacheMode);
+
 const VulkanExecutionPlanPolicy& execution_plan_policy(VulkanExecutionPlanKind);
+
+VulkanAttentionPolicy build_vulkan_attention_policy(
+    const std::optional<Tensor>& attn_mask,
+    bool is_causal,
+    bool enable_gqa,
+    bool use_kv_cache,
+    bool cache_has_previous_state);
 
 bool uses_buffer_execution(const vTensor&);
 

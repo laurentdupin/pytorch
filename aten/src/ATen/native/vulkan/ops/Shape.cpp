@@ -127,11 +127,10 @@ static Tensor& im2col_out(
   Tensor cpu = self_arg.cpu();
   Tensor cpu_result =
       at::im2col(cpu, kernel_size.vec(), dilation.vec(), padding.vec(), stride.vec());
-  TORCH_CHECK(
-      out.sizes() == cpu_result.sizes(),
-      "Vulkan im2col.out requires a pre-sized output tensor; resizing Vulkan outputs is not supported");
-  ops::copy_(out, cpu_result);
-  return out;
+
+  Tensor vulkan_result = at::empty(cpu_result.sizes(), out.options());
+  ops::copy_(vulkan_result, cpu_result);
+  return rebind_vulkan_output(out, vulkan_result);
 }
 
 #ifdef USE_VULKAN_API

@@ -609,6 +609,50 @@ execution_plan_policies() {
            false,
            false,
            false},
+          {"AttentionInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
+          {"AttentionMaskInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
+          {"AttentionCacheInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           true},
+          {"AttentionCacheAppendInput",
+           api::ExecutionLayout::TEXTURE,
+           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+           api::StorageType::TEXTURE_3D,
+           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyMemoryRule::Fixed,
+           true,
+           false,
+           false,
+           false,
+           false},
           {"ElementwiseInput",
            api::ExecutionLayout::TEXTURE,
            api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
@@ -1054,9 +1098,58 @@ const char* execution_plan_kind_name(const VulkanExecutionPlanKind kind) {
   return execution_plan_policy(kind).name;
 }
 
+const char* attention_mask_kind_name(const VulkanAttentionMaskKind kind) {
+  switch (kind) {
+    case VulkanAttentionMaskKind::None:
+      return "None";
+    case VulkanAttentionMaskKind::Additive:
+      return "Additive";
+    case VulkanAttentionMaskKind::Boolean:
+      return "Boolean";
+  }
+  return "Unknown";
+}
+
+const char* attention_cache_mode_name(const VulkanAttentionCacheMode mode) {
+  switch (mode) {
+    case VulkanAttentionCacheMode::Disabled:
+      return "Disabled";
+    case VulkanAttentionCacheMode::Prefill:
+      return "Prefill";
+    case VulkanAttentionCacheMode::DecodeAppend:
+      return "DecodeAppend";
+  }
+  return "Unknown";
+}
+
 const VulkanExecutionPlanPolicy& execution_plan_policy(
     const VulkanExecutionPlanKind kind) {
   return execution_plan_policies()[execution_plan_kind_index(kind)];
+}
+
+VulkanAttentionPolicy build_vulkan_attention_policy(
+    const std::optional<Tensor>& attn_mask,
+    const bool is_causal,
+    const bool enable_gqa,
+    const bool use_kv_cache,
+    const bool cache_has_previous_state) {
+  VulkanAttentionPolicy policy;
+  policy.is_causal = is_causal;
+  policy.enable_gqa = enable_gqa;
+  policy.mask_kind =
+      (!attn_mask || !attn_mask->defined())
+      ? VulkanAttentionMaskKind::None
+      : (attn_mask->scalar_type() == kBool ? VulkanAttentionMaskKind::Boolean
+                                           : VulkanAttentionMaskKind::Additive);
+  policy.cache_mode = !use_kv_cache
+      ? VulkanAttentionCacheMode::Disabled
+      : (cache_has_previous_state ? VulkanAttentionCacheMode::DecodeAppend
+                                  : VulkanAttentionCacheMode::Prefill);
+  policy.key_value_plan_kind =
+      policy.cache_mode == VulkanAttentionCacheMode::Disabled
+      ? VulkanExecutionPlanKind::AttentionInput
+      : VulkanExecutionPlanKind::AttentionCacheInput;
+  return policy;
 }
 
 std::optional<Tensor> normalized_optional_tensor(
@@ -1518,8 +1611,8 @@ Tensor make_buffer_metadata_view(
           logical_strides,
           physical_strides,
           storage_offset),
-      "Vulkan buffer metadata view requires a float buffer-backed tensor with "
-      "supported logical sizes/strides and in-range storage_offset");
+      "Vulkan buffer metadata view requires a supported buffer-backed tensor "
+      "with valid logical sizes/strides and in-range storage_offset");
 
   log_materialize_event(
       "make_buffer_metadata_view",
@@ -1541,7 +1634,8 @@ std::string describe_buffer_view_fast_path_failure(const vTensor& v_in) {
   std::ostringstream stream;
   stream
       << "Vulkan texture materialization from buffer views currently only "
-      << "supports non-quantized float tensors with up to 4 dimensions"
+      << "supports non-quantized buffer-backed tensors with supported dtypes "
+      << "and up to 4 dimensions"
       << " (caller=" << api::current_allocation_label()
       << ", sizes=" << format_sizes(v_in.sizes())
       << ", ndim=" << v_in.sizes().size()

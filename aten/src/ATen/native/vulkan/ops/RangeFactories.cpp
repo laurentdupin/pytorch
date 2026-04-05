@@ -58,11 +58,9 @@ Tensor& arange_out_impl(
     at::arange_out(cpu_result, end);
   }
 
-  TORCH_CHECK(
-      result.sizes() == cpu_result.sizes(),
-      "Vulkan arange.out requires a pre-sized output tensor; resizing Vulkan outputs is not supported");
-  ops::copy_(result, cpu_result);
-  return result;
+  Tensor vulkan_result = at::empty(cpu_result.sizes(), result.options());
+  ops::copy_(vulkan_result, cpu_result);
+  return rebind_vulkan_output(result, vulkan_result);
 }
 
 Tensor linspace_impl(
@@ -89,11 +87,9 @@ Tensor& linspace_out_impl(
   Tensor cpu_result = at::empty({0}, result.options().device(at::kCPU));
   at::linspace_out(cpu_result, start, end, steps);
 
-  TORCH_CHECK(
-      result.sizes() == cpu_result.sizes(),
-      "Vulkan linspace.out requires a pre-sized output tensor; resizing Vulkan outputs is not supported");
-  ops::copy_(result, cpu_result);
-  return result;
+  Tensor vulkan_result = at::empty(cpu_result.sizes(), result.options());
+  ops::copy_(vulkan_result, cpu_result);
+  return rebind_vulkan_output(result, vulkan_result);
 }
 
 Tensor arange(

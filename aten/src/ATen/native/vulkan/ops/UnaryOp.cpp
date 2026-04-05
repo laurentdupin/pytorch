@@ -7,6 +7,7 @@
 #include <ATen/ops/log.h>
 #include <ATen/ops/neg.h>
 #include <ATen/ops/rsqrt.h>
+#include <ATen/ops/silu.h>
 #include <ATen/ops/sin.h>
 #include <ATen/ops/sqrt.h>
 #endif
@@ -31,6 +32,7 @@ enum class UnaryOpKind : uint8_t {
   Cos,
   Neg,
   Rsqrt,
+  Silu,
 };
 
 bool needs_unary_cpu_fallback(const Tensor& tensor) {
@@ -69,6 +71,9 @@ Tensor unary_op_cpu_fallback(const Tensor& self_arg, const UnaryOpKind op_kind) 
         break;
       case UnaryOpKind::Rsqrt:
         cpu_result = at::rsqrt(self_cpu);
+        break;
+      case UnaryOpKind::Silu:
+        cpu_result = at::silu(self_cpu);
         break;
     }
   }
@@ -289,6 +294,15 @@ Tensor& rsqrt_(Tensor& self_arg) {
   return unary_op_(self_arg, VK_KERNEL(rsqrt_inplace));
 }
 
+Tensor silu(const Tensor& self_arg) {
+  return unary_op(
+      self_arg, VK_KERNEL(silu), VK_KERNEL(buffer_silu), UnaryOpKind::Silu);
+}
+
+Tensor& silu_(Tensor& self_arg) {
+  return unary_op_(self_arg, VK_KERNEL(silu_inplace));
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
@@ -306,6 +320,8 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::neg_"), TORCH_FN(neg_));
   m.impl(TORCH_SELECTIVE_NAME("aten::rsqrt"), TORCH_FN(rsqrt));
   m.impl(TORCH_SELECTIVE_NAME("aten::rsqrt_"), TORCH_FN(rsqrt_));
+  m.impl(TORCH_SELECTIVE_NAME("aten::silu"), TORCH_FN(silu));
+  m.impl(TORCH_SELECTIVE_NAME("aten::silu_"), TORCH_FN(silu_));
 }
 
 #endif /* USE_VULKAN_API */
