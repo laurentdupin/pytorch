@@ -145,6 +145,8 @@ Tensor group_norm(
     const std::optional<Tensor>& bias_opt,
     double eps,
     bool /* cudnn_enabled */) {
+  api::AllocationScope allocation_scope("group_norm");
+  utils::log_vulkan_op_hit("aten::group_norm");
   Tensor input = maybe_to_vulkan(input_arg).contiguous();
   const Tensor weight = weight_opt.value_or(Tensor());
   const Tensor bias = bias_opt.value_or(Tensor());

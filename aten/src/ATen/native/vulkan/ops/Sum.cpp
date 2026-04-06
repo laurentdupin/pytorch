@@ -400,6 +400,20 @@ Tensor argmax(
   return at::argmax(self.cpu(), dim, keepdim).vulkan();
 }
 
+Tensor max_all(const Tensor& self) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  return at::max(self.cpu()).vulkan();
+}
+
+Tensor min_all(const Tensor& self) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  return at::min(self.cpu()).vulkan();
+}
+
 Tensor& argmax_out(
     const Tensor& self,
     const std::optional<int64_t> dim,
@@ -424,6 +438,8 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::sum"), TORCH_FN(sum));
   m.impl(TORCH_SELECTIVE_NAME("aten::all"), TORCH_FN(all));
   m.impl(TORCH_SELECTIVE_NAME("aten::all.all_out"), TORCH_FN(all_out));
+  m.impl("max", TORCH_FN(max_all));
+  m.impl("min", TORCH_FN(min_all));
   m.impl(TORCH_SELECTIVE_NAME("aten::argmax"), TORCH_FN(argmax));
   m.impl(TORCH_SELECTIVE_NAME("aten::argmax.out"), TORCH_FN(argmax_out));
 }

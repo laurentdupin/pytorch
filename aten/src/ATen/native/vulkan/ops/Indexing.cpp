@@ -15,14 +15,20 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
   TORCH_CHECK(
       weight_arg.dim() == 2,
       "Vulkan gather_rows_2d expects a 2D weight tensor");
+  Tensor indices_host = indices_arg;
+  if (indices_host.is_vulkan()) {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    indices_host = indices_host.cpu();
+  }
   TORCH_CHECK(
-      indices_arg.device().type() == kCPU,
-      "Vulkan gather_rows_2d expects CPU indices");
+      indices_host.device().type() == kCPU,
+      "Vulkan gather_rows_2d expects CPU or Vulkan indices");
   TORCH_CHECK(
-      indices_arg.dim() == 1 || indices_arg.dim() == 2,
+      indices_host.dim() == 1 || indices_host.dim() == 2,
       "Vulkan gather_rows_2d expects 1D or 2D indices");
   TORCH_CHECK(
-      indices_arg.scalar_type() == kLong || indices_arg.scalar_type() == kInt,
+      indices_host.scalar_type() == kLong || indices_host.scalar_type() == kInt,
       "Vulkan gather_rows_2d expects int32 or int64 indices");
 
   Tensor weight = weight_arg;
@@ -30,7 +36,7 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
 
   const int64_t row_count = weight_arg.size(0);
   const int64_t row_width = weight_arg.size(1);
-  const Tensor indices = indices_arg.contiguous();
+  const Tensor indices = indices_host.contiguous();
   const int64_t num_indices = indices.numel();
 
   api::Context* const context = api::context();

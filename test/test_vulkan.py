@@ -886,6 +886,98 @@ class TestVulkanEagerRuntime(TestCase):
             self._assert_outputs_close(expected, actual_out)
             self._assert_outputs_close(expected, out.cpu())
 
+    def test_max_and_min_matches_cpu(self):
+        with torch.inference_mode():
+            x = torch.randn(2, 3, 5)
+            self._assert_outputs_close(
+                torch.max(x),
+                torch.max(x.to("vulkan")).cpu(),
+            )
+            self._assert_outputs_close(
+                torch.min(x),
+                torch.min(x.to("vulkan")).cpu(),
+            )
+
+    def test_tan_and_atan_match_cpu(self):
+        with torch.inference_mode():
+            x = torch.randn(2, 3, 5) * 0.25
+            self._assert_outputs_close(
+                torch.tan(x),
+                torch.tan(x.to("vulkan")).cpu(),
+                atol=1e-4,
+                rtol=1e-4,
+            )
+            self._assert_outputs_close(
+                torch.atan(x),
+                torch.atan(x.to("vulkan")).cpu(),
+                atol=1e-4,
+                rtol=1e-4,
+            )
+
+    def test_depth_anything_3_rope_matches_cpu_without_vulkan_branch(self):
+        script = r"""
+import os
+import sys
+import torch
+
+workspace_root = os.path.dirname(os.getcwd())
+sys.path.insert(0, os.path.join(workspace_root, "temp", "Depth-Anything-3", "src"))
+
+from depth_anything_3.model.dinov2.layers.rope import PositionGetter, RotaryPositionEmbedding2D
+
+torch.manual_seed(0)
+getter = PositionGetter()
+rope = RotaryPositionEmbedding2D()
+tokens_cpu = torch.randn(1, 4, 256, 64)
+positions_cpu = getter(1, 16, 16, torch.device("cpu"))
+positions_vulkan = getter(1, 16, 16, torch.device("vulkan"))
+expected = rope(tokens_cpu, positions_cpu)
+actual = rope(tokens_cpu.to("vulkan"), positions_vulkan).cpu()
+torch.testing.assert_close(expected, actual, atol=1e-4, rtol=1e-4)
+print("OK")
+"""
+        self._run_repo_python_subprocess(
+            script,
+            error_prefix="Depth Anything 3 RoPE Vulkan smoke failed.",
+        )
+
+    def test_depth_anything_3_pose_transform_backend_ops_match_cpu(self):
+        script = r"""
+import os
+import sys
+import torch
+
+workspace_root = os.path.dirname(os.getcwd())
+sys.path.insert(0, os.path.join(workspace_root, "temp", "Depth-Anything-3", "src"))
+
+from depth_anything_3.model.utils.transform import (
+    extri_intri_to_pose_encoding,
+    pose_encoding_to_extri_intri,
+)
+
+torch.manual_seed(0)
+pose = torch.randn(2, 3, 9)
+expected_extr, expected_intr = pose_encoding_to_extri_intri(pose, (518, 518))
+actual_extr, actual_intr = pose_encoding_to_extri_intri(pose.to("vulkan"), (518, 518))
+torch.testing.assert_close(expected_extr, actual_extr.cpu(), atol=1e-4, rtol=1e-4)
+torch.testing.assert_close(expected_intr, actual_intr.cpu(), atol=1e-4, rtol=1e-4)
+
+extr = torch.eye(4)[:3].reshape(1, 1, 3, 4).repeat(2, 3, 1, 1)
+intr = torch.eye(3).reshape(1, 1, 3, 3).repeat(2, 3, 1, 1)
+expected_pose = extri_intri_to_pose_encoding(extr, intr, (518, 518))
+actual_pose = extri_intri_to_pose_encoding(
+    extr.to("vulkan"),
+    intr.to("vulkan"),
+    (518, 518),
+)
+torch.testing.assert_close(expected_pose, actual_pose.cpu(), atol=1e-4, rtol=1e-4)
+print("OK")
+"""
+        self._run_repo_python_subprocess(
+            script,
+            error_prefix="Depth Anything 3 pose transform Vulkan smoke failed.",
+        )
+
     def test_all_matches_cpu(self):
         with torch.inference_mode():
             x = torch.tensor([[True, True, True], [True, False, True]])
@@ -1083,6 +1175,21 @@ class TestVulkanEagerRuntime(TestCase):
                 atol=1e-4,
                 rtol=1e-4)
 
+    def test_index_select_dim0_with_vulkan_weight_and_vulkan_indices(self):
+        torch.manual_seed(0)
+        weight_cpu = torch.randn(32, 16)
+        weight_vulkan = weight_cpu.to("vulkan")
+        indices = torch.tensor([0, 7, 31, 4, 12], dtype=torch.long)
+
+        with torch.inference_mode():
+            expected = weight_cpu.index_select(0, indices)
+            actual = weight_vulkan.index_select(0, indices.to("vulkan")).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+
     def test_index_select_dim0_with_texture_derived_vulkan_weight_and_cpu_indices(self):
         torch.manual_seed(0)
         base_cpu = torch.randn(2212, 16)
@@ -1183,6 +1290,32 @@ class TestVulkanEagerRuntime(TestCase):
                 atol=1e-4,
                 rtol=1e-4)
 
+    def test_embedding_with_vulkan_weight_and_vulkan_indices(self):
+        torch.manual_seed(0)
+        module_cpu = torch.nn.Embedding(64, 24).eval()
+        module_vulkan = torch.nn.Embedding(64, 24).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+        indices = torch.tensor([[1, 5, 7, 2, 9, 4]], dtype=torch.long)
+        indices_vulkan = indices.to("vulkan")
+
+        with torch.inference_mode():
+            expected = module_cpu(indices)
+            actual = module_vulkan(indices_vulkan).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+
+            expected_functional = F.embedding(indices, module_cpu.weight)
+            actual_functional = F.embedding(indices_vulkan, module_vulkan.weight).cpu()
+            self._assert_outputs_close(
+                expected_functional,
+                actual_functional,
+                atol=1e-4,
+                rtol=1e-4)
+
             expected_functional = F.embedding(indices, module_cpu.weight)
             actual_functional = F.embedding(indices, module_vulkan.weight).cpu()
             self._assert_outputs_close(
@@ -1258,6 +1391,21 @@ class TestVulkanEagerRuntime(TestCase):
             actual = vulkan.view(1, 1, -1).expand(4, 1, -1)[1:].cpu()
 
             self.assertEqual(actual, expected)
+
+    def test_long_cat_and_stack_with_vulkan_input(self):
+        with torch.inference_mode():
+            a = torch.arange(4, dtype=torch.long)
+            b = torch.arange(4, dtype=torch.long) + 10
+            a_vulkan = a.to("vulkan")
+            b_vulkan = b.to("vulkan")
+
+            expected_cat = torch.cat((a.unsqueeze(0), b.unsqueeze(0)), dim=0)
+            actual_cat = torch.cat((a_vulkan.unsqueeze(0), b_vulkan.unsqueeze(0)), dim=0).cpu()
+            self.assertEqual(actual_cat, expected_cat)
+
+            expected_stack = torch.stack((a, b), dim=0)
+            actual_stack = torch.stack((a_vulkan, b_vulkan), dim=0).cpu()
+            self.assertEqual(actual_stack, expected_stack)
 
     def test_5d_expand_fallback_match_cpu(self):
         src = torch.arange(2 * 3 * 4 * 5, dtype=torch.float32).reshape(2, 3, 4, 5)
@@ -1804,6 +1952,13 @@ class TestVulkanEagerRuntime(TestCase):
                     norm_weight,
                     norm_bias,
                     1e-5)[0],
+                (norm_x,),
+                1e-4,
+                1e-4,
+            ),
+            (
+                "rms_norm",
+                lambda t: F.rms_norm(t, (8,), norm_weight, 1e-5),
                 (norm_x,),
                 1e-4,
                 1e-4,
@@ -2401,6 +2556,7 @@ class TestVulkanEagerRuntime(TestCase):
             "aten::mm": ("Vulkan: registered at", "Mm.cpp"),
             "aten::bmm": ("Vulkan: registered at", "Mm.cpp"),
             "aten::_softmax": ("Vulkan: registered at", "Softmax.cpp"),
+            "aten::group_norm": ("Vulkan: registered at", "Mean.cpp"),
             "aten::_scaled_dot_product_attention_math": (
                 "Vulkan: registered at",
                 "Softmax.cpp",
@@ -2434,6 +2590,10 @@ class TestVulkanEagerRuntime(TestCase):
         )
         self.assertIn("CompositeExplicitAutograd", native_layer_norm_table)
         self.assertNotIn("NativeLayerNorm.cpp", native_layer_norm_table)
+
+        rms_norm_table = torch._C._dispatch_dump_table("aten::rms_norm")
+        self.assertIn("CompositeImplicitAutograd", rms_norm_table)
+        self.assertNotIn("RMSNorm.cpp", rms_norm_table)
 
     def test_vulkan_runtime_op_hit_logging(self):
         log_name = "vulkan_op_hit_logging_test.log"
@@ -2481,6 +2641,22 @@ class TestVulkanEagerRuntime(TestCase):
                         ln_bias,
                         1e-5,
                     )
+                    F.rms_norm(
+                        ln_x,
+                        (32,),
+                        ln_weight,
+                        1e-5,
+                    )
+                    gn_x = torch.randn(2, 8, 7, 7, dtype=torch.float32).to("vulkan")
+                    gn_weight = torch.randn(8, dtype=torch.float32)
+                    gn_bias = torch.randn(8, dtype=torch.float32)
+                    torch.nn.functional.group_norm(
+                        gn_x,
+                        4,
+                        gn_weight,
+                        gn_bias,
+                        1e-5,
+                    )
 
                     q = torch.randn(2, 9, 8, dtype=torch.float32).to("vulkan")
                     k = torch.randn(2, 7, 8, dtype=torch.float32).to("vulkan")
@@ -2518,10 +2694,624 @@ class TestVulkanEagerRuntime(TestCase):
                 "aten::_softmax",
                 "aten::layer_norm",
                 "aten::layer_norm.fused_width",
+                "aten::rms_norm",
+                "aten::rms_norm.fused_width",
                 "aten::_scaled_dot_product_attention_math",
             ):
                 with self.subTest(op_name=op_name):
                     self.assertIn(f"op={op_name}", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_vulkan_execution_object_logging_for_decode_like_linear_norm(self):
+        log_name = "vulkan_execution_object_decode_like_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 1, 384, dtype=torch.float32).to("vulkan")
+                ln_weight = torch.randn(384, dtype=torch.float32)
+                ln_bias = torch.randn(384, dtype=torch.float32)
+                linear_weight = torch.randn(384, 384, dtype=torch.float32).to("vulkan")
+                linear_bias = torch.randn(384, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    for _ in range(2):
+                        x = F.layer_norm(x, (384,), ln_weight, ln_bias, 1e-5)
+                        x = F.linear(x, linear_weight, linear_bias)
+
+                print(float(x.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_EXECUTION_OBJECT_LOG": log_name,
+                },
+                error_prefix="Execution-object logging subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("execution_object_event kind=ScratchArena event=store", log_text)
+            self.assertIn("execution_object_event kind=ScratchArena event=hit", log_text)
+            self.assertIn("execution_object_event kind=ScratchArena event=reserve", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_vulkan_runtime_policy_prefill_like_linear_bmm_enables_scratch(self):
+        policy_log_name = "vulkan_runtime_policy_prefill_like_test.log"
+        object_log_name = "vulkan_execution_object_prefill_like_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        policy_log_path = os.path.join(repo_root, policy_log_name)
+        object_log_path = os.path.join(repo_root, object_log_name)
+        for path in (policy_log_path, object_log_path):
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 8, 1024, dtype=torch.float32).to("vulkan")
+                linear_weight = torch.randn(1024, 1024, dtype=torch.float32).to("vulkan")
+                linear_bias = torch.randn(1024, dtype=torch.float32).to("vulkan")
+                bmm_lhs = torch.randn(16, 8, 128, dtype=torch.float32).to("vulkan")
+                bmm_rhs = torch.randn(16, 128, 128, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    for _ in range(2):
+                        y = F.linear(x, linear_weight, linear_bias)
+                        z = torch.bmm(bmm_lhs, bmm_rhs)
+
+                print(float(y.cpu().sum() + z.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_POLICY_LOG": policy_log_name,
+                    "PYTORCH_VULKAN_EXECUTION_OBJECT_LOG": object_log_name,
+                },
+                error_prefix="Prefill-like runtime-policy subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(policy_log_path))
+            with open(policy_log_path, "r", encoding="utf-8") as log_file:
+                policy_log_text = log_file.read()
+
+            self.assertRegex(
+                policy_log_text,
+                r"runtime_policy workload=LinearMatmul model_domain=LLM execution_phase=Prefill .* has_scratch_arena_plan=1 inferred_from_label=0",
+            )
+
+            self.assertTrue(os.path.exists(object_log_path))
+            with open(object_log_path, "r", encoding="utf-8") as log_file:
+                object_log_text = log_file.read()
+
+            self.assertIn("execution_object_event kind=ScratchArena event=store", object_log_text)
+            self.assertIn("execution_object_event kind=ScratchArena event=hit", object_log_text)
+        finally:
+            for path in (policy_log_path, object_log_path):
+                if os.path.exists(path):
+                    os.remove(path)
+
+    def test_vulkan_planning_runtime_ops_expose_scheduler_bridge(self):
+        script = """
+            import torch
+
+            assert hasattr(torch.ops.vulkan_prepack, "query_runtime_policy")
+            assert hasattr(torch.ops.vulkan_prepack, "create_kv_cache_storage_for_request")
+            assert hasattr(torch.ops.vulkan_prepack, "create_scratch_arena_storage_for_request")
+            assert hasattr(torch.ops.vulkan_prepack, "run_scheduled_gated_delta_rule_chunk")
+            assert hasattr(torch.ops.vulkan_prepack, "run_scheduled_gated_delta_rule_recurrent")
+
+            prototype = torch.randn(1, dtype=torch.float32).to("vulkan")
+            decode_policy = list(torch.ops.vulkan_prepack.query_runtime_policy(
+                prototype,
+                11,  # LLMDecode
+                2,   # LLM
+                2,   # Decode
+                0,   # Input
+            ))
+            cache_policy = list(torch.ops.vulkan_prepack.query_runtime_policy(
+                prototype,
+                3,   # AttentionCache
+                2,   # LLM
+                2,   # Decode
+                3,   # Cache
+            ))
+
+            assert len(decode_policy) == 21
+            assert decode_policy[0] == 2  # backend_route=Split
+            assert decode_policy[6] == 1  # has_scratch_plan
+            assert cache_policy[1] == 1  # has_kv_cache_plan
+            assert decode_policy[11] == 1  # linear_kernel_family=UnifiedBufferView
+            assert decode_policy[13] == 2  # attention_kernel_family=SplitCoordinator
+            assert cache_policy[13] == 2  # attention_kernel_family=SplitCoordinator
+            assert decode_policy[14] == 1  # has_boundary_plan
+            assert decode_policy[15] == 1  # boundary_kind=LLMLinearAttentionSplit
+            assert decode_policy[18] == 1  # boundary_backend_owned_execution
+            assert decode_policy[19] == 1  # boundary_requires_scratch
+            assert decode_policy[20] == 1  # boundary_preferred_cpu_threads
+
+            kv_cache = torch.ops.vulkan_prepack.create_kv_cache_storage_for_request(
+                prototype,
+                [1, 8, 16, 128],
+                2,
+                3,  # AttentionCache
+                2,  # LLM
+                2,  # Decode
+                3,  # Cache
+            )
+            scratch = torch.ops.vulkan_prepack.create_scratch_arena_storage_for_request(
+                prototype,
+                65536,
+                256,
+                11,  # LLMDecode
+                2,   # LLM
+                2,   # Decode
+                4,   # Scratch
+            )
+
+            assert kv_cache.device.type == "vulkan"
+            assert scratch.device.type == "vulkan"
+            assert kv_cache.numel() > 0
+            assert scratch.numel() >= 65536
+            print("ok")
+        """
+
+        _, result = self._run_repo_python_subprocess(
+            script,
+            error_prefix="Planning runtime bridge subprocess failed.",
+        )
+        self.assertIn("ok", result.stdout)
+
+    def test_vulkan_scheduled_gated_delta_runtime_ops_match_reference(self):
+        script = """
+            import torch
+            import torch.nn.functional as F
+
+            def l2norm(x, dim=-1, eps=1e-6):
+                inv_norm = torch.rsqrt((x * x).sum(dim=dim, keepdim=True) + eps)
+                return x * inv_norm
+
+            def ref_chunk(
+                query,
+                key,
+                value,
+                g,
+                beta,
+                chunk_size=64,
+                initial_state=None,
+                output_final_state=False,
+                use_qk_l2norm_in_kernel=False,
+            ):
+                initial_dtype = query.dtype
+                if use_qk_l2norm_in_kernel:
+                    query = l2norm(query, dim=-1, eps=1e-6)
+                    key = l2norm(key, dim=-1, eps=1e-6)
+                query, key, value, beta, g = [
+                    x.transpose(1, 2).contiguous().to(torch.float32) for x in (query, key, value, beta, g)
+                ]
+
+                batch_size, num_heads, sequence_length, k_head_dim = key.shape
+                v_head_dim = value.shape[-1]
+                pad_size = (chunk_size - sequence_length % chunk_size) % chunk_size
+                query = F.pad(query, (0, 0, 0, pad_size))
+                key = F.pad(key, (0, 0, 0, pad_size))
+                value = F.pad(value, (0, 0, 0, pad_size))
+                beta = F.pad(beta, (0, pad_size))
+                g = F.pad(g, (0, pad_size))
+                total_sequence_length = sequence_length + pad_size
+                scale = 1 / (query.shape[-1] ** 0.5)
+                query = query * scale
+
+                v_beta = value * beta.unsqueeze(-1)
+                k_beta = key * beta.unsqueeze(-1)
+                query, key, value, k_beta, v_beta = [
+                    x.reshape(x.shape[0], x.shape[1], -1, chunk_size, x.shape[-1])
+                    for x in (query, key, value, k_beta, v_beta)
+                ]
+                g = g.reshape(g.shape[0], g.shape[1], -1, chunk_size)
+                mask = torch.triu(torch.ones(chunk_size, chunk_size, dtype=torch.bool, device=query.device), diagonal=0)
+
+                g = g.cumsum(dim=-1)
+                decay_mask = ((g.unsqueeze(-1) - g.unsqueeze(-2)).tril().exp().float()).tril()
+                attn = -((k_beta @ key.transpose(-1, -2)) * decay_mask).masked_fill(mask, 0)
+                for i in range(1, chunk_size):
+                    row = attn[..., i, :i].clone()
+                    sub = attn[..., :i, :i].clone()
+                    attn[..., i, :i] = row + (row.unsqueeze(-1) * sub).sum(-2)
+                attn = attn + torch.eye(chunk_size, dtype=attn.dtype, device=attn.device)
+                value = attn @ v_beta
+                k_cumdecay = attn @ (k_beta * g.exp().unsqueeze(-1))
+                last_recurrent_state = (
+                    torch.zeros(batch_size, num_heads, k_head_dim, v_head_dim).to(value)
+                    if initial_state is None
+                    else initial_state.to(value)
+                )
+                core_attn_out = torch.zeros_like(value)
+                mask = torch.triu(torch.ones(chunk_size, chunk_size, dtype=torch.bool, device=query.device), diagonal=1)
+
+                for i in range(0, total_sequence_length // chunk_size):
+                    q_i, k_i, v_i = query[:, :, i], key[:, :, i], value[:, :, i]
+                    attn = (q_i @ k_i.transpose(-1, -2) * decay_mask[:, :, i]).masked_fill_(mask, 0)
+                    v_prime = (k_cumdecay[:, :, i]) @ last_recurrent_state
+                    v_new = v_i - v_prime
+                    attn_inter = (q_i * g[:, :, i, :, None].exp()) @ last_recurrent_state
+                    core_attn_out[:, :, i] = attn_inter + attn @ v_new
+                    last_recurrent_state = (
+                        last_recurrent_state * g[:, :, i, -1, None, None].exp()
+                        + (k_i * (g[:, :, i, -1, None] - g[:, :, i]).exp()[..., None]).transpose(-1, -2) @ v_new
+                    )
+
+                if not output_final_state:
+                    last_recurrent_state = None
+                core_attn_out = core_attn_out.reshape(core_attn_out.shape[0], core_attn_out.shape[1], -1, core_attn_out.shape[-1])
+                core_attn_out = core_attn_out[:, :, :sequence_length]
+                core_attn_out = core_attn_out.transpose(1, 2).contiguous().to(initial_dtype)
+                return core_attn_out, last_recurrent_state
+
+            def ref_recurrent(
+                query,
+                key,
+                value,
+                g,
+                beta,
+                initial_state,
+                output_final_state,
+                use_qk_l2norm_in_kernel=False,
+            ):
+                initial_dtype = query.dtype
+                if use_qk_l2norm_in_kernel:
+                    query = l2norm(query, dim=-1, eps=1e-6)
+                    key = l2norm(key, dim=-1, eps=1e-6)
+                query, key, value, beta, g = [
+                    x.transpose(1, 2).contiguous().to(torch.float32) for x in (query, key, value, beta, g)
+                ]
+
+                batch_size, num_heads, sequence_length, k_head_dim = key.shape
+                v_head_dim = value.shape[-1]
+                scale = 1 / (query.shape[-1] ** 0.5)
+                query = query * scale
+
+                core_attn_out = torch.zeros(batch_size, num_heads, sequence_length, v_head_dim).to(value)
+                last_recurrent_state = (
+                    torch.zeros(batch_size, num_heads, k_head_dim, v_head_dim).to(value)
+                    if initial_state is None
+                    else initial_state.to(value)
+                )
+
+                for i in range(sequence_length):
+                    q_t = query[:, :, i]
+                    k_t = key[:, :, i]
+                    v_t = value[:, :, i]
+                    g_t = g[:, :, i].exp().unsqueeze(-1).unsqueeze(-1)
+                    beta_t = beta[:, :, i].unsqueeze(-1)
+
+                    last_recurrent_state = last_recurrent_state * g_t
+                    kv_mem = (last_recurrent_state * k_t.unsqueeze(-1)).sum(dim=-2)
+                    delta = (v_t - kv_mem) * beta_t
+                    last_recurrent_state = last_recurrent_state + k_t.unsqueeze(-1) * delta.unsqueeze(-2)
+                    core_attn_out[:, :, i] = (last_recurrent_state * q_t.unsqueeze(-1)).sum(dim=-2)
+
+                if not output_final_state:
+                    last_recurrent_state = None
+                core_attn_out = core_attn_out.transpose(1, 2).contiguous().to(initial_dtype)
+                return core_attn_out, last_recurrent_state
+
+            torch.manual_seed(0)
+            query = torch.randn(1, 5, 2, 8, dtype=torch.float32)
+            key = torch.randn(1, 5, 2, 8, dtype=torch.float32)
+            value = torch.randn(1, 5, 2, 6, dtype=torch.float32)
+            g = torch.randn(1, 5, 2, dtype=torch.float32)
+            beta = torch.sigmoid(torch.randn(1, 5, 2, dtype=torch.float32))
+            initial_state = torch.randn(1, 2, 8, 6, dtype=torch.float32)
+
+            chunk_ref = ref_chunk(
+                query,
+                key,
+                value,
+                g,
+                beta,
+                chunk_size=4,
+                initial_state=initial_state,
+                output_final_state=True,
+                use_qk_l2norm_in_kernel=True,
+            )
+            recurrent_ref = ref_recurrent(
+                query,
+                key,
+                value,
+                g,
+                beta,
+                initial_state=initial_state,
+                output_final_state=True,
+                use_qk_l2norm_in_kernel=True,
+            )
+
+            query_vk = query.to("vulkan")
+            key_vk = key.to("vulkan")
+            value_vk = value.to("vulkan")
+            g_vk = g.to("vulkan")
+            beta_vk = beta.to("vulkan")
+            initial_state_vk = initial_state.to("vulkan")
+
+            chunk_out = torch.ops.vulkan_prepack.run_scheduled_gated_delta_rule_chunk(
+                query_vk,
+                key_vk,
+                value_vk,
+                g_vk,
+                beta_vk,
+                4,
+                initial_state_vk,
+                True,
+                True,
+            )
+            recurrent_out = torch.ops.vulkan_prepack.run_scheduled_gated_delta_rule_recurrent(
+                query_vk,
+                key_vk,
+                value_vk,
+                g_vk,
+                beta_vk,
+                initial_state_vk,
+                True,
+                True,
+            )
+
+            torch.testing.assert_close(chunk_out[0].cpu(), chunk_ref[0], rtol=1e-5, atol=1e-5)
+            torch.testing.assert_close(chunk_out[1].cpu(), chunk_ref[1], rtol=1e-5, atol=1e-5)
+            torch.testing.assert_close(recurrent_out[0].cpu(), recurrent_ref[0], rtol=1e-5, atol=1e-5)
+            torch.testing.assert_close(recurrent_out[1].cpu(), recurrent_ref[1], rtol=1e-5, atol=1e-5)
+            print("ok")
+        """
+
+        _, result = self._run_repo_python_subprocess(
+            script,
+            error_prefix="Scheduled gated-delta backend subprocess failed.",
+        )
+        self.assertIn("ok", result.stdout)
+
+    def test_vulkan_scheduled_gated_delta_runtime_uses_scratch_plan(self):
+        policy_log_name = "vulkan_gated_delta_runtime_policy_test.log"
+        object_log_name = "vulkan_gated_delta_execution_object_test.log"
+        program_log_name = "vulkan_gated_delta_execution_program_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        policy_log_path = os.path.join(repo_root, policy_log_name)
+        object_log_path = os.path.join(repo_root, object_log_name)
+        program_log_path = os.path.join(repo_root, program_log_name)
+        for path in (policy_log_path, object_log_path, program_log_path):
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                query = torch.randn(1, 5, 2, 8, dtype=torch.float32).to("vulkan")
+                key = torch.randn(1, 5, 2, 8, dtype=torch.float32).to("vulkan")
+                value = torch.randn(1, 5, 2, 6, dtype=torch.float32).to("vulkan")
+                g = torch.randn(1, 5, 2, dtype=torch.float32).to("vulkan")
+                beta = torch.sigmoid(torch.randn(1, 5, 2, dtype=torch.float32)).to("vulkan")
+                initial_state = torch.randn(1, 2, 8, 6, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    for _ in range(2):
+                        torch.ops.vulkan_prepack.run_scheduled_gated_delta_rule_chunk(
+                            query,
+                            key,
+                            value,
+                            g,
+                            beta,
+                            4,
+                            initial_state,
+                            True,
+                            True,
+                        )
+                        torch.ops.vulkan_prepack.run_scheduled_gated_delta_rule_recurrent(
+                            query,
+                            key,
+                            value,
+                            g,
+                            beta,
+                            initial_state,
+                            True,
+                            True,
+                        )
+                print("ok")
+            """
+
+            _, result = self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_POLICY_LOG": policy_log_name,
+                    "PYTORCH_VULKAN_EXECUTION_OBJECT_LOG": object_log_name,
+                    "PYTORCH_VULKAN_EXECUTION_PROGRAM_LOG": program_log_name,
+                },
+                error_prefix="Scheduled gated-delta runtime subprocess failed.",
+            )
+            self.assertIn("ok", result.stdout)
+
+            self.assertTrue(os.path.exists(policy_log_path))
+            with open(policy_log_path, "r", encoding="utf-8") as log_file:
+                policy_log_text = log_file.read()
+
+            self.assertRegex(
+                policy_log_text,
+                r"runtime_policy workload=LLMDecode model_domain=LLM execution_phase=Prefill .* has_execution_program_plan=1 execution_program_kind=GatedDeltaSplit .* has_scratch_arena_plan=1 inferred_from_label=0",
+            )
+            self.assertRegex(
+                policy_log_text,
+                r"runtime_policy workload=LLMDecode model_domain=LLM execution_phase=Decode .* has_execution_program_plan=1 execution_program_kind=GatedDeltaSplit .* has_scratch_arena_plan=1 inferred_from_label=0",
+            )
+
+            self.assertTrue(os.path.exists(object_log_path))
+            with open(object_log_path, "r", encoding="utf-8") as log_file:
+                object_log_text = log_file.read()
+
+            self.assertIn("execution_object_event kind=ScratchArena event=store", object_log_text)
+            self.assertTrue(os.path.exists(program_log_path))
+            with open(program_log_path, "r", encoding="utf-8") as log_file:
+                program_log_text = log_file.read()
+
+            self.assertIn(
+                "execution_program event=store kind=GatedDeltaSplit",
+                program_log_text,
+            )
+            self.assertIn(
+                "execution_program event=hit kind=GatedDeltaSplit",
+                program_log_text,
+            )
+        finally:
+            for path in (policy_log_path, object_log_path, program_log_path):
+                if os.path.exists(path):
+                    os.remove(path)
+
+    def test_vulkan_scheduled_gated_delta_cpu_single_chunk_uses_recurrent_shortcut(self):
+        script = """
+            import torch
+
+            torch.manual_seed(0)
+            query = torch.randn(1, 5, 2, 8, dtype=torch.float32)
+            key = torch.randn(1, 5, 2, 8, dtype=torch.float32)
+            value = torch.randn(1, 5, 2, 6, dtype=torch.float32)
+            g = torch.randn(1, 5, 2, dtype=torch.float32)
+            beta = torch.sigmoid(torch.randn(1, 5, 2, dtype=torch.float32))
+            initial_state = torch.randn(1, 2, 8, 6, dtype=torch.float32)
+
+            with torch.inference_mode():
+                chunk_out = torch.ops.vulkan_prepack.run_scheduled_gated_delta_rule_chunk(
+                    query,
+                    key,
+                    value,
+                    g,
+                    beta,
+                    8,
+                    initial_state,
+                    True,
+                    True,
+                )
+                recurrent_out = torch.ops.vulkan_prepack.run_scheduled_gated_delta_rule_recurrent(
+                    query,
+                    key,
+                    value,
+                    g,
+                    beta,
+                    initial_state,
+                    True,
+                    True,
+                )
+
+            torch.testing.assert_close(chunk_out[0], recurrent_out[0], rtol=1e-5, atol=1e-5)
+            torch.testing.assert_close(chunk_out[1], recurrent_out[1], rtol=1e-5, atol=1e-5)
+            print("ok")
+        """
+
+        _, result = self._run_repo_python_subprocess(
+            script,
+            error_prefix="Scheduled gated-delta CPU single-chunk subprocess failed.",
+        )
+        self.assertIn("ok", result.stdout)
+
+    def test_vulkan_scheduled_gated_delta_recurrent_native_buffer_op_hit(self):
+        log_name = "vulkan_gated_delta_recurrent_native_buffer_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                query = torch.randn(1, 5, 2, 8, dtype=torch.float32).to("vulkan")
+                key = torch.randn(1, 5, 2, 8, dtype=torch.float32).to("vulkan")
+                value = torch.randn(1, 5, 2, 6, dtype=torch.float32).to("vulkan")
+                g = torch.randn(1, 5, 2, dtype=torch.float32).to("vulkan")
+                beta = torch.sigmoid(torch.randn(1, 5, 2, dtype=torch.float32)).to("vulkan")
+                initial_state = torch.randn(1, 2, 8, 6, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    torch.ops.vulkan_prepack.run_scheduled_gated_delta_rule_recurrent(
+                        query,
+                        key,
+                        value,
+                        g,
+                        beta,
+                        initial_state,
+                        True,
+                        True,
+                    )
+                print("ok")
+            """
+
+            _, result = self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Scheduled gated-delta recurrent native-buffer subprocess failed.",
+            )
+            self.assertIn("ok", result.stdout)
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn(
+                "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent.native_buffer",
+                log_text,
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_rms_norm_runtime_hits_fused_width_kernel(self):
+        log_name = "vulkan_rms_norm_fused_width_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 257, 384, dtype=torch.float32).to("vulkan")
+                weight = torch.randn(384, dtype=torch.float32)
+                with torch.inference_mode():
+                    y = F.rms_norm(x, (384,), weight, 1e-6)
+                    print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="RMSNorm fused-width subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("op=aten::rms_norm", log_text)
+            self.assertIn("op=aten::rms_norm.fused_width", log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)
@@ -2561,6 +3351,43 @@ class TestVulkanEagerRuntime(TestCase):
 
             self.assertIn("op=aten::layer_norm", log_text)
             self.assertIn("op=aten::layer_norm.fused_width", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_layer_norm_runtime_family_is_consumed(self):
+        log_name = "vulkan_layer_norm_family_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 8, 1024, dtype=torch.float32).to("vulkan")
+                weight = torch.randn(1024, dtype=torch.float32)
+                bias = torch.randn(1024, dtype=torch.float32)
+
+                with torch.inference_mode():
+                    y = F.layer_norm(x, (1024,), weight, bias, 1e-5)
+                    print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Vulkan layer_norm family subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("op=aten::norm.family_texture_width", log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)
@@ -2659,6 +3486,46 @@ class TestVulkanEagerRuntime(TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_scaled_dot_product_attention_runtime_family_is_consumed(self):
+        log_name = "vulkan_sdpa_family_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                q = torch.randn(1, 2, 9, 8, dtype=torch.float32).to("vulkan")
+                k = torch.randn(1, 2, 7, 8, dtype=torch.float32).to("vulkan")
+                v = torch.randn(1, 2, 7, 8, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    y = F.scaled_dot_product_attention(q, k, v)
+                    print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Vulkan SDPA family subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.family_texture_math",
+                log_text,
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_execution_plan_logging(self):
         log_name = "execution_plan_logging_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -2738,6 +3605,44 @@ class TestVulkanEagerRuntime(TestCase):
                 "caller=linear path=image_layout_convert_width",
                 log_text,
             )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_linear_runtime_prefill_family_is_consumed_in_mm(self):
+        log_name = "linear_channel_packed_family_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 8, 1024, dtype=torch.float32).to("vulkan")
+                w = torch.randn(1024, 1024, dtype=torch.float32).to("vulkan")
+                b = torch.randn(1024, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    y = F.linear(x, w, b)
+                    print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Linear channel-packed family subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("op=aten::linear", log_text)
+            self.assertIn("op=aten::linear.channel_packed_family", log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)

@@ -2,6 +2,7 @@
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
 #else
+#include <ATen/ops/atan.h>
 #include <ATen/ops/cos.h>
 #include <ATen/ops/exp.h>
 #include <ATen/ops/log.h>
@@ -10,6 +11,7 @@
 #include <ATen/ops/silu.h>
 #include <ATen/ops/sin.h>
 #include <ATen/ops/sqrt.h>
+#include <ATen/ops/tan.h>
 #endif
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
@@ -30,6 +32,8 @@ enum class UnaryOpKind : uint8_t {
   Log,
   Sin,
   Cos,
+  Tan,
+  Atan,
   Neg,
   Rsqrt,
   Silu,
@@ -65,6 +69,12 @@ Tensor unary_op_cpu_fallback(const Tensor& self_arg, const UnaryOpKind op_kind) 
         break;
       case UnaryOpKind::Cos:
         cpu_result = at::cos(self_cpu);
+        break;
+      case UnaryOpKind::Tan:
+        cpu_result = at::tan(self_cpu);
+        break;
+      case UnaryOpKind::Atan:
+        cpu_result = at::atan(self_cpu);
         break;
       case UnaryOpKind::Neg:
         cpu_result = at::neg(self_cpu);
@@ -276,6 +286,14 @@ Tensor& cos_(Tensor& self_arg) {
   return unary_op_(self_arg, VK_KERNEL(cos_inplace));
 }
 
+Tensor tan(const Tensor& self_arg) {
+  return unary_op_cpu_fallback(self_arg, UnaryOpKind::Tan);
+}
+
+Tensor atan(const Tensor& self_arg) {
+  return unary_op_cpu_fallback(self_arg, UnaryOpKind::Atan);
+}
+
 Tensor neg(const Tensor& self_arg) {
   return unary_op(
       self_arg, VK_KERNEL(neg), VK_KERNEL(buffer_neg), UnaryOpKind::Neg);
@@ -316,6 +334,8 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::sin_"), TORCH_FN(sin_));
   m.impl(TORCH_SELECTIVE_NAME("aten::cos"), TORCH_FN(cos));
   m.impl(TORCH_SELECTIVE_NAME("aten::cos_"), TORCH_FN(cos_));
+  m.impl("tan", TORCH_FN(tan));
+  m.impl("atan", TORCH_FN(atan));
   m.impl(TORCH_SELECTIVE_NAME("aten::neg"), TORCH_FN(neg));
   m.impl(TORCH_SELECTIVE_NAME("aten::neg_"), TORCH_FN(neg_));
   m.impl(TORCH_SELECTIVE_NAME("aten::rsqrt"), TORCH_FN(rsqrt));

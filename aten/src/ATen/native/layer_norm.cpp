@@ -34,6 +34,7 @@
 #ifdef USE_VULKAN_API
 #include <ATen/native/vulkan/ops/NativeLayerNorm.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
+#include <ATen/native/vulkan/ops/RMSNorm.h>
 #endif
 
 #include <array>
@@ -358,6 +359,25 @@ Tensor rms_norm_symint(
   c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight_opt);
   const Tensor& weight = *weight_maybe_owned;
   _check_rms_norm_inputs_symint(input, normalized_shape, weight);
+
+#ifdef USE_VULKAN_API
+  if (
+      input.is_vulkan() && weight_opt.has_value() && weight_opt->defined()) {
+    DimVector normalized_shape_int;
+    normalized_shape_int.reserve(normalized_shape.size());
+    for (const auto i : c10::irange(normalized_shape.size())) {
+      normalized_shape_int.emplace_back(normalized_shape[i].expect_int());
+    }
+    if (at::native::vulkan::ops::supports_fused_rms_norm_last_dim(
+            input, normalized_shape_int, weight_opt)) {
+      return at::native::vulkan::ops::rms_norm_impl(
+          input,
+          normalized_shape_int,
+          weight_opt,
+          eps.value_or(std::numeric_limits<float>::epsilon()));
+    }
+  }
+#endif
 
   // composite fallback for channels last
   if(input.suggest_memory_format() == c10::MemoryFormat::ChannelsLast || input.suggest_memory_format() == c10::MemoryFormat::ChannelsLast3d){

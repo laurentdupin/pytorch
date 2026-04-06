@@ -93,9 +93,12 @@ PhysicalDevice::PhysicalDevice(VkPhysicalDevice physical_device_handle)
   // Check if there are any memory types have both the HOST_VISIBLE and the
   // DEVICE_LOCAL property flags
   const VkMemoryPropertyFlags unified_memory_flags =
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
   for (size_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
-    if (memory_properties.memoryTypes[i].propertyFlags | unified_memory_flags) {
+    if (
+        (memory_properties.memoryTypes[i].propertyFlags &
+         unified_memory_flags) == unified_memory_flags) {
       has_unified_memory = true;
       break;
     }

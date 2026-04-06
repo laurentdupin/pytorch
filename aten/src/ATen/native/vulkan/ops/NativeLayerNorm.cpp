@@ -1,6 +1,8 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/NativeLayerNorm.h>
+#include <ATen/native/vulkan/ops/Norm.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <c10/core/InferenceMode.h>
 
 namespace at {
@@ -11,18 +13,21 @@ namespace {
 
 using namespace api::utils;
 
-void maybe_synchronize_vulkan_context() {
-  api::Context* const context = api::context();
-  if (context->should_sync_and_reclaim()) {
-    // The no-spill path only needs a lightweight device-side reclaim barrier
-    // when deferred Vulkan cleanup pressure or submission age gets too high.
-    context->sync_and_reclaim();
-  }
+utils::VulkanPlanningRequest norm_request(
+    const Tensor& input,
+    const utils::VulkanTensorRole role) {
+  return utils::make_vulkan_tensor_planning_request(
+      input, utils::VulkanWorkloadClass::Norm, role);
 }
 
-} // namespace
+size_t native_layer_norm_runtime_scratch_bytes(const Tensor& input) {
+  return std::max<size_t>(
+      64u * 1024u,
+      static_cast<size_t>(std::max<int64_t>(1, input.numel())) *
+          sizeof(float) * 2u);
+}
 
-void check_layer_norm_inputs(
+void check_layer_norm_inputs_impl(
     const at::Tensor& input,
     IntArrayRef normalized_shape,
     const std::optional<Tensor>& weight /* optional */,
@@ -65,19 +70,14 @@ void check_layer_norm_inputs(
   }
 }
 
-bool supports_fused_layer_norm_last_dim(
+bool supports_fused_layer_norm_last_dim_impl(
     const at::Tensor& input,
     IntArrayRef normalized_shape,
     const std::optional<Tensor>& weight,
     const std::optional<Tensor>& bias) {
-  return normalized_shape.size() == 1u && input.dim() >= 2 && input.dim() <= 4 &&
-      normalized_shape.front() == input.size(-1) &&
-      input.scalar_type() == kFloat &&
-      weight && bias && weight->defined() && bias->defined() &&
-      weight->scalar_type() == kFloat && bias->scalar_type() == kFloat;
+  return supports_fused_norm_last_dim(
+      input, normalized_shape, weight, bias, true);
 }
-
-namespace {
 
 std::tuple<Tensor, Tensor, Tensor> native_layer_norm_fused_width(
     const at::Tensor& input_arg,
@@ -85,15 +85,28 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_fused_width(
     const std::optional<Tensor>& weight_opt /* optional */,
     const std::optional<Tensor>& bias_opt /* optional */,
     double eps) {
+  const auto input_request =
+      norm_request(input_arg, utils::VulkanTensorRole::Input);
+  const auto runtime_policy = utils::build_vulkan_runtime_policy(input_request);
   api::AllocationScope allocation_scope("layer_norm.fused_width");
   api::Context* const context = api::context();
 
+  auto weight_request = input_request;
+  weight_request.tensor_role = utils::VulkanTensorRole::Weight;
+  auto bias_request = input_request;
+  bias_request.tensor_role = utils::VulkanTensorRole::Bias;
+  log_norm_kernel_family_choice(runtime_policy);
+  utils::prime_labeled_scratch_arena_for_request(
+      input_arg,
+      input_request,
+      native_layer_norm_runtime_scratch_bytes(input_arg),
+      "native_layer_norm_decode");
   Tensor input = utils::prepare_vulkan_execution_tensor(
-      input_arg, utils::VulkanExecutionPlanKind::NormInput);
+      input_arg, utils::VulkanExecutionPlanKind::NormInput, input_request);
   Tensor weight = utils::prepare_vulkan_execution_tensor(
-      *weight_opt, utils::VulkanExecutionPlanKind::NormInput);
+      *weight_opt, utils::VulkanExecutionPlanKind::NormInput, weight_request);
   Tensor bias = utils::prepare_vulkan_execution_tensor(
-      *bias_opt, utils::VulkanExecutionPlanKind::NormInput);
+      *bias_opt, utils::VulkanExecutionPlanKind::NormInput, bias_request);
 
   const vTensor& v_input = convert(input);
   const vTensor& v_weight = convert(weight);
@@ -170,7 +183,7 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_fused_width(
 
   utils::log_vulkan_op_hit("aten::native_layer_norm.fused_width");
   if (c10::InferenceMode::is_enabled()) {
-    maybe_synchronize_vulkan_context();
+    maybe_synchronize_after_norm();
   }
   return std::make_tuple(convert(v_output), convert(v_mean), convert(v_std_inv));
 }
@@ -181,15 +194,28 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_fallback(
     const std::optional<Tensor>& weight_opt /* optional */,
     const std::optional<Tensor>& bias_opt /* optional */,
     double eps) {
+  const auto input_request =
+      norm_request(input_arg, utils::VulkanTensorRole::Input);
+  const auto runtime_policy = utils::build_vulkan_runtime_policy(input_request);
   api::AllocationScope allocation_scope("layer_norm.fallback");
 
+  auto weight_request = input_request;
+  weight_request.tensor_role = utils::VulkanTensorRole::Weight;
+  auto bias_request = input_request;
+  bias_request.tensor_role = utils::VulkanTensorRole::Bias;
+  log_norm_kernel_family_choice(runtime_policy);
+  utils::prime_labeled_scratch_arena_for_request(
+      input_arg,
+      input_request,
+      native_layer_norm_runtime_scratch_bytes(input_arg),
+      "native_layer_norm_decode");
   Tensor input = utils::prepare_vulkan_execution_tensor(
-      input_arg, utils::VulkanExecutionPlanKind::NormInput);
+      input_arg, utils::VulkanExecutionPlanKind::NormInput, input_request);
 
   const Tensor weight = utils::prepare_vulkan_execution_tensor(
-      *weight_opt, utils::VulkanExecutionPlanKind::NormInput);
+      *weight_opt, utils::VulkanExecutionPlanKind::NormInput, weight_request);
   const Tensor bias = utils::prepare_vulkan_execution_tensor(
-      *bias_opt, utils::VulkanExecutionPlanKind::NormInput);
+      *bias_opt, utils::VulkanExecutionPlanKind::NormInput, bias_request);
 
   std::vector<int64_t> dims_to_reduce;
   dims_to_reduce.reserve(normalized_shape.size());
@@ -205,12 +231,29 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_fallback(
   auto std_inv = var.add(eps).pow(-0.5f);
   auto layernorm = input_minus_mean.mul(std_inv).mul(weight).add(bias);
   if (c10::InferenceMode::is_enabled()) {
-    maybe_synchronize_vulkan_context();
+    maybe_synchronize_after_norm();
   }
   return std::make_tuple(layernorm, mean, std_inv);
 }
 
 } // namespace
+
+void check_layer_norm_inputs(
+    const at::Tensor& input,
+    IntArrayRef normalized_shape,
+    const std::optional<Tensor>& weight,
+    const std::optional<Tensor>& bias) {
+  check_layer_norm_inputs_impl(input, normalized_shape, weight, bias);
+}
+
+bool supports_fused_layer_norm_last_dim(
+    const at::Tensor& input,
+    IntArrayRef normalized_shape,
+    const std::optional<Tensor>& weight,
+    const std::optional<Tensor>& bias) {
+  return supports_fused_layer_norm_last_dim_impl(
+      input, normalized_shape, weight, bias);
+}
 
 std::tuple<Tensor, Tensor, Tensor> native_layer_norm_impl(
     const at::Tensor& input_arg,
@@ -220,7 +263,8 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_impl(
     double eps) {
   api::AllocationScope allocation_scope("layer_norm");
   utils::log_vulkan_op_hit("aten::native_layer_norm");
-  check_layer_norm_inputs(input_arg, normalized_shape, weight_opt, bias_opt);
+  check_layer_norm_inputs_impl(
+      input_arg, normalized_shape, weight_opt, bias_opt);
 
   TORCH_CHECK(
       input_arg.dim() >= 2 && input_arg.dim() <= 4,
@@ -230,7 +274,7 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_impl(
       weight_opt->defined() && bias_opt->defined(),
       "Vulkan layernorm expects weight and bias arguments");
 
-  if (supports_fused_layer_norm_last_dim(
+  if (supports_fused_layer_norm_last_dim_impl(
           input_arg, normalized_shape, weight_opt, bias_opt)) {
     return native_layer_norm_fused_width(
         input_arg, normalized_shape, weight_opt, bias_opt, eps);

@@ -1,4 +1,9 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#ifndef AT_PER_OPERATOR_HEADERS
+#include <ATen/Functions.h>
+#else
+#include <ATen/ops/cat.h>
+#endif
 #include <c10/util/irange.h>
 #include <torch/library.h>
 
@@ -276,6 +281,16 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
   auto materialized = tensors.materialize();
   TORCH_INTERNAL_ASSERT(!materialized.empty(), "Accessing empty array");
   const at::Tensor& tensor = materialized[0];
+  if (!c10::isFloatingType(tensor.scalar_type())) {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    std::vector<Tensor> cpu_tensors;
+    cpu_tensors.reserve(materialized.size());
+    for (const at::Tensor& t : materialized) {
+      cpu_tensors.push_back(t.is_vulkan() ? t.cpu() : t);
+    }
+    return at::cat(cpu_tensors, in_dim).to(at::device(at::kVulkan));
+  }
   auto ndim = safe_downcast<uint32_t>(tensor.dim());
   const int64_t dim = normalize_dim(in_dim, ndim);
   int64_t cat_dim_size = 0;

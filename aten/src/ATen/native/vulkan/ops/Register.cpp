@@ -1,18 +1,25 @@
 #ifdef USE_VULKAN_API
 
+#include <ATen/Functions.h>
 #include <ATen/native/quantized/PackedParams.h>
 #include <ATen/native/vulkan/ops/Batchnorm.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/GatedDelta.h>
 #include <ATen/native/vulkan/ops/Gru.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/Lstm.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/Register.h>
+#include <ATen/native/vulkan/planning/ExecutionObjects.h>
+#include <ATen/native/vulkan/planning/Runtime.h>
 #include <torch/custom_class.h>
 #include <torch/library.h>
+
+#include <cmath>
+#include <sstream>
 
 namespace at {
 namespace native {
@@ -96,6 +103,363 @@ int register_vulkan_layernorm_packed_context() {
 }
 
 namespace {
+
+utils::VulkanPlanningRequest make_runtime_planning_request(
+    const int64_t workload_class,
+    const int64_t model_domain,
+    const int64_t execution_phase,
+    const int64_t tensor_role) {
+  return utils::make_vulkan_planning_request(
+      static_cast<utils::VulkanWorkloadClass>(workload_class),
+      static_cast<utils::VulkanTensorRole>(tensor_role),
+      static_cast<utils::VulkanModelDomain>(model_domain),
+      static_cast<utils::VulkanExecutionPhase>(execution_phase));
+}
+
+std::vector<int64_t> query_runtime_policy(
+    const Tensor& prototype,
+    const int64_t workload_class,
+    const int64_t model_domain,
+    const int64_t execution_phase,
+    const int64_t tensor_role) {
+  (void)prototype;
+  const auto request = make_runtime_planning_request(
+      workload_class, model_domain, execution_phase, tensor_role);
+  const auto policy = utils::build_vulkan_runtime_policy(request);
+  const auto kv_cache_plan = policy.kv_cache_plan.value_or(
+      utils::VulkanKVCachePlanningDesc{});
+  const auto scratch_arena_plan = policy.scratch_arena_plan.value_or(
+      utils::VulkanScratchArenaPlanningDesc{});
+  const auto boundary_plan = policy.boundary_plan.value_or(
+      utils::VulkanBoundaryPlan{});
+
+  return {
+      static_cast<int64_t>(policy.backend_route),
+      policy.kv_cache_plan.has_value() ? 1 : 0,
+      kv_cache_plan.prefer_persistent_object ? 1 : 0,
+      kv_cache_plan.prefer_buffer_storage ? 1 : 0,
+      kv_cache_plan.prefer_append_views ? 1 : 0,
+      kv_cache_plan.prefer_decode_cursor ? 1 : 0,
+      policy.scratch_arena_plan.has_value() ? 1 : 0,
+      scratch_arena_plan.prefer_reusable_arena ? 1 : 0,
+      scratch_arena_plan.prefer_buffer_storage ? 1 : 0,
+      static_cast<int64_t>(scratch_arena_plan.min_arena_bytes),
+      static_cast<int64_t>(scratch_arena_plan.alignment),
+      static_cast<int64_t>(policy.linear_kernel_family),
+      static_cast<int64_t>(policy.norm_kernel_family),
+      static_cast<int64_t>(policy.attention_kernel_family),
+      policy.boundary_plan.has_value() ? 1 : 0,
+      static_cast<int64_t>(boundary_plan.kind),
+      static_cast<int64_t>(boundary_plan.input_transfer_layout),
+      static_cast<int64_t>(boundary_plan.output_transfer_layout),
+      boundary_plan.prefer_backend_owned_execution ? 1 : 0,
+      boundary_plan.requires_scratch_arena ? 1 : 0,
+      static_cast<int64_t>(boundary_plan.preferred_cpu_threads),
+  };
+}
+
+Tensor create_kv_cache_storage_for_request(
+    const Tensor& prototype,
+    IntArrayRef sizes,
+    const int64_t sequence_dim,
+    const int64_t workload_class,
+    const int64_t model_domain,
+    const int64_t execution_phase,
+    const int64_t tensor_role) {
+  const auto request = make_runtime_planning_request(
+      workload_class, model_domain, execution_phase, tensor_role);
+  const auto policy = utils::build_vulkan_runtime_policy(request);
+  TORCH_CHECK(
+      policy.kv_cache_plan.has_value(),
+      "Vulkan runtime policy does not expose a KV cache plan for the requested workload");
+
+  const auto& desc = *policy.kv_cache_plan;
+  const auto storage_type =
+      desc.prefer_buffer_storage ? api::StorageType::BUFFER
+                                 : api::StorageType::TEXTURE_3D;
+  const auto execution_layout =
+      desc.prefer_buffer_storage ? api::ExecutionLayout::BUFFER_DIRECT
+                                 : api::ExecutionLayout::TEXTURE;
+  const auto memory_layout =
+      desc.prefer_buffer_storage
+      ? api::GPUMemoryLayout::TENSOR_WIDTH_PACKED
+      : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED;
+
+  auto cache_object = utils::create_vulkan_kv_cache_object(
+      utils::VulkanKVCacheSpec{
+          prototype.scalar_type(),
+          sizes.vec(),
+          sequence_dim,
+          execution_layout,
+          memory_layout,
+          storage_type,
+          desc.prefer_persistent_object,
+      });
+  return cache_object.storage();
+}
+
+Tensor create_scratch_arena_storage_for_request(
+    const Tensor& prototype,
+    const int64_t num_bytes,
+    const int64_t alignment,
+    const int64_t workload_class,
+    const int64_t model_domain,
+    const int64_t execution_phase,
+    const int64_t tensor_role) {
+  (void)prototype;
+  const auto request = make_runtime_planning_request(
+      workload_class, model_domain, execution_phase, tensor_role);
+  const auto policy = utils::build_vulkan_runtime_policy(request);
+  TORCH_CHECK(
+      policy.scratch_arena_plan.has_value(),
+      "Vulkan runtime policy does not expose a scratch arena plan for the requested workload");
+
+  const auto& desc = *policy.scratch_arena_plan;
+  const uint32_t requested_alignment =
+      alignment > 0 ? static_cast<uint32_t>(alignment) : desc.alignment;
+  const auto storage_type =
+      desc.prefer_buffer_storage ? api::StorageType::BUFFER
+                                 : api::StorageType::TEXTURE_3D;
+  const auto execution_layout =
+      desc.prefer_buffer_storage ? api::ExecutionLayout::BUFFER_DIRECT
+                                 : api::ExecutionLayout::TEXTURE;
+  const auto memory_layout =
+      desc.prefer_buffer_storage
+      ? api::GPUMemoryLayout::TENSOR_WIDTH_PACKED
+      : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED;
+  auto scratch_arena = utils::create_vulkan_scratch_arena(
+      utils::VulkanScratchArenaSpec{
+          kByte,
+          static_cast<size_t>(std::max<int64_t>(num_bytes, desc.min_arena_bytes)),
+          requested_alignment,
+          execution_layout,
+          memory_layout,
+          storage_type,
+          desc.prefer_reusable_arena,
+      });
+  return scratch_arena.storage();
+}
+
+Tensor maybe_move_runtime_tensor_to_device(
+    const Tensor& tensor,
+    const Device& device) {
+  return device.type() == kCPU ? tensor : tensor.to(device);
+}
+
+std::tuple<Tensor, Tensor> pose_encoding_to_extri_intri_runtime(
+    const Tensor& pose_encoding_arg,
+    const int64_t height,
+    const int64_t width) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Device output_device = pose_encoding_arg.device();
+  const Tensor pose_encoding =
+      (pose_encoding_arg.is_vulkan() ? pose_encoding_arg.cpu() : pose_encoding_arg)
+          .contiguous()
+          .to(kFloat);
+  TORCH_CHECK(
+      pose_encoding.dim() == 3 && pose_encoding.size(-1) == 9,
+      "vulkan_prepack::pose_encoding_to_extri_intri expects a [B, N, 9] tensor");
+
+  const auto batch = pose_encoding.size(0);
+  const auto views = pose_encoding.size(1);
+  Tensor extrinsics = at::empty({batch, views, 3, 4}, pose_encoding.options());
+  Tensor intrinsics = at::zeros({batch, views, 3, 3}, pose_encoding.options());
+
+  const float* pose_ptr = pose_encoding.const_data_ptr<float>();
+  float* extr_ptr = extrinsics.data_ptr<float>();
+  float* intr_ptr = intrinsics.data_ptr<float>();
+
+  for (const auto b : c10::irange(batch)) {
+    for (const auto n : c10::irange(views)) {
+      const int64_t pose_offset = (b * views + n) * 9;
+      const int64_t extr_offset = (b * views + n) * 12;
+      const int64_t intr_offset = (b * views + n) * 9;
+
+      const float tx = pose_ptr[pose_offset + 0];
+      const float ty = pose_ptr[pose_offset + 1];
+      const float tz = pose_ptr[pose_offset + 2];
+      const float i = pose_ptr[pose_offset + 3];
+      const float j = pose_ptr[pose_offset + 4];
+      const float k = pose_ptr[pose_offset + 5];
+      const float r = pose_ptr[pose_offset + 6];
+      const float fov_h = pose_ptr[pose_offset + 7];
+      const float fov_w = pose_ptr[pose_offset + 8];
+
+      const float two_s =
+          2.0f / std::max(i * i + j * j + k * k + r * r, 1.0e-12f);
+
+      extr_ptr[extr_offset + 0] = 1.0f - two_s * (j * j + k * k);
+      extr_ptr[extr_offset + 1] = two_s * (i * j - k * r);
+      extr_ptr[extr_offset + 2] = two_s * (i * k + j * r);
+      extr_ptr[extr_offset + 3] = tx;
+      extr_ptr[extr_offset + 4] = two_s * (i * j + k * r);
+      extr_ptr[extr_offset + 5] = 1.0f - two_s * (i * i + k * k);
+      extr_ptr[extr_offset + 6] = two_s * (j * k - i * r);
+      extr_ptr[extr_offset + 7] = ty;
+      extr_ptr[extr_offset + 8] = two_s * (i * k - j * r);
+      extr_ptr[extr_offset + 9] = two_s * (j * k + i * r);
+      extr_ptr[extr_offset + 10] = 1.0f - two_s * (i * i + j * j);
+      extr_ptr[extr_offset + 11] = tz;
+
+      const float fy = (static_cast<float>(height) * 0.5f) /
+          std::max(std::tan(fov_h * 0.5f), 1.0e-6f);
+      const float fx = (static_cast<float>(width) * 0.5f) /
+          std::max(std::tan(fov_w * 0.5f), 1.0e-6f);
+
+      intr_ptr[intr_offset + 0] = fx;
+      intr_ptr[intr_offset + 1] = 0.0f;
+      intr_ptr[intr_offset + 2] = static_cast<float>(width) * 0.5f;
+      intr_ptr[intr_offset + 3] = 0.0f;
+      intr_ptr[intr_offset + 4] = fy;
+      intr_ptr[intr_offset + 5] = static_cast<float>(height) * 0.5f;
+      intr_ptr[intr_offset + 6] = 0.0f;
+      intr_ptr[intr_offset + 7] = 0.0f;
+      intr_ptr[intr_offset + 8] = 1.0f;
+    }
+  }
+
+  return {
+      maybe_move_runtime_tensor_to_device(extrinsics, output_device),
+      maybe_move_runtime_tensor_to_device(intrinsics, output_device),
+  };
+}
+
+Tensor extri_intri_to_pose_encoding_runtime(
+    const Tensor& extrinsics_arg,
+    const Tensor& intrinsics_arg,
+    const int64_t height,
+    const int64_t width) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Device output_device = extrinsics_arg.device();
+  const Tensor extrinsics =
+      (extrinsics_arg.is_vulkan() ? extrinsics_arg.cpu() : extrinsics_arg)
+          .contiguous()
+          .to(kFloat);
+  const Tensor intrinsics =
+      (intrinsics_arg.is_vulkan() ? intrinsics_arg.cpu() : intrinsics_arg)
+          .contiguous()
+          .to(kFloat);
+
+  TORCH_CHECK(
+      extrinsics.dim() == 4 && extrinsics.size(-2) == 3 && extrinsics.size(-1) == 4,
+      "vulkan_prepack::extri_intri_to_pose_encoding expects extrinsics with shape [B, N, 3, 4]");
+  TORCH_CHECK(
+      intrinsics.dim() == 4 && intrinsics.size(-2) == 3 && intrinsics.size(-1) == 3,
+      "vulkan_prepack::extri_intri_to_pose_encoding expects intrinsics with shape [B, N, 3, 3]");
+  TORCH_CHECK(
+      extrinsics.size(0) == intrinsics.size(0) &&
+          extrinsics.size(1) == intrinsics.size(1),
+      "vulkan_prepack::extri_intri_to_pose_encoding expects matching [B, N] dimensions");
+
+  const auto batch = extrinsics.size(0);
+  const auto views = extrinsics.size(1);
+  Tensor pose_encoding = at::empty({batch, views, 9}, extrinsics.options());
+
+  const float* extr_ptr = extrinsics.const_data_ptr<float>();
+  const float* intr_ptr = intrinsics.const_data_ptr<float>();
+  float* pose_ptr = pose_encoding.data_ptr<float>();
+
+  for (const auto b : c10::irange(batch)) {
+    for (const auto n : c10::irange(views)) {
+      const int64_t extr_offset = (b * views + n) * 12;
+      const int64_t intr_offset = (b * views + n) * 9;
+      const int64_t pose_offset = (b * views + n) * 9;
+
+      const float m00 = extr_ptr[extr_offset + 0];
+      const float m01 = extr_ptr[extr_offset + 1];
+      const float m02 = extr_ptr[extr_offset + 2];
+      const float m10 = extr_ptr[extr_offset + 4];
+      const float m11 = extr_ptr[extr_offset + 5];
+      const float m12 = extr_ptr[extr_offset + 6];
+      const float m20 = extr_ptr[extr_offset + 8];
+      const float m21 = extr_ptr[extr_offset + 9];
+      const float m22 = extr_ptr[extr_offset + 10];
+
+      const float q_abs0 =
+          std::sqrt(std::max(0.0f, 1.0f + m00 + m11 + m22));
+      const float q_abs1 =
+          std::sqrt(std::max(0.0f, 1.0f + m00 - m11 - m22));
+      const float q_abs2 =
+          std::sqrt(std::max(0.0f, 1.0f - m00 + m11 - m22));
+      const float q_abs3 =
+          std::sqrt(std::max(0.0f, 1.0f - m00 - m11 + m22));
+      const float q_abs[4] = {q_abs0, q_abs1, q_abs2, q_abs3};
+
+      int64_t best = 0;
+      for (const auto candidate : c10::irange(1, 4)) {
+        if (q_abs[candidate] > q_abs[best]) {
+          best = candidate;
+        }
+      }
+
+      float quat_rijk[4];
+      switch (best) {
+        case 0:
+          quat_rijk[0] = q_abs0 * q_abs0;
+          quat_rijk[1] = m21 - m12;
+          quat_rijk[2] = m02 - m20;
+          quat_rijk[3] = m10 - m01;
+          break;
+        case 1:
+          quat_rijk[0] = m21 - m12;
+          quat_rijk[1] = q_abs1 * q_abs1;
+          quat_rijk[2] = m10 + m01;
+          quat_rijk[3] = m02 + m20;
+          break;
+        case 2:
+          quat_rijk[0] = m02 - m20;
+          quat_rijk[1] = m10 + m01;
+          quat_rijk[2] = q_abs2 * q_abs2;
+          quat_rijk[3] = m12 + m21;
+          break;
+        default:
+          quat_rijk[0] = m10 - m01;
+          quat_rijk[1] = m20 + m02;
+          quat_rijk[2] = m21 + m12;
+          quat_rijk[3] = q_abs3 * q_abs3;
+          break;
+      }
+
+      const float denom = 2.0f * std::max(q_abs[best], 0.1f);
+      for (float& value : quat_rijk) {
+        value /= denom;
+      }
+
+      float quat_xyzw[4] = {
+          quat_rijk[1],
+          quat_rijk[2],
+          quat_rijk[3],
+          quat_rijk[0],
+      };
+      if (quat_xyzw[3] < 0.0f) {
+        for (float& value : quat_xyzw) {
+          value = -value;
+        }
+      }
+
+      pose_ptr[pose_offset + 0] = extr_ptr[extr_offset + 3];
+      pose_ptr[pose_offset + 1] = extr_ptr[extr_offset + 7];
+      pose_ptr[pose_offset + 2] = extr_ptr[extr_offset + 11];
+      pose_ptr[pose_offset + 3] = quat_xyzw[0];
+      pose_ptr[pose_offset + 4] = quat_xyzw[1];
+      pose_ptr[pose_offset + 5] = quat_xyzw[2];
+      pose_ptr[pose_offset + 6] = quat_xyzw[3];
+
+      const float fy = intr_ptr[intr_offset + 4];
+      const float fx = intr_ptr[intr_offset + 0];
+      pose_ptr[pose_offset + 7] = 2.0f *
+          std::atan((static_cast<float>(height) * 0.5f) / std::max(fy, 1.0e-6f));
+      pose_ptr[pose_offset + 8] = 2.0f *
+          std::atan((static_cast<float>(width) * 0.5f) / std::max(fx, 1.0e-6f));
+    }
+  }
+
+  return maybe_move_runtime_tensor_to_device(pose_encoding, output_device);
+}
 
 TORCH_LIBRARY(vulkan, m) {
   m.class_<BatchNormPackedContext>("BatchNormPackedContext")
@@ -208,6 +572,20 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::to_vulkan_labeled(Tensor X, str label) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_kv_cache_storage_for_request(Tensor prototype, int[] sizes, int sequence_dim, int workload_class, int model_domain, int execution_phase, int tensor_role) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_scratch_arena_storage_for_request(Tensor prototype, int num_bytes, int alignment, int workload_class, int model_domain, int execution_phase, int tensor_role) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::pose_encoding_to_extri_intri(Tensor pose_encoding, int height, int width) -> (Tensor, Tensor)"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::extri_intri_to_pose_encoding(Tensor extrinsics, Tensor intrinsics, int height, int width) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_scheduled_gated_delta_rule_chunk(Tensor query, Tensor key, Tensor value, Tensor g, Tensor beta, int chunk_size=64, Tensor? initial_state=None, bool output_final_state=False, bool use_qk_l2norm_in_kernel=False) -> (Tensor, Tensor?)"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent(Tensor query, Tensor key, Tensor value, Tensor g, Tensor beta, Tensor? initial_state=None, bool output_final_state=False, bool use_qk_l2norm_in_kernel=False) -> (Tensor, Tensor?)"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_linear_context(Tensor X, "
       "__torch__.torch.classes.vulkan.LinearPackedContext BW_prepack) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -290,6 +668,27 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::to_vulkan_labeled"),
       TORCH_FN(to_vulkan_labeled));
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::query_runtime_policy"),
+      TORCH_FN(query_runtime_policy));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_kv_cache_storage_for_request"),
+      TORCH_FN(create_kv_cache_storage_for_request));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_scratch_arena_storage_for_request"),
+      TORCH_FN(create_scratch_arena_storage_for_request));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::pose_encoding_to_extri_intri"),
+      TORCH_FN(pose_encoding_to_extri_intri_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::extri_intri_to_pose_encoding"),
+      TORCH_FN(extri_intri_to_pose_encoding_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_scheduled_gated_delta_rule_chunk"),
+      TORCH_FN(run_scheduled_gated_delta_rule_chunk));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_scheduled_gated_delta_rule_recurrent"),
+      TORCH_FN(run_scheduled_gated_delta_rule_recurrent));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_layernorm_context"),
       TORCH_FN(create_layernorm_context));
   m.impl(
@@ -322,6 +721,27 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::to_vulkan_labeled"),
       TORCH_FN(to_vulkan_labeled));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::query_runtime_policy"),
+      TORCH_FN(query_runtime_policy));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_kv_cache_storage_for_request"),
+      TORCH_FN(create_kv_cache_storage_for_request));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_scratch_arena_storage_for_request"),
+      TORCH_FN(create_scratch_arena_storage_for_request));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::pose_encoding_to_extri_intri"),
+      TORCH_FN(pose_encoding_to_extri_intri_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::extri_intri_to_pose_encoding"),
+      TORCH_FN(extri_intri_to_pose_encoding_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_scheduled_gated_delta_rule_chunk"),
+      TORCH_FN(run_scheduled_gated_delta_rule_chunk));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_scheduled_gated_delta_rule_recurrent"),
+      TORCH_FN(run_scheduled_gated_delta_rule_recurrent));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_conv2d_context"),
       TORCH_FN(run_conv2d_context));

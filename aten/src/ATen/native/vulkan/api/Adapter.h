@@ -135,6 +135,10 @@ class Adapter final {
     return physical_device_.handle;
   }
 
+  inline const PhysicalDevice& physical_device() const {
+    return physical_device_;
+  }
+
   inline VkDevice device_handle() const {
     return device_.handle_;
   }

@@ -1,8 +1,8 @@
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/NativeLayerNorm.h>
-
-#include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Norm.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+
 #include <c10/core/InferenceMode.h>
 
 namespace at {
@@ -11,80 +11,24 @@ namespace vulkan {
 namespace ops {
 namespace {
 
-using namespace api::utils;
-
-void maybe_synchronize_vulkan_context() {
-  api::Context* const context = api::context();
-  if (context->should_sync_and_reclaim()) {
-    context->sync_and_reclaim();
-  }
-}
-
 Tensor layer_norm_fused_width(
     const Tensor& input_arg,
     IntArrayRef normalized_shape,
     const std::optional<Tensor>& weight_opt,
     const std::optional<Tensor>& bias_opt,
     double eps) {
-  api::AllocationScope allocation_scope("layer_norm.output_only");
-  api::Context* const context = api::context();
-
-  Tensor input = utils::prepare_vulkan_execution_tensor(
-      input_arg, utils::VulkanExecutionPlanKind::NormInput);
-  Tensor weight = utils::prepare_vulkan_execution_tensor(
-      *weight_opt, utils::VulkanExecutionPlanKind::NormInput);
-  Tensor bias = utils::prepare_vulkan_execution_tensor(
-      *bias_opt, utils::VulkanExecutionPlanKind::NormInput);
-
-  const vTensor& v_input = convert(input);
-  const vTensor& v_weight = convert(weight);
-  const vTensor& v_bias = convert(bias);
-
-  vTensor v_output{
-      context,
-      v_input.sizes(),
-      v_input.dtype(),
+  static constexpr FusedNormWidthSpec kSpec{
+      "layer_norm.output_only",
+      "layer_norm_width",
+      "aten::layer_norm.fused_width",
+      true,
   };
-
-  const struct Block final {
-    ivec4 output_extents;
-    int32_t normalized_size;
-    float eps;
-    ivec2 fill0;
-  } block{
-      ivec4{
-          safe_downcast<int32_t>(v_output.extents().data[0u]),
-          safe_downcast<int32_t>(v_output.extents().data[1u]),
-          safe_downcast<int32_t>(v_output.extents().data[2u]),
-          0,
-      },
-      safe_downcast<int32_t>(normalized_shape.front()),
-      safe_downcast<float>(eps),
-      ivec2{0, 0},
-  };
-  api::UniformParamsBuffer params(context, block);
-  api::PipelineBarrier pipeline_barrier{};
-
-  context->submit_compute_job(
-      VK_KERNEL(layer_norm_width),
-      pipeline_barrier,
-      v_output.extents(),
-      adaptive_work_group_size(v_output.extents()),
-      VK_NULL_HANDLE,
-      v_output.image(
-          pipeline_barrier,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::WRITE),
-      v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
-      v_weight.image(pipeline_barrier, api::PipelineStage::COMPUTE),
-      v_bias.image(pipeline_barrier, api::PipelineStage::COMPUTE),
-      params.buffer());
-
-  utils::log_vulkan_op_hit("aten::layer_norm.fused_width");
+  Tensor output = fused_norm_width_impl(
+      input_arg, normalized_shape, weight_opt, bias_opt, eps, kSpec);
   if (c10::InferenceMode::is_enabled()) {
-    maybe_synchronize_vulkan_context();
+    maybe_synchronize_after_norm();
   }
-  return convert(v_output);
+  return output;
 }
 
 } // namespace
