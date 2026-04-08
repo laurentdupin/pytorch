@@ -320,7 +320,8 @@ vTensor::vTensor(
     const api::ScalarType dtype,
     const api::StorageType storage_type,
     const api::GPUMemoryLayout memory_layout,
-    const bool allocate_memory)
+    const bool allocate_memory,
+    const bool buffer_gpu_only)
     : logical_desc_(make_logical_desc(
           sizes,
           dtype,
@@ -354,7 +355,8 @@ vTensor::vTensor(
           physical_desc_.memory_layout,
           physical_desc_.sizes,
           logical_desc_.dtype,
-          allocate_memory)) {}
+          allocate_memory,
+          buffer_gpu_only)) {}
 
 vTensor::vTensor(
     api::Context* const context,
@@ -700,7 +702,8 @@ static api::VulkanBuffer allocate_buffer(
     const int64_t numel,
     const api::StorageType storage_type,
     const api::ScalarType dtype,
-    const bool allocate_memory) {
+    const bool allocate_memory,
+    const bool gpu_only) {
   api::Adapter* adapter_ptr = context_ptr->adapter_ptr();
 
   switch (storage_type) {
@@ -712,7 +715,7 @@ static api::VulkanBuffer allocate_buffer(
   }
 
   return adapter_ptr->vma().create_storage_buffer(
-      api::element_size(dtype) * numel, /*gpu_only = */ true, allocate_memory);
+      api::element_size(dtype) * numel, gpu_only, allocate_memory);
 }
 
 vTensorStorage::vTensorStorage(
@@ -721,7 +724,8 @@ vTensorStorage::vTensorStorage(
     const api::GPUMemoryLayout gpu_memory_layout,
     const std::vector<int64_t>& gpu_sizes,
     const api::ScalarType dtype,
-    const bool allocate_memory)
+    const bool allocate_memory,
+    const bool buffer_gpu_only)
     : context_(context),
       storage_type_{storage_type},
       extents_(
@@ -734,12 +738,14 @@ vTensorStorage::vTensorStorage(
           storage_type_ == api::StorageType::BUFFER ? VK_FORMAT_UNDEFINED
                                                     : api::to_vkformat(dtype),
           allocate_memory)),
+      buffer_gpu_only_(buffer_gpu_only),
       buffer_(allocate_buffer(
           context_,
           buffer_length_,
           storage_type_,
           dtype,
-          allocate_memory)),
+          allocate_memory,
+          buffer_gpu_only_)),
       last_access_{} {}
 
 vTensorStorage::~vTensorStorage() {
@@ -862,7 +868,12 @@ void vTensorStorage::discard_and_reallocate(
 
   buffer_length_ = api::utils::multiply_integers(gpu_sizes);
   buffer_ = allocate_buffer(
-      context_, buffer_length_, storage_type_, dtype, buffer_owns_memory);
+      context_,
+      buffer_length_,
+      storage_type_,
+      dtype,
+      buffer_owns_memory,
+      buffer_gpu_only_);
 }
 
 } // namespace vulkan

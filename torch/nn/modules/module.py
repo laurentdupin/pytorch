@@ -71,6 +71,111 @@ _global_module_registration_hooks: dict[int, Callable] = OrderedDict()
 _global_parameter_registration_hooks: dict[int, Callable] = OrderedDict()
 
 
+def _vulkan_module_tensor_storage_key(tensor: Tensor) -> tuple[Any, ...]:
+    storage_ptr = 0
+    if tensor.numel() > 0:
+        storage_ptr = tensor.untyped_storage().data_ptr()
+    device_type = tensor.device.type
+    device_index = tensor.device.index
+    return (
+        device_type,
+        device_index,
+        storage_ptr,
+        tensor.storage_offset(),
+        tuple(tensor.shape),
+        tuple(tensor.stride()),
+        str(tensor.dtype),
+    )
+
+
+def _apply_vulkan_keep_cpu_paths(module: "Module") -> None:
+    keep_cpu_paths = getattr(module, "_vulkan_keep_cpu_paths", None)
+    if not keep_cpu_paths:
+        return
+
+    for path in keep_cpu_paths:
+        current = module
+        for part in str(path).split("."):
+            current = getattr(current, part, None)
+            if current is None:
+                break
+        if current is not None:
+            setattr(current, "_vulkan_keep_cpu", True)
+
+
+def _move_module_to_vulkan_explicit(module: "Module") -> "Module":
+    config = getattr(module, "config", None)
+    if (
+        getattr(config, "tie_word_embeddings", False)
+        and hasattr(module, "tie_weights")
+    ):
+        module.tie_weights()
+
+    _apply_vulkan_keep_cpu_paths(module)
+
+    converted_tensors: dict[tuple[Any, ...], Tensor] = {}
+    converted_parameters: dict[tuple[Any, ...], Parameter] = {}
+
+    def move_tensor(tensor: Tensor, label: str) -> Tensor:
+        if tensor.device.type == "vulkan":
+            return tensor
+        key = _vulkan_module_tensor_storage_key(tensor)
+        shared_tensor = converted_tensors.get(key)
+        if shared_tensor is None:
+            try:
+                shared_tensor = torch.ops.vulkan_prepack.to_vulkan_labeled(
+                    tensor.detach(),
+                    label,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to move tensor '{label}' to Vulkan"
+                ) from exc
+            converted_tensors[key] = shared_tensor
+        return shared_tensor
+
+    def move_module(current: "Module", module_prefix: str) -> None:
+        if getattr(current, "_vulkan_keep_cpu", False):
+            return
+
+        for name, parameter in list(current._parameters.items()):
+            if parameter is None:
+                continue
+            if parameter.device.type == "vulkan":
+                current._parameters[name] = parameter
+                continue
+            tensor_key = _vulkan_module_tensor_storage_key(parameter.detach())
+            param_key = tensor_key + (parameter.requires_grad,)
+            shared_parameter = converted_parameters.get(param_key)
+            if shared_parameter is None:
+                shared_parameter = Parameter(
+                    move_tensor(parameter.detach(), f"{module_prefix}.{name}"),
+                    parameter.requires_grad,
+                )
+                converted_parameters[param_key] = shared_parameter
+            current._parameters[name] = shared_parameter
+
+            if parameter.grad is not None:
+                shared_parameter.grad = move_tensor(
+                    parameter.grad.detach(),
+                    f"{module_prefix}.{name}.grad",
+                ).requires_grad_(parameter.grad.requires_grad)
+
+        for name, buffer in list(current._buffers.items()):
+            if buffer is None:
+                continue
+            if buffer.device.type == "vulkan":
+                current._buffers[name] = buffer
+                continue
+            current._buffers[name] = move_tensor(buffer, f"{module_prefix}.{name}")
+
+        for child_name, child in current.named_children():
+            move_module(child, f"{module_prefix}.{child_name}")
+
+    move_module(module, module._get_name().lower())
+    return module
+
+
 class _WrappedHook:
     def __init__(self, hook: Callable, module: Optional["Module"] = None) -> None:  # noqa: UP045
         self.hook: Callable = hook
@@ -1379,6 +1484,14 @@ class Module:
                     ) from None
                 else:
                     raise
+
+        if (
+            device is not None
+            and device.type == "vulkan"
+            and dtype is None
+            and convert_to_format is None
+        ):
+            return _move_module_to_vulkan_explicit(self)
 
         return self._apply(convert)
 

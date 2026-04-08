@@ -36,7 +36,8 @@ class vTensorStorage final {
       const api::GPUMemoryLayout gpu_memory_layout,
       const std::vector<int64_t>& sizes,
       const api::ScalarType dtype,
-      const bool allocate_memory = true);
+      const bool allocate_memory = true,
+      const bool buffer_gpu_only = true);
 
   vTensorStorage(const vTensorStorage&) = delete;
   vTensorStorage& operator=(const vTensorStorage&) = delete;
@@ -61,6 +62,7 @@ class vTensorStorage final {
   // Image Texture
   mutable api::VulkanImage image_;
   mutable api::VulkanBuffer buffer_;
+  bool buffer_gpu_only_{true};
 
   // Last Access - used to insert memory barriers
   LastAccess last_access_;
@@ -102,7 +104,8 @@ class vTensor final {
       const api::StorageType storage_type = api::StorageType::TEXTURE_3D,
       const api::GPUMemoryLayout memory_layout =
           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
-      const bool allocate_memory = true);
+      const bool allocate_memory = true,
+      const bool buffer_gpu_only = true);
 
   // Default constructor for quantized vTensor
   vTensor(
@@ -306,6 +309,11 @@ class vTensor final {
     execution_desc_.persistent = persistent;
   }
 
+  inline void mark_host_write() {
+    view_->last_access_ =
+        LastAccess(api::PipelineStage::HOST, api::MemoryAccessType::WRITE);
+  }
+
   /*
    * Extract an `api::ScalarType` from the TensorOptions member
    */
@@ -465,6 +473,10 @@ class vTensor final {
 
   inline int64_t buffer_length() const {
     return view_->buffer_length_;
+  }
+
+  inline bool buffer_uses_host_visible_allocation() const {
+    return storage_type() == api::StorageType::BUFFER && !view_->buffer_gpu_only_;
   }
 
   /*

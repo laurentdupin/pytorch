@@ -2,6 +2,7 @@
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/vulkan/Context.h>
+#include <atomic>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -13,7 +14,19 @@ namespace ops {
 
 namespace {
 
-constexpr int64_t kLargeFloatMatrixNumelThreshold = 1 << 20;
+constexpr int64_t kLargeFloatingMatrixNumelThreshold = 1 << 20;
+constexpr uint64_t kDefaultHostVisibleLabeledUploadBudgetBytes =
+    256ull * 1024ull * 1024ull;
+
+c10::MemoryFormat memory_format_for_buffer_layout(
+    const api::GPUMemoryLayout memory_layout);
+
+void pack_logical_tensor_to_buffer_mapping_dispatch(
+    const Tensor& src,
+    api::MemoryMap& dst_mapping,
+    const IntArrayRef physical_strides,
+    const int64_t physical_numel,
+    const int64_t storage_offset);
 
 const std::string& copy_sync_log_path() {
   static const std::string path = []() {
@@ -28,13 +41,88 @@ bool copy_sync_logging_enabled() {
 }
 
 bool should_force_buffer_storage_for_to_vulkan(const Tensor& src) {
-  // Large 2D float tensors are typically inference weights such as embedding,
-  // lm_head, and linear matrices. Keeping them buffer-backed avoids expensive
-  // texture residency overhead; Vulkan linear/embedding paths can prepack or
-  // gather from them later as needed.
-  return src.scalar_type() == at::kFloat && src.dim() == 2 &&
-      src.numel() >= kLargeFloatMatrixNumelThreshold;
+  // Large 2D floating tensors are typically inference weights such as
+  // embedding, lm_head, and linear matrices. Keeping them buffer-backed avoids
+  // expensive texture residency overhead and, for Half tensors, avoids the
+  // temporary float staging buffer required by the texture packing path.
+  return c10::isFloatingType(src.scalar_type()) && src.dim() == 2 &&
+      src.numel() >= kLargeFloatingMatrixNumelThreshold;
 }
+
+bool should_flush_after_labeled_to_vulkan(const Tensor& src) {
+  // Model placement uses to_vulkan_labeled() heavily. Large weight transfers
+  // otherwise keep both the staging allocation and the destination allocation
+  // live until the command stream is flushed, which doubles residency and can
+  // OOM medium models during module.to("vulkan"). Flush eagerly for large 2D
+  // floating matrices to retire staging allocations as we go.
+  return c10::isFloatingType(src.scalar_type()) && src.dim() == 2 &&
+      src.numel() >= kLargeFloatingMatrixNumelThreshold;
+}
+
+bool should_use_host_visible_buffer_for_labeled_to_vulkan(const Tensor& src) {
+  // Medium and large model weights are usually 2D floating matrices. Uploading
+  // them through the default GPU-only buffer path allocates an equally large
+  // staging buffer, which doubles residency during module.to("vulkan") and is
+  // the main reason medium LLMs OOM on placement. Route those tensors through
+  // a host-visible Vulkan storage buffer instead.
+  return should_force_buffer_storage_for_to_vulkan(src);
+}
+
+uint64_t host_visible_labeled_upload_budget_bytes() {
+  static const uint64_t budget = []() -> uint64_t {
+    const char* env = std::getenv("PYTORCH_VULKAN_HOST_VISIBLE_UPLOAD_BUDGET_MB");
+    if (!env) {
+      return kDefaultHostVisibleLabeledUploadBudgetBytes;
+    }
+    char* end = nullptr;
+    const unsigned long long mb = std::strtoull(env, &end, 10);
+    if (end == env) {
+      return kDefaultHostVisibleLabeledUploadBudgetBytes;
+    }
+    return mb * 1024ull * 1024ull;
+  }();
+  return budget;
+}
+
+std::atomic<uint64_t>& host_visible_labeled_upload_bytes() {
+  static std::atomic<uint64_t> bytes{0};
+  return bytes;
+}
+
+bool reserve_host_visible_labeled_upload_budget(const uint64_t bytes) {
+  if (bytes == 0) {
+    return true;
+  }
+
+  auto& reserved = host_visible_labeled_upload_bytes();
+  const uint64_t budget = host_visible_labeled_upload_budget_bytes();
+  uint64_t current = reserved.load(std::memory_order_relaxed);
+  while (true) {
+    if (current > budget || bytes > budget - current) {
+      return false;
+    }
+    if (reserved.compare_exchange_weak(
+            current,
+            current + bytes,
+            std::memory_order_relaxed,
+            std::memory_order_relaxed)) {
+      return true;
+    }
+  }
+}
+
+void release_host_visible_labeled_upload_budget(const uint64_t bytes) {
+  if (bytes == 0) {
+    return;
+  }
+  host_visible_labeled_upload_bytes().fetch_sub(bytes, std::memory_order_relaxed);
+}
+
+bool buffer_allocation_is_host_visible(const vTensor& tensor) {
+  return tensor.buffer_uses_host_visible_allocation();
+}
+
+void pack_cpu_to_host_visible_vulkan_buffer(const Tensor& src, vTensor& dst);
 
 const char* storage_type_name(const api::StorageType storage_type) {
   switch (storage_type) {
@@ -230,6 +318,20 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
           "Unsupported scalar type for Vulkan buffer pack: ",
           src.scalar_type());
   }
+}
+
+void pack_cpu_to_host_visible_vulkan_buffer(const Tensor& src, vTensor& dst) {
+  const c10::MemoryFormat target_memory_format =
+      memory_format_for_buffer_layout(dst.gpu_memory_layout());
+  Tensor src_contig = src.contiguous(target_memory_format);
+  api::MemoryMap mapping(dst.buffer(), api::MemoryAccessType::WRITE);
+  pack_logical_tensor_to_buffer_mapping_dispatch(
+      src_contig,
+      mapping,
+      dst.gpu_strides(),
+      dst.gpu_numel(),
+      dst.storage_offset());
+  dst.mark_host_write();
 }
 
 void unpack_buffer_mapping_to_logical_tensor_dispatch(
@@ -492,6 +594,11 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
   api::Context* const context = api::context();
 
   if (dst.storage_type() == api::StorageType::BUFFER) {
+    if (buffer_allocation_is_host_visible(dst)) {
+      pack_cpu_to_host_visible_vulkan_buffer(src, dst);
+      return;
+    }
+
     const c10::MemoryFormat target_memory_format =
         memory_format_for_buffer_layout(dst.gpu_memory_layout());
     Tensor src_contig = src.contiguous(target_memory_format);
@@ -742,8 +849,35 @@ at::Tensor to_vulkan_labeled(at::Tensor src, std::string label) {
       src.device().type() == at::kCPU,
       "Vulkan to_vulkan_labeled(): input tensor must be a CPU or Vulkan tensor!");
   api::AllocationScope allocation_scope(std::move(label));
-  vTensor v_ret = to_vulkan(src, api::StorageType::TEXTURE_3D);
-  return convert(v_ret);
+  if (should_use_host_visible_buffer_for_labeled_to_vulkan(src)) {
+    const uint64_t reservation_bytes = static_cast<uint64_t>(src.nbytes());
+    if (reserve_host_visible_labeled_upload_budget(reservation_bytes)) {
+      try {
+        vTensor v_ret{
+            api::context(),
+            src.sizes().vec(),
+            convert_dtype(src.scalar_type()),
+            api::StorageType::BUFFER,
+            get_gpu_memory_layout(
+                api::StorageType::BUFFER, src.suggest_memory_format()),
+            /*allocate_memory=*/true,
+            /*buffer_gpu_only=*/false,
+        };
+        ops::pack_cpu_to_vulkan(src, v_ret);
+        return convert(v_ret);
+      } catch (const std::exception&) {
+        release_host_visible_labeled_upload_budget(reservation_bytes);
+        // Fall back to the existing staged upload path if a particular adapter
+        // cannot provide a mappable host-visible storage allocation.
+      }
+    }
+  }
+
+  Tensor result = src.vulkan();
+  if (should_flush_after_labeled_to_vulkan(src)) {
+    api::context()->flush();
+  }
+  return result;
 }
 
 at::Tensor from_vulkan(vTensor& v_src) {

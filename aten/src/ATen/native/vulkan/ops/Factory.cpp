@@ -8,7 +8,7 @@ namespace ops {
 
 namespace {
 
-constexpr int64_t kLargeFloatMatrixNumelThreshold = 1 << 20;
+constexpr int64_t kLargeFloatingMatrixNumelThreshold = 1 << 20;
 
 api::GPUMemoryLayout default_memory_layout_for_storage_type(
     const api::StorageType storage_type) {
@@ -28,8 +28,8 @@ api::StorageType choose_storage_type(
   }
 
   if (
-      dtype && *dtype == c10::kFloat && sizes.size() == 2 &&
-      c10::multiply_integers(sizes) >= kLargeFloatMatrixNumelThreshold) {
+      dtype && c10::isFloatingType(*dtype) && sizes.size() == 2 &&
+      c10::multiply_integers(sizes) >= kLargeFloatingMatrixNumelThreshold) {
     return api::StorageType::BUFFER;
   }
 

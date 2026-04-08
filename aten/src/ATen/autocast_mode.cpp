@@ -9,11 +9,17 @@
 namespace at::autocast {
 
 bool is_autocast_enabled(at::DeviceType device_type) {
+  if (device_type == at::kVulkan) {
+    return false;
+  }
   at::DispatchKey dispatch_key = get_autocast_dispatch_key_from_device_type(device_type);
   return !c10::impl::tls_is_dispatch_key_excluded(dispatch_key);
 }
 
 void set_autocast_enabled(at::DeviceType device_type, bool enabled) {
+  if (device_type == at::kVulkan) {
+    return;
+  }
   at::DispatchKey dispatch_key = get_autocast_dispatch_key_from_device_type(device_type);
   c10::impl::tls_set_dispatch_key_excluded(dispatch_key, !enabled);
 }
@@ -68,7 +74,7 @@ thread_local std::array<at::ScalarType, at::COMPILE_TIME_MAX_DEVICE_TYPES>
         at::ScalarType::Undefined, // FPGA
         at::kBFloat16, // ONNX Runtime / Microsoft
         at::kBFloat16, // XLA / TPU
-        at::ScalarType::Undefined, // Vulkan
+        at::kHalf, // Vulkan
         at::ScalarType::Undefined, // Metal
         at::kHalf, // XPU
         at::kHalf, // MPS

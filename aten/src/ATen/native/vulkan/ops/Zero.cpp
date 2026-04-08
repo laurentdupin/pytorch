@@ -79,7 +79,7 @@ Tensor zeros(
   vTensor v_output{
       context,
       size.vec(),
-      api::ScalarType::Float,
+      convert_dtype(target_dtype),
   };
 
   // Required to determine how to insert memory barriers in the command buffer

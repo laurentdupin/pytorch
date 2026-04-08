@@ -473,6 +473,10 @@ Tensor select(const Tensor& self, int64_t dim, int64_t index) {
     return select_buffer_view(self, dim, index);
   }
 
+  if (self.dim() == 1 || self.dim() == 2) {
+    return select_cpu_fallback(self, dim, index);
+  }
+
   TORCH_CHECK(
       self.dim() == 3 || self.dim() == 4,
       "Vulkan select only supports 3d and 4d tensors!");

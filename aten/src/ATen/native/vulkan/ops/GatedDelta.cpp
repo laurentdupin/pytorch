@@ -678,12 +678,12 @@ std::tuple<Tensor, std::optional<Tensor>> run_scheduled_gated_delta_rule_chunk(
       utils::VulkanExecutionPhase::Prefill,
       initial_state,
       "gated_delta_chunk");
-  if (
-      use_single_chunk_recurrent_shortcut(query, chunk_size) &&
-      supports_native_recurrent_gated_delta(
+  if (supports_native_recurrent_gated_delta(
           query, key, value, g, beta, initial_state)) {
     utils::log_vulkan_op_hit(
-        "vulkan_prepack::run_scheduled_gated_delta_rule_chunk.native_single_chunk_recurrent");
+        use_single_chunk_recurrent_shortcut(query, chunk_size)
+            ? "vulkan_prepack::run_scheduled_gated_delta_rule_chunk.native_single_chunk_recurrent"
+            : "vulkan_prepack::run_scheduled_gated_delta_rule_chunk.native_full_sequence_recurrent");
     return run_gated_delta_rule_recurrent_native(
         query,
         key,

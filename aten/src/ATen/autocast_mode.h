@@ -126,7 +126,7 @@ inline void set_autocast_gpu_dtype(at::ScalarType dtype) {
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 AT_FORALL_DEPRECATED_AUTOCAST_BACKENDS(DECLARE_DEPRECATED_AUTOCAST_APIS)
 
-const std::array<at::DeviceType, 10> _AUTOCAST_SUPPORTED_DEVICES{
+const std::array<at::DeviceType, 11> _AUTOCAST_SUPPORTED_DEVICES{
     at::kCPU,
     at::kCUDA,
     at::kMTIA,
@@ -135,6 +135,7 @@ const std::array<at::DeviceType, 10> _AUTOCAST_SUPPORTED_DEVICES{
     at::kIPU,
     at::kHPU,
     at::kXLA,
+    at::kVulkan,
     at::kPrivateUse1,
     at::kMPS};
 

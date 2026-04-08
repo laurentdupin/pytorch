@@ -11,6 +11,7 @@
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/Lstm.h>
 #include <ATen/native/vulkan/ops/Mm.h>
+#include <ATen/native/vulkan/ops/QwenLinearAttention.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/Register.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
@@ -98,6 +99,24 @@ int register_vulkan_layernorm_packed_context() {
                 // state is unpacked
                 return c10::make_intrusive<LayernormPackedContext>(
                     LayernormPackedContext::pack(state));
+              });
+  return 0;
+}
+
+int register_vulkan_qwen_linear_attention_prefill_packed_context() {
+  static auto register_vulkan_qwen_linear_attention_prefill_context =
+      torch::selective_class_<QwenLinearAttentionPrefillPackedContext>(
+          "vulkan",
+          TORCH_SELECTIVE_CLASS("QwenLinearAttentionPrefillPackedContext"))
+          .def_pickle(
+              [](const c10::intrusive_ptr<
+                     QwenLinearAttentionPrefillPackedContext>& context) {
+                return context->unpack();
+              },
+              [](c10::impl::GenericList state) {
+                return c10::make_intrusive<
+                    QwenLinearAttentionPrefillPackedContext>(
+                    QwenLinearAttentionPrefillPackedContext::pack(state));
               });
   return 0;
 }
@@ -244,6 +263,339 @@ Tensor maybe_move_runtime_tensor_to_device(
     const Tensor& tensor,
     const Device& device) {
   return device.type() == kCPU ? tensor : tensor.to(device);
+}
+
+Tensor create_causal_attention_mask_runtime(
+    const Tensor& prototype,
+    const int64_t batch_size,
+    const int64_t q_length,
+    const int64_t kv_length,
+    const int64_t q_offset,
+    const int64_t kv_offset,
+    const bool float_mask) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  TORCH_CHECK(
+      q_length >= 0 && kv_length >= 0,
+      "vulkan_prepack::create_causal_attention_mask expects non-negative lengths");
+  TORCH_CHECK(
+      batch_size >= 0,
+      "vulkan_prepack::create_causal_attention_mask expects a non-negative batch size");
+
+  const Device output_device = prototype.device();
+  const int64_t normalized_batch = std::max<int64_t>(batch_size, 1);
+  const auto cpu_options = prototype.options().device(kCPU);
+
+  Tensor q_positions = at::arange(q_length, cpu_options.dtype(kLong));
+  Tensor kv_positions = at::arange(kv_length, cpu_options.dtype(kLong));
+  if (q_offset != 0) {
+    q_positions = at::add(q_positions, q_offset);
+  }
+  if (kv_offset != 0) {
+    kv_positions = at::add(kv_positions, kv_offset);
+  }
+  const Tensor keep_mask = q_positions.unsqueeze(1)
+                               .ge(kv_positions.unsqueeze(0))
+                               .unsqueeze(0)
+                               .unsqueeze(0)
+                               .expand({normalized_batch, 1, q_length, kv_length})
+                               .contiguous();
+
+  if (!float_mask) {
+    if (output_device.type() != kCPU) {
+      utils::log_vulkan_op_hit("vulkan_prepack::create_causal_attention_mask");
+    }
+    return maybe_move_runtime_tensor_to_device(keep_mask, output_device);
+  }
+
+  ScalarType mask_dtype = prototype.scalar_type();
+  if (!at::isFloatingType(mask_dtype)) {
+    mask_dtype = kFloat;
+  }
+  Tensor additive_mask = at::zeros(
+      {normalized_batch, 1, q_length, kv_length},
+      cpu_options.dtype(mask_dtype));
+  additive_mask.masked_fill_(
+      keep_mask.logical_not(),
+      -std::numeric_limits<float>::infinity());
+
+  if (output_device.type() != kCPU) {
+    utils::log_vulkan_op_hit("vulkan_prepack::create_causal_attention_mask");
+  }
+  return maybe_move_runtime_tensor_to_device(additive_mask, output_device);
+}
+
+Tensor slice_hidden_states_for_logits_runtime(
+    const Tensor& hidden_states_arg,
+    const int64_t logits_to_keep) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Device output_device = hidden_states_arg.device();
+  const Tensor hidden_states =
+      (hidden_states_arg.is_vulkan() ? hidden_states_arg.cpu() : hidden_states_arg)
+          .contiguous();
+  TORCH_CHECK(
+      hidden_states.dim() == 3,
+      "vulkan_prepack::slice_hidden_states_for_logits expects a [B, T, H] tensor");
+
+  Tensor result = hidden_states;
+  if (logits_to_keep > 0 && logits_to_keep < hidden_states.size(1)) {
+    const int64_t start = std::max<int64_t>(hidden_states.size(1) - logits_to_keep, 0);
+    result = hidden_states.narrow(1, start, hidden_states.size(1) - start);
+  }
+
+  if (output_device.type() != kCPU) {
+    utils::log_vulkan_op_hit("vulkan_prepack::slice_hidden_states_for_logits");
+  }
+  return maybe_move_runtime_tensor_to_device(result, output_device);
+}
+
+Tensor index_select_hidden_states_for_logits_runtime(
+    const Tensor& hidden_states_arg,
+    const Tensor& index_arg) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Device output_device = hidden_states_arg.device();
+  const Tensor hidden_states =
+      (hidden_states_arg.is_vulkan() ? hidden_states_arg.cpu() : hidden_states_arg)
+          .contiguous();
+  Tensor index = index_arg.is_vulkan() ? index_arg.cpu() : index_arg;
+  TORCH_CHECK(
+      hidden_states.dim() == 3,
+      "vulkan_prepack::index_select_hidden_states_for_logits expects a [B, T, H] tensor");
+  TORCH_CHECK(
+      index.dim() == 1,
+      "vulkan_prepack::index_select_hidden_states_for_logits expects a 1D index tensor");
+  TORCH_CHECK(
+      index.scalar_type() == kLong || index.scalar_type() == kInt,
+      "vulkan_prepack::index_select_hidden_states_for_logits expects int32 or int64 indices");
+
+  index = index.contiguous().to(kLong);
+  const Tensor result = at::index_select(hidden_states, 1, index);
+
+  if (output_device.type() != kCPU) {
+    utils::log_vulkan_op_hit(
+        "vulkan_prepack::index_select_hidden_states_for_logits");
+  }
+  return maybe_move_runtime_tensor_to_device(result, output_device);
+}
+
+Tensor gather_hidden_states_by_batch_positions_runtime(
+    const Tensor& hidden_states_arg,
+    const Tensor& positions_arg) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Device output_device = hidden_states_arg.device();
+  const Tensor hidden_states =
+      (hidden_states_arg.is_vulkan() ? hidden_states_arg.cpu() : hidden_states_arg)
+          .contiguous();
+  Tensor positions = positions_arg.is_vulkan() ? positions_arg.cpu() : positions_arg;
+  TORCH_CHECK(
+      hidden_states.dim() == 3,
+      "vulkan_prepack::gather_hidden_states_by_batch_positions expects a [B, T, H] tensor");
+  TORCH_CHECK(
+      positions.dim() == 1,
+      "vulkan_prepack::gather_hidden_states_by_batch_positions expects a 1D positions tensor");
+  TORCH_CHECK(
+      positions.scalar_type() == kLong || positions.scalar_type() == kInt,
+      "vulkan_prepack::gather_hidden_states_by_batch_positions expects int32 or int64 positions");
+  TORCH_CHECK(
+      positions.size(0) == hidden_states.size(0),
+      "vulkan_prepack::gather_hidden_states_by_batch_positions expects one position per batch item");
+
+  positions = positions.contiguous();
+  std::vector<Tensor> gathered_rows;
+  gathered_rows.reserve(hidden_states.size(0));
+  if (positions.scalar_type() == kLong) {
+    const int64_t* const pos_ptr = positions.const_data_ptr<int64_t>();
+    for (const auto batch_idx : c10::irange(hidden_states.size(0))) {
+      const int64_t token_idx = pos_ptr[batch_idx];
+      TORCH_CHECK_INDEX(
+          token_idx >= 0 && token_idx < hidden_states.size(1),
+          "vulkan_prepack::gather_hidden_states_by_batch_positions index ",
+          token_idx,
+          " is out of bounds for sequence length ",
+          hidden_states.size(1));
+      gathered_rows.push_back(at::select(at::select(hidden_states, 0, batch_idx), 0, token_idx));
+    }
+  } else {
+    const int32_t* const pos_ptr = positions.const_data_ptr<int32_t>();
+    for (const auto batch_idx : c10::irange(hidden_states.size(0))) {
+      const int64_t token_idx = pos_ptr[batch_idx];
+      TORCH_CHECK_INDEX(
+          token_idx >= 0 && token_idx < hidden_states.size(1),
+          "vulkan_prepack::gather_hidden_states_by_batch_positions index ",
+          token_idx,
+          " is out of bounds for sequence length ",
+          hidden_states.size(1));
+      gathered_rows.push_back(at::select(at::select(hidden_states, 0, batch_idx), 0, token_idx));
+    }
+  }
+
+  const Tensor result = at::stack(gathered_rows, 0);
+  if (output_device.type() != kCPU) {
+    utils::log_vulkan_op_hit(
+        "vulkan_prepack::gather_hidden_states_by_batch_positions");
+  }
+  return maybe_move_runtime_tensor_to_device(result, output_device);
+}
+
+int64_t find_timestep_index_runtime(
+    const Tensor& schedule_timesteps_arg,
+    const Tensor& timestep_arg) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Tensor schedule_timesteps =
+      (schedule_timesteps_arg.is_vulkan() ? schedule_timesteps_arg.cpu()
+                                          : schedule_timesteps_arg)
+          .contiguous();
+  Tensor timestep = timestep_arg.is_vulkan() ? timestep_arg.cpu() : timestep_arg;
+  TORCH_CHECK(
+      schedule_timesteps.dim() == 1,
+      "vulkan_prepack::find_timestep_index expects a 1D schedule tensor");
+  TORCH_CHECK(
+      timestep.numel() == 1,
+      "vulkan_prepack::find_timestep_index expects a scalar timestep tensor");
+
+  timestep = timestep.reshape({}).to(schedule_timesteps.scalar_type());
+  const Tensor indices = at::eq(schedule_timesteps, timestep).nonzero();
+  TORCH_CHECK(
+      indices.numel() > 0,
+      "vulkan_prepack::find_timestep_index could not find the requested timestep");
+
+  const int64_t pos = indices.size(0) > 1 ? 1 : 0;
+  return indices.select(0, pos).item<int64_t>();
+}
+
+std::tuple<Tensor, Tensor, Tensor> compute_moe_router_runtime(
+    const Tensor& logits_arg,
+    const int64_t top_k,
+    const int64_t num_experts) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Device output_device = logits_arg.device();
+  const Tensor logits =
+      (logits_arg.is_vulkan() ? logits_arg.cpu() : logits_arg).contiguous().to(kFloat);
+  TORCH_CHECK(
+      logits.dim() == 2,
+      "vulkan_prepack::compute_moe_router expects a [T, E] logits tensor");
+  TORCH_CHECK(
+      num_experts == logits.size(1),
+      "vulkan_prepack::compute_moe_router expects num_experts to match the logits width");
+  TORCH_CHECK(
+      top_k > 0 && top_k <= num_experts,
+      "vulkan_prepack::compute_moe_router expects top_k to be in [1, num_experts]");
+
+  const auto topk = at::topk(logits, top_k, 1, true, true);
+  const Tensor top_k_logits = std::get<0>(topk);
+  const Tensor top_k_indices = std::get<1>(topk);
+  const Tensor top_k_gates = at::softmax(top_k_logits, 1);
+  const Tensor gates =
+      at::zeros({top_k_indices.size(0), num_experts}, top_k_gates.options())
+          .scatter(1, top_k_indices, 1);
+  const Tensor expert_size = gates.to(kLong).sum(0).contiguous();
+
+  const Tensor top_k_experts = top_k_indices.flatten();
+  const auto sorted_experts = at::sort(top_k_experts, 0, false);
+  const Tensor index_sorted_experts = std::get<1>(sorted_experts);
+  const Tensor batch_index =
+      at::floor_divide(index_sorted_experts, top_k).to(kLong).contiguous();
+  const Tensor batch_gates =
+      top_k_gates.flatten().index_select(0, index_sorted_experts).contiguous();
+
+  if (output_device.type() != kCPU) {
+    utils::log_vulkan_op_hit("vulkan_prepack::compute_moe_router");
+  }
+
+  return {
+      batch_index,
+      maybe_move_runtime_tensor_to_device(batch_gates, output_device),
+      expert_size,
+  };
+}
+
+Tensor accumulate_expert_outputs_runtime(
+    const Tensor& expert_outputs_arg,
+    const Tensor& batch_index_arg,
+    const int64_t total_rows) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Device output_device = expert_outputs_arg.device();
+  const Tensor expert_outputs =
+      (expert_outputs_arg.is_vulkan() ? expert_outputs_arg.cpu() : expert_outputs_arg)
+          .contiguous();
+  const Tensor batch_index =
+      (batch_index_arg.is_vulkan() ? batch_index_arg.cpu() : batch_index_arg)
+          .contiguous()
+          .to(kLong);
+  TORCH_CHECK(
+      expert_outputs.dim() == 2,
+      "vulkan_prepack::accumulate_expert_outputs expects a [N, H] tensor");
+  TORCH_CHECK(
+      batch_index.dim() == 1 && batch_index.numel() == expert_outputs.size(0),
+      "vulkan_prepack::accumulate_expert_outputs expects one row index per expert output");
+  TORCH_CHECK(
+      total_rows >= 0,
+      "vulkan_prepack::accumulate_expert_outputs expects total_rows >= 0");
+
+  const Tensor result =
+      at::zeros({total_rows, expert_outputs.size(1)}, expert_outputs.options())
+          .index_add(0, batch_index, expert_outputs);
+  if (output_device.type() != kCPU) {
+    utils::log_vulkan_op_hit("vulkan_prepack::accumulate_expert_outputs");
+  }
+  return maybe_move_runtime_tensor_to_device(result, output_device);
+}
+
+std::tuple<Tensor, Tensor> compute_rotary_cos_sin_runtime(
+    const Tensor& prototype_arg,
+    const Tensor& inv_freq_arg,
+    const Tensor& position_ids_arg,
+    const double attention_scaling) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Device output_device = prototype_arg.device();
+  const ScalarType output_dtype = prototype_arg.scalar_type();
+  const Tensor inv_freq =
+      (inv_freq_arg.is_vulkan() ? inv_freq_arg.cpu() : inv_freq_arg).contiguous().to(kFloat);
+  const Tensor position_ids =
+      (position_ids_arg.is_vulkan() ? position_ids_arg.cpu() : position_ids_arg)
+          .contiguous()
+          .to(kFloat);
+  TORCH_CHECK(
+      inv_freq.dim() == 1,
+      "vulkan_prepack::compute_rotary_cos_sin expects a 1D inv_freq tensor");
+  TORCH_CHECK(
+      position_ids.dim() == 2,
+      "vulkan_prepack::compute_rotary_cos_sin expects a [B, T] position_ids tensor");
+
+  const Tensor inv_freq_expanded =
+      inv_freq.unsqueeze(0).unsqueeze(-1).expand({position_ids.size(0), -1, 1});
+  const Tensor position_ids_expanded = position_ids.unsqueeze(1);
+  const Tensor freqs = at::matmul(inv_freq_expanded, position_ids_expanded).transpose(1, 2);
+  const Tensor emb = at::cat({freqs, freqs}, -1);
+  Tensor cos = at::cos(emb);
+  Tensor sin = at::sin(emb);
+  if (attention_scaling != 1.0) {
+    cos = cos.mul(attention_scaling);
+    sin = sin.mul(attention_scaling);
+  }
+
+  if (output_device.type() != kCPU) {
+    utils::log_vulkan_op_hit("vulkan_prepack::compute_rotary_cos_sin");
+  }
+  return {
+      maybe_move_runtime_tensor_to_device(cos, output_device).to(output_dtype),
+      maybe_move_runtime_tensor_to_device(sin, output_device).to(output_dtype),
+  };
 }
 
 std::tuple<Tensor, Tensor> pose_encoding_to_extri_intri_runtime(
@@ -505,6 +857,7 @@ TORCH_LIBRARY(vulkan, m) {
   register_vulkan_conv1d_packed_context();
   register_vulkan_linear_packed_context();
   register_vulkan_layernorm_packed_context();
+  register_vulkan_qwen_linear_attention_prefill_packed_context();
   // To maintain backwards compatibility.
   m.class_<Conv2dOpContext>("Conv2dOpContext")
       .def_pickle(
@@ -569,6 +922,37 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_linear_context_labeled(Tensor W, Tensor? B, str label) "
       "-> __torch__.torch.classes.vulkan.LinearPackedContext"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_qwen_linear_attention_prefill_context("
+      "Tensor qkv_weight, Tensor z_weight, Tensor a_weight, Tensor b_weight, Tensor out_weight, "
+      "Tensor conv_weight, Tensor? conv_bias, Tensor norm_weight, Tensor A_log, Tensor dt_bias, "
+      "int key_dim, int value_dim, int head_k_dim, int head_v_dim, int num_k_heads, int num_v_heads, "
+      "int chunk_size=64, float norm_eps=1e-6, str label=\"\") "
+      "-> __torch__.torch.classes.vulkan.QwenLinearAttentionPrefillPackedContext"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_qwen_linear_attention_prefill_context("
+      "Tensor X, __torch__.torch.classes.vulkan.QwenLinearAttentionPrefillPackedContext context) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_qwen_linear_attention_decode_context("
+      "Tensor X, Tensor conv_state, Tensor recurrent_state, "
+      "__torch__.torch.classes.vulkan.QwenLinearAttentionPrefillPackedContext context) -> (Tensor, Tensor, Tensor)"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_causal_attention_mask("
+      "Tensor prototype, int batch_size, int q_length, int kv_length, int q_offset=0, int kv_offset=0, bool float_mask=True) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::slice_hidden_states_for_logits(Tensor hidden_states, int logits_to_keep) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::index_select_hidden_states_for_logits(Tensor hidden_states, Tensor index) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::gather_hidden_states_by_batch_positions(Tensor hidden_states, Tensor positions) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::find_timestep_index(Tensor schedule_timesteps, Tensor timestep) -> int"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::compute_moe_router(Tensor logits, int top_k, int num_experts) -> (Tensor, Tensor, Tensor)"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::accumulate_expert_outputs(Tensor expert_outputs, Tensor batch_index, int total_rows) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::compute_rotary_cos_sin(Tensor prototype, Tensor inv_freq, Tensor position_ids, float attention_scaling=1.0) -> (Tensor, Tensor)"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::to_vulkan_labeled(Tensor X, str label) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -665,6 +1049,42 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context_labeled"),
       TORCH_FN(create_linear_context_labeled));
   m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::create_qwen_linear_attention_prefill_context"),
+      TORCH_FN(create_qwen_linear_attention_prefill_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_qwen_linear_attention_prefill_context"),
+      TORCH_FN(run_qwen_linear_attention_prefill_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_qwen_linear_attention_decode_context"),
+      TORCH_FN(run_qwen_linear_attention_decode_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_causal_attention_mask"),
+      TORCH_FN(create_causal_attention_mask_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::slice_hidden_states_for_logits"),
+      TORCH_FN(slice_hidden_states_for_logits_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::index_select_hidden_states_for_logits"),
+      TORCH_FN(index_select_hidden_states_for_logits_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::gather_hidden_states_by_batch_positions"),
+      TORCH_FN(gather_hidden_states_by_batch_positions_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::find_timestep_index"),
+      TORCH_FN(find_timestep_index_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::compute_moe_router"),
+      TORCH_FN(compute_moe_router_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::accumulate_expert_outputs"),
+      TORCH_FN(accumulate_expert_outputs_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::compute_rotary_cos_sin"),
+      TORCH_FN(compute_rotary_cos_sin_runtime));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::to_vulkan_labeled"),
       TORCH_FN(to_vulkan_labeled));
   m.impl(
@@ -718,6 +1138,42 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context_labeled"),
       TORCH_FN(create_linear_context_labeled));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::create_qwen_linear_attention_prefill_context"),
+      TORCH_FN(create_qwen_linear_attention_prefill_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_qwen_linear_attention_prefill_context"),
+      TORCH_FN(run_qwen_linear_attention_prefill_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_qwen_linear_attention_decode_context"),
+      TORCH_FN(run_qwen_linear_attention_decode_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_causal_attention_mask"),
+      TORCH_FN(create_causal_attention_mask_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::slice_hidden_states_for_logits"),
+      TORCH_FN(slice_hidden_states_for_logits_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::index_select_hidden_states_for_logits"),
+      TORCH_FN(index_select_hidden_states_for_logits_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::gather_hidden_states_by_batch_positions"),
+      TORCH_FN(gather_hidden_states_by_batch_positions_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::find_timestep_index"),
+      TORCH_FN(find_timestep_index_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::compute_moe_router"),
+      TORCH_FN(compute_moe_router_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::accumulate_expert_outputs"),
+      TORCH_FN(accumulate_expert_outputs_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::compute_rotary_cos_sin"),
+      TORCH_FN(compute_rotary_cos_sin_runtime));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::to_vulkan_labeled"),
       TORCH_FN(to_vulkan_labeled));

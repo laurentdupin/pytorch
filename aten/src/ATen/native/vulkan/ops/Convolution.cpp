@@ -612,7 +612,10 @@ vTensor pack_weights(
   const Tensor weight_source = copy_vulkan_tensor_to_cpu(weight_inp);
   Tensor weight_arg =
       quantized ? at::dequantize(weight_source) : weight_source;
-  if (!quantized && weight_arg.scalar_type() == kBFloat16) {
+  if (
+      !quantized &&
+      (weight_arg.scalar_type() == kBFloat16 ||
+       weight_arg.scalar_type() == kHalf)) {
     weight_arg = weight_arg.to(kFloat);
   }
 
@@ -651,7 +654,10 @@ vTensor pack_biases(
         bias_arg.scalar_type() == kQInt32))
       ? at::dequantize(bias_arg)
       : bias_arg;
-  if (!quantized && bias_rearranged.scalar_type() == kBFloat16) {
+  if (
+      !quantized &&
+      (bias_rearranged.scalar_type() == kBFloat16 ||
+       bias_rearranged.scalar_type() == kHalf)) {
     bias_rearranged = bias_rearranged.to(kFloat);
   }
 
@@ -1111,14 +1117,21 @@ static Tensor run_conv1d_context_impl(
     IntArrayRef dilation,
     int64_t groups) {
   api::Context* const context = api::context();
-  const Tensor input = utils::prepare_vulkan_execution_tensor(
+  Tensor input = utils::prepare_vulkan_execution_tensor(
       input_arg,
       utils::VulkanExecutionPlanKind::Conv1dRuntimeInput,
       convolution_request(utils::VulkanTensorRole::Input));
-  const Tensor weight = utils::prepare_vulkan_execution_tensor(
+  if (input.scalar_type() == kBFloat16 || input.scalar_type() == kHalf) {
+    input = utils::cast_vulkan_tensor_dtype(input, kFloat);
+  }
+
+  Tensor weight = utils::prepare_vulkan_execution_tensor(
       weight_arg,
       utils::VulkanExecutionPlanKind::Conv1dRuntimeWeight,
       convolution_request(utils::VulkanTensorRole::Weight));
+  if (weight.scalar_type() == kBFloat16 || weight.scalar_type() == kHalf) {
+    weight = utils::cast_vulkan_tensor_dtype(weight, kFloat);
+  }
 
   const IntArrayRef& input_sizes = input.sizes();
   const IntArrayRef& weight_sizes = weight.sizes();
@@ -1138,6 +1151,9 @@ static Tensor run_conv1d_context_impl(
         at::zeros({out_channels}, at::device(at::kCPU).dtype(at::kFloat)),
         utils::VulkanExecutionPlanKind::Conv1dRuntimeBias,
         convolution_request(utils::VulkanTensorRole::Bias));
+  }
+  if (bias.scalar_type() == kBFloat16 || bias.scalar_type() == kHalf) {
+    bias = utils::cast_vulkan_tensor_dtype(bias, kFloat);
   }
 
   TORCH_CHECK(input.dim() == 3, "input must be a 3-dim tensor");
@@ -1429,10 +1445,15 @@ static Tensor run_conv2d_context_impl(
     double scale,
     int64_t zero_point) {
   api::Context* const context = api::context();
-  const Tensor input = utils::prepare_vulkan_execution_tensor(
+  Tensor input = utils::prepare_vulkan_execution_tensor(
       input_arg,
       utils::VulkanExecutionPlanKind::Conv2dRuntimeInput,
       convolution_request(utils::VulkanTensorRole::Input));
+  if (
+      !conv_context->quantized() &&
+      (input.scalar_type() == kBFloat16 || input.scalar_type() == kHalf)) {
+    input = utils::cast_vulkan_tensor_dtype(input, kFloat);
+  }
   TORCH_CHECK(input.is_vulkan(), "Input tensor must be Vulkan!");
   const vTensor& v_input = convert(input);
 
@@ -1636,11 +1657,16 @@ Conv1dPackedContext::Conv1dPackedContext(
           PackedWeightKind::Conv1d)) {
     packed_weight_ = *cached_packed_weight;
   } else {
-    const Tensor prepared_weight = utils::prepare_vulkan_execution_tensor(
+    Tensor prepared_weight = utils::prepare_vulkan_execution_tensor(
         weight,
         utils::VulkanExecutionPlanKind::Conv1dPrepackWeight,
         convolution_request(utils::VulkanTensorRole::Weight));
-    const Tensor packed_bias = bias && bias->defined()
+    if (
+        prepared_weight.scalar_type() == kBFloat16 ||
+        prepared_weight.scalar_type() == kHalf) {
+      prepared_weight = utils::cast_vulkan_tensor_dtype(prepared_weight, kFloat);
+    }
+    Tensor packed_bias = bias && bias->defined()
         ? utils::prepare_vulkan_execution_tensor(
               *bias,
               utils::VulkanExecutionPlanKind::Conv1dPrepackBias,
@@ -1651,6 +1677,9 @@ Conv1dPackedContext::Conv1dPackedContext(
                   at::device(at::kCPU).dtype(at::kFloat)),
               utils::VulkanExecutionPlanKind::Conv1dPrepackBias,
               convolution_request(utils::VulkanTensorRole::Bias));
+    if (packed_bias.scalar_type() == kBFloat16 || packed_bias.scalar_type() == kHalf) {
+      packed_bias = utils::cast_vulkan_tensor_dtype(packed_bias, kFloat);
+    }
     packed_weight_ = utils::make_packed_weight_handle(
         convert(conv1d::pack_weights_using_width_packing(prepared_weight)),
         std::move(packed_bias),

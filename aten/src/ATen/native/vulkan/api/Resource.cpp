@@ -1224,11 +1224,15 @@ VulkanBuffer MemoryAllocator::create_storage_buffer(
         allocate_memory,
         "Only GPU-only buffers should use deferred memory allocation");
 
-    alloc_create_info.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
-    alloc_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+    // Upload-heavy model placement prefers a reliably mappable host-visible
+    // buffer over a more aggressively cached allocation. Sequential-write is
+    // the actual CPU access pattern here, and it has proven more robust than
+    // RANDOM access allocations for large Vulkan weight uploads on Windows.
+    alloc_create_info.flags |=
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    alloc_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     alloc_create_info.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
-    alloc_create_info.preferredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-        VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+    alloc_create_info.preferredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
   }
 
   return VulkanBuffer(

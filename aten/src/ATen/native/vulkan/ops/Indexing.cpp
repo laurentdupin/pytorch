@@ -2,6 +2,12 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
+#ifndef AT_PER_OPERATOR_HEADERS
+#include <ATen/Functions.h>
+#else
+#include <ATen/ops/empty.h>
+#endif
+
 namespace at {
 namespace native {
 namespace vulkan {
@@ -9,6 +15,10 @@ namespace ops {
 namespace {
 
 using namespace api::utils;
+
+bool buffer_allocation_is_host_visible(const vTensor& tensor) {
+  return tensor.buffer_uses_host_visible_allocation();
+}
 
 Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
   TORCH_CHECK(weight_arg.is_vulkan(), "Vulkan gather expects weight on Vulkan");
@@ -74,6 +84,44 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
 
   std::vector<int64_t> output_sizes = indices.sizes().vec();
   output_sizes.push_back(row_width);
+
+  if (
+      v_weight.storage_type() == api::StorageType::BUFFER &&
+      buffer_allocation_is_host_visible(v_weight)) {
+    Tensor cpu_result =
+        weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
+    return cpu_result.reshape(output_sizes).vulkan();
+  }
+
+  if (
+      v_weight.storage_type() == api::StorageType::BUFFER &&
+      indices.dim() == 2) {
+    // The flat buffer gather path is reliable for 1D index_select-style access,
+    // but 2D embedding-style row gathers on large buffer-backed weights still
+    // mis-materialize. Keep the embedding path correct by gathering on CPU and
+    // moving the selected rows back to Vulkan.
+    Tensor cpu_result =
+        weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
+    return cpu_result.reshape(output_sizes).vulkan();
+  }
+
+  if (weight_arg.scalar_type() != kFloat) {
+    const bool can_use_nonfloat_texture_gather =
+        v_weight.storage_type() != api::StorageType::BUFFER &&
+        v_weight.gpu_memory_layout() ==
+            api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED;
+    if (!can_use_nonfloat_texture_gather) {
+      // Non-float 2D gathers currently only have a reliable texture gather
+      // implementation for channel-packed layouts. Large half/bfloat16
+      // embeddings now often stay in buffer-backed or width-packed Vulkan
+      // storage to fit the residency budget, so gather them on CPU and move
+      // the selected rows back to Vulkan.
+      Tensor cpu_result =
+          weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
+      return cpu_result.reshape(output_sizes).vulkan();
+    }
+  }
+
   if (weight_arg.scalar_type() == kFloat && num_indices > 65535) {
     // Large 2D gathers such as BEiT's relative-position-bias lookup still
     // exceed the reliable Vulkan gather envelope on this backend. Materialize

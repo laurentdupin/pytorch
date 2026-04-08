@@ -47,6 +47,32 @@ size_t linear_runtime_scratch_bytes(const Tensor& input) {
           sizeof(float) * 4u);
 }
 
+Tensor upcast_half_linear_tensor_for_packing(const Tensor& tensor) {
+  if (tensor.scalar_type() != kHalf) {
+    return tensor;
+  }
+
+  if (!tensor.is_vulkan()) {
+    return tensor.to(kFloat);
+  }
+
+  Tensor cpu_float;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    cpu_float = tensor.cpu().to(kFloat);
+  }
+  return cpu_float.vulkan();
+}
+
+std::optional<Tensor> upcast_half_linear_tensor_for_packing(
+    const std::optional<Tensor>& tensor) {
+  if (!tensor || !tensor->defined()) {
+    return tensor;
+  }
+  return upcast_half_linear_tensor_for_packing(*tensor);
+}
+
 c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
@@ -722,7 +748,7 @@ bool available_check_with_batch(
       (weight.size(Layout::BatchMatrices::width) > 0) &&
       ((weight.device().is_cpu()) ||
        (c10::DeviceType::Vulkan == weight.device().type())) &&
-      (kFloat == weight.scalar_type());
+      (kFloat == weight.scalar_type() || kHalf == weight.scalar_type());
   if (!weight_available) {
     return false;
   }
@@ -737,7 +763,8 @@ bool available_check_with_batch(
   bias_available &=
       ((bias->device().is_cpu()) ||
        (c10::DeviceType::Vulkan == bias->device().type()));
-  bias_available &= (kFloat == bias->scalar_type());
+  bias_available &=
+      (kFloat == bias->scalar_type() || kHalf == bias->scalar_type());
   // Only check the consistency of batch and width dimension. The height
   // dimension consistency is unchecked, due to the 2nd input which determines
   // the height is not passed into LinearPackedContext.
@@ -783,7 +810,8 @@ bool available(
       (weight.size(Layout::Parameter::width) > 0) &&
       ((weight.device().is_cpu()) ||
        (c10::DeviceType::Vulkan == weight.device().type())) &&
-      (kFloat == weight.scalar_type() || kQInt8 == weight.scalar_type());
+      (kFloat == weight.scalar_type() || kHalf == weight.scalar_type() ||
+       kQInt8 == weight.scalar_type());
   if (!weight_available) {
     return false;
   }
@@ -793,7 +821,8 @@ bool available(
            ? ((bias->ndimension() > 0) &&
               ((bias->device().is_cpu()) ||
                (c10::DeviceType::Vulkan == bias->device().type())) &&
-              (kFloat == bias->scalar_type()) &&
+              (kFloat == bias->scalar_type() ||
+               kHalf == bias->scalar_type()) &&
               ((bias->ndimension() > 1)
                    ? (bias->size(Layout::Parameter::width) ==
                       weight.size(Layout::Parameter::width))
@@ -807,7 +836,7 @@ bool usable_check_with_batch(
     const IntArrayRef unpacked_weight_sizes) {
   return (3 == input.ndimension()) &&
       (c10::DeviceType::Vulkan == input.device().type()) &&
-      (kFloat == input.scalar_type()) &&
+      (kFloat == input.scalar_type() || kHalf == input.scalar_type()) &&
       (input.size(Layout::BatchMatrices::width) ==
        unpacked_weight_sizes[Layout::BatchMatrices::height]) &&
       (input.size(Layout::BatchMatrices::batch) ==
@@ -825,7 +854,7 @@ bool usable(
   const auto v_input = convert(input);
   return (2 == input.ndimension()) &&
       (c10::DeviceType::Vulkan == input.device().type()) &&
-      ((kFloat == input.scalar_type()) ||
+      ((kFloat == input.scalar_type()) || (kHalf == input.scalar_type()) ||
        (v_input.is_quantized() &&
         (kQUInt8 == input.scalar_type() || kQInt8 == input.scalar_type()))) &&
       (input.size(Layout::Parameter::width) ==
@@ -1502,9 +1531,15 @@ Tensor run_baddbmm_context(
       input_arg,
       utils::VulkanExecutionPlanKind::LinearInputSource,
       input_request);
-  const Tensor input =
+  Tensor input =
       compute_input_arg.is_vulkan() ? compute_input_arg
                                     : compute_input_arg.vulkan();
+  if (input.scalar_type() == kHalf) {
+    // The current batched matmul path backing Vulkan SDPA is much more stable
+    // when half inputs are widened before packing. Keep the model path running
+    // on Vulkan until a true native half batch-matmul family exists.
+    input = input.to(kFloat);
+  }
   vTensor packed_v_input = pack_inputs_using_width_packing(input, input_request);
 
   const LinearPackedRunState packed_state =
@@ -1735,32 +1770,40 @@ LinearPackedContext::LinearPackedContext(
           pack_options)) {
     packed_weight_ = *cached_packed_weight;
   } else {
+    const Tensor pack_source_weight =
+        upcast_half_linear_tensor_for_packing(weight);
+    const std::optional<Tensor> pack_source_bias =
+        upcast_half_linear_tensor_for_packing(bias);
     const Tensor packed_weight = utils::prepare_vulkan_execution_tensor(
-        weight,
+        pack_source_weight,
         utils::VulkanExecutionPlanKind::LinearWeightSource,
         linear_request(utils::VulkanTensorRole::Weight));
     const std::optional<Tensor> packed_bias =
         utils::prepare_optional_vulkan_execution_tensor(
-            bias,
+            pack_source_bias,
             utils::VulkanExecutionPlanKind::LinearBiasSource,
             linear_request(utils::VulkanTensorRole::Bias));
+    const Tensor compute_weight =
+        upcast_half_linear_tensor_for_packing(packed_weight);
+    const std::optional<Tensor> compute_bias =
+        upcast_half_linear_tensor_for_packing(packed_bias);
     TORCH_CHECK(
-        available(packed_weight, packed_bias, use_batch),
+        available(compute_weight, compute_bias, use_batch),
         "Vulkan Linear not available! "
         "Reason: The provided (weight, bias) parameters are either invalid "
         "individually or their combination is not supported by Vulkan Impl.");
 
     Tensor packed_bias_tensor = packed_weight.is_quantized()
         ? convert(pack_biases_quantized_weights(
-              packed_weight, packed_bias, use_batch))
-        : convert(pack_biases(packed_weight, packed_bias, use_batch));
+              compute_weight, compute_bias, use_batch))
+        : convert(pack_biases(compute_weight, compute_bias, use_batch));
 
     packed_weight_ = utils::make_packed_weight_handle(
-        convert(pack_weights(packed_weight, use_batch)),
+        convert(pack_weights(compute_weight, use_batch)),
         std::move(packed_bias_tensor),
         packed_weight.sizes().vec(),
         PackedWeightKind::Linear,
-        packed_bias && packed_bias->defined(),
+        compute_bias && compute_bias->defined(),
         packed_weight.is_quantized());
     utils::store_packed_weight_handle(
         weight,

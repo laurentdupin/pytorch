@@ -321,17 +321,14 @@ Tensor repeat_attention_heads_for_gqa(
   TORCH_CHECK(
       tensor.dim() == 4,
       "Vulkan SDPA GQA expects 4D [B, H, T, D] key/value tensors");
+  const int64_t batch = tensor.size(0);
+  const int64_t heads = tensor.size(1);
+  const int64_t sequence_length = tensor.size(2);
+  const int64_t head_dim = tensor.size(3);
 
-  std::vector<Tensor> repeated_heads;
-  repeated_heads.reserve(
-      safe_downcast<size_t>(tensor.size(1) * repeat_factor));
-  for (const auto head_idx : c10::irange(tensor.size(1))) {
-    Tensor head = at::narrow(tensor, 1, head_idx, 1);
-    for (const auto _ : c10::irange(repeat_factor)) {
-      repeated_heads.push_back(head);
-    }
-  }
-  return at::cat(repeated_heads, 1);
+  return tensor.unsqueeze(2)
+      .expand({batch, heads, repeat_factor, sequence_length, head_dim})
+      .reshape({batch, heads * repeat_factor, sequence_length, head_dim});
 }
 
 Tensor expand_attention_mask_3d(
