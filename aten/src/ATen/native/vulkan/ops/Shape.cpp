@@ -43,6 +43,67 @@ bool can_use_texture_contiguous_reshape(
       c10::multiply_integers(output_size);
 }
 
+std::vector<int64_t> texture_gpu_sizes_for_contiguous_view(
+    IntArrayRef sizes,
+    const api::GPUMemoryLayout memory_layout) {
+  const auto logical_val_at = [&](const int64_t index) {
+    const int64_t resolved = static_cast<int64_t>(sizes.size()) + index;
+    return resolved >= 0 && resolved < static_cast<int64_t>(sizes.size())
+        ? sizes[resolved]
+        : INT64_C(1);
+  };
+  std::vector<int64_t> gpu_sizes(4);
+  gpu_sizes.at(0) = logical_val_at(-4);
+  gpu_sizes.at(1) = logical_val_at(-3);
+  gpu_sizes.at(2) = logical_val_at(-2);
+  gpu_sizes.at(3) = logical_val_at(-1);
+
+  switch (memory_layout) {
+    case api::GPUMemoryLayout::TENSOR_WIDTH_PACKED:
+      gpu_sizes.at(3) = api::utils::align_up(gpu_sizes.at(3), INT64_C(4));
+      break;
+    case api::GPUMemoryLayout::TENSOR_HEIGHT_PACKED:
+      gpu_sizes.at(2) = api::utils::align_up(gpu_sizes.at(2), INT64_C(4));
+      break;
+    case api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED:
+      gpu_sizes.at(1) = api::utils::align_up(gpu_sizes.at(1), INT64_C(4));
+      break;
+  }
+
+  return gpu_sizes;
+}
+
+bool can_use_texture_metadata_reshape(
+    const vTensor& v_self,
+    IntArrayRef output_size,
+    IntArrayRef output_stride,
+    const int64_t storage_offset) {
+  if (
+      v_self.storage_type() != api::StorageType::TEXTURE_3D ||
+      v_self.gpu_memory_layout() !=
+          api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED ||
+      v_self.is_quantized() || storage_offset != 0) {
+    return false;
+  }
+
+  if (
+      !is_contiguous_stride(v_self.sizes(), logical_strides(v_self)) ||
+      !is_contiguous_stride(output_size, output_stride)) {
+    return false;
+  }
+
+  if (
+      c10::multiply_integers(v_self.sizes()) !=
+      c10::multiply_integers(output_size)) {
+    return false;
+  }
+
+  return texture_gpu_sizes_for_contiguous_view(
+             v_self.sizes(), v_self.gpu_memory_layout()) ==
+      texture_gpu_sizes_for_contiguous_view(
+             output_size, v_self.gpu_memory_layout());
+}
+
 Tensor reshape_contiguous_texture(
     const Tensor& self_arg,
     IntArrayRef output_size) {
@@ -131,6 +192,17 @@ Tensor view_internal(
           output_stride,
           output_stride,
           resolved_storage_offset);
+    }
+
+    if (can_use_texture_metadata_reshape(
+            v_self, output_size, output_stride, resolved_storage_offset)) {
+      utils::log_vulkan_op_hit("aten::view.texture_metadata_reshape");
+      return convert(vTensor{
+          v_self,
+          output_size.vec(),
+          output_stride.vec(),
+          vTensor::PreservePhysicalView{},
+      });
     }
 
     if (can_use_texture_contiguous_reshape(

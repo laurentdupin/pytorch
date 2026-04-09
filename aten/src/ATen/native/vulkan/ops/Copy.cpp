@@ -528,7 +528,12 @@ void transfer_vulkan_to_cpu(vTensor& v_src, Tensor& dst) {
   // Temporary tensor to receive copied NC4HW data
   at::Tensor dst_tmp = utils::create_staging_tensor(v_src);
 
-  api::StorageBuffer staging(context, v_src.texture_dtype(), v_src.gpu_numel());
+  api::StorageBuffer staging(
+      context,
+      v_src.texture_dtype(),
+      v_src.gpu_numel(),
+      false,
+      api::MemoryAllocator::BufferHostAccess::RandomRead);
 
   api::VulkanFence fence = context->fences().get_fence();
 
@@ -667,7 +672,12 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
         : src.has_direct_buffer_layout()
         ? api::utils::safe_downcast<int64_t>(src.gpu_numel())
         : src.buffer_length();
-    api::StorageBuffer staging(context, src.dtype(), staging_length);
+    api::StorageBuffer staging(
+        context,
+        src.dtype(),
+        staging_length,
+        false,
+        api::MemoryAllocator::BufferHostAccess::RandomRead);
     api::VulkanFence fence = context->fences().get_fence();
 
     {
@@ -709,7 +719,12 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
 
   // Refer to the comment in pack_cpu_to_vulkan for why at::kFloat is specified
   // for the storage buffer below.
-  api::StorageBuffer staging(context, api::kFloat, src.gpu_numel());
+  api::StorageBuffer staging(
+      context,
+      api::kFloat,
+      src.gpu_numel(),
+      false,
+      api::MemoryAllocator::BufferHostAccess::RandomRead);
 
   api::VulkanFence fence = context->fences().get_fence();
 

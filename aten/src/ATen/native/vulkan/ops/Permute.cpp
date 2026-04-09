@@ -12,6 +12,38 @@ namespace {
 
 using namespace api::utils;
 
+bool can_use_buffer_permute_view(const Tensor& self) {
+  if (!self.is_vulkan()) {
+    return false;
+  }
+  const vTensor& v_self = convert(self);
+  return v_self.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_view_fast_path(v_self);
+}
+
+Tensor permute_buffer_view(const Tensor& self, IntArrayRef dims) {
+  const vTensor& v_self = convert(self);
+  const int64_t nDims = self.dim();
+  c10::DimVector output_sizes(nDims);
+  c10::DimVector output_logical_strides = logical_strides(v_self);
+  c10::DimVector output_physical_strides(
+      v_self.gpu_strides().begin(), v_self.gpu_strides().end());
+
+  for (const auto i : c10::irange(nDims)) {
+    const auto dim = safe_downcast<uint32_t>(maybe_wrap_dim(dims[i], nDims));
+    output_sizes[i] = v_self.sizes()[dim];
+    output_logical_strides[i] = logical_strides(v_self)[dim];
+    output_physical_strides[i] = v_self.gpu_strides()[dim];
+  }
+
+  return utils::make_buffer_metadata_view(
+      self,
+      output_sizes,
+      output_logical_strides,
+      output_physical_strides,
+      v_self.storage_offset());
+}
+
 Tensor permute_4d(
     const Tensor& input_arg,
     const uvec4& in_size,
@@ -116,6 +148,10 @@ Tensor permute(const Tensor& self, IntArrayRef dims) {
 
   if (sameDims) {
     return self;
+  }
+
+  if (can_use_buffer_permute_view(self)) {
+    return permute_buffer_view(self, dims);
   }
 
   IntArrayRef output_sizes(newSizes);

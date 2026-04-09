@@ -25,8 +25,15 @@ namespace {
 
 constexpr uint64_t kCleanupSoftThresholdBytes = 512ull * 1024ull * 1024ull;
 constexpr uint64_t kCleanupHardThresholdBytes = 1024ull * 1024ull * 1024ull;
+constexpr uint64_t kGiB = 1024ull * 1024ull * 1024ull;
+constexpr uint64_t kVisionBackboneSoftThresholdBytes =
+    (2ull * 1024ull + 256ull) * 1024ull * 1024ull;
+constexpr uint64_t kVisionBackboneHardThresholdBytes =
+    3ull * 1024ull * 1024ull * 1024ull;
 constexpr uint32_t kCleanupSubmissionThreshold = 8u;
 constexpr uint32_t kCleanupMaxSubmissionThreshold = 16u;
+constexpr uint32_t kVisionBackboneCleanupSubmissionThreshold = 12u;
+constexpr uint32_t kVisionBackboneCleanupMaxSubmissionThreshold = 24u;
 constexpr uint32_t kSoftReclaimsPerPoolFlush = 8u;
 
 const std::string& sync_log_path() {
@@ -78,6 +85,121 @@ std::string cleanup_signature(const VulkanImage& image) {
          << extents.depth << ",alloc="
          << format_sync_bytes(static_cast<uint64_t>(image.allocated_size())) << ")";
   return stream.str();
+}
+
+uint64_t device_local_heap_size_bytes(const Adapter* adapter) {
+  if (!adapter) {
+    return 0u;
+  }
+
+  const VkPhysicalDeviceMemoryProperties& memory_properties =
+      adapter->physical_device().memory_properties;
+  uint64_t total_device_local = 0u;
+  for (uint32_t heap_i = 0u; heap_i < memory_properties.memoryHeapCount;
+       ++heap_i) {
+    if (memory_properties.memoryHeaps[heap_i].flags &
+        VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+      total_device_local += memory_properties.memoryHeaps[heap_i].size;
+    }
+  }
+
+  return total_device_local;
+}
+
+uint64_t cleanup_soft_threshold_bytes(const Adapter* adapter) {
+  const uint64_t device_local_bytes = device_local_heap_size_bytes(adapter);
+  if (!adapter || device_local_bytes == 0u ||
+      adapter->physical_device().properties.deviceType !=
+          VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+    return kCleanupSoftThresholdBytes;
+  }
+
+  return std::min<uint64_t>(
+      1ull * kGiB,
+      std::max<uint64_t>(kCleanupSoftThresholdBytes, device_local_bytes / 12u));
+}
+
+uint64_t cleanup_hard_threshold_bytes(const Adapter* adapter) {
+  const uint64_t device_local_bytes = device_local_heap_size_bytes(adapter);
+  if (!adapter || device_local_bytes == 0u ||
+      adapter->physical_device().properties.deviceType !=
+          VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+    return kCleanupHardThresholdBytes;
+  }
+
+  return std::min<uint64_t>(
+      3ull * kGiB,
+      std::max<uint64_t>(kCleanupHardThresholdBytes, device_local_bytes / 6u));
+}
+
+const std::string& current_cleanup_label() {
+  const std::string& runtime_label = current_runtime_label();
+  if (!runtime_label.empty()) {
+    return runtime_label;
+  }
+  return current_allocation_label();
+}
+
+bool is_vision_backbone_cleanup_label(const std::string& label) {
+  return label.find("depth.dino.backbone.") != std::string::npos ||
+      label.find("vision_backbone") != std::string::npos ||
+      label.find("VisionBackbone") != std::string::npos;
+}
+
+uint64_t cleanup_soft_threshold_bytes_for_label(
+    const Adapter* adapter,
+    const std::string& label) {
+  const uint64_t base_threshold = cleanup_soft_threshold_bytes(adapter);
+  if (!is_vision_backbone_cleanup_label(label)) {
+    return base_threshold;
+  }
+
+  const uint64_t device_local_bytes = device_local_heap_size_bytes(adapter);
+  if (!adapter || device_local_bytes == 0u ||
+      adapter->physical_device().properties.deviceType !=
+          VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+    return std::max<uint64_t>(
+        base_threshold, kVisionBackboneSoftThresholdBytes);
+  }
+
+  return std::max<uint64_t>(
+      base_threshold,
+      std::min<uint64_t>(
+          kVisionBackboneSoftThresholdBytes, device_local_bytes / 4u));
+}
+
+uint64_t cleanup_hard_threshold_bytes_for_label(
+    const Adapter* adapter,
+    const std::string& label) {
+  const uint64_t base_threshold = cleanup_hard_threshold_bytes(adapter);
+  if (!is_vision_backbone_cleanup_label(label)) {
+    return base_threshold;
+  }
+
+  const uint64_t device_local_bytes = device_local_heap_size_bytes(adapter);
+  if (!adapter || device_local_bytes == 0u ||
+      adapter->physical_device().properties.deviceType !=
+          VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+    return std::max<uint64_t>(
+        base_threshold, kVisionBackboneHardThresholdBytes);
+  }
+
+  return std::max<uint64_t>(
+      base_threshold,
+      std::min<uint64_t>(
+          kVisionBackboneHardThresholdBytes, device_local_bytes / 3u));
+}
+
+uint32_t cleanup_submission_threshold_for_label(const std::string& label) {
+  return is_vision_backbone_cleanup_label(label)
+      ? kVisionBackboneCleanupSubmissionThreshold
+      : kCleanupSubmissionThreshold;
+}
+
+uint32_t cleanup_max_submission_threshold_for_label(const std::string& label) {
+  return is_vision_backbone_cleanup_label(label)
+      ? kVisionBackboneCleanupMaxSubmissionThreshold
+      : kCleanupMaxSubmissionThreshold;
 }
 
 template <typename Resource>
@@ -257,22 +379,34 @@ void Context::clear_deferred_cleanup_locked() {
 bool Context::should_sync_and_reclaim() {
   const uint64_t pending_cleanup = pending_cleanup_bytes();
   const uint32_t submitted_work = submissions_since_reclaim();
+  const std::string& label = current_cleanup_label();
+  const uint64_t soft_threshold =
+      cleanup_soft_threshold_bytes_for_label(adapter_p_, label);
+  const uint64_t hard_threshold =
+      cleanup_hard_threshold_bytes_for_label(adapter_p_, label);
+  const uint32_t submission_threshold =
+      cleanup_submission_threshold_for_label(label);
+  const uint32_t max_submission_threshold =
+      cleanup_max_submission_threshold_for_label(label);
 
-  return pending_cleanup >= kCleanupHardThresholdBytes ||
-      (pending_cleanup >= kCleanupSoftThresholdBytes &&
-       submitted_work >= kCleanupSubmissionThreshold) ||
-      submitted_work >= kCleanupMaxSubmissionThreshold;
+  return pending_cleanup >= hard_threshold ||
+      (pending_cleanup >= soft_threshold &&
+       submitted_work >= submission_threshold) ||
+      submitted_work >= max_submission_threshold;
 }
 
 void Context::sync_and_reclaim() {
   const uint64_t pending_cleanup = pending_cleanup_bytes();
   const uint32_t submitted_work = submissions_since_reclaim();
+  const std::string& label = current_cleanup_label();
+  const uint64_t hard_threshold =
+      cleanup_hard_threshold_bytes_for_label(adapter_p_, label);
   if (pending_cleanup == 0u && submitted_work == 0u && submit_count_ == 0u) {
     return;
   }
 
   const bool full_pool_flush =
-      pending_cleanup >= kCleanupHardThresholdBytes ||
+      pending_cleanup >= hard_threshold ||
       reclaims_since_pool_flush_ >= kSoftReclaimsPerPoolFlush;
 
   if (sync_logging_enabled()) {
@@ -396,7 +530,10 @@ bool available() {
 }
 
 Context* context() {
-  static const std::unique_ptr<Context> context([]() -> Context* {
+  // Keep the context alive for the life of the process. Benchmark subprocesses
+  // were successfully writing results and then faulting during shutdown while
+  // Vulkan singletons unwound in unspecified order.
+  static Context* const context = []() -> Context* {
     try {
       const uint32_t submit_frequency = 16u;
 
@@ -431,9 +568,9 @@ Context* context() {
     }
 
     return nullptr;
-  }());
+  }();
 
-  return context.get();
+  return context;
 }
 
 //

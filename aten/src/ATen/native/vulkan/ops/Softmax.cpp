@@ -53,7 +53,9 @@ utils::VulkanPlanningRequest softmax_request() {
 }
 
 std::string attention_runtime_label(const char* suffix) {
-  const std::string base = api::current_allocation_label();
+  const std::string base = api::current_runtime_label().empty()
+      ? api::current_allocation_label()
+      : api::current_runtime_label();
   if (base.empty()) {
     return std::string("attention_runtime.") + suffix;
   }
@@ -298,6 +300,126 @@ Tensor maybe_scale_query(const Tensor& query, const double query_scale) {
     return query;
   }
   return query.mul(query_scale);
+}
+
+std::tuple<Tensor, Tensor, Tensor> transform_bias_rescale_qkv_vulkan(
+    const Tensor& qkv_arg,
+    const Tensor& qkv_bias_arg,
+    const int64_t num_head) {
+  api::AllocationScope allocation_scope("transform_bias_rescale_qkv");
+  utils::log_vulkan_op_hit("aten::_transform_bias_rescale_qkv");
+
+  TORCH_CHECK(
+      qkv_arg.is_vulkan(),
+      "Vulkan _transform_bias_rescale_qkv expects qkv on Vulkan");
+  TORCH_CHECK(
+      qkv_arg.dim() == 2,
+      "Vulkan _transform_bias_rescale_qkv currently expects a 2D [T, 3D] tensor");
+  TORCH_CHECK(
+      qkv_bias_arg.dim() == 1,
+      "Vulkan _transform_bias_rescale_qkv currently expects a 1D bias tensor");
+  TORCH_CHECK(
+      qkv_arg.scalar_type() == qkv_bias_arg.scalar_type(),
+      "Vulkan _transform_bias_rescale_qkv expects qkv and bias to share a dtype");
+  TORCH_CHECK(
+      qkv_arg.scalar_type() == kFloat || qkv_arg.scalar_type() == kHalf,
+      "Vulkan _transform_bias_rescale_qkv currently supports float and half");
+  TORCH_CHECK(
+      qkv_arg.size(1) == qkv_bias_arg.size(0),
+      "Vulkan _transform_bias_rescale_qkv expects matching qkv and bias widths");
+  TORCH_CHECK(
+      qkv_arg.size(1) % 3 == 0,
+      "Vulkan _transform_bias_rescale_qkv expects the last qkv dim to be divisible by 3");
+
+  const int64_t token_count = qkv_arg.size(0);
+  const int64_t embed_dim = qkv_arg.size(1) / 3;
+  TORCH_CHECK(
+      embed_dim % num_head == 0,
+      "Vulkan _transform_bias_rescale_qkv expects embed_dim divisible by num_heads");
+  const int64_t head_dim = embed_dim / num_head;
+  const float q_scale =
+      static_cast<float>(1.0 / std::sqrt(static_cast<double>(head_dim)));
+
+  const Tensor qkv = utils::prepare_vulkan_execution_tensor(
+      qkv_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
+  const Tensor qkv_bias = utils::prepare_vulkan_execution_tensor(
+      qkv_bias_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
+  const vTensor& v_qkv = convert(qkv);
+  const vTensor& v_qkv_bias = convert(qkv_bias);
+
+  TORCH_CHECK(
+      v_qkv.storage_type() == api::StorageType::TEXTURE_3D &&
+          v_qkv.gpu_memory_layout() ==
+              api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+      "Vulkan _transform_bias_rescale_qkv expects texture-backed qkv input");
+  TORCH_CHECK(
+      v_qkv_bias.storage_type() == api::StorageType::TEXTURE_3D &&
+          v_qkv_bias.gpu_memory_layout() ==
+              api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+      "Vulkan _transform_bias_rescale_qkv expects texture-backed bias input");
+
+  api::Context* const context = api::context();
+  vTensor v_q{
+      context,
+      {num_head, token_count, head_dim},
+      convert_dtype(qkv_arg.scalar_type()),
+      api::StorageType::TEXTURE_3D,
+      api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+  };
+  vTensor v_k{
+      context,
+      {num_head, token_count, head_dim},
+      convert_dtype(qkv_arg.scalar_type()),
+      api::StorageType::TEXTURE_3D,
+      api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+  };
+  vTensor v_v{
+      context,
+      {num_head, token_count, head_dim},
+      convert_dtype(qkv_arg.scalar_type()),
+      api::StorageType::TEXTURE_3D,
+      api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
+  };
+
+  const struct Block final {
+    ivec4 sizes;
+    vec4 scale;
+  } block{
+      {
+          safe_downcast<int32_t>(head_dim),
+          safe_downcast<int32_t>(token_count),
+          safe_downcast<int32_t>(num_head),
+          safe_downcast<int32_t>(embed_dim),
+      },
+      {q_scale, 0.0f, 0.0f, 0.0f},
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+
+  context->submit_compute_job(
+      VK_KERNEL(transform_bias_rescale_qkv),
+      pipeline_barrier,
+      v_q.extents(),
+      adaptive_work_group_size(v_q.extents()),
+      VK_NULL_HANDLE,
+      v_q.image(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_k.image(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_v.image(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_qkv.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+      v_qkv_bias.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+      params.buffer());
+
+  return std::make_tuple(convert(v_q), convert(v_k), convert(v_v));
 }
 
 Tensor flatten_attention_batch_heads(
@@ -1144,6 +1266,9 @@ Tensor scaled_dot_product_attention_vulkan(
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl("_softmax", TORCH_FN(softmax));
   m.impl("_log_softmax", TORCH_FN(log_softmax));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::_transform_bias_rescale_qkv"),
+      TORCH_FN(transform_bias_rescale_qkv_vulkan));
   m.impl(
       TORCH_SELECTIVE_NAME("aten::scaled_dot_product_attention"),
       TORCH_FN(scaled_dot_product_attention_vulkan));

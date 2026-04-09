@@ -12,6 +12,38 @@ namespace {
 
 using namespace api::utils;
 
+bool can_use_buffer_transpose_view(const Tensor& self) {
+  if (!self.is_vulkan()) {
+    return false;
+  }
+  const vTensor& v_self = convert(self);
+  return v_self.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_view_fast_path(v_self);
+}
+
+Tensor transpose_buffer_view(
+    const Tensor& self,
+    const int64_t index0,
+    const int64_t index1) {
+  const vTensor& v_self = convert(self);
+  const int64_t nDims = self.dim();
+  c10::DimVector output_sizes(v_self.sizes().begin(), v_self.sizes().end());
+  c10::DimVector output_logical_strides = logical_strides(v_self);
+  c10::DimVector output_physical_strides(
+      v_self.gpu_strides().begin(), v_self.gpu_strides().end());
+
+  std::swap(output_sizes[index0], output_sizes[index1]);
+  std::swap(output_logical_strides[index0], output_logical_strides[index1]);
+  std::swap(output_physical_strides[index0], output_physical_strides[index1]);
+
+  return utils::make_buffer_metadata_view(
+      self,
+      output_sizes,
+      output_logical_strides,
+      output_physical_strides,
+      v_self.storage_offset());
+}
+
 Tensor transpose_4d(
     const Tensor& input_arg,
     const uvec4& in_size,
@@ -100,6 +132,10 @@ Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
   auto new_index1 = safe_downcast<uint32_t>(maybe_wrap_dim(index1, nDims));
   if (new_index0 == new_index1) {
     return self.detach();
+  }
+
+  if (can_use_buffer_transpose_view(self)) {
+    return transpose_buffer_view(self, new_index0, new_index1);
   }
 
   // generalize input and output into 4D tensor, e.g. input is 3d of shape [2,

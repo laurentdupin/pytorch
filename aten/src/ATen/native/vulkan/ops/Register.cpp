@@ -14,6 +14,7 @@
 #include <ATen/native/vulkan/ops/QwenLinearAttention.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/Register.h>
+#include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
 #include <torch/custom_class.h>
@@ -121,6 +122,22 @@ int register_vulkan_qwen_linear_attention_prefill_packed_context() {
   return 0;
 }
 
+int register_vulkan_vision_backbone_block_packed_context() {
+  static auto register_vulkan_vision_backbone_block_context =
+      torch::selective_class_<VisionBackboneBlockContext>(
+          "vulkan",
+          TORCH_SELECTIVE_CLASS("VisionBackboneBlockContext"))
+          .def_pickle(
+              [](const c10::intrusive_ptr<VisionBackboneBlockContext>& context) {
+                return context->unpack();
+              },
+              [](c10::impl::GenericList state) {
+                return c10::make_intrusive<VisionBackboneBlockContext>(
+                    VisionBackboneBlockContext::pack(state));
+              });
+  return 0;
+}
+
 namespace {
 
 utils::VulkanPlanningRequest make_runtime_planning_request(
@@ -175,6 +192,10 @@ std::vector<int64_t> query_runtime_policy(
       boundary_plan.requires_scratch_arena ? 1 : 0,
       static_cast<int64_t>(boundary_plan.preferred_cpu_threads),
   };
+}
+
+std::string swap_runtime_label_runtime(std::string label) {
+  return api::swap_runtime_label(std::move(label));
 }
 
 Tensor create_kv_cache_storage_for_request(
@@ -858,6 +879,7 @@ TORCH_LIBRARY(vulkan, m) {
   register_vulkan_linear_packed_context();
   register_vulkan_layernorm_packed_context();
   register_vulkan_qwen_linear_attention_prefill_packed_context();
+  register_vulkan_vision_backbone_block_packed_context();
   // To maintain backwards compatibility.
   m.class_<Conv2dOpContext>("Conv2dOpContext")
       .def_pickle(
@@ -937,6 +959,19 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "Tensor X, Tensor conv_state, Tensor recurrent_state, "
       "__torch__.torch.classes.vulkan.QwenLinearAttentionPrefillPackedContext context) -> (Tensor, Tensor, Tensor)"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_vision_backbone_block_context("
+      "Tensor norm1_weight, Tensor norm1_bias, float norm1_eps, "
+      "Tensor qkv_weight, Tensor? qkv_bias, int num_heads, "
+      "Tensor proj_weight, Tensor? proj_bias, Tensor? ls1_gamma, "
+      "Tensor norm2_weight, Tensor norm2_bias, float norm2_eps, "
+      "Tensor fc1_weight, Tensor? fc1_bias, "
+      "Tensor fc2_weight, Tensor? fc2_bias, Tensor? ls2_gamma, "
+      "str label=\"\") "
+      "-> __torch__.torch.classes.vulkan.VisionBackboneBlockContext"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_vision_backbone_block_context("
+      "Tensor X, __torch__.torch.classes.vulkan.VisionBackboneBlockContext context) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_causal_attention_mask("
       "Tensor prototype, int batch_size, int q_length, int kv_length, int q_offset=0, int kv_offset=0, bool float_mask=True) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -955,6 +990,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::compute_rotary_cos_sin(Tensor prototype, Tensor inv_freq, Tensor position_ids, float attention_scaling=1.0) -> (Tensor, Tensor)"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::to_vulkan_labeled(Tensor X, str label) -> Tensor Y"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::swap_runtime_label(str label) -> str"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -1029,6 +1066,12 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "-> Tensor out"));
 }
 
+TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::swap_runtime_label"),
+      TORCH_FN(swap_runtime_label_runtime));
+}
+
 TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_conv2d_context"),
@@ -1060,6 +1103,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::run_qwen_linear_attention_decode_context"),
       TORCH_FN(run_qwen_linear_attention_decode_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::create_vision_backbone_block_context"),
+      TORCH_FN(create_vision_backbone_block_context));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_causal_attention_mask"),
       TORCH_FN(create_causal_attention_mask_runtime));
@@ -1151,6 +1198,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
           "vulkan_prepack::run_qwen_linear_attention_decode_context"),
       TORCH_FN(run_qwen_linear_attention_decode_context));
   m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::create_vision_backbone_block_context"),
+      TORCH_FN(create_vision_backbone_block_context));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_causal_attention_mask"),
       TORCH_FN(create_causal_attention_mask_runtime));
   m.impl(
@@ -1198,6 +1249,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_scheduled_gated_delta_rule_recurrent"),
       TORCH_FN(run_scheduled_gated_delta_rule_recurrent));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_vision_backbone_block_context"),
+      TORCH_FN(run_vision_backbone_block_context));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_conv2d_context"),
       TORCH_FN(run_conv2d_context));

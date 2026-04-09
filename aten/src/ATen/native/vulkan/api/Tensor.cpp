@@ -437,6 +437,37 @@ vTensor::vTensor(
       "Metadata-only vTensor views currently require BUFFER storage");
 }
 
+vTensor::vTensor(
+    const vTensor& src,
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& logical_strides,
+    PreservePhysicalView)
+    : logical_desc_{
+          src.logical_desc_.dtype,
+          sizes,
+          logical_strides,
+          0,
+      },
+      physical_desc_(src.physical_desc_),
+      execution_desc_(
+          make_execution_desc(
+              src.storage_type(), false, src.execution_desc_.persistent)),
+      metadata_uniform_(),
+      cpu_sizes_uniform_(nullptr),
+      gpu_sizes_uniform_(nullptr),
+      extents_uniform_(nullptr),
+      is_quantized_(src.is_quantized_),
+      q_scale_(src.q_scale_),
+      q_zero_point_(src.q_zero_point_),
+      view_(src.view_) {
+  TORCH_CHECK(
+      src.storage_type() != api::StorageType::BUFFER,
+      "PreservePhysicalView is only valid for texture-backed tensors");
+  TORCH_CHECK(
+      src.storage_offset() == 0,
+      "Texture metadata views require zero storage_offset");
+}
+
 api::VulkanImage& vTensor::image(
     api::PipelineBarrier& pipeline_barrier,
     const api::PipelineStageFlags stage) const& {

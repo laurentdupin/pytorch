@@ -27,6 +27,11 @@ std::string& mutable_current_allocation_label() {
   return label;
 }
 
+std::string& mutable_current_runtime_label() {
+  static thread_local std::string label;
+  return label;
+}
+
 AllocationTelemetryState& allocation_telemetry_state() {
   static AllocationTelemetryState state;
   return state;
@@ -56,6 +61,13 @@ std::string format_bytes(const uint64_t bytes) {
 const std::string& normalize_allocation_label(const std::string& label) {
   static const std::string unlabeled = "unlabeled";
   return label.empty() ? unlabeled : label;
+}
+
+std::string normalize_runtime_label(std::string label) {
+  if (label.empty() || label == "unlabeled") {
+    return std::string();
+  }
+  return label;
 }
 
 void write_allocation_log_line_locked(
@@ -419,6 +431,16 @@ const std::string& current_allocation_label() {
   return mutable_current_allocation_label();
 }
 
+const std::string& current_runtime_label() {
+  return mutable_current_runtime_label();
+}
+
+std::string swap_runtime_label(std::string label) {
+  std::string previous = current_runtime_label();
+  mutable_current_runtime_label() = normalize_runtime_label(std::move(label));
+  return previous;
+}
+
 AllocationScope::AllocationScope(const char* label)
     : previous_(current_allocation_label()) {
   mutable_current_allocation_label() =
@@ -433,6 +455,22 @@ AllocationScope::AllocationScope(const std::string& label)
 
 AllocationScope::~AllocationScope() {
   mutable_current_allocation_label() = previous_;
+}
+
+RuntimeLabelScope::RuntimeLabelScope(const char* label)
+    : previous_(current_runtime_label()) {
+  mutable_current_runtime_label() =
+      normalize_runtime_label((label && label[0] != '\0') ? std::string(label)
+                                                          : std::string());
+}
+
+RuntimeLabelScope::RuntimeLabelScope(const std::string& label)
+    : previous_(current_runtime_label()) {
+  mutable_current_runtime_label() = normalize_runtime_label(label);
+}
+
+RuntimeLabelScope::~RuntimeLabelScope() {
+  mutable_current_runtime_label() = previous_;
 }
 
 //
@@ -1208,7 +1246,8 @@ VulkanImage MemoryAllocator::create_image(
 VulkanBuffer MemoryAllocator::create_storage_buffer(
     const VkDeviceSize size,
     const bool gpu_only,
-    const bool allocate_memory) {
+    const bool allocate_memory,
+    const BufferHostAccess host_access) {
   const VkBufferUsageFlags buffer_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
   VmaAllocationCreateInfo alloc_create_info = {};
@@ -1224,15 +1263,28 @@ VulkanBuffer MemoryAllocator::create_storage_buffer(
         allocate_memory,
         "Only GPU-only buffers should use deferred memory allocation");
 
-    // Upload-heavy model placement prefers a reliably mappable host-visible
-    // buffer over a more aggressively cached allocation. Sequential-write is
-    // the actual CPU access pattern here, and it has proven more robust than
-    // RANDOM access allocations for large Vulkan weight uploads on Windows.
-    alloc_create_info.flags |=
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
     alloc_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     alloc_create_info.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
-    alloc_create_info.preferredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    switch (host_access) {
+      case BufferHostAccess::SequentialWrite:
+        // Upload-heavy model placement prefers a reliably mappable
+        // host-visible buffer over a more aggressively cached allocation.
+        // Sequential-write is the actual CPU access pattern here, and it has
+        // proven more robust than RANDOM access allocations for large Vulkan
+        // weight uploads on Windows.
+        alloc_create_info.flags |=
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        alloc_create_info.preferredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        break;
+      case BufferHostAccess::RandomRead:
+        // GPU->CPU download buffers should use VMA's RANDOM host access path,
+        // which can select HOST_CACHED memory when available.
+        alloc_create_info.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+        alloc_create_info.preferredFlags =
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+            VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+        break;
+    }
   }
 
   return VulkanBuffer(

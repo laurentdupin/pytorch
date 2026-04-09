@@ -47,9 +47,11 @@ VulkanLinearKernelFamily select_linear_kernel_family(
       request.workload_class == VulkanWorkloadClass::VisionBackbone ||
       (request.model_domain == VulkanModelDomain::Vision &&
        request.execution_phase == VulkanExecutionPhase::Backbone)) {
-    return capabilities.has_unified_memory
-        ? VulkanLinearKernelFamily::UnifiedBufferView
-        : VulkanLinearKernelFamily::PersistentPackedTexture;
+    // Vision backbone requests are now planner-visible, but the live
+    // buffer-view linear path is still slower than the packed-texture path on
+    // DAv2. Keep the execution family stable until a real buffer-native vision
+    // program owns the relayout and transient memory.
+    return VulkanLinearKernelFamily::PersistentPackedTexture;
   }
   if (
       persistence_hints.prefer_persistent_weights ||
@@ -405,25 +407,26 @@ VulkanWorkloadClass execution_plan_workload_class(
 VulkanRuntimePolicy build_vulkan_runtime_policy(
     const VulkanPlanningRequest& planning_request) {
   VulkanRuntimePolicy policy;
-  policy.request = planning_request;
+  const auto inferred_request = infer_vulkan_planning_request(planning_request);
+  policy.request = inferred_request;
 
   const auto capabilities = query_vulkan_runtime_capability_profile();
-  const auto persistence_hints = build_vulkan_persistence_hints(planning_request);
+  const auto persistence_hints = build_vulkan_persistence_hints(inferred_request);
   const auto scheduler_decision =
-      build_vulkan_scheduler_decision(planning_request, capabilities);
+      build_vulkan_scheduler_decision(inferred_request, capabilities);
 
   policy.backend_route = scheduler_decision.backend_route;
   policy.boundary_plan = scheduler_decision.boundary_plan;
   policy.kv_cache_plan = scheduler_decision.kv_cache_plan;
   policy.scratch_arena_plan = scheduler_decision.scratch_arena_plan;
   policy.linear_kernel_family = select_linear_kernel_family(
-      planning_request, capabilities, persistence_hints);
+      inferred_request, capabilities, persistence_hints);
   policy.norm_kernel_family =
-      select_norm_kernel_family(planning_request, capabilities);
+      select_norm_kernel_family(inferred_request, capabilities);
   policy.attention_kernel_family =
-      select_attention_kernel_family(planning_request, scheduler_decision);
+      select_attention_kernel_family(inferred_request, scheduler_decision);
   policy.execution_program_plan = select_execution_program_plan(
-      planning_request,
+      inferred_request,
       scheduler_decision,
       policy.attention_kernel_family);
 

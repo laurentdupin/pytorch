@@ -292,14 +292,18 @@ class StorageBuffer final {
       Context* context_p,
       const ScalarType dtype,
       const size_t numel,
-      const bool gpuonly = false)
+      const bool gpuonly = false,
+      const MemoryAllocator::BufferHostAccess host_access =
+          MemoryAllocator::BufferHostAccess::SequentialWrite)
       : context_p_(context_p),
         dtype_(dtype),
         numel_(numel),
         nbytes_(element_size(dtype_) * numel_),
         vulkan_buffer_(context_p_->adapter_ptr()->vma().create_storage_buffer(
             nbytes_,
-            gpuonly)) {}
+            gpuonly,
+            true,
+            host_access)) {}
 
   StorageBuffer(const StorageBuffer&) = delete;
   StorageBuffer& operator=(const StorageBuffer&) = delete;

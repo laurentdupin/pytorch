@@ -126,6 +126,16 @@ class vTensor final {
       const std::vector<int64_t>& physical_strides,
       const int64_t storage_offset);
 
+  struct PreservePhysicalView final {};
+
+  // Metadata-only constructor for texture-backed logical views that preserve
+  // the underlying physical layout exactly.
+  vTensor(
+      const vTensor& src,
+      const std::vector<int64_t>& sizes,
+      const std::vector<int64_t>& logical_strides,
+      PreservePhysicalView);
+
   // Copy Constructor and Assignment; Ideally copying  would be disabled
   // (see the reasoning for move assignment below) but it is required for
   // compatibility with OpaqueTensorImpl

@@ -24,6 +24,8 @@ namespace vulkan {
 namespace api {
 
 const std::string& current_allocation_label();
+const std::string& current_runtime_label();
+std::string swap_runtime_label(std::string label);
 
 class AllocationScope final {
  public:
@@ -37,6 +39,23 @@ class AllocationScope final {
   AllocationScope& operator=(AllocationScope&&) = delete;
 
   ~AllocationScope();
+
+ private:
+  std::string previous_;
+};
+
+class RuntimeLabelScope final {
+ public:
+  explicit RuntimeLabelScope(const char* label);
+  explicit RuntimeLabelScope(const std::string& label);
+
+  RuntimeLabelScope(const RuntimeLabelScope&) = delete;
+  RuntimeLabelScope& operator=(const RuntimeLabelScope&) = delete;
+
+  RuntimeLabelScope(RuntimeLabelScope&&) = delete;
+  RuntimeLabelScope& operator=(RuntimeLabelScope&&) = delete;
+
+  ~RuntimeLabelScope();
 
  private:
   std::string previous_;
@@ -512,10 +531,16 @@ class MemoryAllocator final {
       const bool allow_transfer = false,
       const bool allocate_memory = true);
 
+  enum class BufferHostAccess {
+    SequentialWrite,
+    RandomRead,
+  };
+
   VulkanBuffer create_storage_buffer(
       const VkDeviceSize,
       const bool gpu_only = true,
-      const bool allocate_memory = true);
+      const bool allocate_memory = true,
+      const BufferHostAccess host_access = BufferHostAccess::SequentialWrite);
 
   VulkanBuffer create_staging_buffer(const VkDeviceSize);
 

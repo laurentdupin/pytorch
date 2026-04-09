@@ -646,7 +646,9 @@ labeled_scratch_arena_cache() {
 std::string runtime_execution_object_label(
     const VulkanPlanningRequest& request,
     const char* label_suffix) {
-  const std::string& current_label = api::current_allocation_label();
+  const std::string& runtime_label = api::current_runtime_label();
+  const std::string& current_label =
+      runtime_label.empty() ? api::current_allocation_label() : runtime_label;
   if (!current_label.empty() && current_label != "unlabeled") {
     return current_label + "." + label_suffix;
   }

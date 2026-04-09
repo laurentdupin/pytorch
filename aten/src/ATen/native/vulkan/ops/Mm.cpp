@@ -245,7 +245,15 @@ Tensor reshape_linear_output_if_needed(
   }
   shape.emplace_back(output.size(-1));
   Tensor reshaped_output = output.reshape(shape);
-  if (c10::InferenceMode::is_enabled()) {
+  if (c10::InferenceMode::is_enabled() && reshaped_output.is_vulkan()) {
+    const vTensor& v_reshaped_output = convert(reshaped_output);
+    const bool needs_materialization =
+        v_reshaped_output.storage_type() == api::StorageType::BUFFER &&
+        !v_reshaped_output.has_direct_buffer_layout();
+    if (needs_materialization) {
+      reshaped_output = reshaped_output.clone();
+    }
+  } else if (c10::InferenceMode::is_enabled()) {
     reshaped_output = reshaped_output.clone();
   }
   return reshaped_output;
@@ -871,13 +879,13 @@ static Tensor reshape_to_2d(const Tensor& input_arg) {
   if (input_arg.is_vulkan() && c10::InferenceMode::is_enabled()) {
     const vTensor& v_input = convert(input_arg);
     const bool needs_materialization =
-        v_input.storage_type() != api::StorageType::BUFFER ||
+        v_input.storage_type() == api::StorageType::BUFFER &&
         !v_input.has_direct_buffer_layout();
     if (needs_materialization) {
-      // View-derived Vulkan tensors can carry logical layouts that are still
-      // correct numerically but not yet suitable for the downstream linear
-      // packer. Direct buffer-backed tensors are already safe to flatten, so
-      // only materialize non-direct layouts here.
+      // Buffer metadata views can carry logical layouts that are still correct
+      // numerically but not yet suitable for the downstream linear packer.
+      // Texture-backed tensors already own concrete storage, so flattening them
+      // does not need an eager add(0) materialization first.
       reshape_input = at::add(input_arg, 0.0);
     }
   }
@@ -889,21 +897,6 @@ static Tensor reshape_to_2d(const Tensor& input_arg) {
   const auto d =
       c10::multiply_integers(input_sizes.cbegin(), input_sizes.end() - 1);
   return reshape_input.reshape({d, reshape_input.size(-1)});
-}
-
-static Tensor reshape_to_2d_buffer_linear(const Tensor& input_arg) {
-  TORCH_CHECK(
-      input_arg.dim() >= 1,
-      "Vulkan Linear op only supports input tensor with dim >= 1");
-
-  if (input_arg.dim() == 1) {
-    return input_arg.unsqueeze(0);
-  }
-
-  const IntArrayRef input_sizes = input_arg.sizes();
-  const auto d =
-      c10::multiply_integers(input_sizes.cbegin(), input_sizes.end() - 1);
-  return input_arg.reshape({d, input_arg.size(-1)});
 }
 
 bool can_run_bfloat16_buffer_linear(
@@ -965,7 +958,7 @@ Tensor run_bfloat16_buffer_linear(
   api::Context* const context = api::context();
 
   const Tensor input_arg_2d =
-      input_arg.dim() == 2 ? input_arg : reshape_to_2d_buffer_linear(input_arg);
+      input_arg.dim() == 2 ? input_arg : reshape_to_2d(input_arg);
   const Tensor input =
       input_arg_2d.is_vulkan() ? input_arg_2d : input_arg_2d.vulkan();
   const Tensor weight = weight_arg.is_vulkan() ? weight_arg : weight_arg.vulkan();
@@ -1658,8 +1651,7 @@ Tensor linear(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
   utils::log_vulkan_op_hit("aten::linear");
-  const Tensor linear_input =
-      input.dim() == 2 ? input : reshape_to_2d_buffer_linear(input);
+  const Tensor linear_input = input.dim() == 2 ? input : reshape_to_2d(input);
   const Tensor linear_weight = weight.is_vulkan() ? weight : weight.vulkan();
   const std::optional<Tensor> linear_bias =
       (bias && bias->defined() && !bias->is_vulkan()) ? bias->vulkan() : bias;
@@ -1851,7 +1843,11 @@ c10::intrusive_ptr<LinearPackedContext> create_linear_context_labeled(
       : weight.t();
   const auto context = c10::make_intrusive<LinearPackedContext>(
       LinearPackedContext(
-          prepared_weight, bias, false, std::move(label)));
+          prepared_weight,
+          bias,
+          false,
+          std::move(label),
+          true));
   utils::store_labeled_linear_context(
       weight, bias, context->allocation_label(), context);
   return context;

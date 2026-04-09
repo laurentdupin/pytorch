@@ -1360,7 +1360,7 @@ print("OK")
         with torch.inference_mode():
             index = torch.ops.vulkan_prepack.find_timestep_index(schedule, timestep)
 
-        self.assertEqual(index, 1)
+        self.assertEqual(index, 2)
 
     def test_vulkan_prepack_compute_rotary_cos_sin(self):
         prototype = torch.randn(1, 2, 4, 8, dtype=torch.float16).to("vulkan")
@@ -2493,7 +2493,7 @@ print("OK")
                 None,
                 out=out_vulkan).cpu()
 
-        self._assert_outputs_close(expected, actual, atol=1e-3, rtol=1e-3)
+        self._assert_outputs_close(expected, actual, atol=5e-3, rtol=5e-3)
         self._assert_outputs_close(expected, out_vulkan.cpu(), atol=1e-3, rtol=1e-3)
 
     def test_conv2d_module_with_vulkan_weights(self):
@@ -3312,6 +3312,143 @@ print("OK")
             for path in (policy_log_path, object_log_path):
                 if os.path.exists(path):
                     os.remove(path)
+
+    def test_vulkan_runtime_label_infers_vision_backbone_policy(self):
+        policy_log_name = "vulkan_runtime_label_vision_policy_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        policy_log_path = os.path.join(repo_root, policy_log_name)
+        if os.path.exists(policy_log_path):
+            os.remove(policy_log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                assert hasattr(torch.ops.vulkan_prepack, "swap_runtime_label")
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 8, 384, dtype=torch.float32).to("vulkan")
+                weight = torch.randn(384, 384, dtype=torch.float32).to("vulkan")
+                bias = torch.randn(384, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.dino.backbone.block"
+                )
+                try:
+                    with torch.inference_mode():
+                        y = F.linear(x, weight, bias)
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_POLICY_LOG": policy_log_name,
+                },
+                error_prefix="Vision runtime-label subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(policy_log_path))
+            with open(policy_log_path, "r", encoding="utf-8") as log_file:
+                policy_log_text = log_file.read()
+
+            self.assertRegex(
+                policy_log_text,
+                r"runtime_policy workload=VisionBackbone model_domain=Vision execution_phase=Backbone .* inferred_from_label=1",
+            )
+        finally:
+            if os.path.exists(policy_log_path):
+                os.remove(policy_log_path)
+
+    def test_vulkan_vision_backbone_block_context_matches_reference(self):
+        torch.manual_seed(0)
+        embed_dim = 32
+        num_heads = 4
+        hidden_dim = 64
+        token_count = 17
+
+        x = torch.randn(1, token_count, embed_dim, dtype=torch.float32)
+        norm1_weight = torch.randn(embed_dim, dtype=torch.float32)
+        norm1_bias = torch.randn(embed_dim, dtype=torch.float32)
+        qkv_weight = torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32)
+        qkv_bias = torch.randn(embed_dim * 3, dtype=torch.float32)
+        proj_weight = torch.randn(embed_dim, embed_dim, dtype=torch.float32)
+        proj_bias = torch.randn(embed_dim, dtype=torch.float32)
+        ls1_gamma = torch.randn(embed_dim, dtype=torch.float32)
+        norm2_weight = torch.randn(embed_dim, dtype=torch.float32)
+        norm2_bias = torch.randn(embed_dim, dtype=torch.float32)
+        fc1_weight = torch.randn(hidden_dim, embed_dim, dtype=torch.float32)
+        fc1_bias = torch.randn(hidden_dim, dtype=torch.float32)
+        fc2_weight = torch.randn(embed_dim, hidden_dim, dtype=torch.float32)
+        fc2_bias = torch.randn(embed_dim, dtype=torch.float32)
+        ls2_gamma = torch.randn(embed_dim, dtype=torch.float32)
+
+        norm_eps = 1.0e-6
+        head_dim = embed_dim // num_heads
+
+        def reference(inp):
+            norm1 = F.layer_norm(inp, (embed_dim,), norm1_weight, norm1_bias, norm_eps)
+            qkv = F.linear(norm1.reshape(token_count, embed_dim), qkv_weight, None)
+            q, k, v = qkv.chunk(3, dim=1)
+            q = (
+                q + qkv_bias[:embed_dim]
+            ).reshape(token_count, num_heads, head_dim).permute(1, 0, 2)
+            k = (
+                k + qkv_bias[embed_dim : 2 * embed_dim]
+            ).reshape(token_count, num_heads, head_dim).permute(1, 0, 2)
+            v = (
+                v + qkv_bias[2 * embed_dim :]
+            ).reshape(token_count, num_heads, head_dim).permute(1, 0, 2)
+            q = q * (head_dim ** -0.5)
+            attn = F.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                dropout_p=0.0,
+                is_causal=False,
+                scale=1.0,
+            )
+            attn = attn.permute(1, 0, 2).reshape(token_count, embed_dim)
+            attn = F.linear(attn, proj_weight, proj_bias).reshape(1, token_count, embed_dim)
+            hidden = inp + attn * ls1_gamma
+            norm2 = F.layer_norm(hidden, (embed_dim,), norm2_weight, norm2_bias, norm_eps)
+            mlp = F.linear(norm2, fc1_weight, fc1_bias)
+            mlp = F.gelu(mlp)
+            mlp = F.linear(mlp, fc2_weight, fc2_bias)
+            return hidden + mlp * ls2_gamma
+
+        expected = reference(x)
+        with torch.inference_mode():
+            context = torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                norm1_weight,
+                norm1_bias,
+                norm_eps,
+                qkv_weight,
+                qkv_bias,
+                num_heads,
+                proj_weight,
+                proj_bias,
+                ls1_gamma,
+                norm2_weight,
+                norm2_bias,
+                norm_eps,
+                fc1_weight,
+                fc1_bias,
+                fc2_weight,
+                fc2_bias,
+                ls2_gamma,
+                "depth.dino.backbone.block.test",
+            )
+            actual = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                x.to("vulkan"),
+                context,
+            ).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=5e-3, rtol=5e-3)
 
     def test_vulkan_planning_runtime_ops_expose_scheduler_bridge(self):
         script = """

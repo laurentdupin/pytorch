@@ -343,19 +343,20 @@ uint32_t Runtime::create_adapter(const Selector& selector) {
 }
 
 Runtime* runtime() {
-  // The global vulkan runtime is declared as a static local variable within a
-  // non-static function to ensure it has external linkage. If it were a global
-  // static variable there would be one copy per translation unit that includes
-  // Runtime.h as it would have internal linkage.
-  static const std::unique_ptr<Runtime> p_runtime =
-      init_global_vulkan_runtime();
+  // Keep the runtime alive for the life of the process. Tearing Vulkan global
+  // state down during Python shutdown can race static destruction in other
+  // translation units and produce noisy exit-time crashes after benchmarks
+  // have already completed.
+  static Runtime* const p_runtime = []() -> Runtime* {
+    return init_global_vulkan_runtime().release();
+  }();
 
   VK_CHECK_COND(
       p_runtime,
       "Pytorch Vulkan Runtime: The global runtime could not be retrieved "
       "because it failed to initialize.");
 
-  return p_runtime.get();
+  return p_runtime;
 }
 
 } // namespace api

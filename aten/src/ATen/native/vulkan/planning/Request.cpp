@@ -43,6 +43,14 @@ bool is_runtime_llm_operator_label(const std::string& allocation_label) {
       });
 }
 
+const std::string& current_planning_label() {
+  const std::string& runtime_label = api::current_runtime_label();
+  if (!runtime_label.empty()) {
+    return runtime_label;
+  }
+  return api::current_allocation_label();
+}
+
 std::optional<VulkanExecutionPhase> infer_llm_runtime_phase_from_tensor(
     const Tensor& tensor) {
   if (!tensor.defined() || !tensor.is_vulkan() || tensor.dim() < 2) {
@@ -176,23 +184,23 @@ VulkanPlanningRequest make_vulkan_tensor_planning_request(
     const VulkanExecutionPhase execution_phase) {
   return specialize_vulkan_planning_request_for_tensor(
       tensor,
-      make_vulkan_planning_request(
-          workload_class, tensor_role, model_domain, execution_phase));
+      infer_vulkan_planning_request(make_vulkan_planning_request(
+          workload_class, tensor_role, model_domain, execution_phase)));
 }
 
 VulkanPlanningRequest infer_vulkan_planning_request(
     const VulkanPlanningRequest& fallback_request) {
   VulkanPlanningRequest request = fallback_request;
-  const std::string allocation_label = api::current_allocation_label();
-  if (allocation_label.empty()) {
+  const std::string& planning_label = current_planning_label();
+  if (planning_label.empty() || planning_label == "unlabeled") {
     return request;
   }
 
   const bool is_llm = allocation_label_contains(
-      allocation_label,
+      planning_label,
       {"llama", "qwen", "decoder", "lm_head", "gated_deltanet", "self_attn"});
   const bool is_vision = allocation_label_contains(
-      allocation_label,
+      planning_label,
       {"depth", "dino", "beit", "zoe", "midas", "patch_embed", "refinenet"});
 
   if (is_llm) {
@@ -254,7 +262,7 @@ VulkanPlanningRequest specialize_vulkan_planning_request_for_tensor(
     return request;
   }
 
-  const std::string allocation_label = api::current_allocation_label();
+  const std::string& allocation_label = current_planning_label();
   if (
       !allocation_label.empty() && allocation_label != "unlabeled" &&
       !is_runtime_llm_operator_label(allocation_label)) {
