@@ -149,6 +149,13 @@ Tensor run_vision_backbone_block_context(
     const Tensor& input,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context);
 
+Tensor tokens_to_feature_map(
+    const Tensor& input,
+    int64_t height,
+    int64_t width);
+
+Tensor feature_map_to_tokens(const Tensor& input);
+
 } // namespace ops
 } // namespace vulkan
 } // namespace native

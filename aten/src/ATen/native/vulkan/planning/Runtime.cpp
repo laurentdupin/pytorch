@@ -47,11 +47,10 @@ VulkanLinearKernelFamily select_linear_kernel_family(
       request.workload_class == VulkanWorkloadClass::VisionBackbone ||
       (request.model_domain == VulkanModelDomain::Vision &&
        request.execution_phase == VulkanExecutionPhase::Backbone)) {
-    // Vision backbone requests are now planner-visible, but the live
-    // buffer-view linear path is still slower than the packed-texture path on
-    // DAv2. Keep the execution family stable until a real buffer-native vision
-    // program owns the relayout and transient memory.
-    return VulkanLinearKernelFamily::PersistentPackedTexture;
+    // Vision backbone execution now prefers the buffer-native compatibility
+    // path. Performance tuning can continue independently, but the canonical
+    // planner family for ViT-style blocks should be buffer based.
+    return VulkanLinearKernelFamily::UnifiedBufferView;
   }
   if (
       persistence_hints.prefer_persistent_weights ||
@@ -66,11 +65,13 @@ VulkanLinearKernelFamily select_linear_kernel_family(
 VulkanNormKernelFamily select_norm_kernel_family(
     const VulkanPlanningRequest& request,
     const VulkanRuntimeCapabilityProfile& capabilities) {
-  (void)request;
   (void)capabilities;
-  // The live Vulkan norm kernels are still texture-width implementations.
-  // Keep the family selection honest until distinct shared-memory or
-  // unified-buffer kernels exist.
+  if (
+      request.workload_class == VulkanWorkloadClass::VisionBackbone ||
+      (request.model_domain == VulkanModelDomain::Vision &&
+       request.execution_phase == VulkanExecutionPhase::Backbone)) {
+    return VulkanNormKernelFamily::UnifiedBufferView;
+  }
   return VulkanNormKernelFamily::TextureWidth;
 }
 
@@ -84,6 +85,12 @@ VulkanAttentionKernelFamily select_attention_kernel_family(
       request.workload_class == VulkanWorkloadClass::AttentionCache ||
       request.tensor_role == VulkanTensorRole::Cache) {
     return VulkanAttentionKernelFamily::CacheAwareTexture;
+  }
+  if (
+      request.workload_class == VulkanWorkloadClass::VisionBackbone ||
+      (request.model_domain == VulkanModelDomain::Vision &&
+       request.execution_phase == VulkanExecutionPhase::Backbone)) {
+    return VulkanAttentionKernelFamily::BufferMath;
   }
   return VulkanAttentionKernelFamily::TextureMath;
 }
@@ -108,6 +115,14 @@ std::optional<VulkanExecutionProgramPlanningDesc> select_execution_program_plan(
        attention_kernel_family != VulkanAttentionKernelFamily::TextureMath)) {
     return VulkanExecutionProgramPlanningDesc{
         VulkanExecutionProgramKind::AttentionRuntime, true};
+  }
+
+  if (
+      request.workload_class == VulkanWorkloadClass::VisionBackbone &&
+      request.model_domain == VulkanModelDomain::Vision &&
+      request.execution_phase == VulkanExecutionPhase::Backbone) {
+    return VulkanExecutionProgramPlanningDesc{
+        VulkanExecutionProgramKind::VisionBackbone, true};
   }
 
   return std::nullopt;
@@ -333,6 +348,8 @@ const char* attention_kernel_family_name(
   switch (family) {
     case VulkanAttentionKernelFamily::TextureMath:
       return "TextureMath";
+    case VulkanAttentionKernelFamily::BufferMath:
+      return "BufferMath";
     case VulkanAttentionKernelFamily::CacheAwareTexture:
       return "CacheAwareTexture";
     case VulkanAttentionKernelFamily::SplitCoordinator:
@@ -348,6 +365,8 @@ const char* execution_program_kind_name(
       return "AttentionRuntime";
     case VulkanExecutionProgramKind::GatedDeltaSplit:
       return "GatedDeltaSplit";
+    case VulkanExecutionProgramKind::VisionBackbone:
+      return "VisionBackbone";
   }
   return "AttentionRuntime";
 }

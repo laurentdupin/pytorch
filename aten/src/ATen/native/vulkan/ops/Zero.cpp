@@ -1,3 +1,4 @@
+#include <ATen/ops/empty.h>
 #include <ATen/ops/zeros.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
@@ -65,44 +66,11 @@ Tensor zeros(
     std::optional<Device> device,
     std::optional<bool> pin_memory) {
   const ScalarType target_dtype = dtype ? *dtype : c10::kFloat;
-  if (api::requires_buffer_storage(convert_dtype(target_dtype), size.size())) {
-    Tensor cpu_zeros = at::zeros(
-        size,
-        at::TensorOptions().device(at::kCPU).dtype(target_dtype));
-    return convert(ops::to_vulkan(cpu_zeros, api::StorageType::BUFFER));
-  }
-
-  // Get the global Vulkan context
-  api::Context* const context = api::context();
-
-  // Create the output texture
-  vTensor v_output{
-      context,
-      size.vec(),
-      convert_dtype(target_dtype),
-  };
-
-  // Required to determine how to insert memory barriers in the command buffer
-  api::PipelineBarrier pipeline_barrier{};
-
-  context->submit_compute_job(
-      // shader descriptor
-      VK_KERNEL(zero),
-      // pipeline barrier
-      pipeline_barrier,
-      // global work group size
-      v_output.extents(),
-      // local work group size
-      adaptive_work_group_size(v_output.extents()),
-      // fence handle
-      VK_NULL_HANDLE,
-      // shader arguments
-      v_output.image(
-          pipeline_barrier,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::READ | api::MemoryAccessType::WRITE));
-
-  return convert(v_output);
+  Tensor out = at::empty(
+      size,
+      at::TensorOptions().device(at::kVulkan).dtype(target_dtype));
+  zero_(out);
+  return out;
 }
 
 #ifdef USE_VULKAN_API

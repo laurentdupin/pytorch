@@ -198,6 +198,12 @@ std::string swap_runtime_label_runtime(std::string label) {
   return api::swap_runtime_label(std::move(label));
 }
 
+void synchronize_runtime() {
+  if (api::available()) {
+    api::context()->sync_and_reclaim();
+  }
+}
+
 Tensor create_kv_cache_storage_for_request(
     const Tensor& prototype,
     IntArrayRef sizes,
@@ -972,6 +978,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::run_vision_backbone_block_context("
       "Tensor X, __torch__.torch.classes.vulkan.VisionBackboneBlockContext context) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::tokens_to_feature_map(Tensor X, int height, int width) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::feature_map_to_tokens(Tensor X) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_causal_attention_mask("
       "Tensor prototype, int batch_size, int q_length, int kv_length, int q_offset=0, int kv_offset=0, bool float_mask=True) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -992,6 +1002,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::to_vulkan_labeled(Tensor X, str label) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::swap_runtime_label(str label) -> str"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::synchronize() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -1070,6 +1082,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::swap_runtime_label"),
       TORCH_FN(swap_runtime_label_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::synchronize"),
+      TORCH_FN(synchronize_runtime));
 }
 
 TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
@@ -1107,6 +1122,12 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vision_backbone_block_context"),
       TORCH_FN(create_vision_backbone_block_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::tokens_to_feature_map"),
+      TORCH_FN(tokens_to_feature_map));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::feature_map_to_tokens"),
+      TORCH_FN(feature_map_to_tokens));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_causal_attention_mask"),
       TORCH_FN(create_causal_attention_mask_runtime));
@@ -1252,6 +1273,12 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_vision_backbone_block_context"),
       TORCH_FN(run_vision_backbone_block_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::tokens_to_feature_map"),
+      TORCH_FN(tokens_to_feature_map));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::feature_map_to_tokens"),
+      TORCH_FN(feature_map_to_tokens));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_conv2d_context"),
       TORCH_FN(run_conv2d_context));

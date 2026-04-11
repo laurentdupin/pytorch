@@ -228,6 +228,7 @@ class Context final {
       const bool final_use = false);
 
   void flush();
+  void retire_after_fence_wait();
   void flush_after_fence_wait();
 };
 

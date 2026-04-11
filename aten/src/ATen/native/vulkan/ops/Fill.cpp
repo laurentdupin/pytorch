@@ -1,5 +1,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/ops/full.h>
 #include <torch/library.h>
 
 namespace at {
@@ -10,16 +12,26 @@ namespace {
 
 using namespace api::utils;
 
+Tensor& fill_scalar_cpu_fallback(Tensor& self, const Scalar& value) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  Tensor cpu_full =
+      at::full(self.sizes(), value, self.options().device(at::kCPU));
+  ops::copy_(self, cpu_full);
+  return self;
+}
+
 Tensor& fill_scalar_(Tensor& self_arg, const Scalar& value) {
   TORCH_CHECK(
       self_arg.is_vulkan(),
       "Vulkan: fill_.Scalar is only supported on Vulkan tensors.");
-  TORCH_CHECK(self_arg.dim() <= 4, "Vulkan fill_.Scalar supports up to 4d tensors");
 
   vTensor& v_self = convert(self_arg);
-  TORCH_CHECK(
-      v_self.storage_type() != api::StorageType::BUFFER,
-      "In-place Vulkan fill_.Scalar is not yet supported on buffer-backed logical views");
+  if (
+      self_arg.dim() > 4 || v_self.storage_type() == api::StorageType::BUFFER ||
+      !api::supports_texture_storage(v_self.dtype())) {
+    return fill_scalar_cpu_fallback(self_arg, value);
+  }
 
   api::Context* const context = api::context();
 

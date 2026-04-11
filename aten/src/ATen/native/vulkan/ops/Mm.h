@@ -111,9 +111,19 @@ Tensor run_linear_context(
     const Tensor& input,
     const c10::intrusive_ptr<LinearPackedContext>& context);
 
+Tensor run_linear_context_out(
+    const Tensor& input,
+    const c10::intrusive_ptr<LinearPackedContext>& context,
+    Tensor& output);
+
 Tensor run_linear_gelu_context(
     const Tensor& input,
     const c10::intrusive_ptr<LinearPackedContext>& context);
+
+Tensor run_linear_gelu_context_out(
+    const Tensor& input,
+    const c10::intrusive_ptr<LinearPackedContext>& context,
+    Tensor& output);
 
 Tensor run_qlinear_context(
     const Tensor& input,

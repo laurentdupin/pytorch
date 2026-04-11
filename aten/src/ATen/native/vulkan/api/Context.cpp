@@ -500,6 +500,36 @@ void Context::flush() {
   clear_deferred_cleanup_locked();
 }
 
+void Context::retire_after_fence_wait() {
+  const bool flush_pools = true;
+
+  if (sync_logging_enabled()) {
+    std::ostringstream stream;
+    stream << "retire_after_fence_wait: pending="
+           << format_sync_bytes(pending_cleanup_bytes())
+           << " submitted=" << submissions_since_reclaim()
+           << " submit_count=" << submit_count_
+           << " caller=" << current_allocation_label()
+           << " flush_pools=" << (flush_pools ? "1" : "0")
+           << " reclaims_since_pool_flush=" << reclaims_since_pool_flush_;
+    append_sync_log_line(stream.str());
+  }
+
+  if (flush_pools) {
+    command_pool_.flush();
+    descriptor_pool_.flush();
+  }
+  reclaims_since_pool_flush_ = 0u;
+
+  if (cmd_) {
+    cmd_.invalidate();
+  }
+
+  submit_count_ = 0u;
+  submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
+  clear_deferred_cleanup_locked();
+}
+
 void Context::flush_after_fence_wait() {
   if (sync_logging_enabled()) {
     std::ostringstream stream;

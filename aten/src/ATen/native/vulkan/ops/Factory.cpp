@@ -8,13 +8,18 @@ namespace ops {
 
 namespace {
 
-constexpr int64_t kLargeFloatingMatrixNumelThreshold = 1 << 20;
-
 api::GPUMemoryLayout default_memory_layout_for_storage_type(
     const api::StorageType storage_type) {
   return storage_type == api::StorageType::BUFFER
       ? api::GPUMemoryLayout::TENSOR_WIDTH_PACKED
       : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED;
+}
+
+bool should_force_low_rank_float_buffer_storage(
+    const IntArrayRef sizes,
+    const std::optional<ScalarType> dtype) {
+  return dtype && c10::isFloatingType(*dtype) && sizes.size() >= 1 &&
+      sizes.size() <= 3 && c10::multiply_integers(sizes) > 0;
 }
 
 api::StorageType choose_storage_type(
@@ -27,9 +32,7 @@ api::StorageType choose_storage_type(
     return api::StorageType::BUFFER;
   }
 
-  if (
-      dtype && c10::isFloatingType(*dtype) && sizes.size() == 2 &&
-      c10::multiply_integers(sizes) >= kLargeFloatingMatrixNumelThreshold) {
+  if (should_force_low_rank_float_buffer_storage(sizes, dtype)) {
     return api::StorageType::BUFFER;
   }
 

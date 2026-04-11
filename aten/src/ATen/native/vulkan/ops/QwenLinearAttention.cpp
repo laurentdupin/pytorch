@@ -243,21 +243,26 @@ Tensor run_qwen_linear_attention_prefill_context(
   mixed_qkv = at::transpose(mixed_qkv, 1, 2);
   mixed_qkv = run_conv1d_context(mixed_qkv, context->conv_context());
   mixed_qkv = at::silu(at::slice(mixed_qkv, 2, 0, seq_len, 1));
-  mixed_qkv = at::transpose(mixed_qkv, 1, 2).contiguous();
+  mixed_qkv =
+      utils::contiguous_inference(at::transpose(mixed_qkv, 1, 2));
 
-  Tensor z = run_linear_context(input, context->z_context()).contiguous();
-  Tensor a = run_linear_context(input, context->a_context()).contiguous();
-  Tensor b = run_linear_context(input, context->b_context()).contiguous();
+  Tensor z =
+      utils::contiguous_inference(run_linear_context(input, context->z_context()));
+  Tensor a =
+      utils::contiguous_inference(run_linear_context(input, context->a_context()));
+  Tensor b =
+      utils::contiguous_inference(run_linear_context(input, context->b_context()));
 
   std::vector<Tensor> qkv = at::split_with_sizes(
       mixed_qkv,
       {context->key_dim(), context->key_dim(), context->value_dim()},
       -1);
-  Tensor query = qkv[0].reshape(
-      {batch_size, seq_len, -1, context->head_k_dim()});
-  Tensor key = qkv[1].reshape({batch_size, seq_len, -1, context->head_k_dim()});
-  Tensor value =
-      qkv[2].reshape({batch_size, seq_len, -1, context->head_v_dim()});
+  Tensor query = utils::reshape_inference(
+      qkv[0], {batch_size, seq_len, -1, context->head_k_dim()});
+  Tensor key = utils::reshape_inference(
+      qkv[1], {batch_size, seq_len, -1, context->head_k_dim()});
+  Tensor value = utils::reshape_inference(
+      qkv[2], {batch_size, seq_len, -1, context->head_v_dim()});
 
   Tensor beta = at::sigmoid(b);
   Tensor g = at::mul(
@@ -266,30 +271,28 @@ Tensor run_qwen_linear_attention_prefill_context(
 
   if (context->num_v_heads() / context->num_k_heads() > 1) {
     const int64_t repeat_factor = context->num_v_heads() / context->num_k_heads();
-    query = query.unsqueeze(3)
-                .expand(
-                    {batch_size,
-                     seq_len,
-                     context->num_k_heads(),
-                     repeat_factor,
-                     context->head_k_dim()})
-                .reshape(
-                    {batch_size,
-                     seq_len,
-                     context->num_v_heads(),
-                     context->head_k_dim()});
-    key = key.unsqueeze(3)
-              .expand(
-                  {batch_size,
-                   seq_len,
-                   context->num_k_heads(),
-                   repeat_factor,
-                   context->head_k_dim()})
-              .reshape(
-                  {batch_size,
-                   seq_len,
-                   context->num_v_heads(),
-                   context->head_k_dim()});
+    query = utils::reshape_inference(
+        query.unsqueeze(3).expand(
+            {batch_size,
+             seq_len,
+             context->num_k_heads(),
+             repeat_factor,
+             context->head_k_dim()}),
+        {batch_size,
+         seq_len,
+         context->num_v_heads(),
+         context->head_k_dim()});
+    key = utils::reshape_inference(
+        key.unsqueeze(3).expand(
+            {batch_size,
+             seq_len,
+             context->num_k_heads(),
+             repeat_factor,
+             context->head_k_dim()}),
+        {batch_size,
+         seq_len,
+         context->num_v_heads(),
+         context->head_k_dim()});
   }
 
   Tensor core_attn_out = std::get<0>(run_scheduled_gated_delta_rule_chunk(
@@ -304,14 +307,15 @@ Tensor run_qwen_linear_attention_prefill_context(
       true));
 
   const int64_t num_value_heads = core_attn_out.size(2);
-  core_attn_out =
-      core_attn_out.reshape({batch_size * seq_len * num_value_heads, context->head_v_dim()});
-  Tensor gate =
-      z.reshape({batch_size * seq_len * num_value_heads, context->head_v_dim()});
+  core_attn_out = utils::reshape_inference(
+      core_attn_out,
+      {batch_size * seq_len * num_value_heads, context->head_v_dim()});
+  Tensor gate = utils::reshape_inference(
+      z, {batch_size * seq_len * num_value_heads, context->head_v_dim()});
   core_attn_out = run_gated_rms_norm(
       core_attn_out, gate, context->norm_weight(), context->norm_eps());
-  core_attn_out =
-      core_attn_out.reshape({batch_size, seq_len, context->value_dim()});
+  core_attn_out = utils::reshape_inference(
+      core_attn_out, {batch_size, seq_len, context->value_dim()});
 
   Tensor output = run_linear_context(core_attn_out, context->out_context());
   if (!input_arg.is_vulkan()) {
@@ -366,27 +370,36 @@ std::tuple<Tensor, Tensor, Tensor> run_qwen_linear_attention_decode_context(
   Tensor mixed_qkv = run_linear_context(input, context->qkv_context());
   mixed_qkv = at::transpose(mixed_qkv, 1, 2);
   Tensor conv_input = at::cat({conv_state, mixed_qkv}, 2);
-  Tensor next_conv_state =
-      at::slice(conv_input, 2, conv_input.size(2) - conv_state_len, conv_input.size(2), 1)
-          .contiguous();
+  Tensor next_conv_state = at::slice(
+      conv_input,
+      2,
+      conv_input.size(2) - conv_state_len,
+      conv_input.size(2),
+      1);
+  next_conv_state = utils::contiguous_inference(next_conv_state);
   mixed_qkv = run_conv1d_context(conv_input, context->conv_update_context());
   mixed_qkv = at::silu(
       at::slice(mixed_qkv, 2, mixed_qkv.size(2) - seq_len, mixed_qkv.size(2), 1));
-  mixed_qkv = at::transpose(mixed_qkv, 1, 2).contiguous();
+  mixed_qkv =
+      utils::contiguous_inference(at::transpose(mixed_qkv, 1, 2));
 
-  Tensor z = run_linear_context(input, context->z_context()).contiguous();
-  Tensor a = run_linear_context(input, context->a_context()).contiguous();
-  Tensor b = run_linear_context(input, context->b_context()).contiguous();
+  Tensor z =
+      utils::contiguous_inference(run_linear_context(input, context->z_context()));
+  Tensor a =
+      utils::contiguous_inference(run_linear_context(input, context->a_context()));
+  Tensor b =
+      utils::contiguous_inference(run_linear_context(input, context->b_context()));
 
   std::vector<Tensor> qkv = at::split_with_sizes(
       mixed_qkv,
       {context->key_dim(), context->key_dim(), context->value_dim()},
       -1);
-  Tensor query = qkv[0].reshape(
-      {batch_size, seq_len, -1, context->head_k_dim()});
-  Tensor key = qkv[1].reshape({batch_size, seq_len, -1, context->head_k_dim()});
-  Tensor value =
-      qkv[2].reshape({batch_size, seq_len, -1, context->head_v_dim()});
+  Tensor query = utils::reshape_inference(
+      qkv[0], {batch_size, seq_len, -1, context->head_k_dim()});
+  Tensor key = utils::reshape_inference(
+      qkv[1], {batch_size, seq_len, -1, context->head_k_dim()});
+  Tensor value = utils::reshape_inference(
+      qkv[2], {batch_size, seq_len, -1, context->head_v_dim()});
 
   Tensor beta = at::sigmoid(b);
   Tensor g = at::mul(
@@ -395,30 +408,28 @@ std::tuple<Tensor, Tensor, Tensor> run_qwen_linear_attention_decode_context(
 
   if (context->num_v_heads() / context->num_k_heads() > 1) {
     const int64_t repeat_factor = context->num_v_heads() / context->num_k_heads();
-    query = query.unsqueeze(3)
-                .expand(
-                    {batch_size,
-                     seq_len,
-                     context->num_k_heads(),
-                     repeat_factor,
-                     context->head_k_dim()})
-                .reshape(
-                    {batch_size,
-                     seq_len,
-                     context->num_v_heads(),
-                     context->head_k_dim()});
-    key = key.unsqueeze(3)
-              .expand(
-                  {batch_size,
-                   seq_len,
-                   context->num_k_heads(),
-                   repeat_factor,
-                   context->head_k_dim()})
-              .reshape(
-                  {batch_size,
-                   seq_len,
-                   context->num_v_heads(),
-                   context->head_k_dim()});
+    query = utils::reshape_inference(
+        query.unsqueeze(3).expand(
+            {batch_size,
+             seq_len,
+             context->num_k_heads(),
+             repeat_factor,
+             context->head_k_dim()}),
+        {batch_size,
+         seq_len,
+         context->num_v_heads(),
+         context->head_k_dim()});
+    key = utils::reshape_inference(
+        key.unsqueeze(3).expand(
+            {batch_size,
+             seq_len,
+             context->num_k_heads(),
+             repeat_factor,
+             context->head_k_dim()}),
+        {batch_size,
+         seq_len,
+         context->num_v_heads(),
+         context->head_k_dim()});
   }
 
   auto recurrent_out = run_scheduled_gated_delta_rule_recurrent(
@@ -434,14 +445,15 @@ std::tuple<Tensor, Tensor, Tensor> run_qwen_linear_attention_decode_context(
   Tensor next_recurrent_state = *std::get<1>(recurrent_out);
 
   const int64_t num_value_heads = core_attn_out.size(2);
-  core_attn_out =
-      core_attn_out.reshape({batch_size * seq_len * num_value_heads, context->head_v_dim()});
-  Tensor gate =
-      z.reshape({batch_size * seq_len * num_value_heads, context->head_v_dim()});
+  core_attn_out = utils::reshape_inference(
+      core_attn_out,
+      {batch_size * seq_len * num_value_heads, context->head_v_dim()});
+  Tensor gate = utils::reshape_inference(
+      z, {batch_size * seq_len * num_value_heads, context->head_v_dim()});
   core_attn_out = run_gated_rms_norm(
       core_attn_out, gate, context->norm_weight(), context->norm_eps());
-  core_attn_out =
-      core_attn_out.reshape({batch_size, seq_len, context->value_dim()});
+  core_attn_out = utils::reshape_inference(
+      core_attn_out, {batch_size, seq_len, context->value_dim()});
 
   Tensor output = run_linear_context(core_attn_out, context->out_context());
   output = maybe_restore_tensor(output, output_device, output_dtype);

@@ -4,6 +4,7 @@
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Reduction.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <limits>
 #include <torch/library.h>
 
 namespace at {
@@ -56,6 +57,48 @@ Tensor sum_dim_buffer_chunk(
   return convert(v_output);
 }
 
+Tensor max_dim_buffer_chunk(
+    const Tensor& prepared_input,
+    const std::vector<int64_t>& output_sizes) {
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(prepared_input);
+
+  vTensor v_output{
+      context,
+      output_sizes,
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+  context->submit_compute_job(
+      VK_KERNEL(buffer_max_dim),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer());
+
+  return convert(v_output);
+}
+
 Tensor sum_cpu_fallback(
     const Tensor& self_arg,
     const std::optional<ScalarType> dtype) {
@@ -78,11 +121,31 @@ Tensor sum_dim_cpu_fallback(
   return at::sum(self_cpu, {dim}, keepdim, dtype).vulkan();
 }
 
+Tensor amax_cpu_fallback(
+    const Tensor& self_arg,
+    IntArrayRef dim,
+    bool keepdim) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+
+  const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
+  return at::amax(self_cpu, dim, keepdim).vulkan();
+}
+
 Tensor finalize_bfloat16_sum_output(
     const Tensor& output,
     const std::optional<ScalarType> dtype) {
   const ScalarType target_dtype =
       resolve_vulkan_sum_dtype(c10::ScalarType::BFloat16, dtype);
+  if (target_dtype == c10::ScalarType::Float) {
+    return output;
+  }
+  return utils::cast_vulkan_tensor_dtype(output, target_dtype);
+}
+
+Tensor finalize_bfloat16_max_output(
+    const Tensor& output,
+    const ScalarType target_dtype) {
   if (target_dtype == c10::ScalarType::Float) {
     return output;
   }
@@ -144,6 +207,52 @@ Tensor sum_all_buffer(
   return output;
 }
 
+Tensor max_all_buffer(const Tensor& prepared_input_arg) {
+  api::AllocationScope allocation_scope("amax.buffer_all");
+  api::Context* const context = api::context();
+
+  const ScalarType target_dtype = prepared_input_arg.scalar_type();
+  Tensor prepared = prepared_input_arg;
+  if (prepared.scalar_type() == c10::ScalarType::BFloat16) {
+    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
+  }
+
+  TORCH_CHECK(
+      prepared.scalar_type() == c10::ScalarType::Float,
+      "Vulkan buffer full max currently only supports float and bfloat16 inputs");
+
+  vTensor& v_input = convert(prepared);
+  vTensor v_output{
+      context,
+      {},
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  api::PipelineBarrier pipeline_barrier{};
+  context->submit_compute_job(
+      VK_KERNEL(buffer_max_all),
+      pipeline_barrier,
+      {1u, 1u, 1u},
+      {1u, 1u, 1u},
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_input.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      in_meta.buffer());
+
+  return finalize_bfloat16_max_output(convert(v_output), target_dtype);
+}
+
 Tensor sum_dim_buffer(
     const Tensor& prepared_input_arg,
     int64_t dim,
@@ -179,6 +288,38 @@ Tensor sum_dim_buffer(
     output = utils::cast_vulkan_tensor_dtype(output, target_dtype);
   }
   return output;
+}
+
+Tensor max_dim_buffer(
+    const Tensor& prepared_input_arg,
+    int64_t dim,
+    bool keepdim) {
+  api::AllocationScope allocation_scope("amax.buffer_dim");
+
+  const ScalarType target_dtype = prepared_input_arg.scalar_type();
+  Tensor prepared = prepared_input_arg;
+  if (prepared.scalar_type() == c10::ScalarType::BFloat16) {
+    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
+  }
+
+  TORCH_CHECK(
+      prepared.scalar_type() == c10::ScalarType::Float,
+      "Vulkan buffer dim max currently only supports float and bfloat16 inputs");
+
+  Tensor canonical = dim == safe_downcast<int64_t>(prepared.dim()) - 1
+      ? prepared
+      : reduction::canonicalize_buffer_reduction_input(prepared, dim);
+  const vTensor& v_input = convert(canonical);
+  const std::vector<int64_t> output_sizes =
+      reduction::reduced_output_sizes(
+          v_input.sizes(),
+          safe_downcast<int64_t>(v_input.sizes().size()) - 1,
+          keepdim);
+  Tensor output = max_dim_buffer_chunk(canonical, output_sizes);
+  output = reduction::restore_buffer_reduction_output_layout(
+      output, prepared.sizes(), dim, keepdim);
+
+  return finalize_bfloat16_max_output(output, target_dtype);
 }
 
 Tensor sum_dim(
@@ -371,6 +512,64 @@ Tensor sum(const Tensor& self, const std::optional<ScalarType> dtype) {
   return sum_dim_IntList(self, dims, false, dtype);
 }
 
+Tensor amax_vulkan(const Tensor& self, IntArrayRef dim, bool keepdim) {
+  if (
+      !self.is_vulkan() ||
+      (!is_vulkan_float_dtype(self.scalar_type()) &&
+       self.scalar_type() != c10::ScalarType::BFloat16) ||
+      self.dim() > 4) {
+    return amax_cpu_fallback(self, dim, keepdim);
+  }
+
+  for (const auto d : c10::irange(self.dim())) {
+    if (self.size(d) == 0) {
+      return amax_cpu_fallback(self, dim, keepdim);
+    }
+  }
+
+  const auto plan = utils::build_vulkan_execution_plan(
+      self,
+      dim.empty() ? utils::VulkanExecutionPlanKind::ReductionAllInput
+                  : utils::VulkanExecutionPlanKind::ReductionDimInput);
+  if (!api::uses_buffer_execution(plan.execution_layout)) {
+    return amax_cpu_fallback(self, dim, keepdim);
+  }
+
+  Tensor prepared =
+      utils::prepare_vulkan_direct_buffer_execution_tensor(self, plan);
+
+  if (dim.empty()) {
+    return max_all_buffer(prepared);
+  }
+
+  std::set<int64_t> dims_set;
+  for (const auto d : dim) {
+    TORCH_CHECK(
+        d >= -self.dim() && d < self.dim(),
+        "Vulkan amax dimension out of range expected to be in range of [",
+        -self.dim(),
+        ",",
+        self.dim() - 1,
+        "], but got ",
+        d);
+    const int64_t dim_normalized = utils::normalize(d, self.dim());
+    if (dims_set.find(dim_normalized) != dims_set.end()) {
+      TORCH_CHECK(
+          false,
+          "dim ",
+          dim_normalized,
+          " appears multiple times in the list of dims");
+    }
+    dims_set.insert(dim_normalized);
+  }
+
+  Tensor result = prepared;
+  for (auto it = dims_set.rbegin(); it != dims_set.rend(); ++it) {
+    result = max_dim_buffer(result, *it, keepdim);
+  }
+  return result;
+}
+
 Tensor all(const Tensor& self) {
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
@@ -401,6 +600,12 @@ Tensor argmax(
 }
 
 Tensor max_all(const Tensor& self) {
+  if (
+      self.is_vulkan() &&
+      (is_vulkan_float_dtype(self.scalar_type()) ||
+       self.scalar_type() == c10::ScalarType::BFloat16)) {
+    return amax_vulkan(self, {}, false);
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -436,6 +641,7 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("aten::sum.dim_IntList"), TORCH_FN(sum_dim_IntList));
   m.impl(TORCH_SELECTIVE_NAME("aten::sum"), TORCH_FN(sum));
+  m.impl(TORCH_SELECTIVE_NAME("aten::amax"), TORCH_FN(amax_vulkan));
   m.impl(TORCH_SELECTIVE_NAME("aten::all"), TORCH_FN(all));
   m.impl(TORCH_SELECTIVE_NAME("aten::all.all_out"), TORCH_FN(all_out));
   m.impl("max", TORCH_FN(max_all));

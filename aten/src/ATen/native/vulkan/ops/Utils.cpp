@@ -791,6 +791,18 @@ Tensor mark_tensor_execution(
   return input;
 }
 
+Tensor contiguous_inference(
+    const Tensor& tensor,
+    const c10::MemoryFormat memory_format) {
+  c10::InferenceMode inference_mode_guard;
+  return tensor.contiguous(memory_format);
+}
+
+Tensor reshape_inference(const Tensor& tensor, IntArrayRef shape) {
+  c10::InferenceMode inference_mode_guard;
+  return tensor.reshape(shape);
+}
+
 Tensor cast_vulkan_tensor_dtype(const Tensor& input_arg, ScalarType dtype) {
   if (input_arg.scalar_type() == dtype) {
     return input_arg;

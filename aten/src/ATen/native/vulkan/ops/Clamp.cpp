@@ -251,6 +251,57 @@ Tensor activation(
   return convert(v_output);
 }
 
+Tensor activation_buffer(
+    const Tensor& self_arg,
+    const api::ShaderInfo& shader_descriptor) {
+  api::Context* const context = api::context();
+
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  vTensor& v_self = convert(self);
+
+  TORCH_CHECK(
+      v_self.storage_type() == api::StorageType::BUFFER,
+      "Vulkan buffer activation expects buffer-backed input");
+  TORCH_CHECK(
+      utils::supports_buffer_elementwise_compute(v_self),
+      "Vulkan buffer activation requires supported buffer elementwise compute input");
+
+  vTensor v_output{
+      context,
+      v_self.sizes(),
+      v_self.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_output.numel()),
+      1u,
+      1u,
+  };
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+
+  context->submit_compute_job(
+      shader_descriptor,
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer());
+
+  return convert(v_output);
+}
+
 Tensor& activation_(
     Tensor& self_arg,
     const api::ShaderInfo& shader_descriptor) {
@@ -527,6 +578,25 @@ Tensor gelu(const Tensor& self, std::string_view approximate) {
       "Vulkan: gelu only supported for none or tanh type");
   // The Vulkan backend only has the tanh GELU kernel today, so route the
   // default eager GELU call through the same implementation for inference.
+  if (self.is_vulkan() && self.scalar_type() == at::kFloat) {
+    const vTensor& v_self = convert(self);
+    if (
+        v_self.storage_type() == api::StorageType::BUFFER &&
+        utils::supports_buffer_elementwise_compute(v_self)) {
+      utils::log_vulkan_op_hit("aten::gelu.buffer_float");
+      return ops::activation_buffer(self, VK_KERNEL(buffer_gelu_tanh));
+    }
+
+    const auto plan = utils::build_vulkan_execution_plan(
+        self, utils::VulkanExecutionPlanKind::ElementwiseInput);
+    if (api::uses_buffer_execution(plan.execution_layout)) {
+      Tensor prepared =
+          utils::prepare_vulkan_direct_buffer_execution_tensor(self, plan);
+      utils::log_vulkan_op_hit("aten::gelu.buffer_float");
+      return ops::activation_buffer(prepared, VK_KERNEL(buffer_gelu_tanh));
+    }
+  }
+
   Scalar kBetaVec = M_SQRT2 * M_2_SQRTPI * 0.5;
   std::vector<Scalar> scalar;
   scalar.push_back(kBetaVec);

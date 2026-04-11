@@ -449,6 +449,8 @@ struct ExecutionObjectLogState final {
   std::atomic<uint64_t> scratch_reserves{0u};
   std::atomic<uint64_t> scratch_reserved_bytes{0u};
   std::atomic<uint64_t> scratch_peak_reserved_bytes{0u};
+  std::atomic<uint64_t> readback_hits{0u};
+  std::atomic<uint64_t> readback_stores{0u};
 
   ~ExecutionObjectLogState() {
     if (!execution_object_logging_enabled()) {
@@ -474,6 +476,10 @@ struct ExecutionObjectLogState final {
         << scratch_reserved_bytes.load(std::memory_order_relaxed)
         << " peak_reserved_bytes="
         << scratch_peak_reserved_bytes.load(std::memory_order_relaxed)
+        << '\n';
+    out << "execution_object_summary kind=ReadbackBuffer"
+        << " hits=" << readback_hits.load(std::memory_order_relaxed)
+        << " stores=" << readback_stores.load(std::memory_order_relaxed)
         << '\n';
   }
 };
@@ -643,6 +649,27 @@ labeled_scratch_arena_cache() {
   return cache;
 }
 
+struct LabeledReadbackBufferKey final {
+  std::string allocation_label;
+  size_t num_bytes;
+  bool persistent;
+};
+
+bool same_labeled_readback_buffer_key(
+    const LabeledReadbackBufferKey& lhs,
+    const LabeledReadbackBufferKey& rhs) {
+  return lhs.allocation_label == rhs.allocation_label &&
+      lhs.num_bytes == rhs.num_bytes &&
+      lhs.persistent == rhs.persistent;
+}
+
+InferenceLruCache<LabeledReadbackBufferKey, ReadbackBufferObject>&
+labeled_readback_buffer_cache() {
+  static InferenceLruCache<LabeledReadbackBufferKey, ReadbackBufferObject>
+      cache{kExecutionObjectCacheSize};
+  return cache;
+}
+
 std::string runtime_execution_object_label(
     const VulkanPlanningRequest& request,
     const char* label_suffix) {
@@ -673,6 +700,8 @@ const char* execution_object_kind_name(const VulkanExecutionObjectKind kind) {
       return "KVCache";
     case VulkanExecutionObjectKind::ScratchArena:
       return "ScratchArena";
+    case VulkanExecutionObjectKind::ReadbackBuffer:
+      return "ReadbackBuffer";
   }
   return "PackedWeight";
 }
@@ -884,6 +913,34 @@ const void* ScratchArena::identity() const {
   return state_.get();
 }
 
+bool ReadbackBufferObject::defined() const {
+  return state_ && state_->buffer_;
+}
+
+api::VulkanBuffer& ReadbackBufferObject::buffer() const {
+  TORCH_CHECK(state_, "Readback buffer object is not initialized");
+  return state_->buffer_;
+}
+
+size_t ReadbackBufferObject::size_bytes() const {
+  TORCH_CHECK(state_, "Readback buffer object is not initialized");
+  return state_->size_bytes_;
+}
+
+bool ReadbackBufferObject::persistent() const {
+  TORCH_CHECK(state_, "Readback buffer object is not initialized");
+  return state_->persistent_;
+}
+
+std::mutex& ReadbackBufferObject::mutex() const {
+  TORCH_CHECK(state_, "Readback buffer object is not initialized");
+  return state_->mutex_;
+}
+
+const void* ReadbackBufferObject::identity() const {
+  return state_.get();
+}
+
 KVCacheObject create_vulkan_kv_cache_object(const VulkanKVCacheSpec& spec) {
   TORCH_CHECK(!spec.sizes.empty(), "KV cache spec requires non-empty sizes");
   TORCH_CHECK(
@@ -931,6 +988,22 @@ ScratchArena create_vulkan_scratch_arena(const VulkanScratchArenaSpec& spec) {
       spec.execution_layout,
       spec.memory_layout,
       spec.persistent));
+}
+
+ReadbackBufferObject create_vulkan_readback_buffer_object(
+    const VulkanReadbackBufferSpec& spec) {
+  TORCH_CHECK(
+      spec.num_bytes > 0u, "Readback buffer requires a non-zero size");
+
+  api::Context* const context = api::context();
+  api::VulkanBuffer buffer =
+      context->adapter_ptr()->vma().create_storage_buffer(
+          spec.num_bytes,
+          false,
+          true,
+          api::MemoryAllocator::BufferHostAccess::RandomRead);
+  return ReadbackBufferObject(std::make_shared<ReadbackBufferObject::State>(
+      std::move(buffer), spec.num_bytes, spec.persistent));
 }
 
 KVCacheObject lookup_or_create_labeled_kv_cache_object(
@@ -997,6 +1070,45 @@ ScratchArena lookup_or_create_labeled_scratch_arena(
       1u, std::memory_order_relaxed);
   log_execution_object_event(
       "ScratchArena", "store", allocation_label, created.identity());
+  return created;
+}
+
+ReadbackBufferObject lookup_or_create_labeled_readback_buffer_object(
+    const std::string& allocation_label,
+    const VulkanReadbackBufferSpec& spec) {
+  TORCH_CHECK(
+      !allocation_label.empty(),
+      "Labeled readback buffers require a non-empty allocation label");
+  const LabeledReadbackBufferKey key{
+      allocation_label,
+      spec.num_bytes,
+      spec.persistent,
+  };
+  if (const auto cached = labeled_readback_buffer_cache().lookup(
+          key, same_labeled_readback_buffer_key)) {
+    execution_object_log_state().readback_hits.fetch_add(
+        1u, std::memory_order_relaxed);
+    log_execution_object_event(
+        "ReadbackBuffer",
+        "hit",
+        allocation_label,
+        cached->identity(),
+        cached->size_bytes());
+    return *cached;
+  }
+
+  api::AllocationScope allocation_scope(allocation_label);
+  ReadbackBufferObject created = create_vulkan_readback_buffer_object(spec);
+  labeled_readback_buffer_cache().store(
+      key, created, same_labeled_readback_buffer_key);
+  execution_object_log_state().readback_stores.fetch_add(
+      1u, std::memory_order_relaxed);
+  log_execution_object_event(
+      "ReadbackBuffer",
+      "store",
+      allocation_label,
+      created.identity(),
+      created.size_bytes());
   return created;
 }
 

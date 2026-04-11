@@ -60,7 +60,6 @@ VulkanSchedulerDecision build_vulkan_scheduler_decision(
       request.model_domain == VulkanModelDomain::LLM &&
       (decode_like || prefill_like ||
        request.workload_class == VulkanWorkloadClass::LLMDecode);
-
   if (llm_runtime_like) {
     decision.scratch_arena_plan = VulkanScratchArenaPlanningDesc{
         true,

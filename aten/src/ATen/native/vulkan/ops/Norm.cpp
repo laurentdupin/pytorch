@@ -26,53 +26,32 @@ size_t norm_runtime_scratch_bytes(const Tensor& input) {
           sizeof(float));
 }
 
-} // namespace
-
-void log_norm_kernel_family_choice(
-    const utils::VulkanRuntimePolicy& runtime_policy) {
-  switch (runtime_policy.norm_kernel_family) {
-    case utils::VulkanNormKernelFamily::TextureWidth:
-      utils::log_vulkan_op_hit("aten::norm.family_texture_width");
-      break;
-    case utils::VulkanNormKernelFamily::SharedMemoryWidth:
-      utils::log_vulkan_op_hit("aten::norm.family_shared_memory_width");
-      break;
-    case utils::VulkanNormKernelFamily::UnifiedBufferView:
-      utils::log_vulkan_op_hit("aten::norm.family_unified_buffer_view");
-      break;
+Tensor& ensure_texture_output_tensor(
+    Tensor& output,
+    const std::vector<int64_t>& sizes,
+    const c10::ScalarType dtype) {
+  bool needs_allocation = !output.defined() || !output.is_vulkan() ||
+      output.scalar_type() != dtype || !output.sizes().equals(sizes);
+  if (!needs_allocation) {
+    const vTensor& v_output = convert(output);
+    needs_allocation =
+        v_output.storage_type() != api::StorageType::TEXTURE_3D;
   }
-}
-
-bool supports_fused_norm_last_dim(
-    const at::Tensor& input,
-    IntArrayRef normalized_shape,
-    const std::optional<Tensor>& weight,
-    const std::optional<Tensor>& bias,
-    bool require_bias) {
-  return normalized_shape.size() == 1u && input.dim() >= 2 && input.dim() <= 4 &&
-      normalized_shape.front() == input.size(-1) &&
-      input.scalar_type() == kFloat &&
-      weight && weight->defined() && weight->scalar_type() == kFloat &&
-      weight->sizes().equals(normalized_shape) &&
-      (!require_bias ||
-       (bias && bias->defined() && bias->scalar_type() == kFloat &&
-        bias->sizes().equals(normalized_shape)));
-}
-
-void maybe_synchronize_after_norm() {
-  api::Context* const context = api::context();
-  if (context->should_sync_and_reclaim()) {
-    context->sync_and_reclaim();
+  if (needs_allocation) {
+    output =
+        convert(vTensor{api::context(), sizes, convert_dtype(dtype)});
   }
+  return output;
 }
 
-Tensor fused_norm_width_impl(
+Tensor fused_norm_width_impl_internal(
     const Tensor& input_arg,
     IntArrayRef normalized_shape,
     const std::optional<Tensor>& weight_opt,
     const std::optional<Tensor>& bias_opt,
     double eps,
-    const FusedNormWidthSpec& spec) {
+    const FusedNormWidthSpec& spec,
+    Tensor* output_opt) {
   const auto input_request =
       norm_request(input_arg, utils::VulkanTensorRole::Input);
   const auto runtime_policy = utils::build_vulkan_runtime_policy(input_request);
@@ -94,12 +73,14 @@ Tensor fused_norm_width_impl(
 
   const vTensor& v_input = convert(input);
   const vTensor& v_weight = convert(weight);
-
-  vTensor v_output{
-      context,
-      v_input.sizes(),
-      v_input.dtype(),
-  };
+  Tensor output_tensor = output_opt
+      ? ensure_texture_output_tensor(*output_opt, v_input.sizes(), input.scalar_type())
+      : convert(vTensor{
+            context,
+            v_input.sizes(),
+            v_input.dtype(),
+        });
+  vTensor& v_output = convert(output_tensor);
 
   const struct Block final {
     ivec4 output_extents;
@@ -159,7 +140,82 @@ Tensor fused_norm_width_impl(
   }
 
   utils::log_vulkan_op_hit(spec.op_hit_name);
-  return convert(v_output);
+  return output_tensor;
+}
+
+} // namespace
+
+void log_norm_kernel_family_choice(
+    const utils::VulkanRuntimePolicy& runtime_policy) {
+  switch (runtime_policy.norm_kernel_family) {
+    case utils::VulkanNormKernelFamily::TextureWidth:
+      utils::log_vulkan_op_hit("aten::norm.family_texture_width");
+      break;
+    case utils::VulkanNormKernelFamily::SharedMemoryWidth:
+      utils::log_vulkan_op_hit("aten::norm.family_shared_memory_width");
+      break;
+    case utils::VulkanNormKernelFamily::UnifiedBufferView:
+      utils::log_vulkan_op_hit("aten::norm.family_unified_buffer_view");
+      break;
+  }
+}
+
+bool supports_fused_norm_last_dim(
+    const at::Tensor& input,
+    IntArrayRef normalized_shape,
+    const std::optional<Tensor>& weight,
+    const std::optional<Tensor>& bias,
+    bool require_bias) {
+  return normalized_shape.size() == 1u && input.dim() >= 2 && input.dim() <= 4 &&
+      normalized_shape.front() == input.size(-1) &&
+      input.scalar_type() == kFloat &&
+      weight && weight->defined() && weight->scalar_type() == kFloat &&
+      weight->sizes().equals(normalized_shape) &&
+      (!require_bias ||
+       (bias && bias->defined() && bias->scalar_type() == kFloat &&
+        bias->sizes().equals(normalized_shape)));
+}
+
+void maybe_synchronize_after_norm() {
+  api::Context* const context = api::context();
+  if (context->should_sync_and_reclaim()) {
+    context->sync_and_reclaim();
+  }
+}
+
+Tensor fused_norm_width_impl(
+    const Tensor& input_arg,
+    IntArrayRef normalized_shape,
+    const std::optional<Tensor>& weight_opt,
+    const std::optional<Tensor>& bias_opt,
+    double eps,
+    const FusedNormWidthSpec& spec) {
+  return fused_norm_width_impl_internal(
+      input_arg,
+      normalized_shape,
+      weight_opt,
+      bias_opt,
+      eps,
+      spec,
+      nullptr);
+}
+
+Tensor fused_norm_width_impl(
+    const Tensor& input_arg,
+    IntArrayRef normalized_shape,
+    const std::optional<Tensor>& weight_opt,
+    const std::optional<Tensor>& bias_opt,
+    double eps,
+    const FusedNormWidthSpec& spec,
+    Tensor& output) {
+  return fused_norm_width_impl_internal(
+      input_arg,
+      normalized_shape,
+      weight_opt,
+      bias_opt,
+      eps,
+      spec,
+      &output);
 }
 
 } // namespace ops

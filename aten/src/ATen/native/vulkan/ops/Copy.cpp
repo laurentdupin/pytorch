@@ -1,6 +1,7 @@
 #include <ATen/ATen.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/vulkan/Context.h>
 #include <atomic>
 #include <cstdlib>
@@ -40,11 +41,40 @@ bool copy_sync_logging_enabled() {
   return !copy_sync_log_path().empty();
 }
 
+std::string readback_buffer_label(const char* suffix) {
+  const std::string& runtime_label = api::current_runtime_label();
+  if (!runtime_label.empty()) {
+    return runtime_label + "." + suffix;
+  }
+
+  const std::string& allocation_label = api::current_allocation_label();
+  if (!allocation_label.empty() && allocation_label != "unlabeled") {
+    return allocation_label + "." + suffix;
+  }
+
+  return std::string("cpu_readback.") + suffix;
+}
+
+utils::ReadbackBufferObject lookup_or_create_readback_buffer(
+    const char* suffix,
+    const size_t size_bytes) {
+  return utils::lookup_or_create_labeled_readback_buffer_object(
+      readback_buffer_label(suffix),
+      utils::VulkanReadbackBufferSpec{
+          size_bytes,
+          true,
+      });
+}
+
 bool should_force_buffer_storage_for_to_vulkan(const Tensor& src) {
-  // Large 2D floating tensors are typically inference weights such as
-  // embedding, lm_head, and linear matrices. Keeping them buffer-backed avoids
-  // expensive texture residency overhead and, for Half tensors, avoids the
-  // temporary float staging buffer required by the texture packing path.
+  // Low-rank floating tensors are typically model weights, biases, normalization
+  // parameters, or token-space tables. Keep them buffer-backed so buffer-native
+  // model paths do not begin life as textures and immediately materialize back.
+  return c10::isFloatingType(src.scalar_type()) && src.dim() >= 1 &&
+      src.dim() <= 3 && src.numel() > 0;
+}
+
+bool is_large_floating_matrix(const Tensor& src) {
   return c10::isFloatingType(src.scalar_type()) && src.dim() == 2 &&
       src.numel() >= kLargeFloatingMatrixNumelThreshold;
 }
@@ -55,8 +85,7 @@ bool should_flush_after_labeled_to_vulkan(const Tensor& src) {
   // live until the command stream is flushed, which doubles residency and can
   // OOM medium models during module.to("vulkan"). Flush eagerly for large 2D
   // floating matrices to retire staging allocations as we go.
-  return c10::isFloatingType(src.scalar_type()) && src.dim() == 2 &&
-      src.numel() >= kLargeFloatingMatrixNumelThreshold;
+  return is_large_floating_matrix(src);
 }
 
 bool should_use_host_visible_buffer_for_labeled_to_vulkan(const Tensor& src) {
@@ -65,7 +94,7 @@ bool should_use_host_visible_buffer_for_labeled_to_vulkan(const Tensor& src) {
   // staging buffer, which doubles residency during module.to("vulkan") and is
   // the main reason medium LLMs OOM on placement. Route those tensors through
   // a host-visible Vulkan storage buffer instead.
-  return should_force_buffer_storage_for_to_vulkan(src);
+  return is_large_floating_matrix(src);
 }
 
 uint64_t host_visible_labeled_upload_budget_bytes() {
@@ -382,18 +411,18 @@ void unpack_buffer_mapping_to_logical_tensor_dispatch(
 
 void copy_staging_buffer_to_vtensor_buffer(
     api::Context* const context,
-    api::StorageBuffer& staging,
+    api::VulkanBuffer& staging,
     vTensor& dst,
     const VkFence fence_handle) {
   api::PipelineBarrier pipeline_barrier{};
   context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
       pipeline_barrier,
-      staging.buffer(),
+      staging,
       dst.buffer(
           pipeline_barrier,
           api::PipelineStage::TRANSFER,
           api::MemoryAccessType::WRITE),
-      {api::utils::safe_downcast<uint32_t>(staging.buffer().mem_size()), 0u, 0u},
+      {api::utils::safe_downcast<uint32_t>(staging.mem_size()), 0u, 0u},
       {0u, 0u, 0u},
       {0u, 0u, 0u},
       fence_handle);
@@ -402,23 +431,22 @@ void copy_staging_buffer_to_vtensor_buffer(
 bool copy_vtensor_buffer_to_staging(
     api::Context* const context,
     vTensor& src,
-    api::StorageBuffer& staging,
+    api::VulkanBuffer& staging,
     const VkFence fence_handle) {
   const bool use_float_pack_shader =
       src.dtype() == api::kFloat && src.sizes().size() <= 4 &&
       src.storage_type() == api::StorageType::BUFFER &&
       src.last_write_was_compute();
   if (use_float_pack_shader) {
-    return utils::pack_vtensor_to_staging(
-        src, staging.buffer(), fence_handle);
+    return utils::pack_vtensor_to_staging(src, staging, fence_handle);
   }
 
   api::PipelineBarrier pipeline_barrier{};
   return context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
       pipeline_barrier,
       src.buffer(pipeline_barrier, api::PipelineStage::TRANSFER),
-      staging.buffer(),
-      {api::utils::safe_downcast<uint32_t>(staging.buffer().mem_size()), 0u, 0u},
+      staging,
+      {api::utils::safe_downcast<uint32_t>(staging.mem_size()), 0u, 0u},
       {0u, 0u, 0u},
       {0u, 0u, 0u},
       fence_handle);
@@ -527,40 +555,44 @@ void transfer_vulkan_to_cpu(vTensor& v_src, Tensor& dst) {
 
   // Temporary tensor to receive copied NC4HW data
   at::Tensor dst_tmp = utils::create_staging_tensor(v_src);
-
-  api::StorageBuffer staging(
-      context,
-      v_src.texture_dtype(),
-      v_src.gpu_numel(),
-      false,
-      api::MemoryAllocator::BufferHostAccess::RandomRead);
+  const size_t staging_bytes = api::element_size(v_src.texture_dtype()) *
+      static_cast<size_t>(v_src.gpu_numel());
 
   api::VulkanFence fence = context->fences().get_fence();
 
-  {
-    // Refer to comment in submit_compute_job. When syncing with the GPU, the
-    // context must not allow other threads to record dispatches into it between
-    // between calling vkQueueSubmit and flushing the context. Therefore,
-    // cmd_mutex_ must be manually managed by the calling thread.
-    std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
+  if (staging_bytes > 0u) {
+    auto staging =
+        lookup_or_create_readback_buffer("texture_transfer", staging_bytes);
+    std::unique_lock<std::mutex> staging_lock(staging.mutex());
 
-    api::PipelineBarrier pipeline_barrier{};
-    utils::copy_vtensor_to_buffer(
-        v_src, staging.buffer(), pipeline_barrier, fence.get_submit_handle());
+    {
+      // Refer to comment in submit_compute_job. When syncing with the GPU, the
+      // context must not allow other threads to record dispatches into it between
+      // between calling vkQueueSubmit and retiring the context state. Therefore,
+      // cmd_mutex_ must be manually managed by the calling thread.
+      std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
 
-    fence.wait();
+      api::PipelineBarrier pipeline_barrier{};
+      utils::copy_vtensor_to_buffer(
+          v_src,
+          staging.buffer(),
+          pipeline_barrier,
+          fence.get_submit_handle());
 
-    log_copy_sync_event("transfer_vulkan_to_cpu", v_src, false);
-    context->flush_after_fence_wait();
-    // cmd_mutex_ will be released when exiting this scope.
-  }
+      fence.wait();
 
-  // Copy data from buffer back to CPU tensor.
-  {
-    api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::READ);
-    mapping.invalidate();
+      log_copy_sync_event("transfer_vulkan_to_cpu", v_src, false);
+      context->retire_after_fence_wait();
+      // cmd_mutex_ will be released when exiting this scope.
+    }
 
-    memcpy_from_mapping(mapping, dst_tmp);
+    // Copy data from buffer back to CPU tensor.
+    {
+      api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::READ);
+      mapping.invalidate();
+
+      memcpy_from_mapping(mapping, dst_tmp);
+    }
   }
 
   context->fences().return_fence(fence);
@@ -624,7 +656,8 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
             dst.storage_offset());
       }
     }
-    copy_staging_buffer_to_vtensor_buffer(context, staging, dst, VK_NULL_HANDLE);
+    copy_staging_buffer_to_vtensor_buffer(
+        context, staging.buffer(), dst, VK_NULL_HANDLE);
     return;
   }
 
@@ -672,43 +705,45 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
         : src.has_direct_buffer_layout()
         ? api::utils::safe_downcast<int64_t>(src.gpu_numel())
         : src.buffer_length();
-    api::StorageBuffer staging(
-        context,
-        src.dtype(),
-        staging_length,
-        false,
-        api::MemoryAllocator::BufferHostAccess::RandomRead);
     api::VulkanFence fence = context->fences().get_fence();
-
-    {
-      std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
-      const bool submitted_to_gpu = copy_vtensor_buffer_to_staging(
-          context, src, staging, fence.get_submit_handle());
-      if (submitted_to_gpu) {
-        fence.wait();
-        log_copy_sync_event(
-            "pack_vulkan_to_cpu_buffer", src, false);
-        context->flush_after_fence_wait();
-      } else {
-        context->flush();
-      }
-    }
+    const size_t staging_bytes = api::element_size(src.dtype()) *
+        static_cast<size_t>(staging_length);
 
     Tensor dst_tmp = at::empty(
         src.sizes(),
         at::device(at::kCPU).dtype(convert_dtype(src.dtype())));
     if (src.has_direct_buffer_layout()) {
-      dst_tmp = dst_tmp.to(memory_format_for_buffer_layout(src.gpu_memory_layout()));
+      dst_tmp = dst_tmp.to(
+          memory_format_for_buffer_layout(src.gpu_memory_layout()));
     }
 
-    {
-      api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::READ);
-      mapping.invalidate();
-      if (src.has_direct_buffer_layout() || shader_packed_buffer) {
-        memcpy_from_mapping(mapping, dst_tmp);
-      } else {
-        unpack_buffer_mapping_to_logical_tensor_dispatch(
-            mapping, dst_tmp, src.gpu_strides(), src.storage_offset());
+    if (staging_bytes > 0u) {
+      auto staging = lookup_or_create_readback_buffer("buffer_pack", staging_bytes);
+      std::unique_lock<std::mutex> staging_lock(staging.mutex());
+
+      {
+        std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
+        const bool submitted_to_gpu = copy_vtensor_buffer_to_staging(
+            context, src, staging.buffer(), fence.get_submit_handle());
+        if (submitted_to_gpu) {
+          fence.wait();
+          log_copy_sync_event(
+              "pack_vulkan_to_cpu_buffer",
+              src,
+              src.has_direct_buffer_layout());
+          context->retire_after_fence_wait();
+        }
+      }
+
+      {
+        api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::READ);
+        mapping.invalidate();
+        if (src.has_direct_buffer_layout() || shader_packed_buffer) {
+          memcpy_from_mapping(mapping, dst_tmp);
+        } else {
+          unpack_buffer_mapping_to_logical_tensor_dispatch(
+              mapping, dst_tmp, src.gpu_strides(), src.storage_offset());
+        }
       }
     }
 
@@ -719,50 +754,48 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
 
   // Refer to the comment in pack_cpu_to_vulkan for why at::kFloat is specified
   // for the storage buffer below.
-  api::StorageBuffer staging(
-      context,
-      api::kFloat,
-      src.gpu_numel(),
-      false,
-      api::MemoryAllocator::BufferHostAccess::RandomRead);
-
   api::VulkanFence fence = context->fences().get_fence();
+  const size_t staging_bytes = api::element_size(api::kFloat) *
+      static_cast<size_t>(src.gpu_numel());
 
-  {
-    // Refer to comment in submit_compute_job. When syncing with the GPU, the
-    // context must not allow other threads to record dispatches into it between
-    // between calling vkQueueSubmit and flushing the context. Therefore,
-    // cmd_mutex_ must be manually managed by the calling thread.
-    std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
+  if (staging_bytes > 0u) {
+    auto staging = lookup_or_create_readback_buffer("texture_pack", staging_bytes);
+    std::unique_lock<std::mutex> staging_lock(staging.mutex());
 
-    bool submitted_to_gpu = utils::pack_vtensor_to_staging(
-        src, staging.buffer(), fence.get_submit_handle());
+    {
+      // Refer to comment in submit_compute_job. When syncing with the GPU, the
+      // context must not allow other threads to record dispatches into it between
+      // between calling vkQueueSubmit and retiring the context state. Therefore,
+      // cmd_mutex_ must be manually managed by the calling thread.
+      std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
 
-    // Only wait on the fence if work was actually submitted to the GPU.
-    // Otherwise, it will hang indefinitely.
-    if (submitted_to_gpu) {
-      fence.wait();
-      log_copy_sync_event("pack_vulkan_to_cpu_texture", src, false);
-      context->flush_after_fence_wait();
-    } else {
-      context->flush();
+      const bool submitted_to_gpu = utils::pack_vtensor_to_staging(
+          src, staging.buffer(), fence.get_submit_handle());
+
+      // Only wait on the fence if work was actually submitted to the GPU.
+      // Otherwise, it will hang indefinitely.
+      if (submitted_to_gpu) {
+        fence.wait();
+        log_copy_sync_event("pack_vulkan_to_cpu_texture", src, false);
+        context->retire_after_fence_wait();
+      }
+      // cmd_mutex_ will be released when exiting this scope.
     }
-    // cmd_mutex_ will be released when exiting this scope.
-  }
 
-  // Copy data from buffer back to CPU tensor.
-  {
-    api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::READ);
-    mapping.invalidate();
+    // Copy data from buffer back to CPU tensor.
+    {
+      api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::READ);
+      mapping.invalidate();
 
-    // If the dtype() of dst is at::kHalf, then copy the data into a float
-    // version of it first, similar to pack_cpu_to_vulkan().
-    if (dst.dtype() == at::kHalf) {
-      Tensor dst_float = dst.to(at::kFloat);
-      memcpy_from_mapping(mapping, dst_float);
-      dst = dst_float.to(at::kHalf);
-    } else {
-      memcpy_from_mapping(mapping, dst);
+      // If the dtype() of dst is at::kHalf, then copy the data into a float
+      // version of it first, similar to pack_cpu_to_vulkan().
+      if (dst.dtype() == at::kHalf) {
+        Tensor dst_float = dst.to(at::kFloat);
+        memcpy_from_mapping(mapping, dst_float);
+        dst = dst_float.to(at::kHalf);
+      } else {
+        memcpy_from_mapping(mapping, dst);
+      }
     }
   }
 

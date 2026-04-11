@@ -19,6 +19,32 @@ namespace {
 inline int64_t normalize_dim(int64_t d, int64_t n) {
   return (d % n + n) % n;
 }
+
+Tensor cat_cpu_fallback(
+    const MaterializedITensorListRef& tensors,
+    const int64_t in_dim) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  std::vector<Tensor> cpu_tensors;
+  cpu_tensors.reserve(tensors.size());
+  for (const at::Tensor& t : tensors) {
+    cpu_tensors.push_back(t.is_vulkan() ? t.cpu() : t);
+  }
+  return at::cat(cpu_tensors, in_dim).to(at::device(at::kVulkan));
+}
+
+bool cat_requires_cpu_fallback(const MaterializedITensorListRef& tensors) {
+  for (const at::Tensor& t : tensors) {
+    if (!t.is_vulkan()) {
+      return true;
+    }
+    const vTensor& v_t = convert(t);
+    if (v_t.storage_type() == api::StorageType::BUFFER) {
+      return true;
+    }
+  }
+  return false;
+}
 } // namespace
 
 Tensor cat_batch(const MaterializedITensorListRef& tensors, vTensor& v_output) {
@@ -282,14 +308,10 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
   TORCH_INTERNAL_ASSERT(!materialized.empty(), "Accessing empty array");
   const at::Tensor& tensor = materialized[0];
   if (!c10::isFloatingType(tensor.scalar_type())) {
-    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
-    c10::InferenceMode inference_mode_guard(false);
-    std::vector<Tensor> cpu_tensors;
-    cpu_tensors.reserve(materialized.size());
-    for (const at::Tensor& t : materialized) {
-      cpu_tensors.push_back(t.is_vulkan() ? t.cpu() : t);
-    }
-    return at::cat(cpu_tensors, in_dim).to(at::device(at::kVulkan));
+    return cat_cpu_fallback(materialized, in_dim);
+  }
+  if (cat_requires_cpu_fallback(materialized)) {
+    return cat_cpu_fallback(materialized, in_dim);
   }
   auto ndim = safe_downcast<uint32_t>(tensor.dim());
   const int64_t dim = normalize_dim(in_dim, ndim);

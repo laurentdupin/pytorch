@@ -19,6 +19,15 @@ bool is_contiguous_stride(
   return strides.equals(c10::contiguous_strides(sizes));
 }
 
+bool is_vulkan_logically_contiguous(const Tensor& tensor) {
+  if (!tensor.is_vulkan()) {
+    return tensor.is_contiguous();
+  }
+
+  const vTensor& v_tensor = convert(tensor);
+  return is_contiguous_stride(v_tensor.sizes(), logical_strides(v_tensor));
+}
+
 bool can_use_texture_contiguous_reshape(
     const vTensor& v_self,
     IntArrayRef output_size,
@@ -249,6 +258,87 @@ inline Tensor view(const Tensor& self_arg, IntArrayRef shape) {
   return view_internal(self_arg, inferred_size, *inferred_stride);
 }
 
+static Tensor contiguous(
+    const Tensor& self_arg,
+    c10::MemoryFormat memory_format) {
+  TORCH_CHECK(
+      memory_format == c10::MemoryFormat::Contiguous ||
+          memory_format == c10::MemoryFormat::Preserve,
+      "Vulkan contiguous supports Contiguous and Preserve memory formats");
+
+  if (!self_arg.is_vulkan()) {
+    return self_arg.contiguous(memory_format);
+  }
+
+  if (memory_format == c10::MemoryFormat::Preserve ||
+      is_vulkan_logically_contiguous(self_arg)) {
+    return self_arg;
+  }
+
+  const vTensor& v_self = convert(self_arg);
+  if (
+      v_self.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_view_fast_path(v_self)) {
+    utils::log_vulkan_op_hit("aten::contiguous.buffer_materialize");
+    return utils::ensure_buffer_storage(
+        self_arg, v_self.gpu_memory_layout());
+  }
+
+  utils::log_vulkan_op_hit("aten::contiguous.clone_fallback");
+  return at::clone(
+      self_arg, std::optional<c10::MemoryFormat>(c10::MemoryFormat::Contiguous));
+}
+
+static Tensor reshape(const Tensor& self_arg, IntArrayRef shape) {
+  at::DimVector inferred_size = at::infer_size_dv(shape, self_arg.numel());
+  IntArrayRef base_sizes = self_arg.sizes();
+  IntArrayRef base_strides = self_arg.strides();
+  c10::DimVector base_logical_strides;
+  if (self_arg.is_vulkan()) {
+    const vTensor& v_self = convert(self_arg);
+    base_logical_strides = logical_strides(v_self);
+    base_sizes = v_self.sizes();
+    base_strides = base_logical_strides;
+  }
+
+  if (const auto inferred_stride =
+          at::detail::computeStride(base_sizes, base_strides, inferred_size)) {
+    utils::log_vulkan_op_hit("aten::reshape.vulkan_view");
+    return view_internal(self_arg, inferred_size, *inferred_stride);
+  }
+
+  if (self_arg.is_vulkan()) {
+    Tensor contiguous_self = self_arg.contiguous(c10::MemoryFormat::Contiguous);
+    IntArrayRef contiguous_sizes = contiguous_self.sizes();
+    IntArrayRef contiguous_strides = contiguous_self.strides();
+    c10::DimVector contiguous_logical_strides;
+    if (contiguous_self.is_vulkan()) {
+      const vTensor& v_contiguous = convert(contiguous_self);
+      contiguous_logical_strides = logical_strides(v_contiguous);
+      contiguous_sizes = v_contiguous.sizes();
+      contiguous_strides = contiguous_logical_strides;
+    }
+
+    if (const auto contiguous_inferred_stride = at::detail::computeStride(
+            contiguous_sizes, contiguous_strides, inferred_size)) {
+      utils::log_vulkan_op_hit("aten::reshape.vulkan_contiguous_fallback");
+      return view_internal(
+          contiguous_self, inferred_size, *contiguous_inferred_stride);
+    }
+  }
+
+  utils::log_vulkan_op_hit("aten::reshape.vulkan_cpu_fallback");
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  Tensor cpu = self_arg.cpu();
+  Tensor cpu_reshaped = cpu.reshape(inferred_size);
+  Tensor out = at::empty(
+      std::vector<int64_t>(inferred_size.begin(), inferred_size.end()),
+      self_arg.options().device(at::kVulkan));
+  ops::copy_(out, cpu_reshaped);
+  return out;
+}
+
 static Tensor _reshape_alias(
     const Tensor& self_arg,
     const IntArrayRef shape,
@@ -306,8 +396,10 @@ static Tensor& im2col_out(
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::as_strided"), TORCH_FN(as_strided));
+  m.impl(TORCH_SELECTIVE_NAME("aten::contiguous"), TORCH_FN(contiguous));
   m.impl(TORCH_SELECTIVE_NAME("aten::im2col"), TORCH_FN(im2col));
   m.impl(TORCH_SELECTIVE_NAME("aten::im2col.out"), TORCH_FN(im2col_out));
+  m.impl(TORCH_SELECTIVE_NAME("aten::reshape"), TORCH_FN(reshape));
   m.impl(TORCH_SELECTIVE_NAME("aten::view"), TORCH_FN(view));
   m.impl(
       TORCH_SELECTIVE_NAME("aten::_reshape_alias"), TORCH_FN(_reshape_alias));

@@ -34,6 +34,15 @@ Tensor fused_norm_width_impl(
     double eps,
     const FusedNormWidthSpec& spec);
 
+Tensor fused_norm_width_impl(
+    const Tensor& input_arg,
+    IntArrayRef normalized_shape,
+    const std::optional<Tensor>& weight_opt,
+    const std::optional<Tensor>& bias_opt,
+    double eps,
+    const FusedNormWidthSpec& spec,
+    Tensor& output);
+
 void log_norm_kernel_family_choice(
     const utils::VulkanRuntimePolicy& runtime_policy);
 

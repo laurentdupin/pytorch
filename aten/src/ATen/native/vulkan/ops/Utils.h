@@ -105,6 +105,12 @@ Tensor mark_tensor_execution(
     api::ExecutionLayout,
     bool persistent = false);
 
+Tensor contiguous_inference(
+    const Tensor&,
+    c10::MemoryFormat memory_format = c10::MemoryFormat::Contiguous);
+
+Tensor reshape_inference(const Tensor&, IntArrayRef);
+
 void log_vulkan_op_hit(const char* op_name);
 
 void copy_buffer_to_buffer(

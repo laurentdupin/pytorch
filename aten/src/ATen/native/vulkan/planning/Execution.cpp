@@ -59,7 +59,7 @@ Tensor materialize_inference_vulkan_matrix_arg(const Tensor& tensor) {
       tensor.is_vulkan() &&
       tensor.dim() == 2 &&
       !tensor.is_contiguous_or_false()) {
-    return tensor.t().clone().t();
+    return tensor.contiguous(c10::MemoryFormat::Contiguous);
   }
   return tensor;
 }
@@ -105,7 +105,7 @@ execution_plan_policies() {
            api::ExecutionLayout::TEXTURE,
            api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
            api::StorageType::TEXTURE_3D,
-           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyBufferRule::PreferReductionBuffer,
            VulkanExecutionPolicyMemoryRule::Fixed,
            true,
            false,
@@ -116,7 +116,7 @@ execution_plan_policies() {
            api::ExecutionLayout::TEXTURE,
            api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
            api::StorageType::TEXTURE_3D,
-           VulkanExecutionPolicyBufferRule::Never,
+           VulkanExecutionPolicyBufferRule::PreferReductionBuffer,
            VulkanExecutionPolicyMemoryRule::Fixed,
            true,
            false,

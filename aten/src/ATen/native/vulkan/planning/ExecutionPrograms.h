@@ -2,6 +2,7 @@
 
 #ifdef USE_VULKAN_API
 
+#include <ATen/core/Tensor.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
 
@@ -58,6 +59,36 @@ class GatedDeltaSplitProgram final {
   const void* identity() const;
 };
 
+class VisionBackboneProgram final {
+ public:
+  struct State;
+
+ private:
+  std::shared_ptr<State> state_;
+
+ public:
+  VisionBackboneProgram() = default;
+  explicit VisionBackboneProgram(std::shared_ptr<State> state)
+      : state_(std::move(state)) {}
+
+  bool defined() const;
+  int64_t batch_size() const;
+  int64_t token_count() const;
+  int64_t embed_dim() const;
+  int64_t hidden_dim() const;
+  int64_t num_heads() const;
+  std::optional<ScratchArena>& scratch_arena();
+  const std::optional<ScratchArena>& scratch_arena() const;
+  Tensor& norm1_output();
+  Tensor& qkv_output();
+  Tensor& proj_output();
+  Tensor& norm2_output();
+  Tensor& fc1_output();
+  Tensor& fc2_output();
+  bool persistent() const;
+  const void* identity() const;
+};
+
 AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
     const std::string& allocation_label,
     VulkanAttentionKernelFamily kernel_family,
@@ -72,6 +103,16 @@ std::optional<GatedDeltaSplitProgram>
 lookup_or_create_labeled_gated_delta_split_program(
     const std::string& allocation_label,
     const VulkanBoundaryPlan& boundary_plan,
+    const std::optional<VulkanScratchArenaSpec>& scratch_spec,
+    const VulkanExecutionProgramPlanningDesc& program_plan);
+
+VisionBackboneProgram lookup_or_create_labeled_vision_backbone_program(
+    const std::string& allocation_label,
+    int64_t batch_size,
+    int64_t token_count,
+    int64_t embed_dim,
+    int64_t hidden_dim,
+    int64_t num_heads,
     const std::optional<VulkanScratchArenaSpec>& scratch_spec,
     const VulkanExecutionProgramPlanningDesc& program_plan);
 

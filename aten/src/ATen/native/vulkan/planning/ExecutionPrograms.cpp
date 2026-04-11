@@ -160,6 +160,36 @@ gated_delta_split_program_cache() {
   return cache;
 }
 
+struct VisionBackboneProgramKey final {
+  std::string allocation_label;
+  int64_t batch_size{1};
+  int64_t token_count{1};
+  int64_t embed_dim{1};
+  int64_t hidden_dim{1};
+  int64_t num_heads{1};
+  std::optional<VulkanScratchArenaSpec> scratch_spec;
+  bool persistent{true};
+};
+
+bool operator==(
+    const VisionBackboneProgramKey& lhs,
+    const VisionBackboneProgramKey& rhs) {
+  return lhs.allocation_label == rhs.allocation_label &&
+      lhs.batch_size == rhs.batch_size &&
+      lhs.token_count == rhs.token_count &&
+      lhs.embed_dim == rhs.embed_dim && lhs.hidden_dim == rhs.hidden_dim &&
+      lhs.num_heads == rhs.num_heads &&
+      same_scratch_spec(lhs.scratch_spec, rhs.scratch_spec) &&
+      lhs.persistent == rhs.persistent;
+}
+
+InferenceLruCache<VisionBackboneProgramKey, VisionBackboneProgram>&
+vision_backbone_program_cache() {
+  static InferenceLruCache<VisionBackboneProgramKey, VisionBackboneProgram>
+      cache{kExecutionProgramCacheSize};
+  return cache;
+}
+
 } // namespace
 
 struct AttentionRuntimeProgram::State final {
@@ -193,6 +223,38 @@ struct GatedDeltaSplitProgram::State final {
       std::optional<ScratchArena> scratch_arena,
       const bool persistent)
       : boundary_plan_(std::move(boundary_plan)),
+        scratch_arena_(std::move(scratch_arena)),
+        persistent_(persistent) {}
+};
+
+struct VisionBackboneProgram::State final {
+  int64_t batch_size_{1};
+  int64_t token_count_{1};
+  int64_t embed_dim_{1};
+  int64_t hidden_dim_{1};
+  int64_t num_heads_{1};
+  std::optional<ScratchArena> scratch_arena_;
+  Tensor norm1_output_;
+  Tensor qkv_output_;
+  Tensor proj_output_;
+  Tensor norm2_output_;
+  Tensor fc1_output_;
+  Tensor fc2_output_;
+  bool persistent_{true};
+
+  State(
+      const int64_t batch_size,
+      const int64_t token_count,
+      const int64_t embed_dim,
+      const int64_t hidden_dim,
+      const int64_t num_heads,
+      std::optional<ScratchArena> scratch_arena,
+      const bool persistent)
+      : batch_size_(batch_size),
+        token_count_(token_count),
+        embed_dim_(embed_dim),
+        hidden_dim_(hidden_dim),
+        num_heads_(num_heads),
         scratch_arena_(std::move(scratch_arena)),
         persistent_(persistent) {}
 };
@@ -265,6 +327,79 @@ bool GatedDeltaSplitProgram::persistent() const {
 }
 
 const void* GatedDeltaSplitProgram::identity() const {
+  return state_.get();
+}
+
+bool VisionBackboneProgram::defined() const {
+  return static_cast<bool>(state_);
+}
+
+int64_t VisionBackboneProgram::batch_size() const {
+  return state_ ? state_->batch_size_ : 1;
+}
+
+int64_t VisionBackboneProgram::token_count() const {
+  return state_ ? state_->token_count_ : 1;
+}
+
+int64_t VisionBackboneProgram::embed_dim() const {
+  return state_ ? state_->embed_dim_ : 1;
+}
+
+int64_t VisionBackboneProgram::hidden_dim() const {
+  return state_ ? state_->hidden_dim_ : 1;
+}
+
+int64_t VisionBackboneProgram::num_heads() const {
+  return state_ ? state_->num_heads_ : 1;
+}
+
+std::optional<ScratchArena>& VisionBackboneProgram::scratch_arena() {
+  static std::optional<ScratchArena> empty;
+  return state_ ? state_->scratch_arena_ : empty;
+}
+
+const std::optional<ScratchArena>& VisionBackboneProgram::scratch_arena()
+    const {
+  static const std::optional<ScratchArena> empty;
+  return state_ ? state_->scratch_arena_ : empty;
+}
+
+Tensor& VisionBackboneProgram::norm1_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionBackboneProgram");
+  return state_->norm1_output_;
+}
+
+Tensor& VisionBackboneProgram::qkv_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionBackboneProgram");
+  return state_->qkv_output_;
+}
+
+Tensor& VisionBackboneProgram::proj_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionBackboneProgram");
+  return state_->proj_output_;
+}
+
+Tensor& VisionBackboneProgram::norm2_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionBackboneProgram");
+  return state_->norm2_output_;
+}
+
+Tensor& VisionBackboneProgram::fc1_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionBackboneProgram");
+  return state_->fc1_output_;
+}
+
+Tensor& VisionBackboneProgram::fc2_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionBackboneProgram");
+  return state_->fc2_output_;
+}
+
+bool VisionBackboneProgram::persistent() const {
+  return state_ && state_->persistent_;
+}
+
+const void* VisionBackboneProgram::identity() const {
   return state_.get();
 }
 
@@ -379,6 +514,65 @@ lookup_or_create_labeled_gated_delta_split_program(
          const GatedDeltaSplitProgramKey& rhs) { return lhs == rhs; });
   log_execution_program_event(
       VulkanExecutionProgramKind::GatedDeltaSplit,
+      "store",
+      query.allocation_label,
+      created.identity());
+  return created;
+}
+
+VisionBackboneProgram lookup_or_create_labeled_vision_backbone_program(
+    const std::string& allocation_label,
+    const int64_t batch_size,
+    const int64_t token_count,
+    const int64_t embed_dim,
+    const int64_t hidden_dim,
+    const int64_t num_heads,
+    const std::optional<VulkanScratchArenaSpec>& scratch_spec,
+    const VulkanExecutionProgramPlanningDesc& program_plan) {
+  const VisionBackboneProgramKey query{
+      normalize_program_label(allocation_label, "vision_backbone"),
+      batch_size,
+      token_count,
+      embed_dim,
+      hidden_dim,
+      num_heads,
+      scratch_spec,
+      program_plan.persistent};
+  if (const auto cached = vision_backbone_program_cache().lookup(
+          query,
+          [](const VisionBackboneProgramKey& lhs,
+             const VisionBackboneProgramKey& rhs) { return lhs == rhs; })) {
+    log_execution_program_event(
+        VulkanExecutionProgramKind::VisionBackbone,
+        "hit",
+        query.allocation_label,
+        cached->identity());
+    return *cached;
+  }
+
+  std::optional<ScratchArena> scratch_arena;
+  if (scratch_spec.has_value()) {
+    scratch_arena = lookup_or_create_labeled_scratch_arena(
+        program_object_label(query.allocation_label, "scratch"),
+        *scratch_spec);
+  }
+
+  VisionBackboneProgram created{
+      std::make_shared<VisionBackboneProgram::State>(
+          batch_size,
+          token_count,
+          embed_dim,
+          hidden_dim,
+          num_heads,
+          std::move(scratch_arena),
+          program_plan.persistent)};
+  vision_backbone_program_cache().store(
+      query,
+      created,
+      [](const VisionBackboneProgramKey& lhs,
+         const VisionBackboneProgramKey& rhs) { return lhs == rhs; });
+  log_execution_program_event(
+      VulkanExecutionProgramKind::VisionBackbone,
       "store",
       query.allocation_label,
       created.identity());

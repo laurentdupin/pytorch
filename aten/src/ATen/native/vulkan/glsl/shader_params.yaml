@@ -257,6 +257,8 @@ buffer_unary_op:
       OPERATOR: inversesqrt(X)
     - NAME: buffer_silu
       OPERATOR: X / (1.0 + exp(-(X)))
+    - NAME: buffer_gelu_tanh
+      OPERATOR: 0.5 * X * (1.0 + tanh(0.7978845608028654 * (X + 0.044715 * X * X * X)))
 
 buffer_cast:
   parameter_names_with_default_values:
@@ -287,6 +289,10 @@ buffer_reduce_all:
       INIT: "0.0"
       REDUCE: ACC + X
       FINALIZE: ACC / max(LEN, 1.0)
+    - NAME: buffer_max_all
+      INIT: "-3.402823466e+38"
+      REDUCE: max(ACC, X)
+      FINALIZE: ACC
 
 buffer_reduce_all_bfloat16:
   parameter_names_with_default_values:
@@ -317,3 +323,7 @@ buffer_reduce_dim:
       INIT: "0.0"
       REDUCE: ACC + X
       FINALIZE: ACC / max(LEN, 1.0)
+    - NAME: buffer_max_dim
+      INIT: "-3.402823466e+38"
+      REDUCE: max(ACC, X)
+      FINALIZE: ACC

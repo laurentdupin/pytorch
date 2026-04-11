@@ -12,15 +12,17 @@ namespace ops {
 
 class LayernormPackedContext final : public torch::jit::CustomClassHolder {
  private:
-  Tensor weight_;
+ Tensor weight_;
   Tensor bias_;
   double eps_{0.0};
+  std::string allocation_label_;
 
  public:
   LayernormPackedContext(
       const std::optional<Tensor>& weight,
       const std::optional<Tensor>& bias,
-      double eps);
+      double eps,
+      std::string allocation_label = "");
 
   /*
    * Assigns a name to each index in the unpacked list.
@@ -29,8 +31,9 @@ class LayernormPackedContext final : public torch::jit::CustomClassHolder {
     static constexpr uint32_t kWeight = 0u;
     static constexpr uint32_t kBias = 1u;
     static constexpr uint32_t kEps = 2u;
+    static constexpr uint32_t kLabel = 3u;
 
-    static constexpr uint32_t kNumArgs = 3u;
+    static constexpr uint32_t kNumArgs = 4u;
   };
 
   static LayernormPackedContext pack(const c10::impl::GenericList);
@@ -48,12 +51,22 @@ class LayernormPackedContext final : public torch::jit::CustomClassHolder {
   double eps() const {
     return eps_;
   }
+
+  const std::string& allocation_label() const {
+    return allocation_label_;
+  }
 };
 
 c10::intrusive_ptr<LayernormPackedContext> create_layernorm_context(
     std::optional<Tensor>&& weight,
     std::optional<Tensor>&& bias,
     double eps);
+
+c10::intrusive_ptr<LayernormPackedContext> create_layernorm_context_labeled(
+    std::optional<Tensor>&& weight,
+    std::optional<Tensor>&& bias,
+    double eps,
+    std::string label);
 
 Tensor layer_norm_impl(
     const Tensor& input,
@@ -66,6 +79,12 @@ Tensor run_layernorm_context(
     const Tensor& input,
     IntArrayRef normalized_shape,
     const c10::intrusive_ptr<LayernormPackedContext>& context);
+
+Tensor run_layernorm_context_out(
+    const Tensor& input,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& context,
+    Tensor& output);
 
 } // namespace ops
 } // namespace vulkan

@@ -251,11 +251,16 @@ std::tuple<Tensor, std::optional<Tensor>> run_gated_delta_rule_recurrent_native(
     const bool use_qk_l2norm_in_kernel) {
   api::Context* const context = api::context();
 
-  Tensor query_runtime = query.transpose(1, 2).contiguous();
-  Tensor key_runtime = key.transpose(1, 2).contiguous();
-  Tensor value_runtime = value.transpose(1, 2).contiguous();
-  Tensor g_runtime = g.transpose(1, 2).unsqueeze(-1).contiguous();
-  Tensor beta_runtime = beta.transpose(1, 2).unsqueeze(-1).contiguous();
+  Tensor query_runtime =
+      utils::contiguous_inference(query.transpose(1, 2));
+  Tensor key_runtime =
+      utils::contiguous_inference(key.transpose(1, 2));
+  Tensor value_runtime =
+      utils::contiguous_inference(value.transpose(1, 2));
+  Tensor g_runtime = utils::contiguous_inference(
+      g.transpose(1, 2).unsqueeze(-1));
+  Tensor beta_runtime = utils::contiguous_inference(
+      beta.transpose(1, 2).unsqueeze(-1));
 
   Tensor query_buffer = prepare_gated_delta_buffer_tensor(
       query_runtime,
@@ -410,7 +415,9 @@ std::tuple<Tensor, std::optional<Tensor>> run_gated_delta_rule_recurrent_native(
 
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent.native_buffer");
-  return {output_transposed.transpose(1, 2).contiguous(), output_state};
+  return {
+      utils::contiguous_inference(output_transposed.transpose(1, 2)),
+      output_state};
 }
 
 } // namespace

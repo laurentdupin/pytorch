@@ -213,10 +213,13 @@ Tensor pow_tensor_scalar_integral_exponent(
 }
 
 bool should_run_buffer_binary_scalar(const Tensor& tensor) {
-  // Disabled for now. The first scalar-uniform buffer variant still needs
-  // dedicated shader validation; keep scalar math on the proven texture path
-  // while the generic tensor-tensor and unary buffer lanes are brought up.
-  return false;
+  if (!tensor.is_vulkan() || tensor.scalar_type() != c10::ScalarType::Float) {
+    return false;
+  }
+
+  const vTensor& v_tensor = convert(tensor);
+  return v_tensor.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_elementwise_compute(v_tensor);
 }
 
 bool is_integral_buffer_compute_candidate(const Tensor& tensor) {
@@ -226,21 +229,27 @@ bool is_integral_buffer_compute_candidate(const Tensor& tensor) {
 bool should_run_buffer_binary_tensor(const Tensor& self, const Tensor& other) {
   const ScalarType promoted_dtype =
       promote_for_vulkan_binary(self.scalar_type(), other.scalar_type());
-  return self.is_vulkan() && other.is_vulkan() &&
-      api::uses_buffer_execution(
-          utils::build_vulkan_execution_plan(
-              self, utils::VulkanExecutionPlanKind::ElementwiseInput)
-              .execution_layout) &&
-      api::uses_buffer_execution(
-          utils::build_vulkan_execution_plan(
-              other, utils::VulkanExecutionPlanKind::ElementwiseInput)
-              .execution_layout) &&
-      promoted_dtype == c10::ScalarType::Float &&
-      self.scalar_type() == promoted_dtype &&
-      other.scalar_type() == promoted_dtype &&
-      self.sizes().vec() == other.sizes().vec() &&
-      (convert(self).storage_type() == api::StorageType::BUFFER ||
-       convert(other).storage_type() == api::StorageType::BUFFER);
+  if (
+      !self.is_vulkan() || !other.is_vulkan() ||
+      promoted_dtype != c10::ScalarType::Float ||
+      self.scalar_type() != promoted_dtype ||
+      other.scalar_type() != promoted_dtype) {
+    return false;
+  }
+
+  const vTensor& v_self = convert(self);
+  const vTensor& v_other = convert(other);
+  const bool self_buffer = v_self.storage_type() == api::StorageType::BUFFER;
+  const bool other_buffer = v_other.storage_type() == api::StorageType::BUFFER;
+  if (!self_buffer && !other_buffer) {
+    return false;
+  }
+  if (
+      !utils::supports_buffer_elementwise_compute(v_self) ||
+      !utils::supports_buffer_elementwise_compute(v_other)) {
+    return false;
+  }
+  return self_buffer || other_buffer;
 }
 
 bool should_run_buffer_binary_tensor_integral(
@@ -601,6 +610,7 @@ static Tensor binary_op_scalar_buffer(
     const std::optional<Scalar>& alpha_arg,
     const api::ShaderInfo& shader_descriptor) {
   api::AllocationScope allocation_scope("binary_op.buffer");
+  utils::log_vulkan_op_hit("aten::binary_op.scalar_buffer_float");
   api::Context* const context = api::context();
 
   Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
@@ -948,6 +958,7 @@ static Tensor binary_op_tensor_buffer(
     const std::optional<Scalar>& alpha_arg,
     const api::ShaderInfo& shader_descriptor) {
   api::AllocationScope allocation_scope("binary_op.buffer");
+  utils::log_vulkan_op_hit("aten::binary_op.buffer_float");
   utils::is_broadcastable(self_arg, other_arg);
   api::Context* const context = api::context();
 
@@ -1561,6 +1572,117 @@ static Tensor& floor_divide_tensor_(Tensor& self, const Tensor& other_arg) {
       VK_KERNEL(floor_divide_inplace));
 }
 
+template <typename CompareFn>
+static Tensor compare_tensor_tensor_cpu_fallback(
+    const Tensor& self_arg,
+    const Tensor& other_arg,
+    CompareFn&& compare_fn) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  const Tensor self_cpu = self_arg.cpu();
+  const Tensor other_cpu = other_arg.cpu();
+  const Tensor result_cpu = compare_fn(self_cpu, other_cpu);
+  return result_cpu.to(
+      self_arg.options().device(at::kVulkan).dtype(result_cpu.scalar_type()));
+}
+
+template <typename CompareFn>
+static Tensor compare_tensor_scalar_cpu_fallback(
+    const Tensor& self_arg,
+    const Scalar& other,
+    CompareFn&& compare_fn) {
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  const Tensor self_cpu = self_arg.cpu();
+  const Tensor result_cpu = compare_fn(self_cpu, other);
+  return result_cpu.to(
+      self_arg.options().device(at::kVulkan).dtype(result_cpu.scalar_type()));
+}
+
+static Tensor lt_tensor(const Tensor& self, const Tensor& other) {
+  return compare_tensor_tensor_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Tensor& rhs) {
+        return lhs.lt(rhs);
+      });
+}
+
+static Tensor lt_scalar(const Tensor& self, const Scalar& other) {
+  return compare_tensor_scalar_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Scalar& rhs) {
+        return lhs.lt(rhs);
+      });
+}
+
+static Tensor le_tensor(const Tensor& self, const Tensor& other) {
+  return compare_tensor_tensor_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Tensor& rhs) {
+        return lhs.le(rhs);
+      });
+}
+
+static Tensor le_scalar(const Tensor& self, const Scalar& other) {
+  return compare_tensor_scalar_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Scalar& rhs) {
+        return lhs.le(rhs);
+      });
+}
+
+static Tensor gt_tensor(const Tensor& self, const Tensor& other) {
+  return compare_tensor_tensor_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Tensor& rhs) {
+        return lhs.gt(rhs);
+      });
+}
+
+static Tensor gt_scalar(const Tensor& self, const Scalar& other) {
+  return compare_tensor_scalar_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Scalar& rhs) {
+        return lhs.gt(rhs);
+      });
+}
+
+static Tensor ge_tensor(const Tensor& self, const Tensor& other) {
+  return compare_tensor_tensor_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Tensor& rhs) {
+        return lhs.ge(rhs);
+      });
+}
+
+static Tensor ge_scalar(const Tensor& self, const Scalar& other) {
+  return compare_tensor_scalar_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Scalar& rhs) {
+        return lhs.ge(rhs);
+      });
+}
+
+static Tensor eq_tensor(const Tensor& self, const Tensor& other) {
+  return compare_tensor_tensor_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Tensor& rhs) {
+        return lhs.eq(rhs);
+      });
+}
+
+static Tensor eq_scalar(const Tensor& self, const Scalar& other) {
+  return compare_tensor_scalar_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Scalar& rhs) {
+        return lhs.eq(rhs);
+      });
+}
+
+static Tensor ne_tensor(const Tensor& self, const Tensor& other) {
+  return compare_tensor_tensor_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Tensor& rhs) {
+        return lhs.ne(rhs);
+      });
+}
+
+static Tensor ne_scalar(const Tensor& self, const Scalar& other) {
+  return compare_tensor_scalar_cpu_fallback(
+      self, other, [](const Tensor& lhs, const Scalar& rhs) {
+        return lhs.ne(rhs);
+      });
+}
+
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::add.Scalar"), TORCH_FN(add_scalar));
   m.impl(TORCH_SELECTIVE_NAME("aten::add_.Scalar"), TORCH_FN(add_scalar_));
@@ -1598,6 +1720,18 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("aten::floor_divide_.Tensor"),
       TORCH_FN(floor_divide_tensor_));
+  m.impl(TORCH_SELECTIVE_NAME("aten::lt.Tensor"), TORCH_FN(lt_tensor));
+  m.impl(TORCH_SELECTIVE_NAME("aten::lt.Scalar"), TORCH_FN(lt_scalar));
+  m.impl(TORCH_SELECTIVE_NAME("aten::le.Tensor"), TORCH_FN(le_tensor));
+  m.impl(TORCH_SELECTIVE_NAME("aten::le.Scalar"), TORCH_FN(le_scalar));
+  m.impl(TORCH_SELECTIVE_NAME("aten::gt.Tensor"), TORCH_FN(gt_tensor));
+  m.impl(TORCH_SELECTIVE_NAME("aten::gt.Scalar"), TORCH_FN(gt_scalar));
+  m.impl(TORCH_SELECTIVE_NAME("aten::ge.Tensor"), TORCH_FN(ge_tensor));
+  m.impl(TORCH_SELECTIVE_NAME("aten::ge.Scalar"), TORCH_FN(ge_scalar));
+  m.impl(TORCH_SELECTIVE_NAME("aten::eq.Tensor"), TORCH_FN(eq_tensor));
+  m.impl(TORCH_SELECTIVE_NAME("aten::eq.Scalar"), TORCH_FN(eq_scalar));
+  m.impl(TORCH_SELECTIVE_NAME("aten::ne.Tensor"), TORCH_FN(ne_tensor));
+  m.impl(TORCH_SELECTIVE_NAME("aten::ne.Scalar"), TORCH_FN(ne_scalar));
 }
 
 } // namespace ops

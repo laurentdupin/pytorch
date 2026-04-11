@@ -29,6 +29,7 @@ enum class VulkanExecutionObjectKind : uint8_t {
   LinearContext,
   KVCache,
   ScratchArena,
+  ReadbackBuffer,
 };
 
 const char* execution_object_kind_name(VulkanExecutionObjectKind);
@@ -171,9 +172,49 @@ class ScratchArena final {
   const void* identity() const;
 };
 
+struct VulkanReadbackBufferSpec final {
+  size_t num_bytes{0u};
+  bool persistent{true};
+};
+
+class ReadbackBufferObject final {
+ private:
+  friend ReadbackBufferObject create_vulkan_readback_buffer_object(
+      const VulkanReadbackBufferSpec&);
+
+  struct State final {
+    api::VulkanBuffer buffer_;
+    size_t size_bytes_{0u};
+    bool persistent_{true};
+    mutable std::mutex mutex_;
+
+    State(api::VulkanBuffer buffer, size_t size_bytes, bool persistent)
+        : buffer_(std::move(buffer)),
+          size_bytes_(size_bytes),
+          persistent_(persistent) {}
+  };
+
+  std::shared_ptr<State> state_;
+
+ public:
+  ReadbackBufferObject() = default;
+  explicit ReadbackBufferObject(std::shared_ptr<State> state)
+      : state_(std::move(state)) {}
+
+  bool defined() const;
+  api::VulkanBuffer& buffer() const;
+  size_t size_bytes() const;
+  bool persistent() const;
+  std::mutex& mutex() const;
+  const void* identity() const;
+};
+
 KVCacheObject create_vulkan_kv_cache_object(const VulkanKVCacheSpec&);
 
 ScratchArena create_vulkan_scratch_arena(const VulkanScratchArenaSpec&);
+
+ReadbackBufferObject create_vulkan_readback_buffer_object(
+    const VulkanReadbackBufferSpec&);
 
 KVCacheObject lookup_or_create_labeled_kv_cache_object(
     const std::string& allocation_label,
@@ -182,6 +223,10 @@ KVCacheObject lookup_or_create_labeled_kv_cache_object(
 ScratchArena lookup_or_create_labeled_scratch_arena(
     const std::string& allocation_label,
     const VulkanScratchArenaSpec&);
+
+ReadbackBufferObject lookup_or_create_labeled_readback_buffer_object(
+    const std::string& allocation_label,
+    const VulkanReadbackBufferSpec&);
 
 std::optional<ScratchArena> prime_labeled_scratch_arena_for_request(
     const Tensor& reference,

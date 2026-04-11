@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ATen/OpaqueTensorImpl.h>
+#include <c10/core/Contiguity.h>
 
 namespace at {
 // The only difference from OpaqueTensorImpl is faking strides(), stride(),
@@ -45,8 +46,13 @@ struct VulkanOpaqueTensorImpl : public OpaqueTensorImpl<OpaqueHandle> {
 
   c10::SymBool sym_is_contiguous_custom(
       c10::MemoryFormat memory_format) const override {
-    (void)memory_format;
-    return true;
+    if (
+        memory_format != c10::MemoryFormat::Contiguous &&
+        memory_format != c10::MemoryFormat::Preserve) {
+      return false;
+    }
+    return c10::_compute_contiguous(
+        this->sizes(), c10::IntArrayRef(strides_), this->numel());
   }
 
   c10::intrusive_ptr<TensorImpl> shallow_copy_and_detach(

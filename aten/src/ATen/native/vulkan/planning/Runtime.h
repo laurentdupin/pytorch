@@ -28,6 +28,7 @@ enum class VulkanNormKernelFamily : uint8_t {
 
 enum class VulkanAttentionKernelFamily : uint8_t {
   TextureMath = 0u,
+  BufferMath,
   CacheAwareTexture,
   SplitCoordinator,
 };
@@ -35,6 +36,7 @@ enum class VulkanAttentionKernelFamily : uint8_t {
 enum class VulkanExecutionProgramKind : uint8_t {
   AttentionRuntime = 0u,
   GatedDeltaSplit,
+  VisionBackbone,
 };
 
 struct VulkanExecutionProgramPlanningDesc final {

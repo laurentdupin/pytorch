@@ -17,7 +17,7 @@ Tensor masked_fill_scalar(
     const Tensor& self_arg,
     const Tensor& mask_arg,
     const Scalar& value) {
-  if (self_arg.dim() > 4 || mask_arg.dim() > 4) {
+  auto cpu_fallback = [&]() {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
     const Tensor cpu_result =
@@ -27,6 +27,10 @@ Tensor masked_fill_scalar(
         self_arg.options().device(at::kVulkan));
     ops::copy_(out, cpu_result);
     return out;
+  };
+
+  if (self_arg.dim() > 4 || mask_arg.dim() > 4) {
+    return cpu_fallback();
   }
 
   utils::is_broadcastable(self_arg, mask_arg);
@@ -34,9 +38,15 @@ Tensor masked_fill_scalar(
   api::Context* const context = api::context();
 
   const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  const vTensor& v_self = convert(self);
 
   const Tensor mask = mask_arg.is_vulkan() ? mask_arg : mask_arg.vulkan();
   const vTensor& v_mask = convert(mask);
+  if (
+      v_self.storage_type() == api::StorageType::BUFFER ||
+      v_mask.storage_type() == api::StorageType::BUFFER) {
+    return cpu_fallback();
+  }
 
   // compute the output shape by broadcasting the shapes of self and mask
   auto in_ndims = safe_downcast<uint32_t>(self_arg.dim());
