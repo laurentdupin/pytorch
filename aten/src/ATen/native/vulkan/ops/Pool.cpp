@@ -1,5 +1,6 @@
 #include <ATen/native/Pool.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
 namespace at {
@@ -10,6 +11,148 @@ namespace {
 
 using namespace api::utils;
 
+bool can_run_float_buffer_pool2d(const vTensor& v_self) {
+  return v_self.storage_type() == api::StorageType::BUFFER &&
+      v_self.dtype() == api::kFloat &&
+      utils::supports_buffer_elementwise_compute(v_self);
+}
+
+Tensor pool2d_buffer(
+    const Tensor& self_arg,
+    const IntArrayRef kernel_arg,
+    IntArrayRef stride_arg,
+    const IntArrayRef padding_arg,
+    const IntArrayRef dilation_arg,
+    const bool ceil_mode,
+    const api::ShaderInfo& shader_descriptor) {
+  if (stride_arg.empty()) {
+    stride_arg = kernel_arg;
+  }
+
+  TORCH_CHECK(!kernel_arg.empty(), "Kernel size cannot be empty!");
+  TORCH_CHECK(!stride_arg.empty(), "Stride cannot be empty!");
+  TORCH_CHECK(!padding_arg.empty(), "Padding cannot be empty!");
+
+  static const auto normalize = [](const IntArrayRef parameter) {
+    return std::array<int64_t, 2>{
+        parameter[0],
+        (2 == parameter.size()) ? parameter[1] : parameter[0],
+    };
+  };
+
+  const auto input_size = self_arg.sizes();
+  const auto kernel = normalize(kernel_arg);
+  const auto stride = normalize(stride_arg);
+  const auto padding = normalize(padding_arg);
+  const auto dilation = normalize(dilation_arg);
+
+  const int64_t output_height = pooling_output_shape(
+      input_size[Layout::Activation4D::height],
+      kernel[Layout::Parameter::height],
+      padding[Layout::Parameter::height],
+      stride[Layout::Parameter::height],
+      dilation[Layout::Parameter::height],
+      ceil_mode);
+
+  const int64_t output_width = pooling_output_shape(
+      input_size[Layout::Activation4D::width],
+      kernel[Layout::Parameter::width],
+      padding[Layout::Parameter::width],
+      stride[Layout::Parameter::width],
+      dilation[Layout::Parameter::width],
+      ceil_mode);
+
+  pool2d_shape_check(
+      self_arg,
+      kernel[Layout::Parameter::height],
+      kernel[Layout::Parameter::width],
+      stride[Layout::Parameter::height],
+      stride[Layout::Parameter::width],
+      padding[Layout::Parameter::height],
+      padding[Layout::Parameter::width],
+      dilation[Layout::Parameter::height],
+      dilation[Layout::Parameter::width],
+      input_size[Layout::Activation4D::channels],
+      input_size[Layout::Activation4D::height],
+      input_size[Layout::Activation4D::width],
+      output_height,
+      output_width,
+      self_arg.suggest_memory_format());
+
+  api::Context* const context = api::context();
+  const Tensor self = utils::prepare_vulkan_execution_tensor(
+      self_arg, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  const vTensor& v_self = convert(self);
+
+  vTensor v_output{
+      context,
+      {
+          input_size[Layout::Activation4D::batch],
+          input_size[Layout::Activation4D::channels],
+          output_height,
+          output_width,
+      },
+      v_self.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const struct Block final {
+    ivec4 info;
+    ivec4 kernel;
+    ivec4 stride_padding;
+  } block{
+      {
+          safe_downcast<int32_t>(
+              kernel[Layout::Parameter::width] * kernel[Layout::Parameter::height]),
+          safe_downcast<int32_t>(input_size[Layout::Activation4D::width]),
+          safe_downcast<int32_t>(input_size[Layout::Activation4D::height]),
+          0,
+      },
+      {
+          safe_downcast<int32_t>(kernel[Layout::Parameter::width]),
+          safe_downcast<int32_t>(kernel[Layout::Parameter::height]),
+          safe_downcast<int32_t>(input_size[Layout::Activation4D::width]),
+          safe_downcast<int32_t>(input_size[Layout::Activation4D::height]),
+      },
+      {
+          safe_downcast<int32_t>(stride[Layout::Parameter::width]),
+          safe_downcast<int32_t>(stride[Layout::Parameter::height]),
+          safe_downcast<int32_t>(padding[Layout::Parameter::width]),
+          safe_downcast<int32_t>(padding[Layout::Parameter::height]),
+      },
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size{
+      safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+
+  context->submit_compute_job(
+      shader_descriptor,
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return convert(v_output);
+}
+
 Tensor adaptive_avg_pool2d(
     const at::Tensor& self_arg,
     const IntArrayRef output_size) {
@@ -19,7 +162,8 @@ Tensor adaptive_avg_pool2d(
 
   api::Context* const context = api::context();
 
-  const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  const Tensor self = utils::prepare_vulkan_execution_tensor(
+      self_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_self = convert(self);
 
   vTensor v_output{
@@ -148,7 +292,8 @@ Tensor pool2d(
 
   api::Context* const context = api::context();
 
-  const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  const Tensor self = utils::prepare_vulkan_execution_tensor(
+      self_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_self = convert(self);
 
   vTensor v_output{
@@ -233,6 +378,21 @@ Tensor avg_pool2d(
     const bool ceil_mode,
     const bool /* count_include_pad */,
     const std::optional<int64_t> /* divisor_override */) {
+  if (self_arg.is_vulkan()) {
+    const vTensor& v_self = convert(self_arg);
+    if (can_run_float_buffer_pool2d(v_self)) {
+      utils::log_vulkan_op_hit("aten::avg_pool2d.buffer_float");
+      return pool2d_buffer(
+          self_arg,
+          kernel_arg,
+          stride_arg,
+          padding_arg,
+          {1, 1},
+          ceil_mode,
+          VK_KERNEL(avg_pool2d_buffer));
+    }
+  }
+
   return pool2d(
       self_arg,
       kernel_arg,

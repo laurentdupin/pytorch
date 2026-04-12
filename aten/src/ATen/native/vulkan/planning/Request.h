@@ -56,6 +56,23 @@ struct VulkanPlanningRequest final {
   bool inferred_from_label{false};
 };
 
+class VulkanPlanningRequestScope final {
+ public:
+  explicit VulkanPlanningRequestScope(const VulkanPlanningRequest& request);
+
+  VulkanPlanningRequestScope(const VulkanPlanningRequestScope&) = delete;
+  VulkanPlanningRequestScope& operator=(const VulkanPlanningRequestScope&) =
+      delete;
+
+  VulkanPlanningRequestScope(VulkanPlanningRequestScope&&) = delete;
+  VulkanPlanningRequestScope& operator=(VulkanPlanningRequestScope&&) = delete;
+
+  ~VulkanPlanningRequestScope();
+
+ private:
+  std::optional<VulkanPlanningRequest> previous_;
+};
+
 const char* workload_class_name(VulkanWorkloadClass);
 
 const char* model_domain_name(VulkanModelDomain);
@@ -69,6 +86,27 @@ VulkanPlanningRequest make_vulkan_planning_request(
     VulkanTensorRole tensor_role = VulkanTensorRole::Input,
     VulkanModelDomain model_domain = VulkanModelDomain::Generic,
     VulkanExecutionPhase execution_phase = VulkanExecutionPhase::None);
+
+VulkanPlanningRequest make_vulkan_linear_request(
+    VulkanTensorRole tensor_role = VulkanTensorRole::Input);
+
+VulkanPlanningRequest make_vulkan_tensor_linear_request(
+    const Tensor& tensor,
+    VulkanTensorRole tensor_role = VulkanTensorRole::Input);
+
+VulkanPlanningRequest make_vulkan_tensor_norm_request(
+    const Tensor& tensor,
+    VulkanTensorRole tensor_role = VulkanTensorRole::Input);
+
+VulkanPlanningRequest make_vulkan_llm_runtime_request(
+    VulkanExecutionPhase execution_phase,
+    VulkanTensorRole tensor_role = VulkanTensorRole::Input);
+
+VulkanPlanningRequest make_vulkan_vision_backbone_request(
+    VulkanTensorRole tensor_role = VulkanTensorRole::Input);
+
+VulkanPlanningRequest make_vulkan_vision_decoder_request(
+    VulkanTensorRole tensor_role = VulkanTensorRole::Input);
 
 VulkanPlanningRequest make_vulkan_tensor_planning_request(
     const Tensor& tensor,

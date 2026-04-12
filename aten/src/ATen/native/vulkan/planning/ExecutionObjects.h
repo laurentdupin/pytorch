@@ -34,6 +34,18 @@ enum class VulkanExecutionObjectKind : uint8_t {
 
 const char* execution_object_kind_name(VulkanExecutionObjectKind);
 
+std::string make_vulkan_runtime_object_label(
+    const VulkanPlanningRequest& request,
+    const char* label_suffix);
+
+const std::string& resolve_vulkan_linear_runtime_label(
+    const std::string& allocation_label,
+    const char* fallback_label);
+
+std::string make_vulkan_linear_pack_label(
+    const std::string& allocation_label,
+    const char* fallback_label);
+
 struct VulkanKVCacheSpec final {
   ScalarType dtype{kFloat};
   std::vector<int64_t> sizes;

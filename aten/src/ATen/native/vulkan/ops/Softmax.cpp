@@ -26,64 +26,6 @@ constexpr int64_t kTiledSdpaMaxValueDim =
     static_cast<int64_t>(kTiledSdpaLocalSizeX) *
     static_cast<int64_t>(kTiledSdpaMaxOutputsPerThread);
 
-utils::VulkanPlanningRequest attention_request(
-    const utils::VulkanAttentionPolicy& attention_policy,
-    const utils::VulkanTensorRole tensor_role) {
-  const bool uses_cache =
-      attention_policy.cache_mode != utils::VulkanAttentionCacheMode::Disabled;
-  const utils::VulkanExecutionPhase execution_phase =
-      attention_policy.cache_mode == utils::VulkanAttentionCacheMode::Prefill
-      ? utils::VulkanExecutionPhase::Prefill
-      : (attention_policy.cache_mode ==
-                 utils::VulkanAttentionCacheMode::DecodeAppend
-             ? utils::VulkanExecutionPhase::Decode
-             : utils::VulkanExecutionPhase::None);
-  return utils::make_vulkan_planning_request(
-      uses_cache ? utils::VulkanWorkloadClass::AttentionCache
-                 : utils::VulkanWorkloadClass::Attention,
-      tensor_role,
-      uses_cache ? utils::VulkanModelDomain::LLM
-                 : utils::VulkanModelDomain::Generic,
-      execution_phase);
-}
-
-utils::VulkanPlanningRequest softmax_request() {
-  return utils::make_vulkan_execution_request(
-      utils::VulkanExecutionPlanKind::TextureComputeInput);
-}
-
-std::string attention_runtime_label(const char* suffix) {
-  const std::string base = api::current_runtime_label().empty()
-      ? api::current_allocation_label()
-      : api::current_runtime_label();
-  if (base.empty()) {
-    return std::string("attention_runtime.") + suffix;
-  }
-  return base + "." + suffix;
-}
-
-void log_attention_kernel_family_choice(
-    const utils::VulkanRuntimePolicy& runtime_policy) {
-  switch (runtime_policy.attention_kernel_family) {
-    case utils::VulkanAttentionKernelFamily::TextureMath:
-      utils::log_vulkan_op_hit(
-          "aten::scaled_dot_product_attention.family_texture_math");
-      break;
-    case utils::VulkanAttentionKernelFamily::BufferMath:
-      utils::log_vulkan_op_hit(
-          "aten::scaled_dot_product_attention.family_buffer_math");
-      break;
-    case utils::VulkanAttentionKernelFamily::CacheAwareTexture:
-      utils::log_vulkan_op_hit(
-          "aten::scaled_dot_product_attention.family_cache_aware_texture");
-      break;
-    case utils::VulkanAttentionKernelFamily::SplitCoordinator:
-      utils::log_vulkan_op_hit(
-          "aten::scaled_dot_product_attention.family_split_coordinator");
-      break;
-  }
-}
-
 utils::VulkanKVCacheSpec make_attention_kv_cache_spec(
     const Tensor& tensor,
     const utils::VulkanKVCachePlanningDesc& desc) {
@@ -129,9 +71,11 @@ void prime_attention_runtime_objects(
   }
 
   const auto cache_policy = utils::build_vulkan_runtime_policy(
-      attention_request(attention_policy, utils::VulkanTensorRole::Cache));
+      utils::make_vulkan_attention_request(
+          attention_policy, utils::VulkanTensorRole::Cache));
   const auto scratch_policy = utils::build_vulkan_runtime_policy(
-      attention_request(attention_policy, utils::VulkanTensorRole::Scratch));
+      utils::make_vulkan_attention_request(
+          attention_policy, utils::VulkanTensorRole::Scratch));
   const std::optional<utils::VulkanKVCacheSpec> key_cache_spec =
       cache_policy.kv_cache_plan.has_value()
       ? std::optional<utils::VulkanKVCacheSpec>(
@@ -164,7 +108,7 @@ void prime_attention_runtime_objects(
       : std::nullopt;
 
   (void)utils::lookup_or_create_labeled_attention_runtime_program(
-      attention_runtime_label("program"),
+      utils::make_vulkan_runtime_object_label(input_policy.request, "program"),
       input_policy.attention_kernel_family,
       key_cache_spec,
       value_cache_spec,
@@ -764,7 +708,8 @@ Tensor prepare_attention_bias(
   return utils::prepare_vulkan_execution_tensor(
       additive_bias,
       attention_policy.mask_plan_kind,
-      attention_request(attention_policy, utils::VulkanTensorRole::Mask));
+      utils::make_vulkan_attention_request(
+          attention_policy, utils::VulkanTensorRole::Mask));
 }
 
 bool can_use_tiled_sdpa_fast_path(
@@ -1141,8 +1086,9 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
       input_runtime_policy, attention_policy, query_3d, key_3d, value_3d);
 
   const auto query_request =
-      attention_request(attention_policy, utils::VulkanTensorRole::Input);
-  const auto key_value_request = attention_request(
+      utils::make_vulkan_attention_request(
+          attention_policy, utils::VulkanTensorRole::Input);
+  const auto key_value_request = utils::make_vulkan_attention_request(
       attention_policy,
       attention_policy.cache_mode == utils::VulkanAttentionCacheMode::Disabled
           ? utils::VulkanTensorRole::Input
@@ -1211,7 +1157,8 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
   const auto attention_policy = utils::build_vulkan_attention_policy(
       attn_mask, is_causal, enable_gqa, false, false);
   const auto input_runtime_policy = utils::build_vulkan_runtime_policy(
-      attention_request(attention_policy, utils::VulkanTensorRole::Input));
+      utils::make_vulkan_attention_request(
+          attention_policy, utils::VulkanTensorRole::Input));
   log_attention_kernel_family_choice(input_runtime_policy);
   return scaled_dot_product_attention_math_vulkan_impl(
       query_arg,
@@ -1240,7 +1187,8 @@ Tensor scaled_dot_product_attention_vulkan_impl(
   const auto attention_policy = utils::build_vulkan_attention_policy(
       attn_mask, is_causal, enable_gqa, false, false);
   const auto input_runtime_policy = utils::build_vulkan_runtime_policy(
-      attention_request(attention_policy, utils::VulkanTensorRole::Input));
+      utils::make_vulkan_attention_request(
+          attention_policy, utils::VulkanTensorRole::Input));
   log_attention_kernel_family_choice(input_runtime_policy);
   log_sdpa_event(
       "public_vulkan_entry",
@@ -1390,7 +1338,8 @@ Tensor softmax_internal(
   Tensor input = utils::prepare_vulkan_execution_tensor(
       input_arg,
       utils::VulkanExecutionPlanKind::TextureComputeInput,
-      softmax_request());
+      utils::make_vulkan_execution_request(
+          utils::VulkanExecutionPlanKind::TextureComputeInput));
   const vTensor& v_input = convert(input);
 
   vTensor v_output{

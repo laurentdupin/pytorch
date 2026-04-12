@@ -670,7 +670,25 @@ labeled_readback_buffer_cache() {
   return cache;
 }
 
-std::string runtime_execution_object_label(
+} // namespace
+
+const char* execution_object_kind_name(const VulkanExecutionObjectKind kind) {
+  switch (kind) {
+    case VulkanExecutionObjectKind::PackedWeight:
+      return "PackedWeight";
+    case VulkanExecutionObjectKind::LinearContext:
+      return "LinearContext";
+    case VulkanExecutionObjectKind::KVCache:
+      return "KVCache";
+    case VulkanExecutionObjectKind::ScratchArena:
+      return "ScratchArena";
+    case VulkanExecutionObjectKind::ReadbackBuffer:
+      return "ReadbackBuffer";
+  }
+  return "PackedWeight";
+}
+
+std::string make_vulkan_runtime_object_label(
     const VulkanPlanningRequest& request,
     const char* label_suffix) {
   const std::string& runtime_label = api::current_runtime_label();
@@ -688,22 +706,25 @@ std::string runtime_execution_object_label(
   return stream.str();
 }
 
-} // namespace
-
-const char* execution_object_kind_name(const VulkanExecutionObjectKind kind) {
-  switch (kind) {
-    case VulkanExecutionObjectKind::PackedWeight:
-      return "PackedWeight";
-    case VulkanExecutionObjectKind::LinearContext:
-      return "LinearContext";
-    case VulkanExecutionObjectKind::KVCache:
-      return "KVCache";
-    case VulkanExecutionObjectKind::ScratchArena:
-      return "ScratchArena";
-    case VulkanExecutionObjectKind::ReadbackBuffer:
-      return "ReadbackBuffer";
+const std::string& resolve_vulkan_linear_runtime_label(
+    const std::string& allocation_label,
+    const char* fallback_label) {
+  if (!allocation_label.empty()) {
+    return allocation_label;
   }
-  return "PackedWeight";
+
+  static const std::string kLinearLabel = "linear";
+  static const std::string kBmmLabel = "bmm";
+  return std::string(fallback_label) == "bmm" ? kBmmLabel : kLinearLabel;
+}
+
+std::string make_vulkan_linear_pack_label(
+    const std::string& allocation_label,
+    const char* fallback_label) {
+  if (allocation_label.empty()) {
+    return fallback_label;
+  }
+  return allocation_label + "." + fallback_label;
 }
 
 bool KVCacheObject::defined() const {
@@ -1121,7 +1142,7 @@ std::optional<ScratchArena> prime_labeled_scratch_arena_for_request(
   log_execution_object_event(
       "ScratchArena",
       "prime_request",
-      runtime_execution_object_label(request, label_suffix),
+      make_vulkan_runtime_object_label(request, label_suffix),
       nullptr,
       requested_bytes);
   const auto policy = build_vulkan_runtime_policy(request);
@@ -1129,7 +1150,7 @@ std::optional<ScratchArena> prime_labeled_scratch_arena_for_request(
     log_execution_object_event(
         "ScratchArena",
         "skip_no_plan",
-        runtime_execution_object_label(policy.request, label_suffix),
+        make_vulkan_runtime_object_label(policy.request, label_suffix),
         nullptr,
         requested_bytes);
     return std::nullopt;
@@ -1138,7 +1159,7 @@ std::optional<ScratchArena> prime_labeled_scratch_arena_for_request(
   const auto& desc = *policy.scratch_arena_plan;
   const size_t scratch_bytes = std::max(desc.min_arena_bytes, requested_bytes);
   auto arena = lookup_or_create_labeled_scratch_arena(
-      runtime_execution_object_label(policy.request, label_suffix),
+      make_vulkan_runtime_object_label(policy.request, label_suffix),
       VulkanScratchArenaSpec{
           kByte,
           scratch_bytes,

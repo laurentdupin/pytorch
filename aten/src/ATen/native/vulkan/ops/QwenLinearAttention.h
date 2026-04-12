@@ -25,6 +25,9 @@ class QwenLinearAttentionPrefillPackedContext final
   c10::intrusive_ptr<LinearPackedContext> out_context_;
   c10::intrusive_ptr<Conv1dPackedContext> conv_context_;
   c10::intrusive_ptr<Conv1dPackedContext> conv_update_context_;
+  Tensor norm_weight_cpu_;
+  Tensor A_log_cpu_;
+  Tensor dt_bias_cpu_;
   Tensor norm_weight_;
   Tensor A_log_;
   Tensor dt_bias_;
@@ -125,12 +128,24 @@ class QwenLinearAttentionPrefillPackedContext final
     return norm_weight_;
   }
 
+  const Tensor& norm_weight_cpu() const {
+    return norm_weight_cpu_;
+  }
+
   const Tensor& A_log() const {
     return A_log_;
   }
 
+  const Tensor& A_log_cpu() const {
+    return A_log_cpu_;
+  }
+
   const Tensor& dt_bias() const {
     return dt_bias_;
+  }
+
+  const Tensor& dt_bias_cpu() const {
+    return dt_bias_cpu_;
   }
 
   int64_t key_dim() const {

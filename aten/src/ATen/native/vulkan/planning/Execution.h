@@ -129,6 +129,10 @@ VulkanAttentionPolicy build_vulkan_attention_policy(
     bool use_kv_cache,
     bool cache_has_previous_state);
 
+VulkanPlanningRequest make_vulkan_attention_request(
+    const VulkanAttentionPolicy& attention_policy,
+    VulkanTensorRole tensor_role = VulkanTensorRole::Input);
+
 VulkanPlanningRequest make_vulkan_execution_request(
     VulkanExecutionPlanKind,
     VulkanTensorRole,

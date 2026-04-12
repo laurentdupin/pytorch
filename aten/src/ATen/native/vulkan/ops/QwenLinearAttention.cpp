@@ -1,7 +1,9 @@
 #include <ATen/Functions.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/GatedDelta.h>
 #include <ATen/native/vulkan/ops/QwenLinearAttention.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/Request.h>
 
 namespace at {
 namespace native {
@@ -17,7 +19,30 @@ std::string child_label(const std::string& label, const char* suffix) {
 }
 
 Tensor move_to_vulkan_float(const Tensor& tensor) {
-  return tensor.is_vulkan() ? tensor.to(kFloat) : tensor.vulkan().to(kFloat);
+  if (tensor.is_vulkan()) {
+    return tensor.scalar_type() == kFloat ? tensor : tensor.to(kFloat);
+  }
+
+  const Tensor cpu_float =
+      tensor.scalar_type() == kFloat ? tensor.contiguous() : tensor.to(kFloat);
+  Tensor output = at::empty(
+      cpu_float.sizes(), cpu_float.options().device(at::kVulkan));
+  ops::copy_(output, cpu_float);
+  return output;
+}
+
+Tensor move_runtime_tensor_to_vulkan_float(const Tensor& tensor) {
+  if (tensor.is_vulkan()) {
+    return tensor.scalar_type() == kFloat ? tensor : tensor.to(kFloat);
+  }
+
+  const Tensor cpu_float =
+      tensor.scalar_type() == kFloat ? tensor.contiguous() : tensor.to(kFloat);
+  return cpu_float.to(at::device(at::kVulkan));
+}
+
+Tensor move_to_cpu_float(const Tensor& tensor) {
+  return tensor.is_vulkan() ? tensor.cpu().to(kFloat) : tensor.to(kFloat);
 }
 
 c10::intrusive_ptr<LinearPackedContext> make_labeled_linear_context(
@@ -120,6 +145,9 @@ QwenLinearAttentionPrefillPackedContext::QwenLinearAttentionPrefillPackedContext
           out_weight, child_label(allocation_label_, "out"))),
       conv_context_(make_conv1d_context(conv_weight, conv_bias)),
       conv_update_context_(make_conv1d_update_context(conv_weight, conv_bias)),
+      norm_weight_cpu_(move_to_cpu_float(norm_weight)),
+      A_log_cpu_(move_to_cpu_float(A_log)),
+      dt_bias_cpu_(move_to_cpu_float(dt_bias)),
       norm_weight_(move_to_vulkan_float(norm_weight)),
       A_log_(move_to_vulkan_float(A_log)),
       dt_bias_(move_to_vulkan_float(dt_bias)),
@@ -235,9 +263,15 @@ Tensor run_qwen_linear_attention_prefill_context(
   if (input.scalar_type() != kFloat) {
     input = input.to(kFloat);
   }
+  utils::VulkanPlanningRequestScope planning_scope(
+      utils::make_vulkan_llm_runtime_request(
+          utils::VulkanExecutionPhase::Prefill));
 
   const int64_t batch_size = input.size(0);
   const int64_t seq_len = input.size(1);
+  const Tensor norm_weight = move_to_vulkan_float(context->norm_weight_cpu());
+  const Tensor A_log = move_to_vulkan_float(context->A_log_cpu());
+  const Tensor dt_bias = move_to_vulkan_float(context->dt_bias_cpu());
 
   Tensor mixed_qkv = run_linear_context(input, context->qkv_context());
   mixed_qkv = at::transpose(mixed_qkv, 1, 2);
@@ -266,8 +300,8 @@ Tensor run_qwen_linear_attention_prefill_context(
 
   Tensor beta = at::sigmoid(b);
   Tensor g = at::mul(
-      at::neg(at::exp(context->A_log())),
-      at::softplus(at::add(a, context->dt_bias())));
+      at::neg(at::exp(A_log)),
+      at::softplus(at::add(a, dt_bias)));
 
   if (context->num_v_heads() / context->num_k_heads() > 1) {
     const int64_t repeat_factor = context->num_v_heads() / context->num_k_heads();
@@ -313,7 +347,7 @@ Tensor run_qwen_linear_attention_prefill_context(
   Tensor gate = utils::reshape_inference(
       z, {batch_size * seq_len * num_value_heads, context->head_v_dim()});
   core_attn_out = run_gated_rms_norm(
-      core_attn_out, gate, context->norm_weight(), context->norm_eps());
+      core_attn_out, gate, norm_weight, context->norm_eps());
   core_attn_out = utils::reshape_inference(
       core_attn_out, {batch_size, seq_len, context->value_dim()});
 
@@ -347,25 +381,19 @@ std::tuple<Tensor, Tensor, Tensor> run_qwen_linear_attention_decode_context(
   const Device output_device = input_arg.device();
   const ScalarType output_dtype = input_arg.scalar_type();
 
-  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  if (input.scalar_type() != kFloat) {
-    input = input.to(kFloat);
-  }
-
-  Tensor conv_state = conv_state_arg.is_vulkan() ? conv_state_arg : conv_state_arg.vulkan();
-  if (conv_state.scalar_type() != kFloat) {
-    conv_state = conv_state.to(kFloat);
-  }
-
-  Tensor recurrent_state =
-      recurrent_state_arg.is_vulkan() ? recurrent_state_arg : recurrent_state_arg.vulkan();
-  if (recurrent_state.scalar_type() != kFloat) {
-    recurrent_state = recurrent_state.to(kFloat);
-  }
+  Tensor input = move_runtime_tensor_to_vulkan_float(input_arg);
+  Tensor conv_state = move_runtime_tensor_to_vulkan_float(conv_state_arg);
+  Tensor recurrent_state = move_runtime_tensor_to_vulkan_float(recurrent_state_arg);
+  utils::VulkanPlanningRequestScope planning_scope(
+      utils::make_vulkan_llm_runtime_request(
+          utils::VulkanExecutionPhase::Decode));
 
   const int64_t batch_size = input.size(0);
   const int64_t seq_len = input.size(1);
   const int64_t conv_state_len = conv_state.size(2);
+  const Tensor norm_weight = move_to_vulkan_float(context->norm_weight_cpu());
+  const Tensor A_log = move_to_vulkan_float(context->A_log_cpu());
+  const Tensor dt_bias = move_to_vulkan_float(context->dt_bias_cpu());
 
   Tensor mixed_qkv = run_linear_context(input, context->qkv_context());
   mixed_qkv = at::transpose(mixed_qkv, 1, 2);
@@ -403,8 +431,8 @@ std::tuple<Tensor, Tensor, Tensor> run_qwen_linear_attention_decode_context(
 
   Tensor beta = at::sigmoid(b);
   Tensor g = at::mul(
-      at::neg(at::exp(context->A_log())),
-      at::softplus(at::add(a, context->dt_bias())));
+      at::neg(at::exp(A_log)),
+      at::softplus(at::add(a, dt_bias)));
 
   if (context->num_v_heads() / context->num_k_heads() > 1) {
     const int64_t repeat_factor = context->num_v_heads() / context->num_k_heads();
@@ -451,7 +479,7 @@ std::tuple<Tensor, Tensor, Tensor> run_qwen_linear_attention_decode_context(
   Tensor gate = utils::reshape_inference(
       z, {batch_size * seq_len * num_value_heads, context->head_v_dim()});
   core_attn_out = run_gated_rms_norm(
-      core_attn_out, gate, context->norm_weight(), context->norm_eps());
+      core_attn_out, gate, norm_weight, context->norm_eps());
   core_attn_out = utils::reshape_inference(
       core_attn_out, {batch_size, seq_len, context->value_dim()});
 

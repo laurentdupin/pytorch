@@ -174,7 +174,8 @@ inline bool supports_generic_buffer_view_ops(
     const size_t ndim,
     const bool is_quantized = false) {
   return !is_quantized && ndim <= 4 &&
-      (t == ScalarType::Float || t == ScalarType::BFloat16 ||
+      (t == ScalarType::Float || t == ScalarType::Half ||
+       t == ScalarType::BFloat16 ||
        t == ScalarType::Int || t == ScalarType::Long ||
        t == ScalarType::Byte ||
        t == ScalarType::Char || t == ScalarType::Bool);

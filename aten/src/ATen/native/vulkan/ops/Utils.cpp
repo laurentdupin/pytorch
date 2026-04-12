@@ -174,6 +174,19 @@ const char* memory_layout_name(const api::GPUMemoryLayout memory_layout) {
   return "UNKNOWN";
 }
 
+std::string backing_allocation_label(const vTensor& tensor) {
+  switch (tensor.storage_type()) {
+    case api::StorageType::BUFFER:
+      return tensor.buffer().allocation_label();
+    case api::StorageType::TEXTURE_2D:
+    case api::StorageType::TEXTURE_3D:
+      return tensor.image().allocation_label();
+    case api::StorageType::UNKNOWN:
+      return std::string();
+  }
+  return std::string();
+}
+
 std::string format_sizes(const std::vector<int64_t>& sizes) {
   std::ostringstream stream;
   stream << "[";
@@ -209,6 +222,8 @@ void log_materialize_event(
   std::ostringstream stream;
   stream << "kind=" << kind
          << " caller=" << api::current_allocation_label()
+         << " runtime=" << api::current_runtime_label()
+         << " backing_label=" << backing_allocation_label(v_in)
          << " path=" << path
          << " exec_layout=" << execution_layout_name(v_in.execution_layout())
          << " src_storage=" << storage_type_name(v_in.storage_type())
@@ -966,6 +981,7 @@ bool pack_vtensor_to_staging(
     // still rely on the direct path for exact roundtrips. Use the direct path
     // only when the buffer was not last written by a compute shader.
     if (
+        fence_handle != VK_NULL_HANDLE &&
         v_self.has_direct_buffer_layout() &&
         !v_self.last_write_was_compute() &&
         v_self.gpu_nbytes() == staging.mem_size()) {

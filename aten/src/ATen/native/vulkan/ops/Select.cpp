@@ -1,5 +1,6 @@
 #include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -27,7 +28,13 @@ Tensor select_cpu_fallback(const Tensor& self, int64_t dim, int64_t index) {
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
-  return at::select(self.cpu(), dim, index).vulkan();
+  Tensor cpu = self.detach().cpu();
+  Tensor cpu_result = at::select(cpu, dim, index).contiguous();
+  Tensor out = at::empty(
+      cpu_result.sizes(),
+      self.options().device(at::kVulkan).dtype(cpu_result.scalar_type()));
+  ops::copy_(out, cpu_result);
+  return out;
 }
 
 bool can_use_buffer_select_view(const Tensor& self) {

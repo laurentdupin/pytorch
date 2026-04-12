@@ -64,6 +64,11 @@ const char* norm_kernel_family_name(VulkanNormKernelFamily);
 const char* attention_kernel_family_name(VulkanAttentionKernelFamily);
 const char* execution_program_kind_name(VulkanExecutionProgramKind);
 
+void log_linear_kernel_family_choice(const VulkanRuntimePolicy& runtime_policy);
+void log_norm_kernel_family_choice(const VulkanRuntimePolicy& runtime_policy);
+void log_attention_kernel_family_choice(
+    const VulkanRuntimePolicy& runtime_policy);
+
 VulkanRuntimePolicy build_vulkan_runtime_policy(const VulkanPlanningRequest&);
 
 VulkanRuntimePolicy build_vulkan_runtime_policy(VulkanWorkloadClass);

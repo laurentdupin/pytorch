@@ -1021,7 +1021,10 @@ print("OK")
                 with self.subTest(case=name):
                     expected = fn(x_cpu)
                     actual_vulkan = fn(x_vulkan)
-                    self.assertFalse(actual_vulkan.is_inference())
+                    if name == "reshape":
+                        self.assertTrue(actual_vulkan.is_inference())
+                    else:
+                        self.assertFalse(actual_vulkan.is_inference())
                     actual = actual_vulkan.cpu()
                     self._assert_outputs_close(
                         expected,
@@ -1189,6 +1192,100 @@ print("OK")
                 actual,
                 atol=1e-4,
                 rtol=1e-4)
+
+    def test_topk_with_vulkan_input(self):
+        torch.manual_seed(0)
+        logits_cpu = torch.randn(17, 8)
+        logits_vulkan = logits_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            expected_values, expected_indices = logits_cpu.topk(2, dim=1)
+            actual_values, actual_indices = logits_vulkan.topk(2, dim=1)
+
+        self._assert_outputs_close(expected_values, actual_values.cpu())
+        self.assertEqual(expected_indices, actual_indices.cpu())
+
+    def test_scatter_value_with_vulkan_input(self):
+        torch.manual_seed(0)
+        logits_cpu = torch.randn(17, 8)
+        zeros_cpu = torch.zeros((17, 8), dtype=torch.float16)
+
+        with torch.inference_mode():
+            _, top_k_indices_cpu = logits_cpu.topk(2, dim=1)
+            expected = zeros_cpu.scatter(1, top_k_indices_cpu, 1)
+
+            _, top_k_indices_vulkan = logits_cpu.to("vulkan").topk(2, dim=1)
+            actual = zeros_cpu.to("vulkan").scatter(1, top_k_indices_vulkan, 1).cpu()
+
+        self._assert_outputs_close(expected, actual)
+
+    def test_sort_with_vulkan_input(self):
+        torch.manual_seed(0)
+        logits_cpu = torch.randn(17, 8)
+
+        with torch.inference_mode():
+            _, top_k_indices_cpu = logits_cpu.topk(2, dim=1)
+            expected_values, expected_indices = top_k_indices_cpu.flatten().sort(0)
+
+            _, top_k_indices_vulkan = logits_cpu.to("vulkan").topk(2, dim=1)
+            actual_values, actual_indices = top_k_indices_vulkan.flatten().sort(0)
+
+        self.assertEqual(expected_values, actual_values.cpu())
+        self.assertEqual(expected_indices, actual_indices.cpu())
+
+    def test_div_scalar_mode_with_vulkan_integer_input(self):
+        torch.manual_seed(0)
+        logits_cpu = torch.randn(17, 8)
+
+        with torch.inference_mode():
+            _, top_k_indices_cpu = logits_cpu.topk(2, dim=1)
+            _, index_sorted_cpu = top_k_indices_cpu.flatten().sort(0)
+            expected = index_sorted_cpu.div(2, rounding_mode="trunc")
+
+            _, top_k_indices_vulkan = logits_cpu.to("vulkan").topk(2, dim=1)
+            _, index_sorted_vulkan = top_k_indices_vulkan.flatten().sort(0)
+            actual = index_sorted_vulkan.div(2, rounding_mode="trunc").cpu()
+
+        self.assertEqual(expected, actual)
+
+    def test_advanced_index_with_vulkan_input_and_indices(self):
+        torch.manual_seed(0)
+        values_cpu = torch.randn(34, dtype=torch.float16)
+        logits_cpu = torch.randn(17, 8)
+
+        with torch.inference_mode():
+            _, top_k_indices_cpu = logits_cpu.topk(2, dim=1)
+            _, index_sorted_cpu = top_k_indices_cpu.flatten().sort(0)
+            expected = values_cpu[index_sorted_cpu]
+
+            _, top_k_indices_vulkan = logits_cpu.to("vulkan").topk(2, dim=1)
+            _, index_sorted_vulkan = top_k_indices_vulkan.flatten().sort(0)
+            actual = values_cpu.to("vulkan")[index_sorted_vulkan].cpu()
+
+        self._assert_outputs_close(expected, actual)
+
+    def test_index_add_with_vulkan_inputs(self):
+        torch.manual_seed(0)
+        source_cpu = torch.randn(34, 8, dtype=torch.float16)
+        index_cpu = torch.tensor(
+            [0, 2, 0, 3, 1, 2, 4, 0, 5, 3, 1, 5, 4, 2, 0, 1, 3,
+             4, 5, 2, 1, 0, 3, 4, 5, 2, 1, 0, 3, 4, 5, 2, 1, 0],
+            dtype=torch.long,
+        )
+
+        with torch.inference_mode():
+            expected = torch.zeros((6, 8), dtype=torch.float16).index_add(
+                0,
+                index_cpu,
+                source_cpu,
+            )
+            actual = torch.zeros((6, 8), dtype=torch.float16, device="vulkan").index_add(
+                0,
+                index_cpu.to("vulkan"),
+                source_cpu.to("vulkan"),
+            ).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=1e-3, rtol=1e-3)
 
     def test_index_select_dim0_with_texture_derived_vulkan_weight_and_cpu_indices(self):
         torch.manual_seed(0)
@@ -1490,12 +1587,16 @@ print("OK")
                 dtype=torch.float32,
                 device=torch.device("vulkan"),
             )
-            expected_keep = (
-                torch.arange(8).unsqueeze(1) >= torch.arange(8).unsqueeze(0)
-            ).unsqueeze(0).unsqueeze(0)
+            expected = converter.to_causal_4d(
+                batch_size=1,
+                query_length=8,
+                key_value_length=8,
+                dtype=torch.float32,
+                device=torch.device("cpu"),
+            )
             mask_cpu = mask.cpu()
             assert mask_cpu.shape == (1, 1, 8, 8)
-            assert torch.equal(torch.isneginf(mask_cpu), expected_keep.logical_not())
+            assert torch.equal(mask_cpu, expected)
             print(float(mask_cpu[:, :, -1, -1].item()))
             """
         )
@@ -1858,6 +1959,30 @@ print("OK")
         zeros = torch.zeros((2, 3), dtype=torch.bfloat16, device="vulkan")
         self.assertEqual(zeros.cpu(), torch.zeros((2, 3), dtype=torch.bfloat16))
 
+    def test_mixed_float_bfloat16_binary_tensor_promotes_to_float(self):
+        torch.manual_seed(0)
+        x = torch.randn(1, 17, 384, dtype=torch.float32)
+        gamma = torch.randn(384, dtype=torch.bfloat16)
+
+        with torch.inference_mode():
+            previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                "depth.dino.backbone.block"
+            )
+            try:
+                x_vulkan = x.to("vulkan")
+                gamma_vulkan = gamma.to("vulkan")
+                actual_cpu_other = (x_vulkan + gamma).cpu()
+                actual_vulkan_other = (x_vulkan + gamma_vulkan).cpu()
+            finally:
+                torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+        expected = x + gamma
+        self.assertEqual(actual_cpu_other.dtype, torch.float32)
+        self.assertEqual(actual_vulkan_other.dtype, torch.float32)
+        self._assert_outputs_close(expected, actual_cpu_other, atol=1e-4, rtol=1e-4)
+        self._assert_outputs_close(
+            expected, actual_vulkan_other, atol=1e-4, rtol=1e-4)
+
     def test_half_tensor_roundtrip_and_labeled_roundtrip(self):
         src = torch.tensor([[1.0, -0.5, 3.25], [4.0, 5.5, -6.0]], dtype=torch.float16)
         vulkan = src.to("vulkan")
@@ -1880,6 +2005,23 @@ print("OK")
             vulkan = src.to("vulkan")
             self.assertTrue(vulkan.is_vulkan)
             self.assertEqual(vulkan.cpu(), src)
+
+    def test_full_range_python_indexing_on_half_vulkan_tensor(self):
+        torch.manual_seed(0)
+        src = torch.randn(1, 8, 2048, dtype=torch.float16)
+        vulkan = src.to("vulkan")
+
+        with torch.inference_mode():
+            self._assert_outputs_close(
+                src,
+                vulkan[:, :, :].cpu(),
+                atol=1e-3,
+                rtol=1e-3)
+            self._assert_outputs_close(
+                src,
+                vulkan[:, 0:, :].cpu(),
+                atol=1e-3,
+                rtol=1e-3)
 
     def test_module_to_vulkan_with_bfloat16_buffer(self):
         class BufferModule(nn.Module):
@@ -1950,6 +2092,27 @@ print("OK")
 
         self.assertEqual(module.linear.weight.device.type, "vulkan")
         self.assertEqual(module.buffer_holder.ids.device.type, "cpu")
+
+    def test_half_vulkan_parameter_select_in_inference_mode(self):
+        class ExpertWeights(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = nn.Parameter(torch.randn(4, 8, 3, dtype=torch.float16))
+
+            def forward(self, index):
+                return self.weight[index]
+
+        torch.manual_seed(0)
+        module_cpu = ExpertWeights().eval()
+        module_vulkan = ExpertWeights().eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+
+        with torch.inference_mode():
+            expected = module_cpu(0)
+            actual = module_vulkan(0).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=1e-3, rtol=1e-3)
 
     def test_vulkan_autocast_context_is_available(self):
         self.assertTrue(torch.amp.is_autocast_available("vulkan"))
@@ -2156,6 +2319,34 @@ print("OK")
 
         self._assert_outputs_close(expected_mul, actual_mul, atol=1e-4, rtol=1e-4)
         self._assert_outputs_close(expected_add, actual_add, atol=1e-4, rtol=1e-4)
+
+    def test_float_buffer_view_inplace_binary_ops(self):
+        torch.manual_seed(0)
+        x = torch.randn(1, 17, 384, dtype=torch.float32)
+        gamma = torch.randn(384, dtype=torch.float32)
+
+        with torch.inference_mode():
+            expected_tensor = x.clone()
+            expected_tensor[:, 1:, :] *= gamma
+            expected_scalar = x.clone()
+            expected_scalar[:, 1:, :] *= 0.5
+
+            previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                "depth.dino.backbone.block"
+            )
+            try:
+                tensor_case = x.to("vulkan")
+                tensor_case[:, 1:, :] *= gamma.to("vulkan")
+                actual_tensor = tensor_case.cpu()
+
+                scalar_case = x.to("vulkan")
+                scalar_case[:, 1:, :] *= 0.5
+                actual_scalar = scalar_case.cpu()
+            finally:
+                torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+        self._assert_outputs_close(expected_tensor, actual_tensor, atol=1e-4, rtol=1e-4)
+        self._assert_outputs_close(expected_scalar, actual_scalar, atol=1e-4, rtol=1e-4)
 
     def test_float_buffer_gelu_ops(self):
         torch.manual_seed(0)
@@ -3616,6 +3807,160 @@ print("OK")
             actual = y_vk.cpu()
 
         self._assert_outputs_close(expected, actual)
+
+    def test_vulkan_vision_backbone_context_uses_explicit_planning_scope(self):
+        policy_log_name = "vulkan_vision_backbone_planning_scope_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        policy_log_path = os.path.join(repo_root, policy_log_name)
+        if os.path.exists(policy_log_path):
+            os.remove(policy_log_path)
+
+        try:
+            script = """
+                import torch
+
+                assert hasattr(torch.ops.vulkan_prepack, "create_vision_backbone_block_context")
+                assert hasattr(torch.ops.vulkan_prepack, "run_vision_backbone_block_context")
+
+                torch.manual_seed(0)
+                embed_dim = 32
+                hidden_dim = 64
+                num_heads = 4
+                token_count = 17
+
+                context = torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    1e-5,
+                    torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim * 3, dtype=torch.float32),
+                    num_heads,
+                    torch.randn(embed_dim, embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    1e-5,
+                    torch.randn(hidden_dim, embed_dim, dtype=torch.float32),
+                    torch.randn(hidden_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, hidden_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    "block0",
+                )
+                x = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    y = torch.ops.vulkan_prepack.run_vision_backbone_block_context(x, context)
+
+                print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_POLICY_LOG": policy_log_name,
+                },
+                error_prefix="Vision backbone planning-scope subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(policy_log_path))
+            with open(policy_log_path, "r", encoding="utf-8") as log_file:
+                policy_log_text = log_file.read()
+
+            vision_policy_lines = [
+                line
+                for line in policy_log_text.splitlines()
+                if "runtime_policy workload=VisionBackbone model_domain=Vision execution_phase=Backbone"
+                in line
+            ]
+            self.assertGreaterEqual(len(vision_policy_lines), 3)
+            for line in vision_policy_lines:
+                self.assertIn("inferred_from_label=0", line)
+        finally:
+            if os.path.exists(policy_log_path):
+                os.remove(policy_log_path)
+
+    def test_vulkan_qwen_linear_attention_prefill_context_uses_explicit_planning_scope(self):
+        policy_log_name = "vulkan_qwen_prefill_planning_scope_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        policy_log_path = os.path.join(repo_root, policy_log_name)
+        if os.path.exists(policy_log_path):
+            os.remove(policy_log_path)
+
+        try:
+            script = """
+                import torch
+
+                assert hasattr(torch.ops.vulkan_prepack, "create_qwen_linear_attention_prefill_context")
+                assert hasattr(torch.ops.vulkan_prepack, "run_qwen_linear_attention_prefill_context")
+
+                torch.manual_seed(0)
+                batch_size, seq_len, hidden_size = 1, 17, 16
+                num_k_heads, num_v_heads = 2, 4
+                head_k_dim, head_v_dim = 4, 3
+                key_dim = num_k_heads * head_k_dim
+                value_dim = num_v_heads * head_v_dim
+                qkv_out = key_dim * 2 + value_dim
+
+                context = torch.ops.vulkan_prepack.create_qwen_linear_attention_prefill_context(
+                    torch.randn(qkv_out, hidden_size, dtype=torch.float32),
+                    torch.randn(value_dim, hidden_size, dtype=torch.float32),
+                    torch.randn(num_v_heads, hidden_size, dtype=torch.float32),
+                    torch.randn(num_v_heads, hidden_size, dtype=torch.float32),
+                    torch.randn(hidden_size, value_dim, dtype=torch.float32),
+                    torch.randn(qkv_out, 1, 4, dtype=torch.float32),
+                    None,
+                    torch.randn(head_v_dim, dtype=torch.float32),
+                    torch.randn(num_v_heads, dtype=torch.float32),
+                    torch.randn(num_v_heads, dtype=torch.float32),
+                    key_dim,
+                    value_dim,
+                    head_k_dim,
+                    head_v_dim,
+                    num_k_heads,
+                    num_v_heads,
+                    8,
+                    1.0e-6,
+                    "block0",
+                )
+                x = torch.randn(batch_size, seq_len, hidden_size, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    y = torch.ops.vulkan_prepack.run_qwen_linear_attention_prefill_context(x, context)
+
+                print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_POLICY_LOG": policy_log_name,
+                },
+                error_prefix="Qwen planning-scope subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(policy_log_path))
+            with open(policy_log_path, "r", encoding="utf-8") as log_file:
+                policy_log_text = log_file.read()
+
+            llm_prefill_lines = [
+                line
+                for line in policy_log_text.splitlines()
+                if "runtime_policy workload=LLMDecode model_domain=LLM execution_phase=Prefill"
+                in line
+            ]
+            self.assertGreaterEqual(len(llm_prefill_lines), 5)
+            for line in llm_prefill_lines:
+                self.assertIn("inferred_from_label=0", line)
+
+            self.assertNotIn(
+                "runtime_policy workload=LinearMatmul model_domain=Generic execution_phase=None tensor_role=Input",
+                policy_log_text,
+            )
+        finally:
+            if os.path.exists(policy_log_path):
+                os.remove(policy_log_path)
 
     def test_vulkan_vision_backbone_block_context_matches_reference(self):
         torch.manual_seed(0)
@@ -5176,7 +5521,13 @@ print("OK")
                 import torch
 
                 torch.manual_seed(0)
-                src = torch.randn(1, 1, 9, 8, dtype=torch.float32).to("vulkan")
+                src_cpu = torch.randn(1, 1, 9, 8, dtype=torch.float32)
+                src = torch.empty(
+                    src_cpu.shape,
+                    dtype=src_cpu.dtype,
+                    device="vulkan",
+                )
+                src.copy_(src_cpu)
 
                 with torch.inference_mode():
                     x = src.reshape(1, 9, 8)
@@ -5552,7 +5903,13 @@ print("OK")
                 import torch
 
                 torch.manual_seed(0)
-                x = torch.randn(1, 8, 3, 3, dtype=torch.float32).to("vulkan")
+                x_cpu = torch.randn(1, 8, 3, 3, dtype=torch.float32)
+                x = torch.empty(
+                    x_cpu.shape,
+                    dtype=x_cpu.dtype,
+                    device="vulkan",
+                )
+                x.copy_(x_cpu)
 
                 with torch.inference_mode():
                     y = torch.ops.vulkan_prepack.feature_map_to_tokens(x)
@@ -5732,7 +6089,7 @@ print("OK")
             if os.path.exists(log_path):
                 os.remove(log_path)
 
-    def test_texture_contiguous_reshape_hits_backend_fast_path(self):
+    def test_texture_contiguous_reshape_width_unaligned_keeps_values(self):
         log_name = "texture_contiguous_reshape_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         log_path = os.path.join(repo_root, log_name)
@@ -5742,18 +6099,25 @@ print("OK")
         try:
             script = """
                 import torch
-                import torch.nn.functional as F
 
                 torch.manual_seed(0)
-                x = torch.randn(1, 17, 8, dtype=torch.float32).to("vulkan")
-                weight = torch.randn(24, 8, dtype=torch.float32).to("vulkan")
-                bias = torch.randn(24, dtype=torch.float32).to("vulkan")
+                x_cpu = torch.randn(1, 24, 3, 3, dtype=torch.float32)
+                x = torch.empty(
+                    x_cpu.shape,
+                    dtype=x_cpu.dtype,
+                    device="vulkan",
+                )
+                x.copy_(x_cpu)
 
                 with torch.inference_mode():
-                    qkv = F.linear(x, weight, bias).reshape(1, 17, 3, 8)
-                    q = qkv[:, :, 0].reshape(1, 17, 2, 4)
-                    q = q.permute(0, 2, 1, 3).reshape(2, 17, 4)
-                    print(float(q.cpu().sum()))
+                    y = x.reshape(1, 9, 24)
+                    torch.testing.assert_close(
+                        y.cpu(),
+                        x_cpu.reshape(1, 9, 24),
+                        atol=1e-4,
+                        rtol=1e-4,
+                    )
+                    print("ok")
             """
 
             self._run_repo_python_subprocess(
@@ -5766,9 +6130,10 @@ print("OK")
             with open(log_path, "r", encoding="utf-8") as log_file:
                 log_text = log_file.read()
 
-            self.assertIn(
-                "op=aten::view.texture_contiguous_reshape",
-                log_text,
+            self.assertIn("op=aten::reshape.vulkan_view", log_text)
+            self.assertIn("op=aten::view.texture_contiguous_reshape", log_text)
+            self.assertNotIn(
+                "op=aten::view.texture_to_buffer_metadata_reshape", log_text
             )
         finally:
             if os.path.exists(log_path):

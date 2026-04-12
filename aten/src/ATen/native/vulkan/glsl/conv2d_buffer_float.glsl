@@ -3,8 +3,6 @@
 #define PRECISION ${PRECISION}
 #define FORMAT ${FORMAT}
 
-#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
-
 layout(std430) buffer;
 
 layout(set = 0, binding = 0) buffer PRECISION restrict writeonly OutBuffer {
@@ -21,7 +19,7 @@ layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
 uOutMeta;
 
 layout(set = 0, binding = 2) buffer PRECISION restrict readonly InBuffer {
-  uint16_t data[];
+  float data[];
 }
 uInput;
 
@@ -34,7 +32,7 @@ layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
 uInMeta;
 
 layout(set = 0, binding = 4) buffer PRECISION restrict readonly WeightBuffer {
-  uint16_t data[];
+  float data[];
 }
 uWeight;
 
@@ -62,14 +60,11 @@ uBiasMeta;
 layout(set = 0, binding = 8) uniform PRECISION restrict Block {
   ivec4 stride_pad;
   ivec4 dilation_groups;
+  vec4 clamp_thresh;
 }
 uBlock;
 
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
-
-float bfloat16_to_float(uint16_t raw) {
-  return uintBitsToFloat(uint(raw) << 16);
-}
 
 void main() {
   const uint out_x = gl_GlobalInvocationID.x;
@@ -130,8 +125,7 @@ void main() {
             icg * uWeightMeta.physical_strides.z +
             out_channel * uWeightMeta.physical_strides.w;
 
-        acc += bfloat16_to_float(uInput.data[input_idx]) *
-            bfloat16_to_float(uWeight.data[weight_idx]);
+        acc += uInput.data[input_idx] * uWeight.data[weight_idx];
       }
     }
   }
@@ -147,5 +141,6 @@ void main() {
       out_y * uOutMeta.physical_strides.y +
       out_channel * uOutMeta.physical_strides.z +
       batch * uOutMeta.physical_strides.w;
-  uOutput.data[out_idx] = acc;
+  uOutput.data[out_idx] =
+      clamp(acc, uBlock.clamp_thresh.x, uBlock.clamp_thresh.y);
 }

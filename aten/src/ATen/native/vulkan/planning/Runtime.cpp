@@ -4,6 +4,7 @@
 #include <ATen/native/vulkan/planning\Request.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
 #include <ATen/native/vulkan/planning/Scheduler.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 
 #include <array>
 #include <atomic>
@@ -356,6 +357,58 @@ const char* attention_kernel_family_name(
       return "SplitCoordinator";
   }
   return "TextureMath";
+}
+
+void log_linear_kernel_family_choice(
+    const VulkanRuntimePolicy& runtime_policy) {
+  switch (runtime_policy.linear_kernel_family) {
+    case VulkanLinearKernelFamily::TexturePacked:
+      log_vulkan_op_hit("aten::linear.family_texture_packed");
+      break;
+    case VulkanLinearKernelFamily::UnifiedBufferView:
+      log_vulkan_op_hit("aten::linear.family_unified_buffer_view");
+      break;
+    case VulkanLinearKernelFamily::PersistentPackedTexture:
+      log_vulkan_op_hit("aten::linear.family_persistent_packed_texture");
+      break;
+  }
+}
+
+void log_norm_kernel_family_choice(
+    const VulkanRuntimePolicy& runtime_policy) {
+  switch (runtime_policy.norm_kernel_family) {
+    case VulkanNormKernelFamily::TextureWidth:
+      log_vulkan_op_hit("aten::norm.family_texture_width");
+      break;
+    case VulkanNormKernelFamily::SharedMemoryWidth:
+      log_vulkan_op_hit("aten::norm.family_shared_memory_width");
+      break;
+    case VulkanNormKernelFamily::UnifiedBufferView:
+      log_vulkan_op_hit("aten::norm.family_unified_buffer_view");
+      break;
+  }
+}
+
+void log_attention_kernel_family_choice(
+    const VulkanRuntimePolicy& runtime_policy) {
+  switch (runtime_policy.attention_kernel_family) {
+    case VulkanAttentionKernelFamily::TextureMath:
+      log_vulkan_op_hit(
+          "aten::scaled_dot_product_attention.family_texture_math");
+      break;
+    case VulkanAttentionKernelFamily::BufferMath:
+      log_vulkan_op_hit(
+          "aten::scaled_dot_product_attention.family_buffer_math");
+      break;
+    case VulkanAttentionKernelFamily::CacheAwareTexture:
+      log_vulkan_op_hit(
+          "aten::scaled_dot_product_attention.family_cache_aware_texture");
+      break;
+    case VulkanAttentionKernelFamily::SplitCoordinator:
+      log_vulkan_op_hit(
+          "aten::scaled_dot_product_attention.family_split_coordinator");
+      break;
+  }
 }
 
 const char* execution_program_kind_name(

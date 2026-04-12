@@ -62,16 +62,6 @@ std::optional<Tensor> normalize_initial_state(
   return to_cpu_float(*initial_state);
 }
 
-utils::VulkanPlanningRequest gated_delta_request(
-    const utils::VulkanExecutionPhase execution_phase,
-    const utils::VulkanTensorRole tensor_role) {
-  return utils::make_vulkan_planning_request(
-      utils::VulkanWorkloadClass::LLMDecode,
-      tensor_role,
-      utils::VulkanModelDomain::LLM,
-      execution_phase);
-}
-
 size_t tensor_nbytes(const Tensor& tensor) {
   if (!tensor.defined()) {
     return 0u;
@@ -100,7 +90,8 @@ utils::VulkanRuntimePolicy prime_gated_delta_runtime(
     const std::optional<Tensor>& initial_state,
     const char* scratch_label_suffix) {
   const auto input_request =
-      gated_delta_request(execution_phase, utils::VulkanTensorRole::Input);
+      utils::make_vulkan_llm_runtime_request(
+          execution_phase, utils::VulkanTensorRole::Input);
   const auto runtime_policy = utils::build_vulkan_runtime_policy(input_request);
   if (!query.is_vulkan()) {
     return runtime_policy;
@@ -237,7 +228,7 @@ Tensor prepare_gated_delta_buffer_tensor(
   return utils::prepare_vulkan_direct_buffer_execution_tensor(
       tensor,
       utils::VulkanExecutionPlanKind::ElementwiseBufferInput,
-      gated_delta_request(execution_phase, tensor_role));
+      utils::make_vulkan_llm_runtime_request(execution_phase, tensor_role));
 }
 
 std::tuple<Tensor, std::optional<Tensor>> run_gated_delta_rule_recurrent_native(

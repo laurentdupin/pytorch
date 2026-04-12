@@ -28,19 +28,6 @@ enum class LinearPostOp : uint8_t {
   Gelu,
 };
 
-utils::VulkanPlanningRequest linear_request(
-    const utils::VulkanTensorRole role) {
-  return utils::make_vulkan_planning_request(
-      utils::VulkanWorkloadClass::LinearMatmul, role);
-}
-
-utils::VulkanPlanningRequest linear_request(
-    const Tensor& input,
-    const utils::VulkanTensorRole role) {
-  return utils::make_vulkan_tensor_planning_request(
-      input, utils::VulkanWorkloadClass::LinearMatmul, role);
-}
-
 size_t linear_runtime_scratch_bytes(const Tensor& input) {
   return std::max<size_t>(
       128u * 1024u,
@@ -49,7 +36,7 @@ size_t linear_runtime_scratch_bytes(const Tensor& input) {
 }
 
 Tensor upcast_half_linear_tensor_for_packing(const Tensor& tensor) {
-  if (tensor.scalar_type() != kHalf) {
+  if (tensor.scalar_type() != kHalf && tensor.scalar_type() != kBFloat16) {
     return tensor;
   }
 
@@ -102,7 +89,8 @@ Tensor upload_linear_tensor_to_buffer(
 }
 
 bool is_float_or_half_tensor(const Tensor& tensor) {
-  return tensor.scalar_type() == kFloat || tensor.scalar_type() == kHalf;
+  return tensor.scalar_type() == kFloat || tensor.scalar_type() == kHalf ||
+      tensor.scalar_type() == kBFloat16;
 }
 
 bool can_run_half_buffer_linear(
@@ -165,28 +153,6 @@ c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
           false));
   utils::store_linear_context(weight, bias, context);
   return context;
-}
-
-const std::string& linear_runtime_label(
-    const c10::intrusive_ptr<LinearPackedContext>& linear_context,
-    const char* fallback) {
-  if (
-      linear_context &&
-      !linear_context->allocation_label().empty()) {
-    return linear_context->allocation_label();
-  }
-  static const std::string kLinearLabel = "linear";
-  static const std::string kBmmLabel = "bmm";
-  return std::string(fallback) == "bmm" ? kBmmLabel : kLinearLabel;
-}
-
-std::string linear_pack_label(
-    const std::string& allocation_label,
-    const bool use_batch) {
-  if (allocation_label.empty()) {
-    return use_batch ? "bmm.pack" : "linear.pack";
-  }
-  return allocation_label + ".pack";
 }
 
 inline bool has_bias(const std::optional<Tensor>& bias) {
@@ -300,21 +266,6 @@ bool linear_kernel_family_allows_channel_packed_input(
       return true;
   }
   return true;
-}
-
-void log_linear_kernel_family_choice(
-    const utils::VulkanRuntimePolicy& runtime_policy) {
-  switch (runtime_policy.linear_kernel_family) {
-    case utils::VulkanLinearKernelFamily::TexturePacked:
-      utils::log_vulkan_op_hit("aten::linear.family_texture_packed");
-      break;
-    case utils::VulkanLinearKernelFamily::UnifiedBufferView:
-      utils::log_vulkan_op_hit("aten::linear.family_unified_buffer_view");
-      break;
-    case utils::VulkanLinearKernelFamily::PersistentPackedTexture:
-      utils::log_vulkan_op_hit("aten::linear.family_persistent_packed_texture");
-      break;
-  }
 }
 
 Tensor reshape_linear_output_if_needed(
@@ -950,7 +901,8 @@ vTensor pack_inputs_using_width_packing(
 vTensor pack_inputs_using_width_packing(const Tensor& input_arg) {
   return pack_inputs_using_width_packing(
       input_arg,
-      linear_request(input_arg, utils::VulkanTensorRole::Input));
+      utils::make_vulkan_tensor_linear_request(
+          input_arg, utils::VulkanTensorRole::Input));
 }
 
 vTensor pack_weights_using_height_packing(const Tensor& weight_arg) {
@@ -972,7 +924,7 @@ vTensor pack_weights_using_height_packing(const Tensor& weight_arg) {
   const Tensor weight = utils::prepare_vulkan_execution_tensor(
       weight_arg,
       utils::VulkanExecutionPlanKind::LinearPackedWeight,
-      linear_request(utils::VulkanTensorRole::Weight));
+      utils::make_vulkan_linear_request(utils::VulkanTensorRole::Weight));
 
   vTensor v_weight = convert(weight);
 
@@ -1058,7 +1010,7 @@ vTensor pack_biases(
     Tensor bias = utils::prepare_vulkan_execution_tensor(
         *bias_arg,
         utils::VulkanExecutionPlanKind::LinearPackedBias,
-        linear_request(utils::VulkanTensorRole::Bias));
+        utils::make_vulkan_linear_request(utils::VulkanTensorRole::Bias));
     return convert(bias);
   } else {
     return convert(at::zeros({1}, at::device(at::kVulkan).dtype(at::kFloat)));
@@ -1079,7 +1031,7 @@ vTensor pack_biases_quantized_weights(
     Tensor bias = utils::prepare_vulkan_execution_tensor(
         *bias_arg,
         utils::VulkanExecutionPlanKind::TextureComputeInput,
-        linear_request(utils::VulkanTensorRole::Bias));
+        utils::make_vulkan_linear_request(utils::VulkanTensorRole::Bias));
     return convert(bias);
   }
 
@@ -1268,6 +1220,7 @@ bool available(
       ((weight.device().is_cpu()) ||
        (c10::DeviceType::Vulkan == weight.device().type())) &&
       (kFloat == weight.scalar_type() || kHalf == weight.scalar_type() ||
+       kBFloat16 == weight.scalar_type() ||
        kQInt8 == weight.scalar_type());
   if (!weight_available) {
     return false;
@@ -1279,7 +1232,8 @@ bool available(
               ((bias->device().is_cpu()) ||
                (c10::DeviceType::Vulkan == bias->device().type())) &&
               (kFloat == bias->scalar_type() ||
-               kHalf == bias->scalar_type()) &&
+               kHalf == bias->scalar_type() ||
+               kBFloat16 == bias->scalar_type()) &&
               ((bias->ndimension() > 1)
                    ? (bias->size(Layout::Parameter::width) ==
                       weight.size(Layout::Parameter::width))
@@ -1475,7 +1429,7 @@ Tensor run_bfloat16_buffer_linear(
   std::optional<Tensor> bias = utils::prepare_optional_vulkan_execution_tensor(
       bias_arg,
       utils::VulkanExecutionPlanKind::LinearBiasSource,
-      linear_request(utils::VulkanTensorRole::Bias));
+      utils::make_vulkan_linear_request(utils::VulkanTensorRole::Bias));
   if (bias && bias->defined()) {
     if (!bias->is_vulkan()) {
       *bias = bias->vulkan();
@@ -1719,12 +1673,15 @@ Tensor run_addmm_context(
     bool quantized,
     double output_scale,
     int64_t output_zero_point,
-    const LinearPostOp post_op = LinearPostOp::None,
-    Tensor* output_opt = nullptr) {
+  const LinearPostOp post_op = LinearPostOp::None,
+  Tensor* output_opt = nullptr) {
   const auto input_request =
-      linear_request(input_arg, utils::VulkanTensorRole::Input);
+      utils::make_vulkan_tensor_linear_request(
+          input_arg, utils::VulkanTensorRole::Input);
   api::AllocationScope allocation_scope(
-      linear_runtime_label(linear_context, "linear"));
+      utils::resolve_vulkan_linear_runtime_label(
+          linear_context ? linear_context->allocation_label() : std::string(),
+          "linear"));
   if (quantized) {
     return run_quantized_addmm_context(
         input_arg,
@@ -1991,7 +1948,8 @@ Tensor run_baddbmm_context(
     const float beta,
     const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
   const auto input_request =
-      linear_request(input_arg, utils::VulkanTensorRole::Input);
+      utils::make_vulkan_tensor_linear_request(
+          input_arg, utils::VulkanTensorRole::Input);
   api::AllocationScope allocation_scope("bmm");
   // TODO: Refactor run_baddbmm_context and run_addmm_context into one.
   api::Context* const context = api::context();
@@ -2157,25 +2115,35 @@ Tensor linear(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
   utils::log_vulkan_op_hit("aten::linear");
+  const Tensor effective_weight =
+      weight.requires_grad() ? weight.detach() : weight;
+  const std::optional<Tensor> effective_bias =
+      (bias && bias->defined() && bias->requires_grad())
+      ? std::optional<Tensor>(bias->detach())
+      : bias;
   const Tensor linear_input = input.dim() == 2 ? input : reshape_to_2d(input);
-  const Tensor linear_weight = weight.is_vulkan() ? weight : weight.vulkan();
+  const Tensor linear_weight = effective_weight.is_vulkan()
+      ? effective_weight
+      : effective_weight.vulkan();
   const std::optional<Tensor> linear_bias =
-      (bias && bias->defined() && !bias->is_vulkan()) ? bias->vulkan() : bias;
+      (effective_bias && effective_bias->defined() && !effective_bias->is_vulkan())
+      ? effective_bias->vulkan()
+      : effective_bias;
 
   if (can_run_bfloat16_buffer_linear(
           linear_input, linear_weight, linear_bias)) {
     return run_bfloat16_buffer_linear(input, linear_weight, linear_bias);
   }
 
-  if (can_run_half_buffer_linear(input, weight, bias)) {
-    return run_half_buffer_linear(input, weight, bias);
+  if (can_run_half_buffer_linear(input, effective_weight, effective_bias)) {
+    return run_half_buffer_linear(input, effective_weight, effective_bias);
   }
 
   return run_addmm_context(
       input,
       1.0f,
       1.0f,
-      get_or_create_linear_context(weight, bias),
+      get_or_create_linear_context(effective_weight, effective_bias),
       false,
       0,
       0);
@@ -2278,7 +2246,8 @@ LinearPackedContext::LinearPackedContext(
     : unpacked_{c10::AnyType::get()} {
   allocation_label_ = std::move(allocation_label);
   api::AllocationScope allocation_scope(
-      linear_pack_label(allocation_label_, use_batch));
+      utils::make_vulkan_linear_pack_label(
+          allocation_label_, use_batch ? "bmm.pack" : "linear.pack"));
   const auto normalized_bias = utils::normalized_optional_tensor(bias);
   const std::vector<int64_t> logical_weight_sizes = weight.sizes().vec();
   constexpr uint64_t kLinearBatchPackOption = 1u;
@@ -2345,12 +2314,12 @@ LinearPackedContext::LinearPackedContext(
       const Tensor packed_weight = utils::prepare_vulkan_execution_tensor(
           pack_source_weight,
           utils::VulkanExecutionPlanKind::LinearWeightSource,
-          linear_request(utils::VulkanTensorRole::Weight));
+          utils::make_vulkan_linear_request(utils::VulkanTensorRole::Weight));
       const std::optional<Tensor> packed_bias =
           utils::prepare_optional_vulkan_execution_tensor(
               pack_source_bias,
               utils::VulkanExecutionPlanKind::LinearBiasSource,
-              linear_request(utils::VulkanTensorRole::Bias));
+              utils::make_vulkan_linear_request(utils::VulkanTensorRole::Bias));
       const Tensor texture_compute_weight =
           upcast_half_linear_tensor_for_packing(packed_weight);
       const std::optional<Tensor> texture_compute_bias =

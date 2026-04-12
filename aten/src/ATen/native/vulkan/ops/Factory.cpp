@@ -17,9 +17,23 @@ api::GPUMemoryLayout default_memory_layout_for_storage_type(
 
 bool should_force_low_rank_float_buffer_storage(
     const IntArrayRef sizes,
+    const std::optional<MemoryFormat> memory_format,
     const std::optional<ScalarType> dtype) {
-  return dtype && c10::isFloatingType(*dtype) && sizes.size() >= 1 &&
-      sizes.size() <= 3 && c10::multiply_integers(sizes) > 0;
+  if (
+      !dtype || !c10::isFloatingType(*dtype) || sizes.size() < 1 ||
+      c10::multiply_integers(sizes) <= 0) {
+    return false;
+  }
+  if (sizes.size() <= 3) {
+    return true;
+  }
+  // Tensor.to("vulkan") commonly allocates through empty_strided with an
+  // explicit contiguous memory format. Route 4D contiguous activations to the
+  // generic buffer path while leaving bare torch.empty(..., device="vulkan")
+  // texture-backed so tests and callers can still request the legacy texture
+  // path without a separate API.
+  return sizes.size() == 4 && memory_format &&
+      *memory_format == c10::MemoryFormat::Contiguous;
 }
 
 api::StorageType choose_storage_type(
@@ -32,7 +46,7 @@ api::StorageType choose_storage_type(
     return api::StorageType::BUFFER;
   }
 
-  if (should_force_low_rank_float_buffer_storage(sizes, dtype)) {
+  if (should_force_low_rank_float_buffer_storage(sizes, memory_format, dtype)) {
     return api::StorageType::BUFFER;
   }
 

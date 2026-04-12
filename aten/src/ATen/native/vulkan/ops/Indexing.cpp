@@ -1,11 +1,19 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <optional>
+#include <tuple>
 #include <torch/library.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
 #else
 #include <ATen/ops/empty.h>
+#include <ATen/ops/index.h>
+#include <ATen/ops/index_add.h>
+#include <ATen/ops/scatter.h>
+#include <ATen/ops/sort.h>
+#include <ATen/ops/topk.h>
 #endif
 
 namespace at {
@@ -18,6 +26,20 @@ using namespace api::utils;
 
 bool buffer_allocation_is_host_visible(const vTensor& tensor) {
   return tensor.buffer_uses_host_visible_allocation();
+}
+
+Tensor upload_cpu_result_to_vulkan(
+    const Tensor& cpu_result,
+    IntArrayRef output_sizes,
+    const Tensor& prototype) {
+  const Tensor reshaped_cpu = cpu_result.reshape(output_sizes).contiguous();
+  Tensor output = at::empty(
+      output_sizes,
+      prototype.options()
+          .device(at::kVulkan)
+          .dtype(reshaped_cpu.scalar_type()));
+  ops::copy_(output, reshaped_cpu);
+  return output;
 }
 
 Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
@@ -90,7 +112,8 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
       buffer_allocation_is_host_visible(v_weight)) {
     Tensor cpu_result =
         weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
-    return cpu_result.reshape(output_sizes).vulkan();
+    return upload_cpu_result_to_vulkan(
+        cpu_result, output_sizes, weight_arg);
   }
 
   if (
@@ -102,7 +125,8 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
     // moving the selected rows back to Vulkan.
     Tensor cpu_result =
         weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
-    return cpu_result.reshape(output_sizes).vulkan();
+    return upload_cpu_result_to_vulkan(
+        cpu_result, output_sizes, weight_arg);
   }
 
   if (weight_arg.scalar_type() != kFloat) {
@@ -118,7 +142,8 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
       // the selected rows back to Vulkan.
       Tensor cpu_result =
           weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
-      return cpu_result.reshape(output_sizes).vulkan();
+      return upload_cpu_result_to_vulkan(
+          cpu_result, output_sizes, weight_arg);
     }
   }
 
@@ -128,7 +153,8 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
     // the rows on CPU, then move the gathered result back to Vulkan.
     Tensor cpu_result =
         weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
-    return cpu_result.reshape(output_sizes).vulkan();
+    return upload_cpu_result_to_vulkan(
+        cpu_result, output_sizes, weight_arg);
   }
 
   if (weight_arg.scalar_type() == kFloat) {
@@ -317,11 +343,296 @@ Tensor embedding(
   return gather_rows_2d(weight, indices);
 }
 
+std::tuple<Tensor, Tensor> topk(
+    const Tensor& self,
+    c10::SymInt k,
+    int64_t dim,
+    bool largest,
+    bool sorted) {
+  Tensor values_cpu;
+  Tensor indices_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    std::tie(values_cpu, indices_cpu) =
+        at::topk(
+            self.detach().cpu(),
+            k.guard_int(__FILE__, __LINE__),
+            dim,
+            largest,
+            sorted);
+  }
+  return std::make_tuple(
+      upload_cpu_result_to_vulkan(values_cpu, values_cpu.sizes(), self),
+      upload_cpu_result_to_vulkan(indices_cpu, indices_cpu.sizes(), self));
+}
+
+std::tuple<Tensor&, Tensor&> topk_out(
+    const Tensor& self,
+    c10::SymInt k,
+    int64_t dim,
+    bool largest,
+    bool sorted,
+    Tensor& values,
+    Tensor& indices) {
+  auto result = topk(self, k, dim, largest, sorted);
+  Tensor result_values = std::get<0>(result);
+  Tensor result_indices = std::get<1>(result);
+
+  if (values.is_vulkan()) {
+    ops::copy_(values, result_values);
+  } else {
+    values.copy_(result_values.cpu());
+  }
+  if (indices.is_vulkan()) {
+    ops::copy_(indices, result_indices);
+  } else {
+    indices.copy_(result_indices.cpu());
+  }
+  return std::forward_as_tuple(values, indices);
+}
+
+Tensor scatter_value(
+    const Tensor& self,
+    int64_t dim,
+    const Tensor& index,
+    const Scalar& value) {
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    result_cpu =
+        at::scatter(self.detach().cpu(), dim, index.detach().cpu(), value);
+  }
+  return upload_cpu_result_to_vulkan(result_cpu, result_cpu.sizes(), self);
+}
+
+Tensor& scatter_value_out(
+    const Tensor& self,
+    int64_t dim,
+    const Tensor& index,
+    const Scalar& value,
+    Tensor& out) {
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    result_cpu =
+        at::scatter(self.detach().cpu(), dim, index.detach().cpu(), value);
+  }
+
+  if (out.is_vulkan()) {
+    Tensor result =
+        upload_cpu_result_to_vulkan(result_cpu, result_cpu.sizes(), self);
+    ops::copy_(out, result);
+  } else {
+    out.copy_(result_cpu);
+  }
+  return out;
+}
+
+std::tuple<Tensor, Tensor> sort_default(
+    const Tensor& self,
+    int64_t dim,
+    bool descending) {
+  Tensor values_cpu;
+  Tensor indices_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    std::tie(values_cpu, indices_cpu) =
+        at::sort(self.detach().cpu(), dim, descending);
+  }
+  return std::make_tuple(
+      upload_cpu_result_to_vulkan(values_cpu, values_cpu.sizes(), self),
+      upload_cpu_result_to_vulkan(indices_cpu, indices_cpu.sizes(), self));
+}
+
+std::tuple<Tensor, Tensor> sort_stable(
+    const Tensor& self,
+    std::optional<bool> stable,
+    int64_t dim,
+    bool descending) {
+  Tensor values_cpu;
+  Tensor indices_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    std::tie(values_cpu, indices_cpu) =
+        at::sort(self.detach().cpu(), stable, dim, descending);
+  }
+  return std::make_tuple(
+      upload_cpu_result_to_vulkan(values_cpu, values_cpu.sizes(), self),
+      upload_cpu_result_to_vulkan(indices_cpu, indices_cpu.sizes(), self));
+}
+
+std::tuple<Tensor&, Tensor&> sort_values_out(
+    const Tensor& self,
+    int64_t dim,
+    bool descending,
+    Tensor& values,
+    Tensor& indices) {
+  auto result = sort_default(self, dim, descending);
+  Tensor result_values = std::get<0>(result);
+  Tensor result_indices = std::get<1>(result);
+
+  if (values.is_vulkan()) {
+    ops::copy_(values, result_values);
+  } else {
+    values.copy_(result_values.cpu());
+  }
+  if (indices.is_vulkan()) {
+    ops::copy_(indices, result_indices);
+  } else {
+    indices.copy_(result_indices.cpu());
+  }
+  return std::forward_as_tuple(values, indices);
+}
+
+std::tuple<Tensor&, Tensor&> sort_values_stable_out(
+    const Tensor& self,
+    std::optional<bool> stable,
+    int64_t dim,
+    bool descending,
+    Tensor& values,
+    Tensor& indices) {
+  auto result = sort_stable(self, stable, dim, descending);
+  Tensor result_values = std::get<0>(result);
+  Tensor result_indices = std::get<1>(result);
+
+  if (values.is_vulkan()) {
+    ops::copy_(values, result_values);
+  } else {
+    values.copy_(result_values.cpu());
+  }
+  if (indices.is_vulkan()) {
+    ops::copy_(indices, result_indices);
+  } else {
+    indices.copy_(result_indices.cpu());
+  }
+  return std::forward_as_tuple(values, indices);
+}
+
+c10::List<std::optional<Tensor>> materialize_indices_on_cpu(
+    const c10::List<std::optional<Tensor>>& indices) {
+  c10::List<std::optional<Tensor>> cpu_indices;
+  cpu_indices.reserve(indices.size());
+  for (const auto i : c10::irange(indices.size())) {
+    const auto index = indices.get(i);
+    if (index.has_value()) {
+      const Tensor& index_tensor = *index;
+      const Tensor detached_index = index_tensor.detach();
+      cpu_indices.push_back(
+          detached_index.is_vulkan() ? detached_index.cpu() : detached_index);
+    } else {
+      cpu_indices.push_back(std::nullopt);
+    }
+  }
+  return cpu_indices;
+}
+
+Tensor index_tensor(
+    const Tensor& self,
+    const c10::List<std::optional<Tensor>>& indices) {
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor self_cpu =
+        self.is_vulkan() ? self.detach().cpu() : self.detach();
+    result_cpu = at::index(self_cpu, materialize_indices_on_cpu(indices));
+  }
+  return upload_cpu_result_to_vulkan(result_cpu, result_cpu.sizes(), self);
+}
+
+Tensor& index_tensor_out(
+    const Tensor& self,
+    const c10::List<std::optional<Tensor>>& indices,
+    Tensor& out) {
+  Tensor result = index_tensor(self, indices);
+  if (out.is_vulkan()) {
+    ops::copy_(out, result);
+  } else {
+    out.copy_(result.cpu());
+  }
+  return out;
+}
+
+Tensor index_add_default(
+    const Tensor& self,
+    int64_t dim,
+    const Tensor& index,
+    const Tensor& source,
+    const Scalar& alpha) {
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor self_cpu = self.is_vulkan() ? self.detach().cpu() : self.detach();
+    const Tensor index_cpu =
+        index.is_vulkan() ? index.detach().cpu() : index.detach();
+    const Tensor source_cpu =
+        source.is_vulkan() ? source.detach().cpu() : source.detach();
+    result_cpu = at::index_add(self_cpu, dim, index_cpu, source_cpu, alpha);
+  }
+  return upload_cpu_result_to_vulkan(result_cpu, result_cpu.sizes(), self);
+}
+
+Tensor& index_add_out(
+    const Tensor& self,
+    int64_t dim,
+    const Tensor& index,
+    const Tensor& source,
+    const Scalar& alpha,
+    Tensor& out) {
+  Tensor result = index_add_default(self, dim, index, source, alpha);
+  if (out.is_vulkan()) {
+    ops::copy_(out, result);
+  } else {
+    out.copy_(result.cpu());
+  }
+  return out;
+}
+
+Tensor& index_add_(
+    Tensor& self,
+    int64_t dim,
+    const Tensor& index,
+    const Tensor& source,
+    const Scalar& alpha) {
+  Tensor result = index_add_default(self, dim, index, source, alpha);
+  if (self.is_vulkan()) {
+    ops::copy_(self, result);
+  } else {
+    self.copy_(result.cpu());
+  }
+  return self;
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::index_select"), TORCH_FN(index_select));
   m.impl(TORCH_SELECTIVE_NAME("aten::embedding"), TORCH_FN(embedding));
+  m.impl(TORCH_SELECTIVE_NAME("aten::topk"), TORCH_FN(topk));
+  m.impl(TORCH_SELECTIVE_NAME("aten::topk.values"), TORCH_FN(topk_out));
+  m.impl(TORCH_SELECTIVE_NAME("aten::scatter.value"), TORCH_FN(scatter_value));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::scatter.value_out"),
+      TORCH_FN(scatter_value_out));
+  m.impl(TORCH_SELECTIVE_NAME("aten::sort"), TORCH_FN(sort_default));
+  m.impl(TORCH_SELECTIVE_NAME("aten::sort.stable"), TORCH_FN(sort_stable));
+  m.impl(TORCH_SELECTIVE_NAME("aten::sort.values"), TORCH_FN(sort_values_out));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::sort.values_stable"),
+      TORCH_FN(sort_values_stable_out));
+  m.impl(TORCH_SELECTIVE_NAME("aten::index.Tensor"), TORCH_FN(index_tensor));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::index.Tensor_out"),
+      TORCH_FN(index_tensor_out));
+  m.impl(TORCH_SELECTIVE_NAME("aten::index_add"), TORCH_FN(index_add_default));
+  m.impl(TORCH_SELECTIVE_NAME("aten::index_add.out"), TORCH_FN(index_add_out));
+  m.impl(TORCH_SELECTIVE_NAME("aten::index_add_"), TORCH_FN(index_add_));
 }
 
 #endif /* USE_VULKAN_API */

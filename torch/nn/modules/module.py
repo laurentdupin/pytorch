@@ -123,10 +123,10 @@ def _move_module_to_vulkan_explicit(module: "Module") -> "Module":
         shared_tensor = converted_tensors.get(key)
         if shared_tensor is None:
             try:
-                shared_tensor = torch.ops.vulkan_prepack.to_vulkan_labeled(
-                    tensor.detach(),
-                    label,
-                )
+                # The raw labeled uploader is still unstable for some large
+                # buffer-backed weights. Module placement should use the stable
+                # plain tensor conversion path until that backend path is fixed.
+                shared_tensor = tensor.detach().to("vulkan")
             except Exception as exc:
                 raise RuntimeError(
                     f"Failed to move tensor '{label}' to Vulkan"

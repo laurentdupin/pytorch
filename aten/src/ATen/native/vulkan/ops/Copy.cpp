@@ -27,7 +27,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
     api::MemoryMap& dst_mapping,
     const IntArrayRef physical_strides,
     const int64_t physical_numel,
-    const int64_t storage_offset);
+    const int64_t storage_offset,
+    const bool clear_destination);
 
 const std::string& copy_sync_log_path() {
   static const std::string path = []() {
@@ -67,11 +68,12 @@ utils::ReadbackBufferObject lookup_or_create_readback_buffer(
 }
 
 bool should_force_buffer_storage_for_to_vulkan(const Tensor& src) {
-  // Low-rank floating tensors are typically model weights, biases, normalization
-  // parameters, or token-space tables. Keep them buffer-backed so buffer-native
-  // model paths do not begin life as textures and immediately materialize back.
+  // Low-rank floating tensors are typically model weights, biases,
+  // normalization parameters, token-space tables, or 4D activations. Keep them
+  // buffer-backed so buffer-native model paths do not begin life as textures
+  // and immediately materialize back.
   return c10::isFloatingType(src.scalar_type()) && src.dim() >= 1 &&
-      src.dim() <= 3 && src.numel() > 0;
+      src.dim() <= 4 && src.numel() > 0;
 }
 
 bool is_large_floating_matrix(const Tensor& src) {
@@ -89,12 +91,12 @@ bool should_flush_after_labeled_to_vulkan(const Tensor& src) {
 }
 
 bool should_use_host_visible_buffer_for_labeled_to_vulkan(const Tensor& src) {
-  // Medium and large model weights are usually 2D floating matrices. Uploading
-  // them through the default GPU-only buffer path allocates an equally large
-  // staging buffer, which doubles residency during module.to("vulkan") and is
-  // the main reason medium LLMs OOM on placement. Route those tensors through
-  // a host-visible Vulkan storage buffer instead.
-  return is_large_floating_matrix(src);
+  // The host-visible large-matrix upload path is currently not stable for
+  // repeated module placement of large floating weights. Fall back to the
+  // regular labeled upload path until the direct host-visible variant has
+  // correct lifetime/readback behavior.
+  (void)src;
+  return false;
 }
 
 uint64_t host_visible_labeled_upload_budget_bytes() {
@@ -225,9 +227,12 @@ void pack_logical_tensor_to_buffer_mapping(
     api::MemoryMap& dst_mapping,
     const IntArrayRef physical_strides,
     const int64_t physical_numel,
-    const int64_t storage_offset) {
+    const int64_t storage_offset,
+    const bool clear_destination) {
   T* const dst = dst_mapping.data<T>();
-  std::fill(dst, dst + physical_numel, T{});
+  if (clear_destination) {
+    std::fill(dst, dst + physical_numel, T{});
+  }
 
   const T* const src_ptr = src.const_data_ptr<T>();
   const std::vector<int64_t> logical_strides =
@@ -275,7 +280,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
     api::MemoryMap& dst_mapping,
     const IntArrayRef physical_strides,
     const int64_t physical_numel,
-    const int64_t storage_offset) {
+    const int64_t storage_offset,
+    const bool clear_destination) {
   switch (src.scalar_type()) {
     case at::kFloat:
       pack_logical_tensor_to_buffer_mapping<float>(
@@ -283,7 +289,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
           dst_mapping,
           physical_strides,
           physical_numel,
-          storage_offset);
+          storage_offset,
+          clear_destination);
       return;
     case at::kHalf:
       pack_logical_tensor_to_buffer_mapping<c10::Half>(
@@ -291,7 +298,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
           dst_mapping,
           physical_strides,
           physical_numel,
-          storage_offset);
+          storage_offset,
+          clear_destination);
       return;
     case at::kBFloat16:
       pack_logical_tensor_to_buffer_mapping<c10::BFloat16>(
@@ -299,7 +307,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
           dst_mapping,
           physical_strides,
           physical_numel,
-          storage_offset);
+          storage_offset,
+          clear_destination);
       return;
     case at::kByte:
       pack_logical_tensor_to_buffer_mapping<uint8_t>(
@@ -307,7 +316,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
           dst_mapping,
           physical_strides,
           physical_numel,
-          storage_offset);
+          storage_offset,
+          clear_destination);
       return;
     case at::kChar:
       pack_logical_tensor_to_buffer_mapping<int8_t>(
@@ -315,7 +325,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
           dst_mapping,
           physical_strides,
           physical_numel,
-          storage_offset);
+          storage_offset,
+          clear_destination);
       return;
     case at::kInt:
       pack_logical_tensor_to_buffer_mapping<int32_t>(
@@ -323,7 +334,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
           dst_mapping,
           physical_strides,
           physical_numel,
-          storage_offset);
+          storage_offset,
+          clear_destination);
       return;
     case at::kLong:
       pack_logical_tensor_to_buffer_mapping<int64_t>(
@@ -331,7 +343,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
           dst_mapping,
           physical_strides,
           physical_numel,
-          storage_offset);
+          storage_offset,
+          clear_destination);
       return;
     case at::kBool:
       pack_logical_tensor_to_buffer_mapping<bool>(
@@ -339,7 +352,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
           dst_mapping,
           physical_strides,
           physical_numel,
-          storage_offset);
+          storage_offset,
+          clear_destination);
       return;
     default:
       TORCH_CHECK(
@@ -359,7 +373,10 @@ void pack_cpu_to_host_visible_vulkan_buffer(const Tensor& src, vTensor& dst) {
       mapping,
       dst.gpu_strides(),
       dst.gpu_numel(),
-      dst.storage_offset());
+      dst.storage_offset(),
+      dst.storage_offset() == 0 &&
+          api::utils::safe_downcast<int64_t>(dst.gpu_numel()) ==
+              dst.buffer_length());
   dst.mark_host_write();
 }
 
@@ -639,10 +656,44 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
     const c10::MemoryFormat target_memory_format =
         memory_format_for_buffer_layout(dst.gpu_memory_layout());
     Tensor src_contig = src.contiguous(target_memory_format);
+    const bool copy_covers_full_buffer =
+        dst.has_direct_buffer_layout() ||
+        (dst.storage_offset() == 0 &&
+         api::utils::safe_downcast<int64_t>(dst.gpu_numel()) ==
+             dst.buffer_length());
+    const int64_t staging_numel = copy_covers_full_buffer
+        ? api::utils::safe_downcast<int64_t>(dst.gpu_numel())
+        : dst.buffer_length();
     api::StorageBuffer staging(
         context,
         convert_dtype(src_contig.scalar_type()),
-        dst.gpu_numel());
+        staging_numel);
+    if (
+        !copy_covers_full_buffer &&
+        staging.buffer().mem_size() > 0u) {
+      api::VulkanFence fence = context->fences().get_fence();
+      {
+        std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
+        api::PipelineBarrier pipeline_barrier{};
+        context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
+            pipeline_barrier,
+            dst.buffer(
+                pipeline_barrier,
+                api::PipelineStage::TRANSFER,
+                api::MemoryAccessType::READ),
+            staging.buffer(),
+            {api::utils::safe_downcast<uint32_t>(staging.buffer().mem_size()),
+             0u,
+             0u},
+            {0u, 0u, 0u},
+            {0u, 0u, 0u},
+            fence.get_submit_handle());
+        fence.wait();
+        log_copy_sync_event("preserve_vulkan_buffer_view", dst, false);
+        context->retire_after_fence_wait();
+      }
+      context->fences().return_fence(fence);
+    }
     {
       api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::WRITE);
       if (dst.has_direct_buffer_layout()) {
@@ -652,12 +703,26 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
             src_contig,
             mapping,
             dst.gpu_strides(),
-            dst.gpu_numel(),
-            dst.storage_offset());
+            staging_numel,
+            dst.storage_offset(),
+            copy_covers_full_buffer);
       }
     }
-    copy_staging_buffer_to_vtensor_buffer(
-        context, staging.buffer(), dst, VK_NULL_HANDLE);
+    if (staging.buffer().mem_size() > 0u) {
+      api::VulkanFence fence = context->fences().get_fence();
+      {
+        std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
+        copy_staging_buffer_to_vtensor_buffer(
+            context, staging.buffer(), dst, fence.get_submit_handle());
+        fence.wait();
+        log_copy_sync_event(
+            "pack_cpu_to_vulkan_buffer",
+            dst,
+            dst.has_direct_buffer_layout());
+        context->retire_after_fence_wait();
+      }
+      context->fences().return_fence(fence);
+    }
     return;
   }
 
@@ -896,7 +961,7 @@ at::Tensor to_vulkan_labeled(at::Tensor src, std::string label) {
   TORCH_CHECK(
       src.device().type() == at::kCPU,
       "Vulkan to_vulkan_labeled(): input tensor must be a CPU or Vulkan tensor!");
-  api::AllocationScope allocation_scope(std::move(label));
+  (void)label;
   if (should_use_host_visible_buffer_for_labeled_to_vulkan(src)) {
     const uint64_t reservation_bytes = static_cast<uint64_t>(src.nbytes());
     if (reserve_host_visible_labeled_upload_budget(reservation_bytes)) {
@@ -921,7 +986,8 @@ at::Tensor to_vulkan_labeled(at::Tensor src, std::string label) {
     }
   }
 
-  Tensor result = src.vulkan();
+  Tensor result = at::empty(src.sizes(), src.options().device(at::kVulkan));
+  ops::copy_(result, src);
   if (should_flush_after_labeled_to_vulkan(src)) {
     api::context()->flush();
   }

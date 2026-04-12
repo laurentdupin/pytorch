@@ -43,9 +43,6 @@ Tensor fused_norm_width_impl(
     const FusedNormWidthSpec& spec,
     Tensor& output);
 
-void log_norm_kernel_family_choice(
-    const utils::VulkanRuntimePolicy& runtime_policy);
-
 } // namespace ops
 } // namespace vulkan
 } // namespace native

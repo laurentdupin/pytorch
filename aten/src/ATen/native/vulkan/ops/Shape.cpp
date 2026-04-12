@@ -52,6 +52,39 @@ bool can_use_texture_contiguous_reshape(
       c10::multiply_integers(output_size);
 }
 
+bool can_use_buffer_materialized_contiguous_reshape(
+    const vTensor& v_self,
+    IntArrayRef output_size,
+    IntArrayRef output_stride,
+    const int64_t storage_offset) {
+  if (
+      v_self.storage_type() == api::StorageType::BUFFER ||
+      !utils::supports_buffer_view_fast_path(v_self) || output_size.size() > 4 ||
+      storage_offset != 0) {
+    return false;
+  }
+
+  if (
+      !is_contiguous_stride(v_self.sizes(), logical_strides(v_self)) ||
+      !is_contiguous_stride(output_size, output_stride)) {
+    return false;
+  }
+
+  // Width-packed buffers insert padding whenever the logical width is not a
+  // multiple of four. A metadata-only reshape would surface those padded slots
+  // as logical values, so only use this path when the materialized buffer would
+  // stay direct and gap-free.
+  if (
+      !v_self.sizes().empty() &&
+      api::utils::align_up(v_self.sizes().back(), INT64_C(4)) !=
+          v_self.sizes().back()) {
+    return false;
+  }
+
+  return c10::multiply_integers(v_self.sizes()) ==
+      c10::multiply_integers(output_size);
+}
+
 std::vector<int64_t> texture_gpu_sizes_for_contiguous_view(
     IntArrayRef sizes,
     const api::GPUMemoryLayout memory_layout) {
@@ -175,6 +208,32 @@ Tensor reshape_contiguous_texture(
   return convert(v_output);
 }
 
+Tensor reshape_contiguous_as_buffer_view(
+    const Tensor& self_arg,
+    IntArrayRef output_size,
+    IntArrayRef output_stride) {
+  Tensor buffer_input = utils::ensure_buffer_storage(
+      self_arg, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  const vTensor& v_buffer_input = convert(buffer_input);
+
+  TORCH_INTERNAL_ASSERT(
+      utils::can_make_buffer_metadata_view(
+          v_buffer_input,
+          output_size,
+          output_stride,
+          output_stride,
+          0),
+      "Buffer-backed contiguous reshape expected a valid metadata view");
+
+  utils::log_vulkan_op_hit("aten::view.texture_to_buffer_metadata_reshape");
+  return utils::make_buffer_metadata_view(
+      buffer_input,
+      output_size,
+      output_stride,
+      output_stride,
+      0);
+}
+
 Tensor view_internal(
     const Tensor& self_arg,
     const IntArrayRef output_size,
@@ -212,6 +271,12 @@ Tensor view_internal(
           output_stride.vec(),
           vTensor::PreservePhysicalView{},
       });
+    }
+
+    if (can_use_buffer_materialized_contiguous_reshape(
+            v_self, output_size, output_stride, resolved_storage_offset)) {
+      return reshape_contiguous_as_buffer_view(
+          self_arg, output_size, output_stride);
     }
 
     if (can_use_texture_contiguous_reshape(
@@ -346,6 +411,17 @@ static Tensor _reshape_alias(
   return view_internal(self_arg, shape, strides);
 }
 
+static Tensor alias(const Tensor& self_arg) {
+  if (!self_arg.is_vulkan()) {
+    return at::alias(self_arg);
+  }
+
+  const vTensor& v_self = convert(self_arg);
+  c10::DimVector sizes(v_self.sizes().begin(), v_self.sizes().end());
+  c10::DimVector strides = logical_strides(v_self);
+  return view_internal(self_arg, sizes, strides, v_self.storage_offset());
+}
+
 static Tensor as_strided(
     const Tensor& self_arg,
     const IntArrayRef shape,
@@ -395,6 +471,7 @@ static Tensor& im2col_out(
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
+  m.impl(TORCH_SELECTIVE_NAME("aten::alias"), TORCH_FN(alias));
   m.impl(TORCH_SELECTIVE_NAME("aten::as_strided"), TORCH_FN(as_strided));
   m.impl(TORCH_SELECTIVE_NAME("aten::contiguous"), TORCH_FN(contiguous));
   m.impl(TORCH_SELECTIVE_NAME("aten::im2col"), TORCH_FN(im2col));

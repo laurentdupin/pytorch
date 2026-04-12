@@ -3,8 +3,6 @@
 #define PRECISION ${PRECISION}
 #define FORMAT ${FORMAT}
 
-#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
-
 layout(std430) buffer;
 
 layout(set = 0, binding = 0) buffer PRECISION restrict writeonly OutBuffer {
@@ -21,7 +19,7 @@ layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
 uOutMeta;
 
 layout(set = 0, binding = 2) buffer PRECISION restrict readonly InBuffer {
-  uint16_t data[];
+  float data[];
 }
 uInput;
 
@@ -34,7 +32,7 @@ layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
 uInMeta;
 
 layout(set = 0, binding = 4) buffer PRECISION restrict readonly WeightBuffer {
-  uint16_t data[];
+  float data[];
 }
 uWeight;
 
@@ -62,14 +60,11 @@ uBiasMeta;
 layout(set = 0, binding = 8) uniform PRECISION restrict Block {
   ivec4 stride_pad;
   ivec4 dilation_groups;
+  vec4 clamp_thresh;
 }
 uBlock;
 
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
-
-float bfloat16_to_float(uint16_t raw) {
-  return uintBitsToFloat(uint(raw) << 16);
-}
 
 void main() {
   const uint out_x = gl_GlobalInvocationID.x;
@@ -100,22 +95,32 @@ void main() {
 
   const uint kernel_w = uWeightMeta.logical_sizes.x;
   const uint kernel_h = uWeightMeta.logical_sizes.y;
-  const uint in_channels_per_group = uWeightMeta.logical_sizes.z;
-  const uint out_channels_per_group = out_channels / groups;
+  const uint out_channels_per_group = uWeightMeta.logical_sizes.z;
+  const uint in_channels = uInMeta.logical_sizes.z;
+  const uint in_channels_per_group = in_channels / groups;
   const uint group_idx = out_channel / out_channels_per_group;
+  const uint out_channel_in_group = out_channel % out_channels_per_group;
   const uint in_channel_start = group_idx * in_channels_per_group;
 
   float acc = 0.0;
   for (uint icg = 0u; icg < in_channels_per_group; ++icg) {
     const uint in_channel = in_channel_start + icg;
     for (uint ky = 0u; ky < kernel_h; ++ky) {
-      const int in_y = int(out_y) * stride_h - pad_h + int(ky) * dil_h;
-      if (in_y < 0 || in_y >= int(uInMeta.logical_sizes.y)) {
+      const int numerator_y = int(out_y) + pad_h - int(ky) * dil_h;
+      if (numerator_y < 0 || numerator_y % stride_h != 0) {
+        continue;
+      }
+      const int in_y = numerator_y / stride_h;
+      if (in_y >= int(uInMeta.logical_sizes.y)) {
         continue;
       }
       for (uint kx = 0u; kx < kernel_w; ++kx) {
-        const int in_x = int(out_x) * stride_w - pad_w + int(kx) * dil_w;
-        if (in_x < 0 || in_x >= int(uInMeta.logical_sizes.x)) {
+        const int numerator_x = int(out_x) + pad_w - int(kx) * dil_w;
+        if (numerator_x < 0 || numerator_x % stride_w != 0) {
+          continue;
+        }
+        const int in_x = numerator_x / stride_w;
+        if (in_x >= int(uInMeta.logical_sizes.x)) {
           continue;
         }
 
@@ -127,11 +132,10 @@ void main() {
         const uint weight_idx = uWeightMeta.info.w +
             kx * uWeightMeta.physical_strides.x +
             ky * uWeightMeta.physical_strides.y +
-            icg * uWeightMeta.physical_strides.z +
-            out_channel * uWeightMeta.physical_strides.w;
+            out_channel_in_group * uWeightMeta.physical_strides.z +
+            in_channel * uWeightMeta.physical_strides.w;
 
-        acc += bfloat16_to_float(uInput.data[input_idx]) *
-            bfloat16_to_float(uWeight.data[weight_idx]);
+        acc += uInput.data[input_idx] * uWeight.data[weight_idx];
       }
     }
   }
@@ -147,5 +151,6 @@ void main() {
       out_y * uOutMeta.physical_strides.y +
       out_channel * uOutMeta.physical_strides.z +
       batch * uOutMeta.physical_strides.w;
-  uOutput.data[out_idx] = acc;
+  uOutput.data[out_idx] =
+      clamp(acc, uBlock.clamp_thresh.x, uBlock.clamp_thresh.y);
 }

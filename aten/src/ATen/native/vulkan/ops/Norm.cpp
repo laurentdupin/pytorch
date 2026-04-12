@@ -12,13 +12,6 @@ using namespace api::utils;
 
 namespace {
 
-utils::VulkanPlanningRequest norm_request(
-    const Tensor& input,
-    const utils::VulkanTensorRole role) {
-  return utils::make_vulkan_tensor_planning_request(
-      input, utils::VulkanWorkloadClass::Norm, role);
-}
-
 size_t norm_runtime_scratch_bytes(const Tensor& input) {
   return std::max<size_t>(
       64u * 1024u,
@@ -53,7 +46,8 @@ Tensor fused_norm_width_impl_internal(
     const FusedNormWidthSpec& spec,
     Tensor* output_opt) {
   const auto input_request =
-      norm_request(input_arg, utils::VulkanTensorRole::Input);
+      utils::make_vulkan_tensor_norm_request(
+          input_arg, utils::VulkanTensorRole::Input);
   const auto runtime_policy = utils::build_vulkan_runtime_policy(input_request);
   api::AllocationScope allocation_scope(spec.allocation_scope);
   api::Context* const context = api::context();
@@ -144,21 +138,6 @@ Tensor fused_norm_width_impl_internal(
 }
 
 } // namespace
-
-void log_norm_kernel_family_choice(
-    const utils::VulkanRuntimePolicy& runtime_policy) {
-  switch (runtime_policy.norm_kernel_family) {
-    case utils::VulkanNormKernelFamily::TextureWidth:
-      utils::log_vulkan_op_hit("aten::norm.family_texture_width");
-      break;
-    case utils::VulkanNormKernelFamily::SharedMemoryWidth:
-      utils::log_vulkan_op_hit("aten::norm.family_shared_memory_width");
-      break;
-    case utils::VulkanNormKernelFamily::UnifiedBufferView:
-      utils::log_vulkan_op_hit("aten::norm.family_unified_buffer_view");
-      break;
-  }
-}
 
 bool supports_fused_norm_last_dim(
     const at::Tensor& input,

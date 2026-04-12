@@ -3,6 +3,7 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
+#include <ATen/native/vulkan/planning/Request.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
 
 #include <algorithm>
@@ -113,11 +114,7 @@ std::string vision_backbone_program_label(const std::string& label) {
 utils::VisionBackboneProgram prime_vision_backbone_program(
     const Tensor& input,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context) {
-  const auto request = utils::make_vulkan_planning_request(
-      utils::VulkanWorkloadClass::VisionBackbone,
-      utils::VulkanTensorRole::Input,
-      utils::VulkanModelDomain::Vision,
-      utils::VulkanExecutionPhase::Backbone);
+  const auto request = utils::make_vulkan_vision_backbone_request();
   const auto runtime_policy = utils::build_vulkan_runtime_policy(request);
   if (
       !runtime_policy.execution_program_plan.has_value() ||
@@ -628,6 +625,8 @@ Tensor run_vision_backbone_block_context(
   const Device output_device = input_arg.device();
   const ScalarType output_dtype = input_arg.scalar_type();
   Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  utils::VulkanPlanningRequestScope planning_scope(
+      utils::make_vulkan_vision_backbone_request());
   auto vision_program = prime_vision_backbone_program(input, context);
   if (vision_program.defined()) {
     if (vision_program.scratch_arena().has_value()) {

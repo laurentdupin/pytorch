@@ -683,6 +683,26 @@ VulkanAttentionPolicy build_vulkan_attention_policy(
   return policy;
 }
 
+VulkanPlanningRequest make_vulkan_attention_request(
+    const VulkanAttentionPolicy& attention_policy,
+    const VulkanTensorRole tensor_role) {
+  const bool uses_cache =
+      attention_policy.cache_mode != VulkanAttentionCacheMode::Disabled;
+  const VulkanExecutionPhase execution_phase =
+      attention_policy.cache_mode == VulkanAttentionCacheMode::Prefill
+      ? VulkanExecutionPhase::Prefill
+      : (attention_policy.cache_mode == VulkanAttentionCacheMode::DecodeAppend
+             ? VulkanExecutionPhase::Decode
+             : VulkanExecutionPhase::None);
+  return make_vulkan_planning_request(
+      uses_cache ? VulkanWorkloadClass::AttentionCache
+                 : VulkanWorkloadClass::Attention,
+      tensor_role,
+      uses_cache ? VulkanModelDomain::LLM
+                 : VulkanModelDomain::Generic,
+      execution_phase);
+}
+
 VulkanPlanningRequest make_vulkan_execution_request(
     const VulkanExecutionPlanKind kind,
     const VulkanTensorRole tensor_role,

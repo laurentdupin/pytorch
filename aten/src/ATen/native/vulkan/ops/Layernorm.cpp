@@ -19,10 +19,8 @@ bool prefer_buffer_layer_norm(
   if (!input_arg.is_vulkan()) {
     return false;
   }
-  const auto request = utils::make_vulkan_tensor_planning_request(
-      input_arg,
-      utils::VulkanWorkloadClass::Norm,
-      utils::VulkanTensorRole::Input);
+  const auto request = utils::make_vulkan_tensor_norm_request(
+      input_arg, utils::VulkanTensorRole::Input);
   const auto runtime_policy = utils::build_vulkan_runtime_policy(request);
   return runtime_policy.norm_kernel_family ==
           utils::VulkanNormKernelFamily::UnifiedBufferView &&

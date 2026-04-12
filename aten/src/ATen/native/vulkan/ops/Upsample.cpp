@@ -126,6 +126,78 @@ static Tensor upsample_bilinear2d(
       (4 == input_arg.sizes().size()) && (2 == output_sizes.size()),
       "Invalid input!");
 
+  if (should_run_buffer_upsample(input_arg)) {
+    utils::log_vulkan_op_hit("aten::upsample_bilinear2d.buffer_float");
+    const vTensor& v_input = convert(input_arg);
+
+    vTensor v_output{
+        context,
+        {
+            get_dim<Dim4D::Batch>(v_input),
+            get_dim<Dim4D::Channel>(v_input),
+            output_sizes[Layout::Parameter::height],
+            output_sizes[Layout::Parameter::width],
+        },
+        v_input.dtype(),
+        api::StorageType::BUFFER,
+        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+    };
+
+    const struct Block final {
+      ivec4 info;
+      vec4 scale;
+    } block{
+        {
+            safe_downcast<int32_t>(get_dim<Dim4D::Width>(input_arg) - 1),
+            safe_downcast<int32_t>(get_dim<Dim4D::Height>(input_arg) - 1),
+            safe_downcast<int32_t>(get_dim<Dim4D::Width>(v_output)),
+            safe_downcast<int32_t>(get_dim<Dim4D::Height>(v_output)),
+        },
+        {
+            compute_scales_value<float>(
+                scales_w,
+                get_dim<Dim4D::Width>(input_arg),
+                get_dim<Dim4D::Width>(v_output)),
+            compute_scales_value<float>(
+                scales_h,
+                get_dim<Dim4D::Height>(input_arg),
+                get_dim<Dim4D::Height>(v_output)),
+            0.0f,
+            0.0f,
+        },
+    };
+
+    api::UniformParamsBuffer params(context, block);
+    api::PipelineBarrier pipeline_barrier{};
+    const api::utils::uvec3 global_size{
+        safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+        1u,
+        1u,
+    };
+    api::UniformParamsBuffer out_meta =
+        utils::make_buffer_compute_metadata_ubo(context, v_output);
+    api::UniformParamsBuffer in_meta =
+        utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+    context->submit_compute_job(
+        align_corners ? VK_KERNEL(upsample_bilinear2d_buffer_align_true)
+                      : VK_KERNEL(upsample_bilinear2d_buffer_align_false),
+        pipeline_barrier,
+        global_size,
+        adaptive_work_group_size(global_size),
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        in_meta.buffer(),
+        params.buffer());
+
+    return convert(v_output);
+  }
+
   const Tensor input = prepare_upsample_texture_input(input_arg);
   const vTensor& v_input = convert(input);
 

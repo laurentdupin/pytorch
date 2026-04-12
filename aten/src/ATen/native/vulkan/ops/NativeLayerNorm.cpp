@@ -14,13 +14,6 @@ namespace {
 
 using namespace api::utils;
 
-utils::VulkanPlanningRequest norm_request(
-    const Tensor& input,
-    const utils::VulkanTensorRole role) {
-  return utils::make_vulkan_tensor_planning_request(
-      input, utils::VulkanWorkloadClass::Norm, role);
-}
-
 size_t native_layer_norm_runtime_scratch_bytes(const Tensor& input) {
   return std::max<size_t>(
       64u * 1024u,
@@ -86,10 +79,8 @@ bool prefer_buffer_layer_norm_impl(
   if (!input_arg.is_vulkan()) {
     return false;
   }
-  const auto request = utils::make_vulkan_tensor_planning_request(
-      input_arg,
-      utils::VulkanWorkloadClass::Norm,
-      utils::VulkanTensorRole::Input);
+  const auto request = utils::make_vulkan_tensor_norm_request(
+      input_arg, utils::VulkanTensorRole::Input);
   const auto runtime_policy = utils::build_vulkan_runtime_policy(request);
   return runtime_policy.norm_kernel_family ==
           utils::VulkanNormKernelFamily::UnifiedBufferView &&
@@ -104,7 +95,8 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_fused_width(
     const std::optional<Tensor>& bias_opt /* optional */,
     double eps) {
   const auto input_request =
-      norm_request(input_arg, utils::VulkanTensorRole::Input);
+      utils::make_vulkan_tensor_norm_request(
+          input_arg, utils::VulkanTensorRole::Input);
   const auto runtime_policy = utils::build_vulkan_runtime_policy(input_request);
   api::AllocationScope allocation_scope("layer_norm.fused_width");
   api::Context* const context = api::context();
@@ -214,7 +206,8 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_fallback(
     double eps,
     bool prefer_buffer_path) {
   const auto input_request =
-      norm_request(input_arg, utils::VulkanTensorRole::Input);
+      utils::make_vulkan_tensor_norm_request(
+          input_arg, utils::VulkanTensorRole::Input);
   const auto runtime_policy = utils::build_vulkan_runtime_policy(input_request);
   api::AllocationScope allocation_scope("layer_norm.fallback");
 

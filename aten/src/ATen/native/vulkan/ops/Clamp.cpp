@@ -16,12 +16,133 @@ namespace {
 
 using namespace api::utils;
 
+bool can_run_float_buffer_clamp(const vTensor& v_self) {
+  return v_self.storage_type() == api::StorageType::BUFFER &&
+      v_self.dtype() == api::kFloat &&
+      !v_self.is_quantized() &&
+      utils::supports_buffer_elementwise_compute(v_self);
+}
+
+api::UniformParamsBuffer make_buffer_clamp_params(
+    api::Context* const context,
+    const std::optional<Scalar>& min,
+    const std::optional<Scalar>& max) {
+  const struct Block final {
+    vec2 clamp;
+  } block{
+      {
+          min ? min->to<float>() : -std::numeric_limits<float>::infinity(),
+          max ? max->to<float>() : std::numeric_limits<float>::infinity(),
+      },
+  };
+  return api::UniformParamsBuffer(context, block);
+}
+
+Tensor clamp_buffer(
+    const Tensor& self_arg,
+    const std::optional<Scalar>& min,
+    const std::optional<Scalar>& max) {
+  api::Context* const context = api::context();
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  vTensor& v_self = convert(self);
+  TORCH_CHECK(
+      can_run_float_buffer_clamp(v_self),
+      "Vulkan buffer clamp expects float buffer-backed input with supported metadata");
+
+  vTensor v_output{
+      context,
+      v_self.sizes(),
+      v_self.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_output.numel()),
+      1u,
+      1u,
+  };
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+  api::UniformParamsBuffer params = make_buffer_clamp_params(context, min, max);
+
+  context->submit_compute_job(
+      VK_KERNEL(buffer_clamp),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return convert(v_output);
+}
+
+Tensor& clamp_buffer_(
+    Tensor& self_arg,
+    const std::optional<Scalar>& min,
+    const std::optional<Scalar>& max) {
+  api::Context* const context = api::context();
+  vTensor& v_self = convert(self_arg);
+  TORCH_CHECK(
+      can_run_float_buffer_clamp(v_self),
+      "Vulkan in-place buffer clamp expects float buffer-backed input with supported metadata");
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_self.numel()),
+      1u,
+      1u,
+  };
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+  api::UniformParamsBuffer params = make_buffer_clamp_params(context, min, max);
+
+  context->submit_compute_job(
+      VK_KERNEL(buffer_clamp),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_self.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ | api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_self.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ | api::MemoryAccessType::WRITE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return self_arg;
+}
+
 Tensor _clamp(
     const Tensor& self_arg,
     const std::optional<Scalar>& min,
     const std::optional<Scalar>& max,
     const api::ShaderInfo& shader_descriptor) {
   TORCH_CHECK(min || max, "At least one of 'min' or 'max' must not be None");
+
+  if (self_arg.is_vulkan() && self_arg.scalar_type() == at::kFloat) {
+    const vTensor& v_self = convert(self_arg);
+    if (can_run_float_buffer_clamp(v_self)) {
+      return clamp_buffer(self_arg, min, max);
+    }
+  }
 
   api::Context* const context = api::context();
 
@@ -124,6 +245,9 @@ Tensor& _clamp_(
 
   const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
   vTensor& v_self = convert(self);
+  if (can_run_float_buffer_clamp(v_self)) {
+    return clamp_buffer_(self_arg, min, max);
+  }
   TORCH_CHECK(
       v_self.storage_type() != api::StorageType::BUFFER,
       "In-place Vulkan clamp is not yet supported on buffer-backed logical views");
