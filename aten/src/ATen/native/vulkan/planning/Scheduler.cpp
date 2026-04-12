@@ -69,6 +69,20 @@ VulkanSchedulerDecision build_vulkan_scheduler_decision(
         capabilities.has_unified_memory ? 256u : 512u,
     };
   }
+  if (
+      request.workload_class == VulkanWorkloadClass::VisionBackbone ||
+      request.workload_class == VulkanWorkloadClass::VisionDecoder ||
+      (request.model_domain == VulkanModelDomain::Vision &&
+       (request.execution_phase == VulkanExecutionPhase::Backbone ||
+        request.execution_phase == VulkanExecutionPhase::Decoder))) {
+    decision.scratch_arena_plan = VulkanScratchArenaPlanningDesc{
+        true,
+        true,
+        true,
+        0u,
+        capabilities.has_unified_memory ? 256u : 512u,
+    };
+  }
 
   if (cache_like || (llm_runtime_like && request.tensor_role == VulkanTensorRole::Cache)) {
     decision.kv_cache_plan = VulkanKVCachePlanningDesc{

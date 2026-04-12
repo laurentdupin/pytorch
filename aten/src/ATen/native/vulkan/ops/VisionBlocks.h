@@ -3,6 +3,7 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <torch/library.h>
@@ -148,6 +149,105 @@ create_vision_backbone_block_context(
 Tensor run_vision_backbone_block_context(
     const Tensor& input,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context);
+
+class VisionDecoderFusionBlockContext final
+    : public torch::jit::CustomClassHolder {
+ private:
+  c10::impl::GenericList unpacked_{c10::AnyType::get()};
+  std::string allocation_label_;
+  bool align_corners_{true};
+  c10::intrusive_ptr<Conv2dPackedContext> res1_conv1_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> res1_conv2_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> res2_conv1_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> res2_conv2_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> out_conv_context_;
+
+ public:
+  VisionDecoderFusionBlockContext(
+      const Tensor& res1_conv1_weight,
+      const std::optional<Tensor>& res1_conv1_bias,
+      const Tensor& res1_conv2_weight,
+      const std::optional<Tensor>& res1_conv2_bias,
+      const Tensor& res2_conv1_weight,
+      const std::optional<Tensor>& res2_conv1_bias,
+      const Tensor& res2_conv2_weight,
+      const std::optional<Tensor>& res2_conv2_bias,
+      const Tensor& out_conv_weight,
+      const std::optional<Tensor>& out_conv_bias,
+      bool align_corners,
+      std::string allocation_label = std::string());
+
+  struct Unpacked final {
+    static constexpr uint32_t Res1Conv1Weight = 0u;
+    static constexpr uint32_t Res1Conv1Bias = 1u;
+    static constexpr uint32_t Res1Conv2Weight = 2u;
+    static constexpr uint32_t Res1Conv2Bias = 3u;
+    static constexpr uint32_t Res2Conv1Weight = 4u;
+    static constexpr uint32_t Res2Conv1Bias = 5u;
+    static constexpr uint32_t Res2Conv2Weight = 6u;
+    static constexpr uint32_t Res2Conv2Bias = 7u;
+    static constexpr uint32_t OutConvWeight = 8u;
+    static constexpr uint32_t OutConvBias = 9u;
+    static constexpr uint32_t AlignCorners = 10u;
+    static constexpr uint32_t Label = 11u;
+    static constexpr uint32_t NumArgs = 12u;
+  };
+
+  static VisionDecoderFusionBlockContext pack(c10::impl::GenericList unpacked);
+
+  const c10::impl::GenericList unpack() const {
+    return unpacked_;
+  }
+
+  const std::string& allocation_label() const {
+    return allocation_label_;
+  }
+
+  bool align_corners() const {
+    return align_corners_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& res1_conv1_context() const {
+    return res1_conv1_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& res1_conv2_context() const {
+    return res1_conv2_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& res2_conv1_context() const {
+    return res2_conv1_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& res2_conv2_context() const {
+    return res2_conv2_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& out_conv_context() const {
+    return out_conv_context_;
+  }
+};
+
+c10::intrusive_ptr<VisionDecoderFusionBlockContext>
+create_vision_decoder_fusion_block_context(
+    Tensor&& res1_conv1_weight,
+    std::optional<Tensor>&& res1_conv1_bias,
+    Tensor&& res1_conv2_weight,
+    std::optional<Tensor>&& res1_conv2_bias,
+    Tensor&& res2_conv1_weight,
+    std::optional<Tensor>&& res2_conv1_bias,
+    Tensor&& res2_conv2_weight,
+    std::optional<Tensor>&& res2_conv2_bias,
+    Tensor&& out_conv_weight,
+    std::optional<Tensor>&& out_conv_bias,
+    bool align_corners,
+    std::string label);
+
+Tensor run_vision_decoder_fusion_block_context(
+    const Tensor& input,
+    const std::optional<Tensor>& skip,
+    const std::optional<std::vector<int64_t>>& size,
+    const c10::intrusive_ptr<VisionDecoderFusionBlockContext>& context);
 
 Tensor tokens_to_feature_map(
     const Tensor& input,

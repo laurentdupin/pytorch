@@ -1154,6 +1154,17 @@ Tensor prepare_runtime_float_buffer_conv_input(const Tensor& input_arg) {
   if (input.scalar_type() == kHalf) {
     input = utils::cast_vulkan_tensor_dtype(input, kFloat);
   }
+  if (input.is_vulkan()) {
+    const vTensor& v_input = convert(input);
+    if (
+        v_input.storage_type() == api::StorageType::BUFFER &&
+        v_input.gpu_memory_layout() ==
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+        utils::supports_buffer_elementwise_compute(v_input)) {
+      return utils::mark_tensor_execution(
+          input, utils::resolve_buffer_execution_layout(v_input), false);
+    }
+  }
   return utils::mark_tensor_execution(
       utils::ensure_buffer_storage(
           input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
@@ -1161,7 +1172,27 @@ Tensor prepare_runtime_float_buffer_conv_input(const Tensor& input_arg) {
       false);
 }
 
-Tensor run_float_buffer_conv2d(
+Tensor prepare_runtime_float_buffer_conv_output(
+    Tensor output,
+    IntArrayRef expected_sizes) {
+  output = output.is_vulkan() ? output : output.vulkan();
+  output = utils::mark_tensor_execution(
+      output,
+      utils::resolve_buffer_execution_layout(convert(output)),
+      false);
+  const vTensor& v_output = convert(output);
+  TORCH_CHECK(
+      v_output.storage_type() == api::StorageType::BUFFER &&
+          v_output.dtype() == api::kFloat &&
+          utils::supports_buffer_view_fast_path(v_output),
+      "Vulkan float buffer convolution out expects float buffer-backed output");
+  TORCH_CHECK(
+      output.sizes().vec() == expected_sizes.vec(),
+      "Vulkan float buffer convolution out received mismatched output shape");
+  return output;
+}
+
+Tensor run_float_buffer_conv2d_impl(
     const Tensor& input,
     const PackedWeightHandle& packed_weight,
     const IntArrayRef stride,
@@ -1169,7 +1200,8 @@ Tensor run_float_buffer_conv2d(
     const IntArrayRef dilation,
     const int64_t groups,
     const float output_min,
-    const float output_max) {
+    const float output_max,
+    Tensor* output_arg) {
   utils::log_vulkan_op_hit("aten::convolution.buffer_float");
   api::AllocationScope allocation_scope("conv.float_buffer");
   api::Context* const context = api::context();
@@ -1180,13 +1212,24 @@ Tensor run_float_buffer_conv2d(
 
   const std::vector<int64_t> output_size = conv_output_size(
       v_input.sizes(), packed_weight.logical_weight_sizes(), padding, stride, dilation);
-  vTensor v_output{
-      context,
-      output_size,
-      api::kFloat,
-      api::StorageType::BUFFER,
-      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-  };
+  Tensor output_tensor;
+  vTensor* v_output_ptr = nullptr;
+  vTensor owned_output;
+  if (output_arg != nullptr) {
+    output_tensor =
+        prepare_runtime_float_buffer_conv_output(*output_arg, output_size);
+    v_output_ptr = &convert(output_tensor);
+  } else {
+    owned_output = vTensor{
+        context,
+        output_size,
+        api::kFloat,
+        api::StorageType::BUFFER,
+        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+    };
+    v_output_ptr = &owned_output;
+  }
+  vTensor& v_output = *v_output_ptr;
 
   const struct {
     int32_t stride_w;
@@ -1251,10 +1294,31 @@ Tensor run_float_buffer_conv2d(
       bias_meta.buffer(),
       params.buffer());
 
-  return convert(v_output);
+  return output_arg != nullptr ? output_tensor : convert(v_output);
 }
 
-Tensor run_float_buffer_conv_transpose2d(
+Tensor run_float_buffer_conv2d(
+    const Tensor& input,
+    const PackedWeightHandle& packed_weight,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups,
+    const float output_min,
+    const float output_max) {
+  return run_float_buffer_conv2d_impl(
+      input,
+      packed_weight,
+      stride,
+      padding,
+      dilation,
+      groups,
+      output_min,
+      output_max,
+      nullptr);
+}
+
+Tensor run_float_buffer_conv_transpose2d_impl(
     const Tensor& input,
     const PackedWeightHandle& packed_weight,
     const IntArrayRef stride,
@@ -1263,7 +1327,8 @@ Tensor run_float_buffer_conv_transpose2d(
     const IntArrayRef output_padding,
     const int64_t groups,
     const float output_min,
-    const float output_max) {
+    const float output_max,
+    Tensor* output_arg) {
   utils::log_vulkan_op_hit("aten::convolution.buffer_float_transpose");
   api::AllocationScope allocation_scope("conv_transpose.float_buffer");
   api::Context* const context = api::context();
@@ -1279,13 +1344,24 @@ Tensor run_float_buffer_conv_transpose2d(
       output_padding,
       stride,
       dilation);
-  vTensor v_output{
-      context,
-      output_size,
-      api::kFloat,
-      api::StorageType::BUFFER,
-      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-  };
+  Tensor output_tensor;
+  vTensor* v_output_ptr = nullptr;
+  vTensor owned_output;
+  if (output_arg != nullptr) {
+    output_tensor =
+        prepare_runtime_float_buffer_conv_output(*output_arg, output_size);
+    v_output_ptr = &convert(output_tensor);
+  } else {
+    owned_output = vTensor{
+        context,
+        output_size,
+        api::kFloat,
+        api::StorageType::BUFFER,
+        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+    };
+    v_output_ptr = &owned_output;
+  }
+  vTensor& v_output = *v_output_ptr;
 
   const struct {
     int32_t stride_w;
@@ -1350,7 +1426,30 @@ Tensor run_float_buffer_conv_transpose2d(
       bias_meta.buffer(),
       params.buffer());
 
-  return convert(v_output);
+  return output_arg != nullptr ? output_tensor : convert(v_output);
+}
+
+Tensor run_float_buffer_conv_transpose2d(
+    const Tensor& input,
+    const PackedWeightHandle& packed_weight,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const IntArrayRef output_padding,
+    const int64_t groups,
+    const float output_min,
+    const float output_max) {
+  return run_float_buffer_conv_transpose2d_impl(
+      input,
+      packed_weight,
+      stride,
+      padding,
+      dilation,
+      output_padding,
+      groups,
+      output_min,
+      output_max,
+      nullptr);
 }
 
 Tensor run_bfloat16_buffer_conv2d(
@@ -1873,7 +1972,8 @@ static Tensor run_conv2d_context_impl(
     const Tensor& input_arg,
     const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
     double scale,
-    int64_t zero_point) {
+    int64_t zero_point,
+    Tensor* output_arg = nullptr) {
   const PackedWeightHandle& packed_weight = conv_context->packed_weight();
   const auto quantized = conv_context->quantized();
   const auto& stride = conv_context->stride();
@@ -1889,7 +1989,7 @@ static Tensor run_conv2d_context_impl(
     Tensor buffer_input = prepare_runtime_float_buffer_conv_input(input_arg);
     if (can_run_float_buffer_conv_transpose2d(
             buffer_input, packed_weight, transposed, quantized)) {
-      return run_float_buffer_conv_transpose2d(
+      return run_float_buffer_conv_transpose2d_impl(
           buffer_input,
           packed_weight,
           stride,
@@ -1898,11 +1998,12 @@ static Tensor run_conv2d_context_impl(
           output_padding,
           conv_context->groups(),
           output_min,
-          output_max);
+          output_max,
+          output_arg);
     }
     if (can_run_float_buffer_conv2d(
             buffer_input, packed_weight, transposed, quantized, output_padding)) {
-      return run_float_buffer_conv2d(
+      return run_float_buffer_conv2d_impl(
           buffer_input,
           packed_weight,
           stride,
@@ -1910,9 +2011,14 @@ static Tensor run_conv2d_context_impl(
           dilation,
           conv_context->groups(),
           output_min,
-          output_max);
+          output_max,
+          output_arg);
     }
   }
+
+  TORCH_CHECK(
+      output_arg == nullptr,
+      "Vulkan convolution out is only supported for float buffer-backed contexts");
 
   api::Context* const context = api::context();
   Tensor input = utils::prepare_vulkan_execution_tensor(
@@ -2005,13 +2111,27 @@ static Tensor run_conv2d_context_impl(
 Tensor run_conv2d_context(
     const Tensor& input_arg,
     const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
-  return run_conv2d_context_impl(input_arg, conv_context, 1.0f, 0u);
+  return run_conv2d_context_impl(input_arg, conv_context, 1.0f, 0u, nullptr);
+}
+
+Tensor run_conv2d_context_out(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
+    Tensor& output) {
+  return run_conv2d_context_impl(input_arg, conv_context, 1.0f, 0u, &output);
 }
 
 Tensor run_tconv2d_context(
     const Tensor& input_arg,
     const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
-  return run_conv2d_context_impl(input_arg, conv_context, 1.0f, 0u);
+  return run_conv2d_context_impl(input_arg, conv_context, 1.0f, 0u, nullptr);
+}
+
+Tensor run_tconv2d_context_out(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
+    Tensor& output) {
+  return run_conv2d_context_impl(input_arg, conv_context, 1.0f, 0u, &output);
 }
 
 Tensor run_qconv2d_context(
@@ -2019,7 +2139,8 @@ Tensor run_qconv2d_context(
     double scale,
     int64_t zero_point,
     const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
-  return run_conv2d_context_impl(input_arg, conv_context, scale, zero_point);
+  return run_conv2d_context_impl(
+      input_arg, conv_context, scale, zero_point, nullptr);
 }
 
 /* Backwards compatibility */

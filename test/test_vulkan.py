@@ -2540,7 +2540,7 @@ print("OK")
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_text = log_file.read()
 
-            self.assertIn("op=aten::native_layer_norm.buffer_fallback", op_hit_text)
+            self.assertIn("op=aten::native_layer_norm.buffer_width", op_hit_text)
             self.assertIn("op=aten::linear.family_unified_buffer_view", op_hit_text)
 
             if os.path.exists(materialize_log_path):
@@ -4095,7 +4095,7 @@ print("OK")
             assert decode_policy[19] == 1  # boundary_requires_scratch
             assert decode_policy[20] == 1  # boundary_preferred_cpu_threads
             assert vision_policy[0] == 0  # backend_route=Vulkan
-            assert vision_policy[6] == 0  # has_scratch_plan
+            assert vision_policy[6] == 1  # has_scratch_plan
             assert vision_policy[11] == 1  # linear_kernel_family=UnifiedBufferView
             assert vision_policy[14] == 0  # has_boundary_plan
 
@@ -4198,7 +4198,7 @@ print("OK")
                 policy_log_text = log_file.read()
             self.assertRegex(
                 policy_log_text,
-                r"runtime_policy workload=VisionBackbone model_domain=Vision execution_phase=Backbone .* has_execution_program_plan=1 execution_program_kind=VisionBackbone .* has_scratch_arena_plan=0",
+                r"runtime_policy workload=VisionBackbone model_domain=Vision execution_phase=Backbone .* has_execution_program_plan=1 execution_program_kind=VisionBackbone .* has_scratch_arena_plan=1",
             )
 
             self.assertTrue(os.path.exists(program_log_path))
@@ -5402,7 +5402,7 @@ print("OK")
 
             self.assertIn("op=aten::layer_norm", log_text)
             self.assertIn("op=aten::norm.family_unified_buffer_view", log_text)
-            self.assertIn("op=aten::native_layer_norm.buffer_fallback", log_text)
+            self.assertIn("op=aten::native_layer_norm.buffer_width", log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)
@@ -5480,7 +5480,7 @@ print("OK")
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_text = log_file.read()
 
-            self.assertIn("op=aten::native_layer_norm.buffer_fallback", op_hit_text)
+            self.assertIn("op=aten::native_layer_norm.buffer_width", op_hit_text)
 
             if os.path.exists(materialize_log_path):
                 with open(materialize_log_path, "r", encoding="utf-8") as log_file:
@@ -6083,8 +6083,12 @@ print("OK")
                 "op=aten::scaled_dot_product_attention.family_texture_math",
                 log_text,
             )
-            self.assertIn("op=aten::bmm.buffer_float", log_text)
-            self.assertIn("op=aten::_softmax.buffer_fallback", log_text)
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.buffer_tiled",
+                log_text,
+            )
+            self.assertNotIn("op=aten::bmm.buffer_float", log_text)
+            self.assertNotIn("op=aten::_softmax.buffer_lastdim", log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)

@@ -11,6 +11,7 @@
 #include <ATen/ops/pow.h>
 #include <ATen/ops/sub.h>
 #endif
+#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
@@ -1003,11 +1004,12 @@ static Tensor& binary_op_scalar_(
   return self_arg;
 }
 
-static Tensor binary_op_tensor_buffer(
+static Tensor binary_op_tensor_buffer_impl(
     const Tensor& self_arg,
     const Tensor& other_arg,
     const std::optional<Scalar>& alpha_arg,
-    const api::ShaderInfo& shader_descriptor) {
+    const api::ShaderInfo& shader_descriptor,
+    Tensor* output_arg) {
   api::AllocationScope allocation_scope("binary_op.buffer");
   utils::log_vulkan_op_hit("aten::binary_op.buffer_float");
   utils::is_broadcastable(self_arg, other_arg);
@@ -1023,13 +1025,41 @@ static Tensor binary_op_tensor_buffer(
   vTensor& v_self = convert(self);
   vTensor& v_other = convert(other);
 
-  vTensor v_output{
-      context,
-      utils::broadcast_size(self_arg, other_arg),
-      v_self.dtype(),
-      api::StorageType::BUFFER,
-      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-  };
+  const std::vector<int64_t> output_sizes =
+      utils::broadcast_size(self_arg, other_arg);
+  Tensor output_tensor;
+  vTensor* v_output_ptr = nullptr;
+  vTensor owned_output;
+  if (output_arg != nullptr) {
+    TORCH_CHECK(
+        output_arg->defined(),
+        "Vulkan buffer binary out expects a defined output tensor");
+    output_tensor = output_arg->is_vulkan() ? *output_arg : output_arg->vulkan();
+    output_tensor = utils::mark_tensor_execution(
+        output_tensor,
+        utils::resolve_buffer_execution_layout(convert(output_tensor)),
+        false);
+    vTensor& v_output = convert(output_tensor);
+    TORCH_CHECK(
+        v_output.storage_type() == api::StorageType::BUFFER &&
+            v_output.dtype() == api::kFloat &&
+            utils::supports_buffer_elementwise_compute(v_output),
+        "Vulkan buffer binary out expects float buffer-backed output");
+    TORCH_CHECK(
+        output_tensor.sizes().vec() == output_sizes,
+        "Vulkan buffer binary out received mismatched output shape");
+    v_output_ptr = &v_output;
+  } else {
+    owned_output = vTensor{
+        context,
+        output_sizes,
+        v_self.dtype(),
+        api::StorageType::BUFFER,
+        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+    };
+    v_output_ptr = &owned_output;
+  }
+  vTensor& v_output = *v_output_ptr;
 
   const struct Block final {
     float alpha;
@@ -1068,7 +1098,20 @@ static Tensor binary_op_tensor_buffer(
       other_meta.buffer(),
       params.buffer());
 
-  return convert(v_output);
+  return output_arg != nullptr ? output_tensor : convert(v_output);
+}
+
+static Tensor binary_op_tensor_buffer(
+    const Tensor& self_arg,
+    const Tensor& other_arg,
+    const std::optional<Scalar>& alpha_arg,
+    const api::ShaderInfo& shader_descriptor) {
+  return binary_op_tensor_buffer_impl(
+      self_arg,
+      other_arg,
+      alpha_arg,
+      shader_descriptor,
+      nullptr);
 }
 
 static Tensor binary_op_tensor(
@@ -1441,6 +1484,22 @@ static Tensor add_tensor(
       VK_KERNEL(add),
       VK_KERNEL(buffer_add),
       BinaryOpKind::Add);
+}
+
+Tensor add_buffer_out_vulkan(
+    const Tensor& self,
+    const Tensor& other,
+    Tensor& output,
+    const std::optional<Scalar>& alpha) {
+  TORCH_CHECK(
+      should_run_buffer_binary_tensor(self, other),
+      "Vulkan add_buffer_out expects float buffer-backed tensors");
+  return binary_op_tensor_buffer_impl(
+      self,
+      other,
+      alpha,
+      VK_KERNEL(buffer_add),
+      &output);
 }
 
 static Tensor& add_tensor_(

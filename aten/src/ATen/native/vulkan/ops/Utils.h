@@ -74,6 +74,25 @@ Tensor make_buffer_metadata_view(
     IntArrayRef physical_strides,
     int64_t storage_offset);
 
+bool can_make_typed_buffer_metadata_view(
+    const vTensor&,
+    ScalarType dtype,
+    IntArrayRef sizes,
+    IntArrayRef logical_strides,
+    IntArrayRef physical_strides,
+    int64_t storage_offset,
+    int64_t buffer_length_override);
+
+Tensor make_typed_buffer_metadata_view(
+    const Tensor&,
+    ScalarType dtype,
+    IntArrayRef sizes,
+    IntArrayRef logical_strides,
+    IntArrayRef physical_strides,
+    int64_t storage_offset,
+    int64_t buffer_length_override,
+    api::ExecutionLayout execution_layout);
+
 LogicalBufferMetadata make_buffer_compute_metadata(const vTensor&);
 
 api::UniformParamsBuffer make_buffer_compute_metadata_ubo(

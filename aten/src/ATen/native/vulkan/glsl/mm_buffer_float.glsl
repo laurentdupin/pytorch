@@ -1,3 +1,6 @@
+/*
+ * TILE_SIZE = (4, 4, 1)
+ */
 #version 450 core
 
 #define PRECISION ${PRECISION}
@@ -48,15 +51,17 @@ uBlock;
 
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
+const uint TILE_SIZE = 4u;
+
 void main() {
-  const uint out_col = gl_GlobalInvocationID.x;
-  const uint out_row = gl_GlobalInvocationID.y;
+  const uint out_col_base = gl_GlobalInvocationID.x * TILE_SIZE;
+  const uint out_row_base = gl_GlobalInvocationID.y * TILE_SIZE;
 
   const uint out_width = uint(uBlock.info.x);
   const uint out_height = uint(uBlock.info.y);
   const uint inner_dim = uint(uBlock.info.z);
 
-  if (out_col >= out_width || out_row >= out_height) {
+  if (out_col_base >= out_width || out_row_base >= out_height) {
     return;
   }
 
@@ -64,17 +69,59 @@ void main() {
   const uint in_storage_offset = uInMeta.info.z;
   const uint weight_storage_offset = uWeightMeta.info.z;
 
-  const uint out_idx = out_storage_offset + out_col * uOutMeta.strides.x +
-      out_row * uOutMeta.strides.y;
-
-  float acc = 0.0;
-  for (uint k = 0u; k < inner_dim; ++k) {
-    const uint input_idx = in_storage_offset + k * uInMeta.strides.x +
-        out_row * uInMeta.strides.y;
-    const uint weight_idx = weight_storage_offset +
-        out_col * uWeightMeta.strides.x + k * uWeightMeta.strides.y;
-    acc += uInput.data[input_idx] * uWeight.data[weight_idx];
+  float acc[4][4];
+  for (uint row = 0u; row < TILE_SIZE; ++row) {
+    for (uint col = 0u; col < TILE_SIZE; ++col) {
+      acc[row][col] = 0.0;
+    }
   }
 
-  uOutput.data[out_idx] = acc;
+  for (uint k = 0u; k < inner_dim; ++k) {
+    float input_values[4];
+    float weight_values[4];
+
+    for (uint row = 0u; row < TILE_SIZE; ++row) {
+      const uint out_row = out_row_base + row;
+      if (out_row < out_height) {
+        const uint input_idx = in_storage_offset + k * uInMeta.strides.x +
+            out_row * uInMeta.strides.y;
+        input_values[row] = uInput.data[input_idx];
+      } else {
+        input_values[row] = 0.0;
+      }
+    }
+
+    for (uint col = 0u; col < TILE_SIZE; ++col) {
+      const uint out_col = out_col_base + col;
+      if (out_col < out_width) {
+        const uint weight_idx = weight_storage_offset +
+            out_col * uWeightMeta.strides.x + k * uWeightMeta.strides.y;
+        weight_values[col] = uWeight.data[weight_idx];
+      } else {
+        weight_values[col] = 0.0;
+      }
+    }
+
+    for (uint row = 0u; row < TILE_SIZE; ++row) {
+      for (uint col = 0u; col < TILE_SIZE; ++col) {
+        acc[row][col] += input_values[row] * weight_values[col];
+      }
+    }
+  }
+
+  for (uint row = 0u; row < TILE_SIZE; ++row) {
+    const uint out_row = out_row_base + row;
+    if (out_row >= out_height) {
+      continue;
+    }
+    for (uint col = 0u; col < TILE_SIZE; ++col) {
+      const uint out_col = out_col_base + col;
+      if (out_col >= out_width) {
+        continue;
+      }
+      const uint out_idx = out_storage_offset + out_col * uOutMeta.strides.x +
+          out_row * uOutMeta.strides.y;
+      uOutput.data[out_idx] = acc[row][col];
+    }
+  }
 }

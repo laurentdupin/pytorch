@@ -116,6 +116,11 @@ Tensor run_linear_context_out(
     const c10::intrusive_ptr<LinearPackedContext>& context,
     Tensor& output);
 
+Tensor bmm_buffer_out_vulkan(
+    const Tensor& mat1,
+    const Tensor& mat2,
+    Tensor& output);
+
 Tensor run_linear_gelu_context(
     const Tensor& input,
     const c10::intrusive_ptr<LinearPackedContext>& context);

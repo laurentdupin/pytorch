@@ -4,6 +4,7 @@
 #else
 #include <ATen/ops/cat.h>
 #endif
+#include <ATen/native/vulkan/ops/Utils.h>
 #include <c10/util/irange.h>
 #include <torch/library.h>
 
@@ -18,6 +19,14 @@ using namespace api::utils;
 namespace {
 inline int64_t normalize_dim(int64_t d, int64_t n) {
   return (d % n + n) % n;
+}
+
+std::vector<int64_t> calc_contiguous_strides(IntArrayRef sizes) {
+  std::vector<int64_t> strides(sizes.size(), 1);
+  for (int64_t idx = static_cast<int64_t>(sizes.size()) - 2; idx >= 0; --idx) {
+    strides[idx] = strides[idx + 1] * std::max<int64_t>(sizes[idx + 1], 1);
+  }
+  return strides;
 }
 
 Tensor cat_cpu_fallback(
@@ -44,6 +53,116 @@ bool cat_requires_cpu_fallback(const MaterializedITensorListRef& tensors) {
     }
   }
   return false;
+}
+
+bool can_use_buffer_cat_fast_path(
+    const MaterializedITensorListRef& tensors,
+    const int64_t dim) {
+  if (tensors.empty()) {
+    return false;
+  }
+
+  const Tensor& reference = tensors[0];
+  if (
+      reference.scalar_type() != kFloat ||
+      dim < 0 || dim >= reference.dim() || dim == reference.dim() - 1) {
+    return false;
+  }
+
+  bool has_buffer_input = false;
+  for (const Tensor& tensor : tensors) {
+    if (!tensor.is_vulkan() || tensor.dim() != reference.dim()) {
+      return false;
+    }
+    const vTensor& v_tensor = convert(tensor);
+    if (v_tensor.storage_type() == api::StorageType::BUFFER) {
+      has_buffer_input = true;
+    }
+  }
+
+  return has_buffer_input;
+}
+
+Tensor cat_buffer_direct(
+    const MaterializedITensorListRef& tensors,
+    const int64_t dim,
+    IntArrayRef result_size) {
+  api::AllocationScope allocation_scope("cat.buffer_direct");
+  api::Context* const context = api::context();
+
+  std::vector<Tensor> prepared_tensors;
+  prepared_tensors.reserve(tensors.size());
+  for (const Tensor& tensor : tensors) {
+    Tensor prepared = tensor;
+    const vTensor& v_tensor = convert(prepared);
+    if (
+        v_tensor.storage_type() != api::StorageType::BUFFER ||
+        !utils::supports_buffer_elementwise_compute(v_tensor)) {
+      prepared = utils::mark_tensor_execution(
+          utils::ensure_buffer_storage(
+              prepared, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
+          api::ExecutionLayout::BUFFER_DIRECT);
+      const vTensor& v_buffer = convert(prepared);
+      TORCH_CHECK(
+          v_buffer.storage_type() == api::StorageType::BUFFER &&
+              v_buffer.has_direct_buffer_layout(),
+          "Vulkan buffer cat requires buffer-backed inputs");
+    }
+    prepared_tensors.push_back(std::move(prepared));
+  }
+
+  vTensor v_output{
+      context,
+      result_size.vec(),
+      convert_dtype(prepared_tensors[0].scalar_type()),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+  Tensor output = utils::mark_tensor_execution(
+      convert(v_output), api::ExecutionLayout::BUFFER_DIRECT);
+  int64_t dst_dim_offset = 0;
+
+  for (const Tensor& tensor : prepared_tensors) {
+    vTensor& v_input = convert(tensor);
+    const std::vector<int64_t> logical_strides =
+        calc_contiguous_strides(tensor.sizes());
+    const int64_t output_storage_offset =
+        dst_dim_offset * v_output.gpu_strides()[dim];
+    Tensor output_view = utils::make_buffer_metadata_view(
+        output,
+        tensor.sizes(),
+        logical_strides,
+        v_output.gpu_strides(),
+        output_storage_offset);
+    vTensor& v_output_view = convert(output_view);
+
+    api::PipelineBarrier pipeline_barrier{};
+    const api::utils::uvec3 global_size = {
+        api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_input.numel(), 1)),
+        1u,
+        1u,
+    };
+    context->submit_compute_job(
+        VK_KERNEL(buffer_to_buffer),
+        pipeline_barrier,
+        global_size,
+        adaptive_work_group_size(global_size),
+        VK_NULL_HANDLE,
+        v_output_view.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        utils::make_buffer_compute_metadata_ubo(context, v_output_view).buffer(),
+        v_input.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::READ),
+        utils::make_buffer_compute_metadata_ubo(context, v_input).buffer());
+
+    dst_dim_offset += tensor.size(dim);
+  }
+
+  return output;
 }
 } // namespace
 
@@ -307,17 +426,13 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
   auto materialized = tensors.materialize();
   TORCH_INTERNAL_ASSERT(!materialized.empty(), "Accessing empty array");
   const at::Tensor& tensor = materialized[0];
+  auto ndim = safe_downcast<uint32_t>(tensor.dim());
+  const int64_t dim = normalize_dim(in_dim, ndim);
   if (!c10::isFloatingType(tensor.scalar_type())) {
     return cat_cpu_fallback(materialized, in_dim);
   }
-  if (cat_requires_cpu_fallback(materialized)) {
-    return cat_cpu_fallback(materialized, in_dim);
-  }
-  auto ndim = safe_downcast<uint32_t>(tensor.dim());
-  const int64_t dim = normalize_dim(in_dim, ndim);
   int64_t cat_dim_size = 0;
   bool is_mult4ch = true;
-
   for (const at::Tensor& t : materialized) {
     TORCH_INTERNAL_ASSERT(
         t.dim() <= 4,
@@ -343,6 +458,13 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
   auto result_size = tensor.sizes().vec();
   TORCH_INTERNAL_ASSERT(!result_size.empty(), "Accessing empty array");
   result_size[dim] = cat_dim_size;
+
+  if (can_use_buffer_cat_fast_path(materialized, dim)) {
+    return cat_buffer_direct(materialized, dim, result_size);
+  }
+  if (cat_requires_cpu_fallback(materialized)) {
+    return cat_cpu_fallback(materialized, in_dim);
+  }
 
   vTensor v_output{
       api::context(), result_size, convert_dtype(tensor.scalar_type())};

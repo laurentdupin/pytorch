@@ -86,6 +86,52 @@ bool can_make_buffer_metadata_view_impl(
   return max_offset < v_input.buffer_length();
 }
 
+bool can_make_typed_buffer_metadata_view_impl(
+    const vTensor& v_input,
+    const api::ScalarType dtype,
+    IntArrayRef sizes,
+    IntArrayRef logical_strides,
+    IntArrayRef physical_strides,
+    const int64_t storage_offset,
+    const int64_t buffer_length_override) {
+  if (
+      v_input.storage_type() != api::StorageType::BUFFER ||
+      v_input.is_quantized() || sizes.size() != logical_strides.size() ||
+      sizes.size() != physical_strides.size() || sizes.size() > 4 ||
+      storage_offset < 0 || buffer_length_override < 0 ||
+      !api::supports_generic_buffer_view_ops(dtype, sizes.size())) {
+    return false;
+  }
+
+  const int64_t source_buffer_bytes =
+      v_input.buffer_length() *
+      api::utils::safe_downcast<int64_t>(api::element_size(v_input.dtype()));
+  const int64_t max_alias_buffer_length =
+      source_buffer_bytes /
+      api::utils::safe_downcast<int64_t>(api::element_size(dtype));
+  if (buffer_length_override > max_alias_buffer_length) {
+    return false;
+  }
+
+  int64_t max_offset = storage_offset;
+  for (const auto idx : c10::irange(sizes.size())) {
+    if (
+        sizes[idx] < 0 || logical_strides[idx] < 0 ||
+        physical_strides[idx] < 0) {
+      return false;
+    }
+    if (sizes[idx] == 0) {
+      continue;
+    }
+    max_offset += (sizes[idx] - 1) * physical_strides[idx];
+    if (max_offset < 0) {
+      return false;
+    }
+  }
+
+  return max_offset < buffer_length_override;
+}
+
 Tensor cast_vulkan_tensor_dtype_buffer_native(
     const Tensor& input_arg,
     const ScalarType dtype,
@@ -539,6 +585,70 @@ Tensor make_buffer_metadata_view(
       physical_strides.vec(),
       storage_offset,
   });
+}
+
+bool can_make_typed_buffer_metadata_view(
+    const vTensor& v_in,
+    const ScalarType dtype,
+    IntArrayRef sizes,
+    IntArrayRef logical_strides,
+    IntArrayRef physical_strides,
+    const int64_t storage_offset,
+    const int64_t buffer_length_override) {
+  return can_make_typed_buffer_metadata_view_impl(
+      v_in,
+      convert_dtype(dtype),
+      sizes,
+      logical_strides,
+      physical_strides,
+      storage_offset,
+      buffer_length_override);
+}
+
+Tensor make_typed_buffer_metadata_view(
+    const Tensor& input_arg,
+    const ScalarType dtype,
+    IntArrayRef sizes,
+    IntArrayRef logical_strides,
+    IntArrayRef physical_strides,
+    const int64_t storage_offset,
+    const int64_t buffer_length_override,
+    const api::ExecutionLayout execution_layout) {
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  const vTensor& v_input = convert(input);
+
+  TORCH_CHECK(
+      api::uses_buffer_execution(execution_layout),
+      "Typed Vulkan buffer metadata view requires a buffer execution layout");
+  TORCH_CHECK(
+      can_make_typed_buffer_metadata_view_impl(
+          v_input,
+          convert_dtype(dtype),
+          sizes,
+          logical_strides,
+          physical_strides,
+          storage_offset,
+          buffer_length_override),
+      "Vulkan typed buffer metadata view requires a supported buffer-backed "
+      "storage tensor with valid logical sizes/strides and in-range storage");
+
+  log_materialize_event(
+      "make_typed_buffer_metadata_view",
+      v_input,
+      api::StorageType::BUFFER,
+      v_input.gpu_memory_layout(),
+      "typed_metadata_view");
+
+  Tensor alias = convert(vTensor{
+      v_input,
+      convert_dtype(dtype),
+      sizes.vec(),
+      logical_strides.vec(),
+      physical_strides.vec(),
+      storage_offset,
+      buffer_length_override,
+  });
+  return mark_tensor_execution(alias, execution_layout);
 }
 
 std::string describe_buffer_view_fast_path_failure(const vTensor& v_in) {

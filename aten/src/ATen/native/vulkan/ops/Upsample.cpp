@@ -1,6 +1,7 @@
 #include <ATen/native/UpSample.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
+#include <ATen/native/vulkan/ops/Upsample.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -25,6 +26,113 @@ bool should_run_buffer_upsample(const Tensor& input_arg) {
   const vTensor& v_input = convert(input_arg);
   return v_input.storage_type() == api::StorageType::BUFFER &&
       utils::supports_buffer_elementwise_compute(v_input);
+}
+
+Tensor upsample_bilinear2d_buffer_impl(
+    const Tensor& input_arg,
+    const IntArrayRef output_sizes,
+    bool align_corners,
+    const std::optional<double> scales_h,
+    const std::optional<double> scales_w,
+    Tensor* output_arg) {
+  utils::log_vulkan_op_hit("aten::upsample_bilinear2d.buffer_float");
+  api::Context* const context = api::context();
+  const vTensor& v_input = convert(input_arg);
+
+  const std::vector<int64_t> expected_output_sizes{
+      get_dim<Dim4D::Batch>(v_input),
+      get_dim<Dim4D::Channel>(v_input),
+      output_sizes[Layout::Parameter::height],
+      output_sizes[Layout::Parameter::width],
+  };
+
+  Tensor output_tensor;
+  vTensor* v_output_ptr = nullptr;
+  vTensor owned_output;
+  if (output_arg != nullptr) {
+    TORCH_CHECK(
+        output_arg->defined(),
+        "Vulkan bilinear upsample out expects a defined output tensor");
+    output_tensor = output_arg->is_vulkan() ? *output_arg : output_arg->vulkan();
+    output_tensor = utils::mark_tensor_execution(
+        output_tensor,
+        utils::resolve_buffer_execution_layout(convert(output_tensor)),
+        false);
+    vTensor& v_output = convert(output_tensor);
+    TORCH_CHECK(
+        v_output.storage_type() == api::StorageType::BUFFER &&
+            v_output.dtype() == api::kFloat &&
+            utils::supports_buffer_elementwise_compute(v_output),
+        "Vulkan bilinear upsample out expects float buffer-backed output");
+    TORCH_CHECK(
+        output_tensor.sizes().vec() == expected_output_sizes,
+        "Vulkan bilinear upsample out received mismatched output shape");
+    v_output_ptr = &v_output;
+  } else {
+    owned_output = vTensor{
+        context,
+        expected_output_sizes,
+        v_input.dtype(),
+        api::StorageType::BUFFER,
+        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+    };
+    v_output_ptr = &owned_output;
+  }
+  vTensor& v_output = *v_output_ptr;
+
+  const struct Block final {
+    ivec4 info;
+    vec4 scale;
+  } block{
+      {
+          safe_downcast<int32_t>(get_dim<Dim4D::Width>(input_arg) - 1),
+          safe_downcast<int32_t>(get_dim<Dim4D::Height>(input_arg) - 1),
+          safe_downcast<int32_t>(get_dim<Dim4D::Width>(v_output)),
+          safe_downcast<int32_t>(get_dim<Dim4D::Height>(v_output)),
+      },
+      {
+          compute_scales_value<float>(
+              scales_w,
+              get_dim<Dim4D::Width>(input_arg),
+              get_dim<Dim4D::Width>(v_output)),
+          compute_scales_value<float>(
+              scales_h,
+              get_dim<Dim4D::Height>(input_arg),
+              get_dim<Dim4D::Height>(v_output)),
+          0.0f,
+          0.0f,
+      },
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size{
+      safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  context->submit_compute_job(
+      align_corners ? VK_KERNEL(upsample_bilinear2d_buffer_align_true)
+                    : VK_KERNEL(upsample_bilinear2d_buffer_align_false),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return output_arg != nullptr ? output_tensor : convert(v_output);
 }
 
 static Tensor upsample_nearest2d(
@@ -127,75 +235,13 @@ static Tensor upsample_bilinear2d(
       "Invalid input!");
 
   if (should_run_buffer_upsample(input_arg)) {
-    utils::log_vulkan_op_hit("aten::upsample_bilinear2d.buffer_float");
-    const vTensor& v_input = convert(input_arg);
-
-    vTensor v_output{
-        context,
-        {
-            get_dim<Dim4D::Batch>(v_input),
-            get_dim<Dim4D::Channel>(v_input),
-            output_sizes[Layout::Parameter::height],
-            output_sizes[Layout::Parameter::width],
-        },
-        v_input.dtype(),
-        api::StorageType::BUFFER,
-        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-    };
-
-    const struct Block final {
-      ivec4 info;
-      vec4 scale;
-    } block{
-        {
-            safe_downcast<int32_t>(get_dim<Dim4D::Width>(input_arg) - 1),
-            safe_downcast<int32_t>(get_dim<Dim4D::Height>(input_arg) - 1),
-            safe_downcast<int32_t>(get_dim<Dim4D::Width>(v_output)),
-            safe_downcast<int32_t>(get_dim<Dim4D::Height>(v_output)),
-        },
-        {
-            compute_scales_value<float>(
-                scales_w,
-                get_dim<Dim4D::Width>(input_arg),
-                get_dim<Dim4D::Width>(v_output)),
-            compute_scales_value<float>(
-                scales_h,
-                get_dim<Dim4D::Height>(input_arg),
-                get_dim<Dim4D::Height>(v_output)),
-            0.0f,
-            0.0f,
-        },
-    };
-
-    api::UniformParamsBuffer params(context, block);
-    api::PipelineBarrier pipeline_barrier{};
-    const api::utils::uvec3 global_size{
-        safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
-        1u,
-        1u,
-    };
-    api::UniformParamsBuffer out_meta =
-        utils::make_buffer_compute_metadata_ubo(context, v_output);
-    api::UniformParamsBuffer in_meta =
-        utils::make_buffer_compute_metadata_ubo(context, v_input);
-
-    context->submit_compute_job(
-        align_corners ? VK_KERNEL(upsample_bilinear2d_buffer_align_true)
-                      : VK_KERNEL(upsample_bilinear2d_buffer_align_false),
-        pipeline_barrier,
-        global_size,
-        adaptive_work_group_size(global_size),
-        VK_NULL_HANDLE,
-        v_output.buffer(
-            pipeline_barrier,
-            api::PipelineStage::COMPUTE,
-            api::MemoryAccessType::WRITE),
-        out_meta.buffer(),
-        v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-        in_meta.buffer(),
-        params.buffer());
-
-    return convert(v_output);
+    return upsample_bilinear2d_buffer_impl(
+        input_arg,
+        output_sizes,
+        align_corners,
+        scales_h,
+        scales_w,
+        nullptr);
   }
 
   const Tensor input = prepare_upsample_texture_input(input_arg);
@@ -434,6 +480,25 @@ static Tensor& upsample_bicubic2d_out(
           align_corners,
           scales_h,
           scales_w));
+}
+
+Tensor upsample_bilinear2d_buffer_out_vulkan(
+    const Tensor& input,
+    const IntArrayRef output_sizes,
+    bool align_corners,
+    const std::optional<double> scales_h,
+    const std::optional<double> scales_w,
+    Tensor& output) {
+  TORCH_CHECK(
+      should_run_buffer_upsample(input),
+      "Vulkan bilinear upsample out expects float buffer-backed input");
+  return upsample_bilinear2d_buffer_impl(
+      input,
+      output_sizes,
+      align_corners,
+      scales_h,
+      scales_w,
+      &output);
 }
 
 #ifdef USE_VULKAN_API

@@ -439,6 +439,58 @@ vTensor::vTensor(
 
 vTensor::vTensor(
     const vTensor& src,
+    const api::ScalarType dtype,
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& logical_strides,
+    const std::vector<int64_t>& physical_strides,
+    const int64_t storage_offset,
+    const int64_t buffer_length_override)
+    : logical_desc_{
+          dtype,
+          sizes,
+          logical_strides,
+          storage_offset,
+      },
+      physical_desc_{
+          src.physical_desc_.storage_type,
+          src.physical_desc_.memory_layout,
+          sizes,
+          physical_strides,
+          src.physical_desc_.virtual_extents,
+      },
+      execution_desc_(make_execution_desc(
+          src.storage_type(), true, src.execution_desc_.persistent)),
+      metadata_uniform_(),
+      cpu_sizes_uniform_(nullptr),
+      gpu_sizes_uniform_(nullptr),
+      extents_uniform_(nullptr),
+      buffer_length_override_(buffer_length_override),
+      is_quantized_(src.is_quantized_),
+      q_scale_(src.q_scale_),
+      q_zero_point_(src.q_zero_point_),
+      view_(src.view_) {
+  TORCH_CHECK(
+      src.storage_type() == api::StorageType::BUFFER,
+      "Typed metadata-only vTensor views currently require BUFFER storage");
+  TORCH_CHECK(
+      !src.is_quantized(),
+      "Typed metadata-only vTensor views do not support quantized storage");
+
+  const int64_t source_buffer_bytes =
+      src.view_->buffer_length_ *
+      api::utils::safe_downcast<int64_t>(api::element_size(src.dtype()));
+  const int64_t max_alias_buffer_length =
+      source_buffer_bytes /
+      api::utils::safe_downcast<int64_t>(api::element_size(dtype));
+  TORCH_CHECK(
+      buffer_length_override >= 0 &&
+          buffer_length_override <= max_alias_buffer_length,
+      "Typed metadata-only vTensor view requires buffer_length_override within "
+      "the shared storage capacity");
+}
+
+vTensor::vTensor(
+    const vTensor& src,
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& logical_strides,
     PreservePhysicalView)
@@ -504,7 +556,7 @@ api::VulkanBuffer& vTensor::buffer_metadata() {
         view_->context_,
         physical_desc_.sizes,
         physical_desc_.strides,
-        view_->buffer_length_,
+        buffer_length(),
         logical_desc_.storage_offset,
         storage_type());
   }

@@ -25,6 +25,52 @@ constexpr int32_t kTiledSdpaMaxOutputsPerThread = 32;
 constexpr int64_t kTiledSdpaMaxValueDim =
     static_cast<int64_t>(kTiledSdpaLocalSizeX) *
     static_cast<int64_t>(kTiledSdpaMaxOutputsPerThread);
+constexpr int32_t kTiledSdpaBufferMaxQueryValuesPerThread = 8;
+constexpr int64_t kTiledSdpaBufferMaxHeadDim =
+    static_cast<int64_t>(kTiledSdpaLocalSizeX) *
+    static_cast<int64_t>(kTiledSdpaBufferMaxQueryValuesPerThread);
+constexpr int64_t kTiledSdpaBufferDefaultFastPathMaxSequence = 128;
+constexpr int64_t kTiledSdpaBufferVisionFastPathMaxSequence = 512;
+constexpr uint32_t kBufferSoftmaxLastDimLocalSizeX = 128u;
+constexpr uint32_t kBufferSoftmaxLastDimMaxWorkGroupsX = 65535u;
+
+bool is_vision_backbone_attention_policy(
+    const utils::VulkanRuntimePolicy& runtime_policy) {
+  return runtime_policy.attention_kernel_family ==
+      utils::VulkanAttentionKernelFamily::BufferMath &&
+      (runtime_policy.request.workload_class ==
+           utils::VulkanWorkloadClass::VisionBackbone ||
+       (runtime_policy.request.model_domain == utils::VulkanModelDomain::Vision &&
+        runtime_policy.request.execution_phase ==
+            utils::VulkanExecutionPhase::Backbone));
+}
+
+int64_t tiled_sdpa_buffer_fast_path_max_sequence(
+    const utils::VulkanRuntimePolicy& runtime_policy) {
+  return is_vision_backbone_attention_policy(runtime_policy)
+      ? kTiledSdpaBufferVisionFastPathMaxSequence
+      : kTiledSdpaBufferDefaultFastPathMaxSequence;
+}
+
+Tensor prepare_buffer_math_input_direct(const Tensor& tensor) {
+  TORCH_CHECK(
+      tensor.is_vulkan(),
+      "Vulkan SDPA buffer math expects Vulkan tensors");
+  const vTensor& v_tensor = convert(tensor);
+  if (
+      v_tensor.storage_type() == api::StorageType::BUFFER &&
+      v_tensor.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      utils::supports_buffer_view_fast_path(v_tensor)) {
+    return utils::mark_tensor_execution(
+        tensor, utils::resolve_buffer_execution_layout(v_tensor));
+  }
+
+  Tensor buffer_tensor =
+      utils::ensure_buffer_storage(tensor, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  return utils::mark_tensor_execution(
+      buffer_tensor,
+      utils::resolve_buffer_execution_layout(convert(buffer_tensor)));
+}
 
 utils::VulkanKVCacheSpec make_attention_kv_cache_spec(
     const Tensor& tensor,
@@ -267,14 +313,126 @@ bool can_run_buffer_softmax(const Tensor& input, const int64_t dim) {
       utils::supports_buffer_reduction_compute(v_input);
 }
 
+Tensor ensure_softmax_buffer_output_tensor(
+    Tensor& output,
+    IntArrayRef sizes,
+    const c10::ScalarType dtype) {
+  bool needs_allocation = !output.defined() || !output.is_vulkan() ||
+      output.scalar_type() != dtype || !output.sizes().equals(sizes);
+  if (!needs_allocation) {
+    const vTensor& v_output = convert(output);
+    needs_allocation =
+        v_output.storage_type() != api::StorageType::BUFFER ||
+        v_output.gpu_memory_layout() !=
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED ||
+        !utils::supports_buffer_view_fast_path(v_output);
+  }
+  if (needs_allocation) {
+    output = utils::mark_tensor_execution(
+        convert(vTensor{
+            api::context(),
+            sizes.vec(),
+            convert_dtype(dtype),
+            api::StorageType::BUFFER,
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+        }),
+        api::ExecutionLayout::BUFFER_DIRECT);
+  } else {
+    output = utils::mark_tensor_execution(
+        output,
+        utils::resolve_buffer_execution_layout(convert(output)));
+  }
+  return output;
+}
+
+Tensor softmax_buffer_lastdim_impl(const Tensor& input, Tensor* output_opt) {
+  api::AllocationScope allocation_scope("softmax.buffer_lastdim");
+  utils::log_vulkan_op_hit("aten::_softmax.buffer_lastdim");
+
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(input);
+  const uint32_t reduce_size =
+      safe_downcast<uint32_t>(std::max<int64_t>(input.size(input.dim() - 1), 1));
+  const uint32_t row_count =
+      safe_downcast<uint32_t>(v_input.numel() / reduce_size);
+
+  Tensor output_tensor = output_opt
+      ? ensure_softmax_buffer_output_tensor(
+            *output_opt, input.sizes(), convert_dtype(v_input.dtype()))
+      : utils::mark_tensor_execution(
+            convert(vTensor{
+                context,
+                v_input.sizes(),
+                v_input.dtype(),
+                api::StorageType::BUFFER,
+                api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+            }),
+            api::ExecutionLayout::BUFFER_DIRECT);
+  vTensor& v_output = convert(output_tensor);
+
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uint32_t rows_per_grid_x =
+      std::min(row_count, kBufferSoftmaxLastDimMaxWorkGroupsX);
+  const uint32_t grid_y =
+      api::utils::div_up(row_count, rows_per_grid_x);
+  const struct {
+    uint32_t row_count;
+    uint32_t rows_per_grid_x;
+    uint32_t reduce_size;
+    uint32_t reserved;
+  } block{
+      row_count,
+      rows_per_grid_x,
+      reduce_size,
+      0u,
+  };
+  api::UniformParamsBuffer params(context, block);
+  const api::utils::uvec3 global_size{
+      safe_downcast<uint32_t>(
+          static_cast<uint64_t>(rows_per_grid_x) *
+          kBufferSoftmaxLastDimLocalSizeX),
+      grid_y,
+      1u};
+  context->submit_compute_job(
+      VK_KERNEL(buffer_softmax_lastdim_float),
+      pipeline_barrier,
+      global_size,
+      {kBufferSoftmaxLastDimLocalSizeX, 1u, 1u},
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return output_tensor;
+}
+
+Tensor softmax_buffer_lastdim(const Tensor& input) {
+  return softmax_buffer_lastdim_impl(input, nullptr);
+}
+
 Tensor softmax_buffer(
     const Tensor& input_arg,
     const int64_t dim) {
-  utils::log_vulkan_op_hit("aten::_softmax.buffer_fallback");
+  if (dim == input_arg.dim() - 1 && input_arg.size(dim) > 0 &&
+      input_arg.numel() > 0) {
+    return softmax_buffer_lastdim(input_arg);
+  }
+
   const auto plan = utils::build_vulkan_execution_plan(
       input_arg, utils::VulkanExecutionPlanKind::ReductionDimInput);
   Tensor input =
       utils::prepare_vulkan_direct_buffer_execution_tensor(input_arg, plan);
+  utils::log_vulkan_op_hit("aten::_softmax.buffer_fallback");
   Tensor max_values = at::amax(input, {dim}, true);
   Tensor shifted = at::sub(input, max_values);
   Tensor exp_values = at::exp(shifted);
@@ -287,6 +445,150 @@ Tensor softmax_buffer(
         api::ExecutionLayout::BUFFER_DIRECT);
   }
   return output;
+}
+
+std::tuple<Tensor, Tensor, Tensor> transform_bias_rescale_qkv_vulkan_out_impl(
+    const Tensor& qkv_arg,
+    const Tensor& qkv_bias_arg,
+    const int64_t num_head,
+    const Tensor& q_out_arg,
+    const Tensor& k_out_arg,
+    const Tensor& v_out_arg) {
+  TORCH_CHECK(
+      qkv_arg.is_vulkan() && q_out_arg.is_vulkan() && k_out_arg.is_vulkan() &&
+          v_out_arg.is_vulkan(),
+      "Vulkan _transform_bias_rescale_qkv_out expects Vulkan tensors");
+  TORCH_CHECK(
+      qkv_arg.dim() == 2 && qkv_bias_arg.dim() == 1,
+      "Vulkan _transform_bias_rescale_qkv_out expects a 2D qkv tensor and 1D bias tensor");
+  TORCH_CHECK(
+      qkv_arg.scalar_type() == kFloat && qkv_bias_arg.scalar_type() == kFloat,
+      "Vulkan _transform_bias_rescale_qkv_out currently supports float tensors");
+
+  const int64_t token_count = qkv_arg.size(0);
+  const int64_t embed_dim = qkv_arg.size(1) / 3;
+  TORCH_CHECK(
+      qkv_arg.size(1) == qkv_bias_arg.size(0) && qkv_arg.size(1) % 3 == 0,
+      "Vulkan _transform_bias_rescale_qkv_out expects matching qkv and bias widths");
+  TORCH_CHECK(
+      embed_dim % num_head == 0,
+      "Vulkan _transform_bias_rescale_qkv_out expects embed_dim divisible by num_heads");
+  const int64_t head_dim = embed_dim / num_head;
+  const float q_scale =
+      static_cast<float>(1.0 / std::sqrt(static_cast<double>(head_dim)));
+
+  const auto prepare_buffer_output =
+      [](const Tensor& output_arg) -> Tensor {
+    Tensor output = output_arg.is_vulkan() ? output_arg : output_arg.vulkan();
+    const vTensor& v_output = convert(output);
+    if (
+        v_output.storage_type() == api::StorageType::BUFFER &&
+        v_output.gpu_memory_layout() ==
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+        utils::supports_buffer_view_fast_path(v_output)) {
+      return utils::mark_tensor_execution(
+          output, utils::resolve_buffer_execution_layout(v_output));
+    }
+    return utils::mark_tensor_execution(
+        utils::ensure_buffer_storage(
+            output, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
+        api::ExecutionLayout::BUFFER_DIRECT);
+  };
+
+  Tensor qkv_buffer = utils::mark_tensor_execution(
+      utils::ensure_buffer_storage(
+          qkv_arg, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
+      api::ExecutionLayout::BUFFER_DIRECT);
+  Tensor bias_buffer = utils::mark_tensor_execution(
+      utils::ensure_buffer_storage(
+          qkv_bias_arg, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
+      api::ExecutionLayout::BUFFER_DIRECT);
+  Tensor q = prepare_buffer_output(q_out_arg);
+  Tensor k = prepare_buffer_output(k_out_arg);
+  Tensor v = prepare_buffer_output(v_out_arg);
+
+  vTensor& v_qkv_buffer = convert(qkv_buffer);
+  vTensor& v_bias_buffer = convert(bias_buffer);
+  vTensor& v_q = convert(q);
+  vTensor& v_k = convert(k);
+  vTensor& v_v = convert(v);
+  TORCH_CHECK(
+      v_qkv_buffer.storage_type() == api::StorageType::BUFFER &&
+          v_qkv_buffer.has_direct_buffer_layout(),
+      "Vulkan buffer _transform_bias_rescale_qkv_out expects direct-buffer qkv");
+  TORCH_CHECK(
+      v_bias_buffer.storage_type() == api::StorageType::BUFFER &&
+          v_bias_buffer.has_direct_buffer_layout(),
+      "Vulkan buffer _transform_bias_rescale_qkv_out expects direct-buffer bias");
+  TORCH_CHECK(
+      v_q.storage_type() == api::StorageType::BUFFER &&
+          utils::supports_buffer_view_fast_path(v_q),
+      "Vulkan buffer _transform_bias_rescale_qkv_out expects buffer-backed q output");
+  TORCH_CHECK(
+      v_k.storage_type() == api::StorageType::BUFFER &&
+          utils::supports_buffer_view_fast_path(v_k),
+      "Vulkan buffer _transform_bias_rescale_qkv_out expects buffer-backed k output");
+  TORCH_CHECK(
+      v_v.storage_type() == api::StorageType::BUFFER &&
+          utils::supports_buffer_view_fast_path(v_v),
+      "Vulkan buffer _transform_bias_rescale_qkv_out expects buffer-backed v output");
+  TORCH_CHECK(
+      q.sizes().equals({num_head, token_count, head_dim}) &&
+          k.sizes().equals({num_head, token_count, head_dim}) &&
+          v.sizes().equals({num_head, token_count, head_dim}),
+      "Vulkan _transform_bias_rescale_qkv_out received unexpected q/k/v output sizes");
+
+  api::Context* const context = api::context();
+  const struct Block final {
+    ivec4 sizes;
+    vec4 scale;
+  } block{
+      {
+          safe_downcast<int32_t>(head_dim),
+          safe_downcast<int32_t>(token_count),
+          safe_downcast<int32_t>(num_head),
+          safe_downcast<int32_t>(embed_dim),
+      },
+      {q_scale, 0.0f, 0.0f, 0.0f},
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size{
+      safe_downcast<uint32_t>(head_dim),
+      safe_downcast<uint32_t>(token_count),
+      safe_downcast<uint32_t>(num_head),
+  };
+
+  context->submit_compute_job(
+      VK_KERNEL(transform_bias_rescale_qkv_buffer),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_q.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_q.buffer_metadata(),
+      v_k.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_k.buffer_metadata(),
+      v_v.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_v.buffer_metadata(),
+      v_qkv_buffer.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      v_qkv_buffer.buffer_metadata(),
+      v_bias_buffer.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      v_bias_buffer.buffer_metadata(),
+      params.buffer());
+
+  utils::log_vulkan_op_hit("aten::_transform_bias_rescale_qkv.buffer_native");
+  return std::make_tuple(std::move(q), std::move(k), std::move(v));
 }
 
 std::tuple<Tensor, Tensor, Tensor> transform_bias_rescale_qkv_vulkan(
@@ -328,30 +630,6 @@ std::tuple<Tensor, Tensor, Tensor> transform_bias_rescale_qkv_vulkan(
       static_cast<float>(1.0 / std::sqrt(static_cast<double>(head_dim)));
 
   const auto buffer_qkv_transform = [&]() -> std::tuple<Tensor, Tensor, Tensor> {
-    TORCH_CHECK(
-        qkv_arg.scalar_type() == kFloat,
-        "Vulkan buffer _transform_bias_rescale_qkv currently supports float tensors");
-
-    Tensor qkv_buffer = utils::mark_tensor_execution(
-        utils::ensure_buffer_storage(
-            qkv_arg, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
-        api::ExecutionLayout::BUFFER_DIRECT);
-    Tensor bias_buffer = utils::mark_tensor_execution(
-        utils::ensure_buffer_storage(
-            qkv_bias_arg, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
-        api::ExecutionLayout::BUFFER_DIRECT);
-
-    vTensor& v_qkv_buffer = convert(qkv_buffer);
-    vTensor& v_bias_buffer = convert(bias_buffer);
-    TORCH_CHECK(
-        v_qkv_buffer.storage_type() == api::StorageType::BUFFER &&
-            v_qkv_buffer.has_direct_buffer_layout(),
-        "Vulkan buffer _transform_bias_rescale_qkv expects direct-buffer qkv");
-    TORCH_CHECK(
-        v_bias_buffer.storage_type() == api::StorageType::BUFFER &&
-            v_bias_buffer.has_direct_buffer_layout(),
-        "Vulkan buffer _transform_bias_rescale_qkv expects direct-buffer bias");
-
     api::Context* const context = api::context();
     Tensor q = utils::mark_tensor_execution(
         convert(vTensor{
@@ -380,61 +658,8 @@ std::tuple<Tensor, Tensor, Tensor> transform_bias_rescale_qkv_vulkan(
             api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
         }),
         api::ExecutionLayout::BUFFER_DIRECT);
-
-    vTensor& v_q = convert(q);
-    vTensor& v_k = convert(k);
-    vTensor& v_v = convert(v);
-
-    const struct Block final {
-      ivec4 sizes;
-      vec4 scale;
-    } block{
-        {
-            safe_downcast<int32_t>(head_dim),
-            safe_downcast<int32_t>(token_count),
-            safe_downcast<int32_t>(num_head),
-            safe_downcast<int32_t>(embed_dim),
-        },
-        {q_scale, 0.0f, 0.0f, 0.0f},
-    };
-
-    api::UniformParamsBuffer params(context, block);
-    api::PipelineBarrier pipeline_barrier{};
-    const api::utils::uvec3 global_size{
-        safe_downcast<uint32_t>(head_dim),
-        safe_downcast<uint32_t>(token_count),
-        safe_downcast<uint32_t>(num_head),
-    };
-
-    context->submit_compute_job(
-        VK_KERNEL(transform_bias_rescale_qkv_buffer),
-        pipeline_barrier,
-        global_size,
-        adaptive_work_group_size(global_size),
-        VK_NULL_HANDLE,
-        v_q.buffer(
-            pipeline_barrier,
-            api::PipelineStage::COMPUTE,
-            api::MemoryAccessType::WRITE),
-        v_q.buffer_metadata(),
-        v_k.buffer(
-            pipeline_barrier,
-            api::PipelineStage::COMPUTE,
-            api::MemoryAccessType::WRITE),
-        v_k.buffer_metadata(),
-        v_v.buffer(
-            pipeline_barrier,
-            api::PipelineStage::COMPUTE,
-            api::MemoryAccessType::WRITE),
-        v_v.buffer_metadata(),
-        v_qkv_buffer.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-        v_qkv_buffer.buffer_metadata(),
-        v_bias_buffer.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-        v_bias_buffer.buffer_metadata(),
-        params.buffer());
-
-    utils::log_vulkan_op_hit("aten::_transform_bias_rescale_qkv.buffer_native");
-    return std::make_tuple(std::move(q), std::move(k), std::move(v));
+    return transform_bias_rescale_qkv_vulkan_out_impl(
+        qkv_arg, qkv_bias_arg, num_head, q, k, v);
   };
 
   const auto generic_qkv_transform = [&]() -> std::tuple<Tensor, Tensor, Tensor> {
@@ -729,6 +954,29 @@ bool can_use_tiled_sdpa_fast_path(
       v_value.sizes()[2] <= kTiledSdpaMaxValueDim;
 }
 
+bool can_use_tiled_sdpa_buffer_fast_path(
+    const vTensor& v_query,
+    const vTensor& v_key,
+    const vTensor& v_value,
+    const int64_t max_sequence) {
+  return v_query.storage_type() == api::StorageType::BUFFER &&
+      v_key.storage_type() == api::StorageType::BUFFER &&
+      v_value.storage_type() == api::StorageType::BUFFER &&
+      v_query.dtype() == api::kFloat &&
+      v_key.dtype() == api::kFloat &&
+      v_value.dtype() == api::kFloat &&
+      v_query.sizes().size() == 3 &&
+      v_key.sizes().size() == 3 &&
+      v_value.sizes().size() == 3 &&
+      v_query.sizes()[1] <= max_sequence &&
+      v_key.sizes()[1] <= max_sequence &&
+      v_query.sizes()[2] <= kTiledSdpaBufferMaxHeadDim &&
+      v_value.sizes()[2] <= kTiledSdpaMaxValueDim &&
+      utils::supports_buffer_reduction_compute(v_query) &&
+      utils::supports_buffer_reduction_compute(v_key) &&
+      utils::supports_buffer_reduction_compute(v_value);
+}
+
 Tensor scaled_dot_product_attention_tiled_3d_vulkan(
     const Tensor& query_arg,
     const Tensor& key_arg,
@@ -837,6 +1085,107 @@ Tensor scaled_dot_product_attention_tiled_3d_vulkan(
       params.buffer());
 
   return convert(v_output);
+}
+
+Tensor scaled_dot_product_attention_tiled_3d_buffer_vulkan(
+    const Tensor& query_arg,
+    const Tensor& key_arg,
+    const Tensor& value_arg,
+    const int64_t max_sequence) {
+  api::AllocationScope allocation_scope("sdpa.buffer_tiled");
+  TORCH_CHECK(
+      query_arg.is_vulkan() && key_arg.is_vulkan() && value_arg.is_vulkan(),
+      "Vulkan buffer tiled SDPA expects Vulkan tensors");
+  TORCH_CHECK(
+      query_arg.dim() == 3 && key_arg.dim() == 3 && value_arg.dim() == 3,
+      "Vulkan buffer tiled SDPA expects 3D tensors");
+  TORCH_CHECK(
+      query_arg.size(0) == key_arg.size(0) &&
+          query_arg.size(0) == value_arg.size(0) &&
+          query_arg.size(2) == key_arg.size(2) &&
+          key_arg.size(1) == value_arg.size(1),
+      "Vulkan buffer tiled SDPA expects matching [B, T, K] / [B, S, K] / [B, S, V] shapes");
+
+  const vTensor& v_query = convert(query_arg);
+  const vTensor& v_key = convert(key_arg);
+  const vTensor& v_value = convert(value_arg);
+  TORCH_CHECK(
+      can_use_tiled_sdpa_buffer_fast_path(
+          v_query, v_key, v_value, max_sequence),
+      "Vulkan buffer tiled SDPA expects float BUFFER inputs with value dim <= ",
+      kTiledSdpaMaxValueDim,
+      " and head dim <= ",
+      kTiledSdpaBufferMaxHeadDim);
+
+  api::Context* const context = api::context();
+
+  vTensor v_output{
+      context,
+      {query_arg.size(0), query_arg.size(1), value_arg.size(2)},
+      v_value.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const struct Block final {
+    ivec4 sizes;
+    ivec4 tiled_info;
+  } block{
+      {
+          safe_downcast<int32_t>(query_arg.size(0)),
+          safe_downcast<int32_t>(query_arg.size(1)),
+          safe_downcast<int32_t>(key_arg.size(1)),
+          safe_downcast<int32_t>(query_arg.size(2)),
+      },
+      {
+          safe_downcast<int32_t>(value_arg.size(2)),
+          kTiledSdpaLocalSizeX,
+          kTiledSdpaMaxOutputsPerThread,
+          0,
+      },
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer query_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_query);
+  api::UniformParamsBuffer key_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_key);
+  api::UniformParamsBuffer value_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_value);
+  api::PipelineBarrier pipeline_barrier{};
+
+  context->submit_compute_job(
+      VK_KERNEL(scaled_dot_product_scores_value_buffer_float),
+      pipeline_barrier,
+      {
+          static_cast<uint32_t>(kTiledSdpaLocalSizeX),
+          safe_downcast<uint32_t>(query_arg.size(1)),
+          safe_downcast<uint32_t>(query_arg.size(0)),
+      },
+      {
+          static_cast<uint32_t>(kTiledSdpaLocalSizeX),
+          1u,
+          1u,
+      },
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_query.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      query_meta.buffer(),
+      v_key.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      key_meta.buffer(),
+      v_value.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      value_meta.buffer(),
+      params.buffer());
+
+  utils::log_vulkan_op_hit("aten::scaled_dot_product_attention.buffer_tiled");
+  return utils::mark_tensor_execution(
+      convert(v_output), api::ExecutionLayout::BUFFER_DIRECT);
 }
 
 std::optional<Tensor> try_scaled_dot_product_attention_tiled_fast_path(
@@ -1100,16 +1449,9 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
   value_3d = utils::prepare_vulkan_execution_tensor(
       value_3d, attention_policy.key_value_plan_kind, key_value_request);
 
-  auto prepare_buffer_math_input = [](const Tensor& tensor) {
-    Tensor buffer_tensor = utils::ensure_buffer_storage(
-        tensor, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
-    return utils::mark_tensor_execution(
-        buffer_tensor, utils::resolve_buffer_execution_layout(convert(buffer_tensor)));
-  };
-
-  query_3d = prepare_buffer_math_input(query_3d);
-  key_3d = prepare_buffer_math_input(key_3d);
-  value_3d = prepare_buffer_math_input(value_3d);
+  query_3d = prepare_buffer_math_input_direct(query_3d);
+  key_3d = prepare_buffer_math_input_direct(key_3d);
+  value_3d = prepare_buffer_math_input_direct(value_3d);
 
   const bool uses_buffer_math =
       convert(query_3d).storage_type() == api::StorageType::BUFFER &&
@@ -1117,6 +1459,42 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
       convert(value_3d).storage_type() == api::StorageType::BUFFER;
   if (uses_buffer_math) {
     utils::log_vulkan_op_hit("aten::scaled_dot_product_attention.buffer_math_ops");
+  }
+
+  const bool has_explicit_mask = attn_mask && attn_mask->defined();
+  const int64_t buffer_tiled_max_sequence =
+      tiled_sdpa_buffer_fast_path_max_sequence(input_runtime_policy);
+  if (
+      uses_buffer_math &&
+      !has_explicit_mask &&
+      !is_causal &&
+      !enable_gqa &&
+      can_use_tiled_sdpa_buffer_fast_path(
+          convert(query_3d),
+          convert(key_3d),
+          convert(value_3d),
+          buffer_tiled_max_sequence)) {
+    Tensor output = scaled_dot_product_attention_tiled_3d_buffer_vulkan(
+        query_3d, key_3d, value_3d, buffer_tiled_max_sequence);
+    log_sdpa_event(
+        "buffer_tiled_fast_path",
+        "hit",
+        "ok",
+        query_3d,
+        key_3d,
+        value_3d,
+        attn_mask,
+        dropout_p,
+        is_causal,
+        scale,
+        enable_gqa);
+    if (query.dim() == 3) {
+      return std::make_tuple(output, Tensor());
+    }
+
+    return std::make_tuple(
+        output.reshape({batch, heads, target_len, value_dim}),
+        Tensor());
   }
 
   Tensor attn = at::bmm(query_3d, key_3d.transpose(1, 2));
@@ -1445,6 +1823,26 @@ Tensor log_softmax(
 }
 
 } // namespace
+
+std::tuple<Tensor, Tensor, Tensor> transform_bias_rescale_qkv_vulkan_out(
+    const Tensor& qkv,
+    const Tensor& qkv_bias,
+    const int64_t num_head,
+    const Tensor& q_out,
+    const Tensor& k_out,
+    const Tensor& v_out) {
+  return transform_bias_rescale_qkv_vulkan_out_impl(
+      qkv, qkv_bias, num_head, q_out, k_out, v_out);
+}
+
+Tensor softmax_buffer_lastdim_out_vulkan(
+    const Tensor& input,
+    Tensor& output) {
+  TORCH_CHECK(
+      can_run_buffer_softmax(input, input.dim() - 1),
+      "Vulkan softmax_buffer_lastdim_out expects float buffer-backed tensors");
+  return softmax_buffer_lastdim_impl(input, &output);
+}
 
 Tensor scaled_dot_product_attention_vulkan(
     const Tensor& query,

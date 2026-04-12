@@ -207,6 +207,38 @@ Tensor ensure_linear_buffer_output_tensor(
   return output;
 }
 
+Tensor ensure_bmm_buffer_output_tensor(
+    Tensor& output,
+    IntArrayRef sizes,
+    const c10::ScalarType dtype) {
+  bool needs_allocation = !output.defined() || !output.is_vulkan() ||
+      output.scalar_type() != dtype || !output.sizes().equals(sizes);
+  if (!needs_allocation) {
+    const vTensor& v_output = convert(output);
+    needs_allocation =
+        v_output.storage_type() != api::StorageType::BUFFER ||
+        v_output.gpu_memory_layout() !=
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED ||
+        !utils::supports_buffer_view_fast_path(v_output);
+  }
+  if (needs_allocation) {
+    output = utils::mark_tensor_execution(
+        convert(vTensor{
+            api::context(),
+            sizes.vec(),
+            convert_dtype(dtype),
+            api::StorageType::BUFFER,
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+        }),
+        api::ExecutionLayout::BUFFER_DIRECT);
+  } else {
+    output = utils::mark_tensor_execution(
+        output,
+        utils::resolve_buffer_execution_layout(convert(output)));
+  }
+  return output;
+}
+
 bool can_fuse_linear_bias(
     const vTensor& v_output,
     const vTensor& v_bias,
@@ -480,7 +512,7 @@ Tensor run_float_buffer_linear(
         VK_KERNEL(mm_buffer_float_bias_gelu),
         pipeline_barrier,
         global_size,
-        adaptive_work_group_size(global_size),
+        {16u, 4u, 1u},
         VK_NULL_HANDLE,
         v_output.buffer(
             pipeline_barrier,
@@ -499,7 +531,7 @@ Tensor run_float_buffer_linear(
         VK_KERNEL(mm_buffer_float),
         pipeline_barrier,
         global_size,
-        adaptive_work_group_size(global_size),
+        {16u, 4u, 1u},
         VK_NULL_HANDLE,
         v_output.buffer(
             pipeline_barrier,
@@ -540,7 +572,8 @@ Tensor run_float_buffer_bmm(
     const Tensor& mat2_arg,
     const float alpha,
     const float beta,
-    const std::optional<Tensor>& bias = std::nullopt) {
+    const std::optional<Tensor>& bias = std::nullopt,
+    Tensor* output_opt = nullptr) {
   api::Context* const context = api::context();
   TORCH_INTERNAL_ASSERT(can_run_float_buffer_bmm(mat1_arg, mat2_arg));
 
@@ -554,16 +587,18 @@ Tensor run_float_buffer_bmm(
       mat1.size(Layout::BatchMatrices::height),
       mat2.size(Layout::BatchMatrices::width),
   };
-  Tensor output = utils::mark_tensor_execution(
-      convert(vTensor{
-          context,
-          output_sizes,
-          api::kFloat,
-          api::StorageType::BUFFER,
-          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-      }),
-      api::ExecutionLayout::BUFFER_DIRECT);
-  vTensor& v_output = convert(output);
+  Tensor output_tensor = output_opt
+      ? ensure_bmm_buffer_output_tensor(*output_opt, output_sizes, kFloat)
+      : utils::mark_tensor_execution(
+            convert(vTensor{
+                context,
+                output_sizes,
+                api::kFloat,
+                api::StorageType::BUFFER,
+                api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+            }),
+            api::ExecutionLayout::BUFFER_DIRECT);
+  vTensor& v_output = convert(output_tensor);
 
   const struct {
     int32_t out_width;
@@ -596,7 +631,7 @@ Tensor run_float_buffer_bmm(
       VK_KERNEL(bmm_buffer_float),
       pipeline_barrier,
       global_size,
-      adaptive_work_group_size(global_size),
+      {16u, 4u, 1u},
       VK_NULL_HANDLE,
       v_output.buffer(
           pipeline_barrier,
@@ -609,6 +644,7 @@ Tensor run_float_buffer_bmm(
       v_mat2.buffer_metadata(),
       params.buffer());
 
+  Tensor output = output_tensor;
   if (alpha != 1.0f) {
     output = output.mul(alpha);
   }
@@ -618,6 +654,10 @@ Tensor run_float_buffer_bmm(
       bias_tensor = bias_tensor.mul(beta);
     }
     output = output.add(bias_tensor);
+  }
+  if (output_opt && output.unsafeGetTensorImpl() != output_tensor.unsafeGetTensorImpl()) {
+    *output_opt = output;
+    output = *output_opt;
   }
   return output;
 }
@@ -2197,6 +2237,17 @@ Tensor bmm(const Tensor& mat1_arg, const Tensor& mat2_arg) {
           mat2_arg, std::optional<Tensor>(), true /*use batch*/)));
 }
 
+Tensor bmm_buffer_out_vulkan_impl(
+    const Tensor& mat1,
+    const Tensor& mat2,
+    Tensor& output) {
+  TORCH_CHECK(
+      can_run_float_buffer_bmm(mat1, mat2),
+      "Vulkan bmm_buffer_out expects float rank-3 buffer-backed tensors");
+  return run_float_buffer_bmm(
+      mat1, mat2, 1.0f, 1.0f, std::nullopt, &output);
+}
+
 Tensor baddbmm(
     const Tensor& bias,
     const Tensor& input,
@@ -2236,6 +2287,13 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
 #endif /* USE_VULKAN_API */
 
 } // namespace
+
+Tensor bmm_buffer_out_vulkan(
+    const Tensor& mat1,
+    const Tensor& mat2,
+    Tensor& output) {
+  return bmm_buffer_out_vulkan_impl(mat1, mat2, output);
+}
 
 LinearPackedContext::LinearPackedContext(
     const Tensor& weight,

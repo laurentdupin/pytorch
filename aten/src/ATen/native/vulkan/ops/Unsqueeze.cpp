@@ -16,6 +16,41 @@ struct Block final {
   ivec2 info;
 };
 
+Tensor unsqueeze_buffer_view(const at::Tensor& self, int64_t dim) {
+  const vTensor& v_self = convert(self);
+  const int64_t nDims = self.dim();
+  const int64_t insert_dim = maybe_wrap_dim(dim, nDims + 1);
+
+  c10::DimVector output_sizes(v_self.sizes().begin(), v_self.sizes().end());
+  c10::DimVector output_logical_strides = logical_strides(v_self);
+  c10::DimVector output_physical_strides(
+      v_self.gpu_strides().begin(), v_self.gpu_strides().end());
+
+  const int64_t inserted_logical_stride =
+      insert_dim >= nDims
+      ? 1
+      : output_logical_strides[insert_dim] *
+          std::max<int64_t>(output_sizes[insert_dim], 1);
+  const int64_t inserted_physical_stride =
+      insert_dim >= nDims
+      ? 1
+      : output_physical_strides[insert_dim] *
+          std::max<int64_t>(output_sizes[insert_dim], 1);
+
+  output_sizes.insert(output_sizes.begin() + insert_dim, 1);
+  output_logical_strides.insert(
+      output_logical_strides.begin() + insert_dim, inserted_logical_stride);
+  output_physical_strides.insert(
+      output_physical_strides.begin() + insert_dim, inserted_physical_stride);
+
+  return utils::make_buffer_metadata_view(
+      self,
+      output_sizes,
+      output_logical_strides,
+      output_physical_strides,
+      v_self.storage_offset());
+}
+
 Tensor unsqueeze(const at::Tensor& self, int64_t dim) {
   TORCH_CHECK(
       dim >= -self.dim() - 1 && dim <= self.dim(),
@@ -33,7 +68,7 @@ Tensor unsqueeze(const at::Tensor& self, int64_t dim) {
     if (self.is_vulkan()) {
       const vTensor& v_self = convert(self);
       if (v_self.storage_type() == api::StorageType::BUFFER) {
-        return true;
+        return !utils::supports_buffer_view_fast_path(v_self);
       }
     }
     return false;
@@ -49,6 +84,13 @@ Tensor unsqueeze(const at::Tensor& self, int64_t dim) {
     Tensor cpu = self.cpu();
     Tensor cpu_unsqueezed = cpu.unsqueeze(dim);
     return convert(ops::to_vulkan(cpu_unsqueezed, api::StorageType::BUFFER));
+  }
+
+  if (self.is_vulkan()) {
+    const vTensor& v_self = convert(self);
+    if (v_self.storage_type() == api::StorageType::BUFFER) {
+      return unsqueeze_buffer_view(self, dim);
+    }
   }
 
   // Get the global Vulkan context

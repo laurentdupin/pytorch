@@ -126,6 +126,18 @@ class vTensor final {
       const std::vector<int64_t>& physical_strides,
       const int64_t storage_offset);
 
+  // Metadata-only constructor for typed buffer-backed logical views over
+  // shared storage, optionally overriding the visible buffer length in logical
+  // elements. This is useful for backend-owned scratch aliases.
+  vTensor(
+      const vTensor& src,
+      const api::ScalarType dtype,
+      const std::vector<int64_t>& sizes,
+      const std::vector<int64_t>& logical_strides,
+      const std::vector<int64_t>& physical_strides,
+      const int64_t storage_offset,
+      const int64_t buffer_length_override);
+
   struct PreservePhysicalView final {};
 
   // Metadata-only constructor for texture-backed logical views that preserve
@@ -203,6 +215,10 @@ class vTensor final {
   // A Vulkan uniform buffer containing the image extents of the underlying
   // image texture that can be passed into a shader.
   std::shared_ptr<api::UniformParamsBuffer> extents_uniform_;
+
+  // Optional override for the logical buffer length exposed to shaders for
+  // shared-storage aliases.
+  int64_t buffer_length_override_{-1};
 
   // Quantization params
   bool is_quantized_{false};
@@ -482,7 +498,8 @@ class vTensor final {
   }
 
   inline int64_t buffer_length() const {
-    return view_->buffer_length_;
+    return buffer_length_override_ >= 0 ? buffer_length_override_
+                                        : view_->buffer_length_;
   }
 
   inline bool buffer_uses_host_visible_allocation() const {
