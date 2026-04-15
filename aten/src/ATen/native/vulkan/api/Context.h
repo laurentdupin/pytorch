@@ -41,6 +41,25 @@ struct ContextConfig final {
 
 class Context final {
  public:
+  class ScopedExternalCommandRecording final {
+   public:
+    ScopedExternalCommandRecording(Context&, CommandBuffer&);
+
+    ScopedExternalCommandRecording(const ScopedExternalCommandRecording&) =
+        delete;
+    ScopedExternalCommandRecording& operator=(
+        const ScopedExternalCommandRecording&) = delete;
+
+    ScopedExternalCommandRecording(ScopedExternalCommandRecording&&) = delete;
+    ScopedExternalCommandRecording& operator=(
+        ScopedExternalCommandRecording&&) = delete;
+
+    ~ScopedExternalCommandRecording();
+
+   private:
+    Context* context_{nullptr};
+  };
+
   explicit Context(size_t adapter_i, const ContextConfig&);
 
   Context(const Context&) = delete;
@@ -61,6 +80,8 @@ class Context final {
   // Resource Pools
   CommandPool command_pool_;
   DescriptorPool descriptor_pool_;
+  CommandPool persistent_command_pool_;
+  DescriptorPool persistent_descriptor_pool_;
   FencePool fences_;
   // Diagnostics
   // TODO: remove USE_VULKAN_GPU_DIAGNOSTICS
@@ -82,6 +103,14 @@ class Context final {
   uint32_t reclaims_since_pool_flush_;
 
   void clear_deferred_cleanup_locked();
+  CommandBuffer* external_recording_cmd();
+  const CommandBuffer* external_recording_cmd() const;
+  DescriptorPool& active_descriptor_pool();
+  CommandBuffer& active_cmd();
+  void capture_external_recording_buffer_cleanup(VulkanBuffer&&);
+  void capture_external_recording_image_cleanup(VulkanImage&&);
+  void begin_external_command_recording(CommandBuffer&);
+  void end_external_command_recording();
 
  public:
   // Adapter access
@@ -134,6 +163,10 @@ class Context final {
     return descriptor_pool_;
   }
 
+  inline DescriptorPool& persistent_descriptor_pool() {
+    return persistent_descriptor_pool_;
+  }
+
   inline FencePool& fences() {
     return fences_;
   }
@@ -153,6 +186,10 @@ class Context final {
 
   // Memory Management
   void register_buffer_cleanup(VulkanBuffer& buffer) {
+    if (external_recording_cmd()) {
+      capture_external_recording_buffer_cleanup(std::move(buffer));
+      return;
+    }
     if (buffer.owns_memory()) {
       pending_cleanup_bytes_.fetch_add(
           static_cast<uint64_t>(buffer.allocated_size()),
@@ -163,6 +200,10 @@ class Context final {
   }
 
   void register_image_cleanup(VulkanImage& image) {
+    if (external_recording_cmd()) {
+      capture_external_recording_image_cleanup(std::move(image));
+      return;
+    }
     if (image.owns_memory()) {
       pending_cleanup_bytes_.fetch_add(
           static_cast<uint64_t>(image.allocated_size()),
@@ -190,6 +231,9 @@ class Context final {
   }
 
   inline void set_cmd(bool reusable = false) {
+    if (external_recording_cmd()) {
+      return;
+    }
     if (!cmd_) {
       cmd_ = command_pool_.get_new_cmd(reusable);
       cmd_.begin();
@@ -226,6 +270,15 @@ class Context final {
   void submit_cmd_to_gpu(
       VkFence fence_handle = VK_NULL_HANDLE,
       const bool final_use = false);
+  void flush_pending_cmds(VkFence fence_handle = VK_NULL_HANDLE);
+  CommandBuffer acquire_persistent_command_buffer();
+  void submit_prepared_command_buffer(
+      CommandBuffer&,
+      VkFence fence_handle = VK_NULL_HANDLE,
+      const bool final_use = false);
+  void take_external_recording_cleanup_resources(
+      std::vector<VulkanBuffer>& buffers,
+      std::vector<VulkanImage>& images);
 
   void flush();
   void retire_after_fence_wait();
@@ -452,12 +505,15 @@ inline bool Context::submit_copy(
     const api::utils::uvec3& src_offset,
     const api::utils::uvec3& dst_offset,
     VkFence fence_handle) {
+  const bool external_recording = external_recording_cmd() != nullptr;
+
   // If any of the provided arguments does not have memory associated with it,
   // then exit early as there is no work to be done. However, if a fence has
   // been passed the command buffer is not empty, then the current command
   // buffer must still be submitted so that the fence can be signaled.
   if (!source || !destination) {
-    if (fence_handle != VK_NULL_HANDLE && submit_count_ > 0) {
+    if (!external_recording && fence_handle != VK_NULL_HANDLE &&
+        submit_count_ > 0) {
       submit_cmd_to_gpu(fence_handle);
       return true;
     }
@@ -468,30 +524,35 @@ inline bool Context::submit_copy(
   // mutex just yet, since in some cases it will be externally managed.
   std::unique_lock<std::mutex> cmd_lock;
   // Refer to comments in submit_compute_job for explanation.
-  if (fence_handle == VK_NULL_HANDLE) {
+  if (!external_recording && fence_handle == VK_NULL_HANDLE) {
     cmd_lock = std::unique_lock<std::mutex>(cmd_mutex_);
   }
 
   set_cmd();
+  CommandBuffer& cmd = active_cmd();
 
 #ifdef USE_VULKAN_GPU_DIAGNOSTICS
   uint32_t log_idx = UINT32_MAX;
   if (enable_op_profiling_) {
     std::string label = "cmd_copy";
     log_idx = querypool_.shader_profile_begin(
-        cmd_, label, create_extent3d({0, 0, 0}), create_extent3d({0, 0, 0}));
+        cmd, label, create_extent3d({0, 0, 0}), create_extent3d({0, 0, 0}));
   }
 #endif /* USE_VULKAN_GPU_DIAGNOSTICS */
 
-  cmd_.insert_barrier(pipeline_barrier);
+  cmd.insert_barrier(pipeline_barrier);
 
-  record_copy(cmd_, source, destination, copy_range, src_offset, dst_offset);
+  record_copy(cmd, source, destination, copy_range, src_offset, dst_offset);
 
 #ifdef USE_VULKAN_GPU_DIAGNOSTICS
   if (enable_op_profiling_) {
-    querypool_.shader_profile_end(cmd_, log_idx);
+    querypool_.shader_profile_end(cmd, log_idx);
   }
 #endif /* USE_VULKAN_GPU_DIAGNOSTICS */
+
+  if (external_recording) {
+    return false;
+  }
 
   submit_count_++;
   if (fence_handle != VK_NULL_HANDLE ||
@@ -517,12 +578,15 @@ inline bool Context::submit_compute_job(
     const utils::uvec3& local_work_group_size,
     VkFence fence_handle,
     Arguments&&... arguments) {
+  const bool external_recording = external_recording_cmd() != nullptr;
+
   // If any of the provided arguments does not have memory associated with it,
   // then exit early as there is no work to be done. However, if a fence has
   // been passed the command buffer is not empty, then the current command
   // buffer must still be submitted so that the fence can be signaled.
   if (detail::any_arg_is_empty(arguments...)) {
-    if (fence_handle != VK_NULL_HANDLE && submit_count_ > 0) {
+    if (!external_recording && fence_handle != VK_NULL_HANDLE &&
+        submit_count_ > 0) {
       submit_cmd_to_gpu(fence_handle);
       return true;
     }
@@ -539,17 +603,18 @@ inline bool Context::submit_compute_job(
   // and will release the mutex manually after calling flush(). This will
   // prevent more dispatches from being recorded until we have flushed the
   // Context.
-  if (fence_handle == VK_NULL_HANDLE) {
+  if (!external_recording && fence_handle == VK_NULL_HANDLE) {
     cmd_lock = std::unique_lock<std::mutex>(cmd_mutex_);
   }
 
   set_cmd();
+  CommandBuffer& cmd = active_cmd();
 
 #ifdef USE_VULKAN_GPU_DIAGNOSTICS
   uint32_t log_idx = UINT32_MAX;
   if (enable_op_profiling_) {
     log_idx = querypool_.shader_profile_begin(
-        cmd_,
+        cmd,
         shader.kernel_name,
         create_extent3d(global_work_group),
         create_extent3d(local_work_group_size));
@@ -571,9 +636,13 @@ inline bool Context::submit_compute_job(
 
 #ifdef USE_VULKAN_GPU_DIAGNOSTICS
   if (enable_op_profiling_) {
-    querypool_.shader_profile_end(cmd_, log_idx);
+    querypool_.shader_profile_end(cmd, log_idx);
   }
 #endif /* USE_VULKAN_GPU_DIAGNOSTICS */
+
+  if (external_recording) {
+    return false;
+  }
 
   submit_count_++;
   if (fence_handle != VK_NULL_HANDLE ||

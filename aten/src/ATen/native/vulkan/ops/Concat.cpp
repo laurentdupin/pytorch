@@ -95,6 +95,10 @@ Tensor cat_buffer_direct(
   for (const Tensor& tensor : tensors) {
     Tensor prepared = tensor;
     const vTensor& v_tensor = convert(prepared);
+    if (v_tensor.numel() == 0 || tensor.size(dim) == 0) {
+      prepared_tensors.push_back(std::move(prepared));
+      continue;
+    }
     if (
         v_tensor.storage_type() != api::StorageType::BUFFER ||
         !utils::supports_buffer_elementwise_compute(v_tensor)) {
@@ -124,6 +128,9 @@ Tensor cat_buffer_direct(
 
   for (const Tensor& tensor : prepared_tensors) {
     vTensor& v_input = convert(tensor);
+    if (v_input.numel() == 0 || tensor.size(dim) == 0) {
+      continue;
+    }
     const std::vector<int64_t> logical_strides =
         calc_contiguous_strides(tensor.sizes());
     const int64_t output_storage_offset =

@@ -23,10 +23,11 @@ CommandBuffer::CommandBuffer(
 CommandBuffer::CommandBuffer(CommandBuffer&& other) noexcept
     : handle_(other.handle_),
       flags_(other.flags_),
-      state_(CommandBuffer::State::INVALID),
+      state_(other.state_),
       bound_(other.bound_) {
   other.handle_ = VK_NULL_HANDLE;
   other.bound_.reset();
+  other.state_ = CommandBuffer::State::INVALID;
 }
 
 CommandBuffer& CommandBuffer::operator=(CommandBuffer&& other) noexcept {
@@ -62,9 +63,10 @@ void CommandBuffer::begin() {
 void CommandBuffer::end() {
   VK_CHECK_COND(
       state_ == CommandBuffer::State::RECORDING ||
+          state_ == CommandBuffer::State::READY ||
           state_ == CommandBuffer::State::SUBMITTED,
       "Vulkan CommandBuffer: called end() on a command buffer whose state "
-      "is not RECORDING or SUBMITTED.");
+      "is not RECORDING, READY, or SUBMITTED.");
 
   if (state_ == CommandBuffer::State::RECORDING) {
     VK_CHECK(vkEndCommandBuffer(handle_));
@@ -347,7 +349,8 @@ void CommandBuffer::reset_querypool(
 
 VkCommandBuffer CommandBuffer::get_submit_handle(const bool final_use) {
   VK_CHECK_COND(
-      state_ == CommandBuffer::State::READY,
+      state_ == CommandBuffer::State::READY ||
+          (state_ == CommandBuffer::State::SUBMITTED && is_reusable()),
       "Vulkan CommandBuffer: called begin() on a command buffer whose state "
       "is not READY.");
 
@@ -407,6 +410,8 @@ CommandBuffer CommandPool::get_new_cmd(bool reusable) {
   VkCommandBufferUsageFlags cmd_flags = 0u;
   if (!reusable) {
     cmd_flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  } else {
+    cmd_flags |= VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
   }
 
   in_use_++;

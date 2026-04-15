@@ -47,25 +47,53 @@ bool can_use_buffer_select_view(const Tensor& self) {
 }
 
 Tensor select_buffer_view(const Tensor& self_arg, int64_t dim, int64_t index) {
+  auto try_make_view = [&](const Tensor& base) -> Tensor {
+    const Tensor self = base.is_vulkan() ? base : base.vulkan();
+    const vTensor& v_self = convert(self);
+    c10::DimVector output_sizes(v_self.sizes().begin(), v_self.sizes().end());
+    c10::DimVector output_logical_strides = logical_strides(v_self);
+    c10::DimVector output_physical_strides(
+        v_self.gpu_strides().begin(), v_self.gpu_strides().end());
+    const int64_t storage_offset =
+        v_self.storage_offset() + index * output_physical_strides.at(dim);
+
+    output_sizes.erase(output_sizes.begin() + dim);
+    output_logical_strides.erase(output_logical_strides.begin() + dim);
+    output_physical_strides.erase(output_physical_strides.begin() + dim);
+
+    if (!utils::can_make_buffer_metadata_view(
+            v_self,
+            output_sizes,
+            output_logical_strides,
+            output_physical_strides,
+            storage_offset)) {
+      return Tensor();
+    }
+
+    return utils::make_buffer_metadata_view(
+        self,
+        output_sizes,
+        output_logical_strides,
+        output_physical_strides,
+        storage_offset);
+  };
+
   const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
-  const vTensor& v_self = convert(self);
-  c10::DimVector output_sizes(v_self.sizes().begin(), v_self.sizes().end());
-  c10::DimVector output_logical_strides = logical_strides(v_self);
-  c10::DimVector output_physical_strides(
-      v_self.gpu_strides().begin(), v_self.gpu_strides().end());
-  const int64_t storage_offset =
-      v_self.storage_offset() + index * output_physical_strides.at(dim);
+  if (Tensor view = try_make_view(self); view.defined()) {
+    return view;
+  }
 
-  output_sizes.erase(output_sizes.begin() + dim);
-  output_logical_strides.erase(output_logical_strides.begin() + dim);
-  output_physical_strides.erase(output_physical_strides.begin() + dim);
+  utils::log_vulkan_op_hit("aten::select.buffer_materialize_view");
+  Tensor materialized = utils::ensure_buffer_storage(
+      self, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  if (Tensor view = try_make_view(materialized); view.defined()) {
+    return view;
+  }
 
-  return utils::make_buffer_metadata_view(
-      self,
-      output_sizes,
-      output_logical_strides,
-      output_physical_strides,
-      storage_offset);
+  TORCH_CHECK(
+      false,
+      "Vulkan select expected a valid buffer metadata view after buffer "
+      "materialization");
 }
 
 Tensor prepare_select_texture_input(const Tensor& input_arg) {

@@ -4,6 +4,8 @@
 
 #include <ATen/native/vulkan/ops/Common.h>
 
+#include <optional>
+
 namespace at {
 namespace native {
 namespace vulkan {
@@ -48,12 +50,27 @@ enum class VulkanTensorRole : uint8_t {
   Mask,
 };
 
+struct VulkanAttentionShapeDesc final {
+  ScalarType dtype{kFloat};
+  int64_t batch_heads{0};
+  int64_t target_length{0};
+  int64_t source_length{0};
+  int64_t head_dim{0};
+  int64_t value_dim{0};
+  bool has_explicit_mask{false};
+  bool has_dropout{false};
+  bool is_causal{false};
+  bool enable_gqa{false};
+};
+
 struct VulkanPlanningRequest final {
   VulkanWorkloadClass workload_class{VulkanWorkloadClass::Generic};
+  VulkanWorkloadClass source_workload_class{VulkanWorkloadClass::Generic};
   VulkanModelDomain model_domain{VulkanModelDomain::Generic};
   VulkanExecutionPhase execution_phase{VulkanExecutionPhase::None};
   VulkanTensorRole tensor_role{VulkanTensorRole::Input};
   bool inferred_from_label{false};
+  std::optional<VulkanAttentionShapeDesc> attention_shape;
 };
 
 class VulkanPlanningRequestScope final {

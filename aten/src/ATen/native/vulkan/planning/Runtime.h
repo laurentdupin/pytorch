@@ -33,10 +33,18 @@ enum class VulkanAttentionKernelFamily : uint8_t {
   SplitCoordinator,
 };
 
+enum class VulkanAttentionExecutionStrategy : uint8_t {
+  GenericMath = 0u,
+  TextureTiled,
+  BufferTiled,
+  RuntimeProgram,
+};
+
 enum class VulkanExecutionProgramKind : uint8_t {
   AttentionRuntime = 0u,
   GatedDeltaSplit,
   VisionBackbone,
+  VisionDecoder,
 };
 
 struct VulkanExecutionProgramPlanningDesc final {
@@ -53,6 +61,8 @@ struct VulkanRuntimePolicy final {
       VulkanNormKernelFamily::TextureWidth};
   VulkanAttentionKernelFamily attention_kernel_family{
       VulkanAttentionKernelFamily::TextureMath};
+  VulkanAttentionExecutionStrategy attention_execution_strategy{
+      VulkanAttentionExecutionStrategy::GenericMath};
   std::optional<VulkanExecutionProgramPlanningDesc> execution_program_plan;
   std::optional<VulkanBoundaryPlan> boundary_plan;
   std::optional<VulkanKVCachePlanningDesc> kv_cache_plan;
@@ -62,11 +72,14 @@ struct VulkanRuntimePolicy final {
 const char* linear_kernel_family_name(VulkanLinearKernelFamily);
 const char* norm_kernel_family_name(VulkanNormKernelFamily);
 const char* attention_kernel_family_name(VulkanAttentionKernelFamily);
+const char* attention_execution_strategy_name(VulkanAttentionExecutionStrategy);
 const char* execution_program_kind_name(VulkanExecutionProgramKind);
 
 void log_linear_kernel_family_choice(const VulkanRuntimePolicy& runtime_policy);
 void log_norm_kernel_family_choice(const VulkanRuntimePolicy& runtime_policy);
 void log_attention_kernel_family_choice(
+    const VulkanRuntimePolicy& runtime_policy);
+void log_attention_execution_strategy_choice(
     const VulkanRuntimePolicy& runtime_policy);
 
 VulkanRuntimePolicy build_vulkan_runtime_policy(const VulkanPlanningRequest&);

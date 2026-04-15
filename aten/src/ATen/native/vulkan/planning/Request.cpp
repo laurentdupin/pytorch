@@ -256,6 +256,7 @@ VulkanPlanningRequest make_vulkan_planning_request(
     const VulkanExecutionPhase execution_phase) {
   VulkanPlanningRequest request;
   request.workload_class = workload_class;
+  request.source_workload_class = workload_class;
   request.model_domain = model_domain;
   request.execution_phase = execution_phase;
   request.tensor_role = tensor_role;

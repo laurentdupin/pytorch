@@ -14,6 +14,7 @@
 #include <ATen/native/vulkan/ops/QwenLinearAttention.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/Register.h>
+#include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
@@ -149,6 +150,21 @@ int register_vulkan_vision_decoder_fusion_block_packed_context() {
               [](c10::impl::GenericList state) {
                 return c10::make_intrusive<VisionDecoderFusionBlockContext>(
                     VisionDecoderFusionBlockContext::pack(state));
+              });
+  return 0;
+}
+
+int register_vulkan_vision_decoder_head_packed_context() {
+  static auto register_vulkan_vision_decoder_head_context =
+      torch::selective_class_<VisionDecoderHeadContext>(
+          "vulkan", TORCH_SELECTIVE_CLASS("VisionDecoderHeadContext"))
+          .def_pickle(
+              [](const c10::intrusive_ptr<VisionDecoderHeadContext>& context) {
+                return context->unpack();
+              },
+              [](c10::impl::GenericList state) {
+                return c10::make_intrusive<VisionDecoderHeadContext>(
+                    VisionDecoderHeadContext::pack(state));
               });
   return 0;
 }
@@ -902,6 +918,7 @@ TORCH_LIBRARY(vulkan, m) {
   register_vulkan_qwen_linear_attention_prefill_packed_context();
   register_vulkan_vision_backbone_block_packed_context();
   register_vulkan_vision_decoder_fusion_block_packed_context();
+  register_vulkan_vision_decoder_head_packed_context();
   // To maintain backwards compatibility.
   m.class_<Conv2dOpContext>("Conv2dOpContext")
       .def_pickle(
@@ -994,6 +1011,9 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::run_vision_backbone_block_context("
       "Tensor X, __torch__.torch.classes.vulkan.VisionBackboneBlockContext context) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::prime_vision_backbone_block_context_graph("
+      "Tensor X, __torch__.torch.classes.vulkan.VisionBackboneBlockContext context) -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_vision_decoder_fusion_block_context("
       "Tensor res1_conv1_weight, Tensor? res1_conv1_bias, "
       "Tensor res1_conv2_weight, Tensor? res1_conv2_bias, "
@@ -1006,6 +1026,45 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::run_vision_decoder_fusion_block_context("
       "Tensor X, Tensor? skip, int[]? size, "
       "__torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext context) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::prime_vision_decoder_fusion_block_context_graph("
+      "Tensor X, Tensor? skip, int[]? size, "
+      "__torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext context) -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_vision_decoder_head_context("
+      "Tensor prototype, "
+      "__torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext refinenet4_context, "
+      "__torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext refinenet3_context, "
+      "__torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext refinenet2_context, "
+      "__torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext refinenet1_context, "
+      "__torch__.torch.classes.vulkan.Conv2dPackedContext output_conv1_context, "
+      "__torch__.torch.classes.vulkan.Conv2dPackedContext output_conv2_conv1_context, "
+      "__torch__.torch.classes.vulkan.Conv2dPackedContext output_conv2_conv2_context, "
+      "bool align_corners, str label=\"\") "
+      "-> __torch__.torch.classes.vulkan.VisionDecoderHeadContext"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_vision_decoder_head_context("
+      "Tensor layer1, Tensor layer2, Tensor layer3, Tensor layer4, int[] output_size, "
+      "__torch__.torch.classes.vulkan.VisionDecoderHeadContext context) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::prime_vision_decoder_head_context_graph("
+      "Tensor layer1, Tensor layer2, Tensor layer3, Tensor layer4, int[] output_size, "
+      "__torch__.torch.classes.vulkan.VisionDecoderHeadContext context) -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_attention_runtime_buffer_math_replay_bridge("
+      "Tensor query, Tensor key, Tensor value) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge("
+      "Tensor backbone_input, "
+      "__torch__.torch.classes.vulkan.VisionBackboneBlockContext backbone_context, "
+      "Tensor decoder_input, Tensor? decoder_skip, int[]? decoder_size, "
+      "__torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext decoder_context) "
+      "-> (Tensor, Tensor)"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge("
+      "Tensor input, "
+      "__torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, "
+      "int[] capture_indices) -> Tensor[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::tokens_to_feature_map(Tensor X, int height, int width) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -1156,6 +1215,21 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
           "vulkan_prepack::create_vision_decoder_fusion_block_context"),
       TORCH_FN(create_vision_decoder_fusion_block_context));
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_vision_decoder_head_context"),
+      TORCH_FN(create_vision_decoder_head_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::prime_vision_backbone_block_context_graph"),
+      TORCH_FN(prime_vision_backbone_block_context_graph));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::prime_vision_decoder_fusion_block_context_graph"),
+      TORCH_FN(prime_vision_decoder_fusion_block_context_graph));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::prime_vision_decoder_head_context_graph"),
+      TORCH_FN(prime_vision_decoder_head_context_graph));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::tokens_to_feature_map"),
       TORCH_FN(tokens_to_feature_map));
   m.impl(
@@ -1260,6 +1334,33 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
           "vulkan_prepack::create_vision_decoder_fusion_block_context"),
       TORCH_FN(create_vision_decoder_fusion_block_context));
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_vision_decoder_head_context"),
+      TORCH_FN(create_vision_decoder_head_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::prime_vision_backbone_block_context_graph"),
+      TORCH_FN(prime_vision_backbone_block_context_graph));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::prime_vision_decoder_fusion_block_context_graph"),
+      TORCH_FN(prime_vision_decoder_fusion_block_context_graph));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::prime_vision_decoder_head_context_graph"),
+      TORCH_FN(prime_vision_decoder_head_context_graph));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_attention_runtime_buffer_math_replay_bridge"),
+      TORCH_FN(run_attention_runtime_buffer_math_replay_bridge));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge"),
+      TORCH_FN(run_vision_backbone_decoder_replay_bundle_bridge));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge"),
+      TORCH_FN(run_vision_backbone_stack_replay_bundle_bridge));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_causal_attention_mask"),
       TORCH_FN(create_causal_attention_mask_runtime));
   m.impl(
@@ -1314,6 +1415,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::run_vision_decoder_fusion_block_context"),
       TORCH_FN(run_vision_decoder_fusion_block_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_vision_decoder_head_context"),
+      TORCH_FN(run_vision_decoder_head_context));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::tokens_to_feature_map"),
       TORCH_FN(tokens_to_feature_map));

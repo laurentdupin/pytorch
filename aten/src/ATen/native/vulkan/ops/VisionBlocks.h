@@ -10,6 +10,7 @@
 
 #include <optional>
 #include <string>
+#include <tuple>
 
 namespace at {
 namespace native {
@@ -150,6 +151,10 @@ Tensor run_vision_backbone_block_context(
     const Tensor& input,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context);
 
+void prime_vision_backbone_block_context_graph(
+    const Tensor& input,
+    const c10::intrusive_ptr<VisionBackboneBlockContext>& context);
+
 class VisionDecoderFusionBlockContext final
     : public torch::jit::CustomClassHolder {
  private:
@@ -248,6 +253,141 @@ Tensor run_vision_decoder_fusion_block_context(
     const std::optional<Tensor>& skip,
     const std::optional<std::vector<int64_t>>& size,
     const c10::intrusive_ptr<VisionDecoderFusionBlockContext>& context);
+
+void prime_vision_decoder_fusion_block_context_graph(
+    const Tensor& input,
+    const std::optional<Tensor>& skip,
+    const std::optional<std::vector<int64_t>>& size,
+    const c10::intrusive_ptr<VisionDecoderFusionBlockContext>& context);
+
+class VisionDecoderHeadContext final : public torch::jit::CustomClassHolder {
+ private:
+  c10::impl::GenericList unpacked_{c10::AnyType::get()};
+  std::string allocation_label_;
+  bool align_corners_{true};
+  c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet4_context_;
+  c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet3_context_;
+  c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet2_context_;
+  c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet1_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> output_conv1_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> output_conv2_conv1_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> output_conv2_conv2_context_;
+
+ public:
+  VisionDecoderHeadContext(
+      c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet4_context,
+      c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet3_context,
+      c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet2_context,
+      c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet1_context,
+      c10::intrusive_ptr<Conv2dPackedContext> output_conv1_context,
+      c10::intrusive_ptr<Conv2dPackedContext> output_conv2_conv1_context,
+      c10::intrusive_ptr<Conv2dPackedContext> output_conv2_conv2_context,
+      bool align_corners,
+      std::string allocation_label = std::string());
+
+  struct Unpacked final {
+    static constexpr uint32_t Refinenet4Context = 0u;
+    static constexpr uint32_t Refinenet3Context = 1u;
+    static constexpr uint32_t Refinenet2Context = 2u;
+    static constexpr uint32_t Refinenet1Context = 3u;
+    static constexpr uint32_t OutputConv1Context = 4u;
+    static constexpr uint32_t OutputConv2Conv1Context = 5u;
+    static constexpr uint32_t OutputConv2Conv2Context = 6u;
+    static constexpr uint32_t AlignCorners = 7u;
+    static constexpr uint32_t Label = 8u;
+    static constexpr uint32_t NumArgs = 9u;
+  };
+
+  static VisionDecoderHeadContext pack(c10::impl::GenericList unpacked);
+
+  const c10::impl::GenericList unpack() const {
+    return unpacked_;
+  }
+
+  const std::string& allocation_label() const {
+    return allocation_label_;
+  }
+
+  bool align_corners() const {
+    return align_corners_;
+  }
+
+  const c10::intrusive_ptr<VisionDecoderFusionBlockContext>&
+  refinenet4_context() const {
+    return refinenet4_context_;
+  }
+
+  const c10::intrusive_ptr<VisionDecoderFusionBlockContext>&
+  refinenet3_context() const {
+    return refinenet3_context_;
+  }
+
+  const c10::intrusive_ptr<VisionDecoderFusionBlockContext>&
+  refinenet2_context() const {
+    return refinenet2_context_;
+  }
+
+  const c10::intrusive_ptr<VisionDecoderFusionBlockContext>&
+  refinenet1_context() const {
+    return refinenet1_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& output_conv1_context() const {
+    return output_conv1_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& output_conv2_conv1_context()
+      const {
+    return output_conv2_conv1_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& output_conv2_conv2_context()
+      const {
+    return output_conv2_conv2_context_;
+  }
+};
+
+c10::intrusive_ptr<VisionDecoderHeadContext>
+create_vision_decoder_head_context(
+    const Tensor& prototype,
+    c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet4_context,
+    c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet3_context,
+    c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet2_context,
+    c10::intrusive_ptr<VisionDecoderFusionBlockContext> refinenet1_context,
+    c10::intrusive_ptr<Conv2dPackedContext> output_conv1_context,
+    c10::intrusive_ptr<Conv2dPackedContext> output_conv2_conv1_context,
+    c10::intrusive_ptr<Conv2dPackedContext> output_conv2_conv2_context,
+    bool align_corners,
+    std::string label);
+
+Tensor run_vision_decoder_head_context(
+    const Tensor& layer1,
+    const Tensor& layer2,
+    const Tensor& layer3,
+    const Tensor& layer4,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderHeadContext>& context);
+
+void prime_vision_decoder_head_context_graph(
+    const Tensor& layer1,
+    const Tensor& layer2,
+    const Tensor& layer3,
+    const Tensor& layer4,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderHeadContext>& context);
+
+std::tuple<Tensor, Tensor> run_vision_backbone_decoder_replay_bundle_bridge(
+    const Tensor& backbone_input,
+    const c10::intrusive_ptr<VisionBackboneBlockContext>& backbone_context,
+    const Tensor& decoder_input,
+    const std::optional<Tensor>& decoder_skip,
+    const std::optional<std::vector<int64_t>>& decoder_size,
+    const c10::intrusive_ptr<VisionDecoderFusionBlockContext>& decoder_context);
+
+std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge(
+    const Tensor& input,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices);
 
 Tensor tokens_to_feature_map(
     const Tensor& input,

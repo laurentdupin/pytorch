@@ -68,6 +68,7 @@ bool can_make_buffer_metadata_view_impl(
   }
 
   int64_t max_offset = storage_offset;
+  bool is_empty = false;
   for (const auto idx : c10::irange(sizes.size())) {
     if (
         sizes[idx] < 0 || logical_strides[idx] < 0 ||
@@ -75,6 +76,7 @@ bool can_make_buffer_metadata_view_impl(
       return false;
     }
     if (sizes[idx] == 0) {
+      is_empty = true;
       continue;
     }
     max_offset += (sizes[idx] - 1) * physical_strides[idx];
@@ -83,7 +85,8 @@ bool can_make_buffer_metadata_view_impl(
     }
   }
 
-  return max_offset < v_input.buffer_length();
+  return is_empty ? storage_offset <= v_input.buffer_length()
+                  : max_offset < v_input.buffer_length();
 }
 
 bool can_make_typed_buffer_metadata_view_impl(
@@ -114,6 +117,7 @@ bool can_make_typed_buffer_metadata_view_impl(
   }
 
   int64_t max_offset = storage_offset;
+  bool is_empty = false;
   for (const auto idx : c10::irange(sizes.size())) {
     if (
         sizes[idx] < 0 || logical_strides[idx] < 0 ||
@@ -121,6 +125,7 @@ bool can_make_typed_buffer_metadata_view_impl(
       return false;
     }
     if (sizes[idx] == 0) {
+      is_empty = true;
       continue;
     }
     max_offset += (sizes[idx] - 1) * physical_strides[idx];
@@ -129,7 +134,8 @@ bool can_make_typed_buffer_metadata_view_impl(
     }
   }
 
-  return max_offset < buffer_length_override;
+  return is_empty ? storage_offset <= buffer_length_override
+                  : max_offset < buffer_length_override;
 }
 
 Tensor cast_vulkan_tensor_dtype_buffer_native(
@@ -849,6 +855,64 @@ Tensor ensure_texture_storage(
       api::MemoryAccessType::READ);
   pack_buffer_to_vtensor(staging.buffer(), v_out, pipeline_barrier);
   return convert(v_out);
+}
+
+Tensor create_buffer_tensor(
+    IntArrayRef sizes,
+    const ScalarType dtype,
+    const bool persistent) {
+  return mark_tensor_execution(
+      convert(vTensor{
+          api::context(),
+          sizes.vec(),
+          convert_dtype(dtype),
+          api::StorageType::BUFFER,
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+      }),
+      api::ExecutionLayout::BUFFER_DIRECT,
+      persistent);
+}
+
+Tensor& copy_buffer_tensor_direct_(Tensor& dst, const Tensor& src) {
+  TORCH_CHECK(dst.is_vulkan(), "Destination must be a Vulkan tensor");
+  TORCH_CHECK(src.is_vulkan(), "Source must be a Vulkan tensor");
+  TORCH_CHECK(
+      dst.sizes() == src.sizes(),
+      "Vulkan direct buffer copy requires matching sizes");
+  TORCH_CHECK(
+      dst.scalar_type() == src.scalar_type(),
+      "Vulkan direct buffer copy requires matching dtypes");
+
+  vTensor& v_dst = convert(dst);
+  vTensor v_src = convert(src);
+  TORCH_CHECK(
+      v_dst.storage_type() == api::StorageType::BUFFER &&
+          v_src.storage_type() == api::StorageType::BUFFER,
+      "Vulkan direct buffer copy requires buffer-backed tensors");
+  TORCH_CHECK(
+      v_dst.has_direct_buffer_layout() && v_src.has_direct_buffer_layout(),
+      "Vulkan direct buffer copy requires direct buffer layout");
+  TORCH_CHECK(
+      v_dst.gpu_nbytes() == v_src.gpu_nbytes(),
+      "Vulkan direct buffer copy requires matching physical byte sizes");
+
+  api::PipelineBarrier pipeline_barrier{};
+  api::Context* const context = api::context();
+  context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
+      pipeline_barrier,
+      v_src.buffer(
+          pipeline_barrier,
+          api::PipelineStage::TRANSFER,
+          api::MemoryAccessType::READ),
+      v_dst.buffer(
+          pipeline_barrier,
+          api::PipelineStage::TRANSFER,
+          api::MemoryAccessType::WRITE),
+      {api::utils::safe_downcast<uint32_t>(v_src.gpu_nbytes()), 0u, 0u},
+      {0u, 0u, 0u},
+      {0u, 0u, 0u},
+      VK_NULL_HANDLE);
+  return dst;
 }
 
 Tensor upcast_bfloat16_buffer_to_float(const Tensor& input) {

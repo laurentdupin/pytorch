@@ -3,6 +3,7 @@
 
 #include <c10/core/InferenceMode.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdlib>
@@ -20,6 +21,36 @@ using namespace api::utils;
 
 constexpr size_t kVulkanExecutionPlanKindCount =
     static_cast<size_t>(VulkanExecutionPlanKind::NumKinds);
+
+std::optional<VulkanAttentionShapeDesc> infer_attention_shape_desc(
+    const VulkanAttentionPolicy& attention_policy,
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const bool has_dropout) {
+  if (
+      !query.defined() || !key.defined() || !value.defined() ||
+      (query.dim() != 3 && query.dim() != 4) || key.dim() != query.dim() ||
+      value.dim() != query.dim()) {
+    return std::nullopt;
+  }
+
+  const int64_t batch = std::max<int64_t>(1, query.size(0));
+  const int64_t heads = query.dim() == 4 ? std::max<int64_t>(1, query.size(1))
+                                         : 1;
+  return VulkanAttentionShapeDesc{
+      query.scalar_type(),
+      batch * heads,
+      query.size(query.dim() - 2),
+      key.size(key.dim() - 2),
+      query.size(query.dim() - 1),
+      value.size(value.dim() - 1),
+      attention_policy.mask_kind != VulkanAttentionMaskKind::None,
+      has_dropout,
+      attention_policy.is_causal,
+      attention_policy.enable_gqa,
+  };
+}
 
 VulkanTensorRole execution_plan_tensor_role(const VulkanExecutionPlanKind kind) {
   switch (kind) {
@@ -609,8 +640,24 @@ void apply_runtime_family_overrides(
     case VulkanExecutionPlanKind::AttentionCacheInput:
     case VulkanExecutionPlanKind::AttentionCacheAppendInput:
       if (
+          runtime_policy.attention_kernel_family ==
+              VulkanAttentionKernelFamily::BufferMath ||
+          runtime_policy.attention_execution_strategy ==
+              VulkanAttentionExecutionStrategy::BufferTiled ||
+          runtime_policy.attention_execution_strategy ==
+              VulkanAttentionExecutionStrategy::RuntimeProgram) {
+        plan.execution_layout = api::ExecutionLayout::BUFFER_DIRECT;
+        plan.memory_layout = api::GPUMemoryLayout::TENSOR_WIDTH_PACKED;
+        plan.storage_type = api::StorageType::BUFFER;
+        plan.force_storage = true;
+      }
+      if (
           runtime_policy.attention_kernel_family !=
-          VulkanAttentionKernelFamily::TextureMath) {
+              VulkanAttentionKernelFamily::TextureMath ||
+          runtime_policy.attention_execution_strategy ==
+              VulkanAttentionExecutionStrategy::BufferTiled ||
+          runtime_policy.attention_execution_strategy ==
+              VulkanAttentionExecutionStrategy::RuntimeProgram) {
         plan.persistent = true;
       }
       break;
@@ -701,6 +748,20 @@ VulkanPlanningRequest make_vulkan_attention_request(
       uses_cache ? VulkanModelDomain::LLM
                  : VulkanModelDomain::Generic,
       execution_phase);
+}
+
+VulkanPlanningRequest make_vulkan_attention_request(
+    const VulkanAttentionPolicy& attention_policy,
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const VulkanTensorRole tensor_role,
+    const bool has_dropout) {
+  VulkanPlanningRequest request =
+      make_vulkan_attention_request(attention_policy, tensor_role);
+  request.attention_shape = infer_attention_shape_desc(
+      attention_policy, query, key, value, has_dropout);
+  return request;
 }
 
 VulkanPlanningRequest make_vulkan_execution_request(

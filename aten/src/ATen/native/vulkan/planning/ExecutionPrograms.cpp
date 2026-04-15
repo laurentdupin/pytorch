@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
 
 #include <ATen/native/vulkan/ops/InferenceCache.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -63,6 +64,18 @@ bool same_sizes(
     const std::vector<int64_t>& rhs) {
   return lhs.size() == rhs.size() &&
       std::equal(lhs.begin(), lhs.end(), rhs.begin());
+}
+
+bool same_optional_sizes(
+    const std::optional<std::vector<int64_t>>& lhs,
+    const std::optional<std::vector<int64_t>>& rhs) {
+  if (lhs.has_value() != rhs.has_value()) {
+    return false;
+  }
+  if (!lhs.has_value()) {
+    return true;
+  }
+  return same_sizes(*lhs, *rhs);
 }
 
 bool same_kv_cache_spec(
@@ -162,6 +175,7 @@ gated_delta_split_program_cache() {
 
 struct VisionBackboneProgramKey final {
   std::string allocation_label;
+  ScalarType dtype{kFloat};
   int64_t batch_size{1};
   int64_t token_count{1};
   int64_t embed_dim{1};
@@ -175,6 +189,7 @@ bool operator==(
     const VisionBackboneProgramKey& lhs,
     const VisionBackboneProgramKey& rhs) {
   return lhs.allocation_label == rhs.allocation_label &&
+      lhs.dtype == rhs.dtype &&
       lhs.batch_size == rhs.batch_size &&
       lhs.token_count == rhs.token_count &&
       lhs.embed_dim == rhs.embed_dim && lhs.hidden_dim == rhs.hidden_dim &&
@@ -188,6 +203,142 @@ vision_backbone_program_cache() {
   static InferenceLruCache<VisionBackboneProgramKey, VisionBackboneProgram>
       cache{kExecutionProgramCacheSize};
   return cache;
+}
+
+struct VisionDecoderProgramKey final {
+  std::string allocation_label;
+  std::vector<int64_t> input_sizes;
+  std::optional<std::vector<int64_t>> skip_sizes;
+  std::vector<int64_t> target_sizes;
+  int64_t out_channels{1};
+  std::optional<VulkanScratchArenaSpec> scratch_spec;
+  bool allocate_intermediate_outputs{true};
+  bool persistent{true};
+};
+
+bool operator==(
+    const VisionDecoderProgramKey& lhs,
+    const VisionDecoderProgramKey& rhs) {
+  return lhs.allocation_label == rhs.allocation_label &&
+      same_sizes(lhs.input_sizes, rhs.input_sizes) &&
+      same_optional_sizes(lhs.skip_sizes, rhs.skip_sizes) &&
+      same_sizes(lhs.target_sizes, rhs.target_sizes) &&
+      lhs.out_channels == rhs.out_channels &&
+      same_scratch_spec(lhs.scratch_spec, rhs.scratch_spec) &&
+      lhs.allocate_intermediate_outputs == rhs.allocate_intermediate_outputs &&
+      lhs.persistent == rhs.persistent;
+}
+
+InferenceLruCache<VisionDecoderProgramKey, VisionDecoderProgram>&
+vision_decoder_program_cache() {
+  static InferenceLruCache<VisionDecoderProgramKey, VisionDecoderProgram>
+      cache{kExecutionProgramCacheSize};
+  return cache;
+}
+
+Tensor create_program_buffer_tensor(
+    IntArrayRef sizes,
+    const ScalarType dtype,
+    const bool persistent) {
+  return mark_tensor_execution(
+      convert(vTensor{
+          api::context(),
+          sizes.vec(),
+          convert_dtype(dtype),
+          api::StorageType::BUFFER,
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+      }),
+      api::ExecutionLayout::BUFFER_DIRECT,
+      persistent);
+}
+
+std::vector<int64_t> calc_program_contiguous_strides(IntArrayRef sizes) {
+  std::vector<int64_t> strides(sizes.size(), 1);
+  for (int64_t idx = static_cast<int64_t>(sizes.size()) - 2; idx >= 0; --idx) {
+    strides[idx] = strides[idx + 1] * std::max<int64_t>(sizes[idx + 1], 1);
+  }
+  return strides;
+}
+
+std::vector<int64_t> calc_program_width_packed_buffer_sizes(IntArrayRef sizes) {
+  std::vector<int64_t> physical_sizes(sizes.begin(), sizes.end());
+  if (!physical_sizes.empty()) {
+    physical_sizes.back() =
+        api::utils::align_up(physical_sizes.back(), INT64_C(4));
+  }
+  return physical_sizes;
+}
+
+size_t program_buffer_descriptor_nbytes(
+    IntArrayRef sizes,
+    const ScalarType dtype) {
+  return static_cast<size_t>(
+      api::element_size(convert_dtype(dtype)) *
+      api::utils::multiply_integers(
+          calc_program_width_packed_buffer_sizes(sizes)));
+}
+
+std::vector<int64_t> calc_program_width_packed_buffer_strides(
+    IntArrayRef sizes) {
+  return calc_program_contiguous_strides(
+      calc_program_width_packed_buffer_sizes(sizes));
+}
+
+Tensor make_program_scratch_buffer_alias(
+    const ScratchArena& arena,
+    const VulkanScratchSlice& slice,
+    IntArrayRef sizes,
+    const ScalarType dtype) {
+  const size_t required_bytes = program_buffer_descriptor_nbytes(sizes, dtype);
+  TORCH_CHECK(
+      required_bytes <= slice.size_bytes,
+      "Execution-program scratch alias requested ",
+      required_bytes,
+      " bytes from a slice sized for ",
+      slice.size_bytes,
+      " bytes");
+
+  const int64_t element_size =
+      static_cast<int64_t>(c10::elementSize(dtype));
+  TORCH_CHECK(
+      element_size > 0,
+      "Execution-program scratch alias requires a concrete element size");
+  TORCH_CHECK(
+      slice.offset_bytes % static_cast<size_t>(element_size) == 0u &&
+          arena.size_bytes() % static_cast<size_t>(element_size) == 0u,
+      "Execution-program scratch alias requires byte-aligned offsets for dtype ",
+      dtype);
+
+  const int64_t storage_offset =
+      static_cast<int64_t>(slice.offset_bytes / static_cast<size_t>(element_size));
+  const int64_t buffer_length_override =
+      static_cast<int64_t>(arena.size_bytes() / static_cast<size_t>(element_size));
+  const api::ExecutionLayout execution_layout =
+      slice.offset_bytes == 0u ? api::ExecutionLayout::BUFFER_DIRECT
+                               : api::ExecutionLayout::BUFFER_VIEW;
+  return make_typed_buffer_metadata_view(
+      arena.storage(),
+      dtype,
+      sizes,
+      calc_program_contiguous_strides(sizes),
+      calc_program_width_packed_buffer_strides(sizes),
+      storage_offset,
+      buffer_length_override,
+      execution_layout);
+}
+
+Tensor reserve_program_scratch_tensor(
+    ScratchArena& arena,
+    IntArrayRef sizes,
+    const ScalarType dtype) {
+  const size_t required_bytes = program_buffer_descriptor_nbytes(sizes, dtype);
+  const VulkanScratchSlice slice = arena.reserve(
+      required_bytes,
+      std::max<uint32_t>(
+          arena.alignment(),
+          static_cast<uint32_t>(std::max<int64_t>(
+              1, static_cast<int64_t>(c10::elementSize(dtype))))));
+  return make_program_scratch_buffer_alias(arena, slice, sizes, dtype);
 }
 
 } // namespace
@@ -228,6 +379,7 @@ struct GatedDeltaSplitProgram::State final {
 };
 
 struct VisionBackboneProgram::State final {
+  ScalarType dtype_{kFloat};
   int64_t batch_size_{1};
   int64_t token_count_{1};
   int64_t embed_dim_{1};
@@ -236,6 +388,7 @@ struct VisionBackboneProgram::State final {
   std::optional<ScratchArena> scratch_arena_;
   Tensor norm1_output_;
   Tensor qkv_output_;
+  Tensor merge_output_;
   Tensor proj_output_;
   Tensor norm2_output_;
   Tensor fc1_output_;
@@ -243,6 +396,7 @@ struct VisionBackboneProgram::State final {
   bool persistent_{true};
 
   State(
+      const ScalarType dtype,
       const int64_t batch_size,
       const int64_t token_count,
       const int64_t embed_dim,
@@ -250,13 +404,124 @@ struct VisionBackboneProgram::State final {
       const int64_t num_heads,
       std::optional<ScratchArena> scratch_arena,
       const bool persistent)
-      : batch_size_(batch_size),
+      : dtype_(dtype),
+        batch_size_(batch_size),
         token_count_(token_count),
         embed_dim_(embed_dim),
         hidden_dim_(hidden_dim),
         num_heads_(num_heads),
         scratch_arena_(std::move(scratch_arena)),
-        persistent_(persistent) {}
+        persistent_(persistent) {
+    const std::vector<int64_t> hidden_sizes{
+        batch_size_ * token_count_,
+        embed_dim_,
+    };
+    const std::vector<int64_t> qkv_sizes{
+        batch_size_ * token_count_,
+        3 * embed_dim_,
+    };
+    const std::vector<int64_t> fc1_sizes{
+        batch_size_ * token_count_,
+        hidden_dim_,
+    };
+
+    norm1_output_ = create_program_buffer_tensor(hidden_sizes, dtype_, persistent_);
+    qkv_output_ = create_program_buffer_tensor(qkv_sizes, dtype_, persistent_);
+    merge_output_ = create_program_buffer_tensor(hidden_sizes, dtype_, persistent_);
+    proj_output_ = create_program_buffer_tensor(hidden_sizes, dtype_, persistent_);
+    norm2_output_ = create_program_buffer_tensor(hidden_sizes, dtype_, persistent_);
+    fc1_output_ = create_program_buffer_tensor(fc1_sizes, dtype_, persistent_);
+    fc2_output_ = create_program_buffer_tensor(hidden_sizes, dtype_, persistent_);
+  }
+};
+
+struct VisionDecoderProgram::State final {
+  std::optional<ScratchArena> scratch_arena_;
+  Tensor skip_relu_output_;
+  Tensor skip_conv1_output_;
+  Tensor skip_conv2_output_;
+  Tensor skip_res_output_;
+  Tensor main_input_output_;
+  Tensor main_relu_output_;
+  Tensor main_conv1_output_;
+  Tensor main_conv2_output_;
+  Tensor main_res_output_;
+  Tensor upsample_output_;
+  Tensor out_conv_output_;
+  bool persistent_{true};
+
+  State(
+      const std::vector<int64_t>& input_sizes,
+      const std::optional<std::vector<int64_t>>& skip_sizes,
+      const std::vector<int64_t>& target_sizes,
+      const int64_t out_channels,
+      std::optional<ScratchArena> scratch_arena,
+      const bool persistent,
+      const bool allocate_intermediate_outputs)
+      : scratch_arena_(std::move(scratch_arena)),
+        out_conv_output_(create_program_buffer_tensor(
+            {input_sizes.at(0), out_channels, target_sizes.at(0), target_sizes.at(1)},
+            kFloat,
+            persistent)),
+        persistent_(persistent) {
+    const std::vector<int64_t> upsample_sizes{
+        input_sizes.at(0),
+        input_sizes.at(1),
+        target_sizes.at(0),
+        target_sizes.at(1),
+    };
+
+    if (!allocate_intermediate_outputs) {
+      if (scratch_arena_.has_value()) {
+        scratch_arena_->reset();
+      }
+      return;
+    }
+
+    if (scratch_arena_.has_value()) {
+      scratch_arena_->reset();
+      if (skip_sizes.has_value()) {
+        skip_relu_output_ =
+            reserve_program_scratch_tensor(*scratch_arena_, *skip_sizes, kFloat);
+        skip_conv1_output_ =
+            reserve_program_scratch_tensor(*scratch_arena_, *skip_sizes, kFloat);
+        skip_conv2_output_ =
+            reserve_program_scratch_tensor(*scratch_arena_, *skip_sizes, kFloat);
+        skip_res_output_ =
+            reserve_program_scratch_tensor(*scratch_arena_, *skip_sizes, kFloat);
+        main_input_output_ =
+            reserve_program_scratch_tensor(*scratch_arena_, input_sizes, kFloat);
+      }
+      main_relu_output_ =
+          reserve_program_scratch_tensor(*scratch_arena_, input_sizes, kFloat);
+      main_conv1_output_ =
+          reserve_program_scratch_tensor(*scratch_arena_, input_sizes, kFloat);
+      main_conv2_output_ =
+          reserve_program_scratch_tensor(*scratch_arena_, input_sizes, kFloat);
+      main_res_output_ =
+          reserve_program_scratch_tensor(*scratch_arena_, input_sizes, kFloat);
+      upsample_output_ =
+          reserve_program_scratch_tensor(*scratch_arena_, upsample_sizes, kFloat);
+      scratch_arena_->reset();
+      return;
+    }
+
+    if (skip_sizes.has_value()) {
+      skip_relu_output_ = create_program_buffer_tensor(*skip_sizes, kFloat, persistent);
+      skip_conv1_output_ =
+          create_program_buffer_tensor(*skip_sizes, kFloat, persistent);
+      skip_conv2_output_ =
+          create_program_buffer_tensor(*skip_sizes, kFloat, persistent);
+      skip_res_output_ = create_program_buffer_tensor(*skip_sizes, kFloat, persistent);
+      main_input_output_ =
+          create_program_buffer_tensor(input_sizes, kFloat, persistent);
+    }
+    main_relu_output_ = create_program_buffer_tensor(input_sizes, kFloat, persistent);
+    main_conv1_output_ = create_program_buffer_tensor(input_sizes, kFloat, persistent);
+    main_conv2_output_ = create_program_buffer_tensor(input_sizes, kFloat, persistent);
+    main_res_output_ = create_program_buffer_tensor(input_sizes, kFloat, persistent);
+    upsample_output_ = create_program_buffer_tensor(upsample_sizes, kFloat, persistent);
+  }
 };
 
 bool AttentionRuntimeProgram::defined() const {
@@ -277,6 +542,11 @@ const std::optional<KVCacheObject>& AttentionRuntimeProgram::value_cache()
     const {
   static const std::optional<KVCacheObject> empty;
   return state_ ? state_->value_cache_ : empty;
+}
+
+std::optional<ScratchArena>& AttentionRuntimeProgram::scratch_arena() {
+  static std::optional<ScratchArena> empty;
+  return state_ ? state_->scratch_arena_ : empty;
 }
 
 const std::optional<ScratchArena>& AttentionRuntimeProgram::scratch_arena()
@@ -375,6 +645,11 @@ Tensor& VisionBackboneProgram::qkv_output() {
   return state_->qkv_output_;
 }
 
+Tensor& VisionBackboneProgram::merge_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionBackboneProgram");
+  return state_->merge_output_;
+}
+
 Tensor& VisionBackboneProgram::proj_output() {
   TORCH_INTERNAL_ASSERT(state_, "Undefined VisionBackboneProgram");
   return state_->proj_output_;
@@ -400,6 +675,83 @@ bool VisionBackboneProgram::persistent() const {
 }
 
 const void* VisionBackboneProgram::identity() const {
+  return state_.get();
+}
+
+bool VisionDecoderProgram::defined() const {
+  return static_cast<bool>(state_);
+}
+
+std::optional<ScratchArena>& VisionDecoderProgram::scratch_arena() {
+  static std::optional<ScratchArena> empty;
+  return state_ ? state_->scratch_arena_ : empty;
+}
+
+const std::optional<ScratchArena>& VisionDecoderProgram::scratch_arena() const {
+  static const std::optional<ScratchArena> empty;
+  return state_ ? state_->scratch_arena_ : empty;
+}
+
+Tensor& VisionDecoderProgram::skip_relu_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionDecoderProgram");
+  return state_->skip_relu_output_;
+}
+
+Tensor& VisionDecoderProgram::skip_conv1_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionDecoderProgram");
+  return state_->skip_conv1_output_;
+}
+
+Tensor& VisionDecoderProgram::skip_conv2_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionDecoderProgram");
+  return state_->skip_conv2_output_;
+}
+
+Tensor& VisionDecoderProgram::skip_res_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionDecoderProgram");
+  return state_->skip_res_output_;
+}
+
+Tensor& VisionDecoderProgram::main_input_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionDecoderProgram");
+  return state_->main_input_output_;
+}
+
+Tensor& VisionDecoderProgram::main_relu_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionDecoderProgram");
+  return state_->main_relu_output_;
+}
+
+Tensor& VisionDecoderProgram::main_conv1_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionDecoderProgram");
+  return state_->main_conv1_output_;
+}
+
+Tensor& VisionDecoderProgram::main_conv2_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionDecoderProgram");
+  return state_->main_conv2_output_;
+}
+
+Tensor& VisionDecoderProgram::main_res_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionDecoderProgram");
+  return state_->main_res_output_;
+}
+
+Tensor& VisionDecoderProgram::upsample_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionDecoderProgram");
+  return state_->upsample_output_;
+}
+
+Tensor& VisionDecoderProgram::out_conv_output() {
+  TORCH_INTERNAL_ASSERT(state_, "Undefined VisionDecoderProgram");
+  return state_->out_conv_output_;
+}
+
+bool VisionDecoderProgram::persistent() const {
+  return state_ && state_->persistent_;
+}
+
+const void* VisionDecoderProgram::identity() const {
   return state_.get();
 }
 
@@ -522,6 +874,7 @@ lookup_or_create_labeled_gated_delta_split_program(
 
 VisionBackboneProgram lookup_or_create_labeled_vision_backbone_program(
     const std::string& allocation_label,
+    const ScalarType dtype,
     const int64_t batch_size,
     const int64_t token_count,
     const int64_t embed_dim,
@@ -531,6 +884,7 @@ VisionBackboneProgram lookup_or_create_labeled_vision_backbone_program(
     const VulkanExecutionProgramPlanningDesc& program_plan) {
   const VisionBackboneProgramKey query{
       normalize_program_label(allocation_label, "vision_backbone"),
+      dtype,
       batch_size,
       token_count,
       embed_dim,
@@ -559,6 +913,7 @@ VisionBackboneProgram lookup_or_create_labeled_vision_backbone_program(
 
   VisionBackboneProgram created{
       std::make_shared<VisionBackboneProgram::State>(
+          dtype,
           batch_size,
           token_count,
           embed_dim,
@@ -573,6 +928,65 @@ VisionBackboneProgram lookup_or_create_labeled_vision_backbone_program(
          const VisionBackboneProgramKey& rhs) { return lhs == rhs; });
   log_execution_program_event(
       VulkanExecutionProgramKind::VisionBackbone,
+      "store",
+      query.allocation_label,
+      created.identity());
+  return created;
+}
+
+VisionDecoderProgram lookup_or_create_labeled_vision_decoder_program(
+    const std::string& allocation_label,
+    IntArrayRef input_sizes,
+    const std::optional<std::vector<int64_t>>& skip_sizes,
+    IntArrayRef target_sizes,
+    const int64_t out_channels,
+    const std::optional<VulkanScratchArenaSpec>& scratch_spec,
+    const VulkanExecutionProgramPlanningDesc& program_plan,
+    const bool allocate_intermediate_outputs) {
+  const VisionDecoderProgramKey query{
+      normalize_program_label(allocation_label, "vision_decoder"),
+      input_sizes.vec(),
+      skip_sizes,
+      target_sizes.vec(),
+      out_channels,
+      scratch_spec,
+      allocate_intermediate_outputs,
+      program_plan.persistent};
+  if (const auto cached = vision_decoder_program_cache().lookup(
+          query,
+          [](const VisionDecoderProgramKey& lhs,
+             const VisionDecoderProgramKey& rhs) { return lhs == rhs; })) {
+    log_execution_program_event(
+        VulkanExecutionProgramKind::VisionDecoder,
+        "hit",
+        query.allocation_label,
+        cached->identity());
+    return *cached;
+  }
+
+  std::optional<ScratchArena> scratch_arena;
+  if (scratch_spec.has_value()) {
+    scratch_arena = lookup_or_create_labeled_scratch_arena(
+        program_object_label(query.allocation_label, "scratch"),
+        *scratch_spec);
+  }
+
+  VisionDecoderProgram created{
+      std::make_shared<VisionDecoderProgram::State>(
+          query.input_sizes,
+          query.skip_sizes,
+          query.target_sizes,
+          query.out_channels,
+          std::move(scratch_arena),
+          program_plan.persistent,
+          query.allocate_intermediate_outputs)};
+  vision_decoder_program_cache().store(
+      query,
+      created,
+      [](const VisionDecoderProgramKey& lhs,
+         const VisionDecoderProgramKey& rhs) { return lhs == rhs; });
+  log_execution_program_event(
+      VulkanExecutionProgramKind::VisionDecoder,
       "store",
       query.allocation_label,
       created.identity());

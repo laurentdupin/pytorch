@@ -115,6 +115,13 @@ Tensor ensure_texture_storage(
         api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
     api::StorageType storage_type = api::StorageType::TEXTURE_3D);
 
+Tensor create_buffer_tensor(
+    IntArrayRef sizes,
+    ScalarType dtype,
+    bool persistent = false);
+
+Tensor& copy_buffer_tensor_direct_(Tensor& dst, const Tensor& src);
+
 Tensor upcast_bfloat16_buffer_to_float(const Tensor&);
 
 Tensor cast_vulkan_tensor_dtype(const Tensor&, ScalarType);

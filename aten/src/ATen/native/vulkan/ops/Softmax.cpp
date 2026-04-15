@@ -1,5 +1,8 @@
+#include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/InferenceGraphs.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
 #include <ATen/Functions.h>
@@ -33,6 +36,69 @@ constexpr int64_t kTiledSdpaBufferDefaultFastPathMaxSequence = 128;
 constexpr int64_t kTiledSdpaBufferVisionFastPathMaxSequence = 512;
 constexpr uint32_t kBufferSoftmaxLastDimLocalSizeX = 128u;
 constexpr uint32_t kBufferSoftmaxLastDimMaxWorkGroupsX = 65535u;
+constexpr int32_t kRuntimeProgramSdpaWideLocalSizeX = 32;
+constexpr int32_t kRuntimeProgramSdpaWideMaxOutputsPerThread = 16;
+constexpr int32_t kRuntimeProgramSdpaWideMaxQueryValuesPerThread = 8;
+constexpr int64_t kRuntimeProgramSdpaWideMaxHeadDim =
+    static_cast<int64_t>(kRuntimeProgramSdpaWideLocalSizeX) *
+    static_cast<int64_t>(kRuntimeProgramSdpaWideMaxQueryValuesPerThread);
+constexpr int64_t kRuntimeProgramSdpaWideMaxValueDim =
+    static_cast<int64_t>(kRuntimeProgramSdpaWideLocalSizeX) *
+    static_cast<int64_t>(kRuntimeProgramSdpaWideMaxOutputsPerThread);
+
+enum class RuntimeProgramBufferFusedKernelVariant : uint8_t {
+  Narrow16 = 0u,
+  Wide32 = 1u,
+};
+
+bool can_use_runtime_program_buffer_fused_fast_path(
+    const vTensor& v_query,
+    const vTensor& v_key,
+    const vTensor& v_value) {
+  return v_query.storage_type() == api::StorageType::BUFFER &&
+      v_key.storage_type() == api::StorageType::BUFFER &&
+      v_value.storage_type() == api::StorageType::BUFFER &&
+      v_query.dtype() == api::kFloat &&
+      v_key.dtype() == api::kFloat &&
+      v_value.dtype() == api::kFloat &&
+      v_query.sizes().size() == 3 &&
+      v_key.sizes().size() == 3 &&
+      v_value.sizes().size() == 3 &&
+      v_query.sizes()[2] <= kRuntimeProgramSdpaWideMaxHeadDim &&
+      v_value.sizes()[2] <= kRuntimeProgramSdpaWideMaxValueDim &&
+      utils::supports_buffer_reduction_compute(v_query) &&
+      utils::supports_buffer_reduction_compute(v_key) &&
+      utils::supports_buffer_reduction_compute(v_value);
+}
+
+bool can_use_runtime_program_buffer_fused_fast_path(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value) {
+  return can_use_runtime_program_buffer_fused_fast_path(
+      convert(query), convert(key), convert(value));
+}
+
+Tensor scaled_dot_product_attention_tiled_3d_buffer_out_vulkan(
+    const Tensor& query_arg,
+    const Tensor& key_arg,
+    const Tensor& value_arg,
+    Tensor& output_arg);
+
+RuntimeProgramBufferFusedKernelVariant select_runtime_program_buffer_fused_variant(
+    const Tensor& query,
+    const Tensor& key) {
+  return query.size(2) > kTiledSdpaBufferMaxHeadDim ||
+          key.size(2) > kTiledSdpaBufferMaxHeadDim
+      ? RuntimeProgramBufferFusedKernelVariant::Wide32
+      : RuntimeProgramBufferFusedKernelVariant::Narrow16;
+}
+
+Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
+    const Tensor& query_arg,
+    const Tensor& key_arg,
+    const Tensor& value_arg,
+    Tensor& output_arg);
 
 bool is_vision_backbone_attention_policy(
     const utils::VulkanRuntimePolicy& runtime_policy) {
@@ -94,12 +160,22 @@ size_t attention_runtime_scratch_bytes(
     const Tensor& query,
     const Tensor& key,
     const Tensor& value) {
-  const auto batch_heads = static_cast<size_t>(std::max<int64_t>(1, query.size(0)));
-  const auto sequence_length = static_cast<size_t>(
-      std::max<int64_t>(1, std::max(query.size(1), key.size(1))));
-  const auto feature_size = static_cast<size_t>(
-      std::max<int64_t>(1, std::max(query.size(2), value.size(2))));
-  return batch_heads * sequence_length * feature_size * sizeof(float);
+  const auto packed_buffer_bytes =
+      [](std::initializer_list<int64_t> logical_sizes) -> size_t {
+    std::vector<int64_t> physical_sizes(logical_sizes.begin(), logical_sizes.end());
+    if (!physical_sizes.empty()) {
+      physical_sizes.back() =
+          api::utils::align_up(physical_sizes.back(), INT64_C(4));
+    }
+    return static_cast<size_t>(
+        c10::elementSize(kFloat) * api::utils::multiply_integers(physical_sizes));
+  };
+
+  const size_t scores_bytes = packed_buffer_bytes(
+      {query.size(0), query.size(1), key.size(1)});
+  const size_t output_bytes = packed_buffer_bytes(
+      {query.size(0), query.size(1), value.size(2)});
+  return scores_bytes + scores_bytes + output_bytes;
 }
 
 void prime_attention_runtime_objects(
@@ -109,6 +185,7 @@ void prime_attention_runtime_objects(
     const Tensor& key,
     const Tensor& value) {
   log_attention_kernel_family_choice(input_policy);
+  log_attention_execution_strategy_choice(input_policy);
   if (
       !input_policy.execution_program_plan.has_value() ||
       input_policy.execution_program_plan->kind !=
@@ -118,10 +195,18 @@ void prime_attention_runtime_objects(
 
   const auto cache_policy = utils::build_vulkan_runtime_policy(
       utils::make_vulkan_attention_request(
-          attention_policy, utils::VulkanTensorRole::Cache));
+          attention_policy,
+          query,
+          key,
+          value,
+          utils::VulkanTensorRole::Cache));
   const auto scratch_policy = utils::build_vulkan_runtime_policy(
       utils::make_vulkan_attention_request(
-          attention_policy, utils::VulkanTensorRole::Scratch));
+          attention_policy,
+          query,
+          key,
+          value,
+          utils::VulkanTensorRole::Scratch));
   const std::optional<utils::VulkanKVCacheSpec> key_cache_spec =
       cache_policy.kv_cache_plan.has_value()
       ? std::optional<utils::VulkanKVCacheSpec>(
@@ -133,7 +218,8 @@ void prime_attention_runtime_objects(
             make_attention_kv_cache_spec(value, *cache_policy.kv_cache_plan))
       : std::nullopt;
   const std::optional<utils::VulkanScratchArenaSpec> scratch_spec =
-      scratch_policy.scratch_arena_plan.has_value()
+      scratch_policy.scratch_arena_plan.has_value() &&
+          !can_use_runtime_program_buffer_fused_fast_path(query, key, value)
       ? std::optional<utils::VulkanScratchArenaSpec>(utils::VulkanScratchArenaSpec{
             kByte,
             std::max<size_t>(
@@ -162,6 +248,308 @@ void prime_attention_runtime_objects(
       key.size(1),
       value.size(1),
       *input_policy.execution_program_plan);
+}
+
+std::vector<int64_t> calc_attention_width_packed_buffer_sizes(IntArrayRef sizes) {
+  std::vector<int64_t> physical_sizes(sizes.begin(), sizes.end());
+  if (!physical_sizes.empty()) {
+    physical_sizes.back() =
+        api::utils::align_up(physical_sizes.back(), INT64_C(4));
+  }
+  return physical_sizes;
+}
+
+size_t attention_buffer_descriptor_nbytes(
+    IntArrayRef sizes,
+    const ScalarType dtype) {
+  return static_cast<size_t>(
+      api::element_size(convert_dtype(dtype)) *
+      api::utils::multiply_integers(
+          calc_attention_width_packed_buffer_sizes(sizes)));
+}
+
+std::vector<int64_t> calc_attention_contiguous_strides(IntArrayRef sizes) {
+  std::vector<int64_t> strides(sizes.size(), 1);
+  for (int64_t idx = static_cast<int64_t>(sizes.size()) - 2; idx >= 0; --idx) {
+    strides[idx] = strides[idx + 1] * std::max<int64_t>(sizes[idx + 1], 1);
+  }
+  return strides;
+}
+
+std::vector<int64_t> calc_attention_width_packed_buffer_strides(
+    IntArrayRef sizes) {
+  return calc_attention_contiguous_strides(
+      calc_attention_width_packed_buffer_sizes(sizes));
+}
+
+Tensor make_attention_scratch_buffer_alias(
+    const utils::ScratchArena& arena,
+    const utils::VulkanScratchSlice& slice,
+    IntArrayRef sizes,
+    const ScalarType dtype) {
+  const size_t required_bytes = attention_buffer_descriptor_nbytes(sizes, dtype);
+  TORCH_CHECK(
+      required_bytes <= slice.size_bytes,
+      "Attention-runtime scratch alias requested ",
+      required_bytes,
+      " bytes from a slice sized for ",
+      slice.size_bytes,
+      " bytes");
+
+  const int64_t element_size =
+      static_cast<int64_t>(c10::elementSize(dtype));
+  TORCH_CHECK(
+      element_size > 0,
+      "Attention-runtime scratch alias requires a concrete element size");
+  TORCH_CHECK(
+      slice.offset_bytes % static_cast<size_t>(element_size) == 0u &&
+          arena.size_bytes() % static_cast<size_t>(element_size) == 0u,
+      "Attention-runtime scratch alias requires byte-aligned offsets for dtype ",
+      dtype);
+
+  const int64_t storage_offset =
+      static_cast<int64_t>(slice.offset_bytes / static_cast<size_t>(element_size));
+  const int64_t buffer_length_override =
+      static_cast<int64_t>(arena.size_bytes() / static_cast<size_t>(element_size));
+  const api::ExecutionLayout execution_layout =
+      slice.offset_bytes == 0u ? api::ExecutionLayout::BUFFER_DIRECT
+                               : api::ExecutionLayout::BUFFER_VIEW;
+  return utils::make_typed_buffer_metadata_view(
+      arena.storage(),
+      dtype,
+      sizes,
+      calc_attention_contiguous_strides(sizes),
+      calc_attention_width_packed_buffer_strides(sizes),
+      storage_offset,
+      buffer_length_override,
+      execution_layout);
+}
+
+Tensor reserve_attention_scratch_tensor(
+    utils::ScratchArena& arena,
+    IntArrayRef sizes,
+    const ScalarType dtype) {
+  const size_t required_bytes = attention_buffer_descriptor_nbytes(sizes, dtype);
+  const utils::VulkanScratchSlice slice = arena.reserve(
+      required_bytes,
+      std::max<uint32_t>(
+          arena.alignment(),
+          static_cast<uint32_t>(std::max<int64_t>(
+              1, static_cast<int64_t>(c10::elementSize(dtype))))));
+  return make_attention_scratch_buffer_alias(arena, slice, sizes, dtype);
+}
+
+Tensor ensure_attention_runtime_direct_buffer(const Tensor& tensor) {
+  TORCH_CHECK(
+      tensor.is_vulkan(),
+      "Attention-runtime replay expects Vulkan tensors");
+  const vTensor& v_tensor = convert(tensor);
+  if (
+      v_tensor.storage_type() == api::StorageType::BUFFER &&
+      v_tensor.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      utils::supports_buffer_view_fast_path(v_tensor)) {
+    return utils::mark_tensor_execution(
+        tensor, utils::resolve_buffer_execution_layout(v_tensor));
+  }
+
+  Tensor output = utils::ensure_buffer_storage(
+      tensor, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  const vTensor& v_output = convert(output);
+  TORCH_CHECK(
+      v_output.storage_type() == api::StorageType::BUFFER &&
+          utils::supports_buffer_view_fast_path(v_output),
+      "Attention-runtime replay expects buffer-backed tensors with supported "
+      "view semantics");
+  return utils::mark_tensor_execution(
+      output, utils::resolve_buffer_execution_layout(v_output));
+}
+
+void copy_tensor_for_attention_replay(Tensor& dst, const Tensor& src) {
+  if (dst.is_vulkan() && src.is_vulkan()) {
+    const vTensor& v_dst = convert(dst);
+    const vTensor& v_src = convert(src);
+    if (
+        v_dst.storage_type() == api::StorageType::BUFFER &&
+        v_src.storage_type() == api::StorageType::BUFFER &&
+        v_dst.has_direct_buffer_layout() && v_src.has_direct_buffer_layout()) {
+      utils::copy_buffer_tensor_direct_(dst, src);
+      return;
+    }
+  }
+  dst.copy_(src);
+}
+
+Tensor run_attention_runtime_buffer_math_program_impl(
+    const Tensor& query_arg,
+    const Tensor& key_arg,
+    const Tensor& value_arg,
+    utils::AttentionRuntimeProgram* const runtime_program,
+    Tensor* const output_override = nullptr) {
+  Tensor query = ensure_attention_runtime_direct_buffer(query_arg);
+  Tensor key = ensure_attention_runtime_direct_buffer(key_arg);
+  Tensor value = ensure_attention_runtime_direct_buffer(value_arg);
+  TORCH_CHECK(
+      query.scalar_type() == kFloat && key.scalar_type() == kFloat &&
+          value.scalar_type() == kFloat,
+      "Attention-runtime replay currently expects float tensors");
+  TORCH_CHECK(
+      query.dim() == 3 && key.dim() == 3 && value.dim() == 3,
+      "Attention-runtime replay currently expects rank-3 tensors");
+  TORCH_CHECK(
+      query.size(0) == key.size(0) && query.size(0) == value.size(0) &&
+          query.size(2) == key.size(2) && key.size(1) == value.size(1),
+      "Attention-runtime replay expects matching [B, T, K] / [B, S, K] / [B, S, V] shapes");
+
+  utils::ScratchArena* scratch_arena = nullptr;
+  if (runtime_program && runtime_program->defined() &&
+      runtime_program->scratch_arena().has_value()) {
+    runtime_program->scratch_arena()->reset();
+    scratch_arena = &(*runtime_program->scratch_arena());
+  }
+
+  const std::vector<int64_t> scores_sizes{
+      query.size(0),
+      query.size(1),
+      key.size(1),
+  };
+  const std::vector<int64_t> output_sizes{
+      query.size(0),
+      query.size(1),
+      value.size(2),
+  };
+
+  Tensor output = output_override ? *output_override
+                                  : utils::create_buffer_tensor(
+                                        output_sizes, kFloat, /*persistent=*/false);
+  if (can_use_runtime_program_buffer_fused_fast_path(query, key, value)) {
+    utils::log_vulkan_op_hit(
+        "aten::scaled_dot_product_attention.runtime_program_buffer_fused");
+    const auto variant =
+        select_runtime_program_buffer_fused_variant(query, key);
+    utils::log_vulkan_op_hit(
+        variant == RuntimeProgramBufferFusedKernelVariant::Wide32
+            ? "aten::scaled_dot_product_attention.runtime_program_buffer_fused_wide"
+            : "aten::scaled_dot_product_attention.runtime_program_buffer_fused_narrow");
+    return scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
+        query, key, value, output);
+  }
+
+  Tensor scores_output;
+  Tensor probs_output;
+
+  if (scratch_arena) {
+    scores_output = reserve_attention_scratch_tensor(
+        *scratch_arena, scores_sizes, kFloat);
+    probs_output = reserve_attention_scratch_tensor(
+        *scratch_arena, scores_sizes, kFloat);
+    output = output_override ? *output_override
+                             : reserve_attention_scratch_tensor(
+                                   *scratch_arena, output_sizes, kFloat);
+  } else if (output_override) {
+    output = *output_override;
+    scores_output = utils::create_buffer_tensor(
+        scores_sizes, kFloat, /*persistent=*/false);
+    probs_output = utils::create_buffer_tensor(
+        scores_sizes, kFloat, /*persistent=*/false);
+  } else {
+    scores_output = utils::create_buffer_tensor(
+        scores_sizes, kFloat, /*persistent=*/false);
+    probs_output = utils::create_buffer_tensor(
+        scores_sizes, kFloat, /*persistent=*/false);
+  }
+
+  utils::log_vulkan_op_hit(
+      "aten::scaled_dot_product_attention.runtime_program_buffer_materialized");
+  Tensor key_t = ensure_attention_runtime_direct_buffer(key.transpose(1, 2));
+  Tensor scores = bmm_buffer_out_vulkan(query, key_t, scores_output);
+  Tensor probs = softmax_buffer_lastdim_out_vulkan(scores, probs_output);
+  return bmm_buffer_out_vulkan(probs, value, output);
+}
+
+Tensor run_attention_runtime_buffer_math_replay_impl(
+    const Tensor& query_arg,
+    const Tensor& key_arg,
+    const Tensor& value_arg,
+    const std::string& allocation_label) {
+  Tensor query = ensure_attention_runtime_direct_buffer(query_arg);
+  Tensor key = ensure_attention_runtime_direct_buffer(key_arg);
+  Tensor value = ensure_attention_runtime_direct_buffer(value_arg);
+
+  const utils::VulkanExecutionProgramPlanningDesc program_plan{
+      utils::VulkanExecutionProgramKind::AttentionRuntime,
+      true,
+  };
+  const std::optional<utils::VulkanScratchArenaSpec> scratch_spec =
+      can_use_runtime_program_buffer_fused_fast_path(query, key, value)
+      ? std::nullopt
+      : std::optional<utils::VulkanScratchArenaSpec>(utils::VulkanScratchArenaSpec{
+            kByte,
+            std::max<size_t>(
+                attention_runtime_scratch_bytes(query, key, value),
+                1u),
+            256u,
+            api::ExecutionLayout::BUFFER_DIRECT,
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+            api::StorageType::BUFFER,
+            true,
+        });
+
+  auto attention_graph =
+      utils::lookup_or_create_labeled_attention_runtime_inference_graph(
+          allocation_label, kFloat, /*persistent=*/true);
+  auto attention_replay = attention_graph.lookup_or_create_replay(
+      allocation_label + ".buffer_math",
+      query.sizes(),
+      key.sizes(),
+      value.sizes(),
+      utils::VulkanAttentionKernelFamily::BufferMath,
+      std::nullopt,
+      std::nullopt,
+      scratch_spec,
+      key.size(1),
+      value.size(1),
+      program_plan);
+  copy_tensor_for_attention_replay(attention_replay.query_slot(), query);
+  copy_tensor_for_attention_replay(attention_replay.key_slot(), key);
+  copy_tensor_for_attention_replay(attention_replay.value_slot(), value);
+  api::context()->flush_pending_cmds();
+
+  if (!attention_replay.recorded()) {
+    Tensor warmup_output = utils::create_buffer_tensor(
+        attention_replay.output_slot().sizes(),
+        attention_replay.output_slot().scalar_type(),
+        /*persistent=*/false);
+    (void)run_attention_runtime_buffer_math_program_impl(
+        attention_replay.query_slot(),
+        attention_replay.key_slot(),
+        attention_replay.value_slot(),
+        &attention_replay.program(),
+        &attention_replay.output_slot());
+    copy_tensor_for_attention_replay(
+        warmup_output, attention_replay.output_slot());
+    api::context()->flush_pending_cmds();
+    attention_replay.replay().record([&]() {
+      (void)run_attention_runtime_buffer_math_program_impl(
+          attention_replay.query_slot(),
+          attention_replay.key_slot(),
+          attention_replay.value_slot(),
+          &attention_replay.program(),
+          &attention_replay.output_slot());
+    });
+    utils::log_vulkan_op_hit(
+        "vulkan_prepack::run_attention_runtime_buffer_math_replay_bridge.warmup");
+    return warmup_output;
+  }
+
+  attention_replay.replay().submit();
+  Tensor output = utils::create_buffer_tensor(
+      attention_replay.output_slot().sizes(),
+      attention_replay.output_slot().scalar_type(),
+      /*persistent=*/false);
+  copy_tensor_for_attention_replay(output, attention_replay.output_slot());
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_attention_runtime_buffer_math_replay_bridge.replay");
+  return output;
 }
 
 const std::string& sdpa_log_path() {
@@ -1118,7 +1506,6 @@ Tensor scaled_dot_product_attention_tiled_3d_buffer_vulkan(
       kTiledSdpaBufferMaxHeadDim);
 
   api::Context* const context = api::context();
-
   vTensor v_output{
       context,
       {query_arg.size(0), query_arg.size(1), value_arg.size(2)},
@@ -1126,7 +1513,160 @@ Tensor scaled_dot_product_attention_tiled_3d_buffer_vulkan(
       api::StorageType::BUFFER,
       api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
   };
+  Tensor output = convert(v_output);
+  (void)scaled_dot_product_attention_tiled_3d_buffer_out_vulkan(
+      query_arg, key_arg, value_arg, output);
+  utils::log_vulkan_op_hit("aten::scaled_dot_product_attention.buffer_tiled");
+  return utils::mark_tensor_execution(output, api::ExecutionLayout::BUFFER_DIRECT);
+}
 
+Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
+    const Tensor& query_arg,
+    const Tensor& key_arg,
+    const Tensor& value_arg,
+    Tensor& output_arg) {
+  if (select_runtime_program_buffer_fused_variant(query_arg, key_arg) ==
+      RuntimeProgramBufferFusedKernelVariant::Narrow16) {
+    return scaled_dot_product_attention_tiled_3d_buffer_out_vulkan(
+        query_arg, key_arg, value_arg, output_arg);
+  }
+
+  TORCH_CHECK(
+      query_arg.is_vulkan() && key_arg.is_vulkan() && value_arg.is_vulkan() &&
+          output_arg.is_vulkan(),
+      "Vulkan wide buffer fused SDPA expects Vulkan tensors");
+  TORCH_CHECK(
+      query_arg.dim() == 3 && key_arg.dim() == 3 && value_arg.dim() == 3 &&
+          output_arg.dim() == 3,
+      "Vulkan wide buffer fused SDPA expects 3D tensors");
+  TORCH_CHECK(
+      query_arg.size(0) == key_arg.size(0) &&
+          query_arg.size(0) == value_arg.size(0) &&
+          query_arg.size(0) == output_arg.size(0) &&
+          query_arg.size(1) == output_arg.size(1) &&
+          query_arg.size(2) == key_arg.size(2) &&
+          key_arg.size(1) == value_arg.size(1) &&
+          value_arg.size(2) == output_arg.size(2),
+      "Vulkan wide buffer fused SDPA expects matching [B, T, K] / [B, S, K] / [B, S, V] shapes");
+
+  const vTensor& v_query = convert(query_arg);
+  const vTensor& v_key = convert(key_arg);
+  const vTensor& v_value = convert(value_arg);
+  vTensor& v_output = convert(output_arg);
+  TORCH_CHECK(
+      can_use_runtime_program_buffer_fused_fast_path(v_query, v_key, v_value),
+      "Vulkan wide buffer fused SDPA expects float BUFFER inputs with value dim <= ",
+      kRuntimeProgramSdpaWideMaxValueDim,
+      " and head dim <= ",
+      kRuntimeProgramSdpaWideMaxHeadDim);
+  TORCH_CHECK(
+      v_output.storage_type() == api::StorageType::BUFFER &&
+          v_output.gpu_memory_layout() ==
+              api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+          v_output.dtype() == v_value.dtype(),
+      "Vulkan wide buffer fused SDPA expects a width-packed float buffer output");
+
+  api::Context* const context = api::context();
+  const struct Block final {
+    ivec4 sizes;
+    ivec4 tiled_info;
+  } block{
+      {
+          safe_downcast<int32_t>(query_arg.size(0)),
+          safe_downcast<int32_t>(query_arg.size(1)),
+          safe_downcast<int32_t>(key_arg.size(1)),
+          safe_downcast<int32_t>(query_arg.size(2)),
+      },
+      {
+          safe_downcast<int32_t>(value_arg.size(2)),
+          kRuntimeProgramSdpaWideLocalSizeX,
+          kRuntimeProgramSdpaWideMaxOutputsPerThread,
+          0,
+      },
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer query_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_query);
+  api::UniformParamsBuffer key_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_key);
+  api::UniformParamsBuffer value_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_value);
+  api::PipelineBarrier pipeline_barrier{};
+
+  context->submit_compute_job(
+      VK_KERNEL(scaled_dot_product_scores_value_buffer_float_wide),
+      pipeline_barrier,
+      {
+          static_cast<uint32_t>(kRuntimeProgramSdpaWideLocalSizeX),
+          safe_downcast<uint32_t>(query_arg.size(1)),
+          safe_downcast<uint32_t>(query_arg.size(0)),
+      },
+      {
+          static_cast<uint32_t>(kRuntimeProgramSdpaWideLocalSizeX),
+          1u,
+          1u,
+      },
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_query.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      query_meta.buffer(),
+      v_key.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      key_meta.buffer(),
+      v_value.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      value_meta.buffer(),
+      params.buffer());
+
+  return utils::mark_tensor_execution(output_arg, api::ExecutionLayout::BUFFER_DIRECT);
+}
+
+Tensor scaled_dot_product_attention_tiled_3d_buffer_out_vulkan(
+    const Tensor& query_arg,
+    const Tensor& key_arg,
+    const Tensor& value_arg,
+    Tensor& output_arg) {
+  TORCH_CHECK(
+      query_arg.is_vulkan() && key_arg.is_vulkan() && value_arg.is_vulkan() &&
+          output_arg.is_vulkan(),
+      "Vulkan buffer fused SDPA expects Vulkan tensors");
+  TORCH_CHECK(
+      query_arg.dim() == 3 && key_arg.dim() == 3 && value_arg.dim() == 3 &&
+          output_arg.dim() == 3,
+      "Vulkan buffer fused SDPA expects 3D tensors");
+  TORCH_CHECK(
+      query_arg.size(0) == key_arg.size(0) &&
+          query_arg.size(0) == value_arg.size(0) &&
+          query_arg.size(0) == output_arg.size(0) &&
+          query_arg.size(1) == output_arg.size(1) &&
+          query_arg.size(2) == key_arg.size(2) &&
+          key_arg.size(1) == value_arg.size(1) &&
+          value_arg.size(2) == output_arg.size(2),
+      "Vulkan buffer fused SDPA expects matching [B, T, K] / [B, S, K] / [B, S, V] shapes");
+
+  const vTensor& v_query = convert(query_arg);
+  const vTensor& v_key = convert(key_arg);
+  const vTensor& v_value = convert(value_arg);
+  vTensor& v_output = convert(output_arg);
+  TORCH_CHECK(
+      can_use_runtime_program_buffer_fused_fast_path(v_query, v_key, v_value),
+      "Vulkan buffer fused SDPA expects float BUFFER inputs with value dim <= ",
+      kTiledSdpaMaxValueDim,
+      " and head dim <= ",
+      kTiledSdpaBufferMaxHeadDim);
+  TORCH_CHECK(
+      v_output.storage_type() == api::StorageType::BUFFER &&
+          v_output.gpu_memory_layout() ==
+              api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+          v_output.dtype() == v_value.dtype(),
+      "Vulkan buffer fused SDPA expects a width-packed float buffer output");
+
+  api::Context* const context = api::context();
   const struct Block final {
     ivec4 sizes;
     ivec4 tiled_info;
@@ -1183,9 +1723,7 @@ Tensor scaled_dot_product_attention_tiled_3d_buffer_vulkan(
       value_meta.buffer(),
       params.buffer());
 
-  utils::log_vulkan_op_hit("aten::scaled_dot_product_attention.buffer_tiled");
-  return utils::mark_tensor_execution(
-      convert(v_output), api::ExecutionLayout::BUFFER_DIRECT);
+  return utils::mark_tensor_execution(output_arg, api::ExecutionLayout::BUFFER_DIRECT);
 }
 
 std::optional<Tensor> try_scaled_dot_product_attention_tiled_fast_path(
@@ -1199,12 +1737,12 @@ std::optional<Tensor> try_scaled_dot_product_attention_tiled_fast_path(
     std::optional<double> scale,
     bool enable_gqa) {
   if (
-      runtime_policy.attention_kernel_family !=
-      utils::VulkanAttentionKernelFamily::TextureMath) {
+      runtime_policy.attention_execution_strategy !=
+      utils::VulkanAttentionExecutionStrategy::TextureTiled) {
     log_sdpa_event(
         "tiled_fast_path",
         "reject",
-        "non_texture_family",
+        "non_texture_tiled_strategy",
         query,
         key,
         value,
@@ -1436,9 +1974,16 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
 
   const auto query_request =
       utils::make_vulkan_attention_request(
-          attention_policy, utils::VulkanTensorRole::Input);
+          attention_policy,
+          query_3d,
+          key_3d,
+          value_3d,
+          utils::VulkanTensorRole::Input);
   const auto key_value_request = utils::make_vulkan_attention_request(
       attention_policy,
+      query_3d,
+      key_3d,
+      value_3d,
       attention_policy.cache_mode == utils::VulkanAttentionCacheMode::Disabled
           ? utils::VulkanTensorRole::Input
           : utils::VulkanTensorRole::Cache);
@@ -1466,6 +2011,8 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
       tiled_sdpa_buffer_fast_path_max_sequence(input_runtime_policy);
   if (
       uses_buffer_math &&
+      input_runtime_policy.attention_execution_strategy ==
+          utils::VulkanAttentionExecutionStrategy::BufferTiled &&
       !has_explicit_mask &&
       !is_causal &&
       !enable_gqa &&
@@ -1536,8 +2083,14 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
       attn_mask, is_causal, enable_gqa, false, false);
   const auto input_runtime_policy = utils::build_vulkan_runtime_policy(
       utils::make_vulkan_attention_request(
-          attention_policy, utils::VulkanTensorRole::Input));
+          attention_policy,
+          query_arg,
+          key_arg,
+          value_arg,
+          utils::VulkanTensorRole::Input,
+          dropout_p != 0.0));
   log_attention_kernel_family_choice(input_runtime_policy);
+  log_attention_execution_strategy_choice(input_runtime_policy);
   return scaled_dot_product_attention_math_vulkan_impl(
       query_arg,
       key_arg,
@@ -1566,8 +2119,14 @@ Tensor scaled_dot_product_attention_vulkan_impl(
       attn_mask, is_causal, enable_gqa, false, false);
   const auto input_runtime_policy = utils::build_vulkan_runtime_policy(
       utils::make_vulkan_attention_request(
-          attention_policy, utils::VulkanTensorRole::Input));
+          attention_policy,
+          query,
+          key,
+          value,
+          utils::VulkanTensorRole::Input,
+          dropout_p != 0.0));
   log_attention_kernel_family_choice(input_runtime_policy);
+  log_attention_execution_strategy_choice(input_runtime_policy);
   log_sdpa_event(
       "public_vulkan_entry",
       "enter",
@@ -1604,6 +2163,100 @@ Tensor scaled_dot_product_attention_vulkan_impl(
       is_causal,
       scale,
       enable_gqa);
+  if (
+      input_runtime_policy.attention_execution_strategy ==
+          utils::VulkanAttentionExecutionStrategy::RuntimeProgram &&
+      dropout_p == 0.0 && !attn_mask.has_value() && !is_causal &&
+      !enable_gqa && (query.dim() == 3 || query.dim() == 4)) {
+    const Tensor query_contig =
+        query.is_contiguous_or_false() ? query : query.contiguous();
+    const Tensor key_contig = key.is_contiguous_or_false() ? key : key.contiguous();
+    const Tensor value_contig =
+        value.is_contiguous_or_false() ? value : value.contiguous();
+    const int64_t target_len = query_contig.size(query_contig.dim() - 2);
+    const int64_t source_len = key_contig.size(key_contig.dim() - 2);
+    const int64_t head_dim = query_contig.size(query_contig.dim() - 1);
+    const int64_t value_dim = value_contig.size(value_contig.dim() - 1);
+    const int64_t batch =
+        query_contig.dim() == 4 ? query_contig.size(0) : query_contig.size(0);
+    const int64_t heads = query_contig.dim() == 4 ? query_contig.size(1) : 1;
+    const int64_t batch_heads = batch * heads;
+    const double sdpa_scale =
+        scale.value_or(1.0 / std::sqrt(static_cast<double>(head_dim)));
+
+    Tensor query_3d = maybe_scale_query(
+        flatten_attention_batch_heads(
+            query_contig, batch_heads, target_len, head_dim),
+        sdpa_scale);
+    Tensor key_3d = flatten_attention_batch_heads(
+        key_contig, batch_heads, source_len, head_dim);
+    Tensor value_3d = flatten_attention_batch_heads(
+        value_contig, batch_heads, source_len, value_dim);
+
+    prime_attention_runtime_objects(
+        input_runtime_policy,
+        attention_policy,
+        query_3d,
+        key_3d,
+        value_3d);
+    if (
+        input_runtime_policy.execution_program_plan.has_value() &&
+        input_runtime_policy.execution_program_plan->kind ==
+            utils::VulkanExecutionProgramKind::AttentionRuntime) {
+      const auto query_request = utils::make_vulkan_attention_request(
+          attention_policy,
+          query_3d,
+          key_3d,
+          value_3d,
+          utils::VulkanTensorRole::Input);
+      const auto key_value_request = utils::make_vulkan_attention_request(
+          attention_policy,
+          query_3d,
+          key_3d,
+          value_3d,
+          attention_policy.cache_mode ==
+                  utils::VulkanAttentionCacheMode::Disabled
+              ? utils::VulkanTensorRole::Input
+              : utils::VulkanTensorRole::Cache);
+      query_3d = utils::prepare_vulkan_execution_tensor(
+          query_3d, attention_policy.query_plan_kind, query_request);
+      key_3d = utils::prepare_vulkan_execution_tensor(
+          key_3d, attention_policy.key_value_plan_kind, key_value_request);
+      value_3d = utils::prepare_vulkan_execution_tensor(
+          value_3d, attention_policy.key_value_plan_kind, key_value_request);
+
+      query_3d = prepare_buffer_math_input_direct(query_3d);
+      key_3d = prepare_buffer_math_input_direct(key_3d);
+      value_3d = prepare_buffer_math_input_direct(value_3d);
+      const bool uses_buffer_math =
+          convert(query_3d).storage_type() == api::StorageType::BUFFER &&
+          convert(key_3d).storage_type() == api::StorageType::BUFFER &&
+          convert(value_3d).storage_type() == api::StorageType::BUFFER;
+      if (uses_buffer_math) {
+        Tensor output = run_attention_runtime_buffer_math_replay_impl(
+            query_3d,
+            key_3d,
+            value_3d,
+            utils::make_vulkan_runtime_object_label(
+                input_runtime_policy.request, "attention_runtime_graph"));
+        log_sdpa_event(
+            "public_vulkan_entry",
+            "replay",
+            "attention_runtime",
+            query_3d,
+            key_3d,
+            value_3d,
+            std::nullopt,
+            dropout_p,
+            is_causal,
+            scale,
+            enable_gqa);
+        return query.dim() == 4
+            ? output.reshape({batch, heads, target_len, value_dim})
+            : output;
+      }
+    }
+  }
   return std::get<0>(scaled_dot_product_attention_math_vulkan_impl(
       query,
       key,
@@ -1856,6 +2509,23 @@ Tensor scaled_dot_product_attention_vulkan(
   utils::log_vulkan_op_hit("aten::scaled_dot_product_attention");
   return scaled_dot_product_attention_vulkan_impl(
       query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
+}
+
+Tensor run_attention_runtime_buffer_math_replay_bridge(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value) {
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_attention_runtime_buffer_math_replay_bridge");
+  return run_attention_runtime_buffer_math_replay_impl(
+      query,
+      key,
+      value,
+      utils::make_vulkan_runtime_object_label(
+          utils::make_vulkan_planning_request(
+              utils::VulkanWorkloadClass::Attention,
+              utils::VulkanTensorRole::Input),
+          "attention_runtime_bridge"));
 }
 
 #ifdef USE_VULKAN_API

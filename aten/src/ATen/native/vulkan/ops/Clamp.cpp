@@ -4,6 +4,7 @@
 #include <math.h>
 #endif // _WIN32
 
+#include <ATen/native/vulkan/ops/Clamp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
@@ -38,10 +39,31 @@ api::UniformParamsBuffer make_buffer_clamp_params(
   return api::UniformParamsBuffer(context, block);
 }
 
-Tensor clamp_buffer(
+Tensor prepare_runtime_float_buffer_clamp_output(
+    Tensor output,
+    IntArrayRef expected_sizes) {
+  output = output.is_vulkan() ? output : output.vulkan();
+  output = utils::mark_tensor_execution(
+      output,
+      utils::resolve_buffer_execution_layout(convert(output)),
+      false);
+  const vTensor& v_output = convert(output);
+  TORCH_CHECK(
+      v_output.storage_type() == api::StorageType::BUFFER &&
+          v_output.dtype() == api::kFloat &&
+          utils::supports_buffer_elementwise_compute(v_output),
+      "Vulkan float buffer clamp out expects float buffer-backed output");
+  TORCH_CHECK(
+      output.sizes().vec() == expected_sizes.vec(),
+      "Vulkan float buffer clamp out received mismatched output shape");
+  return output;
+}
+
+Tensor clamp_buffer_impl(
     const Tensor& self_arg,
     const std::optional<Scalar>& min,
-    const std::optional<Scalar>& max) {
+    const std::optional<Scalar>& max,
+    Tensor* output_arg) {
   api::Context* const context = api::context();
   Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
   vTensor& v_self = convert(self);
@@ -49,13 +71,24 @@ Tensor clamp_buffer(
       can_run_float_buffer_clamp(v_self),
       "Vulkan buffer clamp expects float buffer-backed input with supported metadata");
 
-  vTensor v_output{
-      context,
-      v_self.sizes(),
-      v_self.dtype(),
-      api::StorageType::BUFFER,
-      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-  };
+  Tensor output_tensor;
+  vTensor* v_output_ptr = nullptr;
+  vTensor owned_output;
+  if (output_arg != nullptr) {
+    output_tensor =
+        prepare_runtime_float_buffer_clamp_output(*output_arg, v_self.sizes());
+    v_output_ptr = &convert(output_tensor);
+  } else {
+    owned_output = vTensor{
+        context,
+        v_self.sizes(),
+        v_self.dtype(),
+        api::StorageType::BUFFER,
+        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+    };
+    v_output_ptr = &owned_output;
+  }
+  vTensor& v_output = *v_output_ptr;
 
   api::PipelineBarrier pipeline_barrier{};
   const uvec3 global_size = {
@@ -84,7 +117,14 @@ Tensor clamp_buffer(
       in_meta.buffer(),
       params.buffer());
 
-  return convert(v_output);
+  return output_arg != nullptr ? output_tensor : convert(v_output);
+}
+
+Tensor clamp_buffer(
+    const Tensor& self_arg,
+    const std::optional<Scalar>& min,
+    const std::optional<Scalar>& max) {
+  return clamp_buffer_impl(self_arg, min, max, nullptr);
 }
 
 Tensor& clamp_buffer_(
@@ -855,6 +895,17 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
 #endif /* USE_VULKAN_API */
 
 } // namespace
+
+Tensor relu_buffer_out_vulkan(
+    const Tensor& input,
+    Tensor& output) {
+  TORCH_CHECK(
+      input.is_vulkan() && input.scalar_type() == at::kFloat &&
+          can_run_float_buffer_clamp(convert(input)),
+      "Vulkan relu_buffer_out expects float buffer-backed tensors");
+  return clamp_buffer_impl(input, 0, std::nullopt, &output);
+}
+
 } // namespace ops
 } // namespace vulkan
 } // namespace native

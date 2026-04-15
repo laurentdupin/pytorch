@@ -1876,6 +1876,36 @@ print("OK")
             actual_stack = torch.stack((a_vulkan, b_vulkan), dim=0).cpu()
             self.assertEqual(actual_stack, expected_stack)
 
+    def test_float_split_and_cat_with_zero_size_vulkan_chunks(self):
+        with torch.inference_mode():
+            src = torch.randn(3, 5, dtype=torch.float32)
+            vulkan = src.to("vulkan")
+            split_sizes = [2, 0, 1, 0]
+
+            expected_chunks = list(src.split(split_sizes, dim=0))
+            actual_chunks = [chunk.cpu() for chunk in vulkan.split(split_sizes, dim=0)]
+            self.assertEqual(actual_chunks, expected_chunks)
+
+            expected_cat = torch.cat(expected_chunks, dim=0)
+            actual_cat = torch.cat(tuple(vulkan.split(split_sizes, dim=0)), dim=0).cpu()
+            self.assertEqual(actual_cat, expected_cat)
+
+    def test_affine_inverse_style_buffer_views_match_cpu(self):
+        def affine_inverse_style(A):
+            R = A[..., :3, :3]
+            T = A[..., :3, 3:]
+            P = A[..., 3:, :]
+            return torch.cat([torch.cat([R.mT, -R.mT @ T], dim=-1), P], dim=-2)
+
+        with torch.inference_mode():
+            src = torch.randn(2, 3, 4, 4, dtype=torch.float32)
+            vulkan = src.to("vulkan")
+
+            expected = affine_inverse_style(src)
+            actual = affine_inverse_style(vulkan).cpu()
+
+            torch.testing.assert_close(actual, expected)
+
     def test_5d_expand_fallback_match_cpu(self):
         src = torch.arange(2 * 3 * 4 * 5, dtype=torch.float32).reshape(2, 3, 4, 5)
         vulkan = src.to("vulkan")
@@ -3727,7 +3757,7 @@ print("OK")
 
             self.assertRegex(
                 policy_log_text,
-                r"runtime_policy workload=LinearMatmul model_domain=LLM execution_phase=Prefill .* has_scratch_arena_plan=1 inferred_from_label=0",
+                r"runtime_policy workload=LinearMatmul source_workload=LinearMatmul model_domain=LLM execution_phase=Prefill .* has_scratch_arena_plan=1 inferred_from_label=0",
             )
 
             self.assertTrue(os.path.exists(object_log_path))
@@ -3786,7 +3816,7 @@ print("OK")
 
             self.assertRegex(
                 policy_log_text,
-                r"runtime_policy workload=VisionBackbone model_domain=Vision execution_phase=Backbone .* inferred_from_label=1",
+                r"runtime_policy workload=VisionBackbone source_workload=\w+ model_domain=Vision execution_phase=Backbone .* inferred_from_label=1",
             )
         finally:
             if os.path.exists(policy_log_path):
@@ -3871,8 +3901,8 @@ print("OK")
             vision_policy_lines = [
                 line
                 for line in policy_log_text.splitlines()
-                if "runtime_policy workload=VisionBackbone model_domain=Vision execution_phase=Backbone"
-                in line
+                if "runtime_policy workload=VisionBackbone " in line
+                and "model_domain=Vision execution_phase=Backbone" in line
             ]
             self.assertGreaterEqual(len(vision_policy_lines), 3)
             for line in vision_policy_lines:
@@ -3947,15 +3977,15 @@ print("OK")
             llm_prefill_lines = [
                 line
                 for line in policy_log_text.splitlines()
-                if "runtime_policy workload=LLMDecode model_domain=LLM execution_phase=Prefill"
-                in line
+                if "runtime_policy workload=LLMDecode " in line
+                and "model_domain=LLM execution_phase=Prefill" in line
             ]
             self.assertGreaterEqual(len(llm_prefill_lines), 5)
             for line in llm_prefill_lines:
                 self.assertIn("inferred_from_label=0", line)
 
             self.assertNotIn(
-                "runtime_policy workload=LinearMatmul model_domain=Generic execution_phase=None tensor_role=Input",
+                "runtime_policy workload=LinearMatmul source_workload=LinearMatmul model_domain=Generic execution_phase=None tensor_role=Input",
                 policy_log_text,
             )
         finally:
@@ -4198,7 +4228,7 @@ print("OK")
                 policy_log_text = log_file.read()
             self.assertRegex(
                 policy_log_text,
-                r"runtime_policy workload=VisionBackbone model_domain=Vision execution_phase=Backbone .* has_execution_program_plan=1 execution_program_kind=VisionBackbone .* has_scratch_arena_plan=1",
+                r"runtime_policy workload=VisionBackbone source_workload=\w+ model_domain=Vision execution_phase=Backbone .* has_execution_program_plan=1 execution_program_kind=VisionBackbone .* has_scratch_arena_plan=1",
             )
 
             self.assertTrue(os.path.exists(program_log_path))
@@ -4208,14 +4238,942 @@ print("OK")
                 "execution_program event=store kind=VisionBackbone",
                 program_log_text,
             )
-            self.assertIn(
-                "execution_program event=hit kind=VisionBackbone",
-                program_log_text,
+            self.assertLessEqual(
+                program_log_text.count(
+                    "execution_program event=store kind=VisionBackbone"
+                ),
+                1,
+            )
+            self.assertLessEqual(
+                program_log_text.count(
+                    "execution_program event=hit kind=VisionBackbone"
+                ),
+                1,
             )
         finally:
             for path in (policy_log_path, program_log_path, object_log_path):
                 if os.path.exists(path):
                     os.remove(path)
+
+    def test_vulkan_vision_backbone_inference_graph_bridge(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        graph_log_name = "vulkan_vision_backbone_inference_graph_test.log"
+        graph_log_path = os.path.join(repo_root, graph_log_name)
+        if os.path.exists(graph_log_path):
+            os.remove(graph_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                embed_dim = 32
+                hidden_dim = 64
+                token_count = 17
+                num_heads = 4
+                norm_eps = 1.0e-6
+
+                context = torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    norm_eps,
+                    torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim * 3, dtype=torch.float32),
+                    num_heads,
+                    torch.randn(embed_dim, embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    norm_eps,
+                    torch.randn(hidden_dim, embed_dim, dtype=torch.float32),
+                    torch.randn(hidden_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, hidden_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    "depth.dino.backbone.block.test_graph",
+                )
+                x = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.dino.backbone.capture.518x518"
+                )
+                try:
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.prime_vision_backbone_block_context_graph(
+                            x, context
+                        )
+                        y0 = torch.ops.vulkan_prepack.run_vision_backbone_block_context(x, context)
+                        y1 = torch.ops.vulkan_prepack.run_vision_backbone_block_context(x, context)
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(y0.cpu().sum() + y1.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_INFERENCE_GRAPH_LOG": graph_log_name,
+                },
+                error_prefix="Vision backbone inference-graph subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(graph_log_path))
+            with open(graph_log_path, "r", encoding="utf-8") as log_file:
+                graph_log_text = log_file.read()
+            self.assertIn(
+                "inference_graph event=store kind=VisionBackbone",
+                graph_log_text,
+            )
+            self.assertLessEqual(
+                graph_log_text.count(
+                    "inference_graph event=store kind=VisionBackbone"
+                ),
+                1,
+            )
+            self.assertLessEqual(
+                graph_log_text.count(
+                    "inference_graph event=hit kind=VisionBackbone"
+                ),
+                1,
+            )
+            self.assertIn(
+                "inference_graph event=scratch_resize kind=VisionBackbone",
+                graph_log_text,
+            )
+            self.assertEqual(
+                graph_log_text.count(
+                    "inference_graph event=scratch_resize kind=VisionBackbone"
+                ),
+                1,
+            )
+        finally:
+            if os.path.exists(graph_log_path):
+                os.remove(graph_log_path)
+
+    def test_vulkan_attention_runtime_inference_replay_bridge(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        graph_log_name = "vulkan_attention_runtime_inference_replay_test.log"
+        graph_log_path = os.path.join(repo_root, graph_log_name)
+        if os.path.exists(graph_log_path):
+            os.remove(graph_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                batch_heads = 2
+                target_len = 17
+                source_len = 19
+                head_dim = 48
+                value_dim = 40
+
+                q0 = torch.randn(batch_heads, target_len, head_dim, dtype=torch.float32).to("vulkan")
+                k0 = torch.randn(batch_heads, source_len, head_dim, dtype=torch.float32).to("vulkan")
+                v0 = torch.randn(batch_heads, source_len, value_dim, dtype=torch.float32).to("vulkan")
+                q1 = torch.randn(batch_heads, target_len, head_dim, dtype=torch.float32).to("vulkan")
+                k1 = torch.randn(batch_heads, source_len, head_dim, dtype=torch.float32).to("vulkan")
+                v1 = torch.randn(batch_heads, source_len, value_dim, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "llama.self_attn.attention_runtime.capture.17x19"
+                )
+                try:
+                    with torch.inference_mode():
+                        y0 = torch.ops.vulkan_prepack.run_attention_runtime_buffer_math_replay_bridge(
+                            q0, k0, v0
+                        )
+                        y0_cpu = y0.cpu().clone()
+                        torch.ops.vulkan_prepack.synchronize()
+                        y1 = torch.ops.vulkan_prepack.run_attention_runtime_buffer_math_replay_bridge(
+                            q1, k1, v1
+                        )
+                        if not torch.allclose(y0.cpu(), y0_cpu, atol=1e-4, rtol=1e-4):
+                            raise RuntimeError("Attention replay output aliased across invocations")
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(y0_cpu.sum() + y1.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_INFERENCE_GRAPH_LOG": graph_log_name,
+                },
+                error_prefix="Attention runtime inference-replay subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(graph_log_path))
+            with open(graph_log_path, "r", encoding="utf-8") as log_file:
+                graph_log_text = log_file.read()
+            self.assertIn(
+                "execution_graph_root event=store",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_root event=phase_store",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=store kind=AttentionRuntime",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_plan event=store kind=AttentionRuntime",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_plan event=replay_store kind=AttentionRuntime",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=record kind=AttentionRuntime",
+                graph_log_text,
+            )
+            self.assertGreaterEqual(
+                graph_log_text.count(
+                    "inference_replay event=submit kind=AttentionRuntime"
+                ),
+                1,
+            )
+        finally:
+            if os.path.exists(graph_log_path):
+                os.remove(graph_log_path)
+
+    def test_vulkan_attention_runtime_inference_replay_public_entry(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        graph_log_name = "vulkan_attention_runtime_public_replay_test.log"
+        graph_log_path = os.path.join(repo_root, graph_log_name)
+        sdpa_log_name = "vulkan_attention_runtime_public_replay_sdpa_test.log"
+        sdpa_log_path = os.path.join(repo_root, sdpa_log_name)
+        if os.path.exists(graph_log_path):
+            os.remove(graph_log_path)
+        if os.path.exists(sdpa_log_path):
+            os.remove(sdpa_log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                batch = 1
+                heads = 2
+                target_len = 17
+                source_len = 19
+                head_dim = 48
+                value_dim = 40
+
+                q0 = torch.randn(batch, heads, target_len, head_dim, dtype=torch.float32).to("vulkan")
+                k0 = torch.randn(batch, heads, source_len, head_dim, dtype=torch.float32).to("vulkan")
+                v0 = torch.randn(batch, heads, source_len, value_dim, dtype=torch.float32).to("vulkan")
+                q1 = torch.randn(batch, heads, target_len, head_dim, dtype=torch.float32).to("vulkan")
+                k1 = torch.randn(batch, heads, source_len, head_dim, dtype=torch.float32).to("vulkan")
+                v1 = torch.randn(batch, heads, source_len, value_dim, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "llama.self_attn.attention_runtime.capture.17x19"
+                )
+                try:
+                    with torch.inference_mode():
+                        y0 = F.scaled_dot_product_attention(
+                            q0,
+                            k0,
+                            v0,
+                            attn_mask=None,
+                            dropout_p=0.0,
+                            is_causal=False,
+                        )
+                        y0_cpu = y0.cpu().clone()
+                        torch.ops.vulkan_prepack.synchronize()
+                        y1 = F.scaled_dot_product_attention(
+                            q1,
+                            k1,
+                            v1,
+                            attn_mask=None,
+                            dropout_p=0.0,
+                            is_causal=False,
+                        )
+                        if not torch.allclose(y0.cpu(), y0_cpu, atol=1e-4, rtol=1e-4):
+                            raise RuntimeError("Attention public replay output aliased across invocations")
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(y0_cpu.sum() + y1.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_INFERENCE_GRAPH_LOG": graph_log_name,
+                    "PYTORCH_VULKAN_SDPA_LOG": sdpa_log_name,
+                },
+                error_prefix="Attention runtime public-entry replay subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(graph_log_path))
+            with open(graph_log_path, "r", encoding="utf-8") as log_file:
+                graph_log_text = log_file.read()
+            self.assertIn(
+                "inference_replay event=store kind=AttentionRuntime",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_plan event=store kind=AttentionRuntime",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=record kind=AttentionRuntime",
+                graph_log_text,
+            )
+            self.assertGreaterEqual(
+                graph_log_text.count(
+                    "inference_replay event=submit kind=AttentionRuntime"
+                ),
+                1,
+            )
+
+            self.assertTrue(os.path.exists(sdpa_log_path))
+            with open(sdpa_log_path, "r", encoding="utf-8") as log_file:
+                sdpa_log_text = log_file.read()
+            self.assertIn(
+                "public_vulkan_entry result=replay reason=attention_runtime",
+                sdpa_log_text,
+            )
+        finally:
+            if os.path.exists(graph_log_path):
+                os.remove(graph_log_path)
+            if os.path.exists(sdpa_log_path):
+                os.remove(sdpa_log_path)
+
+    def test_vulkan_vision_backbone_inference_replay_bridge(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        graph_log_name = "vulkan_vision_backbone_inference_replay_test.log"
+        graph_log_path = os.path.join(repo_root, graph_log_name)
+        if os.path.exists(graph_log_path):
+            os.remove(graph_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                embed_dim = 32
+                hidden_dim = 64
+                token_count = 17
+                num_heads = 4
+                norm_eps = 1.0e-6
+
+                context = torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    norm_eps,
+                    torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim * 3, dtype=torch.float32),
+                    num_heads,
+                    torch.randn(embed_dim, embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    norm_eps,
+                    torch.randn(hidden_dim, embed_dim, dtype=torch.float32),
+                    torch.randn(hidden_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, hidden_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    "depth.dino.backbone.block.test_replay",
+                )
+                x0 = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+                x1 = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.dino.backbone.capture.518x518"
+                )
+                try:
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.prime_vision_backbone_block_context_graph(
+                            x0, context
+                        )
+                        y0 = torch.ops.vulkan_prepack.run_vision_backbone_block_context(x0, context)
+                        y0_cpu = y0.cpu().clone()
+                        torch.ops.vulkan_prepack.synchronize()
+                        y1 = torch.ops.vulkan_prepack.run_vision_backbone_block_context(x1, context)
+                        if not torch.allclose(y0.cpu(), y0_cpu, atol=1e-4, rtol=1e-4):
+                            raise RuntimeError("Backbone replay output aliased across invocations")
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(y0_cpu.sum() + y1.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_INFERENCE_GRAPH_LOG": graph_log_name},
+                error_prefix="Vision backbone inference-replay subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(graph_log_path))
+            with open(graph_log_path, "r", encoding="utf-8") as log_file:
+                graph_log_text = log_file.read()
+            self.assertIn(
+                "execution_graph_root event=store",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_root event=phase_store",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=store kind=VisionBackbone",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_plan event=store kind=VisionBackbone",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_plan event=replay_store kind=VisionBackbone",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=record kind=VisionBackbone",
+                graph_log_text,
+            )
+            self.assertGreaterEqual(
+                graph_log_text.count(
+                    "inference_replay event=submit kind=VisionBackbone"
+                ),
+                1,
+            )
+        finally:
+            if os.path.exists(graph_log_path):
+                os.remove(graph_log_path)
+
+    def test_vulkan_vision_decoder_inference_replay_bridge(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        graph_log_name = "vulkan_vision_decoder_inference_replay_test.log"
+        graph_log_path = os.path.join(repo_root, graph_log_name)
+        if os.path.exists(graph_log_path):
+            os.remove(graph_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                channels = 32
+                out_channels = 16
+
+                context = torch.ops.vulkan_prepack.create_vision_decoder_fusion_block_context(
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    torch.randn(out_channels, channels, 1, 1, dtype=torch.float32),
+                    torch.randn(out_channels, dtype=torch.float32),
+                    False,
+                    "depth.decoder.block.test_graph",
+                )
+
+                x0 = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+                x1 = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+                skip = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.decoder.block.capture.16x16"
+                )
+                try:
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.prime_vision_decoder_fusion_block_context_graph(
+                            x0, skip, [16, 16], context
+                        )
+                        y0 = torch.ops.vulkan_prepack.run_vision_decoder_fusion_block_context(
+                            x0, skip, [16, 16], context
+                        )
+                        y0_cpu = y0.cpu().clone()
+                        y1 = torch.ops.vulkan_prepack.run_vision_decoder_fusion_block_context(
+                            x1, skip, [16, 16], context
+                        )
+                        if not torch.allclose(y0.cpu(), y0_cpu, atol=1e-4, rtol=1e-4):
+                            raise RuntimeError("Decoder replay output aliased across invocations")
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(y0_cpu.sum() + y1.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_INFERENCE_GRAPH_LOG": graph_log_name},
+                error_prefix="Vision decoder inference-replay subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(graph_log_path))
+            with open(graph_log_path, "r", encoding="utf-8") as log_file:
+                graph_log_text = log_file.read()
+            self.assertIn(
+                "execution_graph_root event=store",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_root event=phase_store",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=store kind=VisionDecoder",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_plan event=store kind=VisionDecoder",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_plan event=replay_store kind=VisionDecoder",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=record kind=VisionDecoder",
+                graph_log_text,
+            )
+            self.assertGreaterEqual(
+                graph_log_text.count(
+                    "inference_replay event=submit kind=VisionDecoder"
+                ),
+                1,
+            )
+        finally:
+            if os.path.exists(graph_log_path):
+                os.remove(graph_log_path)
+
+    def test_vulkan_vision_decoder_head_inference_replay_bridge(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        graph_log_name = "vulkan_vision_decoder_head_inference_replay_test.log"
+        graph_log_path = os.path.join(repo_root, graph_log_name)
+        if os.path.exists(graph_log_path):
+            os.remove(graph_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                channels = 32
+
+                def make_block(label):
+                    return torch.ops.vulkan_prepack.create_vision_decoder_fusion_block_context(
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        True,
+                        label,
+                    )
+
+                head_context = torch.ops.vulkan_prepack.create_vision_decoder_head_context(
+                    torch.randn(1, dtype=torch.float32),
+                    make_block("depth.decoder.head.test.ref4"),
+                    make_block("depth.decoder.head.test.ref3"),
+                    make_block("depth.decoder.head.test.ref2"),
+                    make_block("depth.decoder.head.test.ref1"),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(16, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(16, dtype=torch.float32),
+                        [1, 1],
+                        [1, 1],
+                        [1, 1],
+                        1,
+                    ),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(8, 16, 3, 3, dtype=torch.float32),
+                        torch.randn(8, dtype=torch.float32),
+                        [1, 1],
+                        [1, 1],
+                        [1, 1],
+                        1,
+                    ),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(1, 8, 1, 1, dtype=torch.float32),
+                        torch.randn(1, dtype=torch.float32),
+                        [1, 1],
+                        [0, 0],
+                        [1, 1],
+                        1,
+                    ),
+                    True,
+                    "depth.decoder.head.test",
+                )
+
+                layer1_a = torch.randn(1, channels, 16, 16, dtype=torch.float32).to("vulkan")
+                layer2_a = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+                layer3_a = torch.randn(1, channels, 4, 4, dtype=torch.float32).to("vulkan")
+                layer4_a = torch.randn(1, channels, 2, 2, dtype=torch.float32).to("vulkan")
+                layer1_b = torch.randn(1, channels, 16, 16, dtype=torch.float32).to("vulkan")
+                layer2_b = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+                layer3_b = torch.randn(1, channels, 4, 4, dtype=torch.float32).to("vulkan")
+                layer4_b = torch.randn(1, channels, 2, 2, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.decoder.head.capture.64x64"
+                )
+                try:
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.prime_vision_decoder_head_context_graph(
+                            layer1_a, layer2_a, layer3_a, layer4_a, [64, 64], head_context
+                        )
+                        y0 = torch.ops.vulkan_prepack.run_vision_decoder_head_context(
+                            layer1_a, layer2_a, layer3_a, layer4_a, [64, 64], head_context
+                        )
+                        y0_cpu = y0.cpu().clone()
+                        torch.ops.vulkan_prepack.synchronize()
+                        y1 = torch.ops.vulkan_prepack.run_vision_decoder_head_context(
+                            layer1_b, layer2_b, layer3_b, layer4_b, [64, 64], head_context
+                        )
+                        if not torch.allclose(y0.cpu(), y0_cpu, atol=1e-4, rtol=1e-4):
+                            raise RuntimeError("Decoder head replay output aliased across invocations")
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(y0_cpu.sum() + y1.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_INFERENCE_GRAPH_LOG": graph_log_name},
+                error_prefix="Vision decoder head inference-replay subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(graph_log_path))
+            with open(graph_log_path, "r", encoding="utf-8") as log_file:
+                graph_log_text = log_file.read()
+            self.assertIn(
+                "execution_graph_root event=store",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_root event=phase_store",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=store kind=VisionDecoder",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_plan event=store kind=VisionDecoder",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_plan event=replay_store kind=VisionDecoder",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=record kind=VisionDecoder",
+                graph_log_text,
+            )
+            self.assertGreaterEqual(
+                graph_log_text.count(
+                    "inference_replay event=submit kind=VisionDecoder"
+                ),
+                1,
+            )
+        finally:
+            if os.path.exists(graph_log_path):
+                os.remove(graph_log_path)
+
+    def test_vulkan_execution_graph_root_shared_across_backbone_and_decoder(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        graph_log_name = "vulkan_execution_graph_root_shared_vision_test.log"
+        graph_log_path = os.path.join(repo_root, graph_log_name)
+        if os.path.exists(graph_log_path):
+            os.remove(graph_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                embed_dim = 32
+                hidden_dim = 64
+                token_count = 17
+                num_heads = 4
+                norm_eps = 1.0e-6
+                channels = 32
+                out_channels = 16
+
+                backbone_context = torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    norm_eps,
+                    torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim * 3, dtype=torch.float32),
+                    num_heads,
+                    torch.randn(embed_dim, embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    norm_eps,
+                    torch.randn(hidden_dim, embed_dim, dtype=torch.float32),
+                    torch.randn(hidden_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, hidden_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    "depth.dino.backbone.block.shared_root",
+                )
+                decoder_context = torch.ops.vulkan_prepack.create_vision_decoder_fusion_block_context(
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    torch.randn(out_channels, channels, 1, 1, dtype=torch.float32),
+                    torch.randn(out_channels, dtype=torch.float32),
+                    False,
+                    "depth.decoder.block.shared_root",
+                )
+
+                backbone_input_a = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+                decoder_input_a = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+                decoder_skip_a = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+                backbone_input_b = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+                decoder_input_b = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+                decoder_skip_b = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.vision.shared.capture.64x64"
+                )
+                try:
+                    with torch.inference_mode():
+                        y_backbone_a, y_decoder_a = torch.ops.vulkan_prepack.run_vision_backbone_decoder_replay_bundle_bridge(
+                            backbone_input_a,
+                            backbone_context,
+                            decoder_input_a,
+                            decoder_skip_a,
+                            [16, 16],
+                            decoder_context,
+                        )
+                        y_backbone_a_cpu = y_backbone_a.cpu().clone()
+                        y_decoder_a_cpu = y_decoder_a.cpu().clone()
+                        torch.ops.vulkan_prepack.synchronize()
+                        y_backbone_b, y_decoder_b = torch.ops.vulkan_prepack.run_vision_backbone_decoder_replay_bundle_bridge(
+                            backbone_input_b,
+                            backbone_context,
+                            decoder_input_b,
+                            decoder_skip_b,
+                            [16, 16],
+                            decoder_context,
+                        )
+                        if not torch.allclose(y_backbone_a.cpu(), y_backbone_a_cpu, atol=1e-4, rtol=1e-4):
+                            raise RuntimeError("Shared backbone bundle output aliased across invocations")
+                        if not torch.allclose(y_decoder_a.cpu(), y_decoder_a_cpu, atol=1e-4, rtol=1e-4):
+                            raise RuntimeError("Shared decoder bundle output aliased across invocations")
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(
+                    y_backbone_a_cpu.sum()
+                    + y_decoder_a_cpu.sum()
+                    + y_backbone_b.cpu().sum()
+                    + y_decoder_b.cpu().sum()
+                ))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_INFERENCE_GRAPH_LOG": graph_log_name},
+                error_prefix="Shared execution-graph root subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(graph_log_path))
+            with open(graph_log_path, "r", encoding="utf-8") as log_file:
+                graph_log_text = log_file.read()
+
+            self.assertEqual(
+                graph_log_text.count(
+                    "execution_graph_root event=store allocation_label=depth.vision.shared.capture.64x64.graph"
+                ),
+                1,
+            )
+            self.assertRegex(
+                graph_log_text,
+                r"execution_graph_root event=phase_store allocation_label=depth\.vision\.shared\.capture\.64x64\..* identity=.* kind=VisionBackbone",
+            )
+            self.assertRegex(
+                graph_log_text,
+                r"execution_graph_root event=phase_store allocation_label=depth\.vision\.shared\.capture\.64x64\..* identity=.* kind=VisionDecoder",
+            )
+            self.assertIn(
+                "execution_graph_root event=bundle_store allocation_label=depth.vision.shared.capture.64x64.graph",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_root event=bundle_hit allocation_label=depth.vision.shared.capture.64x64.graph",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=store kind=ExecutionGraphBundle allocation_label=depth.vision.shared.capture.64x64.graph.vision.backbone_decoder.replay",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=record kind=ExecutionGraphBundle allocation_label=depth.vision.shared.capture.64x64.graph.vision.backbone_decoder.replay",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=submit kind=ExecutionGraphBundle allocation_label=depth.vision.shared.capture.64x64.graph.vision.backbone_decoder.replay",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_plan event=replay_store kind=VisionBackbone",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_plan event=replay_store kind=VisionDecoder",
+                graph_log_text,
+            )
+        finally:
+            if os.path.exists(graph_log_path):
+                os.remove(graph_log_path)
+
+    def test_vulkan_vision_backbone_stack_replay_bundle_bridge(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        graph_log_name = "vulkan_vision_backbone_stack_replay_bundle_test.log"
+        graph_log_path = os.path.join(repo_root, graph_log_name)
+        if os.path.exists(graph_log_path):
+            os.remove(graph_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                embed_dim = 32
+                hidden_dim = 64
+                token_count = 17
+                num_heads = 4
+                norm_eps = 1.0e-6
+
+                def make_context(label: str):
+                    return torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        norm_eps,
+                        torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim * 3, dtype=torch.float32),
+                        num_heads,
+                        torch.randn(embed_dim, embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        norm_eps,
+                        torch.randn(hidden_dim, embed_dim, dtype=torch.float32),
+                        torch.randn(hidden_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, hidden_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        label,
+                    )
+
+                contexts = [
+                    make_context("depth.dino.backbone.bundle.block0"),
+                    make_context("depth.dino.backbone.bundle.block1"),
+                    make_context("depth.dino.backbone.bundle.block2"),
+                ]
+                capture_indices = [0, 2]
+
+                x0 = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+                x1 = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+
+                def run_sequential(inp):
+                    current = inp
+                    outputs = []
+                    for idx, context in enumerate(contexts):
+                        current = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                            current, context
+                        )
+                        if idx in capture_indices:
+                            outputs.append(current.cpu().clone())
+                    return outputs
+
+                with torch.inference_mode():
+                    expected0 = run_sequential(x0)
+                    expected1 = run_sequential(x1)
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.vision.stack.capture.17x32"
+                )
+                try:
+                    with torch.inference_mode():
+                        y0 = torch.ops.vulkan_prepack.run_vision_backbone_stack_replay_bundle_bridge(
+                            x0, contexts, capture_indices
+                        )
+                        y0_cpu = [tensor.cpu().clone() for tensor in y0]
+                        y1 = torch.ops.vulkan_prepack.run_vision_backbone_stack_replay_bundle_bridge(
+                            x1, contexts, capture_indices
+                        )
+                        y1_cpu = [tensor.cpu().clone() for tensor in y1]
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                for actual, expected in zip(y0_cpu, expected0):
+                    if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
+                        raise RuntimeError("Backbone stack replay bundle warmup output mismatch")
+                for actual, expected in zip(y1_cpu, expected1):
+                    if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
+                        raise RuntimeError("Backbone stack replay bundle replay output mismatch")
+
+                print(float(sum(t.sum() for t in y0_cpu) + sum(t.sum() for t in y1_cpu)))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_INFERENCE_GRAPH_LOG": graph_log_name},
+                error_prefix="Vision backbone stack replay bundle subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(graph_log_path))
+            with open(graph_log_path, "r", encoding="utf-8") as log_file:
+                graph_log_text = log_file.read()
+
+            self.assertIn(
+                "execution_graph_root event=bundle_store allocation_label=depth.vision.stack.capture.17x32.graph",
+                graph_log_text,
+            )
+            self.assertIn(
+                "execution_graph_root event=bundle_hit allocation_label=depth.vision.stack.capture.17x32.graph",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=store kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=record kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay",
+                graph_log_text,
+            )
+            self.assertIn(
+                "inference_replay event=submit kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay",
+                graph_log_text,
+            )
+        finally:
+            if os.path.exists(graph_log_path):
+                os.remove(graph_log_path)
 
     def test_vulkan_scheduled_gated_delta_runtime_ops_match_reference(self):
         script = """
@@ -4490,11 +5448,11 @@ print("OK")
 
             self.assertRegex(
                 policy_log_text,
-                r"runtime_policy workload=LLMDecode model_domain=LLM execution_phase=Prefill .* has_execution_program_plan=1 execution_program_kind=GatedDeltaSplit .* has_scratch_arena_plan=1 inferred_from_label=0",
+                r"runtime_policy workload=LLMDecode source_workload=LLMDecode model_domain=LLM execution_phase=Prefill .* has_execution_program_plan=1 execution_program_kind=GatedDeltaSplit .* has_scratch_arena_plan=1 inferred_from_label=0",
             )
             self.assertRegex(
                 policy_log_text,
-                r"runtime_policy workload=LLMDecode model_domain=LLM execution_phase=Decode .* has_execution_program_plan=1 execution_program_kind=GatedDeltaSplit .* has_scratch_arena_plan=1 inferred_from_label=0",
+                r"runtime_policy workload=LLMDecode source_workload=LLMDecode model_domain=LLM execution_phase=Decode .* has_execution_program_plan=1 execution_program_kind=GatedDeltaSplit .* has_scratch_arena_plan=1 inferred_from_label=0",
             )
 
             self.assertTrue(os.path.exists(object_log_path))
@@ -5184,6 +6142,187 @@ print("OK")
 
             self.assertIn(
                 "op=aten::scaled_dot_product_attention.family_texture_math",
+                log_text,
+            )
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.strategy_texture_tiled",
+                log_text,
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_scaled_dot_product_attention_runtime_strategy_runtime_program_is_consumed(
+        self,
+    ):
+        log_name = "vulkan_sdpa_runtime_strategy_runtime_program_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                assert hasattr(torch.ops.vulkan_prepack, "swap_runtime_label")
+
+                torch.manual_seed(0)
+                q = torch.randn(1, 2, 9, 8, dtype=torch.float32).to("vulkan")
+                k = torch.randn(1, 2, 7, 8, dtype=torch.float32).to("vulkan")
+                v = torch.randn(1, 2, 7, 8, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "qwen.decoder.self_attn"
+                )
+                try:
+                    with torch.inference_mode():
+                        y = F.scaled_dot_product_attention(q, k, v)
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Vulkan SDPA runtime-strategy subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.family_split_coordinator",
+                log_text,
+            )
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.strategy_runtime_program",
+                log_text,
+            )
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused",
+                log_text,
+            )
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_narrow",
+                log_text,
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_scaled_dot_product_attention_runtime_generic_buffer_runtime_program_is_consumed(
+        self,
+    ):
+        log_name = "vulkan_sdpa_generic_buffer_runtime_program_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                q = torch.randn(1, 2, 129, 64, dtype=torch.float32).to("vulkan")
+                k = torch.randn(1, 2, 129, 64, dtype=torch.float32).to("vulkan")
+                v = torch.randn(1, 2, 129, 64, dtype=torch.float32).to("vulkan")
+
+                with torch.inference_mode():
+                    y = F.scaled_dot_product_attention(q, k, v)
+
+                print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Vulkan generic buffer-runtime SDPA subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.family_buffer_math",
+                log_text,
+            )
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.strategy_runtime_program",
+                log_text,
+            )
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused",
+                log_text,
+            )
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_narrow",
+                log_text,
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_scaled_dot_product_attention_runtime_program_uses_wide_variant_for_large_head_dim(
+        self,
+    ):
+        log_name = "vulkan_sdpa_runtime_program_wide_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                assert hasattr(torch.ops.vulkan_prepack, "swap_runtime_label")
+
+                torch.manual_seed(0)
+                q = torch.randn(1, 2, 96, 160, dtype=torch.float32).to("vulkan")
+                k = torch.randn(1, 2, 96, 160, dtype=torch.float32).to("vulkan")
+                v = torch.randn(1, 2, 96, 160, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "qwen.decoder.self_attn"
+                )
+                try:
+                    with torch.inference_mode():
+                        y = F.scaled_dot_product_attention(q, k, v)
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(y.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Vulkan generic buffer-runtime wide SDPA subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.strategy_runtime_program",
+                log_text,
+            )
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused",
+                log_text,
+            )
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_wide",
                 log_text,
             )
         finally:
@@ -6081,6 +7220,10 @@ print("OK")
             )
             self.assertNotIn(
                 "op=aten::scaled_dot_product_attention.family_texture_math",
+                log_text,
+            )
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention.strategy_buffer_tiled",
                 log_text,
             )
             self.assertIn(

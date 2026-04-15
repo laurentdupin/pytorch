@@ -274,6 +274,14 @@ void append_sync_log_line(const std::string& line) {
   out << line << '\n';
 }
 
+struct ExternalCommandRecordingState final {
+  api::CommandBuffer* cmd{nullptr};
+  std::vector<VulkanBuffer> buffers_to_keep_alive;
+  std::vector<VulkanImage> images_to_keep_alive;
+};
+
+thread_local ExternalCommandRecordingState g_external_command_recording_state{};
+
 } // namespace
 
 Context::Context(size_t adapter_i, const ContextConfig& config)
@@ -285,6 +293,11 @@ Context::Context(size_t adapter_i, const ContextConfig& config)
       // Resource pools
       command_pool_(device_, queue_.family_index, config_.cmdPoolConfig),
       descriptor_pool_(device_, config_.descriptorPoolConfig),
+      persistent_command_pool_(
+          device_,
+          queue_.family_index,
+          config_.cmdPoolConfig),
+      persistent_descriptor_pool_(device_, config_.descriptorPoolConfig),
       fences_(device_),
 // Diagnostics
 #ifdef USE_VULKAN_GPU_DIAGNOSTICS
@@ -313,6 +326,64 @@ Context::~Context() {
   }
 }
 
+Context::ScopedExternalCommandRecording::ScopedExternalCommandRecording(
+    Context& context,
+    CommandBuffer& cmd)
+    : context_(&context) {
+  context_->begin_external_command_recording(cmd);
+}
+
+Context::ScopedExternalCommandRecording::~ScopedExternalCommandRecording() {
+  if (context_) {
+    context_->end_external_command_recording();
+  }
+}
+
+CommandBuffer* Context::external_recording_cmd() {
+  return g_external_command_recording_state.cmd;
+}
+
+const CommandBuffer* Context::external_recording_cmd() const {
+  return g_external_command_recording_state.cmd;
+}
+
+DescriptorPool& Context::active_descriptor_pool() {
+  return external_recording_cmd() ? persistent_descriptor_pool_ : descriptor_pool_;
+}
+
+CommandBuffer& Context::active_cmd() {
+  if (CommandBuffer* const external_cmd = external_recording_cmd()) {
+    return *external_cmd;
+  }
+  return cmd_;
+}
+
+void Context::begin_external_command_recording(CommandBuffer& cmd) {
+  VK_CHECK_COND(
+      g_external_command_recording_state.cmd == nullptr,
+      "Vulkan external command recording is already active");
+  g_external_command_recording_state.cmd = &cmd;
+  g_external_command_recording_state.buffers_to_keep_alive.clear();
+  g_external_command_recording_state.images_to_keep_alive.clear();
+}
+
+void Context::end_external_command_recording() {
+  VK_CHECK_COND(
+      g_external_command_recording_state.cmd != nullptr,
+      "Vulkan external command recording is not active");
+  g_external_command_recording_state.cmd = nullptr;
+}
+
+void Context::capture_external_recording_buffer_cleanup(VulkanBuffer&& buffer) {
+  g_external_command_recording_state.buffers_to_keep_alive.emplace_back(
+      std::move(buffer));
+}
+
+void Context::capture_external_recording_image_cleanup(VulkanImage&& image) {
+  g_external_command_recording_state.images_to_keep_alive.emplace_back(
+      std::move(image));
+}
+
 DescriptorSet Context::get_descriptor_set(
     const ShaderInfo& shader_descriptor,
     const utils::uvec3& local_workgroup_size) {
@@ -327,9 +398,9 @@ DescriptorSet Context::get_descriptor_set(
        shader_cache().retrieve(shader_descriptor),
        local_workgroup_size});
 
-  cmd_.bind_pipeline(pipeline, pipeline_layout, local_workgroup_size);
+  active_cmd().bind_pipeline(pipeline, pipeline_layout, local_workgroup_size);
 
-  return descriptor_pool().get_descriptor_set(
+  return active_descriptor_pool().get_descriptor_set(
       shader_layout, shader_descriptor.kernel_layout);
 }
 
@@ -351,10 +422,11 @@ void Context::register_shader_dispatch(
           shader_descriptor.out_tile_size.data[2u]),
   };
 
-  cmd_.bind_descriptors(descriptors.get_bind_handle());
-  cmd_.insert_barrier(pipeline_barrier);
+  CommandBuffer& cmd = active_cmd();
+  cmd.bind_descriptors(descriptors.get_bind_handle());
+  cmd.insert_barrier(pipeline_barrier);
 
-  cmd_.dispatch(effective_global_wg);
+  cmd.dispatch(effective_global_wg);
 }
 
 void Context::submit_cmd_to_gpu(VkFence fence_handle, const bool final_use) {
@@ -366,6 +438,37 @@ void Context::submit_cmd_to_gpu(VkFence fence_handle, const bool final_use) {
     submit_count_ = 0u;
     submissions_since_reclaim_.fetch_add(1u, std::memory_order_relaxed);
   }
+}
+
+void Context::flush_pending_cmds(VkFence fence_handle) {
+  std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  submit_cmd_to_gpu(fence_handle);
+}
+
+CommandBuffer Context::acquire_persistent_command_buffer() {
+  CommandBuffer cmd = persistent_command_pool_.get_new_cmd(/*reusable=*/true);
+  cmd.begin();
+  return cmd;
+}
+
+void Context::submit_prepared_command_buffer(
+    CommandBuffer& cmd,
+    VkFence fence_handle,
+    const bool final_use) {
+  std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  cmd.end();
+  adapter_p_->submit_cmd(
+      queue_, cmd.get_submit_handle(final_use), fence_handle);
+  submissions_since_reclaim_.fetch_add(1u, std::memory_order_relaxed);
+}
+
+void Context::take_external_recording_cleanup_resources(
+    std::vector<VulkanBuffer>& buffers,
+    std::vector<VulkanImage>& images) {
+  buffers = std::move(g_external_command_recording_state.buffers_to_keep_alive);
+  images = std::move(g_external_command_recording_state.images_to_keep_alive);
+  g_external_command_recording_state.buffers_to_keep_alive.clear();
+  g_external_command_recording_state.images_to_keep_alive.clear();
 }
 
 void Context::clear_deferred_cleanup_locked() {

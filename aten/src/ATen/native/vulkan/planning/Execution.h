@@ -133,6 +133,14 @@ VulkanPlanningRequest make_vulkan_attention_request(
     const VulkanAttentionPolicy& attention_policy,
     VulkanTensorRole tensor_role = VulkanTensorRole::Input);
 
+VulkanPlanningRequest make_vulkan_attention_request(
+    const VulkanAttentionPolicy& attention_policy,
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    VulkanTensorRole tensor_role = VulkanTensorRole::Input,
+    bool has_dropout = false);
+
 VulkanPlanningRequest make_vulkan_execution_request(
     VulkanExecutionPlanKind,
     VulkanTensorRole,

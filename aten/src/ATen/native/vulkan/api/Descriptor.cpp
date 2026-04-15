@@ -257,6 +257,7 @@ DescriptorSet DescriptorPool::get_descriptor_set(
     const ShaderLayout::Signature& signature) {
   VK_CHECK_COND(
       pool_ != VK_NULL_HANDLE, "DescriptorPool has not yet been initialized!");
+  std::lock_guard<std::mutex> lock(mutex_);
 
   auto it = piles_.find(set_layout);
   if (piles_.cend() == it) {
@@ -275,6 +276,7 @@ DescriptorSet DescriptorPool::get_descriptor_set(
 }
 
 void DescriptorPool::flush() {
+  std::lock_guard<std::mutex> lock(mutex_);
   if (pool_ != VK_NULL_HANDLE) {
     VK_CHECK(vkResetDescriptorPool(device_, pool_, 0u));
     piles_.clear();
