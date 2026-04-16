@@ -178,6 +178,19 @@ VulkanAttentionExecutionStrategy select_attention_execution_strategy(
 
   if (
       attention_kernel_family == VulkanAttentionKernelFamily::BufferMath &&
+      is_vision_backbone_attention_request(request)) {
+    if (
+        shape.head_dim <= kAttentionBufferTiledMaxHeadDim &&
+        shape.value_dim <= kAttentionTextureTiledMaxValueDim &&
+        shape.target_length <= attention_buffer_tiled_max_sequence(request) &&
+        shape.source_length <= attention_buffer_tiled_max_sequence(request)) {
+      return VulkanAttentionExecutionStrategy::BufferTiled;
+    }
+    return VulkanAttentionExecutionStrategy::RuntimeProgram;
+  }
+
+  if (
+      attention_kernel_family == VulkanAttentionKernelFamily::BufferMath &&
       shape.head_dim <= kAttentionBufferTiledMaxHeadDim &&
       shape.value_dim <= kAttentionTextureTiledMaxValueDim &&
       shape.target_length <= attention_buffer_tiled_max_sequence(request) &&
@@ -219,6 +232,15 @@ std::optional<VulkanExecutionProgramPlanningDesc> select_execution_program_plan(
       request.model_domain == VulkanModelDomain::LLM &&
       request.workload_class == VulkanWorkloadClass::LLMDecode &&
       is_attention_derived_request(request) &&
+      attention_execution_strategy == VulkanAttentionExecutionStrategy::RuntimeProgram) {
+    return VulkanExecutionProgramPlanningDesc{
+        VulkanExecutionProgramKind::AttentionRuntime, true};
+  }
+
+  if (
+      is_attention_derived_request(request) &&
+      is_vision_backbone_attention_request(request) &&
+      attention_kernel_family == VulkanAttentionKernelFamily::BufferMath &&
       attention_execution_strategy == VulkanAttentionExecutionStrategy::RuntimeProgram) {
     return VulkanExecutionProgramPlanningDesc{
         VulkanExecutionProgramKind::AttentionRuntime, true};

@@ -178,19 +178,18 @@ size_t attention_runtime_scratch_bytes(
   return scores_bytes + scores_bytes + output_bytes;
 }
 
-void prime_attention_runtime_objects(
+std::optional<utils::AttentionRuntimeProgram>
+lookup_attention_runtime_program_for_inputs(
     const utils::VulkanRuntimePolicy& input_policy,
     const utils::VulkanAttentionPolicy& attention_policy,
     const Tensor& query,
     const Tensor& key,
     const Tensor& value) {
-  log_attention_kernel_family_choice(input_policy);
-  log_attention_execution_strategy_choice(input_policy);
   if (
       !input_policy.execution_program_plan.has_value() ||
       input_policy.execution_program_plan->kind !=
           utils::VulkanExecutionProgramKind::AttentionRuntime) {
-    return;
+    return std::nullopt;
   }
 
   const auto cache_policy = utils::build_vulkan_runtime_policy(
@@ -239,7 +238,7 @@ void prime_attention_runtime_objects(
         })
       : std::nullopt;
 
-  (void)utils::lookup_or_create_labeled_attention_runtime_program(
+  return utils::lookup_or_create_labeled_attention_runtime_program(
       utils::make_vulkan_runtime_object_label(input_policy.request, "program"),
       input_policy.attention_kernel_family,
       key_cache_spec,
@@ -248,6 +247,18 @@ void prime_attention_runtime_objects(
       key.size(1),
       value.size(1),
       *input_policy.execution_program_plan);
+}
+
+void prime_attention_runtime_objects(
+    const utils::VulkanRuntimePolicy& input_policy,
+    const utils::VulkanAttentionPolicy& attention_policy,
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value) {
+  log_attention_kernel_family_choice(input_policy);
+  log_attention_execution_strategy_choice(input_policy);
+  (void)lookup_attention_runtime_program_for_inputs(
+      input_policy, attention_policy, query, key, value);
 }
 
 std::vector<int64_t> calc_attention_width_packed_buffer_sizes(IntArrayRef sizes) {
@@ -2526,6 +2537,38 @@ Tensor run_attention_runtime_buffer_math_replay_bridge(
               utils::VulkanWorkloadClass::Attention,
               utils::VulkanTensorRole::Input),
           "attention_runtime_bridge"));
+}
+
+Tensor run_attention_runtime_buffer_math_program_bridge(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value) {
+  const auto attention_policy = utils::build_vulkan_attention_policy(
+      std::nullopt,
+      /*is_causal=*/false,
+      /*enable_gqa=*/false,
+      /*use_kv_cache=*/false,
+      /*cache_has_previous_state=*/false);
+  const auto input_policy = utils::build_vulkan_runtime_policy(
+      utils::make_vulkan_attention_request(
+          attention_policy,
+          query,
+          key,
+          value,
+          utils::VulkanTensorRole::Input));
+  auto runtime_program = lookup_attention_runtime_program_for_inputs(
+      input_policy,
+      attention_policy,
+      query,
+      key,
+      value);
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_attention_runtime_buffer_math_program_bridge");
+  return run_attention_runtime_buffer_math_program_impl(
+      query,
+      key,
+      value,
+      runtime_program.has_value() ? &(*runtime_program) : nullptr);
 }
 
 #ifdef USE_VULKAN_API

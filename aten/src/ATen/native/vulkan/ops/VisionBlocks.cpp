@@ -599,6 +599,34 @@ Tensor run_attention_with_workspace_fallback(
         false);
   };
 
+  const auto attention_policy = utils::build_vulkan_attention_policy(
+      std::nullopt,
+      /*is_causal=*/false,
+      /*enable_gqa=*/false,
+      /*use_kv_cache=*/false,
+      /*cache_has_previous_state=*/false);
+  const auto attention_runtime_policy = utils::build_vulkan_runtime_policy(
+      utils::make_vulkan_attention_request(
+          attention_policy,
+          query_arg,
+          key_arg,
+          value_arg,
+          utils::VulkanTensorRole::Input));
+  if (
+      attention_runtime_policy.attention_execution_strategy ==
+          utils::VulkanAttentionExecutionStrategy::RuntimeProgram &&
+      attention_runtime_policy.execution_program_plan.has_value() &&
+      attention_runtime_policy.execution_program_plan->kind ==
+          utils::VulkanExecutionProgramKind::AttentionRuntime) {
+    utils::log_vulkan_op_hit(
+        "aten::vision_attention.runtime_program_dispatch");
+    if (vision_program && vision_program->defined()) {
+      return run_attention_runtime_buffer_math_program_bridge(
+          query_arg, key_arg, value_arg);
+    }
+    return fallback(query_arg, key_arg, value_arg);
+  }
+
   utils::ScratchArena* scratch_arena = scratch_override;
   if (
       !scratch_arena && vision_program && vision_program->defined() &&
