@@ -219,6 +219,28 @@ std::string format_attention_kernel_family_key(
   return std::to_string(static_cast<int>(family));
 }
 
+std::string format_scalar_type_key(const ScalarType dtype) {
+  return std::to_string(static_cast<int>(dtype));
+}
+
+std::string format_execution_layout_key(
+    const api::ExecutionLayout execution_layout) {
+  return std::to_string(static_cast<int>(execution_layout));
+}
+
+std::string format_memory_layout_key(
+    const api::GPUMemoryLayout memory_layout) {
+  return std::to_string(static_cast<int>(memory_layout));
+}
+
+std::string format_storage_type_key(const api::StorageType storage_type) {
+  return std::to_string(static_cast<int>(storage_type));
+}
+
+std::string format_bool_key(const bool value) {
+  return value ? "1" : "0";
+}
+
 std::string format_optional_scratch_spec_key(
     const std::optional<VulkanScratchArenaSpec>& scratch_spec) {
   if (!scratch_spec.has_value()) {
@@ -226,8 +248,11 @@ std::string format_optional_scratch_spec_key(
   }
   return std::to_string(scratch_spec->num_bytes) + "@" +
       std::to_string(scratch_spec->alignment) + "." +
-      std::to_string(static_cast<int>(scratch_spec->storage_type)) + "." +
-      std::to_string(static_cast<int>(scratch_spec->memory_layout));
+      format_scalar_type_key(scratch_spec->dtype) + "." +
+      format_execution_layout_key(scratch_spec->execution_layout) + "." +
+      format_memory_layout_key(scratch_spec->memory_layout) + "." +
+      format_storage_type_key(scratch_spec->storage_type) + "." +
+      format_bool_key(scratch_spec->persistent);
 }
 
 std::string format_optional_kv_cache_spec_key(
@@ -237,8 +262,11 @@ std::string format_optional_kv_cache_spec_key(
   }
   return format_size_vector_key(cache_spec->sizes) + "." +
       std::to_string(cache_spec->sequence_dim) + "." +
-      std::to_string(static_cast<int>(cache_spec->storage_type)) + "." +
-      std::to_string(static_cast<int>(cache_spec->memory_layout));
+      format_scalar_type_key(cache_spec->dtype) + "." +
+      format_execution_layout_key(cache_spec->execution_layout) + "." +
+      format_memory_layout_key(cache_spec->memory_layout) + "." +
+      format_storage_type_key(cache_spec->storage_type) + "." +
+      format_bool_key(cache_spec->persistent);
 }
 
 } // namespace
@@ -347,12 +375,16 @@ struct ExecutionGraphReplay::State final {
 struct ExecutionGraphReplayBundle::State final {
   InferenceReplay replay_;
   std::vector<ExecutionGraphReplayStep> steps_;
+  std::shared_ptr<std::vector<Tensor>> tensor_slots_;
 
   State(
       InferenceReplay replay,
-      std::vector<ExecutionGraphReplayStep> steps)
+      std::vector<ExecutionGraphReplayStep> steps,
+      std::shared_ptr<std::vector<Tensor>> tensor_slots)
       : replay_(std::move(replay)),
-        steps_(std::move(steps)) {}
+        steps_(std::move(steps)),
+        tensor_slots_(tensor_slots ? std::move(tensor_slots)
+                                   : std::make_shared<std::vector<Tensor>>()) {}
 };
 
 struct ExecutionGraphPlan::State final {
@@ -523,6 +555,27 @@ std::string phase_plan_label(
                            : allocation_label + "." + phase_key;
 }
 
+std::string phase_replay_label(
+    const std::string& allocation_label,
+    const char* replay_suffix,
+    const std::string& phase_key) {
+  std::string label = allocation_label.empty() ? std::string(replay_suffix)
+                                               : allocation_label + replay_suffix;
+  if (phase_key.empty()) {
+    return label;
+  }
+
+  label += ".phase.";
+  label.reserve(label.size() + phase_key.size());
+  for (const char ch : phase_key) {
+    const bool safe_char =
+        (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+        (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-';
+    label.push_back(safe_char ? ch : '_');
+  }
+  return label;
+}
+
 template <typename Graph, typename State>
 Graph lookup_or_create_typed_inference_graph(
     const std::string& allocation_label,
@@ -559,7 +612,8 @@ ExecutionGraphReplayBundle make_execution_graph_replay_bundle(
     const std::string& allocation_label,
     const ScalarType dtype,
     const bool persistent,
-    std::vector<ExecutionGraphReplayStep> steps) {
+    std::vector<ExecutionGraphReplayStep> steps,
+    std::shared_ptr<std::vector<Tensor>> tensor_slots) {
   TORCH_INTERNAL_ASSERT(
       !steps.empty(),
       "ExecutionGraphReplayBundle requires at least one step");
@@ -578,7 +632,8 @@ ExecutionGraphReplayBundle make_execution_graph_replay_bundle(
               VulkanInferenceGraphKind::ExecutionGraphBundle,
               dtype,
               persistent),
-          std::move(steps))};
+          std::move(steps),
+          std::move(tensor_slots))};
 }
 
 bool InferenceGraph::defined() const {
@@ -919,6 +974,26 @@ const ExecutionGraphReplay& ExecutionGraphReplayBundle::replay(
       idx < state_->steps_.size(),
       "ExecutionGraphReplayBundle replay index out of range");
   return state_->steps_.at(idx).replay;
+}
+
+size_t ExecutionGraphReplayBundle::tensor_slot_count() const {
+  return state_ ? state_->tensor_slots_->size() : 0u;
+}
+
+Tensor& ExecutionGraphReplayBundle::tensor_slot(const size_t idx) {
+  TORCH_INTERNAL_ASSERT(defined(), "Undefined ExecutionGraphReplayBundle");
+  TORCH_INTERNAL_ASSERT(
+      idx < state_->tensor_slots_->size(),
+      "ExecutionGraphReplayBundle tensor slot index out of range");
+  return state_->tensor_slots_->at(idx);
+}
+
+const Tensor& ExecutionGraphReplayBundle::tensor_slot(const size_t idx) const {
+  TORCH_INTERNAL_ASSERT(defined(), "Undefined ExecutionGraphReplayBundle");
+  TORCH_INTERNAL_ASSERT(
+      idx < state_->tensor_slots_->size(),
+      "ExecutionGraphReplayBundle tensor slot index out of range");
+  return state_->tensor_slots_->at(idx);
 }
 
 void ExecutionGraphReplayBundle::submit(
@@ -1318,22 +1393,23 @@ AttentionRuntimeProgram AttentionRuntimeInferenceGraph::lookup_or_create_program
       format_attention_kernel_family_key(kernel_family) + "|key_cache=" +
       format_optional_kv_cache_spec_key(key_cache_spec) + "|value_cache=" +
       format_optional_kv_cache_spec_key(value_cache_spec) + "|scratch=" +
-      format_optional_scratch_spec_key(scratch_spec) + "|key_seq=" +
-      std::to_string(key_sequence_length) + "|value_seq=" +
-      std::to_string(value_sequence_length);
-  return expect_attention_runtime_program(state_->plan_.lookup_or_create_program(
-      phase_key,
-      [&]() -> ExecutionGraphProgramHandle {
-        return lookup_or_create_labeled_attention_runtime_program(
-            allocation_label,
-            kernel_family,
-            key_cache_spec,
-            value_cache_spec,
-            scratch_spec,
-            key_sequence_length,
-            value_sequence_length,
-            program_plan);
-      }));
+      format_optional_scratch_spec_key(scratch_spec);
+  AttentionRuntimeProgram program = expect_attention_runtime_program(
+      state_->plan_.lookup_or_create_program(
+          phase_key,
+          [&]() -> ExecutionGraphProgramHandle {
+            return lookup_or_create_labeled_attention_runtime_program(
+                allocation_label,
+                kernel_family,
+                key_cache_spec,
+                value_cache_spec,
+                scratch_spec,
+                key_sequence_length,
+                value_sequence_length,
+                program_plan);
+          }));
+  program.set_sequence_lengths(key_sequence_length, value_sequence_length);
+  return program;
 }
 
 AttentionRuntimeInferenceReplay
@@ -1394,7 +1470,7 @@ AttentionRuntimeInferenceGraph::lookup_or_create_replay(
         std::vector<ExecutionGraphProgramHandle> programs;
         programs.emplace_back(program);
         return make_execution_graph_replay(
-            allocation_label + ".replay",
+            phase_replay_label(allocation_label, ".replay", phase_key),
             VulkanInferenceGraphKind::AttentionRuntime,
             kFloat,
             program_plan.persistent,
@@ -1403,7 +1479,10 @@ AttentionRuntimeInferenceGraph::lookup_or_create_replay(
             std::move(programs));
       });
 
-  return AttentionRuntimeInferenceReplay{std::move(graph_replay)};
+  AttentionRuntimeInferenceReplay replay{std::move(graph_replay)};
+  replay.program().set_sequence_lengths(
+      key_sequence_length, value_sequence_length);
+  return replay;
 }
 
 const void* AttentionRuntimeInferenceGraph::identity() const {
@@ -1560,7 +1639,7 @@ VisionBackboneInferenceReplay VisionBackboneInferenceGraph::lookup_or_create_rep
         std::vector<ExecutionGraphProgramHandle> programs;
         programs.emplace_back(program);
         return make_execution_graph_replay(
-            allocation_label + ".replay",
+            phase_replay_label(allocation_label, ".replay", phase_key),
             VulkanInferenceGraphKind::VisionBackbone,
             kFloat,
             program_plan.persistent,
@@ -1712,7 +1791,7 @@ VisionDecoderInferenceReplay VisionDecoderInferenceGraph::lookup_or_create_repla
         std::vector<ExecutionGraphProgramHandle> programs;
         programs.emplace_back(program);
         return make_execution_graph_replay(
-            allocation_label + ".replay",
+            phase_replay_label(allocation_label, ".replay", phase_key),
             VulkanInferenceGraphKind::VisionDecoder,
             kFloat,
             program_plan.persistent,
@@ -1849,7 +1928,7 @@ VisionDecoderInferenceGraph::lookup_or_create_head_replay(
         programs.emplace_back(refinenet2_program);
         programs.emplace_back(refinenet1_program);
         return make_execution_graph_replay(
-            allocation_label + ".head.replay",
+            phase_replay_label(allocation_label, ".head.replay", phase_key),
             VulkanInferenceGraphKind::VisionDecoder,
             kFloat,
             program_plan.persistent,

@@ -376,6 +376,144 @@ void prime_vision_decoder_head_context_graph(
     IntArrayRef output_size,
     const c10::intrusive_ptr<VisionDecoderHeadContext>& context);
 
+class VisionDecoderPreprocessHeadContext final
+    : public torch::jit::CustomClassHolder {
+ private:
+  c10::impl::GenericList unpacked_{c10::AnyType::get()};
+  std::string allocation_label_;
+  c10::intrusive_ptr<Conv2dPackedContext> project1_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> project2_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> project3_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> project4_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> resize1_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> resize2_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> resize4_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> layer1_rn_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> layer2_rn_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> layer3_rn_context_;
+  c10::intrusive_ptr<Conv2dPackedContext> layer4_rn_context_;
+  c10::intrusive_ptr<VisionDecoderHeadContext> head_context_;
+
+ public:
+  VisionDecoderPreprocessHeadContext(
+      c10::intrusive_ptr<Conv2dPackedContext> project1_context,
+      c10::intrusive_ptr<Conv2dPackedContext> project2_context,
+      c10::intrusive_ptr<Conv2dPackedContext> project3_context,
+      c10::intrusive_ptr<Conv2dPackedContext> project4_context,
+      c10::intrusive_ptr<Conv2dPackedContext> resize1_context,
+      c10::intrusive_ptr<Conv2dPackedContext> resize2_context,
+      c10::intrusive_ptr<Conv2dPackedContext> resize4_context,
+      c10::intrusive_ptr<Conv2dPackedContext> layer1_rn_context,
+      c10::intrusive_ptr<Conv2dPackedContext> layer2_rn_context,
+      c10::intrusive_ptr<Conv2dPackedContext> layer3_rn_context,
+      c10::intrusive_ptr<Conv2dPackedContext> layer4_rn_context,
+      c10::intrusive_ptr<VisionDecoderHeadContext> head_context,
+      std::string allocation_label = std::string());
+
+  struct Unpacked final {
+    static constexpr uint32_t Project1Context = 0u;
+    static constexpr uint32_t Project2Context = 1u;
+    static constexpr uint32_t Project3Context = 2u;
+    static constexpr uint32_t Project4Context = 3u;
+    static constexpr uint32_t Resize1Context = 4u;
+    static constexpr uint32_t Resize2Context = 5u;
+    static constexpr uint32_t Resize4Context = 6u;
+    static constexpr uint32_t Layer1RnContext = 7u;
+    static constexpr uint32_t Layer2RnContext = 8u;
+    static constexpr uint32_t Layer3RnContext = 9u;
+    static constexpr uint32_t Layer4RnContext = 10u;
+    static constexpr uint32_t HeadContext = 11u;
+    static constexpr uint32_t Label = 12u;
+    static constexpr uint32_t NumArgs = 13u;
+  };
+
+  static VisionDecoderPreprocessHeadContext pack(
+      c10::impl::GenericList unpacked);
+
+  const c10::impl::GenericList unpack() const {
+    return unpacked_;
+  }
+
+  const std::string& allocation_label() const {
+    return allocation_label_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& project1_context() const {
+    return project1_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& project2_context() const {
+    return project2_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& project3_context() const {
+    return project3_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& project4_context() const {
+    return project4_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& resize1_context() const {
+    return resize1_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& resize2_context() const {
+    return resize2_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& resize4_context() const {
+    return resize4_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& layer1_rn_context() const {
+    return layer1_rn_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& layer2_rn_context() const {
+    return layer2_rn_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& layer3_rn_context() const {
+    return layer3_rn_context_;
+  }
+
+  const c10::intrusive_ptr<Conv2dPackedContext>& layer4_rn_context() const {
+    return layer4_rn_context_;
+  }
+
+  const c10::intrusive_ptr<VisionDecoderHeadContext>& head_context() const {
+    return head_context_;
+  }
+};
+
+c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>
+create_vision_decoder_preprocess_head_context(
+    const Tensor& prototype,
+    c10::intrusive_ptr<Conv2dPackedContext> project1_context,
+    c10::intrusive_ptr<Conv2dPackedContext> project2_context,
+    c10::intrusive_ptr<Conv2dPackedContext> project3_context,
+    c10::intrusive_ptr<Conv2dPackedContext> project4_context,
+    c10::intrusive_ptr<Conv2dPackedContext> resize1_context,
+    c10::intrusive_ptr<Conv2dPackedContext> resize2_context,
+    c10::intrusive_ptr<Conv2dPackedContext> resize4_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer1_rn_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer2_rn_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer3_rn_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer4_rn_context,
+    c10::intrusive_ptr<VisionDecoderHeadContext> head_context,
+    std::string label);
+
+Tensor run_vision_decoder_preprocess_head_context(
+    const Tensor& layer1_tokens,
+    const Tensor& layer2_tokens,
+    const Tensor& layer3_tokens,
+    const Tensor& layer4_tokens,
+    int64_t patch_h,
+    int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>& context);
+
 std::tuple<Tensor, Tensor> run_vision_backbone_decoder_replay_bundle_bridge(
     const Tensor& backbone_input,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& backbone_context,
@@ -388,6 +526,13 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge(
     const Tensor& input,
     const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
     IntArrayRef capture_indices);
+
+std::vector<Tensor> run_vision_backbone_stack_norm_replay_bundle_bridge(
+    const Tensor& input,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& norm_context);
 
 Tensor tokens_to_feature_map(
     const Tensor& input,

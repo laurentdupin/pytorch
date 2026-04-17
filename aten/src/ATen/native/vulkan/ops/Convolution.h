@@ -183,6 +183,11 @@ Tensor run_conv2d_context_out(
     const c10::intrusive_ptr<Conv2dPackedContext>& context,
     Tensor& output);
 
+Tensor run_conv2d_context_relu_out(
+    const Tensor& input,
+    const c10::intrusive_ptr<Conv2dPackedContext>& context,
+    Tensor& output);
+
 c10::intrusive_ptr<Conv2dPackedContext> create_tconv2d_context(
     Tensor&& weight,
     std::optional<Tensor>&& bias,

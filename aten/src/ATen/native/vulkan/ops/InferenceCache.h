@@ -64,6 +64,21 @@ class InferenceLruCache final {
     }
   }
 
+  template <typename Predicate>
+  size_t erase_if(Predicate&& predicate) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    size_t erased = 0u;
+    for (auto it = entries_.begin(); it != entries_.end();) {
+      if (!predicate(it->key, it->value)) {
+        ++it;
+        continue;
+      }
+      it = entries_.erase(it);
+      ++erased;
+    }
+    return erased;
+  }
+
   size_t size() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return entries_.size();

@@ -30,8 +30,65 @@ namespace {
 using namespace api::utils;
 
 constexpr size_t kPackedWeightResidencyMaxEntries = 256u;
+constexpr size_t kPackedWeightResidencyLimitBytes =
+    size_t{2} * 1024u * 1024u * 1024u;
 constexpr size_t kLinearContextCacheSize = 128u;
 constexpr size_t kExecutionObjectCacheSize = 64u;
+
+using TensorWeakRef = c10::weak_intrusive_ptr<TensorImpl, UndefinedTensorImpl>;
+
+std::optional<TensorWeakRef> make_tensor_weak_ref(const Tensor& tensor) {
+  if (!tensor.defined()) {
+    return std::nullopt;
+  }
+  return TensorWeakRef(tensor.getIntrusivePtr());
+}
+
+bool weak_ref_matches_tensor(
+    const std::optional<TensorWeakRef>& ref,
+    const Tensor& tensor) {
+  if (!ref.has_value() || !tensor.defined()) {
+    return false;
+  }
+  const auto locked_ref = ref->lock();
+  return locked_ref && locked_ref.get() == tensor.unsafeGetTensorImpl();
+}
+
+bool weak_ref_matches_optional_tensor(
+    const std::optional<TensorWeakRef>& ref,
+    const std::optional<Tensor>& tensor) {
+  if (ref.has_value() != tensor.has_value()) {
+    return false;
+  }
+  if (!ref.has_value()) {
+    return true;
+  }
+  const auto locked_ref = ref->lock();
+  return locked_ref && tensor.has_value() &&
+      locked_ref.get() == tensor->unsafeGetTensorImpl();
+}
+
+bool same_weak_tensor_ref(
+    const std::optional<TensorWeakRef>& lhs,
+    const std::optional<TensorWeakRef>& rhs) {
+  if (lhs.has_value() != rhs.has_value()) {
+    return false;
+  }
+  if (!lhs.has_value()) {
+    return true;
+  }
+  const auto lhs_locked = lhs->lock();
+  const auto rhs_locked = rhs->lock();
+  return lhs_locked && rhs_locked && lhs_locked.get() == rhs_locked.get();
+}
+
+bool weak_tensor_ref_alive(const std::optional<TensorWeakRef>& ref) {
+  return ref.has_value() && static_cast<bool>(ref->lock());
+}
+
+bool optional_weak_tensor_ref_alive(const std::optional<TensorWeakRef>& ref) {
+  return !ref.has_value() || static_cast<bool>(ref->lock());
+}
 
 size_t align_up_size(const size_t value, const size_t alignment) {
   if (alignment <= 1u) {
@@ -59,8 +116,8 @@ Tensor create_execution_object_storage(
 }
 
 struct PackedWeightResidencyEntry final {
-  Tensor weight_ref;
-  std::optional<Tensor> bias_ref;
+  std::optional<TensorWeakRef> weight_ref;
+  std::optional<TensorWeakRef> bias_ref;
   int64_t weight_version;
   int64_t bias_version;
   std::vector<int64_t> logical_weight_sizes;
@@ -72,23 +129,7 @@ struct PackedWeightResidencyEntry final {
 };
 
 size_t packed_weight_cache_limit_bytes() {
-  static const size_t limit_bytes = []() {
-    constexpr size_t kDefaultLimitBytes = size_t{2} * 1024u * 1024u * 1024u;
-    const char* env =
-        std::getenv("PYTORCH_VULKAN_PACKED_WEIGHT_CACHE_LIMIT_MB");
-    if (!env || *env == '\0') {
-      return kDefaultLimitBytes;
-    }
-
-    std::istringstream stream(env);
-    size_t limit_mb = 0u;
-    stream >> limit_mb;
-    if (!stream || limit_mb == 0u) {
-      return kDefaultLimitBytes;
-    }
-    return limit_mb * 1024u * 1024u;
-  }();
-  return limit_bytes;
+  return kPackedWeightResidencyLimitBytes;
 }
 
 const std::string& packed_weight_cache_log_path() {
@@ -158,6 +199,13 @@ class PackedWeightResidencyManager final {
   size_t cache_bytes_{0u};
   size_t persistent_cache_bytes_{0u};
 
+  static bool source_refs_alive(const PackedWeightResidencyEntry& entry) {
+    if (!weak_tensor_ref_alive(entry.weight_ref)) {
+      return false;
+    }
+    return optional_weak_tensor_ref_alive(entry.bias_ref);
+  }
+
   static bool matches_entry(
       const PackedWeightResidencyEntry& entry,
       const Tensor& source_weight,
@@ -168,10 +216,9 @@ class PackedWeightResidencyManager final {
       const PackedWeightKind kind,
       const bool quantized,
       const uint64_t options_key) {
-    return entry.weight_ref.unsafeGetTensorImpl() ==
-            source_weight.unsafeGetTensorImpl() &&
+    return weak_ref_matches_tensor(entry.weight_ref, source_weight) &&
         entry.weight_version == weight_version &&
-        same_optional_tensor(entry.bias_ref, normalized_bias) &&
+        weak_ref_matches_optional_tensor(entry.bias_ref, normalized_bias) &&
         entry.bias_version == bias_version &&
         entry.logical_weight_sizes.size() == logical_weight_sizes.size() &&
         std::equal(
@@ -217,7 +264,7 @@ class PackedWeightResidencyManager final {
     }
   }
 
-  void erase_entry_locked(
+  std::deque<PackedWeightResidencyEntry>::iterator erase_entry_locked(
       std::deque<PackedWeightResidencyEntry>::iterator entry_it,
       const bool count_eviction) {
     cache_bytes_ -= entry_it->handle.resident_nbytes();
@@ -226,11 +273,12 @@ class PackedWeightResidencyManager final {
         PackedWeightResidencyClass::PersistentInference) {
       persistent_cache_bytes_ -= entry_it->handle.resident_nbytes();
     }
-    cache_.erase(entry_it);
+    auto next_it = cache_.erase(entry_it);
     if (count_eviction && packed_weight_cache_logging_enabled()) {
       packed_weight_cache_log_state().evictions.fetch_add(
           1u, std::memory_order_relaxed);
     }
+    return next_it;
   }
 
   std::deque<PackedWeightResidencyEntry>::iterator
@@ -286,7 +334,11 @@ class PackedWeightResidencyManager final {
         normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
 
     std::lock_guard<std::mutex> lock(mutex_);
-    for (auto it = cache_.begin(); it != cache_.end(); ++it) {
+    for (auto it = cache_.begin(); it != cache_.end();) {
+      if (!source_refs_alive(*it)) {
+        it = erase_entry_locked(it, true);
+        continue;
+      }
       if (!matches_entry(
               *it,
               source_weight,
@@ -297,6 +349,7 @@ class PackedWeightResidencyManager final {
               kind,
               quantized,
               options_key)) {
+        ++it;
         continue;
       }
 
@@ -333,8 +386,9 @@ class PackedWeightResidencyManager final {
     }
 
     PackedWeightResidencyEntry entry;
-    entry.weight_ref = source_weight;
-    entry.bias_ref = normalized_bias;
+    entry.weight_ref = make_tensor_weak_ref(source_weight);
+    entry.bias_ref = normalized_bias ? make_tensor_weak_ref(*normalized_bias)
+                                     : std::nullopt;
     entry.weight_version = tensor_version_or_zero(source_weight);
     entry.bias_version =
         normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
@@ -352,7 +406,11 @@ class PackedWeightResidencyManager final {
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
-    for (auto it = cache_.begin(); it != cache_.end(); ++it) {
+    for (auto it = cache_.begin(); it != cache_.end();) {
+      if (!source_refs_alive(*it)) {
+        it = erase_entry_locked(it, true);
+        continue;
+      }
       if (!matches_entry(
               *it,
               source_weight,
@@ -363,6 +421,7 @@ class PackedWeightResidencyManager final {
               kind,
               quantized,
               options_key)) {
+        ++it;
         continue;
       }
       erase_entry_locked(it, false);
@@ -401,6 +460,7 @@ struct LinearCacheLogState final {
   std::atomic<uint64_t> lookups{0u};
   std::atomic<uint64_t> hits{0u};
   std::atomic<uint64_t> stores{0u};
+  std::atomic<uint64_t> evictions{0u};
 
   ~LinearCacheLogState() {
     if (!linear_cache_logging_enabled()) {
@@ -410,7 +470,8 @@ struct LinearCacheLogState final {
     std::ofstream out(linear_cache_log_path(), std::ios::app);
     out << "linear_cache: lookups=" << lookups.load(std::memory_order_relaxed)
         << " hits=" << hits.load(std::memory_order_relaxed)
-        << " stores=" << stores.load(std::memory_order_relaxed) << '\n';
+        << " stores=" << stores.load(std::memory_order_relaxed)
+        << " evictions=" << evictions.load(std::memory_order_relaxed) << '\n';
   }
 };
 
@@ -532,8 +593,8 @@ void record_scratch_reserved_bytes(const uint64_t bytes) {
 }
 
 struct LinearContextCacheKey final {
-  Tensor weight_ref;
-  std::optional<Tensor> bias_ref;
+  std::optional<TensorWeakRef> weight_ref;
+  std::optional<TensorWeakRef> bias_ref;
   int64_t weight_version;
   int64_t bias_version;
 };
@@ -541,11 +602,16 @@ struct LinearContextCacheKey final {
 bool same_linear_context_cache_key(
     const LinearContextCacheKey& lhs,
     const LinearContextCacheKey& rhs) {
-  return lhs.weight_ref.unsafeGetTensorImpl() ==
-          rhs.weight_ref.unsafeGetTensorImpl() &&
+  return same_weak_tensor_ref(lhs.weight_ref, rhs.weight_ref) &&
       lhs.weight_version == rhs.weight_version &&
-      same_optional_tensor(lhs.bias_ref, rhs.bias_ref) &&
+      same_weak_tensor_ref(lhs.bias_ref, rhs.bias_ref) &&
       lhs.bias_version == rhs.bias_version;
+}
+
+bool linear_context_cache_key_sources_alive(
+    const LinearContextCacheKey& key) {
+  return weak_tensor_ref_alive(key.weight_ref) &&
+      optional_weak_tensor_ref_alive(key.bias_ref);
 }
 
 InferenceLruCache<
@@ -560,8 +626,8 @@ linear_context_cache() {
 }
 
 struct LabeledLinearContextCacheKey final {
-  Tensor weight_ref;
-  std::optional<Tensor> bias_ref;
+  std::optional<TensorWeakRef> weight_ref;
+  std::optional<TensorWeakRef> bias_ref;
   int64_t weight_version;
   int64_t bias_version;
   std::string allocation_label;
@@ -570,12 +636,17 @@ struct LabeledLinearContextCacheKey final {
 bool same_labeled_linear_context_cache_key(
     const LabeledLinearContextCacheKey& lhs,
     const LabeledLinearContextCacheKey& rhs) {
-  return lhs.weight_ref.unsafeGetTensorImpl() ==
-          rhs.weight_ref.unsafeGetTensorImpl() &&
+  return same_weak_tensor_ref(lhs.weight_ref, rhs.weight_ref) &&
       lhs.weight_version == rhs.weight_version &&
-      same_optional_tensor(lhs.bias_ref, rhs.bias_ref) &&
+      same_weak_tensor_ref(lhs.bias_ref, rhs.bias_ref) &&
       lhs.bias_version == rhs.bias_version &&
       lhs.allocation_label == rhs.allocation_label;
+}
+
+bool labeled_linear_context_cache_key_sources_alive(
+    const LabeledLinearContextCacheKey& key) {
+  return weak_tensor_ref_alive(key.weight_ref) &&
+      optional_weak_tensor_ref_alive(key.bias_ref);
 }
 
 InferenceLruCache<
@@ -587,6 +658,30 @@ labeled_linear_context_cache() {
       c10::intrusive_ptr<LinearPackedContext>>
       cache{kLinearContextCacheSize};
   return cache;
+}
+
+void record_linear_cache_evictions(const size_t evictions) {
+  if (evictions == 0u || !linear_cache_logging_enabled()) {
+    return;
+  }
+  linear_cache_log_state().evictions.fetch_add(
+      evictions, std::memory_order_relaxed);
+}
+
+void prune_expired_linear_context_cache_entries() {
+  record_linear_cache_evictions(linear_context_cache().erase_if(
+      [](const LinearContextCacheKey& key,
+         const c10::intrusive_ptr<LinearPackedContext>&) {
+        return !linear_context_cache_key_sources_alive(key);
+      }));
+}
+
+void prune_expired_labeled_linear_context_cache_entries() {
+  record_linear_cache_evictions(labeled_linear_context_cache().erase_if(
+      [](const LabeledLinearContextCacheKey& key,
+         const c10::intrusive_ptr<LinearPackedContext>&) {
+        return !labeled_linear_context_cache_key_sources_alive(key);
+      }));
 }
 
 struct LabeledKVCacheKey final {
@@ -1250,11 +1345,12 @@ std::optional<c10::intrusive_ptr<LinearPackedContext>> lookup_linear_context(
       normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
 
   const LinearContextCacheKey query{
-      weight,
-      normalized_bias,
+      make_tensor_weak_ref(weight),
+      normalized_bias ? make_tensor_weak_ref(*normalized_bias) : std::nullopt,
       weight_version,
       bias_version,
   };
+  prune_expired_linear_context_cache_entries();
   if (const auto cached =
           linear_context_cache().lookup(query, same_linear_context_cache_key)) {
     if (linear_cache_logging_enabled()) {
@@ -1279,10 +1375,12 @@ void store_linear_context(
     linear_cache_log_state().stores.fetch_add(1u, std::memory_order_relaxed);
   }
 
+  prune_expired_linear_context_cache_entries();
   linear_context_cache().store(
       LinearContextCacheKey{
-          weight,
-          normalized_bias,
+          make_tensor_weak_ref(weight),
+          normalized_bias ? make_tensor_weak_ref(*normalized_bias)
+                          : std::nullopt,
           tensor_version_or_zero(weight),
           normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u,
       },
@@ -1309,12 +1407,13 @@ lookup_labeled_linear_context(
       normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
 
   const LabeledLinearContextCacheKey query{
-      weight,
-      normalized_bias,
+      make_tensor_weak_ref(weight),
+      normalized_bias ? make_tensor_weak_ref(*normalized_bias) : std::nullopt,
       weight_version,
       bias_version,
       allocation_label,
   };
+  prune_expired_labeled_linear_context_cache_entries();
   if (const auto cached = labeled_linear_context_cache().lookup(
           query, same_labeled_linear_context_cache_key)) {
     if (linear_cache_logging_enabled()) {
@@ -1340,10 +1439,12 @@ void store_labeled_linear_context(
     linear_cache_log_state().stores.fetch_add(1u, std::memory_order_relaxed);
   }
 
+  prune_expired_labeled_linear_context_cache_entries();
   labeled_linear_context_cache().store(
       LabeledLinearContextCacheKey{
-          weight,
-          normalized_bias,
+          make_tensor_weak_ref(weight),
+          normalized_bias ? make_tensor_weak_ref(*normalized_bias)
+                          : std::nullopt,
           tensor_version_or_zero(weight),
           normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u,
           allocation_label,

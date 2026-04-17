@@ -5,6 +5,7 @@
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <variant>
@@ -171,6 +172,9 @@ class ExecutionGraphReplayBundle final {
   void record() const;
   ExecutionGraphReplay& replay(size_t idx);
   const ExecutionGraphReplay& replay(size_t idx) const;
+  size_t tensor_slot_count() const;
+  Tensor& tensor_slot(size_t idx);
+  const Tensor& tensor_slot(size_t idx) const;
   void submit(
       VkFence fence_handle = VK_NULL_HANDLE,
       bool final_use = false) const;
@@ -236,7 +240,8 @@ ExecutionGraphReplayBundle make_execution_graph_replay_bundle(
     const std::string& allocation_label,
     ScalarType dtype,
     bool persistent,
-    std::vector<ExecutionGraphReplayStep> steps);
+    std::vector<ExecutionGraphReplayStep> steps,
+    std::shared_ptr<std::vector<Tensor>> tensor_slots = nullptr);
 
 InferenceGraph lookup_or_create_labeled_inference_graph(
     const std::string& allocation_label,

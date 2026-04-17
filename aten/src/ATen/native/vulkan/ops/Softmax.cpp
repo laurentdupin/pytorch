@@ -39,16 +39,24 @@ constexpr uint32_t kBufferSoftmaxLastDimMaxWorkGroupsX = 65535u;
 constexpr int32_t kRuntimeProgramSdpaWideLocalSizeX = 32;
 constexpr int32_t kRuntimeProgramSdpaWideMaxOutputsPerThread = 16;
 constexpr int32_t kRuntimeProgramSdpaWideMaxQueryValuesPerThread = 8;
+constexpr int32_t kRuntimeProgramSdpaHead64LocalSizeX = 64;
+constexpr int32_t kRuntimeProgramSdpaHead64MaxOutputsPerThread = 1;
+constexpr int32_t kRuntimeProgramSdpaHead64MaxQueryValuesPerThread = 1;
+constexpr int32_t kRuntimeProgramSdpaHead64QueryRowsPerWorkgroup = 4;
 constexpr int64_t kRuntimeProgramSdpaWideMaxHeadDim =
     static_cast<int64_t>(kRuntimeProgramSdpaWideLocalSizeX) *
     static_cast<int64_t>(kRuntimeProgramSdpaWideMaxQueryValuesPerThread);
 constexpr int64_t kRuntimeProgramSdpaWideMaxValueDim =
     static_cast<int64_t>(kRuntimeProgramSdpaWideLocalSizeX) *
     static_cast<int64_t>(kRuntimeProgramSdpaWideMaxOutputsPerThread);
+constexpr int64_t kRuntimeProgramSdpaWideLongSequenceMin = 1024;
+constexpr int64_t kRuntimeProgramSdpaWideLongSequenceMinHeadDim = 64;
 
 enum class RuntimeProgramBufferFusedKernelVariant : uint8_t {
   Narrow16 = 0u,
   Wide32 = 1u,
+  Head64 = 2u,
+  Head64Query4 = 3u,
 };
 
 bool can_use_runtime_program_buffer_fused_fast_path(
@@ -87,11 +95,42 @@ Tensor scaled_dot_product_attention_tiled_3d_buffer_out_vulkan(
 
 RuntimeProgramBufferFusedKernelVariant select_runtime_program_buffer_fused_variant(
     const Tensor& query,
-    const Tensor& key) {
-  return query.size(2) > kTiledSdpaBufferMaxHeadDim ||
-          key.size(2) > kTiledSdpaBufferMaxHeadDim
+    const Tensor& key,
+    const Tensor& value) {
+  const bool requires_wide_head_dim =
+      query.size(2) > kTiledSdpaBufferMaxHeadDim ||
+      key.size(2) > kTiledSdpaBufferMaxHeadDim;
+  const bool is_long_sequence =
+      std::max(query.size(1), key.size(1)) >=
+      kRuntimeProgramSdpaWideLongSequenceMin;
+  const bool long_sequence_head64 =
+      is_long_sequence && query.size(2) == 64 && key.size(2) == 64 &&
+      value.size(2) == 64;
+  const bool long_sequence_head_dim64_or_larger =
+      is_long_sequence &&
+      std::max(query.size(2), key.size(2)) >=
+          kRuntimeProgramSdpaWideLongSequenceMinHeadDim;
+  if (long_sequence_head64) {
+    return RuntimeProgramBufferFusedKernelVariant::Head64Query4;
+  }
+  return requires_wide_head_dim || long_sequence_head_dim64_or_larger
       ? RuntimeProgramBufferFusedKernelVariant::Wide32
       : RuntimeProgramBufferFusedKernelVariant::Narrow16;
+}
+
+const char* runtime_program_buffer_fused_variant_log_name(
+    const RuntimeProgramBufferFusedKernelVariant variant) {
+  switch (variant) {
+    case RuntimeProgramBufferFusedKernelVariant::Narrow16:
+      return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_narrow";
+    case RuntimeProgramBufferFusedKernelVariant::Wide32:
+      return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_wide";
+    case RuntimeProgramBufferFusedKernelVariant::Head64:
+      return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64";
+    case RuntimeProgramBufferFusedKernelVariant::Head64Query4:
+      return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_q4";
+  }
+  return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_unknown";
 }
 
 Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
@@ -136,6 +175,31 @@ Tensor prepare_buffer_math_input_direct(const Tensor& tensor) {
   return utils::mark_tensor_execution(
       buffer_tensor,
       utils::resolve_buffer_execution_layout(convert(buffer_tensor)));
+}
+
+bool can_use_attention_buffer_math_ops(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value) {
+  return convert(query).storage_type() == api::StorageType::BUFFER &&
+      convert(key).storage_type() == api::StorageType::BUFFER &&
+      convert(value).storage_type() == api::StorageType::BUFFER;
+}
+
+bool has_float_attention_inputs(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value) {
+  return query.scalar_type() == kFloat && key.scalar_type() == kFloat &&
+      value.scalar_type() == kFloat;
+}
+
+bool can_use_attention_runtime_buffer_math_replay(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value) {
+  return has_float_attention_inputs(query, key, value) &&
+      can_use_attention_buffer_math_ops(query, key, value);
 }
 
 utils::VulkanKVCacheSpec make_attention_kv_cache_spec(
@@ -436,11 +500,9 @@ Tensor run_attention_runtime_buffer_math_program_impl(
     utils::log_vulkan_op_hit(
         "aten::scaled_dot_product_attention.runtime_program_buffer_fused");
     const auto variant =
-        select_runtime_program_buffer_fused_variant(query, key);
+        select_runtime_program_buffer_fused_variant(query, key, value);
     utils::log_vulkan_op_hit(
-        variant == RuntimeProgramBufferFusedKernelVariant::Wide32
-            ? "aten::scaled_dot_product_attention.runtime_program_buffer_fused_wide"
-            : "aten::scaled_dot_product_attention.runtime_program_buffer_fused_narrow");
+        runtime_program_buffer_fused_variant_log_name(variant));
     return scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
         query, key, value, output);
   }
@@ -485,6 +547,9 @@ Tensor run_attention_runtime_buffer_math_replay_impl(
   Tensor query = ensure_attention_runtime_direct_buffer(query_arg);
   Tensor key = ensure_attention_runtime_direct_buffer(key_arg);
   Tensor value = ensure_attention_runtime_direct_buffer(value_arg);
+  TORCH_CHECK(
+      can_use_attention_runtime_buffer_math_replay(query, key, value),
+      "Attention-runtime replay currently expects float buffer-backed tensors");
 
   const utils::VulkanExecutionProgramPlanningDesc program_plan{
       utils::VulkanExecutionProgramKind::AttentionRuntime,
@@ -1536,7 +1601,9 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
     const Tensor& key_arg,
     const Tensor& value_arg,
     Tensor& output_arg) {
-  if (select_runtime_program_buffer_fused_variant(query_arg, key_arg) ==
+  const RuntimeProgramBufferFusedKernelVariant variant =
+      select_runtime_program_buffer_fused_variant(query_arg, key_arg, value_arg);
+  if (variant ==
       RuntimeProgramBufferFusedKernelVariant::Narrow16) {
     return scaled_dot_product_attention_tiled_3d_buffer_out_vulkan(
         query_arg, key_arg, value_arg, output_arg);
@@ -1578,6 +1645,111 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
       "Vulkan wide buffer fused SDPA expects a width-packed float buffer output");
 
   api::Context* const context = api::context();
+  if (variant == RuntimeProgramBufferFusedKernelVariant::Head64 ||
+      variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4) {
+    const bool head64_query4_variant =
+        variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4;
+    TORCH_CHECK(
+        query_arg.size(2) == 64 && key_arg.size(2) == 64 &&
+            value_arg.size(2) == 64,
+        "Vulkan head64 buffer fused SDPA expects head_dim=value_dim=64");
+    const struct Block final {
+      ivec4 sizes;
+      ivec4 tiled_info;
+    } block{
+        {
+            safe_downcast<int32_t>(query_arg.size(0)),
+            safe_downcast<int32_t>(query_arg.size(1)),
+            safe_downcast<int32_t>(key_arg.size(1)),
+            safe_downcast<int32_t>(query_arg.size(2)),
+        },
+        {
+            safe_downcast<int32_t>(value_arg.size(2)),
+            kRuntimeProgramSdpaHead64LocalSizeX,
+            kRuntimeProgramSdpaHead64MaxOutputsPerThread,
+            head64_query4_variant
+                ? kRuntimeProgramSdpaHead64QueryRowsPerWorkgroup
+                : kRuntimeProgramSdpaHead64MaxQueryValuesPerThread,
+        },
+    };
+
+    api::UniformParamsBuffer params(context, block);
+    api::UniformParamsBuffer out_meta =
+        utils::make_buffer_compute_metadata_ubo(context, v_output);
+    api::UniformParamsBuffer query_meta =
+        utils::make_buffer_compute_metadata_ubo(context, v_query);
+    api::UniformParamsBuffer key_meta =
+        utils::make_buffer_compute_metadata_ubo(context, v_key);
+    api::UniformParamsBuffer value_meta =
+        utils::make_buffer_compute_metadata_ubo(context, v_value);
+    api::PipelineBarrier pipeline_barrier{};
+
+    if (variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4) {
+      context->submit_compute_job(
+          VK_KERNEL(scaled_dot_product_scores_value_buffer_float_head64_q4),
+          pipeline_barrier,
+          {
+              static_cast<uint32_t>(kRuntimeProgramSdpaHead64LocalSizeX),
+              api::utils::div_up(
+                  safe_downcast<uint32_t>(query_arg.size(1)),
+                  static_cast<uint32_t>(
+                      kRuntimeProgramSdpaHead64QueryRowsPerWorkgroup)),
+              safe_downcast<uint32_t>(query_arg.size(0)),
+          },
+          {
+              static_cast<uint32_t>(kRuntimeProgramSdpaHead64LocalSizeX),
+              1u,
+              1u,
+          },
+          VK_NULL_HANDLE,
+          v_output.buffer(
+              pipeline_barrier,
+              api::PipelineStage::COMPUTE,
+              api::MemoryAccessType::WRITE),
+          out_meta.buffer(),
+          v_query.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+          query_meta.buffer(),
+          v_key.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+          key_meta.buffer(),
+          v_value.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+          value_meta.buffer(),
+          params.buffer());
+
+      return utils::mark_tensor_execution(
+          output_arg, api::ExecutionLayout::BUFFER_DIRECT);
+    }
+
+    context->submit_compute_job(
+        VK_KERNEL(scaled_dot_product_scores_value_buffer_float_head64),
+        pipeline_barrier,
+        {
+            static_cast<uint32_t>(kRuntimeProgramSdpaHead64LocalSizeX),
+            safe_downcast<uint32_t>(query_arg.size(1)),
+            safe_downcast<uint32_t>(query_arg.size(0)),
+        },
+        {
+            static_cast<uint32_t>(kRuntimeProgramSdpaHead64LocalSizeX),
+            1u,
+            1u,
+        },
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_query.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        query_meta.buffer(),
+        v_key.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        key_meta.buffer(),
+        v_value.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        value_meta.buffer(),
+        params.buffer());
+
+    return utils::mark_tensor_execution(
+        output_arg, api::ExecutionLayout::BUFFER_DIRECT);
+  }
+
   const struct Block final {
     ivec4 sizes;
     ivec4 tiled_info;
@@ -2010,9 +2182,7 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
   value_3d = prepare_buffer_math_input_direct(value_3d);
 
   const bool uses_buffer_math =
-      convert(query_3d).storage_type() == api::StorageType::BUFFER &&
-      convert(key_3d).storage_type() == api::StorageType::BUFFER &&
-      convert(value_3d).storage_type() == api::StorageType::BUFFER;
+      can_use_attention_buffer_math_ops(query_3d, key_3d, value_3d);
   if (uses_buffer_math) {
     utils::log_vulkan_op_hit("aten::scaled_dot_product_attention.buffer_math_ops");
   }
@@ -2239,11 +2409,8 @@ Tensor scaled_dot_product_attention_vulkan_impl(
       query_3d = prepare_buffer_math_input_direct(query_3d);
       key_3d = prepare_buffer_math_input_direct(key_3d);
       value_3d = prepare_buffer_math_input_direct(value_3d);
-      const bool uses_buffer_math =
-          convert(query_3d).storage_type() == api::StorageType::BUFFER &&
-          convert(key_3d).storage_type() == api::StorageType::BUFFER &&
-          convert(value_3d).storage_type() == api::StorageType::BUFFER;
-      if (uses_buffer_math) {
+      if (can_use_attention_runtime_buffer_math_replay(
+              query_3d, key_3d, value_3d)) {
         Tensor output = run_attention_runtime_buffer_math_replay_impl(
             query_3d,
             key_3d,

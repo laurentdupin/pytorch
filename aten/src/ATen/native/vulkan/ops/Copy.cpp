@@ -3,7 +3,6 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/vulkan/Context.h>
-#include <atomic>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -16,8 +15,6 @@ namespace ops {
 namespace {
 
 constexpr int64_t kLargeFloatingMatrixNumelThreshold = 1 << 20;
-constexpr uint64_t kDefaultHostVisibleLabeledUploadBudgetBytes =
-    256ull * 1024ull * 1024ull;
 
 c10::MemoryFormat memory_format_for_buffer_layout(
     const api::GPUMemoryLayout memory_layout);
@@ -88,65 +85,6 @@ bool should_flush_after_labeled_to_vulkan(const Tensor& src) {
   // OOM medium models during module.to("vulkan"). Flush eagerly for large 2D
   // floating matrices to retire staging allocations as we go.
   return is_large_floating_matrix(src);
-}
-
-bool should_use_host_visible_buffer_for_labeled_to_vulkan(const Tensor& src) {
-  // The host-visible large-matrix upload path is currently not stable for
-  // repeated module placement of large floating weights. Fall back to the
-  // regular labeled upload path until the direct host-visible variant has
-  // correct lifetime/readback behavior.
-  (void)src;
-  return false;
-}
-
-uint64_t host_visible_labeled_upload_budget_bytes() {
-  static const uint64_t budget = []() -> uint64_t {
-    const char* env = std::getenv("PYTORCH_VULKAN_HOST_VISIBLE_UPLOAD_BUDGET_MB");
-    if (!env) {
-      return kDefaultHostVisibleLabeledUploadBudgetBytes;
-    }
-    char* end = nullptr;
-    const unsigned long long mb = std::strtoull(env, &end, 10);
-    if (end == env) {
-      return kDefaultHostVisibleLabeledUploadBudgetBytes;
-    }
-    return mb * 1024ull * 1024ull;
-  }();
-  return budget;
-}
-
-std::atomic<uint64_t>& host_visible_labeled_upload_bytes() {
-  static std::atomic<uint64_t> bytes{0};
-  return bytes;
-}
-
-bool reserve_host_visible_labeled_upload_budget(const uint64_t bytes) {
-  if (bytes == 0) {
-    return true;
-  }
-
-  auto& reserved = host_visible_labeled_upload_bytes();
-  const uint64_t budget = host_visible_labeled_upload_budget_bytes();
-  uint64_t current = reserved.load(std::memory_order_relaxed);
-  while (true) {
-    if (current > budget || bytes > budget - current) {
-      return false;
-    }
-    if (reserved.compare_exchange_weak(
-            current,
-            current + bytes,
-            std::memory_order_relaxed,
-            std::memory_order_relaxed)) {
-      return true;
-    }
-  }
-}
-
-void release_host_visible_labeled_upload_budget(const uint64_t bytes) {
-  if (bytes == 0) {
-    return;
-  }
-  host_visible_labeled_upload_bytes().fetch_sub(bytes, std::memory_order_relaxed);
 }
 
 bool buffer_allocation_is_host_visible(const vTensor& tensor) {
@@ -962,29 +900,6 @@ at::Tensor to_vulkan_labeled(at::Tensor src, std::string label) {
       src.device().type() == at::kCPU,
       "Vulkan to_vulkan_labeled(): input tensor must be a CPU or Vulkan tensor!");
   (void)label;
-  if (should_use_host_visible_buffer_for_labeled_to_vulkan(src)) {
-    const uint64_t reservation_bytes = static_cast<uint64_t>(src.nbytes());
-    if (reserve_host_visible_labeled_upload_budget(reservation_bytes)) {
-      try {
-        vTensor v_ret{
-            api::context(),
-            src.sizes().vec(),
-            convert_dtype(src.scalar_type()),
-            api::StorageType::BUFFER,
-            get_gpu_memory_layout(
-                api::StorageType::BUFFER, src.suggest_memory_format()),
-            /*allocate_memory=*/true,
-            /*buffer_gpu_only=*/false,
-        };
-        ops::pack_cpu_to_vulkan(src, v_ret);
-        return convert(v_ret);
-      } catch (const std::exception&) {
-        release_host_visible_labeled_upload_budget(reservation_bytes);
-        // Fall back to the existing staged upload path if a particular adapter
-        // cannot provide a mappable host-visible storage allocation.
-      }
-    }
-  }
 
   Tensor result = at::empty(src.sizes(), src.options().device(at::kVulkan));
   ops::copy_(result, src);

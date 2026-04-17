@@ -5,6 +5,9 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <torch/library.h>
 
+#include <optional>
+#include <utility>
+
 namespace at {
 namespace native {
 namespace vulkan {
@@ -85,6 +88,14 @@ Tensor run_layernorm_context_out(
     IntArrayRef normalized_shape,
     const c10::intrusive_ptr<LayernormPackedContext>& context,
     Tensor& output);
+
+std::optional<std::pair<Tensor, Tensor>> try_run_add_layernorm_context_out(
+    const Tensor& residual,
+    const Tensor& addend,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& context,
+    Tensor& residual_output,
+    Tensor& norm_output);
 
 } // namespace ops
 } // namespace vulkan

@@ -16,7 +16,10 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
+#include <sstream>
+#include <string>
 #include <tuple>
 #include <utility>
 
@@ -25,6 +28,11 @@ namespace native {
 namespace vulkan {
 namespace ops {
 namespace {
+
+struct VisionReplayBundleIdentity final {
+  std::string key;
+  std::string label_suffix;
+};
 
 std::string child_label(const std::string& label, const char* suffix) {
   if (label.empty()) {
@@ -105,6 +113,73 @@ c10::intrusive_ptr<Conv2dPackedContext> make_conv2d_context(
       1);
 }
 
+std::vector<int64_t> conv2d_context_output_sizes(
+    const Tensor& input,
+    const c10::intrusive_ptr<Conv2dPackedContext>& context) {
+  TORCH_INTERNAL_ASSERT(
+      context && input.dim() == 4,
+      "Conv2dPackedContext output size computation expects a defined context "
+      "and rank-4 input");
+
+  const Tensor weight =
+      context->unpack().get(Conv2dPackedContext::Unpacked::Weight).toTensor();
+  TORCH_INTERNAL_ASSERT(
+      weight.dim() == 4,
+      "Conv2dPackedContext output size computation expects rank-4 weight");
+
+  const auto value_or_default =
+      [](const std::vector<int64_t>& values,
+         const size_t idx,
+         const int64_t default_value) -> int64_t {
+    return idx < values.size() ? values[idx] : default_value;
+  };
+  const auto compute_output_extent =
+      [&](const int64_t input_extent,
+          const int64_t kernel_extent,
+          const int64_t stride_extent,
+          const int64_t padding_extent,
+          const int64_t dilation_extent,
+          const int64_t output_padding_extent) -> int64_t {
+    if (context->transposed()) {
+      return (input_extent - 1) * stride_extent - 2 * padding_extent +
+          dilation_extent * (kernel_extent - 1) + output_padding_extent + 1;
+    }
+    return (input_extent + 2 * padding_extent -
+            dilation_extent * (kernel_extent - 1) - 1) /
+        stride_extent +
+        1;
+  };
+
+  const int64_t out_channels = context->transposed()
+      ? weight.size(1) * context->groups()
+      : weight.size(0);
+  const int64_t kernel_h = weight.size(2);
+  const int64_t kernel_w = weight.size(3);
+  const int64_t out_h = compute_output_extent(
+      input.size(2),
+      kernel_h,
+      value_or_default(context->stride(), 0u, 1),
+      value_or_default(context->padding(), 0u, 0),
+      value_or_default(context->dilation(), 0u, 1),
+      value_or_default(context->output_padding(), 0u, 0));
+  const int64_t out_w = compute_output_extent(
+      input.size(3),
+      kernel_w,
+      value_or_default(context->stride(), 1u, 1),
+      value_or_default(context->padding(), 1u, 0),
+      value_or_default(context->dilation(), 1u, 1),
+      value_or_default(context->output_padding(), 1u, 0));
+  return {input.size(0), out_channels, out_h, out_w};
+}
+
+Tensor run_conv2d_context_any_out(
+    const Tensor& input,
+    const c10::intrusive_ptr<Conv2dPackedContext>& context,
+    Tensor& output) {
+  return context->transposed() ? run_tconv2d_context_out(input, context, output)
+                               : run_conv2d_context_out(input, context, output);
+}
+
 Tensor maybe_apply_layerscale(const Tensor& input, const Tensor& gamma) {
   if (!gamma.defined()) {
     return input;
@@ -143,6 +218,35 @@ std::string append_context_identity_suffix(
   return label + ".ctx." +
       std::to_string(static_cast<unsigned long long>(
           reinterpret_cast<uintptr_t>(identity)));
+}
+
+std::string context_identity_key(const void* identity) {
+  if (identity == nullptr) {
+    return "null";
+  }
+  return std::to_string(static_cast<unsigned long long>(
+      reinterpret_cast<uintptr_t>(identity)));
+}
+
+std::string sizes_key(IntArrayRef sizes) {
+  if (sizes.empty()) {
+    return "scalar";
+  }
+  std::ostringstream key;
+  for (size_t idx = 0u; idx < sizes.size(); ++idx) {
+    if (idx > 0u) {
+      key << 'x';
+    }
+    key << sizes[idx];
+  }
+  return key.str();
+}
+
+std::string optional_tensor_sizes_key(const std::optional<Tensor>& tensor) {
+  if (!tensor.has_value() || !tensor->defined()) {
+    return "none";
+  }
+  return sizes_key(tensor->sizes());
 }
 
 std::string vision_backbone_program_label(
@@ -223,6 +327,86 @@ std::string current_phase_graph_capture_label(
     return phase_base_label + ".graph";
   }
   return std::string(default_label);
+}
+
+VisionReplayBundleIdentity make_vision_backbone_decoder_bundle_identity(
+    const c10::intrusive_ptr<VisionBackboneBlockContext>& backbone_context,
+    const Tensor& backbone_input,
+    const c10::intrusive_ptr<VisionDecoderFusionBlockContext>& decoder_context,
+    const Tensor& decoder_input,
+    const std::optional<Tensor>& decoder_skip,
+    IntArrayRef decoder_target_sizes) {
+  std::ostringstream key;
+  key << "vision.backbone_decoder"
+      << "|backbone_ctx=" << context_identity_key(backbone_context.get())
+      << "|decoder_ctx=" << context_identity_key(decoder_context.get())
+      << "|backbone_input=" << sizes_key(backbone_input.sizes())
+      << "|decoder_input=" << sizes_key(decoder_input.sizes())
+      << "|decoder_skip=" << optional_tensor_sizes_key(decoder_skip)
+      << "|decoder_target=" << sizes_key(decoder_target_sizes);
+
+  std::ostringstream suffix;
+  suffix << ".bbctx." << context_identity_key(backbone_context.get())
+         << ".decctx." << context_identity_key(decoder_context.get())
+         << ".bin." << sizes_key(backbone_input.sizes())
+         << ".din." << sizes_key(decoder_input.sizes())
+         << ".dskip." << optional_tensor_sizes_key(decoder_skip)
+         << ".dtarget." << sizes_key(decoder_target_sizes);
+  return VisionReplayBundleIdentity{key.str(), suffix.str()};
+}
+
+VisionReplayBundleIdentity make_vision_backbone_stack_bundle_identity(
+    const std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    const std::vector<int64_t>& capture_indices,
+    const std::optional<std::vector<int64_t>>& normalized_shape = std::nullopt,
+    const LayernormPackedContext* norm_context = nullptr) {
+  std::string key =
+      "vision.backbone_stack|count=" + std::to_string(contexts.size()) +
+      "|capture=";
+  for (size_t idx = 0u; idx < capture_indices.size(); ++idx) {
+    if (idx > 0u) {
+      key += ",";
+    }
+    key += std::to_string(capture_indices[idx]);
+  }
+  key += "|contexts=";
+  for (size_t idx = 0u; idx < contexts.size(); ++idx) {
+    if (idx > 0u) {
+      key += ",";
+    }
+    key += context_identity_key(contexts[idx].get());
+  }
+  if (norm_context != nullptr && normalized_shape.has_value()) {
+    key += "|norm_ctx=";
+    key += context_identity_key(norm_context);
+    key += "|norm_shape=";
+    key += sizes_key(*normalized_shape);
+  } else {
+    key += "|norm=none";
+  }
+
+  std::string suffix = ".count." + std::to_string(contexts.size()) + ".capture.";
+  for (size_t idx = 0u; idx < capture_indices.size(); ++idx) {
+    if (idx > 0u) {
+      suffix += "x";
+    }
+    suffix += std::to_string(capture_indices[idx]);
+  }
+  suffix += ".contexts.";
+  for (size_t idx = 0u; idx < contexts.size(); ++idx) {
+    if (idx > 0u) {
+      suffix += ".";
+    }
+    suffix += context_identity_key(contexts[idx].get());
+  }
+  if (norm_context != nullptr && normalized_shape.has_value()) {
+    suffix += ".normctx.";
+    suffix += context_identity_key(norm_context);
+    suffix += ".normshape.";
+    suffix += sizes_key(*normalized_shape);
+  }
+
+  return VisionReplayBundleIdentity{std::move(key), std::move(suffix)};
 }
 
 std::string vision_backbone_graph_label(const std::string& label) {
@@ -818,12 +1002,10 @@ Tensor run_vision_decoder_fusion_block_program(
   if (skip_tensor.has_value() && skip_tensor->defined()) {
     Tensor residual =
         relu_buffer_out_vulkan(*skip_tensor, outputs.skip_relu_output);
-    residual = run_conv2d_context_out(
+    residual = run_conv2d_context_relu_out(
         residual,
         context->res1_conv1_context(),
         outputs.skip_conv1_output);
-    residual =
-        relu_buffer_out_vulkan(residual, outputs.skip_relu_output);
     residual =
         run_conv2d_context_out(
             residual,
@@ -837,12 +1019,10 @@ Tensor run_vision_decoder_fusion_block_program(
 
   Tensor output =
       relu_buffer_out_vulkan(main_input, outputs.main_relu_output);
-  output = run_conv2d_context_out(
+  output = run_conv2d_context_relu_out(
       output,
       context->res2_conv1_context(),
       outputs.main_conv1_output);
-  output =
-      relu_buffer_out_vulkan(output, outputs.main_relu_output);
   output = run_conv2d_context_out(
       output,
       context->res2_conv2_context(),
@@ -884,12 +1064,24 @@ bool can_use_decoder_head_replay(
     const Tensor& layer2,
     const Tensor& layer3,
     const Tensor& layer4) {
-  return layer1.defined() && layer1.is_vulkan() && layer2.defined() &&
-      layer2.is_vulkan() && layer3.defined() && layer3.is_vulkan() &&
-      layer4.defined() && layer4.is_vulkan();
+  const auto can_use_tensor = [](const Tensor& tensor) {
+    if (!tensor.defined() || !tensor.is_vulkan()) {
+      return false;
+    }
+    const vTensor& v_tensor = convert(tensor);
+    return v_tensor.storage_type() == api::StorageType::BUFFER &&
+        v_tensor.has_direct_buffer_layout();
+  };
+  return can_use_tensor(layer1) && can_use_tensor(layer2) &&
+      can_use_tensor(layer3) && can_use_tensor(layer4);
 }
 
 void copy_tensor_for_replay(Tensor& dst, const Tensor& src) {
+  if (
+      dst.defined() && src.defined() &&
+      dst.unsafeGetTensorImpl() == src.unsafeGetTensorImpl()) {
+    return;
+  }
   if (dst.is_vulkan() && src.is_vulkan()) {
     const vTensor& v_dst = convert(dst);
     const vTensor& v_src = convert(src);
@@ -902,6 +1094,79 @@ void copy_tensor_for_replay(Tensor& dst, const Tensor& src) {
     }
   }
   dst.copy_(src);
+}
+
+std::optional<utils::VisionDecoderHeadInferenceReplay>
+maybe_lookup_vision_decoder_head_replay(
+    IntArrayRef layer1_sizes,
+    IntArrayRef layer2_sizes,
+    IntArrayRef layer3_sizes,
+    IntArrayRef layer4_sizes,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderHeadContext>& context) {
+  TORCH_INTERNAL_ASSERT(
+      context,
+      "Vision decoder head replay lookup expects a defined context");
+  TORCH_INTERNAL_ASSERT(
+      output_size.size() == 2,
+      "Vision decoder head replay lookup expects a rank-1 output size with 2 "
+      "entries");
+
+  const auto runtime_policy = utils::build_vulkan_runtime_policy(
+      utils::make_vulkan_vision_decoder_request());
+  if (
+      !runtime_policy.execution_program_plan.has_value() ||
+      runtime_policy.execution_program_plan->kind !=
+          utils::VulkanExecutionProgramKind::VisionDecoder ||
+      !has_explicit_runtime_capture_label()) {
+    return std::nullopt;
+  }
+
+  const int64_t output_conv1_channels =
+      context->output_conv1_context()
+          ->unpack()
+          .get(Conv2dPackedContext::Unpacked::Weight)
+          .toTensor()
+          .size(0);
+  const int64_t output_conv2_channels =
+      context->output_conv2_conv1_context()
+          ->unpack()
+          .get(Conv2dPackedContext::Unpacked::Weight)
+          .toTensor()
+          .size(0);
+  const int64_t final_channels =
+      context->output_conv2_conv2_context()
+          ->unpack()
+          .get(Conv2dPackedContext::Unpacked::Weight)
+          .toTensor()
+          .size(0);
+  const std::vector<int64_t> output_sizes{
+      layer1_sizes[0],
+      final_channels,
+      output_size[0],
+      output_size[1],
+  };
+
+  auto vision_graph = utils::lookup_or_create_labeled_vision_decoder_inference_graph(
+      vision_decoder_graph_label(context->allocation_label()),
+      kFloat,
+      runtime_policy.execution_program_plan->persistent);
+  auto vision_replay = vision_graph.lookup_or_create_head_replay(
+      vision_decoder_head_program_label(
+          context->allocation_label(), context.get()),
+      layer1_sizes,
+      layer2_sizes,
+      layer3_sizes,
+      layer4_sizes,
+      output_sizes,
+      output_conv1_channels,
+      output_conv2_channels,
+      final_channels,
+      *runtime_policy.execution_program_plan);
+  if (!vision_replay.defined()) {
+    return std::nullopt;
+  }
+  return vision_replay;
 }
 
 Tensor run_vision_decoder_head_program(
@@ -921,6 +1186,8 @@ Tensor run_vision_decoder_head_program(
     Tensor& output_conv2_relu1_output,
     Tensor& output_conv2_conv2_output,
     Tensor& output_slot) {
+  (void)output_conv2_relu1_output;
+  (void)output_conv2_conv2_output;
   const std::vector<int64_t> layer3_target{layer3.size(2), layer3.size(3)};
   const std::vector<int64_t> layer2_target{layer2.size(2), layer2.size(3)};
   const std::vector<int64_t> layer1_target{layer1.size(2), layer1.size(3)};
@@ -961,16 +1228,14 @@ Tensor run_vision_decoder_head_program(
       std::nullopt,
       std::nullopt,
       upsample_output);
-  output = run_conv2d_context_out(
+  output = run_conv2d_context_relu_out(
       output,
       context->output_conv2_conv1_context(),
       output_conv2_conv1_output);
-  output = relu_buffer_out_vulkan(output, output_conv2_relu1_output);
-  output = run_conv2d_context_out(
+  return run_conv2d_context_relu_out(
       output,
       context->output_conv2_conv2_context(),
-      output_conv2_conv2_output);
-  return relu_buffer_out_vulkan(output, output_slot);
+      output_slot);
 }
 
 std::tuple<Tensor, Tensor, Tensor> reshape_qkv_for_attention(
@@ -1404,20 +1669,40 @@ Tensor run_vision_backbone_block_program(
       vision_program,
       graph_scratch);
   attention_output = maybe_apply_layerscale(attention_output, context->ls1_gamma());
-  Tensor hidden_states = at::add(input_2d, attention_output);
 
-  Tensor mlp_input = vision_program
-      ? run_layernorm_context_out(
-            hidden_states,
-            normalized_shape,
-            context->norm2_context(),
-            vision_program->norm2_output())
-      : run_layernorm_context(
-            hidden_states, normalized_shape, context->norm2_context());
+  Tensor hidden_states;
+  Tensor mlp_input;
+  if (vision_program) {
+    // norm1_output is no longer needed after attention, so use it as the
+    // retained residual scratch for the fused residual-add + norm2 pass.
+    auto fused_residual_norm = try_run_add_layernorm_context_out(
+        input_2d,
+        attention_output,
+        normalized_shape,
+        context->norm2_context(),
+        vision_program->norm1_output(),
+        vision_program->norm2_output());
+    if (fused_residual_norm.has_value()) {
+      hidden_states = std::move(fused_residual_norm->first);
+      mlp_input = std::move(fused_residual_norm->second);
+    }
+  }
+  if (!mlp_input.defined()) {
+    hidden_states = at::add(input_2d, attention_output);
+    mlp_input = vision_program
+        ? run_layernorm_context_out(
+              hidden_states,
+              normalized_shape,
+              context->norm2_context(),
+              vision_program->norm2_output())
+        : run_layernorm_context(
+              hidden_states, normalized_shape, context->norm2_context());
+  }
   Tensor mlp_output = vision_program
       ? run_linear_gelu_context_out(
             mlp_input, context->fc1_context(), vision_program->fc1_output())
       : run_linear_gelu_context(mlp_input, context->fc1_context());
+
   mlp_output = vision_program
       ? run_linear_context_out(
             mlp_output, context->fc2_context(), vision_program->fc2_output())
@@ -2093,9 +2378,16 @@ Tensor run_vision_decoder_fusion_block_context(
 
   const auto runtime_policy = utils::build_vulkan_runtime_policy(
       utils::make_vulkan_vision_decoder_request());
-  auto vision_graph =
-      prime_vision_decoder_graph(main_input, runtime_policy, context);
+  // The implicit scale_factor=2 path (size omitted) is still unreliable under
+  // the shared graph/replay path after shape transitions. Keep it on the
+  // standalone Vulkan program path until the graph slot lifecycle is tightened.
+  const bool allow_decoder_graph = size.has_value();
+  auto vision_graph = allow_decoder_graph
+      ? prime_vision_decoder_graph(main_input, runtime_policy, context)
+      : utils::VisionDecoderInferenceGraph{};
+  const bool allow_decoder_replay = allow_decoder_graph;
   if (
+      allow_decoder_replay &&
       vision_graph.defined() &&
       runtime_policy.execution_program_plan.has_value() &&
       can_use_decoder_replay(main_input, skip_tensor)) {
@@ -2165,7 +2457,6 @@ Tensor run_vision_decoder_fusion_block_context(
       }
 
       vision_replay.replay().submit();
-
       Tensor output = utils::create_buffer_tensor(
           vision_replay.output_slot().sizes(),
           vision_replay.output_slot().scalar_type(),
@@ -2294,6 +2585,10 @@ void prime_vision_decoder_fusion_block_context_graph(
     return;
   }
 
+  if (!size.has_value()) {
+    return;
+  }
+
   auto vision_graph =
       prime_vision_decoder_graph(input_arg, runtime_policy, context);
   if (!vision_graph.defined()) {
@@ -2417,6 +2712,282 @@ c10::intrusive_ptr<VisionDecoderHeadContext> create_vision_decoder_head_context(
       std::move(label));
 }
 
+VisionDecoderPreprocessHeadContext::VisionDecoderPreprocessHeadContext(
+    c10::intrusive_ptr<Conv2dPackedContext> project1_context,
+    c10::intrusive_ptr<Conv2dPackedContext> project2_context,
+    c10::intrusive_ptr<Conv2dPackedContext> project3_context,
+    c10::intrusive_ptr<Conv2dPackedContext> project4_context,
+    c10::intrusive_ptr<Conv2dPackedContext> resize1_context,
+    c10::intrusive_ptr<Conv2dPackedContext> resize2_context,
+    c10::intrusive_ptr<Conv2dPackedContext> resize4_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer1_rn_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer2_rn_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer3_rn_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer4_rn_context,
+    c10::intrusive_ptr<VisionDecoderHeadContext> head_context,
+    std::string allocation_label)
+    : allocation_label_(std::move(allocation_label)),
+      project1_context_(std::move(project1_context)),
+      project2_context_(std::move(project2_context)),
+      project3_context_(std::move(project3_context)),
+      project4_context_(std::move(project4_context)),
+      resize1_context_(std::move(resize1_context)),
+      resize2_context_(std::move(resize2_context)),
+      resize4_context_(std::move(resize4_context)),
+      layer1_rn_context_(std::move(layer1_rn_context)),
+      layer2_rn_context_(std::move(layer2_rn_context)),
+      layer3_rn_context_(std::move(layer3_rn_context)),
+      layer4_rn_context_(std::move(layer4_rn_context)),
+      head_context_(std::move(head_context)) {
+  TORCH_CHECK(
+      project1_context_ && project2_context_ && project3_context_ &&
+          project4_context_ && resize1_context_ && resize2_context_ &&
+          resize4_context_ && layer1_rn_context_ && layer2_rn_context_ &&
+          layer3_rn_context_ && layer4_rn_context_ && head_context_,
+      "Vision decoder preprocess head context requires all sub-contexts to be "
+      "defined");
+
+  unpacked_.reserve(Unpacked::NumArgs);
+  unpacked_.emplace_back(project1_context_);
+  unpacked_.emplace_back(project2_context_);
+  unpacked_.emplace_back(project3_context_);
+  unpacked_.emplace_back(project4_context_);
+  unpacked_.emplace_back(resize1_context_);
+  unpacked_.emplace_back(resize2_context_);
+  unpacked_.emplace_back(resize4_context_);
+  unpacked_.emplace_back(layer1_rn_context_);
+  unpacked_.emplace_back(layer2_rn_context_);
+  unpacked_.emplace_back(layer3_rn_context_);
+  unpacked_.emplace_back(layer4_rn_context_);
+  unpacked_.emplace_back(head_context_);
+  unpacked_.emplace_back(allocation_label_);
+}
+
+VisionDecoderPreprocessHeadContext VisionDecoderPreprocessHeadContext::pack(
+    c10::impl::GenericList unpacked) {
+  return VisionDecoderPreprocessHeadContext(
+      unpacked.get(Unpacked::Project1Context)
+          .toCustomClass<Conv2dPackedContext>(),
+      unpacked.get(Unpacked::Project2Context)
+          .toCustomClass<Conv2dPackedContext>(),
+      unpacked.get(Unpacked::Project3Context)
+          .toCustomClass<Conv2dPackedContext>(),
+      unpacked.get(Unpacked::Project4Context)
+          .toCustomClass<Conv2dPackedContext>(),
+      unpacked.get(Unpacked::Resize1Context)
+          .toCustomClass<Conv2dPackedContext>(),
+      unpacked.get(Unpacked::Resize2Context)
+          .toCustomClass<Conv2dPackedContext>(),
+      unpacked.get(Unpacked::Resize4Context)
+          .toCustomClass<Conv2dPackedContext>(),
+      unpacked.get(Unpacked::Layer1RnContext)
+          .toCustomClass<Conv2dPackedContext>(),
+      unpacked.get(Unpacked::Layer2RnContext)
+          .toCustomClass<Conv2dPackedContext>(),
+      unpacked.get(Unpacked::Layer3RnContext)
+          .toCustomClass<Conv2dPackedContext>(),
+      unpacked.get(Unpacked::Layer4RnContext)
+          .toCustomClass<Conv2dPackedContext>(),
+      unpacked.get(Unpacked::HeadContext)
+          .toCustomClass<VisionDecoderHeadContext>(),
+      unpacked.get(Unpacked::Label).toStringRef());
+}
+
+c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>
+create_vision_decoder_preprocess_head_context(
+    const Tensor& prototype,
+    c10::intrusive_ptr<Conv2dPackedContext> project1_context,
+    c10::intrusive_ptr<Conv2dPackedContext> project2_context,
+    c10::intrusive_ptr<Conv2dPackedContext> project3_context,
+    c10::intrusive_ptr<Conv2dPackedContext> project4_context,
+    c10::intrusive_ptr<Conv2dPackedContext> resize1_context,
+    c10::intrusive_ptr<Conv2dPackedContext> resize2_context,
+    c10::intrusive_ptr<Conv2dPackedContext> resize4_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer1_rn_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer2_rn_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer3_rn_context,
+    c10::intrusive_ptr<Conv2dPackedContext> layer4_rn_context,
+    c10::intrusive_ptr<VisionDecoderHeadContext> head_context,
+    std::string label) {
+  (void)prototype;
+  return c10::make_intrusive<VisionDecoderPreprocessHeadContext>(
+      std::move(project1_context),
+      std::move(project2_context),
+      std::move(project3_context),
+      std::move(project4_context),
+      std::move(resize1_context),
+      std::move(resize2_context),
+      std::move(resize4_context),
+      std::move(layer1_rn_context),
+      std::move(layer2_rn_context),
+      std::move(layer3_rn_context),
+      std::move(layer4_rn_context),
+      std::move(head_context),
+      std::move(label));
+}
+
+Tensor run_vision_decoder_preprocess_head_context(
+    const Tensor& layer1_tokens_arg,
+    const Tensor& layer2_tokens_arg,
+    const Tensor& layer3_tokens_arg,
+    const Tensor& layer4_tokens_arg,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>& context) {
+  TORCH_CHECK(
+      context,
+      "Vision decoder preprocess head context must be defined");
+  TORCH_CHECK(
+      patch_h > 0 && patch_w > 0,
+      "Vision decoder preprocess head context expects positive patch sizes");
+  TORCH_CHECK(
+      output_size.size() == 2,
+      "Vision decoder preprocess head context expects a rank-1 output size "
+      "with 2 entries");
+  TORCH_CHECK(
+      (layer1_tokens_arg.dim() == 2 || layer1_tokens_arg.dim() == 3) &&
+          (layer2_tokens_arg.dim() == 2 || layer2_tokens_arg.dim() == 3) &&
+          (layer3_tokens_arg.dim() == 2 || layer3_tokens_arg.dim() == 3) &&
+          (layer4_tokens_arg.dim() == 2 || layer4_tokens_arg.dim() == 3),
+      "Vision decoder preprocess head context expects rank-2 or rank-3 token "
+      "inputs");
+
+  const Device output_device = layer1_tokens_arg.device();
+  const ScalarType output_dtype = layer1_tokens_arg.scalar_type();
+
+  const auto fallback = [&]() -> Tensor {
+    Tensor layer1 = tokens_to_feature_map(layer1_tokens_arg, patch_h, patch_w);
+    layer1 = run_conv2d_context(layer1, context->project1_context());
+    layer1 = run_tconv2d_context(layer1, context->resize1_context());
+    layer1 = run_conv2d_context(layer1, context->layer1_rn_context());
+
+    Tensor layer2 = tokens_to_feature_map(layer2_tokens_arg, patch_h, patch_w);
+    layer2 = run_conv2d_context(layer2, context->project2_context());
+    layer2 = run_tconv2d_context(layer2, context->resize2_context());
+    layer2 = run_conv2d_context(layer2, context->layer2_rn_context());
+
+    Tensor layer3 = tokens_to_feature_map(layer3_tokens_arg, patch_h, patch_w);
+    layer3 = run_conv2d_context(layer3, context->project3_context());
+    layer3 = run_conv2d_context(layer3, context->layer3_rn_context());
+
+    Tensor layer4 = tokens_to_feature_map(layer4_tokens_arg, patch_h, patch_w);
+    layer4 = run_conv2d_context(layer4, context->project4_context());
+    layer4 = run_conv2d_context(layer4, context->resize4_context());
+    layer4 = run_conv2d_context(layer4, context->layer4_rn_context());
+
+    Tensor output = run_vision_decoder_head_context(
+        layer1,
+        layer2,
+        layer3,
+        layer4,
+        output_size,
+        context->head_context());
+    return maybe_restore_tensor(output, output_device, output_dtype);
+  };
+
+  Tensor layer1_tokens = layer1_tokens_arg.is_vulkan() ? layer1_tokens_arg
+                                                       : layer1_tokens_arg.vulkan();
+  Tensor layer2_tokens = layer2_tokens_arg.is_vulkan() ? layer2_tokens_arg
+                                                       : layer2_tokens_arg.vulkan();
+  Tensor layer3_tokens = layer3_tokens_arg.is_vulkan() ? layer3_tokens_arg
+                                                       : layer3_tokens_arg.vulkan();
+  Tensor layer4_tokens = layer4_tokens_arg.is_vulkan() ? layer4_tokens_arg
+                                                       : layer4_tokens_arg.vulkan();
+  if (
+      layer1_tokens.scalar_type() != kFloat ||
+      layer2_tokens.scalar_type() != kFloat ||
+      layer3_tokens.scalar_type() != kFloat ||
+      layer4_tokens.scalar_type() != kFloat) {
+    return fallback();
+  }
+
+  const auto run_layer =
+      [&](const Tensor& tokens,
+          const c10::intrusive_ptr<Conv2dPackedContext>& project_context,
+          const c10::intrusive_ptr<Conv2dPackedContext>& resize_context,
+          const bool apply_resize,
+          const c10::intrusive_ptr<Conv2dPackedContext>& rn_context) -> Tensor {
+    Tensor feature_map = tokens_to_feature_map(tokens, patch_h, patch_w);
+    if (!feature_map.defined() || !feature_map.is_vulkan()) {
+      return Tensor();
+    }
+
+    Tensor feature_buffer = prepare_decoder_buffer_tensor(feature_map);
+    if (!feature_buffer.defined() || feature_buffer.dim() != 4) {
+      return Tensor();
+    }
+
+    Tensor project_output = utils::create_buffer_tensor(
+        conv2d_context_output_sizes(feature_buffer, project_context),
+        feature_buffer.scalar_type(),
+        /*persistent=*/false);
+    (void)run_conv2d_context_out(feature_buffer, project_context, project_output);
+
+    Tensor resized = project_output;
+    Tensor resize_output;
+    if (apply_resize) {
+      resize_output = utils::create_buffer_tensor(
+          conv2d_context_output_sizes(project_output, resize_context),
+          project_output.scalar_type(),
+          /*persistent=*/false);
+      (void)run_conv2d_context_any_out(
+          project_output,
+          resize_context,
+          resize_output);
+      resized = resize_output;
+    }
+
+    Tensor rn_output = utils::create_buffer_tensor(
+        conv2d_context_output_sizes(resized, rn_context),
+        resized.scalar_type(),
+        /*persistent=*/false);
+    (void)run_conv2d_context_out(resized, rn_context, rn_output);
+    return rn_output;
+  };
+
+  Tensor layer1 = run_layer(
+      layer1_tokens,
+      context->project1_context(),
+      context->resize1_context(),
+      /*apply_resize=*/true,
+      context->layer1_rn_context());
+  Tensor layer2 = run_layer(
+      layer2_tokens,
+      context->project2_context(),
+      context->resize2_context(),
+      /*apply_resize=*/true,
+      context->layer2_rn_context());
+  Tensor layer3 = run_layer(
+      layer3_tokens,
+      context->project3_context(),
+      c10::intrusive_ptr<Conv2dPackedContext>{},
+      /*apply_resize=*/false,
+      context->layer3_rn_context());
+  Tensor layer4 = run_layer(
+      layer4_tokens,
+      context->project4_context(),
+      context->resize4_context(),
+      /*apply_resize=*/true,
+      context->layer4_rn_context());
+  if (
+      !layer1.defined() || !layer2.defined() || !layer3.defined() ||
+      !layer4.defined()) {
+    return fallback();
+  }
+
+  Tensor output = run_vision_decoder_head_context(
+      layer1,
+      layer2,
+      layer3,
+      layer4,
+      output_size,
+      context->head_context());
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_vision_decoder_preprocess_head_context");
+  return maybe_restore_tensor(output, output_device, output_dtype);
+}
+
 Tensor run_vision_decoder_head_context(
     const Tensor& layer1_arg,
     const Tensor& layer2_arg,
@@ -2497,115 +3068,71 @@ Tensor run_vision_decoder_head_context(
     return fallback();
   }
 
-  utils::VulkanPlanningRequestScope planning_scope(
-      utils::make_vulkan_vision_decoder_request());
-  const auto runtime_policy = utils::build_vulkan_runtime_policy(
-      utils::make_vulkan_vision_decoder_request());
-  if (
-      !runtime_policy.execution_program_plan.has_value() ||
-      runtime_policy.execution_program_plan->kind !=
-          utils::VulkanExecutionProgramKind::VisionDecoder ||
-      !has_explicit_runtime_capture_label() ||
-      !can_use_decoder_head_replay(
+  if (!can_use_decoder_head_replay(
           layer1_buffer, layer2_buffer, layer3_buffer, layer4_buffer)) {
     return fallback();
   }
 
-  const int64_t output_conv1_channels =
-      context->output_conv1_context()
-          ->unpack()
-          .get(Conv2dPackedContext::Unpacked::Weight)
-          .toTensor()
-          .size(0);
-  const int64_t output_conv2_channels =
-      context->output_conv2_conv1_context()
-          ->unpack()
-          .get(Conv2dPackedContext::Unpacked::Weight)
-          .toTensor()
-          .size(0);
-  const int64_t final_channels =
-      context->output_conv2_conv2_context()
-          ->unpack()
-          .get(Conv2dPackedContext::Unpacked::Weight)
-          .toTensor()
-          .size(0);
-  const std::vector<int64_t> output_sizes{
-      layer1_buffer.size(0),
-      final_channels,
-      output_size[0],
-      output_size[1],
-  };
-
-  auto vision_graph = utils::lookup_or_create_labeled_vision_decoder_inference_graph(
-      vision_decoder_graph_label(context->allocation_label()),
-      kFloat,
-      runtime_policy.execution_program_plan->persistent);
-  auto vision_replay = vision_graph.lookup_or_create_head_replay(
-      vision_decoder_head_program_label(
-          context->allocation_label(), context.get()),
+  auto vision_replay = maybe_lookup_vision_decoder_head_replay(
       layer1_buffer.sizes(),
       layer2_buffer.sizes(),
       layer3_buffer.sizes(),
       layer4_buffer.sizes(),
-      output_sizes,
-      output_conv1_channels,
-      output_conv2_channels,
-      final_channels,
-      *runtime_policy.execution_program_plan);
-
-  if (!vision_replay.defined()) {
+      output_size,
+      context);
+  if (!vision_replay.has_value()) {
     return fallback();
   }
 
-  copy_tensor_for_replay(vision_replay.layer1_slot(), layer1_buffer);
-  copy_tensor_for_replay(vision_replay.layer2_slot(), layer2_buffer);
-  copy_tensor_for_replay(vision_replay.layer3_slot(), layer3_buffer);
-  copy_tensor_for_replay(vision_replay.layer4_slot(), layer4_buffer);
+  copy_tensor_for_replay(vision_replay->layer1_slot(), layer1_buffer);
+  copy_tensor_for_replay(vision_replay->layer2_slot(), layer2_buffer);
+  copy_tensor_for_replay(vision_replay->layer3_slot(), layer3_buffer);
+  copy_tensor_for_replay(vision_replay->layer4_slot(), layer4_buffer);
   api::context()->flush_pending_cmds();
 
-  if (!vision_replay.recorded()) {
+  if (!vision_replay->recorded()) {
     Tensor warmup_output = utils::create_buffer_tensor(
-        vision_replay.output_slot().sizes(),
-        vision_replay.output_slot().scalar_type(),
+        vision_replay->output_slot().sizes(),
+        vision_replay->output_slot().scalar_type(),
         /*persistent=*/false);
     copy_tensor_for_replay(
         warmup_output,
         run_vision_decoder_head_program(
-            vision_replay.layer1_slot(),
-            vision_replay.layer2_slot(),
-            vision_replay.layer3_slot(),
-            vision_replay.layer4_slot(),
+            vision_replay->layer1_slot(),
+            vision_replay->layer2_slot(),
+            vision_replay->layer3_slot(),
+            vision_replay->layer4_slot(),
             output_size,
             context,
-            vision_replay.refinenet4_program(),
-            vision_replay.refinenet3_program(),
-            vision_replay.refinenet2_program(),
-            vision_replay.refinenet1_program(),
-            vision_replay.output_conv1_output(),
-            vision_replay.upsample_output(),
-            vision_replay.output_conv2_conv1_output(),
-            vision_replay.output_conv2_relu1_output(),
-            vision_replay.output_conv2_conv2_output(),
-            vision_replay.output_slot()));
+            vision_replay->refinenet4_program(),
+            vision_replay->refinenet3_program(),
+            vision_replay->refinenet2_program(),
+            vision_replay->refinenet1_program(),
+            vision_replay->output_conv1_output(),
+            vision_replay->upsample_output(),
+            vision_replay->output_conv2_conv1_output(),
+            vision_replay->output_conv2_relu1_output(),
+            vision_replay->output_conv2_conv2_output(),
+            vision_replay->output_slot()));
     api::context()->flush_pending_cmds();
-    vision_replay.replay().record([&]() {
+    vision_replay->replay().record([&]() {
       (void)run_vision_decoder_head_program(
-          vision_replay.layer1_slot(),
-          vision_replay.layer2_slot(),
-          vision_replay.layer3_slot(),
-          vision_replay.layer4_slot(),
+          vision_replay->layer1_slot(),
+          vision_replay->layer2_slot(),
+          vision_replay->layer3_slot(),
+          vision_replay->layer4_slot(),
           output_size,
           context,
-          vision_replay.refinenet4_program(),
-          vision_replay.refinenet3_program(),
-          vision_replay.refinenet2_program(),
-          vision_replay.refinenet1_program(),
-          vision_replay.output_conv1_output(),
-          vision_replay.upsample_output(),
-          vision_replay.output_conv2_conv1_output(),
-          vision_replay.output_conv2_relu1_output(),
-          vision_replay.output_conv2_conv2_output(),
-          vision_replay.output_slot());
+          vision_replay->refinenet4_program(),
+          vision_replay->refinenet3_program(),
+          vision_replay->refinenet2_program(),
+          vision_replay->refinenet1_program(),
+          vision_replay->output_conv1_output(),
+          vision_replay->upsample_output(),
+          vision_replay->output_conv2_conv1_output(),
+          vision_replay->output_conv2_relu1_output(),
+          vision_replay->output_conv2_conv2_output(),
+          vision_replay->output_slot());
     });
     utils::log_vulkan_op_hit(
         "vulkan_prepack::run_vision_decoder_head_context.replay_warmup");
@@ -2613,12 +3140,12 @@ Tensor run_vision_decoder_head_context(
     return maybe_restore_tensor(warmup_output, output_device, output_dtype);
   }
 
-  vision_replay.replay().submit();
+  vision_replay->replay().submit();
   Tensor output = utils::create_buffer_tensor(
-      vision_replay.output_slot().sizes(),
-      vision_replay.output_slot().scalar_type(),
+      vision_replay->output_slot().sizes(),
+      vision_replay->output_slot().scalar_type(),
       /*persistent=*/false);
-  copy_tensor_for_replay(output, vision_replay.output_slot());
+  copy_tensor_for_replay(output, vision_replay->output_slot());
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_vision_decoder_head_context.replay");
   utils::log_vulkan_op_hit("vulkan_prepack::run_vision_decoder_head_context");
@@ -2864,13 +3391,21 @@ std::tuple<Tensor, Tensor> run_vision_backbone_decoder_replay_bundle_bridge(
 
   const std::string root_label =
       current_graph_capture_label("depth.vision", "depth.vision.graph");
+  const VisionReplayBundleIdentity bundle_identity =
+      make_vision_backbone_decoder_bundle_identity(
+          backbone_context,
+          backbone_input,
+          decoder_context,
+          decoder_input_buffer,
+          decoder_skip_buffer,
+          decoder_target_sizes);
   auto root = utils::lookup_or_create_labeled_execution_graph_root(
       root_label,
       kFloat,
       backbone_runtime_policy.execution_program_plan->persistent &&
           decoder_runtime_policy.execution_program_plan->persistent);
   auto replay_bundle = root.lookup_or_create_replay_bundle(
-      "vision.backbone_decoder",
+      bundle_identity.key,
       [&]() -> utils::ExecutionGraphReplayBundle {
         std::vector<utils::ExecutionGraphReplayStep> steps;
         steps.reserve(2u);
@@ -2879,7 +3414,8 @@ std::tuple<Tensor, Tensor> run_vision_backbone_decoder_replay_bundle_bridge(
         steps.push_back(make_vision_decoder_replay_step(
             decoder_replay, decoder_target_sizes, decoder_context));
         return utils::make_execution_graph_replay_bundle(
-            root.allocation_label() + ".vision.backbone_decoder.replay",
+            root.allocation_label() + ".vision.backbone_decoder.replay" +
+                bundle_identity.label_suffix,
             kFloat,
             backbone_runtime_policy.execution_program_plan->persistent &&
                 decoder_runtime_policy.execution_program_plan->persistent,
@@ -2966,13 +3502,17 @@ std::tuple<Tensor, Tensor> run_vision_backbone_decoder_replay_bundle_bridge(
           decoder_output, decoder_output_device, decoder_output_dtype));
 }
 
-std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge(
+std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
     const Tensor& input_arg,
     const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
-    IntArrayRef capture_indices) {
+    IntArrayRef capture_indices,
+    const std::optional<std::vector<int64_t>>& output_norm_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& output_norm_context) {
   TORCH_CHECK(
       contexts.size() > 0,
       "Vision backbone stack replay bundle bridge expects at least one context");
+  const bool apply_output_norm =
+      output_norm_shape.has_value() && static_cast<bool>(output_norm_context);
 
   const std::vector<int64_t> capture_indices_vec = capture_indices.vec();
   for (const int64_t capture_idx : capture_indices_vec) {
@@ -3008,7 +3548,10 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge(
       for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
            ++capture_pos) {
         if (capture_indices_vec[capture_pos] == static_cast<int64_t>(idx)) {
-          outputs[capture_pos] = current;
+          outputs[capture_pos] = apply_output_norm
+              ? run_layernorm_context(
+                    current, *output_norm_shape, output_norm_context)
+              : current;
         }
       }
     }
@@ -3093,23 +3636,12 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge(
     replays.push_back(std::move(replay));
   }
 
-  std::string bundle_key = "vision.backbone_stack|count=" +
-      std::to_string(backbone_contexts.size()) + "|capture=";
-  for (size_t idx = 0u; idx < capture_indices_vec.size(); ++idx) {
-    if (idx > 0u) {
-      bundle_key += ",";
-    }
-    bundle_key += std::to_string(capture_indices_vec[idx]);
-  }
-  bundle_key += "|contexts=";
-  for (size_t idx = 0u; idx < backbone_contexts.size(); ++idx) {
-    if (idx > 0u) {
-      bundle_key += ",";
-    }
-    bundle_key += std::to_string(static_cast<unsigned long long>(
-        reinterpret_cast<uintptr_t>(backbone_contexts[idx].get())));
-  }
-
+  const VisionReplayBundleIdentity bundle_identity =
+      make_vision_backbone_stack_bundle_identity(
+          backbone_contexts,
+          capture_indices_vec,
+          output_norm_shape,
+          apply_output_norm ? output_norm_context.get() : nullptr);
   const std::string root_label =
       current_graph_capture_label("depth.vision", "depth.vision.graph");
   auto root = utils::lookup_or_create_labeled_execution_graph_root(
@@ -3117,29 +3649,115 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge(
       kFloat,
       runtime_policy.execution_program_plan->persistent);
   auto replay_bundle = root.lookup_or_create_replay_bundle(
-      bundle_key,
+      bundle_identity.key,
       [&]() -> utils::ExecutionGraphReplayBundle {
         std::vector<utils::ExecutionGraphReplayStep> steps;
         steps.reserve(replays.size());
-        steps.push_back(make_vision_backbone_replay_step(
-            replays[0], backbone_contexts[0], graph_scratches[0]));
-        for (size_t idx = 1u; idx < replays.size(); ++idx) {
-          steps.push_back(make_chained_vision_backbone_replay_step(
-              replays[idx - 1u],
-              replays[idx],
-              backbone_contexts[idx],
-              graph_scratches[idx]));
+        std::shared_ptr<std::vector<Tensor>> bundle_tensor_slots;
+
+        if (!apply_output_norm) {
+          steps.push_back(make_vision_backbone_replay_step(
+              replays[0], backbone_contexts[0], graph_scratches[0]));
+          for (size_t idx = 1u; idx < replays.size(); ++idx) {
+            steps.push_back(make_chained_vision_backbone_replay_step(
+                replays[idx - 1u],
+                replays[idx],
+                backbone_contexts[idx],
+                graph_scratches[idx]));
+          }
+        } else {
+          auto output_norm_slots =
+              std::make_shared<std::vector<Tensor>>();
+          output_norm_slots->reserve(capture_indices_vec.size());
+          for (size_t capture_pos = 0u;
+               capture_pos < capture_indices_vec.size();
+               ++capture_pos) {
+            output_norm_slots->push_back(utils::create_buffer_tensor(
+                input.sizes(),
+                kFloat,
+                /*persistent=*/true));
+          }
+
+          const std::vector<int64_t> norm_shape = *output_norm_shape;
+          bundle_tensor_slots = output_norm_slots;
+          for (size_t idx = 0u; idx < replays.size(); ++idx) {
+            std::optional<size_t> capture_pos = std::nullopt;
+            for (size_t pos = 0u; pos < capture_indices_vec.size(); ++pos) {
+              if (capture_indices_vec[pos] == static_cast<int64_t>(idx)) {
+                capture_pos = pos;
+                break;
+              }
+            }
+
+            const std::string execution_label = vision_backbone_execution_label(
+                backbone_contexts[idx]->allocation_label(),
+                backbone_contexts[idx].get());
+            auto previous_replay =
+                idx == 0u ? utils::VisionBackboneInferenceReplay{}
+                          : replays[idx - 1u];
+            auto backbone_replay = replays[idx];
+            auto backbone_context = backbone_contexts[idx];
+            auto graph_scratch = graph_scratches[idx];
+            steps.push_back(backbone_replay.phase_step(
+                [previous_replay,
+                 backbone_replay,
+                 backbone_context,
+                 graph_scratch,
+                 execution_label,
+                 capture_pos,
+                 output_norm_slots,
+                 norm_shape,
+                 output_norm_context]() mutable {
+                  api::RuntimeLabelScope runtime_scope(execution_label);
+                  if (graph_scratch.has_value()) {
+                    graph_scratch->reset();
+                  }
+                  const Tensor& replay_input = previous_replay.defined()
+                      ? previous_replay.output_slot()
+                      : backbone_replay.input_slot();
+                  (void)run_vision_backbone_block_program(
+                      replay_input,
+                      backbone_context,
+                      &backbone_replay.program(),
+                      graph_scratch.has_value() ? &(*graph_scratch) : nullptr,
+                      &backbone_replay.output_slot());
+                  if (capture_pos.has_value()) {
+                    (void)run_layernorm_context_out(
+                        backbone_replay.output_slot(),
+                        norm_shape,
+                        output_norm_context,
+                        output_norm_slots->at(*capture_pos));
+                  }
+                }));
+          }
         }
         return utils::make_execution_graph_replay_bundle(
-            root.allocation_label() + ".vision.backbone_stack.replay",
+            root.allocation_label() + ".vision.backbone_stack.replay" +
+                bundle_identity.label_suffix,
             kFloat,
             runtime_policy.execution_program_plan->persistent,
-            std::move(steps));
+            std::move(steps),
+            std::move(bundle_tensor_slots));
       });
   TORCH_CHECK(
       replay_bundle.defined() && replay_bundle.size() == replays.size(),
       "Vision backbone stack replay bundle bridge expected a replay bundle "
       "matching the number of contexts");
+  if (apply_output_norm) {
+    TORCH_CHECK(
+        replay_bundle.tensor_slot_count() == capture_indices_vec.size(),
+        "Vision backbone stack replay bundle bridge expected one norm output "
+        "slot per captured output");
+  }
+  const char* replay_warmup_log_name = apply_output_norm
+      ? "vulkan_prepack::run_vision_backbone_stack_norm_replay_bundle_bridge.replay_warmup"
+      : "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge.replay_warmup";
+  const char* replay_log_name = apply_output_norm
+      ? "vulkan_prepack::run_vision_backbone_stack_norm_replay_bundle_bridge.replay"
+      : "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge.replay";
+  const char* bridge_log_name = apply_output_norm
+      ? "vulkan_prepack::run_vision_backbone_stack_norm_replay_bundle_bridge"
+      : "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge";
 
   copy_tensor_for_replay(replays[0].input_slot(), input);
   api::context()->flush_pending_cmds();
@@ -3166,21 +3784,47 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge(
         if (capture_indices_vec[capture_pos] != static_cast<int64_t>(idx)) {
           continue;
         }
+        const Tensor* replay_output = &replays[idx].output_slot();
+        if (apply_output_norm) {
+          Tensor& norm_slot = replay_bundle.tensor_slot(capture_pos);
+          (void)run_layernorm_context_out(
+              replays[idx].output_slot(),
+              *output_norm_shape,
+              output_norm_context,
+              norm_slot);
+          replay_output = &norm_slot;
+        }
         Tensor output = utils::create_buffer_tensor(
-            replays[idx].output_slot().sizes(),
-            replays[idx].output_slot().scalar_type(),
+            replay_output->sizes(),
+            replay_output->scalar_type(),
             /*persistent=*/true);
-        copy_tensor_for_replay(output, replays[idx].output_slot());
+        copy_tensor_for_replay(output, *replay_output);
         warmup_outputs[capture_pos] =
             maybe_restore_tensor(output, output_device, output_dtype);
       }
     }
     api::context()->flush_pending_cmds();
     replay_bundle.record();
-    utils::log_vulkan_op_hit(
-        "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge.replay_warmup");
-    utils::log_vulkan_op_hit(
-        "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge");
+    if (apply_output_norm) {
+      replay_bundle.submit();
+      std::vector<Tensor> outputs(capture_indices_vec.size());
+      for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
+           ++capture_pos) {
+        const Tensor& replay_output = replay_bundle.tensor_slot(capture_pos);
+        Tensor output = utils::create_buffer_tensor(
+            replay_output.sizes(),
+            replay_output.scalar_type(),
+            /*persistent=*/true);
+        copy_tensor_for_replay(output, replay_output);
+        outputs[capture_pos] =
+            maybe_restore_tensor(output, output_device, output_dtype);
+      }
+      utils::log_vulkan_op_hit(replay_warmup_log_name);
+      utils::log_vulkan_op_hit(bridge_log_name);
+      return outputs;
+    }
+    utils::log_vulkan_op_hit(replay_warmup_log_name);
+    utils::log_vulkan_op_hit(bridge_log_name);
     return warmup_outputs;
   }
 
@@ -3190,19 +3834,50 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge(
   for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
        ++capture_pos) {
     const int64_t replay_idx = capture_indices_vec[capture_pos];
+    const Tensor& replay_output = apply_output_norm
+        ? replay_bundle.tensor_slot(capture_pos)
+        : replays[replay_idx].output_slot();
     Tensor output = utils::create_buffer_tensor(
-        replays[replay_idx].output_slot().sizes(),
-        replays[replay_idx].output_slot().scalar_type(),
+        replay_output.sizes(),
+        replay_output.scalar_type(),
         /*persistent=*/true);
-    copy_tensor_for_replay(output, replays[replay_idx].output_slot());
+    copy_tensor_for_replay(output, replay_output);
     outputs[capture_pos] =
         maybe_restore_tensor(output, output_device, output_dtype);
   }
-  utils::log_vulkan_op_hit(
-      "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge.replay");
-  utils::log_vulkan_op_hit(
-      "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge");
+  utils::log_vulkan_op_hit(replay_log_name);
+  utils::log_vulkan_op_hit(bridge_log_name);
   return outputs;
+}
+
+std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge(
+    const Tensor& input,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices) {
+  return run_vision_backbone_stack_replay_bundle_bridge_impl(
+      input,
+      contexts,
+      capture_indices,
+      std::nullopt,
+      c10::intrusive_ptr<LayernormPackedContext>());
+}
+
+std::vector<Tensor> run_vision_backbone_stack_norm_replay_bundle_bridge(
+    const Tensor& input,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& norm_context) {
+  TORCH_CHECK(
+      static_cast<bool>(norm_context),
+      "Vision backbone stack norm replay bundle bridge expects a defined "
+      "LayerNorm context");
+  return run_vision_backbone_stack_replay_bundle_bridge_impl(
+      input,
+      contexts,
+      capture_indices,
+      normalized_shape.vec(),
+      norm_context);
 }
 
 Tensor tokens_to_feature_map(

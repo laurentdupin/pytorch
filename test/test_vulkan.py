@@ -381,16 +381,18 @@ class TestVulkanEagerRuntime(TestCase):
             script,
             *,
             extra_env=None,
+            extra_python_paths=None,
             timeout=120,
             error_prefix="Vulkan subprocess failed."):
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         env = os.environ.copy()
         existing_pythonpath = env.get("PYTHONPATH")
-        env["PYTHONPATH"] = (
-            repo_root
-            if not existing_pythonpath
-            else repo_root + os.pathsep + existing_pythonpath
-        )
+        pythonpath_entries = [repo_root]
+        if extra_python_paths:
+            pythonpath_entries.extend(extra_python_paths)
+        if existing_pythonpath:
+            pythonpath_entries.append(existing_pythonpath)
+        env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
         if extra_env:
             env.update(extra_env)
 
@@ -412,6 +414,10 @@ class TestVulkanEagerRuntime(TestCase):
             ),
         )
         return repo_root, result
+
+    def _benchmarks_python_path(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(os.path.dirname(repo_root), "scripts", "benchmarks")
 
     def test_binary_and_unary_ops(self):
         torch.manual_seed(0)
@@ -1565,18 +1571,10 @@ print("OK")
         )
 
     def test_transformers_legacy_causal_attention_mask_converter_on_vulkan(self):
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        env = os.environ.copy()
-        existing_pythonpath = env.get("PYTHONPATH")
-        env["PYTHONPATH"] = (
-            repo_root
-            if not existing_pythonpath
-            else repo_root + os.pathsep + existing_pythonpath
-        )
-
-        script = textwrap.dedent(
-            """
+        script = """
             import torch
+            from transformers_runtime_compat import ensure_transformers_runtime_compat
+            ensure_transformers_runtime_compat(torch)
             from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 
             converter = AttentionMaskConverter(True, sliding_window=2047)
@@ -1598,43 +1596,19 @@ print("OK")
             assert mask_cpu.shape == (1, 1, 8, 8)
             assert torch.equal(mask_cpu, expected)
             print(float(mask_cpu[:, :, -1, -1].item()))
-            """
-        )
+        """
 
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            env=env,
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        self.assertEqual(
-            result.returncode,
-            0,
-            msg=(
-                "Transformers legacy causal-mask converter crashed on Vulkan.\n"
-                f"stdout:\n{result.stdout}\n"
-                f"stderr:\n{result.stderr}"
+        self._run_repo_python_subprocess(
+            script,
+            extra_python_paths=[self._benchmarks_python_path()],
+            error_prefix=(
+                "Transformers legacy causal-mask converter crashed on Vulkan."
             ),
         )
 
     def test_transformers_mistral_logits_to_keep_on_vulkan(self):
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        env = os.environ.copy()
-        existing_pythonpath = env.get("PYTHONPATH")
-        env["PYTHONPATH"] = (
-            repo_root
-            if not existing_pythonpath
-            else repo_root + os.pathsep + existing_pythonpath
-        )
-
-        script = textwrap.dedent(
-            """
+        script = """
             import torch
-            import sys
-            from pathlib import Path
-            sys.path.insert(0, str((Path.cwd().parent / "scripts" / "benchmarks").resolve()))
             from transformers_runtime_compat import ensure_transformers_runtime_compat
             ensure_transformers_runtime_compat(torch)
             from transformers.models.mistral.configuration_mistral import MistralConfig
@@ -1662,25 +1636,12 @@ print("OK")
             assert logits.is_vulkan
             assert logits.shape == (1, 1, 128)
             print(float(logits.cpu().sum().item()))
-            """
-        )
+        """
 
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            env=env,
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        self.assertEqual(
-            result.returncode,
-            0,
-            msg=(
-                "Transformers Mistral logits_to_keep path crashed on Vulkan.\n"
-                f"stdout:\n{result.stdout}\n"
-                f"stderr:\n{result.stderr}"
-            ),
+        self._run_repo_python_subprocess(
+            script,
+            extra_python_paths=[self._benchmarks_python_path()],
+            error_prefix="Transformers Mistral logits_to_keep path crashed on Vulkan.",
         )
 
     def test_index_select_dim0_with_large_buffer_backed_vulkan_weight_and_cpu_indices(self):
@@ -3712,6 +3673,115 @@ print("OK")
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_vulkan_packed_weight_residency_prunes_expired_sources(self):
+        log_name = "vulkan_packed_weight_residency_prune_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import gc
+                import torch
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 4, 8, dtype=torch.float32).to("vulkan")
+
+                def create_and_drop_context(seed: int):
+                    torch.manual_seed(seed)
+                    weight = torch.randn(8, 16, dtype=torch.float32)
+                    bias = torch.randn(16, dtype=torch.float32)
+                    context = torch.ops.vulkan_prepack.create_linear_context(
+                        weight,
+                        bias,
+                    )
+                    y = torch.ops.vulkan_prepack.run_linear_context(x, context)
+                    print(float(y.cpu().sum()))
+                    del y, context, weight, bias
+                    torch.ops.vulkan_prepack.synchronize()
+                    gc.collect()
+
+                with torch.inference_mode():
+                    create_and_drop_context(1)
+                    create_and_drop_context(2)
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_PACKED_WEIGHT_CACHE_LOG": log_name,
+                },
+                error_prefix="Packed-weight residency prune subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertRegex(
+                log_text,
+                r"packed_weight_residency: .* stores=2\s+evictions=[1-9][0-9]*",
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_vulkan_linear_context_cache_prunes_expired_sources(self):
+        log_name = "vulkan_linear_context_cache_prune_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import gc
+                import torch
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 4, 8, dtype=torch.float32).to("vulkan")
+
+                def create_and_drop_context(seed: int):
+                    torch.manual_seed(seed)
+                    weight = torch.randn(16, 8, dtype=torch.float32).to("vulkan")
+                    bias = torch.randn(16, dtype=torch.float32).to("vulkan")
+                    context = torch.ops.vulkan_prepack.create_linear_context_labeled(
+                        weight,
+                        bias,
+                        f"linear.cache.prune.{seed}",
+                    )
+                    y = torch.ops.vulkan_prepack.run_linear_context(x, context)
+                    print(float(y.cpu().sum()))
+                    del y, context, weight, bias
+                    torch.ops.vulkan_prepack.synchronize()
+                    gc.collect()
+
+                with torch.inference_mode():
+                    create_and_drop_context(1)
+                    create_and_drop_context(2)
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_LINEAR_CACHE_LOG": log_name,
+                },
+                error_prefix="Linear-context cache prune subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertRegex(
+                log_text,
+                r"linear_cache: .* stores=2\s+evictions=[1-9][0-9]*",
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_vulkan_runtime_policy_prefill_like_linear_bmm_enables_scratch(self):
         policy_log_name = "vulkan_runtime_policy_prefill_like_test.log"
         object_log_name = "vulkan_execution_object_prefill_like_test.log"
@@ -4549,6 +4619,79 @@ print("OK")
             if os.path.exists(sdpa_log_path):
                 os.remove(sdpa_log_path)
 
+    def test_vulkan_attention_runtime_public_entry_half_falls_back_from_replay(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sdpa_log_name = "vulkan_attention_runtime_public_half_fallback_test.log"
+        sdpa_log_path = os.path.join(repo_root, sdpa_log_name)
+        if os.path.exists(sdpa_log_path):
+            os.remove(sdpa_log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                batch = 1
+                heads = 2
+                target_len = 5
+                source_len = 7
+                head_dim = 8
+                value_dim = 8
+
+                q_ref = (torch.randn(batch, heads, target_len, head_dim) * 0.25).to(torch.float16).float()
+                k_ref = (torch.randn(batch, heads, source_len, head_dim) * 0.25).to(torch.float16).float()
+                v_ref = (torch.randn(batch, heads, source_len, value_dim) * 0.25).to(torch.float16).float()
+                q = q_ref.to(torch.float16).to("vulkan")
+                k = k_ref.to(torch.float16).to("vulkan")
+                v = v_ref.to(torch.float16).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "llama.self_attn.attention_runtime.capture.half_fallback"
+                )
+                try:
+                    with torch.inference_mode():
+                        actual = F.scaled_dot_product_attention(
+                            q,
+                            k,
+                            v,
+                            attn_mask=None,
+                            dropout_p=0.0,
+                            is_causal=False,
+                        )
+                        if actual.shape != q.shape:
+                            raise RuntimeError("Half SDPA fallback returned an unexpected shape")
+                        if not torch.isfinite(actual.cpu().float()).all():
+                            raise RuntimeError("Half SDPA fallback produced non-finite values")
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(actual.cpu().float().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_SDPA_LOG": sdpa_log_name,
+                },
+                error_prefix="Half SDPA runtime public-entry fallback subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(sdpa_log_path))
+            with open(sdpa_log_path, "r", encoding="utf-8") as log_file:
+                sdpa_log_text = log_file.read()
+            self.assertIn(
+                "math_vulkan_entry result=enter reason=ok",
+                sdpa_log_text,
+            )
+            self.assertNotIn(
+                "public_vulkan_entry result=replay reason=attention_runtime",
+                sdpa_log_text,
+            )
+        finally:
+            if os.path.exists(sdpa_log_path):
+                os.remove(sdpa_log_path)
+
     def test_vulkan_vision_backbone_inference_replay_bridge(self):
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         graph_log_name = "vulkan_vision_backbone_inference_replay_test.log"
@@ -5050,6 +5193,139 @@ print("OK")
             if os.path.exists(graph_log_path):
                 os.remove(graph_log_path)
 
+    def test_vulkan_execution_graph_root_keeps_distinct_vision_bundles(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        graph_log_name = "vulkan_execution_graph_root_distinct_vision_bundle_test.log"
+        graph_log_path = os.path.join(repo_root, graph_log_name)
+        if os.path.exists(graph_log_path):
+            os.remove(graph_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                embed_dim = 32
+                hidden_dim = 64
+                token_count = 17
+                num_heads = 4
+                norm_eps = 1.0e-6
+                channels = 32
+                out_channels = 16
+
+                def make_backbone_context(label: str):
+                    return torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        norm_eps,
+                        torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim * 3, dtype=torch.float32),
+                        num_heads,
+                        torch.randn(embed_dim, embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        norm_eps,
+                        torch.randn(hidden_dim, embed_dim, dtype=torch.float32),
+                        torch.randn(hidden_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, hidden_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        label,
+                    )
+
+                def make_decoder_context(label: str):
+                    return torch.ops.vulkan_prepack.create_vision_decoder_fusion_block_context(
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(out_channels, channels, 1, 1, dtype=torch.float32),
+                        torch.randn(out_channels, dtype=torch.float32),
+                        False,
+                        label,
+                    )
+
+                backbone_context_a = make_backbone_context("depth.dino.backbone.block.bundle_collision.a")
+                decoder_context_a = make_decoder_context("depth.decoder.block.bundle_collision.a")
+                backbone_context_b = make_backbone_context("depth.dino.backbone.block.bundle_collision.b")
+                decoder_context_b = make_decoder_context("depth.decoder.block.bundle_collision.b")
+
+                backbone_input_a = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+                decoder_input_a = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+                decoder_skip_a = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+                backbone_input_b = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+                decoder_input_b = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+                decoder_skip_b = torch.randn(1, channels, 8, 8, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.vision.shared.bundle_collision"
+                )
+                try:
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.run_vision_backbone_decoder_replay_bundle_bridge(
+                            backbone_input_a,
+                            backbone_context_a,
+                            decoder_input_a,
+                            decoder_skip_a,
+                            [16, 16],
+                            decoder_context_a,
+                        )
+                        y_backbone_b, y_decoder_b = torch.ops.vulkan_prepack.run_vision_backbone_decoder_replay_bundle_bridge(
+                            backbone_input_b,
+                            backbone_context_b,
+                            decoder_input_b,
+                            decoder_skip_b,
+                            [16, 16],
+                            decoder_context_b,
+                        )
+                        if not torch.isfinite(y_backbone_b.cpu()).all():
+                            raise RuntimeError("Backbone bundle output produced non-finite values")
+                        if not torch.isfinite(y_decoder_b.cpu()).all():
+                            raise RuntimeError("Decoder bundle output produced non-finite values")
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(y_backbone_b.cpu().sum() + y_decoder_b.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_INFERENCE_GRAPH_LOG": graph_log_name},
+                error_prefix="Distinct shared-root vision bundle subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(graph_log_path))
+            with open(graph_log_path, "r", encoding="utf-8") as log_file:
+                graph_log_text = log_file.read()
+
+            self.assertEqual(
+                graph_log_text.count(
+                    "execution_graph_root event=store allocation_label=depth.vision.shared.bundle_collision.graph"
+                ),
+                1,
+            )
+            self.assertEqual(
+                graph_log_text.count(
+                    "execution_graph_root event=bundle_store allocation_label=depth.vision.shared.bundle_collision.graph"
+                ),
+                2,
+            )
+            self.assertEqual(
+                graph_log_text.count(
+                    "inference_replay event=store kind=ExecutionGraphBundle allocation_label=depth.vision.shared.bundle_collision.graph.vision.backbone_decoder.replay"
+                ),
+                2,
+            )
+        finally:
+            if os.path.exists(graph_log_path):
+                os.remove(graph_log_path)
+
     def test_vulkan_vision_backbone_stack_replay_bundle_bridge(self):
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         graph_log_name = "vulkan_vision_backbone_stack_replay_bundle_test.log"
@@ -5096,6 +5372,11 @@ print("OK")
                     make_context("depth.dino.backbone.bundle.block2"),
                 ]
                 capture_indices = [0, 2]
+                norm_context = torch.ops.vulkan_prepack.create_layernorm_context(
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    norm_eps,
+                )
 
                 x0 = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
                 x1 = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
@@ -5111,9 +5392,26 @@ print("OK")
                             outputs.append(current.cpu().clone())
                     return outputs
 
+                def run_sequential_norm(inp):
+                    current = inp
+                    outputs = []
+                    for idx, context in enumerate(contexts):
+                        current = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                            current, context
+                        )
+                        if idx in capture_indices:
+                            outputs.append(
+                                torch.ops.vulkan_prepack.run_layernorm_context(
+                                    current, [embed_dim], norm_context
+                                ).cpu().clone()
+                            )
+                    return outputs
+
                 with torch.inference_mode():
                     expected0 = run_sequential(x0)
                     expected1 = run_sequential(x1)
+                    expected0_norm = run_sequential_norm(x0)
+                    expected1_norm = run_sequential_norm(x1)
 
                 previous = torch.ops.vulkan_prepack.swap_runtime_label(
                     "depth.vision.stack.capture.17x32"
@@ -5138,7 +5436,35 @@ print("OK")
                     if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
                         raise RuntimeError("Backbone stack replay bundle replay output mismatch")
 
-                print(float(sum(t.sum() for t in y0_cpu) + sum(t.sum() for t in y1_cpu)))
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.vision.stack.norm.capture.17x32"
+                )
+                try:
+                    with torch.inference_mode():
+                        y0_norm = torch.ops.vulkan_prepack.run_vision_backbone_stack_norm_replay_bundle_bridge(
+                            x0, contexts, capture_indices, [embed_dim], norm_context
+                        )
+                        y0_norm_cpu = [tensor.cpu().clone() for tensor in y0_norm]
+                        y1_norm = torch.ops.vulkan_prepack.run_vision_backbone_stack_norm_replay_bundle_bridge(
+                            x1, contexts, capture_indices, [embed_dim], norm_context
+                        )
+                        y1_norm_cpu = [tensor.cpu().clone() for tensor in y1_norm]
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                for actual, expected in zip(y0_norm_cpu, expected0_norm):
+                    if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
+                        raise RuntimeError("Backbone stack norm replay bundle warmup output mismatch")
+                for actual, expected in zip(y1_norm_cpu, expected1_norm):
+                    if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
+                        raise RuntimeError("Backbone stack norm replay bundle replay output mismatch")
+
+                print(float(
+                    sum(t.sum() for t in y0_cpu)
+                    + sum(t.sum() for t in y1_cpu)
+                    + sum(t.sum() for t in y0_norm_cpu)
+                    + sum(t.sum() for t in y1_norm_cpu)
+                ))
             """
 
             self._run_repo_python_subprocess(
@@ -5171,6 +5497,11 @@ print("OK")
                 "inference_replay event=submit kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay",
                 graph_log_text,
             )
+            self.assertIn(
+                "execution_graph_root event=bundle_store allocation_label=depth.vision.stack.norm.capture.17x32.graph",
+                graph_log_text,
+            )
+            self.assertIn("normctx", graph_log_text)
         finally:
             if os.path.exists(graph_log_path):
                 os.remove(graph_log_path)

@@ -7,6 +7,9 @@
 #include <ATen/ops/rsqrt.h>
 #include <c10/core/InferenceMode.h>
 
+#include <algorithm>
+#include <utility>
+
 namespace at {
 namespace native {
 namespace vulkan {
@@ -76,6 +79,51 @@ Tensor layer_norm_context_parameter_to_buffer(const Tensor& tensor) {
           vulkan_tensor, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
       api::ExecutionLayout::BUFFER_DIRECT,
       true);
+}
+
+bool can_run_add_layer_norm_buffer_width(
+    const Tensor& residual_arg,
+    const Tensor& addend_arg,
+    IntArrayRef normalized_shape,
+    const std::optional<Tensor>& weight_opt,
+    const std::optional<Tensor>& bias_opt,
+    const Tensor& residual_output,
+    const Tensor& norm_output) {
+  if (
+      !residual_arg.is_vulkan() || !addend_arg.is_vulkan() ||
+      !residual_output.defined() || !norm_output.defined() ||
+      !residual_output.is_vulkan() || !norm_output.is_vulkan() ||
+      residual_arg.scalar_type() != kFloat ||
+      addend_arg.scalar_type() != kFloat ||
+      residual_output.scalar_type() != kFloat ||
+      norm_output.scalar_type() != kFloat ||
+      !residual_arg.sizes().equals(addend_arg.sizes()) ||
+      !residual_arg.sizes().equals(residual_output.sizes()) ||
+      !residual_arg.sizes().equals(norm_output.sizes()) ||
+      residual_arg.dim() < 2 || residual_arg.dim() > 4 ||
+      normalized_shape.size() != 1u ||
+      normalized_shape.front() != residual_arg.size(-1) ||
+      !weight_opt.has_value() || !bias_opt.has_value() ||
+      !weight_opt->defined() || !bias_opt->defined() ||
+      weight_opt->scalar_type() != kFloat ||
+      bias_opt->scalar_type() != kFloat ||
+      !weight_opt->sizes().equals(normalized_shape) ||
+      !bias_opt->sizes().equals(normalized_shape)) {
+    return false;
+  }
+
+  const vTensor& v_residual = convert(residual_arg);
+  const vTensor& v_addend = convert(addend_arg);
+  const vTensor& v_residual_output = convert(residual_output);
+  const vTensor& v_norm_output = convert(norm_output);
+  return v_residual.storage_type() == api::StorageType::BUFFER &&
+      v_addend.storage_type() == api::StorageType::BUFFER &&
+      v_residual_output.storage_type() == api::StorageType::BUFFER &&
+      v_norm_output.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_reduction_compute(v_residual) &&
+      utils::supports_buffer_reduction_compute(v_addend) &&
+      utils::supports_buffer_reduction_compute(v_residual_output) &&
+      utils::supports_buffer_reduction_compute(v_norm_output);
 }
 
 } // namespace
@@ -205,6 +253,129 @@ Tensor run_layernorm_context_out(
   }
   output = result;
   return output;
+}
+
+std::optional<std::pair<Tensor, Tensor>> try_run_add_layernorm_context_out(
+    const Tensor& residual_arg,
+    const Tensor& addend_arg,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& layernorm_context,
+    Tensor& residual_output_arg,
+    Tensor& norm_output_arg) {
+  const Tensor residual =
+      residual_arg.is_vulkan() ? residual_arg : residual_arg.vulkan();
+  const Tensor addend =
+      addend_arg.is_vulkan() ? addend_arg : addend_arg.vulkan();
+  const std::optional<Tensor> weight_opt = layernorm_context->weight();
+  const std::optional<Tensor> bias_opt = layernorm_context->bias();
+
+  if (!can_run_add_layer_norm_buffer_width(
+          residual,
+          addend,
+          normalized_shape,
+          weight_opt,
+          bias_opt,
+          residual_output_arg,
+          norm_output_arg)) {
+    return std::nullopt;
+  }
+
+  std::optional<api::RuntimeLabelScope> runtime_scope;
+  if (!layernorm_context->allocation_label().empty()) {
+    runtime_scope.emplace(layernorm_context->allocation_label());
+  }
+
+  api::AllocationScope allocation_scope("add_layer_norm.buffer_width");
+  api::Context* const context = api::context();
+  utils::log_vulkan_op_hit("aten::add_layer_norm.buffer_width");
+
+  Tensor weight = utils::prepare_vulkan_execution_tensor(
+      *weight_opt, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  Tensor bias = utils::prepare_vulkan_execution_tensor(
+      *bias_opt, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  Tensor residual_output = utils::mark_tensor_execution(
+      residual_output_arg,
+      utils::resolve_buffer_execution_layout(convert(residual_output_arg)),
+      false);
+  Tensor norm_output = utils::mark_tensor_execution(
+      norm_output_arg,
+      utils::resolve_buffer_execution_layout(convert(norm_output_arg)),
+      false);
+
+  const vTensor& v_residual = convert(residual);
+  const vTensor& v_addend = convert(addend);
+  vTensor& v_residual_output = convert(residual_output);
+  vTensor& v_norm_output = convert(norm_output);
+  const vTensor& v_weight = convert(weight);
+  const vTensor& v_bias = convert(bias);
+
+  const struct Block final {
+    float eps;
+    float fill0;
+    float fill1;
+    float fill2;
+  } block{
+      api::utils::safe_downcast<float>(layernorm_context->eps()),
+      0.0f,
+      0.0f,
+      0.0f,
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer residual_out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_residual_output);
+  api::UniformParamsBuffer norm_out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_norm_output);
+  api::UniformParamsBuffer residual_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_residual);
+  api::UniformParamsBuffer addend_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_addend);
+  api::UniformParamsBuffer weight_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_weight);
+  api::UniformParamsBuffer bias_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_bias);
+
+  const uint32_t normalized_size = api::utils::safe_downcast<uint32_t>(
+      std::max<int64_t>(normalized_shape.front(), 1));
+  const api::utils::uvec3 global_size{
+      api::utils::safe_downcast<uint32_t>(
+          v_norm_output.numel() / normalized_size),
+      1u,
+      1u,
+  };
+
+  api::PipelineBarrier pipeline_barrier{};
+  context->submit_compute_job(
+      VK_KERNEL(add_layer_norm_width_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_residual_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      residual_out_meta.buffer(),
+      v_norm_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      norm_out_meta.buffer(),
+      v_residual.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      residual_meta.buffer(),
+      v_addend.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      addend_meta.buffer(),
+      v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      weight_meta.buffer(),
+      v_bias.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      bias_meta.buffer(),
+      params.buffer());
+
+  if (c10::InferenceMode::is_enabled()) {
+    maybe_synchronize_after_norm();
+  }
+
+  return std::make_pair(residual_output, norm_output);
 }
 
 } // namespace ops

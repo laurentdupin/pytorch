@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include <array>
+#include <cstdlib>
 #include <fstream>
 
 #ifndef AT_PER_OPERATOR_HEADERS
@@ -1149,6 +1150,96 @@ bool can_run_float_buffer_conv_transpose2d(
   return true;
 }
 
+bool can_use_float_buffer_nonoverlap_conv_transpose2d(
+    const PackedWeightHandle& packed_weight,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const IntArrayRef output_padding) {
+  if (
+      stride.size() != 2 || padding.size() != 2 || dilation.size() != 2 ||
+      !output_padding_is_zero(output_padding)) {
+    return false;
+  }
+
+  if (
+      padding[0] != 0 || padding[1] != 0 || dilation[0] != 1 ||
+      dilation[1] != 1) {
+    return false;
+  }
+
+  const auto& logical_weight_sizes = packed_weight.logical_weight_sizes();
+  return get_dim<DimTConv2DKernel::Height>(logical_weight_sizes) == stride[0] &&
+      get_dim<DimTConv2DKernel::Width>(logical_weight_sizes) == stride[1];
+}
+
+enum class FloatBufferConv2dShaderKind {
+  Generic,
+  Pointwise1x1,
+  Kernel3x3Stride1Pad1,
+  Kernel3x3Stride2Pad1,
+};
+
+FloatBufferConv2dShaderKind select_float_buffer_conv2d_shader_kind(
+    const PackedWeightHandle& packed_weight,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups) {
+  if (
+      groups != 1 || stride.size() != 2 || padding.size() != 2 ||
+      dilation.size() != 2 || dilation[0] != 1 || dilation[1] != 1) {
+    return FloatBufferConv2dShaderKind::Generic;
+  }
+
+  const auto& logical_weight_sizes = packed_weight.logical_weight_sizes();
+  if (logical_weight_sizes.size() != 4) {
+    return FloatBufferConv2dShaderKind::Generic;
+  }
+
+  const int64_t kernel_h = get_dim<DimConv2DKernel::Height>(logical_weight_sizes);
+  const int64_t kernel_w = get_dim<DimConv2DKernel::Width>(logical_weight_sizes);
+  if (
+      kernel_h == 1 && kernel_w == 1 && stride[0] == 1 && stride[1] == 1 &&
+      padding[0] == 0 && padding[1] == 0) {
+    return FloatBufferConv2dShaderKind::Pointwise1x1;
+  }
+
+  if (kernel_h == 3 && kernel_w == 3 && padding[0] == 1 && padding[1] == 1) {
+    if (stride[0] == 1 && stride[1] == 1) {
+      return FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1;
+    }
+    if (stride[0] == 2 && stride[1] == 2) {
+      return FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad1;
+    }
+  }
+
+  return FloatBufferConv2dShaderKind::Generic;
+}
+
+api::utils::uvec3 select_float_buffer_conv2d_work_group_size(
+    const FloatBufferConv2dShaderKind shader_kind,
+    const api::utils::uvec3& global_size) {
+  if (global_size.data[2u] <= 1u) {
+    return adaptive_work_group_size(global_size);
+  }
+
+  // The specialized float buffer conv kernels do not share work across
+  // adjacent output channels, so keeping the z dimension at 1 tends to map
+  // better to the large spatial tiles used by the decoder-head hot path.
+  switch (shader_kind) {
+    case FloatBufferConv2dShaderKind::Pointwise1x1:
+      return {16u, 4u, 1u};
+    case FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1:
+    case FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad1:
+      return {8u, 8u, 1u};
+    case FloatBufferConv2dShaderKind::Generic:
+      return adaptive_work_group_size(global_size);
+  }
+
+  return adaptive_work_group_size(global_size);
+}
+
 Tensor prepare_runtime_float_buffer_conv_input(const Tensor& input_arg) {
   Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
   if (input.scalar_type() == kHalf) {
@@ -1202,7 +1293,9 @@ Tensor run_float_buffer_conv2d_impl(
     const float output_min,
     const float output_max,
     Tensor* output_arg) {
-  utils::log_vulkan_op_hit("aten::convolution.buffer_float");
+  FloatBufferConv2dShaderKind shader_kind =
+      select_float_buffer_conv2d_shader_kind(
+          packed_weight, stride, padding, dilation, groups);
   api::AllocationScope allocation_scope("conv.float_buffer");
   api::Context* const context = api::context();
 
@@ -1212,6 +1305,20 @@ Tensor run_float_buffer_conv2d_impl(
 
   const std::vector<int64_t> output_size = conv_output_size(
       v_input.sizes(), packed_weight.logical_weight_sizes(), padding, stride, dilation);
+  switch (shader_kind) {
+    case FloatBufferConv2dShaderKind::Pointwise1x1:
+      utils::log_vulkan_op_hit("aten::convolution.buffer_float_1x1");
+      break;
+    case FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1:
+      utils::log_vulkan_op_hit("aten::convolution.buffer_float_3x3_s1p1");
+      break;
+    case FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad1:
+      utils::log_vulkan_op_hit("aten::convolution.buffer_float_3x3_s2p1");
+      break;
+    case FloatBufferConv2dShaderKind::Generic:
+      utils::log_vulkan_op_hit("aten::convolution.buffer_float");
+      break;
+  }
   Tensor output_tensor;
   vTensor* v_output_ptr = nullptr;
   vTensor owned_output;
@@ -1274,12 +1381,28 @@ Tensor run_float_buffer_conv2d_impl(
       api::utils::safe_downcast<uint32_t>(output_size[2]),
       api::utils::safe_downcast<uint32_t>(output_size[0] * output_size[1]),
   };
+  const api::utils::uvec3 local_size =
+      select_float_buffer_conv2d_work_group_size(shader_kind, global_size);
+  api::ShaderInfo shader = VK_KERNEL(conv2d_buffer_float);
+  switch (shader_kind) {
+    case FloatBufferConv2dShaderKind::Pointwise1x1:
+      shader = VK_KERNEL(conv2d_buffer_float_1x1);
+      break;
+    case FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1:
+      shader = VK_KERNEL(conv2d_buffer_float_3x3_s1p1);
+      break;
+    case FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad1:
+      shader = VK_KERNEL(conv2d_buffer_float_3x3_s2p1);
+      break;
+    case FloatBufferConv2dShaderKind::Generic:
+      break;
+  }
 
   context->submit_compute_job(
-      VK_KERNEL(conv2d_buffer_float),
+      shader,
       pipeline_barrier,
       global_size,
-      adaptive_work_group_size(global_size),
+      local_size,
       VK_NULL_HANDLE,
       v_output.buffer(
           pipeline_barrier,
@@ -1329,7 +1452,13 @@ Tensor run_float_buffer_conv_transpose2d_impl(
     const float output_min,
     const float output_max,
     Tensor* output_arg) {
-  utils::log_vulkan_op_hit("aten::convolution.buffer_float_transpose");
+  const bool use_nonoverlap_kernel =
+      can_use_float_buffer_nonoverlap_conv_transpose2d(
+          packed_weight, stride, padding, dilation, output_padding);
+  utils::log_vulkan_op_hit(
+      use_nonoverlap_kernel
+          ? "aten::convolution.buffer_float_transpose_nonoverlap"
+          : "aten::convolution.buffer_float_transpose");
   api::AllocationScope allocation_scope("conv_transpose.float_buffer");
   api::Context* const context = api::context();
 
@@ -1406,9 +1535,12 @@ Tensor run_float_buffer_conv_transpose2d_impl(
       api::utils::safe_downcast<uint32_t>(output_size[2]),
       api::utils::safe_downcast<uint32_t>(output_size[0] * output_size[1]),
   };
+  const api::ShaderInfo shader = use_nonoverlap_kernel
+      ? VK_KERNEL(conv_transpose2d_buffer_float_nonoverlap)
+      : VK_KERNEL(conv_transpose2d_buffer_float);
 
   context->submit_compute_job(
-      VK_KERNEL(conv_transpose2d_buffer_float),
+      shader,
       pipeline_barrier,
       global_size,
       adaptive_work_group_size(global_size),
@@ -1973,7 +2105,8 @@ static Tensor run_conv2d_context_impl(
     const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
     double scale,
     int64_t zero_point,
-    Tensor* output_arg = nullptr) {
+    Tensor* output_arg = nullptr,
+    const bool fuse_relu = false) {
   const PackedWeightHandle& packed_weight = conv_context->packed_weight();
   const auto quantized = conv_context->quantized();
   const auto& stride = conv_context->stride();
@@ -1981,8 +2114,12 @@ static Tensor run_conv2d_context_impl(
   const auto& output_padding = conv_context->output_padding();
   const auto& dilation = conv_context->dilation();
   const auto transposed = conv_context->transposed();
-  const float output_min = conv_context->output_min();
-  const float output_max = conv_context->output_max();
+  float output_min = conv_context->output_min();
+  float output_max = conv_context->output_max();
+  if (fuse_relu) {
+    output_min = output_min > 0.0f ? output_min : 0.0f;
+    output_max = output_max > 0.0f ? output_max : 0.0f;
+  }
 
   if (!quantized && packed_weight.execution_layout() ==
           api::ExecutionLayout::BUFFER_DIRECT) {
@@ -2119,6 +2256,14 @@ Tensor run_conv2d_context_out(
     const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
     Tensor& output) {
   return run_conv2d_context_impl(input_arg, conv_context, 1.0f, 0u, &output);
+}
+
+Tensor run_conv2d_context_relu_out(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
+    Tensor& output) {
+  return run_conv2d_context_impl(
+      input_arg, conv_context, 1.0f, 0u, &output, /*fuse_relu=*/true);
 }
 
 Tensor run_tconv2d_context(
