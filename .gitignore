@@ -258,6 +258,10 @@ build_ios
 .build_release/*
 .build_profile/*
 distribute/*
+
+# Keep local backend design notes versioned.
+!design/
+!design/*.md
 *.testbin
 *.bin
 cmake_build
