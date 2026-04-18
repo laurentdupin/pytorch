@@ -383,6 +383,10 @@ third_party/glog/
 # Virtualenv
 .venv/
 venv/
+.build-venvs/
+.build-logs/
+dist-vulkan/
+torch_python-build*.pid
 
 # Log files
 *.log

@@ -20,7 +20,8 @@ call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul
 if errorlevel 1 exit /b %errorlevel%
 if defined _CODEX_TEMP set "TEMP=%_CODEX_TEMP%"
 if defined _CODEX_TMP set "TMP=%_CODEX_TMP%"
-for %%I in ("%~dp0..\.venv\Scripts\python.exe") do set "PYTHON_EXE=%%~fI"
+for %%I in ("%~dp0..\..\..") do set "REPO_ROOT=%%~fI"
+for %%I in ("%REPO_ROOT%\.venv\Scripts\python.exe") do set "PYTHON_EXE=%%~fI"
 if not exist "%PYTHON_EXE%" (
   echo Failed to locate repo venv python at "%PYTHON_EXE%">&2
   exit /b 1
