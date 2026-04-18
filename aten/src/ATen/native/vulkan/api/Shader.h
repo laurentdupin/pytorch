@@ -61,6 +61,8 @@ struct ShaderInfo final {
   std::vector<uint32_t> tile_size;
   StorageType bias_storage_type{StorageType::UNKNOWN};
   StorageType weight_storage_type{StorageType::UNKNOWN};
+  uint32_t required_subgroup_size{0u};
+  bool require_full_subgroups{false};
 
   explicit ShaderInfo();
   explicit ShaderInfo(std::string, const char*);

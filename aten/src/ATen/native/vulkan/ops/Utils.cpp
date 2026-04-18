@@ -1015,6 +1015,12 @@ Tensor cast_vulkan_tensor_dtype(const Tensor& input_arg, ScalarType dtype) {
       }
       return cast_vulkan_tensor_dtype_buffer_native(
           input, dtype, VK_KERNEL(buffer_cast_int_to_float));
+    case VulkanCastMethod::NativeBufferFloatToBFloat16:
+      if (!can_native_buffer_cast_input(v_input)) {
+        return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
+      }
+      return cast_vulkan_tensor_dtype_buffer_native(
+          input, dtype, VK_KERNEL(buffer_cast_float_to_bfloat16));
     case VulkanCastMethod::NativeBufferBFloat16ToFloat:
       if (!can_native_buffer_cast_input(v_input)) {
         return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);

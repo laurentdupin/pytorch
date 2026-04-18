@@ -177,10 +177,26 @@ ComputePipeline::ComputePipeline(
       &descriptor.local_work_group, // pData
   };
 
+  VkPipelineShaderStageRequiredSubgroupSizeCreateInfo
+      required_subgroup_size_create_info{
+          VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO,
+          nullptr,
+          descriptor.required_subgroup_size,
+      };
+  const void* shader_stage_pnext = nullptr;
+  VkPipelineShaderStageCreateFlags shader_stage_flags = 0u;
+  if (descriptor.required_subgroup_size != 0u) {
+    shader_stage_pnext = &required_subgroup_size_create_info;
+  }
+  if (descriptor.require_full_subgroups) {
+    shader_stage_flags |=
+        VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT;
+  }
+
   const VkPipelineShaderStageCreateInfo shader_stage_create_info{
       VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, // sType
-      nullptr, // pNext
-      0u, // flags
+      shader_stage_pnext, // pNext
+      shader_stage_flags, // flags
       VK_SHADER_STAGE_COMPUTE_BIT, // stage
       descriptor.shader_module, // module
       "main", // pName
@@ -236,7 +252,9 @@ static bool operator==(
   return (
       _1.pipeline_layout == _2.pipeline_layout &&
       _1.shader_module == _2.shader_module &&
-      _1.local_work_group == _2.local_work_group);
+      _1.local_work_group == _2.local_work_group &&
+      _1.required_subgroup_size == _2.required_subgroup_size &&
+      _1.require_full_subgroups == _2.require_full_subgroups);
 }
 
 //

@@ -18,6 +18,7 @@ enum class VulkanLinearKernelFamily : uint8_t {
   TexturePacked = 0u,
   UnifiedBufferView,
   PersistentPackedTexture,
+  CooperativeMatrix,
 };
 
 enum class VulkanNormKernelFamily : uint8_t {

@@ -77,6 +77,15 @@ VulkanPlanningRequest apply_scoped_planning_request(
     const VulkanPlanningRequest& fallback_request,
     const VulkanPlanningRequest& scope_request) {
   VulkanPlanningRequest request = fallback_request;
+  if (
+      !request.fixed_shape_graph_input_sizes.has_value() &&
+      scope_request.fixed_shape_graph_input_sizes.has_value()) {
+    request.fixed_shape_graph_input_sizes =
+        scope_request.fixed_shape_graph_input_sizes;
+  }
+  request.prefer_packed_layout_propagation =
+      request.prefer_packed_layout_propagation ||
+      scope_request.prefer_packed_layout_propagation;
   if (has_explicit_planning_context(request)) {
     return request;
   }

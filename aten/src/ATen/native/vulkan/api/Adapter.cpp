@@ -12,17 +12,46 @@ namespace native {
 namespace vulkan {
 namespace api {
 
-PhysicalDevice::PhysicalDevice(VkPhysicalDevice physical_device_handle)
+namespace {
+
+void query_cooperative_matrix_support(
+    VkInstance instance,
+    VkPhysicalDevice physical_device_handle,
+    const bool has_cooperative_matrix,
+    uint32_t& cooperative_matrix_supported_stages,
+    std::vector<CooperativeMatrixProperty>& cooperative_matrix_properties);
+
+void query_subgroup_size_control_support(
+    VkPhysicalDevice physical_device_handle,
+    uint32_t& min_subgroup_size,
+    uint32_t& max_subgroup_size,
+    uint32_t& max_compute_workgroup_subgroups,
+    uint32_t& required_subgroup_size_stages);
+
+} // namespace
+
+PhysicalDevice::PhysicalDevice(
+    VkInstance instance,
+    VkPhysicalDevice physical_device_handle)
     : handle(physical_device_handle),
       properties{},
       memory_properties{},
       queue_families{},
       num_compute_queues(0),
       has_unified_memory(false),
+      has_timestamps(properties.limits.timestampComputeAndGraphics),
       has_shader_bfloat16(false),
       has_shader_int8(false),
       has_storage_buffer_8bit(false),
-      has_timestamps(properties.limits.timestampComputeAndGraphics),
+      has_cooperative_matrix(false),
+      has_subgroup_size_control(false),
+      has_compute_full_subgroups(false),
+      min_subgroup_size(0u),
+      max_subgroup_size(0u),
+      max_compute_workgroup_subgroups(0u),
+      required_subgroup_size_stages(0u),
+      cooperative_matrix_supported_stages(0u),
+      cooperative_matrix_properties{},
       timestamp_period(properties.limits.timestampPeriod) {
   // Extract physical device properties
   vkGetPhysicalDeviceProperties(handle, &properties);
@@ -51,6 +80,24 @@ PhysicalDevice::PhysicalDevice(VkPhysicalDevice physical_device_handle)
       VK_FALSE,
       VK_FALSE,
   };
+#endif
+#if defined(VK_VERSION_1_3) || defined(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)
+  VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
+      nullptr,
+      VK_FALSE,
+      VK_FALSE,
+  };
+#endif
+#ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
+  VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR,
+      nullptr,
+      VK_FALSE,
+      VK_FALSE,
+  };
+#endif
+#ifdef VK_VERSION_1_2
   void* features2_pnext = nullptr;
 #ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
   shader_bfloat16_features.pNext = features2_pnext;
@@ -60,6 +107,14 @@ PhysicalDevice::PhysicalDevice(VkPhysicalDevice physical_device_handle)
   features2_pnext = &shader_float16_int8_features;
   storage_8bit_features.pNext = features2_pnext;
   features2_pnext = &storage_8bit_features;
+#ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
+  cooperative_matrix_features.pNext = features2_pnext;
+  features2_pnext = &cooperative_matrix_features;
+#endif
+#if defined(VK_VERSION_1_3) || defined(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)
+  subgroup_size_control_features.pNext = features2_pnext;
+  features2_pnext = &subgroup_size_control_features;
+#endif
   VkPhysicalDeviceFeatures2 features2{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
       features2_pnext,
@@ -73,6 +128,28 @@ PhysicalDevice::PhysicalDevice(VkPhysicalDevice physical_device_handle)
   has_shader_int8 = shader_float16_int8_features.shaderInt8 == VK_TRUE;
   has_storage_buffer_8bit =
       storage_8bit_features.storageBuffer8BitAccess == VK_TRUE;
+#ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
+  has_cooperative_matrix =
+      cooperative_matrix_features.cooperativeMatrix == VK_TRUE;
+  query_cooperative_matrix_support(
+      instance,
+      handle,
+      has_cooperative_matrix,
+      cooperative_matrix_supported_stages,
+      cooperative_matrix_properties);
+#endif
+#if defined(VK_VERSION_1_3) || defined(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)
+  has_subgroup_size_control =
+      subgroup_size_control_features.subgroupSizeControl == VK_TRUE;
+  has_compute_full_subgroups =
+      subgroup_size_control_features.computeFullSubgroups == VK_TRUE;
+  query_subgroup_size_control_support(
+      handle,
+      min_subgroup_size,
+      max_subgroup_size,
+      max_compute_workgroup_subgroups,
+      required_subgroup_size_stages);
+#endif
 #else
   VkPhysicalDeviceFeatures2 features2{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
@@ -122,6 +199,188 @@ PhysicalDevice::PhysicalDevice(VkPhysicalDevice physical_device_handle)
 }
 
 namespace {
+
+std::string get_shader_stage_flags_str(const uint32_t flags) {
+  std::stringstream ss("|");
+  if (flags & VK_SHADER_STAGE_COMPUTE_BIT) {
+    ss << " COMPUTE |";
+  }
+  return ss.str();
+}
+
+std::string get_component_type_str(const uint32_t type) {
+#ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
+  switch (static_cast<VkComponentTypeKHR>(type)) {
+    case VK_COMPONENT_TYPE_FLOAT16_KHR:
+      return "FLOAT16";
+    case VK_COMPONENT_TYPE_FLOAT32_KHR:
+      return "FLOAT32";
+    case VK_COMPONENT_TYPE_FLOAT64_KHR:
+      return "FLOAT64";
+    case VK_COMPONENT_TYPE_SINT8_KHR:
+      return "SINT8";
+    case VK_COMPONENT_TYPE_SINT16_KHR:
+      return "SINT16";
+    case VK_COMPONENT_TYPE_SINT32_KHR:
+      return "SINT32";
+    case VK_COMPONENT_TYPE_SINT64_KHR:
+      return "SINT64";
+    case VK_COMPONENT_TYPE_UINT8_KHR:
+      return "UINT8";
+    case VK_COMPONENT_TYPE_UINT16_KHR:
+      return "UINT16";
+    case VK_COMPONENT_TYPE_UINT32_KHR:
+      return "UINT32";
+    case VK_COMPONENT_TYPE_UINT64_KHR:
+      return "UINT64";
+    case VK_COMPONENT_TYPE_BFLOAT16_KHR:
+      return "BFLOAT16";
+    default:
+      break;
+  }
+#endif
+  return "UNKNOWN(" + std::to_string(type) + ')';
+}
+
+std::string get_scope_str(const uint32_t scope) {
+#ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
+  switch (static_cast<VkScopeKHR>(scope)) {
+    case VK_SCOPE_DEVICE_KHR:
+      return "DEVICE";
+    case VK_SCOPE_WORKGROUP_KHR:
+      return "WORKGROUP";
+    case VK_SCOPE_SUBGROUP_KHR:
+      return "SUBGROUP";
+    case VK_SCOPE_QUEUE_FAMILY_KHR:
+      return "QUEUE_FAMILY";
+    default:
+      break;
+  }
+#endif
+  return "UNKNOWN(" + std::to_string(scope) + ')';
+}
+
+void query_cooperative_matrix_support(
+    VkInstance instance,
+    VkPhysicalDevice physical_device_handle,
+    const bool has_cooperative_matrix,
+    uint32_t& cooperative_matrix_supported_stages,
+    std::vector<CooperativeMatrixProperty>& cooperative_matrix_properties) {
+  cooperative_matrix_supported_stages = 0u;
+  cooperative_matrix_properties.clear();
+
+#ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
+  if (
+      instance == VK_NULL_HANDLE || physical_device_handle == VK_NULL_HANDLE ||
+      !has_cooperative_matrix) {
+    return;
+  }
+
+  VkPhysicalDeviceCooperativeMatrixPropertiesKHR stage_properties{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_PROPERTIES_KHR,
+      nullptr,
+      0u,
+  };
+  VkPhysicalDeviceProperties2 properties2{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+      &stage_properties,
+      {},
+  };
+  vkGetPhysicalDeviceProperties2(physical_device_handle, &properties2);
+  cooperative_matrix_supported_stages =
+      static_cast<uint32_t>(stage_properties.cooperativeMatrixSupportedStages);
+
+  const auto get_properties =
+      reinterpret_cast<PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR>(
+          vkGetInstanceProcAddr(
+              instance, "vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR"));
+  if (!get_properties) {
+    return;
+  }
+
+  uint32_t property_count = 0u;
+  VkResult query_result =
+      get_properties(physical_device_handle, &property_count, nullptr);
+  if (
+      (query_result != VK_SUCCESS && query_result != VK_INCOMPLETE) ||
+      property_count == 0u) {
+    return;
+  }
+
+  std::vector<VkCooperativeMatrixPropertiesKHR> properties(property_count);
+  for (auto& property : properties) {
+    property.sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
+    property.pNext = nullptr;
+  }
+
+  query_result =
+      get_properties(physical_device_handle, &property_count, properties.data());
+  if (query_result != VK_SUCCESS && query_result != VK_INCOMPLETE) {
+    return;
+  }
+
+  properties.resize(property_count);
+  cooperative_matrix_properties.reserve(properties.size());
+  for (const auto& property : properties) {
+    cooperative_matrix_properties.push_back({
+        property.MSize,
+        property.NSize,
+        property.KSize,
+        static_cast<uint32_t>(property.AType),
+        static_cast<uint32_t>(property.BType),
+        static_cast<uint32_t>(property.CType),
+        static_cast<uint32_t>(property.ResultType),
+        property.saturatingAccumulation == VK_TRUE,
+        static_cast<uint32_t>(property.scope),
+    });
+  }
+#else
+  (void)instance;
+  (void)physical_device_handle;
+  (void)has_cooperative_matrix;
+#endif
+}
+
+void query_subgroup_size_control_support(
+    VkPhysicalDevice physical_device_handle,
+    uint32_t& min_subgroup_size,
+    uint32_t& max_subgroup_size,
+    uint32_t& max_compute_workgroup_subgroups,
+    uint32_t& required_subgroup_size_stages) {
+  min_subgroup_size = 0u;
+  max_subgroup_size = 0u;
+  max_compute_workgroup_subgroups = 0u;
+  required_subgroup_size_stages = 0u;
+
+#if defined(VK_VERSION_1_3) || defined(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)
+  if (physical_device_handle == VK_NULL_HANDLE) {
+    return;
+  }
+
+  VkPhysicalDeviceSubgroupSizeControlProperties subgroup_properties{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES,
+      nullptr,
+      0u,
+      0u,
+      0u,
+      0u,
+  };
+  VkPhysicalDeviceProperties2 properties2{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+      &subgroup_properties,
+      {},
+  };
+  vkGetPhysicalDeviceProperties2(physical_device_handle, &properties2);
+  min_subgroup_size = subgroup_properties.minSubgroupSize;
+  max_subgroup_size = subgroup_properties.maxSubgroupSize;
+  max_compute_workgroup_subgroups =
+      subgroup_properties.maxComputeWorkgroupSubgroups;
+  required_subgroup_size_stages =
+      static_cast<uint32_t>(subgroup_properties.requiredSubgroupSizeStages);
+#else
+  (void)physical_device_handle;
+#endif
+}
 
 void find_requested_device_extensions(
     VkPhysicalDevice physical_device,
@@ -209,6 +468,12 @@ VkDevice create_logical_device(
 #ifdef VK_KHR_8BIT_STORAGE_EXTENSION_NAME
       VK_KHR_8BIT_STORAGE_EXTENSION_NAME,
 #endif /* VK_KHR_8BIT_STORAGE_EXTENSION_NAME */
+#ifdef VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME
+      VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME,
+#endif /* VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME */
+#ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
+      VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME,
+#endif /* VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME */
   };
 
   std::vector<const char*> enabled_device_extensions;
@@ -237,6 +502,22 @@ VkDevice create_logical_device(
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES,
       nullptr,
       VK_FALSE,
+      VK_FALSE,
+      VK_FALSE,
+  };
+#endif
+#if defined(VK_VERSION_1_3) || defined(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)
+  VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
+      nullptr,
+      VK_FALSE,
+      VK_FALSE,
+  };
+#endif
+#ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
+  VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR,
+      nullptr,
       VK_FALSE,
       VK_FALSE,
   };
@@ -281,6 +562,30 @@ VkDevice create_logical_device(
     storage_8bit_features.storageBuffer8BitAccess = VK_TRUE;
     storage_8bit_features.pNext = enabled_features2.pNext;
     enabled_features2.pNext = &storage_8bit_features;
+  }
+#endif
+#if defined(VK_VERSION_1_3) || defined(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)
+  if (physical_device.has_subgroup_size_control) {
+    subgroup_size_control_features.subgroupSizeControl = VK_TRUE;
+    subgroup_size_control_features.computeFullSubgroups =
+        physical_device.has_compute_full_subgroups ? VK_TRUE : VK_FALSE;
+    subgroup_size_control_features.pNext = enabled_features2.pNext;
+    enabled_features2.pNext = &subgroup_size_control_features;
+  }
+#endif
+#ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
+  const bool enable_cooperative_matrix =
+      physical_device.has_cooperative_matrix &&
+      std::find(
+          enabled_device_extensions.begin(),
+          enabled_device_extensions.end(),
+          VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME) !=
+          enabled_device_extensions.end();
+  if (enable_cooperative_matrix) {
+    cooperative_matrix_features.cooperativeMatrix = VK_TRUE;
+    cooperative_matrix_features.cooperativeMatrixRobustBufferAccess = VK_TRUE;
+    cooperative_matrix_features.pNext = enabled_features2.pNext;
+    enabled_features2.pNext = &cooperative_matrix_features;
   }
 #endif
 
@@ -514,6 +819,46 @@ std::string Adapter::stringize() const {
   ss << "    storage8Bit:   "
      << (physical_device_.has_storage_buffer_8bit ? "true" : "false")
      << std::endl;
+  ss << "    cooperativeMatrix: "
+     << (physical_device_.has_cooperative_matrix ? "true" : "false")
+     << std::endl;
+  ss << "    subgroupSizeControl: "
+     << (physical_device_.has_subgroup_size_control ? "true" : "false")
+     << std::endl;
+  ss << "    computeFullSubgroups: "
+     << (physical_device_.has_compute_full_subgroups ? "true" : "false")
+     << std::endl;
+  ss << "    minSubgroupSize: " << physical_device_.min_subgroup_size
+     << std::endl;
+  ss << "    maxSubgroupSize: " << physical_device_.max_subgroup_size
+     << std::endl;
+  ss << "    maxComputeWorkgroupSubgroups: "
+     << physical_device_.max_compute_workgroup_subgroups << std::endl;
+  ss << "    requiredSubgroupSizeStages: "
+     << get_shader_stage_flags_str(physical_device_.required_subgroup_size_stages)
+     << std::endl;
+  ss << "    cooperativeMatrixSupportedStages: "
+     << get_shader_stage_flags_str(
+            physical_device_.cooperative_matrix_supported_stages)
+     << std::endl;
+  ss << "    cooperativeMatrixPropertyCount: "
+     << physical_device_.cooperative_matrix_properties.size() << std::endl;
+  if (!physical_device_.cooperative_matrix_properties.empty()) {
+    ss << "    Cooperative Matrix Properties [" << std::endl;
+    for (const auto& property : physical_device_.cooperative_matrix_properties) {
+      ss << "      M=" << property.m_size << " N=" << property.n_size
+         << " K=" << property.k_size
+         << " A=" << get_component_type_str(property.a_type)
+         << " B=" << get_component_type_str(property.b_type)
+         << " C=" << get_component_type_str(property.c_type)
+         << " Result=" << get_component_type_str(property.result_type)
+         << " scope=" << get_scope_str(property.scope)
+         << " saturating="
+         << (property.saturating_accumulation ? "true" : "false")
+         << std::endl;
+    }
+    ss << "    ]" << std::endl;
+  }
 
 #define PRINT_LIMIT_PROP(name)                                         \
   ss << "      " << std::left << std::setw(36) << #name << limits.name \

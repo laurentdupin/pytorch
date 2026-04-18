@@ -291,6 +291,69 @@ bool should_run_buffer_binary_tensor(const Tensor& self, const Tensor& other) {
   return self_buffer || other_buffer;
 }
 
+bool should_run_add_scaled_buffer_out(
+    const Tensor& self,
+    const Tensor& other,
+    const Tensor& scale,
+    const Tensor& output) {
+  if (
+      !self.is_vulkan() || !other.is_vulkan() || !scale.is_vulkan() ||
+      !output.defined() || !output.is_vulkan() ||
+      self.scalar_type() != kFloat || other.scalar_type() != kFloat ||
+      scale.scalar_type() != kFloat || output.scalar_type() != kFloat ||
+      !self.sizes().equals(other.sizes()) ||
+      !self.sizes().equals(output.sizes()) ||
+      self.dim() < 1 || self.dim() > 4 || scale.dim() != 1 ||
+      scale.size(0) != self.size(-1)) {
+    return false;
+  }
+
+  const vTensor& v_self = convert(self);
+  const vTensor& v_other = convert(other);
+  const vTensor& v_scale = convert(scale);
+  const vTensor& v_output = convert(output);
+  return v_self.storage_type() == api::StorageType::BUFFER &&
+      v_other.storage_type() == api::StorageType::BUFFER &&
+      v_scale.storage_type() == api::StorageType::BUFFER &&
+      v_output.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_elementwise_compute(v_self) &&
+      utils::supports_buffer_elementwise_compute(v_other) &&
+      utils::supports_buffer_elementwise_compute(v_scale) &&
+      utils::supports_buffer_elementwise_compute(v_output);
+}
+
+bool should_run_add_relu_buffer_out(
+    const Tensor& self,
+    const Tensor& other,
+    const Tensor& add_output,
+    const Tensor& relu_output) {
+  if (
+      !self.is_vulkan() || !other.is_vulkan() || !add_output.defined() ||
+      !relu_output.defined() || !add_output.is_vulkan() ||
+      !relu_output.is_vulkan() || self.scalar_type() != kFloat ||
+      other.scalar_type() != kFloat || add_output.scalar_type() != kFloat ||
+      relu_output.scalar_type() != kFloat ||
+      !self.sizes().equals(other.sizes()) ||
+      !self.sizes().equals(add_output.sizes()) ||
+      !self.sizes().equals(relu_output.sizes()) || self.dim() < 1 ||
+      self.dim() > 4) {
+    return false;
+  }
+
+  const vTensor& v_self = convert(self);
+  const vTensor& v_other = convert(other);
+  const vTensor& v_add_output = convert(add_output);
+  const vTensor& v_relu_output = convert(relu_output);
+  return v_self.storage_type() == api::StorageType::BUFFER &&
+      v_other.storage_type() == api::StorageType::BUFFER &&
+      v_add_output.storage_type() == api::StorageType::BUFFER &&
+      v_relu_output.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_elementwise_compute(v_self) &&
+      utils::supports_buffer_elementwise_compute(v_other) &&
+      utils::supports_buffer_elementwise_compute(v_add_output) &&
+      utils::supports_buffer_elementwise_compute(v_relu_output);
+}
+
 bool should_run_buffer_binary_tensor_integral(
     const Tensor& self,
     const Tensor& other,
@@ -1500,6 +1563,159 @@ Tensor add_buffer_out_vulkan(
       alpha,
       VK_KERNEL(buffer_add),
       &output);
+}
+
+std::optional<Tensor> try_add_scaled_buffer_out_vulkan(
+    const Tensor& self_arg,
+    const Tensor& other_arg,
+    const Tensor& scale_arg,
+    Tensor& output_arg) {
+  if (!scale_arg.defined() || !output_arg.defined() || !output_arg.is_vulkan()) {
+    return std::nullopt;
+  }
+
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor other = other_arg.is_vulkan() ? other_arg : other_arg.vulkan();
+  Tensor scale = scale_arg.is_vulkan() ? scale_arg : scale_arg.vulkan();
+
+  if (!should_run_add_scaled_buffer_out(self, other, scale, output_arg)) {
+    return std::nullopt;
+  }
+
+  api::AllocationScope allocation_scope("add_scaled.buffer");
+  utils::log_vulkan_op_hit("aten::add_scaled.buffer_float");
+  api::Context* const context = api::context();
+
+  self = utils::prepare_vulkan_execution_tensor(
+      self, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  other = utils::prepare_vulkan_execution_tensor(
+      other, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  scale = utils::prepare_vulkan_execution_tensor(
+      scale, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  Tensor output = utils::mark_tensor_execution(
+      output_arg,
+      utils::resolve_buffer_execution_layout(convert(output_arg)),
+      false);
+
+  const vTensor& v_self = convert(self);
+  const vTensor& v_other = convert(other);
+  const vTensor& v_scale = convert(scale);
+  vTensor& v_output = convert(output);
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_output.numel()),
+      1u,
+      1u,
+  };
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer self_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+  api::UniformParamsBuffer other_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_other);
+  api::UniformParamsBuffer scale_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_scale);
+
+  context->submit_compute_job(
+      VK_KERNEL(add_scaled_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      self_meta.buffer(),
+      v_other.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      other_meta.buffer(),
+      v_scale.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      scale_meta.buffer());
+
+  return output;
+}
+
+std::optional<std::pair<Tensor, Tensor>> try_add_relu_buffer_out_vulkan(
+    const Tensor& self_arg,
+    const Tensor& other_arg,
+    Tensor& add_output_arg,
+    Tensor& relu_output_arg) {
+  if (
+      !add_output_arg.defined() || !relu_output_arg.defined() ||
+      !add_output_arg.is_vulkan() || !relu_output_arg.is_vulkan()) {
+    return std::nullopt;
+  }
+
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor other = other_arg.is_vulkan() ? other_arg : other_arg.vulkan();
+
+  if (!should_run_add_relu_buffer_out(
+          self, other, add_output_arg, relu_output_arg)) {
+    return std::nullopt;
+  }
+
+  api::AllocationScope allocation_scope("add_relu.buffer");
+  utils::log_vulkan_op_hit("aten::add_relu.buffer_float");
+  api::Context* const context = api::context();
+
+  self = utils::prepare_vulkan_execution_tensor(
+      self, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  other = utils::prepare_vulkan_execution_tensor(
+      other, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  Tensor add_output = utils::mark_tensor_execution(
+      add_output_arg,
+      utils::resolve_buffer_execution_layout(convert(add_output_arg)),
+      false);
+  Tensor relu_output = utils::mark_tensor_execution(
+      relu_output_arg,
+      utils::resolve_buffer_execution_layout(convert(relu_output_arg)),
+      false);
+
+  const vTensor& v_self = convert(self);
+  const vTensor& v_other = convert(other);
+  vTensor& v_add_output = convert(add_output);
+  vTensor& v_relu_output = convert(relu_output);
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_add_output.numel()),
+      1u,
+      1u,
+  };
+  api::UniformParamsBuffer add_out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_add_output);
+  api::UniformParamsBuffer relu_out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_relu_output);
+  api::UniformParamsBuffer self_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+  api::UniformParamsBuffer other_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_other);
+
+  context->submit_compute_job(
+      VK_KERNEL(add_relu_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_add_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      add_out_meta.buffer(),
+      v_relu_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      relu_out_meta.buffer(),
+      v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      self_meta.buffer(),
+      v_other.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      other_meta.buffer());
+
+  return std::make_pair(add_output, relu_output);
 }
 
 static Tensor& add_tensor_(

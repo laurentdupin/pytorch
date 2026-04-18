@@ -49,6 +49,12 @@ bool is_vision_backbone_attention_request(const VulkanPlanningRequest& request) 
        request.execution_phase == VulkanExecutionPhase::Backbone);
 }
 
+bool is_fixed_shape_vision_backbone_request(
+    const VulkanPlanningRequest& request) {
+  return is_vision_backbone_attention_request(request) &&
+      request.fixed_shape_graph_input_sizes.has_value();
+}
+
 bool is_llm_attention_runtime_request(const VulkanPlanningRequest& request) {
   return request.model_domain == VulkanModelDomain::LLM &&
       request.workload_class == VulkanWorkloadClass::LLMDecode &&
@@ -106,6 +112,11 @@ VulkanLinearKernelFamily select_linear_kernel_family(
       request.workload_class == VulkanWorkloadClass::VisionBackbone ||
       (request.model_domain == VulkanModelDomain::Vision &&
        request.execution_phase == VulkanExecutionPhase::Backbone)) {
+    if (
+        capabilities.has_cooperative_matrix &&
+        is_fixed_shape_vision_backbone_request(request)) {
+      return VulkanLinearKernelFamily::CooperativeMatrix;
+    }
     // Vision backbone execution now prefers the buffer-native compatibility
     // path. Performance tuning can continue independently, but the canonical
     // planner family for ViT-style blocks should be buffer based.
@@ -307,7 +318,22 @@ struct RuntimePolicyLogState final {
   std::atomic<uint64_t> has_shader_bfloat16{0u};
   std::atomic<uint64_t> has_shader_int8{0u};
   std::atomic<uint64_t> has_storage_buffer_8bit{0u};
+  std::atomic<uint64_t> has_cooperative_matrix{0u};
+  std::atomic<uint64_t> has_subgroup_size_control{0u};
+  std::atomic<uint64_t> has_compute_full_subgroups{0u};
+  std::atomic<uint64_t> has_subgroup_float16_cooperative_matrix_inputs{0u};
+  std::atomic<uint64_t> has_subgroup_bfloat16_cooperative_matrix_inputs{0u};
+  std::atomic<uint64_t> has_subgroup_float32_cooperative_matrix_inputs{0u};
   std::atomic<uint64_t> supports_int8_buffer_arithmetic{0u};
+  std::atomic<uint64_t> min_subgroup_size{0u};
+  std::atomic<uint64_t> max_subgroup_size{0u};
+  std::atomic<uint64_t> max_compute_workgroup_subgroups{0u};
+  std::atomic<uint64_t> required_subgroup_size_stages{0u};
+  std::atomic<uint64_t> cooperative_matrix_supported_stages{0u};
+  std::atomic<uint64_t> cooperative_matrix_property_count{0u};
+  std::atomic<uint64_t> cooperative_matrix_max_m{0u};
+  std::atomic<uint64_t> cooperative_matrix_max_n{0u};
+  std::atomic<uint64_t> cooperative_matrix_max_k{0u};
   std::atomic<uint64_t> num_compute_queues{0u};
   std::atomic<uint64_t> max_compute_workgroup_invocations{0u};
   std::atomic<uint64_t> max_compute_shared_memory_size{0u};
@@ -326,8 +352,41 @@ struct RuntimePolicyLogState final {
         << " has_shader_int8=" << has_shader_int8.load(std::memory_order_relaxed)
         << " has_storage_buffer_8bit="
         << has_storage_buffer_8bit.load(std::memory_order_relaxed)
+        << " has_cooperative_matrix="
+        << has_cooperative_matrix.load(std::memory_order_relaxed)
+        << " has_subgroup_size_control="
+        << has_subgroup_size_control.load(std::memory_order_relaxed)
+        << " has_compute_full_subgroups="
+        << has_compute_full_subgroups.load(std::memory_order_relaxed)
+        << " has_subgroup_float16_cooperative_matrix_inputs="
+        << has_subgroup_float16_cooperative_matrix_inputs.load(
+               std::memory_order_relaxed)
+        << " has_subgroup_bfloat16_cooperative_matrix_inputs="
+        << has_subgroup_bfloat16_cooperative_matrix_inputs.load(
+               std::memory_order_relaxed)
+        << " has_subgroup_float32_cooperative_matrix_inputs="
+        << has_subgroup_float32_cooperative_matrix_inputs.load(
+               std::memory_order_relaxed)
         << " supports_int8_buffer_arithmetic="
         << supports_int8_buffer_arithmetic.load(std::memory_order_relaxed)
+        << " min_subgroup_size="
+        << min_subgroup_size.load(std::memory_order_relaxed)
+        << " max_subgroup_size="
+        << max_subgroup_size.load(std::memory_order_relaxed)
+        << " max_compute_workgroup_subgroups="
+        << max_compute_workgroup_subgroups.load(std::memory_order_relaxed)
+        << " required_subgroup_size_stages="
+        << required_subgroup_size_stages.load(std::memory_order_relaxed)
+        << " cooperative_matrix_supported_stages="
+        << cooperative_matrix_supported_stages.load(std::memory_order_relaxed)
+        << " cooperative_matrix_property_count="
+        << cooperative_matrix_property_count.load(std::memory_order_relaxed)
+        << " cooperative_matrix_max_m="
+        << cooperative_matrix_max_m.load(std::memory_order_relaxed)
+        << " cooperative_matrix_max_n="
+        << cooperative_matrix_max_n.load(std::memory_order_relaxed)
+        << " cooperative_matrix_max_k="
+        << cooperative_matrix_max_k.load(std::memory_order_relaxed)
         << " num_compute_queues="
         << num_compute_queues.load(std::memory_order_relaxed)
         << " max_compute_workgroup_invocations="
@@ -385,9 +444,49 @@ void log_runtime_policy_build(const VulkanRuntimePolicy& policy) {
   state.has_storage_buffer_8bit.store(
       capabilities.has_storage_buffer_8bit ? 1u : 0u,
       std::memory_order_relaxed);
+  state.has_cooperative_matrix.store(
+      capabilities.has_cooperative_matrix ? 1u : 0u,
+      std::memory_order_relaxed);
+  state.has_subgroup_size_control.store(
+      capabilities.has_subgroup_size_control ? 1u : 0u,
+      std::memory_order_relaxed);
+  state.has_compute_full_subgroups.store(
+      capabilities.has_compute_full_subgroups ? 1u : 0u,
+      std::memory_order_relaxed);
+  state.has_subgroup_float16_cooperative_matrix_inputs.store(
+      capabilities.has_subgroup_float16_cooperative_matrix_inputs ? 1u : 0u,
+      std::memory_order_relaxed);
+  state.has_subgroup_bfloat16_cooperative_matrix_inputs.store(
+      capabilities.has_subgroup_bfloat16_cooperative_matrix_inputs ? 1u : 0u,
+      std::memory_order_relaxed);
+  state.has_subgroup_float32_cooperative_matrix_inputs.store(
+      capabilities.has_subgroup_float32_cooperative_matrix_inputs ? 1u : 0u,
+      std::memory_order_relaxed);
   state.supports_int8_buffer_arithmetic.store(
       capabilities.supports_int8_buffer_arithmetic ? 1u : 0u,
       std::memory_order_relaxed);
+  state.min_subgroup_size.store(
+      capabilities.min_subgroup_size, std::memory_order_relaxed);
+  state.max_subgroup_size.store(
+      capabilities.max_subgroup_size, std::memory_order_relaxed);
+  state.max_compute_workgroup_subgroups.store(
+      capabilities.max_compute_workgroup_subgroups,
+      std::memory_order_relaxed);
+  state.required_subgroup_size_stages.store(
+      capabilities.required_subgroup_size_stages,
+      std::memory_order_relaxed);
+  state.cooperative_matrix_supported_stages.store(
+      capabilities.cooperative_matrix_supported_stages,
+      std::memory_order_relaxed);
+  state.cooperative_matrix_property_count.store(
+      capabilities.cooperative_matrix_property_count,
+      std::memory_order_relaxed);
+  state.cooperative_matrix_max_m.store(
+      capabilities.cooperative_matrix_max_m, std::memory_order_relaxed);
+  state.cooperative_matrix_max_n.store(
+      capabilities.cooperative_matrix_max_n, std::memory_order_relaxed);
+  state.cooperative_matrix_max_k.store(
+      capabilities.cooperative_matrix_max_k, std::memory_order_relaxed);
   state.num_compute_queues.store(
       capabilities.num_compute_queues, std::memory_order_relaxed);
   state.max_compute_workgroup_invocations.store(
@@ -418,8 +517,38 @@ void log_runtime_policy_build(const VulkanRuntimePolicy& policy) {
       << " has_shader_int8=" << (capabilities.has_shader_int8 ? 1u : 0u)
       << " has_storage_buffer_8bit="
       << (capabilities.has_storage_buffer_8bit ? 1u : 0u)
+      << " has_cooperative_matrix="
+      << (capabilities.has_cooperative_matrix ? 1u : 0u)
+      << " has_subgroup_size_control="
+      << (capabilities.has_subgroup_size_control ? 1u : 0u)
+      << " has_compute_full_subgroups="
+      << (capabilities.has_compute_full_subgroups ? 1u : 0u)
+      << " has_subgroup_float16_cooperative_matrix_inputs="
+      << (capabilities.has_subgroup_float16_cooperative_matrix_inputs ? 1u : 0u)
+      << " has_subgroup_bfloat16_cooperative_matrix_inputs="
+      << (capabilities.has_subgroup_bfloat16_cooperative_matrix_inputs ? 1u
+                                                                      : 0u)
+      << " has_subgroup_float32_cooperative_matrix_inputs="
+      << (capabilities.has_subgroup_float32_cooperative_matrix_inputs ? 1u
+                                                                      : 0u)
       << " supports_int8_buffer_arithmetic="
       << (capabilities.supports_int8_buffer_arithmetic ? 1u : 0u)
+      << " min_subgroup_size=" << capabilities.min_subgroup_size
+      << " max_subgroup_size=" << capabilities.max_subgroup_size
+      << " max_compute_workgroup_subgroups="
+      << capabilities.max_compute_workgroup_subgroups
+      << " required_subgroup_size_stages="
+      << capabilities.required_subgroup_size_stages
+      << " cooperative_matrix_supported_stages="
+      << capabilities.cooperative_matrix_supported_stages
+      << " cooperative_matrix_property_count="
+      << capabilities.cooperative_matrix_property_count
+      << " cooperative_matrix_max_m="
+      << capabilities.cooperative_matrix_max_m
+      << " cooperative_matrix_max_n="
+      << capabilities.cooperative_matrix_max_n
+      << " cooperative_matrix_max_k="
+      << capabilities.cooperative_matrix_max_k
       << " num_compute_queues=" << capabilities.num_compute_queues
       << " max_compute_workgroup_invocations="
       << capabilities.max_compute_workgroup_invocations
@@ -433,6 +562,10 @@ void log_runtime_policy_build(const VulkanRuntimePolicy& policy) {
       << " execution_phase="
       << execution_phase_name(policy.request.execution_phase)
       << " tensor_role=" << tensor_role_name(policy.request.tensor_role)
+      << " fixed_shape_graph="
+      << (policy.request.fixed_shape_graph_input_sizes.has_value() ? 1u : 0u)
+      << " prefer_packed_layout_propagation="
+      << (policy.request.prefer_packed_layout_propagation ? 1u : 0u)
       << " backend_route=" << backend_route_name(policy.backend_route)
       << " linear_kernel_family="
       << linear_kernel_family_name(policy.linear_kernel_family)
@@ -487,6 +620,8 @@ const char* linear_kernel_family_name(
       return "UnifiedBufferView";
     case VulkanLinearKernelFamily::PersistentPackedTexture:
       return "PersistentPackedTexture";
+    case VulkanLinearKernelFamily::CooperativeMatrix:
+      return "CooperativeMatrix";
   }
   return "TexturePacked";
 }
@@ -544,6 +679,9 @@ void log_linear_kernel_family_choice(
       break;
     case VulkanLinearKernelFamily::PersistentPackedTexture:
       log_vulkan_op_hit("aten::linear.family_persistent_packed_texture");
+      break;
+    case VulkanLinearKernelFamily::CooperativeMatrix:
+      log_vulkan_op_hit("aten::linear.family_cooperative_matrix");
       break;
   }
 }

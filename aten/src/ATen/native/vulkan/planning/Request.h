@@ -5,6 +5,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 
 #include <optional>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -70,6 +71,8 @@ struct VulkanPlanningRequest final {
   VulkanExecutionPhase execution_phase{VulkanExecutionPhase::None};
   VulkanTensorRole tensor_role{VulkanTensorRole::Input};
   bool inferred_from_label{false};
+  bool prefer_packed_layout_propagation{false};
+  std::optional<std::vector<int64_t>> fixed_shape_graph_input_sizes;
   std::optional<VulkanAttentionShapeDesc> attention_shape;
 };
 

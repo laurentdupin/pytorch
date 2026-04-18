@@ -712,15 +712,18 @@ class TestVulkanEagerRuntime(TestCase):
             floats_to_int = floats_vulkan.to(torch.int32)
             ints_to_float = ints_vulkan.to(torch.float32)
             longs_to_float = longs_vulkan.to(torch.float32)
+            floats_to_bf16 = floats_vulkan.to(torch.bfloat16)
             bf16_to_float = bf16_vulkan.to(torch.float32)
             large_floats_to_int = large_floats_vulkan.to(torch.int32)
             large_ints_to_float = large_ints_vulkan.to(torch.float32)
             floats_view_to_int = floats_vulkan[1:, 1:].to(torch.int32)
+            floats_view_to_bf16 = floats_vulkan[1:, 1:].to(torch.bfloat16)
             bf16_view_to_float = bf16_vulkan[1:, 1:].to(torch.float32)
 
             self.assertEqual(floats_to_int.dtype, torch.int32)
             self.assertEqual(ints_to_float.dtype, torch.float32)
             self.assertEqual(longs_to_float.dtype, torch.float32)
+            self.assertEqual(floats_to_bf16.dtype, torch.bfloat16)
             self.assertEqual(bf16_to_float.dtype, torch.float32)
             self.assertEqual(large_floats_to_int.dtype, torch.int32)
             self.assertEqual(large_ints_to_float.dtype, torch.float32)
@@ -742,6 +745,11 @@ class TestVulkanEagerRuntime(TestCase):
                 atol=1e-5,
                 rtol=1e-5)
             self._assert_outputs_close(
+                floats.to(torch.bfloat16),
+                floats_to_bf16.cpu(),
+                atol=1e-2,
+                rtol=1e-2)
+            self._assert_outputs_close(
                 bf16.to(torch.float32),
                 bf16_to_float.cpu(),
                 atol=1e-2,
@@ -757,6 +765,11 @@ class TestVulkanEagerRuntime(TestCase):
             self._assert_outputs_close(
                 floats[1:, 1:].to(torch.int32),
                 floats_view_to_int.cpu())
+            self._assert_outputs_close(
+                floats[1:, 1:].to(torch.bfloat16),
+                floats_view_to_bf16.cpu(),
+                atol=1e-2,
+                rtol=1e-2)
             self._assert_outputs_close(
                 bf16[1:, 1:].to(torch.float32),
                 bf16_view_to_float.cpu(),

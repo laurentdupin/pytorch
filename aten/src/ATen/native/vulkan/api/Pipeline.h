@@ -80,6 +80,8 @@ class ComputePipeline final {
     VkPipelineLayout pipeline_layout;
     VkShaderModule shader_module;
     utils::uvec3 local_work_group;
+    uint32_t required_subgroup_size{0u};
+    bool require_full_subgroups{false};
   };
 
   explicit ComputePipeline(
@@ -173,6 +175,10 @@ class ComputePipelineCache final {
           seed, std::hash<uint32_t>()(descriptor.local_work_group.data[1u]));
       seed = utils::hash_combine(
           seed, std::hash<uint32_t>()(descriptor.local_work_group.data[2u]));
+      seed = utils::hash_combine(
+          seed, std::hash<uint32_t>()(descriptor.required_subgroup_size));
+      seed = utils::hash_combine(
+          seed, std::hash<bool>()(descriptor.require_full_subgroups));
 
       return seed;
     }

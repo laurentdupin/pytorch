@@ -13,11 +13,24 @@
 #include <array>
 #include <mutex>
 #include <ostream>
+#include <vector>
 
 namespace at {
 namespace native {
 namespace vulkan {
 namespace api {
+
+struct CooperativeMatrixProperty final {
+  uint32_t m_size;
+  uint32_t n_size;
+  uint32_t k_size;
+  uint32_t a_type;
+  uint32_t b_type;
+  uint32_t c_type;
+  uint32_t result_type;
+  bool saturating_accumulation;
+  uint32_t scope;
+};
 
 struct PhysicalDevice final {
   // Handle
@@ -35,9 +48,18 @@ struct PhysicalDevice final {
   bool has_shader_bfloat16;
   bool has_shader_int8;
   bool has_storage_buffer_8bit;
+  bool has_cooperative_matrix;
+  bool has_subgroup_size_control;
+  bool has_compute_full_subgroups;
+  uint32_t min_subgroup_size;
+  uint32_t max_subgroup_size;
+  uint32_t max_compute_workgroup_subgroups;
+  uint32_t required_subgroup_size_stages;
+  uint32_t cooperative_matrix_supported_stages;
+  std::vector<CooperativeMatrixProperty> cooperative_matrix_properties;
   float timestamp_period;
 
-  explicit PhysicalDevice(VkPhysicalDevice);
+  explicit PhysicalDevice(VkInstance, VkPhysicalDevice);
 };
 
 class DeviceHandle final {
@@ -171,8 +193,65 @@ class Adapter final {
     return physical_device_.has_storage_buffer_8bit;
   }
 
+  inline bool has_cooperative_matrix() const {
+    return physical_device_.has_cooperative_matrix;
+  }
+
+  inline bool has_subgroup_size_control() const {
+    return physical_device_.has_subgroup_size_control;
+  }
+
+  inline bool has_compute_full_subgroups() const {
+    return physical_device_.has_compute_full_subgroups;
+  }
+
+  inline uint32_t min_subgroup_size() const {
+    return physical_device_.min_subgroup_size;
+  }
+
+  inline uint32_t max_subgroup_size() const {
+    return physical_device_.max_subgroup_size;
+  }
+
+  inline uint32_t max_compute_workgroup_subgroups() const {
+    return physical_device_.max_compute_workgroup_subgroups;
+  }
+
+  inline uint32_t required_subgroup_size_stages() const {
+    return physical_device_.required_subgroup_size_stages;
+  }
+
+  inline uint32_t cooperative_matrix_supported_stages() const {
+    return physical_device_.cooperative_matrix_supported_stages;
+  }
+
+  inline const std::vector<CooperativeMatrixProperty>&
+  cooperative_matrix_properties() const {
+    return physical_device_.cooperative_matrix_properties;
+  }
+
+  inline uint32_t cooperative_matrix_property_count() const {
+    return static_cast<uint32_t>(
+        physical_device_.cooperative_matrix_properties.size());
+  }
+
   inline bool supports_int8_buffer_arithmetic() const {
     return has_shader_int8() && has_storage_buffer_8bit();
+  }
+
+  inline bool supports_cooperative_matrix() const {
+    return has_cooperative_matrix();
+  }
+
+  inline bool supports_required_subgroup_size(
+      const uint32_t stage,
+      const uint32_t subgroup_size) const {
+    const bool is_power_of_two =
+        subgroup_size != 0u && (subgroup_size & (subgroup_size - 1u)) == 0u;
+    return has_subgroup_size_control() && is_power_of_two &&
+        (required_subgroup_size_stages() & stage) != 0u &&
+        subgroup_size >= min_subgroup_size() &&
+        subgroup_size <= max_subgroup_size();
   }
 
   // Queue Management

@@ -500,11 +500,6 @@ class VisionDecoderHeadInferenceReplay final {
   VisionDecoderProgram& refinenet2_program();
   const VisionDecoderProgram& refinenet1_program() const;
   VisionDecoderProgram& refinenet1_program();
-  Tensor& output_conv1_output();
-  Tensor& upsample_output();
-  Tensor& output_conv2_conv1_output();
-  Tensor& output_conv2_relu1_output();
-  Tensor& output_conv2_conv2_output();
   Tensor& output_slot();
   const void* identity() const;
 };

@@ -1240,6 +1240,51 @@ api::utils::uvec3 select_float_buffer_conv2d_work_group_size(
   return adaptive_work_group_size(global_size);
 }
 
+bool can_run_float_buffer_conv2d_add(
+    const Tensor& input,
+    const PackedWeightHandle& packed_weight,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups,
+    const Tensor& residual) {
+  if (
+      !can_run_float_buffer_conv2d(
+          input,
+          packed_weight,
+          /*transposed=*/false,
+          /*quantized=*/false,
+          /*output_padding=*/{}) ||
+      residual.device().type() != c10::DeviceType::Vulkan ||
+      residual.scalar_type() != kFloat || residual.dim() != 4 ||
+      residual.requires_grad()) {
+    return false;
+  }
+
+  const vTensor& v_residual = convert(residual);
+  if (
+      v_residual.storage_type() != api::StorageType::BUFFER ||
+      v_residual.dtype() != api::kFloat ||
+      !utils::supports_buffer_view_fast_path(v_residual)) {
+    return false;
+  }
+
+  if (
+      select_float_buffer_conv2d_shader_kind(
+          packed_weight, stride, padding, dilation, groups) !=
+      FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1) {
+    return false;
+  }
+
+  const std::vector<int64_t> output_size = conv_output_size(
+      input.sizes(),
+      packed_weight.logical_weight_sizes(),
+      padding,
+      stride,
+      dilation);
+  return output_size == residual.sizes().vec();
+}
+
 Tensor prepare_runtime_float_buffer_conv_input(const Tensor& input_arg) {
   Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
   if (input.scalar_type() == kHalf) {
@@ -1418,6 +1463,112 @@ Tensor run_float_buffer_conv2d_impl(
       params.buffer());
 
   return output_arg != nullptr ? output_tensor : convert(v_output);
+}
+
+Tensor run_float_buffer_conv2d_add_impl(
+    const Tensor& input,
+    const PackedWeightHandle& packed_weight,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups,
+    const float output_min,
+    const float output_max,
+    const Tensor& residual,
+    Tensor& output_arg) {
+  const FloatBufferConv2dShaderKind shader_kind =
+      select_float_buffer_conv2d_shader_kind(
+          packed_weight, stride, padding, dilation, groups);
+  TORCH_CHECK(
+      shader_kind == FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1,
+      "Vulkan float buffer conv2d add fusion only supports 3x3 stride-1 pad-1");
+  api::AllocationScope allocation_scope("conv.float_buffer_add");
+  utils::log_vulkan_op_hit("aten::convolution.buffer_float_3x3_s1p1_add");
+  api::Context* const context = api::context();
+
+  const vTensor& v_input = convert(input);
+  const vTensor& v_weight = packed_weight.weight_vtensor();
+  const vTensor& v_bias = packed_weight.bias_vtensor();
+  const vTensor& v_residual = convert(residual);
+
+  const std::vector<int64_t> output_size = conv_output_size(
+      v_input.sizes(),
+      packed_weight.logical_weight_sizes(),
+      padding,
+      stride,
+      dilation);
+  Tensor output_tensor =
+      prepare_runtime_float_buffer_conv_output(output_arg, output_size);
+  vTensor& v_output = convert(output_tensor);
+
+  const struct {
+    int32_t stride_w;
+    int32_t stride_h;
+    int32_t pad_w;
+    int32_t pad_h;
+    int32_t dil_w;
+    int32_t dil_h;
+    int32_t groups;
+    int32_t has_bias;
+    float output_min;
+    float output_max;
+    float output_minmax_pad0;
+    float output_minmax_pad1;
+  } block{
+      api::utils::safe_downcast<int32_t>(stride[1]),
+      api::utils::safe_downcast<int32_t>(stride[0]),
+      api::utils::safe_downcast<int32_t>(padding[1]),
+      api::utils::safe_downcast<int32_t>(padding[0]),
+      api::utils::safe_downcast<int32_t>(dilation[1]),
+      api::utils::safe_downcast<int32_t>(dilation[0]),
+      api::utils::safe_downcast<int32_t>(groups),
+      packed_weight.has_bias() ? 1 : 0,
+      output_min,
+      output_max,
+      0.0f,
+      0.0f,
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+  api::UniformParamsBuffer weight_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_weight);
+  api::UniformParamsBuffer bias_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_bias);
+  api::UniformParamsBuffer residual_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_residual);
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size{
+      api::utils::safe_downcast<uint32_t>(output_size[3]),
+      api::utils::safe_downcast<uint32_t>(output_size[2]),
+      api::utils::safe_downcast<uint32_t>(output_size[0] * output_size[1]),
+  };
+
+  context->submit_compute_job(
+      VK_KERNEL(conv2d_buffer_float_3x3_s1p1_add),
+      pipeline_barrier,
+      global_size,
+      select_float_buffer_conv2d_work_group_size(shader_kind, global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      weight_meta.buffer(),
+      v_bias.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      bias_meta.buffer(),
+      v_residual.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      residual_meta.buffer(),
+      params.buffer());
+
+  return output_tensor;
 }
 
 Tensor run_float_buffer_conv2d(
@@ -2264,6 +2415,44 @@ Tensor run_conv2d_context_relu_out(
     Tensor& output) {
   return run_conv2d_context_impl(
       input_arg, conv_context, 1.0f, 0u, &output, /*fuse_relu=*/true);
+}
+
+std::optional<Tensor> try_run_conv2d_context_add_out(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
+    const Tensor& residual_arg,
+    Tensor& output) {
+  const PackedWeightHandle& packed_weight = conv_context->packed_weight();
+  if (
+      conv_context->quantized() || conv_context->transposed() ||
+      packed_weight.execution_layout() != api::ExecutionLayout::BUFFER_DIRECT) {
+    return std::nullopt;
+  }
+
+  Tensor input = prepare_runtime_float_buffer_conv_input(input_arg);
+  Tensor residual = prepare_runtime_float_buffer_conv_input(residual_arg);
+  if (!can_run_float_buffer_conv2d_add(
+          input,
+          packed_weight,
+          conv_context->stride(),
+          conv_context->padding(),
+          conv_context->dilation(),
+          conv_context->groups(),
+          residual)) {
+    return std::nullopt;
+  }
+
+  return run_float_buffer_conv2d_add_impl(
+      input,
+      packed_weight,
+      conv_context->stride(),
+      conv_context->padding(),
+      conv_context->dilation(),
+      conv_context->groups(),
+      conv_context->output_min(),
+      conv_context->output_max(),
+      residual,
+      output);
 }
 
 Tensor run_tconv2d_context(

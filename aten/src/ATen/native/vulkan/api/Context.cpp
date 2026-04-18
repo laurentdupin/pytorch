@@ -394,9 +394,11 @@ DescriptorSet Context::get_descriptor_set(
       pipeline_layout_cache().retrieve(shader_layout);
 
   VkPipeline pipeline = pipeline_cache().retrieve(
-      {pipeline_layout_cache().retrieve(shader_layout),
+      {pipeline_layout,
        shader_cache().retrieve(shader_descriptor),
-       local_workgroup_size});
+       local_workgroup_size,
+       shader_descriptor.required_subgroup_size,
+       shader_descriptor.require_full_subgroups});
 
   active_cmd().bind_pipeline(pipeline, pipeline_layout, local_workgroup_size);
 

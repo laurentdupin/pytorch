@@ -97,6 +97,16 @@ std::optional<std::pair<Tensor, Tensor>> try_run_add_layernorm_context_out(
     Tensor& residual_output,
     Tensor& norm_output);
 
+std::optional<std::pair<Tensor, Tensor>>
+try_run_add_scaled_layernorm_context_out(
+    const Tensor& residual,
+    const Tensor& addend,
+    const Tensor& scale,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& context,
+    Tensor& residual_output,
+    Tensor& norm_output);
+
 } // namespace ops
 } // namespace vulkan
 } // namespace native

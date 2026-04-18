@@ -113,6 +113,7 @@ enum class VulkanCastMethod : uint8_t {
   Identity,
   NativeBufferFloatToInt,
   NativeBufferIntToFloat,
+  NativeBufferFloatToBFloat16,
   NativeBufferBFloat16ToFloat,
   CpuFallback,
   Unsupported,
@@ -135,6 +136,10 @@ inline VulkanCastMethod resolve_vulkan_cast_method(
 
   if (src == c10::ScalarType::Int && dst == c10::ScalarType::Float) {
     return VulkanCastMethod::NativeBufferIntToFloat;
+  }
+
+  if (src == c10::ScalarType::Float && dst == c10::ScalarType::BFloat16) {
+    return VulkanCastMethod::NativeBufferFloatToBFloat16;
   }
 
   if (src == c10::ScalarType::BFloat16 && dst == c10::ScalarType::Float) {

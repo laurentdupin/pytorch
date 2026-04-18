@@ -1876,12 +1876,8 @@ VisionDecoderInferenceGraph::lookup_or_create_head_replay(
             layer1_sizes_vec.at(1),
             /*allocate_intermediate_outputs=*/true,
             program_plan);
-        const int64_t batch_size = output_sizes_vec.at(0);
-        const int64_t output_height = output_sizes_vec.at(2);
-        const int64_t output_width = output_sizes_vec.at(3);
-
         std::vector<Tensor> tensors;
-        tensors.reserve(10u);
+        tensors.reserve(5u);
         tensors.push_back(ops::utils::create_buffer_tensor(
             layer1_sizes, kFloat, program_plan.persistent));
         tensors.push_back(ops::utils::create_buffer_tensor(
@@ -1890,36 +1886,6 @@ VisionDecoderInferenceGraph::lookup_or_create_head_replay(
             layer3_sizes, kFloat, program_plan.persistent));
         tensors.push_back(ops::utils::create_buffer_tensor(
             layer4_sizes, kFloat, program_plan.persistent));
-        tensors.push_back(ops::utils::create_buffer_tensor(
-            {
-                batch_size,
-                output_conv1_channels,
-                refinenet1_target_sizes.at(0),
-                refinenet1_target_sizes.at(1),
-            },
-            kFloat,
-            program_plan.persistent));
-        tensors.push_back(ops::utils::create_buffer_tensor(
-            {
-                batch_size,
-                output_conv1_channels,
-                output_height,
-                output_width,
-            },
-            kFloat,
-            program_plan.persistent));
-        tensors.push_back(ops::utils::create_buffer_tensor(
-            {batch_size, output_conv2_channels, output_height, output_width},
-            kFloat,
-            program_plan.persistent));
-        tensors.push_back(ops::utils::create_buffer_tensor(
-            {batch_size, output_conv2_channels, output_height, output_width},
-            kFloat,
-            program_plan.persistent));
-        tensors.push_back(ops::utils::create_buffer_tensor(
-            {batch_size, final_channels, output_height, output_width},
-            kFloat,
-            program_plan.persistent));
         tensors.push_back(ops::utils::create_buffer_tensor(
             output_sizes, kFloat, program_plan.persistent));
         std::vector<ExecutionGraphProgramHandle> programs;
@@ -2068,28 +2034,8 @@ VisionDecoderProgram& VisionDecoderHeadInferenceReplay::refinenet1_program() {
   return expect_vision_decoder_program(graph_replay_.program_slots().program(3u));
 }
 
-Tensor& VisionDecoderHeadInferenceReplay::output_conv1_output() {
-  return graph_replay_.tensor_slots().tensor(4u);
-}
-
-Tensor& VisionDecoderHeadInferenceReplay::upsample_output() {
-  return graph_replay_.tensor_slots().tensor(5u);
-}
-
-Tensor& VisionDecoderHeadInferenceReplay::output_conv2_conv1_output() {
-  return graph_replay_.tensor_slots().tensor(6u);
-}
-
-Tensor& VisionDecoderHeadInferenceReplay::output_conv2_relu1_output() {
-  return graph_replay_.tensor_slots().tensor(7u);
-}
-
-Tensor& VisionDecoderHeadInferenceReplay::output_conv2_conv2_output() {
-  return graph_replay_.tensor_slots().tensor(8u);
-}
-
 Tensor& VisionDecoderHeadInferenceReplay::output_slot() {
-  return graph_replay_.tensor_slots().tensor(9u);
+  return graph_replay_.tensor_slots().tensor(4u);
 }
 
 const void* VisionDecoderHeadInferenceReplay::identity() const {

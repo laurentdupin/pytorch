@@ -611,6 +611,31 @@ bool needs_texture_storage_transition(
       v_input.gpu_memory_layout() == memory_layout);
 }
 
+bool should_force_fixed_shape_backbone_buffer_layout(
+    const Tensor& tensor,
+    const VulkanExecutionPlanKind kind,
+    const VulkanPlanningRequest& request) {
+  if (
+      request.model_domain != VulkanModelDomain::Vision ||
+      request.execution_phase != VulkanExecutionPhase::Backbone ||
+      !request.fixed_shape_graph_input_sizes.has_value() ||
+      !request.prefer_packed_layout_propagation) {
+    return false;
+  }
+
+  switch (kind) {
+    case VulkanExecutionPlanKind::LinearInputSource:
+    case VulkanExecutionPlanKind::NormInput:
+      break;
+    default:
+      return false;
+  }
+
+  return tensor.dim() == 2 &&
+      (tensor.scalar_type() == kFloat || tensor.scalar_type() == kHalf ||
+       tensor.scalar_type() == kBFloat16);
+}
+
 void apply_runtime_family_overrides(
     const VulkanExecutionPlanKind kind,
     const VulkanRuntimePolicy& runtime_policy,
@@ -815,6 +840,13 @@ VulkanExecutionPlan build_vulkan_execution_plan(
       persistence_hints.prefer_persistent_contexts ||
       persistence_hints.prefer_persistent_weights;
   apply_runtime_family_overrides(kind, runtime_policy, plan);
+  if (should_force_fixed_shape_backbone_buffer_layout(tensor, kind, request)) {
+    plan.execution_layout = api::ExecutionLayout::BUFFER_DIRECT;
+    plan.memory_layout = api::GPUMemoryLayout::TENSOR_WIDTH_PACKED;
+    plan.storage_type = api::StorageType::BUFFER;
+    plan.force_storage = true;
+    plan.persistent = true;
+  }
 
   if (
       const auto buffer_execution_layout =
