@@ -11,6 +11,10 @@
 #include <ATen/native/vulkan/api/Command.h>
 #include <ATen/native/vulkan/api/Pipeline.h>
 
+#include <mutex>
+#include <string>
+#include <vector>
+
 namespace at {
 namespace native {
 namespace vulkan {
@@ -26,6 +30,7 @@ struct ShaderDuration final {
 
   // Execution Properties
   std::string kernel_name;
+  std::string runtime_label;
   VkExtent3D global_workgroup_size;
   VkExtent3D local_workgroup_size;
 
@@ -103,6 +108,10 @@ class QueryPool final {
   uint64_t get_total_op_ns(const std::string& op_name);
   uint64_t ns_per_tick_;
   void shader_log_for_each(std::function<void(const ShaderDuration&)> fn);
+  bool has_pending_results();
+  bool has_entries();
+  void mark_results_pending();
+  void clear_after_reset(const CommandBuffer&);
   /**
    * query_index is what number entry across all of the QueryPool's shader logs
    * is being queried, regardless of resets. This may be different than

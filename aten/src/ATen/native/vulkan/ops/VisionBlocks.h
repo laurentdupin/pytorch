@@ -534,6 +534,33 @@ std::vector<Tensor> run_vision_backbone_stack_norm_replay_bundle_bridge(
     IntArrayRef normalized_shape,
     const c10::intrusive_ptr<LayernormPackedContext>& norm_context);
 
+Tensor run_depth_anything_v2_compiled_session_bridge(
+    const Tensor& input,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& norm_context,
+    int64_t patch_h,
+    int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>&
+        decoder_context);
+
+Tensor run_depth_anything_v2_image_compiled_session_bridge(
+    const Tensor& input,
+    const c10::intrusive_ptr<Conv2dPackedContext>& patch_embed_context,
+    const Tensor& prefix_token,
+    const Tensor& patch_pos_encoding,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& norm_context,
+    int64_t patch_h,
+    int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>&
+        decoder_context);
+
 Tensor tokens_to_feature_map(
     const Tensor& input,
     int64_t height,

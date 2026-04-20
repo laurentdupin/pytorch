@@ -39,7 +39,7 @@ PhysicalDevice::PhysicalDevice(
       queue_families{},
       num_compute_queues(0),
       has_unified_memory(false),
-      has_timestamps(properties.limits.timestampComputeAndGraphics),
+      has_timestamps(false),
       has_shader_bfloat16(false),
       has_shader_int8(false),
       has_storage_buffer_8bit(false),
@@ -52,10 +52,12 @@ PhysicalDevice::PhysicalDevice(
       required_subgroup_size_stages(0u),
       cooperative_matrix_supported_stages(0u),
       cooperative_matrix_properties{},
-      timestamp_period(properties.limits.timestampPeriod) {
+      timestamp_period(0.0f) {
   // Extract physical device properties
   vkGetPhysicalDeviceProperties(handle, &properties);
   vkGetPhysicalDeviceMemoryProperties(handle, &memory_properties);
+  has_timestamps = properties.limits.timestampComputeAndGraphics;
+  timestamp_period = properties.limits.timestampPeriod;
 
 #ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
   VkPhysicalDeviceShaderBfloat16FeaturesKHR shader_bfloat16_features{

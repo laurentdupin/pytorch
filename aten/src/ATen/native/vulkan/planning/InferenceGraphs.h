@@ -154,6 +154,15 @@ ExecutionGraphReplayStep make_execution_graph_replay_step(
     ExecutionGraphReplay replay,
     std::function<void()> record_step);
 
+ExecutionGraphReplay make_execution_graph_replay(
+    const std::string& allocation_label,
+    VulkanInferenceGraphKind kind,
+    ScalarType dtype,
+    bool persistent,
+    std::vector<Tensor> tensors,
+    std::vector<std::optional<Tensor>> optional_tensors,
+    std::vector<ExecutionGraphProgramHandle> programs);
+
 class ExecutionGraphReplayBundle final {
  public:
   struct State;
@@ -169,7 +178,9 @@ class ExecutionGraphReplayBundle final {
   bool defined() const;
   size_t size() const;
   bool recorded() const;
+  void warmup() const;
   void record() const;
+  void record_steps_individually() const;
   ExecutionGraphReplay& replay(size_t idx);
   const ExecutionGraphReplay& replay(size_t idx) const;
   size_t tensor_slot_count() const;

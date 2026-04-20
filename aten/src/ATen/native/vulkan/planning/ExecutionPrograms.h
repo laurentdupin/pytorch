@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -35,6 +36,7 @@ class AttentionRuntimeProgram final {
   std::optional<ScratchArena>& scratch_arena();
   const std::optional<ScratchArena>& scratch_arena() const;
   bool persistent() const;
+  size_t resident_nbytes() const;
   void set_sequence_lengths(
       int64_t key_sequence_length,
       int64_t value_sequence_length) const;
@@ -57,6 +59,7 @@ class GatedDeltaSplitProgram final {
   const VulkanBoundaryPlan& boundary_plan() const;
   const std::optional<ScratchArena>& scratch_arena() const;
   bool persistent() const;
+  size_t resident_nbytes() const;
   const void* identity() const;
 };
 
@@ -88,6 +91,7 @@ class VisionBackboneProgram final {
   Tensor& fc1_output();
   Tensor& fc2_output();
   bool persistent() const;
+  size_t resident_nbytes() const;
   const void* identity() const;
 };
 
@@ -118,6 +122,7 @@ class VisionDecoderProgram final {
   Tensor& upsample_output();
   Tensor& out_conv_output();
   bool persistent() const;
+  size_t resident_nbytes() const;
   const void* identity() const;
 };
 

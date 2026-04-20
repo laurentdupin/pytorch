@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/api/QueryPool.h>
+#include <ATen/native/vulkan/api/Resource.h>
 #include <ATen/native/vulkan/api/Utils.h>
 #ifdef USE_KINETO
 #include <torch/csrc/autograd/profiler_kineto.h>
@@ -25,13 +26,18 @@ constexpr int64_t kDefaultNsPerTick = 52; // lround(52.08f);
 
 QueryPool::QueryPool(const QueryPoolConfig& config, const Adapter* adapter_p)
     : mutex_{},
-      device_(adapter_p->device_handle()),
+      device_(adapter_p ? adapter_p->device_handle() : VK_NULL_HANDLE),
       config_(config),
       querypool_(VK_NULL_HANDLE),
       shader_logs_(1),
       in_use_(0),
       previous_shader_count_(0u),
       results_pending_(false) {
+  if (!adapter_p || !adapter_p->timestamp_compute_and_graphics()) {
+    ns_per_tick_ = kDefaultNsPerTick;
+    return;
+  }
+
   const VkQueryPoolCreateInfo info{
       VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, // sType
       nullptr, // pNext
@@ -45,7 +51,6 @@ QueryPool::QueryPool(const QueryPoolConfig& config, const Adapter* adapter_p)
 
   shader_log().reserve(config_.initialReserveSize);
 
-  VK_CHECK_COND(adapter_p, "Valid GPU device must be created for QueryPool");
   ns_per_tick_ = std::lround(adapter_p->timestamp_period());
   ns_per_tick_ = (ns_per_tick_ == 0) ? kDefaultNsPerTick : ns_per_tick_;
 
@@ -70,6 +75,9 @@ QueryPool::~QueryPool() {
 
 void QueryPool::reset(const CommandBuffer& cmd) {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (!is_enabled() || in_use_ == 0u) {
+    return;
+  }
   cmd.reset_querypool(querypool_, 0u, in_use_);
   previous_shader_count_ += shader_log().size();
   in_use_ = 0u;
@@ -79,6 +87,10 @@ void QueryPool::reset(const CommandBuffer& cmd) {
 }
 
 size_t QueryPool::write_timestamp(const CommandBuffer& cmd) {
+  if (!is_enabled()) {
+    return UINT32_MAX;
+  }
+
   VK_CHECK_COND(
       in_use_ < config_.maxQueryCount,
       "Vulkan QueryPool: Exceeded the maximum number of queries "
@@ -97,6 +109,9 @@ uint32_t QueryPool::shader_profile_begin(
     const VkExtent3D global_workgroup_size,
     const VkExtent3D local_workgroup_size) {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (!is_enabled()) {
+    return UINT32_MAX;
+  }
 
   uint32_t query_idx = write_timestamp(cmd);
 
@@ -105,6 +120,7 @@ uint32_t QueryPool::shader_profile_begin(
       log_idx,
       // Execution Properties
       kernel_name,
+      current_runtime_label(),
       global_workgroup_size,
       local_workgroup_size,
       // Query indexes
@@ -134,6 +150,9 @@ void QueryPool::shader_profile_end(
     const CommandBuffer& cmd,
     const uint32_t log_idx) {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (!is_enabled() || log_idx == UINT32_MAX) {
+    return;
+  }
 
   size_t query_idx = write_timestamp(cmd);
 
@@ -143,7 +162,7 @@ void QueryPool::shader_profile_end(
 void QueryPool::extract_results() {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  if (!results_pending_) {
+  if (!is_enabled() || !results_pending_ || in_use_ == 0u) {
     return;
   }
 
@@ -163,6 +182,11 @@ void QueryPool::extract_results() {
       flags)); // flags
 
   for (ShaderDuration& entry : shader_log()) {
+    if (
+        entry.start_query_idx == UINT32_MAX ||
+        entry.end_query_idx == UINT32_MAX) {
+      continue;
+    }
     entry.start_time_ns = query_data.at(entry.start_query_idx) * ns_per_tick_;
     entry.end_time_ns = query_data.at(entry.end_query_idx) * ns_per_tick_;
     entry.execution_duration_ns = entry.end_time_ns - entry.start_time_ns;
@@ -232,6 +256,27 @@ void QueryPool::shader_log_for_each(
     std::function<void(const ShaderDuration&)> fn) {
   std::lock_guard<std::mutex> lock(mutex_);
   std::for_each(shader_log().begin(), shader_log().end(), std::move(fn));
+}
+
+bool QueryPool::has_pending_results() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return is_enabled() && results_pending_ && in_use_ > 0u;
+}
+
+bool QueryPool::has_entries() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return is_enabled() && in_use_ > 0u && !shader_log().empty();
+}
+
+void QueryPool::mark_results_pending() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (is_enabled() && in_use_ > 0u && !shader_log().empty()) {
+    results_pending_ = true;
+  }
+}
+
+void QueryPool::clear_after_reset(const CommandBuffer& cmd) {
+  reset(cmd);
 }
 
 std::tuple<std::string, uint64_t> QueryPool::

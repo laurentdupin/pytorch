@@ -13,8 +13,10 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 
 #include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <deque>
+#include <functional>
 #include <fstream>
 #include <mutex>
 #include <sstream>
@@ -34,6 +36,22 @@ constexpr size_t kPackedWeightResidencyLimitBytes =
     size_t{2} * 1024u * 1024u * 1024u;
 constexpr size_t kLinearContextCacheSize = 128u;
 constexpr size_t kExecutionObjectCacheSize = 64u;
+constexpr uint64_t kLinearContextPruneInterval = 64u;
+constexpr size_t kLinearContextPruneScanBudget = 32u;
+constexpr size_t kLinearContextPruneEraseBudget = 8u;
+
+template <typename T>
+void hash_combine(size_t& seed, const T& value) {
+  seed ^= std::hash<T>{}(value) + size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) +
+      (seed >> 2u);
+}
+
+void hash_combine_sizes(size_t& seed, const std::vector<int64_t>& sizes) {
+  hash_combine(seed, sizes.size());
+  for (const int64_t size : sizes) {
+    hash_combine(seed, size);
+  }
+}
 
 using TensorWeakRef = c10::weak_intrusive_ptr<TensorImpl, UndefinedTensorImpl>;
 
@@ -50,8 +68,8 @@ bool weak_ref_matches_tensor(
   if (!ref.has_value() || !tensor.defined()) {
     return false;
   }
-  const auto locked_ref = ref->lock();
-  return locked_ref && locked_ref.get() == tensor.unsafeGetTensorImpl();
+  return !ref->expired() && ref->_unsafe_get_target() ==
+      tensor.unsafeGetTensorImpl();
 }
 
 bool weak_ref_matches_optional_tensor(
@@ -63,9 +81,8 @@ bool weak_ref_matches_optional_tensor(
   if (!ref.has_value()) {
     return true;
   }
-  const auto locked_ref = ref->lock();
-  return locked_ref && tensor.has_value() &&
-      locked_ref.get() == tensor->unsafeGetTensorImpl();
+  return tensor.has_value() && !ref->expired() &&
+      ref->_unsafe_get_target() == tensor->unsafeGetTensorImpl();
 }
 
 bool same_weak_tensor_ref(
@@ -77,17 +94,21 @@ bool same_weak_tensor_ref(
   if (!lhs.has_value()) {
     return true;
   }
-  const auto lhs_locked = lhs->lock();
-  const auto rhs_locked = rhs->lock();
-  return lhs_locked && rhs_locked && lhs_locked.get() == rhs_locked.get();
+  return !lhs->expired() && !rhs->expired() &&
+      lhs->_unsafe_get_target() == rhs->_unsafe_get_target();
 }
 
 bool weak_tensor_ref_alive(const std::optional<TensorWeakRef>& ref) {
-  return ref.has_value() && static_cast<bool>(ref->lock());
+  return ref.has_value() && !ref->expired();
 }
 
 bool optional_weak_tensor_ref_alive(const std::optional<TensorWeakRef>& ref) {
-  return !ref.has_value() || static_cast<bool>(ref->lock());
+  return !ref.has_value() || !ref->expired();
+}
+
+const void* tensor_identity_ptr(const Tensor& tensor) {
+  return tensor.defined() ? static_cast<const void*>(tensor.unsafeGetTensorImpl())
+                          : nullptr;
 }
 
 size_t align_up_size(const size_t value, const size_t alignment) {
@@ -126,6 +147,12 @@ struct PackedWeightResidencyEntry final {
   bool quantized;
   uint64_t options_key;
   PackedWeightHandle handle;
+};
+
+struct RetiredPackedWeightMetadata final {
+  std::optional<TensorWeakRef> weight_ref;
+  std::optional<TensorWeakRef> bias_ref;
+  std::vector<int64_t> logical_weight_sizes;
 };
 
 size_t packed_weight_cache_limit_bytes() {
@@ -192,12 +219,72 @@ PackedWeightResidencyLogState& packed_weight_cache_log_state() {
   return state;
 }
 
+std::mutex& retired_packed_weight_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::deque<PackedWeightHandle>& retired_packed_weight_handles() {
+  static auto* handles = new std::deque<PackedWeightHandle>();
+  return *handles;
+}
+
+std::deque<RetiredPackedWeightMetadata>& leaked_retired_packed_weight_metadata() {
+  static auto* metadata = new std::deque<RetiredPackedWeightMetadata>();
+  return *metadata;
+}
+
+void defer_retired_packed_weight_entries(
+    std::deque<PackedWeightResidencyEntry>& retired_entries) {
+  if (retired_entries.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(retired_packed_weight_mutex());
+  auto& deferred_handles = retired_packed_weight_handles();
+  auto& leaked_metadata = leaked_retired_packed_weight_metadata();
+  for (auto& entry : retired_entries) {
+    deferred_handles.emplace_back(std::move(entry.handle));
+    leaked_metadata.emplace_back(RetiredPackedWeightMetadata{
+        std::move(entry.weight_ref),
+        std::move(entry.bias_ref),
+        std::move(entry.logical_weight_sizes),
+    });
+  }
+  retired_entries.clear();
+}
+
+void release_retired_packed_weight_entries_impl() {
+#ifdef _WIN32
+  // The Windows Vulkan runtime can fault when retired packed-weight Vulkan
+  // tensors are destroyed from the explicit synchronize op after a long-lived
+  // test/process sequence. Keep them quarantined with the process-lifetime
+  // caches; active cache accounting already removed them from lookup capacity.
+  return;
+#else
+  std::deque<PackedWeightHandle> retired_handles;
+  {
+    std::lock_guard<std::mutex> lock(retired_packed_weight_mutex());
+    retired_handles.swap(retired_packed_weight_handles());
+  }
+  if (retired_handles.empty()) {
+    return;
+  }
+  c10::InferenceMode inference_mode_guard(false);
+  retired_handles.clear();
+#endif
+}
+
 class PackedWeightResidencyManager final {
  private:
   std::mutex mutex_;
   std::deque<PackedWeightResidencyEntry> cache_;
   size_t cache_bytes_{0u};
   size_t persistent_cache_bytes_{0u};
+
+  static void release_retired_entries(
+      std::deque<PackedWeightResidencyEntry>& retired_entries) {
+    defer_retired_packed_weight_entries(retired_entries);
+  }
 
   static bool source_refs_alive(const PackedWeightResidencyEntry& entry) {
     if (!weak_tensor_ref_alive(entry.weight_ref)) {
@@ -264,8 +351,9 @@ class PackedWeightResidencyManager final {
     }
   }
 
-  std::deque<PackedWeightResidencyEntry>::iterator erase_entry_locked(
+  std::deque<PackedWeightResidencyEntry>::iterator retire_entry_locked(
       std::deque<PackedWeightResidencyEntry>::iterator entry_it,
+      std::deque<PackedWeightResidencyEntry>& retired_entries,
       const bool count_eviction) {
     cache_bytes_ -= entry_it->handle.resident_nbytes();
     if (
@@ -273,6 +361,7 @@ class PackedWeightResidencyManager final {
         PackedWeightResidencyClass::PersistentInference) {
       persistent_cache_bytes_ -= entry_it->handle.resident_nbytes();
     }
+    retired_entries.emplace_back(std::move(*entry_it));
     auto next_it = cache_.erase(entry_it);
     if (count_eviction && packed_weight_cache_logging_enabled()) {
       packed_weight_cache_log_state().evictions.fetch_add(
@@ -299,7 +388,7 @@ class PackedWeightResidencyManager final {
     return cache_.empty() ? cache_.end() : std::prev(cache_.end());
   }
 
-  void trim_locked() {
+  void trim_locked(std::deque<PackedWeightResidencyEntry>& retired_entries) {
     while (
         cache_.size() > kPackedWeightResidencyMaxEntries ||
         cache_bytes_ > packed_weight_cache_limit_bytes()) {
@@ -307,7 +396,7 @@ class PackedWeightResidencyManager final {
       if (victim == cache_.end()) {
         break;
       }
-      erase_entry_locked(victim, true);
+      retire_entry_locked(victim, retired_entries, true);
     }
     update_log_snapshot_locked();
   }
@@ -333,44 +422,49 @@ class PackedWeightResidencyManager final {
     const int64_t bias_version =
         normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
 
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (auto it = cache_.begin(); it != cache_.end();) {
-      if (!source_refs_alive(*it)) {
-        it = erase_entry_locked(it, true);
-        continue;
-      }
-      if (!matches_entry(
-              *it,
-              source_weight,
-              normalized_bias,
-              weight_version,
-              bias_version,
-              logical_weight_sizes,
-              kind,
-              quantized,
-              options_key)) {
-        ++it;
-        continue;
-      }
+    std::deque<PackedWeightResidencyEntry> retired_entries;
+    std::optional<PackedWeightHandle> result;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      for (auto it = cache_.begin(); it != cache_.end();) {
+        if (!source_refs_alive(*it)) {
+          it = retire_entry_locked(it, retired_entries, true);
+          continue;
+        }
+        if (!matches_entry(
+                *it,
+                source_weight,
+                normalized_bias,
+                weight_version,
+                bias_version,
+                logical_weight_sizes,
+                kind,
+                quantized,
+                options_key)) {
+          ++it;
+          continue;
+        }
 
-      PackedWeightHandle handle = it->handle;
-      if (it != cache_.begin()) {
-        PackedWeightResidencyEntry entry = std::move(*it);
-        cache_.erase(it);
-        cache_.emplace_front(std::move(entry));
-        handle = cache_.front().handle;
-      }
+        PackedWeightHandle handle = it->handle;
+        if (it != cache_.begin()) {
+          PackedWeightResidencyEntry entry = std::move(*it);
+          cache_.erase(it);
+          cache_.emplace_front(std::move(entry));
+          handle = cache_.front().handle;
+        }
 
-      if (packed_weight_cache_logging_enabled()) {
-        packed_weight_cache_log_state().hits.fetch_add(
-            1u, std::memory_order_relaxed);
+        if (packed_weight_cache_logging_enabled()) {
+          packed_weight_cache_log_state().hits.fetch_add(
+              1u, std::memory_order_relaxed);
+        }
+        result = handle;
+        break;
       }
       update_log_snapshot_locked();
-      return handle;
     }
 
-    update_log_snapshot_locked();
-    return std::nullopt;
+    release_retired_entries(retired_entries);
+    return result;
   }
 
   void store(
@@ -405,43 +499,47 @@ class PackedWeightResidencyManager final {
           1u, std::memory_order_relaxed);
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (auto it = cache_.begin(); it != cache_.end();) {
-      if (!source_refs_alive(*it)) {
-        it = erase_entry_locked(it, true);
-        continue;
+    std::deque<PackedWeightResidencyEntry> retired_entries;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      for (auto it = cache_.begin(); it != cache_.end();) {
+        if (!source_refs_alive(*it)) {
+          it = retire_entry_locked(it, retired_entries, true);
+          continue;
+        }
+        if (!matches_entry(
+                *it,
+                source_weight,
+                normalized_bias,
+                entry.weight_version,
+                entry.bias_version,
+                logical_weight_sizes,
+                kind,
+                quantized,
+                options_key)) {
+          ++it;
+          continue;
+        }
+        retire_entry_locked(it, retired_entries, false);
+        break;
       }
-      if (!matches_entry(
-              *it,
-              source_weight,
-              normalized_bias,
-              entry.weight_version,
-              entry.bias_version,
-              logical_weight_sizes,
-              kind,
-              quantized,
-              options_key)) {
-        ++it;
-        continue;
-      }
-      erase_entry_locked(it, false);
-      break;
-    }
 
-    cache_bytes_ += handle.resident_nbytes();
-    if (
-        handle.residency_class() ==
-        PackedWeightResidencyClass::PersistentInference) {
-      persistent_cache_bytes_ += handle.resident_nbytes();
+      cache_bytes_ += handle.resident_nbytes();
+      if (
+          handle.residency_class() ==
+          PackedWeightResidencyClass::PersistentInference) {
+        persistent_cache_bytes_ += handle.resident_nbytes();
+      }
+      cache_.emplace_front(std::move(entry));
+      trim_locked(retired_entries);
     }
-    cache_.emplace_front(std::move(entry));
-    trim_locked();
+    release_retired_entries(retired_entries);
   }
 };
 
 PackedWeightResidencyManager& packed_weight_residency_manager() {
-  static PackedWeightResidencyManager manager;
-  return manager;
+  static auto* manager = new PackedWeightResidencyManager();
+  return *manager;
 }
 
 const std::string& linear_cache_log_path() {
@@ -456,11 +554,19 @@ bool linear_cache_logging_enabled() {
   return !linear_cache_log_path().empty();
 }
 
+std::mutex& linear_cache_log_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
 struct LinearCacheLogState final {
   std::atomic<uint64_t> lookups{0u};
   std::atomic<uint64_t> hits{0u};
+  std::atomic<uint64_t> misses{0u};
   std::atomic<uint64_t> stores{0u};
   std::atomic<uint64_t> evictions{0u};
+  std::atomic<uint64_t> prunes{0u};
+  std::atomic<uint64_t> pruned_entries{0u};
 
   ~LinearCacheLogState() {
     if (!linear_cache_logging_enabled()) {
@@ -470,14 +576,39 @@ struct LinearCacheLogState final {
     std::ofstream out(linear_cache_log_path(), std::ios::app);
     out << "linear_cache: lookups=" << lookups.load(std::memory_order_relaxed)
         << " hits=" << hits.load(std::memory_order_relaxed)
+        << " misses=" << misses.load(std::memory_order_relaxed)
         << " stores=" << stores.load(std::memory_order_relaxed)
-        << " evictions=" << evictions.load(std::memory_order_relaxed) << '\n';
+        << " evictions=" << evictions.load(std::memory_order_relaxed)
+        << " prunes=" << prunes.load(std::memory_order_relaxed)
+        << " pruned_entries="
+        << pruned_entries.load(std::memory_order_relaxed) << '\n';
   }
 };
 
 LinearCacheLogState& linear_cache_log_state() {
   static LinearCacheLogState state;
   return state;
+}
+
+void log_linear_cache_event(
+    const char* cache_kind,
+    const char* event,
+    const std::string& allocation_label = std::string(),
+    const size_t evictions = 0u) {
+  if (!linear_cache_logging_enabled()) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(linear_cache_log_mutex());
+  std::ofstream out(linear_cache_log_path(), std::ios::app);
+  out << "linear_cache_event cache=" << cache_kind << " event=" << event;
+  if (!allocation_label.empty()) {
+    out << " label=" << allocation_label;
+  }
+  if (evictions > 0u) {
+    out << " evictions=" << evictions;
+  }
+  out << '\n';
 }
 
 const std::string& execution_object_log_path() {
@@ -595,6 +726,8 @@ void record_scratch_reserved_bytes(const uint64_t bytes) {
 struct LinearContextCacheKey final {
   std::optional<TensorWeakRef> weight_ref;
   std::optional<TensorWeakRef> bias_ref;
+  const void* weight_identity{nullptr};
+  const void* bias_identity{nullptr};
   int64_t weight_version;
   int64_t bias_version;
 };
@@ -602,10 +735,21 @@ struct LinearContextCacheKey final {
 bool same_linear_context_cache_key(
     const LinearContextCacheKey& lhs,
     const LinearContextCacheKey& rhs) {
-  return same_weak_tensor_ref(lhs.weight_ref, rhs.weight_ref) &&
+  return lhs.weight_identity == rhs.weight_identity &&
+      lhs.bias_identity == rhs.bias_identity &&
+      same_weak_tensor_ref(lhs.weight_ref, rhs.weight_ref) &&
       lhs.weight_version == rhs.weight_version &&
       same_weak_tensor_ref(lhs.bias_ref, rhs.bias_ref) &&
       lhs.bias_version == rhs.bias_version;
+}
+
+size_t hash_linear_context_cache_key(const LinearContextCacheKey& key) {
+  size_t seed = 0u;
+  hash_combine(seed, reinterpret_cast<uintptr_t>(key.weight_identity));
+  hash_combine(seed, reinterpret_cast<uintptr_t>(key.bias_identity));
+  hash_combine(seed, key.weight_version);
+  hash_combine(seed, key.bias_version);
+  return seed;
 }
 
 bool linear_context_cache_key_sources_alive(
@@ -618,16 +762,18 @@ InferenceLruCache<
     LinearContextCacheKey,
     c10::intrusive_ptr<LinearPackedContext>>&
 linear_context_cache() {
-  static InferenceLruCache<
+  static auto* cache = new InferenceLruCache<
       LinearContextCacheKey,
       c10::intrusive_ptr<LinearPackedContext>>
-      cache{kLinearContextCacheSize};
-  return cache;
+      {kLinearContextCacheSize};
+  return *cache;
 }
 
 struct LabeledLinearContextCacheKey final {
   std::optional<TensorWeakRef> weight_ref;
   std::optional<TensorWeakRef> bias_ref;
+  const void* weight_identity{nullptr};
+  const void* bias_identity{nullptr};
   int64_t weight_version;
   int64_t bias_version;
   std::string allocation_label;
@@ -636,11 +782,27 @@ struct LabeledLinearContextCacheKey final {
 bool same_labeled_linear_context_cache_key(
     const LabeledLinearContextCacheKey& lhs,
     const LabeledLinearContextCacheKey& rhs) {
-  return same_weak_tensor_ref(lhs.weight_ref, rhs.weight_ref) &&
+  return lhs.weight_identity == rhs.weight_identity &&
+      lhs.bias_identity == rhs.bias_identity &&
+      same_weak_tensor_ref(lhs.weight_ref, rhs.weight_ref) &&
       lhs.weight_version == rhs.weight_version &&
       same_weak_tensor_ref(lhs.bias_ref, rhs.bias_ref) &&
       lhs.bias_version == rhs.bias_version &&
       lhs.allocation_label == rhs.allocation_label;
+}
+
+size_t hash_labeled_linear_context_cache_key(
+    const LabeledLinearContextCacheKey& key) {
+  size_t seed = hash_linear_context_cache_key(LinearContextCacheKey{
+      key.weight_ref,
+      key.bias_ref,
+      key.weight_identity,
+      key.bias_identity,
+      key.weight_version,
+      key.bias_version,
+  });
+  hash_combine(seed, key.allocation_label);
+  return seed;
 }
 
 bool labeled_linear_context_cache_key_sources_alive(
@@ -653,11 +815,44 @@ InferenceLruCache<
     LabeledLinearContextCacheKey,
     c10::intrusive_ptr<LinearPackedContext>>&
 labeled_linear_context_cache() {
-  static InferenceLruCache<
+  static auto* cache = new InferenceLruCache<
       LabeledLinearContextCacheKey,
       c10::intrusive_ptr<LinearPackedContext>>
-      cache{kLinearContextCacheSize};
-  return cache;
+      {kLinearContextCacheSize};
+  return *cache;
+}
+
+std::mutex& retired_linear_context_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::deque<c10::intrusive_ptr<LinearPackedContext>>& retired_linear_contexts() {
+  static auto* contexts =
+      new std::deque<c10::intrusive_ptr<LinearPackedContext>>();
+  return *contexts;
+}
+
+void retire_linear_context_after_prune(
+    c10::intrusive_ptr<LinearPackedContext>&& context) {
+  if (!context) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(retired_linear_context_mutex());
+  retired_linear_contexts().emplace_back(std::move(context));
+}
+
+void release_retired_linear_contexts_impl() {
+  std::deque<c10::intrusive_ptr<LinearPackedContext>> retired_contexts;
+  {
+    std::lock_guard<std::mutex> lock(retired_linear_context_mutex());
+    retired_contexts.swap(retired_linear_contexts());
+  }
+  if (retired_contexts.empty()) {
+    return;
+  }
+  c10::InferenceMode inference_mode_guard(false);
+  retired_contexts.clear();
 }
 
 void record_linear_cache_evictions(const size_t evictions) {
@@ -668,20 +863,57 @@ void record_linear_cache_evictions(const size_t evictions) {
       evictions, std::memory_order_relaxed);
 }
 
-void prune_expired_linear_context_cache_entries() {
-  record_linear_cache_evictions(linear_context_cache().erase_if(
+std::atomic<uint64_t>& linear_cache_prune_ticks() {
+  static std::atomic<uint64_t> ticks{0u};
+  return ticks;
+}
+
+bool should_prune_linear_context_caches() {
+  const uint64_t tick =
+      linear_cache_prune_ticks().fetch_add(1u, std::memory_order_relaxed) + 1u;
+  return tick % kLinearContextPruneInterval == 0u;
+}
+
+size_t prune_expired_linear_context_cache_entries() {
+  const size_t evicted = linear_context_cache().erase_if_budgeted(
       [](const LinearContextCacheKey& key,
          const c10::intrusive_ptr<LinearPackedContext>&) {
         return !linear_context_cache_key_sources_alive(key);
-      }));
+      },
+      kLinearContextPruneScanBudget,
+      kLinearContextPruneEraseBudget,
+      [](c10::intrusive_ptr<LinearPackedContext>&& context) {
+        retire_linear_context_after_prune(std::move(context));
+      });
+  record_linear_cache_evictions(evicted);
+  if (linear_cache_logging_enabled()) {
+    auto& state = linear_cache_log_state();
+    state.prunes.fetch_add(1u, std::memory_order_relaxed);
+    state.pruned_entries.fetch_add(evicted, std::memory_order_relaxed);
+    log_linear_cache_event("linear", "prune", std::string(), evicted);
+  }
+  return evicted;
 }
 
-void prune_expired_labeled_linear_context_cache_entries() {
-  record_linear_cache_evictions(labeled_linear_context_cache().erase_if(
+size_t prune_expired_labeled_linear_context_cache_entries() {
+  const size_t evicted = labeled_linear_context_cache().erase_if_budgeted(
       [](const LabeledLinearContextCacheKey& key,
          const c10::intrusive_ptr<LinearPackedContext>&) {
         return !labeled_linear_context_cache_key_sources_alive(key);
-      }));
+      },
+      kLinearContextPruneScanBudget,
+      kLinearContextPruneEraseBudget,
+      [](c10::intrusive_ptr<LinearPackedContext>&& context) {
+        retire_linear_context_after_prune(std::move(context));
+      });
+  record_linear_cache_evictions(evicted);
+  if (linear_cache_logging_enabled()) {
+    auto& state = linear_cache_log_state();
+    state.prunes.fetch_add(1u, std::memory_order_relaxed);
+    state.pruned_entries.fetch_add(evicted, std::memory_order_relaxed);
+    log_linear_cache_event("labeled_linear", "prune", std::string(), evicted);
+  }
+  return evicted;
 }
 
 struct LabeledKVCacheKey final {
@@ -707,10 +939,23 @@ bool same_labeled_kv_cache_key(
       lhs.persistent == rhs.persistent;
 }
 
+size_t hash_labeled_kv_cache_key(const LabeledKVCacheKey& key) {
+  size_t seed = 0u;
+  hash_combine(seed, key.allocation_label);
+  hash_combine_sizes(seed, key.sizes);
+  hash_combine(seed, key.sequence_dim);
+  hash_combine(seed, static_cast<int>(key.dtype));
+  hash_combine(seed, static_cast<int>(key.execution_layout));
+  hash_combine(seed, static_cast<int>(key.memory_layout));
+  hash_combine(seed, static_cast<int>(key.storage_type));
+  hash_combine(seed, key.persistent);
+  return seed;
+}
+
 InferenceLruCache<LabeledKVCacheKey, KVCacheObject>& labeled_kv_cache() {
-  static InferenceLruCache<LabeledKVCacheKey, KVCacheObject> cache{
+  static auto* cache = new InferenceLruCache<LabeledKVCacheKey, KVCacheObject>{
       kExecutionObjectCacheSize};
-  return cache;
+  return *cache;
 }
 
 struct LabeledScratchArenaKey final {
@@ -737,11 +982,25 @@ bool same_labeled_scratch_arena_key(
       lhs.persistent == rhs.persistent;
 }
 
+size_t hash_labeled_scratch_arena_key(const LabeledScratchArenaKey& key) {
+  size_t seed = 0u;
+  hash_combine(seed, key.allocation_label);
+  hash_combine(seed, key.num_bytes);
+  hash_combine(seed, key.alignment);
+  hash_combine(seed, static_cast<int>(key.dtype));
+  hash_combine(seed, static_cast<int>(key.execution_layout));
+  hash_combine(seed, static_cast<int>(key.memory_layout));
+  hash_combine(seed, static_cast<int>(key.storage_type));
+  hash_combine(seed, key.persistent);
+  return seed;
+}
+
 InferenceLruCache<LabeledScratchArenaKey, ScratchArena>&
 labeled_scratch_arena_cache() {
-  static InferenceLruCache<LabeledScratchArenaKey, ScratchArena> cache{
+  static auto* cache =
+      new InferenceLruCache<LabeledScratchArenaKey, ScratchArena>{
       kExecutionObjectCacheSize};
-  return cache;
+  return *cache;
 }
 
 struct LabeledReadbackBufferKey final {
@@ -758,14 +1017,31 @@ bool same_labeled_readback_buffer_key(
       lhs.persistent == rhs.persistent;
 }
 
+size_t hash_labeled_readback_buffer_key(const LabeledReadbackBufferKey& key) {
+  size_t seed = 0u;
+  hash_combine(seed, key.allocation_label);
+  hash_combine(seed, key.num_bytes);
+  hash_combine(seed, key.persistent);
+  return seed;
+}
+
 InferenceLruCache<LabeledReadbackBufferKey, ReadbackBufferObject>&
 labeled_readback_buffer_cache() {
-  static InferenceLruCache<LabeledReadbackBufferKey, ReadbackBufferObject>
-      cache{kExecutionObjectCacheSize};
-  return cache;
+  static auto* cache =
+      new InferenceLruCache<LabeledReadbackBufferKey, ReadbackBufferObject>{
+          kExecutionObjectCacheSize};
+  return *cache;
 }
 
 } // namespace
+
+void release_retired_linear_contexts() {
+  release_retired_linear_contexts_impl();
+}
+
+void release_retired_packed_weight_entries() {
+  release_retired_packed_weight_entries_impl();
+}
 
 const char* execution_object_kind_name(const VulkanExecutionObjectKind kind) {
   switch (kind) {
@@ -1139,7 +1415,10 @@ KVCacheObject lookup_or_create_labeled_kv_cache_object(
       spec.persistent,
   };
   if (const auto cached =
-          labeled_kv_cache().lookup(key, same_labeled_kv_cache_key)) {
+          labeled_kv_cache().lookup(
+              key,
+              hash_labeled_kv_cache_key,
+              same_labeled_kv_cache_key)) {
     execution_object_log_state().kv_hits.fetch_add(
         1u, std::memory_order_relaxed);
     log_execution_object_event(
@@ -1147,7 +1426,11 @@ KVCacheObject lookup_or_create_labeled_kv_cache_object(
     return *cached;
   }
   KVCacheObject created = create_vulkan_kv_cache_object(spec);
-  labeled_kv_cache().store(key, created, same_labeled_kv_cache_key);
+  labeled_kv_cache().store(
+      key,
+      created,
+      hash_labeled_kv_cache_key,
+      same_labeled_kv_cache_key);
   execution_object_log_state().kv_stores.fetch_add(
       1u, std::memory_order_relaxed);
   log_execution_object_event(
@@ -1172,7 +1455,9 @@ ScratchArena lookup_or_create_labeled_scratch_arena(
       spec.persistent,
   };
   if (const auto cached = labeled_scratch_arena_cache().lookup(
-          key, same_labeled_scratch_arena_key)) {
+          key,
+          hash_labeled_scratch_arena_key,
+          same_labeled_scratch_arena_key)) {
     execution_object_log_state().scratch_hits.fetch_add(
         1u, std::memory_order_relaxed);
     log_execution_object_event(
@@ -1181,7 +1466,10 @@ ScratchArena lookup_or_create_labeled_scratch_arena(
   }
   ScratchArena created = create_vulkan_scratch_arena(spec);
   labeled_scratch_arena_cache().store(
-      key, created, same_labeled_scratch_arena_key);
+      key,
+      created,
+      hash_labeled_scratch_arena_key,
+      same_labeled_scratch_arena_key);
   execution_object_log_state().scratch_stores.fetch_add(
       1u, std::memory_order_relaxed);
   log_execution_object_event(
@@ -1201,7 +1489,9 @@ ReadbackBufferObject lookup_or_create_labeled_readback_buffer_object(
       spec.persistent,
   };
   if (const auto cached = labeled_readback_buffer_cache().lookup(
-          key, same_labeled_readback_buffer_key)) {
+          key,
+          hash_labeled_readback_buffer_key,
+          same_labeled_readback_buffer_key)) {
     execution_object_log_state().readback_hits.fetch_add(
         1u, std::memory_order_relaxed);
     log_execution_object_event(
@@ -1216,7 +1506,10 @@ ReadbackBufferObject lookup_or_create_labeled_readback_buffer_object(
   api::AllocationScope allocation_scope(allocation_label);
   ReadbackBufferObject created = create_vulkan_readback_buffer_object(spec);
   labeled_readback_buffer_cache().store(
-      key, created, same_labeled_readback_buffer_key);
+      key,
+      created,
+      hash_labeled_readback_buffer_key,
+      same_labeled_readback_buffer_key);
   execution_object_log_state().readback_stores.fetch_add(
       1u, std::memory_order_relaxed);
   log_execution_object_event(
@@ -1347,16 +1640,45 @@ std::optional<c10::intrusive_ptr<LinearPackedContext>> lookup_linear_context(
   const LinearContextCacheKey query{
       make_tensor_weak_ref(weight),
       normalized_bias ? make_tensor_weak_ref(*normalized_bias) : std::nullopt,
+      tensor_identity_ptr(weight),
+      normalized_bias ? tensor_identity_ptr(*normalized_bias) : nullptr,
       weight_version,
       bias_version,
   };
-  prune_expired_linear_context_cache_entries();
+  bool pruned = false;
+  if (should_prune_linear_context_caches()) {
+    prune_expired_linear_context_cache_entries();
+    pruned = true;
+  }
   if (const auto cached =
-          linear_context_cache().lookup(query, same_linear_context_cache_key)) {
+          linear_context_cache().lookup(
+              query,
+              hash_linear_context_cache_key,
+              same_linear_context_cache_key)) {
     if (linear_cache_logging_enabled()) {
       linear_cache_log_state().hits.fetch_add(1u, std::memory_order_relaxed);
+      log_linear_cache_event(
+          "linear", pruned ? "hit_after_prune" : "hit");
     }
     return cached;
+  }
+  if (!pruned) {
+    prune_expired_linear_context_cache_entries();
+    if (const auto cached = linear_context_cache().lookup(
+            query,
+            hash_linear_context_cache_key,
+            same_linear_context_cache_key)) {
+      if (linear_cache_logging_enabled()) {
+        linear_cache_log_state().hits.fetch_add(1u, std::memory_order_relaxed);
+        log_linear_cache_event("linear", "hit_after_miss_prune");
+      }
+      return cached;
+    }
+  }
+
+  if (linear_cache_logging_enabled()) {
+    linear_cache_log_state().misses.fetch_add(1u, std::memory_order_relaxed);
+    log_linear_cache_event("linear", "miss");
   }
 
   return std::nullopt;
@@ -1373,18 +1695,24 @@ void store_linear_context(
   const auto normalized_bias = normalized_optional_tensor(bias);
   if (linear_cache_logging_enabled()) {
     linear_cache_log_state().stores.fetch_add(1u, std::memory_order_relaxed);
+    log_linear_cache_event("linear", "store");
   }
 
-  prune_expired_linear_context_cache_entries();
+  if (should_prune_linear_context_caches()) {
+    prune_expired_linear_context_cache_entries();
+  }
   linear_context_cache().store(
       LinearContextCacheKey{
           make_tensor_weak_ref(weight),
           normalized_bias ? make_tensor_weak_ref(*normalized_bias)
                           : std::nullopt,
+          tensor_identity_ptr(weight),
+          normalized_bias ? tensor_identity_ptr(*normalized_bias) : nullptr,
           tensor_version_or_zero(weight),
           normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u,
       },
       context,
+      hash_linear_context_cache_key,
       same_linear_context_cache_key);
 }
 
@@ -1409,17 +1737,48 @@ lookup_labeled_linear_context(
   const LabeledLinearContextCacheKey query{
       make_tensor_weak_ref(weight),
       normalized_bias ? make_tensor_weak_ref(*normalized_bias) : std::nullopt,
+      tensor_identity_ptr(weight),
+      normalized_bias ? tensor_identity_ptr(*normalized_bias) : nullptr,
       weight_version,
       bias_version,
       allocation_label,
   };
-  prune_expired_labeled_linear_context_cache_entries();
+  bool pruned = false;
+  if (should_prune_linear_context_caches()) {
+    prune_expired_labeled_linear_context_cache_entries();
+    pruned = true;
+  }
   if (const auto cached = labeled_linear_context_cache().lookup(
-          query, same_labeled_linear_context_cache_key)) {
+          query,
+          hash_labeled_linear_context_cache_key,
+          same_labeled_linear_context_cache_key)) {
     if (linear_cache_logging_enabled()) {
       linear_cache_log_state().hits.fetch_add(1u, std::memory_order_relaxed);
+      log_linear_cache_event(
+          "labeled_linear",
+          pruned ? "hit_after_prune" : "hit",
+          allocation_label);
     }
     return cached;
+  }
+  if (!pruned) {
+    prune_expired_labeled_linear_context_cache_entries();
+    if (const auto cached = labeled_linear_context_cache().lookup(
+            query,
+            hash_labeled_linear_context_cache_key,
+            same_labeled_linear_context_cache_key)) {
+      if (linear_cache_logging_enabled()) {
+        linear_cache_log_state().hits.fetch_add(1u, std::memory_order_relaxed);
+        log_linear_cache_event(
+            "labeled_linear", "hit_after_miss_prune", allocation_label);
+      }
+      return cached;
+    }
+  }
+
+  if (linear_cache_logging_enabled()) {
+    linear_cache_log_state().misses.fetch_add(1u, std::memory_order_relaxed);
+    log_linear_cache_event("labeled_linear", "miss", allocation_label);
   }
 
   return std::nullopt;
@@ -1437,19 +1796,25 @@ void store_labeled_linear_context(
   const auto normalized_bias = normalized_optional_tensor(bias);
   if (linear_cache_logging_enabled()) {
     linear_cache_log_state().stores.fetch_add(1u, std::memory_order_relaxed);
+    log_linear_cache_event("labeled_linear", "store", allocation_label);
   }
 
-  prune_expired_labeled_linear_context_cache_entries();
+  if (should_prune_linear_context_caches()) {
+    prune_expired_labeled_linear_context_cache_entries();
+  }
   labeled_linear_context_cache().store(
       LabeledLinearContextCacheKey{
           make_tensor_weak_ref(weight),
           normalized_bias ? make_tensor_weak_ref(*normalized_bias)
                           : std::nullopt,
+          tensor_identity_ptr(weight),
+          normalized_bias ? tensor_identity_ptr(*normalized_bias) : nullptr,
           tensor_version_or_zero(weight),
           normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u,
           allocation_label,
       },
       context,
+      hash_labeled_linear_context_cache_key,
       same_labeled_linear_context_cache_key);
 }
 

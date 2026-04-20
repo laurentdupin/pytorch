@@ -44,13 +44,9 @@ Tensor upcast_half_linear_tensor_for_packing(const Tensor& tensor) {
     return tensor.to(kFloat);
   }
 
-  Tensor cpu_float;
-  {
-    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
-    c10::InferenceMode inference_mode_guard(false);
-    cpu_float = tensor.cpu().to(kFloat);
-  }
-  return cpu_float.vulkan();
+  // Prefer the backend cast path first. This keeps BF16 buffer tensors on
+  // Vulkan and falls back to CPU only when no native cast route exists.
+  return utils::cast_vulkan_tensor_dtype(tensor, kFloat);
 }
 
 std::optional<Tensor> upcast_half_linear_tensor_for_packing(
@@ -123,16 +119,22 @@ c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
   if (utils::has_inference_tensor(weight, bias)) {
+    if (const auto cached_context = utils::lookup_linear_context(weight, bias)) {
+      return *cached_context;
+    }
+
     const Tensor prepared_weight =
         (weight.is_vulkan() && weight.dim() == 2) ? weight.cpu().t().contiguous()
                                                   : weight.t();
-    return c10::make_intrusive<LinearPackedContext>(
+    const auto context = c10::make_intrusive<LinearPackedContext>(
         LinearPackedContext(
             prepared_weight,
             bias,
             false,
             std::string(),
             false));
+    utils::store_linear_context(weight, bias, context);
+    return context;
   }
 
   if (const auto cached_context = utils::lookup_linear_context(weight, bias)) {
@@ -2208,15 +2210,12 @@ Tensor run_half_buffer_linear(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
   const Tensor float_input = upcast_half_linear_tensor_for_packing(input);
-  const Tensor float_weight = upcast_half_linear_tensor_for_packing(weight);
-  const std::optional<Tensor> float_bias =
-      upcast_half_linear_tensor_for_packing(bias);
 
   Tensor output = run_addmm_context(
       float_input,
       1.0f,
       1.0f,
-      get_or_create_linear_context(float_weight, float_bias),
+      get_or_create_linear_context(weight, bias),
       false,
       0,
       0);
@@ -2394,22 +2393,25 @@ LinearPackedContext::LinearPackedContext(
       (!bias || !bias->defined() || is_float_or_half_tensor(*bias));
   const uint64_t pack_options = (use_batch ? kLinearBatchPackOption : 0u) |
       (use_buffer_packed_weights ? kLinearBufferPackOption : 0u);
-  if (const auto cached_packed_weight = utils::lookup_packed_weight_handle(
+  const bool use_packed_weight_cache = retain_unpacked;
+  std::optional<PackedWeightHandle> cached_packed_weight;
+  if (use_packed_weight_cache) {
+    cached_packed_weight = utils::lookup_packed_weight_handle(
           weight,
           normalized_bias,
           logical_weight_sizes,
           PackedWeightKind::Linear,
           weight.is_quantized(),
-          pack_options)) {
+          pack_options);
+  }
+  if (cached_packed_weight) {
     packed_weight_ = *cached_packed_weight;
   } else {
     const Tensor pack_source_weight = upcast_half_linear_tensor_for_packing(weight);
     const std::optional<Tensor> pack_source_bias =
         upcast_half_linear_tensor_for_packing(bias);
-    const Tensor compute_weight =
-        upcast_half_linear_tensor_for_packing(pack_source_weight);
-    const std::optional<Tensor> compute_bias =
-        upcast_half_linear_tensor_for_packing(pack_source_bias);
+    const Tensor compute_weight = pack_source_weight;
+    const std::optional<Tensor> compute_bias = pack_source_bias;
     TORCH_CHECK(
         available(compute_weight, compute_bias, use_batch),
         "Vulkan Linear not available! "
@@ -2473,14 +2475,16 @@ LinearPackedContext::LinearPackedContext(
           texture_compute_bias && texture_compute_bias->defined(),
           packed_weight.is_quantized());
     }
-    utils::store_packed_weight_handle(
-        weight,
-        normalized_bias,
-        logical_weight_sizes,
-        PackedWeightKind::Linear,
-        packed_weight_,
-        weight.is_quantized(),
-        pack_options);
+    if (use_packed_weight_cache) {
+      utils::store_packed_weight_handle(
+          weight,
+          normalized_bias,
+          logical_weight_sizes,
+          PackedWeightKind::Linear,
+          packed_weight_,
+          weight.is_quantized(),
+          pack_options);
+    }
   }
 
   if (retain_unpacked && !at::globalContext().releaseWeightsWhenPrepacking()) {
@@ -2523,7 +2527,7 @@ c10::intrusive_ptr<LinearPackedContext> create_linear_context_labeled(
           bias,
           false,
           std::move(label),
-          true));
+          false));
   utils::store_labeled_linear_context(
       weight, bias, context->allocation_label(), context);
   return context;

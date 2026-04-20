@@ -1,4 +1,4 @@
-#include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Concat.h>
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
 #else
@@ -12,7 +12,6 @@ namespace at {
 namespace native {
 namespace vulkan {
 namespace ops {
-namespace {
 
 using namespace api::utils;
 
@@ -83,13 +82,15 @@ bool can_use_buffer_cat_fast_path(
   return has_buffer_input;
 }
 
-Tensor cat_buffer_direct(
-    const MaterializedITensorListRef& tensors,
+bool cat_buffer_direct_out_impl(
+    at::ArrayRef<Tensor> tensors,
     const int64_t dim,
-    IntArrayRef result_size) {
-  api::AllocationScope allocation_scope("cat.buffer_direct");
-  api::Context* const context = api::context();
+    Tensor& output_arg) {
+  if (tensors.empty() || !output_arg.defined() || !output_arg.is_vulkan()) {
+    return false;
+  }
 
+  api::AllocationScope allocation_scope("cat.buffer_direct");
   std::vector<Tensor> prepared_tensors;
   prepared_tensors.reserve(tensors.size());
   for (const Tensor& tensor : tensors) {
@@ -115,15 +116,36 @@ Tensor cat_buffer_direct(
     prepared_tensors.push_back(std::move(prepared));
   }
 
-  vTensor v_output{
-      context,
-      result_size.vec(),
-      convert_dtype(prepared_tensors[0].scalar_type()),
-      api::StorageType::BUFFER,
-      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-  };
+  const Tensor& reference = prepared_tensors[0];
+  auto result_size = reference.sizes().vec();
+  int64_t cat_dim_size = 0;
+  for (const Tensor& tensor : prepared_tensors) {
+    if (tensor.dim() != reference.dim() || dim < 0 || dim >= tensor.dim()) {
+      return false;
+    }
+    for (const auto d : c10::irange(tensor.dim())) {
+      if (d != dim && tensor.size(d) != reference.size(d)) {
+        return false;
+      }
+    }
+    cat_dim_size += tensor.size(dim);
+  }
+  result_size[dim] = cat_dim_size;
+  if (output_arg.sizes().vec() != result_size) {
+    return false;
+  }
+
+  api::Context* const context = api::context();
   Tensor output = utils::mark_tensor_execution(
-      convert(v_output), api::ExecutionLayout::BUFFER_DIRECT);
+      output_arg,
+      utils::resolve_buffer_execution_layout(convert(output_arg)),
+      false);
+  vTensor& v_output = convert(output);
+  if (
+      v_output.storage_type() != api::StorageType::BUFFER ||
+      !v_output.has_direct_buffer_layout()) {
+    return false;
+  }
   int64_t dst_dim_offset = 0;
 
   for (const Tensor& tensor : prepared_tensors) {
@@ -169,9 +191,35 @@ Tensor cat_buffer_direct(
     dst_dim_offset += tensor.size(dim);
   }
 
+  output_arg = output;
+  return true;
+}
+
+Tensor cat_buffer_direct(
+    const MaterializedITensorListRef& tensors,
+    const int64_t dim,
+    IntArrayRef result_size) {
+  Tensor output = utils::create_buffer_tensor(
+      result_size,
+      tensors[0].get().scalar_type(),
+      /*persistent=*/false);
+  std::vector<Tensor> tensor_vec(tensors.begin(), tensors.end());
+  const bool success =
+      cat_buffer_direct_out_impl(tensor_vec, dim, output);
+  if (!success) {
+    return cat_cpu_fallback(tensors, dim);
+  }
   return output;
 }
+
 } // namespace
+
+bool cat_buffer_out_vulkan(
+    at::ArrayRef<Tensor> tensors,
+    int64_t dim,
+    Tensor& output) {
+  return cat_buffer_direct_out_impl(tensors, dim, output);
+}
 
 Tensor cat_batch(const MaterializedITensorListRef& tensors, vTensor& v_output) {
   api::Context* const context = api::context();
@@ -498,7 +546,6 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
 
 #endif /* USE_VULKAN_API */
 
-} // namespace
 } // namespace ops
 } // namespace vulkan
 } // namespace native

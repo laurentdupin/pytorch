@@ -294,6 +294,10 @@ void store_labeled_linear_context(
     const std::string& allocation_label,
     const c10::intrusive_ptr<LinearPackedContext>& context);
 
+void release_retired_linear_contexts();
+
+void release_retired_packed_weight_entries();
+
 } // namespace utils
 } // namespace ops
 } // namespace vulkan

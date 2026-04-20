@@ -13,6 +13,10 @@ from torch.testing._internal.common_utils import TestCase, run_tests
 from torch.testing import FileCheck
 import io
 
+if sys.platform == "win32":
+    import ctypes
+    ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002 | 0x8000)
+
 @unittest.skipUnless(torch.is_vulkan_available(),
                      "Vulkan backend must be available for these tests.")
 class TestVulkanRewritePass(TestCase):
@@ -396,8 +400,16 @@ class TestVulkanEagerRuntime(TestCase):
         if extra_env:
             env.update(extra_env)
 
+        script = textwrap.dedent(script)
+        if sys.platform == "win32":
+            script = (
+                "import ctypes\n"
+                "ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002 | 0x8000)\n"
+                + script
+            )
+
         result = subprocess.run(
-            [sys.executable, "-c", textwrap.dedent(script)],
+            [sys.executable, "-c", script],
             env=env,
             cwd=repo_root,
             capture_output=True,
@@ -5048,6 +5060,827 @@ print("OK")
         finally:
             if os.path.exists(graph_log_path):
                 os.remove(graph_log_path)
+
+    def test_vulkan_vision_decoder_preprocess_head_compiled_session(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_hit_log_name = "vulkan_vision_decoder_preprocess_head_compiled_session_test.log"
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                embed_dim = 16
+                channels = 32
+                patch_h = 8
+                patch_w = 8
+                output_size = [28, 28]
+
+                def make_block(label):
+                    return torch.ops.vulkan_prepack.create_vision_decoder_fusion_block_context(
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        True,
+                        label,
+                    )
+
+                head_context = torch.ops.vulkan_prepack.create_vision_decoder_head_context(
+                    torch.randn(1, dtype=torch.float32),
+                    make_block("depth.decoder.preprocess.test.ref4"),
+                    make_block("depth.decoder.preprocess.test.ref3"),
+                    make_block("depth.decoder.preprocess.test.ref2"),
+                    make_block("depth.decoder.preprocess.test.ref1"),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(32, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(32, dtype=torch.float32),
+                        [1, 1],
+                        [1, 1],
+                        [1, 1],
+                        1,
+                    ),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(32, 32, 3, 3, dtype=torch.float32),
+                        torch.randn(32, dtype=torch.float32),
+                        [1, 1],
+                        [1, 1],
+                        [1, 1],
+                        1,
+                    ),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(1, 32, 1, 1, dtype=torch.float32),
+                        torch.randn(1, dtype=torch.float32),
+                        [1, 1],
+                        [0, 0],
+                        [1, 1],
+                        1,
+                    ),
+                    True,
+                    "depth.decoder.preprocess.test.head",
+                )
+
+                project1_context = torch.ops.vulkan_prepack.create_conv2d_context(
+                    torch.randn(channels, embed_dim, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                project2_context = torch.ops.vulkan_prepack.create_conv2d_context(
+                    torch.randn(channels, embed_dim, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                project3_context = torch.ops.vulkan_prepack.create_conv2d_context(
+                    torch.randn(channels, embed_dim, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                project4_context = torch.ops.vulkan_prepack.create_conv2d_context(
+                    torch.randn(channels, embed_dim, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                resize1_context = torch.ops.vulkan_prepack.create_tconv2d_context(
+                    torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                resize2_context = torch.ops.vulkan_prepack.create_tconv2d_context(
+                    torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                resize4_context = torch.ops.vulkan_prepack.create_tconv2d_context(
+                    torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                layer1_rn_context = torch.ops.vulkan_prepack.create_conv2d_context(
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [1, 1],
+                    [1, 1],
+                    1,
+                )
+                layer2_rn_context = torch.ops.vulkan_prepack.create_conv2d_context(
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [1, 1],
+                    [1, 1],
+                    1,
+                )
+                layer3_rn_context = torch.ops.vulkan_prepack.create_conv2d_context(
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [1, 1],
+                    [1, 1],
+                    1,
+                )
+                layer4_rn_context = torch.ops.vulkan_prepack.create_conv2d_context(
+                    torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [1, 1],
+                    [1, 1],
+                    1,
+                )
+
+                preprocess_context = torch.ops.vulkan_prepack.create_vision_decoder_preprocess_head_context(
+                    torch.randn(1, dtype=torch.float32),
+                    project1_context,
+                    project2_context,
+                    project3_context,
+                    project4_context,
+                    resize1_context,
+                    resize2_context,
+                    resize4_context,
+                    layer1_rn_context,
+                    layer2_rn_context,
+                    layer3_rn_context,
+                    layer4_rn_context,
+                    head_context,
+                    "depth.decoder.preprocess.test",
+                )
+
+                project_contexts = [
+                    project1_context,
+                    project2_context,
+                    project3_context,
+                    project4_context,
+                ]
+                resize_contexts = [
+                    resize1_context,
+                    resize2_context,
+                    None,
+                    resize4_context,
+                ]
+                rn_contexts = [
+                    layer1_rn_context,
+                    layer2_rn_context,
+                    layer3_rn_context,
+                    layer4_rn_context,
+                ]
+
+                def make_tokens():
+                    return [
+                        torch.randn(1, patch_h * patch_w, embed_dim, dtype=torch.float32).to("vulkan")
+                        for _ in range(4)
+                    ]
+
+                tokens_a = make_tokens()
+                tokens_b = make_tokens()
+
+                def run_reference(tokens):
+                    layers = []
+                    for idx, token in enumerate(tokens):
+                        layer = torch.ops.vulkan_prepack.tokens_to_feature_map(
+                            token, patch_h, patch_w
+                        )
+                        layer = torch.ops.vulkan_prepack.run_conv2d_context(
+                            layer, project_contexts[idx]
+                        )
+                        if resize_contexts[idx] is not None:
+                            layer = torch.ops.vulkan_prepack.run_tconv2d_context(
+                                layer, resize_contexts[idx]
+                            )
+                        layer = torch.ops.vulkan_prepack.run_conv2d_context(
+                            layer, rn_contexts[idx]
+                        )
+                        layers.append(layer)
+                    return torch.ops.vulkan_prepack.run_vision_decoder_head_context(
+                        layers[0],
+                        layers[1],
+                        layers[2],
+                        layers[3],
+                        output_size,
+                        head_context,
+                    )
+
+                with torch.inference_mode():
+                    expected_a = run_reference(tokens_a).cpu().clone()
+                    expected_b = run_reference(tokens_b).cpu().clone()
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.decoder.preprocess.capture.8x8"
+                )
+                try:
+                    with torch.inference_mode():
+                        y0 = torch.ops.vulkan_prepack.run_vision_decoder_preprocess_head_context(
+                            tokens_a[0],
+                            tokens_a[1],
+                            tokens_a[2],
+                            tokens_a[3],
+                            patch_h,
+                            patch_w,
+                            output_size,
+                            preprocess_context,
+                        )
+                        y1 = torch.ops.vulkan_prepack.run_vision_decoder_preprocess_head_context(
+                            tokens_b[0],
+                            tokens_b[1],
+                            tokens_b[2],
+                            tokens_b[3],
+                            patch_h,
+                            patch_w,
+                            output_size,
+                            preprocess_context,
+                        )
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                if not torch.allclose(y0.cpu(), expected_a, atol=1e-4, rtol=1e-4):
+                    raise RuntimeError("Decoder preprocess/head compiled warmup output mismatch")
+                if not torch.allclose(y1.cpu(), expected_b, atol=1e-4, rtol=1e-4):
+                    raise RuntimeError("Decoder preprocess/head compiled replay output mismatch")
+
+                print(float(y0.cpu().sum() + y1.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+                error_prefix="Vision decoder preprocess/head compiled-session subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_hit_log_path))
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                op_hit_log = log_file.read()
+            self.assertIn(
+                "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.replay_warmup",
+                op_hit_log,
+            )
+            self.assertIn(
+                "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.replay",
+                op_hit_log,
+            )
+        finally:
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+
+    def test_vulkan_depth_anything_v2_compiled_session_bridge(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_hit_log_name = "vulkan_depth_anything_v2_compiled_session_bridge_test.log"
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                embed_dim = 16
+                hidden_dim = 32
+                channels = 32
+                num_heads = 4
+                norm_eps = 1.0e-6
+                patch_h = 8
+                patch_w = 8
+                token_count = 1 + patch_h * patch_w
+                output_size = [28, 28]
+
+                def make_backbone_context(label: str):
+                    return torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        norm_eps,
+                        torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim * 3, dtype=torch.float32),
+                        num_heads,
+                        torch.randn(embed_dim, embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        norm_eps,
+                        torch.randn(hidden_dim, embed_dim, dtype=torch.float32),
+                        torch.randn(hidden_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, hidden_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        label,
+                    )
+
+                def make_block(label):
+                    return torch.ops.vulkan_prepack.create_vision_decoder_fusion_block_context(
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        True,
+                        label,
+                    )
+
+                contexts = [
+                    make_backbone_context("depth.dino.backbone.full.block0"),
+                    make_backbone_context("depth.dino.backbone.full.block1"),
+                    make_backbone_context("depth.dino.backbone.full.block2"),
+                    make_backbone_context("depth.dino.backbone.full.block3"),
+                ]
+                capture_indices = [0, 1, 2, 3]
+                norm_context = torch.ops.vulkan_prepack.create_layernorm_context(
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    norm_eps,
+                )
+
+                head_context = torch.ops.vulkan_prepack.create_vision_decoder_head_context(
+                    torch.randn(1, dtype=torch.float32),
+                    make_block("depth.decoder.full.ref4"),
+                    make_block("depth.decoder.full.ref3"),
+                    make_block("depth.decoder.full.ref2"),
+                    make_block("depth.decoder.full.ref1"),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(32, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(32, dtype=torch.float32),
+                        [1, 1],
+                        [1, 1],
+                        [1, 1],
+                        1,
+                    ),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(32, 32, 3, 3, dtype=torch.float32),
+                        torch.randn(32, dtype=torch.float32),
+                        [1, 1],
+                        [1, 1],
+                        [1, 1],
+                        1,
+                    ),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(1, 32, 1, 1, dtype=torch.float32),
+                        torch.randn(1, dtype=torch.float32),
+                        [1, 1],
+                        [0, 0],
+                        [1, 1],
+                        1,
+                    ),
+                    True,
+                    "depth.decoder.full.head",
+                )
+
+                project_contexts = [
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(channels, embed_dim, 1, 1, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        [1, 1],
+                        [0, 0],
+                        [1, 1],
+                        1,
+                    )
+                    for _ in range(4)
+                ]
+                resize1_context = torch.ops.vulkan_prepack.create_tconv2d_context(
+                    torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                resize2_context = torch.ops.vulkan_prepack.create_tconv2d_context(
+                    torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                resize4_context = torch.ops.vulkan_prepack.create_tconv2d_context(
+                    torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                resize_contexts = [
+                    resize1_context,
+                    resize2_context,
+                    None,
+                    resize4_context,
+                ]
+                rn_contexts = [
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        [1, 1],
+                        [1, 1],
+                        [1, 1],
+                        1,
+                    )
+                    for _ in range(4)
+                ]
+                preprocess_context = torch.ops.vulkan_prepack.create_vision_decoder_preprocess_head_context(
+                    torch.randn(1, dtype=torch.float32),
+                    project_contexts[0],
+                    project_contexts[1],
+                    project_contexts[2],
+                    project_contexts[3],
+                    resize1_context,
+                    resize2_context,
+                    resize4_context,
+                    rn_contexts[0],
+                    rn_contexts[1],
+                    rn_contexts[2],
+                    rn_contexts[3],
+                    head_context,
+                    "depth.decoder.full.preprocess",
+                )
+
+                x0 = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+                x1 = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.vision.capture.8x8"
+                )
+                try:
+                    with torch.inference_mode():
+                        y0 = torch.ops.vulkan_prepack.run_depth_anything_v2_compiled_session_bridge(
+                            x0,
+                            contexts,
+                            capture_indices,
+                            [embed_dim],
+                            norm_context,
+                            patch_h,
+                            patch_w,
+                            output_size,
+                            preprocess_context,
+                        )
+                        y1 = torch.ops.vulkan_prepack.run_depth_anything_v2_compiled_session_bridge(
+                            x1,
+                            contexts,
+                            capture_indices,
+                            [embed_dim],
+                            norm_context,
+                            patch_h,
+                            patch_w,
+                            output_size,
+                            preprocess_context,
+                        )
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                print(float(y0.cpu().sum() + y1.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+                error_prefix="Depth Anything compiled-session subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_hit_log_path))
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                op_hit_log = log_file.read()
+            self.assertIn(
+                "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge",
+                op_hit_log,
+            )
+        finally:
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+
+    def test_vulkan_depth_anything_v2_image_compiled_session_bridge(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_hit_log_name = "vulkan_depth_anything_v2_image_compiled_session_bridge_test.log"
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                embed_dim = 16
+                hidden_dim = 32
+                channels = 32
+                num_heads = 4
+                norm_eps = 1.0e-6
+                patch_h = 8
+                patch_w = 8
+                image_h = patch_h * 14
+                image_w = patch_w * 14
+                output_size = [28, 28]
+
+                def make_backbone_context(label: str):
+                    return torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        norm_eps,
+                        torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim * 3, dtype=torch.float32),
+                        num_heads,
+                        torch.randn(embed_dim, embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        norm_eps,
+                        torch.randn(hidden_dim, embed_dim, dtype=torch.float32),
+                        torch.randn(hidden_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, hidden_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        label,
+                    )
+
+                def make_block(label):
+                    return torch.ops.vulkan_prepack.create_vision_decoder_fusion_block_context(
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        True,
+                        label,
+                    )
+
+                contexts = [
+                    make_backbone_context("depth.dino.backbone.image.block0"),
+                    make_backbone_context("depth.dino.backbone.image.block1"),
+                    make_backbone_context("depth.dino.backbone.image.block2"),
+                    make_backbone_context("depth.dino.backbone.image.block3"),
+                ]
+                capture_indices = [0, 1, 2, 3]
+                norm_context = torch.ops.vulkan_prepack.create_layernorm_context(
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    norm_eps,
+                )
+
+                head_context = torch.ops.vulkan_prepack.create_vision_decoder_head_context(
+                    torch.randn(1, dtype=torch.float32),
+                    make_block("depth.decoder.image.ref4"),
+                    make_block("depth.decoder.image.ref3"),
+                    make_block("depth.decoder.image.ref2"),
+                    make_block("depth.decoder.image.ref1"),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(32, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(32, dtype=torch.float32),
+                        [1, 1],
+                        [1, 1],
+                        [1, 1],
+                        1,
+                    ),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(32, 32, 3, 3, dtype=torch.float32),
+                        torch.randn(32, dtype=torch.float32),
+                        [1, 1],
+                        [1, 1],
+                        [1, 1],
+                        1,
+                    ),
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(1, 32, 1, 1, dtype=torch.float32),
+                        torch.randn(1, dtype=torch.float32),
+                        [1, 1],
+                        [0, 0],
+                        [1, 1],
+                        1,
+                    ),
+                    True,
+                    "depth.decoder.image.head",
+                )
+
+                project_contexts = [
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(channels, embed_dim, 1, 1, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        [1, 1],
+                        [0, 0],
+                        [1, 1],
+                        1,
+                    )
+                    for _ in range(4)
+                ]
+                resize1_context = torch.ops.vulkan_prepack.create_tconv2d_context(
+                    torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                resize2_context = torch.ops.vulkan_prepack.create_tconv2d_context(
+                    torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                resize4_context = torch.ops.vulkan_prepack.create_tconv2d_context(
+                    torch.randn(channels, channels, 1, 1, dtype=torch.float32),
+                    torch.randn(channels, dtype=torch.float32),
+                    [1, 1],
+                    [0, 0],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                rn_contexts = [
+                    torch.ops.vulkan_prepack.create_conv2d_context(
+                        torch.randn(channels, channels, 3, 3, dtype=torch.float32),
+                        torch.randn(channels, dtype=torch.float32),
+                        [1, 1],
+                        [1, 1],
+                        [1, 1],
+                        1,
+                    )
+                    for _ in range(4)
+                ]
+                preprocess_context = torch.ops.vulkan_prepack.create_vision_decoder_preprocess_head_context(
+                    torch.randn(1, dtype=torch.float32),
+                    project_contexts[0],
+                    project_contexts[1],
+                    project_contexts[2],
+                    project_contexts[3],
+                    resize1_context,
+                    resize2_context,
+                    resize4_context,
+                    rn_contexts[0],
+                    rn_contexts[1],
+                    rn_contexts[2],
+                    rn_contexts[3],
+                    head_context,
+                    "depth.decoder.image.preprocess",
+                )
+                patch_embed_context = torch.ops.vulkan_prepack.create_conv2d_context(
+                    torch.randn(embed_dim, 3, 14, 14, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    [14, 14],
+                    [0, 0],
+                    [1, 1],
+                    1,
+                )
+                prefix_token = torch.randn(1, 1, embed_dim, dtype=torch.float32)
+                patch_pos_encoding = torch.randn(
+                    1, patch_h * patch_w, embed_dim, dtype=torch.float32
+                )
+
+                def make_tokens(image):
+                    feature_map = torch.ops.vulkan_prepack.run_conv2d_context(
+                        image,
+                        patch_embed_context,
+                    )
+                    tokens = torch.ops.vulkan_prepack.feature_map_to_tokens(feature_map)
+                    tokens = torch.cat(
+                        (
+                            prefix_token.expand(tokens.shape[0], -1, -1),
+                            tokens + patch_pos_encoding,
+                        ),
+                        dim=1,
+                    )
+                    if tokens.shape[0] == 1:
+                        tokens = tokens.reshape(tokens.shape[1], tokens.shape[2])
+                    return tokens
+
+                x0 = torch.randn(1, 3, image_h, image_w, dtype=torch.float32).to("vulkan")
+                x1 = torch.randn(1, 3, image_h, image_w, dtype=torch.float32).to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    f"depth.vision.capture.{image_h}x{image_w}"
+                )
+                try:
+                    with torch.inference_mode():
+                        expected0 = torch.ops.vulkan_prepack.run_depth_anything_v2_compiled_session_bridge(
+                            make_tokens(x0),
+                            contexts,
+                            capture_indices,
+                            [embed_dim],
+                            norm_context,
+                            patch_h,
+                            patch_w,
+                            output_size,
+                            preprocess_context,
+                        )
+                        actual0 = torch.ops.vulkan_prepack.run_depth_anything_v2_image_compiled_session_bridge(
+                            x0,
+                            patch_embed_context,
+                            prefix_token,
+                            patch_pos_encoding,
+                            contexts,
+                            capture_indices,
+                            [embed_dim],
+                            norm_context,
+                            patch_h,
+                            patch_w,
+                            output_size,
+                            preprocess_context,
+                        )
+                        expected1 = torch.ops.vulkan_prepack.run_depth_anything_v2_compiled_session_bridge(
+                            make_tokens(x1),
+                            contexts,
+                            capture_indices,
+                            [embed_dim],
+                            norm_context,
+                            patch_h,
+                            patch_w,
+                            output_size,
+                            preprocess_context,
+                        )
+                        actual1 = torch.ops.vulkan_prepack.run_depth_anything_v2_image_compiled_session_bridge(
+                            x1,
+                            patch_embed_context,
+                            prefix_token,
+                            patch_pos_encoding,
+                            contexts,
+                            capture_indices,
+                            [embed_dim],
+                            norm_context,
+                            patch_h,
+                            patch_w,
+                            output_size,
+                            preprocess_context,
+                        )
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                if not torch.allclose(actual0.cpu(), expected0.cpu(), atol=1e-4, rtol=1e-4):
+                    raise RuntimeError("Depth Anything image compiled-session warmup output mismatch")
+                if not torch.allclose(actual1.cpu(), expected1.cpu(), atol=1e-4, rtol=1e-4):
+                    raise RuntimeError("Depth Anything image compiled-session replay output mismatch")
+
+                print(float(actual0.cpu().sum() + actual1.cpu().sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+                error_prefix="Depth Anything image compiled-session subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_hit_log_path))
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                op_hit_log = log_file.read()
+            self.assertIn(
+                "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge.warmup",
+                op_hit_log,
+            )
+            self.assertIn(
+                "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge.replay",
+                op_hit_log,
+            )
+            self.assertIn(
+                "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge",
+                op_hit_log,
+            )
+        finally:
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
 
     def test_vulkan_execution_graph_root_shared_across_backbone_and_decoder(self):
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

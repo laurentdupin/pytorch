@@ -4,8 +4,11 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <fstream>
+#include <mutex>
 
 namespace at {
 namespace native {
@@ -16,6 +19,37 @@ namespace utils {
 namespace {
 
 constexpr size_t kExecutionProgramCacheSize = 64u;
+constexpr size_t kDefaultExecutionProgramCacheLimitBytes =
+    size_t{512u} * 1024u * 1024u;
+
+template <typename T>
+void hash_combine(size_t& seed, const T& value) {
+  seed ^= std::hash<T>{}(value) + size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) +
+      (seed >> 2u);
+}
+
+void hash_combine_sizes(size_t& seed, const std::vector<int64_t>& sizes) {
+  hash_combine(seed, sizes.size());
+  for (const int64_t size : sizes) {
+    hash_combine(seed, size);
+  }
+}
+
+size_t execution_program_cache_limit_bytes() {
+  static const size_t limit = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_EXECUTION_PROGRAM_CACHE_MB");
+    if (!env || !*env) {
+      return kDefaultExecutionProgramCacheLimitBytes;
+    }
+    char* end = nullptr;
+    const unsigned long long mb = std::strtoull(env, &end, 10);
+    if (!end || *end != '\0' || mb == 0ull) {
+      return kDefaultExecutionProgramCacheLimitBytes;
+    }
+    return static_cast<size_t>(mb) * 1024u * 1024u;
+  }();
+  return limit;
+}
 
 std::string normalize_program_label(
     const std::string& allocation_label,
@@ -44,19 +78,30 @@ bool execution_program_logging_enabled() {
   return !execution_program_log_path().empty();
 }
 
+std::mutex& execution_program_log_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
 void log_execution_program_event(
     const VulkanExecutionProgramKind kind,
     const char* event,
     const std::string& allocation_label,
-    const void* identity) {
+    const void* identity,
+    const size_t bytes = 0u) {
   if (!execution_program_logging_enabled()) {
     return;
   }
 
+  std::lock_guard<std::mutex> lock(execution_program_log_mutex());
   std::ofstream out(execution_program_log_path(), std::ios::app);
   out << "execution_program event=" << event << " kind="
       << execution_program_kind_name(kind) << " allocation_label="
-      << allocation_label << " identity=" << identity << '\n';
+      << allocation_label << " identity=" << identity;
+  if (bytes > 0u) {
+    out << " bytes=" << bytes;
+  }
+  out << '\n';
 }
 
 bool same_sizes(
@@ -112,6 +157,40 @@ bool same_scratch_spec(
       lhs->persistent == rhs->persistent;
 }
 
+size_t hash_optional_kv_cache_spec(
+    const std::optional<VulkanKVCacheSpec>& spec) {
+  size_t seed = 0u;
+  hash_combine(seed, spec.has_value());
+  if (!spec.has_value()) {
+    return seed;
+  }
+  hash_combine_sizes(seed, spec->sizes);
+  hash_combine(seed, spec->sequence_dim);
+  hash_combine(seed, static_cast<int>(spec->dtype));
+  hash_combine(seed, static_cast<int>(spec->execution_layout));
+  hash_combine(seed, static_cast<int>(spec->memory_layout));
+  hash_combine(seed, static_cast<int>(spec->storage_type));
+  hash_combine(seed, spec->persistent);
+  return seed;
+}
+
+size_t hash_optional_scratch_spec(
+    const std::optional<VulkanScratchArenaSpec>& spec) {
+  size_t seed = 0u;
+  hash_combine(seed, spec.has_value());
+  if (!spec.has_value()) {
+    return seed;
+  }
+  hash_combine(seed, static_cast<int>(spec->dtype));
+  hash_combine(seed, spec->num_bytes);
+  hash_combine(seed, spec->alignment);
+  hash_combine(seed, static_cast<int>(spec->execution_layout));
+  hash_combine(seed, static_cast<int>(spec->memory_layout));
+  hash_combine(seed, static_cast<int>(spec->storage_type));
+  hash_combine(seed, spec->persistent);
+  return seed;
+}
+
 struct AttentionRuntimeProgramKey final {
   std::string allocation_label;
   VulkanAttentionKernelFamily kernel_family{
@@ -133,11 +212,24 @@ bool operator==(
       lhs.persistent == rhs.persistent;
 }
 
+size_t hash_attention_runtime_program_key(
+    const AttentionRuntimeProgramKey& key) {
+  size_t seed = 0u;
+  hash_combine(seed, key.allocation_label);
+  hash_combine(seed, static_cast<int>(key.kernel_family));
+  hash_combine(seed, hash_optional_kv_cache_spec(key.key_cache_spec));
+  hash_combine(seed, hash_optional_kv_cache_spec(key.value_cache_spec));
+  hash_combine(seed, hash_optional_scratch_spec(key.scratch_spec));
+  hash_combine(seed, key.persistent);
+  return seed;
+}
+
 InferenceLruCache<AttentionRuntimeProgramKey, AttentionRuntimeProgram>&
 attention_runtime_program_cache() {
-  static InferenceLruCache<AttentionRuntimeProgramKey, AttentionRuntimeProgram>
-      cache{kExecutionProgramCacheSize};
-  return cache;
+  static auto* cache =
+      new InferenceLruCache<AttentionRuntimeProgramKey, AttentionRuntimeProgram>{
+          kExecutionProgramCacheSize, execution_program_cache_limit_bytes()};
+  return *cache;
 }
 
 struct GatedDeltaSplitProgramKey final {
@@ -166,11 +258,27 @@ bool operator==(
       lhs.persistent == rhs.persistent;
 }
 
+size_t hash_gated_delta_split_program_key(
+    const GatedDeltaSplitProgramKey& key) {
+  size_t seed = 0u;
+  hash_combine(seed, key.allocation_label);
+  hash_combine(seed, static_cast<int>(key.boundary_plan.kind));
+  hash_combine(seed, static_cast<int>(key.boundary_plan.input_transfer_layout));
+  hash_combine(seed, static_cast<int>(key.boundary_plan.output_transfer_layout));
+  hash_combine(seed, key.boundary_plan.prefer_backend_owned_execution);
+  hash_combine(seed, key.boundary_plan.requires_scratch_arena);
+  hash_combine(seed, key.boundary_plan.preferred_cpu_threads);
+  hash_combine(seed, hash_optional_scratch_spec(key.scratch_spec));
+  hash_combine(seed, key.persistent);
+  return seed;
+}
+
 InferenceLruCache<GatedDeltaSplitProgramKey, GatedDeltaSplitProgram>&
 gated_delta_split_program_cache() {
-  static InferenceLruCache<GatedDeltaSplitProgramKey, GatedDeltaSplitProgram>
-      cache{kExecutionProgramCacheSize};
-  return cache;
+  static auto* cache =
+      new InferenceLruCache<GatedDeltaSplitProgramKey, GatedDeltaSplitProgram>{
+          kExecutionProgramCacheSize, execution_program_cache_limit_bytes()};
+  return *cache;
 }
 
 struct VisionBackboneProgramKey final {
@@ -198,11 +306,26 @@ bool operator==(
       lhs.persistent == rhs.persistent;
 }
 
+size_t hash_vision_backbone_program_key(const VisionBackboneProgramKey& key) {
+  size_t seed = 0u;
+  hash_combine(seed, key.allocation_label);
+  hash_combine(seed, static_cast<int>(key.dtype));
+  hash_combine(seed, key.batch_size);
+  hash_combine(seed, key.token_count);
+  hash_combine(seed, key.embed_dim);
+  hash_combine(seed, key.hidden_dim);
+  hash_combine(seed, key.num_heads);
+  hash_combine(seed, hash_optional_scratch_spec(key.scratch_spec));
+  hash_combine(seed, key.persistent);
+  return seed;
+}
+
 InferenceLruCache<VisionBackboneProgramKey, VisionBackboneProgram>&
 vision_backbone_program_cache() {
-  static InferenceLruCache<VisionBackboneProgramKey, VisionBackboneProgram>
-      cache{kExecutionProgramCacheSize};
-  return cache;
+  static auto* cache =
+      new InferenceLruCache<VisionBackboneProgramKey, VisionBackboneProgram>{
+          kExecutionProgramCacheSize, execution_program_cache_limit_bytes()};
+  return *cache;
 }
 
 struct VisionDecoderProgramKey final {
@@ -229,11 +352,28 @@ bool operator==(
       lhs.persistent == rhs.persistent;
 }
 
+size_t hash_vision_decoder_program_key(const VisionDecoderProgramKey& key) {
+  size_t seed = 0u;
+  hash_combine(seed, key.allocation_label);
+  hash_combine_sizes(seed, key.input_sizes);
+  hash_combine(seed, key.skip_sizes.has_value());
+  if (key.skip_sizes.has_value()) {
+    hash_combine_sizes(seed, *key.skip_sizes);
+  }
+  hash_combine_sizes(seed, key.target_sizes);
+  hash_combine(seed, key.out_channels);
+  hash_combine(seed, hash_optional_scratch_spec(key.scratch_spec));
+  hash_combine(seed, key.allocate_intermediate_outputs);
+  hash_combine(seed, key.persistent);
+  return seed;
+}
+
 InferenceLruCache<VisionDecoderProgramKey, VisionDecoderProgram>&
 vision_decoder_program_cache() {
-  static InferenceLruCache<VisionDecoderProgramKey, VisionDecoderProgram>
-      cache{kExecutionProgramCacheSize};
-  return cache;
+  static auto* cache =
+      new InferenceLruCache<VisionDecoderProgramKey, VisionDecoderProgram>{
+          kExecutionProgramCacheSize, execution_program_cache_limit_bytes()};
+  return *cache;
 }
 
 Tensor create_program_buffer_tensor(
@@ -339,6 +479,23 @@ Tensor reserve_program_scratch_tensor(
           static_cast<uint32_t>(std::max<int64_t>(
               1, static_cast<int64_t>(c10::elementSize(dtype))))));
   return make_program_scratch_buffer_alias(arena, slice, sizes, dtype);
+}
+
+size_t tensor_resident_nbytes(const Tensor& tensor) {
+  if (!tensor.defined() || !tensor.is_vulkan()) {
+    return 0u;
+  }
+  return static_cast<size_t>(convert(tensor).gpu_nbytes());
+}
+
+size_t optional_scratch_resident_nbytes(
+    const std::optional<ScratchArena>& scratch) {
+  return scratch.has_value() ? tensor_resident_nbytes(scratch->storage()) : 0u;
+}
+
+size_t optional_kv_cache_resident_nbytes(
+    const std::optional<KVCacheObject>& cache) {
+  return cache.has_value() ? tensor_resident_nbytes(cache->storage()) : 0u;
 }
 
 } // namespace
@@ -559,6 +716,15 @@ bool AttentionRuntimeProgram::persistent() const {
   return state_ && state_->persistent_;
 }
 
+size_t AttentionRuntimeProgram::resident_nbytes() const {
+  if (!state_) {
+    return 0u;
+  }
+  return optional_kv_cache_resident_nbytes(state_->key_cache_) +
+      optional_kv_cache_resident_nbytes(state_->value_cache_) +
+      optional_scratch_resident_nbytes(state_->scratch_arena_);
+}
+
 void AttentionRuntimeProgram::set_sequence_lengths(
     const int64_t key_sequence_length,
     const int64_t value_sequence_length) const {
@@ -594,6 +760,13 @@ const std::optional<ScratchArena>& GatedDeltaSplitProgram::scratch_arena()
 
 bool GatedDeltaSplitProgram::persistent() const {
   return state_ && state_->persistent_;
+}
+
+size_t GatedDeltaSplitProgram::resident_nbytes() const {
+  if (!state_) {
+    return 0u;
+  }
+  return optional_scratch_resident_nbytes(state_->scratch_arena_);
 }
 
 const void* GatedDeltaSplitProgram::identity() const {
@@ -674,6 +847,20 @@ bool VisionBackboneProgram::persistent() const {
   return state_ && state_->persistent_;
 }
 
+size_t VisionBackboneProgram::resident_nbytes() const {
+  if (!state_) {
+    return 0u;
+  }
+  return optional_scratch_resident_nbytes(state_->scratch_arena_) +
+      tensor_resident_nbytes(state_->norm1_output_) +
+      tensor_resident_nbytes(state_->qkv_output_) +
+      tensor_resident_nbytes(state_->merge_output_) +
+      tensor_resident_nbytes(state_->proj_output_) +
+      tensor_resident_nbytes(state_->norm2_output_) +
+      tensor_resident_nbytes(state_->fc1_output_) +
+      tensor_resident_nbytes(state_->fc2_output_);
+}
+
 const void* VisionBackboneProgram::identity() const {
   return state_.get();
 }
@@ -751,6 +938,24 @@ bool VisionDecoderProgram::persistent() const {
   return state_ && state_->persistent_;
 }
 
+size_t VisionDecoderProgram::resident_nbytes() const {
+  if (!state_) {
+    return 0u;
+  }
+  return optional_scratch_resident_nbytes(state_->scratch_arena_) +
+      tensor_resident_nbytes(state_->skip_relu_output_) +
+      tensor_resident_nbytes(state_->skip_conv1_output_) +
+      tensor_resident_nbytes(state_->skip_conv2_output_) +
+      tensor_resident_nbytes(state_->skip_res_output_) +
+      tensor_resident_nbytes(state_->main_input_output_) +
+      tensor_resident_nbytes(state_->main_relu_output_) +
+      tensor_resident_nbytes(state_->main_conv1_output_) +
+      tensor_resident_nbytes(state_->main_conv2_output_) +
+      tensor_resident_nbytes(state_->main_res_output_) +
+      tensor_resident_nbytes(state_->upsample_output_) +
+      tensor_resident_nbytes(state_->out_conv_output_);
+}
+
 const void* VisionDecoderProgram::identity() const {
   return state_.get();
 }
@@ -773,6 +978,7 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
       program_plan.persistent};
   if (const auto cached = attention_runtime_program_cache().lookup(
           query,
+          hash_attention_runtime_program_key,
           [](const AttentionRuntimeProgramKey& lhs,
              const AttentionRuntimeProgramKey& rhs) { return lhs == rhs; })) {
     cached->set_sequence_lengths(key_sequence_length, value_sequence_length);
@@ -780,7 +986,8 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
         VulkanExecutionProgramKind::AttentionRuntime,
         "hit",
         query.allocation_label,
-        cached->identity());
+        cached->identity(),
+        cached->resident_nbytes());
     return *cached;
   }
 
@@ -816,13 +1023,18 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
   attention_runtime_program_cache().store(
       query,
       created,
+      hash_attention_runtime_program_key,
       [](const AttentionRuntimeProgramKey& lhs,
-         const AttentionRuntimeProgramKey& rhs) { return lhs == rhs; });
+         const AttentionRuntimeProgramKey& rhs) { return lhs == rhs; },
+      [](const AttentionRuntimeProgram& program) {
+        return program.resident_nbytes();
+      });
   log_execution_program_event(
       VulkanExecutionProgramKind::AttentionRuntime,
       "store",
       query.allocation_label,
-      created.identity());
+      created.identity(),
+      created.resident_nbytes());
   return created;
 }
 
@@ -839,13 +1051,15 @@ lookup_or_create_labeled_gated_delta_split_program(
       program_plan.persistent};
   if (const auto cached = gated_delta_split_program_cache().lookup(
           query,
+          hash_gated_delta_split_program_key,
           [](const GatedDeltaSplitProgramKey& lhs,
              const GatedDeltaSplitProgramKey& rhs) { return lhs == rhs; })) {
     log_execution_program_event(
         VulkanExecutionProgramKind::GatedDeltaSplit,
         "hit",
         query.allocation_label,
-        cached->identity());
+        cached->identity(),
+        cached->resident_nbytes());
     return *cached;
   }
 
@@ -862,13 +1076,18 @@ lookup_or_create_labeled_gated_delta_split_program(
   gated_delta_split_program_cache().store(
       query,
       created,
+      hash_gated_delta_split_program_key,
       [](const GatedDeltaSplitProgramKey& lhs,
-         const GatedDeltaSplitProgramKey& rhs) { return lhs == rhs; });
+         const GatedDeltaSplitProgramKey& rhs) { return lhs == rhs; },
+      [](const GatedDeltaSplitProgram& program) {
+        return program.resident_nbytes();
+      });
   log_execution_program_event(
       VulkanExecutionProgramKind::GatedDeltaSplit,
       "store",
       query.allocation_label,
-      created.identity());
+      created.identity(),
+      created.resident_nbytes());
   return created;
 }
 
@@ -894,13 +1113,15 @@ VisionBackboneProgram lookup_or_create_labeled_vision_backbone_program(
       program_plan.persistent};
   if (const auto cached = vision_backbone_program_cache().lookup(
           query,
+          hash_vision_backbone_program_key,
           [](const VisionBackboneProgramKey& lhs,
              const VisionBackboneProgramKey& rhs) { return lhs == rhs; })) {
     log_execution_program_event(
         VulkanExecutionProgramKind::VisionBackbone,
         "hit",
         query.allocation_label,
-        cached->identity());
+        cached->identity(),
+        cached->resident_nbytes());
     return *cached;
   }
 
@@ -924,13 +1145,18 @@ VisionBackboneProgram lookup_or_create_labeled_vision_backbone_program(
   vision_backbone_program_cache().store(
       query,
       created,
+      hash_vision_backbone_program_key,
       [](const VisionBackboneProgramKey& lhs,
-         const VisionBackboneProgramKey& rhs) { return lhs == rhs; });
+         const VisionBackboneProgramKey& rhs) { return lhs == rhs; },
+      [](const VisionBackboneProgram& program) {
+        return program.resident_nbytes();
+      });
   log_execution_program_event(
       VulkanExecutionProgramKind::VisionBackbone,
       "store",
       query.allocation_label,
-      created.identity());
+      created.identity(),
+      created.resident_nbytes());
   return created;
 }
 
@@ -954,13 +1180,15 @@ VisionDecoderProgram lookup_or_create_labeled_vision_decoder_program(
       program_plan.persistent};
   if (const auto cached = vision_decoder_program_cache().lookup(
           query,
+          hash_vision_decoder_program_key,
           [](const VisionDecoderProgramKey& lhs,
              const VisionDecoderProgramKey& rhs) { return lhs == rhs; })) {
     log_execution_program_event(
         VulkanExecutionProgramKind::VisionDecoder,
         "hit",
         query.allocation_label,
-        cached->identity());
+        cached->identity(),
+        cached->resident_nbytes());
     return *cached;
   }
 
@@ -983,13 +1211,18 @@ VisionDecoderProgram lookup_or_create_labeled_vision_decoder_program(
   vision_decoder_program_cache().store(
       query,
       created,
+      hash_vision_decoder_program_key,
       [](const VisionDecoderProgramKey& lhs,
-         const VisionDecoderProgramKey& rhs) { return lhs == rhs; });
+         const VisionDecoderProgramKey& rhs) { return lhs == rhs; },
+      [](const VisionDecoderProgram& program) {
+        return program.resident_nbytes();
+      });
   log_execution_program_event(
       VulkanExecutionProgramKind::VisionDecoder,
       "store",
       query.allocation_label,
-      created.identity());
+      created.identity(),
+      created.resident_nbytes());
   return created;
 }
 

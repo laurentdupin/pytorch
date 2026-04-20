@@ -84,11 +84,8 @@ class Context final {
   DescriptorPool persistent_descriptor_pool_;
   FencePool fences_;
   // Diagnostics
-  // TODO: remove USE_VULKAN_GPU_DIAGNOSTICS
   bool enable_op_profiling_{false};
-#ifdef USE_VULKAN_GPU_DIAGNOSTICS
   QueryPool querypool_;
-#endif /* USE_VULKAN_GPU_DIAGNOSTICS */
   // Command buffers submission
   std::mutex cmd_mutex_;
   CommandBuffer cmd_;
@@ -111,6 +108,14 @@ class Context final {
   void capture_external_recording_image_cleanup(VulkanImage&&);
   void begin_external_command_recording(CommandBuffer&);
   void end_external_command_recording();
+  uint32_t gpu_profile_begin(
+      CommandBuffer&,
+      const std::string&,
+      const VkExtent3D,
+      const VkExtent3D);
+  void gpu_profile_end(CommandBuffer&, uint32_t);
+  void dump_gpu_profile_log(const char* reason);
+  void reset_gpu_profile_queries();
 
  public:
   // Adapter access
@@ -173,7 +178,6 @@ class Context final {
 
   // Diagnostics
 
-#ifdef USE_VULKAN_GPU_DIAGNOSTICS
   inline QueryPool& querypool() {
     return querypool_;
   }
@@ -182,7 +186,6 @@ class Context final {
     set_cmd();
     querypool_.reset(cmd_);
   }
-#endif /* USE_VULKAN_GPU_DIAGNOSTICS */
 
   // Memory Management
   void register_buffer_cleanup(VulkanBuffer& buffer) {
@@ -275,7 +278,8 @@ class Context final {
   void submit_prepared_command_buffer(
       CommandBuffer&,
       VkFence fence_handle = VK_NULL_HANDLE,
-      const bool final_use = false);
+      const bool final_use = false,
+      const char* profile_label = nullptr);
   void take_external_recording_cleanup_resources(
       std::vector<VulkanBuffer>& buffers,
       std::vector<VulkanImage>& images);
@@ -531,24 +535,20 @@ inline bool Context::submit_copy(
   set_cmd();
   CommandBuffer& cmd = active_cmd();
 
-#ifdef USE_VULKAN_GPU_DIAGNOSTICS
   uint32_t log_idx = UINT32_MAX;
-  if (enable_op_profiling_) {
+  if (enable_op_profiling_ && !external_recording) {
     std::string label = "cmd_copy";
-    log_idx = querypool_.shader_profile_begin(
+    log_idx = gpu_profile_begin(
         cmd, label, create_extent3d({0, 0, 0}), create_extent3d({0, 0, 0}));
   }
-#endif /* USE_VULKAN_GPU_DIAGNOSTICS */
 
   cmd.insert_barrier(pipeline_barrier);
 
   record_copy(cmd, source, destination, copy_range, src_offset, dst_offset);
 
-#ifdef USE_VULKAN_GPU_DIAGNOSTICS
-  if (enable_op_profiling_) {
-    querypool_.shader_profile_end(cmd, log_idx);
+  if (enable_op_profiling_ && !external_recording) {
+    gpu_profile_end(cmd, log_idx);
   }
-#endif /* USE_VULKAN_GPU_DIAGNOSTICS */
 
   if (external_recording) {
     return false;
@@ -610,16 +610,14 @@ inline bool Context::submit_compute_job(
   set_cmd();
   CommandBuffer& cmd = active_cmd();
 
-#ifdef USE_VULKAN_GPU_DIAGNOSTICS
   uint32_t log_idx = UINT32_MAX;
-  if (enable_op_profiling_) {
-    log_idx = querypool_.shader_profile_begin(
+  if (enable_op_profiling_ && !external_recording) {
+    log_idx = gpu_profile_begin(
         cmd,
         shader.kernel_name,
         create_extent3d(global_work_group),
         create_extent3d(local_work_group_size));
   }
-#endif /* USE_VULKAN_GPU_DIAGNOSTICS */
 
   // Factor out template parameter independent code to minimize code bloat.
   DescriptorSet descriptor_set =
@@ -634,11 +632,9 @@ inline bool Context::submit_compute_job(
   register_shader_dispatch(
       descriptor_set, pipeline_barrier, shader, global_work_group);
 
-#ifdef USE_VULKAN_GPU_DIAGNOSTICS
-  if (enable_op_profiling_) {
-    querypool_.shader_profile_end(cmd, log_idx);
+  if (enable_op_profiling_ && !external_recording) {
+    gpu_profile_end(cmd, log_idx);
   }
-#endif /* USE_VULKAN_GPU_DIAGNOSTICS */
 
   if (external_recording) {
     return false;

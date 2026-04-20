@@ -3,11 +3,18 @@
 #include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/ops/InferenceCache.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/CompiledSession.h>
 
 #include <algorithm>
 #include <cstdlib>
+#include <exception>
 #include <fstream>
+#include <future>
+#include <limits>
 #include <mutex>
+#include <sstream>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace at {
@@ -19,6 +26,12 @@ namespace utils {
 namespace {
 
 constexpr size_t kInferenceGraphCacheSize = 32u;
+
+template <typename T>
+void hash_combine(size_t& seed, const T& value) {
+  seed ^= std::hash<T>{}(value) + size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) +
+      (seed >> 2u);
+}
 
 const std::string& inference_graph_log_path() {
   static const std::string path = []() {
@@ -158,23 +171,35 @@ bool operator==(const InferenceGraphKey& lhs, const InferenceGraphKey& rhs) {
       lhs.persistent == rhs.persistent;
 }
 
+size_t hash_inference_graph_key(const InferenceGraphKey& key) {
+  size_t seed = 0u;
+  hash_combine(seed, static_cast<int>(key.kind));
+  hash_combine(seed, key.allocation_label);
+  hash_combine(seed, static_cast<int>(key.dtype));
+  hash_combine(seed, key.persistent);
+  return seed;
+}
+
 InferenceLruCache<InferenceGraphKey, InferenceGraph>& inference_graph_cache() {
-  static InferenceLruCache<InferenceGraphKey, InferenceGraph>
-      cache{kInferenceGraphCacheSize};
-  return cache;
+  static auto* cache =
+      new InferenceLruCache<InferenceGraphKey, InferenceGraph>{
+          kInferenceGraphCacheSize};
+  return *cache;
 }
 
 InferenceLruCache<InferenceGraphKey, InferenceReplay>& inference_replay_cache() {
-  static InferenceLruCache<InferenceGraphKey, InferenceReplay>
-      cache{kInferenceGraphCacheSize};
-  return cache;
+  static auto* cache =
+      new InferenceLruCache<InferenceGraphKey, InferenceReplay>{
+          kInferenceGraphCacheSize};
+  return *cache;
 }
 
 InferenceLruCache<InferenceGraphKey, ExecutionGraphPlan>&
 execution_graph_plan_cache() {
-  static InferenceLruCache<InferenceGraphKey, ExecutionGraphPlan>
-      cache{kInferenceGraphCacheSize};
-  return cache;
+  static auto* cache =
+      new InferenceLruCache<InferenceGraphKey, ExecutionGraphPlan>{
+          kInferenceGraphCacheSize};
+  return *cache;
 }
 
 struct ExecutionGraphRootKey final {
@@ -190,11 +215,20 @@ bool operator==(
       lhs.dtype == rhs.dtype && lhs.persistent == rhs.persistent;
 }
 
+size_t hash_execution_graph_root_key(const ExecutionGraphRootKey& key) {
+  size_t seed = 0u;
+  hash_combine(seed, key.allocation_label);
+  hash_combine(seed, static_cast<int>(key.dtype));
+  hash_combine(seed, key.persistent);
+  return seed;
+}
+
 InferenceLruCache<ExecutionGraphRootKey, ExecutionGraphRoot>&
 execution_graph_root_cache() {
-  static InferenceLruCache<ExecutionGraphRootKey, ExecutionGraphRoot>
-      cache{kInferenceGraphCacheSize};
-  return cache;
+  static auto* cache =
+      new InferenceLruCache<ExecutionGraphRootKey, ExecutionGraphRoot>{
+          kInferenceGraphCacheSize};
+  return *cache;
 }
 
 std::string format_size_vector_key(const std::vector<int64_t>& sizes) {
@@ -388,41 +422,59 @@ struct ExecutionGraphReplayBundle::State final {
 };
 
 struct ExecutionGraphPlan::State final {
-  struct ProgramEntry final {
-    std::string phase_key;
-    ExecutionGraphProgramHandle program;
-  };
-
-  struct ReplayEntry final {
-    std::string phase_key;
-    ExecutionGraphReplay replay;
-  };
-
   InferenceGraph graph_;
-  std::vector<ProgramEntry> programs_;
-  std::vector<ReplayEntry> replays_;
+  std::unordered_map<std::string, ExecutionGraphProgramHandle> programs_;
+  std::unordered_map<std::string, ExecutionGraphReplay> replays_;
+  std::unordered_map<
+      std::string,
+      std::shared_future<ExecutionGraphProgramHandle>>
+      in_flight_programs_;
+  std::unordered_map<std::string, std::shared_future<ExecutionGraphReplay>>
+      in_flight_replays_;
   mutable std::mutex mutex_;
 
   explicit State(InferenceGraph graph) : graph_(std::move(graph)) {}
 };
 
 struct ExecutionGraphRoot::State final {
-  struct PhasePlanEntry final {
+  struct PhasePlanKey final {
     VulkanInferenceGraphKind kind{VulkanInferenceGraphKind::VisionBackbone};
     std::string phase_key;
-    ExecutionGraphPlan plan;
   };
 
-  struct BundleEntry final {
-    std::string bundle_key;
-    ExecutionGraphReplayBundle bundle;
+  struct PhasePlanKeyHash final {
+    size_t operator()(const PhasePlanKey& key) const {
+      size_t seed = 0u;
+      hash_combine(seed, static_cast<int>(key.kind));
+      hash_combine(seed, key.phase_key);
+      return seed;
+    }
+  };
+
+  struct PhasePlanKeyEqual final {
+    bool operator()(const PhasePlanKey& lhs, const PhasePlanKey& rhs) const {
+      return lhs.kind == rhs.kind && lhs.phase_key == rhs.phase_key;
+    }
   };
 
   std::string allocation_label_;
   ScalarType dtype_{kFloat};
   bool persistent_{true};
-  std::vector<PhasePlanEntry> phase_plans_;
-  std::vector<BundleEntry> bundles_;
+  std::unordered_map<
+      PhasePlanKey,
+      ExecutionGraphPlan,
+      PhasePlanKeyHash,
+      PhasePlanKeyEqual>
+      phase_plans_;
+  std::unordered_map<std::string, ExecutionGraphReplayBundle> bundles_;
+  std::unordered_map<
+      PhasePlanKey,
+      std::shared_future<ExecutionGraphPlan>,
+      PhasePlanKeyHash,
+      PhasePlanKeyEqual>
+      in_flight_phase_plans_;
+  std::unordered_map<std::string, std::shared_future<ExecutionGraphReplayBundle>>
+      in_flight_bundles_;
   mutable std::mutex mutex_;
 
   State(std::string allocation_label, ScalarType dtype, bool persistent)
@@ -519,7 +571,7 @@ const VisionBackboneProgram& expect_vision_backbone_program(
   return *program;
 }
 
-ExecutionGraphReplay make_execution_graph_replay(
+ExecutionGraphReplay make_execution_graph_replay_impl(
     const std::string& allocation_label,
     const VulkanInferenceGraphKind kind,
     const ScalarType dtype,
@@ -592,6 +644,24 @@ Graph lookup_or_create_typed_inference_graph(
 }
 
 } // namespace
+
+ExecutionGraphReplay make_execution_graph_replay(
+    const std::string& allocation_label,
+    const VulkanInferenceGraphKind kind,
+    const ScalarType dtype,
+    const bool persistent,
+    std::vector<Tensor> tensors,
+    std::vector<std::optional<Tensor>> optional_tensors,
+    std::vector<ExecutionGraphProgramHandle> programs) {
+  return make_execution_graph_replay_impl(
+      allocation_label,
+      kind,
+      dtype,
+      persistent,
+      std::move(tensors),
+      std::move(optional_tensors),
+      std::move(programs));
+}
 
 ExecutionGraphReplayStep make_execution_graph_replay_step(
     ExecutionGraphReplay replay,
@@ -744,7 +814,10 @@ void InferenceReplay::submit(
       state_->command_buffer_.has_value(),
       "Attempted to submit an unrecorded InferenceReplay");
   api::context()->submit_prepared_command_buffer(
-      *state_->command_buffer_, fence_handle, final_use);
+      *state_->command_buffer_,
+      fence_handle,
+      final_use,
+      state_->allocation_label_.c_str());
   log_inference_replay_event(
       state_->kind_, "submit", state_->allocation_label_, identity());
   if (final_use) {
@@ -943,6 +1016,16 @@ bool ExecutionGraphReplayBundle::recorded() const {
       });
 }
 
+void ExecutionGraphReplayBundle::warmup() const {
+  TORCH_INTERNAL_ASSERT(defined(), "Undefined ExecutionGraphReplayBundle");
+  TORCH_INTERNAL_ASSERT(
+      !state_->steps_.empty(),
+      "ExecutionGraphReplayBundle does not define warmup steps");
+  for (const auto& step : state_->steps_) {
+    step.record_step();
+  }
+}
+
 void ExecutionGraphReplayBundle::record() const {
   TORCH_INTERNAL_ASSERT(defined(), "Undefined ExecutionGraphReplayBundle");
   TORCH_INTERNAL_ASSERT(
@@ -957,6 +1040,18 @@ void ExecutionGraphReplayBundle::record() const {
       step.record_step();
     }
   });
+}
+
+void ExecutionGraphReplayBundle::record_steps_individually() const {
+  TORCH_INTERNAL_ASSERT(defined(), "Undefined ExecutionGraphReplayBundle");
+  TORCH_INTERNAL_ASSERT(
+      !state_->steps_.empty(),
+      "ExecutionGraphReplayBundle does not define replay steps");
+  for (const auto& step : state_->steps_) {
+    if (!step.replay.recorded()) {
+      step.replay.replay().record(step.record_step);
+    }
+  }
 }
 
 ExecutionGraphReplay& ExecutionGraphReplayBundle::replay(const size_t idx) {
@@ -1044,32 +1139,76 @@ ExecutionGraphProgramHandle ExecutionGraphPlan::lookup_or_create_program(
     const std::string& phase_key,
     const std::function<ExecutionGraphProgramHandle()>& builder) const {
   TORCH_INTERNAL_ASSERT(defined(), "Undefined ExecutionGraphPlan");
+  std::shared_future<ExecutionGraphProgramHandle> pending;
+  std::optional<std::promise<ExecutionGraphProgramHandle>> owner_promise;
   {
     std::lock_guard<std::mutex> lock(state_->mutex_);
-    for (const State::ProgramEntry& entry : state_->programs_) {
-      if (entry.phase_key == phase_key) {
-        log_execution_graph_plan_event(
-            kind(), "program_hit", allocation_label(), identity(), phase_key.c_str());
-        return entry.program;
-      }
+    if (const auto found = state_->programs_.find(phase_key);
+        found != state_->programs_.end()) {
+      log_execution_graph_plan_event(
+          kind(), "program_hit", allocation_label(), identity(), phase_key.c_str());
+      return found->second;
+    }
+    if (const auto in_flight = state_->in_flight_programs_.find(phase_key);
+        in_flight != state_->in_flight_programs_.end()) {
+      pending = in_flight->second;
+    } else {
+      std::promise<ExecutionGraphProgramHandle> promise;
+      pending = promise.get_future().share();
+      state_->in_flight_programs_.emplace(phase_key, pending);
+      owner_promise.emplace(std::move(promise));
     }
   }
 
-  ExecutionGraphProgramHandle created = builder();
-  TORCH_INTERNAL_ASSERT(
-      !std::holds_alternative<std::monostate>(created),
-      "ExecutionGraphPlan program builder returned an undefined program handle");
-  {
-    std::lock_guard<std::mutex> lock(state_->mutex_);
-    for (const State::ProgramEntry& entry : state_->programs_) {
-      if (entry.phase_key == phase_key) {
-        log_execution_graph_plan_event(
-            kind(), "program_hit", allocation_label(), identity(), phase_key.c_str());
-        return entry.program;
-      }
-    }
-    state_->programs_.push_back(State::ProgramEntry{phase_key, created});
+  if (!owner_promise.has_value()) {
+    log_execution_graph_plan_event(
+        kind(),
+        "program_wait",
+        allocation_label(),
+        identity(),
+        phase_key.c_str());
+    ExecutionGraphProgramHandle awaited = pending.get();
+    log_execution_graph_plan_event(
+        kind(), "program_hit", allocation_label(), identity(), phase_key.c_str());
+    return awaited;
   }
+
+  ExecutionGraphProgramHandle created;
+  try {
+    log_execution_graph_plan_event(
+        kind(),
+        "program_build_start",
+        allocation_label(),
+        identity(),
+        phase_key.c_str());
+    created = builder();
+    TORCH_INTERNAL_ASSERT(
+        !std::holds_alternative<std::monostate>(created),
+        "ExecutionGraphPlan program builder returned an undefined program handle");
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      auto [it, inserted] = state_->programs_.emplace(phase_key, created);
+      if (!inserted) {
+        created = it->second;
+      }
+      state_->in_flight_programs_.erase(phase_key);
+    }
+    owner_promise->set_value(created);
+    log_execution_graph_plan_event(
+        kind(),
+        "program_build_finish",
+        allocation_label(),
+        identity(),
+        phase_key.c_str());
+  } catch (...) {
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      state_->in_flight_programs_.erase(phase_key);
+    }
+    owner_promise->set_exception(std::current_exception());
+    throw;
+  }
+
   log_execution_graph_plan_event(
       kind(), "program_store", allocation_label(), identity(), phase_key.c_str());
   return created;
@@ -1079,32 +1218,76 @@ ExecutionGraphReplay ExecutionGraphPlan::lookup_or_create_replay(
     const std::string& phase_key,
     const std::function<ExecutionGraphReplay()>& builder) const {
   TORCH_INTERNAL_ASSERT(defined(), "Undefined ExecutionGraphPlan");
+  std::shared_future<ExecutionGraphReplay> pending;
+  std::optional<std::promise<ExecutionGraphReplay>> owner_promise;
   {
     std::lock_guard<std::mutex> lock(state_->mutex_);
-    for (const State::ReplayEntry& entry : state_->replays_) {
-      if (entry.phase_key == phase_key) {
-        log_execution_graph_plan_event(
-            kind(), "replay_hit", allocation_label(), identity(), phase_key.c_str());
-        return entry.replay;
-      }
+    if (const auto found = state_->replays_.find(phase_key);
+        found != state_->replays_.end()) {
+      log_execution_graph_plan_event(
+          kind(), "replay_hit", allocation_label(), identity(), phase_key.c_str());
+      return found->second;
+    }
+    if (const auto in_flight = state_->in_flight_replays_.find(phase_key);
+        in_flight != state_->in_flight_replays_.end()) {
+      pending = in_flight->second;
+    } else {
+      std::promise<ExecutionGraphReplay> promise;
+      pending = promise.get_future().share();
+      state_->in_flight_replays_.emplace(phase_key, pending);
+      owner_promise.emplace(std::move(promise));
     }
   }
 
-  ExecutionGraphReplay created = builder();
-  TORCH_INTERNAL_ASSERT(
-      created.defined(),
-      "ExecutionGraphPlan replay builder returned an undefined replay");
-  {
-    std::lock_guard<std::mutex> lock(state_->mutex_);
-    for (const State::ReplayEntry& entry : state_->replays_) {
-      if (entry.phase_key == phase_key) {
-        log_execution_graph_plan_event(
-            kind(), "replay_hit", allocation_label(), identity(), phase_key.c_str());
-        return entry.replay;
-      }
-    }
-    state_->replays_.push_back(State::ReplayEntry{phase_key, created});
+  if (!owner_promise.has_value()) {
+    log_execution_graph_plan_event(
+        kind(),
+        "replay_wait",
+        allocation_label(),
+        identity(),
+        phase_key.c_str());
+    ExecutionGraphReplay awaited = pending.get();
+    log_execution_graph_plan_event(
+        kind(), "replay_hit", allocation_label(), identity(), phase_key.c_str());
+    return awaited;
   }
+
+  ExecutionGraphReplay created;
+  try {
+    log_execution_graph_plan_event(
+        kind(),
+        "replay_build_start",
+        allocation_label(),
+        identity(),
+        phase_key.c_str());
+    created = builder();
+    TORCH_INTERNAL_ASSERT(
+        created.defined(),
+        "ExecutionGraphPlan replay builder returned an undefined replay");
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      auto [it, inserted] = state_->replays_.emplace(phase_key, created);
+      if (!inserted) {
+        created = it->second;
+      }
+      state_->in_flight_replays_.erase(phase_key);
+    }
+    owner_promise->set_value(created);
+    log_execution_graph_plan_event(
+        kind(),
+        "replay_build_finish",
+        allocation_label(),
+        identity(),
+        phase_key.c_str());
+  } catch (...) {
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      state_->in_flight_replays_.erase(phase_key);
+    }
+    owner_promise->set_exception(std::current_exception());
+    throw;
+  }
+
   log_execution_graph_plan_event(
       kind(), "replay_store", allocation_label(), identity(), phase_key.c_str());
   return created;
@@ -1118,41 +1301,86 @@ ExecutionGraphPlan ExecutionGraphRoot::lookup_or_create_phase_plan(
     const VulkanInferenceGraphKind kind,
     const std::string& phase_key) const {
   TORCH_INTERNAL_ASSERT(defined(), "Undefined ExecutionGraphRoot");
+  const State::PhasePlanKey key{kind, phase_key};
+  std::shared_future<ExecutionGraphPlan> pending;
+  std::optional<std::promise<ExecutionGraphPlan>> owner_promise;
   {
     std::lock_guard<std::mutex> lock(state_->mutex_);
-    for (const State::PhasePlanEntry& entry : state_->phase_plans_) {
-      if (entry.kind == kind && entry.phase_key == phase_key) {
-        log_execution_graph_root_event(
-            "phase_hit",
-            allocation_label(),
-            identity(),
-            &kind,
-            phase_key.c_str());
-        return entry.plan;
-      }
+    if (const auto found = state_->phase_plans_.find(key);
+        found != state_->phase_plans_.end()) {
+      log_execution_graph_root_event(
+          "phase_hit",
+          allocation_label(),
+          identity(),
+          &kind,
+          phase_key.c_str());
+      return found->second;
+    }
+    if (const auto in_flight = state_->in_flight_phase_plans_.find(key);
+        in_flight != state_->in_flight_phase_plans_.end()) {
+      pending = in_flight->second;
+    } else {
+      std::promise<ExecutionGraphPlan> promise;
+      pending = promise.get_future().share();
+      state_->in_flight_phase_plans_.emplace(key, pending);
+      owner_promise.emplace(std::move(promise));
     }
   }
 
-  ExecutionGraphPlan created = lookup_or_create_labeled_execution_graph_plan(
-      phase_plan_label(allocation_label(), phase_key),
-      kind,
-      state_->dtype_,
-      state_->persistent_);
-  {
-    std::lock_guard<std::mutex> lock(state_->mutex_);
-    for (const State::PhasePlanEntry& entry : state_->phase_plans_) {
-      if (entry.kind == kind && entry.phase_key == phase_key) {
-        log_execution_graph_root_event(
-            "phase_hit",
-            allocation_label(),
-            identity(),
-            &kind,
-            phase_key.c_str());
-        return entry.plan;
-      }
-    }
-    state_->phase_plans_.push_back(State::PhasePlanEntry{kind, phase_key, created});
+  if (!owner_promise.has_value()) {
+    log_execution_graph_root_event(
+        "phase_wait",
+        allocation_label(),
+        identity(),
+        &kind,
+        phase_key.c_str());
+    ExecutionGraphPlan awaited = pending.get();
+    log_execution_graph_root_event(
+        "phase_hit",
+        allocation_label(),
+        identity(),
+        &kind,
+        phase_key.c_str());
+    return awaited;
   }
+
+  ExecutionGraphPlan created;
+  try {
+    log_execution_graph_root_event(
+        "phase_build_start",
+        allocation_label(),
+        identity(),
+        &kind,
+        phase_key.c_str());
+    created = lookup_or_create_labeled_execution_graph_plan(
+        phase_plan_label(allocation_label(), phase_key),
+        kind,
+        state_->dtype_,
+        state_->persistent_);
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      auto [it, inserted] = state_->phase_plans_.emplace(key, created);
+      if (!inserted) {
+        created = it->second;
+      }
+      state_->in_flight_phase_plans_.erase(key);
+    }
+    owner_promise->set_value(created);
+    log_execution_graph_root_event(
+        "phase_build_finish",
+        allocation_label(),
+        identity(),
+        &kind,
+        phase_key.c_str());
+  } catch (...) {
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      state_->in_flight_phase_plans_.erase(key);
+    }
+    owner_promise->set_exception(std::current_exception());
+    throw;
+  }
+
   log_execution_graph_root_event(
       "phase_store",
       allocation_label(),
@@ -1166,40 +1394,84 @@ ExecutionGraphReplayBundle ExecutionGraphRoot::lookup_or_create_replay_bundle(
     const std::string& bundle_key,
     const std::function<ExecutionGraphReplayBundle()>& builder) const {
   TORCH_INTERNAL_ASSERT(defined(), "Undefined ExecutionGraphRoot");
+  std::shared_future<ExecutionGraphReplayBundle> pending;
+  std::optional<std::promise<ExecutionGraphReplayBundle>> owner_promise;
   {
     std::lock_guard<std::mutex> lock(state_->mutex_);
-    for (const State::BundleEntry& entry : state_->bundles_) {
-      if (entry.bundle_key == bundle_key) {
-        log_execution_graph_root_event(
-            "bundle_hit",
-            allocation_label(),
-            identity(),
-            nullptr,
-            bundle_key.c_str());
-        return entry.bundle;
-      }
+    if (const auto found = state_->bundles_.find(bundle_key);
+        found != state_->bundles_.end()) {
+      log_execution_graph_root_event(
+          "bundle_hit",
+          allocation_label(),
+          identity(),
+          nullptr,
+          bundle_key.c_str());
+      return found->second;
+    }
+    if (const auto in_flight = state_->in_flight_bundles_.find(bundle_key);
+        in_flight != state_->in_flight_bundles_.end()) {
+      pending = in_flight->second;
+    } else {
+      std::promise<ExecutionGraphReplayBundle> promise;
+      pending = promise.get_future().share();
+      state_->in_flight_bundles_.emplace(bundle_key, pending);
+      owner_promise.emplace(std::move(promise));
     }
   }
 
-  ExecutionGraphReplayBundle created = builder();
-  TORCH_INTERNAL_ASSERT(
-      created.defined(),
-      "ExecutionGraphRoot replay bundle builder returned an undefined bundle");
-  {
-    std::lock_guard<std::mutex> lock(state_->mutex_);
-    for (const State::BundleEntry& entry : state_->bundles_) {
-      if (entry.bundle_key == bundle_key) {
-        log_execution_graph_root_event(
-            "bundle_hit",
-            allocation_label(),
-            identity(),
-            nullptr,
-            bundle_key.c_str());
-        return entry.bundle;
-      }
-    }
-    state_->bundles_.push_back(State::BundleEntry{bundle_key, created});
+  if (!owner_promise.has_value()) {
+    log_execution_graph_root_event(
+        "bundle_wait",
+        allocation_label(),
+        identity(),
+        nullptr,
+        bundle_key.c_str());
+    ExecutionGraphReplayBundle awaited = pending.get();
+    log_execution_graph_root_event(
+        "bundle_hit",
+        allocation_label(),
+        identity(),
+        nullptr,
+        bundle_key.c_str());
+    return awaited;
   }
+
+  ExecutionGraphReplayBundle created;
+  try {
+    log_execution_graph_root_event(
+        "bundle_build_start",
+        allocation_label(),
+        identity(),
+        nullptr,
+        bundle_key.c_str());
+    created = builder();
+    TORCH_INTERNAL_ASSERT(
+        created.defined(),
+        "ExecutionGraphRoot replay bundle builder returned an undefined bundle");
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      auto [it, inserted] = state_->bundles_.emplace(bundle_key, created);
+      if (!inserted) {
+        created = it->second;
+      }
+      state_->in_flight_bundles_.erase(bundle_key);
+    }
+    owner_promise->set_value(created);
+    log_execution_graph_root_event(
+        "bundle_build_finish",
+        allocation_label(),
+        identity(),
+        nullptr,
+        bundle_key.c_str());
+  } catch (...) {
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      state_->in_flight_bundles_.erase(bundle_key);
+    }
+    owner_promise->set_exception(std::current_exception());
+    throw;
+  }
+
   log_execution_graph_root_event(
       "bundle_store",
       allocation_label(),
@@ -1227,6 +1499,7 @@ InferenceGraph lookup_or_create_labeled_inference_graph(
   };
   if (const auto cached = inference_graph_cache().lookup(
           query,
+          hash_inference_graph_key,
           [](const InferenceGraphKey& lhs, const InferenceGraphKey& rhs) {
             return lhs == rhs;
           })) {
@@ -1240,6 +1513,7 @@ InferenceGraph lookup_or_create_labeled_inference_graph(
   inference_graph_cache().store(
       query,
       created,
+      hash_inference_graph_key,
       [](const InferenceGraphKey& lhs, const InferenceGraphKey& rhs) {
         return lhs == rhs;
       });
@@ -1262,6 +1536,7 @@ InferenceReplay lookup_or_create_labeled_inference_replay(
   };
   if (const auto cached = inference_replay_cache().lookup(
           query,
+          hash_inference_graph_key,
           [](const InferenceGraphKey& lhs, const InferenceGraphKey& rhs) {
             return lhs == rhs;
           })) {
@@ -1275,6 +1550,7 @@ InferenceReplay lookup_or_create_labeled_inference_replay(
   inference_replay_cache().store(
       query,
       created,
+      hash_inference_graph_key,
       [](const InferenceGraphKey& lhs, const InferenceGraphKey& rhs) {
         return lhs == rhs;
       });
@@ -1297,6 +1573,7 @@ ExecutionGraphPlan lookup_or_create_labeled_execution_graph_plan(
   };
   if (const auto cached = execution_graph_plan_cache().lookup(
           query,
+          hash_inference_graph_key,
           [](const InferenceGraphKey& lhs, const InferenceGraphKey& rhs) {
             return lhs == rhs;
           })) {
@@ -1311,6 +1588,7 @@ ExecutionGraphPlan created{std::make_shared<ExecutionGraphPlan::State>(
   execution_graph_plan_cache().store(
       query,
       created,
+      hash_inference_graph_key,
       [](const InferenceGraphKey& lhs, const InferenceGraphKey& rhs) {
         return lhs == rhs;
       });
@@ -1331,6 +1609,7 @@ ExecutionGraphRoot lookup_or_create_labeled_execution_graph_root(
   };
   if (const auto cached = execution_graph_root_cache().lookup(
           query,
+          hash_execution_graph_root_key,
           [](const ExecutionGraphRootKey& lhs, const ExecutionGraphRootKey& rhs) {
             return lhs == rhs;
           })) {
@@ -1344,6 +1623,7 @@ ExecutionGraphRoot lookup_or_create_labeled_execution_graph_root(
   execution_graph_root_cache().store(
       query,
       created,
+      hash_execution_graph_root_key,
       [](const ExecutionGraphRootKey& lhs, const ExecutionGraphRootKey& rhs) {
         return lhs == rhs;
       });
@@ -2081,6 +2361,1433 @@ VisionDecoderInferenceGraph lookup_or_create_labeled_vision_decoder_inference_gr
       VulkanInferenceGraphKind::VisionDecoder,
       dtype,
       persistent);
+}
+
+struct VulkanCompiledSession::State final {
+  VulkanCompiledSessionKey key;
+  VulkanBackendIR ir;
+  VulkanGlobalLayoutPlan layout_plan;
+  VulkanIRMemoryPlan memory_plan;
+  bool executable{false};
+
+  State(
+      VulkanCompiledSessionKey key_in,
+      VulkanBackendIR ir_in,
+      VulkanGlobalLayoutPlan layout_plan_in,
+      VulkanIRMemoryPlan memory_plan_in,
+      const bool executable_in)
+      : key(std::move(key_in)),
+        ir(std::move(ir_in)),
+        layout_plan(std::move(layout_plan_in)),
+        memory_plan(std::move(memory_plan_in)),
+        executable(executable_in) {}
+};
+
+namespace compiled_session_impl {
+
+constexpr size_t kCompiledSessionCacheSize = 16u;
+
+template <typename T>
+void hash_combine_session(size_t& seed, const T& value) {
+  seed ^= std::hash<T>{}(value) + size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) +
+      (seed >> 2u);
+}
+
+void hash_shape(size_t& seed, const std::vector<int64_t>& shape) {
+  hash_combine_session(seed, shape.size());
+  for (const int64_t value : shape) {
+    hash_combine_session(seed, value);
+  }
+}
+
+void hash_shapes(size_t& seed, const std::vector<std::vector<int64_t>>& shapes) {
+  hash_combine_session(seed, shapes.size());
+  for (const auto& shape : shapes) {
+    hash_shape(seed, shape);
+  }
+}
+
+std::string shape_key(const std::vector<int64_t>& shape) {
+  std::ostringstream out;
+  for (size_t idx = 0u; idx < shape.size(); ++idx) {
+    if (idx > 0u) {
+      out << 'x';
+    }
+    out << shape[idx];
+  }
+  return out.str();
+}
+
+std::string optional_shape_key(
+    const std::optional<std::vector<int64_t>>& shape) {
+  return shape.has_value() ? shape_key(*shape) : std::string("none");
+}
+
+std::string vector_key(const std::vector<int64_t>& values) {
+  std::ostringstream out;
+  for (size_t idx = 0u; idx < values.size(); ++idx) {
+    if (idx > 0u) {
+      out << ',';
+    }
+    out << values[idx];
+  }
+  return out.str();
+}
+
+int64_t round_up_to_multiple(const int64_t value, const int64_t alignment) {
+  if (value <= 0 || alignment <= 1) {
+    return value;
+  }
+  return ((value + alignment - 1) / alignment) * alignment;
+}
+
+size_t tensor_spec_numel(const VulkanIRTensorSpec& spec) {
+  if (spec.padded_sizes.empty()) {
+    return 0u;
+  }
+  size_t numel = 1u;
+  for (const int64_t size : spec.padded_sizes) {
+    if (size <= 0) {
+      return 0u;
+    }
+    numel *= static_cast<size_t>(size);
+  }
+  return numel;
+}
+
+size_t tensor_spec_nbytes(const VulkanIRTensorSpec& spec) {
+  return tensor_spec_numel(spec) * c10::elementSize(spec.dtype);
+}
+
+bool requires_dedicated_slot(const VulkanIRTensorSpec& spec) {
+  return spec.role == VulkanIRTensorRole::Input ||
+      spec.role == VulkanIRTensorRole::Output ||
+      spec.role == VulkanIRTensorRole::Constant ||
+      spec.external;
+}
+
+VulkanIRTensorSpec make_tensor_spec(
+    const std::vector<int64_t>& logical_sizes,
+    const ScalarType dtype,
+    const VulkanIRTensorRole role,
+    const bool persistent,
+    const bool external) {
+  VulkanIRTensorSpec spec;
+  spec.dtype = dtype;
+  spec.logical_sizes = logical_sizes;
+  spec.padded_sizes = logical_sizes;
+  spec.role = role;
+  spec.persistent = persistent;
+  spec.external = external;
+  return spec;
+}
+
+VulkanIRTensorSpec make_constant_spec(
+    const ScalarType dtype,
+    const bool persistent) {
+  return make_tensor_spec(
+      std::vector<int64_t>{},
+      dtype,
+      VulkanIRTensorRole::Constant,
+      persistent,
+      false);
+}
+
+const std::string& compiled_session_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_COMPILED_SESSION_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool compiled_session_logging_enabled() {
+  return !compiled_session_log_path().empty();
+}
+
+std::mutex& compiled_session_log_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+void log_compiled_session_event(
+    const char* event,
+    const VulkanCompiledSessionKey& key,
+    const void* identity,
+    const size_t value_count = 0u,
+    const size_t op_count = 0u,
+    const VulkanGlobalLayoutPlan* layout_plan = nullptr,
+    const VulkanIRMemoryPlan* memory_plan = nullptr) {
+  if (!compiled_session_logging_enabled()) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(compiled_session_log_mutex());
+  std::ofstream out(compiled_session_log_path(), std::ios::app);
+  out << "compiled_session event=" << event << " kind="
+      << compiled_session_kind_name(key.kind) << " model_key=" << key.model_key
+      << " config=" << key.configuration_key << " dtype="
+      << static_cast<int>(key.dtype) << " capability_key="
+      << key.capability_key << " persistent=" << (key.persistent ? 1 : 0);
+  if (identity) {
+    out << " identity=" << identity;
+  }
+  if (value_count > 0u || op_count > 0u) {
+    out << " values=" << value_count << " ops=" << op_count;
+  }
+  if (layout_plan) {
+    out << " storage=buffer"
+        << " width_alignment=" << layout_plan->width_alignment
+        << " pad_width=" << (layout_plan->pad_width ? 1 : 0)
+        << " reason=" << layout_plan->reason;
+  }
+  if (memory_plan) {
+    out << " slots=" << memory_plan->slots.size()
+        << " planned_bytes=" << memory_plan->planned_bytes
+        << " reusable_bytes=" << memory_plan->reusable_bytes
+        << " dedicated_bytes=" << memory_plan->dedicated_bytes
+        << " external_bytes=" << memory_plan->external_bytes;
+  }
+  out << '\n';
+}
+
+struct VulkanCompiledSessionCache final {
+  std::mutex mutex;
+  std::unordered_map<
+      VulkanCompiledSessionKey,
+      VulkanCompiledSession,
+      VulkanCompiledSessionKeyHash>
+      sessions;
+};
+
+VulkanCompiledSessionCache& compiled_session_cache() {
+  static VulkanCompiledSessionCache cache;
+  return cache;
+}
+
+std::string make_backbone_configuration_key(
+    const DepthAnythingV2BackboneStackSessionDesc& desc) {
+  std::ostringstream out;
+  out << "patch_tokens=" << shape_key(desc.patch_token_sizes)
+      << "|blocks=" << desc.backbone_block_count
+      << "|capture=" << vector_key(desc.capture_indices)
+      << "|hidden=" << vector_key(desc.block_hidden_dims)
+      << "|heads=" << vector_key(desc.block_num_heads)
+      << "|norm_shape=" << optional_shape_key(desc.normalized_shape);
+  return out.str();
+}
+
+std::string make_decoder_configuration_key(
+    const DepthAnythingV2DecoderPreprocessHeadSessionDesc& desc) {
+  std::ostringstream out;
+  out << "patch=" << desc.patch_h << 'x' << desc.patch_w;
+  for (size_t idx = 0u; idx < desc.layer_token_sizes.size(); ++idx) {
+    out << "|layer" << (idx + 1u)
+        << "_tokens=" << shape_key(desc.layer_token_sizes[idx])
+        << "_feature=" << shape_key(desc.layer_feature_sizes[idx])
+        << "_project=" << shape_key(desc.project_layer_sizes[idx])
+        << "_resize="
+        << (desc.apply_resize[idx] ? shape_key(desc.resize_layer_sizes[idx])
+                                   : std::string("none"))
+        << "_decoder=" << shape_key(desc.decoder_layer_sizes[idx]);
+  }
+  out << "|output=" << shape_key(desc.output_sizes);
+  return out.str();
+}
+
+std::string make_full_session_configuration_key(
+    const DepthAnythingV2SessionDesc& desc) {
+  std::ostringstream out;
+  out << "patch_tokens=" << shape_key(desc.patch_token_sizes)
+      << "|blocks=" << desc.backbone_block_count
+      << "|capture=" << vector_key(desc.capture_indices)
+      << "|hidden=" << vector_key(desc.block_hidden_dims)
+      << "|heads=" << vector_key(desc.block_num_heads)
+      << "|norm_shape=" << shape_key(desc.normalized_shape)
+      << "|patch=" << desc.patch_h << 'x' << desc.patch_w;
+  for (size_t idx = 0u; idx < desc.layer_feature_sizes.size(); ++idx) {
+    out << "|layer" << (idx + 1u)
+        << "_feature=" << shape_key(desc.layer_feature_sizes[idx])
+        << "_project=" << shape_key(desc.project_layer_sizes[idx])
+        << "_resize="
+        << (desc.apply_resize[idx] ? shape_key(desc.resize_layer_sizes[idx])
+                                   : std::string("none"))
+        << "_decoder=" << shape_key(desc.decoder_layer_sizes[idx]);
+  }
+  out << "|output=" << shape_key(desc.output_sizes);
+  return out.str();
+}
+
+std::string make_image_session_configuration_key(
+    const DepthAnythingV2ImageSessionDesc& desc) {
+  std::ostringstream out;
+  out << "image=" << shape_key(desc.image_sizes)
+      << "|patch_tokens=" << shape_key(desc.patch_token_sizes)
+      << "|prefix=" << shape_key(desc.prefix_token_sizes)
+      << "|patch_pos=" << shape_key(desc.patch_pos_encoding_sizes)
+      << "|blocks=" << desc.backbone_block_count
+      << "|capture=" << vector_key(desc.capture_indices)
+      << "|hidden=" << vector_key(desc.block_hidden_dims)
+      << "|heads=" << vector_key(desc.block_num_heads)
+      << "|norm_shape=" << shape_key(desc.normalized_shape)
+      << "|patch=" << desc.patch_h << 'x' << desc.patch_w;
+  for (size_t idx = 0u; idx < desc.layer_feature_sizes.size(); ++idx) {
+    out << "|layer" << (idx + 1u)
+        << "_feature=" << shape_key(desc.layer_feature_sizes[idx])
+        << "_project=" << shape_key(desc.project_layer_sizes[idx])
+        << "_resize="
+        << (desc.apply_resize[idx] ? shape_key(desc.resize_layer_sizes[idx])
+                                   : std::string("none"))
+        << "_decoder=" << shape_key(desc.decoder_layer_sizes[idx]);
+  }
+  out << "|output=" << shape_key(desc.output_sizes);
+  return out.str();
+}
+
+struct DepthAnythingV2BackboneIRHandles final {
+  VulkanValueId patch_tokens{0u};
+  std::vector<VulkanValueId> block_outputs;
+  std::vector<VulkanValueId> capture_outputs;
+};
+
+struct DepthAnythingV2DecoderIRDesc final {
+  ScalarType dtype{kFloat};
+  bool persistent{true};
+  int64_t patch_h{0};
+  int64_t patch_w{0};
+  std::array<std::vector<int64_t>, 4u> layer_feature_sizes;
+  std::array<std::vector<int64_t>, 4u> project_layer_sizes;
+  std::array<std::vector<int64_t>, 4u> resize_layer_sizes;
+  std::array<bool, 4u> apply_resize{{true, true, false, true}};
+  std::array<std::vector<int64_t>, 4u> decoder_layer_sizes;
+  std::vector<int64_t> output_sizes;
+};
+
+struct DepthAnythingV2DecoderIRHandles final {
+  std::array<VulkanValueId, 4u> feature_values{};
+  std::array<VulkanValueId, 4u> project_values{};
+  std::array<std::optional<VulkanValueId>, 4u> resize_values{};
+  std::array<VulkanValueId, 4u> decoder_values{};
+  VulkanValueId head_output{0u};
+  VulkanValueId final_output{0u};
+};
+
+DepthAnythingV2BackboneIRHandles append_depth_anything_v2_backbone_region(
+    VulkanBackendIR& ir,
+    const VulkanValueId patch_tokens_value,
+    const std::vector<int64_t>& patch_token_sizes,
+    const ScalarType dtype,
+    const bool persistent,
+    const int64_t backbone_block_count,
+    const std::vector<int64_t>& capture_indices,
+    const std::vector<int64_t>& block_hidden_dims,
+    const std::vector<int64_t>& block_num_heads,
+    const std::optional<std::vector<int64_t>>& normalized_shape,
+    const VulkanIRTensorRole capture_role,
+    const bool capture_external) {
+  DepthAnythingV2BackboneIRHandles handles;
+  handles.patch_tokens = patch_tokens_value;
+  handles.block_outputs.reserve(static_cast<size_t>(std::max<int64_t>(backbone_block_count, 0)));
+  handles.capture_outputs.resize(capture_indices.size());
+
+  VulkanValueId current = handles.patch_tokens;
+  for (int64_t block_idx = 0; block_idx < backbone_block_count; ++block_idx) {
+    const VulkanValueId constants = ir.add_value(
+        "backbone.block." + std::to_string(block_idx) + ".constants",
+        make_constant_spec(dtype, persistent));
+    const VulkanValueId output = ir.add_value(
+        "backbone.block." + std::to_string(block_idx) + ".tokens",
+        make_tensor_spec(
+            patch_token_sizes,
+            dtype,
+            VulkanIRTensorRole::Intermediate,
+            persistent,
+            false));
+
+    std::ostringstream attrs;
+    attrs << "block=" << block_idx;
+    if (static_cast<size_t>(block_idx) < block_hidden_dims.size()) {
+      attrs << "|hidden_dim=" << block_hidden_dims[block_idx];
+    }
+    if (static_cast<size_t>(block_idx) < block_num_heads.size()) {
+      attrs << "|num_heads=" << block_num_heads[block_idx];
+    }
+    ir.add_op(VulkanIROpNode{
+        VulkanIROpKind::BackboneBlock,
+        "backbone.block." + std::to_string(block_idx),
+        {current},
+        {output},
+        {constants},
+        attrs.str()});
+    current = output;
+    handles.block_outputs.push_back(output);
+
+    const auto capture_it =
+        std::find(capture_indices.begin(), capture_indices.end(), block_idx);
+    if (capture_it == capture_indices.end()) {
+      continue;
+    }
+
+    const size_t capture_pos = static_cast<size_t>(
+        std::distance(capture_indices.begin(), capture_it));
+    const VulkanValueId capture = ir.add_value(
+        "capture." + std::to_string(capture_pos) + ".tokens",
+        make_tensor_spec(
+            patch_token_sizes,
+            dtype,
+            capture_role,
+            persistent,
+            capture_external));
+    if (normalized_shape.has_value()) {
+      const VulkanValueId norm_constants = ir.add_value(
+          "capture." + std::to_string(capture_pos) + ".norm.constants",
+          make_constant_spec(dtype, persistent));
+      ir.add_op(VulkanIROpNode{
+          VulkanIROpKind::CaptureNormedPatchTokens,
+          "capture." + std::to_string(capture_pos) + ".norm",
+          {current},
+          {capture},
+          {norm_constants},
+          "normalized_shape=" + shape_key(*normalized_shape)});
+    } else {
+      ir.add_op(VulkanIROpNode{
+          VulkanIROpKind::OutputAlias,
+          "capture." + std::to_string(capture_pos) + ".alias",
+          {current},
+          {capture},
+          {},
+          std::string()});
+      ir.add_output_alias(capture, current);
+    }
+    handles.capture_outputs[capture_pos] = capture;
+  }
+
+  return handles;
+}
+
+DepthAnythingV2DecoderIRHandles append_depth_anything_v2_decoder_region(
+    VulkanBackendIR& ir,
+    const std::array<VulkanValueId, 4u>& token_values,
+    const DepthAnythingV2DecoderIRDesc& desc) {
+  DepthAnythingV2DecoderIRHandles handles;
+  for (size_t idx = 0u; idx < token_values.size(); ++idx) {
+    handles.feature_values[idx] = ir.add_value(
+        "decoder.layer" + std::to_string(idx + 1u) + ".feature_map",
+        make_tensor_spec(
+            desc.layer_feature_sizes[idx],
+            desc.dtype,
+            VulkanIRTensorRole::Intermediate,
+            desc.persistent,
+            false));
+    ir.add_op(VulkanIROpNode{
+        VulkanIROpKind::TokensToFeatureMap,
+        "decoder.layer" + std::to_string(idx + 1u) + ".tokens_to_feature_map",
+        {token_values[idx]},
+        {handles.feature_values[idx]},
+        {},
+        "patch=" + std::to_string(desc.patch_h) + "x" +
+            std::to_string(desc.patch_w)});
+
+    const VulkanValueId project_constants = ir.add_value(
+        "decoder.layer" + std::to_string(idx + 1u) + ".project.constants",
+        make_constant_spec(desc.dtype, desc.persistent));
+    handles.project_values[idx] = ir.add_value(
+        "decoder.layer" + std::to_string(idx + 1u) + ".projected",
+        make_tensor_spec(
+            desc.project_layer_sizes[idx],
+            desc.dtype,
+            VulkanIRTensorRole::Intermediate,
+            desc.persistent,
+            false));
+    ir.add_op(VulkanIROpNode{
+        VulkanIROpKind::DecoderProject,
+        "decoder.layer" + std::to_string(idx + 1u) + ".project",
+        {handles.feature_values[idx]},
+        {handles.project_values[idx]},
+        {project_constants},
+        std::string()});
+
+    VulkanValueId preprocess_input = handles.project_values[idx];
+    if (desc.apply_resize[idx]) {
+      const VulkanValueId resize_constants = ir.add_value(
+          "decoder.layer" + std::to_string(idx + 1u) + ".resize.constants",
+          make_constant_spec(desc.dtype, desc.persistent));
+      const VulkanValueId resize_output = ir.add_value(
+          "decoder.layer" + std::to_string(idx + 1u) + ".resized",
+          make_tensor_spec(
+              desc.resize_layer_sizes[idx],
+              desc.dtype,
+              VulkanIRTensorRole::Intermediate,
+              desc.persistent,
+              false));
+      handles.resize_values[idx] = resize_output;
+      ir.add_op(VulkanIROpNode{
+          VulkanIROpKind::DecoderResize,
+          "decoder.layer" + std::to_string(idx + 1u) + ".resize",
+          {handles.project_values[idx]},
+          {resize_output},
+          {resize_constants},
+          std::string()});
+      preprocess_input = resize_output;
+    }
+
+    const VulkanValueId preprocess_constants = ir.add_value(
+        "decoder.layer" + std::to_string(idx + 1u) + ".preprocess.constants",
+        make_constant_spec(desc.dtype, desc.persistent));
+    handles.decoder_values[idx] = ir.add_value(
+        "decoder.layer" + std::to_string(idx + 1u) + ".preprocessed",
+        make_tensor_spec(
+            desc.decoder_layer_sizes[idx],
+            desc.dtype,
+            VulkanIRTensorRole::Intermediate,
+            desc.persistent,
+            false));
+    ir.add_op(VulkanIROpNode{
+        VulkanIROpKind::DecoderPreprocess,
+        "decoder.layer" + std::to_string(idx + 1u) + ".preprocess",
+        {preprocess_input},
+        {handles.decoder_values[idx]},
+        {preprocess_constants},
+        std::string()});
+  }
+
+  const VulkanValueId head_constants = ir.add_value(
+      "decoder.head.constants",
+      make_constant_spec(desc.dtype, desc.persistent));
+  handles.head_output = ir.add_value(
+      "decoder.head.output",
+      make_tensor_spec(
+          desc.output_sizes,
+          desc.dtype,
+          VulkanIRTensorRole::Intermediate,
+          desc.persistent,
+          false));
+  ir.add_op(VulkanIROpNode{
+      VulkanIROpKind::DecoderHead,
+      "decoder.head",
+      {handles.decoder_values[0],
+       handles.decoder_values[1],
+       handles.decoder_values[2],
+       handles.decoder_values[3]},
+      {handles.head_output},
+      {head_constants},
+      std::string()});
+
+  handles.final_output = ir.add_value(
+      "final_output",
+      make_tensor_spec(
+          desc.output_sizes,
+          desc.dtype,
+          VulkanIRTensorRole::Output,
+          desc.persistent,
+          true));
+  ir.add_op(VulkanIROpNode{
+      VulkanIROpKind::OutputAlias,
+      "final_output.alias",
+      {handles.head_output},
+      {handles.final_output},
+      {},
+      std::string()});
+  ir.add_output_alias(handles.final_output, handles.head_output);
+
+  return handles;
+}
+
+VulkanBackendIR make_depth_anything_v2_backbone_ir(
+    const DepthAnythingV2BackboneStackSessionDesc& desc) {
+  VulkanBackendIR ir;
+  const VulkanValueId patch_tokens = ir.add_value(
+      "patch_tokens",
+      make_tensor_spec(
+          desc.patch_token_sizes,
+          desc.dtype,
+          VulkanIRTensorRole::Input,
+          desc.persistent,
+          true));
+  (void)append_depth_anything_v2_backbone_region(
+      ir,
+      patch_tokens,
+      desc.patch_token_sizes,
+      desc.dtype,
+      desc.persistent,
+      desc.backbone_block_count,
+      desc.capture_indices,
+      desc.block_hidden_dims,
+      desc.block_num_heads,
+      desc.normalized_shape,
+      VulkanIRTensorRole::Output,
+      true);
+  ir.recompute_lifetimes();
+  return ir;
+}
+
+VulkanBackendIR make_depth_anything_v2_decoder_ir(
+    const DepthAnythingV2DecoderPreprocessHeadSessionDesc& desc) {
+  VulkanBackendIR ir;
+  std::array<VulkanValueId, 4u> token_values{};
+  for (size_t idx = 0u; idx < token_values.size(); ++idx) {
+    token_values[idx] = ir.add_value(
+        "decoder.layer" + std::to_string(idx + 1u) + ".tokens",
+        make_tensor_spec(
+            desc.layer_token_sizes[idx],
+            desc.dtype,
+            VulkanIRTensorRole::Input,
+            desc.persistent,
+            true));
+  }
+  (void)append_depth_anything_v2_decoder_region(
+      ir,
+      token_values,
+      DepthAnythingV2DecoderIRDesc{
+          desc.dtype,
+          desc.persistent,
+          desc.patch_h,
+          desc.patch_w,
+          desc.layer_feature_sizes,
+          desc.project_layer_sizes,
+          desc.resize_layer_sizes,
+          desc.apply_resize,
+          desc.decoder_layer_sizes,
+          desc.output_sizes});
+  ir.recompute_lifetimes();
+  return ir;
+}
+
+VulkanBackendIR make_depth_anything_v2_full_ir(
+    const DepthAnythingV2SessionDesc& desc) {
+  TORCH_INTERNAL_ASSERT(
+      desc.capture_indices.size() == 4u,
+      "DepthAnythingV2 full session expects exactly four capture indices");
+  VulkanBackendIR ir;
+  const VulkanValueId patch_tokens = ir.add_value(
+      "patch_tokens",
+      make_tensor_spec(
+          desc.patch_token_sizes,
+          desc.dtype,
+          VulkanIRTensorRole::Input,
+          desc.persistent,
+          true));
+  const std::optional<std::vector<int64_t>> normalized_shape =
+      desc.normalized_shape.empty() ? std::nullopt
+                                    : std::make_optional(desc.normalized_shape);
+  const auto backbone_handles = append_depth_anything_v2_backbone_region(
+      ir,
+      patch_tokens,
+      desc.patch_token_sizes,
+      desc.dtype,
+      desc.persistent,
+      desc.backbone_block_count,
+      desc.capture_indices,
+      desc.block_hidden_dims,
+      desc.block_num_heads,
+      normalized_shape,
+      VulkanIRTensorRole::Intermediate,
+      false);
+  std::array<VulkanValueId, 4u> capture_tokens{};
+  for (size_t idx = 0u; idx < capture_tokens.size(); ++idx) {
+    capture_tokens[idx] = backbone_handles.capture_outputs[idx];
+  }
+  (void)append_depth_anything_v2_decoder_region(
+      ir,
+      capture_tokens,
+      DepthAnythingV2DecoderIRDesc{
+          desc.dtype,
+          desc.persistent,
+          desc.patch_h,
+          desc.patch_w,
+          desc.layer_feature_sizes,
+          desc.project_layer_sizes,
+          desc.resize_layer_sizes,
+          desc.apply_resize,
+          desc.decoder_layer_sizes,
+          desc.output_sizes});
+  ir.recompute_lifetimes();
+  return ir;
+}
+
+VulkanBackendIR make_depth_anything_v2_image_full_ir(
+    const DepthAnythingV2ImageSessionDesc& desc) {
+  TORCH_INTERNAL_ASSERT(
+      desc.capture_indices.size() == 4u,
+      "DepthAnythingV2 image session expects exactly four capture indices");
+  TORCH_INTERNAL_ASSERT(
+      desc.image_sizes.size() == 4u,
+      "DepthAnythingV2 image session expects a rank-4 image input");
+  TORCH_INTERNAL_ASSERT(
+      desc.patch_token_sizes.size() == 2u || desc.patch_token_sizes.size() == 3u,
+      "DepthAnythingV2 image session expects rank-2 or rank-3 patch tokens");
+  TORCH_INTERNAL_ASSERT(
+      desc.prefix_token_sizes.size() == 3u &&
+          desc.patch_pos_encoding_sizes.size() == 3u,
+      "DepthAnythingV2 image session expects rank-3 prefix and positional "
+      "encoding tensors");
+
+  const std::vector<int64_t> backbone_patch_token_sizes =
+      desc.patch_token_sizes.size() == 2u
+      ? std::vector<int64_t>{
+            std::max<int64_t>(desc.image_sizes[0], 1),
+            desc.patch_token_sizes[0],
+            desc.patch_token_sizes[1]}
+      : desc.patch_token_sizes;
+  const std::vector<int64_t> patch_body_token_sizes{
+      backbone_patch_token_sizes[0],
+      desc.patch_h * desc.patch_w,
+      backbone_patch_token_sizes[2],
+  };
+
+  VulkanBackendIR ir;
+  const VulkanValueId image_input = ir.add_value(
+      "input_image",
+      make_tensor_spec(
+          desc.image_sizes,
+          desc.dtype,
+          VulkanIRTensorRole::Input,
+          desc.persistent,
+          true));
+  const VulkanValueId patch_embed_constants = ir.add_value(
+      "patch_embed.constants",
+      make_constant_spec(desc.dtype, desc.persistent));
+  const VulkanValueId patch_feature_map = ir.add_value(
+      "patch_embed.feature_map",
+      make_tensor_spec(
+          std::vector<int64_t>{
+              desc.image_sizes[0],
+              backbone_patch_token_sizes.back(),
+              desc.patch_h,
+              desc.patch_w},
+          desc.dtype,
+          VulkanIRTensorRole::Intermediate,
+          desc.persistent,
+          false));
+  ir.add_op(VulkanIROpNode{
+      VulkanIROpKind::PatchEmbed,
+      "patch_embed",
+      {image_input},
+      {patch_feature_map},
+      {patch_embed_constants},
+      std::string()});
+
+  const VulkanValueId prefix_token = ir.add_value(
+      "patch_tokens.prefix",
+      make_tensor_spec(
+          desc.prefix_token_sizes,
+          desc.dtype,
+          VulkanIRTensorRole::Constant,
+          desc.persistent,
+          true));
+  const VulkanValueId patch_pos_encoding = ir.add_value(
+      "patch_tokens.pos_encoding",
+      make_tensor_spec(
+          desc.patch_pos_encoding_sizes,
+          desc.dtype,
+          VulkanIRTensorRole::Constant,
+          desc.persistent,
+          true));
+  const VulkanValueId feature_map_tokens = ir.add_value(
+      "patch_tokens.body",
+      make_tensor_spec(
+          patch_body_token_sizes,
+          desc.dtype,
+          VulkanIRTensorRole::Intermediate,
+          desc.persistent,
+          false));
+  ir.add_op(VulkanIROpNode{
+      VulkanIROpKind::FeatureMapToTokens,
+      "patch_tokens.feature_map_to_tokens",
+      {patch_feature_map},
+      {feature_map_tokens},
+      {},
+      std::string()});
+  const VulkanValueId positioned_patch_tokens = ir.add_value(
+      "patch_tokens.positioned",
+      make_tensor_spec(
+          patch_body_token_sizes,
+          desc.dtype,
+          VulkanIRTensorRole::Intermediate,
+          desc.persistent,
+          false));
+  ir.add_op(VulkanIROpNode{
+      VulkanIROpKind::ElementwiseAdd,
+      "patch_tokens.add_pos_encoding",
+      {feature_map_tokens, patch_pos_encoding},
+      {positioned_patch_tokens},
+      {},
+      std::string()});
+  const VulkanValueId patch_tokens = ir.add_value(
+      "patch_tokens",
+      make_tensor_spec(
+          backbone_patch_token_sizes,
+          desc.dtype,
+          VulkanIRTensorRole::Intermediate,
+          desc.persistent,
+          false));
+  ir.add_op(VulkanIROpNode{
+      VulkanIROpKind::Concat,
+      "patch_tokens.concat_prefix",
+      {prefix_token, positioned_patch_tokens},
+      {patch_tokens},
+      {},
+      "dim=1|special_tokens=" +
+          std::to_string(desc.prefix_token_sizes.size() > 1u
+                             ? desc.prefix_token_sizes[1]
+                             : 0)});
+
+  const std::optional<std::vector<int64_t>> normalized_shape =
+      desc.normalized_shape.empty() ? std::nullopt
+                                    : std::make_optional(desc.normalized_shape);
+  const auto backbone_handles = append_depth_anything_v2_backbone_region(
+      ir,
+      patch_tokens,
+      backbone_patch_token_sizes,
+      desc.dtype,
+      desc.persistent,
+      desc.backbone_block_count,
+      desc.capture_indices,
+      desc.block_hidden_dims,
+      desc.block_num_heads,
+      normalized_shape,
+      VulkanIRTensorRole::Intermediate,
+      false);
+  std::array<VulkanValueId, 4u> capture_tokens{};
+  for (size_t idx = 0u; idx < capture_tokens.size(); ++idx) {
+    capture_tokens[idx] = backbone_handles.capture_outputs[idx];
+  }
+  (void)append_depth_anything_v2_decoder_region(
+      ir,
+      capture_tokens,
+      DepthAnythingV2DecoderIRDesc{
+          desc.dtype,
+          desc.persistent,
+          desc.patch_h,
+          desc.patch_w,
+          desc.layer_feature_sizes,
+          desc.project_layer_sizes,
+          desc.resize_layer_sizes,
+          desc.apply_resize,
+          desc.decoder_layer_sizes,
+          desc.output_sizes});
+  ir.recompute_lifetimes();
+  return ir;
+}
+
+VulkanIRMemoryPlan make_memory_plan(const VulkanBackendIR& ir) {
+  VulkanIRMemoryPlan plan;
+  const auto& values = ir.values();
+  const auto& lifetimes = ir.lifetimes();
+
+  const auto lifetime_for = [&](const VulkanValueId id) -> VulkanIRLifetime {
+    if (id < lifetimes.size()) {
+      return lifetimes[id];
+    }
+    return VulkanIRLifetime{id, 0u, 0u, false};
+  };
+
+  const auto make_slot = [&](
+                             const VulkanIRValue& value,
+                             const VulkanIRLifetime& lifetime,
+                             const size_t bytes,
+                             const bool dedicated) {
+    VulkanIRAllocationSlot slot;
+    slot.slot_id = plan.slots.size();
+    slot.bytes = bytes;
+    slot.first_op = lifetime.first_op;
+    slot.last_op = lifetime.last_op;
+    slot.dedicated = dedicated;
+    slot.values.push_back(value.id);
+    plan.slots.push_back(std::move(slot));
+  };
+
+  for (const auto& value : values) {
+    const size_t bytes = tensor_spec_nbytes(value.spec);
+    if (bytes == 0u) {
+      continue;
+    }
+
+    const VulkanIRLifetime lifetime = lifetime_for(value.id);
+    if (value.spec.external) {
+      plan.external_bytes += bytes;
+      continue;
+    }
+
+    if (requires_dedicated_slot(value.spec) || lifetime.may_alias) {
+      plan.dedicated_bytes += bytes;
+      make_slot(value, lifetime, bytes, true);
+      continue;
+    }
+
+    auto reusable = std::find_if(
+        plan.slots.begin(),
+        plan.slots.end(),
+        [&](const VulkanIRAllocationSlot& slot) {
+          if (slot.dedicated || slot.last_op >= lifetime.first_op ||
+              slot.values.empty() || slot.values[0] >= values.size()) {
+            return false;
+          }
+          const auto& slot_spec = values[slot.values[0]].spec;
+          return slot_spec.logical_sizes == value.spec.logical_sizes &&
+              slot_spec.dtype == value.spec.dtype &&
+              slot_spec.execution_layout == value.spec.execution_layout &&
+              slot_spec.memory_layout == value.spec.memory_layout &&
+              slot_spec.storage_type == value.spec.storage_type;
+        });
+    if (reusable == plan.slots.end()) {
+      make_slot(value, lifetime, bytes, false);
+      plan.reusable_bytes += bytes;
+    } else {
+      if (bytes > reusable->bytes) {
+        plan.reusable_bytes += bytes - reusable->bytes;
+        reusable->bytes = bytes;
+      }
+      reusable->first_op = std::min(reusable->first_op, lifetime.first_op);
+      reusable->last_op = std::max(reusable->last_op, lifetime.last_op);
+      reusable->values.push_back(value.id);
+    }
+  }
+
+  plan.planned_bytes = plan.reusable_bytes + plan.dedicated_bytes;
+  return plan;
+}
+
+VulkanCompiledSession make_compiled_session(
+    VulkanCompiledSessionKey key,
+    VulkanBackendIR ir,
+    VulkanGlobalLayoutPlan layout_plan,
+    const bool executable) {
+  apply_global_layout_plan(ir, layout_plan);
+  ir.recompute_lifetimes();
+  VulkanIRMemoryPlan memory_plan = make_memory_plan(ir);
+  return VulkanCompiledSession{std::make_shared<VulkanCompiledSession::State>(
+      std::move(key),
+      std::move(ir),
+      std::move(layout_plan),
+      std::move(memory_plan),
+      executable)};
+}
+
+} // namespace compiled_session_impl
+
+const char* compiled_session_kind_name(const VulkanCompiledSessionKind kind) {
+  switch (kind) {
+    case VulkanCompiledSessionKind::DepthAnythingV2:
+      return "DepthAnythingV2";
+    case VulkanCompiledSessionKind::DepthAnythingV2Image:
+      return "DepthAnythingV2Image";
+    case VulkanCompiledSessionKind::DepthAnythingV2BackboneStack:
+      return "DepthAnythingV2BackboneStack";
+    case VulkanCompiledSessionKind::DepthAnythingV2DecoderPreprocessHead:
+      return "DepthAnythingV2DecoderPreprocessHead";
+  }
+  return "UnknownCompiledSession";
+}
+
+const char* ir_op_kind_name(const VulkanIROpKind kind) {
+  switch (kind) {
+    case VulkanIROpKind::InputImage:
+      return "InputImage";
+    case VulkanIROpKind::PatchEmbed:
+      return "PatchEmbed";
+    case VulkanIROpKind::FeatureMapToTokens:
+      return "FeatureMapToTokens";
+    case VulkanIROpKind::ElementwiseAdd:
+      return "ElementwiseAdd";
+    case VulkanIROpKind::Concat:
+      return "Concat";
+    case VulkanIROpKind::PatchTokenInput:
+      return "PatchTokenInput";
+    case VulkanIROpKind::BackboneBlock:
+      return "BackboneBlock";
+    case VulkanIROpKind::CaptureNormedPatchTokens:
+      return "CaptureNormedPatchTokens";
+    case VulkanIROpKind::TokensToFeatureMap:
+      return "TokensToFeatureMap";
+    case VulkanIROpKind::DecoderProject:
+      return "DecoderProject";
+    case VulkanIROpKind::DecoderResize:
+      return "DecoderResize";
+    case VulkanIROpKind::DecoderPreprocess:
+      return "DecoderPreprocess";
+    case VulkanIROpKind::DecoderHead:
+      return "DecoderHead";
+    case VulkanIROpKind::OutputAlias:
+      return "OutputAlias";
+  }
+  return "UnknownIROp";
+}
+
+bool operator==(
+    const VulkanCompiledSessionKey& lhs,
+    const VulkanCompiledSessionKey& rhs) {
+  return lhs.kind == rhs.kind && lhs.model_key == rhs.model_key &&
+      lhs.configuration_key == rhs.configuration_key &&
+      lhs.input_shapes == rhs.input_shapes &&
+      lhs.output_shapes == rhs.output_shapes && lhs.dtype == rhs.dtype &&
+      lhs.capability_key == rhs.capability_key &&
+      lhs.persistent == rhs.persistent;
+}
+
+size_t VulkanCompiledSessionKeyHash::operator()(
+    const VulkanCompiledSessionKey& key) const {
+  size_t seed = 0u;
+  compiled_session_impl::hash_combine_session(
+      seed, static_cast<uint8_t>(key.kind));
+  compiled_session_impl::hash_combine_session(seed, key.model_key);
+  compiled_session_impl::hash_combine_session(seed, key.configuration_key);
+  compiled_session_impl::hash_shapes(seed, key.input_shapes);
+  compiled_session_impl::hash_shapes(seed, key.output_shapes);
+  compiled_session_impl::hash_combine_session(seed, static_cast<int>(key.dtype));
+  compiled_session_impl::hash_combine_session(seed, key.capability_key);
+  compiled_session_impl::hash_combine_session(seed, key.persistent);
+  return seed;
+}
+
+VulkanValueId VulkanBackendIR::add_value(
+    std::string name,
+    VulkanIRTensorSpec spec) {
+  const VulkanValueId id = static_cast<VulkanValueId>(values_.size());
+  values_.push_back(VulkanIRValue{id, std::move(name), std::move(spec)});
+  return id;
+}
+
+void VulkanBackendIR::add_op(VulkanIROpNode op) {
+  ops_.push_back(std::move(op));
+}
+
+void VulkanBackendIR::add_output_alias(
+    const VulkanValueId output,
+    const VulkanValueId source) {
+  output_aliases_.push_back(VulkanIROutputAlias{output, source});
+}
+
+void VulkanBackendIR::recompute_lifetimes() {
+  lifetimes_.clear();
+  lifetimes_.reserve(values_.size());
+  for (const auto& value : values_) {
+    lifetimes_.push_back(VulkanIRLifetime{
+        value.id,
+        std::numeric_limits<size_t>::max(),
+        0u,
+        false});
+  }
+
+  const auto note_use = [&](const VulkanValueId id, const size_t op_idx) {
+    if (id >= lifetimes_.size()) {
+      return;
+    }
+    auto& lifetime = lifetimes_[id];
+    lifetime.first_op = std::min(lifetime.first_op, op_idx);
+    lifetime.last_op = std::max(lifetime.last_op, op_idx);
+  };
+
+  for (size_t op_idx = 0u; op_idx < ops_.size(); ++op_idx) {
+    const auto& op = ops_[op_idx];
+    for (const VulkanValueId id : op.inputs) {
+      note_use(id, op_idx);
+    }
+    for (const VulkanValueId id : op.outputs) {
+      note_use(id, op_idx);
+    }
+    for (const VulkanValueId id : op.constants) {
+      note_use(id, op_idx);
+    }
+  }
+
+  for (const auto& alias : output_aliases_) {
+    note_use(alias.output, ops_.size());
+    note_use(alias.source, ops_.size());
+    if (alias.output < lifetimes_.size()) {
+      lifetimes_[alias.output].may_alias = true;
+    }
+  }
+
+  for (auto& lifetime : lifetimes_) {
+    if (lifetime.first_op == std::numeric_limits<size_t>::max()) {
+      lifetime.first_op = 0u;
+      lifetime.last_op = 0u;
+    }
+  }
+}
+
+const std::vector<VulkanIRValue>& VulkanBackendIR::values() const {
+  return values_;
+}
+
+std::vector<VulkanIRValue>& VulkanBackendIR::mutable_values() {
+  return values_;
+}
+
+const std::vector<VulkanIROpNode>& VulkanBackendIR::ops() const {
+  return ops_;
+}
+
+const std::vector<VulkanIRLifetime>& VulkanBackendIR::lifetimes() const {
+  return lifetimes_;
+}
+
+const std::vector<VulkanIROutputAlias>& VulkanBackendIR::output_aliases()
+    const {
+  return output_aliases_;
+}
+
+bool VulkanCompiledSession::defined() const {
+  return static_cast<bool>(state_);
+}
+
+const VulkanCompiledSessionKey& VulkanCompiledSession::key() const {
+  TORCH_INTERNAL_ASSERT(state_, "VulkanCompiledSession is not defined");
+  return state_->key;
+}
+
+const VulkanBackendIR& VulkanCompiledSession::ir() const {
+  TORCH_INTERNAL_ASSERT(state_, "VulkanCompiledSession is not defined");
+  return state_->ir;
+}
+
+const VulkanGlobalLayoutPlan& VulkanCompiledSession::layout_plan() const {
+  TORCH_INTERNAL_ASSERT(state_, "VulkanCompiledSession is not defined");
+  return state_->layout_plan;
+}
+
+const VulkanIRMemoryPlan& VulkanCompiledSession::memory_plan() const {
+  TORCH_INTERNAL_ASSERT(state_, "VulkanCompiledSession is not defined");
+  return state_->memory_plan;
+}
+
+bool VulkanCompiledSession::executable() const {
+  return state_ && state_->executable;
+}
+
+const void* VulkanCompiledSession::identity() const {
+  return state_.get();
+}
+
+std::optional<VulkanCompiledSessionTensorBindings>
+make_compiled_session_tensor_bindings(const VulkanCompiledSession& session) {
+  if (!session.defined() || !session.executable()) {
+    return std::nullopt;
+  }
+
+  const auto& ir = session.ir();
+  const auto& values = ir.values();
+  const auto& memory_plan = session.memory_plan();
+
+  VulkanCompiledSessionTensorBindings bindings;
+  bindings.value_tensor_slots.resize(values.size());
+
+  const auto bind_value = [&](const VulkanValueId value_id, const size_t slot_idx) {
+    TORCH_INTERNAL_ASSERT(
+        value_id < bindings.value_tensor_slots.size(),
+        "Compiled session tensor binding references an invalid value id");
+    auto& mapped_slot = bindings.value_tensor_slots[value_id];
+    TORCH_INTERNAL_ASSERT(
+        !mapped_slot.has_value() || *mapped_slot == slot_idx,
+        "Compiled session value was assigned conflicting tensor slots");
+    mapped_slot = slot_idx;
+  };
+
+  for (const auto& value : values) {
+    if (
+        value.spec.role != VulkanIRTensorRole::Input || !value.spec.external ||
+        value.spec.logical_sizes.empty()) {
+      continue;
+    }
+    const size_t slot_idx = bindings.slot_values.size();
+    bindings.slot_values.push_back(value.id);
+    bindings.input_values.push_back(value.id);
+    bind_value(value.id, slot_idx);
+  }
+
+  for (const auto& slot : memory_plan.slots) {
+    TORCH_INTERNAL_ASSERT(
+        !slot.values.empty(),
+        "Compiled session memory slot requires at least one value");
+    TORCH_INTERNAL_ASSERT(
+        slot.values[0] < values.size(),
+        "Compiled session memory slot references an invalid value");
+    const size_t slot_idx = bindings.slot_values.size();
+    bindings.slot_values.push_back(slot.values[0]);
+    for (const VulkanValueId value_id : slot.values) {
+      bind_value(value_id, slot_idx);
+    }
+  }
+
+  std::unordered_set<VulkanValueId> aliased_outputs;
+  aliased_outputs.reserve(ir.output_aliases().size());
+  for (const auto& alias : ir.output_aliases()) {
+    aliased_outputs.insert(alias.output);
+  }
+
+  for (const auto& value : values) {
+    if (
+        !value.spec.external || value.spec.logical_sizes.empty() ||
+        value.spec.role == VulkanIRTensorRole::Input ||
+        aliased_outputs.count(value.id) > 0u ||
+        bindings.value_tensor_slots[value.id].has_value()) {
+      continue;
+    }
+    const size_t slot_idx = bindings.slot_values.size();
+    bindings.slot_values.push_back(value.id);
+    bind_value(value.id, slot_idx);
+  }
+
+  for (const auto& alias : ir.output_aliases()) {
+    TORCH_INTERNAL_ASSERT(
+        alias.output < bindings.value_tensor_slots.size() &&
+            alias.source < bindings.value_tensor_slots.size(),
+        "Compiled session output alias references an invalid value");
+    if (!bindings.value_tensor_slots[alias.source].has_value()) {
+      return std::nullopt;
+    }
+    bind_value(alias.output, *bindings.value_tensor_slots[alias.source]);
+  }
+
+  for (const auto& value : values) {
+    if (
+        compiled_session_impl::tensor_spec_nbytes(value.spec) == 0u ||
+        bindings.value_tensor_slots[value.id].has_value()) {
+      continue;
+    }
+    return std::nullopt;
+  }
+
+  return bindings;
+}
+
+std::string make_vulkan_compiled_session_capability_key(
+    const VulkanRuntimeCapabilityProfile& profile) {
+  std::ostringstream out;
+  out << "umem=" << (profile.has_unified_memory ? 1 : 0)
+      << "|ts=" << (profile.has_timestamps ? 1 : 0)
+      << "|bf16=" << (profile.has_shader_bfloat16 ? 1 : 0)
+      << "|i8=" << (profile.has_shader_int8 ? 1 : 0)
+      << "|sb8=" << (profile.has_storage_buffer_8bit ? 1 : 0)
+      << "|coop=" << (profile.has_cooperative_matrix ? 1 : 0)
+      << "|coop_bf16="
+      << (profile.has_subgroup_bfloat16_cooperative_matrix_inputs ? 1 : 0)
+      << "|coop_f16="
+      << (profile.has_subgroup_float16_cooperative_matrix_inputs ? 1 : 0)
+      << "|coop_f32="
+      << (profile.has_subgroup_float32_cooperative_matrix_inputs ? 1 : 0)
+      << "|subgroup=" << profile.min_subgroup_size << '-'
+      << profile.max_subgroup_size
+      << "|coop_mnk=" << profile.cooperative_matrix_max_m << 'x'
+      << profile.cooperative_matrix_max_n << 'x'
+      << profile.cooperative_matrix_max_k
+      << "|queues=" << profile.num_compute_queues;
+  return out.str();
+}
+
+VulkanGlobalLayoutPlan make_buffer_first_width_packed_layout_plan(
+    const VulkanCompiledSessionKey& key,
+    const VulkanRuntimeCapabilityProfile& profile) {
+  VulkanGlobalLayoutPlan plan;
+  plan.execution_layout = api::ExecutionLayout::BUFFER_DIRECT;
+  plan.memory_layout = api::GPUMemoryLayout::TENSOR_WIDTH_PACKED;
+  plan.storage_type = api::StorageType::BUFFER;
+  if (
+      profile.has_cooperative_matrix &&
+      (key.dtype == kFloat || key.dtype == kBFloat16 || key.dtype == kHalf)) {
+    plan.width_alignment = 16;
+    plan.pad_width = true;
+    plan.reason = "buffer_first_width_packed_cooperative_matrix_ready";
+  } else {
+    plan.width_alignment = 1;
+    plan.pad_width = false;
+    plan.reason = "buffer_first_width_packed";
+  }
+  return plan;
+}
+
+void apply_global_layout_plan(
+    VulkanBackendIR& ir,
+    const VulkanGlobalLayoutPlan& plan) {
+  for (auto& value : ir.mutable_values()) {
+    if (
+        value.spec.role == VulkanIRTensorRole::Constant &&
+        !plan.apply_to_constants) {
+      continue;
+    }
+    value.spec.execution_layout = plan.execution_layout;
+    value.spec.memory_layout = plan.memory_layout;
+    value.spec.storage_type = plan.storage_type;
+    value.spec.padded_sizes = value.spec.logical_sizes;
+    if (
+        plan.pad_width && plan.width_alignment > 1 &&
+        !value.spec.padded_sizes.empty()) {
+      value.spec.padded_sizes.back() =
+          compiled_session_impl::round_up_to_multiple(
+              value.spec.padded_sizes.back(), plan.width_alignment);
+    }
+  }
+}
+
+VulkanCompiledSession lookup_or_create_vulkan_compiled_session(
+    const VulkanCompiledSessionKey& key,
+    const std::function<VulkanCompiledSession()>& builder) {
+  auto& cache = compiled_session_impl::compiled_session_cache();
+  {
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    const auto found = cache.sessions.find(key);
+    if (found != cache.sessions.end()) {
+      compiled_session_impl::log_compiled_session_event(
+          "hit",
+          key,
+          found->second.identity(),
+          found->second.ir().values().size(),
+          found->second.ir().ops().size(),
+          &found->second.layout_plan(),
+          &found->second.memory_plan());
+      return found->second;
+    }
+  }
+
+  VulkanCompiledSession created = builder();
+  if (!created.defined()) {
+    return created;
+  }
+
+  std::lock_guard<std::mutex> lock(cache.mutex);
+  const auto found = cache.sessions.find(key);
+  if (found != cache.sessions.end()) {
+    return found->second;
+  }
+  if (cache.sessions.size() >= compiled_session_impl::kCompiledSessionCacheSize) {
+    cache.sessions.erase(cache.sessions.begin());
+  }
+  auto [it, inserted] = cache.sessions.emplace(key, created);
+  (void)inserted;
+  compiled_session_impl::log_compiled_session_event(
+      "store",
+      key,
+      it->second.identity(),
+      it->second.ir().values().size(),
+      it->second.ir().ops().size(),
+      &it->second.layout_plan(),
+      &it->second.memory_plan());
+  return it->second;
+}
+
+VulkanCompiledSession lookup_or_create_depth_anything_v2_session(
+    const DepthAnythingV2SessionDesc& desc) {
+  const VulkanRuntimeCapabilityProfile profile =
+      query_vulkan_runtime_capability_profile();
+  VulkanCompiledSessionKey key;
+  key.kind = VulkanCompiledSessionKind::DepthAnythingV2;
+  key.model_key =
+      desc.model_key.empty() ? "depth_anything_v2.compiled_session"
+                             : desc.model_key;
+  key.configuration_key =
+      compiled_session_impl::make_full_session_configuration_key(desc);
+  key.input_shapes = {desc.patch_token_sizes};
+  key.output_shapes = {desc.output_sizes};
+  key.dtype = desc.dtype;
+  key.capability_key = make_vulkan_compiled_session_capability_key(profile);
+  key.persistent = desc.persistent;
+
+  return lookup_or_create_vulkan_compiled_session(key, [&]() {
+    VulkanBackendIR ir =
+        compiled_session_impl::make_depth_anything_v2_full_ir(desc);
+    VulkanGlobalLayoutPlan layout_plan =
+        make_buffer_first_width_packed_layout_plan(key, profile);
+    return compiled_session_impl::make_compiled_session(
+        key,
+        std::move(ir),
+        std::move(layout_plan),
+        /*executable=*/true);
+  });
+}
+
+VulkanCompiledSession lookup_or_create_depth_anything_v2_image_session(
+    const DepthAnythingV2ImageSessionDesc& desc) {
+  const VulkanRuntimeCapabilityProfile profile =
+      query_vulkan_runtime_capability_profile();
+  VulkanCompiledSessionKey key;
+  key.kind = VulkanCompiledSessionKind::DepthAnythingV2Image;
+  key.model_key = desc.model_key.empty()
+      ? "depth_anything_v2.image_compiled_session"
+      : desc.model_key;
+  key.configuration_key =
+      compiled_session_impl::make_image_session_configuration_key(desc);
+  key.input_shapes = {desc.image_sizes};
+  key.output_shapes = {desc.output_sizes};
+  key.dtype = desc.dtype;
+  key.capability_key = make_vulkan_compiled_session_capability_key(profile);
+  key.persistent = desc.persistent;
+
+  return lookup_or_create_vulkan_compiled_session(key, [&]() {
+    VulkanBackendIR ir =
+        compiled_session_impl::make_depth_anything_v2_image_full_ir(desc);
+    VulkanGlobalLayoutPlan layout_plan =
+        make_buffer_first_width_packed_layout_plan(key, profile);
+    return compiled_session_impl::make_compiled_session(
+        key,
+        std::move(ir),
+        std::move(layout_plan),
+        /*executable=*/true);
+  });
+}
+
+VulkanCompiledSession lookup_or_create_depth_anything_v2_backbone_stack_session(
+    const DepthAnythingV2BackboneStackSessionDesc& desc) {
+  const VulkanRuntimeCapabilityProfile profile =
+      query_vulkan_runtime_capability_profile();
+  VulkanCompiledSessionKey key;
+  key.kind = VulkanCompiledSessionKind::DepthAnythingV2BackboneStack;
+  key.model_key = desc.model_key.empty() ? "depth_anything_v2.backbone_stack"
+                                         : desc.model_key;
+  key.configuration_key =
+      compiled_session_impl::make_backbone_configuration_key(desc);
+  key.input_shapes = {desc.patch_token_sizes};
+  for (size_t idx = 0u; idx < desc.capture_indices.size(); ++idx) {
+    key.output_shapes.push_back(desc.patch_token_sizes);
+  }
+  key.dtype = desc.dtype;
+  key.capability_key = make_vulkan_compiled_session_capability_key(profile);
+  key.persistent = desc.persistent;
+
+  return lookup_or_create_vulkan_compiled_session(key, [&]() {
+    VulkanBackendIR ir =
+        compiled_session_impl::make_depth_anything_v2_backbone_ir(desc);
+    VulkanGlobalLayoutPlan layout_plan =
+        make_buffer_first_width_packed_layout_plan(key, profile);
+    return compiled_session_impl::make_compiled_session(
+        key,
+        std::move(ir),
+        std::move(layout_plan),
+        /*executable=*/true);
+  });
+}
+
+VulkanCompiledSession
+lookup_or_create_depth_anything_v2_decoder_preprocess_head_session(
+    const DepthAnythingV2DecoderPreprocessHeadSessionDesc& desc) {
+  const VulkanRuntimeCapabilityProfile profile =
+      query_vulkan_runtime_capability_profile();
+  VulkanCompiledSessionKey key;
+  key.kind = VulkanCompiledSessionKind::DepthAnythingV2DecoderPreprocessHead;
+  key.model_key = desc.model_key.empty()
+      ? "depth_anything_v2.decoder_preprocess_head"
+      : desc.model_key;
+  key.configuration_key =
+      compiled_session_impl::make_decoder_configuration_key(desc);
+  for (const auto& shape : desc.layer_token_sizes) {
+    key.input_shapes.push_back(shape);
+  }
+  key.output_shapes = {desc.output_sizes};
+  key.dtype = desc.dtype;
+  key.capability_key = make_vulkan_compiled_session_capability_key(profile);
+  key.persistent = desc.persistent;
+
+  return lookup_or_create_vulkan_compiled_session(key, [&]() {
+    VulkanBackendIR ir = compiled_session_impl::make_depth_anything_v2_decoder_ir(
+        desc);
+    VulkanGlobalLayoutPlan layout_plan =
+        make_buffer_first_width_packed_layout_plan(key, profile);
+    return compiled_session_impl::make_compiled_session(
+        key,
+        std::move(ir),
+        std::move(layout_plan),
+        /*executable=*/true);
+  });
 }
 
 } // namespace utils

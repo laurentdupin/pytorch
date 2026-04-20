@@ -48,6 +48,18 @@ bool sync_logging_enabled() {
   return !sync_log_path().empty();
 }
 
+const std::string& gpu_timestamp_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_GPU_TIMESTAMP_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool gpu_timestamp_logging_enabled() {
+  return !gpu_timestamp_log_path().empty();
+}
+
 std::string format_sync_bytes(const uint64_t bytes) {
   std::ostringstream stream;
   const double mib = static_cast<double>(bytes) / (1024.0 * 1024.0);
@@ -274,6 +286,21 @@ void append_sync_log_line(const std::string& line) {
   out << line << '\n';
 }
 
+std::string format_gpu_profile_extent(const VkExtent3D extent) {
+  std::ostringstream stream;
+  stream << extent.width << "x" << extent.height << "x" << extent.depth;
+  return stream.str();
+}
+
+void append_gpu_timestamp_log_line(const std::string& line) {
+  if (!gpu_timestamp_logging_enabled()) {
+    return;
+  }
+
+  std::ofstream out(gpu_timestamp_log_path(), std::ios::app);
+  out << line << '\n';
+}
+
 struct ExternalCommandRecordingState final {
   api::CommandBuffer* cmd{nullptr};
   std::vector<VulkanBuffer> buffers_to_keep_alive;
@@ -299,10 +326,7 @@ Context::Context(size_t adapter_i, const ContextConfig& config)
           config_.cmdPoolConfig),
       persistent_descriptor_pool_(device_, config_.descriptorPoolConfig),
       fences_(device_),
-// Diagnostics
-#ifdef USE_VULKAN_GPU_DIAGNOSTICS
       querypool_(config_.queryPoolConfig, adapter_p_),
-#endif /* USE_VULKAN_GPU_DIAGNOSTICS */
       // Command buffer submission
       cmd_mutex_{},
       cmd_(VK_NULL_HANDLE, 0u),
@@ -315,6 +339,18 @@ Context::Context(size_t adapter_i, const ContextConfig& config)
       pending_cleanup_bytes_{0u},
       submissions_since_reclaim_{0u},
       reclaims_since_pool_flush_{0u} {
+  enable_op_profiling_ =
+      gpu_timestamp_logging_enabled() && querypool_.is_enabled();
+  if (gpu_timestamp_logging_enabled()) {
+    std::ostringstream stream;
+    stream << "gpu_timestamp_status enabled="
+           << (enable_op_profiling_ ? "1" : "0")
+           << " querypool=" << (querypool_.is_enabled() ? "1" : "0")
+           << " timestamp_compute_and_graphics="
+           << (adapter_p_->timestamp_compute_and_graphics() ? "1" : "0")
+           << " ns_per_tick=" << querypool_.ns_per_tick_;
+    append_gpu_timestamp_log_line(stream.str());
+  }
 }
 
 Context::~Context() {
@@ -382,6 +418,65 @@ void Context::capture_external_recording_buffer_cleanup(VulkanBuffer&& buffer) {
 void Context::capture_external_recording_image_cleanup(VulkanImage&& image) {
   g_external_command_recording_state.images_to_keep_alive.emplace_back(
       std::move(image));
+}
+
+uint32_t Context::gpu_profile_begin(
+    CommandBuffer& cmd,
+    const std::string& label,
+    const VkExtent3D global_workgroup_size,
+    const VkExtent3D local_workgroup_size) {
+  if (!enable_op_profiling_ || !querypool_.is_enabled()) {
+    return UINT32_MAX;
+  }
+  return querypool_.shader_profile_begin(
+      cmd, label, global_workgroup_size, local_workgroup_size);
+}
+
+void Context::gpu_profile_end(CommandBuffer& cmd, const uint32_t log_idx) {
+  if (!enable_op_profiling_ || !querypool_.is_enabled() ||
+      log_idx == UINT32_MAX) {
+    return;
+  }
+  querypool_.shader_profile_end(cmd, log_idx);
+}
+
+void Context::reset_gpu_profile_queries() {
+  if (!enable_op_profiling_ || !querypool_.is_enabled() ||
+      !querypool_.has_entries()) {
+    return;
+  }
+  CommandBuffer reset_cmd = command_pool_.get_new_cmd(/*reusable=*/false);
+  reset_cmd.begin();
+  querypool_.clear_after_reset(reset_cmd);
+  reset_cmd.end();
+  adapter_p_->submit_cmd(
+      queue_, reset_cmd.get_submit_handle(/*final_use=*/true));
+  VK_CHECK(vkQueueWaitIdle(queue()));
+}
+
+void Context::dump_gpu_profile_log(const char* reason) {
+  if (!enable_op_profiling_ || !gpu_timestamp_logging_enabled() ||
+      !querypool_.is_enabled() || !querypool_.has_pending_results()) {
+    return;
+  }
+
+  querypool_.extract_results();
+  querypool_.shader_log_for_each([reason](const ShaderDuration& entry) {
+    if (entry.end_query_idx == UINT32_MAX) {
+      return;
+    }
+    std::ostringstream stream;
+    stream << "gpu_timestamp reason=" << (reason ? reason : "unspecified")
+           << " name=" << entry.kernel_name
+           << " runtime=" << entry.runtime_label
+           << " start_ns=" << entry.start_time_ns
+           << " end_ns=" << entry.end_time_ns
+           << " duration_ns=" << entry.execution_duration_ns
+           << " global=" << format_gpu_profile_extent(entry.global_workgroup_size)
+           << " local=" << format_gpu_profile_extent(entry.local_workgroup_size);
+    append_gpu_timestamp_log_line(stream.str());
+  });
+  reset_gpu_profile_queries();
 }
 
 DescriptorSet Context::get_descriptor_set(
@@ -456,11 +551,50 @@ CommandBuffer Context::acquire_persistent_command_buffer() {
 void Context::submit_prepared_command_buffer(
     CommandBuffer& cmd,
     VkFence fence_handle,
-    const bool final_use) {
+    const bool final_use,
+    const char* profile_label) {
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
+
+  const bool profile_submit =
+      enable_op_profiling_ && querypool_.is_enabled();
+  const uint32_t log_idx = [&]() -> uint32_t {
+    if (!profile_submit) {
+      return UINT32_MAX;
+    }
+    CommandBuffer begin_cmd = command_pool_.get_new_cmd(/*reusable=*/false);
+    begin_cmd.begin();
+    const std::string label =
+        (profile_label && profile_label[0] != '\0')
+        ? std::string("prepared.") + profile_label
+        : std::string("prepared_command_buffer");
+    const uint32_t idx = gpu_profile_begin(
+        begin_cmd,
+        label,
+        create_extent3d({0, 0, 0}),
+        create_extent3d({0, 0, 0}));
+    begin_cmd.end();
+    adapter_p_->submit_cmd(queue_, begin_cmd.get_submit_handle(/*final_use=*/true));
+    return idx;
+  }();
+
   cmd.end();
   adapter_p_->submit_cmd(
-      queue_, cmd.get_submit_handle(final_use), fence_handle);
+      queue_,
+      cmd.get_submit_handle(final_use),
+      profile_submit ? VK_NULL_HANDLE : fence_handle);
+
+  if (profile_submit) {
+    CommandBuffer end_cmd = command_pool_.get_new_cmd(/*reusable=*/false);
+    end_cmd.begin();
+    gpu_profile_end(end_cmd, log_idx);
+    end_cmd.end();
+    adapter_p_->submit_cmd(
+        queue_, end_cmd.get_submit_handle(/*final_use=*/true), fence_handle);
+  }
+
+  if (profile_submit) {
+    querypool_.mark_results_pending();
+  }
   submissions_since_reclaim_.fetch_add(1u, std::memory_order_relaxed);
 }
 
@@ -555,15 +689,27 @@ void Context::sync_and_reclaim() {
   if (cmd_) {
     VulkanFence fence = fences_.get_fence();
     submit_cmd_to_gpu(fence.get_submit_handle(), full_pool_flush);
+    if (sync_logging_enabled()) {
+      append_sync_log_line("sync_and_reclaim_stage: submitted_active_cmd");
+    }
     fence.wait();
+    if (sync_logging_enabled()) {
+      append_sync_log_line("sync_and_reclaim_stage: fence_wait_complete");
+    }
     fences_.return_fence(fence);
   } else if (submitted_work > 0u) {
     VK_CHECK(vkQueueWaitIdle(queue()));
+    if (sync_logging_enabled()) {
+      append_sync_log_line("sync_and_reclaim_stage: queue_wait_idle_complete");
+    }
   } else {
     return;
   }
 
   descriptor_pool_.flush();
+  if (sync_logging_enabled()) {
+    append_sync_log_line("sync_and_reclaim_stage: descriptor_pool_flushed");
+  }
 
   if (full_pool_flush) {
     command_pool_.flush();
@@ -571,12 +717,19 @@ void Context::sync_and_reclaim() {
       cmd_.invalidate();
     }
     reclaims_since_pool_flush_ = 0u;
+    if (sync_logging_enabled()) {
+      append_sync_log_line("sync_and_reclaim_stage: command_pool_flushed");
+    }
   } else {
     reclaims_since_pool_flush_++;
   }
   submit_count_ = 0u;
   submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
   clear_deferred_cleanup_locked();
+  if (sync_logging_enabled()) {
+    append_sync_log_line("sync_and_reclaim_stage: deferred_cleanup_cleared");
+  }
+  dump_gpu_profile_log("sync_and_reclaim");
 }
 
 void Context::flush() {
@@ -603,6 +756,7 @@ void Context::flush() {
   submit_count_ = 0u;
   submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
   clear_deferred_cleanup_locked();
+  dump_gpu_profile_log("flush");
 }
 
 void Context::retire_after_fence_wait() {
@@ -633,6 +787,7 @@ void Context::retire_after_fence_wait() {
   submit_count_ = 0u;
   submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
   clear_deferred_cleanup_locked();
+  dump_gpu_profile_log("retire_after_fence_wait");
 }
 
 void Context::flush_after_fence_wait() {
@@ -658,6 +813,7 @@ void Context::flush_after_fence_wait() {
   submit_count_ = 0u;
   submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
   clear_deferred_cleanup_locked();
+  dump_gpu_profile_log("flush_after_fence_wait");
 }
 
 bool available() {

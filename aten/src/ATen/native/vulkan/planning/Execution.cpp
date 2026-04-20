@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/Persistence.h>
+#include <ATen/native/vulkan/api/Resource.h>
 
 #include <c10/core/InferenceMode.h>
 
@@ -8,6 +9,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <fstream>
+#include <mutex>
 
 namespace at {
 namespace native {
@@ -390,6 +392,11 @@ bool execution_plan_logging_enabled() {
   return !execution_plan_log_path().empty();
 }
 
+std::mutex& execution_plan_log_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
 struct ExecutionPlanLogState final {
   std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount> builds{};
   std::array<std::atomic<uint64_t>, kVulkanExecutionPlanKindCount> executes{};
@@ -532,6 +539,43 @@ void log_execution_plan_execute(
       state.packed_weight[idx].fetch_add(1u, std::memory_order_relaxed);
       break;
   }
+}
+
+std::string execution_plan_runtime_marker_label(
+    const VulkanExecutionPlan& plan,
+    const char* suffix) {
+  const std::string& runtime_label = api::current_runtime_label();
+  if (!runtime_label.empty() && runtime_label != "unlabeled") {
+    return runtime_label + "." + suffix;
+  }
+
+  const std::string& allocation_label = api::current_allocation_label();
+  if (!allocation_label.empty() && allocation_label != "unlabeled") {
+    return allocation_label + "." + suffix;
+  }
+
+  return std::string("execution_plan.") + execution_plan_kind_name(plan.kind) +
+      "." + suffix;
+}
+
+void log_execution_plan_event(
+    const VulkanExecutionPlan& plan,
+    const char* event,
+    const char* detail = nullptr) {
+  if (!execution_plan_logging_enabled()) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(execution_plan_log_mutex());
+  std::ofstream out(execution_plan_log_path(), std::ios::app);
+  out << "execution_plan_event kind=" << execution_plan_kind_name(plan.kind)
+      << " event=" << event
+      << " caller=" << api::current_allocation_label()
+      << " runtime=" << api::current_runtime_label();
+  if (detail && *detail) {
+    out << " detail=" << detail;
+  }
+  out << '\n';
 }
 
 api::GPUMemoryLayout resolve_execution_plan_memory_layout(
@@ -876,10 +920,22 @@ Tensor execute_vulkan_execution_plan(
       plan.widen_bfloat16 && input.scalar_type() == kBFloat16;
   if (plan.widen_bfloat16 && input.scalar_type() == kBFloat16) {
     if (input.is_vulkan()) {
-      input = convert(input).storage_type() == api::StorageType::BUFFER
-          ? upcast_bfloat16_buffer_to_float(input)
-          : input.cpu().to(kFloat).vulkan();
+      const bool input_is_buffer =
+          convert(input).storage_type() == api::StorageType::BUFFER;
+      log_execution_plan_event(
+          plan,
+          input_is_buffer ? "bf16_widen_vulkan_buffer"
+                          : "bf16_widen_vulkan_texture");
+      api::RuntimeLabelScope runtime_scope(execution_plan_runtime_marker_label(
+          plan,
+          input_is_buffer ? "bf16_widen" : "bf16_widen_texture"));
+      const Tensor buffer_input =
+          input_is_buffer
+          ? input
+          : ensure_buffer_storage(input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+      input = cast_vulkan_tensor_dtype(buffer_input, kFloat);
     } else {
+      log_execution_plan_event(plan, "bf16_widen_cpu");
       input = input.to(kFloat);
     }
   }

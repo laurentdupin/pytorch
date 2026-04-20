@@ -22,12 +22,27 @@
 #include <torch/library.h>
 
 #include <cmath>
+#include <cstdlib>
+#include <fstream>
 #include <sstream>
 
 namespace at {
 namespace native {
 namespace vulkan {
 namespace ops {
+
+namespace {
+
+void log_vulkan_prepack_synchronize_stage(const char* stage) {
+  const char* path = std::getenv("PYTORCH_VULKAN_SYNC_LOG");
+  if (!path || path[0] == '\0') {
+    return;
+  }
+  std::ofstream out(path, std::ios::app);
+  out << "vulkan_prepack_synchronize_stage: " << stage << '\n';
+}
+
+} // namespace
 
 int register_vulkan_conv2d_packed_context() {
   static auto register_vulkan_conv2d_context =
@@ -247,7 +262,15 @@ std::string swap_runtime_label_runtime(std::string label) {
 
 void synchronize_runtime() {
   if (api::available()) {
+    log_vulkan_prepack_synchronize_stage("before_context_sync");
     api::context()->sync_and_reclaim();
+    log_vulkan_prepack_synchronize_stage("after_context_sync");
+    log_vulkan_prepack_synchronize_stage("before_packed_weight_retire_release");
+    utils::release_retired_packed_weight_entries();
+    log_vulkan_prepack_synchronize_stage("after_packed_weight_retire_release");
+    log_vulkan_prepack_synchronize_stage("before_linear_context_retire_release");
+    utils::release_retired_linear_contexts();
+    log_vulkan_prepack_synchronize_stage("after_linear_context_retire_release");
   }
 }
 
@@ -1113,6 +1136,26 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "__torch__.torch.classes.vulkan.LayernormPackedContext norm_context) "
       "-> Tensor[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge("
+      "Tensor input, "
+      "__torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, "
+      "int[] capture_indices, int[] normalized_shape, "
+      "__torch__.torch.classes.vulkan.LayernormPackedContext norm_context, "
+      "int patch_h, int patch_w, int[] output_size, "
+      "__torch__.torch.classes.vulkan.VisionDecoderPreprocessHeadContext decoder_context) "
+      "-> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge("
+      "Tensor input, "
+      "__torch__.torch.classes.vulkan.Conv2dPackedContext patch_embed_context, "
+      "Tensor prefix_token, Tensor patch_pos_encoding, "
+      "__torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, "
+      "int[] capture_indices, int[] normalized_shape, "
+      "__torch__.torch.classes.vulkan.LayernormPackedContext norm_context, "
+      "int patch_h, int patch_w, int[] output_size, "
+      "__torch__.torch.classes.vulkan.VisionDecoderPreprocessHeadContext decoder_context) "
+      "-> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::tokens_to_feature_map(Tensor X, int height, int width) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::feature_map_to_tokens(Tensor X) -> Tensor"));
@@ -1419,6 +1462,14 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::run_vision_backbone_stack_norm_replay_bundle_bridge"),
       TORCH_FN(run_vision_backbone_stack_norm_replay_bundle_bridge));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge"),
+      TORCH_FN(run_depth_anything_v2_compiled_session_bridge));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge"),
+      TORCH_FN(run_depth_anything_v2_image_compiled_session_bridge));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_causal_attention_mask"),
       TORCH_FN(create_causal_attention_mask_runtime));

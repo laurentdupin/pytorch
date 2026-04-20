@@ -2,14 +2,18 @@
 #include <ATen/native/vulkan/api/Resource.h>
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Clamp.h>
+#include <ATen/native/vulkan/ops/Concat.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/Upsample.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
+#include <ATen/native/vulkan/planning/CompiledSession.h>
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
 #include <ATen/native/vulkan/planning/InferenceGraphs.h>
 #include <ATen/native/vulkan/planning/Request.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
+
+#include <c10/util/ScopeExit.h>
 
 #include <algorithm>
 #include <array>
@@ -114,10 +118,10 @@ c10::intrusive_ptr<Conv2dPackedContext> make_conv2d_context(
 }
 
 std::vector<int64_t> conv2d_context_output_sizes(
-    const Tensor& input,
+    IntArrayRef input_sizes,
     const c10::intrusive_ptr<Conv2dPackedContext>& context) {
   TORCH_INTERNAL_ASSERT(
-      context && input.dim() == 4,
+      context && input_sizes.size() == 4,
       "Conv2dPackedContext output size computation expects a defined context "
       "and rank-4 input");
 
@@ -156,20 +160,56 @@ std::vector<int64_t> conv2d_context_output_sizes(
   const int64_t kernel_h = weight.size(2);
   const int64_t kernel_w = weight.size(3);
   const int64_t out_h = compute_output_extent(
-      input.size(2),
+      input_sizes[2],
       kernel_h,
       value_or_default(context->stride(), 0u, 1),
       value_or_default(context->padding(), 0u, 0),
       value_or_default(context->dilation(), 0u, 1),
       value_or_default(context->output_padding(), 0u, 0));
   const int64_t out_w = compute_output_extent(
-      input.size(3),
+      input_sizes[3],
       kernel_w,
       value_or_default(context->stride(), 1u, 1),
       value_or_default(context->padding(), 1u, 0),
       value_or_default(context->dilation(), 1u, 1),
       value_or_default(context->output_padding(), 1u, 0));
-  return {input.size(0), out_channels, out_h, out_w};
+  return {input_sizes[0], out_channels, out_h, out_w};
+}
+
+std::vector<int64_t> conv2d_context_output_sizes(
+    const Tensor& input,
+    const c10::intrusive_ptr<Conv2dPackedContext>& context) {
+  TORCH_INTERNAL_ASSERT(
+      input.dim() == 4,
+      "Conv2dPackedContext output size computation expects rank-4 input");
+  return conv2d_context_output_sizes(input.sizes(), context);
+}
+
+std::vector<int64_t> tokens_to_feature_map_output_sizes(
+    IntArrayRef token_sizes,
+    const int64_t patch_h,
+    const int64_t patch_w) {
+  TORCH_INTERNAL_ASSERT(
+      token_sizes.size() == 2 || token_sizes.size() == 3,
+      "Token feature-map size computation expects rank-2 or rank-3 tokens");
+  const int64_t batch_size = token_sizes.size() == 2 ? 1 : token_sizes[0];
+  const int64_t channels = token_sizes[token_sizes.size() - 1u];
+  return {batch_size, channels, patch_h, patch_w};
+}
+
+std::vector<int64_t> decoder_preprocess_layer_output_sizes(
+    IntArrayRef feature_sizes,
+    const c10::intrusive_ptr<Conv2dPackedContext>& project_context,
+    const c10::intrusive_ptr<Conv2dPackedContext>& resize_context,
+    const bool apply_resize,
+    const c10::intrusive_ptr<Conv2dPackedContext>& rn_context) {
+  std::vector<int64_t> project_sizes =
+      conv2d_context_output_sizes(feature_sizes, project_context);
+  std::vector<int64_t> resized_sizes = project_sizes;
+  if (apply_resize) {
+    resized_sizes = conv2d_context_output_sizes(resized_sizes, resize_context);
+  }
+  return conv2d_context_output_sizes(resized_sizes, rn_context);
 }
 
 Tensor run_conv2d_context_any_out(
@@ -407,6 +447,31 @@ VisionReplayBundleIdentity make_vision_backbone_stack_bundle_identity(
   }
 
   return VisionReplayBundleIdentity{std::move(key), std::move(suffix)};
+}
+
+VisionReplayBundleIdentity make_vision_decoder_preprocess_head_bundle_identity(
+    const std::array<Tensor, 4u>& layer_tokens,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const VisionDecoderPreprocessHeadContext* context) {
+  std::ostringstream key;
+  key << "vision.decoder_preprocess_head"
+      << "|ctx=" << context_identity_key(context)
+      << "|patch=" << patch_h << "x" << patch_w
+      << "|output=" << sizes_key(output_size);
+  for (size_t idx = 0u; idx < layer_tokens.size(); ++idx) {
+    key << "|layer" << (idx + 1u) << "=" << sizes_key(layer_tokens[idx].sizes());
+  }
+
+  std::ostringstream suffix;
+  suffix << ".dphctx." << context_identity_key(context)
+         << ".patch." << patch_h << "x" << patch_w
+         << ".out." << sizes_key(output_size);
+  for (size_t idx = 0u; idx < layer_tokens.size(); ++idx) {
+    suffix << ".l" << (idx + 1u) << "." << sizes_key(layer_tokens[idx].sizes());
+  }
+  return VisionReplayBundleIdentity{key.str(), suffix.str()};
 }
 
 std::string vision_backbone_graph_label(const std::string& label) {
@@ -2123,6 +2188,2170 @@ utils::ExecutionGraphReplayStep make_chained_vision_backbone_replay_step(
       });
 }
 
+size_t compiled_session_tensor_slot(
+    const utils::VulkanCompiledSessionTensorBindings& bindings,
+    const utils::VulkanValueId value_id) {
+  TORCH_INTERNAL_ASSERT(
+      value_id < bindings.value_tensor_slots.size() &&
+          bindings.value_tensor_slots[value_id].has_value(),
+      "Compiled session value does not have a tensor slot binding");
+  return *bindings.value_tensor_slots[value_id];
+}
+
+std::shared_ptr<std::vector<Tensor>> make_compiled_session_tensor_slots(
+    const utils::VulkanCompiledSession& session,
+    const utils::VulkanCompiledSessionTensorBindings& bindings,
+    const bool persistent) {
+  const auto& values = session.ir().values();
+  auto tensor_slots =
+      std::make_shared<std::vector<Tensor>>(bindings.tensor_slot_count());
+  for (size_t slot_idx = 0u; slot_idx < bindings.slot_values.size(); ++slot_idx) {
+    const utils::VulkanValueId value_id = bindings.slot_values[slot_idx];
+    TORCH_CHECK(
+        value_id < values.size(),
+        "Compiled session tensor slot references an invalid value");
+    const auto& spec = values[value_id].spec;
+    TORCH_CHECK(
+        spec.storage_type == api::StorageType::BUFFER,
+        "Compiled session tensor slots currently require buffer storage");
+    TORCH_CHECK(
+        spec.execution_layout == api::ExecutionLayout::BUFFER_DIRECT,
+        "Compiled session tensor slots currently require direct buffer execution");
+    tensor_slots->at(slot_idx) = utils::create_buffer_tensor(
+        spec.logical_sizes,
+        spec.dtype,
+        persistent);
+  }
+  return tensor_slots;
+}
+
+struct CompiledBackboneExecutionPlan final {
+  utils::VulkanValueId input_value{0u};
+  utils::VulkanValueId backbone_input_value{0u};
+  std::vector<utils::VulkanValueId> block_output_values;
+  std::vector<std::optional<utils::VulkanValueId>> capture_values_by_block;
+};
+
+struct CompiledImageEntryExecutionPlan final {
+  utils::VulkanValueId image_input_value{0u};
+  utils::VulkanValueId patch_feature_map_value{0u};
+  utils::VulkanValueId patch_feature_tokens_value{0u};
+  utils::VulkanValueId positioned_patch_tokens_value{0u};
+  utils::VulkanValueId patch_token_value{0u};
+  utils::VulkanValueId prefix_token_value{0u};
+  utils::VulkanValueId patch_pos_encoding_value{0u};
+};
+
+struct CompiledDecoderExecutionPlan final {
+  std::array<utils::VulkanValueId, 4u> head_input_values{};
+  utils::VulkanValueId head_output_value{0u};
+  utils::VulkanValueId final_output_value{0u};
+};
+
+struct CompiledDecoderHeadPrograms final {
+  std::array<utils::VisionDecoderProgram, 4u> programs;
+
+  bool defined() const {
+    return std::all_of(
+        programs.cbegin(), programs.cend(), [](const auto& program) {
+          return program.defined();
+        });
+  }
+};
+
+std::optional<CompiledBackboneExecutionPlan> make_compiled_backbone_execution_plan(
+    const utils::VulkanCompiledSession& session,
+    const size_t block_count) {
+  if (!session.defined() || !session.executable()) {
+    return std::nullopt;
+  }
+
+  const auto& values = session.ir().values();
+  CompiledBackboneExecutionPlan plan;
+  bool found_input = false;
+  for (const auto& value : values) {
+    if (
+        value.spec.role == utils::VulkanIRTensorRole::Input &&
+        value.spec.external && !value.spec.logical_sizes.empty()) {
+      plan.input_value = value.id;
+      found_input = true;
+      break;
+    }
+  }
+  if (!found_input) {
+    return std::nullopt;
+  }
+  plan.backbone_input_value = plan.input_value;
+
+  plan.block_output_values.reserve(block_count);
+  plan.capture_values_by_block.resize(block_count);
+
+  std::optional<size_t> current_block = std::nullopt;
+  for (const auto& op : session.ir().ops()) {
+    switch (op.kind) {
+      case utils::VulkanIROpKind::FeatureMapToTokens:
+      case utils::VulkanIROpKind::ElementwiseAdd:
+      case utils::VulkanIROpKind::Concat:
+      case utils::VulkanIROpKind::PatchTokenInput: {
+        if (op.outputs.size() != 1u) {
+          return std::nullopt;
+        }
+        plan.backbone_input_value = op.outputs[0];
+        break;
+      }
+      case utils::VulkanIROpKind::BackboneBlock: {
+        if (op.outputs.size() != 1u) {
+          return std::nullopt;
+        }
+        current_block = plan.block_output_values.size();
+        plan.block_output_values.push_back(op.outputs[0]);
+        break;
+      }
+      case utils::VulkanIROpKind::CaptureNormedPatchTokens: {
+        if (
+            !current_block.has_value() ||
+            *current_block >= plan.capture_values_by_block.size() ||
+            op.outputs.size() != 1u) {
+          return std::nullopt;
+        }
+        plan.capture_values_by_block[*current_block] = op.outputs[0];
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  if (plan.block_output_values.size() != block_count) {
+    return std::nullopt;
+  }
+  return plan;
+}
+
+std::optional<CompiledImageEntryExecutionPlan>
+make_compiled_image_entry_execution_plan(
+    const utils::VulkanCompiledSession& session) {
+  if (!session.defined() || !session.executable()) {
+    return std::nullopt;
+  }
+
+  CompiledImageEntryExecutionPlan plan;
+  bool found_patch_embed = false;
+  bool found_feature_map_tokens = false;
+  bool found_positioned_tokens = false;
+  bool found_patch_token_input = false;
+  bool found_concat_tokens = false;
+
+  for (const auto& op : session.ir().ops()) {
+    switch (op.kind) {
+      case utils::VulkanIROpKind::PatchEmbed: {
+        if (
+            found_patch_embed || op.inputs.size() != 1u ||
+            op.outputs.size() != 1u) {
+          return std::nullopt;
+        }
+        plan.image_input_value = op.inputs[0];
+        plan.patch_feature_map_value = op.outputs[0];
+        found_patch_embed = true;
+        break;
+      }
+      case utils::VulkanIROpKind::FeatureMapToTokens: {
+        if (
+            !found_patch_embed || found_feature_map_tokens ||
+            op.inputs.size() != 1u || op.outputs.size() != 1u) {
+          return std::nullopt;
+        }
+        plan.patch_feature_map_value = op.inputs[0];
+        plan.patch_feature_tokens_value = op.outputs[0];
+        found_feature_map_tokens = true;
+        break;
+      }
+      case utils::VulkanIROpKind::ElementwiseAdd: {
+        if (
+            !found_feature_map_tokens || found_positioned_tokens ||
+            op.inputs.size() != 2u || op.outputs.size() != 1u) {
+          return std::nullopt;
+        }
+        plan.patch_feature_tokens_value = op.inputs[0];
+        plan.patch_pos_encoding_value = op.inputs[1];
+        plan.positioned_patch_tokens_value = op.outputs[0];
+        found_positioned_tokens = true;
+        break;
+      }
+      case utils::VulkanIROpKind::Concat: {
+        if (
+            !found_positioned_tokens || found_concat_tokens ||
+            op.inputs.size() != 2u || op.outputs.size() != 1u) {
+          return std::nullopt;
+        }
+        plan.prefix_token_value = op.inputs[0];
+        plan.positioned_patch_tokens_value = op.inputs[1];
+        plan.patch_token_value = op.outputs[0];
+        found_concat_tokens = true;
+        break;
+      }
+      case utils::VulkanIROpKind::PatchTokenInput: {
+        if (
+            found_patch_token_input || op.inputs.size() != 1u ||
+            op.outputs.size() != 1u || op.constants.size() != 2u) {
+          return std::nullopt;
+        }
+        plan.patch_feature_map_value = op.inputs[0];
+        plan.patch_token_value = op.outputs[0];
+        plan.prefix_token_value = op.constants[0];
+        plan.patch_pos_encoding_value = op.constants[1];
+        found_patch_token_input = true;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  const bool found_token_path = found_concat_tokens || found_patch_token_input;
+  if (!found_patch_embed || !found_token_path) {
+    return std::nullopt;
+  }
+  return plan;
+}
+
+std::optional<CompiledDecoderExecutionPlan> make_compiled_decoder_execution_plan(
+    const utils::VulkanCompiledSession& session) {
+  if (!session.defined() || !session.executable()) {
+    return std::nullopt;
+  }
+
+  CompiledDecoderExecutionPlan plan;
+  bool found_head = false;
+  bool found_output = false;
+
+  for (const auto& op : session.ir().ops()) {
+    if (op.kind != utils::VulkanIROpKind::DecoderHead) {
+      continue;
+    }
+    if (found_head || op.inputs.size() != 4u || op.outputs.size() != 1u) {
+      return std::nullopt;
+    }
+    std::copy(
+        op.inputs.cbegin(), op.inputs.cend(), plan.head_input_values.begin());
+    plan.head_output_value = op.outputs[0];
+    found_head = true;
+  }
+
+  if (!found_head) {
+    return std::nullopt;
+  }
+
+  for (const auto& value : session.ir().values()) {
+    if (
+        value.spec.role == utils::VulkanIRTensorRole::Output &&
+        value.spec.external && !value.spec.logical_sizes.empty()) {
+      plan.final_output_value = value.id;
+      found_output = true;
+      break;
+    }
+  }
+
+  if (!found_output) {
+    plan.final_output_value = plan.head_output_value;
+  }
+  return plan;
+}
+
+std::optional<std::shared_ptr<CompiledDecoderHeadPrograms>>
+make_compiled_decoder_head_programs(
+    const utils::VulkanCompiledSession& session,
+    const CompiledDecoderExecutionPlan& plan,
+    const c10::intrusive_ptr<VisionDecoderHeadContext>& head_context,
+    const utils::VulkanExecutionProgramPlanningDesc& program_plan) {
+  if (!session.defined() || !session.executable() || !head_context) {
+    return std::nullopt;
+  }
+
+  const auto& values = session.ir().values();
+  const auto get_sizes = [&](const utils::VulkanValueId value_id)
+      -> std::optional<std::vector<int64_t>> {
+    if (value_id >= values.size()) {
+      return std::nullopt;
+    }
+    const auto& sizes = values[value_id].spec.logical_sizes;
+    if (sizes.size() != 4u) {
+      return std::nullopt;
+    }
+    return sizes;
+  };
+
+  const auto layer1_sizes = get_sizes(plan.head_input_values[0]);
+  const auto layer2_sizes = get_sizes(plan.head_input_values[1]);
+  const auto layer3_sizes = get_sizes(plan.head_input_values[2]);
+  const auto layer4_sizes = get_sizes(plan.head_input_values[3]);
+  if (
+      !layer1_sizes.has_value() || !layer2_sizes.has_value() ||
+      !layer3_sizes.has_value() || !layer4_sizes.has_value()) {
+    return std::nullopt;
+  }
+
+  auto decoder_graph = utils::lookup_or_create_labeled_vision_decoder_inference_graph(
+      vision_decoder_graph_label(head_context->allocation_label()),
+      kFloat,
+      program_plan.persistent);
+  if (!decoder_graph.defined()) {
+    return std::nullopt;
+  }
+  auto programs = std::make_shared<CompiledDecoderHeadPrograms>();
+  programs->programs[0] = decoder_graph.lookup_or_create_program(
+      vision_decoder_head_program_label(
+          head_context->allocation_label(), head_context.get()) +
+          ".refinenet4.program",
+      *layer4_sizes,
+      std::nullopt,
+      std::vector<int64_t>{layer3_sizes->at(2), layer3_sizes->at(3)},
+      layer3_sizes->at(1),
+      /*allocate_intermediate_outputs=*/true,
+      program_plan);
+  programs->programs[1] = decoder_graph.lookup_or_create_program(
+      vision_decoder_head_program_label(
+          head_context->allocation_label(), head_context.get()) +
+          ".refinenet3.program",
+      *layer3_sizes,
+      *layer3_sizes,
+      std::vector<int64_t>{layer2_sizes->at(2), layer2_sizes->at(3)},
+      layer2_sizes->at(1),
+      /*allocate_intermediate_outputs=*/true,
+      program_plan);
+  programs->programs[2] = decoder_graph.lookup_or_create_program(
+      vision_decoder_head_program_label(
+          head_context->allocation_label(), head_context.get()) +
+          ".refinenet2.program",
+      *layer2_sizes,
+      *layer2_sizes,
+      std::vector<int64_t>{layer1_sizes->at(2), layer1_sizes->at(3)},
+      layer1_sizes->at(1),
+      /*allocate_intermediate_outputs=*/true,
+      program_plan);
+  programs->programs[3] = decoder_graph.lookup_or_create_program(
+      vision_decoder_head_program_label(
+          head_context->allocation_label(), head_context.get()) +
+          ".refinenet1.program",
+      *layer1_sizes,
+      *layer1_sizes,
+      std::vector<int64_t>{layer1_sizes->at(2) * 2, layer1_sizes->at(3) * 2},
+      layer1_sizes->at(1),
+      /*allocate_intermediate_outputs=*/true,
+      program_plan);
+  if (!programs->defined()) {
+    return std::nullopt;
+  }
+  return programs;
+}
+
+Tensor copy_compiled_session_output(
+    const utils::ExecutionGraphReplayBundle& replay_bundle,
+    const size_t output_slot_idx) {
+  const Tensor& output_slot = replay_bundle.tensor_slot(output_slot_idx);
+  Tensor output = utils::create_buffer_tensor(
+      output_slot.sizes(), output_slot.scalar_type(), /*persistent=*/false);
+  copy_tensor_for_replay(output, output_slot);
+  return output;
+}
+
+std::optional<std::vector<Tensor>> try_run_vision_backbone_stack_compiled_session(
+    const Tensor& input,
+    const Device& output_device,
+    const ScalarType output_dtype,
+    const std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>>&
+        backbone_contexts,
+    const std::vector<int64_t>& capture_indices_vec,
+    const std::optional<std::vector<int64_t>>& output_norm_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& output_norm_context,
+    const utils::VulkanRuntimePolicy& runtime_policy,
+    const VisionReplayBundleIdentity& bundle_identity,
+    const std::string& root_label,
+    const utils::VulkanCompiledSession& compiled_session) {
+  const bool apply_output_norm =
+      output_norm_shape.has_value() && static_cast<bool>(output_norm_context);
+  const auto bindings =
+      utils::make_compiled_session_tensor_bindings(compiled_session);
+  const auto execution_plan = make_compiled_backbone_execution_plan(
+      compiled_session,
+      backbone_contexts.size());
+  if (!apply_output_norm || !bindings.has_value() || !execution_plan.has_value()) {
+    return std::nullopt;
+  }
+  const auto compiled_bindings = *bindings;
+  const auto compiled_plan = *execution_plan;
+
+  const auto& program_plan = *runtime_policy.execution_program_plan;
+  const int64_t batch_size = input.dim() == 2 ? 1 : input.size(0);
+  const int64_t token_count = input.dim() == 2 ? input.size(0) : input.size(1);
+  const int64_t embed_dim = input.size(-1);
+  const uint32_t scratch_alignment =
+      runtime_policy.scratch_arena_plan.has_value()
+      ? std::max<uint32_t>(
+            runtime_policy.scratch_arena_plan->alignment,
+            static_cast<uint32_t>(std::max<int64_t>(
+                1, static_cast<int64_t>(c10::elementSize(kFloat)))))
+      : 1u;
+
+  auto root = utils::lookup_or_create_labeled_execution_graph_root(
+      root_label,
+      kFloat,
+      program_plan.persistent);
+  const std::string compiled_bundle_key =
+      bundle_identity.key + "|compiled_session_memory_plan_v1";
+  auto replay_bundle = root.lookup_or_create_replay_bundle(
+      compiled_bundle_key,
+      [&]() -> utils::ExecutionGraphReplayBundle {
+        auto programs =
+            std::make_shared<std::vector<utils::VisionBackboneProgram>>();
+        auto graph_scratches =
+            std::make_shared<std::vector<std::optional<utils::ScratchArena>>>();
+        programs->reserve(backbone_contexts.size());
+        graph_scratches->reserve(backbone_contexts.size());
+        for (const auto& context : backbone_contexts) {
+          auto vision_graph =
+              prime_vision_backbone_graph(input, runtime_policy, context);
+          TORCH_CHECK(
+              vision_graph.defined(),
+              "Compiled backbone stack expected a defined vision graph");
+
+          std::optional<utils::ScratchArena> graph_scratch = std::nullopt;
+          if (
+              runtime_policy.scratch_arena_plan.has_value() &&
+              runtime_policy.scratch_arena_plan->prefer_buffer_storage) {
+            const size_t requested_bytes = vision_attention_scratch_bytes(
+                batch_size,
+                token_count,
+                embed_dim,
+                context->num_heads(),
+                input.scalar_type(),
+                context->qkv_bias().defined(),
+                scratch_alignment);
+            if (requested_bytes > 0u) {
+              graph_scratch = vision_graph.ensure_shared_scratch(
+                  std::max(
+                      requested_bytes,
+                      runtime_policy.scratch_arena_plan->min_arena_bytes),
+                  scratch_alignment,
+                  program_plan.persistent);
+            }
+          }
+
+          const int64_t hidden_dim = vision_block_hidden_dim(context);
+          utils::VisionBackboneProgram program =
+              vision_graph.lookup_or_create_program(
+                  vision_backbone_program_label(
+                      context->allocation_label(), context.get()) +
+                      ".compiled_session",
+                  input.scalar_type(),
+                  batch_size,
+                  token_count,
+                  embed_dim,
+                  hidden_dim,
+                  context->num_heads(),
+                  program_plan);
+          TORCH_CHECK(
+              program.defined(),
+              "Compiled backbone stack expected a defined vision program");
+          programs->push_back(std::move(program));
+          graph_scratches->push_back(std::move(graph_scratch));
+        }
+
+        auto tensor_slots = make_compiled_session_tensor_slots(
+            compiled_session,
+            compiled_bindings,
+            program_plan.persistent);
+        std::vector<utils::ExecutionGraphReplayStep> steps;
+        steps.reserve(backbone_contexts.size());
+        for (size_t idx = 0u; idx < backbone_contexts.size(); ++idx) {
+          const std::string execution_label = vision_backbone_execution_label(
+              backbone_contexts[idx]->allocation_label(),
+              backbone_contexts[idx].get()) + ".compiled_session";
+          auto step_replay = utils::make_execution_graph_replay(
+              root.allocation_label() + ".vision.backbone_stack.compiled.step." +
+                  std::to_string(idx) + bundle_identity.label_suffix,
+              utils::VulkanInferenceGraphKind::VisionBackbone,
+              kFloat,
+              program_plan.persistent,
+              std::vector<Tensor>{},
+              std::vector<std::optional<Tensor>>{},
+              std::vector<utils::ExecutionGraphProgramHandle>{});
+          steps.push_back(utils::make_execution_graph_replay_step(
+              std::move(step_replay),
+              [idx,
+               tensor_slots,
+               compiled_bindings,
+               compiled_plan,
+               programs,
+               graph_scratches,
+               backbone_contexts,
+               execution_label,
+               output_norm_shape,
+               output_norm_context,
+               apply_output_norm]() mutable {
+                api::RuntimeLabelScope runtime_scope(execution_label);
+                auto& graph_scratch = graph_scratches->at(idx);
+                if (graph_scratch.has_value()) {
+                  graph_scratch->reset();
+                }
+                const size_t input_slot_idx = idx == 0u
+                    ? compiled_session_tensor_slot(
+                          compiled_bindings,
+                          compiled_plan.backbone_input_value)
+                    : compiled_session_tensor_slot(
+                          compiled_bindings,
+                          compiled_plan.block_output_values.at(idx - 1u));
+                const size_t output_slot_idx = compiled_session_tensor_slot(
+                    compiled_bindings,
+                    compiled_plan.block_output_values.at(idx));
+                Tensor& block_output = tensor_slots->at(output_slot_idx);
+                (void)run_vision_backbone_block_program(
+                    tensor_slots->at(input_slot_idx),
+                    backbone_contexts[idx],
+                    &programs->at(idx),
+                    graph_scratch.has_value() ? &(*graph_scratch) : nullptr,
+                    &block_output);
+                if (
+                    apply_output_norm &&
+                    compiled_plan.capture_values_by_block.at(idx).has_value()) {
+                  Tensor& norm_slot = tensor_slots->at(
+                      compiled_session_tensor_slot(
+                          compiled_bindings,
+                          *compiled_plan.capture_values_by_block.at(idx)));
+                  (void)run_layernorm_context_out(
+                      block_output,
+                      *output_norm_shape,
+                      output_norm_context,
+                      norm_slot);
+                }
+              }));
+        }
+        return utils::make_execution_graph_replay_bundle(
+            root.allocation_label() +
+                ".vision.backbone_stack.compiled_session.replay" +
+                bundle_identity.label_suffix,
+            kFloat,
+            program_plan.persistent,
+            std::move(steps),
+            std::move(tensor_slots));
+      });
+
+  if (!replay_bundle.defined() ||
+      replay_bundle.tensor_slot_count() < compiled_bindings.tensor_slot_count()) {
+    return std::nullopt;
+  }
+
+  copy_tensor_for_replay(
+      replay_bundle.tensor_slot(
+          compiled_session_tensor_slot(compiled_bindings, compiled_plan.input_value)),
+      input);
+  api::context()->flush_pending_cmds();
+
+  const bool first_record = !replay_bundle.recorded();
+  if (first_record) {
+    replay_bundle.warmup();
+    api::context()->flush_pending_cmds();
+    replay_bundle.record();
+  }
+  replay_bundle.submit();
+
+  std::vector<Tensor> outputs(capture_indices_vec.size());
+  for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
+       ++capture_pos) {
+    const int64_t replay_idx = capture_indices_vec[capture_pos];
+    TORCH_CHECK(
+        replay_idx >= 0 &&
+            replay_idx < static_cast<int64_t>(compiled_plan.block_output_values.size()),
+        "Compiled backbone stack capture index is out of range");
+    TORCH_CHECK(
+        !apply_output_norm ||
+            compiled_plan.capture_values_by_block.at(static_cast<size_t>(replay_idx))
+                .has_value(),
+        "Compiled backbone stack expected a captured output for the requested "
+        "replay index");
+    const size_t source_slot_idx = apply_output_norm
+        ? compiled_session_tensor_slot(
+              compiled_bindings,
+              *compiled_plan.capture_values_by_block.at(static_cast<size_t>(replay_idx)))
+        : compiled_session_tensor_slot(
+              compiled_bindings,
+              compiled_plan.block_output_values.at(static_cast<size_t>(replay_idx)));
+    const Tensor& replay_output = replay_bundle.tensor_slot(source_slot_idx);
+    Tensor output = utils::create_buffer_tensor(
+        replay_output.sizes(),
+        replay_output.scalar_type(),
+        /*persistent=*/true);
+    copy_tensor_for_replay(output, replay_output);
+    outputs[capture_pos] =
+        maybe_restore_tensor(output, output_device, output_dtype);
+  }
+
+  utils::log_vulkan_op_hit(
+      apply_output_norm
+          ? (first_record
+                 ? "vulkan_prepack::run_vision_backbone_stack_norm_compiled_session.replay_warmup"
+                 : "vulkan_prepack::run_vision_backbone_stack_norm_compiled_session.replay")
+          : (first_record
+                 ? "vulkan_prepack::run_vision_backbone_stack_compiled_session.replay_warmup"
+                 : "vulkan_prepack::run_vision_backbone_stack_compiled_session.replay"));
+  utils::log_vulkan_op_hit(
+      apply_output_norm
+          ? "vulkan_prepack::run_vision_backbone_stack_norm_compiled_session"
+          : "vulkan_prepack::run_vision_backbone_stack_compiled_session");
+  return outputs;
+}
+
+bool run_tokens_to_feature_map_direct_out(
+    const Tensor& input_arg,
+    const int64_t height,
+    const int64_t width,
+    Tensor& output) {
+  if (
+      !input_arg.is_vulkan() || input_arg.scalar_type() != kFloat ||
+      !output.defined() || !output.is_vulkan() || output.scalar_type() != kFloat) {
+    return false;
+  }
+
+  api::AllocationScope allocation_scope("tokens_to_feature_map");
+
+  Tensor input = input_arg;
+  const bool use_2d_input = input.dim() == 2;
+  const int64_t batch_size = use_2d_input ? 1 : input.size(0);
+  const int64_t token_count = use_2d_input ? input.size(0) : input.size(1);
+  const int64_t channels = input.size(-1);
+
+  TORCH_CHECK(
+      input.dim() == 2 || input.dim() == 3,
+      "Vulkan tokens_to_feature_map expects a [N, C] or [B, N, C] tensor");
+  TORCH_CHECK(
+      token_count == height * width,
+      "Vulkan tokens_to_feature_map expected token count ",
+      height * width,
+      " but received ",
+      token_count);
+
+  const std::vector<int64_t> output_sizes{
+      batch_size,
+      channels,
+      height,
+      width,
+  };
+  TORCH_CHECK(
+      output.sizes().vec() == output_sizes,
+      "Vulkan tokens_to_feature_map_out expected output shape [",
+      batch_size,
+      ", ",
+      channels,
+      ", ",
+      height,
+      ", ",
+      width,
+      "]");
+
+  utils::log_vulkan_op_hit("aten::tokens_to_feature_map");
+
+  const vTensor& v_input_probe = convert(input);
+  vTensor& v_output = convert(output);
+  TORCH_CHECK(
+      v_output.storage_type() == api::StorageType::BUFFER,
+      "Vulkan tokens_to_feature_map_out expects a buffer output tensor");
+
+  if (
+      v_input_probe.storage_type() == api::StorageType::TEXTURE_3D &&
+      v_input_probe.gpu_memory_layout() ==
+          api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED &&
+      batch_size == 1) {
+    api::PipelineBarrier pipeline_barrier{};
+    const api::utils::uvec3 global_size{
+        api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+        1u,
+        1u,
+    };
+    api::UniformParamsBuffer out_meta =
+        utils::make_buffer_compute_metadata_ubo(api::context(), v_output);
+
+    api::context()->submit_compute_job(
+        VK_KERNEL(tokens_to_feature_map_texture_to_buffer),
+        pipeline_barrier,
+        global_size,
+        adaptive_work_group_size(global_size),
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_input_probe.image(pipeline_barrier, api::PipelineStage::COMPUTE));
+
+    utils::log_vulkan_op_hit("aten::tokens_to_feature_map.texture_to_buffer");
+    return true;
+  }
+
+  if (
+      v_input_probe.storage_type() != api::StorageType::BUFFER ||
+      !utils::supports_buffer_elementwise_compute(v_input_probe)) {
+    return false;
+  }
+
+  api::UniformParamsBuffer input_meta =
+      utils::make_buffer_compute_metadata_ubo(api::context(), v_input_probe);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(api::context(), v_output);
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size{
+      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+
+  api::context()->submit_compute_job(
+      VK_KERNEL(tokens_to_feature_map_buffer),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input_probe.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      input_meta.buffer());
+
+  utils::log_vulkan_op_hit("aten::tokens_to_feature_map.buffer_to_buffer");
+  return true;
+}
+
+bool run_feature_map_to_tokens_direct_out(
+    const Tensor& input_arg,
+    Tensor& output) {
+  if (
+      !input_arg.is_vulkan() || input_arg.scalar_type() != kFloat ||
+      !output.defined() || !output.is_vulkan() || output.scalar_type() != kFloat) {
+    return false;
+  }
+
+  TORCH_CHECK(
+      input_arg.dim() == 4,
+      "Vulkan feature_map_to_tokens expects a [B, C, H, W] tensor");
+
+  api::AllocationScope allocation_scope("feature_map_to_tokens");
+  utils::log_vulkan_op_hit("aten::feature_map_to_tokens");
+
+  const std::vector<int64_t> output_sizes{
+      input_arg.size(0),
+      input_arg.size(2) * input_arg.size(3),
+      input_arg.size(1),
+  };
+  TORCH_CHECK(
+      output.sizes().vec() == output_sizes,
+      "Vulkan feature_map_to_tokens_out expected output shape [",
+      output_sizes[0],
+      ", ",
+      output_sizes[1],
+      ", ",
+      output_sizes[2],
+      "]");
+
+  const vTensor& v_input = convert(input_arg);
+  vTensor& v_output = convert(output);
+  TORCH_CHECK(
+      v_output.storage_type() == api::StorageType::BUFFER,
+      "Vulkan feature_map_to_tokens_out expects a buffer output tensor");
+
+  if (
+      v_input.storage_type() == api::StorageType::TEXTURE_3D &&
+      v_input.gpu_memory_layout() ==
+          api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED &&
+      input_arg.size(0) == 1) {
+    const struct Block final {
+      api::utils::ivec4 info;
+    } block{
+        {
+            api::utils::safe_downcast<int32_t>(input_arg.size(3)),
+            api::utils::safe_downcast<int32_t>(input_arg.size(2)),
+            api::utils::safe_downcast<int32_t>(input_arg.size(1)),
+            api::utils::safe_downcast<int32_t>(input_arg.size(0)),
+        },
+    };
+
+    api::UniformParamsBuffer params(api::context(), block);
+    api::PipelineBarrier pipeline_barrier{};
+    const api::utils::uvec3 global_size{
+        api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+        1u,
+        1u,
+    };
+    api::UniformParamsBuffer out_meta =
+        utils::make_buffer_compute_metadata_ubo(api::context(), v_output);
+
+    api::context()->submit_compute_job(
+        VK_KERNEL(feature_map_to_tokens_texture_to_buffer),
+        pipeline_barrier,
+        global_size,
+        adaptive_work_group_size(global_size),
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
+        params.buffer());
+
+    utils::log_vulkan_op_hit("aten::feature_map_to_tokens.texture_to_buffer");
+    return true;
+  }
+
+  if (
+      v_input.storage_type() != api::StorageType::BUFFER ||
+      !utils::supports_buffer_elementwise_compute(v_input)) {
+    return false;
+  }
+
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size{
+      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(api::context(), v_output);
+  api::UniformParamsBuffer input_meta =
+      utils::make_buffer_compute_metadata_ubo(api::context(), v_input);
+
+  api::context()->submit_compute_job(
+      VK_KERNEL(feature_map_to_tokens_buffer),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      input_meta.buffer());
+
+  utils::log_vulkan_op_hit("aten::feature_map_to_tokens.buffer_to_buffer");
+  return true;
+}
+
+Tensor assemble_depth_anything_v2_tokens_from_feature_map(
+    const Tensor& patch_feature_map_arg,
+    const Tensor& prefix_token_arg,
+    const Tensor& patch_pos_encoding_arg,
+    const bool flatten_batch1_tokens) {
+  TORCH_CHECK(
+      patch_feature_map_arg.defined() && patch_feature_map_arg.is_vulkan() &&
+          prefix_token_arg.defined() && patch_pos_encoding_arg.defined(),
+      "Depth Anything image entry expects defined Vulkan patch features and "
+      "defined token constants");
+
+  Tensor patch_feature_map = prepare_decoder_buffer_tensor(patch_feature_map_arg);
+  Tensor patch_tokens = feature_map_to_tokens(patch_feature_map);
+  TORCH_CHECK(
+      patch_tokens.is_vulkan() && patch_tokens.dim() == 3,
+      "Depth Anything image entry expects rank-3 Vulkan patch tokens");
+  patch_tokens = prepare_buffer_attention_tensor(patch_tokens);
+
+  Tensor prefix_token =
+      prefix_token_arg.is_vulkan() ? prefix_token_arg : prefix_token_arg.vulkan();
+  Tensor patch_pos_encoding = patch_pos_encoding_arg.is_vulkan()
+      ? patch_pos_encoding_arg
+      : patch_pos_encoding_arg.vulkan();
+  if (prefix_token.scalar_type() != patch_tokens.scalar_type()) {
+    prefix_token = prefix_token.to(patch_tokens.scalar_type());
+  }
+  if (patch_pos_encoding.scalar_type() != patch_tokens.scalar_type()) {
+    patch_pos_encoding = patch_pos_encoding.to(patch_tokens.scalar_type());
+  }
+  prefix_token = prepare_buffer_attention_tensor(prefix_token);
+  patch_pos_encoding = prepare_buffer_attention_tensor(patch_pos_encoding);
+
+  TORCH_CHECK(
+      prefix_token.dim() == 3 && patch_pos_encoding.dim() == 3,
+      "Depth Anything image entry expects rank-3 prefix and positional "
+      "encoding tensors");
+  TORCH_CHECK(
+      prefix_token.size(2) == patch_tokens.size(2) &&
+          patch_pos_encoding.size(1) == patch_tokens.size(1) &&
+          patch_pos_encoding.size(2) == patch_tokens.size(2),
+      "Depth Anything image entry received mismatched token constant shapes");
+
+  Tensor positioned_tokens = at::add(patch_tokens, patch_pos_encoding);
+  TORCH_CHECK(
+      positioned_tokens.dim() == 3,
+      "Depth Anything image entry expected rank-3 positioned patch tokens");
+
+  Tensor prefix = prefix_token;
+  if (prefix.size(0) == 1 && positioned_tokens.size(0) != 1) {
+    prefix = prefix.expand(
+        {positioned_tokens.size(0), prefix.size(1), prefix.size(2)});
+  }
+  TORCH_CHECK(
+      prefix.size(0) == positioned_tokens.size(0),
+      "Depth Anything image entry received incompatible prefix batch size");
+
+  Tensor full_tokens = at::cat({prefix, positioned_tokens}, 1);
+  full_tokens = prepare_buffer_attention_tensor(full_tokens);
+  if (flatten_batch1_tokens && full_tokens.dim() == 3 && full_tokens.size(0) == 1) {
+    full_tokens = full_tokens.reshape({full_tokens.size(1), full_tokens.size(2)});
+    full_tokens = prepare_buffer_attention_tensor(full_tokens);
+  }
+  return full_tokens;
+}
+
+Tensor make_depth_anything_v2_tokens_from_image(
+    const Tensor& image_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& patch_embed_context,
+    const Tensor& prefix_token_arg,
+    const Tensor& patch_pos_encoding_arg,
+    const bool flatten_batch1_tokens) {
+  TORCH_CHECK(
+      static_cast<bool>(patch_embed_context),
+      "Depth Anything image entry expects a defined patch embed context");
+  TORCH_CHECK(
+      image_arg.dim() == 4,
+      "Depth Anything image entry expects a rank-4 image tensor");
+  Tensor image = image_arg.is_vulkan() ? image_arg : image_arg.vulkan();
+  Tensor patch_feature_map = run_conv2d_context(image, patch_embed_context);
+  return assemble_depth_anything_v2_tokens_from_feature_map(
+      patch_feature_map,
+      prefix_token_arg,
+      patch_pos_encoding_arg,
+      flatten_batch1_tokens);
+}
+
+bool run_compiled_session_image_entry_region(
+    std::vector<Tensor>& tensor_slots,
+    const utils::VulkanCompiledSession& compiled_session,
+    const utils::VulkanCompiledSessionTensorBindings& bindings,
+    const c10::intrusive_ptr<Conv2dPackedContext>& patch_embed_context) {
+  bool ran_patch_embed = false;
+  bool ran_patch_tokens = false;
+
+  for (const auto& op : compiled_session.ir().ops()) {
+    switch (op.kind) {
+      case utils::VulkanIROpKind::PatchEmbed: {
+        if (
+            !patch_embed_context || op.inputs.size() != 1u ||
+            op.outputs.size() != 1u) {
+          return false;
+        }
+        Tensor& output_slot =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.outputs[0]));
+        output_slot = run_conv2d_context_out(
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[0])),
+            patch_embed_context,
+            output_slot);
+        output_slot = prepare_decoder_buffer_tensor(output_slot);
+        ran_patch_embed = true;
+        break;
+      }
+      case utils::VulkanIROpKind::FeatureMapToTokens: {
+        if (
+            !ran_patch_embed || op.inputs.size() != 1u ||
+            op.outputs.size() != 1u) {
+          return false;
+        }
+        Tensor& output_slot =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.outputs[0]));
+        if (!run_feature_map_to_tokens_direct_out(
+                tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[0])),
+                output_slot)) {
+          return false;
+        }
+        break;
+      }
+      case utils::VulkanIROpKind::ElementwiseAdd: {
+        if (
+            !ran_patch_embed || op.inputs.size() != 2u ||
+            op.outputs.size() != 1u) {
+          return false;
+        }
+        Tensor positioned_input =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[0]));
+        Tensor pos_encoding =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[1]));
+        if (pos_encoding.dim() == 3 && positioned_input.dim() == 3 &&
+            pos_encoding.size(0) == 1 && positioned_input.size(0) != 1) {
+          pos_encoding = pos_encoding.expand(
+              {positioned_input.size(0), pos_encoding.size(1), pos_encoding.size(2)});
+        }
+        Tensor& output_slot =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.outputs[0]));
+        output_slot =
+            add_buffer_out_vulkan(positioned_input, pos_encoding, output_slot);
+        break;
+      }
+      case utils::VulkanIROpKind::Concat: {
+        if (op.inputs.size() != 2u || op.outputs.size() != 1u) {
+          return false;
+        }
+        Tensor prefix =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[0]));
+        const Tensor& positioned_tokens =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[1]));
+        if (prefix.dim() == 3 && positioned_tokens.dim() == 3 &&
+            prefix.size(0) == 1 && positioned_tokens.size(0) != 1) {
+          prefix = prefix.expand(
+              {positioned_tokens.size(0), prefix.size(1), prefix.size(2)});
+        }
+        Tensor& output_slot =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.outputs[0]));
+        const std::array<Tensor, 2u> concat_inputs{prefix, positioned_tokens};
+        if (!cat_buffer_out_vulkan(concat_inputs, 1, output_slot)) {
+          return false;
+        }
+        ran_patch_tokens = true;
+        break;
+      }
+      case utils::VulkanIROpKind::PatchTokenInput: {
+        if (
+            !ran_patch_embed || op.inputs.size() != 1u ||
+            op.outputs.size() != 1u || op.constants.size() != 2u) {
+          return false;
+        }
+        Tensor& output_slot =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.outputs[0]));
+        output_slot = assemble_depth_anything_v2_tokens_from_feature_map(
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[0])),
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.constants[0])),
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.constants[1])),
+            /*flatten_batch1_tokens=*/false);
+        ran_patch_tokens = true;
+        break;
+      }
+      case utils::VulkanIROpKind::BackboneBlock:
+        return ran_patch_tokens;
+      case utils::VulkanIROpKind::InputImage:
+      case utils::VulkanIROpKind::CaptureNormedPatchTokens:
+      case utils::VulkanIROpKind::TokensToFeatureMap:
+      case utils::VulkanIROpKind::DecoderProject:
+      case utils::VulkanIROpKind::DecoderResize:
+      case utils::VulkanIROpKind::DecoderPreprocess:
+      case utils::VulkanIROpKind::DecoderHead:
+      case utils::VulkanIROpKind::OutputAlias:
+        break;
+    }
+  }
+
+  return ran_patch_embed && ran_patch_tokens;
+}
+
+bool run_compiled_session_decoder_region(
+    std::vector<Tensor>& tensor_slots,
+    const utils::VulkanCompiledSession& compiled_session,
+    const utils::VulkanCompiledSessionTensorBindings& bindings,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u>&
+        project_contexts,
+    const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u>&
+        resize_contexts,
+    const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u>& rn_contexts,
+    const c10::intrusive_ptr<VisionDecoderHeadContext>& head_context,
+    CompiledDecoderHeadPrograms& head_programs,
+    const std::function<Tensor(const Tensor&)>& prepare_tokens) {
+  size_t project_idx = 0u;
+  size_t decoder_layer_idx = 0u;
+  bool ran_head = false;
+
+  for (const auto& op : compiled_session.ir().ops()) {
+    switch (op.kind) {
+      case utils::VulkanIROpKind::TokensToFeatureMap: {
+        if (op.inputs.size() != 1u || op.outputs.size() != 1u) {
+          return false;
+        }
+        Tensor layer_tokens =
+            prepare_tokens(tensor_slots.at(
+                compiled_session_tensor_slot(bindings, op.inputs[0])));
+        Tensor& feature_slot =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.outputs[0]));
+        if (!run_tokens_to_feature_map_direct_out(
+                layer_tokens,
+                patch_h,
+                patch_w,
+                feature_slot)) {
+          return false;
+        }
+        Tensor feature_buffer = prepare_decoder_buffer_tensor(feature_slot);
+        if (!feature_buffer.defined() || feature_buffer.dim() != 4) {
+          return false;
+        }
+        feature_slot = feature_buffer;
+        break;
+      }
+      case utils::VulkanIROpKind::DecoderProject: {
+        if (
+            op.inputs.size() != 1u || op.outputs.size() != 1u ||
+            project_idx >= project_contexts.size()) {
+          return false;
+        }
+        Tensor& output_slot =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.outputs[0]));
+        output_slot = run_conv2d_context_out(
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[0])),
+            project_contexts[project_idx],
+            output_slot);
+        ++project_idx;
+        break;
+      }
+      case utils::VulkanIROpKind::DecoderResize: {
+        if (
+            op.inputs.size() != 1u || op.outputs.size() != 1u ||
+            decoder_layer_idx >= resize_contexts.size() ||
+            !resize_contexts[decoder_layer_idx]) {
+          return false;
+        }
+        Tensor& output_slot =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.outputs[0]));
+        output_slot = run_conv2d_context_any_out(
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[0])),
+            resize_contexts[decoder_layer_idx],
+            output_slot);
+        break;
+      }
+      case utils::VulkanIROpKind::DecoderPreprocess: {
+        if (
+            op.inputs.size() != 1u || op.outputs.size() != 1u ||
+            decoder_layer_idx >= rn_contexts.size()) {
+          return false;
+        }
+        Tensor& output_slot =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.outputs[0]));
+        output_slot = run_conv2d_context_out(
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[0])),
+            rn_contexts[decoder_layer_idx],
+            output_slot);
+        ++decoder_layer_idx;
+        break;
+      }
+      case utils::VulkanIROpKind::DecoderHead: {
+        if (op.inputs.size() != 4u || op.outputs.size() != 1u) {
+          return false;
+        }
+        Tensor& output_slot =
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.outputs[0]));
+        output_slot = run_vision_decoder_head_program(
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[0])),
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[1])),
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[2])),
+            tensor_slots.at(compiled_session_tensor_slot(bindings, op.inputs[3])),
+            output_size,
+            head_context,
+            head_programs.programs[0],
+            head_programs.programs[1],
+            head_programs.programs[2],
+            head_programs.programs[3],
+            output_slot);
+        ran_head = true;
+        break;
+      }
+      case utils::VulkanIROpKind::OutputAlias:
+      case utils::VulkanIROpKind::InputImage:
+      case utils::VulkanIROpKind::PatchEmbed:
+      case utils::VulkanIROpKind::FeatureMapToTokens:
+      case utils::VulkanIROpKind::ElementwiseAdd:
+      case utils::VulkanIROpKind::Concat:
+      case utils::VulkanIROpKind::PatchTokenInput:
+      case utils::VulkanIROpKind::BackboneBlock:
+      case utils::VulkanIROpKind::CaptureNormedPatchTokens:
+        break;
+    }
+  }
+
+  if (!ran_head || decoder_layer_idx != rn_contexts.size()) {
+    return false;
+  }
+  return true;
+}
+
+std::optional<Tensor> try_run_vision_decoder_preprocess_head_compiled_session(
+    const std::array<Tensor, 4u>& layer_tokens,
+    const Device& output_device,
+    const ScalarType output_dtype,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>& context,
+    const utils::VulkanRuntimePolicy& runtime_policy,
+    const VisionReplayBundleIdentity& bundle_identity,
+    const std::string& root_label,
+    const utils::VulkanCompiledSession& compiled_session) {
+  if (
+      !runtime_policy.execution_program_plan.has_value() ||
+      runtime_policy.execution_program_plan->kind !=
+          utils::VulkanExecutionProgramKind::VisionDecoder ||
+      !compiled_session.defined() || !compiled_session.executable()) {
+    return std::nullopt;
+  }
+  const auto bindings =
+      utils::make_compiled_session_tensor_bindings(compiled_session);
+  if (!bindings.has_value() || bindings->input_values.size() != layer_tokens.size()) {
+    return std::nullopt;
+  }
+  const auto compiled_bindings = *bindings;
+  const auto decoder_plan =
+      make_compiled_decoder_execution_plan(compiled_session);
+  if (!decoder_plan.has_value()) {
+    return std::nullopt;
+  }
+
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u>
+      project_contexts{
+          context->project1_context(),
+          context->project2_context(),
+          context->project3_context(),
+          context->project4_context(),
+      };
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u>
+      resize_contexts{
+          context->resize1_context(),
+          context->resize2_context(),
+          c10::intrusive_ptr<Conv2dPackedContext>{},
+          context->resize4_context(),
+      };
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u> rn_contexts{
+      context->layer1_rn_context(),
+      context->layer2_rn_context(),
+      context->layer3_rn_context(),
+      context->layer4_rn_context(),
+  };
+
+  const auto& program_plan = *runtime_policy.execution_program_plan;
+  auto root = utils::lookup_or_create_labeled_execution_graph_root(
+      root_label,
+      kFloat,
+      program_plan.persistent);
+  const std::string compiled_bundle_key =
+      bundle_identity.key + "|compiled_session_memory_plan_v1";
+  auto replay_bundle = root.lookup_or_create_replay_bundle(
+      compiled_bundle_key,
+      [&]() -> utils::ExecutionGraphReplayBundle {
+        auto tensor_slots = make_compiled_session_tensor_slots(
+            compiled_session,
+            compiled_bindings,
+            program_plan.persistent);
+        auto head_programs = make_compiled_decoder_head_programs(
+            compiled_session,
+            *decoder_plan,
+            context->head_context(),
+            program_plan);
+        TORCH_CHECK(
+            head_programs.has_value() && (*head_programs)->defined(),
+            "Compiled decoder preprocess/head session expected defined head "
+            "programs");
+        auto decoder_replay = utils::make_execution_graph_replay(
+            root.allocation_label() +
+                ".vision.decoder_preprocess_head.compiled.decoder.step" +
+                bundle_identity.label_suffix,
+            utils::VulkanInferenceGraphKind::VisionDecoder,
+            kFloat,
+            program_plan.persistent,
+            std::vector<Tensor>{},
+            std::vector<std::optional<Tensor>>{},
+            std::vector<utils::ExecutionGraphProgramHandle>{});
+        std::vector<utils::ExecutionGraphReplayStep> steps;
+        steps.push_back(utils::make_execution_graph_replay_step(
+            std::move(decoder_replay),
+            [tensor_slots,
+             compiled_session,
+             compiled_bindings,
+             patch_h,
+             patch_w,
+             output_size = output_size.vec(),
+             project_contexts,
+             resize_contexts,
+             rn_contexts,
+             head_context = context->head_context(),
+             head_programs = *head_programs]() mutable {
+              TORCH_INTERNAL_ASSERT(
+                  run_compiled_session_decoder_region(
+                      *tensor_slots,
+                      compiled_session,
+                      compiled_bindings,
+                      patch_h,
+                      patch_w,
+                      output_size,
+                      project_contexts,
+                      resize_contexts,
+                      rn_contexts,
+                      head_context,
+                      *head_programs,
+                      [](const Tensor& tokens) {
+                        return prepare_buffer_attention_tensor(tokens);
+                      }),
+                  "Compiled decoder preprocess/head session failed to execute "
+                  "the decoder region");
+            }));
+
+        return utils::make_execution_graph_replay_bundle(
+            root.allocation_label() +
+                ".vision.decoder_preprocess_head.compiled_session.replay" +
+                bundle_identity.label_suffix,
+            kFloat,
+            program_plan.persistent,
+            std::move(steps),
+            std::move(tensor_slots));
+      });
+
+  if (
+      !replay_bundle.defined() || replay_bundle.size() == 0u ||
+      replay_bundle.tensor_slot_count() < compiled_bindings.tensor_slot_count()) {
+    return std::nullopt;
+  }
+
+  const bool first_run =
+      replay_bundle.size() > 0u && !replay_bundle.recorded();
+  const std::string previous_runtime_label =
+      api::swap_runtime_label(std::string());
+  auto restore_runtime_label = c10::make_scope_exit([&]() {
+    api::swap_runtime_label(previous_runtime_label);
+  });
+  for (size_t idx = 0u; idx < layer_tokens.size(); ++idx) {
+    copy_tensor_for_replay(
+        replay_bundle.tensor_slot(compiled_session_tensor_slot(
+            compiled_bindings,
+            compiled_bindings.input_values[idx])),
+        layer_tokens[idx]);
+  }
+  api::context()->flush_pending_cmds();
+  if (first_run) {
+    replay_bundle.warmup();
+    api::context()->flush_pending_cmds();
+    replay_bundle.record();
+  } else {
+    replay_bundle.submit();
+  }
+
+  const size_t output_slot_idx = compiled_session_tensor_slot(
+      compiled_bindings,
+      decoder_plan->final_output_value);
+  Tensor output = copy_compiled_session_output(replay_bundle, output_slot_idx);
+
+  utils::log_vulkan_op_hit(
+      first_run
+          ? "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.replay_warmup"
+          : "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.replay");
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session");
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_vision_decoder_preprocess_head_context");
+  return maybe_restore_tensor(output, output_device, output_dtype);
+}
+
+VisionReplayBundleIdentity make_depth_anything_v2_compiled_bundle_identity(
+    const utils::VulkanCompiledSession& compiled_session,
+    IntArrayRef input_sizes,
+    const std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    const std::vector<int64_t>& capture_indices,
+    IntArrayRef normalized_shape,
+    const LayernormPackedContext* norm_context,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const VisionDecoderPreprocessHeadContext* decoder_context) {
+  std::ostringstream key;
+  key << "depth_anything_v2.compiled_session"
+      << "|session=" << compiled_session.identity()
+      << "|input=" << sizes_key(input_sizes)
+      << "|capture=";
+  for (size_t idx = 0u; idx < capture_indices.size(); ++idx) {
+    if (idx > 0u) {
+      key << ",";
+    }
+    key << capture_indices[idx];
+  }
+  key << "|contexts=";
+  for (size_t idx = 0u; idx < contexts.size(); ++idx) {
+    if (idx > 0u) {
+      key << ",";
+    }
+    key << context_identity_key(contexts[idx].get());
+  }
+  key << "|norm_ctx=" << context_identity_key(norm_context)
+      << "|norm_shape=" << sizes_key(normalized_shape)
+      << "|decoder_ctx=" << context_identity_key(decoder_context)
+      << "|patch=" << patch_h << "x" << patch_w
+      << "|output=" << sizes_key(output_size);
+
+  std::ostringstream suffix;
+  suffix << ".session." << context_identity_key(compiled_session.identity())
+         << ".input." << sizes_key(input_sizes)
+         << ".patch." << patch_h << "x" << patch_w
+         << ".output." << sizes_key(output_size)
+         << ".decoder." << context_identity_key(decoder_context);
+  return VisionReplayBundleIdentity{key.str(), suffix.str()};
+}
+
+VisionReplayBundleIdentity make_depth_anything_v2_image_compiled_bundle_identity(
+    const utils::VulkanCompiledSession& compiled_session,
+    IntArrayRef input_sizes,
+    IntArrayRef prefix_token_sizes,
+    IntArrayRef patch_pos_encoding_sizes,
+    const Conv2dPackedContext* patch_embed_context,
+    const std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    const std::vector<int64_t>& capture_indices,
+    IntArrayRef normalized_shape,
+    const LayernormPackedContext* norm_context,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const VisionDecoderPreprocessHeadContext* decoder_context) {
+  std::ostringstream key;
+  key << "depth_anything_v2.image_compiled_session"
+      << "|session=" << compiled_session.identity()
+      << "|input=" << sizes_key(input_sizes)
+      << "|prefix=" << sizes_key(prefix_token_sizes)
+      << "|patch_pos=" << sizes_key(patch_pos_encoding_sizes)
+      << "|patch_embed_ctx=" << context_identity_key(patch_embed_context)
+      << "|capture=";
+  for (size_t idx = 0u; idx < capture_indices.size(); ++idx) {
+    if (idx > 0u) {
+      key << ",";
+    }
+    key << capture_indices[idx];
+  }
+  key << "|contexts=";
+  for (size_t idx = 0u; idx < contexts.size(); ++idx) {
+    if (idx > 0u) {
+      key << ",";
+    }
+    key << context_identity_key(contexts[idx].get());
+  }
+  key << "|norm_ctx=" << context_identity_key(norm_context)
+      << "|norm_shape=" << sizes_key(normalized_shape)
+      << "|decoder_ctx=" << context_identity_key(decoder_context)
+      << "|patch=" << patch_h << "x" << patch_w
+      << "|output=" << sizes_key(output_size);
+
+  std::ostringstream suffix;
+  suffix << ".session." << context_identity_key(compiled_session.identity())
+         << ".img." << sizes_key(input_sizes)
+         << ".prefix." << sizes_key(prefix_token_sizes)
+         << ".patchpos." << sizes_key(patch_pos_encoding_sizes)
+         << ".patchembed." << context_identity_key(patch_embed_context)
+         << ".patch." << patch_h << "x" << patch_w
+         << ".output." << sizes_key(output_size)
+         << ".decoder." << context_identity_key(decoder_context);
+  return VisionReplayBundleIdentity{key.str(), suffix.str()};
+}
+
+std::optional<Tensor> try_run_depth_anything_v2_compiled_session(
+    const Tensor& input,
+    const Device& output_device,
+    const ScalarType output_dtype,
+    const std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>>&
+        backbone_contexts,
+    const std::vector<int64_t>& capture_indices_vec,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& output_norm_context,
+    const int64_t special_token_count,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>& decoder_context,
+    const utils::VulkanRuntimePolicy& runtime_policy,
+    const std::string& root_label,
+    const utils::VulkanCompiledSession& compiled_session) {
+  if (
+      !runtime_policy.execution_program_plan.has_value() ||
+      !compiled_session.defined() || !compiled_session.executable() ||
+      normalized_shape.empty() || !output_norm_context || !decoder_context ||
+      special_token_count < 0) {
+    return std::nullopt;
+  }
+  const auto bindings =
+      utils::make_compiled_session_tensor_bindings(compiled_session);
+  const auto execution_plan = make_compiled_backbone_execution_plan(
+      compiled_session,
+      backbone_contexts.size());
+  const auto decoder_plan =
+      make_compiled_decoder_execution_plan(compiled_session);
+  if (
+      !bindings.has_value() || !execution_plan.has_value() ||
+      !decoder_plan.has_value()) {
+    return std::nullopt;
+  }
+  const auto compiled_bindings = *bindings;
+  const auto compiled_plan = *execution_plan;
+  const auto compiled_decoder_plan = *decoder_plan;
+
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u>
+      project_contexts{
+          decoder_context->project1_context(),
+          decoder_context->project2_context(),
+          decoder_context->project3_context(),
+          decoder_context->project4_context(),
+      };
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u>
+      resize_contexts{
+          decoder_context->resize1_context(),
+          decoder_context->resize2_context(),
+          c10::intrusive_ptr<Conv2dPackedContext>{},
+          decoder_context->resize4_context(),
+      };
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u> rn_contexts{
+      decoder_context->layer1_rn_context(),
+      decoder_context->layer2_rn_context(),
+      decoder_context->layer3_rn_context(),
+      decoder_context->layer4_rn_context(),
+  };
+
+  const auto& program_plan = *runtime_policy.execution_program_plan;
+  const int64_t batch_size = input.dim() == 2 ? 1 : input.size(0);
+  const int64_t token_count = input.dim() == 2 ? input.size(0) : input.size(1);
+  const int64_t embed_dim = input.size(-1);
+  const uint32_t scratch_alignment =
+      runtime_policy.scratch_arena_plan.has_value()
+      ? std::max<uint32_t>(
+            runtime_policy.scratch_arena_plan->alignment,
+            static_cast<uint32_t>(std::max<int64_t>(
+                1, static_cast<int64_t>(c10::elementSize(kFloat)))))
+      : 1u;
+
+  const VisionReplayBundleIdentity bundle_identity =
+      make_depth_anything_v2_compiled_bundle_identity(
+          compiled_session,
+          input.sizes(),
+          backbone_contexts,
+          capture_indices_vec,
+          normalized_shape,
+          output_norm_context.get(),
+          patch_h,
+          patch_w,
+          output_size,
+          decoder_context.get());
+  auto root = utils::lookup_or_create_labeled_execution_graph_root(
+      root_label,
+      kFloat,
+      program_plan.persistent);
+  const std::string compiled_bundle_key =
+      bundle_identity.key + "|compiled_session_memory_plan_v1";
+  auto replay_bundle = root.lookup_or_create_replay_bundle(
+      compiled_bundle_key,
+      [&]() -> utils::ExecutionGraphReplayBundle {
+        auto programs =
+            std::make_shared<std::vector<utils::VisionBackboneProgram>>();
+        auto graph_scratches =
+            std::make_shared<std::vector<std::optional<utils::ScratchArena>>>();
+        programs->reserve(backbone_contexts.size());
+        graph_scratches->reserve(backbone_contexts.size());
+        for (const auto& context : backbone_contexts) {
+          auto vision_graph =
+              prime_vision_backbone_graph(input, runtime_policy, context);
+          TORCH_CHECK(
+              vision_graph.defined(),
+              "Compiled Depth Anything session expected a defined vision "
+              "graph");
+
+          std::optional<utils::ScratchArena> graph_scratch = std::nullopt;
+          if (
+              runtime_policy.scratch_arena_plan.has_value() &&
+              runtime_policy.scratch_arena_plan->prefer_buffer_storage) {
+            const size_t requested_bytes = vision_attention_scratch_bytes(
+                batch_size,
+                token_count,
+                embed_dim,
+                context->num_heads(),
+                input.scalar_type(),
+                context->qkv_bias().defined(),
+                scratch_alignment);
+            if (requested_bytes > 0u) {
+              graph_scratch = vision_graph.ensure_shared_scratch(
+                  std::max(
+                      requested_bytes,
+                      runtime_policy.scratch_arena_plan->min_arena_bytes),
+                  scratch_alignment,
+                  program_plan.persistent);
+            }
+          }
+
+          const int64_t hidden_dim = vision_block_hidden_dim(context);
+          utils::VisionBackboneProgram program =
+              vision_graph.lookup_or_create_program(
+                  vision_backbone_program_label(
+                      context->allocation_label(), context.get()) +
+                      ".depth_anything_v2.compiled_session",
+                  input.scalar_type(),
+                  batch_size,
+                  token_count,
+                  embed_dim,
+                  hidden_dim,
+                  context->num_heads(),
+                  program_plan);
+          TORCH_CHECK(
+              program.defined(),
+              "Compiled Depth Anything session expected a defined backbone "
+              "program");
+          programs->push_back(std::move(program));
+          graph_scratches->push_back(std::move(graph_scratch));
+        }
+
+        auto tensor_slots = make_compiled_session_tensor_slots(
+            compiled_session,
+            compiled_bindings,
+            program_plan.persistent);
+        std::vector<utils::ExecutionGraphReplayStep> steps;
+        steps.reserve(backbone_contexts.size() + 1u);
+
+        auto head_programs = make_compiled_decoder_head_programs(
+            compiled_session,
+            compiled_decoder_plan,
+            decoder_context->head_context(),
+            program_plan);
+        TORCH_CHECK(
+            head_programs.has_value() && (*head_programs)->defined(),
+            "Compiled Depth Anything session expected defined decoder head "
+            "programs");
+
+        for (size_t idx = 0u; idx < backbone_contexts.size(); ++idx) {
+          auto step_replay = utils::make_execution_graph_replay(
+              root.allocation_label() +
+                  ".vision.depth_anything_v2.compiled.backbone.step." +
+                  std::to_string(idx) + bundle_identity.label_suffix,
+              utils::VulkanInferenceGraphKind::VisionBackbone,
+              kFloat,
+              program_plan.persistent,
+              std::vector<Tensor>{},
+              std::vector<std::optional<Tensor>>{},
+              std::vector<utils::ExecutionGraphProgramHandle>{});
+          steps.push_back(utils::make_execution_graph_replay_step(
+              std::move(step_replay),
+              [idx,
+               tensor_slots,
+               compiled_bindings,
+               compiled_plan,
+               programs,
+               graph_scratches,
+               backbone_contexts,
+               normalized_shape_vec = normalized_shape.vec(),
+               output_norm_context]() mutable {
+                api::RuntimeLabelScope runtime_scope(
+                    vision_backbone_execution_label(
+                        backbone_contexts[idx]->allocation_label(),
+                        backbone_contexts[idx].get()) +
+                    ".depth_anything_v2.compiled_session");
+                auto& graph_scratch = graph_scratches->at(idx);
+                if (graph_scratch.has_value()) {
+                  graph_scratch->reset();
+                }
+                const size_t input_slot_idx = idx == 0u
+                    ? compiled_session_tensor_slot(
+                          compiled_bindings,
+                          compiled_plan.backbone_input_value)
+                    : compiled_session_tensor_slot(
+                          compiled_bindings,
+                          compiled_plan.block_output_values.at(idx - 1u));
+                Tensor& block_output = tensor_slots->at(
+                    compiled_session_tensor_slot(
+                        compiled_bindings,
+                        compiled_plan.block_output_values.at(idx)));
+                (void)run_vision_backbone_block_program(
+                    tensor_slots->at(input_slot_idx),
+                    backbone_contexts[idx],
+                    &programs->at(idx),
+                    graph_scratch.has_value() ? &(*graph_scratch) : nullptr,
+                    &block_output);
+                if (compiled_plan.capture_values_by_block.at(idx).has_value()) {
+                  Tensor& capture_output = tensor_slots->at(
+                      compiled_session_tensor_slot(
+                          compiled_bindings,
+                          *compiled_plan.capture_values_by_block.at(idx)));
+                  (void)run_layernorm_context_out(
+                      block_output,
+                      normalized_shape_vec,
+                      output_norm_context,
+                      capture_output);
+                }
+              }));
+        }
+
+        auto decoder_step_replay = utils::make_execution_graph_replay(
+            root.allocation_label() +
+                ".vision.depth_anything_v2.compiled.decoder.step" +
+                bundle_identity.label_suffix,
+            utils::VulkanInferenceGraphKind::VisionDecoder,
+            kFloat,
+            program_plan.persistent,
+            std::vector<Tensor>{},
+            std::vector<std::optional<Tensor>>{},
+            std::vector<utils::ExecutionGraphProgramHandle>{});
+        steps.push_back(utils::make_execution_graph_replay_step(
+            std::move(decoder_step_replay),
+            [tensor_slots,
+             compiled_session,
+             compiled_bindings,
+             patch_h,
+             patch_w,
+             output_size = output_size.vec(),
+             project_contexts,
+             resize_contexts,
+             rn_contexts,
+             special_token_count,
+             head_context = decoder_context->head_context(),
+             head_programs = *head_programs]() mutable {
+              TORCH_INTERNAL_ASSERT(
+                  run_compiled_session_decoder_region(
+                      *tensor_slots,
+                      compiled_session,
+                      compiled_bindings,
+                      patch_h,
+                      patch_w,
+                      output_size,
+                      project_contexts,
+                      resize_contexts,
+                      rn_contexts,
+                      head_context,
+                      *head_programs,
+                      [special_token_count](const Tensor& tokens) {
+                        Tensor stripped = tokens.dim() == 2
+                            ? tokens.slice(0, special_token_count, tokens.size(0))
+                            : tokens.slice(1, special_token_count, tokens.size(1));
+                        return prepare_buffer_attention_tensor(stripped);
+                      }),
+                  "Compiled Depth Anything session failed to execute the "
+                  "decoder region");
+            }));
+
+        return utils::make_execution_graph_replay_bundle(
+            root.allocation_label() +
+                ".vision.depth_anything_v2.compiled_session.replay" +
+                bundle_identity.label_suffix,
+            kFloat,
+            program_plan.persistent,
+            std::move(steps),
+            std::move(tensor_slots));
+      });
+
+  if (!replay_bundle.defined() ||
+      replay_bundle.tensor_slot_count() < compiled_bindings.tensor_slot_count()) {
+    return std::nullopt;
+  }
+
+  copy_tensor_for_replay(
+      replay_bundle.tensor_slot(
+          compiled_session_tensor_slot(compiled_bindings, compiled_plan.input_value)),
+      input);
+  api::context()->flush_pending_cmds();
+  const bool first_run = !replay_bundle.recorded();
+  const std::string previous_runtime_label =
+      api::swap_runtime_label(std::string());
+  auto restore_runtime_label = c10::make_scope_exit([&]() {
+    api::swap_runtime_label(previous_runtime_label);
+  });
+  if (first_run) {
+    replay_bundle.warmup();
+    api::context()->flush_pending_cmds();
+    replay_bundle.record();
+  } else {
+    replay_bundle.submit();
+  }
+
+  const size_t output_slot_idx = compiled_session_tensor_slot(
+      compiled_bindings,
+      compiled_decoder_plan.final_output_value);
+  Tensor output = copy_compiled_session_output(replay_bundle, output_slot_idx);
+  utils::log_vulkan_op_hit(
+      first_run
+          ? "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge.warmup"
+          : "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge.replay");
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge");
+  return maybe_restore_tensor(output, output_device, output_dtype);
+}
+
+std::optional<Tensor> try_run_depth_anything_v2_image_compiled_session(
+    const Tensor& input,
+    const Tensor& prefix_token,
+    const Tensor& patch_pos_encoding,
+    const Device& output_device,
+    const ScalarType output_dtype,
+    const c10::intrusive_ptr<Conv2dPackedContext>& patch_embed_context,
+    const std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>>&
+        backbone_contexts,
+    const std::vector<int64_t>& capture_indices_vec,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& output_norm_context,
+    const int64_t special_token_count,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>& decoder_context,
+    const utils::VulkanRuntimePolicy& runtime_policy,
+    const std::string& root_label,
+    const utils::VulkanCompiledSession& compiled_session) {
+  if (
+      !runtime_policy.execution_program_plan.has_value() ||
+      !compiled_session.defined() || !compiled_session.executable() ||
+      normalized_shape.empty() || !output_norm_context || !decoder_context ||
+      !patch_embed_context || special_token_count < 0) {
+    return std::nullopt;
+  }
+  const auto bindings =
+      utils::make_compiled_session_tensor_bindings(compiled_session);
+  const auto image_plan =
+      make_compiled_image_entry_execution_plan(compiled_session);
+  const auto execution_plan = make_compiled_backbone_execution_plan(
+      compiled_session,
+      backbone_contexts.size());
+  const auto decoder_plan =
+      make_compiled_decoder_execution_plan(compiled_session);
+  if (
+      !bindings.has_value() || !image_plan.has_value() ||
+      !execution_plan.has_value() || !decoder_plan.has_value()) {
+    return std::nullopt;
+  }
+  const auto compiled_bindings = *bindings;
+  const auto compiled_image_plan = *image_plan;
+  const auto compiled_plan = *execution_plan;
+  const auto compiled_decoder_plan = *decoder_plan;
+
+  const auto& ir_values = compiled_session.ir().values();
+  if (
+      compiled_plan.backbone_input_value >= ir_values.size() ||
+      compiled_image_plan.image_input_value >= ir_values.size()) {
+    return std::nullopt;
+  }
+  const auto& backbone_input_sizes =
+      ir_values[compiled_plan.backbone_input_value].spec.logical_sizes;
+  if (backbone_input_sizes.size() != 2u && backbone_input_sizes.size() != 3u) {
+    return std::nullopt;
+  }
+
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u>
+      project_contexts{
+          decoder_context->project1_context(),
+          decoder_context->project2_context(),
+          decoder_context->project3_context(),
+          decoder_context->project4_context(),
+      };
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u>
+      resize_contexts{
+          decoder_context->resize1_context(),
+          decoder_context->resize2_context(),
+          c10::intrusive_ptr<Conv2dPackedContext>{},
+          decoder_context->resize4_context(),
+      };
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u> rn_contexts{
+      decoder_context->layer1_rn_context(),
+      decoder_context->layer2_rn_context(),
+      decoder_context->layer3_rn_context(),
+      decoder_context->layer4_rn_context(),
+  };
+
+  const auto& program_plan = *runtime_policy.execution_program_plan;
+  const int64_t batch_size =
+      backbone_input_sizes.size() == 2u ? 1 : backbone_input_sizes[0];
+  const int64_t token_count = backbone_input_sizes.size() == 2u
+      ? backbone_input_sizes[0]
+      : backbone_input_sizes[1];
+  const int64_t embed_dim = backbone_input_sizes.back();
+  const uint32_t scratch_alignment =
+      runtime_policy.scratch_arena_plan.has_value()
+      ? std::max<uint32_t>(
+            runtime_policy.scratch_arena_plan->alignment,
+            static_cast<uint32_t>(std::max<int64_t>(
+                1, static_cast<int64_t>(c10::elementSize(kFloat)))))
+      : 1u;
+  const Tensor program_input = utils::create_buffer_tensor(
+      backbone_input_sizes, input.scalar_type(), program_plan.persistent);
+
+  const VisionReplayBundleIdentity bundle_identity =
+      make_depth_anything_v2_image_compiled_bundle_identity(
+          compiled_session,
+          input.sizes(),
+          prefix_token.sizes(),
+          patch_pos_encoding.sizes(),
+          patch_embed_context.get(),
+          backbone_contexts,
+          capture_indices_vec,
+          normalized_shape,
+          output_norm_context.get(),
+          patch_h,
+          patch_w,
+          output_size,
+          decoder_context.get());
+  auto root = utils::lookup_or_create_labeled_execution_graph_root(
+      root_label,
+      kFloat,
+      program_plan.persistent);
+  const std::string compiled_bundle_key =
+      bundle_identity.key + "|compiled_session_memory_plan_v1";
+  auto replay_bundle = root.lookup_or_create_replay_bundle(
+      compiled_bundle_key,
+      [&]() -> utils::ExecutionGraphReplayBundle {
+        auto programs =
+            std::make_shared<std::vector<utils::VisionBackboneProgram>>();
+        auto graph_scratches =
+            std::make_shared<std::vector<std::optional<utils::ScratchArena>>>();
+        programs->reserve(backbone_contexts.size());
+        graph_scratches->reserve(backbone_contexts.size());
+        for (const auto& context : backbone_contexts) {
+          auto vision_graph =
+              prime_vision_backbone_graph(program_input, runtime_policy, context);
+          TORCH_CHECK(
+              vision_graph.defined(),
+              "Compiled Depth Anything image session expected a defined vision "
+              "graph");
+
+          std::optional<utils::ScratchArena> graph_scratch = std::nullopt;
+          if (
+              runtime_policy.scratch_arena_plan.has_value() &&
+              runtime_policy.scratch_arena_plan->prefer_buffer_storage) {
+            const size_t requested_bytes = vision_attention_scratch_bytes(
+                batch_size,
+                token_count,
+                embed_dim,
+                context->num_heads(),
+                input.scalar_type(),
+                context->qkv_bias().defined(),
+                scratch_alignment);
+            if (requested_bytes > 0u) {
+              graph_scratch = vision_graph.ensure_shared_scratch(
+                  std::max(
+                      requested_bytes,
+                      runtime_policy.scratch_arena_plan->min_arena_bytes),
+                  scratch_alignment,
+                  program_plan.persistent);
+            }
+          }
+
+          const int64_t hidden_dim = vision_block_hidden_dim(context);
+          utils::VisionBackboneProgram program =
+              vision_graph.lookup_or_create_program(
+                  vision_backbone_program_label(
+                      context->allocation_label(), context.get()) +
+                      ".depth_anything_v2.image_compiled_session",
+                  input.scalar_type(),
+                  batch_size,
+                  token_count,
+                  embed_dim,
+                  hidden_dim,
+                  context->num_heads(),
+                  program_plan);
+          TORCH_CHECK(
+              program.defined(),
+              "Compiled Depth Anything image session expected a defined "
+              "backbone program");
+          programs->push_back(std::move(program));
+          graph_scratches->push_back(std::move(graph_scratch));
+        }
+
+        auto tensor_slots = make_compiled_session_tensor_slots(
+            compiled_session,
+            compiled_bindings,
+            program_plan.persistent);
+        std::vector<utils::ExecutionGraphReplayStep> steps;
+        steps.reserve(backbone_contexts.size() + 2u);
+
+        auto head_programs = make_compiled_decoder_head_programs(
+            compiled_session,
+            compiled_decoder_plan,
+            decoder_context->head_context(),
+            program_plan);
+        TORCH_CHECK(
+            head_programs.has_value() && (*head_programs)->defined(),
+            "Compiled Depth Anything image session expected defined decoder "
+            "head programs");
+
+        auto image_step_replay = utils::make_execution_graph_replay(
+            root.allocation_label() +
+                ".vision.depth_anything_v2.image_compiled.entry.step" +
+                bundle_identity.label_suffix,
+            utils::VulkanInferenceGraphKind::VisionBackbone,
+            kFloat,
+            program_plan.persistent,
+            std::vector<Tensor>{},
+            std::vector<std::optional<Tensor>>{},
+            std::vector<utils::ExecutionGraphProgramHandle>{});
+        steps.push_back(utils::make_execution_graph_replay_step(
+            std::move(image_step_replay),
+            [tensor_slots,
+             compiled_session,
+             compiled_bindings,
+             patch_embed_context]() mutable {
+              TORCH_INTERNAL_ASSERT(
+                  run_compiled_session_image_entry_region(
+                      *tensor_slots,
+                      compiled_session,
+                      compiled_bindings,
+                      patch_embed_context),
+                  "Compiled Depth Anything image session failed to execute "
+                  "the image entry region");
+            }));
+
+        for (size_t idx = 0u; idx < backbone_contexts.size(); ++idx) {
+          auto step_replay = utils::make_execution_graph_replay(
+              root.allocation_label() +
+                  ".vision.depth_anything_v2.image_compiled.backbone.step." +
+                  std::to_string(idx) + bundle_identity.label_suffix,
+              utils::VulkanInferenceGraphKind::VisionBackbone,
+              kFloat,
+              program_plan.persistent,
+              std::vector<Tensor>{},
+              std::vector<std::optional<Tensor>>{},
+              std::vector<utils::ExecutionGraphProgramHandle>{});
+          steps.push_back(utils::make_execution_graph_replay_step(
+              std::move(step_replay),
+              [idx,
+               tensor_slots,
+               compiled_bindings,
+               compiled_plan,
+               programs,
+               graph_scratches,
+               backbone_contexts,
+               normalized_shape_vec = normalized_shape.vec(),
+               output_norm_context]() mutable {
+                api::RuntimeLabelScope runtime_scope(
+                    vision_backbone_execution_label(
+                        backbone_contexts[idx]->allocation_label(),
+                        backbone_contexts[idx].get()) +
+                    ".depth_anything_v2.image_compiled_session");
+                auto& graph_scratch = graph_scratches->at(idx);
+                if (graph_scratch.has_value()) {
+                  graph_scratch->reset();
+                }
+                const size_t input_slot_idx = idx == 0u
+                    ? compiled_session_tensor_slot(
+                          compiled_bindings,
+                          compiled_plan.backbone_input_value)
+                    : compiled_session_tensor_slot(
+                          compiled_bindings,
+                          compiled_plan.block_output_values.at(idx - 1u));
+                Tensor& block_output = tensor_slots->at(
+                    compiled_session_tensor_slot(
+                        compiled_bindings,
+                        compiled_plan.block_output_values.at(idx)));
+                (void)run_vision_backbone_block_program(
+                    tensor_slots->at(input_slot_idx),
+                    backbone_contexts[idx],
+                    &programs->at(idx),
+                    graph_scratch.has_value() ? &(*graph_scratch) : nullptr,
+                    &block_output);
+                if (compiled_plan.capture_values_by_block.at(idx).has_value()) {
+                  Tensor& capture_output = tensor_slots->at(
+                      compiled_session_tensor_slot(
+                          compiled_bindings,
+                          *compiled_plan.capture_values_by_block.at(idx)));
+                  (void)run_layernorm_context_out(
+                      block_output,
+                      normalized_shape_vec,
+                      output_norm_context,
+                      capture_output);
+                }
+              }));
+        }
+
+        auto decoder_step_replay = utils::make_execution_graph_replay(
+            root.allocation_label() +
+                ".vision.depth_anything_v2.image_compiled.decoder.step" +
+                bundle_identity.label_suffix,
+            utils::VulkanInferenceGraphKind::VisionDecoder,
+            kFloat,
+            program_plan.persistent,
+            std::vector<Tensor>{},
+            std::vector<std::optional<Tensor>>{},
+            std::vector<utils::ExecutionGraphProgramHandle>{});
+        steps.push_back(utils::make_execution_graph_replay_step(
+            std::move(decoder_step_replay),
+            [tensor_slots,
+             compiled_session,
+             compiled_bindings,
+             patch_h,
+             patch_w,
+             output_size = output_size.vec(),
+             project_contexts,
+             resize_contexts,
+             rn_contexts,
+             special_token_count,
+             head_context = decoder_context->head_context(),
+             head_programs = *head_programs]() mutable {
+              TORCH_INTERNAL_ASSERT(
+                  run_compiled_session_decoder_region(
+                      *tensor_slots,
+                      compiled_session,
+                      compiled_bindings,
+                      patch_h,
+                      patch_w,
+                      output_size,
+                      project_contexts,
+                      resize_contexts,
+                      rn_contexts,
+                      head_context,
+                      *head_programs,
+                      [special_token_count](const Tensor& tokens) {
+                        Tensor stripped = tokens.dim() == 2
+                            ? tokens.slice(0, special_token_count, tokens.size(0))
+                            : tokens.slice(1, special_token_count, tokens.size(1));
+                        return prepare_buffer_attention_tensor(stripped);
+                      }),
+                  "Compiled Depth Anything image session failed to execute "
+                  "the decoder region");
+            }));
+
+        return utils::make_execution_graph_replay_bundle(
+            root.allocation_label() +
+                ".vision.depth_anything_v2.image_compiled_session.replay" +
+                bundle_identity.label_suffix,
+            kFloat,
+            program_plan.persistent,
+            std::move(steps),
+            std::move(tensor_slots));
+      });
+
+  if (!replay_bundle.defined() ||
+      replay_bundle.tensor_slot_count() < compiled_bindings.tensor_slot_count()) {
+    return std::nullopt;
+  }
+
+  copy_tensor_for_replay(
+      replay_bundle.tensor_slot(compiled_session_tensor_slot(
+          compiled_bindings,
+          compiled_image_plan.image_input_value)),
+      input);
+  copy_tensor_for_replay(
+      replay_bundle.tensor_slot(compiled_session_tensor_slot(
+          compiled_bindings,
+          compiled_image_plan.prefix_token_value)),
+      prefix_token);
+  copy_tensor_for_replay(
+      replay_bundle.tensor_slot(compiled_session_tensor_slot(
+          compiled_bindings,
+          compiled_image_plan.patch_pos_encoding_value)),
+      patch_pos_encoding);
+  api::context()->flush_pending_cmds();
+  const bool first_run = !replay_bundle.recorded();
+  const std::string previous_runtime_label =
+      api::swap_runtime_label(std::string());
+  auto restore_runtime_label = c10::make_scope_exit([&]() {
+    api::swap_runtime_label(previous_runtime_label);
+  });
+  if (first_run) {
+    replay_bundle.warmup();
+    api::context()->flush_pending_cmds();
+    replay_bundle.record();
+  } else {
+    replay_bundle.submit();
+  }
+
+  const size_t output_slot_idx = compiled_session_tensor_slot(
+      compiled_bindings,
+      compiled_decoder_plan.final_output_value);
+  Tensor output = copy_compiled_session_output(replay_bundle, output_slot_idx);
+  utils::log_vulkan_op_hit(
+      first_run
+          ? "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge.warmup"
+          : "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge.replay");
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge");
+  return maybe_restore_tensor(output, output_device, output_dtype);
+}
+
 utils::ExecutionGraphReplayStep make_vision_decoder_replay_step(
     utils::VisionDecoderInferenceReplay decoder_replay,
     std::vector<int64_t> decoder_target_sizes,
@@ -3247,6 +5476,121 @@ Tensor run_vision_decoder_preprocess_head_context(
       layer4_tokens.scalar_type() != kFloat) {
     return fallback();
   }
+  const std::array<Tensor, 4u> compiled_layer_tokens{{
+      prepare_buffer_attention_tensor(layer1_tokens),
+      prepare_buffer_attention_tensor(layer2_tokens),
+      prepare_buffer_attention_tensor(layer3_tokens),
+      prepare_buffer_attention_tensor(layer4_tokens),
+  }};
+
+  const std::array<std::vector<int64_t>, 4u> layer_token_sizes{{
+      compiled_layer_tokens[0].sizes().vec(),
+      compiled_layer_tokens[1].sizes().vec(),
+      compiled_layer_tokens[2].sizes().vec(),
+      compiled_layer_tokens[3].sizes().vec(),
+  }};
+  const std::array<std::vector<int64_t>, 4u> layer_feature_sizes{{
+      tokens_to_feature_map_output_sizes(compiled_layer_tokens[0].sizes(), patch_h, patch_w),
+      tokens_to_feature_map_output_sizes(compiled_layer_tokens[1].sizes(), patch_h, patch_w),
+      tokens_to_feature_map_output_sizes(compiled_layer_tokens[2].sizes(), patch_h, patch_w),
+      tokens_to_feature_map_output_sizes(compiled_layer_tokens[3].sizes(), patch_h, patch_w),
+  }};
+  const std::array<std::vector<int64_t>, 4u> decoder_layer_sizes{{
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[0],
+          context->project1_context(),
+          context->resize1_context(),
+          /*apply_resize=*/true,
+          context->layer1_rn_context()),
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[1],
+          context->project2_context(),
+          context->resize2_context(),
+          /*apply_resize=*/true,
+          context->layer2_rn_context()),
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[2],
+          context->project3_context(),
+          c10::intrusive_ptr<Conv2dPackedContext>{},
+          /*apply_resize=*/false,
+          context->layer3_rn_context()),
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[3],
+          context->project4_context(),
+          context->resize4_context(),
+          /*apply_resize=*/true,
+          context->layer4_rn_context()),
+  }};
+  const std::array<std::vector<int64_t>, 4u> project_layer_sizes{{
+      conv2d_context_output_sizes(layer_feature_sizes[0], context->project1_context()),
+      conv2d_context_output_sizes(layer_feature_sizes[1], context->project2_context()),
+      conv2d_context_output_sizes(layer_feature_sizes[2], context->project3_context()),
+      conv2d_context_output_sizes(layer_feature_sizes[3], context->project4_context()),
+  }};
+  const std::array<std::vector<int64_t>, 4u> resize_layer_sizes{{
+      conv2d_context_output_sizes(project_layer_sizes[0], context->resize1_context()),
+      conv2d_context_output_sizes(project_layer_sizes[1], context->resize2_context()),
+      project_layer_sizes[2],
+      conv2d_context_output_sizes(project_layer_sizes[3], context->resize4_context()),
+  }};
+  const std::array<bool, 4u> apply_resize{{true, true, false, true}};
+  const std::vector<int64_t> final_output_sizes{
+      layer_feature_sizes[0][0],
+      kDaV2HeadFinalChannels,
+      output_size[0],
+      output_size[1],
+  };
+  auto decoder_request = utils::make_vulkan_vision_decoder_request();
+  decoder_request.fixed_shape_graph_input_sizes = decoder_layer_sizes[3];
+  utils::VulkanPlanningRequestScope decoder_planning_scope(decoder_request);
+  const auto runtime_policy =
+      utils::build_vulkan_runtime_policy(decoder_request);
+  const auto compiled_session =
+      utils::lookup_or_create_depth_anything_v2_decoder_preprocess_head_session(
+          utils::DepthAnythingV2DecoderPreprocessHeadSessionDesc{
+              current_graph_capture_label("depth.vision", "depth.vision.graph") +
+                  ".decoder_preprocess_head.ctx." +
+                  context_identity_key(context.get()),
+              layer_token_sizes,
+              layer_feature_sizes,
+              project_layer_sizes,
+              resize_layer_sizes,
+              apply_resize,
+              decoder_layer_sizes,
+              final_output_sizes,
+              layer1_tokens.scalar_type(),
+              patch_h,
+              patch_w,
+              /*persistent=*/true});
+  const VisionReplayBundleIdentity bundle_identity =
+      make_vision_decoder_preprocess_head_bundle_identity(
+          compiled_layer_tokens,
+          patch_h,
+          patch_w,
+          output_size,
+          context.get());
+  const std::string root_label =
+      current_graph_capture_label("depth.vision", "depth.vision.graph");
+  if (auto compiled_output =
+          try_run_vision_decoder_preprocess_head_compiled_session(
+              std::array<Tensor, 4u>{{
+                  layer1_tokens,
+                  layer2_tokens,
+                  layer3_tokens,
+                  layer4_tokens,
+              }},
+              output_device,
+              output_dtype,
+              patch_h,
+              patch_w,
+              output_size,
+              context,
+              runtime_policy,
+              bundle_identity,
+              root_label,
+              compiled_session)) {
+    return *compiled_output;
+  }
 
   const auto run_layer =
       [&](const Tensor& tokens,
@@ -3929,6 +6273,35 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
     return sequential_fallback();
   }
 
+  const VisionReplayBundleIdentity bundle_identity =
+      make_vision_backbone_stack_bundle_identity(
+          backbone_contexts,
+          capture_indices_vec,
+          output_norm_shape,
+          apply_output_norm ? output_norm_context.get() : nullptr);
+  const std::string root_label =
+      current_graph_capture_label("depth.vision", "depth.vision.graph");
+  std::vector<int64_t> block_hidden_dims;
+  std::vector<int64_t> block_num_heads;
+  block_hidden_dims.reserve(backbone_contexts.size());
+  block_num_heads.reserve(backbone_contexts.size());
+  for (const auto& context : backbone_contexts) {
+    block_hidden_dims.push_back(vision_block_hidden_dim(context));
+    block_num_heads.push_back(context->num_heads());
+  }
+  const auto compiled_session =
+      utils::lookup_or_create_depth_anything_v2_backbone_stack_session(
+          utils::DepthAnythingV2BackboneStackSessionDesc{
+              root_label + ".backbone_stack" + bundle_identity.label_suffix,
+              input.sizes().vec(),
+              input.scalar_type(),
+              static_cast<int64_t>(backbone_contexts.size()),
+              capture_indices_vec,
+              std::move(block_hidden_dims),
+              std::move(block_num_heads),
+              output_norm_shape,
+              runtime_policy.execution_program_plan->persistent});
+
   const int64_t batch_size = input.dim() == 2 ? 1 : input.size(0);
   const int64_t token_count = input.dim() == 2 ? input.size(0) : input.size(1);
   const int64_t embed_dim = input.size(-1);
@@ -3939,6 +6312,21 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
             static_cast<uint32_t>(std::max<int64_t>(
                 1, static_cast<int64_t>(c10::elementSize(kFloat)))))
       : 1u;
+
+  if (auto compiled_outputs = try_run_vision_backbone_stack_compiled_session(
+          input,
+          output_device,
+          output_dtype,
+          backbone_contexts,
+          capture_indices_vec,
+          output_norm_shape,
+          output_norm_context,
+          runtime_policy,
+          bundle_identity,
+          root_label,
+          compiled_session)) {
+    return *compiled_outputs;
+  }
 
   std::vector<std::optional<utils::ScratchArena>> graph_scratches;
   graph_scratches.reserve(backbone_contexts.size());
@@ -3987,14 +6375,6 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
     replays.push_back(std::move(replay));
   }
 
-  const VisionReplayBundleIdentity bundle_identity =
-      make_vision_backbone_stack_bundle_identity(
-          backbone_contexts,
-          capture_indices_vec,
-          output_norm_shape,
-          apply_output_norm ? output_norm_context.get() : nullptr);
-  const std::string root_label =
-      current_graph_capture_label("depth.vision", "depth.vision.graph");
   auto root = utils::lookup_or_create_labeled_execution_graph_root(
       root_label,
       kFloat,
@@ -4114,7 +6494,6 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
   api::context()->flush_pending_cmds();
 
   if (!replay_bundle.recorded()) {
-    std::vector<Tensor> warmup_outputs(capture_indices_vec.size());
     for (size_t idx = 0u; idx < replays.size(); ++idx) {
       if (graph_scratches[idx].has_value()) {
         graph_scratches[idx]->reset();
@@ -4135,7 +6514,6 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
         if (capture_indices_vec[capture_pos] != static_cast<int64_t>(idx)) {
           continue;
         }
-        const Tensor* replay_output = &replays[idx].output_slot();
         if (apply_output_norm) {
           Tensor& norm_slot = replay_bundle.tensor_slot(capture_pos);
           (void)run_layernorm_context_out(
@@ -4143,40 +6521,30 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
               *output_norm_shape,
               output_norm_context,
               norm_slot);
-          replay_output = &norm_slot;
         }
-        Tensor output = utils::create_buffer_tensor(
-            replay_output->sizes(),
-            replay_output->scalar_type(),
-            /*persistent=*/true);
-        copy_tensor_for_replay(output, *replay_output);
-        warmup_outputs[capture_pos] =
-            maybe_restore_tensor(output, output_device, output_dtype);
       }
     }
     api::context()->flush_pending_cmds();
     replay_bundle.record();
-    if (apply_output_norm) {
-      replay_bundle.submit();
-      std::vector<Tensor> outputs(capture_indices_vec.size());
-      for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
-           ++capture_pos) {
-        const Tensor& replay_output = replay_bundle.tensor_slot(capture_pos);
-        Tensor output = utils::create_buffer_tensor(
-            replay_output.sizes(),
-            replay_output.scalar_type(),
-            /*persistent=*/true);
-        copy_tensor_for_replay(output, replay_output);
-        outputs[capture_pos] =
-            maybe_restore_tensor(output, output_device, output_dtype);
-      }
-      utils::log_vulkan_op_hit(replay_warmup_log_name);
-      utils::log_vulkan_op_hit(bridge_log_name);
-      return outputs;
+    replay_bundle.submit();
+    std::vector<Tensor> outputs(capture_indices_vec.size());
+    for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
+         ++capture_pos) {
+      const int64_t replay_idx = capture_indices_vec[capture_pos];
+      const Tensor& replay_output = apply_output_norm
+          ? replay_bundle.tensor_slot(capture_pos)
+          : replays[replay_idx].output_slot();
+      Tensor output = utils::create_buffer_tensor(
+          replay_output.sizes(),
+          replay_output.scalar_type(),
+          /*persistent=*/true);
+      copy_tensor_for_replay(output, replay_output);
+      outputs[capture_pos] =
+          maybe_restore_tensor(output, output_device, output_dtype);
     }
     utils::log_vulkan_op_hit(replay_warmup_log_name);
     utils::log_vulkan_op_hit(bridge_log_name);
-    return warmup_outputs;
+    return outputs;
   }
 
   replay_bundle.submit();
@@ -4231,6 +6599,510 @@ std::vector<Tensor> run_vision_backbone_stack_norm_replay_bundle_bridge(
       norm_context);
 }
 
+Tensor run_depth_anything_v2_compiled_session_bridge(
+    const Tensor& input_arg,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& norm_context,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>&
+        decoder_context) {
+  TORCH_CHECK(
+      contexts.size() > 0,
+      "Depth Anything compiled session bridge expects at least one backbone "
+      "context");
+  TORCH_CHECK(
+      capture_indices.size() == 4,
+      "Depth Anything compiled session bridge expects exactly four capture "
+      "indices");
+  TORCH_CHECK(
+      !normalized_shape.empty() && norm_context,
+      "Depth Anything compiled session bridge expects a defined output norm "
+      "context and normalized shape");
+  TORCH_CHECK(
+      patch_h > 0 && patch_w > 0,
+      "Depth Anything compiled session bridge expects positive patch sizes");
+  TORCH_CHECK(
+      output_size.size() == 2 && decoder_context,
+      "Depth Anything compiled session bridge expects a decoder context and a "
+      "rank-1 output size with 2 entries");
+  TORCH_CHECK(
+      input_arg.dim() == 2 || input_arg.dim() == 3,
+      "Depth Anything compiled session bridge expects rank-2 or rank-3 patch "
+      "tokens");
+
+  std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>> backbone_contexts;
+  backbone_contexts.reserve(contexts.size());
+  for (const auto& context_ref : contexts) {
+    c10::intrusive_ptr<VisionBackboneBlockContext> context = context_ref;
+    TORCH_CHECK(
+        static_cast<bool>(context),
+        "Depth Anything compiled session bridge expects defined backbone "
+        "contexts");
+    backbone_contexts.push_back(std::move(context));
+  }
+  const std::vector<int64_t> capture_indices_vec = capture_indices.vec();
+  const int64_t input_token_count =
+      input_arg.dim() == 2 ? input_arg.size(0) : input_arg.size(1);
+  const int64_t special_token_count = input_token_count - (patch_h * patch_w);
+  TORCH_CHECK(
+      special_token_count >= 0,
+      "Depth Anything compiled session bridge expected at least ",
+      patch_h * patch_w,
+      " patch tokens but received ",
+      input_token_count,
+      " total tokens");
+
+  const auto fallback = [&]() -> Tensor {
+    std::vector<Tensor> captured =
+        run_vision_backbone_stack_norm_replay_bundle_bridge(
+            input_arg,
+            contexts,
+            capture_indices,
+            normalized_shape,
+            norm_context);
+    TORCH_CHECK(
+        captured.size() == 4u,
+        "Depth Anything compiled session bridge fallback expected four "
+        "captured tensors");
+    const auto strip_special_tokens = [&](const Tensor& tensor) {
+      if (tensor.dim() == 2) {
+        return tensor.slice(0, special_token_count, tensor.size(0));
+      }
+      return tensor.slice(1, special_token_count, tensor.size(1));
+    };
+    return run_vision_decoder_preprocess_head_context(
+        strip_special_tokens(captured[0]),
+        strip_special_tokens(captured[1]),
+        strip_special_tokens(captured[2]),
+        strip_special_tokens(captured[3]),
+        patch_h,
+        patch_w,
+        output_size,
+        decoder_context);
+  };
+
+  const Device output_device = input_arg.device();
+  const ScalarType output_dtype = input_arg.scalar_type();
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+
+  auto backbone_request = utils::make_vulkan_vision_backbone_request();
+  backbone_request.fixed_shape_graph_input_sizes = input.sizes().vec();
+  backbone_request.prefer_packed_layout_propagation = true;
+  utils::VulkanPlanningRequestScope planning_scope(backbone_request);
+  const auto runtime_policy =
+      utils::build_vulkan_runtime_policy(backbone_request);
+  if (
+      !runtime_policy.execution_program_plan.has_value() ||
+      runtime_policy.execution_program_plan->kind !=
+          utils::VulkanExecutionProgramKind::VisionBackbone ||
+      input.scalar_type() != kFloat) {
+    Tensor output = fallback();
+    utils::log_vulkan_op_hit(
+        "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge");
+    return output;
+  }
+
+  const std::vector<int64_t> captured_token_sizes = input.dim() == 2
+      ? std::vector<int64_t>{patch_h * patch_w, input.size(1)}
+      : std::vector<int64_t>{input.size(0), patch_h * patch_w, input.size(2)};
+  const std::array<std::vector<int64_t>, 4u> layer_feature_sizes{{
+      tokens_to_feature_map_output_sizes(captured_token_sizes, patch_h, patch_w),
+      tokens_to_feature_map_output_sizes(captured_token_sizes, patch_h, patch_w),
+      tokens_to_feature_map_output_sizes(captured_token_sizes, patch_h, patch_w),
+      tokens_to_feature_map_output_sizes(captured_token_sizes, patch_h, patch_w),
+  }};
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u> project_contexts{
+      decoder_context->project1_context(),
+      decoder_context->project2_context(),
+      decoder_context->project3_context(),
+      decoder_context->project4_context(),
+  };
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u> resize_contexts{
+      decoder_context->resize1_context(),
+      decoder_context->resize2_context(),
+      c10::intrusive_ptr<Conv2dPackedContext>{},
+      decoder_context->resize4_context(),
+  };
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u> rn_contexts{
+      decoder_context->layer1_rn_context(),
+      decoder_context->layer2_rn_context(),
+      decoder_context->layer3_rn_context(),
+      decoder_context->layer4_rn_context(),
+  };
+  const std::array<bool, 4u> apply_resize{{true, true, false, true}};
+  const std::array<std::vector<int64_t>, 4u> project_layer_sizes{{
+      conv2d_context_output_sizes(layer_feature_sizes[0], project_contexts[0]),
+      conv2d_context_output_sizes(layer_feature_sizes[1], project_contexts[1]),
+      conv2d_context_output_sizes(layer_feature_sizes[2], project_contexts[2]),
+      conv2d_context_output_sizes(layer_feature_sizes[3], project_contexts[3]),
+  }};
+  const std::array<std::vector<int64_t>, 4u> resize_layer_sizes{{
+      conv2d_context_output_sizes(project_layer_sizes[0], resize_contexts[0]),
+      conv2d_context_output_sizes(project_layer_sizes[1], resize_contexts[1]),
+      project_layer_sizes[2],
+      conv2d_context_output_sizes(project_layer_sizes[3], resize_contexts[3]),
+  }};
+  const std::array<std::vector<int64_t>, 4u> decoder_layer_sizes{{
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[0],
+          project_contexts[0],
+          resize_contexts[0],
+          apply_resize[0],
+          rn_contexts[0]),
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[1],
+          project_contexts[1],
+          resize_contexts[1],
+          apply_resize[1],
+          rn_contexts[1]),
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[2],
+          project_contexts[2],
+          resize_contexts[2],
+          apply_resize[2],
+          rn_contexts[2]),
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[3],
+          project_contexts[3],
+          resize_contexts[3],
+          apply_resize[3],
+          rn_contexts[3]),
+  }};
+  const int64_t final_channels =
+      decoder_context->head_context()
+          ->output_conv2_conv2_context()
+          ->unpack()
+          .get(Conv2dPackedContext::Unpacked::Weight)
+          .toTensor()
+          .size(0);
+  const std::vector<int64_t> final_output_sizes{
+      layer_feature_sizes[0][0],
+      final_channels,
+      output_size[0],
+      output_size[1],
+  };
+  const std::string root_label =
+      current_graph_capture_label("depth.vision", "depth.vision.graph");
+  std::vector<int64_t> block_hidden_dims;
+  std::vector<int64_t> block_num_heads;
+  block_hidden_dims.reserve(backbone_contexts.size());
+  block_num_heads.reserve(backbone_contexts.size());
+  for (const auto& context : backbone_contexts) {
+    block_hidden_dims.push_back(vision_block_hidden_dim(context));
+    block_num_heads.push_back(context->num_heads());
+  }
+  const auto compiled_session = utils::lookup_or_create_depth_anything_v2_session(
+      utils::DepthAnythingV2SessionDesc{
+          root_label + ".depth_anything_v2.ctx." +
+              context_identity_key(decoder_context.get()),
+          input.sizes().vec(),
+          input.scalar_type(),
+          static_cast<int64_t>(backbone_contexts.size()),
+          capture_indices_vec,
+          std::move(block_hidden_dims),
+          std::move(block_num_heads),
+          normalized_shape.vec(),
+          layer_feature_sizes,
+          project_layer_sizes,
+          resize_layer_sizes,
+          apply_resize,
+          decoder_layer_sizes,
+          final_output_sizes,
+          patch_h,
+          patch_w,
+          runtime_policy.execution_program_plan->persistent});
+  if (auto compiled_output = try_run_depth_anything_v2_compiled_session(
+          input,
+          output_device,
+          output_dtype,
+          backbone_contexts,
+          capture_indices_vec,
+          normalized_shape,
+          norm_context,
+          special_token_count,
+          patch_h,
+          patch_w,
+          output_size,
+          decoder_context,
+          runtime_policy,
+          root_label,
+          compiled_session)) {
+    return *compiled_output;
+  }
+  Tensor output = fallback();
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge");
+  return output;
+}
+
+Tensor run_depth_anything_v2_image_compiled_session_bridge(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& patch_embed_context,
+    const Tensor& prefix_token_arg,
+    const Tensor& patch_pos_encoding_arg,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& norm_context,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>&
+        decoder_context) {
+  TORCH_CHECK(
+      contexts.size() > 0,
+      "Depth Anything image compiled session bridge expects at least one "
+      "backbone context");
+  TORCH_CHECK(
+      capture_indices.size() == 4,
+      "Depth Anything image compiled session bridge expects exactly four "
+      "capture indices");
+  TORCH_CHECK(
+      !normalized_shape.empty() && norm_context,
+      "Depth Anything image compiled session bridge expects a defined output "
+      "norm context and normalized shape");
+  TORCH_CHECK(
+      patch_h > 0 && patch_w > 0,
+      "Depth Anything image compiled session bridge expects positive patch "
+      "sizes");
+  TORCH_CHECK(
+      output_size.size() == 2 && decoder_context,
+      "Depth Anything image compiled session bridge expects a decoder context "
+      "and a rank-1 output size with 2 entries");
+  TORCH_CHECK(
+      static_cast<bool>(patch_embed_context),
+      "Depth Anything image compiled session bridge expects a defined patch "
+      "embed context");
+  TORCH_CHECK(
+      input_arg.dim() == 4,
+      "Depth Anything image compiled session bridge expects a rank-4 image "
+      "tensor");
+  TORCH_CHECK(
+      prefix_token_arg.dim() == 3 && patch_pos_encoding_arg.dim() == 3,
+      "Depth Anything image compiled session bridge expects rank-3 prefix "
+      "and positional encoding tensors");
+
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  const bool flatten_batch1_tokens = input.size(0) == 1;
+  const int64_t special_token_count = prefix_token_arg.size(1);
+  TORCH_CHECK(
+      special_token_count >= 0,
+      "Depth Anything image compiled session bridge expects a non-negative "
+      "special token count");
+
+  const auto fallback = [&]() -> Tensor {
+    Tensor tokens = make_depth_anything_v2_tokens_from_image(
+        input,
+        patch_embed_context,
+        prefix_token_arg,
+        patch_pos_encoding_arg,
+        flatten_batch1_tokens);
+    return run_depth_anything_v2_compiled_session_bridge(
+        tokens,
+        contexts,
+        capture_indices,
+        normalized_shape,
+        norm_context,
+        patch_h,
+        patch_w,
+        output_size,
+        decoder_context);
+  };
+
+  TORCH_CHECK(
+      patch_pos_encoding_arg.size(1) == patch_h * patch_w,
+      "Depth Anything image compiled session bridge expected ",
+      patch_h * patch_w,
+      " positional patch tokens but received ",
+      patch_pos_encoding_arg.size(1));
+  TORCH_CHECK(
+      prefix_token_arg.size(2) == patch_pos_encoding_arg.size(2),
+      "Depth Anything image compiled session bridge received mismatched "
+      "token embedding dimensions");
+
+  std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>> backbone_contexts;
+  backbone_contexts.reserve(contexts.size());
+  for (const auto& context_ref : contexts) {
+    c10::intrusive_ptr<VisionBackboneBlockContext> context = context_ref;
+    TORCH_CHECK(
+        static_cast<bool>(context),
+        "Depth Anything image compiled session bridge expects defined "
+        "backbone contexts");
+    backbone_contexts.push_back(std::move(context));
+  }
+
+  auto backbone_request = utils::make_vulkan_vision_backbone_request();
+  backbone_request.fixed_shape_graph_input_sizes = input.sizes().vec();
+  backbone_request.prefer_packed_layout_propagation = true;
+  utils::VulkanPlanningRequestScope planning_scope(backbone_request);
+  const auto runtime_policy =
+      utils::build_vulkan_runtime_policy(backbone_request);
+  if (
+      !runtime_policy.execution_program_plan.has_value() ||
+      runtime_policy.execution_program_plan->kind !=
+          utils::VulkanExecutionProgramKind::VisionBackbone ||
+      input.scalar_type() != kFloat) {
+    Tensor output = fallback();
+    utils::log_vulkan_op_hit(
+        "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge");
+    return output;
+  }
+
+  const std::vector<int64_t> patch_token_sizes = flatten_batch1_tokens
+      ? std::vector<int64_t>{
+            special_token_count + patch_pos_encoding_arg.size(1),
+            patch_pos_encoding_arg.size(2)}
+      : std::vector<int64_t>{
+            input.size(0),
+            special_token_count + patch_pos_encoding_arg.size(1),
+            patch_pos_encoding_arg.size(2)};
+  const std::vector<int64_t> captured_token_sizes = flatten_batch1_tokens
+      ? std::vector<int64_t>{patch_h * patch_w, patch_pos_encoding_arg.size(2)}
+      : std::vector<int64_t>{input.size(0), patch_h * patch_w,
+                             patch_pos_encoding_arg.size(2)};
+  const std::array<std::vector<int64_t>, 4u> layer_feature_sizes{{
+      tokens_to_feature_map_output_sizes(captured_token_sizes, patch_h, patch_w),
+      tokens_to_feature_map_output_sizes(captured_token_sizes, patch_h, patch_w),
+      tokens_to_feature_map_output_sizes(captured_token_sizes, patch_h, patch_w),
+      tokens_to_feature_map_output_sizes(captured_token_sizes, patch_h, patch_w),
+  }};
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u> project_contexts{
+      decoder_context->project1_context(),
+      decoder_context->project2_context(),
+      decoder_context->project3_context(),
+      decoder_context->project4_context(),
+  };
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u> resize_contexts{
+      decoder_context->resize1_context(),
+      decoder_context->resize2_context(),
+      c10::intrusive_ptr<Conv2dPackedContext>{},
+      decoder_context->resize4_context(),
+  };
+  const std::array<c10::intrusive_ptr<Conv2dPackedContext>, 4u> rn_contexts{
+      decoder_context->layer1_rn_context(),
+      decoder_context->layer2_rn_context(),
+      decoder_context->layer3_rn_context(),
+      decoder_context->layer4_rn_context(),
+  };
+  const std::array<bool, 4u> apply_resize{{true, true, false, true}};
+  const std::array<std::vector<int64_t>, 4u> project_layer_sizes{{
+      conv2d_context_output_sizes(layer_feature_sizes[0], project_contexts[0]),
+      conv2d_context_output_sizes(layer_feature_sizes[1], project_contexts[1]),
+      conv2d_context_output_sizes(layer_feature_sizes[2], project_contexts[2]),
+      conv2d_context_output_sizes(layer_feature_sizes[3], project_contexts[3]),
+  }};
+  const std::array<std::vector<int64_t>, 4u> resize_layer_sizes{{
+      conv2d_context_output_sizes(project_layer_sizes[0], resize_contexts[0]),
+      conv2d_context_output_sizes(project_layer_sizes[1], resize_contexts[1]),
+      project_layer_sizes[2],
+      conv2d_context_output_sizes(project_layer_sizes[3], resize_contexts[3]),
+  }};
+  const std::array<std::vector<int64_t>, 4u> decoder_layer_sizes{{
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[0],
+          project_contexts[0],
+          resize_contexts[0],
+          apply_resize[0],
+          rn_contexts[0]),
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[1],
+          project_contexts[1],
+          resize_contexts[1],
+          apply_resize[1],
+          rn_contexts[1]),
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[2],
+          project_contexts[2],
+          resize_contexts[2],
+          apply_resize[2],
+          rn_contexts[2]),
+      decoder_preprocess_layer_output_sizes(
+          layer_feature_sizes[3],
+          project_contexts[3],
+          resize_contexts[3],
+          apply_resize[3],
+          rn_contexts[3]),
+  }};
+  const int64_t final_channels =
+      decoder_context->head_context()
+          ->output_conv2_conv2_context()
+          ->unpack()
+          .get(Conv2dPackedContext::Unpacked::Weight)
+          .toTensor()
+          .size(0);
+  const std::vector<int64_t> final_output_sizes{
+      layer_feature_sizes[0][0],
+      final_channels,
+      output_size[0],
+      output_size[1],
+  };
+  const std::string root_label =
+      current_graph_capture_label("depth.vision", "depth.vision.graph");
+  std::vector<int64_t> block_hidden_dims;
+  std::vector<int64_t> block_num_heads;
+  block_hidden_dims.reserve(backbone_contexts.size());
+  block_num_heads.reserve(backbone_contexts.size());
+  for (const auto& context : backbone_contexts) {
+    block_hidden_dims.push_back(vision_block_hidden_dim(context));
+    block_num_heads.push_back(context->num_heads());
+  }
+  const auto compiled_session =
+      utils::lookup_or_create_depth_anything_v2_image_session(
+          utils::DepthAnythingV2ImageSessionDesc{
+              root_label + ".depth_anything_v2.image.ctx." +
+                  context_identity_key(decoder_context.get()) + ".patch_embed." +
+                  context_identity_key(patch_embed_context.get()),
+              input.sizes().vec(),
+              patch_token_sizes,
+              prefix_token_arg.sizes().vec(),
+              patch_pos_encoding_arg.sizes().vec(),
+              input.scalar_type(),
+              static_cast<int64_t>(backbone_contexts.size()),
+              capture_indices.vec(),
+              std::move(block_hidden_dims),
+              std::move(block_num_heads),
+              normalized_shape.vec(),
+              layer_feature_sizes,
+              project_layer_sizes,
+              resize_layer_sizes,
+              apply_resize,
+              decoder_layer_sizes,
+              final_output_sizes,
+              patch_h,
+              patch_w,
+              runtime_policy.execution_program_plan->persistent});
+  if (auto compiled_output = try_run_depth_anything_v2_image_compiled_session(
+          input,
+          prefix_token_arg,
+          patch_pos_encoding_arg,
+          input_arg.device(),
+          input_arg.scalar_type(),
+          patch_embed_context,
+          backbone_contexts,
+          capture_indices.vec(),
+          normalized_shape,
+          norm_context,
+          special_token_count,
+          patch_h,
+          patch_w,
+          output_size,
+          decoder_context,
+          runtime_policy,
+          root_label,
+          compiled_session)) {
+    return *compiled_output;
+  }
+
+  Tensor output = fallback();
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge");
+  return output;
+}
+
 Tensor tokens_to_feature_map(
     const Tensor& input_arg,
     const int64_t height,
@@ -4239,128 +7111,24 @@ Tensor tokens_to_feature_map(
     return tokens_to_feature_map_fallback(input_arg, height, width);
   }
 
-  api::AllocationScope allocation_scope("tokens_to_feature_map");
-
-  Tensor input = input_arg;
-  const bool use_2d_input = input.dim() == 2;
-  const int64_t batch_size = use_2d_input ? 1 : input.size(0);
-  const int64_t token_count = use_2d_input ? input.size(0) : input.size(1);
-  const int64_t channels = input.size(-1);
-
-  TORCH_CHECK(
-      input.dim() == 2 || input.dim() == 3,
-      "Vulkan tokens_to_feature_map expects a [N, C] or [B, N, C] tensor");
-  TORCH_CHECK(
-      token_count == height * width,
-      "Vulkan tokens_to_feature_map expected token count ",
-      height * width,
-      " but received ",
-      token_count);
-
-  utils::log_vulkan_op_hit("aten::tokens_to_feature_map");
-
-  const vTensor& v_input_probe = convert(input);
-  if (
-      v_input_probe.storage_type() == api::StorageType::TEXTURE_3D &&
-      v_input_probe.gpu_memory_layout() ==
-          api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED &&
-      batch_size == 1) {
-    const std::vector<int64_t> output_sizes{
-        batch_size,
-        channels,
-        height,
-        width,
-    };
-
-    vTensor v_output{
-        api::context(),
-        output_sizes,
-        convert_dtype(input.scalar_type()),
-        api::StorageType::BUFFER,
-        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-    };
-
-    api::PipelineBarrier pipeline_barrier{};
-    const api::utils::uvec3 global_size{
-        api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
-        1u,
-        1u,
-    };
-    api::UniformParamsBuffer out_meta =
-        utils::make_buffer_compute_metadata_ubo(api::context(), v_output);
-
-    api::context()->submit_compute_job(
-        VK_KERNEL(tokens_to_feature_map_texture_to_buffer),
-        pipeline_barrier,
-        global_size,
-        adaptive_work_group_size(global_size),
-        VK_NULL_HANDLE,
-        v_output.buffer(
-            pipeline_barrier,
-            api::PipelineStage::COMPUTE,
-            api::MemoryAccessType::WRITE),
-        out_meta.buffer(),
-        v_input_probe.image(pipeline_barrier, api::PipelineStage::COMPUTE));
-
-    utils::log_vulkan_op_hit("aten::tokens_to_feature_map.texture_to_buffer");
-    return convert(v_output);
+  Tensor output = utils::create_buffer_tensor(
+      tokens_to_feature_map_output_sizes(input_arg.sizes(), height, width),
+      input_arg.scalar_type(),
+      /*persistent=*/false);
+  if (::at::native::vulkan::ops::run_tokens_to_feature_map_direct_out(
+          input_arg, height, width, output)) {
+    return output;
   }
 
-  if (
-      v_input_probe.storage_type() != api::StorageType::BUFFER ||
-      !utils::supports_buffer_elementwise_compute(v_input_probe)) {
-    utils::log_vulkan_op_hit("aten::tokens_to_feature_map.texture_view_fallback");
-    if (use_2d_input) {
-      return tokens_to_feature_map_fallback(input_arg, height, width);
-    }
-    return input.permute({0, 2, 1})
-        .reshape({batch_size, channels, height, width});
+  const bool use_2d_input = input_arg.dim() == 2;
+  const int64_t batch_size = use_2d_input ? 1 : input_arg.size(0);
+  const int64_t channels = input_arg.size(-1);
+  utils::log_vulkan_op_hit("aten::tokens_to_feature_map.texture_view_fallback");
+  if (use_2d_input) {
+    return tokens_to_feature_map_fallback(input_arg, height, width);
   }
-
-  const vTensor& v_input = v_input_probe;
-
-  const std::vector<int64_t> output_sizes{
-      batch_size,
-      channels,
-      height,
-      width,
-  };
-
-  vTensor v_output{
-      api::context(),
-      output_sizes,
-      convert_dtype(input.scalar_type()),
-      api::StorageType::BUFFER,
-      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-  };
-
-  api::UniformParamsBuffer input_meta =
-      utils::make_buffer_compute_metadata_ubo(api::context(), v_input);
-  api::UniformParamsBuffer out_meta =
-      utils::make_buffer_compute_metadata_ubo(api::context(), v_output);
-  api::PipelineBarrier pipeline_barrier{};
-  const api::utils::uvec3 global_size{
-      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
-      1u,
-      1u,
-  };
-
-  api::context()->submit_compute_job(
-      VK_KERNEL(tokens_to_feature_map_buffer),
-      pipeline_barrier,
-      global_size,
-      adaptive_work_group_size(global_size),
-      VK_NULL_HANDLE,
-      v_output.buffer(
-          pipeline_barrier,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::WRITE),
-      out_meta.buffer(),
-      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-      input_meta.buffer());
-
-  utils::log_vulkan_op_hit("aten::tokens_to_feature_map.buffer_to_buffer");
-  return convert(v_output);
+  return input_arg.permute({0, 2, 1})
+      .reshape({batch_size, channels, height, width});
 }
 
 Tensor feature_map_to_tokens(const Tensor& input_arg) {
@@ -4372,112 +7140,16 @@ Tensor feature_map_to_tokens(const Tensor& input_arg) {
       input_arg.dim() == 4,
       "Vulkan feature_map_to_tokens expects a [B, C, H, W] tensor");
 
-  api::AllocationScope allocation_scope("feature_map_to_tokens");
-  utils::log_vulkan_op_hit("aten::feature_map_to_tokens");
-
-  const vTensor& v_input = convert(input_arg);
-  if (
-      v_input.storage_type() == api::StorageType::TEXTURE_3D &&
-      v_input.gpu_memory_layout() ==
-          api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED &&
-      input_arg.size(0) == 1) {
-    const std::vector<int64_t> output_sizes{
-        1,
-        input_arg.size(2) * input_arg.size(3),
-        input_arg.size(1),
-    };
-
-    vTensor v_output{
-        api::context(),
-        output_sizes,
-        convert_dtype(input_arg.scalar_type()),
-        api::StorageType::BUFFER,
-        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-    };
-
-    const struct Block final {
-      api::utils::ivec4 info;
-    } block{
-        {
-            api::utils::safe_downcast<int32_t>(input_arg.size(3)),
-            api::utils::safe_downcast<int32_t>(input_arg.size(2)),
-            api::utils::safe_downcast<int32_t>(input_arg.size(1)),
-            api::utils::safe_downcast<int32_t>(input_arg.size(0)),
-        },
-    };
-
-    api::UniformParamsBuffer params(api::context(), block);
-    api::PipelineBarrier pipeline_barrier{};
-    const api::utils::uvec3 global_size{
-        api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
-        1u,
-        1u,
-    };
-    api::UniformParamsBuffer out_meta =
-        utils::make_buffer_compute_metadata_ubo(api::context(), v_output);
-
-    api::context()->submit_compute_job(
-        VK_KERNEL(feature_map_to_tokens_texture_to_buffer),
-        pipeline_barrier,
-        global_size,
-        adaptive_work_group_size(global_size),
-        VK_NULL_HANDLE,
-        v_output.buffer(
-            pipeline_barrier,
-            api::PipelineStage::COMPUTE,
-            api::MemoryAccessType::WRITE),
-        out_meta.buffer(),
-        v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
-        params.buffer());
-
-    utils::log_vulkan_op_hit("aten::feature_map_to_tokens.texture_to_buffer");
-    return convert(v_output);
-  }
-
-  if (
-      v_input.storage_type() == api::StorageType::BUFFER &&
-      utils::supports_buffer_elementwise_compute(v_input)) {
-    const std::vector<int64_t> output_sizes{
-        input_arg.size(0),
-        input_arg.size(2) * input_arg.size(3),
-        input_arg.size(1),
-    };
-
-    vTensor v_output{
-        api::context(),
-        output_sizes,
-        convert_dtype(input_arg.scalar_type()),
-        api::StorageType::BUFFER,
-        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-    };
-
-    api::PipelineBarrier pipeline_barrier{};
-    const api::utils::uvec3 global_size{
-        api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
-        1u,
-        1u,
-    };
-    api::UniformParamsBuffer out_meta =
-        utils::make_buffer_compute_metadata_ubo(api::context(), v_output);
-    api::UniformParamsBuffer input_meta =
-        utils::make_buffer_compute_metadata_ubo(api::context(), v_input);
-
-    api::context()->submit_compute_job(
-        VK_KERNEL(feature_map_to_tokens_buffer),
-        pipeline_barrier,
-        global_size,
-        adaptive_work_group_size(global_size),
-        VK_NULL_HANDLE,
-        v_output.buffer(
-            pipeline_barrier,
-            api::PipelineStage::COMPUTE,
-            api::MemoryAccessType::WRITE),
-        out_meta.buffer(),
-        v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-        input_meta.buffer());
-
-    utils::log_vulkan_op_hit("aten::feature_map_to_tokens.buffer_to_buffer");
-    return convert(v_output);
+  Tensor output = utils::create_buffer_tensor(
+      {
+          input_arg.size(0),
+          input_arg.size(2) * input_arg.size(3),
+          input_arg.size(1),
+      },
+      input_arg.scalar_type(),
+      /*persistent=*/false);
+  if (run_feature_map_to_tokens_direct_out(input_arg, output)) {
+    return output;
   }
 
   utils::log_vulkan_op_hit("aten::feature_map_to_tokens.fallback");
