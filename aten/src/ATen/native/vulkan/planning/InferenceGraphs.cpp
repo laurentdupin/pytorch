@@ -4,6 +4,7 @@
 #include <ATen/native/vulkan/ops/InferenceCache.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/CompiledSession.h>
+#include <ATen/native/vulkan/planning/ExecutableRegions.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -1040,6 +1041,14 @@ void ExecutionGraphReplayBundle::record() const {
       step.record_step();
     }
   });
+}
+
+void ExecutionGraphReplayBundle::record_empty() const {
+  TORCH_INTERNAL_ASSERT(defined(), "Undefined ExecutionGraphReplayBundle");
+  TORCH_INTERNAL_ASSERT(
+      state_->replay_.defined(),
+      "ExecutionGraphReplayBundle does not own a bundle replay");
+  state_->replay_.record([]() {});
 }
 
 void ExecutionGraphReplayBundle::record_steps_individually() const {
@@ -2368,6 +2377,7 @@ struct VulkanCompiledSession::State final {
   VulkanBackendIR ir;
   VulkanGlobalLayoutPlan layout_plan;
   VulkanIRMemoryPlan memory_plan;
+  std::shared_ptr<VulkanExecutableRegion> executable_region;
   bool executable{false};
 
   State(
@@ -2375,11 +2385,13 @@ struct VulkanCompiledSession::State final {
       VulkanBackendIR ir_in,
       VulkanGlobalLayoutPlan layout_plan_in,
       VulkanIRMemoryPlan memory_plan_in,
+      std::shared_ptr<VulkanExecutableRegion> executable_region_in,
       const bool executable_in)
       : key(std::move(key_in)),
         ir(std::move(ir_in)),
         layout_plan(std::move(layout_plan_in)),
         memory_plan(std::move(memory_plan_in)),
+        executable_region(std::move(executable_region_in)),
         executable(executable_in) {}
 };
 
@@ -2565,8 +2577,8 @@ VulkanCompiledSessionCache& compiled_session_cache() {
   return cache;
 }
 
-std::string make_backbone_configuration_key(
-    const DepthAnythingV2BackboneStackSessionDesc& desc) {
+std::string make_vision_transformer_depth_backbone_configuration_key(
+    const VisionTransformerDepthBackboneSessionDesc& desc) {
   std::ostringstream out;
   out << "patch_tokens=" << shape_key(desc.patch_token_sizes)
       << "|blocks=" << desc.backbone_block_count
@@ -2577,8 +2589,8 @@ std::string make_backbone_configuration_key(
   return out.str();
 }
 
-std::string make_decoder_configuration_key(
-    const DepthAnythingV2DecoderPreprocessHeadSessionDesc& desc) {
+std::string make_vision_transformer_depth_decoder_configuration_key(
+    const VisionTransformerDepthDecoderSessionDesc& desc) {
   std::ostringstream out;
   out << "patch=" << desc.patch_h << 'x' << desc.patch_w;
   for (size_t idx = 0u; idx < desc.layer_token_sizes.size(); ++idx) {
@@ -2595,8 +2607,8 @@ std::string make_decoder_configuration_key(
   return out.str();
 }
 
-std::string make_full_session_configuration_key(
-    const DepthAnythingV2SessionDesc& desc) {
+std::string make_vision_transformer_depth_full_configuration_key(
+    const VisionTransformerDepthSessionDesc& desc) {
   std::ostringstream out;
   out << "patch_tokens=" << shape_key(desc.patch_token_sizes)
       << "|blocks=" << desc.backbone_block_count
@@ -2618,8 +2630,8 @@ std::string make_full_session_configuration_key(
   return out.str();
 }
 
-std::string make_image_session_configuration_key(
-    const DepthAnythingV2ImageSessionDesc& desc) {
+std::string make_vision_transformer_depth_image_configuration_key(
+    const VisionTransformerDepthImageSessionDesc& desc) {
   std::ostringstream out;
   out << "image=" << shape_key(desc.image_sizes)
       << "|patch_tokens=" << shape_key(desc.patch_token_sizes)
@@ -2644,13 +2656,13 @@ std::string make_image_session_configuration_key(
   return out.str();
 }
 
-struct DepthAnythingV2BackboneIRHandles final {
+struct VisionTransformerDepthBackboneIRHandles final {
   VulkanValueId patch_tokens{0u};
   std::vector<VulkanValueId> block_outputs;
   std::vector<VulkanValueId> capture_outputs;
 };
 
-struct DepthAnythingV2DecoderIRDesc final {
+struct VisionTransformerDepthDecoderIRDesc final {
   ScalarType dtype{kFloat};
   bool persistent{true};
   int64_t patch_h{0};
@@ -2663,7 +2675,7 @@ struct DepthAnythingV2DecoderIRDesc final {
   std::vector<int64_t> output_sizes;
 };
 
-struct DepthAnythingV2DecoderIRHandles final {
+struct VisionTransformerDepthDecoderIRHandles final {
   std::array<VulkanValueId, 4u> feature_values{};
   std::array<VulkanValueId, 4u> project_values{};
   std::array<std::optional<VulkanValueId>, 4u> resize_values{};
@@ -2672,7 +2684,8 @@ struct DepthAnythingV2DecoderIRHandles final {
   VulkanValueId final_output{0u};
 };
 
-DepthAnythingV2BackboneIRHandles append_depth_anything_v2_backbone_region(
+VisionTransformerDepthBackboneIRHandles
+append_vision_transformer_depth_backbone_region(
     VulkanBackendIR& ir,
     const VulkanValueId patch_tokens_value,
     const std::vector<int64_t>& patch_token_sizes,
@@ -2685,7 +2698,7 @@ DepthAnythingV2BackboneIRHandles append_depth_anything_v2_backbone_region(
     const std::optional<std::vector<int64_t>>& normalized_shape,
     const VulkanIRTensorRole capture_role,
     const bool capture_external) {
-  DepthAnythingV2BackboneIRHandles handles;
+  VisionTransformerDepthBackboneIRHandles handles;
   handles.patch_tokens = patch_tokens_value;
   handles.block_outputs.reserve(static_cast<size_t>(std::max<int64_t>(backbone_block_count, 0)));
   handles.capture_outputs.resize(capture_indices.size());
@@ -2751,13 +2764,12 @@ DepthAnythingV2BackboneIRHandles append_depth_anything_v2_backbone_region(
           "normalized_shape=" + shape_key(*normalized_shape)});
     } else {
       ir.add_op(VulkanIROpNode{
-          VulkanIROpKind::OutputAlias,
-          "capture." + std::to_string(capture_pos) + ".alias",
+          VulkanIROpKind::CapturePatchTokens,
+          "capture." + std::to_string(capture_pos) + ".materialize",
           {current},
           {capture},
           {},
           std::string()});
-      ir.add_output_alias(capture, current);
     }
     handles.capture_outputs[capture_pos] = capture;
   }
@@ -2765,11 +2777,12 @@ DepthAnythingV2BackboneIRHandles append_depth_anything_v2_backbone_region(
   return handles;
 }
 
-DepthAnythingV2DecoderIRHandles append_depth_anything_v2_decoder_region(
+VisionTransformerDepthDecoderIRHandles
+append_vision_transformer_depth_decoder_region(
     VulkanBackendIR& ir,
     const std::array<VulkanValueId, 4u>& token_values,
-    const DepthAnythingV2DecoderIRDesc& desc) {
-  DepthAnythingV2DecoderIRHandles handles;
+    const VisionTransformerDepthDecoderIRDesc& desc) {
+  VisionTransformerDepthDecoderIRHandles handles;
   for (size_t idx = 0u; idx < token_values.size(); ++idx) {
     handles.feature_values[idx] = ir.add_value(
         "decoder.layer" + std::to_string(idx + 1u) + ".feature_map",
@@ -2893,8 +2906,8 @@ DepthAnythingV2DecoderIRHandles append_depth_anything_v2_decoder_region(
   return handles;
 }
 
-VulkanBackendIR make_depth_anything_v2_backbone_ir(
-    const DepthAnythingV2BackboneStackSessionDesc& desc) {
+VulkanBackendIR make_vision_transformer_depth_backbone_ir(
+    const VisionTransformerDepthBackboneSessionDesc& desc) {
   VulkanBackendIR ir;
   const VulkanValueId patch_tokens = ir.add_value(
       "patch_tokens",
@@ -2904,7 +2917,7 @@ VulkanBackendIR make_depth_anything_v2_backbone_ir(
           VulkanIRTensorRole::Input,
           desc.persistent,
           true));
-  (void)append_depth_anything_v2_backbone_region(
+  (void)append_vision_transformer_depth_backbone_region(
       ir,
       patch_tokens,
       desc.patch_token_sizes,
@@ -2921,8 +2934,8 @@ VulkanBackendIR make_depth_anything_v2_backbone_ir(
   return ir;
 }
 
-VulkanBackendIR make_depth_anything_v2_decoder_ir(
-    const DepthAnythingV2DecoderPreprocessHeadSessionDesc& desc) {
+VulkanBackendIR make_vision_transformer_depth_decoder_ir(
+    const VisionTransformerDepthDecoderSessionDesc& desc) {
   VulkanBackendIR ir;
   std::array<VulkanValueId, 4u> token_values{};
   for (size_t idx = 0u; idx < token_values.size(); ++idx) {
@@ -2935,10 +2948,10 @@ VulkanBackendIR make_depth_anything_v2_decoder_ir(
             desc.persistent,
             true));
   }
-  (void)append_depth_anything_v2_decoder_region(
+  (void)append_vision_transformer_depth_decoder_region(
       ir,
       token_values,
-      DepthAnythingV2DecoderIRDesc{
+      VisionTransformerDepthDecoderIRDesc{
           desc.dtype,
           desc.persistent,
           desc.patch_h,
@@ -2953,11 +2966,11 @@ VulkanBackendIR make_depth_anything_v2_decoder_ir(
   return ir;
 }
 
-VulkanBackendIR make_depth_anything_v2_full_ir(
-    const DepthAnythingV2SessionDesc& desc) {
+VulkanBackendIR make_vision_transformer_depth_full_ir(
+    const VisionTransformerDepthSessionDesc& desc) {
   TORCH_INTERNAL_ASSERT(
       desc.capture_indices.size() == 4u,
-      "DepthAnythingV2 full session expects exactly four capture indices");
+      "VisionTransformerDepth full session expects exactly four capture indices");
   VulkanBackendIR ir;
   const VulkanValueId patch_tokens = ir.add_value(
       "patch_tokens",
@@ -2970,7 +2983,7 @@ VulkanBackendIR make_depth_anything_v2_full_ir(
   const std::optional<std::vector<int64_t>> normalized_shape =
       desc.normalized_shape.empty() ? std::nullopt
                                     : std::make_optional(desc.normalized_shape);
-  const auto backbone_handles = append_depth_anything_v2_backbone_region(
+  const auto backbone_handles = append_vision_transformer_depth_backbone_region(
       ir,
       patch_tokens,
       desc.patch_token_sizes,
@@ -2987,10 +3000,10 @@ VulkanBackendIR make_depth_anything_v2_full_ir(
   for (size_t idx = 0u; idx < capture_tokens.size(); ++idx) {
     capture_tokens[idx] = backbone_handles.capture_outputs[idx];
   }
-  (void)append_depth_anything_v2_decoder_region(
+  (void)append_vision_transformer_depth_decoder_region(
       ir,
       capture_tokens,
-      DepthAnythingV2DecoderIRDesc{
+      VisionTransformerDepthDecoderIRDesc{
           desc.dtype,
           desc.persistent,
           desc.patch_h,
@@ -3005,21 +3018,21 @@ VulkanBackendIR make_depth_anything_v2_full_ir(
   return ir;
 }
 
-VulkanBackendIR make_depth_anything_v2_image_full_ir(
-    const DepthAnythingV2ImageSessionDesc& desc) {
+VulkanBackendIR make_vision_transformer_depth_image_full_ir(
+    const VisionTransformerDepthImageSessionDesc& desc) {
   TORCH_INTERNAL_ASSERT(
       desc.capture_indices.size() == 4u,
-      "DepthAnythingV2 image session expects exactly four capture indices");
+      "VisionTransformerDepth image session expects exactly four capture indices");
   TORCH_INTERNAL_ASSERT(
       desc.image_sizes.size() == 4u,
-      "DepthAnythingV2 image session expects a rank-4 image input");
+      "VisionTransformerDepth image session expects a rank-4 image input");
   TORCH_INTERNAL_ASSERT(
       desc.patch_token_sizes.size() == 2u || desc.patch_token_sizes.size() == 3u,
-      "DepthAnythingV2 image session expects rank-2 or rank-3 patch tokens");
+      "VisionTransformerDepth image session expects rank-2 or rank-3 patch tokens");
   TORCH_INTERNAL_ASSERT(
       desc.prefix_token_sizes.size() == 3u &&
           desc.patch_pos_encoding_sizes.size() == 3u,
-      "DepthAnythingV2 image session expects rank-3 prefix and positional "
+      "VisionTransformerDepth image session expects rank-3 prefix and positional "
       "encoding tensors");
 
   const std::vector<int64_t> backbone_patch_token_sizes =
@@ -3135,7 +3148,7 @@ VulkanBackendIR make_depth_anything_v2_image_full_ir(
   const std::optional<std::vector<int64_t>> normalized_shape =
       desc.normalized_shape.empty() ? std::nullopt
                                     : std::make_optional(desc.normalized_shape);
-  const auto backbone_handles = append_depth_anything_v2_backbone_region(
+  const auto backbone_handles = append_vision_transformer_depth_backbone_region(
       ir,
       patch_tokens,
       backbone_patch_token_sizes,
@@ -3152,10 +3165,10 @@ VulkanBackendIR make_depth_anything_v2_image_full_ir(
   for (size_t idx = 0u; idx < capture_tokens.size(); ++idx) {
     capture_tokens[idx] = backbone_handles.capture_outputs[idx];
   }
-  (void)append_depth_anything_v2_decoder_region(
+  (void)append_vision_transformer_depth_decoder_region(
       ir,
       capture_tokens,
-      DepthAnythingV2DecoderIRDesc{
+      VisionTransformerDepthDecoderIRDesc{
           desc.dtype,
           desc.persistent,
           desc.patch_h,
@@ -3248,6 +3261,656 @@ VulkanIRMemoryPlan make_memory_plan(const VulkanBackendIR& ir) {
   return plan;
 }
 
+StageKind executable_stage_kind_for_op(const VulkanIROpNode& op) {
+  switch (op.kind) {
+    case VulkanIROpKind::PatchEmbed:
+    case VulkanIROpKind::FeatureMapToTokens:
+    case VulkanIROpKind::ElementwiseAdd:
+    case VulkanIROpKind::Concat:
+    case VulkanIROpKind::PatchTokenInput:
+      return StageKind::ImageEntry;
+    case VulkanIROpKind::BackboneBlock:
+      return StageKind::Backbone;
+    case VulkanIROpKind::CapturePatchTokens:
+    case VulkanIROpKind::CaptureNormedPatchTokens:
+      return StageKind::Capture;
+    case VulkanIROpKind::TokensToFeatureMap:
+    case VulkanIROpKind::DecoderProject:
+    case VulkanIROpKind::DecoderResize:
+    case VulkanIROpKind::DecoderPreprocess:
+    case VulkanIROpKind::DecoderHead:
+      return StageKind::Decoder;
+    case VulkanIROpKind::InputImage:
+    case VulkanIROpKind::OutputAlias:
+      return StageKind::Export;
+  }
+  return StageKind::Unknown;
+}
+
+DispatchKind dispatch_kind_for_ir_op_kind(const VulkanIROpKind kind) {
+  switch (kind) {
+    case VulkanIROpKind::PatchEmbed:
+      return DispatchKind::PatchEmbed;
+    case VulkanIROpKind::FeatureMapToTokens:
+      return DispatchKind::FeatureMapToTokens;
+    case VulkanIROpKind::ElementwiseAdd:
+      return DispatchKind::ElementwiseAdd;
+    case VulkanIROpKind::Concat:
+      return DispatchKind::Concat;
+    case VulkanIROpKind::PatchTokenInput:
+      return DispatchKind::PatchTokenInput;
+    case VulkanIROpKind::BackboneBlock:
+      return DispatchKind::BackboneBlock;
+    case VulkanIROpKind::CapturePatchTokens:
+      return DispatchKind::CapturePatchTokens;
+    case VulkanIROpKind::CaptureNormedPatchTokens:
+      return DispatchKind::CaptureNormedPatchTokens;
+    case VulkanIROpKind::TokensToFeatureMap:
+      return DispatchKind::TokensToFeatureMap;
+    case VulkanIROpKind::DecoderProject:
+      return DispatchKind::DecoderProject;
+    case VulkanIROpKind::DecoderResize:
+      return DispatchKind::DecoderResize;
+    case VulkanIROpKind::DecoderPreprocess:
+      return DispatchKind::DecoderPreprocess;
+    case VulkanIROpKind::DecoderHead:
+      return DispatchKind::DecoderHead;
+    case VulkanIROpKind::InputImage:
+    case VulkanIROpKind::OutputAlias:
+      return DispatchKind::Unknown;
+  }
+  return DispatchKind::Unknown;
+}
+
+struct FusedExecutableImageEntryPattern final {
+  DispatchStep step;
+  std::array<VulkanValueId, 2u> virtual_values{};
+};
+
+struct FusedExecutableImagePatchEntryPattern final {
+  DispatchStep step;
+  std::array<VulkanValueId, 3u> virtual_values{};
+  size_t consumed_ops{0u};
+};
+
+std::optional<FusedExecutableImagePatchEntryPattern>
+try_make_fused_image_patch_token_input_step(
+    const std::vector<VulkanIROpNode>& ops,
+    const size_t op_idx) {
+  if (op_idx + 3u >= ops.size()) {
+    return std::nullopt;
+  }
+
+  const auto& patch_embed = ops[op_idx];
+  const auto& feature_to_tokens = ops[op_idx + 1u];
+  const auto& add = ops[op_idx + 2u];
+  const auto& concat = ops[op_idx + 3u];
+  if (
+      patch_embed.kind != VulkanIROpKind::PatchEmbed ||
+      feature_to_tokens.kind != VulkanIROpKind::FeatureMapToTokens ||
+      add.kind != VulkanIROpKind::ElementwiseAdd ||
+      concat.kind != VulkanIROpKind::Concat) {
+    return std::nullopt;
+  }
+  if (
+      patch_embed.inputs.size() != 1u || patch_embed.outputs.size() != 1u ||
+      patch_embed.constants.size() != 1u ||
+      feature_to_tokens.inputs.size() != 1u ||
+      feature_to_tokens.outputs.size() != 1u ||
+      !feature_to_tokens.constants.empty() ||
+      add.inputs.size() != 2u || add.outputs.size() != 1u || !add.constants.empty() ||
+      concat.inputs.size() != 2u || concat.outputs.size() != 1u ||
+      !concat.constants.empty()) {
+    return std::nullopt;
+  }
+
+  const VulkanValueId patch_feature_map_value = patch_embed.outputs[0];
+  const VulkanValueId feature_tokens_value = feature_to_tokens.outputs[0];
+  const VulkanValueId positioned_tokens_value = add.outputs[0];
+  if (
+      feature_to_tokens.inputs[0] != patch_feature_map_value ||
+      add.inputs[0] != feature_tokens_value ||
+      concat.inputs[1] != positioned_tokens_value) {
+    return std::nullopt;
+  }
+
+  DispatchStep step;
+  step.ir_op_index = static_cast<uint32_t>(op_idx);
+  step.name = concat.name.empty() ? "patch_tokens.image_input" : concat.name;
+  step.program_key = "ImagePatchTokenInput";
+  step.dispatch_kind = DispatchKind::ImagePatchTokenInput;
+  step.attributes_key = concat.attributes_key;
+  step.reads = {patch_embed.inputs[0]};
+  step.constants = {concat.inputs[0], add.inputs[1]};
+  step.writes = {concat.outputs[0]};
+  return FusedExecutableImagePatchEntryPattern{
+      std::move(step),
+      {patch_feature_map_value, feature_tokens_value, positioned_tokens_value},
+      4u};
+}
+
+std::optional<FusedExecutableImageEntryPattern>
+try_make_fused_patch_token_input_step(
+    const std::vector<VulkanIROpNode>& ops,
+    const size_t op_idx) {
+  if (op_idx + 2u >= ops.size()) {
+    return std::nullopt;
+  }
+
+  const auto& feature_to_tokens = ops[op_idx];
+  const auto& add = ops[op_idx + 1u];
+  const auto& concat = ops[op_idx + 2u];
+  if (
+      feature_to_tokens.kind != VulkanIROpKind::FeatureMapToTokens ||
+      add.kind != VulkanIROpKind::ElementwiseAdd ||
+      concat.kind != VulkanIROpKind::Concat) {
+    return std::nullopt;
+  }
+  if (
+      feature_to_tokens.inputs.size() != 1u ||
+      feature_to_tokens.outputs.size() != 1u || !feature_to_tokens.constants.empty() ||
+      add.inputs.size() != 2u || add.outputs.size() != 1u || !add.constants.empty() ||
+      concat.inputs.size() != 2u || concat.outputs.size() != 1u ||
+      !concat.constants.empty()) {
+    return std::nullopt;
+  }
+
+  const VulkanValueId feature_tokens_value = feature_to_tokens.outputs[0];
+  const VulkanValueId positioned_tokens_value = add.outputs[0];
+  if (
+      add.inputs[0] != feature_tokens_value ||
+      concat.inputs[1] != positioned_tokens_value) {
+    return std::nullopt;
+  }
+
+  DispatchStep step;
+  step.ir_op_index = static_cast<uint32_t>(op_idx);
+  step.name = concat.name.empty() ? "patch_tokens.input" : concat.name;
+  step.program_key = "PatchTokenInput";
+  step.dispatch_kind = DispatchKind::PatchTokenInput;
+  step.attributes_key = concat.attributes_key;
+  step.reads = {feature_to_tokens.inputs[0]};
+  step.constants = {concat.inputs[0], add.inputs[1]};
+  step.writes = {concat.outputs[0]};
+  return FusedExecutableImageEntryPattern{
+      std::move(step), {feature_tokens_value, positioned_tokens_value}};
+}
+
+struct FusedExecutableDecoderLayerPattern final {
+  DispatchStep step;
+  std::vector<VulkanValueId> virtual_values;
+  size_t consumed_ops{0u};
+};
+
+struct FusedExecutableCaptureDecoderLayerPattern final {
+  DispatchStep step;
+  std::vector<VulkanValueId> virtual_values;
+  size_t decoder_op_idx{0u};
+  size_t decoder_consumed_ops{0u};
+};
+
+std::optional<FusedExecutableDecoderLayerPattern>
+try_make_fused_decoder_layer_step(
+    const std::vector<VulkanIROpNode>& ops,
+    const size_t op_idx) {
+  if (op_idx + 2u >= ops.size()) {
+    return std::nullopt;
+  }
+
+  const auto& tokens_to_feature_map = ops[op_idx];
+  const auto& project = ops[op_idx + 1u];
+  if (
+      tokens_to_feature_map.kind != VulkanIROpKind::TokensToFeatureMap ||
+      project.kind != VulkanIROpKind::DecoderProject) {
+    return std::nullopt;
+  }
+  if (
+      tokens_to_feature_map.inputs.size() != 1u ||
+      tokens_to_feature_map.outputs.size() != 1u ||
+      !tokens_to_feature_map.constants.empty() ||
+      project.inputs.size() != 1u || project.outputs.size() != 1u ||
+      project.constants.size() != 1u ||
+      project.inputs[0] != tokens_to_feature_map.outputs[0]) {
+    return std::nullopt;
+  }
+
+  size_t cursor = op_idx + 2u;
+  bool apply_resize = false;
+  const VulkanIROpNode* resize = nullptr;
+  if (cursor < ops.size() && ops[cursor].kind == VulkanIROpKind::DecoderResize) {
+    resize = &ops[cursor];
+    apply_resize = true;
+    if (
+        resize->inputs.size() != 1u || resize->outputs.size() != 1u ||
+        resize->constants.size() != 1u ||
+        resize->inputs[0] != project.outputs[0]) {
+      return std::nullopt;
+    }
+    ++cursor;
+  }
+  if (cursor >= ops.size()) {
+    return std::nullopt;
+  }
+
+  const auto& preprocess = ops[cursor];
+  if (
+      preprocess.kind != VulkanIROpKind::DecoderPreprocess ||
+      preprocess.inputs.size() != 1u || preprocess.outputs.size() != 1u ||
+      preprocess.constants.size() != 1u ||
+      preprocess.inputs[0] !=
+          (apply_resize ? resize->outputs[0] : project.outputs[0])) {
+    return std::nullopt;
+  }
+
+  DispatchStep step;
+  step.ir_op_index = static_cast<uint32_t>(op_idx);
+  step.name = preprocess.name.empty() ? "decoder.layer.preprocess" : preprocess.name;
+  step.program_key = "DecoderLayerPreprocess";
+  step.dispatch_kind = DispatchKind::DecoderLayerPreprocess;
+  step.attributes_key = preprocess.attributes_key;
+  step.reads = {tokens_to_feature_map.inputs[0]};
+  step.constants = {project.constants[0]};
+  if (apply_resize) {
+    step.constants.push_back(resize->constants[0]);
+  }
+  step.constants.push_back(preprocess.constants[0]);
+  step.temporaries = {tokens_to_feature_map.outputs[0], project.outputs[0]};
+  if (apply_resize) {
+    step.temporaries.push_back(resize->outputs[0]);
+  }
+  step.writes = {preprocess.outputs[0]};
+
+  std::vector<VulkanValueId> virtual_values = {
+      tokens_to_feature_map.outputs[0], project.outputs[0]};
+  if (apply_resize) {
+    virtual_values.push_back(resize->outputs[0]);
+  }
+  return FusedExecutableDecoderLayerPattern{
+      std::move(step), std::move(virtual_values), cursor - op_idx + 1u};
+}
+
+std::optional<FusedExecutableCaptureDecoderLayerPattern>
+try_make_fused_capture_decoder_layer_step(
+    const std::vector<VulkanIROpNode>& ops,
+    const size_t op_idx) {
+  if (op_idx >= ops.size()) {
+    return std::nullopt;
+  }
+
+  const auto& capture = ops[op_idx];
+  if (
+      capture.kind != VulkanIROpKind::CaptureNormedPatchTokens ||
+      capture.inputs.size() != 1u || capture.outputs.size() != 1u ||
+      capture.constants.size() != 1u) {
+    return std::nullopt;
+  }
+
+  for (size_t decoder_op_idx = op_idx + 1u; decoder_op_idx < ops.size();
+       ++decoder_op_idx) {
+    if (
+        ops[decoder_op_idx].kind != VulkanIROpKind::TokensToFeatureMap ||
+        ops[decoder_op_idx].inputs.size() != 1u ||
+        ops[decoder_op_idx].inputs[0] != capture.outputs[0]) {
+      continue;
+    }
+    auto fused_decoder = try_make_fused_decoder_layer_step(ops, decoder_op_idx);
+    if (
+        !fused_decoder.has_value() ||
+        fused_decoder->step.reads.size() != 1u ||
+        fused_decoder->step.reads[0] != capture.outputs[0]) {
+      return std::nullopt;
+    }
+
+    DispatchStep step;
+    step.ir_op_index = static_cast<uint32_t>(op_idx);
+    step.name = fused_decoder->step.name.empty()
+        ? "capture.decoder.layer.preprocess"
+        : fused_decoder->step.name;
+    step.program_key = "CaptureDecoderLayerPreprocess";
+    step.dispatch_kind = DispatchKind::CaptureDecoderLayerPreprocess;
+    step.attributes_key = fused_decoder->step.attributes_key;
+    step.reads = {capture.inputs[0]};
+    step.constants = {capture.constants[0]};
+    step.constants.insert(
+        step.constants.end(),
+        fused_decoder->step.constants.cbegin(),
+        fused_decoder->step.constants.cend());
+    step.temporaries = {capture.outputs[0]};
+    step.temporaries.insert(
+        step.temporaries.end(),
+        fused_decoder->step.temporaries.cbegin(),
+        fused_decoder->step.temporaries.cend());
+    step.writes = fused_decoder->step.writes;
+
+    std::vector<VulkanValueId> virtual_values = {capture.outputs[0]};
+    virtual_values.insert(
+        virtual_values.end(),
+        fused_decoder->virtual_values.cbegin(),
+        fused_decoder->virtual_values.cend());
+    return FusedExecutableCaptureDecoderLayerPattern{
+        std::move(step),
+        std::move(virtual_values),
+        decoder_op_idx,
+        fused_decoder->consumed_ops};
+  }
+
+  return std::nullopt;
+}
+
+ViewTransformKind infer_view_transform_kind(
+    const VulkanIRValue& value,
+    const std::optional<VulkanIROutputAlias>& output_alias) {
+  if (output_alias.has_value()) {
+    return ViewTransformKind::Reinterpret;
+  }
+  if (value.spec.logical_sizes != value.spec.padded_sizes) {
+    return ViewTransformKind::Reshape;
+  }
+  return ViewTransformKind::Identity;
+}
+
+std::optional<std::shared_ptr<VulkanExecutableRegion>>
+maybe_lower_compiled_session_to_executable_region(
+    const VulkanCompiledSession& session) {
+  if (!session.defined() || !session.executable()) {
+    return std::nullopt;
+  }
+
+  switch (session.key().kind) {
+    case VulkanCompiledSessionKind::VisionTransformerDepth:
+    case VulkanCompiledSessionKind::VisionTransformerDepthImage:
+    case VulkanCompiledSessionKind::VisionTransformerDepthBackbone:
+    case VulkanCompiledSessionKind::VisionTransformerDepthDecoderPreprocessHead:
+      break;
+  }
+
+  const auto bindings = make_compiled_session_tensor_bindings(session);
+  if (!bindings.has_value()) {
+    return std::nullopt;
+  }
+
+  const auto& ir = session.ir();
+  const auto& values = ir.values();
+  const auto& lifetimes = ir.lifetimes();
+  const auto& memory_plan = session.memory_plan();
+  const auto& binding_table = *bindings;
+
+  auto region = std::make_shared<VulkanExecutableRegion>();
+  region->key = session.key().model_key + "|" + session.key().configuration_key +
+      "|" + session.key().capability_key;
+  region->contract.dtype = session.key().dtype;
+  region->contract.storage_type = session.layout_plan().storage_type;
+  region->contract.memory_layout = session.layout_plan().memory_layout;
+  region->contract.execution_layout = session.layout_plan().execution_layout;
+  region->contract.width_alignment = session.layout_plan().width_alignment;
+  region->contract.pad_width = session.layout_plan().pad_width;
+  region->contract.capability_key = session.key().capability_key;
+  region->contract.debug_name = std::string(
+      compiled_session_family_name(
+          compiled_session_family_for_kind(session.key().kind))) +
+      "." + compiled_session_kind_name(session.key().kind);
+
+  region->slots.reserve(binding_table.slot_values.size());
+  const auto memory_slot_for_value = [&](const VulkanValueId value_id)
+      -> std::optional<size_t> {
+    for (size_t idx = 0u; idx < memory_plan.slots.size(); ++idx) {
+      const auto& slot = memory_plan.slots[idx];
+      if (std::find(slot.values.begin(), slot.values.end(), value_id) !=
+          slot.values.end()) {
+        return idx;
+      }
+    }
+    return std::nullopt;
+  };
+
+  for (size_t slot_idx = 0u; slot_idx < binding_table.slot_values.size();
+       ++slot_idx) {
+    const VulkanValueId value_id = binding_table.slot_values[slot_idx];
+    TORCH_INTERNAL_ASSERT(
+        value_id < values.size(),
+        "Executable region slot lowering references an invalid value");
+    const auto& value = values[value_id];
+    const auto source_memory_slot = memory_slot_for_value(value_id);
+    PhysicalSlot slot;
+    slot.id = slot_idx;
+    slot.source_memory_slot = source_memory_slot;
+    slot.storage_dtype = value.spec.dtype;
+    slot.storage_type = value.spec.storage_type;
+    slot.storage_layout = value.spec.memory_layout;
+    slot.physical_sizes = value.spec.padded_sizes.empty()
+        ? value.spec.logical_sizes
+        : value.spec.padded_sizes;
+    slot.byte_size = compiled_session_impl::tensor_spec_nbytes(value.spec);
+    slot.memory_class = value.spec.external ? MemoryClass::External
+                                            : MemoryClass::DeviceLocal;
+    slot.alignment = 1u;
+    slot.dedicated = source_memory_slot.has_value()
+        ? memory_plan.slots[*source_memory_slot].dedicated
+        : value.spec.external;
+    slot.external = value.spec.external;
+    region->slots.push_back(std::move(slot));
+  }
+
+  region->values.reserve(values.size());
+  const auto alias_for_value = [&](const VulkanValueId value_id)
+      -> std::optional<VulkanIROutputAlias> {
+    for (const auto& alias : ir.output_aliases()) {
+      if (alias.output == value_id) {
+        return alias;
+      }
+    }
+    return std::nullopt;
+  };
+
+  std::unordered_set<VulkanValueId> virtualized_values;
+  std::unordered_map<size_t, FusedExecutableCaptureDecoderLayerPattern>
+      fused_capture_decoder_patterns;
+  std::unordered_map<size_t, size_t> consumed_decoder_fusion_starts;
+  for (size_t op_idx = 0u; op_idx < ir.ops().size(); ++op_idx) {
+    if (const auto fused_image_patch =
+            try_make_fused_image_patch_token_input_step(ir.ops(), op_idx);
+        fused_image_patch.has_value()) {
+      virtualized_values.insert(
+          fused_image_patch->virtual_values.cbegin(),
+          fused_image_patch->virtual_values.cend());
+      op_idx += fused_image_patch->consumed_ops - 1u;
+      continue;
+    }
+    if (const auto fused_capture_decoder =
+            try_make_fused_capture_decoder_layer_step(ir.ops(), op_idx);
+        fused_capture_decoder.has_value()) {
+      virtualized_values.insert(
+          fused_capture_decoder->virtual_values.cbegin(),
+          fused_capture_decoder->virtual_values.cend());
+      consumed_decoder_fusion_starts.emplace(
+          fused_capture_decoder->decoder_op_idx,
+          fused_capture_decoder->decoder_consumed_ops);
+      fused_capture_decoder_patterns.emplace(
+          op_idx, std::move(*fused_capture_decoder));
+      continue;
+    }
+    if (const auto consumed = consumed_decoder_fusion_starts.find(op_idx);
+        consumed != consumed_decoder_fusion_starts.end()) {
+      op_idx += consumed->second - 1u;
+      continue;
+    }
+    if (const auto fused_patch =
+            try_make_fused_patch_token_input_step(ir.ops(), op_idx);
+        fused_patch.has_value()) {
+      virtualized_values.insert(fused_patch->virtual_values[0]);
+      virtualized_values.insert(fused_patch->virtual_values[1]);
+      op_idx += 2u;
+      continue;
+    }
+    if (const auto fused_decoder =
+            try_make_fused_decoder_layer_step(ir.ops(), op_idx);
+        fused_decoder.has_value()) {
+      virtualized_values.insert(
+          fused_decoder->virtual_values.begin(),
+          fused_decoder->virtual_values.end());
+      op_idx += fused_decoder->consumed_ops - 1u;
+    }
+  }
+
+  for (const auto& value : values) {
+    LoweredValue lowered;
+    lowered.ir_value = value.id;
+    lowered.name = value.name;
+    lowered.boundary_role =
+        (value.spec.role == VulkanIRTensorRole::Output && value.spec.external)
+        ? BoundaryRole::RegionOutput
+        : BoundaryRole::Internal;
+
+    const auto alias = alias_for_value(value.id);
+    if (value.spec.role == VulkanIRTensorRole::Input && value.spec.external) {
+      lowered.realization = RealizationKind::ExternalInput;
+    } else if (value.spec.role == VulkanIRTensorRole::Constant) {
+      lowered.realization = RealizationKind::Constant;
+    } else if (virtualized_values.count(value.id) > 0u) {
+      lowered.realization = RealizationKind::Virtual;
+    } else if (alias.has_value()) {
+      lowered.realization = RealizationKind::View;
+      lowered.base = alias->source;
+    } else {
+      lowered.realization = RealizationKind::Materialized;
+    }
+
+    if (
+        lowered.realization != RealizationKind::Virtual &&
+        value.id < binding_table.value_tensor_slots.size() &&
+        binding_table.value_tensor_slots[value.id].has_value()) {
+      lowered.slot = *binding_table.value_tensor_slots[value.id];
+      lowered.view.slot = lowered.slot;
+    }
+    lowered.view.logical_dtype = value.spec.dtype;
+    lowered.view.logical_sizes = value.spec.logical_sizes;
+    const auto logical_strides =
+        c10::contiguous_strides(value.spec.logical_sizes);
+    lowered.view.logical_strides.assign(
+        logical_strides.begin(), logical_strides.end());
+    lowered.view.storage_offset = 0;
+    lowered.view.transform = infer_view_transform_kind(value, alias);
+    lowered.first_use_step = value.id < lifetimes.size()
+        ? static_cast<uint32_t>(lifetimes[value.id].first_op)
+        : 0u;
+    lowered.last_use_step = value.id < lifetimes.size()
+        ? static_cast<uint32_t>(lifetimes[value.id].last_op)
+        : 0u;
+    region->values.push_back(std::move(lowered));
+  }
+
+  region->steps.reserve(ir.ops().size() + values.size());
+  std::optional<StageRange> current_stage = std::nullopt;
+  for (size_t op_idx = 0u; op_idx < ir.ops().size(); ++op_idx) {
+    if (const auto consumed = consumed_decoder_fusion_starts.find(op_idx);
+        consumed != consumed_decoder_fusion_starts.end()) {
+      op_idx += consumed->second - 1u;
+      continue;
+    }
+    const auto& op = ir.ops()[op_idx];
+    const StageKind stage_kind = executable_stage_kind_for_op(op);
+    if (
+        !current_stage.has_value() || current_stage->kind != stage_kind) {
+      if (current_stage.has_value()) {
+        current_stage->end_step =
+            static_cast<uint32_t>(region->steps.size());
+        region->stages.push_back(*current_stage);
+      }
+      current_stage = StageRange{
+          stage_kind,
+          static_cast<uint32_t>(region->steps.size()),
+          static_cast<uint32_t>(region->steps.size()),
+          std::nullopt};
+    }
+
+    if (op.kind == VulkanIROpKind::OutputAlias) {
+      continue;
+    }
+
+    if (const auto fused_capture_decoder =
+            fused_capture_decoder_patterns.find(op_idx);
+        fused_capture_decoder != fused_capture_decoder_patterns.end()) {
+      region->steps.push_back(ExecStep{
+          ExecOpcode::Dispatch, fused_capture_decoder->second.step});
+      continue;
+    }
+    if (const auto fused_image_patch =
+            try_make_fused_image_patch_token_input_step(ir.ops(), op_idx);
+        fused_image_patch.has_value()) {
+      region->steps.push_back(
+          ExecStep{ExecOpcode::Dispatch, std::move(fused_image_patch->step)});
+      op_idx += fused_image_patch->consumed_ops - 1u;
+      continue;
+    }
+    if (const auto fused =
+            try_make_fused_patch_token_input_step(ir.ops(), op_idx);
+        fused.has_value()) {
+      region->steps.push_back(
+          ExecStep{ExecOpcode::Dispatch, std::move(fused->step)});
+      op_idx += 2u;
+      continue;
+    }
+    if (const auto fused_decoder =
+            try_make_fused_decoder_layer_step(ir.ops(), op_idx);
+        fused_decoder.has_value()) {
+      region->steps.push_back(
+          ExecStep{ExecOpcode::Dispatch, std::move(fused_decoder->step)});
+      op_idx += fused_decoder->consumed_ops - 1u;
+      continue;
+    }
+
+    DispatchStep step;
+    step.ir_op_index = static_cast<uint32_t>(op_idx);
+    step.name = op.name;
+    step.program_key = ir_op_kind_name(op.kind);
+    step.dispatch_kind = dispatch_kind_for_ir_op_kind(op.kind);
+    step.attributes_key = op.attributes_key;
+    step.reads.reserve(op.inputs.size());
+    for (const VulkanValueId input : op.inputs) {
+      step.reads.push_back(input);
+    }
+    step.constants.reserve(op.constants.size());
+    for (const VulkanValueId constant : op.constants) {
+      step.constants.push_back(constant);
+    }
+    step.writes.reserve(op.outputs.size());
+    for (const VulkanValueId output : op.outputs) {
+      step.writes.push_back(output);
+    }
+    region->steps.push_back(
+        ExecStep{ExecOpcode::Dispatch, std::move(step)});
+  }
+
+  if (current_stage.has_value()) {
+    current_stage->end_step = static_cast<uint32_t>(region->steps.size());
+    region->stages.push_back(*current_stage);
+  }
+
+  size_t output_index = 0u;
+  for (const auto& value : region->values) {
+    if (value.boundary_role != BoundaryRole::RegionOutput) {
+      continue;
+    }
+    region->outputs.push_back(RegionOutputBinding{
+        value.ir_value,
+        output_index,
+        value.name});
+    region->steps.push_back(ExecStep{
+        ExecOpcode::Export,
+        ExportStep{value.ir_value, output_index, value.name}});
+    ++output_index;
+  }
+  if (!region->outputs.empty()) {
+    region->stages.push_back(StageRange{
+        StageKind::Export,
+        static_cast<uint32_t>(region->steps.size() - region->outputs.size()),
+        static_cast<uint32_t>(region->steps.size()),
+        std::nullopt});
+  }
+
+  return region;
+}
+
 VulkanCompiledSession make_compiled_session(
     VulkanCompiledSessionKey key,
     VulkanBackendIR ir,
@@ -3256,26 +3919,62 @@ VulkanCompiledSession make_compiled_session(
   apply_global_layout_plan(ir, layout_plan);
   ir.recompute_lifetimes();
   VulkanIRMemoryPlan memory_plan = make_memory_plan(ir);
-  return VulkanCompiledSession{std::make_shared<VulkanCompiledSession::State>(
+  auto state = std::make_shared<VulkanCompiledSession::State>(
       std::move(key),
       std::move(ir),
       std::move(layout_plan),
       std::move(memory_plan),
-      executable)};
+      nullptr,
+      executable);
+  VulkanCompiledSession session{state};
+  if (executable) {
+    const auto region =
+        compiled_session_impl::maybe_lower_compiled_session_to_executable_region(
+            session);
+    if (region.has_value()) {
+      state->executable_region = *region;
+    }
+  }
+  return session;
 }
 
 } // namespace compiled_session_impl
 
+const char* compiled_session_family_name(
+    const VulkanCompiledSessionFamily family) {
+  switch (family) {
+    case VulkanCompiledSessionFamily::VisionTransformerDepth:
+      return "VisionTransformerDepth";
+    case VulkanCompiledSessionFamily::DiffusionUNet:
+      return "DiffusionUNet";
+    case VulkanCompiledSessionFamily::HybridPipeline:
+      return "HybridPipeline";
+  }
+  return "UnknownCompiledSessionFamily";
+}
+
+VulkanCompiledSessionFamily compiled_session_family_for_kind(
+    const VulkanCompiledSessionKind kind) {
+  switch (kind) {
+    case VulkanCompiledSessionKind::VisionTransformerDepth:
+    case VulkanCompiledSessionKind::VisionTransformerDepthImage:
+    case VulkanCompiledSessionKind::VisionTransformerDepthBackbone:
+    case VulkanCompiledSessionKind::VisionTransformerDepthDecoderPreprocessHead:
+      return VulkanCompiledSessionFamily::VisionTransformerDepth;
+  }
+  return VulkanCompiledSessionFamily::VisionTransformerDepth;
+}
+
 const char* compiled_session_kind_name(const VulkanCompiledSessionKind kind) {
   switch (kind) {
-    case VulkanCompiledSessionKind::DepthAnythingV2:
-      return "DepthAnythingV2";
-    case VulkanCompiledSessionKind::DepthAnythingV2Image:
-      return "DepthAnythingV2Image";
-    case VulkanCompiledSessionKind::DepthAnythingV2BackboneStack:
-      return "DepthAnythingV2BackboneStack";
-    case VulkanCompiledSessionKind::DepthAnythingV2DecoderPreprocessHead:
-      return "DepthAnythingV2DecoderPreprocessHead";
+    case VulkanCompiledSessionKind::VisionTransformerDepth:
+      return "VisionTransformerDepth";
+    case VulkanCompiledSessionKind::VisionTransformerDepthImage:
+      return "VisionTransformerDepthImage";
+    case VulkanCompiledSessionKind::VisionTransformerDepthBackbone:
+      return "VisionTransformerDepthBackbone";
+    case VulkanCompiledSessionKind::VisionTransformerDepthDecoderPreprocessHead:
+      return "VisionTransformerDepthDecoderPreprocessHead";
   }
   return "UnknownCompiledSession";
 }
@@ -3296,6 +3995,8 @@ const char* ir_op_kind_name(const VulkanIROpKind kind) {
       return "PatchTokenInput";
     case VulkanIROpKind::BackboneBlock:
       return "BackboneBlock";
+    case VulkanIROpKind::CapturePatchTokens:
+      return "CapturePatchTokens";
     case VulkanIROpKind::CaptureNormedPatchTokens:
       return "CaptureNormedPatchTokens";
     case VulkanIROpKind::TokensToFeatureMap:
@@ -3452,6 +4153,11 @@ const VulkanIRMemoryPlan& VulkanCompiledSession::memory_plan() const {
   return state_->memory_plan;
 }
 
+const VulkanExecutableRegion* VulkanCompiledSession::executable_region() const {
+  TORCH_INTERNAL_ASSERT(state_, "VulkanCompiledSession is not defined");
+  return state_->executable_region.get();
+}
+
 bool VulkanCompiledSession::executable() const {
   return state_ && state_->executable;
 }
@@ -3544,6 +4250,102 @@ make_compiled_session_tensor_bindings(const VulkanCompiledSession& session) {
     if (
         compiled_session_impl::tensor_spec_nbytes(value.spec) == 0u ||
         bindings.value_tensor_slots[value.id].has_value()) {
+      continue;
+    }
+    return std::nullopt;
+  }
+
+  return bindings;
+}
+
+std::optional<VulkanCompiledSessionTensorBindings>
+make_compiled_executable_region_tensor_bindings(
+    const VulkanCompiledSession& session,
+    const VulkanExecutableRegion& region) {
+  auto base_bindings = make_compiled_session_tensor_bindings(session);
+  if (!base_bindings.has_value()) {
+    return std::nullopt;
+  }
+  if (!region.defined()) {
+    return base_bindings;
+  }
+
+  VulkanCompiledSessionTensorBindings bindings;
+  bindings.value_tensor_slots.resize(base_bindings->value_tensor_slots.size());
+
+  const auto is_virtual = [&](const VulkanValueId value_id) {
+    return value_id < region.values.size() &&
+        region.values[value_id].realization == RealizationKind::Virtual;
+  };
+  const auto requires_dedicated_tensor_slot = [&](const VulkanValueId value_id) {
+    if (value_id >= region.values.size() || is_virtual(value_id)) {
+      return false;
+    }
+    const auto& lowered_value = region.values[value_id];
+    return lowered_value.boundary_role == BoundaryRole::RegionOutput ||
+        lowered_value.realization == RealizationKind::ExternalInput;
+  };
+  const auto bind_value = [&](const VulkanValueId value_id, const size_t slot_idx) {
+    TORCH_INTERNAL_ASSERT(
+        value_id < bindings.value_tensor_slots.size(),
+        "Executable region tensor binding references an invalid value id");
+    auto& mapped_slot = bindings.value_tensor_slots[value_id];
+    TORCH_INTERNAL_ASSERT(
+        !mapped_slot.has_value() || *mapped_slot == slot_idx,
+        "Executable region value was assigned conflicting tensor slots");
+    mapped_slot = slot_idx;
+  };
+
+  std::vector<std::vector<VulkanValueId>> old_slot_members(
+      base_bindings->tensor_slot_count());
+  for (size_t value_id = 0u; value_id < base_bindings->value_tensor_slots.size();
+       ++value_id) {
+    if (!base_bindings->value_tensor_slots[value_id].has_value()) {
+      continue;
+    }
+    old_slot_members[*base_bindings->value_tensor_slots[value_id]].push_back(
+        static_cast<VulkanValueId>(value_id));
+  }
+
+  for (size_t old_slot_idx = 0u; old_slot_idx < old_slot_members.size();
+       ++old_slot_idx) {
+    std::vector<VulkanValueId> shared_members;
+    for (const VulkanValueId value_id : old_slot_members[old_slot_idx]) {
+      if (is_virtual(value_id)) {
+        continue;
+      }
+      if (requires_dedicated_tensor_slot(value_id)) {
+        const size_t dedicated_slot_idx = bindings.slot_values.size();
+        bindings.slot_values.push_back(value_id);
+        bind_value(value_id, dedicated_slot_idx);
+        continue;
+      }
+      shared_members.push_back(value_id);
+    }
+
+    if (shared_members.empty()) {
+      continue;
+    }
+
+    const size_t new_slot_idx = bindings.slot_values.size();
+    bindings.slot_values.push_back(shared_members.front());
+    for (const VulkanValueId value_id : shared_members) {
+      bind_value(value_id, new_slot_idx);
+    }
+  }
+
+  for (const VulkanValueId input_value : base_bindings->input_values) {
+    if (is_virtual(input_value)) {
+      continue;
+    }
+    bindings.input_values.push_back(input_value);
+  }
+
+  const auto& values = session.ir().values();
+  for (const auto& value : values) {
+    if (
+        compiled_session_impl::tensor_spec_nbytes(value.spec) == 0u ||
+        is_virtual(value.id) || bindings.value_tensor_slots[value.id].has_value()) {
       continue;
     }
     return std::nullopt;
@@ -3666,17 +4468,18 @@ VulkanCompiledSession lookup_or_create_vulkan_compiled_session(
   return it->second;
 }
 
-VulkanCompiledSession lookup_or_create_depth_anything_v2_session(
-    const DepthAnythingV2SessionDesc& desc) {
+VulkanCompiledSession lookup_or_create_vision_transformer_depth_session(
+    const VisionTransformerDepthSessionDesc& desc) {
   const VulkanRuntimeCapabilityProfile profile =
       query_vulkan_runtime_capability_profile();
   VulkanCompiledSessionKey key;
-  key.kind = VulkanCompiledSessionKind::DepthAnythingV2;
+  key.kind = VulkanCompiledSessionKind::VisionTransformerDepth;
   key.model_key =
-      desc.model_key.empty() ? "depth_anything_v2.compiled_session"
+      desc.model_key.empty() ? "vision_transformer_depth.compiled_session"
                              : desc.model_key;
   key.configuration_key =
-      compiled_session_impl::make_full_session_configuration_key(desc);
+      compiled_session_impl::
+          make_vision_transformer_depth_full_configuration_key(desc);
   key.input_shapes = {desc.patch_token_sizes};
   key.output_shapes = {desc.output_sizes};
   key.dtype = desc.dtype;
@@ -3685,7 +4488,7 @@ VulkanCompiledSession lookup_or_create_depth_anything_v2_session(
 
   return lookup_or_create_vulkan_compiled_session(key, [&]() {
     VulkanBackendIR ir =
-        compiled_session_impl::make_depth_anything_v2_full_ir(desc);
+        compiled_session_impl::make_vision_transformer_depth_full_ir(desc);
     VulkanGlobalLayoutPlan layout_plan =
         make_buffer_first_width_packed_layout_plan(key, profile);
     return compiled_session_impl::make_compiled_session(
@@ -3696,17 +4499,18 @@ VulkanCompiledSession lookup_or_create_depth_anything_v2_session(
   });
 }
 
-VulkanCompiledSession lookup_or_create_depth_anything_v2_image_session(
-    const DepthAnythingV2ImageSessionDesc& desc) {
+VulkanCompiledSession lookup_or_create_vision_transformer_depth_image_session(
+    const VisionTransformerDepthImageSessionDesc& desc) {
   const VulkanRuntimeCapabilityProfile profile =
       query_vulkan_runtime_capability_profile();
   VulkanCompiledSessionKey key;
-  key.kind = VulkanCompiledSessionKind::DepthAnythingV2Image;
+  key.kind = VulkanCompiledSessionKind::VisionTransformerDepthImage;
   key.model_key = desc.model_key.empty()
-      ? "depth_anything_v2.image_compiled_session"
+      ? "vision_transformer_depth.image_compiled_session"
       : desc.model_key;
   key.configuration_key =
-      compiled_session_impl::make_image_session_configuration_key(desc);
+      compiled_session_impl::
+          make_vision_transformer_depth_image_configuration_key(desc);
   key.input_shapes = {desc.image_sizes};
   key.output_shapes = {desc.output_sizes};
   key.dtype = desc.dtype;
@@ -3715,7 +4519,7 @@ VulkanCompiledSession lookup_or_create_depth_anything_v2_image_session(
 
   return lookup_or_create_vulkan_compiled_session(key, [&]() {
     VulkanBackendIR ir =
-        compiled_session_impl::make_depth_anything_v2_image_full_ir(desc);
+        compiled_session_impl::make_vision_transformer_depth_image_full_ir(desc);
     VulkanGlobalLayoutPlan layout_plan =
         make_buffer_first_width_packed_layout_plan(key, profile);
     return compiled_session_impl::make_compiled_session(
@@ -3726,16 +4530,17 @@ VulkanCompiledSession lookup_or_create_depth_anything_v2_image_session(
   });
 }
 
-VulkanCompiledSession lookup_or_create_depth_anything_v2_backbone_stack_session(
-    const DepthAnythingV2BackboneStackSessionDesc& desc) {
+VulkanCompiledSession lookup_or_create_vision_transformer_depth_backbone_session(
+    const VisionTransformerDepthBackboneSessionDesc& desc) {
   const VulkanRuntimeCapabilityProfile profile =
       query_vulkan_runtime_capability_profile();
   VulkanCompiledSessionKey key;
-  key.kind = VulkanCompiledSessionKind::DepthAnythingV2BackboneStack;
-  key.model_key = desc.model_key.empty() ? "depth_anything_v2.backbone_stack"
+  key.kind = VulkanCompiledSessionKind::VisionTransformerDepthBackbone;
+  key.model_key = desc.model_key.empty() ? "vision_transformer_depth.backbone"
                                          : desc.model_key;
   key.configuration_key =
-      compiled_session_impl::make_backbone_configuration_key(desc);
+      compiled_session_impl::
+          make_vision_transformer_depth_backbone_configuration_key(desc);
   key.input_shapes = {desc.patch_token_sizes};
   for (size_t idx = 0u; idx < desc.capture_indices.size(); ++idx) {
     key.output_shapes.push_back(desc.patch_token_sizes);
@@ -3746,7 +4551,7 @@ VulkanCompiledSession lookup_or_create_depth_anything_v2_backbone_stack_session(
 
   return lookup_or_create_vulkan_compiled_session(key, [&]() {
     VulkanBackendIR ir =
-        compiled_session_impl::make_depth_anything_v2_backbone_ir(desc);
+        compiled_session_impl::make_vision_transformer_depth_backbone_ir(desc);
     VulkanGlobalLayoutPlan layout_plan =
         make_buffer_first_width_packed_layout_plan(key, profile);
     return compiled_session_impl::make_compiled_session(
@@ -3757,18 +4562,19 @@ VulkanCompiledSession lookup_or_create_depth_anything_v2_backbone_stack_session(
   });
 }
 
-VulkanCompiledSession
-lookup_or_create_depth_anything_v2_decoder_preprocess_head_session(
-    const DepthAnythingV2DecoderPreprocessHeadSessionDesc& desc) {
+VulkanCompiledSession lookup_or_create_vision_transformer_depth_decoder_session(
+    const VisionTransformerDepthDecoderSessionDesc& desc) {
   const VulkanRuntimeCapabilityProfile profile =
       query_vulkan_runtime_capability_profile();
   VulkanCompiledSessionKey key;
-  key.kind = VulkanCompiledSessionKind::DepthAnythingV2DecoderPreprocessHead;
+  key.kind =
+      VulkanCompiledSessionKind::VisionTransformerDepthDecoderPreprocessHead;
   key.model_key = desc.model_key.empty()
-      ? "depth_anything_v2.decoder_preprocess_head"
+      ? "vision_transformer_depth.decoder_preprocess_head"
       : desc.model_key;
   key.configuration_key =
-      compiled_session_impl::make_decoder_configuration_key(desc);
+      compiled_session_impl::
+          make_vision_transformer_depth_decoder_configuration_key(desc);
   for (const auto& shape : desc.layer_token_sizes) {
     key.input_shapes.push_back(shape);
   }
@@ -3778,7 +4584,8 @@ lookup_or_create_depth_anything_v2_decoder_preprocess_head_session(
   key.persistent = desc.persistent;
 
   return lookup_or_create_vulkan_compiled_session(key, [&]() {
-    VulkanBackendIR ir = compiled_session_impl::make_depth_anything_v2_decoder_ir(
+    VulkanBackendIR ir = compiled_session_impl::
+        make_vision_transformer_depth_decoder_ir(
         desc);
     VulkanGlobalLayoutPlan layout_plan =
         make_buffer_first_width_packed_layout_plan(key, profile);
@@ -3788,6 +4595,45 @@ lookup_or_create_depth_anything_v2_decoder_preprocess_head_session(
         std::move(layout_plan),
         /*executable=*/true);
   });
+}
+
+VulkanCompiledSession lookup_or_create_depth_anything_v2_session(
+    const DepthAnythingV2SessionDesc& desc) {
+  auto generic_desc = desc;
+  if (generic_desc.model_key.empty()) {
+    generic_desc.model_key = "depth_anything_v2.compiled_session";
+  }
+  return lookup_or_create_vision_transformer_depth_session(generic_desc);
+}
+
+VulkanCompiledSession lookup_or_create_depth_anything_v2_image_session(
+    const DepthAnythingV2ImageSessionDesc& desc) {
+  auto generic_desc = desc;
+  if (generic_desc.model_key.empty()) {
+    generic_desc.model_key = "depth_anything_v2.image_compiled_session";
+  }
+  return lookup_or_create_vision_transformer_depth_image_session(generic_desc);
+}
+
+VulkanCompiledSession lookup_or_create_depth_anything_v2_backbone_stack_session(
+    const DepthAnythingV2BackboneStackSessionDesc& desc) {
+  auto generic_desc = desc;
+  if (generic_desc.model_key.empty()) {
+    generic_desc.model_key = "depth_anything_v2.backbone_stack";
+  }
+  return lookup_or_create_vision_transformer_depth_backbone_session(
+      generic_desc);
+}
+
+VulkanCompiledSession
+lookup_or_create_depth_anything_v2_decoder_preprocess_head_session(
+    const DepthAnythingV2DecoderPreprocessHeadSessionDesc& desc) {
+  auto generic_desc = desc;
+  if (generic_desc.model_key.empty()) {
+    generic_desc.model_key = "depth_anything_v2.decoder_preprocess_head";
+  }
+  return lookup_or_create_vision_transformer_depth_decoder_session(
+      generic_desc);
 }
 
 } // namespace utils

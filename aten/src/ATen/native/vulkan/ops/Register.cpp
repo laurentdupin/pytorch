@@ -1048,6 +1048,16 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "str label=\"\") "
       "-> __torch__.torch.classes.vulkan.VisionBackboneBlockContext"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_vision_backbone_block_context_with_attention_bias("
+      "Tensor norm1_weight, Tensor norm1_bias, float norm1_eps, "
+      "Tensor qkv_weight, Tensor? qkv_bias, Tensor? attention_bias, int num_heads, "
+      "Tensor proj_weight, Tensor? proj_bias, Tensor? ls1_gamma, "
+      "Tensor norm2_weight, Tensor norm2_bias, float norm2_eps, "
+      "Tensor fc1_weight, Tensor? fc1_bias, "
+      "Tensor fc2_weight, Tensor? fc2_bias, Tensor? ls2_gamma, "
+      "str label=\"\") "
+      "-> __torch__.torch.classes.vulkan.VisionBackboneBlockContext"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_vision_backbone_block_context("
       "Tensor X, __torch__.torch.classes.vulkan.VisionBackboneBlockContext context) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -1302,6 +1312,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_FN(create_vision_backbone_block_context));
   m.impl(
       TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::create_vision_backbone_block_context_with_attention_bias"),
+      TORCH_FN(create_vision_backbone_block_context_with_attention_bias));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vision_decoder_fusion_block_context"),
       TORCH_FN(create_vision_decoder_fusion_block_context));
   m.impl(
@@ -1423,6 +1437,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vision_backbone_block_context"),
       TORCH_FN(create_vision_backbone_block_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::create_vision_backbone_block_context_with_attention_bias"),
+      TORCH_FN(create_vision_backbone_block_context_with_attention_bias));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vision_decoder_fusion_block_context"),

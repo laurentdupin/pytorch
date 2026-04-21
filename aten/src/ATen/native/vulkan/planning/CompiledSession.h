@@ -22,11 +22,19 @@ namespace utils {
 
 using VulkanValueId = uint32_t;
 
+struct VulkanExecutableRegion;
+
+enum class VulkanCompiledSessionFamily : uint8_t {
+  VisionTransformerDepth = 0u,
+  DiffusionUNet,
+  HybridPipeline,
+};
+
 enum class VulkanCompiledSessionKind : uint8_t {
-  DepthAnythingV2 = 0u,
-  DepthAnythingV2Image,
-  DepthAnythingV2BackboneStack,
-  DepthAnythingV2DecoderPreprocessHead,
+  VisionTransformerDepth = 0u,
+  VisionTransformerDepthImage,
+  VisionTransformerDepthBackbone,
+  VisionTransformerDepthDecoderPreprocessHead,
 };
 
 enum class VulkanIROpKind : uint8_t {
@@ -37,6 +45,7 @@ enum class VulkanIROpKind : uint8_t {
   Concat,
   PatchTokenInput,
   BackboneBlock,
+  CapturePatchTokens,
   CaptureNormedPatchTokens,
   TokensToFeatureMap,
   DecoderProject,
@@ -114,7 +123,8 @@ class VulkanBackendIR final {
 };
 
 struct VulkanCompiledSessionKey final {
-  VulkanCompiledSessionKind kind{VulkanCompiledSessionKind::DepthAnythingV2};
+  VulkanCompiledSessionKind kind{
+      VulkanCompiledSessionKind::VisionTransformerDepth};
   std::string model_key;
   std::string configuration_key;
   std::vector<std::vector<int64_t>> input_shapes;
@@ -186,14 +196,19 @@ class VulkanCompiledSession final {
   const VulkanBackendIR& ir() const;
   const VulkanGlobalLayoutPlan& layout_plan() const;
   const VulkanIRMemoryPlan& memory_plan() const;
+  const VulkanExecutableRegion* executable_region() const;
   bool executable() const;
   const void* identity() const;
 };
 
 std::optional<VulkanCompiledSessionTensorBindings>
 make_compiled_session_tensor_bindings(const VulkanCompiledSession& session);
+std::optional<VulkanCompiledSessionTensorBindings>
+make_compiled_executable_region_tensor_bindings(
+    const VulkanCompiledSession& session,
+    const VulkanExecutableRegion& region);
 
-struct DepthAnythingV2BackboneStackSessionDesc final {
+struct VisionTransformerDepthBackboneSessionDesc final {
   std::string model_key;
   std::vector<int64_t> patch_token_sizes;
   ScalarType dtype{kFloat};
@@ -205,7 +220,7 @@ struct DepthAnythingV2BackboneStackSessionDesc final {
   bool persistent{true};
 };
 
-struct DepthAnythingV2SessionDesc final {
+struct VisionTransformerDepthSessionDesc final {
   std::string model_key;
   std::vector<int64_t> patch_token_sizes;
   ScalarType dtype{kFloat};
@@ -225,7 +240,7 @@ struct DepthAnythingV2SessionDesc final {
   bool persistent{true};
 };
 
-struct DepthAnythingV2ImageSessionDesc final {
+struct VisionTransformerDepthImageSessionDesc final {
   std::string model_key;
   std::vector<int64_t> image_sizes;
   std::vector<int64_t> patch_token_sizes;
@@ -248,7 +263,7 @@ struct DepthAnythingV2ImageSessionDesc final {
   bool persistent{true};
 };
 
-struct DepthAnythingV2DecoderPreprocessHeadSessionDesc final {
+struct VisionTransformerDepthDecoderSessionDesc final {
   std::string model_key;
   std::array<std::vector<int64_t>, 4u> layer_token_sizes;
   std::array<std::vector<int64_t>, 4u> layer_feature_sizes;
@@ -263,6 +278,16 @@ struct DepthAnythingV2DecoderPreprocessHeadSessionDesc final {
   bool persistent{true};
 };
 
+using DepthAnythingV2BackboneStackSessionDesc =
+    VisionTransformerDepthBackboneSessionDesc;
+using DepthAnythingV2SessionDesc = VisionTransformerDepthSessionDesc;
+using DepthAnythingV2ImageSessionDesc = VisionTransformerDepthImageSessionDesc;
+using DepthAnythingV2DecoderPreprocessHeadSessionDesc =
+    VisionTransformerDepthDecoderSessionDesc;
+
+const char* compiled_session_family_name(VulkanCompiledSessionFamily family);
+VulkanCompiledSessionFamily compiled_session_family_for_kind(
+    VulkanCompiledSessionKind kind);
 const char* compiled_session_kind_name(VulkanCompiledSessionKind kind);
 const char* ir_op_kind_name(VulkanIROpKind kind);
 
@@ -293,6 +318,19 @@ VulkanCompiledSession lookup_or_create_depth_anything_v2_backbone_stack_session(
 VulkanCompiledSession
 lookup_or_create_depth_anything_v2_decoder_preprocess_head_session(
     const DepthAnythingV2DecoderPreprocessHeadSessionDesc& desc);
+
+VulkanCompiledSession lookup_or_create_vision_transformer_depth_session(
+    const VisionTransformerDepthSessionDesc& desc);
+
+VulkanCompiledSession lookup_or_create_vision_transformer_depth_image_session(
+    const VisionTransformerDepthImageSessionDesc& desc);
+
+VulkanCompiledSession lookup_or_create_vision_transformer_depth_backbone_session(
+    const VisionTransformerDepthBackboneSessionDesc& desc);
+
+VulkanCompiledSession
+lookup_or_create_vision_transformer_depth_decoder_session(
+    const VisionTransformerDepthDecoderSessionDesc& desc);
 
 } // namespace utils
 } // namespace ops

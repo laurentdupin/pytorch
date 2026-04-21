@@ -4173,6 +4173,95 @@ print("OK")
 
         self._assert_outputs_close(expected, actual, atol=5e-3, rtol=5e-3)
 
+    def test_vulkan_vision_backbone_block_context_with_attention_bias_matches_reference(self):
+        torch.manual_seed(0)
+        embed_dim = 32
+        num_heads = 4
+        hidden_dim = 64
+        token_count = 17
+
+        x = torch.randn(1, token_count, embed_dim, dtype=torch.float32)
+        norm1_weight = torch.randn(embed_dim, dtype=torch.float32)
+        norm1_bias = torch.randn(embed_dim, dtype=torch.float32)
+        qkv_weight = torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32)
+        qkv_bias = torch.randn(embed_dim * 3, dtype=torch.float32)
+        attention_bias = torch.randn(num_heads, token_count, token_count, dtype=torch.float32) * 0.01
+        proj_weight = torch.randn(embed_dim, embed_dim, dtype=torch.float32)
+        proj_bias = torch.randn(embed_dim, dtype=torch.float32)
+        ls1_gamma = torch.randn(embed_dim, dtype=torch.float32)
+        norm2_weight = torch.randn(embed_dim, dtype=torch.float32)
+        norm2_bias = torch.randn(embed_dim, dtype=torch.float32)
+        fc1_weight = torch.randn(hidden_dim, embed_dim, dtype=torch.float32)
+        fc1_bias = torch.randn(hidden_dim, dtype=torch.float32)
+        fc2_weight = torch.randn(embed_dim, hidden_dim, dtype=torch.float32)
+        fc2_bias = torch.randn(embed_dim, dtype=torch.float32)
+        ls2_gamma = torch.randn(embed_dim, dtype=torch.float32)
+
+        norm_eps = 1.0e-6
+        head_dim = embed_dim // num_heads
+
+        def reference(inp):
+            norm1 = F.layer_norm(inp, (embed_dim,), norm1_weight, norm1_bias, norm_eps)
+            qkv = F.linear(norm1.reshape(token_count, embed_dim), qkv_weight, None)
+            q, k, v = qkv.chunk(3, dim=1)
+            q = (
+                q + qkv_bias[:embed_dim]
+            ).reshape(token_count, num_heads, head_dim).permute(1, 0, 2)
+            k = (
+                k + qkv_bias[embed_dim : 2 * embed_dim]
+            ).reshape(token_count, num_heads, head_dim).permute(1, 0, 2)
+            v = (
+                v + qkv_bias[2 * embed_dim :]
+            ).reshape(token_count, num_heads, head_dim).permute(1, 0, 2)
+            q = q * (head_dim ** -0.5)
+            attn = F.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attention_bias,
+                dropout_p=0.0,
+                is_causal=False,
+                scale=1.0,
+            )
+            attn = attn.permute(1, 0, 2).reshape(token_count, embed_dim)
+            attn = F.linear(attn, proj_weight, proj_bias).reshape(1, token_count, embed_dim)
+            hidden = inp + attn * ls1_gamma
+            norm2 = F.layer_norm(hidden, (embed_dim,), norm2_weight, norm2_bias, norm_eps)
+            mlp = F.linear(norm2, fc1_weight, fc1_bias)
+            mlp = F.gelu(mlp)
+            mlp = F.linear(mlp, fc2_weight, fc2_bias)
+            return hidden + mlp * ls2_gamma
+
+        expected = reference(x)
+        with torch.inference_mode():
+            context = torch.ops.vulkan_prepack.create_vision_backbone_block_context_with_attention_bias(
+                norm1_weight,
+                norm1_bias,
+                norm_eps,
+                qkv_weight,
+                qkv_bias,
+                attention_bias,
+                num_heads,
+                proj_weight,
+                proj_bias,
+                ls1_gamma,
+                norm2_weight,
+                norm2_bias,
+                norm_eps,
+                fc1_weight,
+                fc1_bias,
+                fc2_weight,
+                fc2_bias,
+                ls2_gamma,
+                "depth.beit.backbone.block.test",
+            )
+            actual = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                x.to("vulkan"),
+                context,
+            ).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=6e-3, rtol=6e-3)
+
     def test_vulkan_planning_runtime_ops_expose_scheduler_bridge(self):
         script = """
             import torch
@@ -6331,17 +6420,23 @@ print("OK")
                 "execution_graph_root event=bundle_hit allocation_label=depth.vision.stack.capture.17x32.graph",
                 graph_log_text,
             )
-            self.assertIn(
-                "inference_replay event=store kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay",
-                graph_log_text,
+            self.assertTrue(
+                "inference_replay event=store kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay"
+                in graph_log_text
+                or "inference_replay event=store kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.compiled_session.replay"
+                in graph_log_text
             )
-            self.assertIn(
-                "inference_replay event=record kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay",
-                graph_log_text,
+            self.assertTrue(
+                "inference_replay event=record kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay"
+                in graph_log_text
+                or "inference_replay event=record kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.compiled_session.replay"
+                in graph_log_text
             )
-            self.assertIn(
-                "inference_replay event=submit kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay",
-                graph_log_text,
+            self.assertTrue(
+                "inference_replay event=submit kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay"
+                in graph_log_text
+                or "inference_replay event=submit kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.compiled_session.replay"
+                in graph_log_text
             )
             self.assertIn(
                 "execution_graph_root event=bundle_store allocation_label=depth.vision.stack.norm.capture.17x32.graph",

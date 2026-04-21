@@ -180,6 +180,7 @@ class ExecutionGraphReplayBundle final {
   bool recorded() const;
   void warmup() const;
   void record() const;
+  void record_empty() const;
   void record_steps_individually() const;
   ExecutionGraphReplay& replay(size_t idx);
   const ExecutionGraphReplay& replay(size_t idx) const;

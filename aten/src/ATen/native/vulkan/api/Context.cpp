@@ -440,6 +440,33 @@ void Context::gpu_profile_end(CommandBuffer& cmd, const uint32_t log_idx) {
   querypool_.shader_profile_end(cmd, log_idx);
 }
 
+uint32_t Context::begin_external_gpu_profile(
+    const std::string& label,
+    const VkExtent3D global_workgroup_size,
+    const VkExtent3D local_workgroup_size) {
+  if (!enable_op_profiling_ || !querypool_.is_enabled()) {
+    return UINT32_MAX;
+  }
+  CommandBuffer* const cmd = external_recording_cmd();
+  if (cmd == nullptr) {
+    return UINT32_MAX;
+  }
+  return gpu_profile_begin(
+      *cmd, label, global_workgroup_size, local_workgroup_size);
+}
+
+void Context::end_external_gpu_profile(const uint32_t log_idx) {
+  if (!enable_op_profiling_ || !querypool_.is_enabled() ||
+      log_idx == UINT32_MAX) {
+    return;
+  }
+  CommandBuffer* const cmd = external_recording_cmd();
+  if (cmd == nullptr) {
+    return;
+  }
+  gpu_profile_end(*cmd, log_idx);
+}
+
 void Context::reset_gpu_profile_queries() {
   if (!enable_op_profiling_ || !querypool_.is_enabled() ||
       !querypool_.has_entries()) {

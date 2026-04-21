@@ -136,6 +136,12 @@ class Context final {
     return enable_op_profiling_;
   }
 
+  uint32_t begin_external_gpu_profile(
+      const std::string&,
+      const VkExtent3D,
+      const VkExtent3D);
+  void end_external_gpu_profile(uint32_t);
+
   inline VkDevice device() {
     return device_;
   }

@@ -24,6 +24,7 @@ class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
   c10::intrusive_ptr<LayernormPackedContext> norm1_context_;
   c10::intrusive_ptr<LinearPackedContext> qkv_context_;
   Tensor qkv_bias_;
+  Tensor attention_bias_;
   int64_t num_heads_{0};
   c10::intrusive_ptr<LinearPackedContext> proj_context_;
   Tensor ls1_gamma_;
@@ -39,6 +40,7 @@ class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
       double norm1_eps,
       const Tensor& qkv_weight,
       const std::optional<Tensor>& qkv_bias,
+      const std::optional<Tensor>& attention_bias,
       int64_t num_heads,
       const Tensor& proj_weight,
       const std::optional<Tensor>& proj_bias,
@@ -59,20 +61,22 @@ class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
     static constexpr uint32_t Norm1Eps = 2u;
     static constexpr uint32_t QkvWeight = 3u;
     static constexpr uint32_t QkvBias = 4u;
-    static constexpr uint32_t NumHeads = 5u;
-    static constexpr uint32_t ProjWeight = 6u;
-    static constexpr uint32_t ProjBias = 7u;
-    static constexpr uint32_t Ls1Gamma = 8u;
-    static constexpr uint32_t Norm2Weight = 9u;
-    static constexpr uint32_t Norm2Bias = 10u;
-    static constexpr uint32_t Norm2Eps = 11u;
-    static constexpr uint32_t Fc1Weight = 12u;
-    static constexpr uint32_t Fc1Bias = 13u;
-    static constexpr uint32_t Fc2Weight = 14u;
-    static constexpr uint32_t Fc2Bias = 15u;
-    static constexpr uint32_t Ls2Gamma = 16u;
-    static constexpr uint32_t Label = 17u;
-    static constexpr uint32_t NumArgs = 18u;
+    static constexpr uint32_t AttentionBias = 5u;
+    static constexpr uint32_t NumHeads = 6u;
+    static constexpr uint32_t ProjWeight = 7u;
+    static constexpr uint32_t ProjBias = 8u;
+    static constexpr uint32_t Ls1Gamma = 9u;
+    static constexpr uint32_t Norm2Weight = 10u;
+    static constexpr uint32_t Norm2Bias = 11u;
+    static constexpr uint32_t Norm2Eps = 12u;
+    static constexpr uint32_t Fc1Weight = 13u;
+    static constexpr uint32_t Fc1Bias = 14u;
+    static constexpr uint32_t Fc2Weight = 15u;
+    static constexpr uint32_t Fc2Bias = 16u;
+    static constexpr uint32_t Ls2Gamma = 17u;
+    static constexpr uint32_t Label = 18u;
+    static constexpr uint32_t NumArgs = 19u;
+    static constexpr uint32_t LegacyNumArgs = 18u;
   };
 
   static VisionBackboneBlockContext pack(c10::impl::GenericList unpacked);
@@ -95,6 +99,10 @@ class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
 
   const Tensor& qkv_bias() const {
     return qkv_bias_;
+  }
+
+  const Tensor& attention_bias() const {
+    return attention_bias_;
   }
 
   int64_t num_heads() const {
@@ -133,6 +141,28 @@ create_vision_backbone_block_context(
     double norm1_eps,
     Tensor&& qkv_weight,
     std::optional<Tensor>&& qkv_bias,
+    int64_t num_heads,
+    Tensor&& proj_weight,
+    std::optional<Tensor>&& proj_bias,
+    std::optional<Tensor>&& ls1_gamma,
+    Tensor&& norm2_weight,
+    Tensor&& norm2_bias,
+    double norm2_eps,
+    Tensor&& fc1_weight,
+    std::optional<Tensor>&& fc1_bias,
+    Tensor&& fc2_weight,
+    std::optional<Tensor>&& fc2_bias,
+    std::optional<Tensor>&& ls2_gamma,
+    std::string label);
+
+c10::intrusive_ptr<VisionBackboneBlockContext>
+create_vision_backbone_block_context_with_attention_bias(
+    Tensor&& norm1_weight,
+    Tensor&& norm1_bias,
+    double norm1_eps,
+    Tensor&& qkv_weight,
+    std::optional<Tensor>&& qkv_bias,
+    std::optional<Tensor>&& attention_bias,
     int64_t num_heads,
     Tensor&& proj_weight,
     std::optional<Tensor>&& proj_bias,
