@@ -32,7 +32,7 @@ Tensor select_cpu_fallback(const Tensor& self, int64_t dim, int64_t index) {
   Tensor cpu_result = at::select(cpu, dim, index).contiguous();
   Tensor out = at::empty(
       cpu_result.sizes(),
-      self.options().device(at::kVulkan).dtype(cpu_result.scalar_type()));
+      self.options().device(self.device()).dtype(cpu_result.scalar_type()));
   ops::copy_(out, cpu_result);
   return out;
 }

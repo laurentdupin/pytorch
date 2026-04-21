@@ -10,6 +10,17 @@ namespace vulkan {
 namespace ops {
 namespace {
 
+Device vulkan_device_from_options(const TensorOptions& options) {
+  if (options.has_device()) {
+    TORCH_CHECK(
+        options.device().type() == at::kVulkan,
+        "Vulkan factory expected a Vulkan device but got ",
+        options.device());
+    return options.device();
+  }
+  return Device(at::kVulkan, api::current_device());
+}
+
 Tensor arange_impl(
     const std::optional<Scalar>& start,
     const Scalar& end,
@@ -34,7 +45,7 @@ Tensor arange_impl(
         "Vulkan arange only supports implicit step=1 for the single-end overload");
     at::arange_out(cpu_result, end);
   }
-  return cpu_result.vulkan();
+  return cpu_result.to(vulkan_device_from_options(options));
 }
 
 Tensor& arange_out_impl(
@@ -73,7 +84,7 @@ Tensor linspace_impl(
 
   Tensor cpu_result = at::empty({0}, options.device(at::kCPU));
   at::linspace_out(cpu_result, start, end, steps);
-  return cpu_result.vulkan();
+  return cpu_result.to(vulkan_device_from_options(options));
 }
 
 Tensor& linspace_out_impl(

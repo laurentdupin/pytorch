@@ -2318,6 +2318,7 @@ from torch import (
     testing as testing,
     types as types,
     utils as utils,
+    vulkan as vulkan,
     version as version,
     xpu as xpu,
 )

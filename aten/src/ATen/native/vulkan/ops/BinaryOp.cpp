@@ -2077,7 +2077,7 @@ static Tensor compare_tensor_tensor_cpu_fallback(
   const Tensor other_cpu = other_arg.cpu();
   const Tensor result_cpu = compare_fn(self_cpu, other_cpu);
   return result_cpu.to(
-      self_arg.options().device(at::kVulkan).dtype(result_cpu.scalar_type()));
+      self_arg.options().device(self_arg.device()).dtype(result_cpu.scalar_type()));
 }
 
 template <typename CompareFn>
@@ -2090,7 +2090,7 @@ static Tensor compare_tensor_scalar_cpu_fallback(
   const Tensor self_cpu = self_arg.cpu();
   const Tensor result_cpu = compare_fn(self_cpu, other);
   return result_cpu.to(
-      self_arg.options().device(at::kVulkan).dtype(result_cpu.scalar_type()));
+      self_arg.options().device(self_arg.device()).dtype(result_cpu.scalar_type()));
 }
 
 static Tensor lt_tensor(const Tensor& self, const Tensor& other) {

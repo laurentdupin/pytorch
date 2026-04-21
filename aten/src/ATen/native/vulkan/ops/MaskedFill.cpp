@@ -24,7 +24,7 @@ Tensor masked_fill_scalar(
         self_arg.cpu().masked_fill(mask_arg.cpu(), value);
     Tensor out = at::empty(
         cpu_result.sizes(),
-        self_arg.options().device(at::kVulkan));
+        self_arg.options().device(self_arg.device()));
     ops::copy_(out, cpu_result);
     return out;
   };

@@ -15,6 +15,11 @@ namespace {
 
 using namespace api::utils;
 
+Device vulkan_output_device(const Tensor& tensor) {
+  return tensor.is_vulkan() ? tensor.device()
+                            : Device(at::kVulkan, api::current_device());
+}
+
 Tensor sum_dim_buffer_chunk(
     const Tensor& prepared_input,
     const std::vector<int64_t>& output_sizes) {
@@ -106,7 +111,7 @@ Tensor sum_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
-  return at::sum(self_cpu, dtype).vulkan();
+  return at::sum(self_cpu, dtype).to(vulkan_output_device(self_arg));
 }
 
 Tensor sum_dim_cpu_fallback(
@@ -118,7 +123,7 @@ Tensor sum_dim_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
-  return at::sum(self_cpu, {dim}, keepdim, dtype).vulkan();
+  return at::sum(self_cpu, {dim}, keepdim, dtype).to(vulkan_output_device(self_arg));
 }
 
 Tensor amax_cpu_fallback(
@@ -129,7 +134,7 @@ Tensor amax_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
-  return at::amax(self_cpu, dim, keepdim).vulkan();
+  return at::amax(self_cpu, dim, keepdim).to(vulkan_output_device(self_arg));
 }
 
 Tensor finalize_bfloat16_sum_output(
@@ -502,8 +507,7 @@ Tensor sum(const Tensor& self, const std::optional<ScalarType> dtype) {
     if (self.size(d) == 0) {
       return self.new_zeros(
           {},
-          at::device(at::kVulkan)
-              .dtype(resolve_vulkan_sum_dtype(self.scalar_type(), dtype)));
+          self.options().dtype(resolve_vulkan_sum_dtype(self.scalar_type(), dtype)));
     }
 
     dims.push_back(d);

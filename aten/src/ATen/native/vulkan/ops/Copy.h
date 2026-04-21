@@ -2,6 +2,7 @@
 
 #ifdef USE_VULKAN_API
 
+#include <optional>
 #include <string>
 
 #include <ATen/native/vulkan/ops/Common.h>
@@ -23,7 +24,8 @@ Tensor& copy_(Tensor& dst, const Tensor& src);
 
 vTensor to_vulkan(
     at::Tensor& src,
-    const api::StorageType storage_type = api::StorageType::TEXTURE_3D);
+    const api::StorageType storage_type = api::StorageType::TEXTURE_3D,
+    const std::optional<c10::DeviceIndex> device_index = std::nullopt);
 
 at::Tensor to_vulkan_labeled(
     at::Tensor src,

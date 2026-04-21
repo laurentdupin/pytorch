@@ -8,6 +8,22 @@ namespace ops {
 
 namespace {
 
+api::Context* resolve_vulkan_context(const std::optional<Device> device) {
+  if (device.has_value()) {
+    TORCH_CHECK(
+        device->type() == kVulkan,
+        "Vulkan factory expected a Vulkan device but got ",
+        *device);
+  }
+
+  const c10::DeviceIndex device_index =
+      device.has_value() && device->has_index()
+      ? device->index()
+      : api::current_device();
+  api::set_current_device(device_index);
+  return api::context(device_index);
+}
+
 api::GPUMemoryLayout default_memory_layout_for_storage_type(
     const api::StorageType storage_type) {
   return storage_type == api::StorageType::BUFFER
@@ -39,7 +55,8 @@ bool should_force_low_rank_float_buffer_storage(
 api::StorageType choose_storage_type(
     const IntArrayRef sizes,
     const std::optional<MemoryFormat> memory_format,
-    const std::optional<ScalarType> dtype) {
+    const std::optional<ScalarType> dtype,
+    api::Context* const context) {
   api::StorageType storage_type = api::StorageType::TEXTURE_3D;
 
   if (dtype && api::requires_buffer_storage(convert_dtype(*dtype), sizes.size())) {
@@ -62,7 +79,7 @@ api::StorageType choose_storage_type(
   if (sizes.size() <= 4) {
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(
-        api::context()->adapter_ptr()->physical_handle(), &properties);
+        context->adapter_ptr()->physical_handle(), &properties);
     const auto size_vec = sizes.vec();
 
     const auto memory_layout = memory_format
@@ -98,13 +115,15 @@ Tensor _empty_affine_quantized(
     const std::optional<ScalarType> dtype,
     const std::optional<c10::Layout> layout,
     const std::optional<Device> device,
-    const std::optional<bool> pin_memory,
-    const double scale,
-    const int64_t zero_point,
-    const std::optional<MemoryFormat> memory_format) {
-  api::StorageType storage_type = choose_storage_type(sizes, memory_format, dtype);
+  const std::optional<bool> pin_memory,
+  const double scale,
+  const int64_t zero_point,
+  const std::optional<MemoryFormat> memory_format) {
+  api::Context* const context = resolve_vulkan_context(device);
+  api::StorageType storage_type =
+      choose_storage_type(sizes, memory_format, dtype, context);
   return convert_quantized(vTensor{
-      api::context(),
+      context,
       sizes.vec(),
       scale,
       zero_point,
@@ -122,9 +141,11 @@ static Tensor empty_memory_format(
     const std::optional<Device> device,
     const std::optional<bool> pin_memory,
     const std::optional<MemoryFormat> memory_format) {
-  api::StorageType storage_type = choose_storage_type(sizes, memory_format, dtype);
+  api::Context* const context = resolve_vulkan_context(device);
+  api::StorageType storage_type =
+      choose_storage_type(sizes, memory_format, dtype, context);
   return convert(vTensor{
-      api::context(),
+      context,
       sizes.vec(),
       convert_dtype(dtype ? *dtype : c10::kFloat),
       storage_type,

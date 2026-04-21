@@ -175,6 +175,16 @@ if(USE_XPU)
     list(APPEND TORCH_PYTHON_COMPILE_DEFINITIONS USE_XPU)
 endif()
 
+if(USE_VULKAN)
+    list(APPEND TORCH_PYTHON_SRCS
+      ${TORCH_SRC_DIR}/csrc/vulkan/Module.cpp
+      )
+    list(APPEND TORCH_PYTHON_INCLUDE_DIRECTORIES
+      ${TORCH_ROOT}/third_party/VulkanMemoryAllocator
+      )
+    list(APPEND TORCH_PYTHON_COMPILE_DEFINITIONS USE_VULKAN_API)
+endif()
+
 if(USE_CUDNN OR USE_ROCM)
     list(APPEND TORCH_PYTHON_SRCS
       ${TORCH_SRC_DIR}/csrc/cuda/shared/cudnn.cpp

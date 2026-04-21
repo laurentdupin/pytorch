@@ -36,7 +36,7 @@ Tensor upload_cpu_result_to_vulkan(
   Tensor output = at::empty(
       output_sizes,
       prototype.options()
-          .device(at::kVulkan)
+          .device(prototype.device())
           .dtype(reshaped_cpu.scalar_type()));
   ops::copy_(output, reshaped_cpu);
   return output;

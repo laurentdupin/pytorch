@@ -1,5 +1,6 @@
 #include <c10/core/impl/DeviceGuardImplInterface.h>
 #include <c10/macros/Macros.h>
+#include <ATen/native/vulkan/api/Context.h>
 
 namespace at::detail {
 
@@ -16,33 +17,47 @@ struct VulkanGuardImpl final : public c10::impl::DeviceGuardImplInterface {
   DeviceType type() const override {
     return DeviceType::Vulkan;
   }
-  Device exchangeDevice(Device) const override {
-    // no-op
-    return Device(DeviceType::Vulkan, -1);
+  Device exchangeDevice(Device d) const override {
+    TORCH_INTERNAL_ASSERT(d.type() == DeviceType::Vulkan);
+    return Device(
+        DeviceType::Vulkan,
+        native::vulkan::api::exchange_device(d.index()));
   }
   Device getDevice() const override {
-    return Device(DeviceType::Vulkan, -1);
+    return Device(DeviceType::Vulkan, native::vulkan::api::current_device());
   }
-  void setDevice(Device) const override {
-    // no-op
+  void setDevice(Device d) const override {
+    TORCH_INTERNAL_ASSERT(d.type() == DeviceType::Vulkan);
+    native::vulkan::api::set_current_device(d.index());
   }
   void uncheckedSetDevice(Device d) const noexcept override {
-    (void)d;
-    // no-op
+    try {
+      if (d.type() == DeviceType::Vulkan && d.index() >= 0) {
+        native::vulkan::api::set_current_device(d.index());
+      }
+    } catch (...) {
+    }
   }
   Stream getStream(Device d) const noexcept override {
-    (void)d;
-    // no-op
-    return Stream(Stream::DEFAULT, Device(DeviceType::Vulkan, -1));
+    try {
+      const auto device_index =
+          d.has_index() ? d.index() : native::vulkan::api::current_device();
+      return Stream(Stream::DEFAULT, Device(DeviceType::Vulkan, device_index));
+    } catch (...) {
+      return Stream(Stream::DEFAULT, Device(DeviceType::Vulkan, -1));
+    }
   }
   // NB: These do NOT set the current device
   Stream exchangeStream(Stream s) const noexcept override {
     (void)s;
-    // no-op
-    return Stream(Stream::DEFAULT, Device(DeviceType::Vulkan, -1));
+    return getStream(Device(DeviceType::Vulkan, -1));
   }
   DeviceIndex deviceCount() const noexcept override {
-    return 1;
+    try {
+      return native::vulkan::api::device_count();
+    } catch (...) {
+      return 0;
+    }
   }
 
   // Event-related functions

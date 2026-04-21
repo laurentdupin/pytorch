@@ -307,14 +307,75 @@ class DepthAnythingStyleMiniDPTHead(nn.Module):
 @unittest.skipUnless(torch.is_vulkan_available(),
                      "Vulkan backend must be available for these tests.")
 class TestVulkanEagerRuntime(TestCase):
-    def _to_vulkan(self, value):
+    def _to_vulkan(self, value, device="vulkan"):
         if torch.is_tensor(value):
-            return value.to("vulkan")
+            return value.to(device)
         if isinstance(value, tuple):
-            return tuple(self._to_vulkan(v) for v in value)
+            return tuple(self._to_vulkan(v, device) for v in value)
         if isinstance(value, list):
-            return [self._to_vulkan(v) for v in value]
+            return [self._to_vulkan(v, device) for v in value]
         return value
+
+    def _vulkan_device(self, index=None):
+        if index is None:
+            index = torch.vulkan.current_device()
+        return torch.device("vulkan", index)
+
+    def _require_multiple_vulkan_devices(self):
+        if torch.vulkan.device_count() < 2:
+            self.skipTest("Multiple Vulkan devices are required for this test.")
+
+    def _working_vulkan_device_indices(self):
+        working = []
+        with torch.inference_mode():
+            for device_index in range(torch.vulkan.device_count()):
+                try:
+                    sample = torch.randn(1).to(self._vulkan_device(device_index))
+                    sample.cpu()
+                except RuntimeError:
+                    continue
+                working.append(device_index)
+        return working
+
+    def _non_default_working_vulkan_device_index(self):
+        default_device = torch.vulkan.current_device()
+        for device_index in self._working_vulkan_device_indices():
+            if device_index != default_device:
+                return device_index
+        self.skipTest(
+            "No non-default Vulkan device completed a simple round-trip on this "
+            "machine.")
+
+    def _working_vulkan_device_group(self, min_devices=2):
+        working_devices = self._working_vulkan_device_indices()
+        if len(working_devices) < min_devices:
+            self.skipTest(
+                f"At least {min_devices} working Vulkan devices are required for "
+                "this test.")
+        return working_devices[:min_devices]
+
+    def _linear_capable_vulkan_device_indices(self):
+        capable = []
+        torch.manual_seed(0)
+        with torch.inference_mode():
+            for device_index in range(torch.vulkan.device_count()):
+                try:
+                    device = self._vulkan_device(device_index)
+                    module = nn.Linear(4, 3).eval().to(device)
+                    sample = torch.randn(2, 4).to(device)
+                    module(sample).cpu()
+                except RuntimeError:
+                    continue
+                capable.append(device_index)
+        return capable
+
+    def _linear_capable_vulkan_device_group(self, min_devices=2):
+        capable_devices = self._linear_capable_vulkan_device_indices()
+        if len(capable_devices) < min_devices:
+            self.skipTest(
+                f"At least {min_devices} Vulkan devices that can execute a "
+                "Linear module are required for this test.")
+        return capable_devices[:min_devices]
 
     def _assert_outputs_close(self, expected, actual, *, atol=1e-4, rtol=1e-4):
         if torch.is_tensor(expected):
@@ -430,6 +491,283 @@ class TestVulkanEagerRuntime(TestCase):
     def _benchmarks_python_path(self):
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         return os.path.join(os.path.dirname(repo_root), "scripts", "benchmarks")
+
+    def test_vulkan_device_api_reports_properties(self):
+        device_count = torch.vulkan.device_count()
+        self.assertGreaterEqual(device_count, 1)
+
+        current_device = torch.vulkan.current_device()
+        self.assertGreaterEqual(current_device, 0)
+        self.assertLess(current_device, device_count)
+
+        current_properties = torch.vulkan.get_device_properties()
+        self.assertEqual(current_properties.index, current_device)
+        self.assertEqual(
+            torch.vulkan.get_device_name(current_device),
+            current_properties.name)
+
+        valid_device_types = {
+            "other",
+            "integrated_gpu",
+            "discrete_gpu",
+            "virtual_gpu",
+            "cpu",
+            "unknown",
+        }
+
+        for device_index in range(device_count):
+            with self.subTest(device_index=device_index):
+                properties = torch.vulkan.get_device_properties(device_index)
+                self.assertEqual(properties.index, device_index)
+                self.assertEqual(
+                    torch.vulkan.get_device_name(device_index),
+                    properties.name)
+                self.assertTrue(properties.name)
+                self.assertIn(properties.type, valid_device_types)
+                self.assertGreater(properties.api_version_raw, 0)
+                self.assertGreaterEqual(properties.num_compute_queues, 1)
+                self.assertGreater(properties.max_image_dimension_2d, 0)
+                self.assertGreater(properties.max_image_dimension_3d, 0)
+                self.assertIn(properties.name, repr(properties))
+
+    def test_vulkan_set_device_and_context_manager_select_default_device(self):
+        previous_device = torch.vulkan.current_device()
+        target_device = (
+            self._non_default_working_vulkan_device_index()
+            if len(self._working_vulkan_device_indices()) > 1
+            else 0
+        )
+
+        try:
+            torch.vulkan.set_device(target_device)
+            self.assertEqual(torch.vulkan.current_device(), target_device)
+
+            default_tensor = torch.empty((2, 3), device="vulkan")
+            self.assertEqual(default_tensor.device, self._vulkan_device(target_device))
+
+            with torch.vulkan.device(previous_device):
+                self.assertEqual(torch.vulkan.current_device(), previous_device)
+                nested_tensor = torch.ones((2, 3), device="vulkan")
+                self.assertEqual(nested_tensor.device, self._vulkan_device(previous_device))
+
+            self.assertEqual(torch.vulkan.current_device(), target_device)
+        finally:
+            torch.vulkan.set_device(previous_device)
+
+        self.assertEqual(torch.vulkan.current_device(), previous_device)
+
+    def test_vulkan_explicit_device_index_allocation_and_to(self):
+        with torch.inference_mode():
+            cpu = torch.randn(2, 3, 4)
+
+            tensor_vulkan0 = cpu.to("vulkan:0")
+            empty_vulkan0 = torch.empty(cpu.shape, device="vulkan:0")
+
+            self.assertEqual(tensor_vulkan0.device, self._vulkan_device(0))
+            self.assertEqual(empty_vulkan0.device, self._vulkan_device(0))
+            self._assert_outputs_close(cpu, tensor_vulkan0.cpu())
+
+            converted = self._to_vulkan((cpu, [cpu]), device=self._vulkan_device(0))
+            self.assertEqual(converted[0].device, self._vulkan_device(0))
+            self.assertEqual(converted[1][0].device, self._vulkan_device(0))
+
+            if len(self._working_vulkan_device_indices()) > 1:
+                target_device = self._vulkan_device(
+                    self._non_default_working_vulkan_device_index())
+                tensor_vulkan_other = cpu.to(target_device)
+                self.assertEqual(tensor_vulkan_other.device, target_device)
+                self._assert_outputs_close(cpu, tensor_vulkan_other.cpu())
+
+    def test_vulkan_module_to_explicit_device(self):
+        target_device = self._vulkan_device(
+            self._non_default_working_vulkan_device_index()
+            if len(self._working_vulkan_device_indices()) > 1
+            else 0
+        )
+
+        torch.manual_seed(0)
+        module_cpu = nn.Linear(4, 3).eval()
+        module_vulkan = nn.Linear(4, 3).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to(target_device)
+
+        for name, parameter in module_vulkan.named_parameters():
+            self.assertEqual(
+                parameter.device,
+                target_device,
+                msg=f"Parameter '{name}' was not moved to {target_device}")
+        for name, buffer in module_vulkan.named_buffers():
+            self.assertEqual(
+                buffer.device,
+                target_device,
+                msg=f"Buffer '{name}' was not moved to {target_device}")
+
+        x_cpu = torch.randn(2, 4)
+        x_vulkan = x_cpu.to(target_device)
+        with torch.inference_mode():
+            expected = module_cpu(x_cpu)
+            actual = module_vulkan(x_vulkan).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+
+    def test_vulkan_cross_device_copy_rejected(self):
+        self._require_multiple_vulkan_devices()
+        source_device = 0
+        target_device = next(
+            device_index
+            for device_index in range(torch.vulkan.device_count())
+            if device_index != source_device
+        )
+
+        with torch.inference_mode():
+            src = torch.randn(2, 3, 4).to(self._vulkan_device(source_device))
+            dst = torch.empty((2, 3, 4), device=self._vulkan_device(target_device))
+
+            self.assertEqual(src.device, self._vulkan_device(source_device))
+            self.assertEqual(dst.device, self._vulkan_device(target_device))
+
+            with self.assertRaisesRegex(
+                    RuntimeError,
+                    "Cross-device Vulkan copy is not supported yet"):
+                dst.copy_(src)
+
+    def test_vulkan_device_group_and_mesh_api(self):
+        device_indices = self._working_vulkan_device_group()
+
+        group = torch.vulkan.device_group(device_indices)
+        mesh = torch.vulkan.device_mesh(device_indices)
+
+        self.assertEqual(group.indices, tuple(device_indices))
+        self.assertEqual(len(group.devices), len(device_indices))
+        self.assertEqual(group.names, tuple(
+            torch.vulkan.get_device_name(device_index)
+            for device_index in device_indices))
+        self.assertIn("DeviceGroup", repr(group))
+
+        self.assertEqual(mesh.device_type, "vulkan")
+        self.assertEqual(mesh.ndim, 1)
+        self.assertEqual(mesh.shape, (len(device_indices),))
+        self.assertEqual(mesh.indices, tuple(device_indices))
+        self.assertIn("DeviceMesh", repr(mesh))
+
+        with self.assertRaisesRegex(
+                ValueError,
+                "Duplicate Vulkan devices are not allowed"):
+            torch.vulkan.device_group([device_indices[0], device_indices[0]])
+
+    def test_vulkan_replicate_module_matches_cpu(self):
+        device_indices = self._linear_capable_vulkan_device_group(min_devices=1)
+        device_group = torch.vulkan.device_group(device_indices)
+
+        torch.manual_seed(0)
+        module = nn.Linear(4, 3).eval()
+        runner = torch.vulkan.replicate_module(module, device_group)
+
+        x = torch.randn(12, 4)
+        with torch.inference_mode():
+            expected = module(x)
+            actual = runner(x)
+
+        self.assertEqual(actual.device.type, "cpu")
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+
+    def test_vulkan_parallelize_module_replicate_style_matches_cpu(self):
+        device_indices = self._linear_capable_vulkan_device_group(min_devices=1)
+        mesh = torch.vulkan.device_mesh(device_indices)
+
+        torch.manual_seed(0)
+        module = nn.Linear(4, 3).eval()
+        parallelized = torch.vulkan.parallelize_module(
+            module,
+            mesh,
+            torch.vulkan.Replicate(),
+        )
+
+        x = torch.randn(10, 4)
+        with torch.inference_mode():
+            expected = module(x)
+            actual = parallelized(x)
+
+        self.assertEqual(actual.device.type, "cpu")
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+
+    def test_vulkan_parallelize_module_colwise_and_rowwise_match_cpu(self):
+        device_indices = self._linear_capable_vulkan_device_group(min_devices=1)
+        mesh = torch.vulkan.device_mesh(device_indices)
+
+        class ToyMlp(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.in_proj = nn.Linear(6, 10)
+                self.activation = nn.ReLU()
+                self.out_proj = nn.Linear(10, 4)
+
+            def forward(self, x):
+                return self.out_proj(self.activation(self.in_proj(x)))
+
+        torch.manual_seed(0)
+        module = ToyMlp().eval()
+        parallelized = torch.vulkan.parallelize_module(
+            module,
+            mesh,
+            {
+                "in_proj": torch.vulkan.ColwiseParallel(),
+                "out_proj": torch.vulkan.RowwiseParallel(),
+            },
+        )
+
+        x = torch.randn(11, 6)
+        with torch.inference_mode():
+            expected = module(x)
+            actual = parallelized(x)
+
+        self.assertEqual(actual.device.type, "cpu")
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+
+    def test_vulkan_replicate_module_multi_device_matches_cpu_in_subprocess(self):
+        script = """
+            import sys
+            import torch
+            import torch.nn as nn
+
+            capable = []
+            torch.manual_seed(0)
+            with torch.inference_mode():
+                for device_index in range(torch.vulkan.device_count()):
+                    try:
+                        device = torch.device("vulkan", device_index)
+                        module = nn.Linear(4, 3).eval().to(device)
+                        sample = torch.randn(2, 4).to(device)
+                        module(sample).cpu()
+                    except RuntimeError:
+                        continue
+                    capable.append(device_index)
+
+            if len(capable) < 2:
+                print("SKIP: fewer than 2 linear-capable Vulkan devices")
+                sys.exit(0)
+
+            torch.manual_seed(0)
+            module = nn.Linear(4, 3).eval()
+            runner = torch.vulkan.replicate_module(module, capable[:2])
+            x = torch.randn(12, 4)
+            with torch.inference_mode():
+                expected = module(x)
+                actual = runner(x)
+
+            torch.testing.assert_close(expected, actual)
+            print("OK")
+        """
+
+        _, result = self._run_repo_python_subprocess(
+            script,
+            error_prefix=(
+                "Vulkan multi-device replicate_module subprocess validation failed."
+            ),
+        )
+        if "SKIP:" in result.stdout:
+            self.skipTest(result.stdout.strip())
+        self.assertIn("OK", result.stdout)
 
     def test_binary_and_unary_ops(self):
         torch.manual_seed(0)

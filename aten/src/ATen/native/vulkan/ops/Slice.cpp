@@ -12,6 +12,11 @@ namespace {
 
 using namespace api::utils;
 
+Device vulkan_output_device(const Tensor& tensor) {
+  return tensor.is_vulkan() ? tensor.device()
+                            : Device(at::kVulkan, api::current_device());
+}
+
 bool needs_slice_cpu_fallback(const Tensor& self) {
   if (self.dim() > 4) {
     return true;
@@ -34,7 +39,7 @@ Tensor slice_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor cpu_result = at::slice(self.cpu(), dim, start, end, step);
-  return cpu_result.vulkan();
+  return cpu_result.to(vulkan_output_device(self));
 }
 
 bool can_use_buffer_slice_view(const Tensor& self) {

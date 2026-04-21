@@ -295,7 +295,7 @@ Tensor view_internal(
       : cpu.as_strided(output_size.vec(), output_stride.vec());
   Tensor out = at::empty(
       output_size.vec(),
-      self_arg.options().device(at::kVulkan));
+      self_arg.options().device(self_arg.device()));
   ops::copy_(out, cpu_view);
   return out;
 }
@@ -399,7 +399,7 @@ static Tensor reshape(const Tensor& self_arg, IntArrayRef shape) {
   Tensor cpu_reshaped = cpu.reshape(inferred_size);
   Tensor out = at::empty(
       std::vector<int64_t>(inferred_size.begin(), inferred_size.end()),
-      self_arg.options().device(at::kVulkan));
+      self_arg.options().device(self_arg.device()));
   ops::copy_(out, cpu_reshaped);
   return out;
 }
@@ -444,7 +444,7 @@ static Tensor im2col(
       at::im2col(cpu, kernel_size.vec(), dilation.vec(), padding.vec(), stride.vec());
   Tensor out = at::empty(
       cpu_result.sizes(),
-      self_arg.options().device(at::kVulkan));
+      self_arg.options().device(self_arg.device()));
   ops::copy_(out, cpu_result);
   return out;
 }

@@ -484,7 +484,7 @@ void memcpy_from_mapping(api::MemoryMap& src_mapping, Tensor& dst) {
 //
 
 void transfer_cpu_to_vulkan(const Tensor& src, vTensor& v_dst) {
-  api::Context* const context = api::context();
+  api::Context* const context = v_dst.context();
 
   // Convert to dtype corresponding to the image format of the texture to
   // ensure that byte alignment is consistent when copying. In some cases
@@ -506,7 +506,7 @@ void transfer_cpu_to_vulkan(const Tensor& src, vTensor& v_dst) {
 }
 
 void transfer_vulkan_to_cpu(vTensor& v_src, Tensor& dst) {
-  api::Context* const context = api::context();
+  api::Context* const context = v_src.context();
 
   // Temporary tensor to receive copied NC4HW data
   at::Tensor dst_tmp = utils::create_staging_tensor(v_src);
@@ -557,7 +557,13 @@ void transfer_vulkan_to_cpu(vTensor& v_src, Tensor& dst) {
 }
 
 static void transfer_vulkan_to_vulkan(vTensor& src, vTensor& dst) {
-  api::Context* const context = api::context();
+  TORCH_CHECK(
+      src.context()->device_index() == dst.context()->device_index(),
+      "Cross-device Vulkan copy is not supported yet: source is on vulkan:",
+      src.context()->device_index(),
+      " while destination is on vulkan:",
+      dst.context()->device_index());
+  api::Context* const context = dst.context();
 
   api::PipelineBarrier pipeline_barrier{};
 
@@ -583,7 +589,7 @@ static void transfer_vulkan_to_vulkan(vTensor& src, vTensor& dst) {
 //
 
 void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
-  api::Context* const context = api::context();
+  api::Context* const context = dst.context();
 
   if (dst.storage_type() == api::StorageType::BUFFER) {
     if (buffer_allocation_is_host_visible(dst)) {
@@ -695,7 +701,7 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
   TORCH_CHECK(
       !src.is_quantized(),
       "Copy of vulkan quantized tensors to cpu is currently disabled!");
-  api::Context* const context = api::context();
+  api::Context* const context = src.context();
 
   if (src.storage_type() == api::StorageType::BUFFER) {
     const bool shader_packed_buffer =
@@ -817,6 +823,7 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
   // X -> Vulkan
   if (at::kVulkan == dst.device().type()) {
     vTensor& v_self = convert(dst);
+    api::set_current_device(v_self.context()->device_index());
 
     // Vulkan -> Vulkan
     if (at::kVulkan == src.device().type()) {
@@ -826,6 +833,13 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
       }
 
       vTensor& v_src = convert(src_casted);
+      TORCH_CHECK(
+          v_src.context()->device_index() == v_self.context()->device_index(),
+          "Cross-device Vulkan copy is not supported yet: source is on vulkan:",
+          v_src.context()->device_index(),
+          " while destination is on vulkan:",
+          v_self.context()->device_index());
+      api::set_current_device(v_self.context()->device_index());
       const bool can_direct_copy =
           v_src.dtype() == v_self.dtype() &&
           v_src.storage_type() != api::StorageType::BUFFER &&
@@ -851,6 +865,7 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
   // Vulkan -> X
   else if (at::kVulkan == src.device().type()) {
     vTensor& v_src = convert(src);
+    api::set_current_device(v_src.context()->device_index());
 
     // Vulkan -> CPU
     if (dst.device().is_cpu()) {
@@ -868,10 +883,17 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
   return dst;
 }
 
-vTensor to_vulkan(at::Tensor& src, const api::StorageType storage_type) {
+vTensor to_vulkan(
+    at::Tensor& src,
+    const api::StorageType storage_type,
+    const std::optional<c10::DeviceIndex> device_index) {
   TORCH_CHECK(
       src.device().type() == at::kCPU,
       "Vulkan to_vulkan(): input tensor must be a CPU tensor!")
+
+  const c10::DeviceIndex resolved_device_index =
+      device_index.has_value() ? *device_index : api::current_device();
+  api::set_current_device(resolved_device_index);
 
   const api::StorageType resolved_storage_type =
       (api::requires_buffer_storage(convert_dtype(src.scalar_type()), src.dim()) ||
@@ -880,7 +902,7 @@ vTensor to_vulkan(at::Tensor& src, const api::StorageType storage_type) {
       : storage_type;
 
   vTensor v_ret{
-      api::context(),
+      api::context(resolved_device_index),
       src.sizes().vec(),
       convert_dtype(src.scalar_type()),
       resolved_storage_type,
@@ -901,10 +923,12 @@ at::Tensor to_vulkan_labeled(at::Tensor src, std::string label) {
       "Vulkan to_vulkan_labeled(): input tensor must be a CPU or Vulkan tensor!");
   (void)label;
 
-  Tensor result = at::empty(src.sizes(), src.options().device(at::kVulkan));
+  const c10::Device vulkan_device(at::kVulkan, api::current_device());
+  Tensor result = at::empty(src.sizes(), src.options().device(vulkan_device));
   ops::copy_(result, src);
   if (should_flush_after_labeled_to_vulkan(src)) {
-    api::context()->flush();
+    vTensor& v_result = convert(result);
+    v_result.context()->flush();
   }
   return result;
 }

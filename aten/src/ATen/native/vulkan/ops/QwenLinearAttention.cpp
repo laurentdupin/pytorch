@@ -26,7 +26,8 @@ Tensor move_to_vulkan_float(const Tensor& tensor) {
   const Tensor cpu_float =
       tensor.scalar_type() == kFloat ? tensor.contiguous() : tensor.to(kFloat);
   Tensor output = at::empty(
-      cpu_float.sizes(), cpu_float.options().device(at::kVulkan));
+      cpu_float.sizes(),
+      cpu_float.options().device(c10::Device(at::kVulkan, api::current_device())));
   ops::copy_(output, cpu_float);
   return output;
 }
@@ -38,7 +39,7 @@ Tensor move_runtime_tensor_to_vulkan_float(const Tensor& tensor) {
 
   const Tensor cpu_float =
       tensor.scalar_type() == kFloat ? tensor.contiguous() : tensor.to(kFloat);
-  return cpu_float.to(at::device(at::kVulkan));
+  return cpu_float.to(c10::Device(at::kVulkan, api::current_device()));
 }
 
 Tensor move_to_cpu_float(const Tensor& tensor) {

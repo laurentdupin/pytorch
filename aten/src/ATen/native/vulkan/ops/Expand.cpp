@@ -64,7 +64,7 @@ Tensor expand(
   Tensor cpu_expanded = cpu.expand(output_size.vec(), implicit);
   Tensor out = at::empty(
       cpu_expanded.sizes(),
-      self.options().device(at::kVulkan));
+      self.options().device(self.device()));
   ops::copy_(out, cpu_expanded);
   return out;
 }

@@ -26,6 +26,11 @@ namespace ops {
 namespace {
 using namespace api::utils;
 
+Device vulkan_output_device(const Tensor& tensor) {
+  return tensor.is_vulkan() ? tensor.device()
+                            : Device(at::kVulkan, api::current_device());
+}
+
 enum class UnaryOpKind : uint8_t {
   Exp,
   Sqrt,
@@ -87,7 +92,7 @@ Tensor unary_op_cpu_fallback(const Tensor& self_arg, const UnaryOpKind op_kind) 
         break;
     }
   }
-  return cpu_result.vulkan();
+  return cpu_result.to(vulkan_output_device(self_arg));
 }
 
 Tensor unary_op_buffer(

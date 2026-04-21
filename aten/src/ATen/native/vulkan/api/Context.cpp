@@ -308,13 +308,59 @@ struct ExternalCommandRecordingState final {
 };
 
 thread_local ExternalCommandRecordingState g_external_command_recording_state{};
+thread_local c10::DeviceIndex g_current_device_index = -1;
+
+ContextConfig default_context_config() {
+  const uint32_t submit_frequency = 16u;
+
+  const CommandPoolConfig cmd_config{
+      32u, // cmdPoolInitialSize
+      8u, // cmdPoolBatchSize
+  };
+
+  const DescriptorPoolConfig descriptor_pool_config{
+      VULKAN_DESCRIPTOR_POOL_SIZE, // descriptorPoolMaxSets
+      VULKAN_DESCRIPTOR_POOL_SIZE, // descriptorUniformBufferCount
+      VULKAN_DESCRIPTOR_POOL_SIZE, // descriptorStorageBufferCount
+      VULKAN_DESCRIPTOR_POOL_SIZE, // descriptorCombinedSamplerCount
+      VULKAN_DESCRIPTOR_POOL_SIZE, // descriptorStorageImageCount
+      32u, // descriptorPileSizes
+  };
+
+  const QueryPoolConfig query_pool_config{
+      VULKAN_QUERY_POOL_SIZE, // maxQueryCount
+      256u, // initialReserveSize
+  };
+
+  return ContextConfig{
+      submit_frequency, // cmdSubmitFrequency
+      cmd_config, // cmdPoolConfig
+      descriptor_pool_config, // descriptorPoolConfig
+      query_pool_config, // queryPoolConfig
+  };
+}
+
+void validate_device_index(c10::DeviceIndex device_index) {
+  const uint32_t count = runtime()->device_count();
+  VK_CHECK_COND(
+      device_index >= 0,
+      "Pytorch Vulkan Context: Device index must be non-negative!");
+  VK_CHECK_COND(
+      static_cast<uint32_t>(device_index) < count,
+      "Pytorch Vulkan Context: Device index ",
+      device_index,
+      " is out of range for ",
+      count,
+      " Vulkan devices.");
+}
 
 } // namespace
 
-Context::Context(size_t adapter_i, const ContextConfig& config)
+Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
     : config_(config),
       // Important handles
-      adapter_p_(runtime()->get_adapter_p(adapter_i)),
+      device_index_(device_index),
+      adapter_p_(runtime()->get_adapter_p_for_device(device_index_)),
       device_(adapter_p_->device_handle()),
       queue_(adapter_p_->request_queue()),
       // Resource pools
@@ -844,51 +890,64 @@ void Context::flush_after_fence_wait() {
 }
 
 bool available() {
-  return context();
+  return runtime()->device_count() > 0u;
+}
+
+c10::DeviceIndex device_count() {
+  return utils::safe_downcast<c10::DeviceIndex>(runtime()->device_count());
+}
+
+c10::DeviceIndex current_device() {
+  if (runtime()->device_count() == 0u) {
+    return -1;
+  }
+
+  if (g_current_device_index < 0) {
+    g_current_device_index = runtime()->default_device_index();
+  }
+
+  validate_device_index(g_current_device_index);
+  return g_current_device_index;
+}
+
+void set_current_device(c10::DeviceIndex device_index) {
+  validate_device_index(device_index);
+  g_current_device_index = device_index;
+}
+
+c10::DeviceIndex exchange_device(c10::DeviceIndex device_index) {
+  const c10::DeviceIndex previous_device = current_device();
+  set_current_device(device_index);
+  return previous_device;
+}
+
+Context* context(c10::DeviceIndex device_index) {
+  validate_device_index(device_index);
+
+  static std::mutex* const contexts_mutex = new std::mutex();
+  static std::vector<Context*>* const contexts = new std::vector<Context*>();
+
+  std::lock_guard<std::mutex> lock(*contexts_mutex);
+  const size_t required_size = runtime()->device_count();
+  if (contexts->size() < required_size) {
+    contexts->resize(required_size, nullptr);
+  }
+
+  Context*& device_context =
+      contexts->at(utils::safe_downcast<size_t>(device_index));
+  if (!device_context) {
+    device_context = new Context(device_index, default_context_config());
+  }
+
+  return device_context;
 }
 
 Context* context() {
-  // Keep the context alive for the life of the process. Benchmark subprocesses
-  // were successfully writing results and then faulting during shutdown while
-  // Vulkan singletons unwound in unspecified order.
-  static Context* const context = []() -> Context* {
-    try {
-      const uint32_t submit_frequency = 16u;
-
-      const CommandPoolConfig cmd_config{
-          32u, // cmdPoolInitialSize
-          8u, // cmdPoolBatchSize
-      };
-
-      const DescriptorPoolConfig descriptor_pool_config{
-          VULKAN_DESCRIPTOR_POOL_SIZE, // descriptorPoolMaxSets
-          VULKAN_DESCRIPTOR_POOL_SIZE, // descriptorUniformBufferCount
-          VULKAN_DESCRIPTOR_POOL_SIZE, // descriptorStorageBufferCount
-          VULKAN_DESCRIPTOR_POOL_SIZE, // descriptorCombinedSamplerCount
-          VULKAN_DESCRIPTOR_POOL_SIZE, // descriptorStorageImageCount
-          32u, // descriptorPileSizes
-      };
-
-      const QueryPoolConfig query_pool_config{
-          VULKAN_QUERY_POOL_SIZE, // maxQueryCount
-          256u, // initialReserveSize
-      };
-
-      const ContextConfig config{
-          submit_frequency, // cmdSubmitFrequency
-          cmd_config, // cmdPoolConfig
-          descriptor_pool_config, // descriptorPoolConfig
-          query_pool_config, // queryPoolConfig
-      };
-
-      return new Context(runtime()->default_adapter_i(), config);
-    } catch (...) {
-    }
-
+  const c10::DeviceIndex device_index = current_device();
+  if (device_index < 0) {
     return nullptr;
-  }();
-
-  return context;
+  }
+  return context(device_index);
 }
 
 //

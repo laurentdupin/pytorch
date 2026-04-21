@@ -33,7 +33,8 @@ Tensor triangular_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
   Tensor cpu = self_arg.cpu();
   Tensor cpu_out = upper ? at::triu(cpu, diagonal) : at::tril(cpu, diagonal);
-  Tensor out = at::empty(cpu_out.sizes(), self_arg.options().device(at::kVulkan));
+  Tensor out =
+      at::empty(cpu_out.sizes(), self_arg.options().device(self_arg.device()));
   ops::copy_(out, cpu_out);
   return out;
 }

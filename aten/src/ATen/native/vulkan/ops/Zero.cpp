@@ -66,9 +66,11 @@ Tensor zeros(
     std::optional<Device> device,
     std::optional<bool> pin_memory) {
   const ScalarType target_dtype = dtype ? *dtype : c10::kFloat;
+  const Device resolved_device =
+      device.value_or(Device(at::kVulkan, api::current_device()));
   Tensor out = at::empty(
       size,
-      at::TensorOptions().device(at::kVulkan).dtype(target_dtype));
+      at::TensorOptions().device(resolved_device).dtype(target_dtype));
   zero_(out);
   return out;
 }

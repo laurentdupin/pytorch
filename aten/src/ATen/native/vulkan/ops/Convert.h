@@ -198,7 +198,7 @@ inline Tensor convert(const vTensor& tensor) {
   return at::detail::make_tensor<vTensorImpl>(
       DispatchKeySet(DispatchKey::Vulkan),
       c10::scalarTypeToTypeMeta(convert_dtype(tensor.dtype())),
-      at::Device(at::kVulkan),
+      at::Device(at::kVulkan, tensor.context()->device_index()),
       tensor,
       tensor.sizes(),
       logical_strides(tensor),
@@ -210,7 +210,7 @@ inline Tensor convert_quantized(const vTensor& tensor) {
   return at::detail::make_tensor<vTensorImpl>(
       DispatchKeySet(DispatchKey::Vulkan),
       c10::scalarTypeToTypeMeta(convert_dtype(tensor.dtype())),
-      at::Device(at::kVulkan),
+      at::Device(at::kVulkan, tensor.context()->device_index()),
       tensor,
       tensor.sizes(),
       logical_strides(tensor),
@@ -222,6 +222,11 @@ inline vTensor& convert(const Tensor& tensor) {
 
   vTensorImpl* const impl =
       static_cast<vTensorImpl*>(tensor.unsafeGetTensorImpl());
+
+  const c10::DeviceIndex device_index = tensor.device().has_index()
+      ? tensor.device().index()
+      : impl->unsafe_opaque_handle().context()->device_index();
+  api::set_current_device(device_index);
 
   return impl->unsafe_opaque_handle();
 }

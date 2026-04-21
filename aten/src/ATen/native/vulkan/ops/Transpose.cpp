@@ -117,7 +117,7 @@ Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
     const Tensor cpu_transposed = cpu.transpose(index0, index1);
     Tensor out = at::empty(
         cpu_transposed.sizes(),
-        self.options().device(at::kVulkan));
+        self.options().device(self.device()));
     ops::copy_(out, cpu_transposed);
     return out;
   }

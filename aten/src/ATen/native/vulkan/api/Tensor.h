@@ -315,6 +315,10 @@ class vTensor final {
     return execution_desc_.layout;
   }
 
+  inline api::Context* context() const {
+    return view_->context_;
+  }
+
   inline bool uses_buffer_execution() const {
     return api::uses_buffer_execution(execution_layout());
   }

@@ -4,11 +4,14 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/api/vk_api.h>
 
 #include <ATen/native/vulkan/api/Adapter.h>
+#include <c10/macros/Export.h>
+#include <c10/core/Device.h>
 
 namespace at {
 namespace native {
@@ -36,7 +39,7 @@ struct RuntimeConfiguration final {
   uint32_t numRequestedQueues;
 };
 
-class Runtime final {
+class TORCH_API Runtime final {
  public:
   explicit Runtime(const RuntimeConfiguration);
 
@@ -45,7 +48,7 @@ class Runtime final {
   Runtime(const Runtime&) = delete;
   Runtime& operator=(const Runtime&) = delete;
 
-  Runtime(Runtime&&) noexcept;
+  Runtime(Runtime&&) noexcept = delete;
   Runtime& operator=(Runtime&&) = delete;
 
   ~Runtime();
@@ -60,7 +63,9 @@ class Runtime final {
 
   std::vector<DeviceMapping> device_mappings_;
   std::vector<AdapterPtr> adapters_;
+  std::mutex adapters_mutex_;
   uint32_t default_adapter_i_;
+  c10::DeviceIndex default_device_i_;
 
   VkDebugReportCallbackEXT debug_report_callback_;
 
@@ -70,33 +75,42 @@ class Runtime final {
   }
 
   inline Adapter* get_adapter_p() {
-    VK_CHECK_COND(
-        default_adapter_i_ >= 0 && default_adapter_i_ < adapters_.size(),
-        "Pytorch Vulkan Runtime: Default device adapter is not set correctly!");
-    return adapters_[default_adapter_i_].get();
+    return get_adapter_p_for_device(default_device_i_);
   }
 
   inline Adapter* get_adapter_p(uint32_t i) {
     VK_CHECK_COND(
-        i >= 0 && i < adapters_.size(),
+        i < adapters_.size(),
         "Pytorch Vulkan Runtime: Adapter at index ",
         i,
         " is not available!");
     return adapters_[i].get();
   }
 
+  inline uint32_t device_count() const {
+    return utils::safe_downcast<uint32_t>(device_mappings_.size());
+  }
+
+  Adapter* get_adapter_p_for_device(c10::DeviceIndex device_index);
+  const PhysicalDevice& get_physical_device(c10::DeviceIndex device_index) const;
+
   inline uint32_t default_adapter_i() const {
     return default_adapter_i_;
+  }
+
+  inline c10::DeviceIndex default_device_index() const {
+    return default_device_i_;
   }
 
   using Selector =
       std::function<uint32_t(const std::vector<Runtime::DeviceMapping>&)>;
   uint32_t create_adapter(const Selector&);
+  uint32_t create_adapter(uint32_t device_i);
 };
 
 // The global runtime is retrieved using this function, where it is declared as
 // a static local variable.
-Runtime* runtime();
+TORCH_API Runtime* runtime();
 
 } // namespace api
 } // namespace vulkan

@@ -38,7 +38,11 @@ Tensor cat_cpu_fallback(
   for (const at::Tensor& t : tensors) {
     cpu_tensors.push_back(t.is_vulkan() ? t.cpu() : t);
   }
-  return at::cat(cpu_tensors, in_dim).to(at::device(at::kVulkan));
+  const c10::Device output_device =
+      !tensors.empty() && tensors[0].get().is_vulkan()
+      ? tensors[0].get().device()
+      : c10::Device(at::kVulkan, api::current_device());
+  return at::cat(cpu_tensors, in_dim).to(output_device);
 }
 
 bool cat_requires_cpu_fallback(const MaterializedITensorListRef& tensors) {

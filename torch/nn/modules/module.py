@@ -103,7 +103,9 @@ def _apply_vulkan_keep_cpu_paths(module: "Module") -> None:
             setattr(current, "_vulkan_keep_cpu", True)
 
 
-def _move_module_to_vulkan_explicit(module: "Module") -> "Module":
+def _move_module_to_vulkan_explicit(
+    module: "Module", target_device: device
+) -> "Module":
     config = getattr(module, "config", None)
     if (
         getattr(config, "tie_word_embeddings", False)
@@ -117,7 +119,7 @@ def _move_module_to_vulkan_explicit(module: "Module") -> "Module":
     converted_parameters: dict[tuple[Any, ...], Parameter] = {}
 
     def move_tensor(tensor: Tensor, label: str) -> Tensor:
-        if tensor.device.type == "vulkan":
+        if tensor.device == target_device:
             return tensor
         key = _vulkan_module_tensor_storage_key(tensor)
         shared_tensor = converted_tensors.get(key)
@@ -126,7 +128,7 @@ def _move_module_to_vulkan_explicit(module: "Module") -> "Module":
                 # The raw labeled uploader is still unstable for some large
                 # buffer-backed weights. Module placement should use the stable
                 # plain tensor conversion path until that backend path is fixed.
-                shared_tensor = tensor.detach().to("vulkan")
+                shared_tensor = tensor.detach().to(target_device)
             except Exception as exc:
                 raise RuntimeError(
                     f"Failed to move tensor '{label}' to Vulkan"
@@ -141,7 +143,7 @@ def _move_module_to_vulkan_explicit(module: "Module") -> "Module":
         for name, parameter in list(current._parameters.items()):
             if parameter is None:
                 continue
-            if parameter.device.type == "vulkan":
+            if parameter.device == target_device:
                 current._parameters[name] = parameter
                 continue
             tensor_key = _vulkan_module_tensor_storage_key(parameter.detach())
@@ -164,7 +166,7 @@ def _move_module_to_vulkan_explicit(module: "Module") -> "Module":
         for name, buffer in list(current._buffers.items()):
             if buffer is None:
                 continue
-            if buffer.device.type == "vulkan":
+            if buffer.device == target_device:
                 current._buffers[name] = buffer
                 continue
             current._buffers[name] = move_tensor(buffer, f"{module_prefix}.{name}")
@@ -1491,7 +1493,7 @@ class Module:
             and dtype is None
             and convert_to_format is None
         ):
-            return _move_module_to_vulkan_explicit(self)
+            return _move_module_to_vulkan_explicit(self, device)
 
         return self._apply(convert)
 

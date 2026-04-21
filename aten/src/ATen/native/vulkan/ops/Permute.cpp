@@ -120,7 +120,7 @@ Tensor permute(const Tensor& self, IntArrayRef dims) {
     const Tensor cpu_permuted = cpu.permute(dims.vec());
     Tensor out = at::empty(
         cpu_permuted.sizes(),
-        self.options().device(at::kVulkan));
+        self.options().device(self.device()));
     ops::copy_(out, cpu_permuted);
     return out;
   }

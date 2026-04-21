@@ -60,7 +60,7 @@ class Context final {
     Context* context_{nullptr};
   };
 
-  explicit Context(size_t adapter_i, const ContextConfig&);
+  explicit Context(c10::DeviceIndex device_index, const ContextConfig&);
 
   Context(const Context&) = delete;
   Context& operator=(const Context&) = delete;
@@ -74,6 +74,7 @@ class Context final {
   // Config
   ContextConfig config_;
   // Important handles
+  c10::DeviceIndex device_index_;
   Adapter* adapter_p_;
   VkDevice device_;
   Adapter::Queue queue_;
@@ -122,6 +123,10 @@ class Context final {
 
   inline Adapter* adapter_ptr() {
     return adapter_p_;
+  }
+
+  inline c10::DeviceIndex device_index() const {
+    return device_index_;
   }
 
   inline void enable_op_profiling() {
@@ -396,11 +401,16 @@ class StorageBuffer final {
   }
 };
 
-bool available();
+TORCH_API bool available();
+TORCH_API c10::DeviceIndex device_count();
+TORCH_API c10::DeviceIndex current_device();
+TORCH_API void set_current_device(c10::DeviceIndex device_index);
+TORCH_API c10::DeviceIndex exchange_device(c10::DeviceIndex device_index);
 
 // The global runtime is retrieved using this function, where it is declared as
 // a static local variable.
 Context* context();
+Context* context(c10::DeviceIndex device_index);
 
 namespace detail {
 

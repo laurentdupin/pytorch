@@ -14,6 +14,11 @@ namespace {
 
 using namespace api::utils;
 
+Device vulkan_output_device(const Tensor& tensor) {
+  return tensor.is_vulkan() ? tensor.device()
+                            : Device(at::kVulkan, api::current_device());
+}
+
 Tensor mean_dim_buffer_chunk(
     const Tensor& prepared_input,
     const std::vector<int64_t>& output_sizes) {
@@ -74,7 +79,7 @@ Tensor mean_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
-  return at::mean(self_cpu, dtype).vulkan();
+  return at::mean(self_cpu, dtype).to(vulkan_output_device(self_arg));
 }
 
 Tensor mean_dim_cpu_fallback(
@@ -86,7 +91,7 @@ Tensor mean_dim_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
-  return at::mean(self_cpu, dim, keepdim, dtype).vulkan();
+  return at::mean(self_cpu, dim, keepdim, dtype).to(vulkan_output_device(self_arg));
 }
 
 void check_group_norm_inputs(
@@ -122,7 +127,7 @@ void check_group_norm_inputs(
 }
 
 Tensor maybe_to_vulkan(const Tensor& tensor) {
-  return tensor.is_vulkan() ? tensor : tensor.vulkan();
+  return tensor.is_vulkan() ? tensor : tensor.to(vulkan_output_device(tensor));
 }
 
 Tensor maybe_to_compute_dtype(

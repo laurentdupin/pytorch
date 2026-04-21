@@ -1087,7 +1087,8 @@ vTensor pack_biases(
         utils::make_vulkan_linear_request(utils::VulkanTensorRole::Bias));
     return convert(bias);
   } else {
-    return convert(at::zeros({1}, at::device(at::kVulkan).dtype(at::kFloat)));
+    return convert(at::zeros(
+        {1}, weight_arg.options().device(weight_arg.device()).dtype(at::kFloat)));
   }
 }
 

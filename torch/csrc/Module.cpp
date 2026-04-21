@@ -2201,6 +2201,12 @@ void initModule(PyObject* module);
 } // namespace torch::xpu
 #endif
 
+#ifdef USE_VULKAN_API
+namespace torch::vulkan {
+void initModule(PyObject* module);
+} // namespace torch::vulkan
+#endif
+
 static std::vector<PyMethodDef> methods;
 
 static void LogAPIUsageMetadataFromPython(
@@ -2399,6 +2405,9 @@ PyObject* initModule() {
 #endif
 #ifdef USE_XPU
   torch::xpu::initModule(module);
+#endif
+#ifdef USE_VULKAN_API
+  torch::vulkan::initModule(module);
 #endif
   torch::mtia::initModule(module);
   torch::cpu::initModule(module);
@@ -2968,10 +2977,17 @@ Call this whenever a new thread is created in order to propagate values from
   PyObject* has_xpu = Py_False;
 #endif
 
+#ifdef USE_VULKAN_API
+  PyObject* has_vulkan = Py_True;
+#else
+  PyObject* has_vulkan = Py_False;
+#endif
+
   ASSERT_TRUE(set_module_attr("_has_cuda", has_cuda));
   ASSERT_TRUE(
       set_module_attr("_has_magma", at::hasMAGMA() ? Py_True : Py_False));
   ASSERT_TRUE(set_module_attr("_has_mps", has_mps));
+  ASSERT_TRUE(set_module_attr("_has_vulkan", has_vulkan));
   ASSERT_TRUE(set_module_attr("_has_xpu", has_xpu));
   ASSERT_TRUE(
       set_module_attr("_has_mkldnn", at::hasMKLDNN() ? Py_True : Py_False));
