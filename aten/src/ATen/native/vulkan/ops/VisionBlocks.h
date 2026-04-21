@@ -557,7 +557,19 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge(
     const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
     IntArrayRef capture_indices);
 
+std::vector<Tensor> run_vision_backbone_stack_compiled_session_bridge(
+    const Tensor& input,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices);
+
 std::vector<Tensor> run_vision_backbone_stack_norm_replay_bundle_bridge(
+    const Tensor& input,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& norm_context);
+
+std::vector<Tensor> run_vision_backbone_stack_norm_compiled_session_bridge(
     const Tensor& input,
     const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
     IntArrayRef capture_indices,

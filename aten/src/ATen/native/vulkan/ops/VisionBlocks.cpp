@@ -1537,6 +1537,50 @@ void copy_tensor_for_replay(Tensor& dst, const Tensor& src) {
   dst.copy_(src);
 }
 
+bool copy_buffer_tensor_compute_out(Tensor& dst, const Tensor& src) {
+  if (
+      !dst.defined() || !src.defined() || !dst.is_vulkan() || !src.is_vulkan() ||
+      dst.scalar_type() != kFloat || src.scalar_type() != kFloat ||
+      dst.sizes() != src.sizes()) {
+    return false;
+  }
+
+  vTensor& v_dst = convert(dst);
+  vTensor v_src = convert(src);
+  if (
+      v_dst.storage_type() != api::StorageType::BUFFER ||
+      v_src.storage_type() != api::StorageType::BUFFER ||
+      !v_dst.has_direct_buffer_layout() || !v_src.has_direct_buffer_layout() ||
+      v_dst.gpu_nbytes() != v_src.gpu_nbytes()) {
+    return false;
+  }
+
+  api::Context* const context = api::context();
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size = {
+      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_dst.numel(), 1)),
+      1u,
+      1u,
+  };
+  context->submit_compute_job(
+      VK_KERNEL(buffer_to_buffer),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_dst.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      utils::make_buffer_compute_metadata_ubo(context, v_dst).buffer(),
+      v_src.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      utils::make_buffer_compute_metadata_ubo(context, v_src).buffer());
+  return true;
+}
+
 std::optional<utils::VisionDecoderHeadInferenceReplay>
 maybe_lookup_vision_decoder_head_replay(
     IntArrayRef layer1_sizes,
@@ -2663,6 +2707,9 @@ struct CompiledExecutableBackboneRegionContext final {
   const utils::VulkanExecutableRegion* executable_region{nullptr};
   std::vector<Tensor>& tensor_slots;
   const utils::VulkanCompiledSessionTensorBindings& bindings;
+  std::shared_ptr<std::vector<Tensor>> capture_output_slots;
+  size_t capture_output_slot_base{0u};
+  std::vector<std::optional<size_t>> capture_output_slots_by_value;
   c10::intrusive_ptr<Conv2dPackedContext> patch_embed_context;
   const std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>>&
       backbone_contexts;
@@ -2682,6 +2729,7 @@ struct CompiledExecutableBackboneRegionContext final {
   size_t decoder_project_index{0u};
   size_t decoder_layer_index{0u};
   size_t backbone_step_index{0u};
+  size_t capture_step_index{0u};
   bool ran_decoder_head{false};
 };
 
@@ -2854,6 +2902,29 @@ std::optional<std::vector<Tensor>> try_run_vision_backbone_stack_compiled_sessio
             compiled_session,
             compiled_bindings,
             program_plan.persistent);
+        const size_t capture_output_slot_base = tensor_slots->size();
+        std::vector<std::optional<size_t>> capture_output_slots_by_value(
+            compiled_bindings.value_tensor_slots.size());
+        for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
+             ++capture_pos) {
+          tensor_slots->push_back(utils::create_buffer_tensor(
+              input.sizes(),
+              output_dtype,
+              /*persistent=*/true));
+          const int64_t replay_idx = capture_indices_vec[capture_pos];
+          TORCH_INTERNAL_ASSERT(
+              replay_idx >= 0 &&
+                  replay_idx <
+                      static_cast<int64_t>(compiled_plan.capture_values_by_block.size()) &&
+                  compiled_plan.capture_values_by_block
+                      .at(static_cast<size_t>(replay_idx))
+                      .has_value(),
+              "Compiled backbone stack expected a captured output for every "
+              "requested capture index");
+          capture_output_slots_by_value[*compiled_plan.capture_values_by_block.at(
+              static_cast<size_t>(replay_idx))] =
+              capture_output_slot_base + capture_pos;
+        }
         std::vector<utils::ExecutionGraphReplayStep> steps;
         steps.reserve(1u);
         auto executable_step_replay = utils::make_execution_graph_replay(
@@ -2869,36 +2940,60 @@ std::optional<std::vector<Tensor>> try_run_vision_backbone_stack_compiled_sessio
         steps.push_back(utils::make_execution_graph_replay_step(
             std::move(executable_step_replay),
             [tensor_slots,
-             compiled_session,
              compiled_bindings,
              programs,
              graph_scratches,
              backbone_contexts,
+             capture_indices_vec,
+             compiled_plan,
+             capture_output_slot_base,
              normalized_shape_vec =
                  output_norm_shape.value_or(std::vector<int64_t>{}),
              output_norm_context]() mutable {
-              const auto* region = compiled_session.executable_region();
-              TORCH_INTERNAL_ASSERT(
-                  region && region->defined(),
-                  "Compiled backbone stack expected a lowered executable region");
-              CompiledExecutableBackboneRegionContext context{
-                  region,
-                  *tensor_slots,
-                  compiled_bindings,
-                  c10::intrusive_ptr<Conv2dPackedContext>{},
-                  backbone_contexts,
-                  *programs,
-                  *graph_scratches,
-                  normalized_shape_vec,
-                  output_norm_context,
-              };
-              TORCH_INTERNAL_ASSERT(
-                  run_compiled_executable_region(
-                      context,
-                      *region,
-                      /*include_image_entry=*/false),
-                  "Compiled backbone stack failed to execute the executable "
-                  "region");
+              const size_t input_slot_idx = compiled_session_tensor_slot(
+                  compiled_bindings, compiled_plan.input_value);
+              Tensor current = tensor_slots->at(input_slot_idx);
+              for (size_t idx = 0u; idx < backbone_contexts.size(); ++idx) {
+                auto& graph_scratch = (*graph_scratches)[idx];
+                if (graph_scratch.has_value()) {
+                  graph_scratch->reset();
+                }
+                api::RuntimeLabelScope runtime_scope(
+                    compose_runtime_capture_label(
+                        vision_backbone_execution_label(
+                            backbone_contexts[idx]->allocation_label(),
+                            backbone_contexts[idx].get()) +
+                        ".compiled_session"));
+                Tensor& output_slot = tensor_slots->at(compiled_session_tensor_slot(
+                    compiled_bindings,
+                    compiled_plan.block_output_values[idx]));
+                (void)run_vision_backbone_block_program(
+                    current,
+                    backbone_contexts[idx],
+                    &(*programs)[idx],
+                    graph_scratch.has_value() ? &(*graph_scratch) : nullptr,
+                    &output_slot);
+                for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
+                     ++capture_pos) {
+                  if (capture_indices_vec[capture_pos] != static_cast<int64_t>(idx)) {
+                    continue;
+                  }
+                  Tensor& capture_slot =
+                      tensor_slots->at(capture_output_slot_base + capture_pos);
+                  if (!normalized_shape_vec.empty() && output_norm_context) {
+                    (void)run_layernorm_context_out(
+                        output_slot,
+                        normalized_shape_vec,
+                        output_norm_context,
+                        capture_slot);
+                  } else {
+                    if (!copy_buffer_tensor_compute_out(capture_slot, output_slot)) {
+                      copy_tensor_for_replay(capture_slot, output_slot);
+                    }
+                  }
+                }
+                current = output_slot;
+              }
             }));
         return utils::make_execution_graph_replay_bundle(
             root.allocation_label() +
@@ -2911,7 +3006,8 @@ std::optional<std::vector<Tensor>> try_run_vision_backbone_stack_compiled_sessio
       });
 
   if (!replay_bundle.defined() ||
-      replay_bundle.tensor_slot_count() < compiled_bindings.tensor_slot_count()) {
+      replay_bundle.tensor_slot_count() <
+          compiled_bindings.tensor_slot_count() + capture_indices_vec.size()) {
     utils::log_vulkan_op_hit(
         "vulkan_prepack::run_vision_backbone_stack_compiled_session.skip.no_replay_bundle");
     return std::nullopt;
@@ -2932,22 +3028,11 @@ std::optional<std::vector<Tensor>> try_run_vision_backbone_stack_compiled_sessio
   replay_bundle.submit();
 
   std::vector<Tensor> outputs(capture_indices_vec.size());
+  const size_t capture_output_slot_base = compiled_bindings.tensor_slot_count();
   for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
        ++capture_pos) {
-    const int64_t replay_idx = capture_indices_vec[capture_pos];
-    TORCH_CHECK(
-        replay_idx >= 0 &&
-            replay_idx < static_cast<int64_t>(compiled_plan.block_output_values.size()),
-        "Compiled backbone stack capture index is out of range");
-    TORCH_CHECK(
-        compiled_plan.capture_values_by_block.at(static_cast<size_t>(replay_idx))
-            .has_value(),
-        "Compiled backbone stack expected a captured output for the requested "
-        "replay index");
-    const size_t source_slot_idx = compiled_session_tensor_slot(
-        compiled_bindings,
-        *compiled_plan.capture_values_by_block.at(static_cast<size_t>(replay_idx)));
-    const Tensor& replay_output = replay_bundle.tensor_slot(source_slot_idx);
+    const Tensor& replay_output =
+        replay_bundle.tensor_slot(capture_output_slot_base + capture_pos);
     Tensor output = utils::create_buffer_tensor(
         replay_output.sizes(),
         replay_output.scalar_type(),
@@ -3629,12 +3714,22 @@ bool run_compiled_executable_dispatch_step(
         step.writes.size() != 1u) {
       return false;
     }
-    Tensor& output_slot = compiled_executable_tensor_slot(
-        context.tensor_slots, context.bindings, step.writes[0]);
-    copy_tensor_for_replay(
-        output_slot,
-        compiled_executable_tensor_slot(
-            context.tensor_slots, context.bindings, step.reads[0]));
+    Tensor* output_slot = nullptr;
+    if (
+        context.capture_output_slots &&
+        step.writes[0] < context.capture_output_slots_by_value.size() &&
+        context.capture_output_slots_by_value[step.writes[0]].has_value()) {
+      output_slot = &context.capture_output_slots->at(
+          *context.capture_output_slots_by_value[step.writes[0]]);
+    } else {
+      output_slot = &compiled_executable_tensor_slot(
+          context.tensor_slots, context.bindings, step.writes[0]);
+    }
+    Tensor& source_slot = compiled_executable_tensor_slot(
+        context.tensor_slots, context.bindings, step.reads[0]);
+    if (!copy_buffer_tensor_compute_out(*output_slot, source_slot)) {
+      copy_tensor_for_replay(*output_slot, source_slot);
+    }
     return true;
   }
 
@@ -3645,14 +3740,23 @@ bool run_compiled_executable_dispatch_step(
         step.reads.size() != 1u || step.writes.size() != 1u) {
       return false;
     }
-    Tensor& output_slot = compiled_executable_tensor_slot(
-        context.tensor_slots, context.bindings, step.writes[0]);
+    Tensor* output_slot = nullptr;
+    if (
+        context.capture_output_slots &&
+        step.writes[0] < context.capture_output_slots_by_value.size() &&
+        context.capture_output_slots_by_value[step.writes[0]].has_value()) {
+      output_slot = &context.capture_output_slots->at(
+          *context.capture_output_slots_by_value[step.writes[0]]);
+    } else {
+      output_slot = &compiled_executable_tensor_slot(
+          context.tensor_slots, context.bindings, step.writes[0]);
+    }
     (void)run_layernorm_context_out(
         compiled_executable_tensor_slot(
             context.tensor_slots, context.bindings, step.reads[0]),
         context.normalized_shape,
         context.output_norm_context,
-        output_slot);
+        *output_slot);
     return true;
   }
 
@@ -4421,6 +4525,9 @@ std::optional<Tensor> try_run_vision_decoder_preprocess_head_compiled_session(
                   region,
                   *tensor_slots,
                   compiled_bindings,
+                  std::shared_ptr<std::vector<Tensor>>{},
+                  0u,
+                  std::vector<std::optional<size_t>>{},
                   c10::intrusive_ptr<Conv2dPackedContext>{},
                   backbone_contexts,
                   backbone_programs,
@@ -4829,6 +4936,9 @@ std::optional<Tensor> try_run_depth_anything_v2_compiled_session(
                   region,
                   *tensor_slots,
                   compiled_bindings,
+                  std::shared_ptr<std::vector<Tensor>>{},
+                  0u,
+                  std::vector<std::optional<size_t>>{},
                   c10::intrusive_ptr<Conv2dPackedContext>{},
                   backbone_contexts,
                   *programs,
@@ -5141,6 +5251,9 @@ std::optional<Tensor> try_run_depth_anything_v2_image_compiled_session(
                   region,
                   *tensor_slots,
                   compiled_bindings,
+                  std::shared_ptr<std::vector<Tensor>>{},
+                  0u,
+                  std::vector<std::optional<size_t>>{},
                   patch_embed_context,
                   backbone_contexts,
                   *programs,
@@ -7534,11 +7647,127 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
   return outputs;
 }
 
+std::vector<Tensor> run_vision_backbone_stack_compiled_session_bridge_impl(
+    const Tensor& input_arg,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices,
+    const std::optional<std::vector<int64_t>>& output_norm_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& output_norm_context) {
+  TORCH_CHECK(
+      contexts.size() > 0,
+      "Vision backbone stack compiled session bridge expects at least one context");
+  const bool apply_output_norm =
+      output_norm_shape.has_value() && static_cast<bool>(output_norm_context);
+
+  const std::vector<int64_t> capture_indices_vec = capture_indices.vec();
+  for (const int64_t capture_idx : capture_indices_vec) {
+    TORCH_CHECK(
+        capture_idx >= 0 &&
+            capture_idx < static_cast<int64_t>(contexts.size()),
+        "Vision backbone stack compiled session bridge capture index ",
+        capture_idx,
+        " is out of range for ",
+        contexts.size(),
+        " contexts");
+  }
+  if (capture_indices_vec.empty()) {
+    return {};
+  }
+
+  std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>> backbone_contexts;
+  backbone_contexts.reserve(contexts.size());
+  for (const auto& context_ref : contexts) {
+    c10::intrusive_ptr<VisionBackboneBlockContext> context = context_ref;
+    TORCH_CHECK(
+        static_cast<bool>(context),
+        "Vision backbone stack compiled session bridge expects defined contexts");
+    backbone_contexts.push_back(std::move(context));
+  }
+
+  const Device output_device = input_arg.device();
+  const ScalarType output_dtype = input_arg.scalar_type();
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+
+  auto backbone_request = utils::make_vulkan_vision_backbone_request();
+  backbone_request.fixed_shape_graph_input_sizes = input.sizes().vec();
+  backbone_request.prefer_packed_layout_propagation = true;
+  utils::VulkanPlanningRequestScope planning_scope(backbone_request);
+  const auto runtime_policy =
+      utils::build_vulkan_runtime_policy(backbone_request);
+
+  const VisionReplayBundleIdentity bundle_identity =
+      make_vision_backbone_stack_bundle_identity(
+          backbone_contexts,
+          capture_indices_vec,
+          output_norm_shape,
+          apply_output_norm ? output_norm_context.get() : nullptr);
+  const std::string root_label =
+      current_graph_capture_label("depth.vision", "depth.vision.graph");
+
+  std::vector<int64_t> block_hidden_dims;
+  std::vector<int64_t> block_num_heads;
+  block_hidden_dims.reserve(backbone_contexts.size());
+  block_num_heads.reserve(backbone_contexts.size());
+  for (const auto& context : backbone_contexts) {
+    block_hidden_dims.push_back(vision_block_hidden_dim(context));
+    block_num_heads.push_back(context->num_heads());
+  }
+
+  const auto compiled_session =
+      utils::lookup_or_create_vision_transformer_depth_backbone_session(
+          utils::VisionTransformerDepthBackboneSessionDesc{
+              root_label + ".backbone_stack.compiled" + bundle_identity.label_suffix,
+              input.sizes().vec(),
+              input.scalar_type(),
+              static_cast<int64_t>(backbone_contexts.size()),
+              capture_indices_vec,
+              std::move(block_hidden_dims),
+              std::move(block_num_heads),
+              output_norm_shape,
+              runtime_policy.execution_program_plan.has_value()
+                  ? runtime_policy.execution_program_plan->persistent
+                  : true});
+
+  if (auto compiled_outputs = try_run_vision_backbone_stack_compiled_session(
+          input,
+          output_device,
+          output_dtype,
+          backbone_contexts,
+          capture_indices_vec,
+          output_norm_shape,
+          output_norm_context,
+          runtime_policy,
+          bundle_identity,
+          root_label,
+          compiled_session)) {
+    return *compiled_outputs;
+  }
+
+  return run_vision_backbone_stack_replay_bundle_bridge_impl(
+      input_arg,
+      contexts,
+      capture_indices,
+      output_norm_shape,
+      output_norm_context);
+}
+
 std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge(
     const Tensor& input,
     const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
     IntArrayRef capture_indices) {
   return run_vision_backbone_stack_replay_bundle_bridge_impl(
+      input,
+      contexts,
+      capture_indices,
+      std::nullopt,
+      c10::intrusive_ptr<LayernormPackedContext>());
+}
+
+std::vector<Tensor> run_vision_backbone_stack_compiled_session_bridge(
+    const Tensor& input,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices) {
+  return run_vision_backbone_stack_compiled_session_bridge_impl(
       input,
       contexts,
       capture_indices,
@@ -7557,6 +7786,24 @@ std::vector<Tensor> run_vision_backbone_stack_norm_replay_bundle_bridge(
       "Vision backbone stack norm replay bundle bridge expects a defined "
       "LayerNorm context");
   return run_vision_backbone_stack_replay_bundle_bridge_impl(
+      input,
+      contexts,
+      capture_indices,
+      normalized_shape.vec(),
+      norm_context);
+}
+
+std::vector<Tensor> run_vision_backbone_stack_norm_compiled_session_bridge(
+    const Tensor& input,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& norm_context) {
+  TORCH_CHECK(
+      static_cast<bool>(norm_context),
+      "Vision backbone stack norm compiled session bridge expects a defined "
+      "LayerNorm context");
+  return run_vision_backbone_stack_compiled_session_bridge_impl(
       input,
       contexts,
       capture_indices,

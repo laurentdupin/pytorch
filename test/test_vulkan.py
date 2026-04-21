@@ -6785,6 +6785,177 @@ print("OK")
             if os.path.exists(graph_log_path):
                 os.remove(graph_log_path)
 
+    def test_vulkan_vision_backbone_stack_compiled_session_bridge(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_hit_log_name = "vulkan_vision_backbone_stack_compiled_session_test.log"
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                embed_dim = 32
+                hidden_dim = 64
+                token_count = 17
+                num_heads = 4
+                norm_eps = 1.0e-6
+
+                def make_context(label: str):
+                    return torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        norm_eps,
+                        torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim * 3, dtype=torch.float32),
+                        num_heads,
+                        torch.randn(embed_dim, embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        norm_eps,
+                        torch.randn(hidden_dim, embed_dim, dtype=torch.float32),
+                        torch.randn(hidden_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, hidden_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        torch.randn(embed_dim, dtype=torch.float32),
+                        label,
+                    )
+
+                contexts = [
+                    make_context("depth.dino.backbone.compiled.block0"),
+                    make_context("depth.dino.backbone.compiled.block1"),
+                    make_context("depth.dino.backbone.compiled.block2"),
+                ]
+                capture_indices = [0, 2]
+                norm_context = torch.ops.vulkan_prepack.create_layernorm_context(
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    torch.randn(embed_dim, dtype=torch.float32),
+                    norm_eps,
+                )
+
+                x0 = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+                x1 = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+
+                def run_sequential(inp):
+                    current = inp
+                    outputs = []
+                    for idx, context in enumerate(contexts):
+                        current = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                            current, context
+                        )
+                        if idx in capture_indices:
+                            outputs.append(current.cpu().clone())
+                    return outputs
+
+                def run_sequential_norm(inp):
+                    current = inp
+                    outputs = []
+                    for idx, context in enumerate(contexts):
+                        current = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                            current, context
+                        )
+                        if idx in capture_indices:
+                            outputs.append(
+                                torch.ops.vulkan_prepack.run_layernorm_context(
+                                    current, [embed_dim], norm_context
+                                ).cpu().clone()
+                            )
+                    return outputs
+
+                with torch.inference_mode():
+                    expected0 = run_sequential(x0)
+                    expected1 = run_sequential(x1)
+                    expected0_norm = run_sequential_norm(x0)
+                    expected1_norm = run_sequential_norm(x1)
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.vision.stack.compiled.capture.17x32"
+                )
+                try:
+                    with torch.inference_mode():
+                        y0 = torch.ops.vulkan_prepack.run_vision_backbone_stack_compiled_session_bridge(
+                            x0, contexts, capture_indices
+                        )
+                        y0_cpu = [tensor.cpu().clone() for tensor in y0]
+                        y1 = torch.ops.vulkan_prepack.run_vision_backbone_stack_compiled_session_bridge(
+                            x1, contexts, capture_indices
+                        )
+                        y1_cpu = [tensor.cpu().clone() for tensor in y1]
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                for actual, expected in zip(y0_cpu, expected0):
+                    if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
+                        raise RuntimeError("Backbone stack compiled session warmup output mismatch")
+                for actual, expected in zip(y1_cpu, expected1):
+                    if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
+                        raise RuntimeError("Backbone stack compiled session replay output mismatch")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.vision.stack.norm.compiled.capture.17x32"
+                )
+                try:
+                    with torch.inference_mode():
+                        y0_norm = torch.ops.vulkan_prepack.run_vision_backbone_stack_norm_compiled_session_bridge(
+                            x0, contexts, capture_indices, [embed_dim], norm_context
+                        )
+                        y0_norm_cpu = [tensor.cpu().clone() for tensor in y0_norm]
+                        y1_norm = torch.ops.vulkan_prepack.run_vision_backbone_stack_norm_compiled_session_bridge(
+                            x1, contexts, capture_indices, [embed_dim], norm_context
+                        )
+                        y1_norm_cpu = [tensor.cpu().clone() for tensor in y1_norm]
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                for actual, expected in zip(y0_norm_cpu, expected0_norm):
+                    if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
+                        raise RuntimeError("Backbone stack norm compiled session warmup output mismatch")
+                for actual, expected in zip(y1_norm_cpu, expected1_norm):
+                    if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
+                        raise RuntimeError("Backbone stack norm compiled session replay output mismatch")
+
+                print(float(
+                    sum(t.sum() for t in y0_cpu)
+                    + sum(t.sum() for t in y1_cpu)
+                    + sum(t.sum() for t in y0_norm_cpu)
+                    + sum(t.sum() for t in y1_norm_cpu)
+                ))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+                error_prefix="Vision backbone stack compiled session subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_hit_log_path))
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                op_hit_text = log_file.read()
+
+            self.assertIn(
+                "op=vulkan_prepack::run_vision_backbone_stack_compiled_session.replay_warmup",
+                op_hit_text,
+            )
+            self.assertIn(
+                "op=vulkan_prepack::run_vision_backbone_stack_compiled_session.replay",
+                op_hit_text,
+            )
+            self.assertIn(
+                "op=vulkan_prepack::run_vision_backbone_stack_norm_compiled_session.replay_warmup",
+                op_hit_text,
+            )
+            self.assertIn(
+                "op=vulkan_prepack::run_vision_backbone_stack_norm_compiled_session.replay",
+                op_hit_text,
+            )
+        finally:
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+
     def test_vulkan_scheduled_gated_delta_runtime_ops_match_reference(self):
         script = """
             import torch
