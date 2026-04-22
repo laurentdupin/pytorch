@@ -283,6 +283,8 @@ inline const char* dispatch_kind_name(const DispatchKind kind) {
       return "PatchTokenInput";
     case DispatchKind::BackboneBlock:
       return "BackboneBlock";
+    case DispatchKind::CapturePatchTokens:
+      return "CapturePatchTokens";
     case DispatchKind::CaptureNormedPatchTokens:
       return "CaptureNormedPatchTokens";
     case DispatchKind::CaptureDecoderLayerPreprocess:

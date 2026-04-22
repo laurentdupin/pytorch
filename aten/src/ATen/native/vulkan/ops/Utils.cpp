@@ -290,12 +290,9 @@ void log_materialize_event(
   append_materialize_log_line(stream.str());
 }
 
-const std::string& op_hit_log_path() {
-  static const std::string path = []() {
-    const char* env = std::getenv("PYTORCH_VULKAN_OP_HIT_LOG");
-    return env ? std::string(env) : std::string();
-  }();
-  return path;
+std::string op_hit_log_path() {
+  const char* env = std::getenv("PYTORCH_VULKAN_OP_HIT_LOG");
+  return env ? std::string(env) : std::string();
 }
 
 bool op_hit_logging_enabled() {

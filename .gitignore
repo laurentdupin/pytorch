@@ -416,3 +416,4 @@ CLAUDE.local.md
 CLAUDE_CONTEXT/
 /.claude/settings.local.json
 /build*
+/comparison

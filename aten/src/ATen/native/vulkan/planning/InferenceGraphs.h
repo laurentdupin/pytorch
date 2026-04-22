@@ -26,7 +26,7 @@ enum class VulkanInferenceGraphKind : uint8_t {
 
 const char* inference_graph_kind_name(VulkanInferenceGraphKind);
 
-class InferenceGraph final {
+class TORCH_API InferenceGraph final {
  public:
   struct State;
 
@@ -52,7 +52,7 @@ class InferenceGraph final {
   const void* identity() const;
 };
 
-class InferenceReplay final {
+class TORCH_API InferenceReplay final {
  public:
   struct State;
 
@@ -82,7 +82,7 @@ using ExecutionGraphProgramHandle = std::variant<
     VisionBackboneProgram,
     VisionDecoderProgram>;
 
-class ExecutionGraphTensorSlots final {
+class TORCH_API ExecutionGraphTensorSlots final {
  public:
   struct State;
 
@@ -104,7 +104,7 @@ class ExecutionGraphTensorSlots final {
   const void* identity() const;
 };
 
-class ExecutionGraphProgramSlots final {
+class TORCH_API ExecutionGraphProgramSlots final {
  public:
   struct State;
 
@@ -123,7 +123,7 @@ class ExecutionGraphProgramSlots final {
   const void* identity() const;
 };
 
-class ExecutionGraphReplay final {
+class TORCH_API ExecutionGraphReplay final {
  public:
   struct State;
 
@@ -150,11 +150,11 @@ struct ExecutionGraphReplayStep final {
   std::function<void()> record_step;
 };
 
-ExecutionGraphReplayStep make_execution_graph_replay_step(
+TORCH_API ExecutionGraphReplayStep make_execution_graph_replay_step(
     ExecutionGraphReplay replay,
     std::function<void()> record_step);
 
-ExecutionGraphReplay make_execution_graph_replay(
+TORCH_API ExecutionGraphReplay make_execution_graph_replay(
     const std::string& allocation_label,
     VulkanInferenceGraphKind kind,
     ScalarType dtype,
@@ -163,7 +163,7 @@ ExecutionGraphReplay make_execution_graph_replay(
     std::vector<std::optional<Tensor>> optional_tensors,
     std::vector<ExecutionGraphProgramHandle> programs);
 
-class ExecutionGraphReplayBundle final {
+class TORCH_API ExecutionGraphReplayBundle final {
  public:
   struct State;
 
@@ -193,7 +193,7 @@ class ExecutionGraphReplayBundle final {
   const void* identity() const;
 };
 
-class ExecutionGraphPlan final {
+class TORCH_API ExecutionGraphPlan final {
  public:
   struct State;
 
@@ -225,7 +225,7 @@ class ExecutionGraphPlan final {
   const void* identity() const;
 };
 
-class ExecutionGraphRoot final {
+class TORCH_API ExecutionGraphRoot final {
  public:
   struct State;
 
@@ -248,32 +248,32 @@ class ExecutionGraphRoot final {
   const void* identity() const;
 };
 
-ExecutionGraphReplayBundle make_execution_graph_replay_bundle(
+TORCH_API ExecutionGraphReplayBundle make_execution_graph_replay_bundle(
     const std::string& allocation_label,
     ScalarType dtype,
     bool persistent,
     std::vector<ExecutionGraphReplayStep> steps,
     std::shared_ptr<std::vector<Tensor>> tensor_slots = nullptr);
 
-InferenceGraph lookup_or_create_labeled_inference_graph(
+TORCH_API InferenceGraph lookup_or_create_labeled_inference_graph(
     const std::string& allocation_label,
     VulkanInferenceGraphKind kind,
     ScalarType dtype,
     bool persistent);
 
-InferenceReplay lookup_or_create_labeled_inference_replay(
+TORCH_API InferenceReplay lookup_or_create_labeled_inference_replay(
     const std::string& allocation_label,
     VulkanInferenceGraphKind kind,
     ScalarType dtype,
     bool persistent);
 
-ExecutionGraphPlan lookup_or_create_labeled_execution_graph_plan(
+TORCH_API ExecutionGraphPlan lookup_or_create_labeled_execution_graph_plan(
     const std::string& allocation_label,
     VulkanInferenceGraphKind kind,
     ScalarType dtype,
     bool persistent);
 
-ExecutionGraphRoot lookup_or_create_labeled_execution_graph_root(
+TORCH_API ExecutionGraphRoot lookup_or_create_labeled_execution_graph_root(
     const std::string& allocation_label,
     ScalarType dtype,
     bool persistent);

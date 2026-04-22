@@ -295,12 +295,9 @@ std::optional<VulkanExecutionProgramPlanningDesc> select_execution_program_plan(
   return std::nullopt;
 }
 
-const std::string& runtime_policy_log_path() {
-  static const std::string path = []() {
-    const char* env = std::getenv("PYTORCH_VULKAN_RUNTIME_POLICY_LOG");
-    return env ? std::string(env) : std::string();
-  }();
-  return path;
+std::string runtime_policy_log_path() {
+  const char* env = std::getenv("PYTORCH_VULKAN_RUNTIME_POLICY_LOG");
+  return env ? std::string(env) : std::string();
 }
 
 bool runtime_policy_logging_enabled() {

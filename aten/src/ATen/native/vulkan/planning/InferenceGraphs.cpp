@@ -34,12 +34,9 @@ void hash_combine(size_t& seed, const T& value) {
       (seed >> 2u);
 }
 
-const std::string& inference_graph_log_path() {
-  static const std::string path = []() {
-    const char* env = std::getenv("PYTORCH_VULKAN_INFERENCE_GRAPH_LOG");
-    return env ? std::string(env) : std::string();
-  }();
-  return path;
+std::string inference_graph_log_path() {
+  const char* env = std::getenv("PYTORCH_VULKAN_INFERENCE_GRAPH_LOG");
+  return env ? std::string(env) : std::string();
 }
 
 bool inference_graph_logging_enabled() {
@@ -1454,9 +1451,20 @@ ExecutionGraphReplayBundle ExecutionGraphRoot::lookup_or_create_replay_bundle(
         nullptr,
         bundle_key.c_str());
     created = builder();
-    TORCH_INTERNAL_ASSERT(
-        created.defined(),
-        "ExecutionGraphRoot replay bundle builder returned an undefined bundle");
+    if (!created.defined()) {
+      {
+        std::lock_guard<std::mutex> lock(state_->mutex_);
+        state_->in_flight_bundles_.erase(bundle_key);
+      }
+      owner_promise->set_value(created);
+      log_execution_graph_root_event(
+          "bundle_build_skip",
+          allocation_label(),
+          identity(),
+          nullptr,
+          bundle_key.c_str());
+      return created;
+    }
     {
       std::lock_guard<std::mutex> lock(state_->mutex_);
       auto [it, inserted] = state_->bundles_.emplace(bundle_key, created);
@@ -2505,12 +2513,9 @@ VulkanIRTensorSpec make_constant_spec(
       false);
 }
 
-const std::string& compiled_session_log_path() {
-  static const std::string path = []() {
-    const char* env = std::getenv("PYTORCH_VULKAN_COMPILED_SESSION_LOG");
-    return env ? std::string(env) : std::string();
-  }();
-  return path;
+std::string compiled_session_log_path() {
+  const char* env = std::getenv("PYTORCH_VULKAN_COMPILED_SESSION_LOG");
+  return env ? std::string(env) : std::string();
 }
 
 bool compiled_session_logging_enabled() {
@@ -3538,10 +3543,14 @@ try_make_fused_capture_decoder_layer_step(
   }
 
   const auto& capture = ops[op_idx];
+  const bool capture_is_normed =
+      capture.kind == VulkanIROpKind::CaptureNormedPatchTokens;
+  const bool capture_is_plain =
+      capture.kind == VulkanIROpKind::CapturePatchTokens;
   if (
-      capture.kind != VulkanIROpKind::CaptureNormedPatchTokens ||
+      (!capture_is_normed && !capture_is_plain) ||
       capture.inputs.size() != 1u || capture.outputs.size() != 1u ||
-      capture.constants.size() != 1u) {
+      capture.constants.size() != (capture_is_normed ? 1u : 0u)) {
     return std::nullopt;
   }
 
@@ -3564,22 +3573,31 @@ try_make_fused_capture_decoder_layer_step(
     DispatchStep step;
     step.ir_op_index = static_cast<uint32_t>(op_idx);
     step.name = fused_decoder->step.name.empty()
-        ? "capture.decoder.layer.preprocess"
+        ? (capture_is_normed ? "capture.decoder.layer.preprocess"
+                             : "decoder.layer.preprocess")
         : fused_decoder->step.name;
-    step.program_key = "CaptureDecoderLayerPreprocess";
-    step.dispatch_kind = DispatchKind::CaptureDecoderLayerPreprocess;
+    step.program_key = capture_is_normed ? "CaptureDecoderLayerPreprocess"
+                                         : fused_decoder->step.program_key;
+    step.dispatch_kind = capture_is_normed
+        ? DispatchKind::CaptureDecoderLayerPreprocess
+        : fused_decoder->step.dispatch_kind;
     step.attributes_key = fused_decoder->step.attributes_key;
     step.reads = {capture.inputs[0]};
-    step.constants = {capture.constants[0]};
-    step.constants.insert(
-        step.constants.end(),
-        fused_decoder->step.constants.cbegin(),
-        fused_decoder->step.constants.cend());
-    step.temporaries = {capture.outputs[0]};
-    step.temporaries.insert(
-        step.temporaries.end(),
-        fused_decoder->step.temporaries.cbegin(),
-        fused_decoder->step.temporaries.cend());
+    if (capture_is_normed) {
+      step.constants = {capture.constants[0]};
+      step.constants.insert(
+          step.constants.end(),
+          fused_decoder->step.constants.cbegin(),
+          fused_decoder->step.constants.cend());
+      step.temporaries = {capture.outputs[0]};
+      step.temporaries.insert(
+          step.temporaries.end(),
+          fused_decoder->step.temporaries.cbegin(),
+          fused_decoder->step.temporaries.cend());
+    } else {
+      step.constants = fused_decoder->step.constants;
+      step.temporaries = fused_decoder->step.temporaries;
+    }
     step.writes = fused_decoder->step.writes;
 
     std::vector<VulkanValueId> virtual_values = {capture.outputs[0]};
@@ -4262,6 +4280,7 @@ std::optional<VulkanCompiledSessionTensorBindings>
 make_compiled_executable_region_tensor_bindings(
     const VulkanCompiledSession& session,
     const VulkanExecutableRegion& region) {
+  const auto& ir = session.ir();
   auto base_bindings = make_compiled_session_tensor_bindings(session);
   if (!base_bindings.has_value()) {
     return std::nullopt;
@@ -4272,16 +4291,42 @@ make_compiled_executable_region_tensor_bindings(
 
   VulkanCompiledSessionTensorBindings bindings;
   bindings.value_tensor_slots.resize(base_bindings->value_tensor_slots.size());
+  std::unordered_map<VulkanValueId, VulkanValueId> output_alias_sources;
+  output_alias_sources.reserve(ir.output_aliases().size());
+  for (const auto& alias : ir.output_aliases()) {
+    output_alias_sources.emplace(alias.output, alias.source);
+  }
+  std::unordered_set<VulkanValueId> decoder_head_inputs;
+  for (const auto& op : ir.ops()) {
+    if (op.kind != VulkanIROpKind::DecoderHead) {
+      continue;
+    }
+    decoder_head_inputs.insert(op.inputs.cbegin(), op.inputs.cend());
+  }
 
   const auto is_virtual = [&](const VulkanValueId value_id) {
     return value_id < region.values.size() &&
         region.values[value_id].realization == RealizationKind::Virtual;
+  };
+  const auto alias_source_for_value = [&](const VulkanValueId value_id)
+      -> std::optional<VulkanValueId> {
+    const auto it = output_alias_sources.find(value_id);
+    if (it == output_alias_sources.end()) {
+      return std::nullopt;
+    }
+    return it->second;
   };
   const auto requires_dedicated_tensor_slot = [&](const VulkanValueId value_id) {
     if (value_id >= region.values.size() || is_virtual(value_id)) {
       return false;
     }
     const auto& lowered_value = region.values[value_id];
+    if (decoder_head_inputs.count(value_id) > 0u) {
+      return true;
+    }
+    if (alias_source_for_value(value_id).has_value()) {
+      return lowered_value.realization == RealizationKind::ExternalInput;
+    }
     return lowered_value.boundary_role == BoundaryRole::RegionOutput ||
         lowered_value.realization == RealizationKind::ExternalInput;
   };
@@ -4341,7 +4386,19 @@ make_compiled_executable_region_tensor_bindings(
     bindings.input_values.push_back(input_value);
   }
 
-  const auto& values = session.ir().values();
+  for (const auto& alias : ir.output_aliases()) {
+    if (is_virtual(alias.output)) {
+      continue;
+    }
+    if (alias.output >= bindings.value_tensor_slots.size() ||
+        alias.source >= bindings.value_tensor_slots.size() ||
+        !bindings.value_tensor_slots[alias.source].has_value()) {
+      return std::nullopt;
+    }
+    bind_value(alias.output, *bindings.value_tensor_slots[alias.source]);
+  }
+
+  const auto& values = ir.values();
   for (const auto& value : values) {
     if (
         compiled_session_impl::tensor_spec_nbytes(value.spec) == 0u ||
