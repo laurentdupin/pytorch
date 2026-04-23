@@ -42,6 +42,8 @@ bool has_inference_tensor(const Tensor&, const std::optional<Tensor>&);
 
 bool supports_buffer_view_fast_path(const vTensor&);
 
+bool supports_buffer_metadata_view_fast_path(const vTensor&);
+
 api::ExecutionLayout resolve_buffer_execution_layout(const vTensor&);
 
 bool supports_buffer_elementwise_compute(const vTensor&);

@@ -38,6 +38,13 @@ ops::utils::LogicalBufferMetadata make_cpu_buffer_compute_metadata(
   };
 }
 
+api::ShaderInfo get_buffer_to_buffer_shader(const vTensor& tensor) {
+  if (tensor.dtype() == api::kByte) {
+    return VK_KERNEL(buffer_to_buffer_uint8);
+  }
+  return VK_KERNEL(buffer_to_buffer);
+}
+
 } // namespace
 
 api::ShaderInfo get_nchw_to_image_shader(const vTensor& v_dst) {
@@ -276,7 +283,7 @@ void record_nchw_to_buffer_op(
 
   context->submit_compute_job(
       // shader descriptor
-      VK_KERNEL(buffer_to_buffer),
+      get_buffer_to_buffer_shader(v_dst),
       // pipeline barrier
       pipeline_barrier,
       // global work group size
@@ -313,7 +320,7 @@ bool record_buffer_to_nchw_op(
 
   return context->submit_compute_job(
       // shader descriptor
-      VK_KERNEL(buffer_to_buffer),
+      get_buffer_to_buffer_shader(v_src),
       // pipeline barrier
       pipeline_barrier,
       // global work group size

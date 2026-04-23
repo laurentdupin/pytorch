@@ -18,7 +18,7 @@ bool can_use_buffer_permute_view(const Tensor& self) {
   }
   const vTensor& v_self = convert(self);
   return v_self.storage_type() == api::StorageType::BUFFER &&
-      utils::supports_buffer_view_fast_path(v_self);
+      utils::supports_buffer_metadata_view_fast_path(v_self);
 }
 
 Tensor permute_buffer_view(const Tensor& self, IntArrayRef dims) {
@@ -113,6 +113,10 @@ Tensor permute(const Tensor& self, IntArrayRef dims) {
   auto nDims = safe_downcast<uint32_t>(self.dim());
   TORCH_CHECK(
       dims.size() == (size_t)nDims, "number of dims don't match in permute");
+  if (can_use_buffer_permute_view(self)) {
+    return permute_buffer_view(self, dims);
+  }
+
   if (self.dim() > 4) {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
@@ -148,10 +152,6 @@ Tensor permute(const Tensor& self, IntArrayRef dims) {
 
   if (sameDims) {
     return self;
-  }
-
-  if (can_use_buffer_permute_view(self)) {
-    return permute_buffer_view(self, dims);
   }
 
   IntArrayRef output_sizes(newSizes);

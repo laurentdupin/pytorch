@@ -3,7 +3,9 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/vulkan/Context.h>
+#include <c10/util/irange.h>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 
@@ -71,6 +73,25 @@ bool should_force_buffer_storage_for_to_vulkan(const Tensor& src) {
   // and immediately materialize back.
   return c10::isFloatingType(src.scalar_type()) && src.dim() >= 1 &&
       src.dim() <= 4 && src.numel() > 0;
+}
+
+bool should_use_host_visible_buffer_for_to_vulkan(const Tensor& src) {
+  // Desktop vision input packets arrive as large uint8 tensors that are copied
+  // to Vulkan every frame. Keeping those buffer-backed tensors host-visible
+  // avoids an extra staging allocation and transfer before the first buffer
+  // kernels consume them.
+  return src.scalar_type() == at::kByte && src.dim() >= 1 && src.dim() <= 4 &&
+      src.numel() > 0;
+}
+
+bool should_preserve_compact_cpu_buffer_view_for_to_vulkan(const Tensor& src) {
+  // Deep Desktop image packets arrive as contiguous HWC/NHWC uint8 tensors.
+  // Uploading them directly into a flat contiguous buffer and then wrapping a
+  // metadata view avoids the expensive HWC -> width-packed scatter on every
+  // frame while keeping the Python path unchanged.
+  return src.scalar_type() == at::kByte && src.is_contiguous() &&
+      src.dim() >= 2 && src.dim() <= 4 && src.size(src.dim() - 1) > 0 &&
+      src.size(src.dim() - 1) < 4 && src.numel() % 4 == 0;
 }
 
 bool is_large_floating_matrix(const Tensor& src) {
@@ -157,6 +178,144 @@ std::vector<int64_t> calc_logical_contiguous_strides(
     strides[idx] = strides[idx + 1] * std::max<int64_t>(sizes[idx + 1], 1);
   }
   return strides;
+}
+
+bool has_last_dim_padded_contiguous_source_layout(
+    const Tensor& src,
+    const int64_t padded_last) {
+  if (
+      src.dim() < 1 || src.dim() > 4 || src.storage_offset() != 0 ||
+      src.size(src.dim() - 1) <= 0 || src.stride(src.dim() - 1) != 1) {
+    return false;
+  }
+
+  std::vector<int64_t> physical_sizes = src.sizes().vec();
+  physical_sizes.back() = padded_last;
+  const std::vector<int64_t> expected_strides =
+      calc_logical_contiguous_strides(physical_sizes);
+  for (const auto dim : c10::irange(src.dim())) {
+    if (src.stride(dim) != expected_strides[dim]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool can_pack_last_dim_padded_width_packed_contiguous_buffer(
+    const Tensor& src,
+    const vTensor& dst) {
+  if (
+      !src.is_contiguous() || dst.storage_type() != api::StorageType::BUFFER ||
+      dst.gpu_memory_layout() != api::GPUMemoryLayout::TENSOR_WIDTH_PACKED ||
+      src.dim() < 1 || src.dim() > 4 || dst.storage_offset() != 0 ||
+      src.sizes().vec() != dst.sizes()) {
+    return false;
+  }
+
+  const int64_t logical_last = src.size(src.dim() - 1);
+  if (logical_last <= 0 || logical_last >= 4) {
+    return false;
+  }
+
+  const int64_t physical_last = dst.gpu_sizes().back();
+  if (physical_last != api::utils::align_up(logical_last, int64_t(4))) {
+    return false;
+  }
+
+  const int64_t outer = src.numel() / logical_last;
+  return api::utils::safe_downcast<int64_t>(dst.gpu_numel()) ==
+      outer * physical_last;
+}
+
+bool can_pack_last_dim_padded_width_packed_strided_buffer(
+    const Tensor& src,
+    const vTensor& dst) {
+  if (
+      dst.storage_type() != api::StorageType::BUFFER ||
+      dst.gpu_memory_layout() != api::GPUMemoryLayout::TENSOR_WIDTH_PACKED ||
+      src.dim() < 1 || src.dim() > 4 || dst.storage_offset() != 0 ||
+      src.sizes().vec() != dst.sizes()) {
+    return false;
+  }
+
+  const int64_t logical_last = src.size(src.dim() - 1);
+  if (logical_last <= 0 || logical_last >= 4) {
+    return false;
+  }
+
+  const int64_t physical_last = dst.gpu_sizes().back();
+  if (physical_last != api::utils::align_up(logical_last, int64_t(4))) {
+    return false;
+  }
+
+  if (!has_last_dim_padded_contiguous_source_layout(src, physical_last)) {
+    return false;
+  }
+
+  const int64_t outer = src.numel() / logical_last;
+  return api::utils::safe_downcast<int64_t>(dst.gpu_numel()) ==
+      outer * physical_last;
+}
+
+void pack_last_dim_padded_width_packed_contiguous_uint8_buffer(
+    const Tensor& src,
+    api::MemoryMap& dst_mapping,
+    const vTensor& dst) {
+  TORCH_CHECK(
+      can_pack_last_dim_padded_width_packed_contiguous_buffer(src, dst),
+      "Expected contiguous tensor with last-dim width padding");
+  TORCH_CHECK(
+      src.scalar_type() == at::kByte,
+      "Expected uint8 tensor for padded width-packed upload fast path");
+
+  const int64_t logical_last = src.size(src.dim() - 1);
+  const int64_t outer = src.numel() / logical_last;
+
+  uint32_t* const dst_words = dst_mapping.data<uint32_t>();
+  const uint8_t* const src_ptr = src.const_data_ptr<uint8_t>();
+
+  for (int64_t idx = 0; idx < outer; ++idx) {
+    const int64_t src_offset = idx * logical_last;
+    uint32_t packed = static_cast<uint32_t>(src_ptr[src_offset]);
+    if (logical_last >= 2) {
+      packed |= static_cast<uint32_t>(src_ptr[src_offset + 1]) << 8;
+    }
+    if (logical_last >= 3) {
+      packed |= static_cast<uint32_t>(src_ptr[src_offset + 2]) << 16;
+    }
+    dst_words[idx] = packed;
+  }
+}
+
+void pack_last_dim_padded_width_packed_strided_uint8_buffer(
+    const Tensor& src,
+    api::MemoryMap& dst_mapping,
+    const vTensor& dst) {
+  TORCH_CHECK(
+      can_pack_last_dim_padded_width_packed_strided_buffer(src, dst),
+      "Expected last-dim padded uint8 source view for width-packed upload");
+  TORCH_CHECK(
+      src.scalar_type() == at::kByte,
+      "Expected uint8 tensor for padded width-packed strided upload fast path");
+
+  const int64_t logical_last = src.size(src.dim() - 1);
+  const int64_t physical_last = dst.gpu_sizes().back();
+  const int64_t outer = src.numel() / logical_last;
+
+  uint32_t* const dst_words = dst_mapping.data<uint32_t>();
+  const uint8_t* const src_ptr = src.const_data_ptr<uint8_t>();
+
+  for (int64_t idx = 0; idx < outer; ++idx) {
+    const int64_t src_offset = idx * physical_last;
+    uint32_t packed = static_cast<uint32_t>(src_ptr[src_offset]);
+    if (logical_last >= 2) {
+      packed |= static_cast<uint32_t>(src_ptr[src_offset + 1]) << 8;
+    }
+    if (logical_last >= 3) {
+      packed |= static_cast<uint32_t>(src_ptr[src_offset + 2]) << 16;
+    }
+    dst_words[idx] = packed;
+  }
 }
 
 template <typename T>
@@ -302,19 +461,50 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
 }
 
 void pack_cpu_to_host_visible_vulkan_buffer(const Tensor& src, vTensor& dst) {
-  const c10::MemoryFormat target_memory_format =
-      memory_format_for_buffer_layout(dst.gpu_memory_layout());
-  Tensor src_contig = src.contiguous(target_memory_format);
   api::MemoryMap mapping(dst.buffer(), api::MemoryAccessType::WRITE);
-  pack_logical_tensor_to_buffer_mapping_dispatch(
-      src_contig,
-      mapping,
-      dst.gpu_strides(),
-      dst.gpu_numel(),
-      dst.storage_offset(),
-      dst.storage_offset() == 0 &&
-          api::utils::safe_downcast<int64_t>(dst.gpu_numel()) ==
-              dst.buffer_length());
+  if (dst.has_direct_buffer_layout()) {
+    const c10::MemoryFormat target_memory_format =
+        memory_format_for_buffer_layout(dst.gpu_memory_layout());
+    Tensor src_contig = src.contiguous(target_memory_format);
+    memcpy_to_mapping(src_contig, mapping);
+  } else if (
+      src.scalar_type() == at::kByte &&
+      can_pack_last_dim_padded_width_packed_strided_buffer(src, dst)) {
+    pack_last_dim_padded_width_packed_strided_uint8_buffer(src, mapping, dst);
+  } else if (
+      src.scalar_type() == at::kByte) {
+    const c10::MemoryFormat target_memory_format =
+        memory_format_for_buffer_layout(dst.gpu_memory_layout());
+    Tensor src_contig = src.contiguous(target_memory_format);
+    if (can_pack_last_dim_padded_width_packed_contiguous_buffer(
+            src_contig, dst)) {
+      pack_last_dim_padded_width_packed_contiguous_uint8_buffer(
+          src_contig, mapping, dst);
+    } else {
+      pack_logical_tensor_to_buffer_mapping_dispatch(
+          src_contig,
+          mapping,
+          dst.gpu_strides(),
+          dst.gpu_numel(),
+          dst.storage_offset(),
+          dst.storage_offset() == 0 &&
+              api::utils::safe_downcast<int64_t>(dst.gpu_numel()) ==
+                  dst.buffer_length());
+    }
+  } else {
+    const c10::MemoryFormat target_memory_format =
+        memory_format_for_buffer_layout(dst.gpu_memory_layout());
+    Tensor src_contig = src.contiguous(target_memory_format);
+    pack_logical_tensor_to_buffer_mapping_dispatch(
+        src_contig,
+        mapping,
+        dst.gpu_strides(),
+        dst.gpu_numel(),
+        dst.storage_offset(),
+        dst.storage_offset() == 0 &&
+            api::utils::safe_downcast<int64_t>(dst.gpu_numel()) ==
+                dst.buffer_length());
+  }
   dst.mark_host_write();
 }
 
@@ -388,11 +578,12 @@ bool copy_vtensor_buffer_to_staging(
     vTensor& src,
     api::VulkanBuffer& staging,
     const VkFence fence_handle) {
-  const bool use_float_pack_shader =
-      src.dtype() == api::kFloat && src.sizes().size() <= 4 &&
+  const bool use_packed_buffer_shader =
+      (src.dtype() == api::kFloat || src.dtype() == api::kByte) &&
+      src.sizes().size() <= 4 &&
       src.storage_type() == api::StorageType::BUFFER &&
       src.last_write_was_compute();
-  if (use_float_pack_shader) {
+  if (use_packed_buffer_shader) {
     return utils::pack_vtensor_to_staging(src, staging, fence_handle);
   }
 
@@ -599,7 +790,6 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
 
     const c10::MemoryFormat target_memory_format =
         memory_format_for_buffer_layout(dst.gpu_memory_layout());
-    Tensor src_contig = src.contiguous(target_memory_format);
     const bool copy_covers_full_buffer =
         dst.has_direct_buffer_layout() ||
         (dst.storage_offset() == 0 &&
@@ -610,7 +800,7 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
         : dst.buffer_length();
     api::StorageBuffer staging(
         context,
-        convert_dtype(src_contig.scalar_type()),
+        convert_dtype(src.scalar_type()),
         staging_numel);
     if (
         !copy_covers_full_buffer &&
@@ -641,8 +831,24 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
     {
       api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::WRITE);
       if (dst.has_direct_buffer_layout()) {
+        Tensor src_contig = src.contiguous(target_memory_format);
         memcpy_to_mapping(src_contig, mapping);
+      } else if (
+          src.scalar_type() == at::kByte &&
+          copy_covers_full_buffer &&
+          can_pack_last_dim_padded_width_packed_strided_buffer(src, dst)) {
+        pack_last_dim_padded_width_packed_strided_uint8_buffer(
+            src, mapping, dst);
+      } else if (
+          src.scalar_type() == at::kByte &&
+          copy_covers_full_buffer &&
+          can_pack_last_dim_padded_width_packed_contiguous_buffer(
+              src.contiguous(target_memory_format), dst)) {
+        Tensor src_contig = src.contiguous(target_memory_format);
+        pack_last_dim_padded_width_packed_contiguous_uint8_buffer(
+            src_contig, mapping, dst);
       } else {
+        Tensor src_contig = src.contiguous(target_memory_format);
         pack_logical_tensor_to_buffer_mapping_dispatch(
             src_contig,
             mapping,
@@ -705,7 +911,8 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
 
   if (src.storage_type() == api::StorageType::BUFFER) {
     const bool shader_packed_buffer =
-        src.dtype() == api::kFloat && src.sizes().size() <= 4 &&
+        (src.dtype() == api::kFloat || src.dtype() == api::kByte) &&
+        src.sizes().size() <= 4 &&
         src.storage_type() == api::StorageType::BUFFER &&
         src.last_write_was_compute();
     const int64_t staging_length =
@@ -900,6 +1107,35 @@ vTensor to_vulkan(
        should_force_buffer_storage_for_to_vulkan(src))
       ? api::StorageType::BUFFER
       : storage_type;
+  const bool use_host_visible_buffer =
+      resolved_storage_type == api::StorageType::BUFFER &&
+      should_use_host_visible_buffer_for_to_vulkan(src);
+
+  if (
+      resolved_storage_type == api::StorageType::BUFFER &&
+      should_preserve_compact_cpu_buffer_view_for_to_vulkan(src)) {
+    vTensor flat_storage{
+        api::context(resolved_device_index),
+        {src.numel()},
+        convert_dtype(src.scalar_type()),
+        api::StorageType::BUFFER,
+        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+        /*allocate_memory=*/true,
+        /*buffer_gpu_only=*/!use_host_visible_buffer,
+    };
+
+    Tensor flat_src = src.reshape({src.numel()});
+    ops::pack_cpu_to_vulkan(flat_src, flat_storage);
+
+    const std::vector<int64_t> strides =
+        calc_logical_contiguous_strides(src.sizes());
+    return vTensor(
+        flat_storage,
+        src.sizes().vec(),
+        strides,
+        strides,
+        /*storage_offset=*/0);
+  }
 
   vTensor v_ret{
       api::context(resolved_device_index),
@@ -907,6 +1143,8 @@ vTensor to_vulkan(
       convert_dtype(src.scalar_type()),
       resolved_storage_type,
       get_gpu_memory_layout(resolved_storage_type, src.suggest_memory_format()),
+      /*allocate_memory=*/true,
+      /*buffer_gpu_only=*/!use_host_visible_buffer,
   };
 
   ops::pack_cpu_to_vulkan(src, v_ret);

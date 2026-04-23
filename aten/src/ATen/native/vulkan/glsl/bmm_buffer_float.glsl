@@ -14,8 +14,9 @@ layout(set = 0, binding = 0) buffer PRECISION restrict writeonly OutBuffer {
 uOutput;
 
 layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
-  uvec4 sizes;
-  uvec4 strides;
+  uvec4 logical_sizes;
+  uvec4 logical_strides;
+  uvec4 physical_strides;
   uvec4 info;
 }
 uOutMeta;
@@ -26,8 +27,9 @@ layout(set = 0, binding = 2) buffer PRECISION restrict readonly InBuffer {
 uInput;
 
 layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
-  uvec4 sizes;
-  uvec4 strides;
+  uvec4 logical_sizes;
+  uvec4 logical_strides;
+  uvec4 physical_strides;
   uvec4 info;
 }
 uInMeta;
@@ -38,8 +40,9 @@ layout(set = 0, binding = 4) buffer PRECISION restrict readonly WeightBuffer {
 uWeight;
 
 layout(set = 0, binding = 5) uniform PRECISION restrict WeightMeta {
-  uvec4 sizes;
-  uvec4 strides;
+  uvec4 logical_sizes;
+  uvec4 logical_strides;
+  uvec4 physical_strides;
   uvec4 info;
 }
 uWeightMeta;
@@ -70,9 +73,9 @@ void main() {
     return;
   }
 
-  const uint out_storage_offset = uOutMeta.info.z;
-  const uint in_storage_offset = uInMeta.info.z;
-  const uint weight_storage_offset = uWeightMeta.info.z;
+  const uint out_storage_offset = uOutMeta.info.w;
+  const uint in_storage_offset = uInMeta.info.w;
+  const uint weight_storage_offset = uWeightMeta.info.w;
 
   float acc[8][4];
   for (uint row = 0u; row < TILE_ROWS; ++row) {
@@ -88,8 +91,10 @@ void main() {
     for (uint row = 0u; row < TILE_ROWS; ++row) {
       const uint out_row = out_row_base + row;
       if (out_row < out_height) {
-        const uint input_idx = in_storage_offset + k * uInMeta.strides.x +
-            out_row * uInMeta.strides.y + out_batch * uInMeta.strides.z;
+        const uint input_idx = in_storage_offset +
+            k * uInMeta.physical_strides.x +
+            out_row * uInMeta.physical_strides.y +
+            out_batch * uInMeta.physical_strides.z;
         input_values[row] = uInput.data[input_idx];
       } else {
         input_values[row] = 0.0;
@@ -100,8 +105,9 @@ void main() {
       const uint out_col = out_col_base + col;
       if (out_col < out_width) {
         const uint weight_idx = weight_storage_offset +
-            out_col * uWeightMeta.strides.x + k * uWeightMeta.strides.y +
-            out_batch * uWeightMeta.strides.z;
+            out_col * uWeightMeta.physical_strides.x +
+            k * uWeightMeta.physical_strides.y +
+            out_batch * uWeightMeta.physical_strides.z;
         weight_values[col] = uWeight.data[weight_idx];
       } else {
         weight_values[col] = 0.0;
@@ -125,8 +131,10 @@ void main() {
       if (out_col >= out_width) {
         continue;
       }
-      const uint out_idx = out_storage_offset + out_col * uOutMeta.strides.x +
-          out_row * uOutMeta.strides.y + out_batch * uOutMeta.strides.z;
+      const uint out_idx = out_storage_offset +
+          out_col * uOutMeta.physical_strides.x +
+          out_row * uOutMeta.physical_strides.y +
+          out_batch * uOutMeta.physical_strides.z;
       uOutput.data[out_idx] = acc[row][col];
     }
   }

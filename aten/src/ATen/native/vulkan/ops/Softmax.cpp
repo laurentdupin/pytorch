@@ -766,12 +766,6 @@ bool can_run_buffer_softmax(const Tensor& input, const int64_t dim) {
     return false;
   }
 
-  const auto plan = utils::build_vulkan_execution_plan(
-      input, utils::VulkanExecutionPlanKind::ReductionDimInput);
-  if (!api::uses_buffer_execution(plan.execution_layout)) {
-    return false;
-  }
-
   const vTensor& v_input = convert(input);
   return v_input.storage_type() == api::StorageType::BUFFER &&
       utils::supports_buffer_reduction_compute(v_input);

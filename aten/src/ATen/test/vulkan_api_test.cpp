@@ -6746,6 +6746,33 @@ TEST_F(VulkanAPITest, upsample_nearest2d) {
   ASSERT_TRUE(check);
 }
 
+TEST_F(VulkanAPITest, upsample_nearest2d_uint8) {
+  const auto in_cpu = at::randint(
+                          0,
+                          256,
+                          {1, 3, 17, 23},
+                          at::TensorOptions(at::kCPU).dtype(at::kInt))
+                          .to(at::kByte);
+  const auto out_cpu = at::upsample_nearest2d(in_cpu, {420, 280});
+
+  const auto in_vulkan = in_cpu.vulkan();
+  const auto out_vulkan = at::upsample_nearest2d(in_vulkan, {420, 280});
+
+  ASSERT_TRUE(out_cpu.equal(out_vulkan.cpu()));
+}
+
+TEST_F(VulkanAPITest, min_all) {
+  const auto in_cpu =
+      at::rand({3, 17, 23}, at::TensorOptions(at::kCPU).dtype(at::kFloat)) -
+      0.5f;
+  const auto out_cpu = at::min(in_cpu);
+
+  const auto in_vulkan = in_cpu.vulkan();
+  const auto out_vulkan = at::min(in_vulkan);
+
+  ASSERT_TRUE(almostEqual(out_cpu, out_vulkan.cpu()));
+}
+
 TEST_F(VulkanAPITest, upsample_bilinear2d_align_false_small) {
   const auto in_cpu = at::rand({1, 2, 2, 3}, at::TensorOptions(at::kCPU).dtype(at::kFloat));
   const auto out_cpu = at::upsample_bilinear2d(in_cpu, {4, 6}, false);

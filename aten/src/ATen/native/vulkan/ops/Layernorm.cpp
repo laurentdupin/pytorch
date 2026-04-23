@@ -22,13 +22,27 @@ bool prefer_buffer_layer_norm(
   if (!input_arg.is_vulkan()) {
     return false;
   }
+  const bool last_dim_width_norm = normalized_shape.size() == 1u &&
+      normalized_shape.front() == input_arg.size(-1);
+  if (
+      last_dim_width_norm && input_arg.scalar_type() == kFloat &&
+      input_arg.dim() >= 2 && input_arg.dim() <= 4) {
+    const vTensor& v_input = convert(input_arg);
+    // The unlabeled eager vision path already carries buffer-native residuals
+    // into layer_norm. Keeping that path on the native buffer family avoids an
+    // immediate buffer->texture->buffer roundtrip before the following linear.
+    if (
+        v_input.storage_type() == api::StorageType::BUFFER &&
+        utils::supports_buffer_reduction_compute(v_input)) {
+      return true;
+    }
+  }
   const auto request = utils::make_vulkan_tensor_norm_request(
       input_arg, utils::VulkanTensorRole::Input);
   const auto runtime_policy = utils::build_vulkan_runtime_policy(request);
   return runtime_policy.norm_kernel_family ==
           utils::VulkanNormKernelFamily::UnifiedBufferView &&
-      normalized_shape.size() == 1u &&
-      normalized_shape.front() == input_arg.size(-1);
+      last_dim_width_norm;
 }
 
 Tensor layer_norm_fused_width(

@@ -18,9 +18,6 @@ Device vulkan_output_device(const Tensor& tensor) {
 }
 
 bool needs_slice_cpu_fallback(const Tensor& self) {
-  if (self.dim() > 4) {
-    return true;
-  }
   if (!self.is_vulkan()) {
     return false;
   }
@@ -48,7 +45,7 @@ bool can_use_buffer_slice_view(const Tensor& self) {
   }
   const vTensor& v_self = convert(self);
   return v_self.storage_type() == api::StorageType::BUFFER &&
-      utils::supports_buffer_view_fast_path(v_self);
+      utils::supports_buffer_metadata_view_fast_path(v_self);
 }
 
 Tensor slice_buffer_view(
@@ -338,12 +335,6 @@ Tensor slice(
     const int64_t step) {
   api::AllocationScope allocation_scope("slice");
 
-  if (needs_slice_cpu_fallback(self)) {
-    auto result = slice_cpu_fallback(self, dim, start, end, step);
-    namedinference::propagate_names(result, self);
-    return result;
-  }
-
   TORCH_CHECK(step > 0, "slice step must be positive");
   auto nDims = safe_downcast<uint32_t>(self.dim());
   dim = maybe_wrap_dim(dim, nDims);
@@ -379,6 +370,12 @@ Tensor slice(
 
   if (can_use_buffer_slice_view(self)) {
     auto result = slice_buffer_view(self, dim, start_val, newSizes[dim], step);
+    namedinference::propagate_names(result, self);
+    return result;
+  }
+
+  if (needs_slice_cpu_fallback(self) || self.dim() > 4) {
+    auto result = slice_cpu_fallback(self, dim, start, end, step);
     namedinference::propagate_names(result, self);
     return result;
   }

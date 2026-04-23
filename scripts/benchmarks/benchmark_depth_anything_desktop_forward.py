@@ -184,8 +184,7 @@ def run_desktop_forward(
 ) -> tuple[Any, list[Any]]:
     transformed = load_model.TransformInput(packet)
     headers = make_output_headers()
-    with torch.inference_mode():
-        outputs = load_model.RunModel(transformed, headers, device)
+    outputs = load_model.RunModel(transformed, headers, device)
     return outputs, headers
 
 
@@ -196,8 +195,7 @@ def run_model_only(
     device: str,
 ) -> tuple[Any, list[Any]]:
     headers = make_output_headers()
-    with torch.inference_mode():
-        outputs = load_model.RunModel(transformed_image, headers, device)
+    outputs = load_model.RunModel(transformed_image, headers, device)
     return outputs, headers
 
 
@@ -383,7 +381,7 @@ def main() -> None:
             "Uses the installed Deep Desktop LoadModel.py path directly.",
             "Measures TransformInput plus RunModel, which includes the current forward path, normalization, and CPU readback.",
             "Does not use infer_image, compiled-session bridges, fixed-shape replay helpers, or output-copy skipping.",
-            "Runs the exact forward path under torch.inference_mode() so Vulkan inference is benchmarkable on the current packaged build.",
+            "Runs the exact forward path without torch.inference_mode().",
         ],
         "python_executable": sys.executable,
         "python_version": sys.version,
@@ -392,7 +390,7 @@ def main() -> None:
         "torch_vulkan_available": bool(
             getattr(torch, "is_vulkan_available", lambda: False)()
         ),
-        "inference_mode_enabled": True,
+        "inference_mode_enabled": False,
         "install_root": str(install_root),
         "depth_anything_root": str(depth_anything_root),
         "load_model_path": str(depth_anything_root / "LoadModel.py"),

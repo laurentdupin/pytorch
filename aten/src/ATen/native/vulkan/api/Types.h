@@ -181,6 +181,18 @@ inline bool supports_generic_buffer_view_ops(
        t == ScalarType::Char || t == ScalarType::Bool);
 }
 
+inline bool supports_generic_buffer_metadata_view_ops(
+    const ScalarType t,
+    const size_t ndim,
+    const bool is_quantized = false) {
+  return !is_quantized && ndim <= 5 &&
+      (t == ScalarType::Float || t == ScalarType::Half ||
+       t == ScalarType::BFloat16 ||
+       t == ScalarType::Int || t == ScalarType::Long ||
+       t == ScalarType::Byte ||
+       t == ScalarType::Char || t == ScalarType::Bool);
+}
+
 inline std::ostream& operator<<(std::ostream& os, const ScalarType dtype) {
   return os << to_string(dtype);
 }

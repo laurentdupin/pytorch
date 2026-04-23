@@ -18,7 +18,7 @@ bool can_use_buffer_transpose_view(const Tensor& self) {
   }
   const vTensor& v_self = convert(self);
   return v_self.storage_type() == api::StorageType::BUFFER &&
-      utils::supports_buffer_view_fast_path(v_self);
+      utils::supports_buffer_metadata_view_fast_path(v_self);
 }
 
 Tensor transpose_buffer_view(
@@ -110,6 +110,16 @@ Tensor transpose_4d(
 
 Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
   api::AllocationScope allocation_scope("transpose");
+  if (can_use_buffer_transpose_view(self)) {
+    const auto nDims = safe_downcast<uint32_t>(self.dim());
+    auto new_index0 = safe_downcast<uint32_t>(maybe_wrap_dim(index0, nDims));
+    auto new_index1 = safe_downcast<uint32_t>(maybe_wrap_dim(index1, nDims));
+    if (new_index0 == new_index1) {
+      return self.detach();
+    }
+    return transpose_buffer_view(self, new_index0, new_index1);
+  }
+
   if (self.dim() > 4) {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
@@ -132,10 +142,6 @@ Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
   auto new_index1 = safe_downcast<uint32_t>(maybe_wrap_dim(index1, nDims));
   if (new_index0 == new_index1) {
     return self.detach();
-  }
-
-  if (can_use_buffer_transpose_view(self)) {
-    return transpose_buffer_view(self, new_index0, new_index1);
   }
 
   // generalize input and output into 4D tensor, e.g. input is 3d of shape [2,

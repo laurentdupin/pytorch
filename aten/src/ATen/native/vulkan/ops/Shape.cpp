@@ -28,6 +28,87 @@ bool is_vulkan_logically_contiguous(const Tensor& tensor) {
   return is_contiguous_stride(v_tensor.sizes(), logical_strides(v_tensor));
 }
 
+std::vector<int64_t> buffer_physical_sizes_for_contiguous_view(
+    IntArrayRef sizes,
+    const api::GPUMemoryLayout memory_layout) {
+  std::vector<int64_t> physical_sizes(sizes.begin(), sizes.end());
+  if (physical_sizes.empty()) {
+    return physical_sizes;
+  }
+
+  switch (memory_layout) {
+    case api::GPUMemoryLayout::TENSOR_WIDTH_PACKED:
+      physical_sizes.back() =
+          api::utils::align_up(physical_sizes.back(), INT64_C(4));
+      break;
+    case api::GPUMemoryLayout::TENSOR_HEIGHT_PACKED:
+      if (physical_sizes.size() >= 2) {
+        physical_sizes[physical_sizes.size() - 2] =
+            api::utils::align_up(
+                physical_sizes[physical_sizes.size() - 2], INT64_C(4));
+      } else {
+        physical_sizes.back() =
+            api::utils::align_up(physical_sizes.back(), INT64_C(4));
+      }
+      break;
+    case api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED:
+      if (physical_sizes.size() >= 3) {
+        physical_sizes[physical_sizes.size() - 3] =
+            api::utils::align_up(
+                physical_sizes[physical_sizes.size() - 3], INT64_C(4));
+      } else {
+        physical_sizes.front() =
+            api::utils::align_up(physical_sizes.front(), INT64_C(4));
+      }
+      break;
+  }
+
+  return physical_sizes;
+}
+
+bool can_use_buffer_preserved_contiguous_reshape(
+    const vTensor& v_self,
+    IntArrayRef output_size,
+    IntArrayRef output_stride,
+    const int64_t storage_offset) {
+  if (
+      v_self.storage_type() != api::StorageType::BUFFER ||
+      !utils::supports_buffer_metadata_view_fast_path(v_self) ||
+      storage_offset != 0) {
+    return false;
+  }
+
+  if (
+      !is_contiguous_stride(v_self.sizes(), logical_strides(v_self)) ||
+      !is_contiguous_stride(output_size, output_stride)) {
+    return false;
+  }
+
+  if (
+      c10::multiply_integers(v_self.sizes()) !=
+      c10::multiply_integers(output_size)) {
+    return false;
+  }
+
+  const std::vector<int64_t> output_physical_sizes =
+      buffer_physical_sizes_for_contiguous_view(
+          output_size, v_self.gpu_memory_layout());
+  if (
+      c10::multiply_integers(output_physical_sizes) !=
+      v_self.buffer_length()) {
+    return false;
+  }
+
+  const auto output_physical_strides =
+      c10::contiguous_strides(output_physical_sizes);
+  return utils::can_make_buffer_metadata_view(
+      v_self,
+      output_size,
+      output_stride,
+      output_physical_strides,
+      0);
+}
+
 bool can_use_texture_contiguous_reshape(
     const vTensor& v_self,
     IntArrayRef output_size,
@@ -59,7 +140,8 @@ bool can_use_buffer_materialized_contiguous_reshape(
     const int64_t storage_offset) {
   if (
       v_self.storage_type() == api::StorageType::BUFFER ||
-      !utils::supports_buffer_view_fast_path(v_self) || output_size.size() > 4 ||
+      !utils::supports_buffer_metadata_view_fast_path(v_self) ||
+      output_size.size() > 5 ||
       storage_offset != 0) {
     return false;
   }
@@ -262,6 +344,22 @@ Tensor view_internal(
           resolved_storage_offset);
     }
 
+    if (can_use_buffer_preserved_contiguous_reshape(
+            v_self, output_size, output_stride, resolved_storage_offset)) {
+      const std::vector<int64_t> output_physical_sizes =
+          buffer_physical_sizes_for_contiguous_view(
+              output_size, v_self.gpu_memory_layout());
+      const auto output_physical_strides =
+          c10::contiguous_strides(output_physical_sizes);
+      utils::log_vulkan_op_hit("aten::view.buffer_preserve_padded_reshape");
+      return utils::make_buffer_metadata_view(
+          self_arg,
+          output_size,
+          output_stride,
+          output_physical_strides,
+          resolved_storage_offset);
+    }
+
     if (can_use_texture_metadata_reshape(
             v_self, output_size, output_stride, resolved_storage_offset)) {
       utils::log_vulkan_op_hit("aten::view.texture_metadata_reshape");
@@ -354,56 +452,6 @@ static Tensor contiguous(
       self_arg, std::optional<c10::MemoryFormat>(c10::MemoryFormat::Contiguous));
 }
 
-static Tensor reshape(const Tensor& self_arg, IntArrayRef shape) {
-  at::DimVector inferred_size = at::infer_size_dv(shape, self_arg.numel());
-  IntArrayRef base_sizes = self_arg.sizes();
-  IntArrayRef base_strides = self_arg.strides();
-  c10::DimVector base_logical_strides;
-  if (self_arg.is_vulkan()) {
-    const vTensor& v_self = convert(self_arg);
-    base_logical_strides = logical_strides(v_self);
-    base_sizes = v_self.sizes();
-    base_strides = base_logical_strides;
-  }
-
-  if (const auto inferred_stride =
-          at::detail::computeStride(base_sizes, base_strides, inferred_size)) {
-    utils::log_vulkan_op_hit("aten::reshape.vulkan_view");
-    return view_internal(self_arg, inferred_size, *inferred_stride);
-  }
-
-  if (self_arg.is_vulkan()) {
-    Tensor contiguous_self = self_arg.contiguous(c10::MemoryFormat::Contiguous);
-    IntArrayRef contiguous_sizes = contiguous_self.sizes();
-    IntArrayRef contiguous_strides = contiguous_self.strides();
-    c10::DimVector contiguous_logical_strides;
-    if (contiguous_self.is_vulkan()) {
-      const vTensor& v_contiguous = convert(contiguous_self);
-      contiguous_logical_strides = logical_strides(v_contiguous);
-      contiguous_sizes = v_contiguous.sizes();
-      contiguous_strides = contiguous_logical_strides;
-    }
-
-    if (const auto contiguous_inferred_stride = at::detail::computeStride(
-            contiguous_sizes, contiguous_strides, inferred_size)) {
-      utils::log_vulkan_op_hit("aten::reshape.vulkan_contiguous_fallback");
-      return view_internal(
-          contiguous_self, inferred_size, *contiguous_inferred_stride);
-    }
-  }
-
-  utils::log_vulkan_op_hit("aten::reshape.vulkan_cpu_fallback");
-  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
-  c10::InferenceMode inference_mode_guard(false);
-  Tensor cpu = self_arg.cpu();
-  Tensor cpu_reshaped = cpu.reshape(inferred_size);
-  Tensor out = at::empty(
-      std::vector<int64_t>(inferred_size.begin(), inferred_size.end()),
-      self_arg.options().device(self_arg.device()));
-  ops::copy_(out, cpu_reshaped);
-  return out;
-}
-
 static Tensor _reshape_alias(
     const Tensor& self_arg,
     const IntArrayRef shape,
@@ -476,7 +524,6 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::contiguous"), TORCH_FN(contiguous));
   m.impl(TORCH_SELECTIVE_NAME("aten::im2col"), TORCH_FN(im2col));
   m.impl(TORCH_SELECTIVE_NAME("aten::im2col.out"), TORCH_FN(im2col_out));
-  m.impl(TORCH_SELECTIVE_NAME("aten::reshape"), TORCH_FN(reshape));
   m.impl(TORCH_SELECTIVE_NAME("aten::view"), TORCH_FN(view));
   m.impl(
       TORCH_SELECTIVE_NAME("aten::_reshape_alias"), TORCH_FN(_reshape_alias));

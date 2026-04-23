@@ -15,6 +15,9 @@ namespace {
 
 using namespace api::utils;
 
+constexpr int64_t kParallelReduceAllChunkSize = 1024;
+constexpr int64_t kParallelReduceAllMinNumel = 4096;
+
 Device vulkan_output_device(const Tensor& tensor) {
   return tensor.is_vulkan() ? tensor.device()
                             : Device(at::kVulkan, api::current_device());
@@ -157,6 +160,75 @@ Tensor finalize_bfloat16_max_output(
   return utils::cast_vulkan_tensor_dtype(output, target_dtype);
 }
 
+Tensor reduce_all_buffer_chunk(
+    const Tensor& prepared_input_arg,
+    const api::ShaderInfo& shader) {
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(prepared_input_arg);
+
+  const int64_t output_numel = api::utils::div_up(
+      api::utils::safe_downcast<int64_t>(v_input.numel()),
+      kParallelReduceAllChunkSize);
+  vTensor v_output{
+      context,
+      {output_numel},
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const struct {
+    int32_t chunk_size;
+    int32_t output_numel;
+    int32_t reserved0;
+    int32_t reserved1;
+  } block{
+      api::utils::safe_downcast<int32_t>(kParallelReduceAllChunkSize),
+      api::utils::safe_downcast<int32_t>(output_numel),
+      0,
+      0,
+  };
+
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+  api::UniformParamsBuffer params(context, block);
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(std::max<int64_t>(output_numel, 1)),
+      1u,
+      1u,
+  };
+  context->submit_compute_job(
+      shader,
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_input.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      in_meta.buffer(),
+      params.buffer());
+
+  return convert(v_output);
+}
+
+Tensor reduce_all_buffer_parallel(
+    const Tensor& prepared_input_arg,
+    const api::ShaderInfo& shader) {
+  Tensor current = prepared_input_arg;
+  while (current.numel() > 1) {
+    current = reduce_all_buffer_chunk(current, shader);
+  }
+  return current;
+}
+
 Tensor sum_all_buffer(
     const Tensor& prepared_input_arg,
     const std::optional<ScalarType> dtype) {
@@ -226,6 +298,12 @@ Tensor max_all_buffer(const Tensor& prepared_input_arg) {
       prepared.scalar_type() == c10::ScalarType::Float,
       "Vulkan buffer full max currently only supports float and bfloat16 inputs");
 
+  if (prepared.numel() >= kParallelReduceAllMinNumel) {
+    return finalize_bfloat16_max_output(
+        reduce_all_buffer_parallel(prepared, VK_KERNEL(buffer_max_all_chunk)),
+        target_dtype);
+  }
+
   vTensor& v_input = convert(prepared);
   vTensor v_output{
       context,
@@ -241,6 +319,58 @@ Tensor max_all_buffer(const Tensor& prepared_input_arg) {
   api::PipelineBarrier pipeline_barrier{};
   context->submit_compute_job(
       VK_KERNEL(buffer_max_all),
+      pipeline_barrier,
+      {1u, 1u, 1u},
+      {1u, 1u, 1u},
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_input.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      in_meta.buffer());
+
+  return finalize_bfloat16_max_output(convert(v_output), target_dtype);
+}
+
+Tensor min_all_buffer(const Tensor& prepared_input_arg) {
+  api::AllocationScope allocation_scope("amin.buffer_all");
+  api::Context* const context = api::context();
+
+  const ScalarType target_dtype = prepared_input_arg.scalar_type();
+  Tensor prepared = prepared_input_arg;
+  if (prepared.scalar_type() == c10::ScalarType::BFloat16) {
+    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
+  }
+
+  TORCH_CHECK(
+      prepared.scalar_type() == c10::ScalarType::Float,
+      "Vulkan buffer full min currently only supports float and bfloat16 inputs");
+
+  if (prepared.numel() >= kParallelReduceAllMinNumel) {
+    return finalize_bfloat16_max_output(
+        reduce_all_buffer_parallel(prepared, VK_KERNEL(buffer_min_all_chunk)),
+        target_dtype);
+  }
+
+  vTensor& v_input = convert(prepared);
+  vTensor v_output{
+      context,
+      {},
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  api::PipelineBarrier pipeline_barrier{};
+  context->submit_compute_job(
+      VK_KERNEL(buffer_min_all),
       pipeline_barrier,
       {1u, 1u, 1u},
       {1u, 1u, 1u},
@@ -539,8 +669,7 @@ Tensor amax_vulkan(const Tensor& self, IntArrayRef dim, bool keepdim) {
     return amax_cpu_fallback(self, dim, keepdim);
   }
 
-  Tensor prepared =
-      utils::prepare_vulkan_direct_buffer_execution_tensor(self, plan);
+  Tensor prepared = utils::execute_vulkan_execution_plan(self, plan);
 
   if (dim.empty()) {
     return max_all_buffer(prepared);
@@ -617,6 +746,16 @@ Tensor max_all(const Tensor& self) {
 }
 
 Tensor min_all(const Tensor& self) {
+  if (
+      self.is_vulkan() &&
+      (is_vulkan_float_dtype(self.scalar_type()) ||
+       self.scalar_type() == c10::ScalarType::BFloat16)) {
+    const auto plan = utils::build_vulkan_execution_plan(
+        self, utils::VulkanExecutionPlanKind::ReductionAllInput);
+    if (api::uses_buffer_execution(plan.execution_layout)) {
+      return min_all_buffer(utils::execute_vulkan_execution_plan(self, plan));
+    }
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 

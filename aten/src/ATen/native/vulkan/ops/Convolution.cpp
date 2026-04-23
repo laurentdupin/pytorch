@@ -21,6 +21,7 @@
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
 #else
+#include <ATen/ops/conv2d.h>
 #include <ATen/ops/dequantize.h>
 #include <ATen/ops/pad.h>
 #include <ATen/ops/permute.h>
@@ -1082,7 +1083,7 @@ bool can_run_float_buffer_conv2d(
       input.device().type() != c10::DeviceType::Vulkan ||
       input.scalar_type() != kFloat ||
       input.dim() != 4 ||
-      input.requires_grad() || !packed_weight.defined() ||
+      !packed_weight.defined() ||
       packed_weight.execution_layout() != api::ExecutionLayout::BUFFER_DIRECT ||
       packed_weight.quantized()) {
     return false;
@@ -1121,7 +1122,7 @@ bool can_run_float_buffer_conv_transpose2d(
       input.device().type() != c10::DeviceType::Vulkan ||
       input.scalar_type() != kFloat ||
       input.dim() != 4 ||
-      input.requires_grad() || !packed_weight.defined() ||
+      !packed_weight.defined() ||
       packed_weight.execution_layout() != api::ExecutionLayout::BUFFER_DIRECT ||
       packed_weight.quantized()) {
     return false;
@@ -1150,6 +1151,63 @@ bool can_run_float_buffer_conv_transpose2d(
   return true;
 }
 
+const char* float_buffer_conv_transpose2d_skip_reason(
+    const Tensor& input,
+    const PackedWeightHandle& packed_weight,
+    const bool transposed,
+    const bool quantized) {
+  if (!transposed) {
+    return "aten::convolution.buffer_float_transpose_skip.not_transposed";
+  }
+  if (quantized) {
+    return "aten::convolution.buffer_float_transpose_skip.quantized";
+  }
+  if (input.device().type() != c10::DeviceType::Vulkan) {
+    return "aten::convolution.buffer_float_transpose_skip.input_not_vulkan";
+  }
+  if (input.scalar_type() != kFloat) {
+    return "aten::convolution.buffer_float_transpose_skip.input_not_float";
+  }
+  if (input.dim() != 4) {
+    return "aten::convolution.buffer_float_transpose_skip.input_not_4d";
+  }
+  if (!packed_weight.defined()) {
+    return "aten::convolution.buffer_float_transpose_skip.no_packed_weight";
+  }
+  if (packed_weight.execution_layout() != api::ExecutionLayout::BUFFER_DIRECT) {
+    return "aten::convolution.buffer_float_transpose_skip.weight_not_buffer_direct";
+  }
+  if (packed_weight.quantized()) {
+    return "aten::convolution.buffer_float_transpose_skip.weight_quantized";
+  }
+
+  const vTensor& v_input = convert(input);
+  if (v_input.storage_type() != api::StorageType::BUFFER) {
+    return "aten::convolution.buffer_float_transpose_skip.input_not_buffer";
+  }
+
+  const vTensor& v_weight = packed_weight.weight_vtensor();
+  if (v_weight.storage_type() != api::StorageType::BUFFER) {
+    return "aten::convolution.buffer_float_transpose_skip.weight_not_buffer";
+  }
+  if (v_weight.dtype() != api::kFloat) {
+    return "aten::convolution.buffer_float_transpose_skip.weight_not_float";
+  }
+  if (packed_weight.logical_weight_sizes().size() != 4) {
+    return "aten::convolution.buffer_float_transpose_skip.weight_bad_rank";
+  }
+
+  const vTensor& v_bias = packed_weight.bias_vtensor();
+  if (v_bias.storage_type() != api::StorageType::BUFFER) {
+    return "aten::convolution.buffer_float_transpose_skip.bias_not_buffer";
+  }
+  if (v_bias.dtype() != api::kFloat) {
+    return "aten::convolution.buffer_float_transpose_skip.bias_not_float";
+  }
+
+  return nullptr;
+}
+
 bool can_use_float_buffer_nonoverlap_conv_transpose2d(
     const PackedWeightHandle& packed_weight,
     const IntArrayRef stride,
@@ -1171,6 +1229,97 @@ bool can_use_float_buffer_nonoverlap_conv_transpose2d(
   const auto& logical_weight_sizes = packed_weight.logical_weight_sizes();
   return get_dim<DimTConv2DKernel::Height>(logical_weight_sizes) == stride[0] &&
       get_dim<DimTConv2DKernel::Width>(logical_weight_sizes) == stride[1];
+}
+
+bool can_run_exact_pointwise_nooverlap_conv_transpose2d(
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
+  if (
+      !conv_context->transposed() || conv_context->quantized() ||
+      conv_context->groups() != 1) {
+    return false;
+  }
+
+  const auto& stride = conv_context->stride();
+  const auto& padding = conv_context->padding();
+  const auto& dilation = conv_context->dilation();
+  const auto& output_padding = conv_context->output_padding();
+  if (
+      stride.size() != 2 || padding.size() != 2 || dilation.size() != 2 ||
+      !output_padding_is_zero(output_padding)) {
+    return false;
+  }
+
+  if (
+      padding[0] != 0 || padding[1] != 0 || dilation[0] != 1 ||
+      dilation[1] != 1) {
+    return false;
+  }
+
+  const auto& logical_weight_sizes =
+      conv_context->packed_weight().logical_weight_sizes();
+  return logical_weight_sizes.size() == 4 &&
+      get_dim<DimTConv2DKernel::Height>(logical_weight_sizes) == stride[0] &&
+      get_dim<DimTConv2DKernel::Width>(logical_weight_sizes) == stride[1];
+}
+
+Tensor run_exact_pointwise_nooverlap_conv_transpose2d(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
+    const float output_min,
+    const float output_max,
+    Tensor* output_arg) {
+  utils::log_vulkan_op_hit(
+      "aten::convolution.buffer_float_transpose_exact_rearrange");
+
+  const c10::impl::GenericList unpacked = conv_context->unpack();
+  const Tensor weight =
+      unpacked.get(Conv2dPackedContext::Unpacked::Weight).toTensor();
+  const std::optional<Tensor> bias =
+      get_optional_tensor(unpacked, Conv2dPackedContext::Unpacked::Bias);
+
+  const int64_t out_channels = weight.size(1);
+  const int64_t kernel_h = weight.size(2);
+  const int64_t kernel_w = weight.size(3);
+
+  const Tensor pointwise_weight =
+      weight.permute({1, 2, 3, 0})
+          .reshape(
+              {out_channels * kernel_h * kernel_w, weight.size(0), 1, 1})
+          .contiguous();
+  const std::optional<Tensor> no_bias = std::nullopt;
+  Tensor patches = at::conv2d(
+      input_arg,
+      pointwise_weight,
+      no_bias,
+      IntArrayRef{1, 1},
+      IntArrayRef{0, 0},
+      IntArrayRef{1, 1},
+      1);
+
+  Tensor output = patches.view(
+      {patches.size(0),
+       out_channels,
+       kernel_h,
+       kernel_w,
+       patches.size(2),
+       patches.size(3)});
+  output = output.permute({0, 1, 4, 2, 5, 3}).reshape(
+      {patches.size(0),
+       out_channels,
+       patches.size(2) * kernel_h,
+       patches.size(3) * kernel_w});
+
+  if (bias && bias->defined()) {
+    Tensor bias_term = bias->is_vulkan() ? *bias : bias->to(input_arg.device());
+    output = output.add(bias_term.view({1, out_channels, 1, 1}));
+  }
+
+  output = output.clamp(output_min, output_max);
+  if (output_arg != nullptr) {
+    copy_(*output_arg, output);
+    return *output_arg;
+  }
+  return output;
 }
 
 enum class FloatBufferConv2dShaderKind {
@@ -2272,11 +2421,25 @@ static Tensor run_conv2d_context_impl(
     output_max = output_max > 0.0f ? output_max : 0.0f;
   }
 
+  if (
+      input_arg.device().type() == c10::DeviceType::Vulkan &&
+      input_arg.scalar_type() == kFloat &&
+      can_run_exact_pointwise_nooverlap_conv_transpose2d(conv_context)) {
+    return run_exact_pointwise_nooverlap_conv_transpose2d(
+        input_arg,
+        conv_context,
+        output_min,
+        output_max,
+        output_arg);
+  }
+
   if (!quantized && packed_weight.execution_layout() ==
           api::ExecutionLayout::BUFFER_DIRECT) {
     Tensor buffer_input = prepare_runtime_float_buffer_conv_input(input_arg);
-    if (can_run_float_buffer_conv_transpose2d(
-            buffer_input, packed_weight, transposed, quantized)) {
+    const char* const buffer_transpose_skip_reason =
+        float_buffer_conv_transpose2d_skip_reason(
+            buffer_input, packed_weight, transposed, quantized);
+    if (buffer_transpose_skip_reason == nullptr) {
       return run_float_buffer_conv_transpose2d_impl(
           buffer_input,
           packed_weight,
@@ -2288,6 +2451,9 @@ static Tensor run_conv2d_context_impl(
           output_min,
           output_max,
           output_arg);
+    }
+    if (transposed) {
+      utils::log_vulkan_op_hit(buffer_transpose_skip_reason);
     }
     if (can_run_float_buffer_conv2d(
             buffer_input, packed_weight, transposed, quantized, output_padding)) {

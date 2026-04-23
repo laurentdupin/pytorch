@@ -3,6 +3,7 @@ param(
     [string]$VulkanSdk = "",
     [string]$OutDir = "dist-vulkan",
     [string]$VenvDir = "",
+    [string]$CMakeGenerator = "",
     [int]$MaxJobs = 0,
     [switch]$Clean,
     [switch]$CleanVenv,
@@ -325,6 +326,124 @@ function Test-CommandExists {
     return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Get-CMakeCacheValue {
+    param(
+        [string]$RepoRoot,
+        [string]$Name
+    )
+
+    $cachePath = Join-Path $RepoRoot "build\CMakeCache.txt"
+    if (-not (Test-Path -LiteralPath $cachePath)) {
+        return ""
+    }
+
+    $line = Select-String -LiteralPath $cachePath -Pattern ("^{0}:" -f [regex]::Escape($Name)) -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -eq $line) {
+        return ""
+    }
+
+    $parts = $line.Line -split '=', 2
+    if ($parts.Count -ne 2) {
+        return ""
+    }
+
+    return $parts[1].Trim()
+}
+
+function Normalize-ComparablePath {
+    param([string]$Value)
+
+    if (-not $Value) {
+        return ""
+    }
+
+    $candidate = $Value.Replace('/', '\')
+    try {
+        return [System.IO.Path]::GetFullPath($candidate).TrimEnd('\').ToLowerInvariant()
+    } catch {
+        return $candidate.TrimEnd('\').ToLowerInvariant()
+    }
+}
+
+function Resolve-CMakeGenerator {
+    param(
+        [string]$Requested,
+        [string]$RepoRoot,
+        [switch]$CleanBuild
+    )
+
+    if ($Requested) {
+        return $Requested
+    }
+
+    if ($CleanBuild) {
+        return "Ninja"
+    }
+
+    $cachePath = Join-Path $RepoRoot "build\CMakeCache.txt"
+    if (-not (Test-Path -LiteralPath $cachePath)) {
+        return "Ninja"
+    }
+
+    $line = Select-String -LiteralPath $cachePath -Pattern '^CMAKE_GENERATOR:INTERNAL=' -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -eq $line) {
+        return "Ninja"
+    }
+
+    $value = $line.Line.Substring("CMAKE_GENERATOR:INTERNAL=".Length).Trim()
+    if (-not $value) {
+        return "Ninja"
+    }
+
+    return $value
+}
+
+function Resolve-CMakeRefresh {
+    param(
+        [string]$RepoRoot,
+        [string]$RequestedPythonPath,
+        [switch]$CleanBuild
+    )
+
+    if ($CleanBuild) {
+        return [pscustomobject]@{
+            Enabled = $false
+            Reason = "clean build"
+        }
+    }
+
+    $cachedPython = Get-CMakeCacheValue -RepoRoot $RepoRoot -Name "Python_EXECUTABLE"
+    if (-not $cachedPython) {
+        $cachedPython = Get-CMakeCacheValue -RepoRoot $RepoRoot -Name "_Python_EXECUTABLE"
+    }
+    if (-not $cachedPython) {
+        $cachedPython = Get-CMakeCacheValue -RepoRoot $RepoRoot -Name "_Python3_EXECUTABLE"
+    }
+
+    if (-not $cachedPython) {
+        return [pscustomobject]@{
+            Enabled = $false
+            Reason = "no cache"
+        }
+    }
+
+    $normalizedCached = Normalize-ComparablePath -Value $cachedPython
+    $normalizedRequested = Normalize-ComparablePath -Value $RequestedPythonPath
+    if ($normalizedCached -eq $normalizedRequested) {
+        return [pscustomobject]@{
+            Enabled = $false
+            Reason = "python match"
+        }
+    }
+
+    return [pscustomobject]@{
+        Enabled = $true
+        Reason = "python mismatch"
+    }
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $basePythonPath = Resolve-PythonPath -Requested $PythonExe -RepoRoot $repoRoot
 $buildPython = Ensure-BuildPython -BasePythonPath $basePythonPath -RepoRoot $repoRoot -RequestedVenvDir $VenvDir -DisableVenv:$NoVenv -ResetVenv:$CleanVenv -DryRunMode:$DryRun
@@ -332,6 +451,8 @@ $pythonPath = $buildPython.BuildPythonPath
 $toolsDir = $buildPython.ToolsDir
 $vulkanSdkPath = Resolve-VulkanSdkPath -Requested $VulkanSdk
 $vsDevCmd = Resolve-VsDevCmd
+$cmakeGenerator = Resolve-CMakeGenerator -Requested $CMakeGenerator -RepoRoot $repoRoot -CleanBuild:$Clean
+$cmakeRefresh = Resolve-CMakeRefresh -RepoRoot $repoRoot -RequestedPythonPath $pythonPath -CleanBuild:$Clean
 
 if (-not $DryRun -or (-not $buildPython.PendingBootstrap -and -not $buildPython.PendingCreate)) {
     if (-not (Test-CommandExists -Name "cmake" -ToolsDir $toolsDir)) {
@@ -386,8 +507,8 @@ $cmdLines = @(
     "if errorlevel 1 exit /b %errorlevel%",
     "cd /d `"$repoRoot`"",
     "set `"VULKAN_SDK=$vulkanSdkPath`"",
-    "set `"PATH=$pathPrefix;%PATH%`"",
-    "set `"CMAKE_GENERATOR=Ninja`"",
+    "set `"Path=$pathPrefix;%Path%`"",
+    "set `"CMAKE_GENERATOR=$cmakeGenerator`"",
     "set `"CMAKE_BUILD_TYPE=Release`"",
     "set `"MAX_JOBS=$MaxJobs`"",
     "set `"USE_VULKAN=1`"",
@@ -407,6 +528,10 @@ $cmdLines = @(
 if ($BuildVersion) {
     $cmdLines += "set `"PYTORCH_BUILD_VERSION=$BuildVersion`""
     $cmdLines += "set `"PYTORCH_BUILD_NUMBER=$BuildNumber`""
+}
+
+if ($cmakeRefresh.Enabled) {
+    $cmdLines += "set `"CMAKE_FRESH=1`""
 }
 
 $cmdLines += "`"$pythonPath`" -m build --wheel --no-isolation --outdir `"$outDirPath`""
@@ -431,6 +556,8 @@ try {
     }
     Write-Host "Vulkan SDK    : $vulkanSdkPath"
     Write-Host "glslc         : $glslcPath"
+    Write-Host "Generator     : $cmakeGenerator"
+    Write-Host "CMake refresh : $($cmakeRefresh.Reason)"
     Write-Host "Output dir    : $outDirPath"
     Write-Host "Max jobs      : $MaxJobs"
     Write-Host "FP16 shaders  : $fp16Flag"

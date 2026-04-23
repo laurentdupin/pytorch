@@ -13,9 +13,6 @@ namespace {
 using namespace api::utils;
 
 bool needs_select_cpu_fallback(const Tensor& self) {
-  if (self.dim() > 4) {
-    return true;
-  }
   if (!self.is_vulkan()) {
     return false;
   }
@@ -43,7 +40,7 @@ bool can_use_buffer_select_view(const Tensor& self) {
   }
   const vTensor& v_self = convert(self);
   return v_self.storage_type() == api::StorageType::BUFFER &&
-      utils::supports_buffer_view_fast_path(v_self);
+      utils::supports_buffer_metadata_view_fast_path(v_self);
 }
 
 Tensor select_buffer_view(const Tensor& self_arg, int64_t dim, int64_t index) {
@@ -482,10 +479,6 @@ Tensor select_width_4d(const Tensor& input_arg, uint32_t index) {
 Tensor select(const Tensor& self, int64_t dim, int64_t index) {
   api::AllocationScope allocation_scope("select");
 
-  if (needs_select_cpu_fallback(self)) {
-    return select_cpu_fallback(self, dim, index);
-  }
-
   dim = maybe_wrap_dim(dim, self.dim());
 
   const int64_t size = self.size(dim);
@@ -504,8 +497,12 @@ Tensor select(const Tensor& self, int64_t dim, int64_t index) {
     index += size;
   }
 
-  if (can_use_buffer_select_view(self) && self.dim() >= 2 && self.dim() <= 4) {
+  if (can_use_buffer_select_view(self) && self.dim() >= 2 && self.dim() <= 5) {
     return select_buffer_view(self, dim, index);
+  }
+
+  if (needs_select_cpu_fallback(self) || self.dim() > 4) {
+    return select_cpu_fallback(self, dim, index);
   }
 
   if (self.dim() == 1 || self.dim() == 2) {

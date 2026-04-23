@@ -79,13 +79,24 @@ bool prefer_buffer_layer_norm_impl(
   if (!input_arg.is_vulkan()) {
     return false;
   }
+  const bool last_dim_width_norm = normalized_shape.size() == 1u &&
+      normalized_shape.front() == input_arg.size(-1);
+  if (
+      last_dim_width_norm && input_arg.scalar_type() == kFloat &&
+      input_arg.dim() >= 2 && input_arg.dim() <= 4) {
+    const vTensor& v_input = convert(input_arg);
+    if (
+        v_input.storage_type() == api::StorageType::BUFFER &&
+        utils::supports_buffer_reduction_compute(v_input)) {
+      return true;
+    }
+  }
   const auto request = utils::make_vulkan_tensor_norm_request(
       input_arg, utils::VulkanTensorRole::Input);
   const auto runtime_policy = utils::build_vulkan_runtime_policy(request);
   return runtime_policy.norm_kernel_family ==
           utils::VulkanNormKernelFamily::UnifiedBufferView &&
-      normalized_shape.size() == 1u &&
-      normalized_shape.front() == input_arg.size(-1);
+      last_dim_width_norm;
 }
 
 bool can_run_buffer_layer_norm_width(

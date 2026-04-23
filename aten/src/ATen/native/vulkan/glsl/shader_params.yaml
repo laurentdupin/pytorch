@@ -297,6 +297,29 @@ buffer_reduce_all:
       INIT: "-3.402823466e+38"
       REDUCE: max(ACC, X)
       FINALIZE: ACC
+    - NAME: buffer_min_all
+      INIT: "3.402823466e+38"
+      REDUCE: min(ACC, X)
+      FINALIZE: ACC
+
+buffer_reduce_all_chunk:
+  parameter_names_with_default_values:
+    INIT: "0.0"
+    REDUCE: ACC + X
+    FINALIZE: ACC
+  shader_variants:
+    - NAME: buffer_sum_all_chunk
+      INIT: "0.0"
+      REDUCE: ACC + X
+      FINALIZE: ACC
+    - NAME: buffer_max_all_chunk
+      INIT: "-3.402823466e+38"
+      REDUCE: max(ACC, X)
+      FINALIZE: ACC
+    - NAME: buffer_min_all_chunk
+      INIT: "3.402823466e+38"
+      REDUCE: min(ACC, X)
+      FINALIZE: ACC
 
 buffer_reduce_all_bfloat16:
   parameter_names_with_default_values:

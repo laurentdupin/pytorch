@@ -1386,21 +1386,26 @@ class TestVulkanEagerRuntime(TestCase):
         torch.manual_seed(0)
         floats = (torch.randn(513, 257) * 8.0).clamp(-16.0, 16.0)
         ints = torch.randint(-32, 32, (513, 257), dtype=torch.int32)
+        bytes_2d = torch.randint(0, 256, (513, 257), dtype=torch.uint8)
         longs = torch.randint(-64, 64, (64, 64), dtype=torch.int64)
         bf16 = (torch.randn(513, 257) * 4.0).to(torch.bfloat16)
         large_floats = (torch.randn(2048, 1024) * 8.0).clamp(-16.0, 16.0)
         large_ints = torch.randint(-32, 32, (2048, 1024), dtype=torch.int32)
+        packet_like = torch.randint(0, 256, (1, 3, 420, 280), dtype=torch.uint8)
 
         with torch.inference_mode():
             floats_vulkan = floats.to("vulkan")
             ints_vulkan = ints.to("vulkan")
+            bytes_vulkan = bytes_2d.to("vulkan")
             longs_vulkan = longs.to("vulkan")
             bf16_vulkan = bf16.to("vulkan")
             large_floats_vulkan = large_floats.to("vulkan")
             large_ints_vulkan = large_ints.to("vulkan")
+            packet_like_vulkan = packet_like.to("vulkan")
 
             floats_to_int = floats_vulkan.to(torch.int32)
             ints_to_float = ints_vulkan.to(torch.float32)
+            bytes_to_float = bytes_vulkan.to(torch.float32)
             longs_to_float = longs_vulkan.to(torch.float32)
             floats_to_bf16 = floats_vulkan.to(torch.bfloat16)
             bf16_to_float = bf16_vulkan.to(torch.float32)
@@ -1409,9 +1414,13 @@ class TestVulkanEagerRuntime(TestCase):
             floats_view_to_int = floats_vulkan[1:, 1:].to(torch.int32)
             floats_view_to_bf16 = floats_vulkan[1:, 1:].to(torch.bfloat16)
             bf16_view_to_float = bf16_vulkan[1:, 1:].to(torch.float32)
+            packet_like_view_to_float = (
+                packet_like_vulkan.permute((0, 2, 3, 1))[0].to(torch.float32)
+            )
 
             self.assertEqual(floats_to_int.dtype, torch.int32)
             self.assertEqual(ints_to_float.dtype, torch.float32)
+            self.assertEqual(bytes_to_float.dtype, torch.float32)
             self.assertEqual(longs_to_float.dtype, torch.float32)
             self.assertEqual(floats_to_bf16.dtype, torch.bfloat16)
             self.assertEqual(bf16_to_float.dtype, torch.float32)
@@ -1427,6 +1436,11 @@ class TestVulkanEagerRuntime(TestCase):
             self._assert_outputs_close(
                 ints.to(torch.float32),
                 ints_to_float.cpu(),
+                atol=1e-5,
+                rtol=1e-5)
+            self._assert_outputs_close(
+                bytes_2d.to(torch.float32),
+                bytes_to_float.cpu(),
                 atol=1e-5,
                 rtol=1e-5)
             self._assert_outputs_close(
@@ -1465,6 +1479,11 @@ class TestVulkanEagerRuntime(TestCase):
                 bf16_view_to_float.cpu(),
                 atol=1e-2,
                 rtol=1e-2)
+            self._assert_outputs_close(
+                packet_like.permute((0, 2, 3, 1))[0].to(torch.float32),
+                packet_like_view_to_float.cpu(),
+                atol=1e-5,
+                rtol=1e-5)
 
             copy_dst_vulkan = torch.empty(
                 floats.shape, device="vulkan", dtype=torch.int32)
@@ -3250,6 +3269,214 @@ print("OK")
                 if os.path.exists(path):
                     os.remove(path)
 
+    def test_float_buffer_layer_norm_output_feeds_linear_without_runtime_label(self):
+        materialize_log_name = "float_buffer_layer_norm_linear_unlabeled_materialize_test.log"
+        op_hit_log_name = "float_buffer_layer_norm_linear_unlabeled_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        materialize_log_path = os.path.join(repo_root, materialize_log_name)
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        for path in (materialize_log_path, op_hit_log_path):
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x = torch.randn(17, 384, dtype=torch.float32)
+                weight = torch.randn(384, 384, dtype=torch.float32)
+                bias = torch.randn(384, dtype=torch.float32)
+                norm_weight = torch.randn(384, dtype=torch.float32)
+                norm_bias = torch.randn(384, dtype=torch.float32)
+                next_weight = torch.randn(1536, 384, dtype=torch.float32)
+                next_bias = torch.randn(1536, dtype=torch.float32)
+
+                with torch.inference_mode():
+                    expected = F.linear(
+                        F.layer_norm(
+                            F.linear(x, weight, bias),
+                            (384,),
+                            norm_weight,
+                            norm_bias,
+                        ),
+                        next_weight,
+                        next_bias,
+                    )
+
+                    x_vulkan = x.to("vulkan")
+                    weight_vulkan = weight.to("vulkan")
+                    bias_vulkan = bias.to("vulkan")
+                    norm_weight_vulkan = norm_weight.to("vulkan")
+                    norm_bias_vulkan = norm_bias.to("vulkan")
+                    next_weight_vulkan = next_weight.to("vulkan")
+                    next_bias_vulkan = next_bias.to("vulkan")
+                    actual = F.linear(x_vulkan, weight_vulkan, bias_vulkan)
+                    actual = F.layer_norm(
+                        actual,
+                        (384,),
+                        norm_weight_vulkan,
+                        norm_bias_vulkan,
+                    )
+                    actual = F.linear(
+                        actual,
+                        next_weight_vulkan,
+                        next_bias_vulkan,
+                    ).cpu()
+
+                torch.testing.assert_close(actual, expected, atol=4e-4, rtol=4e-3)
+                print(float(actual.sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_MATERIALIZE_LOG": materialize_log_name,
+                    "PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name,
+                },
+                error_prefix="float buffer unlabeled layer norm linear subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_hit_log_path))
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                op_hit_text = log_file.read()
+
+            self.assertIn("op=aten::native_layer_norm.buffer_width", op_hit_text)
+            self.assertIn("op=aten::linear.family_unified_buffer_view", op_hit_text)
+            self.assertNotIn("op=aten::layer_norm.fused_width", op_hit_text)
+
+            if os.path.exists(materialize_log_path):
+                with open(materialize_log_path, "r", encoding="utf-8") as log_file:
+                    materialize_log_text = log_file.read()
+
+                self.assertNotIn(
+                    "caller=layer_norm.output_only path=buffer_to_texture_via_staging",
+                    materialize_log_text,
+                )
+                self.assertNotIn(
+                    "caller=linear runtime= backing_label=layer_norm.output_only path=texture_to_buffer",
+                    materialize_log_text,
+                )
+        finally:
+            for path in (materialize_log_path, op_hit_log_path):
+                if os.path.exists(path):
+                    os.remove(path)
+
+    def test_float_buffer_backbone_mlp_views_feed_linear_without_buffer_relayout(self):
+        materialize_log_name = "float_buffer_backbone_mlp_linear_relayout_test.log"
+        op_hit_log_name = "float_buffer_backbone_mlp_linear_relayout_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        materialize_log_path = os.path.join(repo_root, materialize_log_name)
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        for path in (materialize_log_path, op_hit_log_path):
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                assert hasattr(torch.ops.vulkan_prepack, "swap_runtime_label")
+
+                torch.manual_seed(0)
+                x_cpu = torch.randn(1, 601, 384, dtype=torch.float32)
+                norm_weight_cpu = torch.randn(384, dtype=torch.float32)
+                norm_bias_cpu = torch.randn(384, dtype=torch.float32)
+                fc1_weight_cpu = torch.randn(1536, 384, dtype=torch.float32)
+                fc1_bias_cpu = torch.randn(1536, dtype=torch.float32)
+                fc2_weight_cpu = torch.randn(384, 1536, dtype=torch.float32)
+                fc2_bias_cpu = torch.randn(384, dtype=torch.float32)
+
+                def run_block(x, norm_weight, norm_bias, fc1_weight, fc1_bias, fc2_weight, fc2_bias):
+                    x = F.layer_norm(x, (384,), norm_weight, norm_bias, 1.0e-6)
+                    x = F.linear(x, fc1_weight, fc1_bias)
+                    x = F.gelu(x, approximate="none")
+                    x = F.linear(x, fc2_weight, fc2_bias)
+                    return x
+
+                expected = run_block(
+                    x_cpu,
+                    norm_weight_cpu,
+                    norm_bias_cpu,
+                    fc1_weight_cpu,
+                    fc1_bias_cpu,
+                    fc2_weight_cpu,
+                    fc2_bias_cpu,
+                )
+
+                x = x_cpu.to("vulkan")
+                norm_weight = norm_weight_cpu.to("vulkan")
+                norm_bias = norm_bias_cpu.to("vulkan")
+                fc1_weight = fc1_weight_cpu.to("vulkan")
+                fc1_bias = fc1_bias_cpu.to("vulkan")
+                fc2_weight = fc2_weight_cpu.to("vulkan")
+                fc2_bias = fc2_bias_cpu.to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.dino.backbone.block"
+                )
+                try:
+                    actual = run_block(
+                        x,
+                        norm_weight,
+                        norm_bias,
+                        fc1_weight,
+                        fc1_bias,
+                        fc2_weight,
+                        fc2_bias,
+                    ).cpu()
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                torch.testing.assert_close(actual, expected, atol=2e-2, rtol=3e-2)
+                print(float(actual.sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_MATERIALIZE_LOG": materialize_log_name,
+                    "PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name,
+                },
+                error_prefix="Float buffer backbone MLP relayout subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_hit_log_path))
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                op_hit_text = log_file.read()
+
+            self.assertIn("op=aten::native_layer_norm.buffer_width", op_hit_text)
+            self.assertIn("op=aten::linear.family_unified_buffer_view", op_hit_text)
+            self.assertIn("op=aten::linear.buffer_float", op_hit_text)
+            self.assertIn("op=aten::gelu.buffer_float", op_hit_text)
+
+            if os.path.exists(materialize_log_path):
+                with open(materialize_log_path, "r", encoding="utf-8") as log_file:
+                    materialize_log_text = log_file.read()
+
+                self.assertNotIn(
+                    "caller=linear runtime= backing_label=layer_norm.buffer_width path=buffer_relayout",
+                    materialize_log_text,
+                )
+                self.assertNotIn(
+                    "caller=linear runtime= backing_label=gelu path=buffer_relayout",
+                    materialize_log_text,
+                )
+                self.assertNotIn(
+                    "materialize_to_contiguous_buffer caller=linear runtime= backing_label=layer_norm.buffer_width",
+                    materialize_log_text,
+                )
+                self.assertNotIn(
+                    "materialize_to_contiguous_buffer caller=linear runtime= backing_label=gelu",
+                    materialize_log_text,
+                )
+        finally:
+            for path in (materialize_log_path, op_hit_log_path):
+                if os.path.exists(path):
+                    os.remove(path)
+
     def test_int32_buffer_binary_scalar_ops(self):
         torch.manual_seed(0)
         x = torch.randint(-16, 16, (513, 257), dtype=torch.int32)
@@ -3595,6 +3822,121 @@ print("OK")
             with self.subTest(case=name):
                 self._assert_vulkan_matches_cpu(fn, *args, atol=atol, rtol=rtol)
 
+    def test_upsample_nearest2d_uint8_matches_cpu(self):
+        torch.manual_seed(0)
+        image = torch.randint(
+            0, 256, (1, 3, 17, 23), dtype=torch.uint8, device="cpu")
+
+        expected = F.interpolate(image, size=(420, 280), mode="nearest")
+        actual = F.interpolate(
+            image.to("vulkan"),
+            size=(420, 280),
+            mode="nearest").cpu()
+
+        self.assertEqual(expected.dtype, actual.dtype)
+        self.assertEqual(expected, actual)
+
+    def test_hwc_uint8_upload_roundtrip_matches_cpu(self):
+        torch.manual_seed(0)
+        image = torch.randint(
+            0, 256, (17, 23, 3), dtype=torch.uint8, device="cpu")
+
+        actual = image.to("vulkan").cpu()
+
+        self.assertEqual(image.dtype, actual.dtype)
+        self.assertEqual(image, actual)
+
+    def test_hwc_uint8_padded_stride_upload_roundtrip_matches_cpu(self):
+        torch.manual_seed(0)
+        image_rgba = torch.randint(
+            0, 256, (17, 23, 4), dtype=torch.uint8, device="cpu")
+        image_rgb_view = image_rgba[:, :, :3]
+
+        self.assertFalse(image_rgb_view.is_contiguous())
+        self.assertEqual(image_rgb_view.stride(), (23 * 4, 4, 1))
+
+        actual = image_rgb_view.to("vulkan").cpu()
+
+        self.assertEqual(image_rgb_view.dtype, actual.dtype)
+        self.assertEqual(image_rgb_view, actual)
+
+    def test_upsample_nearest2d_uint8_repeated_cpu_readback_matches_cpu(self):
+        torch.manual_seed(0)
+        image = torch.randint(
+            0, 256, (1, 3, 17, 23), dtype=torch.uint8, device="cpu")
+
+        expected = F.interpolate(image, size=(420, 280), mode="nearest")
+        image_vulkan = image.to("vulkan")
+
+        for _ in range(3):
+            actual = F.interpolate(
+                image_vulkan,
+                size=(420, 280),
+                mode="nearest").cpu()
+            self.assertEqual(expected.dtype, actual.dtype)
+            self.assertEqual(expected, actual)
+
+    def test_min_all_matches_cpu(self):
+        torch.manual_seed(0)
+        image = torch.randn(3, 17, 23, device="cpu")
+
+        expected = image.min()
+        actual = image.to("vulkan").min().cpu()
+
+        self.assertEqual(expected, actual)
+
+    def test_min_max_all_buffer_view_match_cpu_without_relayout(self):
+        log_name = "vulkan_min_max_buffer_view_materialize_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                base_cpu = torch.rand(1, 1, 420, 280, dtype=torch.float32)
+                view_cpu = base_cpu[0, 0]
+                base_vulkan = base_cpu.to("vulkan")
+                view_vulkan = base_vulkan[0, 0]
+
+                torch.testing.assert_close(
+                    view_vulkan.min().cpu(),
+                    view_cpu.min(),
+                    atol=1e-5,
+                    rtol=1e-5,
+                )
+                torch.testing.assert_close(
+                    view_vulkan.max().cpu(),
+                    view_cpu.max(),
+                    atol=1e-5,
+                    rtol=1e-5,
+                )
+                print(float(view_vulkan.min().cpu() + view_vulkan.max().cpu()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_MATERIALIZE_LOG": log_name},
+                error_prefix="buffer-view min/max subprocess failed.",
+            )
+
+            if os.path.exists(log_path):
+                with open(log_path, "r", encoding="utf-8") as log_file:
+                    for line in log_file:
+                        if "sizes=[420,280]" not in line:
+                            continue
+                        self.assertNotIn("kind=ensure_buffer_storage", line)
+                        self.assertNotIn(
+                            "kind=materialize_to_contiguous_buffer",
+                            line,
+                        )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_upsample_bicubic2d_out(self):
         torch.manual_seed(0)
         x_cpu = torch.randn(1, 3, 8, 8)
@@ -3798,6 +4140,242 @@ print("OK")
                 actual,
                 atol=1e-4,
                 rtol=1e-4)
+
+    def test_decoder_tail_conv2d_runs_without_inference_mode(self):
+        log_name = "decoder_tail_conv2d_no_inference_mode_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                module_cpu = torch.nn.Conv2d(
+                    32, 32, kernel_size=3, stride=1, padding=1, bias=True
+                ).eval()
+                module_vulkan = torch.nn.Conv2d(
+                    32, 32, kernel_size=3, stride=1, padding=1, bias=True
+                ).eval()
+                module_vulkan.load_state_dict(module_cpu.state_dict())
+                module_vulkan = module_vulkan.to("vulkan")
+
+                x_cpu = torch.randn(1, 32, 84, 56, dtype=torch.float32)
+                x = x_cpu.to("vulkan").requires_grad_()
+
+                actual = module_vulkan(x).cpu()
+                expected = module_cpu(x_cpu)
+                torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+                print("ok")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Decoder-tail conv2d subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("op=aten::convolution.buffer_float_3x3_s1p1", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_decoder_head_conv_transpose2d_runs_without_inference_mode(self):
+        log_name = "decoder_head_conv_transpose2d_no_inference_mode_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                module_cpu = torch.nn.Sequential(
+                    torch.nn.Conv2d(16, 8, kernel_size=1, stride=1, padding=0, bias=True),
+                    torch.nn.ConvTranspose2d(8, 8, kernel_size=4, stride=4, bias=True),
+                ).eval()
+                module_vulkan = torch.nn.Sequential(
+                    torch.nn.Conv2d(16, 8, kernel_size=1, stride=1, padding=0, bias=True),
+                    torch.nn.ConvTranspose2d(8, 8, kernel_size=4, stride=4, bias=True),
+                ).eval()
+                module_vulkan.load_state_dict(module_cpu.state_dict())
+                module_vulkan = module_vulkan.to("vulkan")
+
+                x_cpu = torch.randn(1, 16, 20, 20, dtype=torch.float32)
+                actual = module_vulkan(x_cpu.to("vulkan")).cpu()
+                hidden = F.conv2d(
+                    x_cpu,
+                    module_cpu[0].weight,
+                    module_cpu[0].bias,
+                    stride=1,
+                    padding=0,
+                )
+                weight = module_cpu[1].weight
+                bias = module_cpu[1].bias
+                n, in_channels, height, width = hidden.shape
+                out_channels = weight.shape[1]
+                kernel_h = weight.shape[2]
+                kernel_w = weight.shape[3]
+                expected = torch.empty(
+                    (n, out_channels, height * kernel_h, width * kernel_w),
+                    dtype=hidden.dtype,
+                )
+                for batch in range(n):
+                    for out_channel in range(out_channels):
+                        for h in range(height):
+                            for w in range(width):
+                                patch = torch.zeros((kernel_h, kernel_w), dtype=hidden.dtype)
+                                for in_channel in range(in_channels):
+                                    patch += (
+                                        hidden[batch, in_channel, h, w]
+                                        * weight[in_channel, out_channel]
+                                    )
+                                expected[
+                                    batch,
+                                    out_channel,
+                                    h * kernel_h : (h + 1) * kernel_h,
+                                    w * kernel_w : (w + 1) * kernel_w,
+                                ] = patch
+                        expected[batch, out_channel].add_(bias[out_channel])
+                torch.testing.assert_close(actual, expected, atol=1e-3, rtol=1e-3)
+                print("ok")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Decoder-head conv_transpose2d subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertRegex(
+                log_text,
+                r"op=aten::convolution\.(buffer_float_transpose_exact_rearrange|buffer_float_transpose(_nonoverlap)?)",
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_dpt_resize1_conv_transpose2d_prefers_exact_rearrange_kernel(self):
+        log_name = "dpt_resize1_conv_transpose2d_exact_rearrange_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                module_cpu = torch.nn.ConvTranspose2d(
+                    96, 96, kernel_size=2, stride=2, padding=0, bias=True
+                ).eval()
+                module_vulkan = torch.nn.ConvTranspose2d(
+                    96, 96, kernel_size=2, stride=2, padding=0, bias=True
+                ).eval()
+                module_vulkan.load_state_dict(module_cpu.state_dict())
+                module_vulkan = module_vulkan.to("vulkan")
+
+                x_cpu = torch.randn(1, 96, 20, 20, dtype=torch.float32)
+                expected = torch.empty(1, 96, 40, 40, dtype=torch.float32)
+                for h in range(20):
+                    for w in range(20):
+                        patch = torch.einsum(
+                            "i,ioxy->oxy",
+                            x_cpu[0, :, h, w],
+                            module_cpu.weight,
+                        )
+                        expected[0, :, 2 * h : 2 * h + 2, 2 * w : 2 * w + 2] = patch
+                expected = expected + module_cpu.bias.view(1, 96, 1, 1)
+                actual = module_vulkan(x_cpu.to("vulkan")).cpu()
+                torch.testing.assert_close(actual, expected, atol=1e-3, rtol=1e-3)
+                print("ok")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="DPT resize.1 conv_transpose2d subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn(
+                "op=aten::convolution.buffer_float_transpose_exact_rearrange",
+                log_text,
+            )
+            self.assertNotIn(
+                "op=aten::convolution.buffer_float_transpose_nonoverlap",
+                log_text,
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_dpt_resize1_conv_transpose2d_sparse_basis_matches_manual_nonoverlap(self):
+        log_name = "dpt_resize1_conv_transpose2d_sparse_basis_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                module_vulkan = torch.nn.ConvTranspose2d(
+                    96, 96, kernel_size=2, stride=2, padding=0, bias=False
+                ).eval().to("vulkan")
+                weight = module_vulkan.weight.detach().cpu()
+
+                for pos_y, pos_x in ((0, 0), (0, 13), (5, 7), (19, 19)):
+                    x_cpu = torch.zeros(1, 96, 20, 20, dtype=torch.float32)
+                    x_cpu[0, 0, pos_y, pos_x] = 1.0
+                    actual = module_vulkan(x_cpu.to("vulkan")).cpu()
+
+                    expected = torch.zeros_like(actual)
+                    out_y = pos_y * 2
+                    out_x = pos_x * 2
+                    expected[0, :, out_y : out_y + 2, out_x : out_x + 2] = weight[0]
+                    torch.testing.assert_close(actual, expected, atol=3e-4, rtol=3e-4)
+                print("ok")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix=(
+                    "DPT resize.1 sparse-basis conv_transpose2d subprocess failed."
+                ),
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn(
+                "op=aten::convolution.buffer_float_transpose_exact_rearrange",
+                log_text,
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
 
     def test_small_conv_block(self):
         torch.manual_seed(0)
@@ -4178,7 +4756,6 @@ print("OK")
 
     def test_vulkan_dispatch_tables_expose_backend_kernels(self):
         dispatch_expectations = {
-            "aten::linear": ("Vulkan: registered at", "Mm.cpp"),
             "aten::mm": ("Vulkan: registered at", "Mm.cpp"),
             "aten::bmm": ("Vulkan: registered at", "Mm.cpp"),
             "aten::_softmax": ("Vulkan: registered at", "Softmax.cpp"),
@@ -4198,6 +4775,11 @@ print("OK")
                 table = torch._C._dispatch_dump_table(opname)
                 for expected_substring in expected_substrings:
                     self.assertIn(expected_substring, table)
+
+        linear_table = torch._C._dispatch_dump_table("aten::linear")
+        self.assertIn("CompositeImplicitAutograd", linear_table)
+        self.assertIn("RegisterCompositeImplicitAutograd", linear_table)
+        self.assertNotIn("Mm.cpp", linear_table)
 
         public_sdpa_table = torch._C._dispatch_dump_table(
             "aten::scaled_dot_product_attention"
@@ -4313,7 +4895,7 @@ print("OK")
                 log_text = log_file.read()
 
             for op_name in (
-                "aten::linear",
+                "aten::linear.family_unified_buffer_view",
                 "vulkan_prepack::run_linear_context",
                 "aten::mm",
                 "aten::bmm",
@@ -8796,7 +9378,6 @@ print("OK")
             with open(log_path, "r", encoding="utf-8") as log_file:
                 log_text = log_file.read()
 
-            self.assertIn("op=aten::linear", log_text)
             self.assertIn("op=aten::linear.family_unified_buffer_view", log_text)
         finally:
             if os.path.exists(log_path):
@@ -8843,12 +9424,212 @@ print("OK")
             with open(log_path, "r", encoding="utf-8") as log_file:
                 log_text = log_file.read()
 
-            self.assertIn("op=aten::linear", log_text)
             self.assertIn("op=aten::linear.family_unified_buffer_view", log_text)
             self.assertIn("op=aten::linear.buffer_float", log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)
+
+    def test_large_generic_buffer_linear_uses_tiled_kernel(self):
+        log_name = "large_generic_buffer_linear_tiled_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x_cpu = torch.randn(601, 384, dtype=torch.float32)
+                w_cpu = torch.randn(1152, 384, dtype=torch.float32)
+                b_cpu = torch.randn(1152, dtype=torch.float32)
+
+                actual = F.linear(
+                    x_cpu.to("vulkan"),
+                    w_cpu.to("vulkan"),
+                    b_cpu.to("vulkan"),
+                ).cpu()
+                expected = F.linear(x_cpu, w_cpu, b_cpu)
+
+                torch.testing.assert_close(actual, expected, atol=5e-4, rtol=5e-4)
+                print(float(actual.sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Large generic buffer linear tiled subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("op=aten::linear.buffer_float_tiled_bias", log_text)
+            self.assertNotIn("op=aten::linear.buffer_float_bias", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_dinov2_attention_linear_and_matmul_run_without_inference_mode(self):
+        log_name = "dinov2_attention_linear_no_inference_mode_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                assert hasattr(torch.ops.vulkan_prepack, "swap_runtime_label")
+
+                torch.manual_seed(0)
+                x_cpu = torch.randn(1, 65, 384, dtype=torch.float32)
+                w_cpu = torch.randn(1152, 384, dtype=torch.float32, requires_grad=True)
+                b_cpu = torch.randn(1152, dtype=torch.float32, requires_grad=True)
+
+                x = x_cpu.to("vulkan")
+                w = w_cpu.to("vulkan")
+                b = b_cpu.to("vulkan")
+
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.dino.backbone.block.attn"
+                )
+                try:
+                    qkv = F.linear(x, w, b)
+                    q, k, _ = qkv.reshape(1, 65, 3, 6, 64).permute(2, 0, 3, 1, 4)
+                    y = q @ k.transpose(-2, -1)
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                expected_qkv = F.linear(x_cpu, w_cpu, b_cpu).reshape(
+                    1, 65, 3, 6, 64
+                ).permute(2, 0, 3, 1, 4)
+                expected = expected_qkv[0] @ expected_qkv[1].transpose(-2, -1)
+                torch.testing.assert_close(y.cpu(), expected, atol=3e-3, rtol=3e-3)
+                print("ok")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Dinov2 attention linear subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("op=aten::linear.family_unified_buffer_view", log_text)
+            self.assertIn("op=aten::linear.buffer_float", log_text)
+            self.assertIn("op=aten::bmm", log_text)
+            self.assertNotRegex(log_text, r"(?m)^op=aten::linear$")
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_dinov2_attention_qkv_buffer_views_stay_on_buffer_path(self):
+        materialize_log_name = "dinov2_attention_qkv_buffer_views_materialize_test.log"
+        op_hit_log_name = "dinov2_attention_qkv_buffer_views_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        materialize_log_path = os.path.join(repo_root, materialize_log_name)
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        for path in (materialize_log_path, op_hit_log_path):
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import math
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x_cpu = torch.randn(1, 65, 384, dtype=torch.float32)
+                norm_weight_cpu = torch.randn(384, dtype=torch.float32)
+                norm_bias_cpu = torch.randn(384, dtype=torch.float32)
+                qkv_weight_cpu = torch.randn(1152, 384, dtype=torch.float32)
+                qkv_bias_cpu = torch.randn(1152, dtype=torch.float32)
+                proj_weight_cpu = torch.randn(384, 384, dtype=torch.float32)
+                proj_bias_cpu = torch.randn(384, dtype=torch.float32)
+
+                def run_attention(x, norm_weight, norm_bias, qkv_weight, qkv_bias, proj_weight, proj_bias):
+                    x = F.layer_norm(x, (384,), norm_weight, norm_bias, 1.0e-6)
+                    qkv = F.linear(x, qkv_weight, qkv_bias)
+                    qkv = qkv.reshape(1, 65, 3, 6, 64).permute(2, 0, 3, 1, 4)
+                    q, k, v = qkv[0] * (1.0 / math.sqrt(64.0)), qkv[1], qkv[2]
+                    attn = (q @ k.transpose(-2, -1)).softmax(dim=-1)
+                    x = (attn @ v).transpose(1, 2).reshape(1, 65, 384)
+                    return F.linear(x, proj_weight, proj_bias)
+
+                expected = run_attention(
+                    x_cpu,
+                    norm_weight_cpu,
+                    norm_bias_cpu,
+                    qkv_weight_cpu,
+                    qkv_bias_cpu,
+                    proj_weight_cpu,
+                    proj_bias_cpu,
+                )
+
+                x = x_cpu.to("vulkan")
+                norm_weight = norm_weight_cpu.to("vulkan")
+                norm_bias = norm_bias_cpu.to("vulkan")
+                qkv_weight = qkv_weight_cpu.to("vulkan")
+                qkv_bias = qkv_bias_cpu.to("vulkan")
+                proj_weight = proj_weight_cpu.to("vulkan")
+                proj_bias = proj_bias_cpu.to("vulkan")
+                actual = run_attention(
+                    x,
+                    norm_weight,
+                    norm_bias,
+                    qkv_weight,
+                    qkv_bias,
+                    proj_weight,
+                    proj_bias,
+                ).cpu()
+
+                torch.testing.assert_close(actual, expected, atol=4e-3, rtol=1.2e-2)
+                print(float(actual.sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_MATERIALIZE_LOG": materialize_log_name,
+                    "PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name,
+                },
+                error_prefix="Dinov2 attention buffer-view subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_hit_log_path))
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                op_hit_text = log_file.read()
+
+            self.assertIn("op=aten::native_layer_norm.buffer_width", op_hit_text)
+            self.assertIn("op=aten::bmm.buffer_float", op_hit_text)
+            self.assertIn("op=aten::_softmax.buffer_lastdim", op_hit_text)
+            self.assertIn("op=aten::view.buffer_preserve_padded_reshape", op_hit_text)
+            self.assertNotIn("op=aten::view.texture_metadata_reshape", op_hit_text)
+
+            if os.path.exists(materialize_log_path):
+                with open(materialize_log_path, "r", encoding="utf-8") as log_file:
+                    materialize_log_text = log_file.read()
+
+                self.assertNotIn("caller=bmm.pack", materialize_log_text)
+                self.assertNotIn(
+                    "caller=bmm runtime= backing_label=unlabeled path=image_layout_convert_width",
+                    materialize_log_text,
+                )
+        finally:
+            for path in (materialize_log_path, op_hit_log_path):
+                if os.path.exists(path):
+                    os.remove(path)
 
     def test_layer_norm_runtime_vision_buffer_family_is_consumed(self):
         log_name = "layer_norm_vision_buffer_family_op_hit_test.log"
@@ -9519,6 +10300,77 @@ print("OK")
                 if os.path.exists(path):
                     os.remove(path)
 
+    def test_low_channel_bilinear_upsample_large_output_matches_cpu(self):
+        op_hit_log_name = "low_channel_texture_bilinear_upsample_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        for path in (op_hit_log_path,):
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x_cpu = torch.rand(1, 3, 70, 70, dtype=torch.float32)
+                weight = torch.rand(1, 3, 1, 1, dtype=torch.float32)
+                bias = torch.rand(1, dtype=torch.float32)
+                bilinear_input_cpu = F.conv2d(x_cpu, weight, bias)
+                expected = F.interpolate(
+                    bilinear_input_cpu,
+                    size=(280, 280),
+                    mode="bilinear",
+                    align_corners=True,
+                )
+
+                x_vulkan = x_cpu.to("vulkan")
+                bilinear_input_vulkan = F.conv2d(
+                    x_vulkan,
+                    weight.to("vulkan"),
+                    bias.to("vulkan"),
+                )
+                actual_vulkan = F.interpolate(
+                    bilinear_input_vulkan,
+                    size=(280, 280),
+                    mode="bilinear",
+                    align_corners=True,
+                )
+                actual = actual_vulkan.cpu()
+
+                torch.testing.assert_close(actual, expected, atol=2e-4, rtol=2e-4)
+                torch.testing.assert_close(
+                    actual_vulkan.min().cpu(),
+                    expected.min(),
+                    atol=2e-4,
+                    rtol=2e-4,
+                )
+                torch.testing.assert_close(
+                    actual_vulkan.max().cpu(),
+                    expected.max(),
+                    atol=2e-4,
+                    rtol=2e-4,
+                )
+                print(float(actual.sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+                error_prefix="low-channel bilinear upsample subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_hit_log_path))
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                op_hit_text = log_file.read()
+
+            self.assertIn("op=aten::upsample_bilinear2d.buffer_float", op_hit_text)
+        finally:
+            for path in (op_hit_log_path,):
+                if os.path.exists(path):
+                    os.remove(path)
+
     def test_scaled_dot_product_attention_runtime_vision_buffer_ops_are_consumed(self):
         log_name = "vulkan_sdpa_vision_buffer_ops_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -9608,15 +10460,14 @@ print("OK")
                 )
                 x.copy_(x_cpu)
 
-                with torch.inference_mode():
-                    y = x.reshape(1, 9, 24)
-                    torch.testing.assert_close(
-                        y.cpu(),
-                        x_cpu.reshape(1, 9, 24),
-                        atol=1e-4,
-                        rtol=1e-4,
-                    )
-                    print("ok")
+                y = x.reshape(1, 9, 24)
+                torch.testing.assert_close(
+                    y.cpu(),
+                    x_cpu.reshape(1, 9, 24),
+                    atol=1e-4,
+                    rtol=1e-4,
+                )
+                print("ok")
             """
 
             self._run_repo_python_subprocess(
@@ -9629,14 +10480,34 @@ print("OK")
             with open(log_path, "r", encoding="utf-8") as log_file:
                 log_text = log_file.read()
 
-            self.assertIn("op=aten::reshape.vulkan_view", log_text)
             self.assertIn("op=aten::view.texture_contiguous_reshape", log_text)
+            self.assertNotIn("op=aten::reshape.vulkan_view", log_text)
             self.assertNotIn(
                 "op=aten::view.texture_to_buffer_metadata_reshape", log_text
             )
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)
+
+    def test_dinov2_positional_reshape_runs_without_inference_mode(self):
+        script = """
+            import torch
+
+            torch.manual_seed(0)
+            patch_pos_embed_cpu = torch.randn(1, 64, 32, dtype=torch.float32)
+            patch_pos_embed = patch_pos_embed_cpu.to("vulkan")
+
+            y = patch_pos_embed.reshape(1, 8, 8, 32).permute(0, 3, 1, 2)
+            expected = patch_pos_embed_cpu.reshape(1, 8, 8, 32).permute(0, 3, 1, 2)
+
+            torch.testing.assert_close(y.cpu(), expected, atol=1e-4, rtol=1e-4)
+            print("ok")
+        """
+
+        self._run_repo_python_subprocess(
+            script,
+            error_prefix="Dinov2 positional reshape subprocess failed.",
+        )
 
     def test_buffer_permute_contiguous_reshape_avoids_cpu_fallback(self):
         log_name = "buffer_permute_contiguous_reshape_op_hit_test.log"

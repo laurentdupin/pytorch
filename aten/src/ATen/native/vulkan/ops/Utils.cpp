@@ -28,8 +28,12 @@ using namespace api::utils;
 namespace {
 
 bool can_native_buffer_cast_input(const vTensor& v_input) {
-  return (v_input.dtype() == api::kFloat || v_input.dtype() == api::kInt ||
-          v_input.dtype() == api::kBFloat16) &&
+  const bool supports_dtype =
+      v_input.dtype() == api::kFloat || v_input.dtype() == api::kInt ||
+      v_input.dtype() == api::kBFloat16 ||
+      (v_input.dtype() == api::kByte &&
+       api::context()->adapter_ptr()->supports_int8_buffer_arithmetic());
+  return supports_dtype &&
       v_input.storage_type() == api::StorageType::BUFFER &&
       v_input.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
       !v_input.is_quantized();
@@ -60,9 +64,9 @@ bool can_make_buffer_metadata_view_impl(
     const int64_t storage_offset) {
   if (
       v_input.storage_type() != api::StorageType::BUFFER ||
-      !supports_buffer_view_fast_path(v_input) ||
+      !supports_buffer_metadata_view_fast_path(v_input) ||
       sizes.size() != logical_strides.size() ||
-      sizes.size() != physical_strides.size() || sizes.size() > 4 ||
+      sizes.size() != physical_strides.size() || sizes.size() > 5 ||
       storage_offset < 0) {
     return false;
   }
@@ -150,7 +154,7 @@ Tensor cast_vulkan_tensor_dtype_buffer_native(
 
   TORCH_CHECK(
       can_native_buffer_cast_input(v_input),
-      "Native Vulkan buffer cast requires a float or int32-compatible buffer tensor");
+      "Native Vulkan buffer cast requires a supported buffer tensor");
 
   vTensor v_out{
       context,
@@ -469,6 +473,11 @@ Tensor nc4hw_to_nchw(const Tensor& t_in, IntArrayRef sizes) {
 
 bool supports_buffer_view_fast_path(const vTensor& v_in) {
   return api::supports_generic_buffer_view_ops(
+      v_in.dtype(), v_in.sizes().size(), v_in.is_quantized());
+}
+
+bool supports_buffer_metadata_view_fast_path(const vTensor& v_in) {
+  return api::supports_generic_buffer_metadata_view_ops(
       v_in.dtype(), v_in.sizes().size(), v_in.is_quantized());
 }
 
@@ -1012,6 +1021,12 @@ Tensor cast_vulkan_tensor_dtype(const Tensor& input_arg, ScalarType dtype) {
       }
       return cast_vulkan_tensor_dtype_buffer_native(
           input, dtype, VK_KERNEL(buffer_cast_int_to_float));
+    case VulkanCastMethod::NativeBufferByteToFloat:
+      if (!can_native_buffer_cast_input(v_input)) {
+        return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
+      }
+      return cast_vulkan_tensor_dtype_buffer_native(
+          input, dtype, VK_KERNEL(buffer_cast_uint8_to_float));
     case VulkanCastMethod::NativeBufferFloatToBFloat16:
       if (!can_native_buffer_cast_input(v_input)) {
         return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);

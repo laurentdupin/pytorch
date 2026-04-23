@@ -28,6 +28,43 @@ bool should_run_buffer_upsample(const Tensor& input_arg) {
       utils::supports_buffer_elementwise_compute(v_input);
 }
 
+bool should_materialize_texture_bilinear_input_to_buffer(
+    const Tensor& input_arg,
+    const IntArrayRef output_sizes) {
+  if (!input_arg.is_vulkan() || input_arg.scalar_type() != kFloat) {
+    return false;
+  }
+
+  const vTensor& v_input = convert(input_arg);
+  if (
+      v_input.storage_type() == api::StorageType::BUFFER ||
+      !utils::supports_buffer_view_fast_path(v_input)) {
+    return false;
+  }
+
+  const int64_t input_h = get_dim<Dim4D::Height>(input_arg);
+  const int64_t input_w = get_dim<Dim4D::Width>(input_arg);
+  const int64_t output_h = output_sizes[Layout::Parameter::height];
+  const int64_t output_w = output_sizes[Layout::Parameter::width];
+
+  return get_dim<Dim4D::Batch>(input_arg) == 1 &&
+      get_dim<Dim4D::Channel>(input_arg) <= 4 && output_h >= input_h &&
+      output_w >= input_w;
+}
+
+bool should_run_buffer_nearest_upsample(const Tensor& input_arg) {
+  if (!input_arg.is_vulkan()) {
+    return false;
+  }
+
+  if (input_arg.scalar_type() == kFloat) {
+    return true;
+  }
+
+  return input_arg.scalar_type() == kByte &&
+      api::context()->adapter_ptr()->supports_int8_buffer_arithmetic();
+}
+
 Tensor upsample_bilinear2d_buffer_impl(
     const Tensor& input_arg,
     const IntArrayRef output_sizes,
@@ -135,11 +172,117 @@ Tensor upsample_bilinear2d_buffer_impl(
   return output_arg != nullptr ? output_tensor : convert(v_output);
 }
 
+Tensor upsample_nearest2d_buffer_impl(
+    const Tensor& input_arg,
+    const IntArrayRef output_sizes,
+    const std::optional<double> scales_h,
+    const std::optional<double> scales_w) {
+  utils::log_vulkan_op_hit("aten::upsample_nearest2d.buffer");
+  api::AllocationScope allocation_scope("upsample_nearest.buffer");
+  api::Context* const context = api::context();
+
+  Tensor prepared = utils::prepare_vulkan_direct_buffer_execution_tensor(
+      input_arg, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  const vTensor& v_input = convert(prepared);
+
+  const bool is_float = prepared.scalar_type() == kFloat;
+  const bool is_uint8 = prepared.scalar_type() == kByte;
+  TORCH_CHECK(
+      (is_float && utils::supports_buffer_elementwise_compute(v_input)) ||
+          (is_uint8 && utils::supports_native_integral_buffer_compute(prepared)),
+      "Vulkan nearest upsample buffer path expects float or uint8 direct buffers");
+
+  const std::vector<int64_t> output_tensor_sizes{
+      get_dim<Dim4D::Batch>(v_input),
+      get_dim<Dim4D::Channel>(v_input),
+      output_sizes[Layout::Parameter::height],
+      output_sizes[Layout::Parameter::width],
+  };
+
+  vTensor v_output{
+      context,
+      output_tensor_sizes,
+      v_input.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const struct Block final {
+    ivec4 info;
+    vec4 scale;
+  } block{
+      {
+          safe_downcast<int32_t>(get_dim<Dim4D::Width>(prepared) - 1),
+          safe_downcast<int32_t>(get_dim<Dim4D::Height>(prepared) - 1),
+          safe_downcast<int32_t>(get_dim<Dim4D::Width>(v_output)),
+          safe_downcast<int32_t>(get_dim<Dim4D::Height>(v_output)),
+      },
+      {
+          compute_scales_value<float>(
+              scales_w,
+              get_dim<Dim4D::Width>(prepared),
+              get_dim<Dim4D::Width>(v_output)),
+          compute_scales_value<float>(
+              scales_h,
+              get_dim<Dim4D::Height>(prepared),
+              get_dim<Dim4D::Height>(v_output)),
+          0.0f,
+          0.0f,
+      },
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size{
+      safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+
+  context->submit_compute_job(
+      is_uint8 ? VK_KERNEL(upsample_nearest2d_buffer_uint8)
+               : VK_KERNEL(upsample_nearest2d_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return utils::mark_tensor_execution(
+      convert(v_output), api::ExecutionLayout::BUFFER_DIRECT);
+}
+
 static Tensor upsample_nearest2d(
     const Tensor& input_arg,
     const IntArrayRef output_sizes,
     const std::optional<double> scales_h,
     const std::optional<double> scales_w) {
+  if (should_run_buffer_nearest_upsample(input_arg)) {
+    return upsample_nearest2d_buffer_impl(
+        input_arg, output_sizes, scales_h, scales_w);
+  }
+
+  if (
+      !input_arg.is_quantized() &&
+      c10::isIntegralType(input_arg.scalar_type(), /*includeBool=*/true)) {
+    Tensor float_input = utils::cast_vulkan_tensor_dtype(input_arg, kFloat);
+    Tensor float_output =
+        upsample_nearest2d(float_input, output_sizes, scales_h, scales_w);
+    return utils::cast_vulkan_tensor_dtype(float_output, input_arg.scalar_type());
+  }
+
   api::AllocationScope allocation_scope("upsample_nearest");
   api::Context* const context = api::context();
 
@@ -237,6 +380,18 @@ static Tensor upsample_bilinear2d(
   if (should_run_buffer_upsample(input_arg)) {
     return upsample_bilinear2d_buffer_impl(
         input_arg,
+        output_sizes,
+        align_corners,
+        scales_h,
+        scales_w,
+        nullptr);
+  }
+
+  if (should_materialize_texture_bilinear_input_to_buffer(
+          input_arg, output_sizes)) {
+    utils::log_vulkan_op_hit("aten::upsample_bilinear2d.texture_to_buffer_float");
+    return upsample_bilinear2d_buffer_impl(
+        utils::ensure_buffer_storage(input_arg),
         output_sizes,
         align_corners,
         scales_h,
