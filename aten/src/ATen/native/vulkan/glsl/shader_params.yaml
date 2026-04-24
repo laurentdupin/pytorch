@@ -258,7 +258,7 @@ buffer_unary_op:
     - NAME: buffer_silu
       OPERATOR: X / (1.0 + exp(-(X)))
     - NAME: buffer_gelu_tanh
-      OPERATOR: 0.5 * X * (1.0 + tanh(0.7978845608028654 * (X + 0.044715 * X * X * X)))
+      OPERATOR: 0.5 * X * (1.0 + tanh(clamp(0.7978845608028654 * (X + 0.044715 * X * X * X), -15.0, 15.0)))
 
 buffer_cast:
   parameter_names_with_default_values:

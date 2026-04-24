@@ -1,7 +1,11 @@
 #include <ATen/InferSize.h>
 #include <ATen/Functions.h>
+#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/Layernorm.h>
+#include <ATen/native/vulkan/ops/Mm.h>
+#include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <optional>
 #include <torch/library.h>
@@ -321,6 +325,14 @@ Tensor view_internal(
     const IntArrayRef output_size,
     const IntArrayRef output_stride,
     const std::optional<int64_t> storage_offset = std::nullopt) {
+  const Tensor add_layer_norm_materialized =
+      materialize_deferred_add_layer_norm_candidate_if_needed(self_arg);
+  if (add_layer_norm_materialized.unsafeGetTensorImpl() !=
+      self_arg.unsafeGetTensorImpl()) {
+    return view_internal(
+        add_layer_norm_materialized, output_size, output_stride, storage_offset);
+  }
+
   if (self_arg.is_vulkan()) {
     const vTensor& v_self = convert(self_arg);
     const int64_t resolved_storage_offset =
@@ -336,12 +348,17 @@ Tensor view_internal(
             output_stride,
             output_stride,
             resolved_storage_offset)) {
-      return utils::make_buffer_metadata_view(
+      Tensor output = utils::make_buffer_metadata_view(
           self_arg,
           output_size,
           output_stride,
           output_stride,
           resolved_storage_offset);
+      move_decomposed_attention_candidate_to_alias(self_arg, output);
+      move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
+      move_deferred_linear_gelu_candidate_to_alias(self_arg, output);
+      move_deferred_image_normalize_candidate_to_alias(self_arg, output);
+      return output;
     }
 
     if (can_use_buffer_preserved_contiguous_reshape(
@@ -352,23 +369,33 @@ Tensor view_internal(
       const auto output_physical_strides =
           c10::contiguous_strides(output_physical_sizes);
       utils::log_vulkan_op_hit("aten::view.buffer_preserve_padded_reshape");
-      return utils::make_buffer_metadata_view(
+      Tensor output = utils::make_buffer_metadata_view(
           self_arg,
           output_size,
           output_stride,
           output_physical_strides,
           resolved_storage_offset);
+      move_decomposed_attention_candidate_to_alias(self_arg, output);
+      move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
+      move_deferred_linear_gelu_candidate_to_alias(self_arg, output);
+      move_deferred_image_normalize_candidate_to_alias(self_arg, output);
+      return output;
     }
 
     if (can_use_texture_metadata_reshape(
             v_self, output_size, output_stride, resolved_storage_offset)) {
       utils::log_vulkan_op_hit("aten::view.texture_metadata_reshape");
-      return convert(vTensor{
+      Tensor output = convert(vTensor{
           v_self,
           output_size.vec(),
           output_stride.vec(),
           vTensor::PreservePhysicalView{},
       });
+      move_decomposed_attention_candidate_to_alias(self_arg, output);
+      move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
+      move_deferred_linear_gelu_candidate_to_alias(self_arg, output);
+      move_deferred_image_normalize_candidate_to_alias(self_arg, output);
+      return output;
     }
 
     if (can_use_buffer_materialized_contiguous_reshape(
@@ -387,13 +414,21 @@ Tensor view_internal(
   // reshape/as_strided path and rematerialize a fresh Vulkan tensor.
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
-  Tensor cpu = self_arg.cpu();
+  Tensor materialized_self =
+      materialize_decomposed_attention_candidate_if_needed(self_arg);
+  materialized_self =
+      materialize_deferred_linear_gelu_candidate_if_needed(materialized_self);
+  materialized_self =
+      materialize_deferred_add_layer_norm_candidate_if_needed(materialized_self);
+  materialized_self =
+      materialize_deferred_image_normalize_candidate_if_needed(materialized_self);
+  Tensor cpu = materialized_self.cpu();
   Tensor cpu_view = storage_offset.has_value()
       ? cpu.as_strided(output_size.vec(), output_stride.vec(), *storage_offset)
       : cpu.as_strided(output_size.vec(), output_stride.vec());
   Tensor out = at::empty(
       output_size.vec(),
-      self_arg.options().device(self_arg.device()));
+      materialized_self.options().device(materialized_self.device()));
   ops::copy_(out, cpu_view);
   return out;
 }
@@ -433,23 +468,28 @@ static Tensor contiguous(
     return self_arg.contiguous(memory_format);
   }
 
+  Tensor self = materialize_decomposed_attention_candidate_if_needed(self_arg);
+  self = materialize_deferred_linear_gelu_candidate_if_needed(self);
+  self = materialize_deferred_add_layer_norm_candidate_if_needed(self);
+  self = materialize_deferred_image_normalize_candidate_if_needed(self);
+
   if (memory_format == c10::MemoryFormat::Preserve ||
-      is_vulkan_logically_contiguous(self_arg)) {
-    return self_arg;
+      is_vulkan_logically_contiguous(self)) {
+    return self;
   }
 
-  const vTensor& v_self = convert(self_arg);
+  const vTensor& v_self = convert(self);
   if (
       v_self.storage_type() == api::StorageType::BUFFER &&
       utils::supports_buffer_view_fast_path(v_self)) {
     utils::log_vulkan_op_hit("aten::contiguous.buffer_materialize");
     return utils::ensure_buffer_storage(
-        self_arg, v_self.gpu_memory_layout());
+        self, v_self.gpu_memory_layout());
   }
 
   utils::log_vulkan_op_hit("aten::contiguous.clone_fallback");
   return at::clone(
-      self_arg, std::optional<c10::MemoryFormat>(c10::MemoryFormat::Contiguous));
+      self, std::optional<c10::MemoryFormat>(c10::MemoryFormat::Contiguous));
 }
 
 static Tensor _reshape_alias(

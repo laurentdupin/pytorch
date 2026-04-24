@@ -1,5 +1,10 @@
 #include <ATen/ATen.h>
+#include <ATen/native/vulkan/impl/Packing.h>
+#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/Layernorm.h>
+#include <ATen/native/vulkan/ops/Mm.h>
+#include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/vulkan/Context.h>
@@ -157,6 +162,91 @@ void log_copy_sync_event(
       << " logical_bytes=" << tensor.nbytes()
       << " gpu_bytes=" << tensor.gpu_nbytes()
       << " sizes=" << format_sizes(tensor.sizes()) << '\n';
+}
+
+void retire_after_fence_wait_and_release(api::Context* const context) {
+  context->retire_after_fence_wait();
+  const bool released_retired_objects =
+      utils::release_retired_packed_weight_entries() |
+      utils::release_retired_linear_contexts();
+  if (released_retired_objects) {
+    context->retire_after_fence_wait();
+  }
+}
+
+bool can_copy_vulkan_buffer_to_buffer_on_device(
+    const vTensor& src,
+    const vTensor& dst) {
+  if (
+      src.storage_type() != api::StorageType::BUFFER ||
+      dst.storage_type() != api::StorageType::BUFFER ||
+      src.dtype() != dst.dtype() ||
+      src.sizes() != dst.sizes() ||
+      src.sizes().size() > 4 ||
+      dst.sizes().size() > 4) {
+    return false;
+  }
+
+  return src.dtype() == api::kFloat || src.dtype() == api::kByte;
+}
+
+void copy_vulkan_buffer_to_buffer_on_device(vTensor& src, vTensor& dst) {
+  TORCH_CHECK(
+      can_copy_vulkan_buffer_to_buffer_on_device(src, dst),
+      "Unsupported Vulkan buffer-to-buffer device copy");
+
+  if (src.numel() == 0u) {
+    return;
+  }
+
+  utils::log_vulkan_op_hit("aten::copy_.buffer_to_buffer");
+
+  api::Context* const context = dst.context();
+  if (
+      src.has_direct_buffer_layout() && dst.has_direct_buffer_layout() &&
+      src.storage_offset() == 0 && dst.storage_offset() == 0 &&
+      src.gpu_nbytes() == dst.gpu_nbytes()) {
+    api::PipelineBarrier pipeline_barrier{};
+    context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
+        pipeline_barrier,
+        src.buffer(
+            pipeline_barrier,
+            api::PipelineStage::TRANSFER,
+            api::MemoryAccessType::READ),
+        dst.buffer(
+            pipeline_barrier,
+            api::PipelineStage::TRANSFER,
+            api::MemoryAccessType::WRITE),
+        {api::utils::safe_downcast<uint32_t>(src.gpu_nbytes()), 0u, 0u},
+        {0u, 0u, 0u},
+        {0u, 0u, 0u},
+        VK_NULL_HANDLE);
+    log_copy_sync_event(
+        "copy_vulkan_to_vulkan_buffer_direct",
+        dst,
+        dst.has_direct_buffer_layout());
+    return;
+  }
+
+  api::StorageBuffer staging(context, src.dtype(), src.numel());
+  api::PipelineBarrier read_barrier{};
+  packing::record_buffer_to_nchw_op(
+      context, src, staging.buffer(), read_barrier, VK_NULL_HANDLE);
+
+  api::PipelineBarrier write_barrier{};
+  add_buffer_barrier(
+      write_barrier,
+      staging.buffer(),
+      api::PipelineStage::COMPUTE | api::PipelineStage::TRANSFER,
+      api::MemoryAccessType::WRITE,
+      api::PipelineStage::COMPUTE | api::PipelineStage::TRANSFER,
+      api::MemoryAccessType::READ);
+  packing::record_nchw_to_buffer_op(
+      context, staging.buffer(), dst, write_barrier, VK_NULL_HANDLE);
+  log_copy_sync_event(
+      "copy_vulkan_to_vulkan_buffer_staging",
+      dst,
+      dst.has_direct_buffer_layout());
 }
 
 c10::MemoryFormat memory_format_for_buffer_layout(
@@ -728,7 +818,7 @@ void transfer_vulkan_to_cpu(vTensor& v_src, Tensor& dst) {
       fence.wait();
 
       log_copy_sync_event("transfer_vulkan_to_cpu", v_src, false);
-      context->retire_after_fence_wait();
+      retire_after_fence_wait_and_release(context);
       // cmd_mutex_ will be released when exiting this scope.
     }
 
@@ -824,7 +914,7 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
             fence.get_submit_handle());
         fence.wait();
         log_copy_sync_event("preserve_vulkan_buffer_view", dst, false);
-        context->retire_after_fence_wait();
+        retire_after_fence_wait_and_release(context);
       }
       context->fences().return_fence(fence);
     }
@@ -869,7 +959,7 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
             "pack_cpu_to_vulkan_buffer",
             dst,
             dst.has_direct_buffer_layout());
-        context->retire_after_fence_wait();
+        retire_after_fence_wait_and_release(context);
       }
       context->fences().return_fence(fence);
     }
@@ -947,7 +1037,7 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
               "pack_vulkan_to_cpu_buffer",
               src,
               src.has_direct_buffer_layout());
-          context->retire_after_fence_wait();
+          retire_after_fence_wait_and_release(context);
         }
       }
 
@@ -993,7 +1083,7 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
       if (submitted_to_gpu) {
         fence.wait();
         log_copy_sync_event("pack_vulkan_to_cpu_texture", src, false);
-        context->retire_after_fence_wait();
+        retire_after_fence_wait_and_release(context);
       }
       // cmd_mutex_ will be released when exiting this scope.
     }
@@ -1026,6 +1116,24 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
   // Check that sizes are equal
   TORCH_CHECK(
       dst.sizes() == src.sizes(), "Vulkan copy_: Tensor sizes are mismatched!");
+  Tensor src_to_copy = src.is_vulkan()
+      ? materialize_decomposed_attention_candidate_if_needed(src)
+      : src;
+  src_to_copy = src_to_copy.is_vulkan()
+      ? materialize_deferred_attention_query_scale_candidate_if_needed(src_to_copy)
+      : src_to_copy;
+  src_to_copy = src_to_copy.is_vulkan()
+      ? materialize_deferred_linear_gelu_candidate_if_needed(src_to_copy)
+      : src_to_copy;
+  src_to_copy = src_to_copy.is_vulkan()
+      ? materialize_deferred_add_layer_norm_candidate_if_needed(src_to_copy)
+      : src_to_copy;
+  src_to_copy = src_to_copy.is_vulkan()
+      ? materialize_deferred_layer_scale_candidate_if_needed(src_to_copy)
+      : src_to_copy;
+  src_to_copy = src_to_copy.is_vulkan()
+      ? materialize_deferred_image_normalize_candidate_if_needed(src_to_copy)
+      : src_to_copy;
 
   // X -> Vulkan
   if (at::kVulkan == dst.device().type()) {
@@ -1033,10 +1141,11 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
     api::set_current_device(v_self.context()->device_index());
 
     // Vulkan -> Vulkan
-    if (at::kVulkan == src.device().type()) {
-      Tensor src_casted = src;
-      if (src.scalar_type() != dst.scalar_type()) {
-        src_casted = utils::cast_vulkan_tensor_dtype(src, dst.scalar_type());
+    if (at::kVulkan == src_to_copy.device().type()) {
+      Tensor src_casted = src_to_copy;
+      if (src_to_copy.scalar_type() != dst.scalar_type()) {
+        src_casted =
+            utils::cast_vulkan_tensor_dtype(src_to_copy, dst.scalar_type());
       }
 
       vTensor& v_src = convert(src_casted);
@@ -1053,6 +1162,8 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
           v_self.storage_type() != api::StorageType::BUFFER;
       if (can_direct_copy) {
         transfer_vulkan_to_vulkan(v_src, v_self);
+      } else if (can_copy_vulkan_buffer_to_buffer_on_device(v_src, v_self)) {
+        copy_vulkan_buffer_to_buffer_on_device(v_src, v_self);
       } else {
         c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
         c10::InferenceMode inference_mode_guard(false);
@@ -1062,7 +1173,7 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
     }
     // CPU -> Vulkan
     else {
-      Tensor cpu_src = src;
+      Tensor cpu_src = src_to_copy;
       if (cpu_src.scalar_type() != dst.scalar_type()) {
         cpu_src = cpu_src.to(dst.scalar_type());
       }
@@ -1070,8 +1181,8 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
     }
   }
   // Vulkan -> X
-  else if (at::kVulkan == src.device().type()) {
-    vTensor& v_src = convert(src);
+  else if (at::kVulkan == src_to_copy.device().type()) {
+    vTensor& v_src = convert(src_to_copy);
     api::set_current_device(v_src.context()->device_index());
 
     // Vulkan -> CPU

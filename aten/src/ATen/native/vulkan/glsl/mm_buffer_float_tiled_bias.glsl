@@ -60,9 +60,11 @@ uBlock;
 
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
-const uint TILE_K = 8u;
-shared float s_input[8][8];
-shared float s_weight[8][8];
+const uint TILE_M = 16u;
+const uint TILE_N = 16u;
+const uint TILE_K = 16u;
+shared float s_input[16][16];
+shared float s_weight[16][16];
 
 void main() {
   const uint out_col = gl_GlobalInvocationID.x;
@@ -81,27 +83,31 @@ void main() {
 
   const bool valid_output = out_col < out_width && out_row < out_height;
   const bool valid_input_row = out_row < out_height;
-  const bool valid_weight_col = out_col < out_width;
+  const uint weight_tile_col_base = gl_WorkGroupID.x * TILE_N;
+  const uint local_linear = local_row * TILE_N + local_col;
   float acc = 0.0;
 
   for (uint k_base = 0u; k_base < inner_dim; k_base += TILE_K) {
     const uint input_k = k_base + local_col;
-    const uint weight_k = k_base + local_row;
-
     if (valid_input_row && input_k < inner_dim) {
-      const uint input_idx = in_storage_offset + input_k * uInMeta.strides.x +
-          out_row * uInMeta.strides.y;
+      const uint input_idx = in_storage_offset +
+          input_k * uInMeta.strides.x + out_row * uInMeta.strides.y;
       s_input[local_row][local_col] = uInput.data[input_idx];
     } else {
       s_input[local_row][local_col] = 0.0;
     }
 
-    if (valid_weight_col && weight_k < inner_dim) {
+    const uint weight_k_local = local_linear / TILE_N;
+    const uint weight_col_local = local_linear - weight_k_local * TILE_N;
+    const uint weight_k = k_base + weight_k_local;
+    const uint weight_col = weight_tile_col_base + weight_col_local;
+    if (weight_col < out_width && weight_k < inner_dim) {
       const uint weight_idx = weight_storage_offset +
-          out_col * uWeightMeta.strides.x + weight_k * uWeightMeta.strides.y;
-      s_weight[local_row][local_col] = uWeight.data[weight_idx];
+          weight_col * uWeightMeta.strides.x +
+          weight_k * uWeightMeta.strides.y;
+      s_weight[weight_k_local][weight_col_local] = uWeight.data[weight_idx];
     } else {
-      s_weight[local_row][local_col] = 0.0;
+      s_weight[weight_k_local][weight_col_local] = 0.0;
     }
 
     barrier();

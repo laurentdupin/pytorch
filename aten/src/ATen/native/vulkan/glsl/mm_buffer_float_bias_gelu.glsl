@@ -68,7 +68,7 @@ const uint TILE_SIZE = 4u;
 float gelu_tanh(float value) {
   const float value_cube = value * value * value;
   const float inner = 0.7978845608028654 * (value + 0.044715 * value_cube);
-  return 0.5 * value * (1.0 + tanh(inner));
+  return 0.5 * value * (1.0 + tanh(clamp(inner, -15.0, 15.0)));
 }
 
 void main() {

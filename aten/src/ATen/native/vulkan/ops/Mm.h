@@ -7,7 +7,9 @@
 #include <ATen/native/vulkan/ops/PackedWeight.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
+#include <optional>
 #include <string>
+#include <string_view>
 
 namespace at {
 namespace native {
@@ -129,6 +131,17 @@ Tensor run_linear_gelu_context_out(
     const Tensor& input,
     const c10::intrusive_ptr<LinearPackedContext>& context,
     Tensor& output);
+
+std::optional<Tensor> try_consume_deferred_linear_gelu(
+    const Tensor& input,
+    std::string_view approximate);
+
+Tensor materialize_deferred_linear_gelu_candidate_if_needed(
+    const Tensor& tensor);
+
+void move_deferred_linear_gelu_candidate_to_alias(
+    const Tensor& source,
+    const Tensor& alias);
 
 Tensor run_qlinear_context(
     const Tensor& input,

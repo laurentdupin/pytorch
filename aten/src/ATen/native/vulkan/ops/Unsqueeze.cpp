@@ -1,4 +1,5 @@
 #include <ATen/Functions.h>
+#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -43,12 +44,14 @@ Tensor unsqueeze_buffer_view(const at::Tensor& self, int64_t dim) {
   output_physical_strides.insert(
       output_physical_strides.begin() + insert_dim, inserted_physical_stride);
 
-  return utils::make_buffer_metadata_view(
+  Tensor output = utils::make_buffer_metadata_view(
       self,
       output_sizes,
       output_logical_strides,
       output_physical_strides,
       v_self.storage_offset());
+  move_deferred_image_normalize_candidate_to_alias(self, output);
+  return output;
 }
 
 Tensor unsqueeze(const at::Tensor& self, int64_t dim) {

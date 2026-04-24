@@ -11,8 +11,11 @@
 #include <cstdlib>
 #include <cmath>
 #include <fstream>
+#include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 namespace at {
 namespace native {
@@ -57,7 +60,408 @@ enum class RuntimeProgramBufferFusedKernelVariant : uint8_t {
   Wide32 = 1u,
   Head64 = 2u,
   Head64Query4 = 3u,
+  Head64Subgroup64 = 4u,
+  Head64Subgroup32 = 5u,
 };
+
+enum class DecomposedAttentionStage : uint8_t {
+  Scores,
+  Probs,
+};
+
+struct DecomposedAttentionCandidate {
+  Tensor query;
+  Tensor key;
+  Tensor key_t;
+  DecomposedAttentionStage stage;
+  float query_scale{1.0f};
+};
+
+struct DeferredAttentionQueryScaleCandidate {
+  Tensor query;
+  float scale{1.0f};
+};
+
+constexpr size_t kMaxDecomposedAttentionCandidates = 128;
+constexpr size_t kMaxDeferredAttentionQueryScaleCandidates = 32;
+thread_local bool g_materializing_deferred_attention_query_scale = false;
+
+const void* decomposed_attention_key(const Tensor& tensor) {
+  if (tensor.is_vulkan()) {
+    const vTensor& v_tensor = convert(tensor);
+    if (v_tensor.storage_type() == api::StorageType::BUFFER) {
+      return static_cast<const void*>(&v_tensor.buffer());
+    }
+  }
+  return static_cast<const void*>(tensor.unsafeGetTensorImpl());
+}
+
+std::mutex& decomposed_attention_candidate_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_map<const void*, DecomposedAttentionCandidate>&
+decomposed_attention_candidates() {
+  static std::unordered_map<const void*, DecomposedAttentionCandidate>
+      candidates;
+  return candidates;
+}
+
+std::mutex& deferred_attention_query_scale_candidate_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_map<const void*, DeferredAttentionQueryScaleCandidate>&
+deferred_attention_query_scale_candidates() {
+  static std::unordered_map<
+      const void*,
+      DeferredAttentionQueryScaleCandidate>
+      candidates;
+  return candidates;
+}
+
+const void* deferred_attention_query_scale_key(const Tensor& tensor) {
+  if (tensor.is_vulkan()) {
+    const vTensor& v_tensor = convert(tensor);
+    if (v_tensor.storage_type() == api::StorageType::BUFFER) {
+      return static_cast<const void*>(&v_tensor.buffer());
+    }
+  }
+  return static_cast<const void*>(tensor.unsafeGetTensorImpl());
+}
+
+bool can_retarget_deferred_attention_query_scale_candidate(
+    const Tensor& tensor,
+    const DeferredAttentionQueryScaleCandidate& candidate) {
+  if (!tensor.is_vulkan() || tensor.scalar_type() != kFloat) {
+    return false;
+  }
+  if (tensor.sizes().equals(candidate.query.sizes())) {
+    return true;
+  }
+  if (
+      candidate.query.dim() == 4 && tensor.dim() == 3 &&
+      candidate.query.size(0) == 1 &&
+      candidate.query.size(1) == tensor.size(0) &&
+      candidate.query.size(2) == tensor.size(1) &&
+      candidate.query.size(3) == tensor.size(2) &&
+      tensor.size(0) == 6 &&
+      tensor.size(2) == 64) {
+    return true;
+  }
+  if (
+      candidate.query.dim() == 3 && tensor.dim() == 4 &&
+      tensor.size(0) == 1 &&
+      tensor.size(1) == candidate.query.size(0) &&
+      tensor.size(2) == candidate.query.size(1) &&
+      tensor.size(3) == candidate.query.size(2) &&
+      candidate.query.size(0) == 6 &&
+      candidate.query.size(2) == 64) {
+    return true;
+  }
+  return false;
+}
+
+DeferredAttentionQueryScaleCandidate retarget_deferred_attention_query_scale(
+    const Tensor& tensor,
+    DeferredAttentionQueryScaleCandidate candidate) {
+  if (!candidate.query.sizes().equals(tensor.sizes())) {
+    candidate.query = candidate.query.reshape(tensor.sizes());
+  }
+  return candidate;
+}
+
+Tensor detached_attention_tensor(const Tensor& tensor) {
+  return tensor.requires_grad() ? tensor.detach() : tensor;
+}
+
+bool can_start_deferred_attention_query_scale_candidate(
+    const Tensor& query,
+    const float scale) {
+  if (
+      g_materializing_deferred_attention_query_scale ||
+      !std::isfinite(scale) ||
+      scale <= 0.0f ||
+      scale > 1.0f ||
+      !query.is_vulkan() ||
+      query.scalar_type() != kFloat ||
+      ((query.dim() != 3 ||
+        query.size(0) != 6 ||
+        query.size(1) < 512 ||
+        query.size(2) != 64) &&
+       (query.dim() != 4 ||
+        query.size(0) != 1 ||
+        query.size(1) != 6 ||
+        query.size(2) < 512 ||
+        query.size(3) != 64))) {
+    return false;
+  }
+
+  const vTensor& v_query = convert(query);
+  return v_query.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_view_fast_path(v_query);
+}
+
+bool can_start_decomposed_attention_candidate(
+    const Tensor& query,
+    const Tensor& key_t) {
+  if (
+      !query.is_vulkan() ||
+      !key_t.is_vulkan() ||
+      query.scalar_type() != kFloat ||
+      key_t.scalar_type() != kFloat ||
+      query.dim() != 3 ||
+      key_t.dim() != 3 ||
+      query.size(0) != key_t.size(0) ||
+      query.size(2) != key_t.size(1) ||
+      query.size(1) != key_t.size(2) ||
+      query.size(1) < 512 ||
+      query.size(2) != 64) {
+    return false;
+  }
+
+  const vTensor& v_query = convert(query);
+  const vTensor& v_key_t = convert(key_t);
+  return v_query.storage_type() == api::StorageType::BUFFER &&
+      v_key_t.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_view_fast_path(v_query) &&
+      utils::supports_buffer_view_fast_path(v_key_t);
+}
+
+bool can_consume_decomposed_attention_candidate(
+    const DecomposedAttentionCandidate& candidate,
+    const Tensor& value) {
+  if (
+      !value.is_vulkan() ||
+      value.scalar_type() != kFloat ||
+      value.dim() != 3 ||
+      candidate.stage != DecomposedAttentionStage::Probs ||
+      candidate.query.size(0) != value.size(0) ||
+      candidate.key.size(1) != value.size(1) ||
+      value.size(2) != 64) {
+    return false;
+  }
+
+  const vTensor& v_value = convert(value);
+  return v_value.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_view_fast_path(v_value);
+}
+
+std::optional<DecomposedAttentionCandidate>
+lookup_decomposed_attention_candidate(const Tensor& tensor) {
+  std::lock_guard<std::mutex> lock(decomposed_attention_candidate_mutex());
+  auto& candidates = decomposed_attention_candidates();
+  const auto it = candidates.find(decomposed_attention_key(tensor));
+  if (it == candidates.end()) {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
+std::optional<DecomposedAttentionCandidate>
+take_decomposed_attention_candidate(const Tensor& tensor) {
+  std::lock_guard<std::mutex> lock(decomposed_attention_candidate_mutex());
+  auto& candidates = decomposed_attention_candidates();
+  const auto it = candidates.find(decomposed_attention_key(tensor));
+  if (it == candidates.end()) {
+    return std::nullopt;
+  }
+  DecomposedAttentionCandidate candidate = it->second;
+  candidates.erase(it);
+  return candidate;
+}
+
+void register_decomposed_attention_candidate(
+    const Tensor& tensor,
+    DecomposedAttentionCandidate candidate) {
+  std::lock_guard<std::mutex> lock(decomposed_attention_candidate_mutex());
+  auto& candidates = decomposed_attention_candidates();
+  if (candidates.size() >= kMaxDecomposedAttentionCandidates) {
+    utils::log_vulkan_op_hit("aten::decomposed_attention_bridge.registry_clear");
+    candidates.clear();
+  }
+  candidates[decomposed_attention_key(tensor)] = std::move(candidate);
+}
+
+std::optional<DeferredAttentionQueryScaleCandidate>
+lookup_deferred_attention_query_scale_candidate(const Tensor& tensor) {
+  DeferredAttentionQueryScaleCandidate candidate;
+  {
+    std::lock_guard<std::mutex> lock(
+        deferred_attention_query_scale_candidate_mutex());
+    auto& candidates = deferred_attention_query_scale_candidates();
+    const auto it = candidates.find(deferred_attention_query_scale_key(tensor));
+    if (it == candidates.end()) {
+      return std::nullopt;
+    }
+    candidate = it->second;
+    if (!can_retarget_deferred_attention_query_scale_candidate(
+            tensor, candidate)) {
+      utils::log_vulkan_op_hit(
+          "aten::attention_query_scale_bridge.stale_candidate");
+      candidates.erase(it);
+      return std::nullopt;
+    }
+  }
+  return retarget_deferred_attention_query_scale(tensor, std::move(candidate));
+}
+
+std::optional<DeferredAttentionQueryScaleCandidate>
+take_deferred_attention_query_scale_candidate(const Tensor& tensor) {
+  DeferredAttentionQueryScaleCandidate candidate;
+  {
+    std::lock_guard<std::mutex> lock(
+        deferred_attention_query_scale_candidate_mutex());
+    auto& candidates = deferred_attention_query_scale_candidates();
+    const auto it = candidates.find(deferred_attention_query_scale_key(tensor));
+    if (it == candidates.end()) {
+      return std::nullopt;
+    }
+    candidate = it->second;
+    if (!can_retarget_deferred_attention_query_scale_candidate(
+            tensor, candidate)) {
+      utils::log_vulkan_op_hit(
+          "aten::attention_query_scale_bridge.stale_candidate");
+      candidates.erase(it);
+      return std::nullopt;
+    }
+    candidates.erase(it);
+  }
+  return retarget_deferred_attention_query_scale(tensor, std::move(candidate));
+}
+
+void register_deferred_attention_query_scale_candidate(
+    const Tensor& tensor,
+    DeferredAttentionQueryScaleCandidate candidate) {
+  std::lock_guard<std::mutex> lock(
+      deferred_attention_query_scale_candidate_mutex());
+  auto& candidates = deferred_attention_query_scale_candidates();
+  if (candidates.size() >= kMaxDeferredAttentionQueryScaleCandidates) {
+    utils::log_vulkan_op_hit(
+        "aten::attention_query_scale_bridge.registry_clear");
+    candidates.clear();
+  }
+  candidates[deferred_attention_query_scale_key(tensor)] = std::move(candidate);
+}
+
+class DeferredAttentionQueryScaleMaterializeGuard final {
+ public:
+  DeferredAttentionQueryScaleMaterializeGuard() {
+    previous_ = g_materializing_deferred_attention_query_scale;
+    g_materializing_deferred_attention_query_scale = true;
+  }
+
+  ~DeferredAttentionQueryScaleMaterializeGuard() {
+    g_materializing_deferred_attention_query_scale = previous_;
+  }
+
+ private:
+  bool previous_{false};
+};
+
+Tensor materialize_deferred_attention_query_scale_candidate_impl(
+    const Tensor& tensor) {
+  if (!tensor.is_vulkan()) {
+    return tensor;
+  }
+  auto candidate = take_deferred_attention_query_scale_candidate(tensor);
+  if (!candidate.has_value()) {
+    return tensor;
+  }
+
+  utils::log_vulkan_op_hit("aten::attention_query_scale_bridge.materialize");
+  DeferredAttentionQueryScaleMaterializeGuard guard;
+  return at::mul(candidate->query, candidate->scale);
+}
+
+Tensor scaled_decomposed_attention_query(
+    const DecomposedAttentionCandidate& candidate) {
+  if (candidate.query_scale == 1.0f) {
+    return candidate.query;
+  }
+  DeferredAttentionQueryScaleMaterializeGuard guard;
+  return at::mul(candidate.query, candidate.query_scale);
+}
+
+Tensor materialize_decomposed_attention_candidate(
+    const Tensor& tensor,
+    DecomposedAttentionCandidate candidate) {
+  if (candidate.stage == DecomposedAttentionStage::Scores) {
+    utils::log_vulkan_op_hit(
+        "aten::decomposed_attention_bridge.materialize_scores");
+    Tensor output = tensor;
+    return bmm_buffer_out_vulkan(
+        scaled_decomposed_attention_query(candidate),
+        candidate.key_t,
+        output);
+  }
+
+  utils::log_vulkan_op_hit(
+      "aten::decomposed_attention_bridge.materialize_probs");
+  const std::vector<int64_t> scores_sizes{
+      candidate.query.size(0),
+      candidate.query.size(1),
+      candidate.key.size(1),
+  };
+  Tensor scores = utils::create_buffer_tensor(
+      scores_sizes,
+      kFloat,
+      /*persistent=*/false);
+  Tensor probs = tensor;
+  bmm_buffer_out_vulkan(
+      scaled_decomposed_attention_query(candidate),
+      candidate.key_t,
+      scores);
+  return softmax_buffer_lastdim_out_vulkan(scores, probs);
+}
+
+std::optional<Tensor> make_decomposed_attention_merge_friendly_output(
+    const Tensor& query,
+    const Tensor& value) {
+  if (
+      query.dim() != 3 ||
+      value.dim() != 3 ||
+      query.size(0) != 6 ||
+      query.size(1) < 512 ||
+      value.size(2) != 64) {
+    return std::nullopt;
+  }
+
+  api::Context* const context = api::context();
+  const int64_t batch_heads = query.size(0);
+  const int64_t token_count = query.size(1);
+  const int64_t value_dim = value.size(2);
+  Tensor physical = utils::mark_tensor_execution(
+      convert(vTensor{
+          context,
+          {token_count, batch_heads, value_dim},
+          api::kFloat,
+          api::StorageType::BUFFER,
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+      }),
+      api::ExecutionLayout::BUFFER_DIRECT);
+  const std::vector<int64_t> logical_sizes{
+      batch_heads,
+      token_count,
+      value_dim,
+  };
+  const std::vector<int64_t> logical_strides{
+      value_dim,
+      batch_heads * value_dim,
+      1,
+  };
+  Tensor output = utils::make_buffer_metadata_view(
+      physical,
+      logical_sizes,
+      logical_strides,
+      logical_strides,
+      0);
+  utils::log_vulkan_op_hit(
+      "aten::decomposed_attention_bridge.merge_friendly_output");
+  return output;
+}
 
 bool can_use_runtime_program_buffer_fused_fast_path(
     const vTensor& v_query,
@@ -93,6 +497,14 @@ Tensor scaled_dot_product_attention_tiled_3d_buffer_out_vulkan(
     const Tensor& value_arg,
     Tensor& output_arg);
 
+bool can_use_head64_subgroup_variant(const uint32_t subgroup_size) {
+  api::Context* const context = api::context();
+  api::Adapter* const adapter = context ? context->adapter_ptr() : nullptr;
+  return adapter && adapter->has_compute_full_subgroups() &&
+      adapter->supports_required_subgroup_size(
+          VK_SHADER_STAGE_COMPUTE_BIT, subgroup_size);
+}
+
 RuntimeProgramBufferFusedKernelVariant select_runtime_program_buffer_fused_variant(
     const Tensor& query,
     const Tensor& key,
@@ -106,12 +518,25 @@ RuntimeProgramBufferFusedKernelVariant select_runtime_program_buffer_fused_varia
   const bool long_sequence_head64 =
       is_long_sequence && query.size(2) == 64 && key.size(2) == 64 &&
       value.size(2) == 64;
+  const bool exact_head64 =
+      query.size(2) == 64 && key.size(2) == 64 && value.size(2) == 64;
   const bool long_sequence_head_dim64_or_larger =
       is_long_sequence &&
       std::max(query.size(2), key.size(2)) >=
           kRuntimeProgramSdpaWideLongSequenceMinHeadDim;
+  const bool head64_subgroup64_supported =
+      exact_head64 && can_use_head64_subgroup_variant(64u);
+  if (head64_subgroup64_supported) {
+    return RuntimeProgramBufferFusedKernelVariant::Head64Subgroup64;
+  }
+  if (exact_head64 && can_use_head64_subgroup_variant(32u)) {
+    return RuntimeProgramBufferFusedKernelVariant::Head64Subgroup32;
+  }
   if (long_sequence_head64) {
     return RuntimeProgramBufferFusedKernelVariant::Head64Query4;
+  }
+  if (exact_head64) {
+    return RuntimeProgramBufferFusedKernelVariant::Head64;
   }
   return requires_wide_head_dim || long_sequence_head_dim64_or_larger
       ? RuntimeProgramBufferFusedKernelVariant::Wide32
@@ -129,6 +554,10 @@ const char* runtime_program_buffer_fused_variant_log_name(
       return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64";
     case RuntimeProgramBufferFusedKernelVariant::Head64Query4:
       return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_q4";
+    case RuntimeProgramBufferFusedKernelVariant::Head64Subgroup64:
+      return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_subgroup64";
+    case RuntimeProgramBufferFusedKernelVariant::Head64Subgroup32:
+      return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_subgroup32";
   }
   return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_unknown";
 }
@@ -137,7 +566,8 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
     const Tensor& query_arg,
     const Tensor& key_arg,
     const Tensor& value_arg,
-    Tensor& output_arg);
+    Tensor& output_arg,
+    float query_scale = 1.0f);
 
 bool is_vision_backbone_attention_policy(
     const utils::VulkanRuntimePolicy& runtime_policy) {
@@ -459,7 +889,8 @@ Tensor run_attention_runtime_buffer_math_program_impl(
     const Tensor& key_arg,
     const Tensor& value_arg,
     utils::AttentionRuntimeProgram* const runtime_program,
-    Tensor* const output_override = nullptr) {
+    Tensor* const output_override = nullptr,
+    const float query_scale = 1.0f) {
   Tensor query = ensure_attention_runtime_direct_buffer(query_arg);
   Tensor key = ensure_attention_runtime_direct_buffer(key_arg);
   Tensor value = ensure_attention_runtime_direct_buffer(value_arg);
@@ -504,7 +935,7 @@ Tensor run_attention_runtime_buffer_math_program_impl(
     utils::log_vulkan_op_hit(
         runtime_program_buffer_fused_variant_log_name(variant));
     return scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
-        query, key, value, output);
+        query, key, value, output, query_scale);
   }
 
   Tensor scores_output;
@@ -533,8 +964,13 @@ Tensor run_attention_runtime_buffer_math_program_impl(
 
   utils::log_vulkan_op_hit(
       "aten::scaled_dot_product_attention.runtime_program_buffer_materialized");
+  Tensor query_for_scores = query;
+  if (query_scale != 1.0f) {
+    DeferredAttentionQueryScaleMaterializeGuard guard;
+    query_for_scores = at::mul(query, query_scale);
+  }
   Tensor key_t = ensure_attention_runtime_direct_buffer(key.transpose(1, 2));
-  Tensor scores = bmm_buffer_out_vulkan(query, key_t, scores_output);
+  Tensor scores = bmm_buffer_out_vulkan(query_for_scores, key_t, scores_output);
   Tensor probs = softmax_buffer_lastdim_out_vulkan(scores, probs_output);
   return bmm_buffer_out_vulkan(probs, value, output);
 }
@@ -807,16 +1243,22 @@ Tensor softmax_buffer_lastdim_impl(const Tensor& input, Tensor* output_opt) {
   api::AllocationScope allocation_scope("softmax.buffer_lastdim");
   utils::log_vulkan_op_hit("aten::_softmax.buffer_lastdim");
 
+  const auto plan = utils::build_vulkan_execution_plan(
+      input, utils::VulkanExecutionPlanKind::ReductionDimInput);
+  Tensor resolved_input =
+      utils::prepare_vulkan_direct_buffer_execution_tensor(input, plan);
+
   api::Context* const context = api::context();
-  vTensor& v_input = convert(input);
+  vTensor& v_input = convert(resolved_input);
   const uint32_t reduce_size =
-      safe_downcast<uint32_t>(std::max<int64_t>(input.size(input.dim() - 1), 1));
+      safe_downcast<uint32_t>(
+          std::max<int64_t>(resolved_input.size(resolved_input.dim() - 1), 1));
   const uint32_t row_count =
       safe_downcast<uint32_t>(v_input.numel() / reduce_size);
 
   Tensor output_tensor = output_opt
       ? ensure_softmax_buffer_output_tensor(
-            *output_opt, input.sizes(), convert_dtype(v_input.dtype()))
+            *output_opt, resolved_input.sizes(), convert_dtype(v_input.dtype()))
       : utils::mark_tensor_execution(
             convert(vTensor{
                 context,
@@ -1594,7 +2036,8 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
     const Tensor& query_arg,
     const Tensor& key_arg,
     const Tensor& value_arg,
-    Tensor& output_arg) {
+    Tensor& output_arg,
+    const float query_scale) {
   const RuntimeProgramBufferFusedKernelVariant variant =
       select_runtime_program_buffer_fused_variant(query_arg, key_arg, value_arg);
   if (variant ==
@@ -1640,9 +2083,15 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
 
   api::Context* const context = api::context();
   if (variant == RuntimeProgramBufferFusedKernelVariant::Head64 ||
-      variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4) {
+      variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4 ||
+      variant == RuntimeProgramBufferFusedKernelVariant::Head64Subgroup64 ||
+      variant == RuntimeProgramBufferFusedKernelVariant::Head64Subgroup32) {
     const bool head64_query4_variant =
         variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4;
+    const bool head64_subgroup64_variant =
+        variant == RuntimeProgramBufferFusedKernelVariant::Head64Subgroup64;
+    const bool head64_subgroup32_variant =
+        variant == RuntimeProgramBufferFusedKernelVariant::Head64Subgroup32;
     TORCH_CHECK(
         query_arg.size(2) == 64 && key_arg.size(2) == 64 &&
             value_arg.size(2) == 64,
@@ -1650,6 +2099,7 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
     const struct Block final {
       ivec4 sizes;
       ivec4 tiled_info;
+      vec4 params;
     } block{
         {
             safe_downcast<int32_t>(query_arg.size(0)),
@@ -1665,6 +2115,7 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
                 ? kRuntimeProgramSdpaHead64QueryRowsPerWorkgroup
                 : kRuntimeProgramSdpaHead64MaxQueryValuesPerThread,
         },
+        {query_scale, 0.0f, 0.0f, 0.0f},
     };
 
     api::UniformParamsBuffer params(context, block);
@@ -1677,6 +2128,44 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
     api::UniformParamsBuffer value_meta =
         utils::make_buffer_compute_metadata_ubo(context, v_value);
     api::PipelineBarrier pipeline_barrier{};
+
+    if (head64_subgroup64_variant || head64_subgroup32_variant) {
+      api::ShaderInfo shader =
+          head64_subgroup64_variant
+          ? VK_KERNEL(scaled_dot_product_scores_value_buffer_float_head64_subgroup64)
+          : VK_KERNEL(scaled_dot_product_scores_value_buffer_float_head64_subgroup32);
+      shader.required_subgroup_size = head64_subgroup64_variant ? 64u : 32u;
+      shader.require_full_subgroups = true;
+      context->submit_compute_job(
+          shader,
+          pipeline_barrier,
+          {
+              static_cast<uint32_t>(kRuntimeProgramSdpaHead64LocalSizeX),
+              safe_downcast<uint32_t>(query_arg.size(1)),
+              safe_downcast<uint32_t>(query_arg.size(0)),
+          },
+          {
+              static_cast<uint32_t>(kRuntimeProgramSdpaHead64LocalSizeX),
+              1u,
+              1u,
+          },
+          VK_NULL_HANDLE,
+          v_output.buffer(
+              pipeline_barrier,
+              api::PipelineStage::COMPUTE,
+              api::MemoryAccessType::WRITE),
+          out_meta.buffer(),
+          v_query.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+          query_meta.buffer(),
+          v_key.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+          key_meta.buffer(),
+          v_value.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+          value_meta.buffer(),
+          params.buffer());
+
+      return utils::mark_tensor_execution(
+          output_arg, api::ExecutionLayout::BUFFER_DIRECT);
+    }
 
     if (variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4) {
       context->submit_compute_job(
@@ -2533,13 +3022,21 @@ Tensor softmax_internal(
       " out of range for Tensor input with dimensions ",
       input_arg.dim());
 
-  if (!half_to_float && can_run_buffer_softmax(input_arg, dim)) {
-    return softmax_buffer(input_arg, dim);
+  if (auto propagated =
+          try_propagate_decomposed_attention_softmax(input_arg, dim)) {
+    return *propagated;
+  }
+  const Tensor input_for_compute =
+      materialize_deferred_linear_gelu_candidate_if_needed(
+          materialize_decomposed_attention_candidate_if_needed(input_arg));
+
+  if (!half_to_float && can_run_buffer_softmax(input_for_compute, dim)) {
+    return softmax_buffer(input_for_compute, dim);
   }
   api::Context* const context = api::context();
 
   Tensor input = utils::prepare_vulkan_execution_tensor(
-      input_arg,
+      input_for_compute,
       utils::VulkanExecutionPlanKind::TextureComputeInput,
       utils::make_vulkan_execution_request(
           utils::VulkanExecutionPlanKind::TextureComputeInput));
@@ -2581,7 +3078,7 @@ Tensor softmax_internal(
   };
   api::ShaderInfo shader_descriptor;
   set_softmax_kernel_params(
-      input_arg.dim(),
+      input_for_compute.dim(),
       dim,
       v_input.sizes(),
       shader_descriptor,
@@ -2667,6 +3164,189 @@ Tensor softmax_buffer_lastdim_out_vulkan(
       can_run_buffer_softmax(input, input.dim() - 1),
       "Vulkan softmax_buffer_lastdim_out expects float buffer-backed tensors");
   return softmax_buffer_lastdim_impl(input, &output);
+}
+
+std::optional<Tensor> try_start_decomposed_attention_scores(
+    const Tensor& query_arg,
+    const Tensor& key_t_arg) {
+  Tensor query_source = query_arg;
+  float query_scale = 1.0f;
+  const auto scaled_query =
+      lookup_deferred_attention_query_scale_candidate(query_arg);
+  if (scaled_query.has_value()) {
+    query_source = scaled_query->query;
+    query_scale = scaled_query->scale;
+  }
+
+  if (!can_start_decomposed_attention_candidate(query_source, key_t_arg)) {
+    return std::nullopt;
+  }
+
+  if (scaled_query.has_value()) {
+    utils::log_vulkan_op_hit(
+        "aten::decomposed_attention_bridge.consume_query_scale");
+  }
+
+  Tensor query = detached_attention_tensor(query_source);
+  Tensor key_t = detached_attention_tensor(key_t_arg);
+  Tensor key = key_t.transpose(1, 2);
+  const std::vector<int64_t> scores_sizes{
+      query.size(0),
+      query.size(1),
+      key.size(1),
+  };
+  Tensor scores = utils::create_buffer_tensor(
+      scores_sizes, kFloat, /*persistent=*/false);
+  register_decomposed_attention_candidate(
+      scores,
+      DecomposedAttentionCandidate{
+          std::move(query),
+          std::move(key),
+          std::move(key_t),
+          DecomposedAttentionStage::Scores,
+          query_scale,
+      });
+  utils::log_vulkan_op_hit("aten::decomposed_attention_bridge.scores");
+  return scores;
+}
+
+std::optional<Tensor> try_propagate_decomposed_attention_softmax(
+    const Tensor& input,
+    const int64_t dim) {
+  const auto candidate = lookup_decomposed_attention_candidate(input);
+  if (
+      !candidate.has_value() ||
+      candidate->stage != DecomposedAttentionStage::Scores ||
+      dim != input.dim() - 1) {
+    return std::nullopt;
+  }
+
+  auto taken = take_decomposed_attention_candidate(input);
+  if (!taken.has_value()) {
+    return std::nullopt;
+  }
+  taken->stage = DecomposedAttentionStage::Probs;
+  Tensor probs = utils::create_buffer_tensor(
+      input.sizes(), input.scalar_type(), /*persistent=*/false);
+  register_decomposed_attention_candidate(probs, std::move(*taken));
+  utils::log_vulkan_op_hit("aten::decomposed_attention_bridge.softmax");
+  return probs;
+}
+
+std::optional<Tensor> try_consume_decomposed_attention_probs(
+    const Tensor& probs,
+    const Tensor& value_arg) {
+  const auto candidate = lookup_decomposed_attention_candidate(probs);
+  if (
+      !candidate.has_value() ||
+      !can_consume_decomposed_attention_candidate(*candidate, value_arg)) {
+    return std::nullopt;
+  }
+
+  auto taken = take_decomposed_attention_candidate(probs);
+  if (!taken.has_value()) {
+    return std::nullopt;
+  }
+  Tensor value = detached_attention_tensor(value_arg);
+  utils::log_vulkan_op_hit("aten::decomposed_attention_bridge.hit");
+  const auto attention_policy = utils::build_vulkan_attention_policy(
+      std::nullopt,
+      /*is_causal=*/false,
+      /*enable_gqa=*/false,
+      /*use_kv_cache=*/false,
+      /*cache_has_previous_state=*/false);
+  const auto input_policy = utils::build_vulkan_runtime_policy(
+      utils::make_vulkan_attention_request(
+          attention_policy,
+          taken->query,
+          taken->key,
+          value,
+          utils::VulkanTensorRole::Input));
+  auto runtime_program = lookup_attention_runtime_program_for_inputs(
+      input_policy,
+      attention_policy,
+      taken->query,
+      taken->key,
+      value);
+  std::optional<Tensor> output_override =
+      make_decomposed_attention_merge_friendly_output(taken->query, value);
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_attention_runtime_buffer_math_program_bridge");
+  return run_attention_runtime_buffer_math_program_impl(
+      taken->query,
+      taken->key,
+      value,
+      runtime_program.has_value() ? &(*runtime_program) : nullptr,
+      output_override.has_value() ? &(*output_override) : nullptr,
+      taken->query_scale);
+}
+
+Tensor materialize_decomposed_attention_candidate_if_needed(
+    const Tensor& tensor) {
+  if (!tensor.is_vulkan()) {
+    return tensor;
+  }
+  auto candidate = take_decomposed_attention_candidate(tensor);
+  if (!candidate.has_value()) {
+    return tensor;
+  }
+  return materialize_decomposed_attention_candidate(tensor, std::move(*candidate));
+}
+
+std::optional<Tensor> try_start_deferred_attention_query_scale(
+    const Tensor& query,
+    const Scalar& scale_arg) {
+  const float scale = scale_arg.to<float>();
+  if (!can_start_deferred_attention_query_scale_candidate(query, scale)) {
+    return std::nullopt;
+  }
+
+  Tensor output = utils::create_buffer_tensor(
+      query.sizes(), query.scalar_type(), /*persistent=*/false);
+  register_deferred_attention_query_scale_candidate(
+      output,
+      DeferredAttentionQueryScaleCandidate{
+          detached_attention_tensor(query),
+          scale,
+      });
+  utils::log_vulkan_op_hit("aten::attention_query_scale_bridge.defer");
+  return output;
+}
+
+Tensor materialize_deferred_attention_query_scale_candidate_if_needed(
+    const Tensor& tensor) {
+  return materialize_deferred_attention_query_scale_candidate_impl(tensor);
+}
+
+void move_decomposed_attention_candidate_to_alias(
+    const Tensor& source,
+    const Tensor& alias) {
+  if (!source.is_vulkan() || !alias.is_vulkan()) {
+    return;
+  }
+  auto candidate = take_decomposed_attention_candidate(source);
+  if (!candidate.has_value()) {
+    return;
+  }
+  register_decomposed_attention_candidate(alias, std::move(*candidate));
+  utils::log_vulkan_op_hit("aten::decomposed_attention_bridge.alias");
+}
+
+void move_deferred_attention_query_scale_candidate_to_alias(
+    const Tensor& source,
+    const Tensor& alias) {
+  if (!source.is_vulkan() || !alias.is_vulkan()) {
+    return;
+  }
+  auto candidate = lookup_deferred_attention_query_scale_candidate(source);
+  if (!candidate.has_value()) {
+    return;
+  }
+  if (!candidate->query.sizes().equals(alias.sizes())) {
+    candidate->query = candidate->query.reshape(alias.sizes());
+  }
+  register_deferred_attention_query_scale_candidate(alias, std::move(*candidate));
+  utils::log_vulkan_op_hit("aten::attention_query_scale_bridge.alias");
 }
 
 Tensor scaled_dot_product_attention_vulkan(

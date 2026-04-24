@@ -1,4 +1,6 @@
 #version 450 core
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 
 #include "indexing.h"
 
@@ -58,7 +60,7 @@ uValueMeta;
 
 layout(set = 0, binding = 8) uniform restrict Block {
   ivec4 sizes;      // batch_heads, target_len, source_len, head_dim
-  ivec4 tiled_info; // value_dim, local_size_x, max_outputs_per_thread, max_query_values_per_thread
+  ivec4 tiled_info; // value_dim, local_size_x, max_outputs_per_thread, unused
   vec4 params;      // query_scale, unused, unused, unused
 }
 uBlock;
@@ -67,16 +69,13 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 const float NEG_INF = -3.402823466e+38;
 const float MIN_DENOM = 1.0e-20;
-const int LOCAL_SIZE_X = 64;
-
-shared float sScorePartials[LOCAL_SIZE_X];
 
 uint buffer_idx(const uvec4 coord, const uvec4 strides, const uint offset) {
   return coord_to_idx(coord, strides) + offset;
 }
 
 void main() {
-  const int lane = int(gl_LocalInvocationID.x);
+  const uint lane = gl_LocalInvocationID.x;
   const int query_row = int(gl_WorkGroupID.y);
   const int batch_group = int(gl_WorkGroupID.z);
 
@@ -93,71 +92,48 @@ void main() {
   const uint out_buf_length = uOutMeta.info.z;
   const uint out_storage_offset = uOutMeta.info.w;
 
-  const bool has_head_value = lane < uBlock.sizes.w;
-  const bool has_output_value = lane < uBlock.tiled_info.x;
-  float query_value = 0.0;
-  if (has_head_value) {
-    const uint query_idx = buffer_idx(
-        uvec4(uint(lane), uint(query_row), uint(batch_group), 0u),
-        uQueryMeta.physical_strides,
-        query_storage_offset);
-    query_value = query_idx < query_buf_length ? uQuery.data[query_idx] : 0.0;
-  }
+  const uint query_idx = buffer_idx(
+      uvec4(lane, uint(query_row), uint(batch_group), 0u),
+      uQueryMeta.physical_strides,
+      query_storage_offset);
+  const float query_value =
+      query_idx < query_buf_length ? uQuery.data[query_idx] : 0.0;
 
   float accumulator = 0.0;
   float row_max = NEG_INF;
   float row_denom = 0.0;
 
   for (int source_index = 0; source_index < uBlock.sizes.z; ++source_index) {
-    float partial_score = 0.0;
-    if (has_head_value) {
-      const uint key_idx = buffer_idx(
-          uvec4(uint(lane), uint(source_index), uint(batch_group), 0u),
-          uKeyMeta.physical_strides,
-          key_storage_offset);
-      partial_score = key_idx < key_buf_length
-          ? query_value * uKey.data[key_idx]
-          : 0.0;
-    }
+    const uint key_idx = buffer_idx(
+        uvec4(lane, uint(source_index), uint(batch_group), 0u),
+        uKeyMeta.physical_strides,
+        key_storage_offset);
+    const float key_value =
+        key_idx < key_buf_length ? uKey.data[key_idx] : 0.0;
+    const float score = subgroupAdd(query_value * key_value) * uBlock.params.x;
 
-    sScorePartials[lane] = partial_score;
-    barrier();
-
-    for (int offset = LOCAL_SIZE_X / 2; offset > 0; offset /= 2) {
-      if (lane < offset) {
-        sScorePartials[lane] += sScorePartials[lane + offset];
-      }
-      barrier();
-    }
-
-    const float score = sScorePartials[0] * uBlock.params.x;
     const float new_max = max(row_max, score);
     const float previous_scale = exp(row_max - new_max);
     const float current_scale = exp(score - new_max);
     row_denom = row_denom * previous_scale + current_scale;
     row_max = new_max;
 
-    if (has_output_value) {
-      const uint value_idx = buffer_idx(
-          uvec4(uint(lane), uint(source_index), uint(batch_group), 0u),
-          uValueMeta.physical_strides,
-          value_storage_offset);
-      if (value_idx < value_buf_length) {
-        accumulator =
-            accumulator * previous_scale + current_scale * uValue.data[value_idx];
-      }
+    const uint value_idx = buffer_idx(
+        uvec4(lane, uint(source_index), uint(batch_group), 0u),
+        uValueMeta.physical_strides,
+        value_storage_offset);
+    if (value_idx < value_buf_length) {
+      accumulator =
+          accumulator * previous_scale + current_scale * uValue.data[value_idx];
     }
-    barrier();
   }
 
-  if (has_output_value) {
-    const float inverse_denom = 1.0 / max(row_denom, MIN_DENOM);
-    const uint out_idx = buffer_idx(
-        uvec4(uint(lane), uint(query_row), uint(batch_group), 0u),
-        uOutMeta.physical_strides,
-        out_storage_offset);
-    if (out_idx < out_buf_length) {
-      uOutput.data[out_idx] = accumulator * inverse_denom;
-    }
+  const float inverse_denom = 1.0 / max(row_denom, MIN_DENOM);
+  const uint out_idx = buffer_idx(
+      uvec4(lane, uint(query_row), uint(batch_group), 0u),
+      uOutMeta.physical_strides,
+      out_storage_offset);
+  if (out_idx < out_buf_length) {
+    uOutput.data[out_idx] = accumulator * inverse_denom;
   }
 }

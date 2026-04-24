@@ -59,6 +59,7 @@ uValueMeta;
 layout(set = 0, binding = 8) uniform restrict Block {
   ivec4 sizes;      // batch_heads, target_len, source_len, head_dim
   ivec4 tiled_info; // value_dim, local_size_x, max_outputs_per_thread, query_rows_per_workgroup
+  vec4 params;      // query_scale, unused, unused, unused
 }
 uBlock;
 
@@ -160,7 +161,8 @@ void main() {
       if (!query_valid[row]) {
         continue;
       }
-      const float score = sScorePartials[row * LOCAL_SIZE_X];
+      const float score =
+          sScorePartials[row * LOCAL_SIZE_X] * uBlock.params.x;
       const float new_max = max(row_max[row], score);
       const float previous_scale = exp(row_max[row] - new_max);
       const float current_scale = exp(score - new_max);

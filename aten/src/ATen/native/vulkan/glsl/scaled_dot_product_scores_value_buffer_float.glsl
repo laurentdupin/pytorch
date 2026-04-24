@@ -154,7 +154,6 @@ void main() {
     const float curr_scale = exp(score - new_max);
     row_denom = row_denom * prev_scale + curr_scale;
     row_max = new_max;
-
     for (int i = 0; i < output_count; ++i) {
       const uint value_idx = buffer_idx(
           uvec4(

@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/Functions.h>
@@ -36,12 +37,14 @@ Tensor permute_buffer_view(const Tensor& self, IntArrayRef dims) {
     output_physical_strides[i] = v_self.gpu_strides()[dim];
   }
 
-  return utils::make_buffer_metadata_view(
+  Tensor output = utils::make_buffer_metadata_view(
       self,
       output_sizes,
       output_logical_strides,
       output_physical_strides,
       v_self.storage_offset());
+  move_deferred_image_normalize_candidate_to_alias(self, output);
+  return output;
 }
 
 Tensor permute_4d(

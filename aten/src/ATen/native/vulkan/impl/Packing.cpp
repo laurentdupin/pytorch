@@ -311,7 +311,7 @@ bool record_buffer_to_nchw_op(
   uint32_t buf_len = api::utils::safe_downcast<uint32_t>(v_src.numel());
 
   api::utils::uvec3 global_size = {buf_len, 1u, 1u};
-  api::utils::uvec3 local_size = {4u, 1u, 1u};
+  api::utils::uvec3 local_size = {32u, 1u, 1u};
 
   api::UniformParamsBuffer cpu_buffer_metadata(
       context, make_cpu_buffer_compute_metadata(v_src));

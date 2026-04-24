@@ -4,6 +4,7 @@
 #include <ATen/Functions.h>
 #else
 #include <ATen/ops/add.h>
+#include <ATen/ops/as_strided.h>
 #include <ATen/ops/div.h>
 #include <ATen/ops/floor_divide.h>
 #include <ATen/ops/mul.h>
@@ -14,10 +15,15 @@
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/Layernorm.h>
+#include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
+#include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <cmath>
+#include <mutex>
 #include <torch/library.h>
+#include <unordered_map>
 
 namespace at {
 namespace native {
@@ -36,6 +42,435 @@ enum class BinaryOpKind : uint8_t {
   FloorDivide,
   Pow,
 };
+
+struct DeferredImageNormalizeCandidate final {
+  Tensor input;
+  Tensor mean;
+  Tensor std;
+  std::vector<int64_t> output_sizes;
+  std::vector<int64_t> output_strides;
+  std::vector<int64_t> output_physical_strides;
+  int64_t storage_offset{0};
+  float scale{1.0f};
+  bool has_mean{false};
+  bool has_std{false};
+};
+
+constexpr size_t kMaxDeferredImageNormalizeCandidates = 64;
+thread_local bool g_materializing_deferred_image_normalize = false;
+
+const void* deferred_image_normalize_key(const Tensor& tensor) {
+  if (tensor.is_vulkan()) {
+    const vTensor& v_tensor = convert(tensor);
+    if (v_tensor.storage_type() == api::StorageType::BUFFER) {
+      return static_cast<const void*>(&v_tensor.buffer());
+    }
+  }
+  return static_cast<const void*>(tensor.unsafeGetTensorImpl());
+}
+
+std::mutex& deferred_image_normalize_candidate_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_map<const void*, DeferredImageNormalizeCandidate>&
+deferred_image_normalize_candidates() {
+  static std::unordered_map<const void*, DeferredImageNormalizeCandidate>
+      candidates;
+  return candidates;
+}
+
+std::optional<DeferredImageNormalizeCandidate>
+lookup_deferred_image_normalize_candidate(const Tensor& tensor) {
+  std::lock_guard<std::mutex> lock(
+      deferred_image_normalize_candidate_mutex());
+  auto& candidates = deferred_image_normalize_candidates();
+  const auto it = candidates.find(deferred_image_normalize_key(tensor));
+  if (it == candidates.end()) {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
+std::optional<DeferredImageNormalizeCandidate>
+take_deferred_image_normalize_candidate(const Tensor& tensor) {
+  std::lock_guard<std::mutex> lock(
+      deferred_image_normalize_candidate_mutex());
+  auto& candidates = deferred_image_normalize_candidates();
+  const auto it = candidates.find(deferred_image_normalize_key(tensor));
+  if (it == candidates.end()) {
+    return std::nullopt;
+  }
+  DeferredImageNormalizeCandidate candidate = it->second;
+  candidates.erase(it);
+  return candidate;
+}
+
+void register_deferred_image_normalize_candidate(
+    const Tensor& tensor,
+    DeferredImageNormalizeCandidate candidate) {
+  std::lock_guard<std::mutex> lock(
+      deferred_image_normalize_candidate_mutex());
+  auto& candidates = deferred_image_normalize_candidates();
+  if (candidates.size() >= kMaxDeferredImageNormalizeCandidates) {
+    utils::log_vulkan_op_hit("aten::image_normalize_bridge.registry_clear");
+    candidates.clear();
+  }
+  candidates[deferred_image_normalize_key(tensor)] = std::move(candidate);
+}
+
+class DeferredImageNormalizeMaterializeGuard final {
+ public:
+  DeferredImageNormalizeMaterializeGuard() {
+    previous_ = g_materializing_deferred_image_normalize;
+    g_materializing_deferred_image_normalize = true;
+  }
+
+  ~DeferredImageNormalizeMaterializeGuard() {
+    g_materializing_deferred_image_normalize = previous_;
+  }
+
+ private:
+  bool previous_{false};
+};
+
+bool is_deep_desktop_hwc_rgb_float_buffer(const Tensor& tensor) {
+  if (
+      g_materializing_deferred_image_normalize || !tensor.is_vulkan() ||
+      tensor.scalar_type() != kFloat || tensor.dim() != 3 ||
+      tensor.size(0) < 64 || tensor.size(1) < 64 || tensor.size(2) != 3) {
+    return false;
+  }
+  const vTensor& v_tensor = convert(tensor);
+  return v_tensor.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_elementwise_compute(v_tensor);
+}
+
+bool is_rgb_vector_tensor(const Tensor& tensor) {
+  if (!tensor.defined() || tensor.dim() != 1 || tensor.size(0) != 3) {
+    return false;
+  }
+  if (tensor.is_vulkan()) {
+    const vTensor& v_tensor = convert(tensor);
+    return tensor.scalar_type() == kFloat &&
+        v_tensor.storage_type() == api::StorageType::BUFFER &&
+        utils::supports_buffer_elementwise_compute(v_tensor);
+  }
+  return tensor.scalar_type() == kFloat;
+}
+
+Tensor make_deferred_image_normalize_placeholder(
+    IntArrayRef sizes,
+    const ScalarType dtype) {
+  api::Context* const context = api::context();
+  return utils::mark_tensor_execution(
+      convert(vTensor{
+          context,
+          sizes.vec(),
+          convert_dtype(dtype),
+          api::StorageType::BUFFER,
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+      }),
+      api::ExecutionLayout::BUFFER_DIRECT);
+}
+
+std::vector<int64_t> current_logical_strides(const Tensor& tensor) {
+  if (!tensor.is_vulkan()) {
+    return tensor.strides().vec();
+  }
+  const c10::DimVector strides = logical_strides(convert(tensor));
+  return std::vector<int64_t>(strides.begin(), strides.end());
+}
+
+std::vector<int64_t> current_physical_strides(const Tensor& tensor) {
+  if (!tensor.is_vulkan()) {
+    return tensor.strides().vec();
+  }
+  const std::vector<int64_t>& strides = convert(tensor).gpu_strides();
+  return std::vector<int64_t>(strides.begin(), strides.end());
+}
+
+void update_deferred_image_normalize_view(
+    DeferredImageNormalizeCandidate& candidate,
+    const Tensor& tensor) {
+  candidate.output_sizes = tensor.sizes().vec();
+  candidate.output_strides = current_logical_strides(tensor);
+  candidate.output_physical_strides = current_physical_strides(tensor);
+  candidate.storage_offset =
+      tensor.is_vulkan() ? convert(tensor).storage_offset() : 0;
+}
+
+Tensor apply_deferred_image_normalize_view_if_needed(
+    const Tensor& base,
+    const DeferredImageNormalizeCandidate& candidate) {
+  if (
+      base.sizes().vec() == candidate.output_sizes &&
+      current_logical_strides(base) == candidate.output_strides &&
+      current_physical_strides(base) == candidate.output_physical_strides &&
+      candidate.storage_offset == 0) {
+    return base;
+  }
+  if (base.is_vulkan()) {
+    return utils::make_buffer_metadata_view(
+        base,
+        candidate.output_sizes,
+        candidate.output_strides,
+        candidate.output_physical_strides,
+        candidate.storage_offset);
+  }
+  return at::as_strided(
+      base,
+      candidate.output_sizes,
+      candidate.output_strides,
+      candidate.storage_offset);
+}
+
+Tensor run_deferred_image_normalize_fused(
+    const DeferredImageNormalizeCandidate& candidate) {
+  TORCH_INTERNAL_ASSERT(candidate.has_mean && candidate.has_std);
+  api::Context* const context = api::context();
+
+  Tensor input = utils::prepare_vulkan_execution_tensor(
+      candidate.input, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  Tensor mean = candidate.mean.is_vulkan() ? candidate.mean : candidate.mean.vulkan();
+  mean = utils::prepare_vulkan_execution_tensor(
+      mean, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  Tensor std = candidate.std.is_vulkan() ? candidate.std : candidate.std.vulkan();
+  std = utils::prepare_vulkan_execution_tensor(
+      std, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+
+  const vTensor& v_input = convert(input);
+  const vTensor& v_mean = convert(mean);
+  const vTensor& v_std = convert(std);
+  vTensor v_output{
+      context,
+      candidate.input.sizes().vec(),
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const struct Block final {
+    vec4 params;
+  } block{{candidate.scale, 0.0f, 0.0f, 0.0f}};
+
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+  api::UniformParamsBuffer mean_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_mean);
+  api::UniformParamsBuffer std_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_std);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size{
+      safe_downcast<uint32_t>(v_output.numel()),
+      1u,
+      1u,
+  };
+
+  utils::log_vulkan_op_hit("aten::image_normalize_bridge.fused");
+  context->submit_compute_job(
+      VK_KERNEL(buffer_image_normalize_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      v_mean.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      mean_meta.buffer(),
+      v_std.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      std_meta.buffer(),
+      params.buffer());
+
+  return utils::mark_tensor_execution(
+      convert(v_output), api::ExecutionLayout::BUFFER_DIRECT);
+}
+
+Tensor materialize_deferred_image_normalize_candidate_impl(
+    const Tensor& tensor) {
+  auto candidate = take_deferred_image_normalize_candidate(tensor);
+  if (!candidate.has_value()) {
+    return tensor;
+  }
+
+  if (candidate->has_mean && candidate->has_std) {
+    Tensor normalized = run_deferred_image_normalize_fused(*candidate);
+    return apply_deferred_image_normalize_view_if_needed(
+        normalized, *candidate);
+  }
+
+  DeferredImageNormalizeMaterializeGuard guard;
+  utils::log_vulkan_op_hit("aten::image_normalize_bridge.materialize");
+  Tensor normalized = candidate->input.mul(candidate->scale);
+  if (candidate->has_mean) {
+    normalized = normalized.sub(candidate->mean);
+  }
+  if (candidate->has_std) {
+    normalized = normalized.div(candidate->std);
+  }
+  return apply_deferred_image_normalize_view_if_needed(normalized, *candidate);
+}
+
+std::optional<Tensor> try_start_deferred_image_normalize_scalar(
+    const Tensor& self_arg,
+    const Scalar& other,
+    const BinaryOpKind op_kind) {
+  if (
+      op_kind != BinaryOpKind::Div && op_kind != BinaryOpKind::Mul ||
+      !is_deep_desktop_hwc_rgb_float_buffer(self_arg)) {
+    return std::nullopt;
+  }
+
+  const float scale = other.to<float>();
+  if (scale <= 0.0f || scale > 1.0f) {
+    return std::nullopt;
+  }
+
+  Tensor placeholder =
+      make_deferred_image_normalize_placeholder(self_arg.sizes(), kFloat);
+  DeferredImageNormalizeCandidate candidate{
+      self_arg,
+      Tensor(),
+      Tensor(),
+      placeholder.sizes().vec(),
+      current_logical_strides(placeholder),
+      current_physical_strides(placeholder),
+      convert(placeholder).storage_offset(),
+      scale,
+      false,
+      false,
+  };
+  register_deferred_image_normalize_candidate(
+      placeholder, std::move(candidate));
+  utils::log_vulkan_op_hit("aten::image_normalize_bridge.defer_scale");
+  return placeholder;
+}
+
+std::optional<Tensor> try_start_deferred_image_normalize_tensor_scale(
+    const Tensor& self_arg,
+    const Tensor& other_arg,
+    const std::optional<Scalar>& alpha_arg,
+    const BinaryOpKind op_kind) {
+  if (
+      alpha_arg.has_value() ||
+      (op_kind != BinaryOpKind::Div && op_kind != BinaryOpKind::Mul) ||
+      !is_deep_desktop_hwc_rgb_float_buffer(self_arg) ||
+      other_arg.is_vulkan() || other_arg.dim() != 0 ||
+      !c10::isFloatingType(other_arg.scalar_type())) {
+    return std::nullopt;
+  }
+
+  const float other_value = other_arg.item<float>();
+  if (other_value <= 0.0f) {
+    return std::nullopt;
+  }
+  const float scale =
+      op_kind == BinaryOpKind::Div ? 1.0f / other_value : other_value;
+  if (scale <= 0.0f || scale > 1.0f) {
+    return std::nullopt;
+  }
+
+  Tensor placeholder =
+      make_deferred_image_normalize_placeholder(self_arg.sizes(), kFloat);
+  DeferredImageNormalizeCandidate candidate{
+      self_arg,
+      Tensor(),
+      Tensor(),
+      placeholder.sizes().vec(),
+      current_logical_strides(placeholder),
+      current_physical_strides(placeholder),
+      convert(placeholder).storage_offset(),
+      scale,
+      false,
+      false,
+  };
+  register_deferred_image_normalize_candidate(
+      placeholder, std::move(candidate));
+  utils::log_vulkan_op_hit("aten::image_normalize_bridge.defer_scale");
+  return placeholder;
+}
+
+std::optional<Tensor> try_start_deferred_attention_query_scale_tensor(
+    const Tensor& self_arg,
+    const Tensor& other_arg,
+    const std::optional<Scalar>& alpha_arg,
+    const BinaryOpKind op_kind) {
+  if (
+      alpha_arg.has_value() ||
+      op_kind != BinaryOpKind::Mul ||
+      other_arg.is_vulkan() ||
+      other_arg.dim() != 0 ||
+      !c10::isFloatingType(other_arg.scalar_type())) {
+    return std::nullopt;
+  }
+  return try_start_deferred_attention_query_scale(
+      self_arg, Scalar(other_arg.item<float>()));
+}
+
+std::optional<Tensor> try_update_deferred_image_normalize_tensor(
+    const Tensor& self_arg,
+    const Tensor& other_arg,
+    const std::optional<Scalar>& alpha_arg,
+    const BinaryOpKind op_kind) {
+  auto candidate = lookup_deferred_image_normalize_candidate(self_arg);
+  if (!candidate.has_value()) {
+    return std::nullopt;
+  }
+
+  if (alpha_arg.has_value() && alpha_arg->to<float>() != 1.0f) {
+    return std::nullopt;
+  }
+
+  Tensor other = other_arg.is_vulkan() ? other_arg : other_arg.vulkan();
+  if (!is_rgb_vector_tensor(other)) {
+    return std::nullopt;
+  }
+
+  if (op_kind == BinaryOpKind::Sub && !candidate->has_mean) {
+    auto taken = take_deferred_image_normalize_candidate(self_arg);
+    if (!taken.has_value()) {
+      return std::nullopt;
+    }
+    Tensor placeholder =
+        make_deferred_image_normalize_placeholder(self_arg.sizes(), kFloat);
+    taken->mean = other;
+    taken->has_mean = true;
+    update_deferred_image_normalize_view(*taken, placeholder);
+    register_deferred_image_normalize_candidate(
+        placeholder, std::move(*taken));
+    utils::log_vulkan_op_hit("aten::image_normalize_bridge.defer_mean");
+    return placeholder;
+  }
+
+  if (
+      op_kind == BinaryOpKind::Div && candidate->has_mean &&
+      !candidate->has_std) {
+    auto taken = take_deferred_image_normalize_candidate(self_arg);
+    if (!taken.has_value()) {
+      return std::nullopt;
+    }
+    Tensor placeholder =
+        make_deferred_image_normalize_placeholder(self_arg.sizes(), kFloat);
+    taken->std = other;
+    taken->has_std = true;
+    update_deferred_image_normalize_view(*taken, placeholder);
+    register_deferred_image_normalize_candidate(
+        placeholder, std::move(*taken));
+    utils::log_vulkan_op_hit("aten::image_normalize_bridge.defer_std");
+    return placeholder;
+  }
+
+  return std::nullopt;
+}
 
 const api::ShaderInfo& integral_buffer_scalar_shader(
     const api::ScalarType dtype,
@@ -891,30 +1326,56 @@ static Tensor binary_op_scalar(
   const BinaryOpKind op_kind) {
   api::AllocationScope allocation_scope("binary_op");
   api::Context* const context = api::context();
+  if (!alpha_arg.has_value()) {
+    if (auto deferred = try_start_deferred_image_normalize_scalar(
+            self_arg, other, op_kind)) {
+      return *deferred;
+    }
+    if (op_kind == BinaryOpKind::Mul) {
+      if (auto deferred =
+              try_start_deferred_attention_query_scale(self_arg, other)) {
+        return *deferred;
+      }
+    }
+  }
+  const Tensor self_materialized =
+      materialize_decomposed_attention_candidate_if_needed(self_arg);
+  const Tensor self_attention_query_scaled =
+      materialize_deferred_attention_query_scale_candidate_if_needed(
+          self_materialized);
+  const Tensor self_image_normalized =
+      materialize_deferred_image_normalize_candidate_if_needed(
+          self_attention_query_scaled);
+  const Tensor self_input =
+      materialize_deferred_layer_scale_candidate_if_needed(
+          materialize_deferred_add_layer_norm_candidate_if_needed(
+              materialize_deferred_linear_gelu_candidate_if_needed(
+                  self_image_normalized)));
 
-  if (self_arg.dim() > 4) {
-    return binary_op_scalar_cpu_fallback(self_arg, other, alpha_arg, op_kind);
+  if (self_input.dim() > 4) {
+    return binary_op_scalar_cpu_fallback(self_input, other, alpha_arg, op_kind);
   }
 
   if (should_run_buffer_binary_scalar_integral(
-          self_arg, other, alpha_arg, op_kind)) {
+          self_input, other, alpha_arg, op_kind)) {
     return binary_op_scalar_buffer_integral(
-        self_arg,
+        self_input,
         other,
         alpha_arg,
-        integral_buffer_scalar_shader(convert(self_arg).dtype(), op_kind));
+        integral_buffer_scalar_shader(convert(self_input).dtype(), op_kind));
   }
 
-  if (should_run_buffer_binary_scalar_bool(self_arg, other, alpha_arg, op_kind)) {
+  if (should_run_buffer_binary_scalar_bool(
+          self_input, other, alpha_arg, op_kind)) {
     return binary_op_scalar_buffer_bool(
-        self_arg, other, bool_buffer_scalar_shader(op_kind));
+        self_input, other, bool_buffer_scalar_shader(op_kind));
   }
 
-  if (needs_binary_cpu_fallback(self_arg)) {
-    return binary_op_scalar_cpu_fallback(self_arg, other, alpha_arg, op_kind);
+  if (needs_binary_cpu_fallback(self_input)) {
+    return binary_op_scalar_cpu_fallback(self_input, other, alpha_arg, op_kind);
   }
 
-  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor self = self_input.is_vulkan() ? self_input : self_input.vulkan();
   if (should_run_buffer_binary_scalar(self)) {
     return binary_op_scalar_buffer(
         self, other, alpha_arg, buffer_shader_descriptor);
@@ -1075,11 +1536,15 @@ static Tensor binary_op_tensor_buffer_impl(
     Tensor* output_arg) {
   api::AllocationScope allocation_scope("binary_op.buffer");
   utils::log_vulkan_op_hit("aten::binary_op.buffer_float");
-  utils::is_broadcastable(self_arg, other_arg);
+  const Tensor self_input =
+      materialize_deferred_layer_scale_candidate_if_needed(self_arg);
+  const Tensor other_input =
+      materialize_deferred_layer_scale_candidate_if_needed(other_arg);
+  utils::is_broadcastable(self_input, other_input);
   api::Context* const context = api::context();
 
-  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
-  Tensor other = other_arg.is_vulkan() ? other_arg : other_arg.vulkan();
+  Tensor self = self_input.is_vulkan() ? self_input : self_input.vulkan();
+  Tensor other = other_input.is_vulkan() ? other_input : other_input.vulkan();
   self = utils::prepare_vulkan_execution_tensor(
       self, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
   other = utils::prepare_vulkan_execution_tensor(
@@ -1089,7 +1554,7 @@ static Tensor binary_op_tensor_buffer_impl(
   vTensor& v_other = convert(other);
 
   const std::vector<int64_t> output_sizes =
-      utils::broadcast_size(self_arg, other_arg);
+      utils::broadcast_size(self_input, other_input);
   Tensor output_tensor;
   vTensor* v_output_ptr = nullptr;
   vTensor owned_output;
@@ -1185,46 +1650,105 @@ static Tensor binary_op_tensor(
     const api::ShaderInfo& buffer_shader_descriptor,
     const BinaryOpKind op_kind) {
   api::AllocationScope allocation_scope("binary_op");
+  if (auto deferred_scale = try_start_deferred_image_normalize_tensor_scale(
+          self_arg, other_arg, alpha_arg, op_kind)) {
+    return *deferred_scale;
+  }
+  if (auto deferred_scale = try_start_deferred_attention_query_scale_tensor(
+          self_arg, other_arg, alpha_arg, op_kind)) {
+    return *deferred_scale;
+  }
+  if (auto deferred_scale = try_start_deferred_attention_query_scale_tensor(
+          other_arg, self_arg, alpha_arg, op_kind)) {
+    return *deferred_scale;
+  }
+  if (auto deferred = try_update_deferred_image_normalize_tensor(
+          self_arg, other_arg, alpha_arg, op_kind)) {
+    return *deferred;
+  }
+  const Tensor self_attention_materialized =
+      materialize_decomposed_attention_candidate_if_needed(self_arg);
+  const Tensor other_attention_materialized =
+      materialize_decomposed_attention_candidate_if_needed(other_arg);
+  const Tensor self_attention_query_scaled =
+      materialize_deferred_attention_query_scale_candidate_if_needed(
+          self_attention_materialized);
+  const Tensor other_attention_query_scaled =
+      materialize_deferred_attention_query_scale_candidate_if_needed(
+          other_attention_materialized);
+  const Tensor self_image_normalized =
+      materialize_deferred_image_normalize_candidate_if_needed(
+          self_attention_query_scaled);
+  const Tensor other_image_normalized =
+      materialize_deferred_image_normalize_candidate_if_needed(
+          other_attention_query_scaled);
+  const Tensor self_input =
+      materialize_deferred_add_layer_norm_candidate_if_needed(
+          materialize_deferred_linear_gelu_candidate_if_needed(
+              self_image_normalized));
+  const Tensor other_input =
+      materialize_deferred_add_layer_norm_candidate_if_needed(
+          materialize_deferred_linear_gelu_candidate_if_needed(
+              other_image_normalized));
 
-  if (self_arg.dim() > 4 || other_arg.dim() > 4) {
-    return binary_op_tensor_cpu_fallback(self_arg, other_arg, alpha_arg, op_kind);
+  if (self_input.dim() > 4 || other_input.dim() > 4) {
+    return binary_op_tensor_cpu_fallback(
+        self_input, other_input, alpha_arg, op_kind);
   }
 
-  utils::is_broadcastable(self_arg, other_arg);
+  utils::is_broadcastable(self_input, other_input);
   api::Context* const context = api::context();
 
   Tensor self;
   Tensor other;
-  if (should_promote_binary_operands_to_float(self_arg, other_arg)) {
-    self = promote_binary_operand_to_vulkan_float(self_arg);
-    other = promote_binary_operand_to_vulkan_float(other_arg);
+  if (should_promote_binary_operands_to_float(self_input, other_input)) {
+    self = promote_binary_operand_to_vulkan_float(self_input);
+    other = promote_binary_operand_to_vulkan_float(other_input);
   } else {
-    self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+    self = self_input.is_vulkan() ? self_input : self_input.vulkan();
     if (should_run_buffer_binary_tensor_integral(
-            self, other_arg, alpha_arg, op_kind)) {
+            self, other_input, alpha_arg, op_kind)) {
       return binary_op_tensor_buffer_integral(
           self,
-          other_arg,
+          other_input,
           alpha_arg,
           integral_buffer_tensor_shader(convert(self).dtype(), op_kind));
     }
 
     if (should_run_buffer_binary_tensor_bool(
-            self, other_arg, alpha_arg, op_kind)) {
+            self, other_input, alpha_arg, op_kind)) {
       return binary_op_tensor_buffer_bool(
-          self, other_arg, alpha_arg, bool_buffer_tensor_shader(op_kind));
+          self, other_input, alpha_arg, bool_buffer_tensor_shader(op_kind));
     }
 
-    if (needs_binary_cpu_fallback(self_arg) ||
-        needs_binary_cpu_fallback(other_arg)) {
+    if (needs_binary_cpu_fallback(self_input) ||
+        needs_binary_cpu_fallback(other_input)) {
       return binary_op_tensor_cpu_fallback(
-          self_arg, other_arg, alpha_arg, op_kind);
+          self_input, other_input, alpha_arg, op_kind);
     }
 
-    other = binary_op_preprocess_other_arg(other_arg);
+    other = binary_op_preprocess_other_arg(other_input);
   }
 
   if (should_run_buffer_binary_tensor(self, other)) {
+    if (op_kind == BinaryOpKind::Mul && !alpha_arg.has_value()) {
+      if (auto deferred = try_start_deferred_layer_scale(self, other)) {
+        return *deferred;
+      }
+      if (auto deferred = try_start_deferred_layer_scale(other, self)) {
+        return *deferred;
+      }
+    }
+
+    const bool can_defer_add_layer_norm =
+        op_kind == BinaryOpKind::Add &&
+        (!alpha_arg.has_value() || alpha_arg->to<float>() == 1.0f) &&
+        self.sizes().equals(other.sizes());
+    if (can_defer_add_layer_norm) {
+      if (auto deferred = try_start_deferred_add_layer_norm(self, other)) {
+        return *deferred;
+      }
+    }
     return binary_op_tensor_buffer(
         self, other, alpha_arg, buffer_shader_descriptor);
   }
@@ -1238,7 +1762,7 @@ static Tensor binary_op_tensor(
 
   vTensor v_output{
       context,
-      utils::broadcast_size(self_arg, other_arg),
+      utils::broadcast_size(self_input, other_input),
       v_self.dtype(),
   };
 
@@ -2175,6 +2699,29 @@ static Tensor ne_scalar(const Tensor& self, const Scalar& other) {
       self, other, [](const Tensor& lhs, const Scalar& rhs) {
         return lhs.ne(rhs);
       });
+}
+
+Tensor materialize_deferred_image_normalize_candidate_if_needed(
+    const Tensor& tensor) {
+  if (!tensor.is_vulkan()) {
+    return tensor;
+  }
+  return materialize_deferred_image_normalize_candidate_impl(tensor);
+}
+
+void move_deferred_image_normalize_candidate_to_alias(
+    const Tensor& source,
+    const Tensor& alias) {
+  if (!source.is_vulkan() || !alias.is_vulkan()) {
+    return;
+  }
+  auto candidate = take_deferred_image_normalize_candidate(source);
+  if (!candidate.has_value()) {
+    return;
+  }
+  update_deferred_image_normalize_view(*candidate, alias);
+  register_deferred_image_normalize_candidate(alias, std::move(*candidate));
+  utils::log_vulkan_op_hit("aten::image_normalize_bridge.alias");
 }
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {

@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/api/Utils.h>
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
+#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/Copy.h>
@@ -1257,7 +1258,24 @@ bool can_run_exact_pointwise_nooverlap_conv_transpose2d(
 
   const auto& logical_weight_sizes =
       conv_context->packed_weight().logical_weight_sizes();
-  return logical_weight_sizes.size() == 4 &&
+  if (logical_weight_sizes.size() != 4) {
+    return false;
+  }
+
+  // The exact rearrange path rebuilds a synthetic pointwise weight on every
+  // invocation. Keep that route for smaller transposed convolutions, but hand
+  // larger decoder-style shapes to the prepacked nonoverlap shader instead.
+  const int64_t out_channels =
+      get_dim<DimTConv2DKernel::OutChannels>(logical_weight_sizes);
+  const int64_t kernel_h = get_dim<DimTConv2DKernel::Height>(logical_weight_sizes);
+  const int64_t kernel_w = get_dim<DimTConv2DKernel::Width>(logical_weight_sizes);
+  const int64_t expanded_pointwise_channels = out_channels * kernel_h * kernel_w;
+  constexpr int64_t kExactRearrangeMaxExpandedChannels = 256;
+  if (expanded_pointwise_channels > kExactRearrangeMaxExpandedChannels) {
+    return false;
+  }
+
+  return
       get_dim<DimTConv2DKernel::Height>(logical_weight_sizes) == stride[0] &&
       get_dim<DimTConv2DKernel::Width>(logical_weight_sizes) == stride[1];
 }
@@ -1435,7 +1453,9 @@ bool can_run_float_buffer_conv2d_add(
 }
 
 Tensor prepare_runtime_float_buffer_conv_input(const Tensor& input_arg) {
-  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  Tensor input = input_arg.is_vulkan()
+      ? materialize_deferred_image_normalize_candidate_if_needed(input_arg)
+      : input_arg.vulkan();
   if (input.scalar_type() == kHalf) {
     input = utils::cast_vulkan_tensor_dtype(input, kFloat);
   }

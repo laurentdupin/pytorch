@@ -21,7 +21,9 @@ void main() {
     const vec4 inval = imageLoad(uOutput, pos);
     const vec4 invalcube = inval * inval * inval;
     const vec4 inner = vec4(uBlock.kBeta) * (inval + vec4(0.044715) * invalcube);
-    const vec4 outval = vec4(0.5) * inval * (vec4(1.0) + tanh(inner));
+    const vec4 outval =
+        vec4(0.5) * inval *
+        (vec4(1.0) + tanh(clamp(inner, vec4(-15.0), vec4(15.0))));
     imageStore(uOutput, pos, outval);
   }
 }

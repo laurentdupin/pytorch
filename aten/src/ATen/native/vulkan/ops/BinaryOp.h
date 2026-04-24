@@ -30,6 +30,13 @@ std::optional<std::pair<Tensor, Tensor>> try_add_relu_buffer_out_vulkan(
     Tensor& add_output,
     Tensor& relu_output);
 
+Tensor materialize_deferred_image_normalize_candidate_if_needed(
+    const Tensor& tensor);
+
+void move_deferred_image_normalize_candidate_to_alias(
+    const Tensor& source,
+    const Tensor& alias);
+
 } // namespace ops
 } // namespace vulkan
 } // namespace native

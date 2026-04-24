@@ -421,6 +421,15 @@ class SPVGenerator:
                     self.create_shader_params(),
                 )
 
+    def getTargetEnv(self, source_glsl: str) -> str:
+        subgroup_shader_targets = {
+            "scaled_dot_product_scores_value_buffer_float_head64_subgroup32.glsl",
+            "scaled_dot_product_scores_value_buffer_float_head64_subgroup64.glsl",
+        }
+        if os.path.basename(source_glsl) in subgroup_shader_targets:
+            return "vulkan1.1"
+        return "vulkan1.0"
+
     def generateSPV(self, output_dir: str) -> dict[str, str]:
         output_file_map = {}
         for shader_name in self.output_shader_map:
@@ -446,7 +455,7 @@ class SPVGenerator:
                     glsl_out_path,
                     "-o",
                     spv_out_path,
-                    "--target-env=vulkan1.0",
+                    "--target-env=" + self.getTargetEnv(source_glsl),
                     "-Werror",
                 ] + [
                     arg

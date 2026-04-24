@@ -6,6 +6,7 @@
 
 #include <ATen/native/vulkan/ops/Clamp.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -740,22 +741,27 @@ Tensor gelu(const Tensor& self, std::string_view approximate) {
   TORCH_CHECK(
       approximate == "none" || approximate == "tanh",
       "Vulkan: gelu only supported for none or tanh type");
+  if (auto fused = try_consume_deferred_linear_gelu(self, approximate)) {
+    return *fused;
+  }
+  const Tensor gelu_input =
+      materialize_deferred_linear_gelu_candidate_if_needed(self);
   // The Vulkan backend only has the tanh GELU kernel today, so route the
   // default eager GELU call through the same implementation for inference.
-  if (self.is_vulkan() && self.scalar_type() == at::kFloat) {
-    const vTensor& v_self = convert(self);
+  if (gelu_input.is_vulkan() && gelu_input.scalar_type() == at::kFloat) {
+    const vTensor& v_self = convert(gelu_input);
     if (
         v_self.storage_type() == api::StorageType::BUFFER &&
         utils::supports_buffer_elementwise_compute(v_self)) {
       utils::log_vulkan_op_hit("aten::gelu.buffer_float");
-      return ops::activation_buffer(self, VK_KERNEL(buffer_gelu_tanh));
+      return ops::activation_buffer(gelu_input, VK_KERNEL(buffer_gelu_tanh));
     }
 
     const auto plan = utils::build_vulkan_execution_plan(
-        self, utils::VulkanExecutionPlanKind::ElementwiseInput);
+        gelu_input, utils::VulkanExecutionPlanKind::ElementwiseInput);
     if (api::uses_buffer_execution(plan.execution_layout)) {
       Tensor prepared =
-          utils::prepare_vulkan_direct_buffer_execution_tensor(self, plan);
+          utils::prepare_vulkan_direct_buffer_execution_tensor(gelu_input, plan);
       utils::log_vulkan_op_hit("aten::gelu.buffer_float");
       return ops::activation_buffer(prepared, VK_KERNEL(buffer_gelu_tanh));
     }
@@ -765,17 +771,17 @@ Tensor gelu(const Tensor& self, std::string_view approximate) {
   std::vector<Scalar> scalar;
   scalar.push_back(kBetaVec);
 
-  if (self.scalar_type() == at::kQUInt8) {
+  if (gelu_input.scalar_type() == at::kQUInt8) {
     return ops::activation_scalar(
-        self, scalar, VK_KERNEL(quantized_gelu_tanh_quint8));
+        gelu_input, scalar, VK_KERNEL(quantized_gelu_tanh_quint8));
   }
 
-  if (self.scalar_type() == at::kQInt8) {
+  if (gelu_input.scalar_type() == at::kQInt8) {
     return ops::activation_scalar(
-        self, scalar, VK_KERNEL(quantized_gelu_tanh_qint8));
+        gelu_input, scalar, VK_KERNEL(quantized_gelu_tanh_qint8));
   }
 
-  return ops::activation_scalar(self, scalar, VK_KERNEL(gelu_tanh));
+  return ops::activation_scalar(gelu_input, scalar, VK_KERNEL(gelu_tanh));
 }
 
 Tensor& gelu_(Tensor& self, std::string_view approximate) {

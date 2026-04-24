@@ -20,6 +20,7 @@
 #include <fstream>
 #include <mutex>
 #include <sstream>
+#include <c10/core/Storage.h>
 
 namespace at {
 namespace native {
@@ -54,12 +55,55 @@ void hash_combine_sizes(size_t& seed, const std::vector<int64_t>& sizes) {
 }
 
 using TensorWeakRef = c10::weak_intrusive_ptr<TensorImpl, UndefinedTensorImpl>;
+using StorageWeakRef = c10::weak_intrusive_ptr<c10::StorageImpl>;
 
 std::optional<TensorWeakRef> make_tensor_weak_ref(const Tensor& tensor) {
   if (!tensor.defined()) {
     return std::nullopt;
   }
   return TensorWeakRef(tensor.getIntrusivePtr());
+}
+
+const TensorBase& packed_weight_identity_tensor(const Tensor& tensor) {
+  if (tensor.defined() && tensor.is_view()) {
+    const TensorBase& base = tensor._base();
+    if (base.defined()) {
+      return base;
+    }
+  }
+  return tensor;
+}
+
+std::optional<TensorWeakRef> make_packed_weight_weak_ref(
+    const Tensor& tensor) {
+  if (!tensor.defined()) {
+    return std::nullopt;
+  }
+  return TensorWeakRef(packed_weight_identity_tensor(tensor).getIntrusivePtr());
+}
+
+bool packed_weight_ref_matches_tensor(
+    const std::optional<TensorWeakRef>& ref,
+    const Tensor& tensor) {
+  if (!ref.has_value() || !tensor.defined()) {
+    return false;
+  }
+  return !ref->expired() && ref->_unsafe_get_target() ==
+      packed_weight_identity_tensor(tensor).unsafeGetTensorImpl();
+}
+
+std::optional<StorageWeakRef> make_storage_weak_ref(const Tensor& tensor) {
+  if (!tensor.defined() || !tensor.unsafeGetTensorImpl()->has_storage()) {
+    return std::nullopt;
+  }
+  return tensor.storage().getWeakStorageImpl();
+}
+
+const void* tensor_storage_identity_ptr(const Tensor& tensor) {
+  if (!tensor.defined() || !tensor.unsafeGetTensorImpl()->has_storage()) {
+    return nullptr;
+  }
+  return static_cast<const void*>(tensor.storage().unsafeGetStorageImpl());
 }
 
 bool weak_ref_matches_tensor(
@@ -102,6 +146,10 @@ bool weak_tensor_ref_alive(const std::optional<TensorWeakRef>& ref) {
   return ref.has_value() && !ref->expired();
 }
 
+bool weak_storage_ref_alive(const std::optional<StorageWeakRef>& ref) {
+  return ref.has_value() && !ref->expired();
+}
+
 bool optional_weak_tensor_ref_alive(const std::optional<TensorWeakRef>& ref) {
   return !ref.has_value() || !ref->expired();
 }
@@ -139,6 +187,11 @@ Tensor create_execution_object_storage(
 struct PackedWeightResidencyEntry final {
   std::optional<TensorWeakRef> weight_ref;
   std::optional<TensorWeakRef> bias_ref;
+  std::optional<StorageWeakRef> weight_storage_ref;
+  const void* weight_storage_identity;
+  int64_t weight_storage_offset;
+  std::vector<int64_t> weight_strides;
+  c10::ScalarType weight_dtype;
   int64_t weight_version;
   int64_t bias_version;
   std::vector<int64_t> logical_weight_sizes;
@@ -253,25 +306,18 @@ void defer_retired_packed_weight_entries(
   retired_entries.clear();
 }
 
-void release_retired_packed_weight_entries_impl() {
-#ifdef _WIN32
-  // The Windows Vulkan runtime can fault when retired packed-weight Vulkan
-  // tensors are destroyed from the explicit synchronize op after a long-lived
-  // test/process sequence. Keep them quarantined with the process-lifetime
-  // caches; active cache accounting already removed them from lookup capacity.
-  return;
-#else
+bool release_retired_packed_weight_entries_impl() {
   std::deque<PackedWeightHandle> retired_handles;
   {
     std::lock_guard<std::mutex> lock(retired_packed_weight_mutex());
     retired_handles.swap(retired_packed_weight_handles());
   }
   if (retired_handles.empty()) {
-    return;
+    return false;
   }
   c10::InferenceMode inference_mode_guard(false);
   retired_handles.clear();
-#endif
+  return true;
 }
 
 class PackedWeightResidencyManager final {
@@ -287,10 +333,36 @@ class PackedWeightResidencyManager final {
   }
 
   static bool source_refs_alive(const PackedWeightResidencyEntry& entry) {
-    if (!weak_tensor_ref_alive(entry.weight_ref)) {
+    if (
+        !weak_tensor_ref_alive(entry.weight_ref) &&
+        !weak_storage_ref_alive(entry.weight_storage_ref)) {
       return false;
     }
     return optional_weak_tensor_ref_alive(entry.bias_ref);
+  }
+
+  static bool storage_view_matches_tensor(
+      const PackedWeightResidencyEntry& entry,
+      const Tensor& source_weight) {
+    if (
+        entry.weight_storage_identity == nullptr ||
+        tensor_storage_identity_ptr(source_weight) !=
+            entry.weight_storage_identity ||
+        entry.weight_storage_offset != source_weight.storage_offset() ||
+        entry.weight_dtype != source_weight.scalar_type() ||
+        entry.logical_weight_sizes.size() !=
+            static_cast<size_t>(source_weight.dim()) ||
+        entry.weight_strides.size() != static_cast<size_t>(source_weight.dim())) {
+      return false;
+    }
+    return std::equal(
+               entry.logical_weight_sizes.begin(),
+               entry.logical_weight_sizes.end(),
+               source_weight.sizes().begin()) &&
+        std::equal(
+               entry.weight_strides.begin(),
+               entry.weight_strides.end(),
+               source_weight.strides().begin());
   }
 
   static bool matches_entry(
@@ -303,7 +375,10 @@ class PackedWeightResidencyManager final {
       const PackedWeightKind kind,
       const bool quantized,
       const uint64_t options_key) {
-    return weak_ref_matches_tensor(entry.weight_ref, source_weight) &&
+    const bool weight_matches =
+        packed_weight_ref_matches_tensor(entry.weight_ref, source_weight) ||
+        storage_view_matches_tensor(entry, source_weight);
+    return weight_matches &&
         entry.weight_version == weight_version &&
         weak_ref_matches_optional_tensor(entry.bias_ref, normalized_bias) &&
         entry.bias_version == bias_version &&
@@ -480,9 +555,14 @@ class PackedWeightResidencyManager final {
     }
 
     PackedWeightResidencyEntry entry;
-    entry.weight_ref = make_tensor_weak_ref(source_weight);
+    entry.weight_ref = make_packed_weight_weak_ref(source_weight);
     entry.bias_ref = normalized_bias ? make_tensor_weak_ref(*normalized_bias)
                                      : std::nullopt;
+    entry.weight_storage_ref = make_storage_weak_ref(source_weight);
+    entry.weight_storage_identity = tensor_storage_identity_ptr(source_weight);
+    entry.weight_storage_offset = source_weight.storage_offset();
+    entry.weight_strides = source_weight.strides().vec();
+    entry.weight_dtype = source_weight.scalar_type();
     entry.weight_version = tensor_version_or_zero(source_weight);
     entry.bias_version =
         normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
@@ -842,17 +922,18 @@ void retire_linear_context_after_prune(
   retired_linear_contexts().emplace_back(std::move(context));
 }
 
-void release_retired_linear_contexts_impl() {
+bool release_retired_linear_contexts_impl() {
   std::deque<c10::intrusive_ptr<LinearPackedContext>> retired_contexts;
   {
     std::lock_guard<std::mutex> lock(retired_linear_context_mutex());
     retired_contexts.swap(retired_linear_contexts());
   }
   if (retired_contexts.empty()) {
-    return;
+    return false;
   }
   c10::InferenceMode inference_mode_guard(false);
   retired_contexts.clear();
+  return true;
 }
 
 void record_linear_cache_evictions(const size_t evictions) {
@@ -1035,12 +1116,12 @@ labeled_readback_buffer_cache() {
 
 } // namespace
 
-void release_retired_linear_contexts() {
-  release_retired_linear_contexts_impl();
+bool release_retired_linear_contexts() {
+  return release_retired_linear_contexts_impl();
 }
 
-void release_retired_packed_weight_entries() {
-  release_retired_packed_weight_entries_impl();
+bool release_retired_packed_weight_entries() {
+  return release_retired_packed_weight_entries_impl();
 }
 
 const char* execution_object_kind_name(const VulkanExecutionObjectKind kind) {
