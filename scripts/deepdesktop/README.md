@@ -23,6 +23,11 @@ DeepDesktop Vulkan wheels.
 - `build-vulkan-wheel.sh`
   Linux/macOS wheel build entrypoint with the same role as the PowerShell
   script.
+- `upload-vulkan-release.ps1`
+  Windows GitHub release uploader. Requires GitHub CLI authentication and
+  uploads the built `cp310`, `cp312`, and `cp314` wheels.
+- `upload-vulkan-release.cmd`
+  Thin Windows wrapper for `upload-vulkan-release.ps1`.
 - `windows/vs2022-cmake.cmd`
   Runs `cmake` inside a Visual Studio 2022 developer environment.
 - `windows/vs2022-python.cmd`
@@ -132,7 +137,9 @@ Useful flags:
 - `-BuildNumber N`
   Set `PYTORCH_BUILD_NUMBER`.
 - `-MaxJobs N`
-  Override compile parallelism.
+  Override compile parallelism. The default is capped at `4`. On Windows the
+  script also forces `cl.exe` to use `/MP1`, so this is the effective compile
+  cap instead of `N x /MP`.
 
 What the script sets for the build:
 
@@ -171,6 +178,7 @@ Useful flags match the Windows build script closely:
 - `--build-version VER`
 - `--build-number N`
 - `--max-jobs N`
+  Override compile parallelism. The default is capped at `4`.
 
 ## Windows Helper Scripts
 
@@ -188,6 +196,38 @@ for lower-level Windows work inside the fork:
 - `windows/resume-torch-python-build.ps1`
   Same goal as the `.cmd` version, but callable from PowerShell workflows.
 
+## GitHub Release Upload
+
+Install and authenticate GitHub CLI first:
+
+```powershell
+winget install --id GitHub.cli --exact
+gh auth login
+```
+
+Dry-run the release metadata and assets:
+
+```powershell
+.\scripts\deepdesktop\upload-vulkan-release.cmd -DryRun
+```
+
+Create the prerelease and upload the wheels:
+
+```powershell
+.\scripts\deepdesktop\upload-vulkan-release.cmd
+```
+
+Useful flags:
+
+- `-Repo OWNER/NAME`
+  Override the target repository. Defaults to `laurentdupin/pytorch`.
+- `-Tag TAG`
+  Override the tag. Defaults to `vulkan-backend-torch-<version>-git<sha>`.
+- `-Draft`
+  Create a draft release instead of publishing immediately.
+- `-Latest`
+  Mark this release as latest. By default it is not marked latest.
+
 ## Recommended Flow
 
 Windows:
@@ -195,6 +235,8 @@ Windows:
 1. Run `setup-vulkan-wheel-build.cmd`.
 2. Dry-run `build-vulkan-wheel.cmd` for each Python version.
 3. Run the real build for each version into separate output folders.
+4. Dry-run `upload-vulkan-release.cmd`.
+5. Run `upload-vulkan-release.cmd`.
 
 Linux/macOS:
 

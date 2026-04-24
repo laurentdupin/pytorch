@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+default_max_jobs="4"
 python_exe=""
 vulkan_sdk="${VULKAN_SDK:-}"
 out_dir="$repo_root/dist-vulkan"
@@ -30,7 +31,7 @@ Options:
   --vulkan-sdk PATH       Vulkan SDK root (must contain bin/glslc or a versioned child)
   --out-dir PATH          Wheel output directory (default: ./dist-vulkan)
   --venv-dir PATH         Build venv directory (default: ./.build-venvs/pyXY)
-  --max-jobs N            Compile parallelism (default: CPU count - 1)
+  --max-jobs N            Compile parallelism (default: min(CPU count - 1, 4))
   --clean                 Delete ./build and output directory before building
   --clean-venv            Recreate the build venv before installing dependencies
   --dry-run               Validate paths and show the planned build without building
@@ -313,11 +314,15 @@ if [[ -z "$max_jobs" ]]; then
   if command -v nproc >/dev/null 2>&1; then
     max_jobs="$(nproc)"
   else
-    max_jobs="4"
+    max_jobs="$default_max_jobs"
   fi
 
   if [[ "$max_jobs" -gt 1 ]]; then
     max_jobs="$((max_jobs - 1))"
+  fi
+
+  if [[ "$max_jobs" -gt "$default_max_jobs" ]]; then
+    max_jobs="$default_max_jobs"
   fi
 fi
 
@@ -331,6 +336,7 @@ export VULKAN_SDK="$resolved_vulkan_sdk"
 export PATH="$tools_dir:$resolved_vulkan_sdk/bin:$PATH"
 export CMAKE_GENERATOR="Ninja"
 export CMAKE_BUILD_TYPE="Release"
+export CMAKE_BUILD_PARALLEL_LEVEL="$max_jobs"
 export MAX_JOBS="$max_jobs"
 export USE_VULKAN="1"
 export USE_VULKAN_FP16_INFERENCE="$fp16"
@@ -366,6 +372,7 @@ fi
 echo "Vulkan SDK    : $resolved_vulkan_sdk"
 echo "Output dir    : $out_dir"
 echo "Max jobs      : $max_jobs"
+echo "CMake jobs    : $CMAKE_BUILD_PARALLEL_LEVEL"
 echo "FP16 shaders  : $fp16"
 echo "Relaxed prec. : $relaxed_precision"
 

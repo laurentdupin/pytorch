@@ -16,6 +16,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$DefaultMaxJobs = 4
 
 function Resolve-PythonPath {
     param(
@@ -470,12 +471,20 @@ if (-not (Test-Path -LiteralPath $glslcPath)) {
 }
 
 if ($MaxJobs -le 0) {
-    $MaxJobs = [Math]::Max([Environment]::ProcessorCount - 1, 1)
+    $autoMaxJobs = [Math]::Max([Environment]::ProcessorCount - 1, 1)
+    $MaxJobs = [Math]::Min($autoMaxJobs, $DefaultMaxJobs)
 }
 
 $outDirPath = Resolve-WorkPath -Requested $OutDir -RepoRoot $repoRoot
 if (-not $outDirPath) {
     throw "Unable to resolve an output directory."
+}
+
+$existingPostCl = $env:_CL_
+if ($existingPostCl) {
+    $postClFlags = "$existingPostCl /MP1"
+} else {
+    $postClFlags = "/MP1"
 }
 
 if ($Clean) {
@@ -510,7 +519,9 @@ $cmdLines = @(
     "set `"Path=$pathPrefix;%Path%`"",
     "set `"CMAKE_GENERATOR=$cmakeGenerator`"",
     "set `"CMAKE_BUILD_TYPE=Release`"",
+    "set `"CMAKE_BUILD_PARALLEL_LEVEL=$MaxJobs`"",
     "set `"MAX_JOBS=$MaxJobs`"",
+    "set `"_CL_=$postClFlags`"",
     "set `"USE_VULKAN=1`"",
     "set `"USE_VULKAN_FP16_INFERENCE=$fp16Flag`"",
     "set `"USE_VULKAN_RELAXED_PRECISION=$relaxedPrecisionFlag`"",
@@ -560,6 +571,8 @@ try {
     Write-Host "CMake refresh : $($cmakeRefresh.Reason)"
     Write-Host "Output dir    : $outDirPath"
     Write-Host "Max jobs      : $MaxJobs"
+    Write-Host "CMake jobs    : $MaxJobs"
+    Write-Host "CL postfix    : $postClFlags"
     Write-Host "FP16 shaders  : $fp16Flag"
     Write-Host "Relaxed prec. : $relaxedPrecisionFlag"
 
