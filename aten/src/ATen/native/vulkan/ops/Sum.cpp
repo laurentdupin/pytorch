@@ -710,12 +710,70 @@ Tensor all(const Tensor& self) {
   return at::all(self.cpu()).vulkan();
 }
 
+Tensor any(const Tensor& self) {
+  const Device output_device = vulkan_output_device(self);
+  Tensor cpu_result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
+    cpu_result = at::any(self_cpu);
+  }
+  return cpu_result.to(output_device);
+}
+
+Tensor any_dim(const Tensor& self, int64_t dim, bool keepdim) {
+  const Device output_device = vulkan_output_device(self);
+  Tensor cpu_result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
+    cpu_result = at::any(self_cpu, dim, keepdim);
+  }
+  return cpu_result.to(output_device);
+}
+
 Tensor& all_out(const Tensor& self, Tensor& out) {
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
   Tensor cpu_result = at::empty({0}, out.options().device(at::kCPU));
   at::all_out(cpu_result, self.cpu());
+
+  Tensor vulkan_result = at::empty(cpu_result.sizes(), out.options());
+  ops::copy_(vulkan_result, cpu_result);
+  return rebind_vulkan_output(out, vulkan_result);
+}
+
+Tensor& any_all_out(const Tensor& self, Tensor& out) {
+  Tensor cpu_result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    cpu_result = at::empty({0}, out.options().device(at::kCPU));
+    const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
+    at::any_out(cpu_result, self_cpu);
+  }
+
+  Tensor vulkan_result = at::empty(cpu_result.sizes(), out.options());
+  ops::copy_(vulkan_result, cpu_result);
+  return rebind_vulkan_output(out, vulkan_result);
+}
+
+Tensor& any_dim_out(
+    const Tensor& self,
+    int64_t dim,
+    bool keepdim,
+    Tensor& out) {
+  Tensor cpu_result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    cpu_result = at::empty({0}, out.options().device(at::kCPU));
+    const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
+    at::any_out(cpu_result, self_cpu, dim, keepdim);
+  }
 
   Tensor vulkan_result = at::empty(cpu_result.sizes(), out.options());
   ops::copy_(vulkan_result, cpu_result);
@@ -787,6 +845,10 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::amax"), TORCH_FN(amax_vulkan));
   m.impl(TORCH_SELECTIVE_NAME("aten::all"), TORCH_FN(all));
   m.impl(TORCH_SELECTIVE_NAME("aten::all.all_out"), TORCH_FN(all_out));
+  m.impl(TORCH_SELECTIVE_NAME("aten::any"), TORCH_FN(any));
+  m.impl(TORCH_SELECTIVE_NAME("aten::any.all_out"), TORCH_FN(any_all_out));
+  m.impl(TORCH_SELECTIVE_NAME("aten::any.dim"), TORCH_FN(any_dim));
+  m.impl(TORCH_SELECTIVE_NAME("aten::any.out"), TORCH_FN(any_dim_out));
   m.impl("max", TORCH_FN(max_all));
   m.impl("min", TORCH_FN(min_all));
   m.impl(TORCH_SELECTIVE_NAME("aten::argmax"), TORCH_FN(argmax));

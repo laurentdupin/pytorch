@@ -14,6 +14,7 @@
 #include <c10/util/irange.h>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <unordered_map>
 
 namespace at {
@@ -32,6 +33,54 @@ enum class LinearPostOp : uint8_t {
   None,
   Gelu,
 };
+
+std::string format_linear_sizes(IntArrayRef sizes) {
+  std::ostringstream stream;
+  stream << '[';
+  for (const auto i : c10::irange(sizes.size())) {
+    if (i > 0) {
+      stream << 'x';
+    }
+    stream << sizes[i];
+  }
+  stream << ']';
+  return stream.str();
+}
+
+void append_linear_tensor_summary(
+    std::ostringstream& stream,
+    const char* name,
+    const Tensor& tensor) {
+  stream << ' ' << name << "=" << format_linear_sizes(tensor.sizes())
+         << ' ' << name << "_vulkan=" << (tensor.is_vulkan() ? 1 : 0);
+  if (!tensor.is_vulkan()) {
+    return;
+  }
+  const vTensor& v_tensor = convert(tensor);
+  stream << ' ' << name << "_storage="
+         << static_cast<int>(v_tensor.storage_type())
+         << ' ' << name << "_layout="
+         << static_cast<int>(v_tensor.gpu_memory_layout())
+         << ' ' << name << "_exec="
+         << static_cast<int>(v_tensor.execution_layout())
+         << ' ' << name << "_direct="
+         << (v_tensor.has_direct_buffer_layout() ? 1 : 0)
+         << ' ' << name << "_offset=" << v_tensor.storage_offset()
+         << ' ' << name << "_bytes=" << tensor.nbytes();
+}
+
+void log_linear_context_checkpoint(
+    const char* checkpoint,
+    const Tensor& tensor,
+    const LinearPostOp post_op,
+    const bool quantized) {
+  std::ostringstream stream;
+  stream << "aten::linear." << checkpoint
+         << " post=" << (post_op == LinearPostOp::Gelu ? "gelu" : "none")
+         << " quantized=" << (quantized ? 1 : 0);
+  append_linear_tensor_summary(stream, "input", tensor);
+  utils::log_vulkan_op_hit(stream.str());
+}
 
 size_t linear_runtime_scratch_bytes(const Tensor& input) {
   return std::max<size_t>(
@@ -173,6 +222,44 @@ struct LinearPackedRunState final {
   const std::vector<int64_t>& logical_weight_sizes;
   bool bias_defined;
 };
+
+void log_float_buffer_linear_submit(
+    const char* kernel_name,
+    const Tensor& input_arg,
+    const Tensor& input_arg_2d,
+    const vTensor& v_input,
+    const vTensor& v_weight,
+    const vTensor& v_output,
+    const LinearPackedRunState& packed_state,
+    IntArrayRef output_sizes,
+    const utils::VulkanRuntimePolicy& runtime_policy,
+    const bool bias_defined,
+    const bool use_specialized_tiled_kernel,
+    const bool use_vec2_tiled_kernel,
+    const LinearPostOp post_op) {
+  std::ostringstream stream;
+  stream << "aten::linear.submit"
+         << " kernel=" << kernel_name
+         << " input=" << format_linear_sizes(input_arg.sizes())
+         << " input2d=" << format_linear_sizes(input_arg_2d.sizes())
+         << " output2d=" << format_linear_sizes(output_sizes)
+         << " weight=" << format_linear_sizes(packed_state.logical_weight_sizes)
+         << " bias=" << (bias_defined ? 1 : 0)
+         << " post=" << (post_op == LinearPostOp::Gelu ? "gelu" : "none")
+         << " tiled=" << (use_specialized_tiled_kernel ? 1 : 0)
+         << " vec2=" << (use_vec2_tiled_kernel ? 1 : 0)
+         << " input_direct=" << (v_input.has_direct_buffer_layout() ? 1 : 0)
+         << " weight_direct=" << (v_weight.has_direct_buffer_layout() ? 1 : 0)
+         << " output_direct=" << (v_output.has_direct_buffer_layout() ? 1 : 0)
+         << " input_offset=" << v_input.storage_offset()
+         << " weight_offset=" << v_weight.storage_offset()
+         << " output_offset=" << v_output.storage_offset()
+         << " domain="
+         << static_cast<int>(runtime_policy.request.model_domain)
+         << " phase="
+         << static_cast<int>(runtime_policy.request.execution_phase);
+  utils::log_vulkan_op_hit(stream.str());
+}
 
 struct DeferredLinearGeluCandidate final {
   Tensor input_arg;
@@ -396,13 +483,22 @@ Tensor reshape_linear_output_if_needed(
   }
   shape.emplace_back(output.size(-1));
   Tensor reshaped_output = utils::reshape_inference(output, shape);
-  if (c10::InferenceMode::is_enabled() && reshaped_output.is_vulkan()) {
+  const bool large_buffer_linear_view =
+      output.is_vulkan() && output.numel() >= (1 << 20);
+  if ((c10::InferenceMode::is_enabled() || large_buffer_linear_view) &&
+      reshaped_output.is_vulkan()) {
     const vTensor& v_reshaped_output = convert(reshaped_output);
     const bool needs_materialization =
         v_reshaped_output.storage_type() == api::StorageType::BUFFER &&
         !v_reshaped_output.has_direct_buffer_layout();
     if (needs_materialization) {
-      reshaped_output = reshaped_output.clone();
+      if (large_buffer_linear_view) {
+        utils::log_vulkan_op_hit("aten::linear.materialize_large_buffer_view");
+        reshaped_output = utils::ensure_buffer_storage(
+            reshaped_output, v_reshaped_output.gpu_memory_layout());
+      } else {
+        reshaped_output = reshaped_output.clone();
+      }
     }
   } else if (c10::InferenceMode::is_enabled()) {
     reshaped_output = reshaped_output.clone();
@@ -600,7 +696,11 @@ bool should_use_tiled_buffer_linear_kernel(
     return false;
   }
 
-  return input_width % 8 == 0 && output_width % 8 == 0;
+  // The generic tiled buffer-linear shader family corrupts diffusion-style
+  // transformer linears such as [384,1280] x [1280,1280] on multiple devices.
+  // Keep vision-labeled tiled linears enabled above, but route generic linears
+  // through the older Vulkan buffer kernel until the tiled family is repaired.
+  return false;
 }
 
 Tensor run_float_buffer_linear(
@@ -625,12 +725,31 @@ Tensor run_float_buffer_linear(
 
   Tensor input_tensor = input_arg_2d;
   Tensor weight_tensor = packed_weight_tensor;
-  vTensor& v_input = convert(input_tensor);
-  vTensor& v_weight = convert(weight_tensor);
   const std::vector<int64_t> output_sizes{
       input_arg_2d.sizes()[Layout::Parameter::height],
       packed_state.logical_weight_sizes[Layout::Parameter::width],
   };
+  const bool should_use_tiled_kernel =
+      should_use_tiled_buffer_linear_kernel(
+          runtime_policy, input_tensor, output_sizes);
+  const vTensor& v_input_view = convert(input_tensor);
+  const bool generic_buffer_linear =
+      runtime_policy.request.model_domain == utils::VulkanModelDomain::Generic;
+  if (
+      v_input_view.storage_type() == api::StorageType::BUFFER &&
+      !v_input_view.has_direct_buffer_layout() &&
+      (generic_buffer_linear || should_use_tiled_kernel)) {
+    utils::log_vulkan_op_hit(
+        generic_buffer_linear
+            ? "aten::linear.materialize_generic_input_view"
+            : "aten::linear.materialize_tiled_input_view");
+    input_tensor = utils::mark_tensor_execution(
+        utils::ensure_buffer_storage(
+            input_tensor, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
+        api::ExecutionLayout::BUFFER_DIRECT);
+  }
+  vTensor& v_input = convert(input_tensor);
+  vTensor& v_weight = convert(weight_tensor);
   Tensor output_tensor = output_opt
       ? ensure_linear_buffer_output_tensor(
             *output_opt, output_sizes, input_arg_2d.scalar_type())
@@ -664,7 +783,7 @@ Tensor run_float_buffer_linear(
   bool fuse_buffer_bias = false;
   const bool use_specialized_tiled_kernel =
       should_use_tiled_buffer_linear_kernel(
-          runtime_policy, input_arg_2d, output_sizes);
+          runtime_policy, input_tensor, output_sizes);
   const bool use_vec2_tiled_kernel =
       use_specialized_tiled_kernel &&
       output_sizes[Layout::Parameter::width] >= 384 &&
@@ -701,7 +820,7 @@ Tensor run_float_buffer_linear(
 
   if (fuse_buffer_bias_gelu || fuse_buffer_bias) {
     vTensor& v_bias = convert(fused_bias_tensor);
-    utils::log_vulkan_op_hit(
+    const char* kernel_hit_name =
         use_vec2_tiled_kernel
             ? (fuse_buffer_bias_gelu
                    ? "aten::linear.buffer_float_tiled_bias_vec2_gelu"
@@ -711,7 +830,22 @@ Tensor run_float_buffer_linear(
                    ? "aten::linear.buffer_float_tiled_bias_gelu"
                    : "aten::linear.buffer_float_tiled_bias")
             : (fuse_buffer_bias_gelu ? "aten::linear.buffer_float_bias_gelu"
-                                     : "aten::linear.buffer_float_bias"));
+                                      : "aten::linear.buffer_float_bias");
+    log_float_buffer_linear_submit(
+        kernel_hit_name,
+        input_arg,
+        input_arg_2d,
+        v_input,
+        v_weight,
+        v_output,
+        packed_state,
+        output_sizes,
+        runtime_policy,
+        true,
+        use_specialized_tiled_kernel,
+        use_vec2_tiled_kernel,
+        post_op);
+    utils::log_vulkan_op_hit(kernel_hit_name);
     context->submit_compute_job(
         use_vec2_tiled_kernel
             ? (fuse_buffer_bias_gelu
@@ -740,9 +874,24 @@ Tensor run_float_buffer_linear(
         v_bias.buffer_metadata(),
         params.buffer());
   } else {
-    utils::log_vulkan_op_hit(
+    const char* kernel_hit_name =
         use_specialized_tiled_kernel ? "aten::linear.buffer_float_tiled"
-                                     : "aten::linear.buffer_float");
+                                     : "aten::linear.buffer_float";
+    log_float_buffer_linear_submit(
+        kernel_hit_name,
+        input_arg,
+        input_arg_2d,
+        v_input,
+        v_weight,
+        v_output,
+        packed_state,
+        output_sizes,
+        runtime_policy,
+        false,
+        use_specialized_tiled_kernel,
+        use_vec2_tiled_kernel,
+        post_op);
+    utils::log_vulkan_op_hit(kernel_hit_name);
     context->submit_compute_job(
         use_specialized_tiled_kernel ? VK_KERNEL(mm_buffer_float_tiled)
                                      : VK_KERNEL(mm_buffer_float),
@@ -2052,8 +2201,15 @@ Tensor run_addmm_context(
   int64_t output_zero_point,
   const LinearPostOp post_op = LinearPostOp::None,
   Tensor* output_opt = nullptr) {
+  log_linear_context_checkpoint(
+      "entry", input_arg, post_op, quantized);
   const Tensor input_for_compute =
       materialize_deferred_add_layer_norm_candidate_if_needed(input_arg);
+  log_linear_context_checkpoint(
+      "after_deferred_materialize",
+      input_for_compute,
+      post_op,
+      quantized);
   const auto input_request =
       utils::make_vulkan_tensor_linear_request(
           input_for_compute, utils::VulkanTensorRole::Input);
@@ -2088,17 +2244,30 @@ Tensor run_addmm_context(
   const Tensor source_input_arg =
       input_for_compute.is_vulkan() ? input_for_compute
                                     : input_for_compute.vulkan();
+  log_linear_context_checkpoint(
+      "source_input", source_input_arg, post_op, quantized);
   const Tensor compute_input_arg = utils::prepare_vulkan_execution_tensor(
       source_input_arg,
       utils::VulkanExecutionPlanKind::LinearInputSource,
       input_request);
+  log_linear_context_checkpoint(
+      "prepared_input", compute_input_arg, post_op, quantized);
   const Tensor input_arg_2d =
       compute_input_arg.dim() == 2 ? compute_input_arg
                                    : reshape_to_2d(compute_input_arg);
+  log_linear_context_checkpoint(
+      "input_2d", input_arg_2d, post_op, quantized);
   const Tensor input =
       input_arg_2d.is_vulkan() ? input_arg_2d : input_arg_2d.vulkan();
+  log_linear_context_checkpoint(
+      "input_ready", input, post_op, quantized);
   const LinearPackedRunState packed_state =
       get_linear_packed_run_state(linear_context);
+  utils::log_vulkan_op_hit(
+      std::string("aten::linear.packed_state_ready weight=") +
+      format_linear_sizes(packed_state.logical_weight_sizes) +
+      " bias=" + (packed_state.bias_defined ? std::string("1")
+                                            : std::string("0")));
   const vTensor& packed_v_weight = packed_state.packed_v_weight;
   const vTensor& packed_v_bias = packed_state.packed_v_bias;
   const std::vector<int64_t>& unpacked_weight_sizes =
@@ -2132,6 +2301,8 @@ Tensor run_addmm_context(
           buffer_input,
           utils::resolve_buffer_execution_layout(convert(buffer_input)));
     }
+    log_linear_context_checkpoint(
+        "buffer_input_marked", buffer_input, post_op, quantized);
     if (!can_run_float_buffer_linear(
             buffer_input,
             packed_state.packed_weight.weight(),
@@ -2141,6 +2312,8 @@ Tensor run_addmm_context(
               buffer_input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
           api::ExecutionLayout::BUFFER_DIRECT);
     }
+    log_linear_context_checkpoint(
+        "buffer_input_supported", buffer_input, post_op, quantized);
     if (can_run_float_buffer_linear(
             buffer_input,
             packed_state.packed_weight.weight(),

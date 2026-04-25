@@ -26,7 +26,7 @@ constexpr size_t kVulkanWorkloadClassCount =
     static_cast<size_t>(VulkanWorkloadClass::LLMDecode) + 1u;
 constexpr int64_t kAttentionTextureTiledMaxValueDim = 512;
 constexpr int64_t kAttentionBufferTiledMaxHeadDim = 128;
-constexpr int64_t kAttentionBufferTiledDefaultMaxSequence = 128;
+constexpr int64_t kAttentionBufferTiledDefaultMaxSequence = 512;
 constexpr int64_t kAttentionBufferTiledVisionMaxSequence = 512;
 constexpr int64_t kAttentionGenericBufferFamilyMinSequence = 65;
 

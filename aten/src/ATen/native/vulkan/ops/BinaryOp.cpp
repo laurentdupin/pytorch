@@ -21,7 +21,9 @@
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <cmath>
+#include <c10/util/irange.h>
 #include <mutex>
+#include <sstream>
 #include <torch/library.h>
 #include <unordered_map>
 
@@ -42,6 +44,75 @@ enum class BinaryOpKind : uint8_t {
   FloorDivide,
   Pow,
 };
+
+const char* binary_op_kind_name(const BinaryOpKind op_kind) {
+  switch (op_kind) {
+    case BinaryOpKind::Add:
+      return "add";
+    case BinaryOpKind::Sub:
+      return "sub";
+    case BinaryOpKind::Mul:
+      return "mul";
+    case BinaryOpKind::Div:
+      return "div";
+    case BinaryOpKind::FloorDivide:
+      return "floor_divide";
+    case BinaryOpKind::Pow:
+      return "pow";
+  }
+  return "unknown";
+}
+
+std::string format_binary_sizes(IntArrayRef sizes) {
+  std::ostringstream stream;
+  stream << '[';
+  for (const auto idx : c10::irange(sizes.size())) {
+    if (idx > 0) {
+      stream << 'x';
+    }
+    stream << sizes[idx];
+  }
+  stream << ']';
+  return stream.str();
+}
+
+void append_binary_tensor_summary(
+    std::ostringstream& stream,
+    const char* label,
+    const vTensor& tensor) {
+  stream << ' ' << label << '=' << format_binary_sizes(tensor.sizes())
+         << ' ' << label
+         << "_direct=" << (tensor.has_direct_buffer_layout() ? 1 : 0)
+         << ' ' << label << "_offset=" << tensor.storage_offset()
+         << ' ' << label << "_buffer_len="
+         << (tensor.storage_type() == api::StorageType::BUFFER
+                 ? tensor.buffer_length()
+                 : -1);
+}
+
+void log_binary_submit(
+    const BinaryOpKind op_kind,
+    const char* route,
+    const vTensor& v_self,
+    const vTensor* v_other,
+    const vTensor& v_output,
+    const api::utils::uvec3& global_size,
+    const api::utils::uvec3& local_size) {
+  std::ostringstream stream;
+  stream << "aten::binary_op.submit"
+         << " op=" << binary_op_kind_name(op_kind)
+         << " route=" << route;
+  append_binary_tensor_summary(stream, "self", v_self);
+  if (v_other != nullptr) {
+    append_binary_tensor_summary(stream, "other", *v_other);
+  }
+  append_binary_tensor_summary(stream, "output", v_output);
+  stream << " global=[" << global_size.data[0] << 'x' << global_size.data[1]
+         << 'x' << global_size.data[2] << ']'
+         << " local=[" << local_size.data[0] << 'x' << local_size.data[1]
+         << 'x' << local_size.data[2] << ']';
+  utils::log_vulkan_op_hit(stream.str());
+}
 
 struct DeferredImageNormalizeCandidate final {
   Tensor input;
@@ -1145,7 +1216,8 @@ static Tensor binary_op_scalar_buffer(
     const Tensor& self_arg,
     const Scalar& other,
     const std::optional<Scalar>& alpha_arg,
-    const api::ShaderInfo& shader_descriptor) {
+    const api::ShaderInfo& shader_descriptor,
+    const BinaryOpKind op_kind) {
   api::AllocationScope allocation_scope("binary_op.buffer");
   utils::log_vulkan_op_hit("aten::binary_op.scalar_buffer_float");
   api::Context* const context = api::context();
@@ -1178,16 +1250,19 @@ static Tensor binary_op_scalar_buffer(
       1u,
       1u,
   };
+  const uvec3 local_size = adaptive_work_group_size(global_size);
   api::UniformParamsBuffer out_meta =
       utils::make_buffer_compute_metadata_ubo(context, v_output);
   api::UniformParamsBuffer in_meta =
       utils::make_buffer_compute_metadata_ubo(context, v_self);
+  log_binary_submit(
+      op_kind, "scalar_buffer", v_self, nullptr, v_output, global_size, local_size);
 
   context->submit_compute_job(
       shader_descriptor,
       pipeline_barrier,
       global_size,
-      adaptive_work_group_size(global_size),
+      local_size,
       VK_NULL_HANDLE,
       v_output.buffer(
           pipeline_barrier,
@@ -1378,7 +1453,7 @@ static Tensor binary_op_scalar(
   Tensor self = self_input.is_vulkan() ? self_input : self_input.vulkan();
   if (should_run_buffer_binary_scalar(self)) {
     return binary_op_scalar_buffer(
-        self, other, alpha_arg, buffer_shader_descriptor);
+        self, other, alpha_arg, buffer_shader_descriptor, op_kind);
   }
   self = utils::prepare_vulkan_execution_tensor(
       self, utils::VulkanExecutionPlanKind::TextureComputeInput);
@@ -1404,6 +1479,10 @@ static Tensor binary_op_scalar(
 
   api::UniformParamsBuffer params(context, block);
   api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = v_output.extents();
+  const uvec3 local_size = adaptive_work_group_size(global_size);
+  log_binary_submit(
+      op_kind, "scalar_texture", v_self, nullptr, v_output, global_size, local_size);
 
   context->submit_compute_job(
       // shader descriptor
@@ -1411,9 +1490,9 @@ static Tensor binary_op_scalar(
       // pipeline barrier
       pipeline_barrier,
       // global work group size
-      v_output.extents(),
+      global_size,
       // local work group size
-      adaptive_work_group_size(v_output.extents()),
+      local_size,
       // fence handle
       VK_NULL_HANDLE,
       // shader arguments
@@ -1533,6 +1612,7 @@ static Tensor binary_op_tensor_buffer_impl(
     const Tensor& other_arg,
     const std::optional<Scalar>& alpha_arg,
     const api::ShaderInfo& shader_descriptor,
+    const BinaryOpKind op_kind,
     Tensor* output_arg) {
   api::AllocationScope allocation_scope("binary_op.buffer");
   utils::log_vulkan_op_hit("aten::binary_op.buffer_float");
@@ -1602,18 +1682,21 @@ static Tensor binary_op_tensor_buffer_impl(
       1u,
       1u,
   };
+  const uvec3 local_size = adaptive_work_group_size(global_size);
   api::UniformParamsBuffer out_meta =
       utils::make_buffer_compute_metadata_ubo(context, v_output);
   api::UniformParamsBuffer in_meta =
       utils::make_buffer_compute_metadata_ubo(context, v_self);
   api::UniformParamsBuffer other_meta =
       utils::make_buffer_compute_metadata_ubo(context, v_other);
+  log_binary_submit(
+      op_kind, "tensor_buffer", v_self, &v_other, v_output, global_size, local_size);
 
   context->submit_compute_job(
       shader_descriptor,
       pipeline_barrier,
       global_size,
-      adaptive_work_group_size(global_size),
+      local_size,
       VK_NULL_HANDLE,
       v_output.buffer(
           pipeline_barrier,
@@ -1633,12 +1716,14 @@ static Tensor binary_op_tensor_buffer(
     const Tensor& self_arg,
     const Tensor& other_arg,
     const std::optional<Scalar>& alpha_arg,
-    const api::ShaderInfo& shader_descriptor) {
+    const api::ShaderInfo& shader_descriptor,
+    const BinaryOpKind op_kind) {
   return binary_op_tensor_buffer_impl(
       self_arg,
       other_arg,
       alpha_arg,
       shader_descriptor,
+      op_kind,
       nullptr);
 }
 
@@ -1750,7 +1835,7 @@ static Tensor binary_op_tensor(
       }
     }
     return binary_op_tensor_buffer(
-        self, other, alpha_arg, buffer_shader_descriptor);
+        self, other, alpha_arg, buffer_shader_descriptor, op_kind);
   }
   self = utils::prepare_vulkan_execution_tensor(
       self, utils::VulkanExecutionPlanKind::TextureComputeInput);
@@ -2086,6 +2171,7 @@ Tensor add_buffer_out_vulkan(
       other,
       alpha,
       VK_KERNEL(buffer_add),
+      BinaryOpKind::Add,
       &output);
 }
 

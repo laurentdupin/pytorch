@@ -344,6 +344,20 @@ void cpu_kernel_multiple_outputs(TensorIteratorBase& iter, func_t&& op, int64_t 
   iter.cast_outputs();
 }
 
+inline bool needs_serial_noncontiguous_inplace_scalar_kernel(
+    const TensorIteratorBase& iter) {
+  if (iter.noutputs() != 1 || iter.ninputs() < 2 || iter.numel() == 0 ||
+      iter.is_contiguous()) {
+    return false;
+  }
+
+  const int64_t first_input_arg = iter.noutputs();
+  const int64_t second_input_arg = first_input_arg + 1;
+  return iter.output_base().defined() && iter.input_base(0).defined() &&
+      iter.output_base().is_same(iter.input_base(0)) &&
+      iter.is_cpu_scalar(second_input_arg);
+}
+
 template <bool check_dynamic_cast=true, typename func_t, typename vec_func_t>
 void cpu_kernel_vec(TensorIteratorBase& iter, func_t&& op, vec_func_t&& vop, int64_t grain_size = at::internal::GRAIN_SIZE) {
   using traits = function_traits<func_t>;
@@ -354,6 +368,14 @@ void cpu_kernel_vec(TensorIteratorBase& iter, func_t&& op, vec_func_t&& vop, int
   // explicitly dynamic_cast, so we give the opt-out of checking.
   if constexpr (check_dynamic_cast) {
     TORCH_INTERNAL_ASSERT(!needs_dynamic_casting<func_t>::check(iter));
+  }
+
+  if (needs_serial_noncontiguous_inplace_scalar_kernel(iter)) {
+    iter.serial_for_each([&](char** data, const int64_t* strides, int64_t n) {
+      basic_loop(data, strides, 0, n, op);
+    }, {0, iter.numel()});
+    iter.cast_outputs();
+    return;
   }
 
   iter.for_each(make_vectorized_loop2d(std::forward<func_t>(op), std::forward<vec_func_t>(vop)), grain_size);

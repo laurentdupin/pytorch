@@ -82,7 +82,10 @@ class Conv2dPackedContext final : public torch::jit::CustomClassHolder {
       const IntArrayRef output_padding_arg,
       const int64_t groups,
       const std::optional<Scalar>& output_min = std::nullopt,
-      const std::optional<Scalar>& output_max = std::nullopt);
+      const std::optional<Scalar>& output_max = std::nullopt,
+      const Tensor& cache_weight = Tensor(),
+      const std::optional<Tensor>& cache_bias = std::nullopt,
+      const bool force_legacy_image_pack = false);
 
   /*
    * Assigns a name to each index in the unpacked list.

@@ -13,6 +13,14 @@ from typing import Any
 
 import numpy as np
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from bench_common import suppress_windows_error_dialogs, windows_subprocess_kwargs
+
+suppress_windows_error_dialogs()
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "comparison" / "depth_anything_desktop_output_compare_20260422"
@@ -26,32 +34,55 @@ class InstallSpec:
     device_key: str
 
 
-DEFAULT_INSTALLS = (
-    InstallSpec(
-        name="vulkan",
-        root=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V2"),
-        python_path=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V2\Python310\python.exe"),
-        device_key="VULKAN",
-    ),
-    InstallSpec(
-        name="directml",
-        root=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V22"),
-        python_path=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V22\Python310\python.exe"),
-        device_key="DIRECT_ML0",
-    ),
-    InstallSpec(
-        name="rocm",
-        root=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V23"),
-        python_path=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V23\Python312\python.exe"),
-        device_key="CUDA0",
-    ),
-    InstallSpec(
-        name="cuda",
-        root=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V24"),
-        python_path=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V24\Python310\python.exe"),
-        device_key="CUDA0",
-    ),
-)
+def default_installs(depth_extractor_root: Path) -> tuple[InstallSpec, ...]:
+    return (
+        InstallSpec(
+            name="vulkan",
+            root=depth_extractor_root / "Depth-Anything-V2",
+            python_path=depth_extractor_root
+            / "Depth-Anything-V2"
+            / "Python310"
+            / "python.exe",
+            device_key="VULKAN",
+        ),
+        InstallSpec(
+            name="directml",
+            root=depth_extractor_root / "Depth-Anything-V22",
+            python_path=depth_extractor_root
+            / "Depth-Anything-V22"
+            / "Python310"
+            / "python.exe",
+            device_key="DIRECT_ML0",
+        ),
+        InstallSpec(
+            name="rocm",
+            root=depth_extractor_root / "Depth-Anything-V23",
+            python_path=depth_extractor_root
+            / "Depth-Anything-V23"
+            / "Python312"
+            / "python.exe",
+            device_key="CUDA0",
+        ),
+        InstallSpec(
+            name="cuda",
+            root=depth_extractor_root / "Depth-Anything-V24",
+            python_path=depth_extractor_root
+            / "Depth-Anything-V24"
+            / "Python310"
+            / "python.exe",
+            device_key="CUDA0",
+        ),
+    )
+
+
+def default_image_dir(depth_extractor_root: Path) -> Path:
+    return (
+        depth_extractor_root
+        / "Depth-Anything-V2"
+        / "Depth-Anything"
+        / "assets"
+        / "examples"
+    )
 
 
 def _ensure_parent(path: Path) -> None:
@@ -196,6 +227,7 @@ def _run_install_output(
         check=True,
         capture_output=True,
         text=True,
+        **windows_subprocess_kwargs(),
     )
     metadata = json.loads(out_json.read_text(encoding="utf-8"))
     metadata["stdout"] = completed.stdout
@@ -233,22 +265,20 @@ def _compare_arrays(reference: np.ndarray, candidate: np.ndarray) -> dict[str, A
 
 
 def _run_compare(args: argparse.Namespace) -> None:
+    if not args.depth_extractor_root:
+        raise SystemExit("--depth-extractor-root is required unless --emit-output is set")
+    depth_extractor_root = Path(args.depth_extractor_root).resolve()
     images: list[Path]
     if args.image:
         images = [Path(args.image).resolve()]
     else:
-        image_dir = (
-            Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V2")
-            / "Depth-Anything"
-            / "assets"
-            / "examples"
-        )
+        image_dir = default_image_dir(depth_extractor_root)
         images = sorted(image_dir.glob("*.jpg"))[: args.image_count]
 
     if not images:
         raise RuntimeError("No images selected for comparison.")
 
-    specs = DEFAULT_INSTALLS
+    specs = default_installs(depth_extractor_root)
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -302,6 +332,10 @@ def _run_compare(args: argparse.Namespace) -> None:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--emit-output", action="store_true")
+    parser.add_argument(
+        "--depth-extractor-root",
+        help="DepthExtractor install root. Required unless --emit-output is set.",
+    )
     parser.add_argument("--install-root")
     parser.add_argument("--device-key")
     parser.add_argument("--image")
@@ -316,6 +350,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    suppress_windows_error_dialogs()
     args = _parse_args()
     if args.emit_output:
         _emit_output(

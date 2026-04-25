@@ -325,6 +325,10 @@ void log_vulkan_op_hit(const char* op_name) {
   log_vulkan_op_hit_impl(op_name);
 }
 
+void log_vulkan_op_hit(const std::string& op_name) {
+  log_vulkan_op_hit_impl(op_name.c_str());
+}
+
 std::optional<Tensor> normalized_optional_tensor(
     const std::optional<Tensor>& tensor) {
   if (tensor && tensor->defined()) {

@@ -5,7 +5,15 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from bench_common import REPO_ROOT, WORKSPACE_ROOT, add_python_path
+from bench_common import (
+    REPO_ROOT,
+    WORKSPACE_ROOT,
+    add_python_path,
+    suppress_windows_error_dialogs,
+    windows_subprocess_kwargs,
+)
+
+suppress_windows_error_dialogs()
 
 
 MODEL_CONFIGS = {
@@ -76,6 +84,7 @@ def resolve_default_vulkan_device_info() -> dict[str, Any]:
             text=True,
             timeout=20,
             errors="replace",
+            **windows_subprocess_kwargs(),
         )
     except Exception:
         return {

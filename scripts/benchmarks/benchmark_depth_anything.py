@@ -8,7 +8,14 @@ from typing import Any
 
 import cv2
 
-from bench_common import REPO_ROOT, WORKSPACE_ROOT, summarize_durations, synchronize_result, write_json
+from bench_common import (
+    REPO_ROOT,
+    WORKSPACE_ROOT,
+    enable_local_pytorch_repo_imports,
+    summarize_durations,
+    synchronize_result,
+    write_json,
+)
 from depth_anything_common import (
     MODEL_CONFIGS,
     inference_context,
@@ -153,6 +160,7 @@ def run() -> None:
     default_image_path = repo_path / "assets" / "examples" / "demo01.jpg"
     default_image_dir = repo_path / "assets" / "examples"
 
+    enable_local_pytorch_repo_imports()
     import torch
     import torch.nn.functional as F
     from depth_anything_v2.dpt import DepthAnythingV2

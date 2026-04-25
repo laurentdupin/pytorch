@@ -287,6 +287,11 @@ std::deque<RetiredPackedWeightMetadata>& leaked_retired_packed_weight_metadata()
   return *metadata;
 }
 
+std::deque<PackedWeightHandle>& quarantined_retired_packed_weight_handles() {
+  static auto* handles = new std::deque<PackedWeightHandle>();
+  return *handles;
+}
+
 void defer_retired_packed_weight_entries(
     std::deque<PackedWeightResidencyEntry>& retired_entries) {
   if (retired_entries.empty()) {
@@ -315,9 +320,20 @@ bool release_retired_packed_weight_entries_impl() {
   if (retired_handles.empty()) {
     return false;
   }
-  c10::InferenceMode inference_mode_guard(false);
-  retired_handles.clear();
-  return true;
+  const size_t retired_count = retired_handles.size();
+  {
+    std::lock_guard<std::mutex> lock(retired_packed_weight_mutex());
+    auto& quarantined_handles = quarantined_retired_packed_weight_handles();
+    while (!retired_handles.empty()) {
+      quarantined_handles.emplace_back(std::move(retired_handles.front()));
+      retired_handles.pop_front();
+    }
+  }
+  log_vulkan_op_hit(
+      std::string(
+          "vulkan_packed_weight_release.disabled_quarantined count=") +
+      std::to_string(retired_count));
+  return false;
 }
 
 class PackedWeightResidencyManager final {
@@ -931,7 +947,6 @@ bool release_retired_linear_contexts_impl() {
   if (retired_contexts.empty()) {
     return false;
   }
-  c10::InferenceMode inference_mode_guard(false);
   retired_contexts.clear();
   return true;
 }

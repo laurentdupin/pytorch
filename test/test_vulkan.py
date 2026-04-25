@@ -1382,6 +1382,149 @@ class TestVulkanEagerRuntime(TestCase):
                 atol=1e-2,
                 rtol=1e-2)
 
+    def test_any_reduction_cpu_fallback_unblocks_normalize_guard(self):
+        values = torch.tensor([False, False, True, False], dtype=torch.bool)
+        values_vulkan = values.to("vulkan")
+
+        self.assertEqual(values.any(), values_vulkan.any().cpu())
+
+        out = torch.empty((), dtype=torch.bool, device="vulkan")
+        torch.any(values_vulkan, out=out)
+        self.assertEqual(values.any(), out.cpu())
+
+        matrix = torch.tensor(
+            [[False, False, True], [False, False, False]],
+            dtype=torch.bool)
+        actual_dim = matrix.to("vulkan").any(dim=1).cpu()
+        self.assertEqual(matrix.any(dim=1), actual_dim)
+
+    def test_cpu_noncontiguous_scalar_inplace_preserves_beit_indices(self):
+        previous_num_threads = torch.get_num_threads()
+        torch.set_num_threads(2)
+        try:
+            x = torch.zeros((864, 864, 2), dtype=torch.long)
+            x[:, :, 0].add_(23)
+            self.assertTrue(torch.equal(
+                x[:, :, 0], torch.full((864, 864), 23, dtype=torch.long)))
+            self.assertTrue(torch.equal(
+                x[:, :, 1], torch.zeros((864, 864), dtype=torch.long)))
+
+            x = torch.ones((864, 864, 2), dtype=torch.long)
+            x[:, :, 0].mul_(71)
+            self.assertTrue(torch.equal(
+                x[:, :, 0], torch.full((864, 864), 71, dtype=torch.long)))
+            self.assertTrue(torch.equal(
+                x[:, :, 1], torch.ones((864, 864), dtype=torch.long)))
+
+            window_h, window_w = 24, 36
+            num_relative_distance = (
+                (2 * window_h - 1) * (2 * window_w - 1) + 3)
+            window_area = window_h * window_w
+            coords = torch.stack(torch.meshgrid([
+                torch.arange(window_h),
+                torch.arange(window_w)]))
+            coords_flatten = torch.flatten(coords, 1)
+            relative_coords = (
+                coords_flatten[:, :, None] - coords_flatten[:, None, :])
+            relative_coords = relative_coords.permute(1, 2, 0).contiguous()
+            relative_coords[:, :, 0] += window_h - 1
+            relative_coords[:, :, 1] += window_w - 1
+            relative_coords[:, :, 0] *= 2 * window_w - 1
+            relative_position_index = torch.zeros(
+                size=(window_area + 1,) * 2,
+                dtype=relative_coords.dtype)
+            relative_position_index[1:, 1:] = relative_coords.sum(-1)
+            relative_position_index[0, 0:] = num_relative_distance - 3
+            relative_position_index[0:, 0] = num_relative_distance - 2
+            relative_position_index[0, 0] = num_relative_distance - 1
+
+            self.assertEqual(0, int(relative_position_index.min()))
+            self.assertEqual(
+                num_relative_distance - 1,
+                int(relative_position_index.max()))
+        finally:
+            torch.set_num_threads(previous_num_threads)
+
+    def test_contiguous_without_python_inference_mode(self):
+        torch.manual_seed(0)
+        x = torch.randn(2, 5, 3, 4)
+
+        expected = x.transpose(1, 2).contiguous()
+        actual = x.to("vulkan").transpose(1, 2).contiguous().cpu()
+
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+
+    def test_expand_as_without_python_inference_mode(self):
+        x = torch.randn(2, 1, 4)
+        other = torch.randn(2, 3, 4)
+
+        expected = x.expand_as(other)
+        actual = x.to("vulkan").expand_as(other.to("vulkan")).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+
+    def test_autocast_accepts_vulkan_device_object(self):
+        x_cpu = torch.randn(2, 3)
+        with torch.autocast(device_type=torch.device("vulkan"), dtype=torch.float16):
+            x = x_cpu.to("vulkan")
+            actual = (x + 1).cpu()
+
+        self._assert_outputs_close(x_cpu + 1, actual, atol=1e-4, rtol=1e-4)
+
+    def test_vulkan_generator_request_uses_cpu_generator(self):
+        gen = torch.Generator(device=torch.device("vulkan"))
+
+        self.assertEqual("cpu", gen.device.type)
+
+    def test_scaled_dot_product_attention_without_python_inference_mode(self):
+        torch.manual_seed(0)
+        query = torch.randn(1, 2, 7, 8)
+        key = torch.randn(1, 2, 7, 8)
+        value = torch.randn(1, 2, 7, 8)
+
+        previous_num_threads = torch.get_num_threads()
+        torch.set_num_threads(1)
+        try:
+            scale = query.size(-1) ** -0.5
+            expected = torch.matmul(
+                torch.softmax(
+                    torch.matmul(query, key.transpose(-2, -1)) * scale,
+                    dim=-1),
+                value)
+        finally:
+            torch.set_num_threads(previous_num_threads)
+        actual = F.scaled_dot_product_attention(
+            query.to("vulkan"),
+            key.to("vulkan"),
+            value.to("vulkan")).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+
+    def test_reciprocal_without_python_inference_mode(self):
+        x = torch.linspace(0.25, 4.0, steps=32).reshape(2, 4, 4)
+
+        expected = torch.reciprocal(torch.clamp(x, min=0.5, max=3.0))
+        actual = torch.reciprocal(
+            torch.clamp(x.to("vulkan"), min=0.5, max=3.0)).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+
+    def test_group_norm_without_python_inference_mode(self):
+        torch.manual_seed(0)
+        x = torch.randn(2, 4, 5, 3)
+        weight = torch.randn(4)
+        bias = torch.randn(4)
+
+        expected = F.group_norm(x, 2, weight, bias, eps=1e-5)
+        actual = F.group_norm(
+            x.to("vulkan"),
+            2,
+            weight.to("vulkan"),
+            bias.to("vulkan"),
+            eps=1e-5).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+
     def test_buffer_cast_matrix_core(self):
         torch.manual_seed(0)
         floats = (torch.randn(513, 257) * 8.0).clamp(-16.0, 16.0)
@@ -3978,6 +4121,19 @@ print("OK")
 
         self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
 
+    def test_batch_norm_eval_without_python_inference_mode(self):
+        torch.manual_seed(0)
+        module_cpu = nn.BatchNorm2d(8).eval()
+        module_vulkan = nn.BatchNorm2d(8).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+        image = torch.randn(2, 8, 9, 7)
+
+        expected = module_cpu(image)
+        actual = module_vulkan(image.to("vulkan")).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+
     def test_permute_reshape_then_linear(self):
         torch.manual_seed(0)
         x = torch.randn(1, 2, 17, 8)
@@ -4244,6 +4400,173 @@ print("OK")
                 mode="nearest").cpu()
             self.assertEqual(expected.dtype, actual.dtype)
             self.assertEqual(expected, actual)
+
+    def test_direct_buffer_image_readback_uses_raw_copy(self):
+        log_name = "direct_buffer_image_readback_raw_copy_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                shapes = [
+                    (1, 3, 64, 96),
+                    (1, 128, 128, 128),
+                ]
+                for shape in shapes:
+                    x = torch.randn(shape, dtype=torch.float32)
+                    x_vulkan = x.to("vulkan")
+                    with torch.inference_mode():
+                        for _ in range(3):
+                            actual = x_vulkan.cpu()
+                            torch.testing.assert_close(
+                                actual,
+                                x,
+                                atol=1e-5,
+                                rtol=1e-5,
+                            )
+                print("OK")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Direct-buffer image readback subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertTrue(
+                "op=aten::copy_.vulkan_to_cpu_buffer_direct_raw" in log_text
+                or "op=aten::copy_.vulkan_to_cpu_buffer_direct_metadata_unpack"
+                in log_text
+            )
+            self.assertNotIn(
+                "op=aten::copy_.vulkan_to_cpu_buffer_packed_shader",
+                log_text,
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_diffusion_style_conv2d_matches_numpy_reference(self):
+        log_name = "diffusion_style_conv2d_vulkan_path_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import numpy as np
+                import os
+                import torch
+
+                def reference_conv2d_3x3_s1p1_numpy(x, weight, bias):
+                    x_np = x.detach().cpu().numpy()
+                    weight_np = weight.detach().cpu().numpy()
+                    bias_np = bias.detach().cpu().numpy()
+                    batch, _, height, width = x_np.shape
+                    out_channels = weight_np.shape[0]
+                    padded = np.pad(
+                        x_np,
+                        ((0, 0), (0, 0), (1, 1), (1, 1)),
+                        mode="constant")
+                    out = np.zeros(
+                        (batch, out_channels, height, width),
+                        dtype=np.float32)
+                    for ky in range(3):
+                        for kx in range(3):
+                            patch = padded[
+                                :, :, ky : ky + height, kx : kx + width]
+                            out += np.tensordot(
+                                patch,
+                                weight_np[:, :, ky, kx],
+                                axes=([1], [1])).transpose(0, 3, 1, 2)
+                    out += bias_np.reshape(1, out_channels, 1, 1)
+                    return out
+
+                torch.manual_seed(0)
+                torch.vulkan.set_device(
+                    int(os.environ.get("PYTORCH_VULKAN_TEST_DEVICE", "0")))
+                cases = [
+                    (1, 64, 64, 16, 24),
+                    (1, 96, 32, 16, 24),
+                    (1, 128, 128, 16, 24),
+                    (1, 64, 64, 63, 96),
+                    (1, 128, 3, 64, 96),
+                ]
+
+                with torch.inference_mode():
+                    for batch, in_channels, out_channels, height, width in cases:
+                        x = torch.randn(batch, in_channels, height, width)
+                        module_cpu = torch.nn.Conv2d(
+                            in_channels,
+                            out_channels,
+                            kernel_size=3,
+                            stride=1,
+                            padding=1,
+                            bias=True).eval()
+                        module_vulkan = torch.nn.Conv2d(
+                            in_channels,
+                            out_channels,
+                            kernel_size=3,
+                            stride=1,
+                            padding=1,
+                            bias=True).eval()
+                        module_vulkan.load_state_dict(module_cpu.state_dict())
+                        module_vulkan = module_vulkan.to("vulkan")
+
+                        expected = reference_conv2d_3x3_s1p1_numpy(
+                            x, module_cpu.weight, module_cpu.bias)
+                        actual = module_vulkan(
+                            x.to("vulkan")).cpu().detach().numpy()
+                        np.testing.assert_allclose(
+                            actual, expected, atol=2e-3, rtol=2e-3)
+                print("OK")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Diffusion-style conv2d Vulkan subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn(
+                "op=aten::convolution.buffer_float_3x3_s1p1",
+                log_text)
+            self.assertNotIn("disabled_diffusion_3x3", log_text)
+            self.assertNotIn("cpu_fallback_unstable_diffusion", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_upsample_nearest_exact2d_matches_cpu(self):
+        image = torch.arange(
+            1 * 3 * 5 * 7,
+            dtype=torch.float32).reshape(1, 3, 5, 7)
+
+        with torch.inference_mode():
+            expected = F.interpolate(
+                image,
+                size=(8, 11),
+                mode="nearest-exact")
+            actual = F.interpolate(
+                image.to("vulkan"),
+                size=(8, 11),
+                mode="nearest-exact").cpu()
+
+        self.assertEqual(expected, actual)
 
     def test_min_all_matches_cpu(self):
         torch.manual_seed(0)
@@ -5145,6 +5468,115 @@ print("OK")
                         actual_math,
                         atol=1e-4,
                         rtol=1e-4)
+
+    def test_diffusion_style_scaled_dot_product_attention_matches_numpy_reference(self):
+        log_name = "diffusion_style_sdpa_vulkan_path_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import numpy as np
+                import os
+                import torch
+                import torch.nn.functional as F
+
+                def reference_sdpa_numpy(query, key, value):
+                    query_np = query.detach().cpu().numpy()
+                    key_np = key.detach().cpu().numpy()
+                    value_np = value.detach().cpu().numpy()
+                    scale = query_np.shape[-1] ** -0.5
+                    query_3d = query_np.reshape(
+                        -1, query_np.shape[-2], query_np.shape[-1])
+                    key_3d = key_np.reshape(
+                        -1, key_np.shape[-2], key_np.shape[-1])
+                    value_3d = value_np.reshape(
+                        -1, value_np.shape[-2], value_np.shape[-1])
+                    scores = np.matmul(
+                        query_3d * scale, np.swapaxes(key_3d, 1, 2))
+                    scores -= scores.max(axis=-1, keepdims=True)
+                    probs = np.exp(scores)
+                    probs /= probs.sum(axis=-1, keepdims=True)
+                    output = np.matmul(probs, value_3d)
+                    return output.reshape(
+                        *query_np.shape[:-1], value_np.shape[-1])
+
+                torch.manual_seed(0)
+                torch.vulkan.set_device(
+                    int(os.environ.get("PYTORCH_VULKAN_TEST_DEVICE", "0")))
+                cases = [
+                    (torch.randn(1, 5, 384, 64),
+                     torch.randn(1, 5, 384, 64),
+                     torch.randn(1, 5, 384, 64)),
+                    (torch.randn(1, 1, 768, 512),
+                     torch.randn(1, 1, 768, 512),
+                     torch.randn(1, 1, 768, 512)),
+                ]
+
+                with torch.inference_mode():
+                    for query, key, value in cases:
+                        expected = reference_sdpa_numpy(query, key, value)
+                        actual = F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            dropout_p=0.0).cpu().detach().numpy()
+                        np.testing.assert_allclose(
+                            actual, expected, atol=2e-3, rtol=2e-3)
+                print("OK")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Diffusion-style SDPA Vulkan subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("op=aten::scaled_dot_product_attention", log_text)
+            self.assertNotIn("Vulkan public generic SDPA is disabled", log_text)
+            self.assertNotIn("cpu_fallback_diffusion", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_diffusion_full_shape_scaled_dot_product_attention_manual(self):
+        if os.getenv("PYTORCH_VULKAN_RUN_SLOW_DIFFUSION_TESTS") != "1":
+            self.skipTest("Set PYTORCH_VULKAN_RUN_SLOW_DIFFUSION_TESTS=1")
+
+        import numpy as np
+
+        torch.manual_seed(0)
+        if hasattr(torch, "vulkan"):
+            torch.vulkan.set_device(
+                int(os.environ.get("PYTORCH_VULKAN_TEST_DEVICE", "0")))
+
+        cases = [
+            (
+                torch.randn(1, 5, 6048, 64),
+                torch.randn(1, 5, 6048, 64),
+                torch.randn(1, 5, 6048, 64),
+            ),
+            (
+                torch.randn(1, 1, 6048, 512),
+                torch.randn(1, 1, 6048, 512),
+                torch.randn(1, 1, 6048, 512),
+            ),
+        ]
+
+        with torch.inference_mode():
+            for query, key, value in cases:
+                actual = F.scaled_dot_product_attention(
+                    query.to("vulkan"),
+                    key.to("vulkan"),
+                    value.to("vulkan"),
+                    dropout_p=0.0).cpu().detach().numpy()
+                self.assertTrue(np.isfinite(actual).all())
 
     def test_scaled_dot_product_attention_masks_and_causal(self):
         torch.manual_seed(0)

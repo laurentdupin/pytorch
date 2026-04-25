@@ -994,6 +994,13 @@ Tensor mul(const Tensor& self, const Scalar& other) {
 }
 
 Tensor& mul_(Tensor& self, const Scalar& other) {
+  if (self.device().is_cpu() && self.layout() == kStrided &&
+      !self.is_contiguous() && self.numel() > 0) {
+    Tensor contiguous = self.contiguous();
+    contiguous.mul_(other);
+    self.copy_(contiguous);
+    return self;
+  }
   return at::mul_out(self, wrapped_scalar_tensor(other), self); // redispatch!
 }
 
@@ -1142,6 +1149,13 @@ Tensor sub(const Tensor& self, const Scalar& other, const Scalar& alpha) {
 }
 
 Tensor& sub_(Tensor& self, const Scalar& other, const Scalar& alpha) {
+  if (self.device().is_cpu() && self.layout() == kStrided &&
+      !self.is_contiguous() && self.numel() > 0) {
+    Tensor contiguous = self.contiguous();
+    contiguous.sub_(other, alpha);
+    self.copy_(contiguous);
+    return self;
+  }
   return self.sub_(wrapped_scalar_tensor(other), alpha); // redispatch!
 }
 
@@ -1178,6 +1192,13 @@ Tensor add(const Tensor& self, const Scalar& other, const Scalar& alpha) {
 }
 
 Tensor& add_(Tensor& self, const Scalar& other, const Scalar& alpha) {
+  if (self.device().is_cpu() && self.layout() == kStrided &&
+      !self.is_contiguous() && self.numel() > 0) {
+    Tensor contiguous = self.contiguous();
+    contiguous.add_(other, alpha);
+    self.copy_(contiguous);
+    return self;
+  }
   return self.add_(wrapped_scalar_tensor(other), alpha);
 }
 

@@ -236,6 +236,8 @@ class autocast:
         enabled: bool = True,
         cache_enabled: bool | None = None,
     ):
+        if isinstance(device_type, torch.device):
+            device_type = device_type.type
         if not isinstance(device_type, str):
             raise ValueError(
                 f"Expected `device_type` of type `str`, got: `{type(device_type)}`"

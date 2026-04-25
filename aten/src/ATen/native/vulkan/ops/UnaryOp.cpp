@@ -7,6 +7,7 @@
 #include <ATen/ops/exp.h>
 #include <ATen/ops/log.h>
 #include <ATen/ops/neg.h>
+#include <ATen/ops/reciprocal.h>
 #include <ATen/ops/rsqrt.h>
 #include <ATen/ops/silu.h>
 #include <ATen/ops/sin.h>
@@ -16,6 +17,8 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <c10/util/irange.h>
+#include <sstream>
 #include <torch/library.h>
 #include <vector>
 
@@ -40,9 +43,83 @@ enum class UnaryOpKind : uint8_t {
   Tan,
   Atan,
   Neg,
+  Reciprocal,
   Rsqrt,
   Silu,
 };
+
+const char* unary_op_kind_name(const UnaryOpKind op_kind) {
+  switch (op_kind) {
+    case UnaryOpKind::Exp:
+      return "exp";
+    case UnaryOpKind::Sqrt:
+      return "sqrt";
+    case UnaryOpKind::Log:
+      return "log";
+    case UnaryOpKind::Sin:
+      return "sin";
+    case UnaryOpKind::Cos:
+      return "cos";
+    case UnaryOpKind::Tan:
+      return "tan";
+    case UnaryOpKind::Atan:
+      return "atan";
+    case UnaryOpKind::Neg:
+      return "neg";
+    case UnaryOpKind::Reciprocal:
+      return "reciprocal";
+    case UnaryOpKind::Rsqrt:
+      return "rsqrt";
+    case UnaryOpKind::Silu:
+      return "silu";
+  }
+  return "unknown";
+}
+
+std::string format_unary_sizes(IntArrayRef sizes) {
+  std::ostringstream stream;
+  stream << '[';
+  for (const auto idx : c10::irange(sizes.size())) {
+    if (idx > 0) {
+      stream << 'x';
+    }
+    stream << sizes[idx];
+  }
+  stream << ']';
+  return stream.str();
+}
+
+void log_unary_submit(
+    const UnaryOpKind op_kind,
+    const char* route,
+    const vTensor& v_input,
+    const vTensor& v_output,
+    const api::utils::uvec3& global_size,
+    const api::utils::uvec3& local_size) {
+  std::ostringstream stream;
+  stream << "aten::unary.submit"
+         << " op=" << unary_op_kind_name(op_kind)
+         << " route=" << route
+         << " input=" << format_unary_sizes(v_input.sizes())
+         << " output=" << format_unary_sizes(v_output.sizes())
+         << " input_direct=" << (v_input.has_direct_buffer_layout() ? 1 : 0)
+         << " output_direct=" << (v_output.has_direct_buffer_layout() ? 1 : 0)
+         << " input_offset=" << v_input.storage_offset()
+         << " output_offset=" << v_output.storage_offset()
+         << " input_buffer_len="
+         << (v_input.storage_type() == api::StorageType::BUFFER
+                 ? v_input.buffer_length()
+                 : -1)
+         << " output_buffer_len="
+         << (v_output.storage_type() == api::StorageType::BUFFER
+                 ? v_output.buffer_length()
+                 : -1)
+         << " global=[" << global_size.data[0] << 'x' << global_size.data[1]
+         << 'x' << global_size.data[2] << ']'
+         << " local=[" << local_size.data[0] << 'x' << local_size.data[1]
+         << 'x' << local_size.data[2] << ']';
+  utils::log_vulkan_op_hit(stream.str());
+}
 
 bool needs_unary_cpu_fallback(const Tensor& tensor) {
   if (!tensor.is_vulkan()) {
@@ -84,6 +161,9 @@ Tensor unary_op_cpu_fallback(const Tensor& self_arg, const UnaryOpKind op_kind) 
       case UnaryOpKind::Neg:
         cpu_result = at::neg(self_cpu);
         break;
+      case UnaryOpKind::Reciprocal:
+        cpu_result = at::reciprocal(self_cpu);
+        break;
       case UnaryOpKind::Rsqrt:
         cpu_result = at::rsqrt(self_cpu);
         break;
@@ -97,7 +177,8 @@ Tensor unary_op_cpu_fallback(const Tensor& self_arg, const UnaryOpKind op_kind) 
 
 Tensor unary_op_buffer(
     const Tensor& self_arg,
-    const api::ShaderInfo& shader_descriptor) {
+    const api::ShaderInfo& shader_descriptor,
+    const UnaryOpKind op_kind) {
   api::AllocationScope allocation_scope("unary_op.buffer");
   api::Context* const context = api::context();
 
@@ -118,16 +199,19 @@ Tensor unary_op_buffer(
       1u,
       1u,
   };
+  const uvec3 local_size = adaptive_work_group_size(global_size);
   api::UniformParamsBuffer out_meta =
       utils::make_buffer_compute_metadata_ubo(context, v_output);
   api::UniformParamsBuffer in_meta =
       utils::make_buffer_compute_metadata_ubo(context, v_self);
+  log_unary_submit(
+      op_kind, "buffer", v_self, v_output, global_size, local_size);
 
   context->submit_compute_job(
       shader_descriptor,
       pipeline_barrier,
       global_size,
-      adaptive_work_group_size(global_size),
+      local_size,
       VK_NULL_HANDLE,
       v_output.buffer(
           pipeline_barrier,
@@ -156,7 +240,7 @@ Tensor unary_op(
       self, utils::VulkanExecutionPlanKind::ElementwiseInput);
   if (api::uses_buffer_execution(plan.execution_layout)) {
     self = utils::prepare_vulkan_direct_buffer_execution_tensor(self, plan);
-    return unary_op_buffer(self, buffer_shader_descriptor);
+    return unary_op_buffer(self, buffer_shader_descriptor, op_kind);
   }
 
   self = utils::prepare_vulkan_execution_tensor(
@@ -180,6 +264,10 @@ Tensor unary_op(
 
   api::UniformParamsBuffer params(context, block);
   api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = v_output.extents();
+  const uvec3 local_size = adaptive_work_group_size(global_size);
+  log_unary_submit(
+      op_kind, "texture", v_self, v_output, global_size, local_size);
 
   context->submit_compute_job(
       // shader descriptor
@@ -187,9 +275,9 @@ Tensor unary_op(
       // pipeline barrier
       pipeline_barrier,
       // global work group size
-      v_output.extents(),
+      global_size,
       // local work group size
-      adaptive_work_group_size(v_output.extents()),
+      local_size,
       // fence handle
       VK_NULL_HANDLE,
       // shader arguments
@@ -308,6 +396,10 @@ Tensor& neg_(Tensor& self_arg) {
   return unary_op_(self_arg, VK_KERNEL(neg_inplace));
 }
 
+Tensor reciprocal(const Tensor& self_arg) {
+  return unary_op_cpu_fallback(self_arg, UnaryOpKind::Reciprocal);
+}
+
 Tensor rsqrt(const Tensor& self_arg) {
   return unary_op(
       self_arg, VK_KERNEL(rsqrt), VK_KERNEL(buffer_rsqrt), UnaryOpKind::Rsqrt);
@@ -343,6 +435,7 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl("atan", TORCH_FN(atan));
   m.impl(TORCH_SELECTIVE_NAME("aten::neg"), TORCH_FN(neg));
   m.impl(TORCH_SELECTIVE_NAME("aten::neg_"), TORCH_FN(neg_));
+  m.impl(TORCH_SELECTIVE_NAME("aten::reciprocal"), TORCH_FN(reciprocal));
   m.impl(TORCH_SELECTIVE_NAME("aten::rsqrt"), TORCH_FN(rsqrt));
   m.impl(TORCH_SELECTIVE_NAME("aten::rsqrt_"), TORCH_FN(rsqrt_));
   m.impl(TORCH_SELECTIVE_NAME("aten::silu"), TORCH_FN(silu));

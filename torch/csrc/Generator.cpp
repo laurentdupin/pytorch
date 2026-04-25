@@ -53,7 +53,7 @@ static PyObject* THPGenerator_pynew(
       reinterpret_cast<THPGenerator*>(type->tp_alloc(type, 0)));
 
   c10::DeviceType device_type = device.type();
-  if (device_type == at::kCPU) {
+  if (device_type == at::kCPU || device_type == at::kVulkan) {
     self->cdata = make_generator<CPUGeneratorImpl>();
   } else {
     self->cdata = globalContext()

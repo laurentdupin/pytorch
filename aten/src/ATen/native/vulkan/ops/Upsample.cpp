@@ -1,8 +1,11 @@
 #include <ATen/native/UpSample.h>
+#include <ATen/ops/_upsample_nearest_exact2d.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/Upsample.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <c10/core/InferenceMode.h>
 #include <torch/library.h>
 
 #include <algorithm>
@@ -364,6 +367,56 @@ static Tensor upsample_nearest2d(
   return convert(v_output);
 }
 
+static Tensor upsample_nearest_exact2d_cpu_fallback(
+    const Tensor& input_arg,
+    const IntArrayRef output_sizes,
+    const std::optional<double> scales_h,
+    const std::optional<double> scales_w) {
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor input_cpu = input_arg.is_vulkan() ? input_arg.cpu() : input_arg;
+    result_cpu = at::_upsample_nearest_exact2d(
+        input_cpu,
+        output_sizes,
+        scales_h,
+        scales_w);
+  }
+  return result_cpu.to(input_arg.device());
+}
+
+static Tensor upsample_nearest_exact2d(
+    const Tensor& input_arg,
+    const IntArrayRef output_sizes,
+    const std::optional<double> scales_h,
+    const std::optional<double> scales_w) {
+  utils::log_vulkan_op_hit("aten::_upsample_nearest_exact2d.cpu_fallback");
+  return upsample_nearest_exact2d_cpu_fallback(
+      input_arg,
+      output_sizes,
+      scales_h,
+      scales_w);
+}
+
+static Tensor& upsample_nearest_exact2d_out(
+    const Tensor& input_arg,
+    const IntArrayRef output_sizes,
+    const std::optional<double> scales_h,
+    const std::optional<double> scales_w,
+    Tensor& out) {
+  Tensor result = upsample_nearest_exact2d(
+      input_arg,
+      output_sizes,
+      scales_h,
+      scales_w);
+  if (out.is_vulkan()) {
+    return rebind_vulkan_output(out, result);
+  }
+  out.copy_(result.cpu());
+  return out;
+}
+
 static Tensor upsample_bilinear2d(
     const Tensor& input_arg,
     const IntArrayRef output_sizes,
@@ -662,6 +715,12 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("aten::upsample_nearest2d"),
       TORCH_FN(upsample_nearest2d));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::_upsample_nearest_exact2d"),
+      TORCH_FN(upsample_nearest_exact2d));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::_upsample_nearest_exact2d.out"),
+      TORCH_FN(upsample_nearest_exact2d_out));
   m.impl(
       TORCH_SELECTIVE_NAME("aten::upsample_bilinear2d"),
       TORCH_FN(upsample_bilinear2d));

@@ -5,6 +5,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/planning/Execution.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
+#include <string>
 
 namespace at {
 namespace native {
@@ -140,6 +141,7 @@ Tensor contiguous_inference(
 Tensor reshape_inference(const Tensor&, IntArrayRef);
 
 void log_vulkan_op_hit(const char* op_name);
+void log_vulkan_op_hit(const std::string& op_name);
 
 void copy_buffer_to_buffer(
     api::Context* const context,

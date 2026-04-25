@@ -11,6 +11,7 @@
 #include <ATen/ops/empty.h>
 #include <ATen/ops/index.h>
 #include <ATen/ops/index_add.h>
+#include <ATen/ops/nonzero.h>
 #include <ATen/ops/scatter.h>
 #include <ATen/ops/sort.h>
 #include <ATen/ops/topk.h>
@@ -609,6 +610,14 @@ Tensor& index_add_(
   return self;
 }
 
+Tensor nonzero_vulkan(const Tensor& self) {
+  utils::log_vulkan_op_hit("aten::nonzero.cpu_fallback");
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
+  return at::nonzero(self_cpu);
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
@@ -633,6 +642,7 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::index_add"), TORCH_FN(index_add_default));
   m.impl(TORCH_SELECTIVE_NAME("aten::index_add.out"), TORCH_FN(index_add_out));
   m.impl(TORCH_SELECTIVE_NAME("aten::index_add_"), TORCH_FN(index_add_));
+  m.impl(TORCH_SELECTIVE_NAME("aten::nonzero"), TORCH_FN(nonzero_vulkan));
 }
 
 #endif /* USE_VULKAN_API */

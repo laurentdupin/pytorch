@@ -1,3 +1,6 @@
+#include <c10/core/DispatchKeySet.h>
+#include <c10/core/InferenceMode.h>
+#include <ATen/ops/batch_norm_ops.h>
 #include <ATen/native/vulkan/ops/Batchnorm.h>
 #include <torch/library.h>
 
@@ -81,21 +84,78 @@ Tensor batch_norm(
     double eps,
     bool /* cudnn_enable, deprecated */) {
   TORCH_CHECK(!training, "Only evaluation mode is supported!");
-  TORCH_CHECK(input_arg.dim() == 4, "Input must have dim == 4!");
-  TORCH_CHECK(
-      get_dim<Dim4D::Channel>(input_arg) % 4 == 0,
-      "Input must have channels divisible by 4!");
 
-  return run_batchnorm_context(
+  const Device output_device = input_arg.device();
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor input_cpu = input_arg.is_vulkan() ? input_arg.cpu() : input_arg;
+    const std::optional<Tensor> weight_cpu =
+        weight_opt && weight_opt->is_vulkan()
+        ? std::optional<Tensor>(weight_opt->cpu())
+        : weight_opt;
+    const std::optional<Tensor> bias_cpu =
+        bias_opt && bias_opt->is_vulkan()
+        ? std::optional<Tensor>(bias_opt->cpu())
+        : bias_opt;
+    const std::optional<Tensor> running_mean_cpu =
+        running_mean_opt && running_mean_opt->is_vulkan()
+        ? std::optional<Tensor>(running_mean_opt->cpu())
+        : running_mean_opt;
+    const std::optional<Tensor> running_var_cpu =
+        running_var_opt && running_var_opt->is_vulkan()
+        ? std::optional<Tensor>(running_var_opt->cpu())
+        : running_var_opt;
+
+    result_cpu = at::_ops::batch_norm::call(
+        input_cpu,
+        weight_cpu,
+        bias_cpu,
+        running_mean_cpu,
+        running_var_cpu,
+        training,
+        0.0,
+        eps,
+        false);
+  }
+  return result_cpu.to(output_device);
+}
+
+Tensor batch_norm_autograd_other(
+    c10::DispatchKeySet ks,
+    const at::Tensor& input_arg,
+    const std::optional<Tensor>& weight_opt,
+    const std::optional<Tensor>& bias_opt,
+    const std::optional<Tensor>& running_mean_opt,
+    const std::optional<Tensor>& running_var_opt,
+    bool training,
+    double momentum,
+    double eps,
+    bool cudnn_enable) {
+  return at::_ops::batch_norm::redispatch(
+      ks & c10::after_autograd_keyset,
       input_arg,
-      c10::make_intrusive<BatchNormPackedContext>(BatchNormPackedContext(
-          weight_opt, bias_opt, running_mean_opt, running_var_opt, eps)));
+      weight_opt,
+      bias_opt,
+      running_mean_opt,
+      running_var_opt,
+      training,
+      momentum,
+      eps,
+      cudnn_enable);
 }
 
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::batch_norm"), TORCH_FN(batch_norm));
+}
+
+TORCH_LIBRARY_IMPL(aten, AutogradOther, m) {
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::batch_norm"),
+      TORCH_FN(batch_norm_autograd_other));
 }
 
 #endif /* USE_VULKAN_API */

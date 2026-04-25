@@ -12,17 +12,20 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from bench_common import suppress_windows_error_dialogs
+
+suppress_windows_error_dialogs()
+
 import cv2
 import torch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_INSTALL_ROOT = Path(
-    os.environ.get(
-        "DEPTH_EXTRACTOR_DEPTH_ANYTHING_V25",
-        r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V25",
-    )
-)
+DEFAULT_INSTALL_ROOT = os.environ.get("DEPTH_EXTRACTOR_DEPTH_ANYTHING_INSTALL_ROOT")
 
 
 def percentile(values: list[float], pct: float) -> float:
@@ -256,12 +259,13 @@ def list_corpus_images(image_dir: Path, limit: int | None) -> list[Path]:
 
 
 def main() -> None:
+    suppress_windows_error_dialogs()
     parser = argparse.ArgumentParser(
         description="Benchmark the exact Deep Desktop Depth-Anything forward path."
     )
     parser.add_argument(
         "--install-root",
-        default=str(DEFAULT_INSTALL_ROOT),
+        default=DEFAULT_INSTALL_ROOT,
         help="DepthExtractor installation root containing Depth-Anything and Python310.",
     )
     parser.add_argument("--device", default="vulkan")
@@ -283,6 +287,11 @@ def main() -> None:
     parser.add_argument("--repeats", type=int, default=10)
     parser.add_argument("--out", help="Optional JSON output path.")
     args = parser.parse_args()
+
+    if not args.install_root:
+        raise SystemExit(
+            "--install-root is required or set DEPTH_EXTRACTOR_DEPTH_ANYTHING_INSTALL_ROOT"
+        )
 
     install_root = Path(args.install_root).resolve()
     depth_anything_root = resolve_depth_anything_root(install_root)

@@ -1,5 +1,7 @@
 #include <ATen/InferSize.h>
 #include <ATen/Functions.h>
+#include <c10/core/DispatchKeySet.h>
+#include <ATen/ops/contiguous_ops.h>
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
@@ -492,6 +494,16 @@ static Tensor contiguous(
       self, std::optional<c10::MemoryFormat>(c10::MemoryFormat::Contiguous));
 }
 
+static Tensor contiguous_autograd_other(
+    c10::DispatchKeySet ks,
+    const Tensor& self_arg,
+    c10::MemoryFormat memory_format) {
+  return at::_ops::contiguous::redispatch(
+      ks & c10::after_autograd_keyset,
+      self_arg,
+      memory_format);
+}
+
 static Tensor _reshape_alias(
     const Tensor& self_arg,
     const IntArrayRef shape,
@@ -567,6 +579,12 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::view"), TORCH_FN(view));
   m.impl(
       TORCH_SELECTIVE_NAME("aten::_reshape_alias"), TORCH_FN(_reshape_alias));
+}
+
+TORCH_LIBRARY_IMPL(aten, AutogradOther, m) {
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::contiguous"),
+      TORCH_FN(contiguous_autograd_other));
 }
 
 #endif /* USE_VULKAN_API */

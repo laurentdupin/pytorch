@@ -17,12 +17,15 @@
 #include <atomic>
 #include <array>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
+#include <sstream>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
 #else
 #include <ATen/ops/conv2d.h>
+#include <ATen/ops/convolution.h>
 #include <ATen/ops/dequantize.h>
 #include <ATen/ops/pad.h>
 #include <ATen/ops/permute.h>
@@ -36,6 +39,8 @@ namespace vulkan {
 namespace ops {
 
 namespace {
+
+bool output_padding_is_zero(const IntArrayRef output_padding);
 
 utils::VulkanPlanningRequest convolution_request(
     const utils::VulkanTensorRole role) {
@@ -62,6 +67,52 @@ namespace conv2d {
 
 inline bool has_bias(const std::optional<Tensor>& bias) {
   return bias && bias->defined();
+}
+
+std::string format_conv_sizes(IntArrayRef sizes) {
+  std::ostringstream stream;
+  stream << '[';
+  for (const auto idx : c10::irange(sizes.size())) {
+    if (idx > 0) {
+      stream << 'x';
+    }
+    stream << sizes[idx];
+  }
+  stream << ']';
+  return stream.str();
+}
+
+void log_float_buffer_conv2d_submit(
+    const char* kernel_name,
+    const vTensor& v_input,
+    const vTensor& v_output,
+    const PackedWeightHandle& packed_weight,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups,
+    const api::utils::uvec3& global_size,
+    const api::utils::uvec3& local_size) {
+  std::ostringstream stream;
+  stream << "aten::convolution.submit"
+         << " kernel=" << kernel_name
+         << " input=" << format_conv_sizes(v_input.sizes())
+         << " output=" << format_conv_sizes(v_output.sizes())
+         << " weight=" << format_conv_sizes(packed_weight.logical_weight_sizes())
+         << " bias=" << (packed_weight.has_bias() ? 1 : 0)
+         << " stride=" << format_conv_sizes(stride)
+         << " padding=" << format_conv_sizes(padding)
+         << " dilation=" << format_conv_sizes(dilation)
+         << " groups=" << groups
+         << " input_direct=" << (v_input.has_direct_buffer_layout() ? 1 : 0)
+         << " output_direct=" << (v_output.has_direct_buffer_layout() ? 1 : 0)
+         << " input_offset=" << v_input.storage_offset()
+         << " output_offset=" << v_output.storage_offset()
+         << " global=[" << global_size.data[0] << 'x' << global_size.data[1]
+         << 'x' << global_size.data[2] << ']'
+         << " local=[" << local_size.data[0] << 'x' << local_size.data[1]
+         << 'x' << local_size.data[2] << ']';
+  utils::log_vulkan_op_hit(stream.str());
 }
 
 //
@@ -966,6 +1017,18 @@ bool can_use_float_buffer_conv2d_prepack(
   return true;
 }
 
+bool should_force_image_conv_for_small_metadata_input(const Tensor& input) {
+  if (
+      !input.is_vulkan() || input.scalar_type() != kFloat || input.dim() != 4 ||
+      input.size(1) <= 1 || input.size(1) >= 20) {
+    return false;
+  }
+  const vTensor& v_input = convert(input);
+  return v_input.storage_type() == api::StorageType::BUFFER &&
+      v_input.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      !v_input.has_direct_buffer_layout();
+}
+
 bool can_run_bfloat16_buffer_conv2d(
     const Tensor& input,
     const Tensor& weight,
@@ -1069,6 +1132,57 @@ PackedWeightHandle make_float_buffer_conv2d_handle(
       false,
       api::ExecutionLayout::BUFFER_DIRECT,
       resident_nbytes);
+}
+
+bool should_cache_float_buffer_conv2d_handle(
+    const PackedWeightHandle& handle,
+    const PackedWeightKind packed_weight_kind) {
+  const char* const device_name =
+      api::context()->adapter_ptr()->physical_device().properties.deviceName;
+  if (
+      device_name != nullptr && std::strstr(device_name, "GTX") != nullptr &&
+      handle.resident_nbytes() > 64u * 1024u) {
+    utils::log_vulkan_op_hit(
+        std::string(
+            "aten::convolution.packed_weight_cache_skip.gtx bytes=") +
+        std::to_string(handle.resident_nbytes()) + " weight=" +
+        conv2d::format_conv_sizes(handle.logical_weight_sizes()));
+    return false;
+  }
+  // Large eager 3x3 diffusion/decoder weights are often touched once per frame.
+  // Keeping all of them in the persistent packed-weight cache creates live
+  // memory pressure without producing hits; let normal Vulkan deferred cleanup
+  // own their in-flight lifetime instead.
+  constexpr size_t kLargeSlidingWindowConvCacheLimitBytes =
+      size_t{2} * 1024u * 1024u;
+  if (
+      packed_weight_kind == PackedWeightKind::Conv2dSlidingWindow &&
+      handle.resident_nbytes() > kLargeSlidingWindowConvCacheLimitBytes) {
+    utils::log_vulkan_op_hit(
+        std::string("aten::convolution.packed_weight_cache_skip.large bytes=") +
+        std::to_string(handle.resident_nbytes()) + " weight=" +
+        conv2d::format_conv_sizes(handle.logical_weight_sizes()));
+    return false;
+  }
+  return true;
+}
+
+bool is_gtx_class_runtime_device() {
+  const char* const device_name =
+      api::context()->adapter_ptr()->physical_device().properties.deviceName;
+  return device_name != nullptr && std::strstr(device_name, "GTX") != nullptr;
+}
+
+void maybe_sync_after_gtx_large_buffer_conv(
+    api::Context* const context,
+    const vTensor& v_output) {
+  constexpr size_t kGtxLargeConvSyncBytes = 128u * 1024u * 1024u;
+  if (
+      is_gtx_class_runtime_device() &&
+      v_output.gpu_nbytes() >= kGtxLargeConvSyncBytes) {
+    utils::log_vulkan_op_hit("aten::convolution.gtx_large_buffer_sync");
+    context->sync_and_reclaim();
+  }
 }
 
 bool can_run_float_buffer_conv2d(
@@ -1344,6 +1458,7 @@ enum class FloatBufferConv2dShaderKind {
   Generic,
   Pointwise1x1,
   Kernel3x3Stride1Pad1,
+  Kernel3x3Stride2Pad0,
   Kernel3x3Stride2Pad1,
 };
 
@@ -1372,11 +1487,29 @@ FloatBufferConv2dShaderKind select_float_buffer_conv2d_shader_kind(
     return FloatBufferConv2dShaderKind::Pointwise1x1;
   }
 
-  if (kernel_h == 3 && kernel_w == 3 && padding[0] == 1 && padding[1] == 1) {
-    if (stride[0] == 1 && stride[1] == 1) {
+  const int64_t out_channels =
+      get_dim<DimConv2DKernel::OutChannels>(logical_weight_sizes);
+  const int64_t in_channels =
+      get_dim<DimConv2DKernel::InChannels>(logical_weight_sizes);
+  if (kernel_h == 3 && kernel_w == 3 && out_channels >= 1280 &&
+      in_channels >= 1280) {
+    return FloatBufferConv2dShaderKind::Generic;
+  }
+
+  if (kernel_h == 3 && kernel_w == 3) {
+    if (
+        padding[0] == 0 && padding[1] == 0 && stride[0] == 2 &&
+        stride[1] == 2) {
+      return FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad0;
+    }
+    if (
+        padding[0] == 1 && padding[1] == 1 && stride[0] == 1 &&
+        stride[1] == 1) {
       return FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1;
     }
-    if (stride[0] == 2 && stride[1] == 2) {
+    if (
+        padding[0] == 1 && padding[1] == 1 && stride[0] == 2 &&
+        stride[1] == 2) {
       return FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad1;
     }
   }
@@ -1398,6 +1531,7 @@ api::utils::uvec3 select_float_buffer_conv2d_work_group_size(
     case FloatBufferConv2dShaderKind::Pointwise1x1:
       return {16u, 4u, 1u};
     case FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1:
+    case FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad0:
     case FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad1:
       return {8u, 8u, 1u};
     case FloatBufferConv2dShaderKind::Generic:
@@ -1526,6 +1660,9 @@ Tensor run_float_buffer_conv2d_impl(
     case FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1:
       utils::log_vulkan_op_hit("aten::convolution.buffer_float_3x3_s1p1");
       break;
+    case FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad0:
+      utils::log_vulkan_op_hit("aten::convolution.buffer_float_3x3_s2p0");
+      break;
     case FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad1:
       utils::log_vulkan_op_hit("aten::convolution.buffer_float_3x3_s2p1");
       break;
@@ -1598,20 +1735,39 @@ Tensor run_float_buffer_conv2d_impl(
   const api::utils::uvec3 local_size =
       select_float_buffer_conv2d_work_group_size(shader_kind, global_size);
   api::ShaderInfo shader = VK_KERNEL(conv2d_buffer_float);
+  const char* kernel_name = "conv2d_buffer_float";
   switch (shader_kind) {
     case FloatBufferConv2dShaderKind::Pointwise1x1:
       shader = VK_KERNEL(conv2d_buffer_float_1x1);
+      kernel_name = "conv2d_buffer_float_1x1";
       break;
     case FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1:
       shader = VK_KERNEL(conv2d_buffer_float_3x3_s1p1);
+      kernel_name = "conv2d_buffer_float_3x3_s1p1";
+      break;
+    case FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad0:
+      shader = VK_KERNEL(conv2d_buffer_float_3x3_s2p0);
+      kernel_name = "conv2d_buffer_float_3x3_s2p0";
       break;
     case FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad1:
       shader = VK_KERNEL(conv2d_buffer_float_3x3_s2p1);
+      kernel_name = "conv2d_buffer_float_3x3_s2p1";
       break;
     case FloatBufferConv2dShaderKind::Generic:
       break;
   }
 
+  conv2d::log_float_buffer_conv2d_submit(
+      kernel_name,
+      v_input,
+      v_output,
+      packed_weight,
+      stride,
+      padding,
+      dilation,
+      groups,
+      global_size,
+      local_size);
   context->submit_compute_job(
       shader,
       pipeline_barrier,
@@ -1631,6 +1787,7 @@ Tensor run_float_buffer_conv2d_impl(
       bias_meta.buffer(),
       params.buffer());
 
+  maybe_sync_after_gtx_large_buffer_conv(context, v_output);
   return output_arg != nullptr ? output_tensor : convert(v_output);
 }
 
@@ -2013,6 +2170,12 @@ Tensor run_bfloat16_buffer_conv2d(
               bias,
               utils::VulkanExecutionPlanKind::Conv2dBiasSource,
               convolution_request(utils::VulkanTensorRole::Bias));
+  const bool force_legacy_image_pack =
+      should_force_image_conv_for_small_metadata_input(input);
+  if (force_legacy_image_pack) {
+    utils::log_vulkan_op_hit(
+        "aten::convolution.buffer_float_skip.small_metadata_input");
+  }
   if (utils::has_inference_tensor(compute_weight, compute_bias)) {
     auto conv_context = c10::make_intrusive<Conv2dPackedContext>(
         compute_weight,
@@ -2025,7 +2188,10 @@ Tensor run_bfloat16_buffer_conv2d(
         output_padding,
         groups,
         std::nullopt,
-        std::nullopt);
+        std::nullopt,
+        weight,
+        bias,
+        force_legacy_image_pack);
     return run_conv2d_context(input, conv_context);
   }
   auto conv_context = c10::make_intrusive<Conv2dPackedContext>(
@@ -2037,7 +2203,12 @@ Tensor run_bfloat16_buffer_conv2d(
       transposed,
       false,
       output_padding,
-      groups);
+      groups,
+      std::nullopt,
+      std::nullopt,
+      weight,
+      bias,
+      force_legacy_image_pack);
 
   return run_conv2d_context(input, conv_context);
 }
@@ -2198,7 +2369,10 @@ Conv2dPackedContext::Conv2dPackedContext(
     const IntArrayRef output_padding_arg,
     const int64_t groups,
     const std::optional<Scalar>& output_min,
-    const std::optional<Scalar>& output_max)
+    const std::optional<Scalar>& output_max,
+    const Tensor& cache_weight_arg,
+    const std::optional<Tensor>& cache_bias_arg,
+    const bool force_legacy_image_pack)
     : unpacked_{c10::AnyType::get()} {
   const auto stride = expand_param_if_needed(stride_arg, "stride", 2);
   const auto padding = expand_param_if_needed(padding_arg, "padding", 2);
@@ -2228,19 +2402,26 @@ Conv2dPackedContext::Conv2dPackedContext(
       weight.sizes(), stride, padding, dilation, groups, transposed, quantized);
 
   const auto normalized_bias = utils::normalized_optional_tensor(bias);
+  const Tensor& cache_weight =
+      cache_weight_arg.defined() ? cache_weight_arg : weight;
+  const std::optional<Tensor> normalized_cache_bias =
+      cache_bias_arg.has_value()
+      ? utils::normalized_optional_tensor(cache_bias_arg)
+      : normalized_bias;
   const std::vector<int64_t> logical_weight_sizes = weight.sizes().vec();
   constexpr uint64_t kConvTransposedPackOption = 1u;
   constexpr uint64_t kConvBufferPackOption = 1u << 1;
   const PackedWeightKind packed_weight_kind =
       packed_weight_kind_for_conv2d_method(method);
-  const bool use_float_buffer_packing = can_use_float_buffer_conv2d_prepack(
-      weight, bias, transposed, quantized, output_padding);
+  const bool use_float_buffer_packing = !force_legacy_image_pack &&
+      can_use_float_buffer_conv2d_prepack(
+          weight, bias, transposed, quantized, output_padding);
   const uint64_t pack_options =
       (transposed ? kConvTransposedPackOption : 0u) |
       (use_float_buffer_packing ? kConvBufferPackOption : 0u);
   if (const auto cached_packed_weight = utils::lookup_packed_weight_handle(
-          weight,
-          normalized_bias,
+          cache_weight,
+          normalized_cache_bias,
           logical_weight_sizes,
           packed_weight_kind,
           quantized,
@@ -2266,14 +2447,17 @@ Conv2dPackedContext::Conv2dPackedContext(
           bias && bias->defined(),
           quantized);
     }
-    utils::store_packed_weight_handle(
-        weight,
-        normalized_bias,
-        logical_weight_sizes,
-        packed_weight_kind,
-        packed_weight_,
-        quantized,
-        pack_options);
+    if (should_cache_float_buffer_conv2d_handle(
+            packed_weight_, packed_weight_kind)) {
+      utils::store_packed_weight_handle(
+          cache_weight,
+          normalized_cache_bias,
+          logical_weight_sizes,
+          packed_weight_kind,
+          packed_weight_,
+          quantized,
+          pack_options);
+    }
   }
   overlay_region_ = compute_overlay_region(weight, dilation, transposed);
   const auto packed_stride = pack_params(stride);

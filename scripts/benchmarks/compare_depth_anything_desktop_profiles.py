@@ -17,7 +17,15 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from bench_common import summarize_durations, synchronize_payload, write_json
+from bench_common import (
+    suppress_windows_error_dialogs,
+    summarize_durations,
+    synchronize_payload,
+    windows_subprocess_kwargs,
+    write_json,
+)
+
+suppress_windows_error_dialogs()
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -33,36 +41,60 @@ class InstallSpec:
     sync_kind: str
 
 
-DEFAULT_INSTALLS = (
-    InstallSpec(
-        name="vulkan",
-        root=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V2"),
-        python_path=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V2\Python310\python.exe"),
-        device_key="VULKAN",
-        sync_kind="vulkan",
-    ),
-    InstallSpec(
-        name="directml",
-        root=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V22"),
-        python_path=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V22\Python310\python.exe"),
-        device_key="DIRECT_ML0",
-        sync_kind="directml",
-    ),
-    InstallSpec(
-        name="rocm",
-        root=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V23"),
-        python_path=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V23\Python312\python.exe"),
-        device_key="CUDA0",
-        sync_kind="cuda",
-    ),
-    InstallSpec(
-        name="cuda",
-        root=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V24"),
-        python_path=Path(r"C:\Users\REDACTED\AppData\Local\DepthExtractor\Depth-Anything-V24\Python310\python.exe"),
-        device_key="CUDA0",
-        sync_kind="cuda",
-    ),
-)
+def default_installs(depth_extractor_root: Path) -> tuple[InstallSpec, ...]:
+    return (
+        InstallSpec(
+            name="vulkan",
+            root=depth_extractor_root / "Depth-Anything-V2",
+            python_path=depth_extractor_root
+            / "Depth-Anything-V2"
+            / "Python310"
+            / "python.exe",
+            device_key="VULKAN",
+            sync_kind="vulkan",
+        ),
+        InstallSpec(
+            name="directml",
+            root=depth_extractor_root / "Depth-Anything-V22",
+            python_path=depth_extractor_root
+            / "Depth-Anything-V22"
+            / "Python310"
+            / "python.exe",
+            device_key="DIRECT_ML0",
+            sync_kind="directml",
+        ),
+        InstallSpec(
+            name="rocm",
+            root=depth_extractor_root / "Depth-Anything-V23",
+            python_path=depth_extractor_root
+            / "Depth-Anything-V23"
+            / "Python312"
+            / "python.exe",
+            device_key="CUDA0",
+            sync_kind="cuda",
+        ),
+        InstallSpec(
+            name="cuda",
+            root=depth_extractor_root / "Depth-Anything-V24",
+            python_path=depth_extractor_root
+            / "Depth-Anything-V24"
+            / "Python310"
+            / "python.exe",
+            device_key="CUDA0",
+            sync_kind="cuda",
+        ),
+    )
+
+
+def default_image_path(depth_extractor_root: Path) -> Path:
+    return (
+        depth_extractor_root
+        / "Depth-Anything-V2"
+        / "Depth-Anything"
+        / "assets"
+        / "examples"
+        / "demo01.jpg"
+    )
 
 
 class Recorder:
@@ -643,7 +675,13 @@ def run_install_profile(
         "--repeats",
         str(repeats),
     ]
-    subprocess.run(command, check=True, cwd=spec.root, env=env)
+    subprocess.run(
+        command,
+        check=True,
+        cwd=spec.root,
+        env=env,
+        **windows_subprocess_kwargs(),
+    )
     return json.loads(out_path.read_text(encoding="utf-8"))
 
 
@@ -688,6 +726,10 @@ def parse_args() -> argparse.Namespace:
         description="Profile the exact installed Depth-Anything desktop path across backends."
     )
     parser.add_argument("--profile-install", action="store_true")
+    parser.add_argument(
+        "--depth-extractor-root",
+        help="DepthExtractor install root. Required unless --profile-install is set.",
+    )
     parser.add_argument("--install-root")
     parser.add_argument("--device-key")
     parser.add_argument("--backend-name")
@@ -704,8 +746,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    suppress_windows_error_dialogs()
     args = parse_args()
     if args.profile_install:
+        if not args.install_root or not args.device_key or not args.backend_name or not args.sync_kind or not args.image or not args.out:
+            raise SystemExit(
+                "--profile-install requires --install-root, --device-key, "
+                "--backend-name, --sync-kind, --image, and --out"
+            )
         profile_install(
             install_root=Path(args.install_root).resolve(),
             device_key=args.device_key,
@@ -721,15 +769,20 @@ def main() -> None:
         )
         return
 
+    if not args.depth_extractor_root:
+        raise SystemExit("--depth-extractor-root is required unless --profile-install is set")
+
+    depth_extractor_root = Path(args.depth_extractor_root).resolve()
     image_path = (
-        Path(r"C:\Users\REDACTED\Downloads\AIProspection\PytorchVulkan\Depth-Anything-V2\assets\examples\demo01.jpg")
-        .resolve()
+        Path(args.image).resolve()
+        if args.image
+        else default_image_path(depth_extractor_root).resolve()
     )
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     profiles: dict[str, dict[str, Any]] = {}
-    for spec in DEFAULT_INSTALLS:
+    for spec in default_installs(depth_extractor_root):
         out_path = output_dir / f"profile_{spec.name}.json"
         profiles[spec.name] = run_install_profile(
             spec,

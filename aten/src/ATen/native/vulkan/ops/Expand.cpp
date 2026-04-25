@@ -3,11 +3,13 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/Functions.h>
 #include <ATen/ExpandUtils.h>
+#include <c10/core/DispatchKeySet.h>
 #include <torch/library.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
 #else
+#include <ATen/ops/expand_as_ops.h>
 #include <ATen/ops/repeat.h>
 #endif
 
@@ -73,11 +75,27 @@ Tensor expand_as(const at::Tensor& self, const at::Tensor& other) {
   return expand(self, other.sizes());
 }
 
+Tensor expand_as_autograd_other(
+    c10::DispatchKeySet ks,
+    const at::Tensor& self,
+    const at::Tensor& other) {
+  return at::_ops::expand_as::redispatch(
+      ks & c10::after_autograd_keyset,
+      self,
+      other);
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::expand"), TORCH_FN(expand));
   m.impl(TORCH_SELECTIVE_NAME("aten::expand_as"), TORCH_FN(expand_as));
+}
+
+TORCH_LIBRARY_IMPL(aten, AutogradOther, m) {
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::expand_as"),
+      TORCH_FN(expand_as_autograd_other));
 }
 
 #endif /* USE_VULKAN_API */

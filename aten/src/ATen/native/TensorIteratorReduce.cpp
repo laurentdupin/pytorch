@@ -26,8 +26,12 @@ void TensorIteratorBase::parallel_reduce(loop2d_t loop) {
       ntensors() == 2,
       "parallel_reduce only supports one input and one output");
   int64_t numel = this->numel();
+  const int64_t output_numel = this->num_output_elements();
+  const int64_t reduction_factor =
+      output_numel > 0 ? numel / output_numel : numel;
   if (numel < at::internal::GRAIN_SIZE || at::get_num_threads() == 1 ||
-      at::in_parallel_region()) {
+      at::in_parallel_region() ||
+      (output_numel > 1 && reduction_factor <= 16)) {
     serial_for_each(loop, {0, numel});
   } else if (use_two_pass_reduction(*this)) {
     two_pass_reduction(*this, loop);

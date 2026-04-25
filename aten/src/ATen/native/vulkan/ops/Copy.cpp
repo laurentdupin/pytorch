@@ -146,6 +146,26 @@ std::string format_sizes(const std::vector<int64_t>& sizes) {
   return stream.str();
 }
 
+void log_buffer_to_buffer_copy_submit(
+    const char* path,
+    const vTensor& src,
+    const vTensor& dst) {
+  std::ostringstream stream;
+  stream << "aten::copy_.buffer_to_buffer_submit"
+         << " path=" << path
+         << " src_sizes=" << format_sizes(src.sizes())
+         << " dst_sizes=" << format_sizes(dst.sizes())
+         << " src_direct=" << (src.has_direct_buffer_layout() ? 1 : 0)
+         << " dst_direct=" << (dst.has_direct_buffer_layout() ? 1 : 0)
+         << " src_offset=" << src.storage_offset()
+         << " dst_offset=" << dst.storage_offset()
+         << " src_logical_bytes=" << src.nbytes()
+         << " dst_logical_bytes=" << dst.nbytes()
+         << " src_gpu_bytes=" << src.gpu_nbytes()
+         << " dst_gpu_bytes=" << dst.gpu_nbytes();
+  utils::log_vulkan_op_hit(stream.str());
+}
+
 void log_copy_sync_event(
     const char* kind,
     const vTensor& tensor,
@@ -164,14 +184,28 @@ void log_copy_sync_event(
       << " sizes=" << format_sizes(tensor.sizes()) << '\n';
 }
 
-void retire_after_fence_wait_and_release(api::Context* const context) {
+void retire_command_resources_after_fence_wait(api::Context* const context) {
+  utils::log_vulkan_op_hit("aten::copy_.retire_after_fence_begin");
   context->retire_after_fence_wait();
+  utils::log_vulkan_op_hit("aten::copy_.retire_after_fence_end");
+}
+
+void release_retired_objects_after_context_unlock(api::Context* const context) {
+  utils::log_vulkan_op_hit("aten::copy_.release_retired_contexts_begin");
   const bool released_retired_objects =
       utils::release_retired_packed_weight_entries() |
       utils::release_retired_linear_contexts();
+  utils::log_vulkan_op_hit("aten::copy_.release_retired_contexts_end");
   if (released_retired_objects) {
+    utils::log_vulkan_op_hit("aten::copy_.retire_after_release_begin");
     context->retire_after_fence_wait();
+    utils::log_vulkan_op_hit("aten::copy_.retire_after_release_end");
   }
+}
+
+void retire_after_fence_wait_and_release(api::Context* const context) {
+  retire_command_resources_after_fence_wait(context);
+  release_retired_objects_after_context_unlock(context);
 }
 
 bool can_copy_vulkan_buffer_to_buffer_on_device(
@@ -206,6 +240,7 @@ void copy_vulkan_buffer_to_buffer_on_device(vTensor& src, vTensor& dst) {
       src.has_direct_buffer_layout() && dst.has_direct_buffer_layout() &&
       src.storage_offset() == 0 && dst.storage_offset() == 0 &&
       src.gpu_nbytes() == dst.gpu_nbytes()) {
+    log_buffer_to_buffer_copy_submit("direct_transfer", src, dst);
     api::PipelineBarrier pipeline_barrier{};
     context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
         pipeline_barrier,
@@ -228,6 +263,7 @@ void copy_vulkan_buffer_to_buffer_on_device(vTensor& src, vTensor& dst) {
     return;
   }
 
+  log_buffer_to_buffer_copy_submit("staging_pack", src, dst);
   api::StorageBuffer staging(context, src.dtype(), src.numel());
   api::PipelineBarrier read_barrier{};
   packing::record_buffer_to_nchw_op(
@@ -672,6 +708,7 @@ bool copy_vtensor_buffer_to_staging(
       (src.dtype() == api::kFloat || src.dtype() == api::kByte) &&
       src.sizes().size() <= 4 &&
       src.storage_type() == api::StorageType::BUFFER &&
+      !src.has_direct_buffer_layout() &&
       src.last_write_was_compute();
   if (use_packed_buffer_shader) {
     return utils::pack_vtensor_to_staging(src, staging, fence_handle);
@@ -1004,6 +1041,7 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
         (src.dtype() == api::kFloat || src.dtype() == api::kByte) &&
         src.sizes().size() <= 4 &&
         src.storage_type() == api::StorageType::BUFFER &&
+        !src.has_direct_buffer_layout() &&
         src.last_write_was_compute();
     const int64_t staging_length =
         shader_packed_buffer
@@ -1024,37 +1062,61 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
     }
 
     if (staging_bytes > 0u) {
-      auto staging = lookup_or_create_readback_buffer("buffer_pack", staging_bytes);
-      std::unique_lock<std::mutex> staging_lock(staging.mutex());
-
-      {
+      auto submit_to_staging = [&](api::VulkanBuffer& staging_buffer) {
+        bool submitted_to_gpu = false;
         std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
-        const bool submitted_to_gpu = copy_vtensor_buffer_to_staging(
-            context, src, staging.buffer(), fence.get_submit_handle());
+        submitted_to_gpu = copy_vtensor_buffer_to_staging(
+            context, src, staging_buffer, fence.get_submit_handle());
         if (submitted_to_gpu) {
           fence.wait();
           log_copy_sync_event(
               "pack_vulkan_to_cpu_buffer",
               src,
               src.has_direct_buffer_layout());
-          retire_after_fence_wait_and_release(context);
+          retire_command_resources_after_fence_wait(context);
         }
-      }
-
-      {
-        api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::READ);
+        context_lock.unlock();
+        if (submitted_to_gpu) {
+          release_retired_objects_after_context_unlock(context);
+        }
+      };
+      auto copy_from_staging = [&](api::VulkanBuffer& staging_buffer) {
+        api::MemoryMap mapping(staging_buffer, api::MemoryAccessType::READ);
+        TORCH_CHECK(
+            mapping.nbytes() >= staging_bytes,
+            "Vulkan CPU readback staging buffer is smaller than requested: ",
+            mapping.nbytes(),
+            " < ",
+            staging_bytes);
         mapping.invalidate();
-        if (src.has_direct_buffer_layout() || shader_packed_buffer) {
+        utils::log_vulkan_op_hit("aten::copy_.vulkan_to_cpu_buffer_map_begin");
+        if (shader_packed_buffer) {
+          utils::log_vulkan_op_hit(
+              "aten::copy_.vulkan_to_cpu_buffer_packed_shader");
           memcpy_from_mapping(mapping, dst_tmp);
         } else {
+          if (src.has_direct_buffer_layout()) {
+            utils::log_vulkan_op_hit(
+                "aten::copy_.vulkan_to_cpu_buffer_direct_metadata_unpack");
+          }
+          utils::log_vulkan_op_hit(
+              "aten::copy_.vulkan_to_cpu_buffer_metadata_unpack");
           unpack_buffer_mapping_to_logical_tensor_dispatch(
               mapping, dst_tmp, src.gpu_strides(), src.storage_offset());
         }
-      }
+        utils::log_vulkan_op_hit("aten::copy_.vulkan_to_cpu_buffer_map_end");
+      };
+
+      auto staging = lookup_or_create_readback_buffer("buffer_pack", staging_bytes);
+      std::unique_lock<std::mutex> staging_lock(staging.mutex());
+      submit_to_staging(staging.buffer());
+      copy_from_staging(staging.buffer());
     }
 
     context->fences().return_fence(fence);
+    utils::log_vulkan_op_hit("aten::copy_.vulkan_to_cpu_buffer_dst_copy_begin");
     dst.copy_(dst_tmp);
+    utils::log_vulkan_op_hit("aten::copy_.vulkan_to_cpu_buffer_dst_copy_end");
     return;
   }
 

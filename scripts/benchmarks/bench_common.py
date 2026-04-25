@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import statistics
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -12,10 +13,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE_ROOT = REPO_ROOT.parent
 LOCAL_BUILD_BIN_DIR = REPO_ROOT / "build" / "bin" / "Release"
 
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-if sys.platform == "win32" and LOCAL_BUILD_BIN_DIR.is_dir():
+def enable_local_pytorch_repo_imports() -> None:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    if sys.platform != "win32" or not LOCAL_BUILD_BIN_DIR.is_dir():
+        return
     existing_path = os.environ.get("PATH", "")
     path_entries = existing_path.split(os.pathsep) if existing_path else []
     if str(LOCAL_BUILD_BIN_DIR) not in path_entries:
@@ -24,6 +27,31 @@ if sys.platform == "win32" and LOCAL_BUILD_BIN_DIR.is_dir():
             if existing_path
             else str(LOCAL_BUILD_BIN_DIR)
         )
+
+
+def suppress_windows_error_dialogs() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        flags = 0x0001 | 0x0002 | 0x8000
+        ctypes.windll.kernel32.SetErrorMode(flags)
+        set_thread_error_mode = getattr(
+            ctypes.windll.kernel32, "SetThreadErrorMode", None
+        )
+        if set_thread_error_mode is not None:
+            old_mode = ctypes.c_uint(0)
+            set_thread_error_mode(flags, ctypes.byref(old_mode))
+    except Exception:
+        # Best effort only; benchmark behavior should not depend on this.
+        return
+
+
+def windows_subprocess_kwargs() -> dict[str, Any]:
+    if sys.platform != "win32":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
 def add_python_path(path: Path) -> None:

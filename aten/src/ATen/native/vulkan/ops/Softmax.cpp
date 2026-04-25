@@ -1,16 +1,20 @@
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/InferenceGraphs.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
 #include <ATen/Functions.h>
+#include <c10/core/DispatchKeySet.h>
+#include <ATen/ops/scaled_dot_product_attention_ops.h>
 #include <torch/library.h>
 #include <algorithm>
 #include <cstdlib>
 #include <cmath>
 #include <fstream>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -35,7 +39,7 @@ constexpr int32_t kTiledSdpaBufferMaxQueryValuesPerThread = 8;
 constexpr int64_t kTiledSdpaBufferMaxHeadDim =
     static_cast<int64_t>(kTiledSdpaLocalSizeX) *
     static_cast<int64_t>(kTiledSdpaBufferMaxQueryValuesPerThread);
-constexpr int64_t kTiledSdpaBufferDefaultFastPathMaxSequence = 128;
+constexpr int64_t kTiledSdpaBufferDefaultFastPathMaxSequence = 512;
 constexpr int64_t kTiledSdpaBufferVisionFastPathMaxSequence = 512;
 constexpr uint32_t kBufferSoftmaxLastDimLocalSizeX = 128u;
 constexpr uint32_t kBufferSoftmaxLastDimMaxWorkGroupsX = 65535u;
@@ -420,47 +424,11 @@ Tensor materialize_decomposed_attention_candidate(
 std::optional<Tensor> make_decomposed_attention_merge_friendly_output(
     const Tensor& query,
     const Tensor& value) {
-  if (
-      query.dim() != 3 ||
-      value.dim() != 3 ||
-      query.size(0) != 6 ||
-      query.size(1) < 512 ||
-      value.size(2) != 64) {
-    return std::nullopt;
-  }
-
-  api::Context* const context = api::context();
-  const int64_t batch_heads = query.size(0);
-  const int64_t token_count = query.size(1);
-  const int64_t value_dim = value.size(2);
-  Tensor physical = utils::mark_tensor_execution(
-      convert(vTensor{
-          context,
-          {token_count, batch_heads, value_dim},
-          api::kFloat,
-          api::StorageType::BUFFER,
-          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-      }),
-      api::ExecutionLayout::BUFFER_DIRECT);
-  const std::vector<int64_t> logical_sizes{
-      batch_heads,
-      token_count,
-      value_dim,
-  };
-  const std::vector<int64_t> logical_strides{
-      value_dim,
-      batch_heads * value_dim,
-      1,
-  };
-  Tensor output = utils::make_buffer_metadata_view(
-      physical,
-      logical_sizes,
-      logical_strides,
-      logical_strides,
-      0);
+  (void)query;
+  (void)value;
   utils::log_vulkan_op_hit(
-      "aten::decomposed_attention_bridge.merge_friendly_output");
-  return output;
+      "aten::decomposed_attention_bridge.merge_friendly_output_disabled");
+  return std::nullopt;
 }
 
 bool can_use_runtime_program_buffer_fused_fast_path(
@@ -497,14 +465,6 @@ Tensor scaled_dot_product_attention_tiled_3d_buffer_out_vulkan(
     const Tensor& value_arg,
     Tensor& output_arg);
 
-bool can_use_head64_subgroup_variant(const uint32_t subgroup_size) {
-  api::Context* const context = api::context();
-  api::Adapter* const adapter = context ? context->adapter_ptr() : nullptr;
-  return adapter && adapter->has_compute_full_subgroups() &&
-      adapter->supports_required_subgroup_size(
-          VK_SHADER_STAGE_COMPUTE_BIT, subgroup_size);
-}
-
 RuntimeProgramBufferFusedKernelVariant select_runtime_program_buffer_fused_variant(
     const Tensor& query,
     const Tensor& key,
@@ -524,19 +484,11 @@ RuntimeProgramBufferFusedKernelVariant select_runtime_program_buffer_fused_varia
       is_long_sequence &&
       std::max(query.size(2), key.size(2)) >=
           kRuntimeProgramSdpaWideLongSequenceMinHeadDim;
-  const bool head64_subgroup64_supported =
-      exact_head64 && can_use_head64_subgroup_variant(64u);
-  if (head64_subgroup64_supported) {
-    return RuntimeProgramBufferFusedKernelVariant::Head64Subgroup64;
-  }
-  if (exact_head64 && can_use_head64_subgroup_variant(32u)) {
-    return RuntimeProgramBufferFusedKernelVariant::Head64Subgroup32;
-  }
-  if (long_sequence_head64) {
-    return RuntimeProgramBufferFusedKernelVariant::Head64Query4;
-  }
-  if (exact_head64) {
-    return RuntimeProgramBufferFusedKernelVariant::Head64;
+  // The head64-specialized runtime variants currently produce invalid values on
+  // diffusion-style SDPA. Keep exact head64 on the generic fused kernel until
+  // that kernel family has targeted cross-device correctness coverage.
+  if (long_sequence_head64 || exact_head64) {
+    return RuntimeProgramBufferFusedKernelVariant::Narrow16;
   }
   return requires_wide_head_dim || long_sequence_head_dim64_or_larger
       ? RuntimeProgramBufferFusedKernelVariant::Wide32
@@ -580,6 +532,13 @@ bool is_vision_backbone_attention_policy(
             utils::VulkanExecutionPhase::Backbone));
 }
 
+bool is_generic_attention_policy(
+    const utils::VulkanRuntimePolicy& runtime_policy) {
+  return runtime_policy.request.workload_class ==
+      utils::VulkanWorkloadClass::Attention &&
+      runtime_policy.request.model_domain == utils::VulkanModelDomain::Generic;
+}
+
 int64_t tiled_sdpa_buffer_fast_path_max_sequence(
     const utils::VulkanRuntimePolicy& runtime_policy) {
   return is_vision_backbone_attention_policy(runtime_policy)
@@ -595,16 +554,44 @@ Tensor prepare_buffer_math_input_direct(const Tensor& tensor) {
   if (
       v_tensor.storage_type() == api::StorageType::BUFFER &&
       v_tensor.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      v_tensor.has_direct_buffer_layout() &&
       utils::supports_buffer_view_fast_path(v_tensor)) {
     return utils::mark_tensor_execution(
         tensor, utils::resolve_buffer_execution_layout(v_tensor));
   }
 
+  if (
+      v_tensor.storage_type() == api::StorageType::BUFFER &&
+      !v_tensor.has_direct_buffer_layout()) {
+    utils::log_vulkan_op_hit(
+        "aten::scaled_dot_product_attention.materialize_metadata_view");
+  }
   Tensor buffer_tensor =
       utils::ensure_buffer_storage(tensor, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  TORCH_CHECK(
+      convert(buffer_tensor).has_direct_buffer_layout(),
+      "Vulkan SDPA buffer math expects materialized direct buffers");
   return utils::mark_tensor_execution(
       buffer_tensor,
       utils::resolve_buffer_execution_layout(convert(buffer_tensor)));
+}
+
+Tensor materialize_buffer_attention_output_view(const Tensor& tensor) {
+  if (!tensor.is_vulkan()) {
+    return tensor;
+  }
+  const vTensor& v_tensor = convert(tensor);
+  if (
+      v_tensor.storage_type() == api::StorageType::BUFFER &&
+      !v_tensor.has_direct_buffer_layout()) {
+    utils::log_vulkan_op_hit(
+        "aten::scaled_dot_product_attention.materialize_output_view");
+    Tensor output = utils::ensure_buffer_storage(
+        tensor, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+    return utils::mark_tensor_execution(
+        output, api::ExecutionLayout::BUFFER_DIRECT);
+  }
+  return tensor;
 }
 
 bool can_use_attention_buffer_math_ops(
@@ -852,16 +839,24 @@ Tensor ensure_attention_runtime_direct_buffer(const Tensor& tensor) {
   if (
       v_tensor.storage_type() == api::StorageType::BUFFER &&
       v_tensor.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      v_tensor.has_direct_buffer_layout() &&
       utils::supports_buffer_view_fast_path(v_tensor)) {
     return utils::mark_tensor_execution(
         tensor, utils::resolve_buffer_execution_layout(v_tensor));
   }
 
+  if (
+      v_tensor.storage_type() == api::StorageType::BUFFER &&
+      !v_tensor.has_direct_buffer_layout()) {
+    utils::log_vulkan_op_hit(
+        "aten::scaled_dot_product_attention.materialize_metadata_view");
+  }
   Tensor output = utils::ensure_buffer_storage(
       tensor, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
   const vTensor& v_output = convert(output);
   TORCH_CHECK(
       v_output.storage_type() == api::StorageType::BUFFER &&
+          v_output.has_direct_buffer_layout() &&
           utils::supports_buffer_view_fast_path(v_output),
       "Attention-runtime replay expects buffer-backed tensors with supported "
       "view semantics");
@@ -2675,6 +2670,7 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
       tiled_sdpa_buffer_fast_path_max_sequence(input_runtime_policy);
   if (
       uses_buffer_math &&
+      !is_generic_attention_policy(input_runtime_policy) &&
       input_runtime_policy.attention_execution_strategy ==
           utils::VulkanAttentionExecutionStrategy::BufferTiled &&
       !has_explicit_mask &&
@@ -2704,7 +2700,8 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
     }
 
     return std::make_tuple(
-        output.reshape({batch, heads, target_len, value_dim}),
+        materialize_buffer_attention_output_view(
+            output.reshape({batch, heads, target_len, value_dim})),
         Tensor());
   }
 
@@ -2728,7 +2725,8 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
   }
 
   return std::make_tuple(
-      output.reshape({batch, heads, target_len, value_dim}),
+      materialize_buffer_attention_output_view(
+          output.reshape({batch, heads, target_len, value_dim})),
       attn.reshape({batch, heads, target_len, source_len}));
 }
 
@@ -2830,6 +2828,7 @@ Tensor scaled_dot_product_attention_vulkan_impl(
   if (
       input_runtime_policy.attention_execution_strategy ==
           utils::VulkanAttentionExecutionStrategy::RuntimeProgram &&
+      !is_generic_attention_policy(input_runtime_policy) &&
       dropout_p == 0.0 && !attn_mask.has_value() && !is_causal &&
       !enable_gqa && (query.dim() == 3 || query.dim() == 4)) {
     const Tensor query_contig =
@@ -2913,7 +2912,8 @@ Tensor scaled_dot_product_attention_vulkan_impl(
             scale,
             enable_gqa);
         return query.dim() == 4
-            ? output.reshape({batch, heads, target_len, value_dim})
+            ? materialize_buffer_attention_output_view(
+                  output.reshape({batch, heads, target_len, value_dim}))
             : output;
       }
     }
@@ -3161,6 +3161,13 @@ Tensor softmax_buffer_lastdim_out_vulkan(
     const Tensor& input,
     Tensor& output) {
   TORCH_CHECK(
+      !(input.dim() == 3 && input.size(input.dim() - 1) >= 64),
+      "Vulkan buffer last-dim softmax is disabled: "
+      "buffer_softmax_lastdim_float is known to produce incorrect "
+      "normalization on direct-buffer diffusion-style 3D score tensors with "
+      "last dimension >= 64. Fix or replace the buffer shader before "
+      "re-enabling this shape family.");
+  TORCH_CHECK(
       can_run_buffer_softmax(input, input.dim() - 1),
       "Vulkan softmax_buffer_lastdim_out expects float buffer-backed tensors");
   return softmax_buffer_lastdim_impl(input, &output);
@@ -3363,6 +3370,28 @@ Tensor scaled_dot_product_attention_vulkan(
       query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
 }
 
+Tensor scaled_dot_product_attention_autograd_other(
+    c10::DispatchKeySet ks,
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const std::optional<Tensor>& attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa) {
+  (void)ks;
+  return scaled_dot_product_attention_vulkan(
+      query,
+      key,
+      value,
+      attn_mask,
+      dropout_p,
+      is_causal,
+      scale,
+      enable_gqa);
+}
+
 Tensor run_attention_runtime_buffer_math_replay_bridge(
     const Tensor& query,
     const Tensor& key,
@@ -3426,6 +3455,12 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("aten::_scaled_dot_product_attention_math"),
       TORCH_FN(scaled_dot_product_attention_math_vulkan));
+}
+
+TORCH_LIBRARY_IMPL(aten, AutogradOther, m) {
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::scaled_dot_product_attention"),
+      TORCH_FN(scaled_dot_product_attention_autograd_other));
 }
 
 #endif /* USE_VULKAN_API */

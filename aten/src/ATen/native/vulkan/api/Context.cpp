@@ -25,6 +25,10 @@ namespace {
 
 constexpr uint64_t kCleanupSoftThresholdBytes = 512ull * 1024ull * 1024ull;
 constexpr uint64_t kCleanupHardThresholdBytes = 1024ull * 1024ull * 1024ull;
+constexpr uint64_t kLowMemoryDiscreteCleanupSoftThresholdBytes =
+    256ull * 1024ull * 1024ull;
+constexpr uint64_t kLowMemoryDiscreteCleanupHardThresholdBytes =
+    512ull * 1024ull * 1024ull;
 constexpr uint64_t kGiB = 1024ull * 1024ull * 1024ull;
 constexpr uint64_t kVisionBackboneSoftThresholdBytes =
     (2ull * 1024ull + 256ull) * 1024ull * 1024ull;
@@ -118,12 +122,23 @@ uint64_t device_local_heap_size_bytes(const Adapter* adapter) {
   return total_device_local;
 }
 
+bool is_gtx_class_device(const Adapter* adapter) {
+  if (!adapter) {
+    return false;
+  }
+  const char* const name = adapter->physical_device().properties.deviceName;
+  return name != nullptr && std::strstr(name, "GTX") != nullptr;
+}
+
 uint64_t cleanup_soft_threshold_bytes(const Adapter* adapter) {
   const uint64_t device_local_bytes = device_local_heap_size_bytes(adapter);
   if (!adapter || device_local_bytes == 0u ||
       adapter->physical_device().properties.deviceType !=
           VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
     return kCleanupSoftThresholdBytes;
+  }
+  if (device_local_bytes <= 8ull * kGiB || is_gtx_class_device(adapter)) {
+    return kLowMemoryDiscreteCleanupSoftThresholdBytes;
   }
 
   return std::min<uint64_t>(
@@ -137,6 +152,9 @@ uint64_t cleanup_hard_threshold_bytes(const Adapter* adapter) {
       adapter->physical_device().properties.deviceType !=
           VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
     return kCleanupHardThresholdBytes;
+  }
+  if (device_local_bytes <= 8ull * kGiB || is_gtx_class_device(adapter)) {
+    return kLowMemoryDiscreteCleanupHardThresholdBytes;
   }
 
   return std::min<uint64_t>(
@@ -776,6 +794,32 @@ void Context::sync_and_reclaim() {
       append_sync_log_line("sync_and_reclaim_stage: queue_wait_idle_complete");
     }
   } else {
+    descriptor_pool_.flush();
+    if (sync_logging_enabled()) {
+      append_sync_log_line(
+          "sync_and_reclaim_stage: no_active_work_descriptor_pool_flushed");
+    }
+    if (full_pool_flush) {
+      command_pool_.flush();
+      if (cmd_) {
+        cmd_.invalidate();
+      }
+      reclaims_since_pool_flush_ = 0u;
+      if (sync_logging_enabled()) {
+        append_sync_log_line(
+            "sync_and_reclaim_stage: no_active_work_command_pool_flushed");
+      }
+    } else {
+      reclaims_since_pool_flush_++;
+    }
+    submit_count_ = 0u;
+    submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
+    clear_deferred_cleanup_locked();
+    if (sync_logging_enabled()) {
+      append_sync_log_line(
+          "sync_and_reclaim_stage: no_active_work_deferred_cleanup_cleared");
+    }
+    dump_gpu_profile_log("sync_and_reclaim");
     return;
   }
 
