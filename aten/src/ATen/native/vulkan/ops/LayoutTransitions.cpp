@@ -2,6 +2,7 @@
 
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/ops/Convert.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <cstdlib>
 #include <fstream>
@@ -123,9 +124,14 @@ bool is_buffer_snapshot_readback_legal(
 }
 
 bool requires_logical_pack_shader_for_readback(const vTensor& src) {
+  const bool transfer_written_direct_buffer_snapshot =
+      src.storage_type() == api::StorageType::BUFFER &&
+      src.has_direct_buffer_layout() && src.storage_offset() == 0 &&
+      !src.last_write_was_compute();
   return src.storage_type() == api::StorageType::BUFFER &&
       (src.dtype() == api::kFloat || src.dtype() == api::kByte) &&
-      src.sizes().size() <= 4 && !is_raw_buffer_readback_legal(src);
+      src.sizes().size() <= 4 && !is_raw_buffer_readback_legal(src) &&
+      !transfer_written_direct_buffer_snapshot;
 }
 
 Tensor make_buffer_metadata_view_checked(
@@ -188,7 +194,11 @@ Tensor make_buffer_metadata_view_checked(
       VulkanTensorUse::Read,
       producer_op ? producer_op : "make_buffer_metadata_view_checked",
       "metadata_view");
-  return view;
+  return record_tensor_alias_and_return(
+      view,
+      base,
+      producer_op ? producer_op : "make_buffer_metadata_view_checked",
+      "metadata_view");
 }
 
 Tensor make_typed_buffer_metadata_view_checked(
@@ -269,7 +279,11 @@ Tensor make_typed_buffer_metadata_view_checked(
       VulkanTensorUse::Read,
       producer_op ? producer_op : "make_typed_buffer_metadata_view_checked",
       "typed_metadata_view");
-  return view;
+  return record_tensor_alias_and_return(
+      view,
+      base,
+      producer_op ? producer_op : "make_typed_buffer_metadata_view_checked",
+      "typed_metadata_view");
 }
 
 Tensor materialize_vulkan_tensor(
@@ -303,7 +317,11 @@ Tensor materialize_vulkan_tensor(
       reason,
       input,
       output);
-  return output;
+  return record_tensor_write_and_return(
+      output,
+      producer_op ? producer_op : "materialize_vulkan_tensor",
+      vulkan_materialize_reason_name(reason),
+      {input});
 }
 
 Tensor ensure_vulkan_layout(

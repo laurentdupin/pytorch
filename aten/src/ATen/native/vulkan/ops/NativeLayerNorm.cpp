@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/NativeLayerNorm.h>
 #include <ATen/native/vulkan/ops/Norm.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/ops/rsqrt.h>
@@ -230,7 +231,25 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_fused_width(
   if (c10::InferenceMode::is_enabled()) {
     maybe_synchronize_after_norm();
   }
-  return std::make_tuple(convert(v_output), convert(v_mean), convert(v_std_inv));
+  Tensor output = convert(v_output);
+  Tensor mean = convert(v_mean);
+  Tensor std_inv = convert(v_std_inv);
+  record_tensor_write(
+      output,
+      "aten::native_layer_norm",
+      "fused_width_output",
+      {input, weight, bias});
+  record_tensor_write(
+      mean,
+      "aten::native_layer_norm",
+      "fused_width_mean",
+      {input, weight, bias});
+  record_tensor_write(
+      std_inv,
+      "aten::native_layer_norm",
+      "fused_width_std_inv",
+      {input, weight, bias});
+  return std::make_tuple(output, mean, std_inv);
 }
 
 std::tuple<Tensor, Tensor, Tensor> native_layer_norm_buffer_width(
@@ -348,13 +367,28 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_buffer_width(
     maybe_synchronize_after_norm();
   }
 
-  return std::make_tuple(
-      utils::mark_tensor_execution(
-          convert(v_output), api::ExecutionLayout::BUFFER_DIRECT),
-      utils::mark_tensor_execution(
-          convert(v_mean), api::ExecutionLayout::BUFFER_DIRECT),
-      utils::mark_tensor_execution(
-          convert(v_std_inv), api::ExecutionLayout::BUFFER_DIRECT));
+  Tensor output = utils::mark_tensor_execution(
+      convert(v_output), api::ExecutionLayout::BUFFER_DIRECT);
+  Tensor mean = utils::mark_tensor_execution(
+      convert(v_mean), api::ExecutionLayout::BUFFER_DIRECT);
+  Tensor std_inv = utils::mark_tensor_execution(
+      convert(v_std_inv), api::ExecutionLayout::BUFFER_DIRECT);
+  record_tensor_write(
+      output,
+      "aten::native_layer_norm",
+      "buffer_width_output",
+      {input_arg, weight, bias});
+  record_tensor_write(
+      mean,
+      "aten::native_layer_norm",
+      "buffer_width_mean",
+      {input_arg, weight, bias});
+  record_tensor_write(
+      std_inv,
+      "aten::native_layer_norm",
+      "buffer_width_std_inv",
+      {input_arg, weight, bias});
+  return std::make_tuple(output, mean, std_inv);
 }
 
 std::tuple<Tensor, Tensor, Tensor> native_layer_norm_fallback(
@@ -414,6 +448,21 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_fallback(
   if (c10::InferenceMode::is_enabled()) {
     maybe_synchronize_after_norm();
   }
+  record_tensor_write(
+      layernorm,
+      "aten::native_layer_norm",
+      "fallback_output",
+      {input, weight, bias});
+  record_tensor_write(
+      mean,
+      "aten::native_layer_norm",
+      "fallback_mean",
+      {input, weight, bias});
+  record_tensor_write(
+      std_inv,
+      "aten::native_layer_norm",
+      "fallback_std_inv",
+      {input, weight, bias});
   return std::make_tuple(layernorm, mean, std_inv);
 }
 

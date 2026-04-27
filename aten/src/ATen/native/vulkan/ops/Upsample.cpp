@@ -3,6 +3,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Upsample.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <c10/core/InferenceMode.h>
@@ -172,7 +173,11 @@ Tensor upsample_bilinear2d_buffer_impl(
       in_meta.buffer(),
       params.buffer());
 
-  return output_arg != nullptr ? output_tensor : convert(v_output);
+  return record_tensor_write_and_return(
+      output_arg != nullptr ? output_tensor : convert(v_output),
+      "aten::upsample_bilinear2d",
+      "buffer",
+      {input_arg});
 }
 
 Tensor upsample_nearest2d_buffer_impl(
@@ -263,8 +268,12 @@ Tensor upsample_nearest2d_buffer_impl(
       in_meta.buffer(),
       params.buffer());
 
-  return utils::mark_tensor_execution(
-      convert(v_output), api::ExecutionLayout::BUFFER_DIRECT);
+  return record_tensor_write_and_return(
+      utils::mark_tensor_execution(
+          convert(v_output), api::ExecutionLayout::BUFFER_DIRECT),
+      "aten::upsample_nearest2d",
+      "buffer",
+      {prepared});
 }
 
 static Tensor upsample_nearest2d(
@@ -364,7 +373,8 @@ static Tensor upsample_nearest2d(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::upsample_nearest2d", "texture", {input});
 }
 
 static Tensor upsample_nearest_exact2d_cpu_fallback(
@@ -383,7 +393,11 @@ static Tensor upsample_nearest_exact2d_cpu_fallback(
         scales_h,
         scales_w);
   }
-  return result_cpu.to(input_arg.device());
+  return record_tensor_write_and_return(
+      result_cpu.to(input_arg.device()),
+      "aten::_upsample_nearest_exact2d",
+      "small_cpu_control_fallback",
+      {input_arg});
 }
 
 static Tensor upsample_nearest_exact2d(
@@ -519,7 +533,8 @@ static Tensor upsample_bilinear2d(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::upsample_bilinear2d", "texture", {input});
 }
 
 static Tensor upsample_bicubic2d(
@@ -604,7 +619,8 @@ static Tensor upsample_bicubic2d(
         in_meta.buffer(),
         params.buffer());
 
-    return convert(v_output);
+    return record_tensor_write_and_return(
+        convert(v_output), "aten::upsample_bicubic2d", "buffer", {input_arg});
   }
 
   Tensor input = prepare_upsample_texture_input(input_arg);
@@ -667,7 +683,8 @@ static Tensor upsample_bicubic2d(
       v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::upsample_bicubic2d", "texture", {input});
 }
 
 static Tensor& upsample_bicubic2d_out(

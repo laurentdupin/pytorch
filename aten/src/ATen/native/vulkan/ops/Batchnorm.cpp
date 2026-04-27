@@ -2,6 +2,7 @@
 #include <c10/core/InferenceMode.h>
 #include <ATen/ops/batch_norm_ops.h>
 #include <ATen/native/vulkan/ops/Batchnorm.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <torch/library.h>
 
 namespace at {
@@ -119,7 +120,11 @@ Tensor batch_norm(
         eps,
         false);
   }
-  return result_cpu.to(output_device);
+  return record_tensor_write_and_return(
+      result_cpu.to(output_device),
+      "aten::batch_norm",
+      "cpu_control_fallback",
+      {input_arg});
 }
 
 Tensor batch_norm_autograd_other(
@@ -279,7 +284,15 @@ Tensor run_batchnorm_context(
       v_running_var,
       eps);
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::batch_norm",
+      "texture",
+      {input_arg,
+       batchnorm_context->weight(),
+       batchnorm_context->bias(),
+       batchnorm_context->running_mean(),
+       batchnorm_context->running_var()});
 }
 
 } // namespace ops

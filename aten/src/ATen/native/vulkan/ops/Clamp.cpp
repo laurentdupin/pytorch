@@ -7,6 +7,7 @@
 #include <ATen/native/vulkan/ops/Clamp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Mm.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -118,7 +119,11 @@ Tensor clamp_buffer_impl(
       in_meta.buffer(),
       params.buffer());
 
-  return output_arg != nullptr ? output_tensor : convert(v_output);
+  return record_tensor_write_and_return(
+      output_arg != nullptr ? output_tensor : convert(v_output),
+      "aten::clamp",
+      "buffer",
+      {self});
 }
 
 Tensor clamp_buffer(
@@ -168,6 +173,7 @@ Tensor& clamp_buffer_(
       in_meta.buffer(),
       params.buffer());
 
+  record_tensor_write(self_arg, "aten::clamp_", "buffer_inplace", {self_arg});
   return self_arg;
 }
 
@@ -261,7 +267,8 @@ Tensor _clamp(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::clamp", "texture", {self});
 }
 
 Tensor clamp(
@@ -350,6 +357,7 @@ Tensor& _clamp_(
       // params buffer
       params.buffer());
 
+  record_tensor_write(self_arg, "aten::clamp_", "texture_inplace", {self_arg});
   return self_arg;
 }
 
@@ -413,7 +421,8 @@ Tensor activation(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::activation", "texture", {self});
 }
 
 Tensor activation_buffer(
@@ -464,7 +473,8 @@ Tensor activation_buffer(
       v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
       in_meta.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::clamp", "texture", {self});
 }
 
 Tensor activation_scalar_buffer(
@@ -532,7 +542,8 @@ Tensor activation_scalar_buffer(
       in_meta.buffer(),
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::clamp", "texture", {self});
 }
 
 Tensor& activation_(
@@ -579,6 +590,7 @@ Tensor& activation_(
       // params buffer
       params.buffer());
 
+  record_tensor_write(self_arg, "aten::activation_", "texture_inplace", {self_arg});
   return self_arg;
 }
 
@@ -717,7 +729,8 @@ Tensor activation_scalar(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::activation", "texture_scalar", {self});
 }
 
 Tensor& activation_scalar_(
@@ -801,6 +814,8 @@ Tensor& activation_scalar_(
       // params buffer
       params.buffer());
 
+  record_tensor_write(
+      self_arg, "aten::activation_", "texture_scalar_inplace", {self_arg});
   return self_arg;
 }
 

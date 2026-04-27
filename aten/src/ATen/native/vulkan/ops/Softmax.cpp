@@ -12,6 +12,7 @@
 #include <ATen/native/vulkan/planning/RoutePolicy.h>
 #include <ATen/Functions.h>
 #include <c10/core/DispatchKeySet.h>
+#include <c10/core/InferenceMode.h>
 #include <ATen/ops/scaled_dot_product_attention_ops.h>
 #include <torch/library.h>
 #include <algorithm>
@@ -1183,6 +1184,15 @@ void log_sdpa_event(
   append_sdpa_tensor_log_details(stream, "key", key);
   append_sdpa_tensor_log_details(stream, "value", value);
   append_sdpa_log_line(stream.str());
+}
+
+Tensor finalize_public_sdpa_output(Tensor output) {
+  if (!c10::InferenceMode::is_enabled()) {
+    utils::log_vulkan_op_hit(
+        "aten::scaled_dot_product_attention.non_inference_sync");
+    api::context()->sync_and_reclaim();
+  }
+  return output;
 }
 
 Tensor maybe_scale_query(const Tensor& query, const double query_scale) {
@@ -2919,7 +2929,7 @@ Tensor scaled_dot_product_attention_vulkan_impl(
           is_causal,
           scale,
           enable_gqa)) {
-    return *fast_output;
+    return finalize_public_sdpa_output(*fast_output);
   }
   log_sdpa_event(
       "public_vulkan_entry",
@@ -3019,25 +3029,27 @@ Tensor scaled_dot_product_attention_vulkan_impl(
             is_causal,
             scale,
             enable_gqa);
-        return query.dim() == 4
+        Tensor public_output = query.dim() == 4
             ? materialize_buffer_attention_output_view(
                   output.reshape({batch, heads, target_len, value_dim}))
             : output;
+        return finalize_public_sdpa_output(public_output);
       }
     }
   }
-  return std::get<0>(scaled_dot_product_attention_math_vulkan_impl(
-      query,
-      key,
-      value,
-      attn_mask,
-      dropout_p,
-      is_causal,
-      std::nullopt,
-      scale,
-      enable_gqa,
-      attention_policy,
-      input_runtime_policy));
+  return finalize_public_sdpa_output(
+      std::get<0>(scaled_dot_product_attention_math_vulkan_impl(
+          query,
+          key,
+          value,
+          attn_mask,
+          dropout_p,
+          is_causal,
+          std::nullopt,
+          scale,
+          enable_gqa,
+          attention_policy,
+          input_runtime_policy)));
 }
 
 void set_softmax_kernel_params(

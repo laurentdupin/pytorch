@@ -3,6 +3,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -88,7 +89,11 @@ Tensor unsqueeze(const at::Tensor& self, int64_t dim) {
     c10::InferenceMode inference_mode_guard(false);
     Tensor cpu = self.cpu();
     Tensor cpu_unsqueezed = cpu.unsqueeze(dim);
-    return convert(ops::to_vulkan(cpu_unsqueezed, api::StorageType::BUFFER));
+    return record_tensor_write_and_return(
+        convert(ops::to_vulkan(cpu_unsqueezed, api::StorageType::BUFFER)),
+        "aten::unsqueeze",
+        "cpu_fallback",
+        {self});
   }
 
   if (self.is_vulkan()) {
@@ -147,7 +152,8 @@ Tensor unsqueeze(const at::Tensor& self, int64_t dim) {
         dst_offset,
         // fence handle
         VK_NULL_HANDLE);
-    return convert(v_output);
+    return record_tensor_write_and_return(
+        convert(v_output), "aten::unsqueeze", "texture_copy_dim0", {input});
   }
 
   else {
@@ -188,7 +194,8 @@ Tensor unsqueeze(const at::Tensor& self, int64_t dim) {
         v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
         // params buffer
         params.buffer());
-    return convert(v_output);
+    return record_tensor_write_and_return(
+        convert(v_output), "aten::unsqueeze", "texture", {input});
   }
 }
 

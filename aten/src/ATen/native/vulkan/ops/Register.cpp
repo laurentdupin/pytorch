@@ -5,6 +5,7 @@
 #include <ATen/native/vulkan/ops/Batchnorm.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
+#include <ATen/native/vulkan/ops/Convert.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/GatedDelta.h>
 #include <ATen/native/vulkan/ops/Gru.h>
@@ -16,6 +17,7 @@
 #include <ATen/native/vulkan/ops/Register.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
@@ -366,7 +368,24 @@ Tensor create_scratch_arena_storage_for_request(
 Tensor maybe_move_runtime_tensor_to_device(
     const Tensor& tensor,
     const Device& device) {
-  return device.type() == kCPU ? tensor : tensor.to(device);
+  if (device.type() == kCPU) {
+    return tensor;
+  }
+  if (device.type() == kVulkan && !tensor.is_vulkan()) {
+    api::context()->sync_and_reclaim();
+    Tensor cpu_snapshot = tensor.contiguous().clone();
+    Tensor output =
+        utils::create_buffer_tensor(cpu_snapshot.sizes(), cpu_snapshot.scalar_type());
+    output.copy_(cpu_snapshot);
+    convert(output).mark_host_write();
+    api::context()->flush();
+    return record_tensor_write_and_return(
+        output,
+        "vulkan_prepack::runtime_tensor_upload",
+        "cpu_snapshot_to_buffer",
+        {cpu_snapshot});
+  }
+  return tensor.to(device);
 }
 
 Tensor create_causal_attention_mask_runtime(
@@ -581,7 +600,6 @@ std::tuple<Tensor, Tensor, Tensor> compute_moe_router_runtime(
     const int64_t top_k,
     const int64_t num_experts) {
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
-  c10::InferenceMode inference_mode_guard(false);
 
   const Device output_device = logits_arg.device();
   const Tensor logits =

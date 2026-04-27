@@ -1283,6 +1283,7 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
     // Vulkan -> CPU
     if (dst.device().is_cpu()) {
       pack_vulkan_to_cpu(v_src, dst);
+      v_src.context()->sync_and_reclaim();
     } else {
       TORCH_CHECK(false, "Unsupported!");
     }

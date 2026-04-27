@@ -1,6 +1,7 @@
 #ifdef USE_VULKAN_API
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -87,7 +88,8 @@ Tensor quantize_per_tensor(
       // params buffer
       params.buffer());
 
-  return convert_quantized(v_output);
+  return record_tensor_write_and_return(
+      convert_quantized(v_output), "aten::quantize_per_tensor", "texture", {input});
 }
 
 Tensor quantize_per_tensor_tensor_qparams(
@@ -159,7 +161,8 @@ Tensor dequantize_helper(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::dequantize", "texture", {input});
 }
 
 static double q_scale(const Tensor& self) {

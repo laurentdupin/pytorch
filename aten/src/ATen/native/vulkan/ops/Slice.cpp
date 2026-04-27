@@ -2,6 +2,7 @@
 #include <ATen/NamedTensorUtils.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -37,7 +38,11 @@ Tensor slice_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor cpu_result = at::slice(self.cpu(), dim, start, end, step);
-  return cpu_result.to(vulkan_output_device(self));
+  return record_tensor_write_and_return(
+      cpu_result.to(vulkan_output_device(self)),
+      "aten::slice",
+      "cpu_fallback",
+      {self});
 }
 
 bool can_use_buffer_slice_view(const Tensor& self) {
@@ -176,7 +181,8 @@ Tensor slice_4d(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::slice", "texture_4d", {input});
 }
 
 Tensor slice_width(
@@ -252,7 +258,8 @@ Tensor slice_width(
     }
   }
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::slice", "texture_width", {input});
 }
 
 Tensor slice_height(
@@ -326,7 +333,8 @@ Tensor slice_height(
     }
   }
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::slice", "texture_height", {input});
 }
 
 Tensor slice(

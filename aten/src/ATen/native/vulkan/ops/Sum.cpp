@@ -3,6 +3,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Reduction.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <limits>
 #include <torch/library.h>
@@ -62,7 +63,8 @@ Tensor sum_dim_buffer_chunk(
       v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
       in_meta.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::sum", "buffer_dim_chunk", {prepared_input});
 }
 
 Tensor max_dim_buffer_chunk(
@@ -104,7 +106,8 @@ Tensor max_dim_buffer_chunk(
       v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
       in_meta.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::amax", "buffer_dim_chunk", {prepared_input});
 }
 
 Tensor sum_cpu_fallback(
@@ -114,7 +117,11 @@ Tensor sum_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
-  return at::sum(self_cpu, dtype).to(vulkan_output_device(self_arg));
+  return record_tensor_write_and_return(
+      at::sum(self_cpu, dtype).to(vulkan_output_device(self_arg)),
+      "aten::sum",
+      "cpu_fallback",
+      {self_arg});
 }
 
 Tensor sum_dim_cpu_fallback(
@@ -126,7 +133,11 @@ Tensor sum_dim_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
-  return at::sum(self_cpu, {dim}, keepdim, dtype).to(vulkan_output_device(self_arg));
+  return record_tensor_write_and_return(
+      at::sum(self_cpu, {dim}, keepdim, dtype).to(vulkan_output_device(self_arg)),
+      "aten::sum",
+      "dim_cpu_fallback",
+      {self_arg});
 }
 
 Tensor amax_cpu_fallback(
@@ -137,7 +148,11 @@ Tensor amax_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
-  return at::amax(self_cpu, dim, keepdim).to(vulkan_output_device(self_arg));
+  return record_tensor_write_and_return(
+      at::amax(self_cpu, dim, keepdim).to(vulkan_output_device(self_arg)),
+      "aten::amax",
+      "cpu_fallback",
+      {self_arg});
 }
 
 Tensor finalize_bfloat16_sum_output(
@@ -216,7 +231,8 @@ Tensor reduce_all_buffer_chunk(
       in_meta.buffer(),
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::reduction", "buffer_all_chunk", {prepared_input_arg});
 }
 
 Tensor reduce_all_buffer_parallel(
@@ -294,7 +310,8 @@ Tensor sum_all_buffer(
   if (target_dtype != c10::ScalarType::Float) {
     output = utils::cast_vulkan_tensor_dtype(output, target_dtype);
   }
-  return output;
+  return record_tensor_write_and_return(
+      output, "aten::sum", "buffer_all", {prepared_input_arg});
 }
 
 Tensor max_all_buffer(const Tensor& prepared_input_arg) {
@@ -346,7 +363,11 @@ Tensor max_all_buffer(const Tensor& prepared_input_arg) {
           api::MemoryAccessType::READ),
       in_meta.buffer());
 
-  return finalize_bfloat16_max_output(convert(v_output), target_dtype);
+  return record_tensor_write_and_return(
+      finalize_bfloat16_max_output(convert(v_output), target_dtype),
+      "aten::amax",
+      "buffer_all",
+      {prepared_input_arg});
 }
 
 Tensor min_all_buffer(const Tensor& prepared_input_arg) {
@@ -398,7 +419,11 @@ Tensor min_all_buffer(const Tensor& prepared_input_arg) {
           api::MemoryAccessType::READ),
       in_meta.buffer());
 
-  return finalize_bfloat16_max_output(convert(v_output), target_dtype);
+  return record_tensor_write_and_return(
+      finalize_bfloat16_max_output(convert(v_output), target_dtype),
+      "aten::amin",
+      "buffer_all",
+      {prepared_input_arg});
 }
 
 Tensor sum_dim_buffer(
@@ -435,7 +460,8 @@ Tensor sum_dim_buffer(
   if (target_dtype != c10::ScalarType::Float) {
     output = utils::cast_vulkan_tensor_dtype(output, target_dtype);
   }
-  return output;
+  return record_tensor_write_and_return(
+      output, "aten::sum", "buffer_dim", {prepared_input_arg});
 }
 
 Tensor max_dim_buffer(
@@ -467,7 +493,11 @@ Tensor max_dim_buffer(
   output = reduction::restore_buffer_reduction_output_layout(
       output, prepared.sizes(), dim, keepdim);
 
-  return finalize_bfloat16_max_output(output, target_dtype);
+  return record_tensor_write_and_return(
+      finalize_bfloat16_max_output(output, target_dtype),
+      "aten::amax",
+      "buffer_dim",
+      {prepared_input_arg});
 }
 
 Tensor sum_dim(
@@ -566,7 +596,8 @@ Tensor sum_dim(
       v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
       // params buffer
       params.buffer());
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::sum", "texture_dim", {self});
 }
 
 Tensor sum_dim_IntList(
@@ -720,7 +751,8 @@ Tensor all(const Tensor& self) {
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
-  return at::all(self.cpu()).vulkan();
+  return record_tensor_write_and_return(
+      at::all(self.cpu()).vulkan(), "aten::all", "cpu_fallback", {self});
 }
 
 Tensor any(const Tensor& self) {
@@ -732,7 +764,8 @@ Tensor any(const Tensor& self) {
     const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
     cpu_result = at::any(self_cpu);
   }
-  return cpu_result.to(output_device);
+  return record_tensor_write_and_return(
+      cpu_result.to(output_device), "aten::any", "cpu_fallback", {self});
 }
 
 Tensor any_dim(const Tensor& self, int64_t dim, bool keepdim) {
@@ -744,7 +777,8 @@ Tensor any_dim(const Tensor& self, int64_t dim, bool keepdim) {
     const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
     cpu_result = at::any(self_cpu, dim, keepdim);
   }
-  return cpu_result.to(output_device);
+  return record_tensor_write_and_return(
+      cpu_result.to(output_device), "aten::any", "dim_cpu_fallback", {self});
 }
 
 Tensor& all_out(const Tensor& self, Tensor& out) {
@@ -800,7 +834,11 @@ Tensor argmax(
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
-  return at::argmax(self.cpu(), dim, keepdim).vulkan();
+  return record_tensor_write_and_return(
+      at::argmax(self.cpu(), dim, keepdim).vulkan(),
+      "aten::argmax",
+      "cpu_fallback",
+      {self});
 }
 
 Tensor max_all(const Tensor& self) {
@@ -813,7 +851,8 @@ Tensor max_all(const Tensor& self) {
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
-  return at::max(self.cpu()).vulkan();
+  return record_tensor_write_and_return(
+      at::max(self.cpu()).vulkan(), "aten::max", "cpu_fallback", {self});
 }
 
 Tensor min_all(const Tensor& self) {
@@ -830,7 +869,8 @@ Tensor min_all(const Tensor& self) {
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
-  return at::min(self.cpu()).vulkan();
+  return record_tensor_write_and_return(
+      at::min(self.cpu()).vulkan(), "aten::min", "cpu_fallback", {self});
 }
 
 Tensor& argmax_out(

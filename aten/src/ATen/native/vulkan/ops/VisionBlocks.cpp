@@ -1185,14 +1185,13 @@ Tensor run_attention_with_workspace_fallback(
     }
     return fallback(query_arg, key_arg, value_arg, std::nullopt);
   }
-
   utils::ScratchArena* scratch_arena = scratch_override;
   if (
       !scratch_arena && vision_program && vision_program->defined() &&
       vision_program->scratch_arena().has_value()) {
     scratch_arena = &(*vision_program->scratch_arena());
   }
-  if (!scratch_arena) {
+  if (!scratch_arena && !has_attention_bias) {
     return fallback(query_arg, key_arg, value_arg, attn_bias_arg);
   }
 
@@ -1246,6 +1245,32 @@ Tensor run_attention_with_workspace_fallback(
     attention_bias = std::move(bias);
   }
 
+  if (attention_bias.has_value()) {
+    utils::log_vulkan_op_hit(
+        "aten::vision_attention.attention_bias_composed_vulkan");
+    const auto materialize_attention_operand = [](const Tensor& operand) {
+      Tensor materialized =
+          utils::create_buffer_tensor(operand.sizes(), operand.scalar_type());
+      materialized.copy_(operand);
+      record_tensor_write(
+          materialized,
+          "aten::vision_attention",
+          "attention_bias_operand_materialize",
+          {operand});
+      return materialized;
+    };
+    Tensor materialized_query = materialize_attention_operand(query);
+    Tensor materialized_key = materialize_attention_operand(key);
+    Tensor materialized_value = materialize_attention_operand(value);
+    Tensor materialized_bias = materialize_attention_operand(*attention_bias);
+    Tensor key_t =
+        prepare_buffer_attention_tensor(materialized_key.transpose(1, 2));
+    Tensor scores = at::bmm(materialized_query, key_t);
+    Tensor biased_scores = at::add(scores, materialized_bias);
+    Tensor probs = at::softmax(biased_scores, -1);
+    return at::bmm(probs, materialized_value);
+  }
+
   const std::vector<int64_t> scores_sizes{
       query.size(0),
       query.size(1),
@@ -1256,15 +1281,29 @@ Tensor run_attention_with_workspace_fallback(
       query.size(1),
       value.size(2),
   };
-  auto [scores_slice, scores_output] =
-      reserve_scratch_buffer_tensor(*scratch_arena, scores_sizes, kFloat);
-  auto [probs_slice, probs_output] =
-      reserve_scratch_buffer_tensor(*scratch_arena, scores_sizes, kFloat);
-  auto [context_slice, context_output] =
-      reserve_scratch_buffer_tensor(*scratch_arena, output_sizes, kFloat);
-  (void)scores_slice;
-  (void)probs_slice;
-  (void)context_slice;
+  Tensor scores_output;
+  Tensor probs_output;
+  Tensor context_output;
+  if (has_attention_bias) {
+    utils::log_vulkan_op_hit(
+        "aten::vision_attention.attention_bias_materialized_workspace");
+    scores_output = utils::create_buffer_tensor(scores_sizes, kFloat);
+    probs_output = utils::create_buffer_tensor(scores_sizes, kFloat);
+    context_output = utils::create_buffer_tensor(output_sizes, kFloat);
+  } else {
+    auto [scores_slice, scratch_scores_output] =
+        reserve_scratch_buffer_tensor(*scratch_arena, scores_sizes, kFloat);
+    auto [probs_slice, scratch_probs_output] =
+        reserve_scratch_buffer_tensor(*scratch_arena, scores_sizes, kFloat);
+    auto [context_slice, scratch_context_output] =
+        reserve_scratch_buffer_tensor(*scratch_arena, output_sizes, kFloat);
+    (void)scores_slice;
+    (void)probs_slice;
+    (void)context_slice;
+    scores_output = std::move(scratch_scores_output);
+    probs_output = std::move(scratch_probs_output);
+    context_output = std::move(scratch_context_output);
+  }
 
   Tensor key_t = prepare_buffer_attention_tensor(key.transpose(1, 2));
   Tensor scores = bmm_buffer_out_vulkan(query, key_t, scores_output);
@@ -1563,6 +1602,8 @@ void copy_tensor_for_replay(Tensor& dst, const Tensor& src) {
     return;
   }
   dst.copy_(src);
+  record_tensor_write(
+      dst, "vulkan_prepack::copy_tensor_for_replay", "copy", {src});
 }
 
 Tensor materialize_escaping_vulkan_output(
@@ -1574,6 +1615,11 @@ Tensor materialize_escaping_vulkan_output(
   Tensor materialized = utils::create_buffer_tensor(
       output.sizes(), output.scalar_type(), persistent);
   copy_tensor_for_replay(materialized, output);
+  record_tensor_write(
+      materialized,
+      "vulkan_prepack::materialize_escaping_vulkan_output",
+      "materialize_export",
+      {output});
   utils::log_replay_event(
       "materialize_export",
       nullptr,
@@ -2161,7 +2207,11 @@ Tensor tokens_to_feature_map_fallback(
   }
 
   if (input_arg.is_vulkan()) {
-    return output.vulkan();
+    return record_tensor_write_and_return(
+        output.vulkan(),
+        "aten::tokens_to_feature_map",
+        "cpu_fallback",
+        {input_arg});
   }
   return output;
 }
@@ -2186,7 +2236,11 @@ Tensor feature_map_to_tokens_fallback(const Tensor& input_arg) {
   }
 
   if (input_arg.is_vulkan()) {
-    return output.vulkan();
+    return record_tensor_write_and_return(
+        output.vulkan(),
+        "aten::feature_map_to_tokens",
+        "cpu_fallback",
+        {input_arg});
   }
   return output;
 }

@@ -11,6 +11,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <c10/core/TensorImpl.h>
 #include <c10/util/irange.h>
@@ -1824,7 +1825,11 @@ Tensor run_float_buffer_conv2d_impl(
       params.buffer());
 
   maybe_sync_after_gtx_large_buffer_conv(context, v_output);
-  return output_arg != nullptr ? output_tensor : convert(v_output);
+  return record_tensor_write_and_return(
+      output_arg != nullptr ? output_tensor : convert(v_output),
+      "aten::convolution",
+      "buffer_float",
+      {input, packed_weight.weight(), packed_weight.bias()});
 }
 
 Tensor run_float_buffer_conv2d_add_impl(
@@ -1930,7 +1935,11 @@ Tensor run_float_buffer_conv2d_add_impl(
       residual_meta.buffer(),
       params.buffer());
 
-  return output_tensor;
+  return record_tensor_write_and_return(
+      output_tensor,
+      "aten::convolution",
+      "buffer_float_3x3_s1p1_add",
+      {input, packed_weight.weight(), packed_weight.bias(), residual});
 }
 
 Tensor run_float_buffer_conv2d(
@@ -2071,7 +2080,12 @@ Tensor run_float_buffer_conv_transpose2d_impl(
       bias_meta.buffer(),
       params.buffer());
 
-  return output_arg != nullptr ? output_tensor : convert(v_output);
+  return record_tensor_write_and_return(
+      output_arg != nullptr ? output_tensor : convert(v_output),
+      "aten::convolution",
+      use_nonoverlap_kernel ? "buffer_float_transpose_nonoverlap"
+                            : "buffer_float_transpose",
+      {input, packed_weight.weight(), packed_weight.bias()});
 }
 
 Tensor run_float_buffer_conv_transpose2d(
@@ -2179,7 +2193,11 @@ Tensor run_bfloat16_buffer_conv2d(
       bias_meta.buffer(),
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::convolution",
+      "bf16_buffer_float_output",
+      {input, weight, bias_buffer});
 }
 
   Tensor convolution(
@@ -2420,7 +2438,11 @@ static Tensor run_conv1d_context_impl(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::convolution",
+      "conv1d_texture",
+      {input, weight, bias});
 }
 
 static Tensor run_conv1d_buffer_context_impl(
@@ -2522,7 +2544,11 @@ static Tensor run_conv1d_buffer_context_impl(
       utils::make_buffer_compute_metadata_ubo(context, v_bias).buffer(),
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::convolution",
+      "conv1d_buffer",
+      {input, weight, bias});
 }
 
 } // namespace conv1d
@@ -2941,7 +2967,11 @@ static Tensor run_conv2d_context_impl(
         transposed);
   }
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::convolution",
+      "packed_context",
+      {input_arg});
 }
 
 Tensor run_conv2d_context(

@@ -16,6 +16,7 @@
 #endif
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <c10/util/irange.h>
 #include <sstream>
@@ -172,7 +173,11 @@ Tensor unary_op_cpu_fallback(const Tensor& self_arg, const UnaryOpKind op_kind) 
         break;
     }
   }
-  return cpu_result.to(vulkan_output_device(self_arg));
+  return record_tensor_write_and_return(
+      cpu_result.to(vulkan_output_device(self_arg)),
+      "aten::unary",
+      unary_op_kind_name(op_kind),
+      {self_arg});
 }
 
 Tensor unary_op_buffer(
@@ -221,7 +226,11 @@ Tensor unary_op_buffer(
       v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
       in_meta.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::unary",
+      unary_op_kind_name(op_kind),
+      {self});
 }
 
 Tensor unary_op(
@@ -289,7 +298,11 @@ Tensor unary_op(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::unary",
+      unary_op_kind_name(op_kind),
+      {self});
 }
 
 Tensor& unary_op_(Tensor& self_arg, const api::ShaderInfo& shader_descriptor) {

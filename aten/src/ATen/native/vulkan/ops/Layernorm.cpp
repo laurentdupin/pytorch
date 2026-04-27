@@ -2,6 +2,7 @@
 #include <ATen/native/vulkan/api/Resource.h>
 #include <ATen/native/vulkan/ops/NativeLayerNorm.h>
 #include <ATen/native/vulkan/ops/Norm.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 
 #include <ATen/Functions.h>
@@ -527,6 +528,16 @@ std::optional<std::pair<Tensor, Tensor>> try_run_add_layer_norm_eager_out(
   if (c10::InferenceMode::is_enabled()) {
     maybe_synchronize_after_norm();
   }
+  record_tensor_write(
+      residual_output,
+      "aten::add_layer_norm",
+      "buffer_width_residual",
+      {residual, addend, weight, bias});
+  record_tensor_write(
+      norm_output,
+      "aten::add_layer_norm",
+      "buffer_width_norm",
+      {residual, addend, weight, bias});
 
   return std::make_pair(residual_output, norm_output);
 }
@@ -667,6 +678,16 @@ std::optional<std::pair<Tensor, Tensor>> try_run_add_scaled_layer_norm_eager_out
   if (c10::InferenceMode::is_enabled()) {
     maybe_synchronize_after_norm();
   }
+  record_tensor_write(
+      residual_output,
+      "aten::add_scaled_layer_norm",
+      "buffer_width_residual",
+      {residual, addend, scale_input, weight, bias});
+  record_tensor_write(
+      norm_output,
+      "aten::add_scaled_layer_norm",
+      "buffer_width_norm",
+      {residual, addend, scale_input, weight, bias});
 
   return std::make_pair(residual_output, norm_output);
 }
@@ -1086,6 +1107,16 @@ std::optional<std::pair<Tensor, Tensor>> try_run_add_layernorm_context_out(
   if (c10::InferenceMode::is_enabled()) {
     maybe_synchronize_after_norm();
   }
+  record_tensor_write(
+      residual_output,
+      "vulkan_prepack::run_add_layernorm_context",
+      "buffer_width_residual",
+      {residual, addend, weight, bias});
+  record_tensor_write(
+      norm_output,
+      "vulkan_prepack::run_add_layernorm_context",
+      "buffer_width_norm",
+      {residual, addend, weight, bias});
 
   return std::make_pair(residual_output, norm_output);
 }
@@ -1235,6 +1266,16 @@ try_run_add_scaled_layernorm_context_out(
   if (c10::InferenceMode::is_enabled()) {
     maybe_synchronize_after_norm();
   }
+  record_tensor_write(
+      residual_output,
+      "vulkan_prepack::run_add_scaled_layernorm_context",
+      "buffer_width_residual",
+      {residual, addend, scale_input, weight, bias});
+  record_tensor_write(
+      norm_output,
+      "vulkan_prepack::run_add_scaled_layernorm_context",
+      "buffer_width_norm",
+      {residual, addend, scale_input, weight, bias});
 
   return std::make_pair(residual_output, norm_output);
 }

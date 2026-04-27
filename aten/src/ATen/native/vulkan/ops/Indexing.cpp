@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <optional>
 #include <tuple>
@@ -40,7 +41,9 @@ Tensor upload_cpu_result_to_vulkan(
           .device(prototype.device())
           .dtype(reshaped_cpu.scalar_type()));
   ops::copy_(output, reshaped_cpu);
-  return output;
+  api::context()->sync_and_reclaim();
+  return record_tensor_write_and_return(
+      output, "aten::indexing", "cpu_upload", {prototype});
 }
 
 Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
@@ -204,7 +207,8 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
           index_buffer.buffer(),
           params.buffer());
 
-      return convert(v_output);
+      return record_tensor_write_and_return(
+          convert(v_output), "aten::index_select", "texture_gather", {weight_arg});
     }
 
     if (
@@ -259,7 +263,8 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
         index_buffer.buffer(),
         params.buffer());
 
-    return convert(v_output);
+    return record_tensor_write_and_return(
+        convert(v_output), "aten::index_select", "buffer_gather", {weight_arg});
   }
 
   TORCH_CHECK(
@@ -306,7 +311,8 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
       index_buffer.buffer(),
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::index_select", "texture_gather", {weight_arg});
 }
 
 Tensor index_select(const Tensor& self, int64_t dim, const Tensor& index) {
@@ -426,6 +432,7 @@ Tensor& scatter_value_out(
     Tensor result =
         upload_cpu_result_to_vulkan(result_cpu, result_cpu.sizes(), self);
     ops::copy_(out, result);
+    record_tensor_write(out, "aten::scatter", "out_cpu_upload", {self, result});
   } else {
     out.copy_(result_cpu);
   }
@@ -553,6 +560,7 @@ Tensor& index_tensor_out(
   Tensor result = index_tensor(self, indices);
   if (out.is_vulkan()) {
     ops::copy_(out, result);
+    record_tensor_write(out, "aten::index", "out", {self, result});
   } else {
     out.copy_(result.cpu());
   }
@@ -589,6 +597,7 @@ Tensor& index_add_out(
   Tensor result = index_add_default(self, dim, index, source, alpha);
   if (out.is_vulkan()) {
     ops::copy_(out, result);
+    record_tensor_write(out, "aten::index_add", "out", {self, source, result});
   } else {
     out.copy_(result.cpu());
   }

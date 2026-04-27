@@ -480,7 +480,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         # Exercise the Vulkan backend in inference mode to avoid autograd
         # dispatch ambiguity with CompositeImplicitAutograd kernels.
         with torch.inference_mode():
-            expected = fn(*args)
+            expected = self._single_threaded_cpu(lambda: fn(*args))
             actual = fn(*self._to_vulkan(args))
 
         self._assert_outputs_close(expected, actual, atol=atol, rtol=rtol)
@@ -2533,13 +2533,6 @@ print("OK")
         logits = logits_cpu.to("vulkan")
         top_k = 2
 
-        with torch.inference_mode():
-            batch_index_cpu, batch_gates, expert_size = torch.ops.vulkan_prepack.compute_moe_router(
-                logits,
-                top_k,
-                logits_cpu.size(1),
-            )
-
         top_k_logits_cpu, top_k_indices_cpu = logits_cpu.topk(top_k, dim=1)
         top_k_gates_cpu = torch.softmax(top_k_logits_cpu, dim=1)
         gates_cpu = torch.zeros(
@@ -2551,6 +2544,13 @@ print("OK")
         _, index_sorted_experts_cpu = top_k_experts_cpu.sort(0)
         expected_batch_index = index_sorted_experts_cpu.div(top_k, rounding_mode="trunc")
         expected_batch_gates = top_k_gates_cpu.flatten().index_select(0, index_sorted_experts_cpu)
+
+        with torch.inference_mode():
+            batch_index_cpu, batch_gates, expert_size = torch.ops.vulkan_prepack.compute_moe_router(
+                logits,
+                top_k,
+                logits_cpu.size(1),
+            )
 
         self.assertFalse(batch_index_cpu.is_vulkan)
         self.assertTrue(batch_gates.is_vulkan)
@@ -3043,6 +3043,31 @@ print("OK")
                 bad,
                 "test.nonfinite_probe",
             )
+
+    def test_vulkan_check_finite_after_write_reports_writer(self):
+        script = """
+            import torch
+
+            src = torch.tensor([1.0, 0.0], dtype=torch.float32).to("vulkan")
+            try:
+                src / 0.0
+            except RuntimeError as exc:
+                message = str(exc)
+                if (
+                    "NonFiniteTensor" not in message
+                    or "writer_op=aten::binary_op" not in message
+                ):
+                    raise
+            else:
+                raise AssertionError("finite-after-write did not catch NaN/Inf")
+            print("OK")
+        """
+        _, result = self._run_repo_python_subprocess(
+            script,
+            extra_env={"PYTORCH_VULKAN_CHECK_FINITE_AFTER_WRITE": "1"},
+            error_prefix="Vulkan finite-after-write subprocess failed.",
+        )
+        self.assertIn("OK", result.stdout)
 
     def test_large_half_matrix_roundtrip(self):
         torch.manual_seed(0)
@@ -12056,22 +12081,23 @@ print("OK")
             )
 
             def make_tokens():
-                return [
-                    torch.randn(1, patch_h * patch_w, embed_dim, dtype=torch.float32).to("vulkan")
+                cpu_tokens = [
+                    torch.randn(1, patch_h * patch_w, embed_dim, dtype=torch.float32)
                     for _ in range(4)
                 ]
+                return cpu_tokens, [tensor.to("vulkan") for tensor in cpu_tokens]
 
-            tokens_same = make_tokens()
-            tokens_alt = make_tokens()
+            tokens_same_cpu, tokens_same = make_tokens()
+            tokens_alt_cpu, tokens_alt = make_tokens()
 
             with torch.inference_mode():
                 expected_same = module(
-                    [(tensor.cpu(),) for tensor in tokens_same],
+                    [(tensor,) for tensor in tokens_same_cpu],
                     patch_h,
                     patch_w,
                 ).cpu()
                 expected_alt = module(
-                    [(tensor.cpu(),) for tensor in tokens_alt],
+                    [(tensor,) for tensor in tokens_alt_cpu],
                     patch_h,
                     patch_w,
                 ).cpu()

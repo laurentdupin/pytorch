@@ -2,6 +2,7 @@
 #include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Reduction.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <c10/core/DispatchKeySet.h>
 #include <c10/core/InferenceMode.h>
@@ -137,7 +138,8 @@ Tensor mean_dim_buffer_chunk(
       v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
       in_meta.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::mean", "buffer_dim_chunk", {prepared_input});
 }
 
 Tensor finalize_bfloat16_mean_output(
@@ -158,7 +160,11 @@ Tensor mean_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
-  return at::mean(self_cpu, dtype).to(vulkan_output_device(self_arg));
+  return record_tensor_write_and_return(
+      at::mean(self_cpu, dtype).to(vulkan_output_device(self_arg)),
+      "aten::mean",
+      "cpu_fallback",
+      {self_arg});
 }
 
 Tensor mean_dim_cpu_fallback(
@@ -170,7 +176,11 @@ Tensor mean_dim_cpu_fallback(
   c10::InferenceMode inference_mode_guard(false);
 
   const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
-  return at::mean(self_cpu, dim, keepdim, dtype).to(vulkan_output_device(self_arg));
+  return record_tensor_write_and_return(
+      at::mean(self_cpu, dim, keepdim, dtype).to(vulkan_output_device(self_arg)),
+      "aten::mean",
+      "dim_cpu_fallback",
+      {self_arg});
 }
 
 void check_group_norm_inputs(
@@ -312,6 +322,10 @@ GroupNormStats run_group_norm_stats_buffer(
       in_meta.buffer(),
       params.buffer());
 
+  record_tensor_write(
+      mean, "aten::group_norm", "buffer_fused_stats_mean", {reshaped});
+  record_tensor_write(
+      rstd, "aten::group_norm", "buffer_fused_stats_rstd", {reshaped});
   return {mean, rstd};
 }
 
@@ -389,7 +403,11 @@ Tensor run_group_norm_affine_buffer(
       params.buffer());
 
   maybe_sync_after_gtx_large_group_norm(context, v_output);
-  return output;
+  return record_tensor_write_and_return(
+      output,
+      "aten::group_norm",
+      "buffer_fused_affine",
+      {input, mean, rstd, weight, bias});
 }
 
 std::optional<Tensor> try_group_norm_buffer_fused(
@@ -489,7 +507,11 @@ std::optional<Tensor> try_group_norm_buffer_fused(
     output = utils::cast_vulkan_tensor_dtype(output, output_dtype);
   }
   utils::log_vulkan_op_hit("aten::group_norm.buffer_fused");
-  return output;
+  return record_tensor_write_and_return(
+      output,
+      "aten::group_norm",
+      "buffer_fused",
+      {compute_input_arg, compute_weight_arg, compute_bias_arg});
 }
 
 Tensor materialize_vulkan_metadata_view_for_cpu_readback(const Tensor& tensor) {
@@ -606,7 +628,11 @@ Tensor group_norm_vulkan(
     normalized = utils::cast_vulkan_tensor_dtype(normalized, output_dtype);
   }
 
-  return normalized;
+  return record_tensor_write_and_return(
+      normalized,
+      "aten::group_norm",
+      "vulkan_composite",
+      {input_arg});
 }
 
 Tensor group_norm_cpu_fallback(
@@ -647,7 +673,11 @@ Tensor group_norm_cpu_fallback(
       output = utils::ensure_buffer_storage(output, v_input.gpu_memory_layout());
     }
   }
-  return output;
+  return record_tensor_write_and_return(
+      output,
+      "aten::group_norm",
+      "cpu_fallback",
+      {input_arg});
 }
 
 Tensor group_norm_autograd_other(
@@ -739,7 +769,8 @@ Tensor mean_all_buffer(
   if (target_dtype != c10::ScalarType::Float) {
     output = utils::cast_vulkan_tensor_dtype(output, target_dtype);
   }
-  return output;
+  return record_tensor_write_and_return(
+      output, "aten::mean", "buffer_all", {prepared_input_arg});
 }
 
 Tensor mean_dim_buffer(
@@ -886,7 +917,8 @@ Tensor mean_dim(
       v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
       // params buffer
       params.buffer());
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::mean", "texture_dim", {self});
 }
 
 Tensor mean_dim_IntList(

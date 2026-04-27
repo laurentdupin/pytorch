@@ -1069,7 +1069,11 @@ Tensor binary_op_scalar_cpu_fallback(
         break;
     }
   }
-  return cpu_result.vulkan();
+  return record_tensor_write_and_return(
+      cpu_result.vulkan(),
+      "aten::binary_op",
+      "scalar_cpu_fallback",
+      {self_arg});
 }
 
 Tensor binary_op_tensor_cpu_fallback(
@@ -1105,7 +1109,11 @@ Tensor binary_op_tensor_cpu_fallback(
         break;
     }
   }
-  return cpu_result.vulkan();
+  return record_tensor_write_and_return(
+      cpu_result.vulkan(),
+      "aten::binary_op",
+      "tensor_cpu_fallback",
+      {self_arg, other_arg});
 }
 
 Tensor prepare_native_integral_buffer_input(const Tensor& input_arg) {
@@ -1588,7 +1596,11 @@ static Tensor binary_op_scalar(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::binary_op",
+      "scalar_texture",
+      {self});
 }
 
 static Tensor binary_op_preprocess_other_arg(const Tensor& other_arg) {
@@ -2589,7 +2601,8 @@ static Tensor div_scalar_mode(
     const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
     cpu_result = at::div(self_cpu, other, rounding_mode);
   }
-  return cpu_result.vulkan();
+  return record_tensor_write_and_return(
+      cpu_result.vulkan(), "aten::div", "scalar_mode_cpu_fallback", {self_arg});
 }
 
 static Tensor& div_scalar_mode_(
@@ -2634,7 +2647,11 @@ static Tensor div_tensor_mode(
     const Tensor other_cpu = other_arg.is_vulkan() ? other_arg.cpu() : other_arg;
     cpu_result = at::div(self_cpu, other_cpu, rounding_mode);
   }
-  return cpu_result.vulkan();
+  return record_tensor_write_and_return(
+      cpu_result.vulkan(),
+      "aten::div",
+      "tensor_mode_cpu_fallback",
+      {self_arg, other_arg});
 }
 
 static Tensor& div_tensor_mode_(

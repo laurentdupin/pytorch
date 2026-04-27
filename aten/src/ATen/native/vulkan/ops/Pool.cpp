@@ -1,6 +1,8 @@
 #include <ATen/native/Pool.h>
+#include <ATen/Parallel.h>
 #include <ATen/ops/avg_pool2d.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -14,6 +16,24 @@ using namespace api::utils;
 
 constexpr bool kEnableFloatBufferAvgPool2d = false;
 constexpr int64_t kSmallAvgPoolCpuFallbackNumel = 4096;
+
+class SingleThreadedCpuGuard final {
+ public:
+  SingleThreadedCpuGuard() : previous_num_threads_(at::get_num_threads()) {
+    if (previous_num_threads_ != 1) {
+      at::set_num_threads(1);
+    }
+  }
+
+  ~SingleThreadedCpuGuard() {
+    if (previous_num_threads_ != 1) {
+      at::set_num_threads(previous_num_threads_);
+    }
+  }
+
+ private:
+  int previous_num_threads_;
+};
 
 bool can_run_float_buffer_pool2d(const vTensor& v_self) {
   return v_self.storage_type() == api::StorageType::BUFFER &&
@@ -166,7 +186,8 @@ Tensor pool2d_buffer(
       in_meta.buffer(),
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::pool2d", "buffer", {self});
 }
 
 Tensor adaptive_avg_pool2d(
@@ -241,7 +262,8 @@ Tensor adaptive_avg_pool2d(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::_adaptive_avg_pool2d", "texture", {self});
 }
 
 Tensor pool2d(
@@ -383,7 +405,8 @@ Tensor pool2d(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::pool2d", "texture", {self});
 }
 
 Tensor avg_pool2d(
@@ -392,9 +415,10 @@ Tensor avg_pool2d(
     IntArrayRef stride_arg,
     const IntArrayRef padding_arg,
     const bool ceil_mode,
-    const bool count_include_pad,
-    const std::optional<int64_t> divisor_override) {
+      const bool count_include_pad,
+      const std::optional<int64_t> divisor_override) {
   if (self_arg.numel() <= kSmallAvgPoolCpuFallbackNumel) {
+    SingleThreadedCpuGuard single_threaded_cpu;
     Tensor result_cpu = at::avg_pool2d(
         self_arg.cpu(),
         kernel_arg,
@@ -403,7 +427,11 @@ Tensor avg_pool2d(
         ceil_mode,
         count_include_pad,
         divisor_override);
-    return result_cpu.to(self_arg.device());
+    return record_tensor_write_and_return(
+        result_cpu.to(self_arg.device()),
+        "aten::avg_pool2d",
+        "small_cpu_control_fallback",
+        {self_arg});
   }
 
   if (can_route_float_buffer_pool2d(self_arg) && count_include_pad &&

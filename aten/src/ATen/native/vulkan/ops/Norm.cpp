@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Norm.h>
 
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 
@@ -134,7 +135,12 @@ Tensor fused_norm_width_impl_internal(
   }
 
   utils::log_vulkan_op_hit(spec.op_hit_name);
-  return output_tensor;
+  std::vector<Tensor> provenance_inputs{input_arg, *weight_opt};
+  if (bias_opt && bias_opt->defined()) {
+    provenance_inputs.emplace_back(*bias_opt);
+  }
+  return record_tensor_write_and_return(
+      output_tensor, "aten::norm", spec.op_hit_name, provenance_inputs);
 }
 
 } // namespace

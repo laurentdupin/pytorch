@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/Functions.h>
 #include <torch/library.h>
@@ -107,7 +108,8 @@ Tensor transpose_4d(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::transpose", "texture_4d", {input});
 }
 
 Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
@@ -131,7 +133,8 @@ Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
         cpu_transposed.sizes(),
         self.options().device(self.device()));
     ops::copy_(out, cpu_transposed);
-    return out;
+    return record_tensor_write_and_return(
+        out, "aten::transpose", "cpu_fallback", {self});
   }
 
   auto nDims = safe_downcast<uint32_t>(self.dim());

@@ -2,6 +2,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -32,7 +33,8 @@ Tensor select_cpu_fallback(const Tensor& self, int64_t dim, int64_t index) {
       cpu_result.sizes(),
       self.options().device(self.device()).dtype(cpu_result.scalar_type()));
   ops::copy_(out, cpu_result);
-  return out;
+  return record_tensor_write_and_return(
+      out, "aten::select", "cpu_fallback", {self});
 }
 
 bool can_use_buffer_select_view(const Tensor& self) {
@@ -149,7 +151,8 @@ Tensor select_batch_4d(const Tensor& input_arg, uint32_t index) {
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::select", "batch_4d", {input});
 }
 
 Tensor select_depth_3d(const Tensor& input_arg, uint32_t index) {
@@ -196,7 +199,8 @@ Tensor select_depth_3d(const Tensor& input_arg, uint32_t index) {
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::select", "depth_3d", {input});
 }
 
 Tensor select_depth_4d(const Tensor& input_arg, uint32_t index) {
@@ -249,7 +253,8 @@ Tensor select_depth_4d(const Tensor& input_arg, uint32_t index) {
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::select", "depth_4d", {input});
 }
 
 Tensor select_height_3d(const Tensor& input_arg, uint32_t index) {
@@ -308,7 +313,8 @@ Tensor select_height_3d(const Tensor& input_arg, uint32_t index) {
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::select", "height_3d", {input});
 }
 
 Tensor select_height_4d(const Tensor& input_arg, uint32_t index) {
@@ -362,7 +368,8 @@ Tensor select_height_4d(const Tensor& input_arg, uint32_t index) {
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::select", "height_4d", {input});
 }
 
 Tensor select_width_3d(const Tensor& input_arg, uint32_t index) {
@@ -422,7 +429,8 @@ Tensor select_width_3d(const Tensor& input_arg, uint32_t index) {
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::select", "width_3d", {input});
 }
 
 Tensor select_width_4d(const Tensor& input_arg, uint32_t index) {
@@ -475,7 +483,8 @@ Tensor select_width_4d(const Tensor& input_arg, uint32_t index) {
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::select", "width_4d", {input});
 }
 
 Tensor select(const Tensor& self, int64_t dim, int64_t index) {

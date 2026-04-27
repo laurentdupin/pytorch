@@ -7,6 +7,7 @@
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
 #include <c10/core/ScalarType.h>
+#include <cstdlib>
 #include <mutex>
 #include <sstream>
 #include <unordered_map>
@@ -29,10 +30,19 @@ ProvenanceRegistry& provenance_registry() {
   return registry;
 }
 
+uint64_t provenance_key(const VulkanTensorStateDesc& state) {
+  uint64_t key = state.storage_id;
+  key ^= state.view_id + 0x9e3779b97f4a7c15ULL + (key << 6) + (key >> 2);
+  key ^= state.logical_desc_hash + 0x9e3779b97f4a7c15ULL + (key << 6) +
+      (key >> 2);
+  key ^= state.generation + 0x9e3779b97f4a7c15ULL + (key << 6) + (key >> 2);
+  return key;
+}
+
 std::string describe_known_writer_locked(
     const VulkanTensorStateDesc& state,
     const ProvenanceRegistry& registry) {
-  const auto it = registry.by_storage.find(state.storage_id);
+  const auto it = registry.by_storage.find(provenance_key(state));
   if (it == registry.by_storage.end()) {
     return "writer=<unknown>";
   }
@@ -79,13 +89,30 @@ Tensor finite_check_source(const Tensor& snapshot) {
   return snapshot;
 }
 
+bool finite_after_write_enabled() {
+  const char* env = std::getenv("PYTORCH_VULKAN_CHECK_FINITE_AFTER_WRITE");
+  if (!env || env[0] == '\0') {
+    return false;
+  }
+  const std::string value(env);
+  return value != "0" && value != "false" && value != "False" &&
+      value != "FALSE";
+}
+
+bool& finite_after_write_guard() {
+  static thread_local bool active = false;
+  return active;
+}
+
 } // namespace
 
-void record_tensor_write(
+void record_tensor_provenance(
     const Tensor& output,
     const char* op_name,
     const char* route_name,
-    ArrayRef<Tensor> inputs) {
+    ArrayRef<Tensor> inputs,
+    const bool clear_replay_stamp,
+    const bool check_finite_after_write) {
   if (!output.defined()) {
     return;
   }
@@ -94,31 +121,65 @@ void record_tensor_write(
   if (output_state.storage_id == 0u) {
     return;
   }
-  utils::clear_replay_tensor_stamp(output);
-
-  ProvenanceRegistry& registry = provenance_registry();
-  std::lock_guard<std::mutex> lock(registry.mutex);
-
-  VulkanTensorProvenanceRecord record;
-  record.sequence = registry.next_sequence++;
-  record.storage_id = output_state.storage_id;
-  record.view_id = output_state.view_id;
-  record.generation = output_state.generation;
-  record.logical_desc_hash = output_state.logical_desc_hash;
-  record.writer_op = op_name && op_name[0] != '\0' ? op_name : "<unknown>";
-  record.route =
-      route_name && route_name[0] != '\0' ? route_name : "<unspecified>";
-  record.output_state = describe_tensor_state(output_state);
-  record.input_states.reserve(inputs.size());
-  record.input_writers.reserve(inputs.size());
-  for (const Tensor& input : inputs) {
-    const VulkanTensorStateDesc input_state = inspect_tensor_state(input);
-    record.input_states.emplace_back(describe_tensor_state(input_state));
-    record.input_writers.emplace_back(
-        describe_known_writer_locked(input_state, registry));
+  if (clear_replay_stamp) {
+    utils::clear_replay_tensor_stamp(output);
   }
 
-  registry.by_storage[record.storage_id] = std::move(record);
+  const char* writer_op = op_name && op_name[0] != '\0'
+      ? op_name
+      : "<unknown>";
+
+  {
+    ProvenanceRegistry& registry = provenance_registry();
+    std::lock_guard<std::mutex> lock(registry.mutex);
+
+    VulkanTensorProvenanceRecord record;
+    record.sequence = registry.next_sequence++;
+    record.storage_id = output_state.storage_id;
+    record.view_id = output_state.view_id;
+    record.generation = output_state.generation;
+    record.logical_desc_hash = output_state.logical_desc_hash;
+    record.writer_op = writer_op;
+    record.route =
+        route_name && route_name[0] != '\0' ? route_name : "<unspecified>";
+    record.output_state = describe_tensor_state(output_state);
+    record.input_states.reserve(inputs.size());
+    record.input_writers.reserve(inputs.size());
+    for (const Tensor& input : inputs) {
+      const VulkanTensorStateDesc input_state = inspect_tensor_state(input);
+      record.input_states.emplace_back(describe_tensor_state(input_state));
+      record.input_writers.emplace_back(
+          describe_known_writer_locked(input_state, registry));
+    }
+
+    registry.by_storage[provenance_key(output_state)] = std::move(record);
+  }
+
+  bool& finite_guard = finite_after_write_guard();
+  if (check_finite_after_write && finite_after_write_enabled() && !finite_guard) {
+    finite_guard = true;
+    try {
+      check_tensor_finite(output, writer_op);
+      finite_guard = false;
+    } catch (...) {
+      finite_guard = false;
+      throw;
+    }
+  }
+}
+
+void record_tensor_write(
+    const Tensor& output,
+    const char* op_name,
+    const char* route_name,
+    ArrayRef<Tensor> inputs) {
+  record_tensor_provenance(
+      output,
+      op_name,
+      route_name,
+      inputs,
+      /*clear_replay_stamp=*/true,
+      /*check_finite_after_write=*/true);
 }
 
 Tensor record_tensor_write_and_return(
@@ -130,12 +191,35 @@ Tensor record_tensor_write_and_return(
   return output;
 }
 
+void record_tensor_alias(
+    const Tensor& output,
+    const Tensor& base,
+    const char* op_name,
+    const char* route_name) {
+  record_tensor_provenance(
+      output,
+      op_name,
+      route_name,
+      {base},
+      /*clear_replay_stamp=*/false,
+      /*check_finite_after_write=*/false);
+}
+
+Tensor record_tensor_alias_and_return(
+    Tensor output,
+    const Tensor& base,
+    const char* op_name,
+    const char* route_name) {
+  record_tensor_alias(output, base, op_name, route_name);
+  return output;
+}
+
 std::string describe_tensor_provenance(const Tensor& tensor) {
   const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
   ProvenanceRegistry& registry = provenance_registry();
   std::lock_guard<std::mutex> lock(registry.mutex);
 
-  const auto it = registry.by_storage.find(state.storage_id);
+  const auto it = registry.by_storage.find(provenance_key(state));
   if (it == registry.by_storage.end()) {
     std::ostringstream stream;
     stream << "tensor_provenance{writer=<unknown> state={"

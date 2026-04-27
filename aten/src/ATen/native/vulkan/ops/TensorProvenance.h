@@ -38,6 +38,18 @@ Tensor record_tensor_write_and_return(
     const char* route_name = nullptr,
     ArrayRef<Tensor> inputs = {});
 
+void record_tensor_alias(
+    const Tensor& output,
+    const Tensor& base,
+    const char* op_name,
+    const char* route_name = nullptr);
+
+Tensor record_tensor_alias_and_return(
+    Tensor output,
+    const Tensor& base,
+    const char* op_name,
+    const char* route_name = nullptr);
+
 std::string describe_tensor_provenance(const Tensor& tensor);
 
 bool check_tensor_finite(const Tensor& tensor, const char* consumer_op);

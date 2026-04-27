@@ -2,6 +2,7 @@
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/Functions.h>
 #include <torch/library.h>
@@ -110,7 +111,8 @@ Tensor permute_4d(
       // params buffer
       params.buffer());
 
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::permute", "texture_4d", {input});
 }
 
 Tensor permute(const Tensor& self, IntArrayRef dims) {
@@ -131,7 +133,8 @@ Tensor permute(const Tensor& self, IntArrayRef dims) {
         cpu_permuted.sizes(),
         self.options().device(self.device()));
     ops::copy_(out, cpu_permuted);
-    return out;
+    return record_tensor_write_and_return(
+        out, "aten::permute", "cpu_fallback", {self});
   }
 
   uvec4 in_size{1u, 1u, 1u, 1u}, out_size{1u, 1u, 1u, 1u};

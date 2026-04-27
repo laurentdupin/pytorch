@@ -2,6 +2,7 @@
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <c10/core/InferenceMode.h>
@@ -48,7 +49,11 @@ Tensor cast_vulkan_tensor_dtype_cpu_fallback(
     const ScalarType dtype) {
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
-  return input.cpu().to(dtype).vulkan();
+  return record_tensor_write_and_return(
+      input.cpu().to(dtype).vulkan(),
+      "aten::to",
+      "cpu_dtype_fallback",
+      {input});
 }
 
 std::vector<int64_t> calc_logical_contiguous_strides(
@@ -193,7 +198,8 @@ Tensor cast_vulkan_tensor_dtype_buffer_native(
       v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
       in_meta.buffer());
 
-  return convert(v_out);
+  return record_tensor_write_and_return(
+      convert(v_out), "aten::to", "buffer_dtype_cast", {input});
 }
 
 const std::string& materialize_log_path() {
@@ -746,7 +752,13 @@ Tensor ensure_buffer_storage(
           ? "buffer_relayout"
           : "texture_to_buffer");
 
-  return convert(materialize_to_contiguous_buffer(v_input, memory_layout));
+  return record_tensor_write_and_return(
+      convert(materialize_to_contiguous_buffer(v_input, memory_layout)),
+      "ensure_buffer_storage",
+      v_input.storage_type() == api::StorageType::BUFFER
+          ? "buffer_relayout"
+          : "texture_to_buffer",
+      {input});
 }
 
 Tensor ensure_texture_storage(
@@ -775,8 +787,12 @@ Tensor ensure_texture_storage(
             storage_type,
             memory_layout,
             "image_layout_convert_width");
-        return convert(
-            packing::convert_image_channels_packed_to_width_packed(v_input));
+        return record_tensor_write_and_return(
+            convert(
+                packing::convert_image_channels_packed_to_width_packed(v_input)),
+            "ensure_texture_storage",
+            "image_layout_convert_width",
+            {input});
       }
       if (memory_layout == api::GPUMemoryLayout::TENSOR_HEIGHT_PACKED) {
         log_materialize_event(
@@ -785,8 +801,12 @@ Tensor ensure_texture_storage(
             storage_type,
             memory_layout,
             "image_layout_convert_height");
-        return convert(
-            packing::convert_image_channels_packed_to_height_packed(v_input));
+        return record_tensor_write_and_return(
+            convert(
+                packing::convert_image_channels_packed_to_height_packed(v_input)),
+            "ensure_texture_storage",
+            "image_layout_convert_height",
+            {input});
       }
     }
   }
@@ -823,7 +843,8 @@ Tensor ensure_texture_storage(
       api::PipelineStage::COMPUTE | api::PipelineStage::TRANSFER,
       api::MemoryAccessType::READ);
   pack_buffer_to_vtensor(staging.buffer(), v_out, pipeline_barrier);
-  return convert(v_out);
+  return record_tensor_write_and_return(
+      convert(v_out), "ensure_texture_storage", "buffer_to_texture", {input});
 }
 
 Tensor create_buffer_tensor(
@@ -898,6 +919,7 @@ Tensor& copy_buffer_tensor_direct_(Tensor& dst, const Tensor& src) {
       {0u, 0u, 0u},
       {0u, 0u, 0u},
       VK_NULL_HANDLE);
+  record_tensor_write(dst, "copy_buffer_tensor_direct_", "raw_buffer_copy", {src});
   return dst;
 }
 
@@ -949,7 +971,8 @@ Tensor upcast_bfloat16_buffer_to_float(const Tensor& input) {
           api::MemoryAccessType::READ),
       make_buffer_compute_metadata_ubo(context, v_input).buffer());
 
-  return convert(v_out);
+  return record_tensor_write_and_return(
+      convert(v_out), "aten::to", "bf16_buffer_to_float", {input});
 }
 
 Tensor mark_tensor_execution(

@@ -9,6 +9,7 @@
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <optional>
 #include <torch/library.h>
@@ -267,7 +268,8 @@ Tensor reshape_contiguous_texture(
   utils::pack_buffer_to_vtensor(staging.buffer(), v_output, pipeline_barrier);
 
   utils::log_vulkan_op_hit("aten::view.texture_contiguous_reshape");
-  return convert(v_output);
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::view", "texture_contiguous_reshape", {input});
 }
 
 Tensor reshape_contiguous_as_buffer_view(
@@ -409,7 +411,8 @@ Tensor view_internal(
       output_size.vec(),
       materialized_self.options().device(materialized_self.device()));
   ops::copy_(out, cpu_view);
-  return out;
+  return record_tensor_write_and_return(
+      out, "aten::view", "cpu_as_strided_materialize", {materialized_self});
 }
 
 } // namespace
@@ -523,7 +526,8 @@ static Tensor im2col(
       cpu_result.sizes(),
       self_arg.options().device(self_arg.device()));
   ops::copy_(out, cpu_result);
-  return out;
+  return record_tensor_write_and_return(
+      out, "aten::im2col", "cpu_fallback", {self_arg});
 }
 
 static Tensor& im2col_out(
