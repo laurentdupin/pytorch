@@ -1345,6 +1345,7 @@ Tensor softmax_buffer_dim_impl(const Tensor& input_arg, const int64_t dim) {
       utils::prepare_vulkan_direct_buffer_execution_tensor(input_arg, plan);
 
   api::Context* const context = api::context();
+  context->sync_and_reclaim();
   vTensor& v_input = convert(input);
   Tensor output = utils::mark_tensor_execution(
       convert(vTensor{
@@ -3384,6 +3385,7 @@ std::optional<Tensor> try_consume_decomposed_attention_probs(
     return std::nullopt;
   }
   Tensor value = detached_attention_tensor(value_arg);
+  Tensor query = scaled_decomposed_attention_query(*taken);
   utils::log_vulkan_op_hit("aten::decomposed_attention_bridge.hit");
   const auto attention_policy = utils::build_vulkan_attention_policy(
       std::nullopt,
@@ -3394,27 +3396,27 @@ std::optional<Tensor> try_consume_decomposed_attention_probs(
   const auto input_policy = utils::build_vulkan_runtime_policy(
       utils::make_vulkan_attention_request(
           attention_policy,
-          taken->query,
+          query,
           taken->key,
           value,
           utils::VulkanTensorRole::Input));
   auto runtime_program = lookup_attention_runtime_program_for_inputs(
       input_policy,
       attention_policy,
-      taken->query,
+      query,
       taken->key,
       value);
   std::optional<Tensor> output_override =
-      make_decomposed_attention_merge_friendly_output(taken->query, value);
+      make_decomposed_attention_merge_friendly_output(query, value);
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_attention_runtime_buffer_math_program_bridge");
   return run_attention_runtime_buffer_math_program_impl(
-      taken->query,
+      query,
       taken->key,
       value,
       runtime_program.has_value() ? &(*runtime_program) : nullptr,
       output_override.has_value() ? &(*output_override) : nullptr,
-      taken->query_scale);
+      1.0f);
 }
 
 Tensor materialize_decomposed_attention_candidate_if_needed(

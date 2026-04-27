@@ -473,6 +473,11 @@ class _ReplicatedModule(_ParallelExecutionModule):
         super().__init__()
         _ensure_cpu_hosted_module(module, "torch.vulkan.replicate_module")
         self._device_group = _build_vulkan_device_group(devices)
+        if len(self._device_group) > 1:
+            raise RuntimeError(
+                "Vulkan multi-device replicate_module is disabled until "
+                "cross-device tensor lifetime is stable"
+            )
         self._dim = dim
         self._output_device = _normalize_output_device(output_device)
         self._parallel = parallel

@@ -295,6 +295,7 @@ class Conv1dPackedContext final : public torch::jit::CustomClassHolder {
  private:
   c10::impl::GenericList unpacked_;
   PackedWeightHandle packed_weight_;
+  PackedWeightHandle buffer_weight_;
   std::vector<int64_t> stride_;
   std::vector<int64_t> padding_;
   std::vector<int64_t> dilation_;
@@ -338,6 +339,10 @@ class Conv1dPackedContext final : public torch::jit::CustomClassHolder {
 
   const PackedWeightHandle& packed_weight() const {
     return packed_weight_;
+  }
+
+  const PackedWeightHandle& buffer_weight() const {
+    return buffer_weight_;
   }
 
   const std::vector<int64_t>& stride() const {

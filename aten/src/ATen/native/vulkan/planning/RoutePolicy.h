@@ -36,6 +36,7 @@ enum class VulkanRouteRejectReason : uint8_t {
   RequiresLargeCpuFallback,
   KnownBadConv3x3Stride1Pad1,
   KnownBadLargeBufferConv3x3,
+  KnownBadLargePointwiseConv,
   KnownBadDiffusion4dSdpa,
   KnownBadGenericSdpa,
   KnownBadSdpaMaskOrCausal,

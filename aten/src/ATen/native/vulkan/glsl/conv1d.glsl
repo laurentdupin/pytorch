@@ -93,17 +93,29 @@ void main() {
           const ivec3 w_pos = ivec3(k / 4, in_c % in_group_size, out_c);
           const vec4 weight = texelFetch(uKernel, w_pos, 0);
 
-          const ivec3 in_pos_0 = ivec3(in_l + k * dilation, in_c, n / 4);
-          sum = fma(weight.xxxx, texelFetch(uInput, in_pos_0, 0), sum);
+          const int in_l_0 = in_l + k * dilation;
+          if (k < kernel_size && in_l_0 >= 0 && in_l_0 < in_length) {
+            const ivec3 in_pos_0 = ivec3(in_l_0, in_c, n / 4);
+            sum = fma(weight.xxxx, texelFetch(uInput, in_pos_0, 0), sum);
+          }
 
-          const ivec3 in_pos_1 = ivec3(in_l + (k+1) * dilation, in_c, n / 4);
-          sum = fma(weight.yyyy, texelFetch(uInput, in_pos_1, 0), sum);
+          const int in_l_1 = in_l + (k + 1) * dilation;
+          if (k + 1 < kernel_size && in_l_1 >= 0 && in_l_1 < in_length) {
+            const ivec3 in_pos_1 = ivec3(in_l_1, in_c, n / 4);
+            sum = fma(weight.yyyy, texelFetch(uInput, in_pos_1, 0), sum);
+          }
 
-          const ivec3 in_pos_2 = ivec3(in_l + (k+2) * dilation, in_c, n / 4);
-          sum = fma(weight.zzzz, texelFetch(uInput, in_pos_2, 0), sum);
+          const int in_l_2 = in_l + (k + 2) * dilation;
+          if (k + 2 < kernel_size && in_l_2 >= 0 && in_l_2 < in_length) {
+            const ivec3 in_pos_2 = ivec3(in_l_2, in_c, n / 4);
+            sum = fma(weight.zzzz, texelFetch(uInput, in_pos_2, 0), sum);
+          }
 
-          const ivec3 in_pos_3 = ivec3(in_l + (k+3) * dilation, in_c, n / 4);
-          sum = fma(weight.wwww, texelFetch(uInput, in_pos_3, 0), sum);
+          const int in_l_3 = in_l + (k + 3) * dilation;
+          if (k + 3 < kernel_size && in_l_3 >= 0 && in_l_3 < in_length) {
+            const ivec3 in_pos_3 = ivec3(in_l_3, in_c, n / 4);
+            sum = fma(weight.wwww, texelFetch(uInput, in_pos_3, 0), sum);
+          }
         }
       }
 

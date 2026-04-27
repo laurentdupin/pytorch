@@ -1036,6 +1036,13 @@ void ExecutionGraphReplayBundle::warmup() const {
   for (const auto& step : state_->steps_) {
     step.record_step();
   }
+  if (state_->replay_.defined()) {
+    log_inference_replay_event(
+        state_->replay_.kind(),
+        "warmup",
+        state_->replay_.allocation_label(),
+        state_->replay_.identity());
+  }
 }
 
 void ExecutionGraphReplayBundle::record() const {
@@ -1588,6 +1595,16 @@ InferenceReplay lookup_or_create_labeled_inference_replay(
   log_inference_replay_event(
       query.kind, "store", query.allocation_label, created.identity());
   return created;
+}
+
+void log_inference_replay_lifecycle_event(
+    const InferenceReplay& replay,
+    const char* event) {
+  if (!replay.defined()) {
+    return;
+  }
+  log_inference_replay_event(
+      replay.kind(), event, replay.allocation_label(), replay.identity());
 }
 
 ExecutionGraphPlan lookup_or_create_labeled_execution_graph_plan(

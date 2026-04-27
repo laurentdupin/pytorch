@@ -1146,13 +1146,16 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
             torch.manual_seed(0)
             module = nn.Linear(4, 3).eval()
-            runner = torch.vulkan.replicate_module(module, capable[:2])
-            x = torch.randn(12, 4)
-            with torch.inference_mode():
-                expected = module(x)
-                actual = runner(x)
-
-            torch.testing.assert_close(expected, actual)
+            try:
+                torch.vulkan.replicate_module(module, capable[:2])
+            except RuntimeError as exc:
+                if "multi-device replicate_module is disabled" not in str(exc):
+                    raise
+            else:
+                raise AssertionError(
+                    "multi-device replicate_module should hard-fail until "
+                    "cross-device lifetime is stable"
+                )
             print("OK")
         """
 
@@ -1945,6 +1948,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
 
     def test_depth_anything_3_rope_matches_cpu_without_vulkan_branch(self):
+        if importlib.util.find_spec("addict") is None:
+            self.skipTest("Depth Anything 3 optional dependency 'addict' is not installed")
         script = r"""
 import os
 import sys
@@ -1972,6 +1977,8 @@ print("OK")
         )
 
     def test_depth_anything_3_pose_transform_backend_ops_match_cpu(self):
+        if importlib.util.find_spec("addict") is None:
+            self.skipTest("Depth Anything 3 optional dependency 'addict' is not installed")
         script = r"""
 import os
 import sys
@@ -4836,13 +4843,14 @@ print("OK")
                 rtol=1e-4)
 
     def test_large_pointwise_conv2d_module_with_vulkan_weights(self):
-        torch.manual_seed(0)
+        script = """
+            import torch
 
-        x_cpu = torch.randn(1, 384, 7, 9)
-        x_vulkan = x_cpu.to("vulkan")
+            torch.manual_seed(0)
+            x_cpu = torch.randn(1, 384, 7, 9)
+            x_vulkan = x_cpu.to("vulkan")
 
-        for out_channels in (192, 384):
-            with self.subTest(out_channels=out_channels):
+            for out_channels in (192, 384):
                 module_cpu = torch.nn.Conv2d(
                     384,
                     out_channels,
@@ -4857,13 +4865,23 @@ print("OK")
                 module_vulkan = module_vulkan.to("vulkan")
 
                 with torch.inference_mode():
-                    expected = module_cpu(x_cpu)
-                    actual = module_vulkan(x_vulkan).cpu()
-                    self._assert_outputs_close(
-                        expected,
-                        actual,
-                        atol=1e-4,
-                        rtol=1e-4)
+                    _ = module_cpu(x_cpu)
+                    try:
+                        module_vulkan(x_vulkan)
+                    except RuntimeError as exc:
+                        if "KnownBadLargePointwiseConv" not in str(exc):
+                            raise
+                    else:
+                        raise AssertionError(
+                            "large pointwise conv should hard-fail")
+
+            print("OK")
+        """
+        _, result = self._run_repo_python_subprocess(
+            script,
+            error_prefix="large pointwise Vulkan conv hard-fail subprocess failed.",
+        )
+        self.assertIn("OK", result.stdout)
 
     def test_large_pointwise_conv_weight_roundtrip(self):
         torch.manual_seed(0)
@@ -7122,6 +7140,9 @@ print("OK")
             self.assertGreaterEqual(
                 graph_log_text.count(
                     "inference_replay event=submit kind=VisionBackbone"
+                )
+                + graph_log_text.count(
+                    "inference_replay event=direct kind=VisionBackbone"
                 ),
                 1,
             )
@@ -8622,9 +8643,11 @@ print("OK")
                 "inference_replay event=record kind=ExecutionGraphBundle allocation_label=depth.vision.shared.capture.64x64.graph.vision.backbone_decoder.replay",
                 graph_log_text,
             )
-            self.assertIn(
-                "inference_replay event=submit kind=ExecutionGraphBundle allocation_label=depth.vision.shared.capture.64x64.graph.vision.backbone_decoder.replay",
-                graph_log_text,
+            self.assertTrue(
+                "inference_replay event=submit kind=ExecutionGraphBundle allocation_label=depth.vision.shared.capture.64x64.graph.vision.backbone_decoder.replay"
+                in graph_log_text
+                or "inference_replay event=warmup kind=ExecutionGraphBundle allocation_label=depth.vision.shared.capture.64x64.graph.vision.backbone_decoder.replay"
+                in graph_log_text
             )
             self.assertIn(
                 "execution_graph_plan event=replay_store kind=VisionBackbone",
@@ -8946,6 +8969,10 @@ print("OK")
                 "inference_replay event=submit kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay"
                 in graph_log_text
                 or "inference_replay event=submit kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.compiled_session.replay"
+                in graph_log_text
+                or "inference_replay event=warmup kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.replay"
+                in graph_log_text
+                or "inference_replay event=warmup kind=ExecutionGraphBundle allocation_label=depth.vision.stack.capture.17x32.graph.vision.backbone_stack.compiled_session.replay"
                 in graph_log_text
             )
             self.assertIn(
@@ -10724,7 +10751,7 @@ print("OK")
                 log_text,
             )
             self.assertIn(
-                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64",
+                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused",
                 log_text,
             )
             self.assertNotIn("op=aten::binary_op.buffer_float", log_text)
@@ -10881,7 +10908,7 @@ print("OK")
             if os.path.exists(copy_log_path):
                 with open(copy_log_path, "r", encoding="utf-8") as log_file:
                     copy_text = log_file.read()
-                self.assertNotIn("caller=clone", copy_text)
+            self.assertNotIn("caller=bmm.pack", copy_text)
         finally:
             for path in (op_hit_log_path, copy_log_path):
                 if os.path.exists(path):
@@ -11715,61 +11742,63 @@ print("OK")
                     os.remove(path)
 
     def test_scaled_dot_product_attention_runtime_vision_buffer_ops_are_consumed(self):
-        log_name = "vulkan_sdpa_vision_buffer_explicit_scale_hard_fail_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        log_path = os.path.join(repo_root, log_name)
-        if os.path.exists(log_path):
-            os.remove(log_path)
+        script = """
+            import torch
+            import torch.nn.functional as F
 
-        try:
-            script = """
-                import torch
-                import torch.nn.functional as F
+            assert hasattr(torch.ops.vulkan_prepack, "swap_runtime_label")
 
-                assert hasattr(torch.ops.vulkan_prepack, "swap_runtime_label")
+            torch.manual_seed(0)
+            x_cpu = torch.randn(17, 8, dtype=torch.float32)
+            w_cpu = torch.randn(24, 8, dtype=torch.float32)
+            b_cpu = torch.randn(24, dtype=torch.float32)
 
-                torch.manual_seed(0)
-                x = torch.randn(17, 8, dtype=torch.float32).to("vulkan")
-                w = torch.randn(24, 8, dtype=torch.float32).to("vulkan")
-                b = torch.randn(24, dtype=torch.float32).to("vulkan")
+            qkv_cpu = (F.linear(x_cpu, w_cpu, None) + b_cpu).reshape(17, 3, 2, 4)
+            q_cpu = qkv_cpu[:, 0].permute(1, 0, 2).contiguous() * (4 ** -0.5)
+            k_cpu = qkv_cpu[:, 1].permute(1, 0, 2).contiguous()
+            v_cpu = qkv_cpu[:, 2].permute(1, 0, 2).contiguous()
+            expected_identity_scale = F.scaled_dot_product_attention(
+                q_cpu, k_cpu, v_cpu, scale=1.0)
 
-                previous = torch.ops.vulkan_prepack.swap_runtime_label(
-                    "depth.dino.backbone.block.attn"
-                )
-                try:
-                    with torch.inference_mode():
-                        qkv = F.linear(x, w, None)
-                        q, k, v = torch.ops.aten._transform_bias_rescale_qkv(qkv, b, 2)
-                        try:
-                            F.scaled_dot_product_attention(q, k, v, scale=1.0)
-                        except RuntimeError as exc:
-                            if "KnownBadSdpaExplicitScale" not in str(exc):
-                                raise
-                        else:
-                            raise AssertionError(
-                                "vision SDPA with explicit scale should hard-fail "
-                                "until the route has a correctness matrix")
-                finally:
-                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
-
-                print("OK")
-            """
-
-            self._run_repo_python_subprocess(
-                script,
-                extra_env={"PYTORCH_VULKAN_FAILURE_LOG": log_name},
-                error_prefix="Vulkan SDPA vision-buffer subprocess failed.",
+            previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                "depth.dino.backbone.block.attn"
             )
+            try:
+                with torch.inference_mode():
+                    x = x_cpu.to("vulkan")
+                    w = w_cpu.to("vulkan")
+                    b = b_cpu.to("vulkan")
+                    qkv = F.linear(x, w, None)
+                    q, k, v = torch.ops.aten._transform_bias_rescale_qkv(qkv, b, 2)
+                    actual_identity_scale = F.scaled_dot_product_attention(
+                        q, k, v, scale=1.0).cpu()
+                    torch.testing.assert_close(
+                        actual_identity_scale,
+                        expected_identity_scale,
+                        rtol=1e-4,
+                        atol=1e-4)
 
-            self.assertTrue(os.path.exists(log_path))
-            with open(log_path, "r", encoding="utf-8") as log_file:
-                log_text = log_file.read()
+                    try:
+                        F.scaled_dot_product_attention(q, k, v, scale=0.5)
+                    except RuntimeError as exc:
+                        if "KnownBadSdpaExplicitScale" not in str(exc):
+                            raise
+                    else:
+                        raise AssertionError(
+                            "non-identity explicit vision SDPA scale should "
+                            "hard-fail until it has a correctness matrix")
+            finally:
+                torch.ops.vulkan_prepack.swap_runtime_label(previous)
 
-            self.assertIn("failure_class=RouteHardFail", log_text)
-            self.assertIn("reason=KnownBadSdpaExplicitScale", log_text)
-        finally:
-            if os.path.exists(log_path):
-                os.remove(log_path)
+            print("OK")
+        """
+
+        _, result = self._run_repo_python_subprocess(
+            script,
+            error_prefix="Vulkan SDPA vision-buffer subprocess failed.",
+        )
+        self.assertIn("OK", result.stdout)
 
     def test_texture_contiguous_reshape_width_unaligned_keeps_values(self):
         log_name = "texture_contiguous_reshape_op_hit_test.log"

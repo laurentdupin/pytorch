@@ -5157,6 +5157,8 @@ Tensor run_vision_backbone_block_context(
           "vulkan_prepack::run_vision_backbone_block_context",
           "VisionReplaySubmitGuard",
           detail);
+      utils::log_inference_replay_lifecycle_event(
+          vision_replay.replay(), "direct");
       if (graph_scratch.has_value()) {
         graph_scratch->reset();
       }

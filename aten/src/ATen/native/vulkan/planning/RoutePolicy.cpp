@@ -129,6 +129,8 @@ const char* route_reject_reason_name(
       return "KnownBadConv3x3Stride1Pad1";
     case VulkanRouteRejectReason::KnownBadLargeBufferConv3x3:
       return "KnownBadLargeBufferConv3x3";
+    case VulkanRouteRejectReason::KnownBadLargePointwiseConv:
+      return "KnownBadLargePointwiseConv";
     case VulkanRouteRejectReason::KnownBadDiffusion4dSdpa:
       return "KnownBadDiffusion4dSdpa";
     case VulkanRouteRejectReason::KnownBadGenericSdpa:
@@ -286,17 +288,13 @@ VulkanRouteDecision select_sdpa_route(
         device_policy);
   }
 
-  if (query.dim() == 3 || query.dim() == 4) {
-    const double default_scale =
-        1.0 / std::sqrt(static_cast<double>(query.size(query.dim() - 1)));
-    if (scale.has_value() && std::abs(*scale - default_scale) > 1.0e-9) {
-      return make_hard_fail_route(
-          "aten::scaled_dot_product_attention",
-          VulkanRouteRejectReason::KnownBadSdpaExplicitScale,
-          shape_summary,
-          request,
-          device_policy);
-    }
+  if (scale.has_value() && std::abs(*scale - 1.0) > 1.0e-9) {
+    return make_hard_fail_route(
+        "aten::scaled_dot_product_attention",
+        VulkanRouteRejectReason::KnownBadSdpaExplicitScale,
+        shape_summary,
+        request,
+        device_policy);
   }
 
   if (
@@ -382,6 +380,32 @@ VulkanRouteDecision select_conv2d_route(
         "aten::convolution",
         is_s1p1 ? VulkanRouteRejectReason::KnownBadConv3x3Stride1Pad1
                 : VulkanRouteRejectReason::KnownBadLargeBufferConv3x3,
+        shape_summary,
+        request,
+        device_policy);
+  }
+
+  if (
+      dtype == kFloat &&
+      input_sizes.size() == 4 &&
+      weight_sizes.size() == 4 &&
+      stride.size() == 2 &&
+      padding.size() == 2 &&
+      dilation.size() == 2 &&
+      groups == 1 &&
+      weight_sizes[2] == 1 &&
+      weight_sizes[3] == 1 &&
+      stride[0] == 1 &&
+      stride[1] == 1 &&
+      padding[0] == 0 &&
+      padding[1] == 0 &&
+      dilation[0] == 1 &&
+      dilation[1] == 1 &&
+      input_sizes[1] >= 384 &&
+      weight_sizes[0] >= 192) {
+    return make_hard_fail_route(
+        "aten::convolution",
+        VulkanRouteRejectReason::KnownBadLargePointwiseConv,
         shape_summary,
         request,
         device_policy);

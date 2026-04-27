@@ -1,4 +1,5 @@
 #include <ATen/native/Pool.h>
+#include <ATen/ops/avg_pool2d.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
@@ -10,6 +11,9 @@ namespace ops {
 namespace {
 
 using namespace api::utils;
+
+constexpr bool kEnableFloatBufferAvgPool2d = false;
+constexpr int64_t kSmallAvgPoolCpuFallbackNumel = 4096;
 
 bool can_run_float_buffer_pool2d(const vTensor& v_self) {
   return v_self.storage_type() == api::StorageType::BUFFER &&
@@ -84,6 +88,7 @@ Tensor pool2d_buffer(
       self_arg.suggest_memory_format());
 
   api::Context* const context = api::context();
+  context->sync_and_reclaim();
   const Tensor self = utils::prepare_vulkan_execution_tensor(
       self_arg, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
   const vTensor& v_self = convert(self);
@@ -389,8 +394,20 @@ Tensor avg_pool2d(
     const bool ceil_mode,
     const bool count_include_pad,
     const std::optional<int64_t> divisor_override) {
+  if (self_arg.numel() <= kSmallAvgPoolCpuFallbackNumel) {
+    Tensor result_cpu = at::avg_pool2d(
+        self_arg.cpu(),
+        kernel_arg,
+        stride_arg,
+        padding_arg,
+        ceil_mode,
+        count_include_pad,
+        divisor_override);
+    return result_cpu.to(self_arg.device());
+  }
+
   if (can_route_float_buffer_pool2d(self_arg) && count_include_pad &&
-      !divisor_override.has_value()) {
+      !divisor_override.has_value() && kEnableFloatBufferAvgPool2d) {
     Tensor self = utils::ensure_buffer_storage(self_arg);
     const vTensor& v_self = convert(self);
     if (can_run_float_buffer_pool2d(v_self)) {

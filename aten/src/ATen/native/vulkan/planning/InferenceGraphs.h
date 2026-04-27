@@ -267,6 +267,10 @@ TORCH_API InferenceReplay lookup_or_create_labeled_inference_replay(
     ScalarType dtype,
     bool persistent);
 
+TORCH_API void log_inference_replay_lifecycle_event(
+    const InferenceReplay& replay,
+    const char* event);
+
 TORCH_API ExecutionGraphPlan lookup_or_create_labeled_execution_graph_plan(
     const std::string& allocation_label,
     VulkanInferenceGraphKind kind,

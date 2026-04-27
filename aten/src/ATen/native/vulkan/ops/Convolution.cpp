@@ -1595,6 +1595,9 @@ bool can_run_float_buffer_conv2d_add(
       input.requires_grad(),
       convolution_request(utils::VulkanTensorRole::Input),
       utils::current_vulkan_device_policy());
+  if (route_decision.hard_fail) {
+    api::context()->flush();
+  }
   TORCH_CHECK(
       !route_decision.hard_fail,
       utils::format_hard_fail("aten::convolution", route_decision));
@@ -1679,6 +1682,9 @@ Tensor run_float_buffer_conv2d_impl(
       input.requires_grad(),
       convolution_request(utils::VulkanTensorRole::Input),
       utils::current_vulkan_device_policy());
+  if (route_decision.hard_fail) {
+    context->flush();
+  }
   TORCH_CHECK(
       !route_decision.hard_fail,
       utils::format_hard_fail("aten::convolution", route_decision));
@@ -2247,6 +2253,37 @@ Tensor run_bfloat16_buffer_conv2d(
 
 namespace conv1d {
 
+static Tensor upload_tensor_to_buffer(
+    const Tensor& tensor,
+    const api::GPUMemoryLayout memory_layout) {
+  Tensor source = tensor.requires_grad() ? tensor.detach() : tensor;
+  if (source.scalar_type() == kBFloat16 || source.scalar_type() == kHalf) {
+    source = source.to(kFloat);
+  }
+
+  if (source.is_vulkan()) {
+    return utils::mark_tensor_execution(
+        utils::ensure_buffer_storage(source, memory_layout),
+        api::ExecutionLayout::BUFFER_DIRECT,
+        true);
+  }
+
+  TORCH_CHECK(
+      source.device().is_cpu(),
+      "Vulkan conv1d buffer prepack expects CPU or Vulkan tensors");
+  source = source.contiguous();
+  vTensor v_buffer{
+      api::context(),
+      source.sizes().vec(),
+      convert_dtype(source.scalar_type()),
+      api::StorageType::BUFFER,
+      memory_layout,
+  };
+  pack_cpu_to_vulkan(source, v_buffer);
+  return utils::mark_tensor_execution(
+      convert(v_buffer), api::ExecutionLayout::BUFFER_DIRECT, true);
+}
+
 static vTensor pack_weights_using_width_packing(const Tensor& weight_arg) {
   Tensor weight = weight_arg;
 
@@ -2386,6 +2423,108 @@ static Tensor run_conv1d_context_impl(
   return convert(v_output);
 }
 
+static Tensor run_conv1d_buffer_context_impl(
+    const Tensor& input_arg,
+    const Tensor& weight_arg,
+    const Tensor& bias_arg,
+    IntArrayRef stride,
+    IntArrayRef padding,
+    IntArrayRef dilation,
+    int64_t groups) {
+  api::Context* const context = api::context();
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  if (input.scalar_type() == kBFloat16 || input.scalar_type() == kHalf) {
+    input = utils::cast_vulkan_tensor_dtype(input, kFloat);
+  }
+  input = utils::ensure_buffer_storage(
+      input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+
+  Tensor weight = weight_arg;
+  if (weight.scalar_type() == kBFloat16 || weight.scalar_type() == kHalf) {
+    weight = utils::cast_vulkan_tensor_dtype(weight, kFloat);
+  }
+  weight = utils::ensure_buffer_storage(
+      weight, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+
+  Tensor bias = bias_arg;
+  if (bias.scalar_type() == kBFloat16 || bias.scalar_type() == kHalf) {
+    bias = utils::cast_vulkan_tensor_dtype(bias, kFloat);
+  }
+  bias = utils::ensure_buffer_storage(
+      bias, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+
+  const IntArrayRef input_sizes = input.sizes();
+  const IntArrayRef weight_sizes = weight.sizes();
+  const int32_t in_channels = static_cast<int32_t>(input_sizes[1]);
+  const int32_t out_channels = static_cast<int32_t>(weight_sizes[0]);
+  const int32_t kernel_size = static_cast<int32_t>(weight_sizes[2]);
+
+  TORCH_CHECK(input.dim() == 3, "input must be a 3-dim tensor");
+  TORCH_CHECK(weight.dim() == 3, "weight must be a 3-dim tensor");
+  TORCH_CHECK(bias.dim() == 1, "bias must be a 1-dim tensor");
+  TORCH_CHECK(
+      in_channels % groups == 0, "in_channels must be divisible by groups");
+  TORCH_CHECK(
+      out_channels % groups == 0, "out_channels must be divisible by groups");
+
+  vTensor v_output{
+      context,
+      conv_output_size(input_sizes, weight_sizes, padding, stride, dilation),
+      api::kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+  const vTensor& v_input = convert(input);
+  const vTensor& v_weight = convert(weight);
+  const vTensor& v_bias = convert(bias);
+
+  const struct Block final {
+    ivec4 size0;
+    ivec4 size1;
+  } block{
+      {
+          static_cast<int32_t>(input_sizes[2]),
+          kernel_size,
+          static_cast<int32_t>(stride[0]),
+          static_cast<int32_t>(padding[0]),
+      },
+      {
+          static_cast<int32_t>(dilation[0]),
+          static_cast<int32_t>(in_channels / groups),
+          static_cast<int32_t>(out_channels / groups),
+          static_cast<int32_t>(input_sizes[0]),
+      },
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size = {
+      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+  context->submit_compute_job(
+      VK_KERNEL(conv1d_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      utils::make_buffer_compute_metadata_ubo(context, v_output).buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      utils::make_buffer_compute_metadata_ubo(context, v_input).buffer(),
+      v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      utils::make_buffer_compute_metadata_ubo(context, v_weight).buffer(),
+      v_bias.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      utils::make_buffer_compute_metadata_ubo(context, v_bias).buffer(),
+      params.buffer());
+
+  return convert(v_output);
+}
+
 } // namespace conv1d
 
 Conv2dPackedContext::Conv2dPackedContext(
@@ -2430,6 +2569,15 @@ Conv2dPackedContext::Conv2dPackedContext(
 
   const auto method = conv2d::determine_method(
       weight.sizes(), stride, padding, dilation, groups, transposed, quantized);
+  TORCH_CHECK(
+      !(!transposed && !quantized && weight.dim() == 4 && groups == 1 &&
+        weight.size(0) >= 192 && weight.size(1) >= 384 &&
+        weight.size(2) == 1 && weight.size(3) == 1 && stride[0] == 1 &&
+        stride[1] == 1 && padding[0] == 0 && padding[1] == 0 &&
+        dilation[0] == 1 && dilation[1] == 1),
+      "Vulkan route hard-failed failure_class=RouteHardFail "
+      "op=aten::convolution reason=KnownBadLargePointwiseConv "
+      "phase=prepack");
 
   const auto normalized_bias = utils::normalized_optional_tensor(bias);
   const Tensor& cache_weight =
@@ -2965,6 +3113,27 @@ Conv1dPackedContext::Conv1dPackedContext(
     : unpacked_{c10::AnyType::get()} {
   const auto normalized_bias = utils::normalized_optional_tensor(bias);
   const std::vector<int64_t> logical_weight_sizes = weight.sizes().vec();
+  Tensor buffer_weight = conv1d::upload_tensor_to_buffer(
+      weight, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  Tensor buffer_bias = bias && bias->defined()
+      ? conv1d::upload_tensor_to_buffer(
+            *bias, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED)
+      : conv1d::upload_tensor_to_buffer(
+            at::zeros({weight.size(0)}, at::device(at::kCPU).dtype(at::kFloat)),
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  const size_t buffer_resident_nbytes =
+      convert(buffer_weight).gpu_nbytes() + convert(buffer_bias).gpu_nbytes();
+  buffer_weight_ = PackedWeightHandle(
+      std::move(buffer_weight),
+      std::move(buffer_bias),
+      logical_weight_sizes,
+      PackedWeightKind::Conv1d,
+      bias && bias->defined(),
+      PackedWeightResidencyClass::PersistentInference,
+      false,
+      api::ExecutionLayout::BUFFER_DIRECT,
+      buffer_resident_nbytes);
+
   if (const auto cached_packed_weight = utils::lookup_packed_weight_handle(
           weight,
           normalized_bias,
@@ -3065,11 +3234,11 @@ static Tensor convolution1d(
 Tensor run_conv1d_context(
     const Tensor& input,
     const c10::intrusive_ptr<Conv1dPackedContext>& context) {
-  const PackedWeightHandle& packed_weight = context->packed_weight();
-  return conv1d::run_conv1d_context_impl(
+  const PackedWeightHandle& buffer_weight = context->buffer_weight();
+  return conv1d::run_conv1d_buffer_context_impl(
       input,
-      packed_weight.weight(),
-      std::optional<Tensor>(packed_weight.bias()),
+      buffer_weight.weight(),
+      buffer_weight.bias(),
       context->stride(),
       context->padding(),
       context->dilation(),
