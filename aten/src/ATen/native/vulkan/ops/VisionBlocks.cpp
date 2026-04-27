@@ -1,9 +1,12 @@
 #include <ATen/Functions.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Resource.h>
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Clamp.h>
 #include <ATen/native/vulkan/ops/Concat.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Upsample.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
@@ -11,6 +14,7 @@
 #include <ATen/native/vulkan/planning/ExecutableRegions.h>
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
 #include <ATen/native/vulkan/planning/InferenceGraphs.h>
+#include <ATen/native/vulkan/planning/ReplayTensorState.h>
 #include <ATen/native/vulkan/planning/Request.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
 
@@ -75,8 +79,8 @@ c10::intrusive_ptr<LayernormPackedContext> make_layernorm_context(
     const Tensor& bias,
     const double eps,
     const std::string& label) {
-  std::optional<Tensor> owned_weight(weight);
-  std::optional<Tensor> owned_bias(bias);
+  std::optional<Tensor> owned_weight(weight.clone());
+  std::optional<Tensor> owned_bias(bias.clone());
   return create_layernorm_context_labeled(
       std::move(owned_weight), std::move(owned_bias), eps, label);
 }
@@ -85,9 +89,9 @@ c10::intrusive_ptr<LinearPackedContext> make_linear_context(
     const Tensor& weight,
     const std::optional<Tensor>& bias,
     const std::string& label) {
-  Tensor owned_weight = weight;
+  Tensor owned_weight = weight.clone();
   std::optional<Tensor> owned_bias =
-      bias.has_value() ? std::optional<Tensor>(*bias) : std::nullopt;
+      bias.has_value() ? std::optional<Tensor>(bias->clone()) : std::nullopt;
   return create_linear_context_labeled(
       std::move(owned_weight), std::move(owned_bias), label);
 }
@@ -95,7 +99,7 @@ c10::intrusive_ptr<LinearPackedContext> make_linear_context(
 c10::intrusive_ptr<LinearPackedContext> make_qkv_context(
     const Tensor& weight,
     const std::string& label) {
-  Tensor owned_weight = weight;
+  Tensor owned_weight = weight.clone();
   std::optional<Tensor> no_bias = std::nullopt;
   return create_linear_context_labeled(
       std::move(owned_weight), std::move(no_bias), label);
@@ -106,9 +110,9 @@ c10::intrusive_ptr<Conv2dPackedContext> make_conv2d_context(
     const std::optional<Tensor>& bias,
     std::vector<int64_t> stride,
     std::vector<int64_t> padding) {
-  Tensor owned_weight = weight;
+  Tensor owned_weight = weight.clone();
   std::optional<Tensor> owned_bias =
-      bias.has_value() ? std::optional<Tensor>(*bias) : std::nullopt;
+      bias.has_value() ? std::optional<Tensor>(bias->clone()) : std::nullopt;
   std::vector<int64_t> dilation{1, 1};
   return create_conv2d_context(
       std::move(owned_weight),
@@ -661,7 +665,7 @@ Tensor make_scratch_buffer_alias(
   const api::ExecutionLayout execution_layout =
       slice.offset_bytes == 0u ? api::ExecutionLayout::BUFFER_DIRECT
                                : api::ExecutionLayout::BUFFER_VIEW;
-  return utils::make_typed_buffer_metadata_view(
+  return make_typed_buffer_metadata_view_checked(
       arena.storage(),
       dtype,
       sizes,
@@ -669,7 +673,8 @@ Tensor make_scratch_buffer_alias(
       calc_width_packed_buffer_strides(sizes),
       storage_offset,
       buffer_length_override,
-      execution_layout);
+      execution_layout,
+      "vulkan_prepack::scratch_tensor");
 }
 
 std::pair<utils::VulkanScratchSlice, Tensor> reserve_scratch_buffer_tensor(
@@ -816,6 +821,15 @@ bool can_run_depth_anything_v2_head_fusion_shape(
     IntArrayRef path1_sizes,
     IntArrayRef output_size,
     const c10::intrusive_ptr<VisionDecoderHeadContext>& context) {
+  // The fused DA-v2 head is not numerically aligned with the reference DPT
+  // head across the supported decoder shapes. Keep the generic Vulkan
+  // conv/upsample path as the main path until the shader has a correctness
+  // matrix behind it.
+  (void)path1_sizes;
+  (void)output_size;
+  (void)context;
+  return false;
+
   if (!context || path1_sizes.size() != 4 || output_size.size() != 2) {
     return false;
   }
@@ -1260,8 +1274,18 @@ Tensor run_attention_with_workspace_fallback(
     probs_input = add_buffer_out_vulkan(scores, *attention_bias, probs_output);
     probs_output_tensor = scores_output;
   }
-  Tensor probs =
-      softmax_buffer_lastdim_out_vulkan(probs_input, probs_output_tensor);
+  Tensor probs;
+  if (
+      probs_input.dim() == 3 &&
+      probs_input.size(probs_input.dim() - 1) >= 64) {
+    utils::log_vulkan_op_hit(
+        "aten::vision_backbone_attention.softmax_texture_materialize");
+    probs_output_tensor.copy_(at::softmax(probs_input, -1));
+    probs = probs_output_tensor;
+  } else {
+    probs =
+        softmax_buffer_lastdim_out_vulkan(probs_input, probs_output_tensor);
+  }
   return bmm_buffer_out_vulkan(probs, value, context_output);
 }
 
@@ -1515,68 +1539,48 @@ bool can_use_decoder_head_replay(
       can_use_tensor(layer3) && can_use_tensor(layer4);
 }
 
+bool conv_context_has_buffer_direct_weight(
+    const c10::intrusive_ptr<Conv2dPackedContext>& context) {
+  return context &&
+      context->packed_weight().execution_layout() ==
+      api::ExecutionLayout::BUFFER_DIRECT;
+}
+
+bool can_use_decoder_fusion_program_context(
+    const c10::intrusive_ptr<VisionDecoderFusionBlockContext>& context) {
+  return context &&
+      conv_context_has_buffer_direct_weight(context->res1_conv1_context()) &&
+      conv_context_has_buffer_direct_weight(context->res1_conv2_context()) &&
+      conv_context_has_buffer_direct_weight(context->res2_conv1_context()) &&
+      conv_context_has_buffer_direct_weight(context->res2_conv2_context()) &&
+      conv_context_has_buffer_direct_weight(context->out_conv_context());
+}
+
 void copy_tensor_for_replay(Tensor& dst, const Tensor& src) {
   if (
       dst.defined() && src.defined() &&
       dst.unsafeGetTensorImpl() == src.unsafeGetTensorImpl()) {
     return;
   }
-  if (dst.is_vulkan() && src.is_vulkan()) {
-    const vTensor& v_dst = convert(dst);
-    const vTensor& v_src = convert(src);
-    if (
-        v_dst.storage_type() == api::StorageType::BUFFER &&
-        v_src.storage_type() == api::StorageType::BUFFER &&
-        v_dst.has_direct_buffer_layout() && v_src.has_direct_buffer_layout()) {
-      utils::copy_buffer_tensor_direct_(dst, src);
-      return;
-    }
-  }
   dst.copy_(src);
 }
 
-bool copy_buffer_tensor_compute_out(Tensor& dst, const Tensor& src) {
-  if (
-      !dst.defined() || !src.defined() || !dst.is_vulkan() || !src.is_vulkan() ||
-      dst.scalar_type() != kFloat || src.scalar_type() != kFloat ||
-      dst.sizes() != src.sizes()) {
-    return false;
+Tensor materialize_escaping_vulkan_output(
+    const Tensor& output,
+    const bool persistent) {
+  if (!output.defined() || !output.is_vulkan()) {
+    return output;
   }
-
-  vTensor& v_dst = convert(dst);
-  vTensor v_src = convert(src);
-  if (
-      v_dst.storage_type() != api::StorageType::BUFFER ||
-      v_src.storage_type() != api::StorageType::BUFFER ||
-      !v_dst.has_direct_buffer_layout() || !v_src.has_direct_buffer_layout() ||
-      v_dst.gpu_nbytes() != v_src.gpu_nbytes()) {
-    return false;
-  }
-
-  api::Context* const context = api::context();
-  api::PipelineBarrier pipeline_barrier{};
-  const api::utils::uvec3 global_size = {
-      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_dst.numel(), 1)),
-      1u,
-      1u,
-  };
-  context->submit_compute_job(
-      VK_KERNEL(buffer_to_buffer),
-      pipeline_barrier,
-      global_size,
-      adaptive_work_group_size(global_size),
-      VK_NULL_HANDLE,
-      v_dst.buffer(
-          pipeline_barrier,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::WRITE),
-      utils::make_buffer_compute_metadata_ubo(context, v_dst).buffer(),
-      v_src.buffer(
-          pipeline_barrier,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::READ),
-      utils::make_buffer_compute_metadata_ubo(context, v_src).buffer());
-  return true;
+  Tensor materialized = utils::create_buffer_tensor(
+      output.sizes(), output.scalar_type(), persistent);
+  copy_tensor_for_replay(materialized, output);
+  utils::log_replay_event(
+      "materialize_export",
+      nullptr,
+      0u,
+      "vision_program_output",
+      "action=materialize_escaping_output");
+  return materialized;
 }
 
 std::optional<utils::VisionDecoderHeadInferenceReplay>
@@ -2776,13 +2780,34 @@ bool run_compiled_executable_region(
     const utils::VulkanExecutableRegion& executable_region,
     bool include_image_entry);
 
+void run_recorded_compiled_replay_or_direct_steps(
+    const utils::ExecutionGraphReplayBundle& replay_bundle,
+    const char* op_name,
+    const char* allocation_label);
+
 Tensor copy_compiled_session_output(
     const utils::ExecutionGraphReplayBundle& replay_bundle,
     const size_t output_slot_idx) {
   const Tensor& output_slot = replay_bundle.tensor_slot(output_slot_idx);
+  (void)utils::stamp_replay_export(
+      output_slot,
+      replay_bundle.identity(),
+      static_cast<uint32_t>(output_slot_idx),
+      "copy_compiled_session_output");
   Tensor output = utils::create_buffer_tensor(
       output_slot.sizes(), output_slot.scalar_type(), /*persistent=*/false);
   copy_tensor_for_replay(output, output_slot);
+  record_tensor_write(
+      output,
+      "copy_compiled_session_output",
+      "materialized_replay_export",
+      {output_slot});
+  utils::log_replay_event(
+      "materialize_export",
+      replay_bundle.identity(),
+      utils::current_replay_epoch(replay_bundle.identity()).run_id,
+      "compiled_session_output",
+      "action=materialize_escaping_output");
   return output;
 }
 
@@ -3025,9 +3050,7 @@ std::optional<std::vector<Tensor>> try_run_vision_backbone_stack_compiled_sessio
                         output_norm_context,
                         capture_slot);
                   } else {
-                    if (!copy_buffer_tensor_compute_out(capture_slot, output_slot)) {
-                      copy_tensor_for_replay(capture_slot, output_slot);
-                    }
+                    copy_tensor_for_replay(capture_slot, output_slot);
                   }
                 }
                 current = output_slot;
@@ -3063,19 +3086,19 @@ std::optional<std::vector<Tensor>> try_run_vision_backbone_stack_compiled_sessio
     api::context()->flush_pending_cmds();
     replay_bundle.record_steps_individually();
   }
-  replay_bundle.submit();
+  run_recorded_compiled_replay_or_direct_steps(
+      replay_bundle,
+      apply_output_norm
+          ? "vulkan_prepack::run_vision_backbone_stack_norm_compiled_session"
+          : "vulkan_prepack::run_vision_backbone_stack_compiled_session",
+      "vision.backbone_stack.compiled_session.replay");
 
   std::vector<Tensor> outputs(capture_indices_vec.size());
   const size_t capture_output_slot_base = compiled_bindings.tensor_slot_count();
   for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
        ++capture_pos) {
-    const Tensor& replay_output =
-        replay_bundle.tensor_slot(capture_output_slot_base + capture_pos);
-    Tensor output = utils::create_buffer_tensor(
-        replay_output.sizes(),
-        replay_output.scalar_type(),
-        /*persistent=*/true);
-    copy_tensor_for_replay(output, replay_output);
+    Tensor output = copy_compiled_session_output(
+        replay_bundle, capture_output_slot_base + capture_pos);
     outputs[capture_pos] =
         maybe_restore_tensor(output, output_device, output_dtype);
   }
@@ -3760,9 +3783,7 @@ bool run_compiled_executable_dispatch_step(
     }
     Tensor& source_slot = compiled_executable_tensor_slot(
         context.tensor_slots, context.bindings, step.reads[0]);
-    if (!copy_buffer_tensor_compute_out(*output_slot, source_slot)) {
-      copy_tensor_for_replay(*output_slot, source_slot);
-    }
+    copy_tensor_for_replay(*output_slot, source_slot);
     return true;
   }
 
@@ -4201,9 +4222,28 @@ bool run_compiled_executable_region(
   return true;
 }
 
-bool should_submit_recorded_replay_on_first_run_for_gpu_profile() {
-  api::Context* const context = api::context();
-  return context != nullptr && context->op_profiling_enabled();
+void run_recorded_compiled_replay_or_direct_steps(
+    const utils::ExecutionGraphReplayBundle& replay_bundle,
+    const char* op_name,
+    const char* allocation_label) {
+  const utils::ReplayEpoch epoch =
+      utils::begin_replay_epoch(replay_bundle.identity(), allocation_label);
+  const std::string detail =
+      "action=run_steps_direct reason=compiled_replay_submit_guard "
+      "failure_class=ReplayHangRisk";
+  utils::log_replay_event(
+      "compiled_replay_submit_guard",
+      replay_bundle.identity(),
+      epoch.run_id,
+      allocation_label,
+      detail);
+  api::log_vulkan_failure(
+      api::VulkanFailureClass::ReplayHangRisk,
+      op_name ? op_name : "compiled_replay",
+      "CompiledReplaySubmitGuard",
+      detail);
+  replay_bundle.warmup();
+  api::context()->flush_pending_cmds();
 }
 
 bool run_compiled_session_image_entry_region(
@@ -4473,6 +4513,24 @@ std::optional<Tensor> try_run_vision_decoder_preprocess_head_compiled_session(
       !compiled_session.defined() || !compiled_session.executable()) {
     return std::nullopt;
   }
+  const std::string detail =
+      "action=fallback_without_executable_region_compiled_session "
+      "reason=compiled_executable_region_guard "
+      "failure_class=ReplayHangRisk";
+  api::log_vulkan_failure(
+      api::VulkanFailureClass::ReplayHangRisk,
+      "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session",
+      "CompiledExecutableRegionGuard",
+      detail);
+  utils::log_replay_event(
+      "compiled_executable_region_guard",
+      compiled_session.identity(),
+      utils::current_replay_epoch(compiled_session.identity()).run_id,
+      "vision.decoder_preprocess_head.compiled_session",
+      detail);
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.guard.executable_region_disabled");
+  return std::nullopt;
   const auto decoder_plan =
       make_compiled_decoder_execution_plan(compiled_session);
   if (
@@ -4656,9 +4714,6 @@ std::optional<Tensor> try_run_vision_decoder_preprocess_head_compiled_session(
     replay_bundle.warmup();
     api::context()->flush_pending_cmds();
     replay_bundle.record_steps_individually();
-    if (should_submit_recorded_replay_on_first_run_for_gpu_profile()) {
-      replay_bundle.submit();
-    }
     utils::log_vulkan_op_hit(
         "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.replay_warmup");
     utils::log_vulkan_op_hit(
@@ -4671,7 +4726,10 @@ std::optional<Tensor> try_run_vision_decoder_preprocess_head_compiled_session(
     return *warmup_output;
   }
 
-  replay_bundle.submit();
+  run_recorded_compiled_replay_or_direct_steps(
+      replay_bundle,
+      "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session",
+      "vision.decoder_preprocess_head.compiled_session.replay");
   Tensor output = copy_compiled_session_output(replay_bundle, output_slot_idx);
 
   utils::log_vulkan_op_hit(
@@ -4965,6 +5023,8 @@ Tensor run_vision_backbone_block_context(
   TORCH_CHECK(
       input_arg.dim() == 2 || input_arg.dim() == 3,
       "Vision backbone block context expects rank-2 or rank-3 input");
+  utils::validate_replay_tensor_not_stale(
+      input_arg, "vulkan_prepack::run_vision_backbone_block_context");
 
   const Device output_device = input_arg.device();
   const ScalarType output_dtype = input_arg.scalar_type();
@@ -5070,10 +5130,43 @@ Tensor run_vision_backbone_block_context(
             "vulkan_prepack::run_vision_backbone_block_context.replay_warmup");
         utils::log_vulkan_op_hit(
             "vulkan_prepack::run_vision_backbone_block_context");
-        return maybe_restore_tensor(warmup_output, output_device, output_dtype);
+        Tensor restored =
+            maybe_restore_tensor(warmup_output, output_device, output_dtype);
+        record_tensor_write(
+            restored,
+            "vulkan_prepack::run_vision_backbone_block_context",
+            "replay_warmup_materialized",
+            {input_arg});
+        return restored;
       }
 
-      vision_replay.replay().submit();
+      const utils::ReplayEpoch epoch = utils::begin_replay_epoch(
+          vision_replay.identity(), "vision.backbone_block.replay");
+      const std::string detail =
+          "action=run_backbone_block_direct "
+          "reason=vision_replay_submit_guard "
+          "failure_class=ReplayHangRisk";
+      utils::log_replay_event(
+          "vision_replay_submit_guard",
+          vision_replay.identity(),
+          epoch.run_id,
+          "vision.backbone_block.replay",
+          detail);
+      api::log_vulkan_failure(
+          api::VulkanFailureClass::ReplayHangRisk,
+          "vulkan_prepack::run_vision_backbone_block_context",
+          "VisionReplaySubmitGuard",
+          detail);
+      if (graph_scratch.has_value()) {
+        graph_scratch->reset();
+      }
+      (void)run_vision_backbone_block_program(
+          vision_replay.input_slot(),
+          context,
+          &vision_replay.program(),
+          graph_scratch.has_value() ? &(*graph_scratch) : nullptr,
+          &vision_replay.output_slot());
+      api::context()->flush_pending_cmds();
       Tensor output = utils::create_buffer_tensor(
           vision_replay.output_slot().sizes(),
           vision_replay.output_slot().scalar_type(),
@@ -5083,7 +5176,13 @@ Tensor run_vision_backbone_block_context(
           "vulkan_prepack::run_vision_backbone_block_context.replay");
       utils::log_vulkan_op_hit(
           "vulkan_prepack::run_vision_backbone_block_context");
-      return maybe_restore_tensor(output, output_device, output_dtype);
+      Tensor restored = maybe_restore_tensor(output, output_device, output_dtype);
+      record_tensor_write(
+          restored,
+          "vulkan_prepack::run_vision_backbone_block_context",
+          "replay_materialized",
+          {input_arg});
+      return restored;
     }
   }
 
@@ -5114,8 +5213,19 @@ Tensor run_vision_backbone_block_context(
       context,
       vision_program_ptr,
       graph_scratch.has_value() ? &(*graph_scratch) : nullptr);
+  if (vision_program_ptr != nullptr) {
+    output = materialize_escaping_vulkan_output(
+        output, output_device.type() == kVulkan);
+    api::context()->flush_pending_cmds();
+  }
   utils::log_vulkan_op_hit("vulkan_prepack::run_vision_backbone_block_context");
-  return maybe_restore_tensor(output, output_device, output_dtype);
+  Tensor restored = maybe_restore_tensor(output, output_device, output_dtype);
+  record_tensor_write(
+      restored,
+      "vulkan_prepack::run_vision_backbone_block_context",
+      vision_program_ptr != nullptr ? "program_materialized" : "direct",
+      {input_arg});
+  return restored;
 }
 
 void prime_vision_backbone_block_context_graph(
@@ -5364,6 +5474,12 @@ Tensor run_vision_decoder_fusion_block_context(
     return fallback(input, skip);
   }
 
+  if (!can_use_decoder_fusion_program_context(context)) {
+    utils::log_vulkan_op_hit(
+        "vulkan_prepack::run_vision_decoder_fusion_block_context.program_skip.non_buffer_direct_context");
+    return fallback(input, skip);
+  }
+
   Tensor main_input = prepare_decoder_buffer_tensor(input);
   if (main_input.dim() != 4) {
     return fallback(input, skip);
@@ -5383,7 +5499,24 @@ Tensor run_vision_decoder_fusion_block_context(
   auto vision_graph = allow_decoder_graph
       ? prime_vision_decoder_graph(main_input, runtime_policy, context)
       : utils::VisionDecoderInferenceGraph{};
-  const bool allow_decoder_replay = allow_decoder_graph;
+  if (allow_decoder_graph) {
+    const std::string detail =
+        "action=use_decoder_program_path "
+        "reason=decoder_replay_guard "
+        "failure_class=ReplayHangRisk";
+    utils::log_replay_event(
+        "decoder_replay_guard",
+        vision_graph.identity(),
+        utils::current_replay_epoch(vision_graph.identity()).run_id,
+        "vision.decoder_fusion.replay",
+        detail);
+    api::log_vulkan_failure(
+        api::VulkanFailureClass::ReplayHangRisk,
+        "vulkan_prepack::run_vision_decoder_fusion_block_context",
+        "DecoderReplayGuard",
+        detail);
+  }
+  const bool allow_decoder_replay = false;
   if (
       allow_decoder_replay &&
       vision_graph.defined() &&
@@ -5454,7 +5587,30 @@ Tensor run_vision_decoder_fusion_block_context(
         return maybe_restore_tensor(warmup_output, output_device, output_dtype);
       }
 
-      vision_replay.replay().submit();
+      const utils::ReplayEpoch epoch = utils::begin_replay_epoch(
+          vision_replay.identity(), "vision.decoder_fusion.replay");
+      const std::string detail =
+          "action=run_decoder_fusion_direct "
+          "reason=vision_replay_submit_guard "
+          "failure_class=ReplayHangRisk";
+      utils::log_replay_event(
+          "vision_replay_submit_guard",
+          vision_replay.identity(),
+          epoch.run_id,
+          "vision.decoder_fusion.replay",
+          detail);
+      api::log_vulkan_failure(
+          api::VulkanFailureClass::ReplayHangRisk,
+          "vulkan_prepack::run_vision_decoder_fusion_block_context",
+          "VisionReplaySubmitGuard",
+          detail);
+      (void)run_vision_decoder_fusion_block_program(
+          vision_replay.input_slot(),
+          vision_replay.skip_slot(),
+          target_sizes,
+          context,
+          replay_outputs);
+      api::context()->flush_pending_cmds();
       Tensor output = utils::create_buffer_tensor(
           vision_replay.output_slot().sizes(),
           vision_replay.output_slot().scalar_type(),
@@ -5547,6 +5703,8 @@ Tensor run_vision_decoder_fusion_block_context(
       target_sizes,
       context,
       outputs);
+  output = materialize_escaping_vulkan_output(
+      output, output_device.type() == kVulkan);
   utils::log_vulkan_op_hit("vulkan_prepack::run_vision_decoder_fusion_block_context");
   return maybe_restore_tensor(output, output_device, output_dtype);
 }
@@ -5850,6 +6008,18 @@ Tensor run_vision_decoder_preprocess_head_context(
           (layer4_tokens_arg.dim() == 2 || layer4_tokens_arg.dim() == 3),
       "Vision decoder preprocess head context expects rank-2 or rank-3 token "
       "inputs");
+  utils::validate_replay_tensor_not_stale(
+      layer1_tokens_arg,
+      "vulkan_prepack::run_vision_decoder_preprocess_head_context.layer1");
+  utils::validate_replay_tensor_not_stale(
+      layer2_tokens_arg,
+      "vulkan_prepack::run_vision_decoder_preprocess_head_context.layer2");
+  utils::validate_replay_tensor_not_stale(
+      layer3_tokens_arg,
+      "vulkan_prepack::run_vision_decoder_preprocess_head_context.layer3");
+  utils::validate_replay_tensor_not_stale(
+      layer4_tokens_arg,
+      "vulkan_prepack::run_vision_decoder_preprocess_head_context.layer4");
 
   const Device output_device = layer1_tokens_arg.device();
   const ScalarType output_dtype = layer1_tokens_arg.scalar_type();
@@ -5881,8 +6051,29 @@ Tensor run_vision_decoder_preprocess_head_context(
         layer4,
         output_size,
         context->head_context());
-    return maybe_restore_tensor(output, output_device, output_dtype);
+    Tensor restored = maybe_restore_tensor(output, output_device, output_dtype);
+    record_tensor_write(
+        restored,
+        "vulkan_prepack::run_vision_decoder_preprocess_head_context",
+        "fallback",
+        {layer1_tokens_arg, layer2_tokens_arg, layer3_tokens_arg, layer4_tokens_arg});
+    return restored;
   };
+
+  {
+    const std::string detail =
+        "action=use_decoder_preprocess_explicit_path "
+        "reason=decoder_preprocess_program_guard "
+        "failure_class=KernelIncorrect";
+    api::log_vulkan_failure(
+        api::VulkanFailureClass::KernelIncorrect,
+        "vulkan_prepack::run_vision_decoder_preprocess_head_context",
+        "DecoderPreprocessProgramGuard",
+        detail);
+    utils::log_vulkan_op_hit(
+        "vulkan_prepack::run_vision_decoder_preprocess_head_context.guard.program_disabled");
+    return fallback();
+  }
 
   Tensor layer1_tokens = layer1_tokens_arg.is_vulkan() ? layer1_tokens_arg
                                                        : layer1_tokens_arg.vulkan();
@@ -6091,6 +6282,8 @@ Tensor run_vision_decoder_preprocess_head_context(
       layer4,
       output_size,
       context->head_context());
+  output = materialize_escaping_vulkan_output(
+      output, output_device.type() == kVulkan);
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_vision_decoder_preprocess_head_context");
   return maybe_restore_tensor(output, output_device, output_dtype);
@@ -6181,6 +6374,27 @@ Tensor run_vision_decoder_head_context(
     return fallback();
   }
 
+  {
+    const std::string detail =
+        "action=use_decoder_head_program_path "
+        "reason=decoder_head_replay_guard "
+        "failure_class=ReplayHangRisk";
+    utils::log_replay_event(
+        "decoder_head_replay_guard",
+        nullptr,
+        0u,
+        "vision.decoder_head.replay",
+        detail);
+    api::log_vulkan_failure(
+        api::VulkanFailureClass::ReplayHangRisk,
+        "vulkan_prepack::run_vision_decoder_head_context",
+        "DecoderHeadReplayGuard",
+        detail);
+    utils::log_vulkan_op_hit(
+        "vulkan_prepack::run_vision_decoder_head_context.guard.replay_disabled");
+    return fallback();
+  }
+
   auto vision_replay = maybe_lookup_vision_decoder_head_replay(
       layer1_buffer.sizes(),
       layer2_buffer.sizes(),
@@ -6238,7 +6452,35 @@ Tensor run_vision_decoder_head_context(
     return maybe_restore_tensor(warmup_output, output_device, output_dtype);
   }
 
-  vision_replay->replay().submit();
+  const utils::ReplayEpoch epoch = utils::begin_replay_epoch(
+      vision_replay->identity(), "vision.decoder_head.replay");
+  const std::string detail =
+      "action=run_decoder_head_direct reason=decoder_head_replay_submit_guard "
+      "failure_class=ReplayHangRisk";
+  utils::log_replay_event(
+      "decoder_head_replay_submit_guard",
+      vision_replay->identity(),
+      epoch.run_id,
+      "vision.decoder_head.replay",
+      detail);
+  api::log_vulkan_failure(
+      api::VulkanFailureClass::ReplayHangRisk,
+      "vulkan_prepack::run_vision_decoder_head_context",
+      "DecoderHeadReplaySubmitGuard",
+      detail);
+  (void)run_vision_decoder_head_program(
+      vision_replay->layer1_slot(),
+      vision_replay->layer2_slot(),
+      vision_replay->layer3_slot(),
+      vision_replay->layer4_slot(),
+      output_size,
+      context,
+      vision_replay->refinenet4_program(),
+      vision_replay->refinenet3_program(),
+      vision_replay->refinenet2_program(),
+      vision_replay->refinenet1_program(),
+      vision_replay->output_slot());
+  api::context()->flush_pending_cmds();
   Tensor output = utils::create_buffer_tensor(
       vision_replay->output_slot().sizes(),
       vision_replay->output_slot().scalar_type(),
@@ -6592,7 +6834,10 @@ std::tuple<Tensor, Tensor> run_vision_backbone_decoder_replay_bundle_bridge(
             warmup_decoder_output, decoder_output_device, decoder_output_dtype));
   }
 
-  replay_bundle.submit();
+  run_recorded_compiled_replay_or_direct_steps(
+      replay_bundle,
+      "vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge",
+      "vision.backbone_decoder.replay");
 
   Tensor backbone_output = utils::create_buffer_tensor(
       backbone_replay.output_slot().sizes(),
@@ -6934,7 +7179,12 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
   if (first_record) {
     replay_bundle.record_empty();
   }
-  replay_bundle.submit();
+  run_recorded_compiled_replay_or_direct_steps(
+      replay_bundle,
+      apply_output_norm
+          ? "vulkan_prepack::run_vision_backbone_stack_norm_replay_bundle_bridge"
+          : "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge",
+      "vision.backbone_stack.replay");
   std::vector<Tensor> outputs(capture_indices_vec.size());
   for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
        ++capture_pos) {
@@ -6942,6 +7192,14 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
     const Tensor& replay_output = apply_output_norm
         ? replay_bundle.tensor_slot(capture_pos)
         : replays[replay_idx].output_slot();
+    (void)utils::stamp_replay_export(
+        replay_output,
+        apply_output_norm ? replay_bundle.identity()
+                          : replays[replay_idx].identity(),
+        static_cast<uint32_t>(capture_pos),
+        apply_output_norm
+            ? "run_vision_backbone_stack_norm_replay_bundle_bridge"
+            : "run_vision_backbone_stack_replay_bundle_bridge");
     Tensor output = utils::create_buffer_tensor(
         replay_output.sizes(),
         replay_output.scalar_type(),
@@ -6949,6 +7207,11 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
     copy_tensor_for_replay(output, replay_output);
     outputs[capture_pos] =
         maybe_restore_tensor(output, output_device, output_dtype);
+    record_tensor_write(
+        outputs[capture_pos],
+        bridge_log_name,
+        "materialized_replay_export",
+        {replay_output});
   }
   utils::log_vulkan_op_hit(first_record ? replay_warmup_log_name : replay_log_name);
   utils::log_vulkan_op_hit(bridge_log_name);
@@ -7174,15 +7437,30 @@ Tensor run_depth_anything_v2_compiled_session_bridge(
   const Device output_device = input_arg.device();
   const ScalarType output_dtype = input_arg.scalar_type();
 
-  // Keep the supported Depth Anything lane on the already-validated Vulkan
-  // compiled/replay pieces until the monolithic executable-region decoder
-  // handoff is proven correct for the larger fixed-shape vision traces.
-  std::vector<Tensor> captured = run_vision_backbone_stack_norm_compiled_session_bridge(
-      input_arg,
-      contexts,
-      capture_indices,
-      normalized_shape,
-      norm_context);
+  const std::string detail =
+      "action=use_replay_bundle_backbone "
+      "reason=depth_anything_compiled_backbone_guard "
+      "failure_class=ReplayHangRisk";
+  api::log_vulkan_failure(
+      api::VulkanFailureClass::ReplayHangRisk,
+      "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge",
+      "DepthAnythingCompiledBackboneGuard",
+      detail);
+  utils::log_replay_event(
+      "depth_anything_compiled_backbone_guard",
+      nullptr,
+      0u,
+      "vision.depth_anything_v2.compiled_session",
+      detail);
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge.guard.compiled_backbone_disabled");
+  std::vector<Tensor> captured =
+      run_vision_backbone_stack_norm_replay_bundle_bridge(
+          input_arg,
+          contexts,
+          capture_indices,
+          normalized_shape,
+          norm_context);
   TORCH_CHECK(
       captured.size() == 4u,
       "Depth Anything compiled session bridge expected four captured tensors");
@@ -7203,7 +7481,13 @@ Tensor run_depth_anything_v2_compiled_session_bridge(
       decoder_context);
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge");
-  return maybe_restore_tensor(output, output_device, output_dtype);
+  Tensor restored = maybe_restore_tensor(output, output_device, output_dtype);
+  record_tensor_write(
+      restored,
+      "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge",
+      "decoder_output",
+      {captured[0], captured[1], captured[2], captured[3]});
+  return restored;
 }
 
 Tensor run_depth_anything_v2_image_compiled_session_bridge(
@@ -7295,7 +7579,13 @@ Tensor run_depth_anything_v2_image_compiled_session_bridge(
   Tensor output = supported_route();
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge");
-  return maybe_restore_tensor(output, output_device, output_dtype);
+  Tensor restored = maybe_restore_tensor(output, output_device, output_dtype);
+  record_tensor_write(
+      restored,
+      "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge",
+      "image_depth_output",
+      {input_arg});
+  return restored;
 }
 
 Tensor tokens_to_feature_map(

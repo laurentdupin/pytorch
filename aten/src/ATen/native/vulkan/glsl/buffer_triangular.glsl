@@ -1,21 +1,20 @@
 #version 450 core
-
+// clang-format off
 #define PRECISION ${PRECISION}
 #define FORMAT ${FORMAT}
 
+#define KEEP_VALUE(row, col, diagonal) (${KEEP})
+// clang-format on
+
+#include "indexing.h"
+
 layout(std430) buffer;
 
-/*
- * Output Buffer
- */
 layout(set = 0, binding = 0) buffer PRECISION restrict writeonly OutBuffer {
   float data[];
 }
 uOutput;
 
-/*
- * Output Buffer Metadata
- */
 layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
   uvec4 logical_sizes;
   uvec4 logical_strides;
@@ -24,17 +23,11 @@ layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
 }
 uOutMeta;
 
-/*
- * Input Buffer
- */
 layout(set = 0, binding = 2) buffer PRECISION restrict readonly InBuffer {
-  uint data[];
+  float data[];
 }
 uInput;
 
-/*
- * Input Buffer Metadata
- */
 layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
   uvec4 logical_sizes;
   uvec4 logical_strides;
@@ -43,30 +36,12 @@ layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
 }
 uInMeta;
 
+layout(set = 0, binding = 4) uniform PRECISION restrict Block {
+  int diagonal;
+}
+uBlock;
+
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
-
-float bfloat16_to_float(uint raw) {
-  return uintBitsToFloat(uint(raw) << 16);
-}
-
-float read_bfloat16(const uint logical_idx) {
-  const uint word = uInput.data[logical_idx >> 1];
-  const uint raw = ((logical_idx & 1u) == 0u) ? (word & 0xFFFFu) : (word >> 16);
-  return bfloat16_to_float(raw);
-}
-
-uvec4 idx_to_coord_4d(const uint idx, const uvec4 strides, const uvec4 sizes) {
-  return uvec4(
-      (idx / strides.x) % sizes.x,
-      (idx / strides.y) % sizes.y,
-      (idx / strides.z) % sizes.z,
-      (idx / strides.w) % sizes.w);
-}
-
-uint coord_to_idx_4d(const uvec4 coord, const uvec4 strides) {
-  return coord.x * strides.x + coord.y * strides.y + coord.z * strides.z +
-      coord.w * strides.w;
-}
 
 void main() {
   const uint write_idx = ivec3(gl_GlobalInvocationID).x;
@@ -80,21 +55,28 @@ void main() {
     return;
   }
 
-  uvec4 write_coord =
-      idx_to_coord_4d(
+  const uvec4 write_coord =
+      idx_to_coord(
           write_idx, uOutMeta.logical_strides, uOutMeta.logical_sizes);
 
+  // Buffer metadata is stored in WHCN order. Triangular masks always apply to
+  // the last two logical PyTorch dimensions, which are H(row) and W(col).
+  const int row = int(write_coord.y);
+  const int col = int(write_coord.x);
+
   float outval = 0.0;
-  if (all(lessThan(write_coord, uInMeta.logical_sizes))) {
-    uint read_idx =
-        coord_to_idx_4d(write_coord, uInMeta.physical_strides) + in_storage_offset;
+  if (
+      KEEP_VALUE(row, col, uBlock.diagonal) &&
+      all(lessThan(write_coord, uInMeta.logical_sizes))) {
+    const uint read_idx =
+        coord_to_idx(write_coord, uInMeta.physical_strides) + in_storage_offset;
     if (read_idx < in_buf_length) {
-      outval = read_bfloat16(read_idx);
+      outval = uInput.data[read_idx];
     }
   }
 
   const uint actual_write_idx =
-      coord_to_idx_4d(write_coord, uOutMeta.physical_strides) + out_storage_offset;
+      coord_to_idx(write_coord, uOutMeta.physical_strides) + out_storage_offset;
   if (actual_write_idx < out_buf_length) {
     uOutput.data[actual_write_idx] = outval;
   }

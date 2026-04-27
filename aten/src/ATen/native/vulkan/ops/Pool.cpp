@@ -17,6 +17,10 @@ bool can_run_float_buffer_pool2d(const vTensor& v_self) {
       utils::supports_buffer_elementwise_compute(v_self);
 }
 
+bool can_route_float_buffer_pool2d(const Tensor& self_arg) {
+  return self_arg.dim() == 4 && self_arg.scalar_type() == at::kFloat;
+}
+
 Tensor pool2d_buffer(
     const Tensor& self_arg,
     const IntArrayRef kernel_arg,
@@ -101,6 +105,7 @@ Tensor pool2d_buffer(
     ivec4 info;
     ivec4 kernel;
     ivec4 stride_padding;
+    ivec4 dilation;
   } block{
       {
           safe_downcast<int32_t>(
@@ -120,6 +125,12 @@ Tensor pool2d_buffer(
           safe_downcast<int32_t>(stride[Layout::Parameter::height]),
           safe_downcast<int32_t>(padding[Layout::Parameter::width]),
           safe_downcast<int32_t>(padding[Layout::Parameter::height]),
+      },
+      {
+          safe_downcast<int32_t>(dilation[Layout::Parameter::width]),
+          safe_downcast<int32_t>(dilation[Layout::Parameter::height]),
+          0,
+          0,
       },
   };
 
@@ -376,14 +387,16 @@ Tensor avg_pool2d(
     IntArrayRef stride_arg,
     const IntArrayRef padding_arg,
     const bool ceil_mode,
-    const bool /* count_include_pad */,
-    const std::optional<int64_t> /* divisor_override */) {
-  if (self_arg.is_vulkan()) {
-    const vTensor& v_self = convert(self_arg);
+    const bool count_include_pad,
+    const std::optional<int64_t> divisor_override) {
+  if (can_route_float_buffer_pool2d(self_arg) && count_include_pad &&
+      !divisor_override.has_value()) {
+    Tensor self = utils::ensure_buffer_storage(self_arg);
+    const vTensor& v_self = convert(self);
     if (can_run_float_buffer_pool2d(v_self)) {
       utils::log_vulkan_op_hit("aten::avg_pool2d.buffer_float");
       return pool2d_buffer(
-          self_arg,
+          self,
           kernel_arg,
           stride_arg,
           padding_arg,
@@ -410,6 +423,22 @@ Tensor max_pool2d(
     const IntArrayRef padding_arg,
     const IntArrayRef dilation_arg,
     const bool ceil_mode) {
+  if (can_route_float_buffer_pool2d(self_arg)) {
+    Tensor self = utils::ensure_buffer_storage(self_arg);
+    const vTensor& v_self = convert(self);
+    if (can_run_float_buffer_pool2d(v_self)) {
+      utils::log_vulkan_op_hit("aten::max_pool2d.buffer_float");
+      return pool2d_buffer(
+          self,
+          kernel_arg,
+          stride_arg,
+          padding_arg,
+          dilation_arg,
+          ceil_mode,
+          VK_KERNEL(max_pool2d_buffer));
+    }
+  }
+
   if (self_arg.scalar_type() == kQUInt8) {
     return pool2d(
         self_arg,

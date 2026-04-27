@@ -2,14 +2,18 @@
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
+#include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
+#include <ATen/native/vulkan/planning/ReplayTensorState.h>
 
 #include <ATen/Context.h>
-#include <ATen/Functions.h>
 #include <ATen/native/vulkan/api/Tensor.h>
 #include <ATen/native/vulkan/api/Types.h>
 #include <ATen/native/vulkan/impl/Packing.h>
+#include <ATen/ops/gelu.h>
+#include <ATen/ops/zeros.h>
 #include <c10/core/InferenceMode.h>
 #include <c10/util/irange.h>
 #include <mutex>
@@ -98,8 +102,21 @@ Tensor upcast_half_linear_tensor_for_packing(const Tensor& tensor) {
     return tensor.to(kFloat);
   }
 
-  // Prefer the backend cast path first. This keeps BF16 buffer tensors on
-  // Vulkan and falls back to CPU only when no native cast route exists.
+  if (tensor.scalar_type() == kBFloat16) {
+    constexpr int64_t kMaxSmallBFloat16LinearCpuWidenNumel = 65536;
+    TORCH_CHECK(
+        tensor.numel() <= kMaxSmallBFloat16LinearCpuWidenNumel,
+        "Vulkan BF16 linear widening requires native BF16 buffer cast for large "
+        "tensors, but that route is currently disabled because it is not "
+        "correct for all buffer layouts");
+    utils::log_vulkan_op_hit("aten::linear.bfloat16_widen_cpu_small");
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    return tensor.cpu().to(kFloat).vulkan();
+  }
+
+  // Prefer the backend cast path for half tensors so they stay Vulkan-resident
+  // when the source layout supports it.
   return utils::cast_vulkan_tensor_dtype(tensor, kFloat);
 }
 
@@ -173,26 +190,16 @@ c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
   if (utils::has_inference_tensor(weight, bias)) {
-    if (const auto cached_context = utils::lookup_linear_context(weight, bias)) {
-      return *cached_context;
-    }
-
     const Tensor prepared_weight =
         (weight.is_vulkan() && weight.dim() == 2) ? weight.cpu().t().contiguous()
                                                   : weight.t();
-    const auto context = c10::make_intrusive<LinearPackedContext>(
+    return c10::make_intrusive<LinearPackedContext>(
         LinearPackedContext(
             prepared_weight,
             bias,
             false,
             std::string(),
             false));
-    utils::store_linear_context(weight, bias, context);
-    return context;
-  }
-
-  if (const auto cached_context = utils::lookup_linear_context(weight, bias)) {
-    return *cached_context;
   }
 
   const Tensor prepared_weight =
@@ -200,15 +207,13 @@ c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
        weight.dim() == 2)
       ? weight.cpu().t().contiguous()
       : weight.t();
-  const auto context = c10::make_intrusive<LinearPackedContext>(
+  return c10::make_intrusive<LinearPackedContext>(
       LinearPackedContext(
           prepared_weight,
           bias,
           false,
           std::string(),
           false));
-  utils::store_linear_context(weight, bias, context);
-  return context;
 }
 
 inline bool has_bias(const std::optional<Tensor>& bias) {
@@ -267,20 +272,51 @@ struct DeferredLinearGeluCandidate final {
   c10::intrusive_ptr<LinearPackedContext> linear_context;
   utils::VulkanRuntimePolicy runtime_policy;
   std::vector<int64_t> output_sizes;
+  uint64_t producer_storage_id{0};
+  uint64_t producer_generation{0};
+  uint64_t producer_logical_desc_hash{0};
   float alpha{1.0f};
   float beta{1.0f};
 };
 
 constexpr size_t kMaxDeferredLinearGeluCandidates = 128;
 
-const void* deferred_linear_gelu_key(const Tensor& tensor) {
-  if (tensor.is_vulkan()) {
-    const vTensor& v_tensor = convert(tensor);
-    if (v_tensor.storage_type() == api::StorageType::BUFFER) {
-      return static_cast<const void*>(&v_tensor.buffer());
-    }
+struct TensorProducerKey final {
+  uint64_t base_storage_id{0};
+  uint64_t generation{0};
+  uint64_t logical_desc_hash{0};
+  const char* producer_op{"aten::linear"};
+};
+
+bool operator==(const TensorProducerKey& lhs, const TensorProducerKey& rhs) {
+  return lhs.base_storage_id == rhs.base_storage_id &&
+      lhs.generation == rhs.generation &&
+      lhs.logical_desc_hash == rhs.logical_desc_hash &&
+      lhs.producer_op == rhs.producer_op;
+}
+
+struct TensorProducerKeyHash final {
+  size_t operator()(const TensorProducerKey& key) const {
+    size_t seed = 0;
+    seed ^= std::hash<uint64_t>{}(key.base_storage_id) +
+        size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) + (seed >> 2u);
+    seed ^= std::hash<uint64_t>{}(key.generation) +
+        size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) + (seed >> 2u);
+    seed ^= std::hash<uint64_t>{}(key.logical_desc_hash) +
+        size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) + (seed >> 2u);
+    seed ^= std::hash<const char*>{}(key.producer_op) +
+        size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) + (seed >> 2u);
+    return seed;
   }
-  return static_cast<const void*>(tensor.unsafeGetTensorImpl());
+};
+
+TensorProducerKey deferred_linear_gelu_key(const Tensor& tensor) {
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  return TensorProducerKey{
+      state.storage_id,
+      state.generation,
+      state.logical_desc_hash,
+      "aten::linear"};
 }
 
 std::mutex& deferred_linear_gelu_candidate_mutex() {
@@ -288,10 +324,26 @@ std::mutex& deferred_linear_gelu_candidate_mutex() {
   return mutex;
 }
 
-std::unordered_map<const void*, DeferredLinearGeluCandidate>&
+std::unordered_map<
+    TensorProducerKey,
+    DeferredLinearGeluCandidate,
+    TensorProducerKeyHash>&
 deferred_linear_gelu_candidates() {
-  static std::unordered_map<const void*, DeferredLinearGeluCandidate> candidates;
+  static std::unordered_map<
+      TensorProducerKey,
+      DeferredLinearGeluCandidate,
+      TensorProducerKeyHash>
+      candidates;
   return candidates;
+}
+
+bool can_retarget_deferred_linear_gelu_candidate(
+    const Tensor& tensor,
+    const DeferredLinearGeluCandidate& candidate) {
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  return state.storage_id == candidate.producer_storage_id &&
+      state.generation == candidate.producer_generation &&
+      state.logical_desc_hash == candidate.producer_logical_desc_hash;
 }
 
 std::optional<DeferredLinearGeluCandidate>
@@ -300,6 +352,11 @@ lookup_deferred_linear_gelu_candidate(const Tensor& tensor) {
   auto& candidates = deferred_linear_gelu_candidates();
   const auto it = candidates.find(deferred_linear_gelu_key(tensor));
   if (it == candidates.end()) {
+    return std::nullopt;
+  }
+  if (!can_retarget_deferred_linear_gelu_candidate(tensor, it->second)) {
+    utils::log_vulkan_op_hit("aten::linear_gelu_bridge.stale_candidate");
+    candidates.erase(it);
     return std::nullopt;
   }
   return it->second;
@@ -311,6 +368,11 @@ take_deferred_linear_gelu_candidate(const Tensor& tensor) {
   auto& candidates = deferred_linear_gelu_candidates();
   const auto it = candidates.find(deferred_linear_gelu_key(tensor));
   if (it == candidates.end()) {
+    return std::nullopt;
+  }
+  if (!can_retarget_deferred_linear_gelu_candidate(tensor, it->second)) {
+    utils::log_vulkan_op_hit("aten::linear_gelu_bridge.stale_candidate");
+    candidates.erase(it);
     return std::nullopt;
   }
   DeferredLinearGeluCandidate candidate = it->second;
@@ -327,6 +389,10 @@ void register_deferred_linear_gelu_candidate(
     utils::log_vulkan_op_hit("aten::linear_gelu_bridge.registry_clear");
     candidates.clear();
   }
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  candidate.producer_storage_id = state.storage_id;
+  candidate.producer_generation = state.generation;
+  candidate.producer_logical_desc_hash = state.logical_desc_hash;
   candidates[deferred_linear_gelu_key(tensor)] = std::move(candidate);
 }
 
@@ -643,6 +709,43 @@ bool can_run_float_buffer_linear(
   return true;
 }
 
+bool can_run_widened_half_buffer_linear(
+    const Tensor& input,
+    const Tensor& weight,
+    const std::optional<Tensor>& bias) {
+  if (
+      (input.scalar_type() != kHalf && input.scalar_type() != kBFloat16) ||
+      weight.scalar_type() != kFloat ||
+      input.dim() != 2 ||
+      weight.dim() != 2 ||
+      input.requires_grad() ||
+      weight.requires_grad() ||
+      input.size(Layout::Parameter::width) !=
+          weight.size(Layout::Parameter::height)) {
+    return false;
+  }
+
+  if (bias && bias->defined()) {
+    if (
+        bias->device().type() != c10::DeviceType::Vulkan ||
+        bias->requires_grad() ||
+        bias->scalar_type() != kFloat) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+Tensor widen_half_linear_tensor_to_float_buffer(const Tensor& tensor) {
+  Tensor widened = upcast_half_linear_tensor_for_packing(tensor);
+  Tensor vulkan_widened = widened.is_vulkan() ? widened : widened.vulkan();
+  return utils::mark_tensor_execution(
+      utils::ensure_buffer_storage(
+          vulkan_widened, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
+      api::ExecutionLayout::BUFFER_DIRECT);
+}
+
 bool can_run_float_buffer_bmm(const Tensor& mat1, const Tensor& mat2) {
   if (
       mat1.device().type() != c10::DeviceType::Vulkan ||
@@ -934,6 +1037,46 @@ Tensor run_float_buffer_linear(
   return reshape_linear_output_if_needed(output, input_arg);
 }
 
+Tensor run_widened_half_buffer_linear(
+    const Tensor& input_arg,
+    const Tensor& input_arg_2d,
+    const utils::VulkanRuntimePolicy& runtime_policy,
+    const LinearPackedRunState& packed_state,
+    const float alpha,
+    const float beta,
+    const LinearPostOp post_op,
+    Tensor* output_opt = nullptr) {
+  const c10::ScalarType output_dtype = input_arg.scalar_type();
+  const Tensor float_input_2d =
+      widen_half_linear_tensor_to_float_buffer(input_arg_2d);
+  const std::optional<Tensor> packed_bias_tensor = packed_state.bias_defined
+      ? std::optional<Tensor>(packed_state.packed_weight.bias())
+      : std::nullopt;
+
+  TORCH_INTERNAL_ASSERT(
+      can_run_float_buffer_linear(
+          float_input_2d, packed_state.packed_weight.weight(), packed_bias_tensor));
+
+  Tensor float_output_2d = run_float_buffer_linear(
+      input_arg_2d,
+      float_input_2d,
+      runtime_policy,
+      packed_state,
+      alpha,
+      beta,
+      post_op);
+  Tensor output_2d = output_dtype == kFloat
+      ? float_output_2d
+      : float_output_2d.to(output_dtype);
+  Tensor output = reshape_linear_output_if_needed(output_2d, input_arg);
+  if (output_opt &&
+      output.unsafeGetTensorImpl() != output_opt->unsafeGetTensorImpl()) {
+    *output_opt = output;
+    output = *output_opt;
+  }
+  return output;
+}
+
 Tensor materialize_deferred_linear_gelu_candidate_impl(const Tensor& tensor) {
   if (!tensor.is_vulkan()) {
     return tensor;
@@ -1122,23 +1265,14 @@ bool can_run_half_buffer_bmm(const Tensor& mat1, const Tensor& mat2) {
           mat2.size(Layout::BatchMatrices::height);
 }
 
-Tensor widen_half_bmm_tensor_to_float_buffer(const Tensor& tensor) {
-  Tensor widened = upcast_half_linear_tensor_for_packing(tensor);
-  Tensor vulkan_widened = widened.is_vulkan() ? widened : widened.vulkan();
-  return utils::mark_tensor_execution(
-      utils::ensure_buffer_storage(
-          vulkan_widened, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
-      api::ExecutionLayout::BUFFER_DIRECT);
-}
-
 Tensor run_half_buffer_bmm(
     const Tensor& mat1,
     const Tensor& mat2,
     const float alpha,
     const float beta,
     const std::optional<Tensor>& bias = std::nullopt) {
-  const Tensor float_mat1 = widen_half_bmm_tensor_to_float_buffer(mat1);
-  const Tensor float_mat2 = widen_half_bmm_tensor_to_float_buffer(mat2);
+  const Tensor float_mat1 = widen_half_linear_tensor_to_float_buffer(mat1);
+  const Tensor float_mat2 = widen_half_linear_tensor_to_float_buffer(mat2);
   const std::optional<Tensor> float_bias =
       upcast_half_linear_tensor_for_packing(bias);
   return run_float_buffer_bmm(
@@ -2303,10 +2437,12 @@ Tensor run_addmm_context(
     }
     log_linear_context_checkpoint(
         "buffer_input_marked", buffer_input, post_op, quantized);
-    if (!can_run_float_buffer_linear(
+    if (
+        !can_run_float_buffer_linear(
             buffer_input,
             packed_state.packed_weight.weight(),
-            packed_bias_tensor)) {
+            packed_bias_tensor) &&
+        buffer_input.scalar_type() == kFloat) {
       buffer_input = utils::mark_tensor_execution(
           utils::ensure_buffer_storage(
               buffer_input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
@@ -2328,21 +2464,35 @@ Tensor run_addmm_context(
               output_opt)) {
         Tensor placeholder = make_deferred_linear_gelu_placeholder(
             input_for_compute, buffer_input, packed_state);
+        DeferredLinearGeluCandidate candidate;
+        candidate.input_arg = input_for_compute;
+        candidate.buffer_input = buffer_input;
+        candidate.linear_context = linear_context;
+        candidate.runtime_policy = runtime_policy;
+        candidate.output_sizes = placeholder.sizes().vec();
+        candidate.alpha = alpha;
+        candidate.beta = beta;
         register_deferred_linear_gelu_candidate(
-            placeholder,
-            DeferredLinearGeluCandidate{
-                input_for_compute,
-                buffer_input,
-                linear_context,
-                runtime_policy,
-                placeholder.sizes().vec(),
-                alpha,
-                beta,
-            });
+            placeholder, std::move(candidate));
         utils::log_vulkan_op_hit("aten::linear_gelu_bridge.defer");
         return placeholder;
       }
       return run_float_buffer_linear(
+          input_for_compute,
+          buffer_input,
+          runtime_policy,
+          packed_state,
+          alpha,
+          beta,
+          post_op,
+          output_opt);
+    }
+    if (can_run_widened_half_buffer_linear(
+            buffer_input,
+            packed_state.packed_weight.weight(),
+            packed_bias_tensor)) {
+      utils::log_vulkan_op_hit("aten::linear.buffer_half_widened_float");
+      return run_widened_half_buffer_linear(
           input_for_compute,
           buffer_input,
           runtime_policy,
@@ -2677,15 +2827,51 @@ Tensor addmm(
     const Tensor& weight,
     const Scalar& beta,
     const Scalar& alpha) {
-  return run_addmm_context(
+  const std::optional<Tensor> optional_bias = bias;
+  if (
+      input.scalar_type() == kBFloat16 ||
+      weight.scalar_type() == kBFloat16 ||
+      bias.scalar_type() == kBFloat16) {
+    utils::log_vulkan_op_hit("aten::linear.bfloat16_widen_addmm");
+    const Tensor float_input = input.scalar_type() == kBFloat16
+        ? (input.is_vulkan() ? utils::cast_vulkan_tensor_dtype(input, kFloat)
+                             : input.to(kFloat))
+        : input;
+    const Tensor float_weight = weight.scalar_type() == kBFloat16
+        ? (weight.is_vulkan() ? utils::cast_vulkan_tensor_dtype(weight, kFloat)
+                              : weight.to(kFloat))
+        : weight;
+    const std::optional<Tensor> float_bias = bias.scalar_type() == kBFloat16
+        ? std::optional<Tensor>(
+              bias.is_vulkan() ? utils::cast_vulkan_tensor_dtype(bias, kFloat)
+                               : bias.to(kFloat))
+        : optional_bias;
+    const auto linear_context = c10::make_intrusive<LinearPackedContext>(
+        LinearPackedContext(float_weight, float_bias));
+    Tensor output = run_addmm_context(
+        float_input,
+        alpha.to<float>(),
+        beta.to<float>(),
+        linear_context,
+        false,
+        0,
+        0);
+    api::context()->flush_pending_cmds();
+    return output;
+  }
+
+  const auto linear_context = c10::make_intrusive<LinearPackedContext>(
+      LinearPackedContext(weight, bias));
+  Tensor output = run_addmm_context(
       input,
       alpha.to<float>(),
       beta.to<float>(),
-      c10::make_intrusive<LinearPackedContext>(
-          LinearPackedContext(weight, bias)),
+      linear_context,
       false,
       0,
       0);
+  api::context()->flush_pending_cmds();
+  return output;
 }
 
 Tensor run_half_buffer_linear(
@@ -2693,12 +2879,16 @@ Tensor run_half_buffer_linear(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
   const Tensor float_input = upcast_half_linear_tensor_for_packing(input);
+  const Tensor float_weight = upcast_half_linear_tensor_for_packing(weight);
+  const std::optional<Tensor> float_bias =
+      upcast_half_linear_tensor_for_packing(bias);
 
   Tensor output = run_addmm_context(
       float_input,
       1.0f,
       1.0f,
-      get_or_create_linear_context(weight, bias),
+      c10::make_intrusive<LinearPackedContext>(
+          LinearPackedContext(float_weight, float_bias)),
       false,
       0,
       0);
@@ -2709,15 +2899,18 @@ Tensor linear_gelu(
     const Tensor& input,
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
-  return run_addmm_context(
+  const auto linear_context = get_or_create_linear_context(weight, bias);
+  Tensor output = run_addmm_context(
       input,
       1.0f,
       1.0f,
-      get_or_create_linear_context(weight, bias),
+      linear_context,
       false,
       0,
       0,
       LinearPostOp::Gelu);
+  api::context()->flush_pending_cmds();
+  return output;
 }
 
 Tensor mm(const Tensor& mat1_arg, const Tensor& mat2_arg) {
@@ -3003,7 +3196,12 @@ Tensor run_linear_context(
     const Tensor& input,
     const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
   utils::log_vulkan_op_hit("vulkan_prepack::run_linear_context");
-  return run_addmm_context(input, 1.0f, 1.0f, linear_context, false, 0, 0);
+  utils::validate_replay_tensor_not_stale(
+      input, "vulkan_prepack::run_linear_context");
+  Tensor output =
+      run_addmm_context(input, 1.0f, 1.0f, linear_context, false, 0, 0);
+  return record_tensor_write_and_return(
+      output, "vulkan_prepack::run_linear_context", "linear_context", {input});
 }
 
 Tensor run_linear_context_out(
@@ -3011,7 +3209,9 @@ Tensor run_linear_context_out(
     const c10::intrusive_ptr<LinearPackedContext>& linear_context,
     Tensor& output) {
   utils::log_vulkan_op_hit("vulkan_prepack::run_linear_context");
-  return run_addmm_context(
+  utils::validate_replay_tensor_not_stale(
+      input, "vulkan_prepack::run_linear_context_out");
+  Tensor result = run_addmm_context(
       input,
       1.0f,
       1.0f,
@@ -3021,12 +3221,19 @@ Tensor run_linear_context_out(
       0,
       LinearPostOp::None,
       &output);
+  return record_tensor_write_and_return(
+      result,
+      "vulkan_prepack::run_linear_context",
+      "linear_context_out",
+      {input});
 }
 
 Tensor run_linear_gelu_context(
     const Tensor& input,
     const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
-  return run_addmm_context(
+  utils::validate_replay_tensor_not_stale(
+      input, "vulkan_prepack::run_linear_gelu_context");
+  Tensor output = run_addmm_context(
       input,
       1.0f,
       1.0f,
@@ -3035,13 +3242,20 @@ Tensor run_linear_gelu_context(
       0,
       0,
       LinearPostOp::Gelu);
+  return record_tensor_write_and_return(
+      output,
+      "vulkan_prepack::run_linear_gelu_context",
+      "linear_gelu_context",
+      {input});
 }
 
 Tensor run_linear_gelu_context_out(
     const Tensor& input,
     const c10::intrusive_ptr<LinearPackedContext>& linear_context,
     Tensor& output) {
-  return run_addmm_context(
+  utils::validate_replay_tensor_not_stale(
+      input, "vulkan_prepack::run_linear_gelu_context_out");
+  Tensor result = run_addmm_context(
       input,
       1.0f,
       1.0f,
@@ -3051,6 +3265,11 @@ Tensor run_linear_gelu_context_out(
       0,
       LinearPostOp::Gelu,
       &output);
+  return record_tensor_write_and_return(
+      result,
+      "vulkan_prepack::run_linear_gelu_context",
+      "linear_gelu_context_out",
+      {input});
 }
 
 Tensor run_qlinear_context(
@@ -3058,7 +3277,9 @@ Tensor run_qlinear_context(
     double output_scale,
     int64_t output_zero_point,
     const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
-  return run_addmm_context(
+  utils::validate_replay_tensor_not_stale(
+      input_arg, "vulkan_prepack::run_qlinear_context");
+  Tensor output = run_addmm_context(
       input_arg,
       1.0f,
       1.0f,
@@ -3066,6 +3287,11 @@ Tensor run_qlinear_context(
       true,
       output_scale,
       output_zero_point);
+  return record_tensor_write_and_return(
+      output,
+      "vulkan_prepack::run_qlinear_context",
+      "qlinear_context",
+      {input_arg});
 }
 
 } // namespace ops

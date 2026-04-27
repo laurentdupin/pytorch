@@ -3,6 +3,7 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <algorithm>
 #include <vector>
@@ -100,12 +101,13 @@ inline Tensor canonicalize_buffer_reduction_input(
   const std::vector<int64_t> permutation =
       move_dim_to_end_permutation(
           safe_downcast<int64_t>(v_input.sizes().size()), dim);
-  canonical = utils::make_buffer_metadata_view(
+  canonical = make_buffer_metadata_view_checked(
       prepared_input,
       apply_permutation(v_input.sizes(), permutation),
       apply_permutation(v_input.logical_strides(), permutation),
       apply_permutation(v_input.physical_strides(), permutation),
-      v_input.storage_offset());
+      v_input.storage_offset(),
+      "aten::reduction.canonicalize");
 
   return convert(utils::materialize_to_contiguous_buffer(
       convert(canonical), api::GPUMemoryLayout::TENSOR_WIDTH_PACKED));
@@ -121,12 +123,13 @@ inline Tensor maybe_wrap_padded_buffer_output(const Tensor& output_arg) {
     return output;
   }
 
-  return utils::make_buffer_metadata_view(
+  return make_buffer_metadata_view_checked(
       output,
       v_output.sizes(),
       v_output.logical_strides(),
       v_output.gpu_strides(),
-      v_output.storage_offset());
+      v_output.storage_offset(),
+      "aten::reduction.wrap_padded_output");
 }
 
 inline Tensor restore_buffer_reduction_output_layout(
@@ -147,12 +150,13 @@ inline Tensor restore_buffer_reduction_output_layout(
           safe_downcast<int64_t>(input_sizes.size()), dim);
   const std::vector<int64_t> inverse = inverse_permutation(permutation);
 
-  return utils::make_buffer_metadata_view(
+  return make_buffer_metadata_view_checked(
       output,
       reduced_output_sizes(input_sizes, dim, true),
       apply_permutation(v_output.logical_strides(), inverse),
       apply_permutation(v_output.physical_strides(), inverse),
-      v_output.storage_offset());
+      v_output.storage_offset(),
+      "aten::reduction.restore_output_layout");
 }
 
 } // namespace reduction

@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/api/Adapter.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Resource.h>
 #include <algorithm>
 #include <cstdlib>
@@ -1369,6 +1370,13 @@ void VulkanFence::wait() {
       // The timeout (last) arg is in units of ns
       fence_status = vkWaitForFences(device_, 1u, &handle_, VK_TRUE, 100000);
 
+      if (fence_status == VK_ERROR_DEVICE_LOST) {
+        log_vulkan_failure(
+            VulkanFailureClass::DeviceLost,
+            "VulkanFence::wait",
+            "DeviceLost",
+            "vkWaitForFences returned VK_ERROR_DEVICE_LOST");
+      }
       VK_CHECK_COND(
           fence_status != VK_ERROR_DEVICE_LOST,
           "Vulkan Fence: Device lost while waiting for fence!");

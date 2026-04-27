@@ -1,6 +1,7 @@
 #include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -67,12 +68,13 @@ Tensor select_buffer_view(const Tensor& self_arg, int64_t dim, int64_t index) {
       return Tensor();
     }
 
-    return utils::make_buffer_metadata_view(
+    return make_buffer_metadata_view_checked(
         self,
         output_sizes,
         output_logical_strides,
         output_physical_strides,
-        storage_offset);
+        storage_offset,
+        "aten::select");
   };
 
   const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();

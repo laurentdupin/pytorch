@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/api/Context.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -44,6 +45,9 @@ Tensor repeat(const Tensor& self, const IntArrayRef repeats) {
       tensor_seq_to_concat.emplace_back(tensor_to_repeat.clone());
     }
     tensor_to_repeat = at::cat(tensor_seq_to_concat, i);
+    // cat submits image copies that read from these temporary clones. Submit
+    // the command buffer before dropping the only tensor references to them.
+    api::context()->flush_pending_cmds();
     tensor_seq_to_concat.clear();
   }
   return tensor_to_repeat;

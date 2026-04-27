@@ -131,6 +131,8 @@ struct VulkanCompiledSessionKey final {
   std::vector<std::vector<int64_t>> output_shapes;
   ScalarType dtype{kFloat};
   std::string capability_key;
+  uint32_t layout_policy_version{1u};
+  uint32_t model_lane_policy_version{1u};
   bool persistent{true};
 };
 

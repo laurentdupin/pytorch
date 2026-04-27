@@ -2,6 +2,7 @@
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -44,12 +45,13 @@ Tensor unsqueeze_buffer_view(const at::Tensor& self, int64_t dim) {
   output_physical_strides.insert(
       output_physical_strides.begin() + insert_dim, inserted_physical_stride);
 
-  Tensor output = utils::make_buffer_metadata_view(
+  Tensor output = make_buffer_metadata_view_checked(
       self,
       output_sizes,
       output_logical_strides,
       output_physical_strides,
-      v_self.storage_offset());
+      v_self.storage_offset(),
+      "aten::unsqueeze");
   move_deferred_image_normalize_candidate_to_alias(self, output);
   return output;
 }

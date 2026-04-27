@@ -25,6 +25,11 @@ bool supports_native_triangular_texture_path(const Tensor& self_arg) {
        self_arg.scalar_type() == at::kHalf);
 }
 
+bool supports_native_triangular_buffer_path(const Tensor& self_arg) {
+  return self_arg.dim() >= 2 && self_arg.dim() <= 4 &&
+      self_arg.scalar_type() == at::kFloat;
+}
+
 Tensor triangular_cpu_fallback(
     const Tensor& self_arg,
     int64_t diagonal,
@@ -89,7 +94,66 @@ Tensor triangular_texture(
   return convert(v_output);
 }
 
+Tensor triangular_buffer(
+    const Tensor& self_arg,
+    int64_t diagonal,
+    bool upper) {
+  TORCH_CHECK(
+      supports_native_triangular_buffer_path(self_arg),
+      "Vulkan triangular buffer kernels support float tensors with 2 to 4 dimensions");
+
+  api::Context* const context = api::context();
+  Tensor self = utils::ensure_buffer_storage(self_arg);
+  const vTensor& v_self = convert(self);
+
+  vTensor v_output{
+      context,
+      v_self.sizes(),
+      v_self.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const struct Block final {
+    int32_t diagonal;
+  } block{
+      safe_downcast<int32_t>(diagonal),
+  };
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_output.numel()),
+      1u,
+      1u,
+  };
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+  api::UniformParamsBuffer params(context, block);
+
+  context->submit_compute_job(
+      upper ? VK_KERNEL(buffer_triu) : VK_KERNEL(buffer_tril),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return convert(v_output);
+}
+
 Tensor vulkan_tril(const Tensor& self_arg, int64_t diagonal) {
+  if (supports_native_triangular_buffer_path(self_arg)) {
+    return triangular_buffer(self_arg, diagonal, false);
+  }
   if (!supports_native_triangular_texture_path(self_arg)) {
     return triangular_cpu_fallback(self_arg, diagonal, false);
   }
@@ -108,6 +172,9 @@ Tensor& tril_(Tensor& self, int64_t diagonal) {
 }
 
 Tensor vulkan_triu(const Tensor& self_arg, int64_t diagonal) {
+  if (supports_native_triangular_buffer_path(self_arg)) {
+    return triangular_buffer(self_arg, diagonal, true);
+  }
   if (!supports_native_triangular_texture_path(self_arg)) {
     return triangular_cpu_fallback(self_arg, diagonal, true);
   }

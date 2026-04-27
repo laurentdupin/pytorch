@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/api/Utils.h>
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
+#include <ATen/native/vulkan/planning/RoutePolicy.h>
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
@@ -1481,16 +1482,16 @@ FloatBufferConv2dShaderKind select_float_buffer_conv2d_shader_kind(
 
   const int64_t kernel_h = get_dim<DimConv2DKernel::Height>(logical_weight_sizes);
   const int64_t kernel_w = get_dim<DimConv2DKernel::Width>(logical_weight_sizes);
+  const int64_t out_channels =
+      get_dim<DimConv2DKernel::OutChannels>(logical_weight_sizes);
+  const int64_t in_channels =
+      get_dim<DimConv2DKernel::InChannels>(logical_weight_sizes);
   if (
       kernel_h == 1 && kernel_w == 1 && stride[0] == 1 && stride[1] == 1 &&
       padding[0] == 0 && padding[1] == 0) {
     return FloatBufferConv2dShaderKind::Pointwise1x1;
   }
 
-  const int64_t out_channels =
-      get_dim<DimConv2DKernel::OutChannels>(logical_weight_sizes);
-  const int64_t in_channels =
-      get_dim<DimConv2DKernel::InChannels>(logical_weight_sizes);
   if (kernel_h == 3 && kernel_w == 3 && out_channels >= 1280 &&
       in_channels >= 1280) {
     return FloatBufferConv2dShaderKind::Generic;
@@ -1583,6 +1584,20 @@ bool can_run_float_buffer_conv2d_add(
       padding,
       stride,
       dilation);
+  const utils::VulkanRouteDecision route_decision = utils::select_conv2d_route(
+      input.sizes(),
+      packed_weight.logical_weight_sizes(),
+      stride,
+      padding,
+      dilation,
+      groups,
+      input.scalar_type(),
+      input.requires_grad(),
+      convolution_request(utils::VulkanTensorRole::Input),
+      utils::current_vulkan_device_policy());
+  TORCH_CHECK(
+      !route_decision.hard_fail,
+      utils::format_hard_fail("aten::convolution", route_decision));
   return output_size == residual.sizes().vec();
 }
 
@@ -1653,6 +1668,21 @@ Tensor run_float_buffer_conv2d_impl(
 
   const std::vector<int64_t> output_size = conv_output_size(
       v_input.sizes(), packed_weight.logical_weight_sizes(), padding, stride, dilation);
+  const utils::VulkanRouteDecision route_decision = utils::select_conv2d_route(
+      v_input.sizes(),
+      packed_weight.logical_weight_sizes(),
+      stride,
+      padding,
+      dilation,
+      groups,
+      input.scalar_type(),
+      input.requires_grad(),
+      convolution_request(utils::VulkanTensorRole::Input),
+      utils::current_vulkan_device_policy());
+  TORCH_CHECK(
+      !route_decision.hard_fail,
+      utils::format_hard_fail("aten::convolution", route_decision));
+
   switch (shader_kind) {
     case FloatBufferConv2dShaderKind::Pointwise1x1:
       utils::log_vulkan_op_hit("aten::convolution.buffer_float_1x1");

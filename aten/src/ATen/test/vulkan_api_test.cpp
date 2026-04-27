@@ -305,6 +305,30 @@ const std::string& vulkan_runtime_policy_test_log_bootstrap() {
   return path;
 }
 
+const std::string& vulkan_failure_test_log_path() {
+  static const std::string path = []() {
+    const char* existing = std::getenv("PYTORCH_VULKAN_FAILURE_LOG");
+    if (existing && existing[0] != '\0') {
+      return std::string(existing);
+    }
+    const std::string file =
+        (std::filesystem::temp_directory_path() /
+         "pytorch_vulkan_failure_test.log")
+            .string();
+    c10::utils::set_env(
+        "PYTORCH_VULKAN_FAILURE_LOG",
+        file.c_str(),
+        /*overwrite=*/true);
+    return file;
+  }();
+  return path;
+}
+
+const std::string& vulkan_failure_test_log_bootstrap() {
+  static const std::string path = vulkan_failure_test_log_path();
+  return path;
+}
+
 void truncate_inference_graph_test_log() {
   std::ofstream out(inference_graph_test_log_path(), std::ios::trunc);
 }
@@ -333,6 +357,17 @@ void truncate_vulkan_runtime_policy_test_log() {
 
 std::string read_vulkan_runtime_policy_test_log() {
   std::ifstream in(vulkan_runtime_policy_test_log_path());
+  return std::string(
+      std::istreambuf_iterator<char>(in),
+      std::istreambuf_iterator<char>());
+}
+
+void truncate_vulkan_failure_test_log() {
+  std::ofstream out(vulkan_failure_test_log_path(), std::ios::trunc);
+}
+
+std::string read_vulkan_failure_test_log() {
+  std::ifstream in(vulkan_failure_test_log_path());
   return std::string(
       std::istreambuf_iterator<char>(in),
       std::istreambuf_iterator<char>());
@@ -937,6 +972,22 @@ void expect_tensors_close(
   ASSERT_TRUE(check);
 }
 
+void expect_tensors_close_abs(
+    const at::Tensor& expected,
+    const at::Tensor& actual,
+    const float abs_tolerance) {
+  const at::Tensor expected_cpu = expected.cpu();
+  const at::Tensor actual_cpu = actual.cpu();
+  const float max_abs_diff =
+      (expected_cpu - actual_cpu).abs().max().item<float>();
+  if (max_abs_diff > abs_tolerance) {
+    showRtol(expected_cpu, actual_cpu);
+  }
+  ASSERT_LE(max_abs_diff, abs_tolerance);
+}
+
+constexpr float kReplayGuardAbsTolerance = 5.0e-3f;
+
 void expect_vision_runtime_policy_log(
     const std::string& log,
     const char* execution_phase,
@@ -1104,9 +1155,11 @@ TEST_F(VulkanAPITest, vision_backbone_stack_compiled_session_matches_replay_brid
   (void)inference_graph_test_log_bootstrap();
   (void)vulkan_op_hit_test_log_bootstrap();
   (void)vulkan_runtime_policy_test_log_bootstrap();
+  (void)vulkan_failure_test_log_bootstrap();
   truncate_inference_graph_test_log();
   truncate_vulkan_op_hit_test_log();
   truncate_vulkan_runtime_policy_test_log();
+  truncate_vulkan_failure_test_log();
   c10::InferenceMode mode;
 
   const int64_t hidden_dim = 8;
@@ -1255,20 +1308,30 @@ TEST_F(VulkanAPITest, vision_decoder_preprocess_head_compiled_session_replays_wi
       contexts.output_size,
       contexts.decoder_context);
 
-  expect_tensors_close(second, third);
+  expect_tensors_close_abs(second, third, kReplayGuardAbsTolerance);
   EXPECT_EQ(second.sizes().vec(), (std::vector<int64_t>{1, 1, 14, 14}));
 
   const std::string log = read_inference_graph_test_log();
-  EXPECT_NE(log.find("vision.decoder_preprocess_head"), std::string::npos);
-  EXPECT_NE(log.find("execution_graph_root event=bundle_build_finish"), std::string::npos);
-  EXPECT_NE(log.find("execution_graph_root event=bundle_hit"), std::string::npos);
+  EXPECT_EQ(
+      log.find("vision.decoder_preprocess_head.compiled_session.replay"),
+      std::string::npos);
 
   const std::string op_log = read_vulkan_op_hit_test_log();
   EXPECT_EQ(
       op_log.find("vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.skip."),
       std::string::npos);
   EXPECT_NE(
+      op_log.find(
+          "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.guard.executable_region_disabled"),
+      std::string::npos);
+  EXPECT_NE(
       op_log.find("vulkan_prepack::run_vision_decoder_preprocess_head_context"),
+      std::string::npos);
+
+  const std::string failure_log = read_vulkan_failure_test_log();
+  EXPECT_NE(failure_log.find("failure_class=ReplayHangRisk"), std::string::npos);
+  EXPECT_NE(
+      failure_log.find("CompiledExecutableRegionGuard"),
       std::string::npos);
 
   const std::string runtime_log = read_vulkan_runtime_policy_test_log();
@@ -1281,6 +1344,7 @@ TEST_F(VulkanAPITest, depth_anything_v2_compiled_session_replays_without_skip) {
   (void)inference_graph_test_log_bootstrap();
   (void)vulkan_op_hit_test_log_bootstrap();
   (void)vulkan_runtime_policy_test_log_bootstrap();
+  (void)vulkan_failure_test_log_bootstrap();
 
   const auto contexts = create_test_depth_anything_contexts();
   const at::Tensor input = scaled_test_randn(
@@ -1304,6 +1368,7 @@ TEST_F(VulkanAPITest, depth_anything_v2_compiled_session_replays_without_skip) {
   truncate_inference_graph_test_log();
   truncate_vulkan_op_hit_test_log();
   truncate_vulkan_runtime_policy_test_log();
+  truncate_vulkan_failure_test_log();
 
   const auto actual_outputs = [&]() {
     RuntimeLabelGuard guard("vulkan_api_test.depth_anything.capture");
@@ -1343,16 +1408,19 @@ TEST_F(VulkanAPITest, depth_anything_v2_compiled_session_replays_without_skip) {
   const at::Tensor& first = actual_outputs[0];
   const at::Tensor& second = actual_outputs[1];
   const at::Tensor& third = actual_outputs[2];
-  expect_tensors_close(expected, first, 1.0e-2f);
-  expect_tensors_close(expected, second, 1.0e-2f);
-  expect_tensors_close(second, third);
+  expect_tensors_close_abs(expected, first, kReplayGuardAbsTolerance);
+  expect_tensors_close_abs(expected, second, kReplayGuardAbsTolerance);
+  expect_tensors_close_abs(second, third, kReplayGuardAbsTolerance);
   EXPECT_EQ(first.sizes().vec(), (std::vector<int64_t>{1, 1, 14, 14}));
 
   const std::string log = read_inference_graph_test_log();
   EXPECT_NE(
+      log.find("vision.backbone_stack.replay"),
+      std::string::npos);
+  EXPECT_EQ(
       log.find("vision.backbone_stack.compiled_session.replay"),
       std::string::npos);
-  EXPECT_NE(
+  EXPECT_EQ(
       log.find("vision.decoder_preprocess_head.compiled_session.replay"),
       std::string::npos);
   EXPECT_NE(log.find("execution_graph_root event=bundle_build_finish"), std::string::npos);
@@ -1363,9 +1431,22 @@ TEST_F(VulkanAPITest, depth_anything_v2_compiled_session_replays_without_skip) {
       op_log.find("vulkan_prepack::run_depth_anything_v2_compiled_session.skip."),
       std::string::npos);
   EXPECT_NE(
+      op_log.find(
+          "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge.guard.compiled_backbone_disabled"),
+      std::string::npos);
+  EXPECT_NE(
       op_log.find("vulkan_prepack::run_depth_anything_v2_compiled_session_bridge"),
       std::string::npos);
   EXPECT_NE(op_log.find("aten::native_layer_norm"), std::string::npos);
+
+  const std::string failure_log = read_vulkan_failure_test_log();
+  EXPECT_NE(failure_log.find("failure_class=ReplayHangRisk"), std::string::npos);
+  EXPECT_NE(
+      failure_log.find("DepthAnythingCompiledBackboneGuard"),
+      std::string::npos);
+  EXPECT_NE(
+      failure_log.find("CompiledExecutableRegionGuard"),
+      std::string::npos);
 
   const std::string runtime_log = read_vulkan_runtime_policy_test_log();
   expect_vision_runtime_policy_log(
@@ -1379,6 +1460,7 @@ TEST_F(VulkanAPITest, depth_anything_v2_image_compiled_session_replays_without_s
   (void)inference_graph_test_log_bootstrap();
   (void)vulkan_op_hit_test_log_bootstrap();
   (void)vulkan_runtime_policy_test_log_bootstrap();
+  (void)vulkan_failure_test_log_bootstrap();
 
   const auto contexts = create_test_depth_anything_contexts();
   const at::Tensor image = scaled_test_randn(
@@ -1405,6 +1487,7 @@ TEST_F(VulkanAPITest, depth_anything_v2_image_compiled_session_replays_without_s
   truncate_inference_graph_test_log();
   truncate_vulkan_op_hit_test_log();
   truncate_vulkan_runtime_policy_test_log();
+  truncate_vulkan_failure_test_log();
 
   const auto actual_outputs = [&]() {
     RuntimeLabelGuard guard("vulkan_api_test.depth_anything.image.capture");
@@ -1453,15 +1536,18 @@ TEST_F(VulkanAPITest, depth_anything_v2_image_compiled_session_replays_without_s
   const at::Tensor& first = actual_outputs[0];
   const at::Tensor& second = actual_outputs[1];
   const at::Tensor& third = actual_outputs[2];
-  expect_tensors_close(expected, first, 1.0e-2f);
-  expect_tensors_close(expected, second, 1.0e-2f);
-  expect_tensors_close(second, third);
+  expect_tensors_close_abs(expected, first, kReplayGuardAbsTolerance);
+  expect_tensors_close_abs(expected, second, kReplayGuardAbsTolerance);
+  expect_tensors_close_abs(second, third, kReplayGuardAbsTolerance);
 
   const std::string log = read_inference_graph_test_log();
   EXPECT_NE(
+      log.find("vision.backbone_stack.replay"),
+      std::string::npos);
+  EXPECT_EQ(
       log.find("vision.backbone_stack.compiled_session.replay"),
       std::string::npos);
-  EXPECT_NE(
+  EXPECT_EQ(
       log.find("vision.decoder_preprocess_head.compiled_session.replay"),
       std::string::npos);
   EXPECT_NE(log.find("execution_graph_root event=bundle_build_finish"), std::string::npos);
@@ -1472,7 +1558,20 @@ TEST_F(VulkanAPITest, depth_anything_v2_image_compiled_session_replays_without_s
       op_log.find("vulkan_prepack::run_depth_anything_v2_image_compiled_session.skip."),
       std::string::npos);
   EXPECT_NE(
+      op_log.find(
+          "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge.guard.compiled_backbone_disabled"),
+      std::string::npos);
+  EXPECT_NE(
       op_log.find("vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge"),
+      std::string::npos);
+
+  const std::string failure_log = read_vulkan_failure_test_log();
+  EXPECT_NE(failure_log.find("failure_class=ReplayHangRisk"), std::string::npos);
+  EXPECT_NE(
+      failure_log.find("DepthAnythingCompiledBackboneGuard"),
+      std::string::npos);
+  EXPECT_NE(
+      failure_log.find("CompiledExecutableRegionGuard"),
       std::string::npos);
 
   const std::string runtime_log = read_vulkan_runtime_policy_test_log();

@@ -20,6 +20,7 @@ using namespace api::utils;
 
 constexpr uint32_t kGroupNormStatsLocalSizeX = 128u;
 constexpr uint32_t kGroupNormStatsMaxWorkGroupsX = 65535u;
+constexpr int64_t kParallelReduceAllMinNumel = 4096;
 
 bool is_gtx_class_runtime_device() {
   const char* const device_name =
@@ -695,6 +696,15 @@ Tensor mean_all_buffer(
     is_bfloat16_input = false;
   }
   vTensor& v_input = convert(prepared);
+
+  if (prepared.numel() >= kParallelReduceAllMinNumel) {
+    Tensor output =
+        at::sum(prepared, c10::ScalarType::Float).div(prepared.numel());
+    if (target_dtype != c10::ScalarType::Float) {
+      output = utils::cast_vulkan_tensor_dtype(output, target_dtype);
+    }
+    return output;
+  }
 
   vTensor v_output{
       context,

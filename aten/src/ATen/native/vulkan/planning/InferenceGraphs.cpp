@@ -5,6 +5,7 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/CompiledSession.h>
 #include <ATen/native/vulkan/planning/ExecutableRegions.h>
+#include <ATen/native/vulkan/planning/ReplayTensorState.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -799,6 +800,11 @@ void InferenceReplay::record(const std::function<void()>& recorder) const {
   state_->command_buffer_.emplace(std::move(command_buffer));
   state_->retained_buffers_ = std::move(retained_buffers);
   state_->retained_images_ = std::move(retained_images);
+  log_replay_event(
+      "record",
+      identity(),
+      current_replay_epoch(identity()).run_id,
+      state_->allocation_label_.c_str());
   log_inference_replay_event(
       state_->kind_, "record", state_->allocation_label_, identity());
 }
@@ -811,11 +817,19 @@ void InferenceReplay::submit(
   TORCH_INTERNAL_ASSERT(
       state_->command_buffer_.has_value(),
       "Attempted to submit an unrecorded InferenceReplay");
+  const ReplayEpoch epoch =
+      begin_replay_epoch(identity(), state_->allocation_label_.c_str());
   api::context()->submit_prepared_command_buffer(
       *state_->command_buffer_,
       fence_handle,
       final_use,
       state_->allocation_label_.c_str());
+  log_replay_event(
+      "submit",
+      identity(),
+      epoch.run_id,
+      state_->allocation_label_.c_str(),
+      final_use ? "final_use=1" : "final_use=0");
   log_inference_replay_event(
       state_->kind_, "submit", state_->allocation_label_, identity());
   if (final_use) {
@@ -2545,7 +2559,10 @@ void log_compiled_session_event(
       << compiled_session_kind_name(key.kind) << " model_key=" << key.model_key
       << " config=" << key.configuration_key << " dtype="
       << static_cast<int>(key.dtype) << " capability_key="
-      << key.capability_key << " persistent=" << (key.persistent ? 1 : 0);
+      << key.capability_key << " layout_policy_version="
+      << key.layout_policy_version << " model_lane_policy_version="
+      << key.model_lane_policy_version
+      << " persistent=" << (key.persistent ? 1 : 0);
   if (identity) {
     out << " identity=" << identity;
   }
@@ -4041,6 +4058,8 @@ bool operator==(
       lhs.input_shapes == rhs.input_shapes &&
       lhs.output_shapes == rhs.output_shapes && lhs.dtype == rhs.dtype &&
       lhs.capability_key == rhs.capability_key &&
+      lhs.layout_policy_version == rhs.layout_policy_version &&
+      lhs.model_lane_policy_version == rhs.model_lane_policy_version &&
       lhs.persistent == rhs.persistent;
 }
 
@@ -4055,6 +4074,10 @@ size_t VulkanCompiledSessionKeyHash::operator()(
   compiled_session_impl::hash_shapes(seed, key.output_shapes);
   compiled_session_impl::hash_combine_session(seed, static_cast<int>(key.dtype));
   compiled_session_impl::hash_combine_session(seed, key.capability_key);
+  compiled_session_impl::hash_combine_session(
+      seed, key.layout_policy_version);
+  compiled_session_impl::hash_combine_session(
+      seed, key.model_lane_policy_version);
   compiled_session_impl::hash_combine_session(seed, key.persistent);
   return seed;
 }

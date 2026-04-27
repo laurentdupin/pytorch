@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
 
 #include <ATen/native/vulkan/ops/InferenceCache.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 
 #include <algorithm>
@@ -456,7 +457,7 @@ Tensor make_program_scratch_buffer_alias(
   const api::ExecutionLayout execution_layout =
       slice.offset_bytes == 0u ? api::ExecutionLayout::BUFFER_DIRECT
                                : api::ExecutionLayout::BUFFER_VIEW;
-  return make_typed_buffer_metadata_view(
+  return ::at::native::vulkan::ops::make_typed_buffer_metadata_view_checked(
       arena.storage(),
       dtype,
       sizes,
@@ -464,7 +465,8 @@ Tensor make_program_scratch_buffer_alias(
       calc_program_width_packed_buffer_strides(sizes),
       storage_offset,
       buffer_length_override,
-      execution_layout);
+      execution_layout,
+      "execution_program.scratch");
 }
 
 Tensor reserve_program_scratch_tensor(

@@ -1,6 +1,7 @@
 #include <ATen/Functions.h>
 #include <ATen/NamedTensorUtils.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -77,12 +78,13 @@ Tensor slice_buffer_view(
       return Tensor();
     }
 
-    return utils::make_buffer_metadata_view(
+    return make_buffer_metadata_view_checked(
         self,
         output_sizes,
         output_logical_strides,
         output_physical_strides,
-        storage_offset);
+        storage_offset,
+        "aten::slice");
   };
 
   const Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();

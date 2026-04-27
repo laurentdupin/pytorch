@@ -226,7 +226,7 @@ Tensor reduce_all_buffer_parallel(
   while (current.numel() > 1) {
     current = reduce_all_buffer_chunk(current, shader);
   }
-  return current;
+  return current.dim() == 0 ? current : current.reshape({});
 }
 
 Tensor sum_all_buffer(
@@ -247,6 +247,19 @@ Tensor sum_all_buffer(
     is_bfloat16_input = false;
   }
   vTensor& v_input = convert(prepared);
+
+  if (prepared.numel() >= kParallelReduceAllMinNumel) {
+    std::vector<int64_t> dims;
+    dims.reserve(prepared.dim());
+    for (int64_t d = 0; d < prepared.dim(); ++d) {
+      dims.push_back(d);
+    }
+    Tensor output = at::sum(prepared, dims, false, c10::ScalarType::Float);
+    if (target_dtype != c10::ScalarType::Float) {
+      output = utils::cast_vulkan_tensor_dtype(output, target_dtype);
+    }
+    return output;
+  }
 
   vTensor v_output{
       context,

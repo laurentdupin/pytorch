@@ -467,6 +467,74 @@ Tensor activation_buffer(
   return convert(v_output);
 }
 
+Tensor activation_scalar_buffer(
+    const Tensor& self_arg,
+    const std::vector<Scalar>& scalar_arg,
+    const api::ShaderInfo& shader_descriptor) {
+  TORCH_CHECK(
+      scalar_arg.size() == 2,
+      "Vulkan buffer scalar activation expects two scalar parameters");
+  api::Context* const context = api::context();
+
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  vTensor& v_self = convert(self);
+
+  TORCH_CHECK(
+      v_self.storage_type() == api::StorageType::BUFFER,
+      "Vulkan buffer scalar activation expects buffer-backed input");
+  TORCH_CHECK(
+      v_self.dtype() == api::kFloat && !v_self.is_quantized(),
+      "Vulkan buffer scalar activation currently supports float input only");
+  TORCH_CHECK(
+      utils::supports_buffer_elementwise_compute(v_self),
+      "Vulkan buffer scalar activation requires supported buffer elementwise compute input");
+
+  vTensor v_output{
+      context,
+      v_self.sizes(),
+      v_self.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const struct Block final {
+    float beta;
+    float threshold;
+  } block{
+      scalar_arg[0].to<float>(),
+      scalar_arg[1].to<float>(),
+  };
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_output.numel()),
+      1u,
+      1u,
+  };
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+  api::UniformParamsBuffer params(context, block);
+
+  context->submit_compute_job(
+      shader_descriptor,
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return convert(v_output);
+}
+
 Tensor& activation_(
     Tensor& self_arg,
     const api::ShaderInfo& shader_descriptor) {
@@ -842,10 +910,19 @@ Tensor softplus(
   std::vector<Scalar> scalar;
   scalar.push_back(beta);
   scalar.push_back(threshold);
+  if (self_arg.scalar_type() == at::kFloat) {
+    Tensor buffer_input = utils::ensure_buffer_storage(self_arg);
+    return ops::activation_scalar_buffer(
+        buffer_input, scalar, VK_KERNEL(buffer_softplus));
+  }
   return ops::activation_scalar(self_arg, scalar, VK_KERNEL(softplus));
 }
 
 Tensor sigmoid(const Tensor& self) {
+  if (self.scalar_type() == at::kFloat) {
+    Tensor buffer_input = utils::ensure_buffer_storage(self);
+    return ops::activation_buffer(buffer_input, VK_KERNEL(buffer_sigmoid));
+  }
   return ops::activation(self, VK_KERNEL(sigmoid));
 }
 

@@ -114,6 +114,14 @@ file(GLOB native_mkl_cpp "native/mkl/*.cpp")
 file(GLOB native_mkldnn_cpp "native/mkldnn/*.cpp")
 file(GLOB vulkan_cpp "vulkan/*.cpp")
 file(GLOB native_vulkan_cpp "native/vulkan/*.cpp" "native/vulkan/api/*.cpp" "native/vulkan/impl/*.cpp" "native/vulkan/ops/*.cpp" "native/vulkan/planning/*.cpp")
+list(APPEND native_vulkan_cpp
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/api/Diagnostics.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/DevicePolicy.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ModelLanePolicy.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ReplayTensorState.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/RoutePolicy.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/ops/TensorProvenance.cpp")
+list(REMOVE_DUPLICATES native_vulkan_cpp)
 
 file(GLOB native_eigen_cpp "native/sparse/eigen/*.cpp")
 

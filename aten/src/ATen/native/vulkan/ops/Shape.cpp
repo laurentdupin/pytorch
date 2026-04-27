@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -252,45 +253,18 @@ Tensor reshape_contiguous_texture(
       api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
   };
 
-  const api::utils::uvec4 out_tensor_size =
-      api::utils::make_whcn_uvec4(output_size.vec());
-  const api::utils::uvec4 in_tensor_size =
-      api::utils::make_whcn_uvec4(v_input.sizes());
-
-  const struct Block final {
-    api::utils::ivec3 out_extents;
-    int32_t fill0;
-    api::utils::uvec4 out_tensor_size;
-    api::utils::uvec4 in_tensor_size;
-    api::utils::uvec2 aligned_channels;
-    api::utils::uvec2 fill1;
-  } block{
-      api::utils::make_ivec3(v_output.extents()),
-      0,
-      out_tensor_size,
-      in_tensor_size,
-      {
-          api::utils::align_up(out_tensor_size.data[2u], 4u),
-          api::utils::align_up(in_tensor_size.data[2u], 4u),
-      },
-      {0u, 0u},
-  };
-
-  api::UniformParamsBuffer params(context, block);
+  api::StorageBuffer staging(context, v_input.dtype(), v_input.numel());
+  vTensor v_src = v_input;
+  utils::pack_vtensor_to_staging(v_src, staging.buffer());
   api::PipelineBarrier pipeline_barrier{};
-
-  context->submit_compute_job(
-      VK_KERNEL(reshape_texture),
+  add_buffer_barrier(
       pipeline_barrier,
-      v_output.extents(),
-      adaptive_work_group_size(v_output.extents()),
-      VK_NULL_HANDLE,
-      v_output.image(
-          pipeline_barrier,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::WRITE),
-      v_input.image(pipeline_barrier, api::PipelineStage::COMPUTE),
-      params.buffer());
+      staging.buffer(),
+      api::PipelineStage::COMPUTE | api::PipelineStage::TRANSFER,
+      api::MemoryAccessType::WRITE,
+      api::PipelineStage::COMPUTE | api::PipelineStage::TRANSFER,
+      api::MemoryAccessType::READ);
+  utils::pack_buffer_to_vtensor(staging.buffer(), v_output, pipeline_barrier);
 
   utils::log_vulkan_op_hit("aten::view.texture_contiguous_reshape");
   return convert(v_output);
@@ -314,12 +288,13 @@ Tensor reshape_contiguous_as_buffer_view(
       "Buffer-backed contiguous reshape expected a valid metadata view");
 
   utils::log_vulkan_op_hit("aten::view.texture_to_buffer_metadata_reshape");
-  return utils::make_buffer_metadata_view(
+  return make_buffer_metadata_view_checked(
       buffer_input,
       output_size,
       output_stride,
       output_stride,
-      0);
+      0,
+      "aten::view");
 }
 
 Tensor view_internal(
@@ -350,12 +325,13 @@ Tensor view_internal(
             output_stride,
             output_stride,
             resolved_storage_offset)) {
-      Tensor output = utils::make_buffer_metadata_view(
+      Tensor output = make_buffer_metadata_view_checked(
           self_arg,
           output_size,
           output_stride,
           output_stride,
-          resolved_storage_offset);
+          resolved_storage_offset,
+          "aten::view");
       move_decomposed_attention_candidate_to_alias(self_arg, output);
       move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
       move_deferred_linear_gelu_candidate_to_alias(self_arg, output);
@@ -371,12 +347,13 @@ Tensor view_internal(
       const auto output_physical_strides =
           c10::contiguous_strides(output_physical_sizes);
       utils::log_vulkan_op_hit("aten::view.buffer_preserve_padded_reshape");
-      Tensor output = utils::make_buffer_metadata_view(
+      Tensor output = make_buffer_metadata_view_checked(
           self_arg,
           output_size,
           output_stride,
           output_physical_strides,
-          resolved_storage_offset);
+          resolved_storage_offset,
+          "aten::view");
       move_decomposed_attention_candidate_to_alias(self_arg, output);
       move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
       move_deferred_linear_gelu_candidate_to_alias(self_arg, output);

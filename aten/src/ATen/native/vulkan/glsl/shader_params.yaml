@@ -255,10 +255,28 @@ buffer_unary_op:
       OPERATOR: -(X)
     - NAME: buffer_rsqrt
       OPERATOR: inversesqrt(X)
+    - NAME: buffer_sigmoid
+      OPERATOR: 1.0 / (1.0 + exp(-(X)))
     - NAME: buffer_silu
       OPERATOR: X / (1.0 + exp(-(X)))
     - NAME: buffer_gelu_tanh
       OPERATOR: 0.5 * X * (1.0 + tanh(clamp(0.7978845608028654 * (X + 0.044715 * X * X * X), -15.0, 15.0)))
+
+buffer_activation_scalar:
+  parameter_names_with_default_values:
+    OPERATOR: X
+  shader_variants:
+    - NAME: buffer_softplus
+      OPERATOR: "(BETA * X > THRESHOLD ? X : log(1.0 + exp(BETA * X)) / BETA)"
+
+buffer_triangular:
+  parameter_names_with_default_values:
+    KEEP: "col <= row + diagonal"
+  shader_variants:
+    - NAME: buffer_tril
+      KEEP: "col <= row + diagonal"
+    - NAME: buffer_triu
+      KEEP: "col >= row + diagonal"
 
 buffer_cast:
   parameter_names_with_default_values:

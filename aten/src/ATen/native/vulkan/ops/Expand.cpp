@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/Functions.h>
 #include <ATen/ExpandUtils.h>
@@ -50,12 +51,13 @@ Tensor expand(
               logical_geometry.strides,
               physical_geometry.strides,
               v_self.storage_offset())) {
-        return utils::make_buffer_metadata_view(
+        return make_buffer_metadata_view_checked(
             self,
             logical_geometry.sizes,
             logical_geometry.strides,
             physical_geometry.strides,
-            v_self.storage_offset());
+            v_self.storage_offset(),
+            "aten::expand");
       }
     }
   }

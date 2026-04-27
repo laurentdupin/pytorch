@@ -1,5 +1,8 @@
 #include <ATen/native/vulkan/impl/Packing.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
+#include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <c10/core/InferenceMode.h>
 #include <algorithm>
@@ -7,6 +10,7 @@
 #include <fstream>
 #include <limits>
 #include <mutex>
+#include <sstream>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -574,33 +578,13 @@ Tensor make_buffer_metadata_view(
     IntArrayRef logical_strides,
     IntArrayRef physical_strides,
     int64_t storage_offset) {
-  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_input = convert(input);
-
-  TORCH_CHECK(
-      can_make_buffer_metadata_view_impl(
-          v_input,
-          sizes,
-          logical_strides,
-          physical_strides,
-          storage_offset),
-      "Vulkan buffer metadata view requires a supported buffer-backed tensor "
-      "with valid logical sizes/strides and in-range storage_offset");
-
-  log_materialize_event(
-      "make_buffer_metadata_view",
-      v_input,
-      api::StorageType::BUFFER,
-      v_input.gpu_memory_layout(),
-      "metadata_view");
-
-  return convert(vTensor{
-      v_input,
-      sizes.vec(),
-      logical_strides.vec(),
-      physical_strides.vec(),
+  return make_buffer_metadata_view_checked(
+      input_arg,
+      sizes,
+      logical_strides,
+      physical_strides,
       storage_offset,
-  });
+      "make_buffer_metadata_view");
 }
 
 bool can_make_typed_buffer_metadata_view(
@@ -630,41 +614,16 @@ Tensor make_typed_buffer_metadata_view(
     const int64_t storage_offset,
     const int64_t buffer_length_override,
     const api::ExecutionLayout execution_layout) {
-  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  const vTensor& v_input = convert(input);
-
-  TORCH_CHECK(
-      api::uses_buffer_execution(execution_layout),
-      "Typed Vulkan buffer metadata view requires a buffer execution layout");
-  TORCH_CHECK(
-      can_make_typed_buffer_metadata_view_impl(
-          v_input,
-          convert_dtype(dtype),
-          sizes,
-          logical_strides,
-          physical_strides,
-          storage_offset,
-          buffer_length_override),
-      "Vulkan typed buffer metadata view requires a supported buffer-backed "
-      "storage tensor with valid logical sizes/strides and in-range storage");
-
-  log_materialize_event(
-      "make_typed_buffer_metadata_view",
-      v_input,
-      api::StorageType::BUFFER,
-      v_input.gpu_memory_layout(),
-      "typed_metadata_view");
-
-  Tensor alias = convert(vTensor{
-      v_input,
-      convert_dtype(dtype),
-      sizes.vec(),
-      logical_strides.vec(),
-      physical_strides.vec(),
+  return make_typed_buffer_metadata_view_checked(
+      input_arg,
+      dtype,
+      sizes,
+      logical_strides,
+      physical_strides,
       storage_offset,
       buffer_length_override,
-  });
-  return mark_tensor_execution(alias, execution_layout);
+      execution_layout,
+      "make_typed_buffer_metadata_view");
 }
 
 std::string describe_buffer_view_fast_path_failure(const vTensor& v_in) {
@@ -905,6 +864,23 @@ Tensor& copy_buffer_tensor_direct_(Tensor& dst, const Tensor& src) {
   TORCH_CHECK(
       v_dst.gpu_nbytes() == v_src.gpu_nbytes(),
       "Vulkan direct buffer copy requires matching physical byte sizes");
+  if (!is_raw_buffer_copy_legal(src, dst)) {
+    std::ostringstream detail;
+    detail << "src={" << describe_tensor_state(src) << "} dst={"
+           << describe_tensor_state(dst) << "}";
+    api::log_vulkan_failure(
+        api::VulkanFailureClass::RawCopyIllegal,
+        "copy_buffer_tensor_direct_",
+        "RawCopyIllegal",
+        detail.str());
+    TORCH_CHECK(
+        false,
+        api::format_vulkan_failure(
+            api::VulkanFailureClass::RawCopyIllegal,
+            "copy_buffer_tensor_direct_",
+            "RawCopyIllegal",
+            detail.str()));
+  }
 
   api::PipelineBarrier pipeline_barrier{};
   api::Context* const context = api::context();
@@ -1041,6 +1017,7 @@ Tensor cast_vulkan_tensor_dtype(const Tensor& input_arg, ScalarType dtype) {
       if (!can_native_buffer_cast_input(v_input)) {
         return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
       }
+      log_vulkan_op_hit("aten::cast.bfloat16_to_float_buffer_native");
       return upcast_bfloat16_buffer_to_float(input);
     case VulkanCastMethod::CpuFallback:
       return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
@@ -1217,31 +1194,46 @@ void is_broadcastable(const Tensor& input1, const Tensor& input2) {
   // check if the shapes of input tensors are broadcastable
   // see https://pytorch.org/docs/stable/notes/broadcasting.html
   // for broadcasting semantics
-  const std::string broadcast_error_msg = "Tensors are not broadcastable!";
+  const auto broadcast_error_msg = [&]() {
+    std::ostringstream stream;
+    stream << "Tensors are not broadcastable! input1={"
+           << describe_tensor_state(input1) << "} input2={"
+           << describe_tensor_state(input2) << "}";
+    api::log_vulkan_failure(
+        api::VulkanFailureClass::TensorStateInvalid,
+        "is_broadcastable",
+        "BroadcastShapeInvalid",
+        stream.str());
+    return api::format_vulkan_failure(
+        api::VulkanFailureClass::TensorStateInvalid,
+        "is_broadcastable",
+        "BroadcastShapeInvalid",
+        stream.str());
+  };
 
   if (get_dim<Dim4D::Batch>(input1) != get_dim<Dim4D::Batch>(input2)) {
     TORCH_CHECK(
         get_dim<Dim4D::Batch>(input1) == 1 ||
             get_dim<Dim4D::Batch>(input2) == 1,
-        broadcast_error_msg);
+        broadcast_error_msg());
   }
   if (get_dim<Dim4D::Channel>(input1) != get_dim<Dim4D::Channel>(input2)) {
     TORCH_CHECK(
         get_dim<Dim4D::Channel>(input1) == 1 ||
             get_dim<Dim4D::Channel>(input2) == 1,
-        broadcast_error_msg);
+        broadcast_error_msg());
   }
   if (get_dim<Dim4D::Height>(input1) != get_dim<Dim4D::Height>(input2)) {
     TORCH_CHECK(
         get_dim<Dim4D::Height>(input1) == 1 ||
             get_dim<Dim4D::Height>(input2) == 1,
-        broadcast_error_msg);
+        broadcast_error_msg());
   }
   if (get_dim<Dim4D::Width>(input1) != get_dim<Dim4D::Width>(input2)) {
     TORCH_CHECK(
         get_dim<Dim4D::Width>(input1) == 1 ||
             get_dim<Dim4D::Width>(input2) == 1,
-        broadcast_error_msg);
+        broadcast_error_msg());
   }
 }
 

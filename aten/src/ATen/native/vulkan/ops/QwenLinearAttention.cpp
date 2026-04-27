@@ -2,7 +2,9 @@
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/GatedDelta.h>
 #include <ATen/native/vulkan/ops/QwenLinearAttention.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/ReplayTensorState.h>
 #include <ATen/native/vulkan/planning/Request.h>
 
 namespace at {
@@ -259,6 +261,9 @@ Tensor run_qwen_linear_attention_prefill_context(
   TORCH_CHECK(
       input_arg.dim() == 3,
       "Qwen linear attention prefill context expects a rank-3 input tensor");
+  utils::validate_replay_tensor_not_stale(
+      input_arg,
+      "vulkan_prepack::run_qwen_linear_attention_prefill_context");
 
   Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
   if (input.scalar_type() != kFloat) {
@@ -361,6 +366,11 @@ Tensor run_qwen_linear_attention_prefill_context(
   }
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_qwen_linear_attention_prefill_context");
+  record_tensor_write(
+      output,
+      "vulkan_prepack::run_qwen_linear_attention_prefill_context",
+      "prefill_output",
+      {input_arg});
   return output;
 }
 
@@ -378,6 +388,15 @@ std::tuple<Tensor, Tensor, Tensor> run_qwen_linear_attention_decode_context(
   TORCH_CHECK(
       recurrent_state_arg.dim() == 4,
       "Qwen linear attention decode context expects a rank-4 recurrent_state tensor");
+  utils::validate_replay_tensor_not_stale(
+      input_arg,
+      "vulkan_prepack::run_qwen_linear_attention_decode_context.input");
+  utils::validate_replay_tensor_not_stale(
+      conv_state_arg,
+      "vulkan_prepack::run_qwen_linear_attention_decode_context.conv_state");
+  utils::validate_replay_tensor_not_stale(
+      recurrent_state_arg,
+      "vulkan_prepack::run_qwen_linear_attention_decode_context.recurrent_state");
 
   const Device output_device = input_arg.device();
   const ScalarType output_dtype = input_arg.scalar_type();
@@ -491,6 +510,21 @@ std::tuple<Tensor, Tensor, Tensor> run_qwen_linear_attention_decode_context(
       maybe_restore_tensor(next_recurrent_state, output_device, kFloat);
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_qwen_linear_attention_decode_context");
+  record_tensor_write(
+      output,
+      "vulkan_prepack::run_qwen_linear_attention_decode_context",
+      "decode_output",
+      {input_arg, conv_state_arg, recurrent_state_arg});
+  record_tensor_write(
+      next_conv_state,
+      "vulkan_prepack::run_qwen_linear_attention_decode_context",
+      "next_conv_state",
+      {input_arg, conv_state_arg});
+  record_tensor_write(
+      next_recurrent_state,
+      "vulkan_prepack::run_qwen_linear_attention_decode_context",
+      "next_recurrent_state",
+      {input_arg, recurrent_state_arg});
   return {output, next_conv_state, next_recurrent_state};
 }
 

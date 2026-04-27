@@ -1,10 +1,13 @@
 #include <ATen/ATen.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/vulkan/Context.h>
@@ -239,7 +242,8 @@ void copy_vulkan_buffer_to_buffer_on_device(vTensor& src, vTensor& dst) {
   if (
       src.has_direct_buffer_layout() && dst.has_direct_buffer_layout() &&
       src.storage_offset() == 0 && dst.storage_offset() == 0 &&
-      src.gpu_nbytes() == dst.gpu_nbytes()) {
+      src.gpu_nbytes() == dst.gpu_nbytes() &&
+      !src.last_write_was_compute()) {
     log_buffer_to_buffer_copy_submit("direct_transfer", src, dst);
     api::PipelineBarrier pipeline_barrier{};
     context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
@@ -704,14 +708,46 @@ bool copy_vtensor_buffer_to_staging(
     vTensor& src,
     api::VulkanBuffer& staging,
     const VkFence fence_handle) {
+  const bool raw_buffer_copy_legal =
+      is_raw_buffer_readback_legal(src, staging.mem_size());
+  const bool snapshot_readback_legal =
+      is_buffer_snapshot_readback_legal(src, staging.mem_size());
   const bool use_packed_buffer_shader =
-      (src.dtype() == api::kFloat || src.dtype() == api::kByte) &&
-      src.sizes().size() <= 4 &&
-      src.storage_type() == api::StorageType::BUFFER &&
-      !src.has_direct_buffer_layout() &&
-      src.last_write_was_compute();
+      requires_logical_pack_shader_for_readback(src);
   if (use_packed_buffer_shader) {
+    utils::log_vulkan_op_hit(
+        "aten::copy_.vulkan_to_cpu_buffer_pack_shader_required");
     return utils::pack_vtensor_to_staging(src, staging, fence_handle);
+  }
+
+  if (!raw_buffer_copy_legal && !snapshot_readback_legal) {
+    std::ostringstream detail;
+    detail << "storage=" << storage_type_name(src.storage_type())
+           << " sizes=" << format_sizes(src.sizes())
+           << " storage_offset=" << src.storage_offset()
+           << " direct_buffer=" << (src.has_direct_buffer_layout() ? 1 : 0)
+           << " last_write_was_compute="
+           << (src.last_write_was_compute() ? 1 : 0)
+           << " logical_bytes=" << src.nbytes()
+           << " gpu_bytes=" << src.gpu_nbytes()
+           << " buffer_length=" << src.buffer_length()
+           << " staging_bytes=" << staging.mem_size();
+    api::log_vulkan_failure(
+        api::VulkanFailureClass::RawCopyIllegal,
+        "aten::copy_.vulkan_to_cpu",
+        "BufferReadbackIllegal",
+        detail.str());
+    TORCH_CHECK(
+        false,
+        api::format_vulkan_failure(
+            api::VulkanFailureClass::RawCopyIllegal,
+            "aten::copy_.vulkan_to_cpu",
+            "BufferReadbackIllegal",
+            detail.str()));
+  }
+  if (snapshot_readback_legal && !raw_buffer_copy_legal) {
+    utils::log_vulkan_op_hit(
+        "aten::copy_.vulkan_to_cpu_buffer_snapshot_metadata_readback");
   }
 
   api::PipelineBarrier pipeline_barrier{};
@@ -1037,12 +1073,9 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
   api::Context* const context = src.context();
 
   if (src.storage_type() == api::StorageType::BUFFER) {
+    const bool raw_buffer_readback_legal = is_raw_buffer_readback_legal(src);
     const bool shader_packed_buffer =
-        (src.dtype() == api::kFloat || src.dtype() == api::kByte) &&
-        src.sizes().size() <= 4 &&
-        src.storage_type() == api::StorageType::BUFFER &&
-        !src.has_direct_buffer_layout() &&
-        src.last_write_was_compute();
+        requires_logical_pack_shader_for_readback(src);
     const int64_t staging_length =
         shader_packed_buffer
         ? api::utils::safe_downcast<int64_t>(src.numel())
@@ -1341,6 +1374,11 @@ at::Tensor to_vulkan_labeled(at::Tensor src, std::string label) {
     vTensor& v_result = convert(result);
     v_result.context()->flush();
   }
+  record_tensor_write(
+      result,
+      "vulkan_prepack::to_vulkan_labeled",
+      label.empty() ? "upload" : label.c_str(),
+      {src});
   return result;
 }
 

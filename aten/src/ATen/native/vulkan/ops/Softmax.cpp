@@ -1,11 +1,15 @@
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Mm.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/InferenceGraphs.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
+#include <ATen/native/vulkan/planning/ReplayTensorState.h>
+#include <ATen/native/vulkan/planning/RoutePolicy.h>
 #include <ATen/Functions.h>
 #include <c10/core/DispatchKeySet.h>
 #include <ATen/ops/scaled_dot_product_attention_ops.h>
@@ -43,6 +47,7 @@ constexpr int64_t kTiledSdpaBufferDefaultFastPathMaxSequence = 512;
 constexpr int64_t kTiledSdpaBufferVisionFastPathMaxSequence = 512;
 constexpr uint32_t kBufferSoftmaxLastDimLocalSizeX = 128u;
 constexpr uint32_t kBufferSoftmaxLastDimMaxWorkGroupsX = 65535u;
+constexpr uint32_t kBufferSoftmaxDimLocalSizeX = 128u;
 constexpr int32_t kRuntimeProgramSdpaWideLocalSizeX = 32;
 constexpr int32_t kRuntimeProgramSdpaWideMaxOutputsPerThread = 16;
 constexpr int32_t kRuntimeProgramSdpaWideMaxQueryValuesPerThread = 8;
@@ -806,7 +811,7 @@ Tensor make_attention_scratch_buffer_alias(
   const api::ExecutionLayout execution_layout =
       slice.offset_bytes == 0u ? api::ExecutionLayout::BUFFER_DIRECT
                                : api::ExecutionLayout::BUFFER_VIEW;
-  return utils::make_typed_buffer_metadata_view(
+  return make_typed_buffer_metadata_view_checked(
       arena.storage(),
       dtype,
       sizes,
@@ -814,7 +819,8 @@ Tensor make_attention_scratch_buffer_alias(
       calc_attention_width_packed_buffer_strides(sizes),
       storage_offset,
       buffer_length_override,
-      execution_layout);
+      execution_layout,
+      "aten::scaled_dot_product_attention.scratch");
 }
 
 Tensor reserve_attention_scratch_tensor(
@@ -1196,6 +1202,12 @@ bool can_run_buffer_softmax(const Tensor& input, const int64_t dim) {
       dim >= input.dim()) {
     return false;
   }
+  if (dim != input.dim() - 1) {
+    return input.numel() > 0;
+  }
+  if (input.dim() == 3 && dim == input.dim() - 1 && input.size(dim) >= 64) {
+    return false;
+  }
 
   const vTensor& v_input = convert(input);
   return v_input.storage_type() == api::StorageType::BUFFER &&
@@ -1237,6 +1249,8 @@ Tensor ensure_softmax_buffer_output_tensor(
 Tensor softmax_buffer_lastdim_impl(const Tensor& input, Tensor* output_opt) {
   api::AllocationScope allocation_scope("softmax.buffer_lastdim");
   utils::log_vulkan_op_hit("aten::_softmax.buffer_lastdim");
+  utils::validate_replay_tensor_not_stale(
+      input, "aten::_softmax.buffer_lastdim");
 
   const auto plan = utils::build_vulkan_execution_plan(
       input, utils::VulkanExecutionPlanKind::ReductionDimInput);
@@ -1308,11 +1322,91 @@ Tensor softmax_buffer_lastdim_impl(const Tensor& input, Tensor* output_opt) {
       in_meta.buffer(),
       params.buffer());
 
-  return output_tensor;
+  return record_tensor_write_and_return(
+      output_tensor,
+      "aten::_softmax",
+      "buffer_lastdim",
+      {resolved_input});
 }
 
 Tensor softmax_buffer_lastdim(const Tensor& input) {
   return softmax_buffer_lastdim_impl(input, nullptr);
+}
+
+Tensor softmax_buffer_dim_impl(const Tensor& input_arg, const int64_t dim) {
+  api::AllocationScope allocation_scope("softmax.buffer_dim");
+  utils::log_vulkan_op_hit("aten::_softmax.buffer_dim");
+  utils::validate_replay_tensor_not_stale(
+      input_arg, "aten::_softmax.buffer_dim");
+
+  const auto plan = utils::build_vulkan_execution_plan(
+      input_arg, utils::VulkanExecutionPlanKind::ReductionDimInput);
+  Tensor input =
+      utils::prepare_vulkan_direct_buffer_execution_tensor(input_arg, plan);
+
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(input);
+  Tensor output = utils::mark_tensor_execution(
+      convert(vTensor{
+          context,
+          v_input.sizes(),
+          v_input.dtype(),
+          api::StorageType::BUFFER,
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+      }),
+      api::ExecutionLayout::BUFFER_DIRECT);
+  vTensor& v_output = convert(output);
+
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  const uint32_t out_numel =
+      safe_downcast<uint32_t>(std::max<int64_t>(input.numel(), 0));
+  const uint32_t reduce_axis =
+      safe_downcast<uint32_t>(input.dim() - 1 - dim);
+  const uint32_t reduce_size =
+      safe_downcast<uint32_t>(std::max<int64_t>(input.size(dim), 1));
+  const struct {
+    uint32_t out_numel;
+    uint32_t reduce_axis;
+    uint32_t reduce_size;
+    uint32_t reserved;
+  } block{
+      out_numel,
+      reduce_axis,
+      reduce_size,
+      0u,
+  };
+  api::UniformParamsBuffer params(context, block);
+
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size{
+      api::utils::div_up(out_numel, kBufferSoftmaxDimLocalSizeX) *
+          kBufferSoftmaxDimLocalSizeX,
+      1u,
+      1u};
+  context->submit_compute_job(
+      VK_KERNEL(buffer_softmax_dim_float),
+      pipeline_barrier,
+      global_size,
+      {kBufferSoftmaxDimLocalSizeX, 1u, 1u},
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return record_tensor_write_and_return(
+      output,
+      "aten::_softmax",
+      "buffer_dim",
+      {input});
 }
 
 Tensor softmax_buffer(
@@ -1322,24 +1416,7 @@ Tensor softmax_buffer(
       input_arg.numel() > 0) {
     return softmax_buffer_lastdim(input_arg);
   }
-
-  const auto plan = utils::build_vulkan_execution_plan(
-      input_arg, utils::VulkanExecutionPlanKind::ReductionDimInput);
-  Tensor input =
-      utils::prepare_vulkan_direct_buffer_execution_tensor(input_arg, plan);
-  utils::log_vulkan_op_hit("aten::_softmax.buffer_fallback");
-  Tensor max_values = at::amax(input, {dim}, true);
-  Tensor shifted = at::sub(input, max_values);
-  Tensor exp_values = at::exp(shifted);
-  Tensor denom = at::sum(exp_values, {dim}, true, c10::ScalarType::Float);
-  Tensor output = at::div(exp_values, denom);
-  if (output.is_vulkan()) {
-    output = utils::mark_tensor_execution(
-        utils::ensure_buffer_storage(
-            output, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
-        api::ExecutionLayout::BUFFER_DIRECT);
-  }
-  return output;
+  return softmax_buffer_dim_impl(input_arg, dim);
 }
 
 std::tuple<Tensor, Tensor, Tensor> transform_bias_rescale_qkv_vulkan_out_impl(
@@ -2751,6 +2828,21 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
           value_arg,
           utils::VulkanTensorRole::Input,
           dropout_p != 0.0));
+  const auto route_decision = utils::select_sdpa_route(
+      query_arg,
+      key_arg,
+      value_arg,
+      attn_mask,
+      dropout_p,
+      is_causal,
+      scale,
+      enable_gqa,
+      input_runtime_policy.request,
+      utils::current_vulkan_device_policy());
+  TORCH_CHECK(
+      !route_decision.hard_fail,
+      utils::format_hard_fail(
+          "aten::_scaled_dot_product_attention_math", route_decision));
   log_attention_kernel_family_choice(input_runtime_policy);
   log_attention_execution_strategy_choice(input_runtime_policy);
   return scaled_dot_product_attention_math_vulkan_impl(
@@ -2787,6 +2879,21 @@ Tensor scaled_dot_product_attention_vulkan_impl(
           value,
           utils::VulkanTensorRole::Input,
           dropout_p != 0.0));
+  const auto route_decision = utils::select_sdpa_route(
+      query,
+      key,
+      value,
+      attn_mask,
+      dropout_p,
+      is_causal,
+      scale,
+      enable_gqa,
+      input_runtime_policy.request,
+      utils::current_vulkan_device_policy());
+  TORCH_CHECK(
+      !route_decision.hard_fail,
+      utils::format_hard_fail(
+          "aten::scaled_dot_product_attention", route_decision));
   log_attention_kernel_family_choice(input_runtime_policy);
   log_attention_execution_strategy_choice(input_runtime_policy);
   log_sdpa_event(
@@ -3030,8 +3137,17 @@ Tensor softmax_internal(
       materialize_deferred_linear_gelu_candidate_if_needed(
           materialize_decomposed_attention_candidate_if_needed(input_arg));
 
-  if (!half_to_float && can_run_buffer_softmax(input_for_compute, dim)) {
-    return softmax_buffer(input_for_compute, dim);
+  if (!half_to_float) {
+    if (can_run_buffer_softmax(input_for_compute, dim)) {
+      return softmax_buffer(input_for_compute, dim);
+    }
+    if (
+        input_for_compute.is_vulkan() && input_for_compute.scalar_type() == kFloat &&
+        input_for_compute.dim() == 3 && dim == input_for_compute.dim() - 1 &&
+        input_for_compute.size(dim) >= 64) {
+      utils::log_vulkan_op_hit(
+          "aten::_softmax.buffer_lastdim_known_bad_texture_fallback");
+    }
   }
   api::Context* const context = api::context();
 
@@ -3160,13 +3276,26 @@ std::tuple<Tensor, Tensor, Tensor> transform_bias_rescale_qkv_vulkan_out(
 Tensor softmax_buffer_lastdim_out_vulkan(
     const Tensor& input,
     Tensor& output) {
-  TORCH_CHECK(
-      !(input.dim() == 3 && input.size(input.dim() - 1) >= 64),
-      "Vulkan buffer last-dim softmax is disabled: "
-      "buffer_softmax_lastdim_float is known to produce incorrect "
-      "normalization on direct-buffer diffusion-style 3D score tensors with "
-      "last dimension >= 64. Fix or replace the buffer shader before "
-      "re-enabling this shape family.");
+  const auto route_request = utils::make_vulkan_planning_request(
+      utils::VulkanWorkloadClass::Attention,
+      utils::VulkanTensorRole::Input,
+      utils::VulkanModelDomain::Vision,
+      utils::VulkanExecutionPhase::Backbone);
+  const auto route_decision = utils::select_softmax_route(
+      input,
+      input.dim() == 0 ? 0 : input.dim() - 1,
+      route_request,
+      utils::current_vulkan_device_policy());
+  if (route_decision.hard_fail) {
+    TORCH_CHECK(
+        false,
+        utils::format_hard_fail(
+            "aten::_softmax", route_decision),
+        ". buffer_softmax_lastdim_float is known to produce incorrect "
+        "normalization on direct-buffer diffusion-style 3D score tensors with "
+        "last dimension >= 64. Fix or replace the buffer shader before "
+        "re-enabling this shape family.");
+  }
   TORCH_CHECK(
       can_run_buffer_softmax(input, input.dim() - 1),
       "Vulkan softmax_buffer_lastdim_out expects float buffer-backed tensors");

@@ -4,6 +4,7 @@
 #else
 #include <ATen/ops/cat.h>
 #endif
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <c10/util/irange.h>
 #include <torch/library.h>
@@ -161,12 +162,13 @@ bool cat_buffer_direct_out_impl(
         calc_contiguous_strides(tensor.sizes());
     const int64_t output_storage_offset =
         dst_dim_offset * v_output.gpu_strides()[dim];
-    Tensor output_view = utils::make_buffer_metadata_view(
+    Tensor output_view = make_buffer_metadata_view_checked(
         output,
         tensor.sizes(),
         logical_strides,
         v_output.gpu_strides(),
-        output_storage_offset);
+        output_storage_offset,
+        "aten::cat");
     vTensor& v_output_view = convert(output_view);
 
     api::PipelineBarrier pipeline_barrier{};

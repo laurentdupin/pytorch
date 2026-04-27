@@ -1,0 +1,407 @@
+#include <ATen/native/vulkan/planning/RoutePolicy.h>
+
+#include <ATen/native/vulkan/api/Diagnostics.h>
+#include <ATen/native/vulkan/ops/TensorState.h>
+
+#include <cstdlib>
+#include <cmath>
+#include <fstream>
+#include <mutex>
+#include <sstream>
+
+namespace at {
+namespace native {
+namespace vulkan {
+namespace ops {
+namespace utils {
+
+namespace {
+
+std::string route_log_path() {
+  const char* env = std::getenv("PYTORCH_VULKAN_ROUTE_LOG");
+  return env ? std::string(env) : std::string();
+}
+
+bool route_logging_enabled() {
+  return !route_log_path().empty();
+}
+
+std::mutex& route_log_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::string softmax_shape_summary(const Tensor& input, const int64_t dim) {
+  std::ostringstream out;
+  out << "rank=" << input.dim() << " dim=" << dim << " sizes="
+      << input.sizes();
+  if (input.is_vulkan()) {
+    out << " state={" << describe_tensor_state(input) << "}";
+  }
+  return out.str();
+}
+
+std::string conv2d_shape_summary(
+    IntArrayRef input_sizes,
+    IntArrayRef weight_sizes,
+    IntArrayRef stride,
+    IntArrayRef padding,
+    IntArrayRef dilation,
+    const int64_t groups,
+    const ScalarType dtype,
+    const bool input_requires_grad) {
+  std::ostringstream out;
+  out << "input=" << input_sizes << " weight=" << weight_sizes
+      << " stride=" << stride << " padding=" << padding
+      << " dilation=" << dilation << " groups=" << groups
+      << " dtype=" << dtype
+      << " input_requires_grad=" << (input_requires_grad ? 1 : 0);
+  return out.str();
+}
+
+std::string sdpa_shape_summary(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const std::optional<Tensor>& attn_mask,
+    const double dropout_p,
+    const bool is_causal,
+    const std::optional<double> scale,
+    const bool enable_gqa) {
+  std::ostringstream out;
+  out << "query=" << query.sizes()
+      << " key=" << key.sizes()
+      << " value=" << value.sizes()
+      << " dtype=" << query.scalar_type()
+      << " mask=" << (attn_mask && attn_mask->defined() ? 1 : 0)
+      << " dropout=" << dropout_p
+      << " causal=" << (is_causal ? 1 : 0)
+      << " scale=";
+  if (scale.has_value()) {
+    out << *scale;
+  } else {
+    out << "default";
+  }
+  out << " gqa=" << (enable_gqa ? 1 : 0);
+  return out.str();
+}
+
+} // namespace
+
+const char* route_kind_name(const VulkanRouteKind kind) {
+  switch (kind) {
+    case VulkanRouteKind::VulkanTextureKernel:
+      return "VulkanTextureKernel";
+    case VulkanRouteKind::VulkanBufferDirectKernel:
+      return "VulkanBufferDirectKernel";
+    case VulkanRouteKind::VulkanBufferViewKernel:
+      return "VulkanBufferViewKernel";
+    case VulkanRouteKind::VulkanCompiledReplay:
+      return "VulkanCompiledReplay";
+    case VulkanRouteKind::VulkanMaterializeThenRun:
+      return "VulkanMaterializeThenRun";
+    case VulkanRouteKind::SmallCpuFallback:
+      return "SmallCpuFallback";
+    case VulkanRouteKind::HardFail:
+      return "HardFail";
+    case VulkanRouteKind::NotSupported:
+      return "NotSupported";
+  }
+  return "NotSupported";
+}
+
+const char* route_reject_reason_name(
+    const VulkanRouteRejectReason reason) {
+  switch (reason) {
+    case VulkanRouteRejectReason::None:
+      return "None";
+    case VulkanRouteRejectReason::UnsupportedDType:
+      return "UnsupportedDType";
+    case VulkanRouteRejectReason::UnsupportedRank:
+      return "UnsupportedRank";
+    case VulkanRouteRejectReason::UnsupportedLayout:
+      return "UnsupportedLayout";
+    case VulkanRouteRejectReason::MetadataViewInvalid:
+      return "MetadataViewInvalid";
+    case VulkanRouteRejectReason::RequiresLargeCpuFallback:
+      return "RequiresLargeCpuFallback";
+    case VulkanRouteRejectReason::KnownBadConv3x3Stride1Pad1:
+      return "KnownBadConv3x3Stride1Pad1";
+    case VulkanRouteRejectReason::KnownBadLargeBufferConv3x3:
+      return "KnownBadLargeBufferConv3x3";
+    case VulkanRouteRejectReason::KnownBadDiffusion4dSdpa:
+      return "KnownBadDiffusion4dSdpa";
+    case VulkanRouteRejectReason::KnownBadGenericSdpa:
+      return "KnownBadGenericSdpa";
+    case VulkanRouteRejectReason::KnownBadSdpaMaskOrCausal:
+      return "KnownBadSdpaMaskOrCausal";
+    case VulkanRouteRejectReason::KnownBadSdpaExplicitScale:
+      return "KnownBadSdpaExplicitScale";
+    case VulkanRouteRejectReason::KnownBadBufferLastDimSoftmax:
+      return "KnownBadBufferLastDimSoftmax";
+    case VulkanRouteRejectReason::KnownBadGenericTiledDiffusionLinear:
+      return "KnownBadGenericTiledDiffusionLinear";
+    case VulkanRouteRejectReason::DeviceQuirkDenied:
+      return "DeviceQuirkDenied";
+    case VulkanRouteRejectReason::ReplayViewStale:
+      return "ReplayViewStale";
+    case VulkanRouteRejectReason::ReplayOutputAliasUnsafe:
+      return "ReplayOutputAliasUnsafe";
+    case VulkanRouteRejectReason::OutputAliasUnsafe:
+      return "OutputAliasUnsafe";
+  }
+  return "None";
+}
+
+VulkanRouteDecision make_hard_fail_route(
+    const char* op_name,
+    const VulkanRouteRejectReason reason,
+    const std::string& shape_summary,
+    const VulkanPlanningRequest& request,
+    const VulkanDevicePolicy& device_policy) {
+  VulkanRouteDecision decision;
+  decision.kind = VulkanRouteKind::HardFail;
+  decision.reject_reason = reason;
+  decision.runtime_policy = build_vulkan_runtime_policy(request);
+  decision.lane = infer_model_lane(request);
+  decision.kernel_family = "none";
+  decision.telemetry_label = route_reject_reason_name(reason);
+  decision.shape_summary = shape_summary;
+  decision.device_summary = describe_device_policy(device_policy);
+  decision.hard_fail = true;
+  log_route_decision(op_name, decision);
+  api::log_vulkan_failure(
+      api::VulkanFailureClass::RouteHardFail,
+      op_name,
+      route_reject_reason_name(reason),
+      format_hard_fail(op_name, decision));
+  return decision;
+}
+
+void log_route_decision(
+    const char* op_name,
+    const VulkanRouteDecision& decision) {
+  if (!route_logging_enabled()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(route_log_mutex());
+  std::ofstream out(route_log_path(), std::ios::app);
+  out << "vulkan_route";
+  if (op_name && op_name[0] != '\0') {
+    out << " op=" << op_name;
+  }
+  out << " lane=" << model_lane_name(decision.lane)
+      << " decision=" << route_kind_name(decision.kind)
+      << " reason=" << route_reject_reason_name(decision.reject_reason)
+      << " family=" << decision.kernel_family
+      << " telemetry=" << decision.telemetry_label
+      << " hard_fail=" << (decision.hard_fail ? 1 : 0);
+  if (!decision.shape_summary.empty()) {
+    out << " shape={" << decision.shape_summary << "}";
+  }
+  if (!decision.device_summary.empty()) {
+    out << " device={" << decision.device_summary << "}";
+  }
+  out << '\n';
+}
+
+std::string format_hard_fail(
+    const char* op_name,
+    const VulkanRouteDecision& decision) {
+  std::ostringstream out;
+  out << "Vulkan route hard-failed failure_class="
+      << api::vulkan_failure_class_name(api::VulkanFailureClass::RouteHardFail);
+  if (op_name && op_name[0] != '\0') {
+    out << " op=" << op_name;
+  }
+  out << " reason=" << route_reject_reason_name(decision.reject_reason)
+      << " lane=" << model_lane_name(decision.lane);
+  if (!decision.shape_summary.empty()) {
+    out << " shape={" << decision.shape_summary << "}";
+  }
+  if (!decision.device_summary.empty()) {
+    out << " device={" << decision.device_summary << "}";
+  }
+  return out.str();
+}
+
+VulkanRouteDecision select_softmax_route(
+    const Tensor& input,
+    const int64_t dim,
+    const VulkanPlanningRequest& request,
+    const VulkanDevicePolicy& device_policy) {
+  if (input.dim() == 3 && dim == input.dim() - 1 && input.size(dim) >= 64) {
+    return make_hard_fail_route(
+        "aten::_softmax",
+        VulkanRouteRejectReason::KnownBadBufferLastDimSoftmax,
+        softmax_shape_summary(input, dim),
+        request,
+        device_policy);
+  }
+
+  VulkanRouteDecision decision;
+  decision.kind = VulkanRouteKind::VulkanBufferDirectKernel;
+  decision.reject_reason = VulkanRouteRejectReason::None;
+  decision.runtime_policy = build_vulkan_runtime_policy(request);
+  decision.lane = infer_model_lane(request);
+  decision.kernel_family = "buffer_softmax_lastdim_float";
+  decision.telemetry_label = "SelectedBufferLastDimSoftmax";
+  decision.shape_summary = softmax_shape_summary(input, dim);
+  decision.device_summary = describe_device_policy(device_policy);
+  log_route_decision("aten::_softmax", decision);
+  return decision;
+}
+
+VulkanRouteDecision select_sdpa_route(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const std::optional<Tensor>& attn_mask,
+    const double dropout_p,
+    const bool is_causal,
+    const std::optional<double> scale,
+    const bool enable_gqa,
+    const VulkanPlanningRequest& request,
+    const VulkanDevicePolicy& device_policy) {
+  const std::string shape_summary = sdpa_shape_summary(
+      query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
+  const VulkanRuntimePolicy runtime_policy = build_vulkan_runtime_policy(request);
+  const VulkanModelLane lane = infer_model_lane(request);
+
+  if (attn_mask && attn_mask->defined() || is_causal || enable_gqa) {
+    return make_hard_fail_route(
+        "aten::scaled_dot_product_attention",
+        VulkanRouteRejectReason::KnownBadSdpaMaskOrCausal,
+        shape_summary,
+        request,
+        device_policy);
+  }
+
+  if (dropout_p != 0.0) {
+    return make_hard_fail_route(
+        "aten::scaled_dot_product_attention",
+        VulkanRouteRejectReason::UnsupportedDType,
+        shape_summary,
+        request,
+        device_policy);
+  }
+
+  if (query.dim() == 3 || query.dim() == 4) {
+    const double default_scale =
+        1.0 / std::sqrt(static_cast<double>(query.size(query.dim() - 1)));
+    if (scale.has_value() && std::abs(*scale - default_scale) > 1.0e-9) {
+      return make_hard_fail_route(
+          "aten::scaled_dot_product_attention",
+          VulkanRouteRejectReason::KnownBadSdpaExplicitScale,
+          shape_summary,
+          request,
+          device_policy);
+    }
+  }
+
+  if (
+      device_policy.disable_generic_4d_sdpa &&
+      lane != VulkanModelLane::LLM &&
+      (query.dim() == 3 || query.dim() == 4)) {
+    const int64_t target_len = query.size(query.dim() - 2);
+    const int64_t source_len = key.size(key.dim() - 2);
+    const int64_t head_dim = query.size(query.dim() - 1);
+    if (
+        (query.dim() == 4 &&
+         (target_len >= 64 || source_len >= 64 || head_dim >= 64)) ||
+        (query.dim() == 3 &&
+         target_len >= 32 && source_len >= 29 && head_dim >= 64)) {
+      return make_hard_fail_route(
+          "aten::scaled_dot_product_attention",
+          query.dim() == 4
+              ? VulkanRouteRejectReason::KnownBadDiffusion4dSdpa
+              : VulkanRouteRejectReason::KnownBadGenericSdpa,
+          shape_summary,
+          request,
+          device_policy);
+    }
+  }
+
+  VulkanRouteDecision decision;
+  decision.kind = VulkanRouteKind::VulkanBufferDirectKernel;
+  decision.reject_reason = VulkanRouteRejectReason::None;
+  decision.runtime_policy = runtime_policy;
+  decision.lane = lane;
+  decision.kernel_family = "sdpa";
+  decision.telemetry_label = "SelectedSdpa";
+  decision.shape_summary = shape_summary;
+  decision.device_summary = describe_device_policy(device_policy);
+  log_route_decision("aten::scaled_dot_product_attention", decision);
+  return decision;
+}
+
+VulkanRouteDecision select_conv2d_route(
+    IntArrayRef input_sizes,
+    IntArrayRef weight_sizes,
+    IntArrayRef stride,
+    IntArrayRef padding,
+    IntArrayRef dilation,
+    const int64_t groups,
+    const ScalarType dtype,
+    const bool input_requires_grad,
+    const VulkanPlanningRequest& request,
+    const VulkanDevicePolicy& device_policy) {
+  const std::string shape_summary = conv2d_shape_summary(
+      input_sizes,
+      weight_sizes,
+      stride,
+      padding,
+      dilation,
+      groups,
+      dtype,
+      input_requires_grad);
+  const VulkanRuntimePolicy runtime_policy = build_vulkan_runtime_policy(request);
+  const VulkanModelLane lane = infer_model_lane(request);
+
+  if (
+      device_policy.disable_known_bad_conv_3x3_s1_p1 &&
+      dtype == kFloat &&
+      input_sizes.size() == 4 &&
+      weight_sizes.size() == 4 &&
+      stride.size() == 2 &&
+      padding.size() == 2 &&
+      dilation.size() == 2 &&
+      groups == 1 &&
+      weight_sizes[2] == 3 &&
+      weight_sizes[3] == 3 &&
+      dilation[0] == 1 &&
+      dilation[1] == 1 &&
+      (input_sizes[1] > 32 || input_requires_grad) &&
+      input_sizes[2] * input_sizes[3] >= 18 * 18) {
+    const bool is_s1p1 =
+        stride[0] == 1 &&
+        stride[1] == 1 &&
+        padding[0] == 1 &&
+        padding[1] == 1;
+    return make_hard_fail_route(
+        "aten::convolution",
+        is_s1p1 ? VulkanRouteRejectReason::KnownBadConv3x3Stride1Pad1
+                : VulkanRouteRejectReason::KnownBadLargeBufferConv3x3,
+        shape_summary,
+        request,
+        device_policy);
+  }
+
+  VulkanRouteDecision decision;
+  decision.kind = VulkanRouteKind::VulkanBufferDirectKernel;
+  decision.reject_reason = VulkanRouteRejectReason::None;
+  decision.runtime_policy = runtime_policy;
+  decision.lane = lane;
+  decision.kernel_family = "buffer_float_conv2d";
+  decision.telemetry_label = "SelectedBufferFloatConv2d";
+  decision.shape_summary = shape_summary;
+  decision.device_summary = describe_device_policy(device_policy);
+  log_route_decision("aten::convolution", decision);
+  return decision;
+}
+
+} // namespace utils
+} // namespace ops
+} // namespace vulkan
+} // namespace native
+} // namespace at

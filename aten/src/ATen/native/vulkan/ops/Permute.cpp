@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/Functions.h>
 #include <torch/library.h>
@@ -37,12 +38,13 @@ Tensor permute_buffer_view(const Tensor& self, IntArrayRef dims) {
     output_physical_strides[i] = v_self.gpu_strides()[dim];
   }
 
-  Tensor output = utils::make_buffer_metadata_view(
+  Tensor output = make_buffer_metadata_view_checked(
       self,
       output_sizes,
       output_logical_strides,
       output_physical_strides,
-      v_self.storage_offset());
+      v_self.storage_offset(),
+      "aten::permute");
   move_deferred_image_normalize_candidate_to_alias(self, output);
   return output;
 }

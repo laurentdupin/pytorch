@@ -15,6 +15,7 @@
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/Register.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
@@ -272,6 +273,12 @@ void synchronize_runtime() {
     utils::release_retired_linear_contexts();
     log_vulkan_prepack_synchronize_stage("after_linear_context_retire_release");
   }
+}
+
+bool check_tensor_finite_runtime(const Tensor& tensor, std::string label) {
+  return check_tensor_finite(
+      tensor,
+      label.empty() ? "vulkan_prepack::check_tensor_finite" : label.c_str());
 }
 
 Tensor create_kv_cache_storage_for_request(
@@ -1205,6 +1212,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::synchronize() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::check_tensor_finite(Tensor X, str label) -> bool"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_kv_cache_storage_for_request(Tensor prototype, int[] sizes, int sequence_dim, int workload_class, int model_domain, int execution_phase, int tensor_role) -> Tensor"));
@@ -1285,6 +1294,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::synchronize"),
       TORCH_FN(synchronize_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::check_tensor_finite"),
+      TORCH_FN(check_tensor_finite_runtime));
 }
 
 TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {

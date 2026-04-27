@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/Functions.h>
 #include <torch/library.h>
@@ -36,12 +37,13 @@ Tensor transpose_buffer_view(
   std::swap(output_logical_strides[index0], output_logical_strides[index1]);
   std::swap(output_physical_strides[index0], output_physical_strides[index1]);
 
-  return utils::make_buffer_metadata_view(
+  return make_buffer_metadata_view_checked(
       self,
       output_sizes,
       output_logical_strides,
       output_physical_strides,
-      v_self.storage_offset());
+      v_self.storage_offset(),
+      "aten::transpose");
 }
 
 Tensor transpose_4d(

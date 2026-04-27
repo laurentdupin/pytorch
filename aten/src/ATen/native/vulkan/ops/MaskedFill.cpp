@@ -13,6 +13,78 @@ namespace {
 
 using namespace api::utils;
 
+Tensor masked_fill_scalar_buffer(
+    const Tensor& self_arg,
+    const Tensor& mask_arg,
+    const Scalar& value) {
+  TORCH_CHECK(
+      self_arg.scalar_type() == at::kFloat && mask_arg.scalar_type() == at::kBool,
+      "Vulkan masked_fill buffer path expects float input and bool mask");
+  std::vector<int64_t> out_sizes = utils::broadcast_size(self_arg, mask_arg);
+  TORCH_INTERNAL_ASSERT(!out_sizes.empty(), "output shape is empty!");
+
+  api::Context* const context = api::context();
+  Tensor self = utils::ensure_buffer_storage(
+      self_arg, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  Tensor mask = utils::ensure_buffer_storage(
+      mask_arg, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  Tensor out = utils::create_buffer_tensor(out_sizes, self_arg.scalar_type());
+
+  const vTensor& v_self = convert(self);
+  const vTensor& v_mask = convert(mask);
+  vTensor& v_out = convert(out);
+  TORCH_CHECK(
+      utils::supports_buffer_elementwise_compute(v_self) &&
+          utils::supports_buffer_elementwise_compute(v_mask),
+      "Vulkan masked_fill buffer path requires buffer-compatible tensors");
+
+  const struct Block final {
+    float value;
+    float fill0;
+    float fill1;
+    float fill2;
+  } block{
+      value.to<float>(),
+      0.0f,
+      0.0f,
+      0.0f,
+  };
+
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_out);
+  api::UniformParamsBuffer self_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+  api::UniformParamsBuffer mask_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_mask);
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size{
+      safe_downcast<uint32_t>(std::max<int64_t>(v_out.numel(), 1)),
+      1u,
+      1u,
+  };
+
+  utils::log_vulkan_op_hit("aten::masked_fill.buffer_float");
+  context->submit_compute_job(
+      VK_KERNEL(masked_fill_scalar_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_out.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      self_meta.buffer(),
+      v_mask.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      mask_meta.buffer(),
+      params.buffer());
+
+  return out;
+}
+
 Tensor masked_fill_scalar(
     const Tensor& self_arg,
     const Tensor& mask_arg,
@@ -34,6 +106,12 @@ Tensor masked_fill_scalar(
   }
 
   utils::is_broadcastable(self_arg, mask_arg);
+
+  if (
+      self_arg.scalar_type() == at::kFloat &&
+      mask_arg.scalar_type() == at::kBool) {
+    return masked_fill_scalar_buffer(self_arg, mask_arg, value);
+  }
 
   api::Context* const context = api::context();
 

@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/api/Adapter.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 
 #include <algorithm>
 #include <bitset>
@@ -776,7 +777,16 @@ void Adapter::submit_cmd(
   std::lock_guard<std::mutex> queue_lock(
       queue_mutexes_[device_queue.queue_index % NUM_QUEUE_MUTEXES]);
 
-  VK_CHECK(vkQueueSubmit(device_queue.handle, 1u, &submit_info, fence));
+  const VkResult submit_result =
+      vkQueueSubmit(device_queue.handle, 1u, &submit_info, fence);
+  if (submit_result == VK_ERROR_DEVICE_LOST) {
+    log_vulkan_failure(
+        VulkanFailureClass::DeviceLost,
+        "vkQueueSubmit",
+        "DeviceLost",
+        "single command buffer submit returned VK_ERROR_DEVICE_LOST");
+  }
+  VK_CHECK(submit_result);
 }
 
 void Adapter::submit_cmds(
@@ -795,7 +805,16 @@ void Adapter::submit_cmds(
       nullptr, // pSignalSemaphores
   };
 
-  VK_CHECK(vkQueueSubmit(device_queue.handle, 1u, &submit_info, fence));
+  const VkResult submit_result =
+      vkQueueSubmit(device_queue.handle, 1u, &submit_info, fence);
+  if (submit_result == VK_ERROR_DEVICE_LOST) {
+    log_vulkan_failure(
+        VulkanFailureClass::DeviceLost,
+        "vkQueueSubmit",
+        "DeviceLost",
+        "multi command buffer submit returned VK_ERROR_DEVICE_LOST");
+  }
+  VK_CHECK(submit_result);
 }
 
 std::string Adapter::stringize() const {
