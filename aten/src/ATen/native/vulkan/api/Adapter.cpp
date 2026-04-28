@@ -779,13 +779,6 @@ void Adapter::submit_cmd(
 
   const VkResult submit_result =
       vkQueueSubmit(device_queue.handle, 1u, &submit_info, fence);
-  if (submit_result == VK_ERROR_DEVICE_LOST) {
-    log_vulkan_failure(
-        VulkanFailureClass::DeviceLost,
-        "vkQueueSubmit",
-        "DeviceLost",
-        "single command buffer submit returned VK_ERROR_DEVICE_LOST");
-  }
   VK_CHECK(submit_result);
 }
 
@@ -807,13 +800,6 @@ void Adapter::submit_cmds(
 
   const VkResult submit_result =
       vkQueueSubmit(device_queue.handle, 1u, &submit_info, fence);
-  if (submit_result == VK_ERROR_DEVICE_LOST) {
-    log_vulkan_failure(
-        VulkanFailureClass::DeviceLost,
-        "vkQueueSubmit",
-        "DeviceLost",
-        "multi command buffer submit returned VK_ERROR_DEVICE_LOST");
-  }
   VK_CHECK(submit_result);
 }
 

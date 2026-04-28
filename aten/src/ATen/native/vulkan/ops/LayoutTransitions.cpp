@@ -152,26 +152,12 @@ Tensor make_buffer_metadata_view_checked(
            << " logical_strides=" << logical_strides
            << " physical_strides=" << physical_strides
            << " storage_offset=" << storage_offset;
-    api::log_vulkan_failure(
+    api::fail_vulkan(
         api::VulkanFailureClass::MetadataViewInvalid,
         producer_op ? producer_op : "make_buffer_metadata_view_checked",
         "MetadataViewInvalid",
         detail.str());
   }
-  TORCH_CHECK(
-      valid_view,
-      api::format_vulkan_failure(
-          api::VulkanFailureClass::MetadataViewInvalid,
-          producer_op ? producer_op : "make_buffer_metadata_view_checked",
-          "MetadataViewInvalid",
-          [&]() {
-            std::ostringstream detail;
-            detail << "base={" << describe_tensor_state(base) << "} sizes="
-                   << sizes << " logical_strides=" << logical_strides
-                   << " physical_strides=" << physical_strides
-                   << " storage_offset=" << storage_offset;
-            return detail.str();
-          }()));
 
   Tensor view = convert(vTensor{
       v_base,
@@ -232,28 +218,12 @@ Tensor make_typed_buffer_metadata_view_checked(
            << " physical_strides=" << physical_strides
            << " storage_offset=" << storage_offset
            << " buffer_length=" << buffer_length_override;
-    api::log_vulkan_failure(
+    api::fail_vulkan(
         api::VulkanFailureClass::MetadataViewInvalid,
         producer_op ? producer_op : "make_typed_buffer_metadata_view_checked",
         "TypedMetadataViewInvalid",
         detail.str());
   }
-  TORCH_CHECK(
-      valid_view,
-      api::format_vulkan_failure(
-          api::VulkanFailureClass::MetadataViewInvalid,
-          producer_op ? producer_op : "make_typed_buffer_metadata_view_checked",
-          "TypedMetadataViewInvalid",
-          [&]() {
-            std::ostringstream detail;
-            detail << "base={" << describe_tensor_state(base)
-                   << "} dtype=" << dtype << " sizes=" << sizes
-                   << " logical_strides=" << logical_strides
-                   << " physical_strides=" << physical_strides
-                   << " storage_offset=" << storage_offset
-                   << " buffer_length=" << buffer_length_override;
-            return detail.str();
-          }()));
 
   Tensor view = convert(vTensor{
       v_base,

@@ -264,34 +264,27 @@ bool check_tensor_finite(const Tensor& tensor, const char* consumer_op) {
 
   const Tensor snapshot = tensor.is_vulkan() ? tensor.cpu() : tensor.cpu();
   const Tensor finite_source = finite_check_source(snapshot);
-  const Tensor finite_mask = at::isfinite(finite_source);
-  const bool finite = finite_mask.all().item<bool>();
-  if (finite) {
+  const Tensor nonfinite_mask =
+      at::logical_not(at::isfinite(finite_source)).to(kLong);
+  const int64_t nonfinite_count = nonfinite_mask.sum().item<int64_t>();
+  const int64_t checked_numel = finite_source.numel();
+  if (nonfinite_count == 0) {
     return true;
   }
 
-  const int64_t finite_count = finite_mask.sum().item<int64_t>();
-  const int64_t nonfinite_count = finite_mask.numel() - finite_count;
   std::ostringstream detail;
   detail << "nonfinite_count=" << nonfinite_count
-         << " numel=" << finite_mask.numel()
+         << " numel=" << checked_numel
          << " state={" << describe_tensor_state(tensor) << "} "
          << describe_tensor_provenance(tensor);
   const char* op_name =
       consumer_op && consumer_op[0] != '\0' ? consumer_op
                                             : "vulkan_prepack::check_tensor_finite";
-  api::log_vulkan_failure(
+  api::fail_vulkan(
       api::VulkanFailureClass::KernelIncorrect,
       op_name,
       "NonFiniteTensor",
       detail.str());
-  TORCH_CHECK(
-      false,
-      api::format_vulkan_failure(
-          api::VulkanFailureClass::KernelIncorrect,
-          op_name,
-          "NonFiniteTensor",
-          detail.str()));
   return false;
 }
 

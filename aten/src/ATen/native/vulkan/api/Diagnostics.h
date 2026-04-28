@@ -38,6 +38,25 @@ std::string format_vulkan_failure(
     const char* reason,
     const std::string& detail = std::string());
 
+std::string report_vulkan_failure(
+    VulkanFailureClass failure_class,
+    const char* op_name,
+    const char* reason,
+    const std::string& detail = std::string());
+
+[[noreturn]] void fail_vulkan(
+    VulkanFailureClass failure_class,
+    const char* op_name,
+    const char* reason,
+    const std::string& detail = std::string());
+
+void check_vulkan(
+    bool condition,
+    VulkanFailureClass failure_class,
+    const char* op_name,
+    const char* reason,
+    const std::string& detail = std::string());
+
 } // namespace api
 } // namespace vulkan
 } // namespace native

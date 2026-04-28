@@ -732,18 +732,11 @@ bool copy_vtensor_buffer_to_staging(
            << " gpu_bytes=" << src.gpu_nbytes()
            << " buffer_length=" << src.buffer_length()
            << " staging_bytes=" << staging.mem_size();
-    api::log_vulkan_failure(
+    api::fail_vulkan(
         api::VulkanFailureClass::RawCopyIllegal,
         "aten::copy_.vulkan_to_cpu",
         "BufferReadbackIllegal",
         detail.str());
-    TORCH_CHECK(
-        false,
-        api::format_vulkan_failure(
-            api::VulkanFailureClass::RawCopyIllegal,
-            "aten::copy_.vulkan_to_cpu",
-            "BufferReadbackIllegal",
-            detail.str()));
   }
   if (snapshot_readback_legal && !raw_buffer_copy_legal) {
     utils::log_vulkan_op_hit(
@@ -1285,7 +1278,11 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
       pack_vulkan_to_cpu(v_src, dst);
       v_src.context()->sync_and_reclaim();
     } else {
-      TORCH_CHECK(false, "Unsupported!");
+      api::fail_vulkan(
+          api::VulkanFailureClass::Unsupported,
+          "aten::copy_",
+          "UnsupportedVulkanDestination",
+          "Vulkan copy supports Vulkan->CPU or CPU->Vulkan for this path");
     }
   } else {
     TORCH_INTERNAL_ASSERT(
@@ -1402,7 +1399,11 @@ at::Tensor from_vulkan(vTensor& v_src) {
                                     : c10::MemoryFormat::Contiguous;
       break;
     default:
-      TORCH_CHECK(false, "No corresponding memory format");
+      api::fail_vulkan(
+          api::VulkanFailureClass::Unsupported,
+          "aten::copy_.vulkan_to_cpu",
+          "UnsupportedMemoryLayoutForReadback",
+          "No corresponding CPU memory format");
   }
 
   at::Tensor ret = at::empty(v_src.sizes(), opt).to(v_src_memory_format);

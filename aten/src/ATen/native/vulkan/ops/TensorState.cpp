@@ -115,23 +115,6 @@ VulkanTensorRepr classify_vulkan_tensor(const vTensor& tensor) {
   return VulkanTensorRepr::Invalid;
 }
 
-std::string validation_message(
-    const char* op_name,
-    const char* route_name,
-    VulkanTensorUse use,
-    api::VulkanFailureClass failure_class,
-    const std::string& reason,
-    const VulkanTensorStateDesc& desc) {
-  std::ostringstream stream;
-  stream << api::format_vulkan_failure(
-      failure_class, op_name, reason.c_str(), describe_tensor_state(desc));
-  if (route_name && route_name[0] != '\0') {
-    stream << " route=" << route_name;
-  }
-  stream << " use=" << vulkan_tensor_use_name(use);
-  return stream.str();
-}
-
 VulkanTensorStateValidation fail_validation(
     const char* op_name,
     const char* route_name,
@@ -143,13 +126,17 @@ VulkanTensorStateValidation fail_validation(
           reason == "RawCopyRequestedForMetadataView"
       ? api::VulkanFailureClass::MetadataViewInvalid
       : api::VulkanFailureClass::TensorStateInvalid;
-  api::log_vulkan_failure(
-      failure_class, op_name, reason.c_str(), describe_tensor_state(desc));
+  std::ostringstream detail;
+  detail << describe_tensor_state(desc);
+  if (route_name && route_name[0] != '\0') {
+    detail << " route=" << route_name;
+  }
+  detail << " use=" << vulkan_tensor_use_name(use);
   return {
       false,
       reason,
-      validation_message(
-          op_name, route_name, use, failure_class, reason, desc)};
+      api::report_vulkan_failure(
+          failure_class, op_name, reason.c_str(), detail.str())};
 }
 
 bool metadata_range_in_bounds(const VulkanTensorStateDesc& desc) {

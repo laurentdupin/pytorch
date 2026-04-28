@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 
 #include <torch/library.h>
 
@@ -29,7 +30,10 @@ Scalar _local_scalar_dense(const Tensor& self) {
     case c10::ScalarType::Long:
       return Scalar(self.cpu().item<int64_t>());
     default:
-      TORCH_CHECK(false, "Unsupported Vulkan dtype for _local_scalar_dense");
+      api::fail_vulkan(
+          api::VulkanFailureClass::Unsupported,
+          "aten::_local_scalar_dense",
+          "UnsupportedDType");
   }
 }
 

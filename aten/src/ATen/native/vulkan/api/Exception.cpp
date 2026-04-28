@@ -1,5 +1,7 @@
 #include <ATen/native/vulkan/api/Exception.h>
 
+#include <ATen/native/vulkan/api/Diagnostics.h>
+
 #include <sstream>
 
 namespace at {
@@ -56,19 +58,30 @@ std::ostream& operator<<(std::ostream& out, const SourceLocation& loc) {
 
 Error::Error(SourceLocation source_location, std::string msg)
     : msg_(std::move(msg)), source_location_{source_location} {
-  std::ostringstream oss;
-  oss << "Exception raised from " << source_location_ << ": ";
-  oss << msg_;
-  what_ = oss.str();
+  std::ostringstream detail;
+  detail << "source=" << source_location_ << " message={" << msg_ << "}";
+  const bool device_lost =
+      msg_.find("VK_ERROR_DEVICE_LOST") != std::string::npos;
+  what_ = report_vulkan_failure(
+      device_lost ? VulkanFailureClass::DeviceLost : VulkanFailureClass::Unknown,
+      source_location_.function,
+      device_lost ? "DeviceLost" : "VulkanApiError",
+      detail.str());
 }
 
 Error::Error(SourceLocation source_location, const char* cond, std::string msg)
     : msg_(std::move(msg)), source_location_{source_location} {
-  std::ostringstream oss;
-  oss << "Exception raised from " << source_location_ << ": ";
-  oss << '(' << cond << ") is false! ";
-  oss << msg_;
-  what_ = oss.str();
+  std::ostringstream detail;
+  detail << "source=" << source_location_ << " condition={" << cond
+         << "} message={" << msg_ << "}";
+  const bool device_lost =
+      msg_.find("Device lost") != std::string::npos ||
+      msg_.find("VK_ERROR_DEVICE_LOST") != std::string::npos;
+  what_ = report_vulkan_failure(
+      device_lost ? VulkanFailureClass::DeviceLost : VulkanFailureClass::Unknown,
+      source_location_.function,
+      device_lost ? "DeviceLost" : "VulkanCheckFailed",
+      detail.str());
 }
 
 } // namespace api

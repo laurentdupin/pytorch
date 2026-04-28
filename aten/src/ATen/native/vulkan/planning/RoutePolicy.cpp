@@ -86,6 +86,18 @@ std::string sdpa_shape_summary(
   return out.str();
 }
 
+std::string hard_fail_detail(const VulkanRouteDecision& decision) {
+  std::ostringstream out;
+  out << "lane=" << model_lane_name(decision.lane);
+  if (!decision.shape_summary.empty()) {
+    out << " shape={" << decision.shape_summary << "}";
+  }
+  if (!decision.device_summary.empty()) {
+    out << " device={" << decision.device_summary << "}";
+  }
+  return out.str();
+}
+
 } // namespace
 
 const char* route_kind_name(const VulkanRouteKind kind) {
@@ -172,11 +184,6 @@ VulkanRouteDecision make_hard_fail_route(
   decision.device_summary = describe_device_policy(device_policy);
   decision.hard_fail = true;
   log_route_decision(op_name, decision);
-  api::log_vulkan_failure(
-      api::VulkanFailureClass::RouteHardFail,
-      op_name,
-      route_reject_reason_name(reason),
-      format_hard_fail(op_name, decision));
   return decision;
 }
 
@@ -210,21 +217,21 @@ void log_route_decision(
 std::string format_hard_fail(
     const char* op_name,
     const VulkanRouteDecision& decision) {
-  std::ostringstream out;
-  out << "Vulkan route hard-failed failure_class="
-      << api::vulkan_failure_class_name(api::VulkanFailureClass::RouteHardFail);
-  if (op_name && op_name[0] != '\0') {
-    out << " op=" << op_name;
-  }
-  out << " reason=" << route_reject_reason_name(decision.reject_reason)
-      << " lane=" << model_lane_name(decision.lane);
-  if (!decision.shape_summary.empty()) {
-    out << " shape={" << decision.shape_summary << "}";
-  }
-  if (!decision.device_summary.empty()) {
-    out << " device={" << decision.device_summary << "}";
-  }
-  return out.str();
+  return api::format_vulkan_failure(
+      api::VulkanFailureClass::RouteHardFail,
+      op_name,
+      route_reject_reason_name(decision.reject_reason),
+      hard_fail_detail(decision));
+}
+
+[[noreturn]] void fail_hard_fail(
+    const char* op_name,
+    const VulkanRouteDecision& decision) {
+  api::fail_vulkan(
+      api::VulkanFailureClass::RouteHardFail,
+      op_name,
+      route_reject_reason_name(decision.reject_reason),
+      hard_fail_detail(decision));
 }
 
 VulkanRouteDecision select_softmax_route(
@@ -402,7 +409,8 @@ VulkanRouteDecision select_conv2d_route(
       dilation[0] == 1 &&
       dilation[1] == 1 &&
       input_sizes[1] >= 384 &&
-      weight_sizes[0] >= 192) {
+      weight_sizes[0] >= 192 &&
+      (input_sizes[3] % 4 != 0 || input_sizes[2] * input_sizes[3] < 512)) {
     return make_hard_fail_route(
         "aten::convolution",
         VulkanRouteRejectReason::KnownBadLargePointwiseConv,

@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/Persistence.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Resource.h>
 
 #include <c10/core/InferenceMode.h>
@@ -589,7 +590,10 @@ api::GPUMemoryLayout resolve_execution_plan_memory_layout(
                                : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED;
   }
 
-  TORCH_CHECK(false, "Unsupported Vulkan execution plan memory rule");
+  api::fail_vulkan(
+      api::VulkanFailureClass::Unsupported,
+      "resolve_execution_plan_memory_layout",
+      "UnsupportedExecutionPlanMemoryRule");
 }
 
 std::optional<api::ExecutionLayout> select_buffer_execution_layout(
@@ -624,7 +628,10 @@ std::optional<api::ExecutionLayout> select_buffer_execution_layout(
       return std::nullopt;
   }
 
-  TORCH_CHECK(false, "Unsupported Vulkan execution plan buffer rule");
+  api::fail_vulkan(
+      api::VulkanFailureClass::Unsupported,
+      "select_buffer_execution_layout",
+      "UnsupportedExecutionPlanBufferRule");
 }
 
 bool needs_buffer_storage_transition(
@@ -1050,7 +1057,10 @@ Tensor execute_vulkan_execution_plan(
     }
   }
 
-  TORCH_CHECK(false, "Unsupported Vulkan execution layout");
+  api::fail_vulkan(
+      api::VulkanFailureClass::Unsupported,
+      "execute_vulkan_execution_plan",
+      "UnsupportedExecutionLayout");
 }
 
 Tensor prepare_vulkan_direct_buffer_execution_tensor(

@@ -81,6 +81,10 @@ std::string format_hard_fail(
     const char* op_name,
     const VulkanRouteDecision& decision);
 
+[[noreturn]] void fail_hard_fail(
+    const char* op_name,
+    const VulkanRouteDecision& decision);
+
 VulkanRouteDecision select_softmax_route(
     const Tensor& input,
     int64_t dim,

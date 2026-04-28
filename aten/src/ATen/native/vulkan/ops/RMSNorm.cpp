@@ -2,6 +2,7 @@
 
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Norm.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <c10/core/InferenceMode.h>
 
@@ -84,7 +85,11 @@ Tensor rms_norm_buffer_width(
   if (c10::InferenceMode::is_enabled()) {
     maybe_synchronize_after_norm();
   }
-  return output;
+  return record_tensor_write_and_return(
+      output,
+      "aten::rms_norm",
+      "buffer_width",
+      {input, weight});
 }
 
 Tensor rms_norm_fused_width(

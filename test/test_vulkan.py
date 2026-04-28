@@ -3037,7 +3037,7 @@ print("OK")
         bad = vulkan / 0.0
         with self.assertRaisesRegex(
             RuntimeError,
-            "NonFiniteTensor.*writer_op=aten::binary_op",
+            "NonFiniteTensor.*nonfinite_count=2.*writer_op=aten::binary_op",
         ):
             torch.ops.vulkan_prepack.check_tensor_finite(
                 bad,
@@ -3066,6 +3066,30 @@ print("OK")
             script,
             extra_env={"PYTORCH_VULKAN_CHECK_FINITE_AFTER_WRITE": "1"},
             error_prefix="Vulkan finite-after-write subprocess failed.",
+        )
+        self.assertIn("OK", result.stdout)
+
+    def test_vulkan_check_finite_after_write_allows_strided_patch_embed_upload(self):
+        script = """
+            import torch
+            import torch.nn.functional as F
+
+            torch.manual_seed(0)
+            cpu = torch.randn(420, 280, 3, dtype=torch.float32).permute(2, 0, 1)
+            x = cpu.to("vulkan").unsqueeze(0)
+            weight = torch.randn(8, 3, 14, 14, dtype=torch.float32).to("vulkan")
+            bias = torch.randn(8, dtype=torch.float32).to("vulkan")
+            y = F.conv2d(x, weight, bias, stride=14)
+            torch.ops.vulkan_prepack.check_tensor_finite(
+                y,
+                "test.patch_embed_output",
+            )
+            print("OK")
+        """
+        _, result = self._run_repo_python_subprocess(
+            script,
+            extra_env={"PYTORCH_VULKAN_CHECK_FINITE_AFTER_WRITE": "1"},
+            error_prefix="Vulkan finite-after-write patch-embed subprocess failed.",
         )
         self.assertIn("OK", result.stdout)
 
@@ -4868,45 +4892,105 @@ print("OK")
                 rtol=1e-4)
 
     def test_large_pointwise_conv2d_module_with_vulkan_weights(self):
+        torch.manual_seed(0)
+
+        for shape in ((1, 384, 30, 20),):
+            for out_channels in (192, 384):
+                with self.subTest(shape=shape, out_channels=out_channels):
+                    x_cpu = torch.randn(*shape)
+                    x_vulkan = x_cpu.to("vulkan")
+                    module_cpu = torch.nn.Conv2d(
+                        384,
+                        out_channels,
+                        kernel_size=1,
+                        bias=True).eval()
+                    module_vulkan = torch.nn.Conv2d(
+                        384,
+                        out_channels,
+                        kernel_size=1,
+                        bias=True).eval()
+                    module_vulkan.load_state_dict(module_cpu.state_dict())
+                    module_vulkan = module_vulkan.to("vulkan")
+
+                    with torch.inference_mode():
+                        expected = module_cpu(x_cpu)
+                        actual = module_vulkan(x_vulkan).cpu()
+
+                    self._assert_outputs_close(
+                        expected,
+                        actual,
+                        atol=1e-4,
+                        rtol=1e-4)
+
+    def test_large_pointwise_conv2d_unaligned_width_hard_fails(self):
+        log_name = "large_pointwise_conv2d_unaligned_width_hard_fail.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
         script = """
             import torch
 
             torch.manual_seed(0)
             x_cpu = torch.randn(1, 384, 7, 9)
             x_vulkan = x_cpu.to("vulkan")
+            module_vulkan = torch.nn.Conv2d(
+                384,
+                192,
+                kernel_size=1,
+                bias=True).eval().to("vulkan")
 
-            for out_channels in (192, 384):
-                module_cpu = torch.nn.Conv2d(
-                    384,
-                    out_channels,
-                    kernel_size=1,
-                    bias=True).eval()
-                module_vulkan = torch.nn.Conv2d(
-                    384,
-                    out_channels,
-                    kernel_size=1,
-                    bias=True).eval()
-                module_vulkan.load_state_dict(module_cpu.state_dict())
-                module_vulkan = module_vulkan.to("vulkan")
-
-                with torch.inference_mode():
-                    _ = module_cpu(x_cpu)
-                    try:
-                        module_vulkan(x_vulkan)
-                    except RuntimeError as exc:
-                        if "KnownBadLargePointwiseConv" not in str(exc):
-                            raise
-                    else:
-                        raise AssertionError(
-                            "large pointwise conv should hard-fail")
+            with torch.inference_mode():
+                try:
+                    module_vulkan(x_vulkan)
+                except RuntimeError as exc:
+                    message = str(exc)
+                    print(message)
+                    if (
+                        "Vulkan failure failure_class=RouteHardFail"
+                        not in message
+                        or "KnownBadLargePointwiseConv" not in message
+                    ):
+                        raise
+                else:
+                    raise AssertionError(
+                        "unaligned large pointwise conv should hard-fail")
 
             print("OK")
         """
-        _, result = self._run_repo_python_subprocess(
-            script,
-            error_prefix="large pointwise Vulkan conv hard-fail subprocess failed.",
-        )
-        self.assertIn("OK", result.stdout)
+        try:
+            _, result = self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_FAILURE_LOG": log_name},
+                error_prefix="large pointwise unaligned Vulkan conv subprocess failed.",
+            )
+            self.assertIn("OK", result.stdout)
+            self.assertIn("KnownBadLargePointwiseConv", result.stdout)
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+            self.assertIn("failure_class=RouteHardFail", log_text)
+            self.assertIn("reason=KnownBadLargePointwiseConv", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_large_pointwise_conv2d_small_spatial_hard_fails(self):
+        x_cpu = torch.randn(1, 384, 16, 16)
+        x_vulkan = x_cpu.to("vulkan")
+        module_vulkan = torch.nn.Conv2d(
+            384,
+            192,
+            kernel_size=1,
+            bias=True).eval().to("vulkan")
+
+        with torch.inference_mode():
+            with self.assertRaisesRegex(
+                    RuntimeError,
+                    "KnownBadLargePointwiseConv"):
+                module_vulkan(x_vulkan)
 
     def test_large_pointwise_conv_weight_roundtrip(self):
         torch.manual_seed(0)
@@ -4951,6 +5035,36 @@ print("OK")
             with self.assertRaisesRegex(
                 RuntimeError,
                 "KnownBadLargeBufferConv3x3"):
+                module_vulkan(x_vulkan).cpu()
+
+    def test_dav2_decoder_stride2_conv2d_module_hard_fails_until_fixed(self):
+        torch.manual_seed(0)
+
+        x_cpu = torch.randn(1, 384, 30, 20)
+        x_vulkan = x_cpu.to("vulkan")
+
+        module_cpu = torch.nn.Conv2d(
+            384,
+            384,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+            bias=True).eval()
+        module_vulkan = torch.nn.Conv2d(
+            384,
+            384,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+            bias=True).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+
+        with torch.inference_mode():
+            _ = module_cpu(x_cpu)
+            with self.assertRaisesRegex(
+                    RuntimeError,
+                    "KnownBadLargeBufferConv3x3"):
                 module_vulkan(x_vulkan).cpu()
 
     def test_large_spatial_conv_weight_roundtrip(self):

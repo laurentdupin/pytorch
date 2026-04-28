@@ -3,6 +3,7 @@
 #include <ATen/Functions.h>
 #include <ATen/TensorIndexing.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/ops/constant_pad_nd.h>
 #include <ATen/ops/eye.h>
 #include <ATen/ops/tril.h>
@@ -406,8 +407,21 @@ std::tuple<Tensor, std::optional<Tensor>> run_gated_delta_rule_recurrent_native(
 
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent.native_buffer");
+  Tensor output = utils::contiguous_inference(output_transposed.transpose(1, 2));
+  record_tensor_write(
+      output,
+      "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent",
+      "native_buffer",
+      {query, key, value, g, beta});
+  if (output_state.has_value()) {
+    record_tensor_write(
+        *output_state,
+        "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent",
+        "native_buffer_final_state",
+        {query, key, value, g, beta});
+  }
   return {
-      utils::contiguous_inference(output_transposed.transpose(1, 2)),
+      output,
       output_state};
 }
 
@@ -573,12 +587,26 @@ std::tuple<Tensor, std::optional<Tensor>> run_gated_delta_rule_chunk_fallback(
   core_attn_out = core_attn_out.index({Ellipsis, Slice(None, sequence_length), Slice()});
   core_attn_out =
       core_attn_out.transpose(1, 2).contiguous().to(output_device, output_dtype);
+  record_tensor_write(
+      core_attn_out,
+      "vulkan_prepack::run_scheduled_gated_delta_rule_chunk",
+      "fallback",
+      {query, key, value, g, beta});
+  std::optional<Tensor> output_state =
+      output_final_state
+          ? move_optional_output_to_device(last_recurrent_state, output_device)
+          : std::optional<Tensor>{std::nullopt};
+  if (output_state.has_value()) {
+    record_tensor_write(
+        *output_state,
+        "vulkan_prepack::run_scheduled_gated_delta_rule_chunk",
+        "fallback_final_state",
+        {query, key, value, g, beta});
+  }
 
   return {
       core_attn_out,
-      output_final_state
-          ? move_optional_output_to_device(last_recurrent_state, output_device)
-          : std::optional<Tensor>{std::nullopt},
+      output_state,
   };
 }
 
@@ -651,11 +679,25 @@ run_gated_delta_rule_recurrent_fallback(
 
   core_attn_out =
       core_attn_out.transpose(1, 2).contiguous().to(output_device, output_dtype);
-  return {
+  record_tensor_write(
       core_attn_out,
+      "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent",
+      "fallback",
+      {query, key, value, g, beta});
+  std::optional<Tensor> output_state =
       output_final_state
           ? move_optional_output_to_device(last_recurrent_state, output_device)
-          : std::optional<Tensor>{std::nullopt},
+          : std::optional<Tensor>{std::nullopt};
+  if (output_state.has_value()) {
+    record_tensor_write(
+        *output_state,
+        "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent",
+        "fallback_final_state",
+        {query, key, value, g, beta});
+  }
+  return {
+      core_attn_out,
+      output_state,
   };
 }
 

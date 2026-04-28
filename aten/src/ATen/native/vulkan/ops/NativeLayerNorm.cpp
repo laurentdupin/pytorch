@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/ops/NativeLayerNorm.h>
 #include <ATen/native/vulkan/ops/Norm.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
@@ -61,7 +62,11 @@ void check_layer_norm_inputs_impl(
       ss << ", " << size;
     }
     ss << "], but got input of size" << input_shape;
-    TORCH_CHECK(false, ss.str());
+    api::fail_vulkan(
+        api::VulkanFailureClass::Unsupported,
+        "aten::native_layer_norm",
+        "InvalidNormalizedShape",
+        ss.str());
   }
 }
 

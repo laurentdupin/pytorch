@@ -59,7 +59,7 @@ static inline api::ScalarType convert_dtype(const c10::ScalarType dtype) {
     case c10::ScalarType::Long:
       return ::at::native::vulkan::api::ScalarType::Long;
     default:
-      TORCH_CHECK(false, "Not a supported Vulkan ScalarType!");
+      VK_THROW("Not a supported Vulkan ScalarType!");
   }
 #undef DEFINE_CASE
 }
@@ -80,7 +80,7 @@ static inline c10::ScalarType convert_dtype(const api::ScalarType dtype) {
     case ::at::native::vulkan::api::ScalarType::Long:
       return c10::ScalarType::Long;
     default:
-      TORCH_CHECK(false, "Not a supported c10::ScalarType!");
+      VK_THROW("Not a supported c10::ScalarType!");
   }
 #undef DEFINE_CASE
 }

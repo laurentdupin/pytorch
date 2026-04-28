@@ -1,6 +1,8 @@
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Resource.h>
 
+#include <c10/util/Exception.h>
+
 #include <cstdlib>
 #include <fstream>
 #include <mutex>
@@ -21,6 +23,15 @@ std::string failure_log_path() {
 std::mutex& failure_log_mutex() {
   static std::mutex mutex;
   return mutex;
+}
+
+void append_vulkan_failure_log(const std::string& message) {
+  if (!vulkan_failure_logging_enabled()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(failure_log_mutex());
+  std::ofstream out(failure_log_path(), std::ios::app);
+  out << message << '\n';
 }
 
 } // namespace
@@ -87,12 +98,39 @@ void log_vulkan_failure(
     const char* op_name,
     const char* reason,
     const std::string& detail) {
-  if (!vulkan_failure_logging_enabled()) {
-    return;
+  append_vulkan_failure_log(
+      format_vulkan_failure(failure_class, op_name, reason, detail));
+}
+
+std::string report_vulkan_failure(
+    const VulkanFailureClass failure_class,
+    const char* op_name,
+    const char* reason,
+    const std::string& detail) {
+  const std::string message =
+      format_vulkan_failure(failure_class, op_name, reason, detail);
+  append_vulkan_failure_log(message);
+  return message;
+}
+
+[[noreturn]] void fail_vulkan(
+    const VulkanFailureClass failure_class,
+    const char* op_name,
+    const char* reason,
+    const std::string& detail) {
+  TORCH_CHECK(false, report_vulkan_failure(failure_class, op_name, reason, detail));
+  std::abort();
+}
+
+void check_vulkan(
+    const bool condition,
+    const VulkanFailureClass failure_class,
+    const char* op_name,
+    const char* reason,
+    const std::string& detail) {
+  if (!condition) {
+    fail_vulkan(failure_class, op_name, reason, detail);
   }
-  std::lock_guard<std::mutex> lock(failure_log_mutex());
-  std::ofstream out(failure_log_path(), std::ios::app);
-  out << format_vulkan_failure(failure_class, op_name, reason, detail) << '\n';
 }
 
 } // namespace api

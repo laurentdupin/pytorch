@@ -4291,7 +4291,7 @@ void run_recorded_compiled_replay_or_direct_steps(
       epoch.run_id,
       allocation_label,
       detail);
-  api::log_vulkan_failure(
+  api::report_vulkan_failure(
       api::VulkanFailureClass::ReplayHangRisk,
       op_name ? op_name : "compiled_replay",
       "CompiledReplaySubmitGuard",
@@ -4571,7 +4571,7 @@ std::optional<Tensor> try_run_vision_decoder_preprocess_head_compiled_session(
       "action=fallback_without_executable_region_compiled_session "
       "reason=compiled_executable_region_guard "
       "failure_class=ReplayHangRisk";
-  api::log_vulkan_failure(
+  api::report_vulkan_failure(
       api::VulkanFailureClass::ReplayHangRisk,
       "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session",
       "CompiledExecutableRegionGuard",
@@ -5206,7 +5206,7 @@ Tensor run_vision_backbone_block_context(
           epoch.run_id,
           "vision.backbone_block.replay",
           detail);
-      api::log_vulkan_failure(
+      api::report_vulkan_failure(
           api::VulkanFailureClass::ReplayHangRisk,
           "vulkan_prepack::run_vision_backbone_block_context",
           "VisionReplaySubmitGuard",
@@ -5566,7 +5566,7 @@ Tensor run_vision_decoder_fusion_block_context(
         utils::current_replay_epoch(vision_graph.identity()).run_id,
         "vision.decoder_fusion.replay",
         detail);
-    api::log_vulkan_failure(
+    api::report_vulkan_failure(
         api::VulkanFailureClass::ReplayHangRisk,
         "vulkan_prepack::run_vision_decoder_fusion_block_context",
         "DecoderReplayGuard",
@@ -5655,7 +5655,7 @@ Tensor run_vision_decoder_fusion_block_context(
           epoch.run_id,
           "vision.decoder_fusion.replay",
           detail);
-      api::log_vulkan_failure(
+      api::report_vulkan_failure(
           api::VulkanFailureClass::ReplayHangRisk,
           "vulkan_prepack::run_vision_decoder_fusion_block_context",
           "VisionReplaySubmitGuard",
@@ -6121,7 +6121,7 @@ Tensor run_vision_decoder_preprocess_head_context(
         "action=use_decoder_preprocess_explicit_path "
         "reason=decoder_preprocess_program_guard "
         "failure_class=KernelIncorrect";
-    api::log_vulkan_failure(
+    api::report_vulkan_failure(
         api::VulkanFailureClass::KernelIncorrect,
         "vulkan_prepack::run_vision_decoder_preprocess_head_context",
         "DecoderPreprocessProgramGuard",
@@ -6441,7 +6441,7 @@ Tensor run_vision_decoder_head_context(
         0u,
         "vision.decoder_head.replay",
         detail);
-    api::log_vulkan_failure(
+    api::report_vulkan_failure(
         api::VulkanFailureClass::ReplayHangRisk,
         "vulkan_prepack::run_vision_decoder_head_context",
         "DecoderHeadReplayGuard",
@@ -6519,7 +6519,7 @@ Tensor run_vision_decoder_head_context(
       epoch.run_id,
       "vision.decoder_head.replay",
       detail);
-  api::log_vulkan_failure(
+  api::report_vulkan_failure(
       api::VulkanFailureClass::ReplayHangRisk,
       "vulkan_prepack::run_vision_decoder_head_context",
       "DecoderHeadReplaySubmitGuard",
@@ -7497,7 +7497,7 @@ Tensor run_depth_anything_v2_compiled_session_bridge(
       "action=use_replay_bundle_backbone "
       "reason=depth_anything_compiled_backbone_guard "
       "failure_class=ReplayHangRisk";
-  api::log_vulkan_failure(
+  api::report_vulkan_failure(
       api::VulkanFailureClass::ReplayHangRisk,
       "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge",
       "DepthAnythingCompiledBackboneGuard",

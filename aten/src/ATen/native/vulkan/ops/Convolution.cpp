@@ -3,6 +3,7 @@
 
 #include <ATen/native/ConvUtils.h>
 #include <ATen/native/utils/ParamUtils.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Utils.h>
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
@@ -1598,10 +1599,8 @@ bool can_run_float_buffer_conv2d_add(
       utils::current_vulkan_device_policy());
   if (route_decision.hard_fail) {
     api::context()->flush();
+    utils::fail_hard_fail("aten::convolution", route_decision);
   }
-  TORCH_CHECK(
-      !route_decision.hard_fail,
-      utils::format_hard_fail("aten::convolution", route_decision));
   return output_size == residual.sizes().vec();
 }
 
@@ -1685,10 +1684,8 @@ Tensor run_float_buffer_conv2d_impl(
       utils::current_vulkan_device_policy());
   if (route_decision.hard_fail) {
     context->flush();
+    utils::fail_hard_fail("aten::convolution", route_decision);
   }
-  TORCH_CHECK(
-      !route_decision.hard_fail,
-      utils::format_hard_fail("aten::convolution", route_decision));
 
   switch (shader_kind) {
     case FloatBufferConv2dShaderKind::Pointwise1x1:
@@ -2595,15 +2592,6 @@ Conv2dPackedContext::Conv2dPackedContext(
 
   const auto method = conv2d::determine_method(
       weight.sizes(), stride, padding, dilation, groups, transposed, quantized);
-  TORCH_CHECK(
-      !(!transposed && !quantized && weight.dim() == 4 && groups == 1 &&
-        weight.size(0) >= 192 && weight.size(1) >= 384 &&
-        weight.size(2) == 1 && weight.size(3) == 1 && stride[0] == 1 &&
-        stride[1] == 1 && padding[0] == 0 && padding[1] == 0 &&
-        dilation[0] == 1 && dilation[1] == 1),
-      "Vulkan route hard-failed failure_class=RouteHardFail "
-      "op=aten::convolution reason=KnownBadLargePointwiseConv "
-      "phase=prepack");
 
   const auto normalized_bias = utils::normalized_optional_tensor(bias);
   const Tensor& cache_weight =

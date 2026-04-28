@@ -889,18 +889,11 @@ Tensor& copy_buffer_tensor_direct_(Tensor& dst, const Tensor& src) {
     std::ostringstream detail;
     detail << "src={" << describe_tensor_state(src) << "} dst={"
            << describe_tensor_state(dst) << "}";
-    api::log_vulkan_failure(
+    api::fail_vulkan(
         api::VulkanFailureClass::RawCopyIllegal,
         "copy_buffer_tensor_direct_",
         "RawCopyIllegal",
         detail.str());
-    TORCH_CHECK(
-        false,
-        api::format_vulkan_failure(
-            api::VulkanFailureClass::RawCopyIllegal,
-            "copy_buffer_tensor_direct_",
-            "RawCopyIllegal",
-            detail.str()));
   }
 
   api::PipelineBarrier pipeline_barrier{};
@@ -1045,15 +1038,21 @@ Tensor cast_vulkan_tensor_dtype(const Tensor& input_arg, ScalarType dtype) {
     case VulkanCastMethod::CpuFallback:
       return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
     case VulkanCastMethod::Unsupported:
-      TORCH_CHECK(
-          false,
-          "Unsupported Vulkan cast from ",
-          input.scalar_type(),
-          " to ",
-          dtype);
+      {
+        std::ostringstream detail;
+        detail << "from=" << input.scalar_type() << " to=" << dtype;
+        api::fail_vulkan(
+            api::VulkanFailureClass::Unsupported,
+            "aten::to",
+            "UnsupportedVulkanCast",
+            detail.str());
+      }
   }
 
-  TORCH_CHECK(false, "Invalid Vulkan cast dispatch state");
+  api::fail_vulkan(
+      api::VulkanFailureClass::Unsupported,
+      "aten::to",
+      "InvalidVulkanCastDispatchState");
 }
 
 void copy_buffer_to_vtensor(
@@ -1222,12 +1221,7 @@ void is_broadcastable(const Tensor& input1, const Tensor& input2) {
     stream << "Tensors are not broadcastable! input1={"
            << describe_tensor_state(input1) << "} input2={"
            << describe_tensor_state(input2) << "}";
-    api::log_vulkan_failure(
-        api::VulkanFailureClass::TensorStateInvalid,
-        "is_broadcastable",
-        "BroadcastShapeInvalid",
-        stream.str());
-    return api::format_vulkan_failure(
+    return api::report_vulkan_failure(
         api::VulkanFailureClass::TensorStateInvalid,
         "is_broadcastable",
         "BroadcastShapeInvalid",

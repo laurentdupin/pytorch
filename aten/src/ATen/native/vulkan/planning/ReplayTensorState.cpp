@@ -124,18 +124,11 @@ void validate_replay_view_not_stale(
          << " stamped_hash=0x" << stamp.logical_desc_hash
          << " current_hash=0x" << tensor_logical_desc_hash(tensor)
          << std::dec << " tensor={" << describe_tensor_state(tensor) << "}";
-  api::log_vulkan_failure(
+  api::fail_vulkan(
       api::VulkanFailureClass::ReplayViewStale,
       consumer_op ? consumer_op : "validate_replay_view_not_stale",
       "ReplayViewStale",
       detail.str());
-  TORCH_CHECK(
-      false,
-      api::format_vulkan_failure(
-          api::VulkanFailureClass::ReplayViewStale,
-          consumer_op ? consumer_op : "validate_replay_view_not_stale",
-          "ReplayViewStale",
-          detail.str()));
 }
 
 void validate_replay_tensor_not_stale(

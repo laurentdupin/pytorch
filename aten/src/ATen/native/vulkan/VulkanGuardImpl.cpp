@@ -1,6 +1,7 @@
 #include <c10/core/impl/DeviceGuardImplInterface.h>
 #include <c10/macros/Macros.h>
 #include <ATen/native/vulkan/api/Context.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 
 namespace at::detail {
 
@@ -70,16 +71,25 @@ struct VulkanGuardImpl final : public c10::impl::DeviceGuardImplInterface {
     (void)stream;
     (void)device_index;
     (void)flag;
-    TORCH_CHECK(false, "VULKAN backend doesn't support events.");
+    native::vulkan::api::fail_vulkan(
+        native::vulkan::api::VulkanFailureClass::Unsupported,
+        "VulkanGuardImpl::record",
+        "EventsUnsupported");
   }
   void block(void* event, const Stream& stream) const override {
     (void)event;
     (void)stream;
-    TORCH_CHECK(false, "VULKAN backend doesn't support events.")
+    native::vulkan::api::fail_vulkan(
+        native::vulkan::api::VulkanFailureClass::Unsupported,
+        "VulkanGuardImpl::block",
+        "EventsUnsupported");
   }
   bool queryEvent(void* event) const override {
     (void)event;
-    TORCH_CHECK(false, "VULKAN backend doesn't support events.")
+    native::vulkan::api::fail_vulkan(
+        native::vulkan::api::VulkanFailureClass::Unsupported,
+        "VulkanGuardImpl::queryEvent",
+        "EventsUnsupported");
   }
   void destroyEvent(void* event, const DeviceIndex device_index)
       const noexcept override {

@@ -2850,10 +2850,10 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan(
       enable_gqa,
       input_runtime_policy.request,
       utils::current_vulkan_device_policy());
-  TORCH_CHECK(
-      !route_decision.hard_fail,
-      utils::format_hard_fail(
-          "aten::_scaled_dot_product_attention_math", route_decision));
+  if (route_decision.hard_fail) {
+    utils::fail_hard_fail(
+        "aten::_scaled_dot_product_attention_math", route_decision);
+  }
   log_attention_kernel_family_choice(input_runtime_policy);
   log_attention_execution_strategy_choice(input_runtime_policy);
   return scaled_dot_product_attention_math_vulkan_impl(
@@ -2901,10 +2901,10 @@ Tensor scaled_dot_product_attention_vulkan_impl(
       enable_gqa,
       input_runtime_policy.request,
       utils::current_vulkan_device_policy());
-  TORCH_CHECK(
-      !route_decision.hard_fail,
-      utils::format_hard_fail(
-          "aten::scaled_dot_product_attention", route_decision));
+  if (route_decision.hard_fail) {
+    utils::fail_hard_fail(
+        "aten::scaled_dot_product_attention", route_decision);
+  }
   log_attention_kernel_family_choice(input_runtime_policy);
   log_attention_execution_strategy_choice(input_runtime_policy);
   log_sdpa_event(
@@ -3300,14 +3300,7 @@ Tensor softmax_buffer_lastdim_out_vulkan(
       route_request,
       utils::current_vulkan_device_policy());
   if (route_decision.hard_fail) {
-    TORCH_CHECK(
-        false,
-        utils::format_hard_fail(
-            "aten::_softmax", route_decision),
-        ". buffer_softmax_lastdim_float is known to produce incorrect "
-        "normalization on direct-buffer diffusion-style 3D score tensors with "
-        "last dimension >= 64. Fix or replace the buffer shader before "
-        "re-enabling this shape family.");
+    utils::fail_hard_fail("aten::_softmax", route_decision);
   }
   TORCH_CHECK(
       can_run_buffer_softmax(input, input.dim() - 1),
