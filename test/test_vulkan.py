@@ -2491,6 +2491,39 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 floats.to(torch.int32),
                 copy_dst_from_cpu.cpu())
 
+    def test_hwc_rgb_normalize_materializes_before_patch_embed_conv(self):
+        torch.manual_seed(0)
+        image = torch.randint(0, 256, (420, 280, 3), dtype=torch.uint8)
+        mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32)
+        std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32)
+        weight = torch.randn(4, 3, 3, 3, dtype=torch.float32) * 0.02
+        bias = torch.randn(4, dtype=torch.float32) * 0.02
+
+        expected_input = ((image.float() / 255.0 - mean) / std).permute(
+            (2, 0, 1)).unsqueeze(0)
+        expected = F.conv2d(expected_input, weight, bias, padding=1)
+
+        image_vulkan = image.to("vulkan")
+        mean_vulkan = mean.to("vulkan")
+        std_vulkan = std.to("vulkan")
+        weight_vulkan = weight.to("vulkan")
+        bias_vulkan = bias.to("vulkan")
+        first_actual = None
+
+        for _ in range(12):
+            normalized = (
+                (image_vulkan.float() / 255.0 - mean_vulkan) / std_vulkan
+            ).permute((2, 0, 1)).unsqueeze(0)
+            actual = F.conv2d(
+                normalized, weight_vulkan, bias_vulkan, padding=1).cpu()
+            self.assertTrue(torch.isfinite(actual).all())
+            self._assert_outputs_close(expected, actual, atol=2e-3, rtol=2e-3)
+            if first_actual is None:
+                first_actual = actual
+            else:
+                self._assert_outputs_close(
+                    first_actual, actual, atol=0.0, rtol=0.0)
+
     def test_clone_of_dinov2_qkv_buffer_view_stays_device_resident(self):
         log_name = "vulkan_clone_qkv_buffer_view_copy_sync_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

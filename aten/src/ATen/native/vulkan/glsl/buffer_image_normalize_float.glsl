@@ -65,6 +65,27 @@ uBlock;
 
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
+void zero_width_pack_padding(
+    const uvec4 coord,
+    const uint out_buf_length,
+    const uint out_storage_offset) {
+  const uint logical_channels = uOutMeta.logical_sizes.x;
+  const uint physical_channels = uOutMeta.physical_strides.y;
+  if (coord.x != 0u || logical_channels >= physical_channels) {
+    return;
+  }
+
+  uvec4 pad_coord = coord;
+  for (uint c = logical_channels; c < physical_channels; ++c) {
+    pad_coord.x = c;
+    const uint pad_idx =
+        coord_to_idx(pad_coord, uOutMeta.physical_strides) + out_storage_offset;
+    if (pad_idx < out_buf_length) {
+      uOutput.data[pad_idx] = 0.0;
+    }
+  }
+}
+
 void main() {
   const uint write_idx = gl_GlobalInvocationID.x;
   if (write_idx >= uOutMeta.info.y) {
@@ -92,4 +113,6 @@ void main() {
       std_idx < uStdMeta.info.z ? uStd.data[std_idx] : 1.0;
   uOutput.data[output_idx] =
       (uInput.data[input_idx] * uBlock.params.x - mean_value) / std_value;
+
+  zero_width_pack_padding(coord, uOutMeta.info.z, uOutMeta.info.w);
 }

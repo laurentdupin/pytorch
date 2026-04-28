@@ -45,6 +45,31 @@ uArgs;
 
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
+void zero_width_pack_padding(
+    const uvec4 write_coord,
+    const uint out_buf_length,
+    const uint out_storage_offset) {
+  // Width-packed buffers can have physical padding in the channel lane
+  // (for example HWC RGB stored as RGBA). Binary ops only iterate logical
+  // elements, so clear the padding lane while processing the first channel of
+  // each pixel/row to avoid stale values leaking into pack/copy transitions.
+  const uint logical_channels = uOutMeta.logical_sizes.x;
+  const uint physical_channels = uOutMeta.physical_strides.y;
+  if (write_coord.x != 0u || logical_channels >= physical_channels) {
+    return;
+  }
+
+  uvec4 pad_coord = write_coord;
+  for (uint c = logical_channels; c < physical_channels; ++c) {
+    pad_coord.x = c;
+    const uint pad_idx =
+        coord_to_idx(pad_coord, uOutMeta.physical_strides) + out_storage_offset;
+    if (pad_idx < out_buf_length) {
+      uOutput.data[pad_idx] = DATA_T(0);
+    }
+  }
+}
+
 void main() {
   const uint write_idx = ivec3(gl_GlobalInvocationID).x;
   const uint out_numel = uOutMeta.info.y;
@@ -75,4 +100,6 @@ void main() {
   if (actual_write_idx < out_buf_length) {
     uOutput.data[actual_write_idx] = outval;
   }
+
+  zero_width_pack_padding(write_coord, out_buf_length, out_storage_offset);
 }

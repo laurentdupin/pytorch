@@ -2202,10 +2202,13 @@ Tensor run_bfloat16_buffer_conv2d(
     const bool transposed,
     const IntArrayRef output_padding,
     const int64_t groups) {
+      const Tensor compute_input = input.is_vulkan()
+          ? materialize_deferred_image_normalize_candidate_if_needed(input)
+          : input;
       if (can_run_bfloat16_buffer_conv2d(
-              input, weight, bias, transposed, false, output_padding)) {
+              compute_input, weight, bias, transposed, false, output_padding)) {
         return run_bfloat16_buffer_conv2d(
-            input, weight, bias, stride, padding, dilation, groups);
+            compute_input, weight, bias, stride, padding, dilation, groups);
       }
       const Tensor compute_weight = utils::prepare_vulkan_execution_tensor(
           weight,
@@ -2217,7 +2220,7 @@ Tensor run_bfloat16_buffer_conv2d(
               utils::VulkanExecutionPlanKind::Conv2dBiasSource,
               convolution_request(utils::VulkanTensorRole::Bias));
   const bool force_legacy_image_pack =
-      should_force_image_conv_for_small_metadata_input(input);
+      should_force_image_conv_for_small_metadata_input(compute_input);
   if (force_legacy_image_pack) {
     utils::log_vulkan_op_hit(
         "aten::convolution.buffer_float_skip.small_metadata_input");
@@ -2238,7 +2241,7 @@ Tensor run_bfloat16_buffer_conv2d(
         weight,
         bias,
         force_legacy_image_pack);
-    return run_conv2d_context(input, conv_context);
+    return run_conv2d_context(compute_input, conv_context);
   }
   auto conv_context = c10::make_intrusive<Conv2dPackedContext>(
       compute_weight,
@@ -2256,7 +2259,7 @@ Tensor run_bfloat16_buffer_conv2d(
       bias,
       force_legacy_image_pack);
 
-  return run_conv2d_context(input, conv_context);
+  return run_conv2d_context(compute_input, conv_context);
 }
 
 } // namespace
