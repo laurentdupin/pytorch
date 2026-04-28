@@ -23,6 +23,7 @@ struct VulkanDevicePolicy final {
   bool avoid_large_persistent_weight_cache{false};
   bool disable_generic_tiled_diffusion_linear{true};
   bool disable_generic_4d_sdpa{true};
+  bool disable_large_buffer_conv_3x3{true};
   bool disable_known_bad_conv_3x3_s1_p1{true};
 };
 

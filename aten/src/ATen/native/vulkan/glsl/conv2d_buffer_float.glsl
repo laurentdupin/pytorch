@@ -95,7 +95,7 @@ void main() {
 
   const uint kernel_w = uWeightMeta.logical_sizes.x;
   const uint kernel_h = uWeightMeta.logical_sizes.y;
-  const uint in_channels_per_group = uWeightMeta.logical_sizes.z;
+  const uint in_channels_per_group = uInMeta.logical_sizes.z / groups;
   const uint out_channels_per_group = out_channels / groups;
   const uint group_idx = out_channel / out_channels_per_group;
   const uint in_channel_start = group_idx * in_channels_per_group;

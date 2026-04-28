@@ -1510,11 +1510,6 @@ FloatBufferConv2dShaderKind select_float_buffer_conv2d_shader_kind(
         stride[1] == 1) {
       return FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1;
     }
-    if (
-        padding[0] == 1 && padding[1] == 1 && stride[0] == 2 &&
-        stride[1] == 2) {
-      return FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad1;
-    }
   }
 
   return FloatBufferConv2dShaderKind::Generic;
@@ -1538,7 +1533,7 @@ api::utils::uvec3 select_float_buffer_conv2d_work_group_size(
     case FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad1:
       return {8u, 8u, 1u};
     case FloatBufferConv2dShaderKind::Generic:
-      return adaptive_work_group_size(global_size);
+      return {4u, 4u, 1u};
   }
 
   return adaptive_work_group_size(global_size);

@@ -39,11 +39,14 @@ VulkanDevicePolicy current_vulkan_device_policy() {
 
   const bool gtx_class = contains_name(policy.device_name, "GTX");
   const bool rx_6700_xt = contains_name(policy.device_name, "6700 XT");
+  const bool rx_9070 = contains_name(policy.device_name, "RX 9070");
   policy.prefer_strict_replay_retirement = true;
   policy.avoid_large_persistent_weight_cache = gtx_class || rx_6700_xt;
   policy.disable_generic_tiled_diffusion_linear = true;
   policy.disable_generic_4d_sdpa = true;
-  policy.disable_known_bad_conv_3x3_s1_p1 = true;
+  policy.disable_large_buffer_conv_3x3 = !rx_9070;
+  policy.disable_known_bad_conv_3x3_s1_p1 =
+      policy.disable_large_buffer_conv_3x3;
   return policy;
 }
 
@@ -57,7 +60,9 @@ std::string describe_device_policy(const VulkanDevicePolicy& policy) {
       << " subgroup=" << (policy.supports_subgroup_ops ? 1 : 0)
       << " strict_replay=" << (policy.prefer_strict_replay_retirement ? 1 : 0)
       << " avoid_weight_cache="
-      << (policy.avoid_large_persistent_weight_cache ? 1 : 0);
+      << (policy.avoid_large_persistent_weight_cache ? 1 : 0)
+      << " disable_large_conv3x3="
+      << (policy.disable_large_buffer_conv_3x3 ? 1 : 0);
   return out.str();
 }
 

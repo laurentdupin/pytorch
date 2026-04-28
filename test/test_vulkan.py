@@ -438,6 +438,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "Linear module are required for this test.")
         return capable_devices[:min_devices]
 
+    def _skip_unless_large_buffer_conv3x3_supported(self):
+        device_index = torch.vulkan.current_device()
+        device_name = torch.vulkan.get_device_name(device_index)
+        if "RX 9070" not in device_name:
+            self.skipTest(
+                "Large 3x3 buffer conv is currently validated only on RX 9070; "
+                f"current Vulkan device is {device_name!r}.")
+
     def _assert_outputs_close(self, expected, actual, *, atol=1e-4, rtol=1e-4):
         if torch.is_tensor(expected):
             self.assertTrue(torch.is_tensor(actual))
@@ -468,6 +476,298 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self.assertEqual(expected, actual)
 
+    def _conv2d_unfold_reference(self, module, x):
+        self.assertEqual(
+            module.groups,
+            1,
+            msg="The unfold reference currently covers non-grouped conv2d only")
+        weight = module.weight.detach()
+        bias = module.bias.detach() if module.bias is not None else None
+        batch = x.shape[0]
+        out_channels = weight.shape[0]
+        unfolded = F.unfold(
+            x,
+            weight.shape[-2:],
+            dilation=module.dilation,
+            padding=module.padding,
+            stride=module.stride)
+        output = torch.bmm(
+            weight.view(out_channels, -1).unsqueeze(0).expand(batch, -1, -1),
+            unfolded)
+        out_height = (
+            x.shape[2] + 2 * module.padding[0] -
+            module.dilation[0] * (weight.shape[-2] - 1) - 1
+        ) // module.stride[0] + 1
+        out_width = (
+            x.shape[3] + 2 * module.padding[1] -
+            module.dilation[1] * (weight.shape[-1] - 1) - 1
+        ) // module.stride[1] + 1
+        output = output.view(batch, out_channels, out_height, out_width)
+        if bias is not None:
+            output = output + bias.view(1, out_channels, 1, 1)
+        return output
+
+    def _snapshot_cpu_outputs(self, value):
+        if torch.is_tensor(value):
+            return value.detach().cpu().clone()
+
+        if isinstance(value, tuple):
+            return tuple(self._snapshot_cpu_outputs(item) for item in value)
+
+        if isinstance(value, list):
+            return [self._snapshot_cpu_outputs(item) for item in value]
+
+        if isinstance(value, dict):
+            return {
+                key: self._snapshot_cpu_outputs(item)
+                for key, item in value.items()
+            }
+
+        return value
+
+    def _clone_cpu_inputs(self, value):
+        if torch.is_tensor(value):
+            return value.detach().clone()
+
+        if isinstance(value, tuple):
+            return tuple(self._clone_cpu_inputs(item) for item in value)
+
+        if isinstance(value, list):
+            return [self._clone_cpu_inputs(item) for item in value]
+
+        if isinstance(value, dict):
+            return {
+                key: self._clone_cpu_inputs(item)
+                for key, item in value.items()
+            }
+
+        return value
+
+    def _tensor_accuracy_summary(self, expected, actual):
+        expected_cpu = expected.detach().cpu()
+        actual_cpu = actual.detach().cpu()
+        self.assertEqual(
+            expected_cpu.shape,
+            actual_cpu.shape,
+            msg=(
+                "Vulkan accuracy shape mismatch: "
+                f"expected={tuple(expected_cpu.shape)} "
+                f"actual={tuple(actual_cpu.shape)}"))
+
+        if expected_cpu.numel() == 0:
+            return {
+                "max_abs": 0.0,
+                "mean_abs": 0.0,
+                "max_rel": 0.0,
+                "nonfinite": 0,
+                "bad_count": 0,
+            }
+
+        if not (
+            expected_cpu.is_floating_point()
+            or actual_cpu.is_floating_point()
+        ):
+            bad_count = int((expected_cpu != actual_cpu).sum().item())
+            return {
+                "max_abs": float(bad_count > 0),
+                "mean_abs": float(bad_count > 0),
+                "max_rel": float(bad_count > 0),
+                "nonfinite": 0,
+                "bad_count": bad_count,
+            }
+
+        expected_f = expected_cpu.to(torch.float64)
+        actual_f = actual_cpu.to(torch.float64)
+        finite_mask = torch.isfinite(expected_f) & torch.isfinite(actual_f)
+        nonfinite = int((~finite_mask).sum().item())
+        if finite_mask.any():
+            diff = (expected_f[finite_mask] - actual_f[finite_mask]).abs()
+            denom = expected_f[finite_mask].abs().clamp_min(1e-12)
+            rel = diff / denom
+            max_abs = float(diff.max().item())
+            mean_abs = float(diff.mean().item())
+            max_rel = float(rel.max().item())
+        else:
+            max_abs = float("inf")
+            mean_abs = float("inf")
+            max_rel = float("inf")
+
+        return {
+            "max_abs": max_abs,
+            "mean_abs": mean_abs,
+            "max_rel": max_rel,
+            "nonfinite": nonfinite,
+            "bad_count": 0,
+        }
+
+    def _assert_tensors_close_with_accuracy(
+            self,
+            expected,
+            actual,
+            *,
+            atol,
+            rtol,
+            label):
+        self.assertTrue(
+            torch.is_tensor(actual),
+            msg=f"{label}: Vulkan output is not a tensor")
+
+        expected_cpu = expected.detach().cpu()
+        actual_cpu = actual.detach().cpu()
+        summary = self._tensor_accuracy_summary(expected_cpu, actual_cpu)
+
+        if summary["nonfinite"] != 0:
+            self.fail(
+                f"{label}: non-finite values detected "
+                f"nonfinite={summary['nonfinite']} "
+                f"max_abs={summary['max_abs']:.8g} "
+                f"mean_abs={summary['mean_abs']:.8g} "
+                f"max_rel={summary['max_rel']:.8g}")
+
+        if not (
+            expected_cpu.is_floating_point()
+            or actual_cpu.is_floating_point()
+        ):
+            if summary["bad_count"] != 0:
+                self.fail(
+                    f"{label}: exact tensor mismatch "
+                    f"bad_count={summary['bad_count']}")
+            return summary
+
+        expected_f = expected_cpu.to(torch.float64)
+        actual_f = actual_cpu.to(torch.float64)
+        close = torch.isclose(expected_f, actual_f, atol=atol, rtol=rtol)
+        bad_count = int((~close).sum().item())
+        if bad_count != 0:
+            self.fail(
+                f"{label}: Vulkan accuracy mismatch "
+                f"bad_count={bad_count}/{expected_cpu.numel()} "
+                f"atol={atol} rtol={rtol} "
+                f"max_abs={summary['max_abs']:.8g} "
+                f"mean_abs={summary['mean_abs']:.8g} "
+                f"max_rel={summary['max_rel']:.8g}")
+
+        return summary
+
+    def _assert_outputs_close_with_accuracy(
+            self,
+            expected,
+            actual,
+            *,
+            atol=1e-4,
+            rtol=1e-4,
+            label="output"):
+        if torch.is_tensor(expected):
+            return [self._assert_tensors_close_with_accuracy(
+                expected,
+                actual,
+                atol=atol,
+                rtol=rtol,
+                label=label)]
+
+        if isinstance(expected, tuple):
+            self.assertIsInstance(actual, tuple)
+            self.assertEqual(len(expected), len(actual))
+            summaries = []
+            for index, (expected_item, actual_item) in enumerate(
+                    zip(expected, actual)):
+                summaries.extend(self._assert_outputs_close_with_accuracy(
+                    expected_item,
+                    actual_item,
+                    atol=atol,
+                    rtol=rtol,
+                    label=f"{label}[{index}]"))
+            return summaries
+
+        if isinstance(expected, list):
+            self.assertIsInstance(actual, list)
+            self.assertEqual(len(expected), len(actual))
+            summaries = []
+            for index, (expected_item, actual_item) in enumerate(
+                    zip(expected, actual)):
+                summaries.extend(self._assert_outputs_close_with_accuracy(
+                    expected_item,
+                    actual_item,
+                    atol=atol,
+                    rtol=rtol,
+                    label=f"{label}[{index}]"))
+            return summaries
+
+        if isinstance(expected, dict):
+            self.assertIsInstance(actual, dict)
+            self.assertEqual(set(expected.keys()), set(actual.keys()))
+            summaries = []
+            for key in sorted(expected.keys()):
+                summaries.extend(self._assert_outputs_close_with_accuracy(
+                    expected[key],
+                    actual[key],
+                    atol=atol,
+                    rtol=rtol,
+                    label=f"{label}.{key}"))
+            return summaries
+
+        self.assertEqual(expected, actual)
+        return []
+
+    def _assert_repeated_vulkan_accuracy(
+            self,
+            cases,
+            *,
+            repeats=3,
+            variants=2,
+            atol=1e-4,
+            rtol=1e-4,
+            drift_atol=None,
+            drift_rtol=None):
+        if drift_atol is None:
+            drift_atol = atol
+        if drift_rtol is None:
+            drift_rtol = rtol
+
+        for case in cases:
+            name = case["name"]
+            make_case = case["make"]
+            case_atol = case.get("atol", atol)
+            case_rtol = case.get("rtol", rtol)
+            case_drift_atol = case.get("drift_atol", drift_atol)
+            case_drift_rtol = case.get("drift_rtol", drift_rtol)
+            case_repeats = case.get("repeats", repeats)
+            case_variants = case.get("variants", variants)
+
+            for variant in range(case_variants):
+                with self.subTest(case=name, variant=variant):
+                    cpu_fn, vulkan_fn, inputs = make_case(variant)
+                    first_vulkan_output = None
+
+                    for repeat in range(case_repeats):
+                        cpu_inputs = self._clone_cpu_inputs(inputs)
+                        vulkan_inputs = self._to_vulkan(
+                            self._clone_cpu_inputs(inputs))
+                        label = f"{name} variant={variant} repeat={repeat}"
+
+                        with torch.inference_mode():
+                            expected = self._single_threaded_cpu(
+                                lambda: cpu_fn(*cpu_inputs))
+                            actual = vulkan_fn(*vulkan_inputs)
+
+                        actual_snapshot = self._snapshot_cpu_outputs(actual)
+                        self._assert_outputs_close_with_accuracy(
+                            expected,
+                            actual_snapshot,
+                            atol=case_atol,
+                            rtol=case_rtol,
+                            label=f"{label} cpu_reference")
+
+                        if first_vulkan_output is None:
+                            first_vulkan_output = actual_snapshot
+                        else:
+                            self._assert_outputs_close_with_accuracy(
+                                first_vulkan_output,
+                                actual_snapshot,
+                                atol=case_drift_atol,
+                                rtol=case_drift_rtol,
+                                label=f"{label} repeated_drift")
+
     def _single_threaded_cpu(self, fn):
         previous_num_threads = torch.get_num_threads()
         torch.set_num_threads(1)
@@ -490,6 +790,484 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             fn(*args)
             with self.assertRaisesRegex(exc_type, message):
                 fn(*self._to_vulkan(args))
+
+    def test_repeated_accuracy_elementwise_view_and_reduction_matrix(self):
+        def make_metadata_view_binary(variant):
+            torch.manual_seed(1000 + variant)
+            x = torch.randn(2, 5 + variant * 2, 8)
+            y = torch.randn(2, 5 + variant * 2, 8)
+
+            def fn(a, b):
+                av = a[:, 1::2, :]
+                bv = b[:, 1::2, :]
+                return torch.relu(av + bv * 0.25) * (av - bv * 0.125)
+
+            return fn, fn, (x, y)
+
+        def make_dim_reduction(variant):
+            torch.manual_seed(1100 + variant)
+            x = torch.randn(2 + variant, 4, 7)
+
+            def fn(t):
+                return (
+                    t.sum(dim=-1),
+                    t.mean(dim=1),
+                )
+
+            return fn, fn, (x,)
+
+        self._assert_repeated_vulkan_accuracy(
+            [
+                {
+                    "name": "metadata_view_binary",
+                    "make": make_metadata_view_binary,
+                },
+                {
+                    "name": "dim_reduction_sum_mean",
+                    "make": make_dim_reduction,
+                    "atol": 2e-4,
+                    "rtol": 2e-4,
+                },
+            ],
+            repeats=3,
+            variants=2)
+
+    def test_repeated_accuracy_linear_softmax_and_norm_matrix(self):
+        def make_linear_gelu(variant):
+            torch.manual_seed(1200 + variant)
+            in_features = 32 + variant * 16
+            out_features = 24 + variant * 8
+            module_cpu = nn.Linear(in_features, out_features).eval()
+            module_vulkan = nn.Linear(in_features, out_features).eval()
+            module_vulkan.load_state_dict(module_cpu.state_dict())
+            module_vulkan = module_vulkan.to("vulkan")
+            x = torch.randn(2, 3 + variant, in_features)
+
+            def cpu_fn(t):
+                return F.gelu(module_cpu(t))
+
+            def vulkan_fn(t):
+                return F.gelu(module_vulkan(t))
+
+            return cpu_fn, vulkan_fn, (x,)
+
+        def make_softmax(variant):
+            torch.manual_seed(1300 + variant)
+            x = torch.randn(2, 3 + variant, 16 + variant * 8)
+
+            def fn(t):
+                return torch.softmax(t, dim=-1)
+
+            return fn, fn, (x,)
+
+        def make_layer_norm(variant):
+            torch.manual_seed(1400 + variant)
+            normalized_shape = 32 + variant * 16
+            module_cpu = nn.LayerNorm(normalized_shape).eval()
+            module_vulkan = nn.LayerNorm(normalized_shape).eval()
+            module_vulkan.load_state_dict(module_cpu.state_dict())
+            module_vulkan = module_vulkan.to("vulkan")
+            x = torch.randn(2, 4 + variant, normalized_shape)
+
+            return module_cpu, module_vulkan, (x,)
+
+        self._assert_repeated_vulkan_accuracy(
+            [
+                {
+                    "name": "linear_gelu",
+                    "make": make_linear_gelu,
+                    "atol": 3e-4,
+                    "rtol": 3e-4,
+                },
+                {
+                    "name": "softmax_lastdim",
+                    "make": make_softmax,
+                    "atol": 2e-4,
+                    "rtol": 2e-4,
+                },
+                {
+                    "name": "layer_norm",
+                    "make": make_layer_norm,
+                    "atol": 4e-4,
+                    "rtol": 4e-4,
+                },
+            ],
+            repeats=3,
+            variants=2)
+
+    def test_repeated_accuracy_conv_upsample_and_pointwise_matrix(self):
+        def make_small_conv2d(variant):
+            torch.manual_seed(1500 + variant)
+            in_channels = 4 + variant * 2
+            out_channels = 5 + variant * 3
+            module_cpu = nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size=3,
+                padding=1,
+                bias=True).eval()
+            module_vulkan = nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size=3,
+                padding=1,
+                bias=True).eval()
+            module_vulkan.load_state_dict(module_cpu.state_dict())
+            module_vulkan = module_vulkan.to("vulkan")
+            x = torch.randn(1, in_channels, 13 + variant, 15 + variant)
+
+            return module_cpu, module_vulkan, (x,)
+
+        def make_bilinear_upsample(variant):
+            torch.manual_seed(1600 + variant)
+            x = torch.randn(1, 3 + variant, 8 + variant, 7 + variant)
+
+            def fn(t):
+                return F.interpolate(
+                    t,
+                    scale_factor=2,
+                    mode="bilinear",
+                    align_corners=False)
+
+            return fn, fn, (x,)
+
+        def make_dav2_pointwise_conv(variant):
+            torch.manual_seed(1700 + variant)
+            out_channels = 192 if variant == 0 else 384
+            module_cpu = nn.Conv2d(
+                384,
+                out_channels,
+                kernel_size=1,
+                bias=True).eval()
+            module_vulkan = nn.Conv2d(
+                384,
+                out_channels,
+                kernel_size=1,
+                bias=True).eval()
+            module_vulkan.load_state_dict(module_cpu.state_dict())
+            module_vulkan = module_vulkan.to("vulkan")
+            x = torch.randn(1, 384, 30, 20)
+
+            return module_cpu, module_vulkan, (x,)
+
+        self._assert_repeated_vulkan_accuracy(
+            [
+                {
+                    "name": "small_conv2d_3x3",
+                    "make": make_small_conv2d,
+                    "atol": 3e-3,
+                    "rtol": 1e-3,
+                },
+                {
+                    "name": "bilinear_upsample",
+                    "make": make_bilinear_upsample,
+                    "atol": 2e-4,
+                    "rtol": 2e-4,
+                },
+                {
+                    "name": "dav2_decoder_pointwise_conv",
+                    "make": make_dav2_pointwise_conv,
+                    "atol": 1e-4,
+                    "rtol": 1e-4,
+                    "repeats": 2,
+                    "variants": 2,
+                },
+            ],
+            repeats=3,
+            variants=2)
+
+    def test_repeated_accuracy_linear_algebra_and_attention_matrix(self):
+        def make_mm(variant):
+            torch.manual_seed(1800 + variant)
+            a = torch.randn(4 + variant, 5 + variant)
+            b = torch.randn(5 + variant, 3 + variant)
+
+            return torch.mm, torch.mm, (a, b)
+
+        def make_addmm_transposed_weight(variant):
+            torch.manual_seed(1900 + variant)
+            batch = 8 + variant * 4
+            in_features = 16 + variant * 8
+            out_features = 6 + variant * 2
+            x = torch.randn(batch, in_features)
+            weight = torch.randn(out_features, in_features)
+            bias = torch.randn(out_features)
+
+            def fn(b, a, w):
+                return torch.addmm(b, a, w.t())
+
+            return fn, fn, (bias, x, weight)
+
+        def make_bmm_transposed_weight(variant):
+            torch.manual_seed(2000 + variant)
+            batch = 2 + variant
+            m = 3 + variant
+            k = 5 + variant
+            n = 4 + variant
+            a = torch.randn(batch, m, k)
+            b = torch.randn(batch, n, k)
+
+            def fn(lhs, rhs):
+                return torch.bmm(lhs, rhs.transpose(1, 2))
+
+            return fn, fn, (a, b)
+
+        def make_baddbmm(variant):
+            torch.manual_seed(2100 + variant)
+            batch = 2 + variant
+            m = 3 + variant
+            k = 4 + variant
+            n = 5 + variant
+            bias = torch.randn(batch, m, n)
+            a = torch.randn(batch, m, k)
+            b = torch.randn(batch, k, n)
+
+            return torch.baddbmm, torch.baddbmm, (bias, a, b)
+
+        def make_sdpa_3d(variant):
+            torch.manual_seed(2200 + variant)
+            heads = 2 + variant
+            q_tokens = 7 + variant * 2
+            kv_tokens = 5 + variant * 2
+            head_dim = 8 + variant * 4
+            q = torch.randn(heads, q_tokens, head_dim)
+            k = torch.randn(heads, kv_tokens, head_dim)
+            v = torch.randn(heads, kv_tokens, head_dim)
+
+            def fn(query, key, value):
+                return F.scaled_dot_product_attention(query, key, value)
+
+            return fn, fn, (q, k, v)
+
+        def make_sdpa_4d(variant):
+            torch.manual_seed(2300 + variant)
+            batch = 1
+            heads = 2 + variant
+            tokens = 6 + variant * 2
+            head_dim = 8 + variant * 4
+            q = torch.randn(batch, heads, tokens, head_dim)
+            k = torch.randn(batch, heads, tokens, head_dim)
+            v = torch.randn(batch, heads, tokens, head_dim)
+
+            def fn(query, key, value):
+                return F.scaled_dot_product_attention(query, key, value)
+
+            return fn, fn, (q, k, v)
+
+        self._assert_repeated_vulkan_accuracy(
+            [
+                {
+                    "name": "mm",
+                    "make": make_mm,
+                    "atol": 2e-4,
+                    "rtol": 2e-4,
+                },
+                {
+                    "name": "addmm_transposed_weight",
+                    "make": make_addmm_transposed_weight,
+                    "atol": 2e-4,
+                    "rtol": 2e-4,
+                },
+                {
+                    "name": "bmm_transposed_weight",
+                    "make": make_bmm_transposed_weight,
+                    "atol": 2e-4,
+                    "rtol": 2e-4,
+                },
+                {
+                    "name": "baddbmm",
+                    "make": make_baddbmm,
+                    "atol": 2e-4,
+                    "rtol": 2e-4,
+                },
+                {
+                    "name": "sdpa_3d",
+                    "make": make_sdpa_3d,
+                    "atol": 3e-4,
+                    "rtol": 3e-4,
+                },
+                {
+                    "name": "sdpa_4d",
+                    "make": make_sdpa_4d,
+                    "atol": 3e-4,
+                    "rtol": 3e-4,
+                },
+            ],
+            repeats=3,
+            variants=2)
+
+    def test_repeated_accuracy_shape_layout_and_copy_matrix(self):
+        def make_permute_reshape_readback(variant):
+            torch.manual_seed(2400 + variant)
+            x = torch.randn(1, 2, 17 + variant, 8)
+
+            def fn(t):
+                return t.permute(0, 2, 1, 3).reshape(1, 17 + variant, 16)
+
+            return fn, fn, (x,)
+
+        def make_slice_cat_stack(variant):
+            torch.manual_seed(2500 + variant)
+            x = torch.randn(2, 9 + variant * 2, 6)
+            y = torch.randn(2, 9 + variant * 2, 6)
+
+            def fn(a, b):
+                left = a[:, :1]
+                middle = b[:, 2::2]
+                right = a[:, -2:]
+                cat = torch.cat([left, middle, right], dim=1)
+                stack = torch.stack([cat, cat + 0.5], dim=0)
+                return cat, stack
+
+            return fn, fn, (x, y)
+
+        def make_texture_readback_view(variant):
+            torch.manual_seed(2600 + variant)
+            x = torch.randn(1, 3 + variant, 9 + variant, 11 + variant)
+
+            def fn(t):
+                return t[:, :, 1:, 1::2]
+
+            return fn, fn, (x,)
+
+        def make_hwc_uint8_upload_view(variant):
+            torch.manual_seed(2700 + variant)
+            h = 11 + variant * 2
+            w = 13 + variant * 2
+            rgba = torch.randint(0, 256, (h, w, 4), dtype=torch.uint8)
+
+            def fn(t):
+                return t[:, :, :3]
+
+            return fn, fn, (rgba,)
+
+        self._assert_repeated_vulkan_accuracy(
+            [
+                {
+                    "name": "permute_reshape_readback",
+                    "make": make_permute_reshape_readback,
+                    "atol": 2e-4,
+                    "rtol": 2e-4,
+                },
+                {
+                    "name": "slice_cat_stack",
+                    "make": make_slice_cat_stack,
+                    "atol": 1e-4,
+                    "rtol": 1e-4,
+                },
+                {
+                    "name": "texture_readback_view",
+                    "make": make_texture_readback_view,
+                    "atol": 1e-4,
+                    "rtol": 1e-4,
+                },
+                {
+                    "name": "hwc_uint8_upload_view",
+                    "make": make_hwc_uint8_upload_view,
+                },
+            ],
+            repeats=3,
+            variants=2)
+
+    def test_repeated_accuracy_pooling_and_norm_matrix(self):
+        def make_avg_pool2d(variant):
+            torch.manual_seed(2800 + variant)
+            x = torch.randn(2, 3 + variant, 8 + variant * 2, 10 + variant * 2)
+
+            def fn(t):
+                return F.avg_pool2d(t, kernel_size=2, stride=2)
+
+            return fn, fn, (x,)
+
+        def make_max_pool2d(variant):
+            torch.manual_seed(2900 + variant)
+            x = torch.randn(2, 3 + variant, 8 + variant * 2, 10 + variant * 2)
+
+            def fn(t):
+                return F.max_pool2d(t, kernel_size=2, stride=2)
+
+            return fn, fn, (x,)
+
+        def make_adaptive_avg_pool2d(variant):
+            torch.manual_seed(3000 + variant)
+            x = torch.randn(2, 3 + variant, 8 + variant * 2, 10 + variant * 2)
+
+            def fn(t):
+                return F.adaptive_avg_pool2d(t, (1 + variant, 2))
+
+            return fn, fn, (x,)
+
+        def make_batch_norm_eval(variant):
+            torch.manual_seed(3100 + variant)
+            channels = 4 + variant * 2
+            module_cpu = nn.BatchNorm2d(channels).eval()
+            module_vulkan = nn.BatchNorm2d(channels).eval()
+            module_vulkan.load_state_dict(module_cpu.state_dict())
+            module_vulkan = module_vulkan.to("vulkan")
+            x = torch.randn(2, channels, 9 + variant, 7 + variant)
+
+            return module_cpu, module_vulkan, (x,)
+
+        def make_group_norm(variant):
+            torch.manual_seed(3200 + variant)
+            groups = 2 + variant
+            channels = groups * 4
+            module_cpu = nn.GroupNorm(groups, channels).eval()
+            module_vulkan = nn.GroupNorm(groups, channels).eval()
+            module_vulkan.load_state_dict(module_cpu.state_dict())
+            module_vulkan = module_vulkan.to("vulkan")
+            x = torch.randn(2, channels, 5 + variant, 7 + variant)
+
+            return module_cpu, module_vulkan, (x,)
+
+        def make_rms_norm(variant):
+            torch.manual_seed(3300 + variant)
+            normalized_shape = 8 + variant * 4
+            x = torch.randn(2, 4 + variant, normalized_shape)
+            weight = torch.randn(normalized_shape)
+
+            def fn(t, w):
+                return F.rms_norm(t, (normalized_shape,), w, 1e-5)
+
+            return fn, fn, (x, weight)
+
+        self._assert_repeated_vulkan_accuracy(
+            [
+                {
+                    "name": "avg_pool2d",
+                    "make": make_avg_pool2d,
+                },
+                {
+                    "name": "max_pool2d",
+                    "make": make_max_pool2d,
+                },
+                {
+                    "name": "adaptive_avg_pool2d",
+                    "make": make_adaptive_avg_pool2d,
+                    "atol": 5e-4,
+                    "rtol": 5e-3,
+                },
+                {
+                    "name": "batch_norm_eval",
+                    "make": make_batch_norm_eval,
+                    "atol": 2e-4,
+                    "rtol": 2e-4,
+                },
+                {
+                    "name": "group_norm",
+                    "make": make_group_norm,
+                    "atol": 3e-4,
+                    "rtol": 3e-4,
+                },
+                {
+                    "name": "rms_norm",
+                    "make": make_rms_norm,
+                    "atol": 3e-4,
+                    "rtol": 3e-4,
+                },
+            ],
+            repeats=3,
+            variants=2)
 
     def _make_depth_anything_style_features(
             self,
@@ -5009,6 +5787,7 @@ print("OK")
                         rtol=1e-4)
 
     def test_large_spatial_conv2d_module_with_vulkan_weights(self):
+        self._skip_unless_large_buffer_conv3x3_supported()
         torch.manual_seed(0)
 
         x_cpu = torch.randn(1, 384, 37, 56)
@@ -5032,12 +5811,51 @@ print("OK")
         module_vulkan = module_vulkan.to("vulkan")
 
         with torch.inference_mode():
-            with self.assertRaisesRegex(
-                RuntimeError,
-                "KnownBadLargeBufferConv3x3"):
-                module_vulkan(x_vulkan).cpu()
+            expected = self._conv2d_unfold_reference(module_cpu, x_cpu)
+            actual = module_vulkan(x_vulkan)
+            self._assert_outputs_close_with_accuracy(
+                expected,
+                actual,
+                atol=2e-4,
+                rtol=2e-4,
+                label="large_spatial_conv2d")
 
-    def test_dav2_decoder_stride2_conv2d_module_hard_fails_until_fixed(self):
+    def test_dav2_decoder_stride1_conv2d_module_matches_unfold_reference(self):
+        self._skip_unless_large_buffer_conv3x3_supported()
+        torch.manual_seed(0)
+
+        x_cpu = torch.randn(1, 48, 120, 80)
+        x_vulkan = x_cpu.to("vulkan")
+
+        module_cpu = torch.nn.Conv2d(
+            48,
+            64,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=True).eval()
+        module_vulkan = torch.nn.Conv2d(
+            48,
+            64,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=True).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+
+        with torch.inference_mode():
+            expected = self._conv2d_unfold_reference(module_cpu, x_cpu)
+            actual = module_vulkan(x_vulkan)
+            self._assert_outputs_close_with_accuracy(
+                expected,
+                actual,
+                atol=2e-4,
+                rtol=2e-4,
+                label="dav2_decoder_stride1_conv2d")
+
+    def test_dav2_decoder_stride2_conv2d_module_matches_unfold_reference(self):
+        self._skip_unless_large_buffer_conv3x3_supported()
         torch.manual_seed(0)
 
         x_cpu = torch.randn(1, 384, 30, 20)
@@ -5061,11 +5879,14 @@ print("OK")
         module_vulkan = module_vulkan.to("vulkan")
 
         with torch.inference_mode():
-            _ = module_cpu(x_cpu)
-            with self.assertRaisesRegex(
-                    RuntimeError,
-                    "KnownBadLargeBufferConv3x3"):
-                module_vulkan(x_vulkan).cpu()
+            expected = self._conv2d_unfold_reference(module_cpu, x_cpu)
+            actual = module_vulkan(x_vulkan)
+            self._assert_outputs_close_with_accuracy(
+                expected,
+                actual,
+                atol=2e-4,
+                rtol=2e-4,
+                label="dav2_decoder_stride2_conv2d")
 
     def test_large_spatial_conv_weight_roundtrip(self):
         torch.manual_seed(0)

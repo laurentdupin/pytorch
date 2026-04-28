@@ -364,7 +364,7 @@ VulkanRouteDecision select_conv2d_route(
   const VulkanModelLane lane = infer_model_lane(request);
 
   if (
-      device_policy.disable_known_bad_conv_3x3_s1_p1 &&
+      device_policy.disable_large_buffer_conv_3x3 &&
       dtype == kFloat &&
       input_sizes.size() == 4 &&
       weight_sizes.size() == 4 &&
