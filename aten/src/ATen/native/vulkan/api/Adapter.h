@@ -42,9 +42,16 @@ struct PhysicalDevice final {
   std::vector<VkQueueFamilyProperties> queue_families;
 
   // Metadata
+  uint32_t api_version;
+  bool has_vulkan_1_3;
   uint32_t num_compute_queues;
   bool has_unified_memory;
   bool has_timestamps;
+  bool has_maintenance4;
+  bool has_synchronization2;
+  bool has_shader_zero_initialize_workgroup_memory;
+  bool has_shader_integer_dot_product;
+  bool has_pipeline_creation_cache_control;
   bool has_shader_bfloat16;
   bool has_shader_int8;
   bool has_storage_buffer_8bit;
@@ -173,12 +180,40 @@ class Adapter final {
     return physical_device_.num_compute_queues;
   }
 
+  inline uint32_t api_version() const {
+    return physical_device_.api_version;
+  }
+
+  inline bool has_vulkan_1_3() const {
+    return physical_device_.has_vulkan_1_3;
+  }
+
   inline bool timestamp_compute_and_graphics() const {
     return physical_device_.has_timestamps;
   }
 
   inline float timestamp_period() const {
     return physical_device_.timestamp_period;
+  }
+
+  inline bool has_maintenance4() const {
+    return physical_device_.has_maintenance4;
+  }
+
+  inline bool has_synchronization2() const {
+    return physical_device_.has_synchronization2;
+  }
+
+  inline bool has_shader_zero_initialize_workgroup_memory() const {
+    return physical_device_.has_shader_zero_initialize_workgroup_memory;
+  }
+
+  inline bool has_shader_integer_dot_product() const {
+    return physical_device_.has_shader_integer_dot_product;
+  }
+
+  inline bool has_pipeline_creation_cache_control() const {
+    return physical_device_.has_pipeline_creation_cache_control;
   }
 
   inline bool has_shader_bfloat16() const {

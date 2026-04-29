@@ -23,6 +23,15 @@ VulkanRuntimeCapabilityProfile query_vulkan_runtime_capability_profile() {
 
   profile.has_unified_memory = adapter->has_unified_memory();
   profile.has_timestamps = adapter->timestamp_compute_and_graphics();
+  profile.has_vulkan_1_3 = adapter->has_vulkan_1_3();
+  profile.has_maintenance4 = adapter->has_maintenance4();
+  profile.has_synchronization2 = adapter->has_synchronization2();
+  profile.has_shader_zero_initialize_workgroup_memory =
+      adapter->has_shader_zero_initialize_workgroup_memory();
+  profile.has_shader_integer_dot_product =
+      adapter->has_shader_integer_dot_product();
+  profile.has_pipeline_creation_cache_control =
+      adapter->has_pipeline_creation_cache_control();
   profile.has_shader_bfloat16 = adapter->has_shader_bfloat16();
   profile.has_shader_int8 = adapter->has_shader_int8();
   profile.has_storage_buffer_8bit = adapter->has_storage_buffer_8bit();
@@ -78,6 +87,7 @@ VulkanRuntimeCapabilityProfile query_vulkan_runtime_capability_profile() {
 #endif
   }
   profile.num_compute_queues = adapter->num_compute_queues();
+  profile.api_version = adapter->api_version();
   profile.max_compute_workgroup_invocations =
       adapter->physical_handle() != VK_NULL_HANDLE
       ? adapter->physical_device().properties.limits.maxComputeWorkGroupInvocations

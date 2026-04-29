@@ -2,6 +2,7 @@
 
 #include <ATen/Functions.h>
 #include <ATen/native/quantized/PackedParams.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/ops/Batchnorm.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
@@ -19,6 +20,7 @@
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
+#include <ATen/native/vulkan/ops/VulkanValueTrace.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
 #include <torch/custom_class.h>
@@ -274,6 +276,7 @@ void synchronize_runtime() {
     log_vulkan_prepack_synchronize_stage("before_linear_context_retire_release");
     utils::release_retired_linear_contexts();
     log_vulkan_prepack_synchronize_stage("after_linear_context_retire_release");
+    api::clear_vulkan_post_failure_recovery_required();
   }
 }
 
@@ -281,6 +284,10 @@ bool check_tensor_finite_runtime(const Tensor& tensor, std::string label) {
   return check_tensor_finite(
       tensor,
       label.empty() ? "vulkan_prepack::check_tensor_finite" : label.c_str());
+}
+
+bool value_trace_enabled_runtime() {
+  return vulkan_value_trace_enabled();
 }
 
 Tensor create_kv_cache_storage_for_request(
@@ -377,8 +384,8 @@ Tensor maybe_move_runtime_tensor_to_device(
     Tensor output =
         utils::create_buffer_tensor(cpu_snapshot.sizes(), cpu_snapshot.scalar_type());
     output.copy_(cpu_snapshot);
-    convert(output).mark_host_write();
     api::context()->flush();
+    api::context()->sync_and_reclaim();
     return record_tensor_write_and_return(
         output,
         "vulkan_prepack::runtime_tensor_upload",
@@ -630,14 +637,17 @@ std::tuple<Tensor, Tensor, Tensor> compute_moe_router_runtime(
       at::floor_divide(index_sorted_experts, top_k).to(kLong).contiguous();
   const Tensor batch_gates =
       top_k_gates.flatten().index_select(0, index_sorted_experts).contiguous();
+  Tensor batch_gates_output =
+      maybe_move_runtime_tensor_to_device(batch_gates, output_device);
 
   if (output_device.type() != kCPU) {
     utils::log_vulkan_op_hit("vulkan_prepack::compute_moe_router");
+    api::context()->sync_and_reclaim();
   }
 
   return {
       batch_index,
-      maybe_move_runtime_tensor_to_device(batch_gates, output_device),
+      batch_gates_output,
       expert_size,
   };
 }
@@ -1232,6 +1242,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::check_tensor_finite(Tensor X, str label) -> bool"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::value_trace_enabled() -> bool"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_kv_cache_storage_for_request(Tensor prototype, int[] sizes, int sequence_dim, int workload_class, int model_domain, int execution_phase, int tensor_role) -> Tensor"));
@@ -1315,6 +1327,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::check_tensor_finite"),
       TORCH_FN(check_tensor_finite_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::value_trace_enabled"),
+      TORCH_FN(value_trace_enabled_runtime));
 }
 
 TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {

@@ -2,11 +2,65 @@
 #include <ATen/native/vulkan/api/Command.h>
 
 #include <mutex>
+#include <vector>
 
 namespace at {
 namespace native {
 namespace vulkan {
 namespace api {
+
+namespace {
+
+VkPipelineStageFlags2 to_stage2(const VkPipelineStageFlags stages) {
+  VkPipelineStageFlags2 out = 0u;
+  if (stages & VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
+    out |= VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+  }
+  if (stages & VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT) {
+    out |= VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+  }
+  if (stages & VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT) {
+    out |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  }
+  if (stages & VK_PIPELINE_STAGE_TRANSFER_BIT) {
+    out |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+  }
+  if (stages & VK_PIPELINE_STAGE_HOST_BIT) {
+    out |= VK_PIPELINE_STAGE_2_HOST_BIT;
+  }
+  return out != 0u ? out : VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+}
+
+VkAccessFlags2 to_access2(const VkAccessFlags access) {
+  VkAccessFlags2 out = 0u;
+  if (access & VK_ACCESS_SHADER_READ_BIT) {
+    out |= VK_ACCESS_2_SHADER_READ_BIT;
+  }
+  if (access & VK_ACCESS_SHADER_WRITE_BIT) {
+    out |= VK_ACCESS_2_SHADER_WRITE_BIT;
+  }
+  if (access & VK_ACCESS_TRANSFER_READ_BIT) {
+    out |= VK_ACCESS_2_TRANSFER_READ_BIT;
+  }
+  if (access & VK_ACCESS_TRANSFER_WRITE_BIT) {
+    out |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
+  }
+  if (access & VK_ACCESS_HOST_READ_BIT) {
+    out |= VK_ACCESS_2_HOST_READ_BIT;
+  }
+  if (access & VK_ACCESS_HOST_WRITE_BIT) {
+    out |= VK_ACCESS_2_HOST_WRITE_BIT;
+  }
+  if (access & VK_ACCESS_MEMORY_READ_BIT) {
+    out |= VK_ACCESS_2_MEMORY_READ_BIT;
+  }
+  if (access & VK_ACCESS_MEMORY_WRITE_BIT) {
+    out |= VK_ACCESS_2_MEMORY_WRITE_BIT;
+  }
+  return out;
+}
+
+} // namespace
 
 //
 // CommandBuffer
@@ -14,18 +68,22 @@ namespace api {
 
 CommandBuffer::CommandBuffer(
     VkCommandBuffer handle,
-    const VkCommandBufferUsageFlags flags)
+    const VkCommandBufferUsageFlags flags,
+    PFN_vkCmdPipelineBarrier2 cmd_pipeline_barrier2)
     : handle_(handle),
       flags_(flags),
+      cmd_pipeline_barrier2_(cmd_pipeline_barrier2),
       state_(CommandBuffer::State::NEW),
       bound_{} {}
 
 CommandBuffer::CommandBuffer(CommandBuffer&& other) noexcept
     : handle_(other.handle_),
       flags_(other.flags_),
+      cmd_pipeline_barrier2_(other.cmd_pipeline_barrier2_),
       state_(other.state_),
       bound_(other.bound_) {
   other.handle_ = VK_NULL_HANDLE;
+  other.cmd_pipeline_barrier2_ = nullptr;
   other.bound_.reset();
   other.state_ = CommandBuffer::State::INVALID;
 }
@@ -33,10 +91,12 @@ CommandBuffer::CommandBuffer(CommandBuffer&& other) noexcept
 CommandBuffer& CommandBuffer::operator=(CommandBuffer&& other) noexcept {
   handle_ = other.handle_;
   flags_ = other.flags_;
+  cmd_pipeline_barrier2_ = other.cmd_pipeline_barrier2_;
   state_ = other.state_;
   bound_ = other.bound_;
 
   other.handle_ = VK_NULL_HANDLE;
+  other.cmd_pipeline_barrier2_ = nullptr;
   other.bound_.reset();
   other.state_ = CommandBuffer::State::INVALID;
 
@@ -126,36 +186,79 @@ void CommandBuffer::insert_barrier(PipelineBarrier& pipeline_barrier) {
       "is not DESCRIPTORS_BOUND or RECORDING.");
 
   if (pipeline_barrier) {
-    if (!pipeline_barrier.buffer_barrier_handles.empty()) {
-      pipeline_barrier.buffer_barrier_handles.clear();
-    }
-    for (const api::BufferMemoryBarrier& memory_barrier :
-         pipeline_barrier.buffers) {
-      pipeline_barrier.buffer_barrier_handles.push_back(memory_barrier.handle);
+    std::vector<VkMemoryBarrier2> memory_barriers;
+    if (pipeline_barrier.buffers.empty() && pipeline_barrier.images.empty()) {
+      memory_barriers.push_back({
+          VK_STRUCTURE_TYPE_MEMORY_BARRIER_2, // sType
+          nullptr, // pNext
+          to_stage2(pipeline_barrier.stage.src), // srcStageMask
+          0u, // srcAccessMask
+          to_stage2(pipeline_barrier.stage.dst), // dstStageMask
+          0u, // dstAccessMask
+      });
     }
 
-    if (!pipeline_barrier.image_barrier_handles.empty()) {
-      pipeline_barrier.image_barrier_handles.clear();
+    std::vector<VkBufferMemoryBarrier2> buffer_barriers;
+    buffer_barriers.reserve(pipeline_barrier.buffers.size());
+    for (const api::BufferMemoryBarrier& memory_barrier :
+         pipeline_barrier.buffers) {
+      const VkBufferMemoryBarrier& legacy = memory_barrier.handle;
+      buffer_barriers.push_back({
+          VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2, // sType
+          nullptr, // pNext
+          to_stage2(pipeline_barrier.stage.src), // srcStageMask
+          to_access2(legacy.srcAccessMask), // srcAccessMask
+          to_stage2(pipeline_barrier.stage.dst), // dstStageMask
+          to_access2(legacy.dstAccessMask), // dstAccessMask
+          legacy.srcQueueFamilyIndex, // srcQueueFamilyIndex
+          legacy.dstQueueFamilyIndex, // dstQueueFamilyIndex
+          legacy.buffer, // buffer
+          legacy.offset, // offset
+          legacy.size, // size
+      });
     }
+
+    std::vector<VkImageMemoryBarrier2> image_barriers;
+    image_barriers.reserve(pipeline_barrier.images.size());
     for (const api::ImageMemoryBarrier& memory_barrier :
          pipeline_barrier.images) {
-      pipeline_barrier.image_barrier_handles.push_back(memory_barrier.handle);
+      const VkImageMemoryBarrier& legacy = memory_barrier.handle;
+      image_barriers.push_back({
+          VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2, // sType
+          nullptr, // pNext
+          to_stage2(pipeline_barrier.stage.src), // srcStageMask
+          to_access2(legacy.srcAccessMask), // srcAccessMask
+          to_stage2(pipeline_barrier.stage.dst), // dstStageMask
+          to_access2(legacy.dstAccessMask), // dstAccessMask
+          legacy.oldLayout, // oldLayout
+          legacy.newLayout, // newLayout
+          legacy.srcQueueFamilyIndex, // srcQueueFamilyIndex
+          legacy.dstQueueFamilyIndex, // dstQueueFamilyIndex
+          legacy.image, // image
+          legacy.subresourceRange, // subresourceRange
+      });
     }
-    vkCmdPipelineBarrier(
-        handle_, // commandBuffer
-        pipeline_barrier.stage.src, // srcStageMask
-        pipeline_barrier.stage.dst, // dstStageMask
+
+    const VkDependencyInfo dependency_info{
+        VK_STRUCTURE_TYPE_DEPENDENCY_INFO, // sType
+        nullptr, // pNext
         0u, // dependencyFlags
-        0u, // memoryBarrierCount
-        nullptr, // pMemoryBarriers
-        pipeline_barrier.buffers.size(), // bufferMemoryBarrierCount
-        !pipeline_barrier.buffers.empty()
-            ? pipeline_barrier.buffer_barrier_handles.data()
-            : nullptr, // pMemoryBarriers
-        pipeline_barrier.images.size(), // imageMemoryBarrierCount
-        !pipeline_barrier.images.empty()
-            ? pipeline_barrier.image_barrier_handles.data()
-            : nullptr); // pImageMemoryBarriers
+        static_cast<uint32_t>(memory_barriers.size()), // memoryBarrierCount
+        !memory_barriers.empty() ? memory_barriers.data()
+                                 : nullptr, // pMemoryBarriers
+        static_cast<uint32_t>(buffer_barriers.size()), // bufferMemoryBarrierCount
+        !buffer_barriers.empty() ? buffer_barriers.data()
+                                 : nullptr, // pBufferMemoryBarriers
+        static_cast<uint32_t>(image_barriers.size()), // imageMemoryBarrierCount
+        !image_barriers.empty() ? image_barriers.data()
+                                : nullptr, // pImageMemoryBarriers
+    };
+
+    VK_CHECK_COND(
+        cmd_pipeline_barrier2_,
+        "Vulkan synchronization2 command vkCmdPipelineBarrier2 was not loaded "
+        "from the logical device.");
+    cmd_pipeline_barrier2_(handle_, &dependency_info);
   }
 
   state_ = CommandBuffer::State::BARRIERS_INSERTED;
@@ -374,11 +477,18 @@ CommandPool::CommandPool(
     const CommandPoolConfig& config)
     : device_(device),
       queue_family_idx_(queue_family_idx),
+      cmd_pipeline_barrier2_(reinterpret_cast<PFN_vkCmdPipelineBarrier2>(
+          vkGetDeviceProcAddr(device_, "vkCmdPipelineBarrier2"))),
       pool_(VK_NULL_HANDLE),
       config_(config),
       mutex_{},
       buffers_{},
       in_use_(0u) {
+  VK_CHECK_COND(
+      cmd_pipeline_barrier2_,
+      "Vulkan synchronization2 command vkCmdPipelineBarrier2 was not loaded "
+      "from the logical device.");
+
   const VkCommandPoolCreateInfo create_info{
       VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
       nullptr,
@@ -415,7 +525,7 @@ CommandBuffer CommandPool::get_new_cmd(bool reusable) {
   }
 
   in_use_++;
-  return CommandBuffer(handle, cmd_flags);
+  return CommandBuffer(handle, cmd_flags, cmd_pipeline_barrier2_);
 }
 
 void CommandPool::flush() {

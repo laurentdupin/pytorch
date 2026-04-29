@@ -13,6 +13,12 @@ namespace utils {
 struct VulkanRuntimeCapabilityProfile final {
   bool has_unified_memory{false};
   bool has_timestamps{false};
+  bool has_vulkan_1_3{false};
+  bool has_maintenance4{false};
+  bool has_synchronization2{false};
+  bool has_shader_zero_initialize_workgroup_memory{false};
+  bool has_shader_integer_dot_product{false};
+  bool has_pipeline_creation_cache_control{false};
   bool has_shader_bfloat16{false};
   bool has_shader_int8{false};
   bool has_storage_buffer_8bit{false};
@@ -33,6 +39,7 @@ struct VulkanRuntimeCapabilityProfile final {
   uint32_t cooperative_matrix_max_n{0u};
   uint32_t cooperative_matrix_max_k{0u};
   uint32_t num_compute_queues{0u};
+  uint32_t api_version{0u};
   uint32_t max_compute_workgroup_invocations{0u};
   uint32_t max_compute_shared_memory_size{0u};
 };

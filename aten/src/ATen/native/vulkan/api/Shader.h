@@ -10,7 +10,9 @@
 #include <ATen/native/vulkan/api/Utils.h>
 
 #include <mutex>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -56,6 +58,13 @@ struct ShaderInfo final {
   ShaderLayout::Signature kernel_layout{};
 
   // Shader Metadata
+  std::string source_path{""};
+  std::string target_env{""};
+  uint32_t spv_version_word{0u};
+  std::vector<uint32_t> capabilities{};
+  std::vector<std::string> extensions{};
+  std::vector<uint32_t> execution_modes{};
+  bool uses_local_size_id{false};
   utils::uvec3 out_tile_size{1u, 1u, 1u};
 
   std::vector<uint32_t> tile_size;
@@ -78,7 +87,14 @@ struct ShaderInfo final {
       std::vector<VkDescriptorType>,
       const std::vector<uint32_t>& tile_size,
       const StorageType bias_storage_type,
-      const StorageType weight_storage_type);
+      const StorageType weight_storage_type,
+      std::string source_path = "",
+      std::string target_env = "",
+      uint32_t spv_version_word = 0u,
+      std::vector<uint32_t> capabilities = {},
+      std::vector<std::string> extensions = {},
+      std::vector<uint32_t> execution_modes = {},
+      bool uses_local_size_id = false);
 };
 
 bool operator==(const ShaderInfo& _1, const ShaderInfo& _2);

@@ -53,6 +53,27 @@ uint16_t float_to_bfloat16(float value) {
   return uint16_t((bits + rounding_bias) >> 16);
 }
 
+void zero_width_pack_padding(
+    const uvec4 write_coord,
+    const uint out_buf_length,
+    const uint out_storage_offset) {
+  const uint logical_channels = uOutMeta.logical_sizes.x;
+  const uint physical_channels = uOutMeta.physical_strides.y;
+  if (write_coord.x != 0u || logical_channels >= physical_channels) {
+    return;
+  }
+
+  uvec4 pad_coord = write_coord;
+  for (uint c = logical_channels; c < physical_channels; ++c) {
+    pad_coord.x = c;
+    const uint pad_idx =
+        coord_to_idx(pad_coord, uOutMeta.physical_strides) + out_storage_offset;
+    if (pad_idx < out_buf_length) {
+      uOutput.data[pad_idx] = OUTPUT_T(0);
+    }
+  }
+}
+
 void main() {
   const uint write_idx = uint(gl_GlobalInvocationID.x);
   const uint out_numel = uOutMeta.info.y;
@@ -83,4 +104,6 @@ void main() {
   if (actual_write_idx < out_buf_length) {
     uOutput.data[actual_write_idx] = outval;
   }
+
+  zero_width_pack_padding(write_coord, out_buf_length, out_storage_offset);
 }

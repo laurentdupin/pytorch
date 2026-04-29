@@ -7,6 +7,13 @@ namespace native {
 namespace vulkan {
 namespace api {
 
+namespace {
+
+constexpr uint32_t kSpvMagic = 0x07230203u;
+constexpr uint32_t kSpvVersion16 = 0x00010600u;
+
+} // namespace
+
 //
 // ShaderInfo
 //
@@ -36,13 +43,27 @@ ShaderInfo::ShaderInfo(
     std::vector<VkDescriptorType>  layout,
     const std::vector<uint32_t>& tile_size,
     const StorageType bias_storage_type,
-    const StorageType weight_storage_type)
+    const StorageType weight_storage_type,
+    std::string source_path,
+    std::string target_env,
+    uint32_t spv_version_word,
+    std::vector<uint32_t> capabilities,
+    std::vector<std::string> extensions,
+    std::vector<uint32_t> execution_modes,
+    bool uses_local_size_id)
     : src_code{
           spirv_bin,
           size,
       },
       kernel_name{std::move(name)},
       kernel_layout{std::move(layout)},
+      source_path{std::move(source_path)},
+      target_env{std::move(target_env)},
+      spv_version_word{spv_version_word},
+      capabilities{std::move(capabilities)},
+      extensions{std::move(extensions)},
+      execution_modes{std::move(execution_modes)},
+      uses_local_size_id{uses_local_size_id},
       tile_size(tile_size),
       bias_storage_type(bias_storage_type),
       weight_storage_type(weight_storage_type) {
@@ -122,6 +143,34 @@ ShaderModule::ShaderModule(VkDevice device, const ShaderInfo& source)
     : device_(device), handle_{VK_NULL_HANDLE} {
   const uint32_t* code = source.src_code.bin;
   uint32_t size = source.src_code.size;
+  VK_CHECK_COND(
+      code,
+      "Shader ",
+      source.kernel_name,
+      " has null SPIR-V code.");
+  VK_CHECK_COND(
+      size >= 5u * sizeof(uint32_t) && (size % sizeof(uint32_t)) == 0u,
+      "Shader ",
+      source.kernel_name,
+      " has invalid SPIR-V byte size ",
+      size,
+      ".");
+  VK_CHECK_COND(
+      code[0] == kSpvMagic,
+      "Shader ",
+      source.kernel_name,
+      " has invalid SPIR-V magic word ",
+      code[0],
+      ".");
+  VK_CHECK_COND(
+      code[1] == kSpvVersion16,
+      "Shader ",
+      source.kernel_name,
+      " was generated for unsupported SPIR-V version word ",
+      code[1],
+      "; expected ",
+      kSpvVersion16,
+      " for Vulkan 1.3 / SPIR-V 1.6.");
 
   const VkShaderModuleCreateInfo shader_module_create_info{
       VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, // sType
@@ -131,8 +180,27 @@ ShaderModule::ShaderModule(VkDevice device, const ShaderInfo& source)
       code, // pCode
   };
 
-  VK_CHECK(vkCreateShaderModule(
-      device_, &shader_module_create_info, nullptr, &handle_));
+  const VkResult result = vkCreateShaderModule(
+      device_, &shader_module_create_info, nullptr, &handle_);
+  VK_CHECK_COND(
+      result == VK_SUCCESS,
+      "vkCreateShaderModule failed for shader=",
+      source.kernel_name,
+      " result=",
+      result,
+      " source=",
+      source.source_path,
+      " target_env=",
+      source.target_env,
+      " spv_version_word=",
+      source.spv_version_word,
+      " capabilities=",
+      source.capabilities.size(),
+      " extensions=",
+      source.extensions.size(),
+      " uses_local_size_id=",
+      source.uses_local_size_id ? 1 : 0,
+      ".");
 }
 
 ShaderModule::ShaderModule(ShaderModule&& other) noexcept

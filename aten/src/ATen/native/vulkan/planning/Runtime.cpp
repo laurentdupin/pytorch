@@ -25,6 +25,8 @@ using namespace api::utils;
 constexpr size_t kVulkanWorkloadClassCount =
     static_cast<size_t>(VulkanWorkloadClass::LLMDecode) + 1u;
 constexpr int64_t kAttentionTextureTiledMaxValueDim = 512;
+constexpr int64_t kAttentionBufferTiledMinHeadDim = 16;
+constexpr int64_t kAttentionBufferTiledMinValueDim = 16;
 constexpr int64_t kAttentionBufferTiledMaxHeadDim = 128;
 constexpr int64_t kAttentionBufferTiledDefaultMaxSequence = 512;
 constexpr int64_t kAttentionBufferTiledVisionMaxSequence = 512;
@@ -187,21 +189,29 @@ VulkanAttentionExecutionStrategy select_attention_execution_strategy(
     return VulkanAttentionExecutionStrategy::RuntimeProgram;
   }
 
+  const bool has_buffer_tiled_minimum_shape =
+      shape.head_dim >= kAttentionBufferTiledMinHeadDim &&
+      shape.value_dim >= kAttentionBufferTiledMinValueDim;
+
   if (
       attention_kernel_family == VulkanAttentionKernelFamily::BufferMath &&
       is_vision_backbone_attention_request(request)) {
     if (
+        has_buffer_tiled_minimum_shape &&
         shape.head_dim <= kAttentionBufferTiledMaxHeadDim &&
         shape.value_dim <= kAttentionTextureTiledMaxValueDim &&
         shape.target_length <= attention_buffer_tiled_max_sequence(request) &&
         shape.source_length <= attention_buffer_tiled_max_sequence(request)) {
       return VulkanAttentionExecutionStrategy::BufferTiled;
     }
-    return VulkanAttentionExecutionStrategy::RuntimeProgram;
+    return has_buffer_tiled_minimum_shape
+        ? VulkanAttentionExecutionStrategy::RuntimeProgram
+        : VulkanAttentionExecutionStrategy::GenericMath;
   }
 
   if (
       attention_kernel_family == VulkanAttentionKernelFamily::BufferMath &&
+      has_buffer_tiled_minimum_shape &&
       shape.head_dim <= kAttentionBufferTiledMaxHeadDim &&
       shape.value_dim <= kAttentionTextureTiledMaxValueDim &&
       shape.target_length <= attention_buffer_tiled_max_sequence(request) &&
@@ -312,6 +322,12 @@ struct RuntimePolicyLogState final {
       prefer_cpu_fallback{};
   std::atomic<uint64_t> has_unified_memory{0u};
   std::atomic<uint64_t> has_timestamps{0u};
+  std::atomic<uint64_t> has_vulkan_1_3{0u};
+  std::atomic<uint64_t> has_maintenance4{0u};
+  std::atomic<uint64_t> has_synchronization2{0u};
+  std::atomic<uint64_t> has_shader_zero_initialize_workgroup_memory{0u};
+  std::atomic<uint64_t> has_shader_integer_dot_product{0u};
+  std::atomic<uint64_t> has_pipeline_creation_cache_control{0u};
   std::atomic<uint64_t> has_shader_bfloat16{0u};
   std::atomic<uint64_t> has_shader_int8{0u};
   std::atomic<uint64_t> has_storage_buffer_8bit{0u};
@@ -344,6 +360,19 @@ struct RuntimePolicyLogState final {
     out << "runtime_capabilities has_unified_memory="
         << has_unified_memory.load(std::memory_order_relaxed)
         << " has_timestamps=" << has_timestamps.load(std::memory_order_relaxed)
+        << " has_vulkan_1_3="
+        << has_vulkan_1_3.load(std::memory_order_relaxed)
+        << " has_maintenance4="
+        << has_maintenance4.load(std::memory_order_relaxed)
+        << " has_synchronization2="
+        << has_synchronization2.load(std::memory_order_relaxed)
+        << " has_shader_zero_initialize_workgroup_memory="
+        << has_shader_zero_initialize_workgroup_memory.load(
+               std::memory_order_relaxed)
+        << " has_shader_integer_dot_product="
+        << has_shader_integer_dot_product.load(std::memory_order_relaxed)
+        << " has_pipeline_creation_cache_control="
+        << has_pipeline_creation_cache_control.load(std::memory_order_relaxed)
         << " has_shader_bfloat16="
         << has_shader_bfloat16.load(std::memory_order_relaxed)
         << " has_shader_int8=" << has_shader_int8.load(std::memory_order_relaxed)
@@ -433,6 +462,22 @@ void log_runtime_policy_build(const VulkanRuntimePolicy& policy) {
       capabilities.has_unified_memory ? 1u : 0u, std::memory_order_relaxed);
   state.has_timestamps.store(
       capabilities.has_timestamps ? 1u : 0u, std::memory_order_relaxed);
+  state.has_vulkan_1_3.store(
+      capabilities.has_vulkan_1_3 ? 1u : 0u, std::memory_order_relaxed);
+  state.has_maintenance4.store(
+      capabilities.has_maintenance4 ? 1u : 0u, std::memory_order_relaxed);
+  state.has_synchronization2.store(
+      capabilities.has_synchronization2 ? 1u : 0u,
+      std::memory_order_relaxed);
+  state.has_shader_zero_initialize_workgroup_memory.store(
+      capabilities.has_shader_zero_initialize_workgroup_memory ? 1u : 0u,
+      std::memory_order_relaxed);
+  state.has_shader_integer_dot_product.store(
+      capabilities.has_shader_integer_dot_product ? 1u : 0u,
+      std::memory_order_relaxed);
+  state.has_pipeline_creation_cache_control.store(
+      capabilities.has_pipeline_creation_cache_control ? 1u : 0u,
+      std::memory_order_relaxed);
   state.has_shader_bfloat16.store(
       capabilities.has_shader_bfloat16 ? 1u : 0u,
       std::memory_order_relaxed);
@@ -510,6 +555,16 @@ void log_runtime_policy_build(const VulkanRuntimePolicy& policy) {
   out << "runtime_capabilities has_unified_memory="
       << (capabilities.has_unified_memory ? 1u : 0u)
       << " has_timestamps=" << (capabilities.has_timestamps ? 1u : 0u)
+      << " has_vulkan_1_3=" << (capabilities.has_vulkan_1_3 ? 1u : 0u)
+      << " has_maintenance4=" << (capabilities.has_maintenance4 ? 1u : 0u)
+      << " has_synchronization2="
+      << (capabilities.has_synchronization2 ? 1u : 0u)
+      << " has_shader_zero_initialize_workgroup_memory="
+      << (capabilities.has_shader_zero_initialize_workgroup_memory ? 1u : 0u)
+      << " has_shader_integer_dot_product="
+      << (capabilities.has_shader_integer_dot_product ? 1u : 0u)
+      << " has_pipeline_creation_cache_control="
+      << (capabilities.has_pipeline_creation_cache_control ? 1u : 0u)
       << " has_shader_bfloat16=" << (capabilities.has_shader_bfloat16 ? 1u : 0u)
       << " has_shader_int8=" << (capabilities.has_shader_int8 ? 1u : 0u)
       << " has_storage_buffer_8bit="

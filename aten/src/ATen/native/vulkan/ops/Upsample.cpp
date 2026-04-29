@@ -1,5 +1,6 @@
 #include <ATen/native/UpSample.h>
 #include <ATen/ops/_upsample_nearest_exact2d.h>
+#include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
@@ -393,11 +394,15 @@ static Tensor upsample_nearest_exact2d_cpu_fallback(
         scales_h,
         scales_w);
   }
-  return record_tensor_write_and_return(
+  Tensor result = record_tensor_write_and_return(
       result_cpu.to(input_arg.device()),
       "aten::_upsample_nearest_exact2d",
       "small_cpu_control_fallback",
       {input_arg});
+  if (result.is_vulkan()) {
+    api::context()->sync_and_reclaim();
+  }
+  return result;
 }
 
 static Tensor upsample_nearest_exact2d(

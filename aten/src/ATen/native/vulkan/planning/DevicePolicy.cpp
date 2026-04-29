@@ -36,15 +36,20 @@ VulkanDevicePolicy current_vulkan_device_policy() {
       adapter->supports_int8_buffer_arithmetic();
   policy.supports_subgroup_ops =
       adapter->has_subgroup_size_control() && adapter->max_subgroup_size() > 0u;
+  policy.supports_synchronization2 = adapter->has_synchronization2();
+  policy.supports_shader_integer_dot_product =
+      adapter->has_shader_integer_dot_product();
+  policy.supports_zero_initialize_workgroup_memory =
+      adapter->has_shader_zero_initialize_workgroup_memory();
 
   const bool gtx_class = contains_name(policy.device_name, "GTX");
   const bool rx_6700_xt = contains_name(policy.device_name, "6700 XT");
-  const bool rx_9070 = contains_name(policy.device_name, "RX 9070");
+  const bool conservative_large_conv_device = gtx_class || rx_6700_xt;
   policy.prefer_strict_replay_retirement = true;
   policy.avoid_large_persistent_weight_cache = gtx_class || rx_6700_xt;
   policy.disable_generic_tiled_diffusion_linear = true;
   policy.disable_generic_4d_sdpa = true;
-  policy.disable_large_buffer_conv_3x3 = !rx_9070;
+  policy.disable_large_buffer_conv_3x3 = conservative_large_conv_device;
   policy.disable_known_bad_conv_3x3_s1_p1 =
       policy.disable_large_buffer_conv_3x3;
   return policy;
@@ -58,6 +63,10 @@ std::string describe_device_policy(const VulkanDevicePolicy& policy) {
       << " name=" << policy.device_name
       << " int8=" << (policy.supports_int8_buffer_arithmetic ? 1 : 0)
       << " subgroup=" << (policy.supports_subgroup_ops ? 1 : 0)
+      << " sync2=" << (policy.supports_synchronization2 ? 1 : 0)
+      << " dot=" << (policy.supports_shader_integer_dot_product ? 1 : 0)
+      << " zero_wg="
+      << (policy.supports_zero_initialize_workgroup_memory ? 1 : 0)
       << " strict_replay=" << (policy.prefer_strict_replay_retirement ? 1 : 0)
       << " avoid_weight_cache="
       << (policy.avoid_large_persistent_weight_cache ? 1 : 0)

@@ -19,6 +19,9 @@ struct VulkanDevicePolicy final {
 
   bool supports_int8_buffer_arithmetic{false};
   bool supports_subgroup_ops{false};
+  bool supports_synchronization2{false};
+  bool supports_shader_integer_dot_product{false};
+  bool supports_zero_initialize_workgroup_memory{false};
   bool prefer_strict_replay_retirement{true};
   bool avoid_large_persistent_weight_cache{false};
   bool disable_generic_tiled_diffusion_linear{true};

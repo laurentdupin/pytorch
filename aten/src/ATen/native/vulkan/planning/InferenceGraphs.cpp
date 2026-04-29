@@ -4456,6 +4456,12 @@ std::string make_vulkan_compiled_session_capability_key(
   std::ostringstream out;
   out << "umem=" << (profile.has_unified_memory ? 1 : 0)
       << "|ts=" << (profile.has_timestamps ? 1 : 0)
+      << "|vk13=" << (profile.has_vulkan_1_3 ? 1 : 0)
+      << "|m4=" << (profile.has_maintenance4 ? 1 : 0)
+      << "|sync2=" << (profile.has_synchronization2 ? 1 : 0)
+      << "|zero_wg="
+      << (profile.has_shader_zero_initialize_workgroup_memory ? 1 : 0)
+      << "|dot=" << (profile.has_shader_integer_dot_product ? 1 : 0)
       << "|bf16=" << (profile.has_shader_bfloat16 ? 1 : 0)
       << "|i8=" << (profile.has_shader_int8 ? 1 : 0)
       << "|sb8=" << (profile.has_storage_buffer_8bit ? 1 : 0)

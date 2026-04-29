@@ -2,6 +2,7 @@
 #include <ATen/native/vulkan/api/Resource.h>
 #include <ATen/native/vulkan/ops/NativeLayerNorm.h>
 #include <ATen/native/vulkan/ops/Norm.h>
+#include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 
@@ -25,11 +26,17 @@ struct DeferredAddLayerNormCandidate final {
   Tensor residual;
   Tensor addend;
   Tensor scale;
+  uint64_t producer_storage_id{0u};
+  uint64_t producer_generation{0u};
+  uint64_t producer_logical_desc_hash{0u};
 };
 
 struct DeferredLayerScaleCandidate final {
   Tensor input;
   Tensor scale;
+  uint64_t producer_storage_id{0u};
+  uint64_t producer_generation{0u};
+  uint64_t producer_logical_desc_hash{0u};
 };
 
 constexpr size_t kMaxDeferredAddLayerNormCandidates = 64;
@@ -74,15 +81,29 @@ deferred_layer_scale_candidates() {
 bool matches_deferred_add_layer_norm_candidate(
     const Tensor& tensor,
     const DeferredAddLayerNormCandidate& candidate) {
-  return tensor.is_vulkan() && tensor.scalar_type() == kFloat &&
-      tensor.sizes().equals(candidate.residual.sizes());
+  if (
+      !tensor.is_vulkan() || tensor.scalar_type() != kFloat ||
+      !tensor.sizes().equals(candidate.residual.sizes())) {
+    return false;
+  }
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  return state.storage_id == candidate.producer_storage_id &&
+      state.generation == candidate.producer_generation &&
+      state.logical_desc_hash == candidate.producer_logical_desc_hash;
 }
 
 bool matches_deferred_layer_scale_candidate(
     const Tensor& tensor,
     const DeferredLayerScaleCandidate& candidate) {
-  return tensor.is_vulkan() && tensor.scalar_type() == kFloat &&
-      tensor.sizes().equals(candidate.input.sizes());
+  if (
+      !tensor.is_vulkan() || tensor.scalar_type() != kFloat ||
+      !tensor.sizes().equals(candidate.input.sizes())) {
+    return false;
+  }
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  return state.storage_id == candidate.producer_storage_id &&
+      state.generation == candidate.producer_generation &&
+      state.logical_desc_hash == candidate.producer_logical_desc_hash;
 }
 
 std::optional<DeferredAddLayerNormCandidate>
@@ -133,6 +154,10 @@ void register_deferred_add_layer_norm_candidate(
     utils::log_vulkan_op_hit("aten::add_layer_norm_bridge.registry_clear");
     candidates.clear();
   }
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  candidate.producer_storage_id = state.storage_id;
+  candidate.producer_generation = state.generation;
+  candidate.producer_logical_desc_hash = state.logical_desc_hash;
   candidates[deferred_add_layer_norm_key(tensor)] = std::move(candidate);
 }
 
@@ -179,6 +204,10 @@ void register_deferred_layer_scale_candidate(
     utils::log_vulkan_op_hit("aten::layer_scale_bridge.registry_clear");
     candidates.clear();
   }
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  candidate.producer_storage_id = state.storage_id;
+  candidate.producer_generation = state.generation;
+  candidate.producer_logical_desc_hash = state.logical_desc_hash;
   candidates[deferred_add_layer_norm_key(tensor)] = std::move(candidate);
 }
 

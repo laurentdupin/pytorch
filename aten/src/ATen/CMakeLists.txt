@@ -120,7 +120,8 @@ list(APPEND native_vulkan_cpp
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ModelLanePolicy.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ReplayTensorState.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/RoutePolicy.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/ops/TensorProvenance.cpp")
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/ops/TensorProvenance.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/ops/VulkanValueTrace.cpp")
 list(REMOVE_DUPLICATES native_vulkan_cpp)
 
 file(GLOB native_eigen_cpp "native/sparse/eigen/*.cpp")

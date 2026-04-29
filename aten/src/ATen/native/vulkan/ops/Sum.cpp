@@ -258,13 +258,9 @@ Tensor sum_all_buffer(
   TORCH_CHECK(
       prepared.scalar_type() == c10::ScalarType::Float || is_bfloat16_input,
       "Vulkan buffer full sum currently only supports float and bfloat16 inputs");
-  if (is_bfloat16_input) {
-    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
-    is_bfloat16_input = false;
-  }
   vTensor& v_input = convert(prepared);
 
-  if (prepared.numel() >= kParallelReduceAllMinNumel) {
+  if (!is_bfloat16_input && prepared.numel() >= kParallelReduceAllMinNumel) {
     std::vector<int64_t> dims;
     dims.reserve(prepared.dim());
     for (int64_t d = 0; d < prepared.dim(); ++d) {
@@ -384,7 +380,7 @@ Tensor min_all_buffer(const Tensor& prepared_input_arg) {
       prepared.scalar_type() == c10::ScalarType::Float,
       "Vulkan buffer full min currently only supports float and bfloat16 inputs");
 
-  if (prepared.numel() >= kParallelReduceAllMinNumel) {
+  if (prepared.numel() > 1) {
     return finalize_bfloat16_max_output(
         reduce_all_buffer_parallel(prepared, VK_KERNEL(buffer_min_all_chunk)),
         target_dtype);

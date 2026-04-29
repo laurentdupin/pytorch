@@ -38,9 +38,16 @@ PhysicalDevice::PhysicalDevice(
       properties{},
       memory_properties{},
       queue_families{},
+      api_version(0u),
+      has_vulkan_1_3(false),
       num_compute_queues(0),
       has_unified_memory(false),
       has_timestamps(false),
+      has_maintenance4(false),
+      has_synchronization2(false),
+      has_shader_zero_initialize_workgroup_memory(false),
+      has_shader_integer_dot_product(false),
+      has_pipeline_creation_cache_control(false),
       has_shader_bfloat16(false),
       has_shader_int8(false),
       has_storage_buffer_8bit(false),
@@ -57,6 +64,8 @@ PhysicalDevice::PhysicalDevice(
   // Extract physical device properties
   vkGetPhysicalDeviceProperties(handle, &properties);
   vkGetPhysicalDeviceMemoryProperties(handle, &memory_properties);
+  api_version = properties.apiVersion;
+  has_vulkan_1_3 = api_version >= VK_API_VERSION_1_3;
   has_timestamps = properties.limits.timestampComputeAndGraphics;
   timestamp_period = properties.limits.timestampPeriod;
 
@@ -69,29 +78,18 @@ PhysicalDevice::PhysicalDevice(
       VK_FALSE,
   };
 #endif
-#ifdef VK_VERSION_1_2
-  VkPhysicalDeviceShaderFloat16Int8Features shader_float16_int8_features{
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES,
+  VkPhysicalDeviceVulkan11Features vulkan11_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
       nullptr,
-      VK_FALSE,
-      VK_FALSE,
   };
-  VkPhysicalDevice8BitStorageFeatures storage_8bit_features{
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES,
+  VkPhysicalDeviceVulkan12Features vulkan12_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
       nullptr,
-      VK_FALSE,
-      VK_FALSE,
-      VK_FALSE,
   };
-#endif
-#if defined(VK_VERSION_1_3) || defined(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)
-  VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_features{
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
+  VkPhysicalDeviceVulkan13Features vulkan13_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
       nullptr,
-      VK_FALSE,
-      VK_FALSE,
   };
-#endif
 #ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
   VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR,
@@ -100,24 +98,21 @@ PhysicalDevice::PhysicalDevice(
       VK_FALSE,
   };
 #endif
-#ifdef VK_VERSION_1_2
   void* features2_pnext = nullptr;
 #ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
   shader_bfloat16_features.pNext = features2_pnext;
   features2_pnext = &shader_bfloat16_features;
 #endif
-  shader_float16_int8_features.pNext = features2_pnext;
-  features2_pnext = &shader_float16_int8_features;
-  storage_8bit_features.pNext = features2_pnext;
-  features2_pnext = &storage_8bit_features;
 #ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
   cooperative_matrix_features.pNext = features2_pnext;
   features2_pnext = &cooperative_matrix_features;
 #endif
-#if defined(VK_VERSION_1_3) || defined(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)
-  subgroup_size_control_features.pNext = features2_pnext;
-  features2_pnext = &subgroup_size_control_features;
-#endif
+  vulkan13_features.pNext = features2_pnext;
+  features2_pnext = &vulkan13_features;
+  vulkan12_features.pNext = features2_pnext;
+  features2_pnext = &vulkan12_features;
+  vulkan11_features.pNext = features2_pnext;
+  features2_pnext = &vulkan11_features;
   VkPhysicalDeviceFeatures2 features2{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
       features2_pnext,
@@ -128,9 +123,17 @@ PhysicalDevice::PhysicalDevice(
   has_shader_bfloat16 =
       shader_bfloat16_features.shaderBFloat16Type == VK_TRUE;
 #endif
-  has_shader_int8 = shader_float16_int8_features.shaderInt8 == VK_TRUE;
+  has_shader_int8 = vulkan12_features.shaderInt8 == VK_TRUE;
   has_storage_buffer_8bit =
-      storage_8bit_features.storageBuffer8BitAccess == VK_TRUE;
+      vulkan12_features.storageBuffer8BitAccess == VK_TRUE;
+  has_maintenance4 = vulkan13_features.maintenance4 == VK_TRUE;
+  has_synchronization2 = vulkan13_features.synchronization2 == VK_TRUE;
+  has_shader_zero_initialize_workgroup_memory =
+      vulkan13_features.shaderZeroInitializeWorkgroupMemory == VK_TRUE;
+  has_shader_integer_dot_product =
+      vulkan13_features.shaderIntegerDotProduct == VK_TRUE;
+  has_pipeline_creation_cache_control =
+      vulkan13_features.pipelineCreationCacheControl == VK_TRUE;
 #ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
   has_cooperative_matrix =
       cooperative_matrix_features.cooperativeMatrix == VK_TRUE;
@@ -141,34 +144,15 @@ PhysicalDevice::PhysicalDevice(
       cooperative_matrix_supported_stages,
       cooperative_matrix_properties);
 #endif
-#if defined(VK_VERSION_1_3) || defined(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)
-  has_subgroup_size_control =
-      subgroup_size_control_features.subgroupSizeControl == VK_TRUE;
+  has_subgroup_size_control = vulkan13_features.subgroupSizeControl == VK_TRUE;
   has_compute_full_subgroups =
-      subgroup_size_control_features.computeFullSubgroups == VK_TRUE;
+      vulkan13_features.computeFullSubgroups == VK_TRUE;
   query_subgroup_size_control_support(
       handle,
       min_subgroup_size,
       max_subgroup_size,
       max_compute_workgroup_subgroups,
       required_subgroup_size_stages);
-#endif
-#else
-  VkPhysicalDeviceFeatures2 features2{
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-#ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
-      &shader_bfloat16_features,
-#else
-      nullptr,
-#endif
-      {},
-  };
-  vkGetPhysicalDeviceFeatures2(handle, &features2);
-#ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
-  has_shader_bfloat16 =
-      shader_bfloat16_features.shaderBFloat16Type == VK_TRUE;
-#endif
-#endif
 
   // Check if there are any memory types have both the HOST_VISIBLE and the
   // DEVICE_LOCAL property flags
@@ -468,12 +452,6 @@ VkDevice create_logical_device(
 #ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
       VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME,
 #endif /* VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME */
-#ifdef VK_KHR_8BIT_STORAGE_EXTENSION_NAME
-      VK_KHR_8BIT_STORAGE_EXTENSION_NAME,
-#endif /* VK_KHR_8BIT_STORAGE_EXTENSION_NAME */
-#ifdef VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME
-      VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME,
-#endif /* VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME */
 #ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
       VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME,
 #endif /* VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME */
@@ -494,29 +472,18 @@ VkDevice create_logical_device(
       VK_FALSE,
   };
 #endif
-#ifdef VK_VERSION_1_2
-  VkPhysicalDeviceShaderFloat16Int8Features shader_float16_int8_features{
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES,
+  VkPhysicalDeviceVulkan11Features vulkan11_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
       nullptr,
-      VK_FALSE,
-      VK_FALSE,
   };
-  VkPhysicalDevice8BitStorageFeatures storage_8bit_features{
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES,
+  VkPhysicalDeviceVulkan12Features vulkan12_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
       nullptr,
-      VK_FALSE,
-      VK_FALSE,
-      VK_FALSE,
   };
-#endif
-#if defined(VK_VERSION_1_3) || defined(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)
-  VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_features{
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
+  VkPhysicalDeviceVulkan13Features vulkan13_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
       nullptr,
-      VK_FALSE,
-      VK_FALSE,
   };
-#endif
 #ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
   VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR,
@@ -544,38 +511,34 @@ VkDevice create_logical_device(
     enabled_features2.pNext = &shader_bfloat16_features;
   }
 #endif
-#ifdef VK_VERSION_1_2
   if (physical_device.has_shader_int8) {
-    shader_float16_int8_features.shaderInt8 = VK_TRUE;
-    shader_float16_int8_features.pNext = enabled_features2.pNext;
-    enabled_features2.pNext = &shader_float16_int8_features;
+    vulkan12_features.shaderInt8 = VK_TRUE;
   }
-  const bool enable_storage_buffer_8bit =
-      physical_device.has_storage_buffer_8bit &&
-      std::find(
-          enabled_device_extensions.begin(),
-          enabled_device_extensions.end(),
-#ifdef VK_KHR_8BIT_STORAGE_EXTENSION_NAME
-          VK_KHR_8BIT_STORAGE_EXTENSION_NAME
-#else
-          nullptr
-#endif
-          ) != enabled_device_extensions.end();
-  if (enable_storage_buffer_8bit) {
-    storage_8bit_features.storageBuffer8BitAccess = VK_TRUE;
-    storage_8bit_features.pNext = enabled_features2.pNext;
-    enabled_features2.pNext = &storage_8bit_features;
+  if (physical_device.has_storage_buffer_8bit) {
+    vulkan12_features.storageBuffer8BitAccess = VK_TRUE;
   }
-#endif
-#if defined(VK_VERSION_1_3) || defined(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)
+  vulkan13_features.maintenance4 =
+      physical_device.has_maintenance4 ? VK_TRUE : VK_FALSE;
+  vulkan13_features.synchronization2 =
+      physical_device.has_synchronization2 ? VK_TRUE : VK_FALSE;
+  vulkan13_features.shaderZeroInitializeWorkgroupMemory =
+      physical_device.has_shader_zero_initialize_workgroup_memory ? VK_TRUE
+                                                                  : VK_FALSE;
+  vulkan13_features.shaderIntegerDotProduct =
+      physical_device.has_shader_integer_dot_product ? VK_TRUE : VK_FALSE;
+  vulkan13_features.pipelineCreationCacheControl =
+      physical_device.has_pipeline_creation_cache_control ? VK_TRUE : VK_FALSE;
   if (physical_device.has_subgroup_size_control) {
-    subgroup_size_control_features.subgroupSizeControl = VK_TRUE;
-    subgroup_size_control_features.computeFullSubgroups =
+    vulkan13_features.subgroupSizeControl = VK_TRUE;
+    vulkan13_features.computeFullSubgroups =
         physical_device.has_compute_full_subgroups ? VK_TRUE : VK_FALSE;
-    subgroup_size_control_features.pNext = enabled_features2.pNext;
-    enabled_features2.pNext = &subgroup_size_control_features;
   }
-#endif
+  vulkan13_features.pNext = enabled_features2.pNext;
+  enabled_features2.pNext = &vulkan13_features;
+  vulkan12_features.pNext = enabled_features2.pNext;
+  enabled_features2.pNext = &vulkan12_features;
+  vulkan11_features.pNext = enabled_features2.pNext;
+  enabled_features2.pNext = &vulkan11_features;
 #ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
   const bool enable_cooperative_matrix =
       physical_device.has_cooperative_matrix &&
@@ -613,7 +576,6 @@ VkDevice create_logical_device(
 #ifdef USE_VULKAN_VOLK
   volkLoadDevice(handle);
 #endif /* USE_VULKAN_VOLK */
-
   // Obtain handles for the created queues and initialize queue usage heuristic
 
   for (const std::pair<uint32_t, uint32_t>& queue_idx : queues_to_get) {
@@ -818,6 +780,24 @@ std::string Adapter::stringize() const {
   ss << "    driverversion: " << properties.driverVersion << std::endl;
   ss << "    deviceType:    " << device_type << std::endl;
   ss << "    deviceName:    " << properties.deviceName << std::endl;
+  ss << "    vulkan13:      "
+     << (physical_device_.has_vulkan_1_3 ? "true" : "false") << std::endl;
+  ss << "    maintenance4:  "
+     << (physical_device_.has_maintenance4 ? "true" : "false") << std::endl;
+  ss << "    synchronization2: "
+     << (physical_device_.has_synchronization2 ? "true" : "false")
+     << std::endl;
+  ss << "    zeroInitializeWorkgroupMemory: "
+     << (physical_device_.has_shader_zero_initialize_workgroup_memory ? "true"
+                                                                      : "false")
+     << std::endl;
+  ss << "    shaderIntegerDotProduct: "
+     << (physical_device_.has_shader_integer_dot_product ? "true" : "false")
+     << std::endl;
+  ss << "    pipelineCreationCacheControl: "
+     << (physical_device_.has_pipeline_creation_cache_control ? "true"
+                                                              : "false")
+     << std::endl;
   ss << "    shaderBFloat16: "
      << (physical_device_.has_shader_bfloat16 ? "true" : "false")
      << std::endl;

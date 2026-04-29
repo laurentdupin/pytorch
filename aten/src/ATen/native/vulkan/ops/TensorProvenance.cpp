@@ -5,6 +5,7 @@
 #include <ATen/Functions.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
+#include <ATen/native/vulkan/ops/VulkanValueTrace.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
 #include <c10/core/ScalarType.h>
 #include <cstdlib>
@@ -154,6 +155,8 @@ void record_tensor_provenance(
 
     registry.by_storage[provenance_key(output_state)] = std::move(record);
   }
+
+  record_tensor_value_write(output, writer_op, route_name, inputs);
 
   bool& finite_guard = finite_after_write_guard();
   if (check_finite_after_write && finite_after_write_enabled() && !finite_guard) {

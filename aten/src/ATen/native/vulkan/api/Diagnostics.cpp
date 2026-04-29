@@ -3,6 +3,7 @@
 
 #include <c10/util/Exception.h>
 
+#include <atomic>
 #include <cstdlib>
 #include <fstream>
 #include <mutex>
@@ -23,6 +24,11 @@ std::string failure_log_path() {
 std::mutex& failure_log_mutex() {
   static std::mutex mutex;
   return mutex;
+}
+
+std::atomic<bool>& post_failure_recovery_required() {
+  static std::atomic<bool> required{false};
+  return required;
 }
 
 void append_vulkan_failure_log(const std::string& message) {
@@ -65,6 +71,18 @@ const char* vulkan_failure_class_name(
 
 bool vulkan_failure_logging_enabled() {
   return !failure_log_path().empty();
+}
+
+void mark_vulkan_post_failure_recovery_required() {
+  post_failure_recovery_required().store(true, std::memory_order_release);
+}
+
+bool vulkan_post_failure_recovery_required() {
+  return post_failure_recovery_required().load(std::memory_order_acquire);
+}
+
+void clear_vulkan_post_failure_recovery_required() {
+  post_failure_recovery_required().store(false, std::memory_order_release);
 }
 
 std::string format_vulkan_failure(
@@ -118,6 +136,7 @@ std::string report_vulkan_failure(
     const char* op_name,
     const char* reason,
     const std::string& detail) {
+  mark_vulkan_post_failure_recovery_required();
   TORCH_CHECK(false, report_vulkan_failure(failure_class, op_name, reason, detail));
   std::abort();
 }

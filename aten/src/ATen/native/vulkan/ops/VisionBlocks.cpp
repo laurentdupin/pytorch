@@ -12,6 +12,7 @@
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/planning/CompiledSession.h>
 #include <ATen/native/vulkan/planning/ExecutableRegions.h>
+#include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
 #include <ATen/native/vulkan/planning/InferenceGraphs.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
@@ -22,6 +23,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -38,6 +40,8 @@ namespace native {
 namespace vulkan {
 namespace ops {
 namespace {
+
+std::atomic<uint64_t> g_next_vision_backbone_context_cache_id{1u};
 
 struct VisionReplayBundleIdentity final {
   std::string key;
@@ -61,6 +65,16 @@ Tensor move_optional_to_vulkan_buffer(const std::optional<Tensor>& tensor) {
           vulkan_tensor, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
       api::ExecutionLayout::BUFFER_DIRECT,
       true);
+}
+
+void recover_after_vulkan_failure_if_needed() {
+  if (!api::available()) {
+    return;
+  }
+  api::context()->flush();
+  utils::release_retired_packed_weight_entries();
+  utils::release_retired_linear_contexts();
+  api::clear_vulkan_post_failure_recovery_required();
 }
 
 Tensor maybe_restore_tensor(
@@ -266,12 +280,30 @@ std::string append_context_identity_suffix(
           reinterpret_cast<uintptr_t>(identity)));
 }
 
+std::string append_context_cache_id_suffix(
+    const std::string& label,
+    const uint64_t cache_id) {
+  if (cache_id == 0u) {
+    return label;
+  }
+  return label + ".ctx." +
+      std::to_string(static_cast<unsigned long long>(cache_id));
+}
+
 std::string context_identity_key(const void* identity) {
   if (identity == nullptr) {
     return "null";
   }
   return std::to_string(static_cast<unsigned long long>(
       reinterpret_cast<uintptr_t>(identity)));
+}
+
+std::string vision_backbone_context_identity_key(
+    const VisionBackboneBlockContext* context) {
+  if (context == nullptr || context->cache_id() == 0u) {
+    return "null";
+  }
+  return std::to_string(static_cast<unsigned long long>(context->cache_id()));
 }
 
 std::string sizes_key(IntArrayRef sizes) {
@@ -297,15 +329,16 @@ std::string optional_tensor_sizes_key(const std::optional<Tensor>& tensor) {
 
 std::string vision_backbone_program_label(
     const std::string& label,
-    const void* identity) {
-  return append_context_identity_suffix(
-             vision_backbone_program_base_label(label), identity) +
+    const VisionBackboneBlockContext* identity) {
+  return append_context_cache_id_suffix(
+             vision_backbone_program_base_label(label),
+             identity ? identity->cache_id() : 0u) +
       ".program";
 }
 
 std::string vision_backbone_execution_label(
     const std::string& label,
-    const void* identity) {
+    const VisionBackboneBlockContext* identity) {
   return vision_backbone_program_label(label, identity) + ".exec";
 }
 
@@ -392,7 +425,7 @@ VisionReplayBundleIdentity make_vision_backbone_decoder_bundle_identity(
     IntArrayRef decoder_target_sizes) {
   std::ostringstream key;
   key << "vision.backbone_decoder"
-      << "|backbone_ctx=" << context_identity_key(backbone_context.get())
+      << "|backbone_ctx=" << vision_backbone_context_identity_key(backbone_context.get())
       << "|decoder_ctx=" << context_identity_key(decoder_context.get())
       << "|backbone_input=" << sizes_key(backbone_input.sizes())
       << "|decoder_input=" << sizes_key(decoder_input.sizes())
@@ -400,7 +433,7 @@ VisionReplayBundleIdentity make_vision_backbone_decoder_bundle_identity(
       << "|decoder_target=" << sizes_key(decoder_target_sizes);
 
   std::ostringstream suffix;
-  suffix << ".bbctx." << context_identity_key(backbone_context.get())
+  suffix << ".bbctx." << vision_backbone_context_identity_key(backbone_context.get())
          << ".decctx." << context_identity_key(decoder_context.get())
          << ".bin." << sizes_key(backbone_input.sizes())
          << ".din." << sizes_key(decoder_input.sizes())
@@ -428,7 +461,7 @@ VisionReplayBundleIdentity make_vision_backbone_stack_bundle_identity(
     if (idx > 0u) {
       key += ",";
     }
-    key += context_identity_key(contexts[idx].get());
+    key += vision_backbone_context_identity_key(contexts[idx].get());
   }
   if (norm_context != nullptr && normalized_shape.has_value()) {
     key += "|norm_ctx=";
@@ -451,7 +484,7 @@ VisionReplayBundleIdentity make_vision_backbone_stack_bundle_identity(
     if (idx > 0u) {
       suffix += ".";
     }
-    suffix += context_identity_key(contexts[idx].get());
+    suffix += vision_backbone_context_identity_key(contexts[idx].get());
   }
   if (norm_context != nullptr && normalized_shape.has_value()) {
     suffix += ".normctx.";
@@ -488,9 +521,13 @@ VisionReplayBundleIdentity make_vision_decoder_preprocess_head_bundle_identity(
   return VisionReplayBundleIdentity{key.str(), suffix.str()};
 }
 
-std::string vision_backbone_graph_label(const std::string& label) {
+std::string vision_backbone_graph_label(
+    const std::string& label,
+    const VisionBackboneBlockContext* identity) {
   return current_phase_graph_capture_label(
-      vision_backbone_program_base_label(label),
+      append_context_cache_id_suffix(
+          vision_backbone_program_base_label(label),
+          identity ? identity->cache_id() : 0u),
       "depth.dino.backbone.graph");
 }
 
@@ -1076,7 +1113,7 @@ utils::VisionBackboneInferenceGraph prime_vision_backbone_graph(
   }
 
   return utils::lookup_or_create_labeled_vision_backbone_inference_graph(
-      vision_backbone_graph_label(context->allocation_label()),
+      vision_backbone_graph_label(context->allocation_label(), context.get()),
       input.scalar_type(),
       runtime_policy.execution_program_plan->persistent);
 }
@@ -1807,16 +1844,20 @@ std::optional<Tensor> normalize_attention_bias_for_batch_heads(
     if (
         batch_size == 1 && bias.size(0) == 1 &&
         (bias.size(1) == num_heads || bias.size(1) == 1)) {
-      return bias.squeeze(0).expand({num_heads, token_count, token_count});
+      return bias.squeeze(0)
+          .expand({num_heads, token_count, token_count})
+          .contiguous();
     }
     if (
         num_heads == 1 && bias.size(1) == 1 &&
         (bias.size(0) == batch_size || bias.size(0) == 1)) {
-      return bias.squeeze(1).expand({batch_size, token_count, token_count});
+      return bias.squeeze(1)
+          .expand({batch_size, token_count, token_count})
+          .contiguous();
     }
     bias = bias.expand({batch_size, num_heads, token_count, token_count})
                .reshape({batch_size * num_heads, token_count, token_count});
-    return bias;
+    return bias.contiguous();
   }
   if (bias.dim() == 3) {
     TORCH_CHECK(
@@ -1830,19 +1871,21 @@ std::optional<Tensor> normalize_attention_bias_for_batch_heads(
       return bias;
     }
     if (batch_size == 1 && (bias.size(0) == num_heads || bias.size(0) == 1)) {
-      return bias.expand({num_heads, token_count, token_count});
+      return bias.expand({num_heads, token_count, token_count}).contiguous();
     }
     if (num_heads == 1 && (bias.size(0) == batch_size || bias.size(0) == 1)) {
-      return bias.expand({batch_size, token_count, token_count});
+      return bias.expand({batch_size, token_count, token_count}).contiguous();
     }
     if (bias.size(0) == num_heads) {
       return bias.unsqueeze(0)
           .expand({batch_size, num_heads, token_count, token_count})
-          .reshape({batch_size * num_heads, token_count, token_count});
+          .reshape({batch_size * num_heads, token_count, token_count})
+          .contiguous();
     }
     return bias.unsqueeze(1)
         .expand({batch_size, num_heads, token_count, token_count})
-        .reshape({batch_size * num_heads, token_count, token_count});
+        .reshape({batch_size * num_heads, token_count, token_count})
+        .contiguous();
   }
   TORCH_CHECK(
       false,
@@ -4848,7 +4891,11 @@ VisionBackboneBlockContext::VisionBackboneBlockContext(
     const std::optional<Tensor>& fc2_bias,
     const std::optional<Tensor>& ls2_gamma,
     std::string allocation_label)
-    : allocation_label_(std::move(allocation_label)),
+    : cache_id_(
+          g_next_vision_backbone_context_cache_id.fetch_add(
+              1u,
+              std::memory_order_relaxed)),
+      allocation_label_(std::move(allocation_label)),
       norm1_context_(make_layernorm_context(
           norm1_weight,
           norm1_bias,
@@ -5006,6 +5053,7 @@ create_vision_backbone_block_context(
     std::optional<Tensor>&& fc2_bias,
     std::optional<Tensor>&& ls2_gamma,
     std::string label) {
+  recover_after_vulkan_failure_if_needed();
   return c10::make_intrusive<VisionBackboneBlockContext>(
       norm1_weight,
       norm1_bias,
@@ -5049,6 +5097,7 @@ create_vision_backbone_block_context_with_attention_bias(
     std::optional<Tensor>&& fc2_bias,
     std::optional<Tensor>&& ls2_gamma,
     std::string label) {
+  recover_after_vulkan_failure_if_needed();
   return c10::make_intrusive<VisionBackboneBlockContext>(
       norm1_weight,
       norm1_bias,
@@ -5074,6 +5123,7 @@ create_vision_backbone_block_context_with_attention_bias(
 Tensor run_vision_backbone_block_context(
     const Tensor& input_arg,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context) {
+  recover_after_vulkan_failure_if_needed();
   TORCH_CHECK(
       input_arg.dim() == 2 || input_arg.dim() == 3,
       "Vision backbone block context expects rank-2 or rank-3 input");
@@ -5083,11 +5133,17 @@ Tensor run_vision_backbone_block_context(
   const Device output_device = input_arg.device();
   const ScalarType output_dtype = input_arg.scalar_type();
   Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  utils::VulkanPlanningRequestScope planning_scope(
-      utils::make_vulkan_vision_backbone_request());
+  const bool has_context_attention_bias = context->attention_bias().defined();
+  const bool has_runtime_capture_label = has_explicit_runtime_capture_label();
+  std::optional<utils::VulkanPlanningRequestScope> planning_scope;
+  if (has_runtime_capture_label) {
+    planning_scope.emplace(utils::make_vulkan_vision_backbone_request());
+  }
   const auto runtime_policy = utils::build_vulkan_runtime_policy(
       utils::make_vulkan_vision_backbone_request());
-  auto vision_graph = prime_vision_backbone_graph(input, runtime_policy, context);
+  auto vision_graph = (has_context_attention_bias || !has_runtime_capture_label)
+      ? utils::VisionBackboneInferenceGraph{}
+      : prime_vision_backbone_graph(input, runtime_policy, context);
   std::optional<utils::ScratchArena> graph_scratch = std::nullopt;
   if (vision_graph.defined() && runtime_policy.scratch_arena_plan.has_value()) {
     const int64_t batch_size = input.dim() == 2 ? 1 : input.size(0);
@@ -5127,6 +5183,7 @@ Tensor run_vision_backbone_block_context(
   const int64_t token_count = input.dim() == 2 ? input.size(0) : input.size(1);
   const int64_t embed_dim = input.size(-1);
   const int64_t hidden_dim = vision_block_hidden_dim(context);
+  const bool allow_vision_replay = has_runtime_capture_label;
   const std::string backbone_program_label =
       vision_backbone_program_label(context->allocation_label(), context.get());
   std::optional<api::RuntimeLabelScope> execution_runtime_scope;
@@ -5138,6 +5195,8 @@ Tensor run_vision_backbone_block_context(
   }
 
   if (
+      !has_context_attention_bias &&
+      allow_vision_replay &&
       vision_graph.defined() &&
       runtime_policy.execution_program_plan.has_value() &&
       input.scalar_type() == kFloat) {
@@ -5242,18 +5301,20 @@ Tensor run_vision_backbone_block_context(
     }
   }
 
-  auto vision_program = vision_graph.defined()
-      ? vision_graph.lookup_or_create_program(
-            backbone_program_label,
-            input.scalar_type(),
-            batch_size,
-            token_count,
-            embed_dim,
-            hidden_dim,
-            context->num_heads(),
-            *runtime_policy.execution_program_plan)
-      : prime_vision_backbone_program(
-            input, context, runtime_policy, graph_scratch.has_value());
+  auto vision_program = (has_context_attention_bias || !has_runtime_capture_label)
+      ? utils::VisionBackboneProgram{}
+      : (vision_graph.defined()
+             ? vision_graph.lookup_or_create_program(
+                   backbone_program_label,
+                   input.scalar_type(),
+                   batch_size,
+                   token_count,
+                   embed_dim,
+                   hidden_dim,
+                   context->num_heads(),
+                   *runtime_policy.execution_program_plan)
+             : prime_vision_backbone_program(
+                   input, context, runtime_policy, graph_scratch.has_value()));
   if (vision_program.defined()) {
     if (!graph_scratch.has_value() && vision_program.scratch_arena().has_value()) {
       vision_program.scratch_arena()->reset();

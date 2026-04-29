@@ -109,7 +109,13 @@ class TestVulkanSPVCodegen(unittest.TestCase):
         self.tmpoutdir = tempfile.TemporaryDirectory()
 
         self.generator = SPVGenerator(
-            src_dir_paths=self.tmpdir.name, env=DEFAULT_ENV, glslc_path=None
+            src_dir_paths=self.tmpdir.name,
+            env=DEFAULT_ENV,
+            glslc_path=None,
+            target_env="vulkan1.3",
+            target_spv="spv1.6",
+            strict_spv_version=True,
+            spirv_val_path=None,
         )
 
     def cleanUp(self) -> None:

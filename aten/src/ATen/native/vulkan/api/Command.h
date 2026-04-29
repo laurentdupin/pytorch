@@ -19,7 +19,10 @@ namespace api {
 
 class CommandBuffer final {
  public:
-  explicit CommandBuffer(VkCommandBuffer, const VkCommandBufferUsageFlags);
+  explicit CommandBuffer(
+      VkCommandBuffer,
+      const VkCommandBufferUsageFlags,
+      PFN_vkCmdPipelineBarrier2);
 
   CommandBuffer(const CommandBuffer&) = delete;
   CommandBuffer& operator=(const CommandBuffer&) = delete;
@@ -65,6 +68,7 @@ class CommandBuffer final {
  private:
   VkCommandBuffer handle_;
   VkCommandBufferUsageFlags flags_;
+  PFN_vkCmdPipelineBarrier2 cmd_pipeline_barrier2_;
   State state_;
   Bound bound_;
 
@@ -145,6 +149,7 @@ class CommandPool final {
  private:
   VkDevice device_;
   uint32_t queue_family_idx_;
+  PFN_vkCmdPipelineBarrier2 cmd_pipeline_barrier2_;
   VkCommandPool pool_;
   CommandPoolConfig config_;
   // New Buffers

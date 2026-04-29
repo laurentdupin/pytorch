@@ -1,5 +1,4 @@
 #include <ATen/native/vulkan/api/Context.h>
-
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -393,7 +392,7 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       querypool_(config_.queryPoolConfig, adapter_p_),
       // Command buffer submission
       cmd_mutex_{},
-      cmd_(VK_NULL_HANDLE, 0u),
+      cmd_(VK_NULL_HANDLE, 0u, nullptr),
       submit_count_{0u},
       // Memory Management
       buffer_clearlist_mutex_{},
@@ -859,6 +858,10 @@ void Context::flush() {
     append_sync_log_line(stream.str());
   }
 
+  {
+    std::unique_lock<std::mutex> context_lock(dispatch_lock());
+    submit_cmd_to_gpu(/*fence_handle=*/VK_NULL_HANDLE, /*final_use=*/true);
+  }
   VK_CHECK(vkQueueWaitIdle(queue()));
 
   command_pool_.flush();
@@ -971,16 +974,20 @@ Context* context(c10::DeviceIndex device_index) {
   static std::mutex* const contexts_mutex = new std::mutex();
   static std::vector<Context*>* const contexts = new std::vector<Context*>();
 
-  std::lock_guard<std::mutex> lock(*contexts_mutex);
-  const size_t required_size = runtime()->device_count();
-  if (contexts->size() < required_size) {
-    contexts->resize(required_size, nullptr);
-  }
+  Context* device_context = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(*contexts_mutex);
+    const size_t required_size = runtime()->device_count();
+    if (contexts->size() < required_size) {
+      contexts->resize(required_size, nullptr);
+    }
 
-  Context*& device_context =
-      contexts->at(utils::safe_downcast<size_t>(device_index));
-  if (!device_context) {
-    device_context = new Context(device_index, default_context_config());
+    Context*& stored_context =
+        contexts->at(utils::safe_downcast<size_t>(device_index));
+    if (!stored_context) {
+      stored_context = new Context(device_index, default_context_config());
+    }
+    device_context = stored_context;
   }
 
   return device_context;

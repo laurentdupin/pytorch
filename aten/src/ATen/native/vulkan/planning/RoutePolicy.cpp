@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/planning/RoutePolicy.h>
 
+#include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
 
@@ -227,6 +228,7 @@ std::string format_hard_fail(
 [[noreturn]] void fail_hard_fail(
     const char* op_name,
     const VulkanRouteDecision& decision) {
+  api::context()->sync_and_reclaim();
   api::fail_vulkan(
       api::VulkanFailureClass::RouteHardFail,
       op_name,
@@ -374,22 +376,27 @@ VulkanRouteDecision select_conv2d_route(
       groups == 1 &&
       weight_sizes[2] == 3 &&
       weight_sizes[3] == 3 &&
+      stride[0] == 1 &&
+      stride[1] == 1 &&
+      padding[0] == 1 &&
+      padding[1] == 1 &&
       dilation[0] == 1 &&
       dilation[1] == 1 &&
-      (input_sizes[1] > 32 || input_requires_grad) &&
+      (input_sizes[1] >= 64 || input_requires_grad) &&
       input_sizes[2] * input_sizes[3] >= 18 * 18) {
-    const bool is_s1p1 =
-        stride[0] == 1 &&
-        stride[1] == 1 &&
-        padding[0] == 1 &&
-        padding[1] == 1;
-    return make_hard_fail_route(
-        "aten::convolution",
-        is_s1p1 ? VulkanRouteRejectReason::KnownBadConv3x3Stride1Pad1
-                : VulkanRouteRejectReason::KnownBadLargeBufferConv3x3,
-        shape_summary,
-        request,
-        device_policy);
+    VulkanRouteDecision decision;
+    decision.kind = VulkanRouteKind::VulkanTextureKernel;
+    decision.reject_reason =
+        VulkanRouteRejectReason::KnownBadConv3x3Stride1Pad1;
+    decision.runtime_policy = runtime_policy;
+    decision.lane = lane;
+    decision.kernel_family = "legacy_image_conv2d";
+    decision.telemetry_label = "SelectedTextureConv2dForKnownBadLarge3x3";
+    decision.shape_summary = shape_summary;
+    decision.device_summary = describe_device_policy(device_policy);
+    decision.hard_fail = false;
+    log_route_decision("aten::convolution", decision);
+    return decision;
   }
 
   if (

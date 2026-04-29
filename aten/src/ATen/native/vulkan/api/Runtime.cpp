@@ -12,6 +12,30 @@ namespace api {
 
 namespace {
 
+uint32_t require_vulkan_1_3_loader() {
+  const auto enumerate_instance_version =
+      reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
+          vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceVersion"));
+  VK_CHECK_COND(
+      enumerate_instance_version,
+      "PyTorch Vulkan backend was built for Vulkan 1.3 / SPIR-V 1.6, "
+      "but vkEnumerateInstanceVersion is unavailable from the Vulkan loader.");
+
+  uint32_t instance_version = 0u;
+  VK_CHECK(enumerate_instance_version(&instance_version));
+  VK_CHECK_COND(
+      instance_version >= VK_API_VERSION_1_3,
+      "PyTorch Vulkan backend was built for Vulkan 1.3 / SPIR-V 1.6, "
+      "but the Vulkan loader reports API version ",
+      VK_VERSION_MAJOR(instance_version),
+      ".",
+      VK_VERSION_MINOR(instance_version),
+      ".",
+      VK_VERSION_PATCH(instance_version),
+      ".");
+  return instance_version;
+}
+
 void find_requested_layers_and_extensions(
     std::vector<const char*>& enabled_layers,
     std::vector<const char*>& enabled_extensions,
@@ -56,6 +80,8 @@ void find_requested_layers_and_extensions(
 }
 
 VkInstance create_instance(const RuntimeConfiguration& config) {
+  const uint32_t loader_api_version = require_vulkan_1_3_loader();
+  (void)loader_api_version;
   const VkApplicationInfo application_info{
       VK_STRUCTURE_TYPE_APPLICATION_INFO, // sType
       nullptr, // pNext
@@ -63,7 +89,7 @@ VkInstance create_instance(const RuntimeConfiguration& config) {
       0, // applicationVersion
       nullptr, // pEngineName
       0, // engineVersion
-      VK_API_VERSION_1_0, // apiVersion
+      VK_API_VERSION_1_3, // apiVersion
   };
 
   std::vector<const char*> enabled_layers;
@@ -132,7 +158,11 @@ std::vector<Runtime::DeviceMapping> create_physical_devices(
   device_mappings.reserve(device_count);
   for (VkPhysicalDevice physical_device : devices) {
     PhysicalDevice candidate(instance, physical_device);
-    if (candidate.num_compute_queues > 0u) {
+    if (
+        candidate.properties.apiVersion >= VK_API_VERSION_1_3 &&
+        candidate.has_maintenance4 &&
+        candidate.has_synchronization2 &&
+        candidate.num_compute_queues > 0u) {
       device_mappings.emplace_back(std::move(candidate), -1);
     }
   }
@@ -245,6 +275,7 @@ std::unique_ptr<Runtime> init_global_vulkan_runtime() {
   try {
     return std::make_unique<Runtime>(default_config);
   } catch (...) {
+    throw;
   }
 
   return std::unique_ptr<Runtime>(nullptr);
@@ -309,8 +340,9 @@ Runtime::~Runtime() {
 uint32_t Runtime::create_adapter(const Selector& selector) {
   VK_CHECK_COND(
       !device_mappings_.empty(),
-      "Pytorch Vulkan Runtime: Could not initialize adapter because no "
-      "devices were found by the Vulkan instance.");
+      "PyTorch Vulkan backend was built for Vulkan 1.3 / SPIR-V 1.6, "
+      "but no Vulkan 1.3-capable physical device with maintenance4, "
+      "synchronization2, and compute queues was found.");
 
   uint32_t device_i = selector(device_mappings_);
   VK_CHECK_COND(
@@ -377,8 +409,9 @@ Runtime* runtime() {
 
   VK_CHECK_COND(
       p_runtime,
-      "Pytorch Vulkan Runtime: The global runtime could not be retrieved "
-      "because it failed to initialize.");
+      "PyTorch Vulkan backend was built for Vulkan 1.3 / SPIR-V 1.6, "
+      "but the global runtime failed to initialize. Check that the Vulkan "
+      "loader and physical device both support Vulkan 1.3.");
 
   return p_runtime;
 }

@@ -7,6 +7,7 @@ import array
 import codecs
 import copy
 import glob
+import json
 import io
 import os
 import re
@@ -34,6 +35,15 @@ sys.path.append(str(REPO_ROOT))
 
 CPP_H_NAME = "spv.h"
 CPP_SRC_NAME = "spv.cpp"
+SPV_MAGIC = 0x07230203
+SPV_VERSION_WORDS = {
+    "spv1.6": 0x00010600,
+}
+SPV_OP_CAPABILITY = 17
+SPV_OP_EXTENSION = 10
+SPV_OP_EXECUTION_MODE = 16
+SPV_OP_EXECUTION_MODE_ID = 331
+SPV_EXECUTION_MODE_LOCAL_SIZE_ID = 38
 
 DEFAULT_ENV: dict[str, Any] = {
     "PRECISION": "highp",
@@ -257,6 +267,10 @@ class SPVGenerator:
         src_dir_paths: str | list[str],
         env: dict[Any, Any],
         glslc_path: str | None,
+        target_env: str,
+        target_spv: str,
+        strict_spv_version: bool,
+        spirv_val_path: str | None,
     ) -> None:
         if isinstance(src_dir_paths, str):
             self.src_dir_paths = [src_dir_paths]
@@ -265,6 +279,10 @@ class SPVGenerator:
 
         self.env = env
         self.glslc_path = glslc_path
+        self.target_env = target_env
+        self.target_spv = target_spv
+        self.strict_spv_version = strict_spv_version
+        self.spirv_val_path = spirv_val_path
 
         self.glsl_src_files: dict[str, str] = {}
         self.template_yaml_files: list[str] = []
@@ -421,17 +439,11 @@ class SPVGenerator:
                     self.create_shader_params(),
                 )
 
-    def getTargetEnv(self, source_glsl: str) -> str:
-        subgroup_shader_targets = {
-            "scaled_dot_product_scores_value_buffer_float_head64_subgroup32.glsl",
-            "scaled_dot_product_scores_value_buffer_float_head64_subgroup64.glsl",
-        }
-        if os.path.basename(source_glsl) in subgroup_shader_targets:
-            return "vulkan1.1"
-        return "vulkan1.0"
-
-    def generateSPV(self, output_dir: str) -> dict[str, str]:
+    def generateSPV(
+        self, output_dir: str
+    ) -> tuple[dict[str, str], list[dict[str, Any]]]:
         output_file_map = {}
+        manifest_records = []
         for shader_name in self.output_shader_map:
             source_glsl = self.output_shader_map[shader_name][0]
             shader_params = self.output_shader_map[shader_name][1]
@@ -455,7 +467,8 @@ class SPVGenerator:
                     glsl_out_path,
                     "-o",
                     spv_out_path,
-                    "--target-env=" + self.getTargetEnv(source_glsl),
+                    "--target-env=" + self.target_env,
+                    "--target-spv=" + self.target_spv,
                     "-Werror",
                 ] + [
                     arg
@@ -465,10 +478,107 @@ class SPVGenerator:
 
                 print("glslc cmd:", cmd)
                 subprocess.check_call(cmd)
+                spv_info = validate_spv_file(
+                    spv_out_path,
+                    self.target_spv,
+                    self.strict_spv_version,
+                )
+                if self.spirv_val_path:
+                    subprocess.check_call([
+                        self.spirv_val_path,
+                        "--target-env",
+                        self.target_env,
+                        spv_out_path,
+                    ])
 
                 output_file_map[spv_out_path] = glsl_out_path
+                manifest_records.append({
+                    "shader": shader_name,
+                    "source": source_glsl,
+                    "generated_glsl": glsl_out_path,
+                    "spv": spv_out_path,
+                    "target_env": self.target_env,
+                    "target_spv": self.target_spv,
+                    "spv_version_word": f"0x{spv_info['version_word']:08x}",
+                    "capabilities": spv_info["capabilities"],
+                    "extensions": spv_info["extensions"],
+                    "execution_modes": spv_info["execution_modes"],
+                    "uses_local_size_id": spv_info["uses_local_size_id"],
+                })
 
-        return output_file_map
+        return output_file_map, manifest_records
+
+
+def _decode_spv_string(words: list[int], start: int) -> str:
+    bytes_out = bytearray()
+    for word in words[start:]:
+        for byte_idx in range(4):
+            value = (word >> (8 * byte_idx)) & 0xFF
+            if value == 0:
+                return bytes_out.decode("utf-8", errors="replace")
+            bytes_out.append(value)
+    return bytes_out.decode("utf-8", errors="replace")
+
+
+def inspect_spv_file(path: str) -> dict[str, Any]:
+    with open(path, "rb") as handle:
+        data = handle.read()
+    if len(data) % 4 != 0:
+        raise RuntimeError(f"{path}: SPIR-V byte size is not divisible by 4")
+    words = array.array("I")
+    words.frombytes(data)
+    if len(words) < 5:
+        raise RuntimeError(f"{path}: SPIR-V module is too small")
+    if words[0] != SPV_MAGIC:
+        raise RuntimeError(
+            f"{path}: invalid SPIR-V magic 0x{words[0]:08x}, expected 0x{SPV_MAGIC:08x}"
+        )
+
+    capabilities: list[int] = []
+    extensions: list[str] = []
+    execution_modes: list[int] = []
+    uses_local_size_id = False
+    offset = 5
+    while offset < len(words):
+        instruction = words[offset]
+        word_count = instruction >> 16
+        opcode = instruction & 0xFFFF
+        if word_count == 0:
+            raise RuntimeError(f"{path}: invalid zero word-count SPIR-V instruction")
+        operands = words[offset + 1 : offset + word_count]
+        if opcode == SPV_OP_CAPABILITY and operands:
+            capabilities.append(int(operands[0]))
+        elif opcode == SPV_OP_EXTENSION:
+            extensions.append(_decode_spv_string(operands, 0))
+        elif opcode in (SPV_OP_EXECUTION_MODE, SPV_OP_EXECUTION_MODE_ID) and len(operands) >= 2:
+            mode = int(operands[1])
+            execution_modes.append(mode)
+            if mode == SPV_EXECUTION_MODE_LOCAL_SIZE_ID:
+                uses_local_size_id = True
+        offset += word_count
+
+    return {
+        "version_word": int(words[1]),
+        "capabilities": sorted(set(capabilities)),
+        "extensions": sorted(set(extensions)),
+        "execution_modes": sorted(set(execution_modes)),
+        "uses_local_size_id": uses_local_size_id,
+    }
+
+
+def validate_spv_file(
+    path: str, target_spv: str, strict_spv_version: bool
+) -> dict[str, Any]:
+    spv_info = inspect_spv_file(path)
+    expected_word = SPV_VERSION_WORDS.get(target_spv)
+    if expected_word is None:
+        raise RuntimeError(f"Unsupported target SPIR-V version: {target_spv}")
+    if strict_spv_version and spv_info["version_word"] != expected_word:
+        raise RuntimeError(
+            f"{path}: SPIR-V version 0x{spv_info['version_word']:08x}, "
+            f"expected 0x{expected_word:08x} for {target_spv}"
+        )
+    return spv_info
 
 
 ##############################################
@@ -642,7 +752,22 @@ def generateSpvBinStr(spvPath: str, name: str) -> tuple[int, str]:
     return sizeBytes, spv_bin_str
 
 
-def generateShaderInfoStr(shader_info: ShaderInfo, name: str, sizeBytes: int) -> str:
+def _cpp_uint_vector(values: list[int]) -> str:
+    return "{" + ", ".join(str(x) for x in values) + "}"
+
+
+def _cpp_string_vector(values: list[str]) -> str:
+    return "{" + ", ".join(json.dumps(x) for x in values) + "}"
+
+
+def generateShaderInfoStr(
+    shader_info: ShaderInfo,
+    name: str,
+    sizeBytes: int,
+    src_path: str,
+    target_env: str,
+    spv_info: dict[str, Any],
+) -> str:
     tile_size = (
         f"{{{', '.join(str(x) for x in shader_info.tile_size)}}}"
         if (len(shader_info.tile_size) > 0)
@@ -659,6 +784,13 @@ def generateShaderInfoStr(shader_info: ShaderInfo, name: str, sizeBytes: int) ->
         tile_size,
         storageTypeToEnum[shader_info.weight_storage_type],
         storageTypeToEnum[shader_info.bias_storage_type],
+        json.dumps(src_path),
+        json.dumps(target_env),
+        str(spv_info["version_word"]),
+        _cpp_uint_vector(spv_info["capabilities"]),
+        _cpp_string_vector(spv_info["extensions"]),
+        _cpp_uint_vector(spv_info["execution_modes"]),
+        "true" if spv_info["uses_local_size_id"] else "false",
     ]
 
     shader_info_str = textwrap.indent(
@@ -687,7 +819,10 @@ def generateShaderDispatchStr(shader_info: ShaderInfo, name: str) -> str:
 
 
 def genCppFiles(
-    spv_files: dict[str, str], cpp_header_path: str, cpp_src_file_path: str
+    spv_files: dict[str, str],
+    cpp_header_path: str,
+    cpp_src_file_path: str,
+    target_env: str,
 ) -> None:
     spv_bin_strs = []
     register_shader_info_strs = []
@@ -700,9 +835,17 @@ def genCppFiles(
         spv_bin_strs.append(spv_bin_str)
 
         shader_info = getShaderInfo(srcPath)
+        spv_info = inspect_spv_file(spvPath)
 
         register_shader_info_strs.append(
-            generateShaderInfoStr(shader_info, name, sizeBytes)
+            generateShaderInfoStr(
+                shader_info,
+                name,
+                sizeBytes,
+                srcPath,
+                target_env,
+                spv_info,
+            )
         )
 
         if shader_info.register_for is not None:
@@ -750,6 +893,21 @@ def main(argv: list[str]) -> int:
     parser.add_argument("-c", "--glslc-path", required=True, help="")
     parser.add_argument("-t", "--tmp-dir-path", required=True, help="/tmp")
     parser.add_argument("-o", "--output-path", required=True, help="")
+    parser.add_argument("--target-env", default="vulkan1.3", choices=["vulkan1.3"])
+    parser.add_argument("--target-spv", default="spv1.6", choices=["spv1.6"])
+    parser.add_argument(
+        "--strict-spv-version",
+        dest="strict_spv_version",
+        action="store_true",
+        default=True,
+    )
+    parser.add_argument(
+        "--no-strict-spv-version",
+        dest="strict_spv_version",
+        action="store_false",
+    )
+    parser.add_argument("--spirv-val-path", default=None)
+    parser.add_argument("--manifest-path", default=None)
     parser.add_argument(
         "--env", metavar="KEY=VALUE", nargs="*", help="Set a number of key-value pairs"
     )
@@ -768,14 +926,37 @@ def main(argv: list[str]) -> int:
     if not os.path.exists(options.tmp_dir_path):
         os.makedirs(options.tmp_dir_path)
 
-    shader_generator = SPVGenerator(options.glsl_paths, env, options.glslc_path)
-    output_spv_files = shader_generator.generateSPV(options.tmp_dir_path)
+    shader_generator = SPVGenerator(
+        options.glsl_paths,
+        env,
+        options.glslc_path,
+        options.target_env,
+        options.target_spv,
+        options.strict_spv_version,
+        options.spirv_val_path,
+    )
+    output_spv_files, manifest_records = shader_generator.generateSPV(
+        options.tmp_dir_path
+    )
 
     genCppFiles(
         output_spv_files,
         f"{options.output_path}/{CPP_H_NAME}",
         f"{options.output_path}/{CPP_SRC_NAME}",
+        options.target_env,
     )
+    if options.manifest_path:
+        with open(options.manifest_path, "w", encoding="utf-8") as manifest_file:
+            json.dump(
+                {
+                    "target_env": options.target_env,
+                    "target_spv": options.target_spv,
+                    "shaders": manifest_records,
+                },
+                manifest_file,
+                indent=2,
+                sort_keys=True,
+            )
 
     return 0
 

@@ -1032,6 +1032,40 @@ bool should_force_image_conv_for_small_metadata_input(const Tensor& input) {
       !v_input.has_direct_buffer_layout();
 }
 
+bool should_force_image_conv_for_known_bad_large_buffer_conv(
+    const Tensor& input,
+    const Tensor& weight,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups) {
+  const utils::VulkanDevicePolicy device_policy =
+      utils::current_vulkan_device_policy();
+  if (
+      !device_policy.disable_large_buffer_conv_3x3 ||
+      !input.is_vulkan() ||
+      input.scalar_type() != kFloat ||
+      input.dim() != 4 ||
+      weight.dim() != 4 ||
+      stride.size() != 2 ||
+      padding.size() != 2 ||
+      dilation.size() != 2 ||
+      groups != 1 ||
+      weight.size(2) != 3 ||
+      weight.size(3) != 3 ||
+      stride[0] != 1 ||
+      stride[1] != 1 ||
+      padding[0] != 1 ||
+      padding[1] != 1 ||
+      dilation[0] != 1 ||
+      dilation[1] != 1 ||
+      input.size(2) * input.size(3) < 18 * 18 ||
+      (input.size(1) < 64 && !input.requires_grad())) {
+    return false;
+  }
+  return true;
+}
+
 bool can_run_bfloat16_buffer_conv2d(
     const Tensor& input,
     const Tensor& weight,
@@ -2214,16 +2248,40 @@ Tensor run_bfloat16_buffer_conv2d(
           weight,
           utils::VulkanExecutionPlanKind::Conv2dWeightSource,
           convolution_request(utils::VulkanTensorRole::Weight));
-      const std::optional<Tensor> compute_bias =
-          utils::prepare_optional_vulkan_execution_tensor(
-              bias,
-              utils::VulkanExecutionPlanKind::Conv2dBiasSource,
-              convolution_request(utils::VulkanTensorRole::Bias));
+  const std::optional<Tensor> compute_bias =
+      utils::prepare_optional_vulkan_execution_tensor(
+          bias,
+          utils::VulkanExecutionPlanKind::Conv2dBiasSource,
+          convolution_request(utils::VulkanTensorRole::Bias));
+  const bool avoid_large_buffer_conv_3x3 =
+      should_force_image_conv_for_known_bad_large_buffer_conv(
+          compute_input,
+          weight,
+          stride,
+          padding,
+          dilation,
+          groups);
+  if (avoid_large_buffer_conv_3x3) {
+    utils::select_conv2d_route(
+        compute_input.sizes(),
+        weight.sizes(),
+        stride,
+        padding,
+        dilation,
+        groups,
+        compute_input.scalar_type(),
+        compute_input.requires_grad(),
+        convolution_request(utils::VulkanTensorRole::Input),
+        utils::current_vulkan_device_policy());
+  }
   const bool force_legacy_image_pack =
-      should_force_image_conv_for_small_metadata_input(compute_input);
+      should_force_image_conv_for_small_metadata_input(compute_input) ||
+      avoid_large_buffer_conv_3x3;
   if (force_legacy_image_pack) {
     utils::log_vulkan_op_hit(
-        "aten::convolution.buffer_float_skip.small_metadata_input");
+        should_force_image_conv_for_small_metadata_input(compute_input)
+            ? "aten::convolution.buffer_float_skip.small_metadata_input"
+            : "aten::convolution.buffer_float_skip.known_bad_large_3x3");
   }
   if (utils::has_inference_tensor(compute_weight, compute_bias)) {
     auto conv_context = c10::make_intrusive<Conv2dPackedContext>(
@@ -2869,8 +2927,10 @@ static Tensor run_conv2d_context_impl(
       "Vulkan convolution out is only supported for float buffer-backed contexts");
 
   api::Context* const context = api::context();
+  const Tensor runtime_input_arg =
+      input_arg.requires_grad() ? input_arg.detach() : input_arg;
   Tensor input = utils::prepare_vulkan_execution_tensor(
-      input_arg,
+      runtime_input_arg,
       utils::VulkanExecutionPlanKind::Conv2dRuntimeInput,
       convolution_request(utils::VulkanTensorRole::Input));
   if (
@@ -2889,7 +2949,12 @@ static Tensor run_conv2d_context_impl(
   const auto& kernel_size = packed_weight.logical_weight_sizes();
 
   TORCH_CHECK(
-      usable(input, quantized), "Input tensor not usable for convolution!");
+      usable(input, quantized),
+      "Input tensor not usable for convolution! state={",
+      describe_tensor_state(input),
+      "} provenance={",
+      describe_tensor_provenance(input),
+      "}");
 
   std::vector<int64_t> output_size;
   if (transposed) {

@@ -26,6 +26,10 @@ const char* vulkan_failure_class_name(VulkanFailureClass failure_class);
 
 bool vulkan_failure_logging_enabled();
 
+void mark_vulkan_post_failure_recovery_required();
+bool vulkan_post_failure_recovery_required();
+void clear_vulkan_post_failure_recovery_required();
+
 void log_vulkan_failure(
     VulkanFailureClass failure_class,
     const char* op_name,

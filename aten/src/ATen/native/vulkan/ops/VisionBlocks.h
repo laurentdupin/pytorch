@@ -8,6 +8,7 @@
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <torch/library.h>
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -20,6 +21,7 @@ namespace ops {
 class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
  private:
   c10::impl::GenericList unpacked_{c10::AnyType::get()};
+  uint64_t cache_id_{0u};
   std::string allocation_label_;
   c10::intrusive_ptr<LayernormPackedContext> norm1_context_;
   c10::intrusive_ptr<LinearPackedContext> qkv_context_;
@@ -87,6 +89,10 @@ class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
 
   const std::string& allocation_label() const {
     return allocation_label_;
+  }
+
+  uint64_t cache_id() const {
+    return cache_id_;
   }
 
   const c10::intrusive_ptr<LayernormPackedContext>& norm1_context() const {

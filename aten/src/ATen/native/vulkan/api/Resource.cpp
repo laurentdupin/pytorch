@@ -1145,7 +1145,7 @@ MemoryAllocator::MemoryAllocator(
       nullptr, // pHeapSizeLimit
       &vk_functions, // pVulkanFunctions
       instance, // instance
-      VK_API_VERSION_1_0, // vulkanApiVersion
+      VK_API_VERSION_1_3, // vulkanApiVersion
       nullptr, // pTypeExternalMemoryHandleTypes
   };
 
