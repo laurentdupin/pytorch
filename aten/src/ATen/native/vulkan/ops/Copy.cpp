@@ -187,6 +187,27 @@ void log_copy_sync_event(
       << " sizes=" << format_sizes(tensor.sizes()) << '\n';
 }
 
+void log_cpu_timeline_copy_event(
+    const char* event,
+    const uint64_t duration_us,
+    const vTensor& tensor,
+    const bool direct_buffer_layout) {
+  if (!api::cpu_timeline_logging_enabled()) {
+    return;
+  }
+
+  std::ostringstream stream;
+  stream << "event=" << event
+         << " duration_us=" << duration_us
+         << " caller=" << api::current_allocation_label()
+         << " storage=" << storage_type_name(tensor.storage_type())
+         << " direct_buffer=" << (direct_buffer_layout ? 1 : 0)
+         << " logical_bytes=" << tensor.nbytes()
+         << " gpu_bytes=" << tensor.gpu_nbytes()
+         << " sizes=" << format_sizes(tensor.sizes());
+  api::append_cpu_timeline_log_line(stream.str());
+}
+
 void retire_command_resources_after_fence_wait(api::Context* const context) {
   utils::log_vulkan_op_hit("aten::copy_.retire_after_fence_begin");
   context->retire_after_fence_wait();
@@ -591,6 +612,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
 }
 
 void pack_cpu_to_host_visible_vulkan_buffer(const Tensor& src, vTensor& dst) {
+  const bool cpu_timeline = api::cpu_timeline_logging_enabled();
+  const uint64_t start_us = cpu_timeline ? api::cpu_timeline_now_us() : 0u;
   api::MemoryMap mapping(dst.buffer(), api::MemoryAccessType::WRITE);
   if (dst.has_direct_buffer_layout()) {
     const c10::MemoryFormat target_memory_format =
@@ -636,6 +659,13 @@ void pack_cpu_to_host_visible_vulkan_buffer(const Tensor& src, vTensor& dst) {
                 dst.buffer_length());
   }
   dst.mark_host_write();
+  if (cpu_timeline) {
+    log_cpu_timeline_copy_event(
+        "copy_cpu_to_host_visible_vulkan_buffer",
+        api::cpu_timeline_now_us() - start_us,
+        dst,
+        dst.has_direct_buffer_layout());
+  }
 }
 
 void unpack_buffer_mapping_to_logical_tensor_dispatch(
@@ -978,13 +1008,26 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
             {0u, 0u, 0u},
             {0u, 0u, 0u},
             fence.get_submit_handle());
+        const bool cpu_timeline = api::cpu_timeline_logging_enabled();
+        const uint64_t wait_start_us =
+            cpu_timeline ? api::cpu_timeline_now_us() : 0u;
         fence.wait();
+        if (cpu_timeline) {
+          log_cpu_timeline_copy_event(
+              "copy_preserve_vulkan_buffer_view_fence_wait",
+              api::cpu_timeline_now_us() - wait_start_us,
+              dst,
+              false);
+        }
         log_copy_sync_event("preserve_vulkan_buffer_view", dst, false);
         retire_after_fence_wait_and_release(context);
       }
       context->fences().return_fence(fence);
     }
     {
+      const bool cpu_timeline = api::cpu_timeline_logging_enabled();
+      const uint64_t start_us =
+          cpu_timeline ? api::cpu_timeline_now_us() : 0u;
       api::MemoryMap mapping(staging.buffer(), api::MemoryAccessType::WRITE);
       if (dst.has_direct_buffer_layout()) {
         Tensor src_contig = src.contiguous(target_memory_format);
@@ -1013,6 +1056,13 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
             dst.storage_offset(),
             copy_covers_full_buffer);
       }
+      if (cpu_timeline) {
+        log_cpu_timeline_copy_event(
+            "copy_cpu_to_vulkan_buffer_staging_pack",
+            api::cpu_timeline_now_us() - start_us,
+            dst,
+            dst.has_direct_buffer_layout());
+      }
     }
     if (staging.buffer().mem_size() > 0u) {
       api::VulkanFence fence = context->fences().get_fence();
@@ -1020,7 +1070,17 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
         std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
         copy_staging_buffer_to_vtensor_buffer(
             context, staging.buffer(), dst, fence.get_submit_handle());
+        const bool cpu_timeline = api::cpu_timeline_logging_enabled();
+        const uint64_t wait_start_us =
+            cpu_timeline ? api::cpu_timeline_now_us() : 0u;
         fence.wait();
+        if (cpu_timeline) {
+          log_cpu_timeline_copy_event(
+              "copy_cpu_to_vulkan_buffer_fence_wait",
+              api::cpu_timeline_now_us() - wait_start_us,
+              dst,
+              dst.has_direct_buffer_layout());
+        }
         log_copy_sync_event(
             "pack_cpu_to_vulkan_buffer",
             dst,
@@ -1094,7 +1154,17 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
         submitted_to_gpu = copy_vtensor_buffer_to_staging(
             context, src, staging_buffer, fence.get_submit_handle());
         if (submitted_to_gpu) {
+          const bool cpu_timeline = api::cpu_timeline_logging_enabled();
+          const uint64_t wait_start_us =
+              cpu_timeline ? api::cpu_timeline_now_us() : 0u;
           fence.wait();
+          if (cpu_timeline) {
+            log_cpu_timeline_copy_event(
+                "copy_vulkan_to_cpu_buffer_fence_wait",
+                api::cpu_timeline_now_us() - wait_start_us,
+                src,
+                src.has_direct_buffer_layout());
+          }
           log_copy_sync_event(
               "pack_vulkan_to_cpu_buffer",
               src,
@@ -1107,6 +1177,9 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
         }
       };
       auto copy_from_staging = [&](api::VulkanBuffer& staging_buffer) {
+        const bool cpu_timeline = api::cpu_timeline_logging_enabled();
+        const uint64_t start_us =
+            cpu_timeline ? api::cpu_timeline_now_us() : 0u;
         api::MemoryMap mapping(staging_buffer, api::MemoryAccessType::READ);
         TORCH_CHECK(
             mapping.nbytes() >= staging_bytes,
@@ -1131,6 +1204,13 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
               mapping, dst_tmp, src.gpu_strides(), src.storage_offset());
         }
         utils::log_vulkan_op_hit("aten::copy_.vulkan_to_cpu_buffer_map_end");
+        if (cpu_timeline) {
+          log_cpu_timeline_copy_event(
+              "copy_vulkan_to_cpu_buffer_map_unpack",
+              api::cpu_timeline_now_us() - start_us,
+              src,
+              src.has_direct_buffer_layout());
+        }
       };
 
       auto staging = lookup_or_create_readback_buffer("buffer_pack", staging_bytes);
@@ -1141,7 +1221,17 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
 
     context->fences().return_fence(fence);
     utils::log_vulkan_op_hit("aten::copy_.vulkan_to_cpu_buffer_dst_copy_begin");
+    const bool cpu_timeline = api::cpu_timeline_logging_enabled();
+    const uint64_t dst_copy_start_us =
+        cpu_timeline ? api::cpu_timeline_now_us() : 0u;
     dst.copy_(dst_tmp);
+    if (cpu_timeline) {
+      log_cpu_timeline_copy_event(
+          "copy_vulkan_to_cpu_buffer_dst_copy",
+          api::cpu_timeline_now_us() - dst_copy_start_us,
+          src,
+          src.has_direct_buffer_layout());
+    }
     utils::log_vulkan_op_hit("aten::copy_.vulkan_to_cpu_buffer_dst_copy_end");
     return;
   }
@@ -1163,13 +1253,23 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
       // cmd_mutex_ must be manually managed by the calling thread.
       std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
 
-      const bool submitted_to_gpu = utils::pack_vtensor_to_staging(
-          src, staging.buffer(), fence.get_submit_handle());
+        const bool submitted_to_gpu = utils::pack_vtensor_to_staging(
+            src, staging.buffer(), fence.get_submit_handle());
 
       // Only wait on the fence if work was actually submitted to the GPU.
       // Otherwise, it will hang indefinitely.
       if (submitted_to_gpu) {
+        const bool cpu_timeline = api::cpu_timeline_logging_enabled();
+        const uint64_t wait_start_us =
+            cpu_timeline ? api::cpu_timeline_now_us() : 0u;
         fence.wait();
+        if (cpu_timeline) {
+          log_cpu_timeline_copy_event(
+              "copy_texture_to_cpu_fence_wait",
+              api::cpu_timeline_now_us() - wait_start_us,
+              src,
+              false);
+        }
         log_copy_sync_event("pack_vulkan_to_cpu_texture", src, false);
         retire_after_fence_wait_and_release(context);
       }

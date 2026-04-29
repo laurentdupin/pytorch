@@ -60,6 +60,29 @@ std::string conv2d_shape_summary(
   return out.str();
 }
 
+bool is_known_dav2_decoder_project_pointwise_shape(
+    IntArrayRef input_sizes,
+    IntArrayRef weight_sizes) {
+  if (input_sizes.size() != 4 || weight_sizes.size() != 4) {
+    return false;
+  }
+  if (
+      input_sizes[0] != 1 ||
+      input_sizes[1] != 384 ||
+      weight_sizes[1] != 384 ||
+      weight_sizes[2] != 1 ||
+      weight_sizes[3] != 1 ||
+      (weight_sizes[0] != 192 && weight_sizes[0] != 384)) {
+    return false;
+  }
+  const int64_t height = input_sizes[2];
+  const int64_t width = input_sizes[3];
+  return (height == 15 && width == 10) ||
+      (height == 20 && width == 13) ||
+      (height == 30 && width == 20) ||
+      (height == 45 && width == 30);
+}
+
 std::string sdpa_shape_summary(
     const Tensor& query,
     const Tensor& key,
@@ -418,6 +441,23 @@ VulkanRouteDecision select_conv2d_route(
       input_sizes[1] >= 384 &&
       weight_sizes[0] >= 192 &&
       (input_sizes[3] % 4 != 0 || input_sizes[2] * input_sizes[3] < 512)) {
+    if (is_known_dav2_decoder_project_pointwise_shape(
+            input_sizes, weight_sizes)) {
+      VulkanRouteDecision decision;
+      decision.kind = VulkanRouteKind::VulkanBufferDirectKernel;
+      decision.reject_reason =
+          VulkanRouteRejectReason::KnownBadLargePointwiseConv;
+      decision.runtime_policy = runtime_policy;
+      decision.lane = lane;
+      decision.kernel_family = "buffer_float_conv2d_generic";
+      decision.telemetry_label =
+          "SelectedGenericBufferConv2dForDav2DecoderProjectPointwise";
+      decision.shape_summary = shape_summary;
+      decision.device_summary = describe_device_policy(device_policy);
+      decision.hard_fail = false;
+      log_route_decision("aten::convolution", decision);
+      return decision;
+    }
     return make_hard_fail_route(
         "aten::convolution",
         VulkanRouteRejectReason::KnownBadLargePointwiseConv,

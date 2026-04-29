@@ -68,6 +68,16 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def dump_vulkan_cpu_timeline_summary() -> None:
+    dump_timeline_summary = getattr(
+        getattr(torch.ops, "vulkan_prepack", None),
+        "dump_cpu_timeline_summary",
+        None,
+    )
+    if dump_timeline_summary is not None:
+        dump_timeline_summary()
+
+
 @contextmanager
 def pushd(path: Path):
     previous = Path.cwd()
@@ -351,6 +361,7 @@ def main() -> None:
         _ = run_desktop_forward(load_model, single_packet, device=args.device)
 
     transformed_once = load_model.TransformInput(single_packet)
+    dump_vulkan_cpu_timeline_summary()
 
     transform_durations, transformed_last = benchmark_callable(
         args.repeats,
@@ -453,6 +464,8 @@ def main() -> None:
     }
     write_json(output_path, result)
     print(output_path.read_text(encoding="utf-8"))
+
+    dump_vulkan_cpu_timeline_summary()
 
     load_model.CleanModel()
 

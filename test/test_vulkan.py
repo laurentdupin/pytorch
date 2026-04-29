@@ -5816,9 +5816,17 @@ print("OK")
                 rtol=1e-4)
 
     def test_large_pointwise_conv2d_module_with_vulkan_weights(self):
+        import numpy as np
+
         torch.manual_seed(0)
 
-        for shape in ((1, 384, 30, 20),):
+        dav2_project_shapes = (
+            (1, 384, 15, 10),
+            (1, 384, 20, 13),
+            (1, 384, 30, 20),
+            (1, 384, 45, 30),
+        )
+        for shape in dav2_project_shapes:
             for out_channels in (192, 384):
                 with self.subTest(shape=shape, out_channels=out_channels):
                     x_cpu = torch.randn(*shape)
@@ -5837,8 +5845,26 @@ print("OK")
                     module_vulkan = module_vulkan.to("vulkan")
 
                     with torch.inference_mode():
-                        expected = module_cpu(x_cpu)
-                        actual = module_vulkan(x_vulkan).cpu()
+                        weight_np = module_cpu.weight.detach().numpy().reshape(
+                            out_channels, shape[1])
+                        bias_np = module_cpu.bias.detach().numpy()
+                        expected = torch.from_numpy(
+                            np.einsum(
+                                "nchw,oc->nohw",
+                                x_cpu.numpy(),
+                                weight_np,
+                                optimize=True)
+                            + bias_np.reshape(1, out_channels, 1, 1))
+                        actual = None
+                        for _ in range(3):
+                            current = module_vulkan(x_vulkan).cpu()
+                            if actual is not None:
+                                self._assert_outputs_close(
+                                    actual,
+                                    current,
+                                    atol=1e-5,
+                                    rtol=1e-5)
+                            actual = current
 
                     self._assert_outputs_close(
                         expected,
@@ -5901,7 +5927,7 @@ print("OK")
             if os.path.exists(log_path):
                 os.remove(log_path)
 
-    def test_large_pointwise_conv2d_small_spatial_hard_fails(self):
+    def test_large_pointwise_conv2d_non_dav2_small_spatial_hard_fails(self):
         x_cpu = torch.randn(1, 384, 16, 16)
         x_vulkan = x_cpu.to("vulkan")
         module_vulkan = torch.nn.Conv2d(
@@ -11580,9 +11606,9 @@ print("OK")
                 import torch.nn.functional as F
 
                 torch.manual_seed(0)
-                x_cpu = torch.randn(601, 384, dtype=torch.float32)
-                w_cpu = torch.randn(1152, 384, dtype=torch.float32)
-                b_cpu = torch.randn(1152, dtype=torch.float32)
+                x_cpu = torch.randn(384, 1280, dtype=torch.float32)
+                w_cpu = torch.randn(1280, 1280, dtype=torch.float32)
+                b_cpu = torch.randn(1280, dtype=torch.float32)
 
                 actual = F.linear(
                     x_cpu.to("vulkan"),
@@ -11850,6 +11876,28 @@ print("OK")
                 "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused",
                 log_text,
             )
+            self.assertNotIn(
+                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_q4",
+                log_text,
+            )
+            self.assertNotIn(
+                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_subgroup32",
+                log_text,
+            )
+            if (
+                "op=aten::scaled_dot_product_attention."
+                "dav2_head64_subgroup64_skipped_device" in log_text
+            ):
+                self.assertIn(
+                    "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_narrow",
+                    log_text,
+                )
+            else:
+                self.assertIn(
+                    "op=aten::scaled_dot_product_attention."
+                    "runtime_program_buffer_fused_head64_subgroup64",
+                    log_text,
+                )
             self.assertNotIn("op=aten::binary_op.buffer_float", log_text)
             self.assertNotIn(
                 "op=aten::attention_query_scale_bridge.materialize",
@@ -11943,15 +11991,20 @@ print("OK")
                 import math
                 import numpy as np
                 import torch
+                import torch.nn.functional as F
 
                 torch.manual_seed(0)
                 batch, heads, tokens, head_dim = 1, 6, 601, 64
+                embed_dim = heads * head_dim
                 q_cpu = torch.randn(
                     batch, heads, tokens, head_dim, dtype=torch.float32)
                 k_cpu = torch.randn(
                     batch, heads, tokens, head_dim, dtype=torch.float32)
                 v_cpu = torch.randn(
                     batch, heads, tokens, head_dim, dtype=torch.float32)
+                proj_weight_cpu = torch.randn(
+                    embed_dim, embed_dim, dtype=torch.float32) * 0.02
+                proj_bias_cpu = torch.randn(embed_dim, dtype=torch.float32) * 0.02
                 scale = 1.0 / math.sqrt(float(head_dim))
 
                 q_ref = (q_cpu * scale).numpy()
@@ -11967,14 +12020,21 @@ print("OK")
                     .reshape(batch, tokens, heads * head_dim)
                     .copy()
                 )
+                expected = F.linear(expected, proj_weight_cpu, proj_bias_cpu)
 
                 q = q_cpu.to("vulkan") * scale
                 k = k_cpu.to("vulkan")
                 v = v_cpu.to("vulkan")
+                proj_weight = proj_weight_cpu.to("vulkan")
+                proj_bias = proj_bias_cpu.to("vulkan")
                 actual = (
-                    (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v)
-                    .transpose(1, 2)
-                    .reshape(batch, tokens, heads * head_dim)
+                    F.linear(
+                        (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v)
+                        .transpose(1, 2)
+                        .reshape(batch, tokens, heads * head_dim),
+                        proj_weight,
+                        proj_bias,
+                    )
                     .cpu()
                 )
 
@@ -11998,6 +12058,41 @@ print("OK")
             self.assertIn("op=aten::decomposed_attention_bridge.hit", op_hit_text)
             self.assertIn(
                 "op=aten::decomposed_attention_bridge.merge_friendly_output",
+                op_hit_text,
+            )
+            self.assertNotIn(
+                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_q4",
+                op_hit_text,
+            )
+            self.assertNotIn(
+                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_subgroup32",
+                op_hit_text,
+            )
+            if (
+                "op=aten::scaled_dot_product_attention."
+                "dav2_head64_subgroup64_skipped_device" in op_hit_text
+            ):
+                self.assertIn(
+                    "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_narrow",
+                    op_hit_text,
+                )
+            else:
+                self.assertIn(
+                    "op=aten::scaled_dot_product_attention."
+                    "runtime_program_buffer_fused_head64_subgroup64",
+                    op_hit_text,
+                )
+            self.assertIn("op=aten::view.buffer_metadata_direct", op_hit_text)
+            self.assertIn(
+                "op=aten::linear.buffer_input_marked post=none quantized=0 "
+                "input=[601x384]",
+                op_hit_text,
+            )
+            self.assertIn("input_direct=1", op_hit_text)
+            self.assertNotIn(
+                "op=aten::linear.buffer_input_marked post=none quantized=0 "
+                "input=[601x384] input_vulkan=1 input_storage=0 "
+                "input_layout=0 input_exec=2 input_direct=0",
                 op_hit_text,
             )
 

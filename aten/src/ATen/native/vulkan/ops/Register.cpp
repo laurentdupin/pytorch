@@ -2,6 +2,7 @@
 
 #include <ATen/Functions.h>
 #include <ATen/native/quantized/PackedParams.h>
+#include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/ops/Batchnorm.h>
 #include <ATen/native/vulkan/ops/Common.h>
@@ -280,6 +281,10 @@ void synchronize_runtime() {
     log_vulkan_prepack_synchronize_stage("after_linear_context_retire_release");
     api::clear_vulkan_post_failure_recovery_required();
   }
+}
+
+void dump_cpu_timeline_summary_runtime() {
+  api::dump_cpu_timeline_summary_log();
 }
 
 bool check_tensor_finite_runtime(const Tensor& tensor, std::string label) {
@@ -1302,6 +1307,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::synchronize() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::dump_cpu_timeline_summary() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::check_tensor_finite(Tensor X, str label) -> bool"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::value_trace_enabled() -> bool"));
@@ -1386,6 +1393,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::synchronize"),
       TORCH_FN(synchronize_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::dump_cpu_timeline_summary"),
+      TORCH_FN(dump_cpu_timeline_summary_runtime));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::check_tensor_finite"),
       TORCH_FN(check_tensor_finite_runtime));

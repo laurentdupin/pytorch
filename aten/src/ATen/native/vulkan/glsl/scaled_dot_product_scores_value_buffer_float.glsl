@@ -71,6 +71,9 @@ const int MAX_OUTPUTS_PER_THREAD = 32;
 const int MAX_QUERY_VALUES_PER_THREAD = 8;
 
 shared float sScorePartials[LOCAL_SIZE_X];
+shared float sPrevScale;
+shared float sCurrScale;
+shared float sInvDenom;
 
 uint buffer_idx(const uvec4 coord, const uvec4 strides, const uint offset) {
   return coord_to_idx(coord, strides) + offset;
@@ -148,12 +151,18 @@ void main() {
       barrier();
     }
 
-    const float score = sScorePartials[0];
-    const float new_max = max(row_max, score);
-    const float prev_scale = exp(row_max - new_max);
-    const float curr_scale = exp(score - new_max);
-    row_denom = row_denom * prev_scale + curr_scale;
-    row_max = new_max;
+    if (lane == 0) {
+      const float score = sScorePartials[0];
+      const float new_max = max(row_max, score);
+      sPrevScale = exp(row_max - new_max);
+      sCurrScale = exp(score - new_max);
+      row_denom = row_denom * sPrevScale + sCurrScale;
+      row_max = new_max;
+    }
+    barrier();
+
+    const float prev_scale = sPrevScale;
+    const float curr_scale = sCurrScale;
     for (int i = 0; i < output_count; ++i) {
       const uint value_idx = buffer_idx(
           uvec4(
@@ -171,7 +180,12 @@ void main() {
     barrier();
   }
 
-  const float inverse_denom = 1.0 / max(row_denom, MIN_DENOM);
+  if (lane == 0) {
+    sInvDenom = 1.0 / max(row_denom, MIN_DENOM);
+  }
+  barrier();
+
+  const float inverse_denom = sInvDenom;
   for (int i = 0; i < output_count; ++i) {
     const uint out_idx = buffer_idx(
         uvec4(uint(output_indices[i]), uint(query_row), uint(batch_group), 0u),

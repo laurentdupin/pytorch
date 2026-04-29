@@ -3,6 +3,7 @@
 #include <cstring>
 #include <fstream>
 #include <algorithm>
+#include <chrono>
 #include <memory>
 #include <sstream>
 #include <unordered_map>
@@ -61,6 +62,193 @@ const std::string& gpu_timestamp_log_path() {
 
 bool gpu_timestamp_logging_enabled() {
   return !gpu_timestamp_log_path().empty();
+}
+
+const std::string& cpu_timeline_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_CPU_TIMELINE_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+const std::string& cpu_timeline_summary_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_CPU_TIMELINE_SUMMARY_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool cpu_timeline_line_logging_enabled() {
+  return !cpu_timeline_log_path().empty();
+}
+
+bool cpu_timeline_summary_logging_enabled() {
+  return !cpu_timeline_summary_log_path().empty();
+}
+
+struct CpuTimelineSummary final {
+  uint64_t count{0u};
+  uint64_t submitted{0u};
+  uint64_t total_us{0u};
+  uint64_t max_us{0u};
+};
+
+std::mutex& cpu_timeline_summary_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_map<std::string, CpuTimelineSummary>& cpu_timeline_summaries() {
+  static std::unordered_map<std::string, CpuTimelineSummary> summaries;
+  return summaries;
+}
+
+std::string extract_cpu_timeline_token(
+    const std::string& line,
+    const char* key) {
+  const std::string prefix = std::string(key) + "=";
+  const size_t begin = line.find(prefix);
+  if (begin == std::string::npos) {
+    return {};
+  }
+  const size_t value_begin = begin + prefix.size();
+  const size_t value_end = line.find(' ', value_begin);
+  return line.substr(
+      value_begin,
+      value_end == std::string::npos ? std::string::npos
+                                     : value_end - value_begin);
+}
+
+uint64_t extract_cpu_timeline_u64(
+    const std::string& line,
+    const char* key) {
+  const std::string token = extract_cpu_timeline_token(line, key);
+  if (token.empty()) {
+    return 0u;
+  }
+  try {
+    return static_cast<uint64_t>(std::stoull(token));
+  } catch (...) {
+    return 0u;
+  }
+}
+
+std::string cpu_timeline_summary_key(const std::string& line) {
+  const std::string event = extract_cpu_timeline_token(line, "event");
+  if (event.empty()) {
+    return {};
+  }
+
+  std::ostringstream key;
+  key << "event=" << event;
+
+  const std::string kernel = extract_cpu_timeline_token(line, "kernel");
+  if (!kernel.empty()) {
+    key << " kernel=" << kernel;
+  }
+
+  const std::string storage = extract_cpu_timeline_token(line, "storage");
+  if (!storage.empty()) {
+    key << " storage=" << storage;
+  }
+
+  const std::string direct = extract_cpu_timeline_token(line, "direct_buffer");
+  if (!direct.empty()) {
+    key << " direct_buffer=" << direct;
+  }
+
+  const std::string sizes = extract_cpu_timeline_token(line, "sizes");
+  if (!sizes.empty()) {
+    key << " sizes=" << sizes;
+  }
+
+  const std::string copy_range = extract_cpu_timeline_token(line, "copy_range");
+  if (!copy_range.empty()) {
+    key << " copy_range=" << copy_range;
+  }
+
+  const std::string active_cmd = extract_cpu_timeline_token(line, "active_cmd");
+  if (!active_cmd.empty()) {
+    key << " active_cmd=" << active_cmd;
+  }
+
+  const std::string full_pool_flush =
+      extract_cpu_timeline_token(line, "full_pool_flush");
+  if (!full_pool_flush.empty()) {
+    key << " full_pool_flush=" << full_pool_flush;
+  }
+
+  const std::string fence = extract_cpu_timeline_token(line, "fence");
+  if (!fence.empty()) {
+    key << " fence=" << fence;
+  }
+
+  const std::string final_use = extract_cpu_timeline_token(line, "final_use");
+  if (!final_use.empty()) {
+    key << " final_use=" << final_use;
+  }
+
+  return key.str();
+}
+
+void record_cpu_timeline_summary_line(const std::string& line) {
+  if (!cpu_timeline_summary_logging_enabled()) {
+    return;
+  }
+  const std::string key = cpu_timeline_summary_key(line);
+  if (key.empty()) {
+    return;
+  }
+  uint64_t duration_us = extract_cpu_timeline_u64(line, "duration_us");
+  if (duration_us == 0u) {
+    duration_us = extract_cpu_timeline_u64(line, "record_us");
+  }
+  const bool submitted = extract_cpu_timeline_token(line, "submitted") == "1";
+
+  std::lock_guard<std::mutex> lock(cpu_timeline_summary_mutex());
+  CpuTimelineSummary& summary = cpu_timeline_summaries()[key];
+  summary.count++;
+  summary.submitted += submitted ? 1u : 0u;
+  summary.total_us += duration_us;
+  summary.max_us = std::max(summary.max_us, duration_us);
+}
+
+void dump_cpu_timeline_summary_log_impl() {
+  if (!cpu_timeline_summary_logging_enabled()) {
+    return;
+  }
+
+  std::vector<std::pair<std::string, CpuTimelineSummary>> entries;
+  {
+    std::lock_guard<std::mutex> lock(cpu_timeline_summary_mutex());
+    entries.assign(
+        cpu_timeline_summaries().begin(), cpu_timeline_summaries().end());
+    cpu_timeline_summaries().clear();
+  }
+
+  std::sort(
+      entries.begin(),
+      entries.end(),
+      [](const auto& lhs, const auto& rhs) {
+        return lhs.second.total_us > rhs.second.total_us;
+      });
+
+  std::ofstream out(cpu_timeline_summary_log_path(), std::ios::app);
+  out << "cpu_timeline_summary begin entries=" << entries.size() << '\n';
+  for (const auto& entry : entries) {
+    const CpuTimelineSummary& summary = entry.second;
+    const uint64_t avg_us =
+        summary.count == 0u ? 0u : summary.total_us / summary.count;
+    out << entry.first
+        << " count=" << summary.count
+        << " submitted=" << summary.submitted
+        << " total_us=" << summary.total_us
+        << " avg_us=" << avg_us
+        << " max_us=" << summary.max_us << '\n';
+  }
+  out << "cpu_timeline_summary end\n";
 }
 
 std::string format_sync_bytes(const uint64_t bytes) {
@@ -373,6 +561,31 @@ void validate_device_index(c10::DeviceIndex device_index) {
 
 } // namespace
 
+void dump_cpu_timeline_summary_log() {
+  dump_cpu_timeline_summary_log_impl();
+}
+
+bool cpu_timeline_logging_enabled() {
+  return cpu_timeline_line_logging_enabled() ||
+      cpu_timeline_summary_logging_enabled();
+}
+
+uint64_t cpu_timeline_now_us() {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count());
+}
+
+void append_cpu_timeline_log_line(const std::string& line) {
+  record_cpu_timeline_summary_line(line);
+
+  if (cpu_timeline_line_logging_enabled()) {
+    std::ofstream out(cpu_timeline_log_path(), std::ios::app);
+    out << line << '\n';
+  }
+}
+
 Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
     : config_(config),
       // Important handles
@@ -419,6 +632,7 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
 Context::~Context() {
   try {
     flush();
+    dump_cpu_timeline_summary_log();
     // Let the device know the context is done with the queue
     adapter_p_->return_queue(queue_);
   } catch (...) {
@@ -617,6 +831,10 @@ void Context::register_shader_dispatch(
 }
 
 void Context::submit_cmd_to_gpu(VkFence fence_handle, const bool final_use) {
+  const bool cpu_timeline = cpu_timeline_logging_enabled();
+  const uint64_t cpu_start_us =
+      cpu_timeline ? cpu_timeline_now_us() : 0u;
+  const bool had_cmd = static_cast<bool>(cmd_);
   if (cmd_) {
     cmd_.end();
     adapter_p_->submit_cmd(
@@ -625,11 +843,29 @@ void Context::submit_cmd_to_gpu(VkFence fence_handle, const bool final_use) {
     submit_count_ = 0u;
     submissions_since_reclaim_.fetch_add(1u, std::memory_order_relaxed);
   }
+  if (cpu_timeline) {
+    std::ostringstream stream;
+    stream << "event=submit_cmd_to_gpu had_cmd=" << (had_cmd ? 1 : 0)
+           << " duration_us=" << (cpu_timeline_now_us() - cpu_start_us)
+           << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0)
+           << " final_use=" << (final_use ? 1 : 0);
+    append_cpu_timeline_log_line(stream.str());
+  }
 }
 
 void Context::flush_pending_cmds(VkFence fence_handle) {
+  const bool cpu_timeline = cpu_timeline_logging_enabled();
+  const uint64_t cpu_start_us =
+      cpu_timeline ? cpu_timeline_now_us() : 0u;
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   submit_cmd_to_gpu(fence_handle);
+  if (cpu_timeline) {
+    std::ostringstream stream;
+    stream << "event=flush_pending_cmds duration_us="
+           << (cpu_timeline_now_us() - cpu_start_us)
+           << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0);
+    append_cpu_timeline_log_line(stream.str());
+  }
 }
 
 CommandBuffer Context::acquire_persistent_command_buffer() {
@@ -643,6 +879,9 @@ void Context::submit_prepared_command_buffer(
     VkFence fence_handle,
     const bool final_use,
     const char* profile_label) {
+  const bool cpu_timeline = cpu_timeline_logging_enabled();
+  const uint64_t cpu_start_us =
+      cpu_timeline ? cpu_timeline_now_us() : 0u;
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
 
   const bool profile_submit =
@@ -686,6 +925,16 @@ void Context::submit_prepared_command_buffer(
     querypool_.mark_results_pending();
   }
   submissions_since_reclaim_.fetch_add(1u, std::memory_order_relaxed);
+  if (cpu_timeline) {
+    std::ostringstream stream;
+    stream << "event=submit_prepared_command_buffer duration_us="
+           << (cpu_timeline_now_us() - cpu_start_us)
+           << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0)
+           << " final_use=" << (final_use ? 1 : 0)
+           << " profile_label="
+           << (profile_label && profile_label[0] != '\0' ? profile_label : "");
+    append_cpu_timeline_log_line(stream.str());
+  }
 }
 
 void Context::take_external_recording_cleanup_resources(
@@ -725,6 +974,9 @@ bool Context::should_sync_and_reclaim() {
 }
 
 void Context::sync_and_reclaim() {
+  const bool cpu_timeline = cpu_timeline_logging_enabled();
+  const uint64_t cpu_start_us =
+      cpu_timeline ? cpu_timeline_now_us() : 0u;
   const uint64_t pending_cleanup = pending_cleanup_bytes();
   const uint32_t submitted_work = submissions_since_reclaim();
   const std::string& label = current_cleanup_label();
@@ -782,13 +1034,29 @@ void Context::sync_and_reclaim() {
     if (sync_logging_enabled()) {
       append_sync_log_line("sync_and_reclaim_stage: submitted_active_cmd");
     }
+    const uint64_t wait_start_us =
+        cpu_timeline ? cpu_timeline_now_us() : 0u;
     fence.wait();
+    if (cpu_timeline) {
+      std::ostringstream stream;
+      stream << "event=sync_and_reclaim_fence_wait duration_us="
+             << (cpu_timeline_now_us() - wait_start_us);
+      append_cpu_timeline_log_line(stream.str());
+    }
     if (sync_logging_enabled()) {
       append_sync_log_line("sync_and_reclaim_stage: fence_wait_complete");
     }
     fences_.return_fence(fence);
   } else if (submitted_work > 0u) {
+    const uint64_t wait_start_us =
+        cpu_timeline ? cpu_timeline_now_us() : 0u;
     VK_CHECK(vkQueueWaitIdle(queue()));
+    if (cpu_timeline) {
+      std::ostringstream stream;
+      stream << "event=sync_and_reclaim_queue_wait_idle duration_us="
+             << (cpu_timeline_now_us() - wait_start_us);
+      append_cpu_timeline_log_line(stream.str());
+    }
     if (sync_logging_enabled()) {
       append_sync_log_line("sync_and_reclaim_stage: queue_wait_idle_complete");
     }
@@ -819,6 +1087,16 @@ void Context::sync_and_reclaim() {
           "sync_and_reclaim_stage: no_active_work_deferred_cleanup_cleared");
     }
     dump_gpu_profile_log("sync_and_reclaim");
+    if (cpu_timeline) {
+      std::ostringstream stream;
+      stream << "event=sync_and_reclaim duration_us="
+             << (cpu_timeline_now_us() - cpu_start_us)
+             << " pending_bytes=" << pending_cleanup
+             << " submitted=" << submitted_work
+             << " full_pool_flush=" << (full_pool_flush ? 1 : 0)
+             << " active_cmd=0";
+      append_cpu_timeline_log_line(stream.str());
+    }
     return;
   }
 
@@ -846,9 +1124,22 @@ void Context::sync_and_reclaim() {
     append_sync_log_line("sync_and_reclaim_stage: deferred_cleanup_cleared");
   }
   dump_gpu_profile_log("sync_and_reclaim");
+  if (cpu_timeline) {
+    std::ostringstream stream;
+    stream << "event=sync_and_reclaim duration_us="
+           << (cpu_timeline_now_us() - cpu_start_us)
+           << " pending_bytes=" << pending_cleanup
+           << " submitted=" << submitted_work
+           << " full_pool_flush=" << (full_pool_flush ? 1 : 0)
+           << " active_cmd=1";
+    append_cpu_timeline_log_line(stream.str());
+  }
 }
 
 void Context::flush() {
+  const bool cpu_timeline = cpu_timeline_logging_enabled();
+  const uint64_t cpu_start_us =
+      cpu_timeline ? cpu_timeline_now_us() : 0u;
   if (sync_logging_enabled()) {
     std::ostringstream stream;
     stream << "flush: pending=" << format_sync_bytes(pending_cleanup_bytes())
@@ -862,7 +1153,15 @@ void Context::flush() {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
     submit_cmd_to_gpu(/*fence_handle=*/VK_NULL_HANDLE, /*final_use=*/true);
   }
+  const uint64_t wait_start_us =
+      cpu_timeline ? cpu_timeline_now_us() : 0u;
   VK_CHECK(vkQueueWaitIdle(queue()));
+  if (cpu_timeline) {
+    std::ostringstream stream;
+    stream << "event=flush_queue_wait_idle duration_us="
+           << (cpu_timeline_now_us() - wait_start_us);
+    append_cpu_timeline_log_line(stream.str());
+  }
 
   command_pool_.flush();
   descriptor_pool_.flush();
@@ -877,9 +1176,18 @@ void Context::flush() {
   submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
   clear_deferred_cleanup_locked();
   dump_gpu_profile_log("flush");
+  if (cpu_timeline) {
+    std::ostringstream stream;
+    stream << "event=flush duration_us=" << (cpu_timeline_now_us() - cpu_start_us);
+    append_cpu_timeline_log_line(stream.str());
+  }
+  dump_cpu_timeline_summary_log();
 }
 
 void Context::retire_after_fence_wait() {
+  const bool cpu_timeline = cpu_timeline_logging_enabled();
+  const uint64_t cpu_start_us =
+      cpu_timeline ? cpu_timeline_now_us() : 0u;
   const bool flush_pools = true;
 
   if (sync_logging_enabled()) {
@@ -908,9 +1216,19 @@ void Context::retire_after_fence_wait() {
   submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
   clear_deferred_cleanup_locked();
   dump_gpu_profile_log("retire_after_fence_wait");
+  if (cpu_timeline) {
+    std::ostringstream stream;
+    stream << "event=retire_after_fence_wait duration_us="
+           << (cpu_timeline_now_us() - cpu_start_us)
+           << " flush_pools=" << (flush_pools ? 1 : 0);
+    append_cpu_timeline_log_line(stream.str());
+  }
 }
 
 void Context::flush_after_fence_wait() {
+  const bool cpu_timeline = cpu_timeline_logging_enabled();
+  const uint64_t cpu_start_us =
+      cpu_timeline ? cpu_timeline_now_us() : 0u;
   if (sync_logging_enabled()) {
     std::ostringstream stream;
     stream << "flush_after_fence_wait: pending="
@@ -934,6 +1252,12 @@ void Context::flush_after_fence_wait() {
   submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
   clear_deferred_cleanup_locked();
   dump_gpu_profile_log("flush_after_fence_wait");
+  if (cpu_timeline) {
+    std::ostringstream stream;
+    stream << "event=flush_after_fence_wait duration_us="
+           << (cpu_timeline_now_us() - cpu_start_us);
+    append_cpu_timeline_log_line(stream.str());
+  }
 }
 
 bool available() {

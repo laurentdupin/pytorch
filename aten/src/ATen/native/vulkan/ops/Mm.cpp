@@ -836,16 +836,12 @@ Tensor run_float_buffer_linear(
       should_use_tiled_buffer_linear_kernel(
           runtime_policy, input_tensor, output_sizes);
   const vTensor& v_input_view = convert(input_tensor);
-  const bool generic_buffer_linear =
-      runtime_policy.request.model_domain == utils::VulkanModelDomain::Generic;
   if (
       v_input_view.storage_type() == api::StorageType::BUFFER &&
       !v_input_view.has_direct_buffer_layout() &&
-      (generic_buffer_linear || should_use_tiled_kernel)) {
+      should_use_tiled_kernel) {
     utils::log_vulkan_op_hit(
-        generic_buffer_linear
-            ? "aten::linear.materialize_generic_input_view"
-            : "aten::linear.materialize_tiled_input_view");
+        "aten::linear.materialize_tiled_input_view");
     input_tensor = utils::mark_tensor_execution(
         utils::ensure_buffer_storage(
             input_tensor, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),

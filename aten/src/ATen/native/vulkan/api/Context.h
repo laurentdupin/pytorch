@@ -17,11 +17,19 @@
 #include <ATen/native/vulkan/api/Utils.h>
 
 #include <atomic>
+#include <cstdint>
+#include <sstream>
+#include <string>
 
 namespace at {
 namespace native {
 namespace vulkan {
 namespace api {
+
+bool cpu_timeline_logging_enabled();
+uint64_t cpu_timeline_now_us();
+void append_cpu_timeline_log_line(const std::string& line);
+void dump_cpu_timeline_summary_log();
 
 struct ContextConfig final {
   uint32_t cmdSubmitFrequency;
@@ -526,6 +534,10 @@ inline bool Context::submit_copy(
     const api::utils::uvec3& dst_offset,
     VkFence fence_handle) {
   const bool external_recording = external_recording_cmd() != nullptr;
+  const bool cpu_timeline =
+      cpu_timeline_logging_enabled() && !external_recording;
+  const uint64_t cpu_start_us =
+      cpu_timeline ? cpu_timeline_now_us() : 0u;
 
   // If any of the provided arguments does not have memory associated with it,
   // then exit early as there is no work to be done. However, if a fence has
@@ -535,7 +547,21 @@ inline bool Context::submit_copy(
     if (!external_recording && fence_handle != VK_NULL_HANDLE &&
         submit_count_ > 0) {
       submit_cmd_to_gpu(fence_handle);
+      if (cpu_timeline) {
+        std::ostringstream stream;
+        stream << "event=submit_copy_empty submitted=1 record_us="
+               << (cpu_timeline_now_us() - cpu_start_us)
+               << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0);
+        append_cpu_timeline_log_line(stream.str());
+      }
       return true;
+    }
+    if (cpu_timeline) {
+      std::ostringstream stream;
+      stream << "event=submit_copy_empty submitted=0 record_us="
+             << (cpu_timeline_now_us() - cpu_start_us)
+             << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0);
+      append_cpu_timeline_log_line(stream.str());
     }
     return false;
   }
@@ -571,12 +597,22 @@ inline bool Context::submit_copy(
   }
 
   submit_count_++;
+  bool submitted = false;
   if (fence_handle != VK_NULL_HANDLE ||
       submit_count_ >= config_.cmdSubmitFrequency) {
     submit_cmd_to_gpu(fence_handle);
-    return true;
+    submitted = true;
   }
-  return false;
+  if (cpu_timeline) {
+    std::ostringstream stream;
+    stream << "event=submit_copy submitted=" << (submitted ? 1 : 0)
+           << " record_us=" << (cpu_timeline_now_us() - cpu_start_us)
+           << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0)
+           << " copy_range=" << copy_range.data[0u] << "x"
+           << copy_range.data[1u] << "x" << copy_range.data[2u];
+    append_cpu_timeline_log_line(stream.str());
+  }
+  return submitted;
 }
 
 /*
@@ -595,6 +631,10 @@ inline bool Context::submit_compute_job(
     VkFence fence_handle,
     Arguments&&... arguments) {
   const bool external_recording = external_recording_cmd() != nullptr;
+  const bool cpu_timeline =
+      cpu_timeline_logging_enabled() && !external_recording;
+  const uint64_t cpu_start_us =
+      cpu_timeline ? cpu_timeline_now_us() : 0u;
 
   // If any of the provided arguments does not have memory associated with it,
   // then exit early as there is no work to be done. However, if a fence has
@@ -604,7 +644,23 @@ inline bool Context::submit_compute_job(
     if (!external_recording && fence_handle != VK_NULL_HANDLE &&
         submit_count_ > 0) {
       submit_cmd_to_gpu(fence_handle);
+      if (cpu_timeline) {
+        std::ostringstream stream;
+        stream << "event=submit_compute_empty kernel=" << shader.kernel_name
+               << " submitted=1 record_us="
+               << (cpu_timeline_now_us() - cpu_start_us)
+               << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0);
+        append_cpu_timeline_log_line(stream.str());
+      }
       return true;
+    }
+    if (cpu_timeline) {
+      std::ostringstream stream;
+      stream << "event=submit_compute_empty kernel=" << shader.kernel_name
+             << " submitted=0 record_us="
+             << (cpu_timeline_now_us() - cpu_start_us)
+             << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0);
+      append_cpu_timeline_log_line(stream.str());
     }
     return false;
   }
@@ -657,13 +713,29 @@ inline bool Context::submit_compute_job(
   }
 
   submit_count_++;
+  bool submitted = false;
   if (fence_handle != VK_NULL_HANDLE ||
       submit_count_ >= config_.cmdSubmitFrequency) {
     submit_cmd_to_gpu(fence_handle);
-    return true;
+    submitted = true;
   }
 
-  return false;
+  if (cpu_timeline) {
+    std::ostringstream stream;
+    stream << "event=submit_compute kernel=" << shader.kernel_name
+           << " submitted=" << (submitted ? 1 : 0)
+           << " record_us=" << (cpu_timeline_now_us() - cpu_start_us)
+           << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0)
+           << " global=" << global_work_group.data[0u] << "x"
+           << global_work_group.data[1u] << "x"
+           << global_work_group.data[2u]
+           << " local=" << local_work_group_size.data[0u] << "x"
+           << local_work_group_size.data[1u] << "x"
+           << local_work_group_size.data[2u];
+    append_cpu_timeline_log_line(stream.str());
+  }
+
+  return submitted;
 }
 
 } // namespace api

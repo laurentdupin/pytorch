@@ -556,8 +556,45 @@ Tensor materialize_decomposed_attention_candidate(
 std::optional<Tensor> make_decomposed_attention_merge_friendly_output(
     const Tensor& query,
     const Tensor& value) {
-  (void)query;
-  (void)value;
+  if (
+      query.dim() == 3 && value.dim() == 3 &&
+      query.scalar_type() == kFloat && value.scalar_type() == kFloat &&
+      query.size(0) == 6 && query.size(1) == 601 && query.size(2) == 64 &&
+      value.size(0) == 6 && value.size(1) == 601 && value.size(2) == 64) {
+    // DAv2 vits immediately consumes attention as:
+    //   [B,H,N,D].transpose(1,2).reshape(B,N,H*D)
+    // Store the 3D bmm result in token-major physical order so that the
+    // subsequent transpose+reshape can become a direct [N,H*D] buffer view.
+    Tensor base = utils::mark_tensor_execution(
+        convert(vTensor{
+            api::context(),
+            {1, query.size(1), query.size(0), value.size(2)},
+            api::kFloat,
+            api::StorageType::BUFFER,
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+        }),
+        api::ExecutionLayout::BUFFER_DIRECT);
+    const std::vector<int64_t> sizes{
+        query.size(0),
+        query.size(1),
+        value.size(2),
+    };
+    const std::vector<int64_t> token_major_strides{
+        value.size(2),
+        query.size(0) * value.size(2),
+        1,
+    };
+    Tensor output = make_buffer_metadata_view_checked(
+        base,
+        sizes,
+        token_major_strides,
+        token_major_strides,
+        0,
+        "aten::decomposed_attention_bridge.merge_friendly_output");
+    utils::log_vulkan_op_hit(
+        "aten::decomposed_attention_bridge.merge_friendly_output");
+    return output;
+  }
   utils::log_vulkan_op_hit(
       "aten::decomposed_attention_bridge.merge_friendly_output_disabled");
   return std::nullopt;
@@ -591,6 +628,49 @@ bool can_use_runtime_program_buffer_fused_fast_path(
       convert(query), convert(key), convert(value));
 }
 
+bool is_gtx_class_adapter(const api::Adapter* const adapter) {
+  if (adapter == nullptr) {
+    return false;
+  }
+  const char* const device_name =
+      adapter->physical_device().properties.deviceName;
+  return device_name != nullptr &&
+      std::string(device_name).find("GTX") != std::string::npos;
+}
+
+bool is_exact_dav2_vits_head64_attention(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value) {
+  return query.dim() == 3 && key.dim() == 3 && value.dim() == 3 &&
+      query.scalar_type() == kFloat && key.scalar_type() == kFloat &&
+      value.scalar_type() == kFloat &&
+      query.size(0) == 6 && key.size(0) == 6 && value.size(0) == 6 &&
+      query.size(1) == 601 && key.size(1) == 601 && value.size(1) == 601 &&
+      query.size(2) == 64 && key.size(2) == 64 && value.size(2) == 64;
+}
+
+bool can_use_dav2_head64_subgroup64_attention(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value) {
+  if (!is_exact_dav2_vits_head64_attention(query, key, value)) {
+    return false;
+  }
+  api::Context* const context = api::context();
+  const api::Adapter* const adapter = context ? context->adapter_ptr() : nullptr;
+  const bool supported = adapter != nullptr &&
+      !is_gtx_class_adapter(adapter) &&
+      adapter->has_compute_full_subgroups() &&
+      adapter->supports_required_subgroup_size(
+          VK_SHADER_STAGE_COMPUTE_BIT, 64u);
+  if (!supported) {
+    utils::log_vulkan_op_hit(
+        "aten::scaled_dot_product_attention.dav2_head64_subgroup64_skipped_device");
+  }
+  return supported;
+}
+
 Tensor scaled_dot_product_attention_tiled_3d_buffer_out_vulkan(
     const Tensor& query_arg,
     const Tensor& key_arg,
@@ -601,6 +681,10 @@ RuntimeProgramBufferFusedKernelVariant select_runtime_program_buffer_fused_varia
     const Tensor& query,
     const Tensor& key,
     const Tensor& value) {
+  if (can_use_dav2_head64_subgroup64_attention(query, key, value)) {
+    return RuntimeProgramBufferFusedKernelVariant::Head64Subgroup64;
+  }
+
   const bool requires_wide_head_dim =
       query.size(2) > kTiledSdpaBufferMaxHeadDim ||
       key.size(2) > kTiledSdpaBufferMaxHeadDim;
@@ -2498,7 +2582,8 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
       value_meta.buffer(),
       params.buffer());
 
-  return utils::mark_tensor_execution(output_arg, api::ExecutionLayout::BUFFER_DIRECT);
+  return utils::mark_tensor_execution(
+      output_arg, utils::resolve_buffer_execution_layout(convert(output_arg)));
 }
 
 Tensor scaled_dot_product_attention_tiled_3d_buffer_out_vulkan(

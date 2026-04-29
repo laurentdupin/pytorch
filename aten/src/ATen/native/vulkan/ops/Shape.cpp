@@ -36,6 +36,16 @@ bool is_vulkan_logically_contiguous(const Tensor& tensor) {
   return is_contiguous_stride(v_tensor.sizes(), logical_strides(v_tensor));
 }
 
+bool is_direct_buffer_metadata_view(
+    IntArrayRef sizes,
+    IntArrayRef logical_strides,
+    IntArrayRef physical_strides,
+    const int64_t storage_offset) {
+  return storage_offset == 0 &&
+      logical_strides.equals(physical_strides) &&
+      logical_strides.equals(c10::contiguous_strides(sizes));
+}
+
 std::vector<int64_t> buffer_physical_sizes_for_contiguous_view(
     IntArrayRef sizes,
     const api::GPUMemoryLayout memory_layout) {
@@ -334,6 +344,15 @@ Tensor view_internal(
           output_stride,
           resolved_storage_offset,
           "aten::view");
+      if (is_direct_buffer_metadata_view(
+              output_size,
+              output_stride,
+              output_stride,
+              resolved_storage_offset)) {
+        output = utils::mark_tensor_execution(
+            output, api::ExecutionLayout::BUFFER_DIRECT);
+        utils::log_vulkan_op_hit("aten::view.buffer_metadata_direct");
+      }
       move_decomposed_attention_candidate_to_alias(self_arg, output);
       move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
       move_deferred_linear_gelu_candidate_to_alias(self_arg, output);
@@ -356,6 +375,17 @@ Tensor view_internal(
           output_physical_strides,
           resolved_storage_offset,
           "aten::view");
+      if (is_direct_buffer_metadata_view(
+              output_size,
+              output_stride,
+              output_physical_strides,
+              resolved_storage_offset) &&
+          output_size.equals(output_physical_sizes)) {
+        output = utils::mark_tensor_execution(
+            output, api::ExecutionLayout::BUFFER_DIRECT);
+        utils::log_vulkan_op_hit(
+            "aten::view.buffer_preserve_padded_reshape_direct");
+      }
       move_decomposed_attention_candidate_to_alias(self_arg, output);
       move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
       move_deferred_linear_gelu_candidate_to_alias(self_arg, output);
