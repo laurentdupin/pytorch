@@ -27,9 +27,11 @@
 #include <torch/library.h>
 
 #include <cmath>
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -621,22 +623,82 @@ std::tuple<Tensor, Tensor, Tensor> compute_moe_router_runtime(
       top_k > 0 && top_k <= num_experts,
       "vulkan_prepack::compute_moe_router expects top_k to be in [1, num_experts]");
 
-  const auto topk = at::topk(logits, top_k, 1, true, true);
-  const Tensor top_k_logits = std::get<0>(topk);
-  const Tensor top_k_indices = std::get<1>(topk);
-  const Tensor top_k_gates = at::softmax(top_k_logits, 1);
-  const Tensor gates =
-      at::zeros({top_k_indices.size(0), num_experts}, top_k_gates.options())
-          .scatter(1, top_k_indices, 1);
-  const Tensor expert_size = gates.to(kLong).sum(0).contiguous();
+  const int64_t token_count = logits.size(0);
+  const float* const logits_ptr = logits.const_data_ptr<float>();
+  std::vector<int64_t> top_k_indices(
+      api::utils::safe_downcast<size_t>(token_count * top_k));
+  std::vector<float> top_k_gates(
+      api::utils::safe_downcast<size_t>(token_count * top_k));
+  std::vector<int64_t> expert_counts(
+      api::utils::safe_downcast<size_t>(num_experts), 0);
+  std::vector<std::pair<float, int64_t>> row_scores;
+  row_scores.reserve(api::utils::safe_downcast<size_t>(num_experts));
+  for (const auto token : c10::irange(token_count)) {
+    row_scores.clear();
+    const float* const row = logits_ptr + token * num_experts;
+    for (const auto expert : c10::irange(num_experts)) {
+      row_scores.emplace_back(row[expert], expert);
+    }
+    std::stable_sort(
+        row_scores.begin(),
+        row_scores.end(),
+        [](const auto& lhs, const auto& rhs) {
+          return lhs.first > rhs.first;
+        });
 
-  const Tensor top_k_experts = top_k_indices.flatten();
-  const auto sorted_experts = at::sort(top_k_experts, 0, false);
-  const Tensor index_sorted_experts = std::get<1>(sorted_experts);
-  const Tensor batch_index =
-      at::floor_divide(index_sorted_experts, top_k).to(kLong).contiguous();
-  const Tensor batch_gates =
-      top_k_gates.flatten().index_select(0, index_sorted_experts).contiguous();
+    float max_logit = row_scores[0].first;
+    float exp_sum = 0.0f;
+    for (const auto k : c10::irange(top_k)) {
+      const float gate = std::exp(row_scores[k].first - max_logit);
+      top_k_indices[token * top_k + k] = row_scores[k].second;
+      top_k_gates[token * top_k + k] = gate;
+      exp_sum += gate;
+      ++expert_counts[api::utils::safe_downcast<size_t>(row_scores[k].second)];
+    }
+    for (const auto k : c10::irange(top_k)) {
+      top_k_gates[token * top_k + k] /= exp_sum;
+    }
+  }
+
+  std::vector<int64_t> sorted_flat_indices(
+      api::utils::safe_downcast<size_t>(token_count * top_k));
+  for (const auto idx : c10::irange(token_count * top_k)) {
+    sorted_flat_indices[api::utils::safe_downcast<size_t>(idx)] = idx;
+  }
+  std::stable_sort(
+      sorted_flat_indices.begin(),
+      sorted_flat_indices.end(),
+      [&top_k_indices](const int64_t lhs, const int64_t rhs) {
+        const int64_t lhs_expert =
+            top_k_indices[api::utils::safe_downcast<size_t>(lhs)];
+        const int64_t rhs_expert =
+            top_k_indices[api::utils::safe_downcast<size_t>(rhs)];
+        if (lhs_expert != rhs_expert) {
+          return lhs_expert < rhs_expert;
+        }
+        return lhs < rhs;
+      });
+
+  Tensor batch_index =
+      at::empty({token_count * top_k}, logits.options().dtype(kLong));
+  Tensor batch_gates =
+      at::empty({token_count * top_k}, logits.options().dtype(kFloat));
+  Tensor expert_size =
+      at::empty({num_experts}, logits.options().dtype(kLong));
+  int64_t* const batch_index_ptr = batch_index.mutable_data_ptr<int64_t>();
+  float* const batch_gates_ptr = batch_gates.mutable_data_ptr<float>();
+  int64_t* const expert_size_ptr = expert_size.mutable_data_ptr<int64_t>();
+  for (const auto expert : c10::irange(num_experts)) {
+    expert_size_ptr[expert] =
+        expert_counts[api::utils::safe_downcast<size_t>(expert)];
+  }
+  for (const auto out_idx : c10::irange(token_count * top_k)) {
+    const int64_t flat_idx =
+        sorted_flat_indices[api::utils::safe_downcast<size_t>(out_idx)];
+    batch_index_ptr[out_idx] = flat_idx / top_k;
+    batch_gates_ptr[out_idx] =
+        top_k_gates[api::utils::safe_downcast<size_t>(flat_idx)];
+  }
   Tensor batch_gates_output =
       maybe_move_runtime_tensor_to_device(batch_gates, output_device);
 

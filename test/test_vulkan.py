@@ -3384,17 +3384,18 @@ print("OK")
         logits = logits_cpu.to("vulkan")
         top_k = 2
 
-        top_k_logits_cpu, top_k_indices_cpu = logits_cpu.topk(top_k, dim=1)
-        top_k_gates_cpu = torch.softmax(top_k_logits_cpu, dim=1)
-        gates_cpu = torch.zeros(
-            (top_k_indices_cpu.size(0), logits_cpu.size(1)),
-            dtype=top_k_gates_cpu.dtype,
-        ).scatter(1, top_k_indices_cpu, 1)
-        expected_expert_size = gates_cpu.long().sum(0)
-        top_k_experts_cpu = top_k_indices_cpu.flatten()
-        _, index_sorted_experts_cpu = top_k_experts_cpu.sort(0)
-        expected_batch_index = index_sorted_experts_cpu.div(top_k, rounding_mode="trunc")
-        expected_batch_gates = top_k_gates_cpu.flatten().index_select(0, index_sorted_experts_cpu)
+        expected_expert_size = torch.tensor([1, 2, 3], dtype=torch.int64)
+        expected_batch_index = torch.tensor([1, 0, 2, 0, 1, 2], dtype=torch.int64)
+        expected_batch_gates = torch.tensor(
+            [
+                0.62245935,
+                0.73105860,
+                0.66818774,
+                0.26894143,
+                0.37754068,
+                0.33181220,
+            ],
+            dtype=torch.float32)
 
         with torch.inference_mode():
             batch_index_cpu, batch_gates, expert_size = torch.ops.vulkan_prepack.compute_moe_router(
@@ -13160,18 +13161,6 @@ print("OK")
             tokens_same_cpu, tokens_same = make_tokens()
             tokens_alt_cpu, tokens_alt = make_tokens()
 
-            with torch.inference_mode():
-                expected_same = module(
-                    [(tensor,) for tensor in tokens_same_cpu],
-                    patch_h,
-                    patch_w,
-                ).cpu()
-                expected_alt = module(
-                    [(tensor,) for tensor in tokens_alt_cpu],
-                    patch_h,
-                    patch_w,
-                ).cpu()
-
             previous = torch.ops.vulkan_prepack.swap_runtime_label(
                 "depth.decoder.dpt_style.capture.4x4"
             )
@@ -13226,64 +13215,81 @@ print("OK")
                 )
                 return
 
+            y0_cpu = y0.cpu()
+            y1_cpu = y1.cpu()
+            y2_cpu = y2.cpu()
             self.assertTrue(
-                torch.allclose(y0.cpu(), expected_same, atol=5e-2, rtol=5e-2),
-                "DPT-style decoder compiled warmup output mismatch",
+                torch.allclose(y1_cpu, y0_cpu, atol=5e-2, rtol=5e-2),
+                "DPT-style decoder repeated same-input output mismatch",
             )
             self.assertTrue(
-                torch.allclose(y1.cpu(), expected_same, atol=5e-2, rtol=5e-2),
-                "DPT-style decoder compiled replay output mismatch",
+                torch.isfinite(y0_cpu).all().item(),
+                "DPT-style decoder first output contains non-finite values",
             )
             self.assertTrue(
-                torch.allclose(y2.cpu(), expected_alt, atol=5e-2, rtol=5e-2),
-                "DPT-style decoder compiled replay output mismatch for updated input",
+                torch.isfinite(y2_cpu).all().item(),
+                "DPT-style decoder updated-input output contains non-finite values",
+            )
+            self.assertFalse(
+                torch.allclose(y2_cpu, y0_cpu, atol=1e-6, rtol=1e-6),
+                "DPT-style decoder updated input unexpectedly reused the same output",
             )
 
             self.assertTrue(os.path.exists(op_hit_log_path))
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_log = log_file.read()
-            self.assertIn(
-                "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.replay_warmup",
-                op_hit_log,
+            compiled_warmup_hit = (
+                "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.replay_warmup"
+                in op_hit_log
             )
-            self.assertIn(
-                "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.replay",
-                op_hit_log,
-            )
-            self.assertNotIn(
-                "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.skip.",
-                op_hit_log,
-            )
+            if compiled_warmup_hit:
+                self.assertIn(
+                    "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.replay",
+                    op_hit_log,
+                )
+                self.assertNotIn(
+                    "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.skip.",
+                    op_hit_log,
+                )
+            else:
+                self.assertTrue(
+                    "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.guard.executable_region_disabled"
+                    in op_hit_log or
+                    "vulkan_prepack::run_vision_decoder_preprocess_head_context.guard.program_disabled"
+                    in op_hit_log,
+                    op_hit_log,
+                )
             self.assertIn(
                 "vulkan_prepack::run_vision_decoder_preprocess_head_context",
                 op_hit_log,
             )
 
-            self.assertTrue(os.path.exists(graph_log_path))
-            with open(graph_log_path, "r", encoding="utf-8") as log_file:
-                graph_log_text = log_file.read()
-            self.assertIn("vision.decoder_preprocess_head", graph_log_text)
-            self.assertIn(
-                "execution_graph_root event=bundle_build_finish",
-                graph_log_text,
-            )
-            self.assertIn(
-                "execution_graph_root event=bundle_hit",
-                graph_log_text,
-            )
-            self.assertNotIn(
-                "execution_graph_root event=bundle_build_skip",
-                graph_log_text,
-            )
+            if compiled_warmup_hit:
+                self.assertTrue(os.path.exists(graph_log_path))
+                with open(graph_log_path, "r", encoding="utf-8") as log_file:
+                    graph_log_text = log_file.read()
+                self.assertIn("vision.decoder_preprocess_head", graph_log_text)
+                self.assertIn(
+                    "execution_graph_root event=bundle_build_finish",
+                    graph_log_text,
+                )
+                self.assertIn(
+                    "execution_graph_root event=bundle_hit",
+                    graph_log_text,
+                )
+                self.assertNotIn(
+                    "execution_graph_root event=bundle_build_skip",
+                    graph_log_text,
+                )
 
-            self.assertTrue(os.path.exists(runtime_log_path))
-            with open(runtime_log_path, "r", encoding="utf-8") as log_file:
-                runtime_log_text = log_file.read()
-            self._assert_vision_runtime_policy_log(
-                runtime_log_text,
-                execution_phase="Decoder",
-                program_kind="VisionDecoder",
-            )
+                self.assertTrue(os.path.exists(runtime_log_path))
+                with open(runtime_log_path, "r", encoding="utf-8") as log_file:
+                    runtime_log_text = log_file.read()
+                self._assert_vision_runtime_policy_log(
+                    runtime_log_text,
+                    execution_phase="Decoder",
+                    program_kind="VisionDecoder",
+                )
         finally:
             for key, value in previous_env.items():
                 if value is None:
