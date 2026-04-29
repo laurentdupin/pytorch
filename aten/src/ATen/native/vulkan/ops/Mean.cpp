@@ -721,13 +721,9 @@ Tensor mean_all_buffer(
     prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
   }
 
-  if (is_bfloat16_input) {
-    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
-    is_bfloat16_input = false;
-  }
   vTensor& v_input = convert(prepared);
 
-  if (prepared.numel() >= kParallelReduceAllMinNumel) {
+  if (!is_bfloat16_input && prepared.numel() >= kParallelReduceAllMinNumel) {
     Tensor output =
         at::sum(prepared, c10::ScalarType::Float).div(prepared.numel());
     if (target_dtype != c10::ScalarType::Float) {
