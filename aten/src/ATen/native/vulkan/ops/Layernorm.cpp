@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/api/Resource.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/NativeLayerNorm.h>
 #include <ATen/native/vulkan/ops/Norm.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
@@ -930,6 +931,11 @@ LayernormPackedContext LayernormPackedContext::pack(
 const c10::impl::GenericList LayernormPackedContext::unpack() const {
   c10::impl::GenericList unpacked{c10::AnyType::get()};
   unpacked.reserve(ListArgs::kNumArgs);
+  report_vulkan_cpu_fallback(
+      "vulkan_prepack::layernorm_context",
+      "unpack_cpu_readback",
+      {weight_, bias_},
+      VulkanCpuFallbackKind::SyncReadback);
   unpacked.emplace_back(weight_.cpu());
   unpacked.emplace_back(bias_.cpu());
   unpacked.emplace_back(eps_);

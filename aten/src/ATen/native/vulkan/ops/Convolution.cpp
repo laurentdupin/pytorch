@@ -12,6 +12,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <c10/core/TensorImpl.h>
@@ -643,6 +644,11 @@ Tensor copy_vulkan_tensor_to_cpu(const Tensor& src) {
     conv_pack_log_state().vulkan_to_cpu_copies.fetch_add(
         1u, std::memory_order_relaxed);
   }
+  report_vulkan_cpu_fallback(
+      "vulkan_prepack::conv2d_context",
+      "vulkan_weight_cpu_materialization",
+      {src},
+      VulkanCpuFallbackKind::SyncReadback);
 
   if (convert(src).storage_type() == api::StorageType::BUFFER) {
     return src.cpu();

@@ -2,6 +2,7 @@
 #include <ATen/Parallel.h>
 #include <ATen/ops/avg_pool2d.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
@@ -418,6 +419,10 @@ Tensor avg_pool2d(
       const bool count_include_pad,
       const std::optional<int64_t> divisor_override) {
   if (self_arg.numel() <= kSmallAvgPoolCpuFallbackNumel) {
+    report_vulkan_cpu_fallback(
+        "aten::avg_pool2d",
+        "small_cpu_control_fallback",
+        {self_arg});
     SingleThreadedCpuGuard single_threaded_cpu;
     Tensor result_cpu = at::avg_pool2d(
         self_arg.cpu(),

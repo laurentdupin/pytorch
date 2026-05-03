@@ -5,6 +5,7 @@
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Mm.h>
@@ -423,6 +424,8 @@ Tensor view_internal(
 
   // Vulkan views are not true metadata aliases yet. Use the proven CPU
   // reshape/as_strided path and rematerialize a fresh Vulkan tensor.
+  report_vulkan_cpu_fallback(
+      "aten::view", "cpu_as_strided_materialize", {self_arg});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
   Tensor materialized_self =
@@ -546,6 +549,7 @@ static Tensor im2col(
     IntArrayRef dilation,
     IntArrayRef padding,
     IntArrayRef stride) {
+  report_vulkan_cpu_fallback("aten::im2col", "cpu_fallback", {self_arg});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -567,6 +571,8 @@ static Tensor& im2col_out(
     IntArrayRef padding,
     IntArrayRef stride,
     Tensor& out) {
+  report_vulkan_cpu_fallback(
+      "aten::im2col.out", "cpu_fallback", {self_arg, out});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 

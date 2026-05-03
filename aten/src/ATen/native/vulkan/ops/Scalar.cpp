@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
 
 #include <torch/library.h>
@@ -12,6 +13,11 @@ namespace {
 using namespace api::utils;
 
 Scalar _local_scalar_dense(const Tensor& self) {
+  report_vulkan_cpu_fallback(
+      "aten::_local_scalar_dense",
+      "scalar_extraction_requires_sync_readback",
+      {self},
+      VulkanCpuFallbackKind::SyncReadback);
   switch (self.scalar_type()) {
     case c10::ScalarType::Float:
       return Scalar(self.cpu().item<float>());

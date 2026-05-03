@@ -123,6 +123,8 @@ Tensor create_buffer_tensor(
     ScalarType dtype,
     bool persistent = false);
 
+Tensor& fill_buffer_float_(Tensor&, float value, const char* op_name);
+
 Tensor& copy_buffer_tensor_direct_(Tensor& dst, const Tensor& src);
 
 Tensor upcast_bfloat16_buffer_to_float(const Tensor&);

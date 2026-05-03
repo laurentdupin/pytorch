@@ -3,6 +3,7 @@
 #include <ATen/Functions.h>
 #include <ATen/TensorIndexing.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/ops/constant_pad_nd.h>
 #include <ATen/ops/eye.h>
@@ -464,6 +465,11 @@ std::tuple<Tensor, std::optional<Tensor>> run_gated_delta_rule_chunk_fallback(
         use_qk_l2norm_in_kernel);
   }
 
+  report_vulkan_cpu_fallback(
+      "vulkan_prepack::run_scheduled_gated_delta_rule_chunk",
+      "sequence_rule_cpu_fallback",
+      {query, key, value, g, beta});
+
   const Device output_device = query.device();
   const ScalarType output_dtype = query.scalar_type();
 
@@ -620,6 +626,10 @@ run_gated_delta_rule_recurrent_fallback(
     const std::optional<Tensor>& initial_state,
     const bool output_final_state,
     const bool use_qk_l2norm_in_kernel) {
+  report_vulkan_cpu_fallback(
+      "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent",
+      "sequence_rule_cpu_fallback",
+      {query, key, value, g, beta});
   const Device output_device = query.device();
   const ScalarType output_dtype = query.scalar_type();
 

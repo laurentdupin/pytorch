@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
@@ -34,6 +35,8 @@ Tensor triangular_cpu_fallback(
     const Tensor& self_arg,
     int64_t diagonal,
     bool upper) {
+  report_vulkan_cpu_fallback(
+      upper ? "aten::triu" : "aten::tril", "cpu_fallback", {self_arg});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
   Tensor cpu = self_arg.cpu();

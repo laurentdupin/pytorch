@@ -1,6 +1,7 @@
 #include <ATen/Functions.h>
 #include <ATen/NamedTensorUtils.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -34,6 +35,7 @@ Tensor slice_cpu_fallback(
     std::optional<int64_t> start,
     std::optional<int64_t> end,
     int64_t step) {
+  report_vulkan_cpu_fallback("aten::slice", "cpu_fallback", {self});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 

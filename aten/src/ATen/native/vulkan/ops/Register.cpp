@@ -9,6 +9,7 @@
 #include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/Convert.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/GatedDelta.h>
 #include <ATen/native/vulkan/ops/Gru.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
@@ -297,6 +298,18 @@ bool value_trace_enabled_runtime() {
   return vulkan_value_trace_enabled();
 }
 
+int64_t cpu_fallback_count_runtime() {
+  return static_cast<int64_t>(vulkan_cpu_fallback_count());
+}
+
+int64_t sync_readback_count_runtime() {
+  return static_cast<int64_t>(vulkan_sync_readback_count());
+}
+
+void reset_fallback_counters_runtime() {
+  reset_vulkan_fallback_counters();
+}
+
 Tensor create_kv_cache_storage_for_request(
     const Tensor& prototype,
     IntArrayRef sizes,
@@ -410,6 +423,12 @@ Tensor create_causal_attention_mask_runtime(
     const int64_t q_offset,
     const int64_t kv_offset,
     const bool float_mask) {
+  if (prototype.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::create_causal_attention_mask",
+        "runtime_helper_cpu_materialization",
+        {prototype});
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -466,6 +485,12 @@ Tensor create_causal_attention_mask_runtime(
 Tensor slice_hidden_states_for_logits_runtime(
     const Tensor& hidden_states_arg,
     const int64_t logits_to_keep) {
+  if (hidden_states_arg.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::slice_hidden_states_for_logits",
+        "runtime_helper_cpu_materialization",
+        {hidden_states_arg});
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -492,6 +517,12 @@ Tensor slice_hidden_states_for_logits_runtime(
 Tensor index_select_hidden_states_for_logits_runtime(
     const Tensor& hidden_states_arg,
     const Tensor& index_arg) {
+  if (hidden_states_arg.is_vulkan() || index_arg.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::index_select_hidden_states_for_logits",
+        "runtime_helper_cpu_materialization",
+        {hidden_states_arg, index_arg});
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -523,6 +554,12 @@ Tensor index_select_hidden_states_for_logits_runtime(
 Tensor gather_hidden_states_by_batch_positions_runtime(
     const Tensor& hidden_states_arg,
     const Tensor& positions_arg) {
+  if (hidden_states_arg.is_vulkan() || positions_arg.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::gather_hidden_states_by_batch_positions",
+        "runtime_helper_cpu_materialization",
+        {hidden_states_arg, positions_arg});
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -584,6 +621,13 @@ Tensor gather_hidden_states_by_batch_positions_runtime(
 int64_t find_timestep_index_runtime(
     const Tensor& schedule_timesteps_arg,
     const Tensor& timestep_arg) {
+  if (schedule_timesteps_arg.is_vulkan() || timestep_arg.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::find_timestep_index",
+        "runtime_helper_sync_readback",
+        {schedule_timesteps_arg, timestep_arg},
+        VulkanCpuFallbackKind::SyncReadback);
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -613,6 +657,12 @@ std::tuple<Tensor, Tensor, Tensor> compute_moe_router_runtime(
     const Tensor& logits_arg,
     const int64_t top_k,
     const int64_t num_experts) {
+  if (logits_arg.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::compute_moe_router",
+        "runtime_helper_cpu_materialization",
+        {logits_arg});
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
 
   const Device output_device = logits_arg.device();
@@ -723,6 +773,12 @@ Tensor accumulate_expert_outputs_runtime(
     const Tensor& expert_outputs_arg,
     const Tensor& batch_index_arg,
     const int64_t total_rows) {
+  if (expert_outputs_arg.is_vulkan() || batch_index_arg.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::accumulate_expert_outputs",
+        "runtime_helper_cpu_materialization",
+        {expert_outputs_arg, batch_index_arg});
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -758,6 +814,14 @@ std::tuple<Tensor, Tensor> compute_rotary_cos_sin_runtime(
     const Tensor& inv_freq_arg,
     const Tensor& position_ids_arg,
     const double attention_scaling) {
+  if (
+      prototype_arg.is_vulkan() || inv_freq_arg.is_vulkan() ||
+      position_ids_arg.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::compute_rotary_cos_sin",
+        "runtime_helper_cpu_materialization",
+        {prototype_arg, inv_freq_arg, position_ids_arg});
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -801,6 +865,12 @@ std::tuple<Tensor, Tensor> pose_encoding_to_extri_intri_runtime(
     const Tensor& pose_encoding_arg,
     const int64_t height,
     const int64_t width) {
+  if (pose_encoding_arg.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::pose_encoding_to_extri_intri",
+        "runtime_helper_cpu_materialization",
+        {pose_encoding_arg});
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -882,6 +952,12 @@ Tensor extri_intri_to_pose_encoding_runtime(
     const Tensor& intrinsics_arg,
     const int64_t height,
     const int64_t width) {
+  if (extrinsics_arg.is_vulkan() || intrinsics_arg.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::extri_intri_to_pose_encoding",
+        "runtime_helper_cpu_materialization",
+        {extrinsics_arg, intrinsics_arg});
+  }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -1313,6 +1389,12 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::value_trace_enabled() -> bool"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::cpu_fallback_count() -> int"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::sync_readback_count() -> int"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_fallback_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_kv_cache_storage_for_request(Tensor prototype, int[] sizes, int sequence_dim, int workload_class, int model_domain, int execution_phase, int tensor_role) -> Tensor"));
@@ -1402,6 +1484,15 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::value_trace_enabled"),
       TORCH_FN(value_trace_enabled_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::cpu_fallback_count"),
+      TORCH_FN(cpu_fallback_count_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::sync_readback_count"),
+      TORCH_FN(sync_readback_count_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_counters"),
+      TORCH_FN(reset_fallback_counters_runtime));
 }
 
 TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {

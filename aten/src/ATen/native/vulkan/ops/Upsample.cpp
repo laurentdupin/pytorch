@@ -3,6 +3,7 @@
 #include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Upsample.h>
@@ -383,6 +384,10 @@ static Tensor upsample_nearest_exact2d_cpu_fallback(
     const IntArrayRef output_sizes,
     const std::optional<double> scales_h,
     const std::optional<double> scales_w) {
+  report_vulkan_cpu_fallback(
+      "aten::_upsample_nearest_exact2d",
+      "small_cpu_control_fallback",
+      {input_arg});
   Tensor result_cpu;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);

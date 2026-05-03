@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/ops/full.h>
 #include <torch/library.h>
@@ -13,6 +14,8 @@ namespace {
 using namespace api::utils;
 
 Tensor& fill_scalar_cpu_fallback(Tensor& self, const Scalar& value) {
+  report_vulkan_cpu_fallback(
+      "aten::fill_.Scalar", "unsupported_shape_storage_or_dtype", {self});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
   Tensor cpu_full =
@@ -27,9 +30,17 @@ Tensor& fill_scalar_(Tensor& self_arg, const Scalar& value) {
       "Vulkan: fill_.Scalar is only supported on Vulkan tensors.");
 
   vTensor& v_self = convert(self_arg);
-  if (
-      self_arg.dim() > 4 || v_self.storage_type() == api::StorageType::BUFFER ||
-      !api::supports_texture_storage(v_self.dtype())) {
+  if (self_arg.dim() > 4) {
+    return fill_scalar_cpu_fallback(self_arg, value);
+  }
+  if (v_self.storage_type() == api::StorageType::BUFFER) {
+    if (self_arg.scalar_type() == at::kFloat) {
+      return utils::fill_buffer_float_(
+          self_arg, value.to<float>(), "aten::fill_.Scalar");
+    }
+    return fill_scalar_cpu_fallback(self_arg, value);
+  }
+  if (!api::supports_texture_storage(v_self.dtype())) {
     return fill_scalar_cpu_fallback(self_arg, value);
   }
 

@@ -2,6 +2,7 @@
 #include <c10/core/InferenceMode.h>
 #include <ATen/ops/batch_norm_ops.h>
 #include <ATen/native/vulkan/ops/Batchnorm.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <torch/library.h>
 
@@ -87,6 +88,8 @@ Tensor batch_norm(
   TORCH_CHECK(!training, "Only evaluation mode is supported!");
 
   const Device output_device = input_arg.device();
+  report_vulkan_cpu_fallback(
+      "aten::batch_norm", "cpu_control_fallback", {input_arg});
   Tensor result_cpu;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
@@ -235,6 +238,11 @@ BatchNormPackedContext BatchNormPackedContext::pack(
 const c10::impl::GenericList BatchNormPackedContext::unpack() const {
   c10::impl::GenericList unpacked{c10::AnyType::get()};
   unpacked.reserve(ListArgs::kNumArgs);
+  report_vulkan_cpu_fallback(
+      "vulkan_prepack::batchnorm_context",
+      "unpack_cpu_readback",
+      {weight_, bias_, running_mean_, running_var_},
+      VulkanCpuFallbackKind::SyncReadback);
   unpacked.emplace_back(weight_.cpu().reshape({weight_.numel()}));
   unpacked.emplace_back(bias_.cpu().reshape({bias_.numel()}));
   unpacked.emplace_back(running_mean_.cpu().reshape({running_mean_.numel()}));

@@ -4,6 +4,7 @@
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Clamp.h>
 #include <ATen/native/vulkan/ops/Concat.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
@@ -81,11 +82,32 @@ Tensor maybe_restore_tensor(
     const Tensor& tensor,
     const Device& device,
     const ScalarType scalar_type) {
-  Tensor restored = device.type() == kVulkan ? tensor : tensor.cpu();
+  Tensor restored = tensor;
+  if (device.type() != kVulkan) {
+    if (tensor.is_vulkan()) {
+      report_vulkan_cpu_fallback(
+          "vulkan_prepack::vision_context",
+          "restore_tensor_cpu_readback",
+          {tensor},
+          VulkanCpuFallbackKind::SyncReadback);
+    }
+    restored = tensor.cpu();
+  }
   if (restored.scalar_type() != scalar_type) {
     restored = restored.to(scalar_type);
   }
   return restored;
+}
+
+Tensor cpu_snapshot_for_unpack(const Tensor& tensor, const char* reason) {
+  if (tensor.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::vision_context",
+        reason,
+        {tensor},
+        VulkanCpuFallbackKind::SyncReadback);
+  }
+  return tensor.cpu();
 }
 
 c10::intrusive_ptr<LayernormPackedContext> make_layernorm_context(
@@ -2240,6 +2262,12 @@ Tensor tokens_to_feature_map_fallback(
 
   Tensor output;
   {
+    if (input_arg.is_vulkan()) {
+      report_vulkan_cpu_fallback(
+          "aten::tokens_to_feature_map",
+          "vision_helper_cpu_materialization",
+          {input_arg});
+    }
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
 
@@ -2266,6 +2294,12 @@ Tensor feature_map_to_tokens_fallback(const Tensor& input_arg) {
 
   Tensor output;
   {
+    if (input_arg.is_vulkan()) {
+      report_vulkan_cpu_fallback(
+          "aten::feature_map_to_tokens",
+          "vision_helper_cpu_materialization",
+          {input_arg});
+    }
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
 
@@ -4922,49 +4956,64 @@ VisionBackboneBlockContext::VisionBackboneBlockContext(
           make_linear_context(fc2_weight, fc2_bias, child_label(allocation_label_, "fc2"))),
       ls2_gamma_(move_optional_to_vulkan_buffer(ls2_gamma)) {
   unpacked_.reserve(Unpacked::NumArgs);
-  unpacked_.emplace_back(norm1_weight.cpu());
-  unpacked_.emplace_back(norm1_bias.cpu());
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(norm1_weight, "unpack_norm1_weight_readback"));
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(norm1_bias, "unpack_norm1_bias_readback"));
   unpacked_.emplace_back(norm1_eps);
-  unpacked_.emplace_back(qkv_weight.cpu());
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(qkv_weight, "unpack_qkv_weight_readback"));
   if (qkv_bias.has_value()) {
-    unpacked_.emplace_back(qkv_bias->cpu());
+    unpacked_.emplace_back(
+        cpu_snapshot_for_unpack(*qkv_bias, "unpack_qkv_bias_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
   if (attention_bias.has_value()) {
-    unpacked_.emplace_back(attention_bias->cpu());
+    unpacked_.emplace_back(cpu_snapshot_for_unpack(
+        *attention_bias, "unpack_attention_bias_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
   unpacked_.emplace_back(num_heads_);
-  unpacked_.emplace_back(proj_weight.cpu());
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(proj_weight, "unpack_proj_weight_readback"));
   if (proj_bias.has_value()) {
-    unpacked_.emplace_back(proj_bias->cpu());
+    unpacked_.emplace_back(
+        cpu_snapshot_for_unpack(*proj_bias, "unpack_proj_bias_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
   if (ls1_gamma.has_value()) {
-    unpacked_.emplace_back(ls1_gamma->cpu());
+    unpacked_.emplace_back(
+        cpu_snapshot_for_unpack(*ls1_gamma, "unpack_ls1_gamma_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(norm2_weight.cpu());
-  unpacked_.emplace_back(norm2_bias.cpu());
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(norm2_weight, "unpack_norm2_weight_readback"));
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(norm2_bias, "unpack_norm2_bias_readback"));
   unpacked_.emplace_back(norm2_eps);
-  unpacked_.emplace_back(fc1_weight.cpu());
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(fc1_weight, "unpack_fc1_weight_readback"));
   if (fc1_bias.has_value()) {
-    unpacked_.emplace_back(fc1_bias->cpu());
+    unpacked_.emplace_back(
+        cpu_snapshot_for_unpack(*fc1_bias, "unpack_fc1_bias_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(fc2_weight.cpu());
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(fc2_weight, "unpack_fc2_weight_readback"));
   if (fc2_bias.has_value()) {
-    unpacked_.emplace_back(fc2_bias->cpu());
+    unpacked_.emplace_back(
+        cpu_snapshot_for_unpack(*fc2_bias, "unpack_fc2_bias_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
   if (ls2_gamma.has_value()) {
-    unpacked_.emplace_back(ls2_gamma->cpu());
+    unpacked_.emplace_back(
+        cpu_snapshot_for_unpack(*ls2_gamma, "unpack_ls2_gamma_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
@@ -5458,33 +5507,43 @@ VisionDecoderFusionBlockContext::VisionDecoderFusionBlockContext(
           {1, 1},
           {0, 0})) {
   unpacked_.reserve(Unpacked::NumArgs);
-  unpacked_.emplace_back(res1_conv1_weight.cpu());
+  unpacked_.emplace_back(cpu_snapshot_for_unpack(
+      res1_conv1_weight, "unpack_res1_conv1_weight_readback"));
   if (res1_conv1_bias.has_value()) {
-    unpacked_.emplace_back(res1_conv1_bias->cpu());
+    unpacked_.emplace_back(cpu_snapshot_for_unpack(
+        *res1_conv1_bias, "unpack_res1_conv1_bias_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(res1_conv2_weight.cpu());
+  unpacked_.emplace_back(cpu_snapshot_for_unpack(
+      res1_conv2_weight, "unpack_res1_conv2_weight_readback"));
   if (res1_conv2_bias.has_value()) {
-    unpacked_.emplace_back(res1_conv2_bias->cpu());
+    unpacked_.emplace_back(cpu_snapshot_for_unpack(
+        *res1_conv2_bias, "unpack_res1_conv2_bias_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(res2_conv1_weight.cpu());
+  unpacked_.emplace_back(cpu_snapshot_for_unpack(
+      res2_conv1_weight, "unpack_res2_conv1_weight_readback"));
   if (res2_conv1_bias.has_value()) {
-    unpacked_.emplace_back(res2_conv1_bias->cpu());
+    unpacked_.emplace_back(cpu_snapshot_for_unpack(
+        *res2_conv1_bias, "unpack_res2_conv1_bias_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(res2_conv2_weight.cpu());
+  unpacked_.emplace_back(cpu_snapshot_for_unpack(
+      res2_conv2_weight, "unpack_res2_conv2_weight_readback"));
   if (res2_conv2_bias.has_value()) {
-    unpacked_.emplace_back(res2_conv2_bias->cpu());
+    unpacked_.emplace_back(cpu_snapshot_for_unpack(
+        *res2_conv2_bias, "unpack_res2_conv2_bias_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(out_conv_weight.cpu());
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(out_conv_weight, "unpack_out_conv_weight_readback"));
   if (out_conv_bias.has_value()) {
-    unpacked_.emplace_back(out_conv_bias->cpu());
+    unpacked_.emplace_back(
+        cpu_snapshot_for_unpack(*out_conv_bias, "unpack_out_conv_bias_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }

@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
@@ -2052,6 +2053,10 @@ Tensor make_attention_mask_additive(
     const int64_t target_len,
     const int64_t source_len) {
   if (attn_mask.scalar_type() == kBool) {
+    report_vulkan_cpu_fallback(
+        "aten::scaled_dot_product_attention",
+        "bool_attention_mask_cpu_materialization",
+        {attn_mask, query});
     Tensor mask_cpu = expand_attention_mask_3d(
                            attn_mask.is_vulkan() ? attn_mask.cpu() : attn_mask,
                            batch,
@@ -2074,6 +2079,10 @@ Tensor make_causal_attention_bias(
     const int64_t batch_heads,
     const int64_t target_len,
     const int64_t source_len) {
+  report_vulkan_cpu_fallback(
+      "aten::scaled_dot_product_attention",
+      "causal_attention_bias_cpu_materialization",
+      {query});
   Tensor causal_mask = at::ones(
       {target_len, source_len},
       query.options().device(at::kCPU).dtype(kBool));

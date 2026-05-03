@@ -1,5 +1,6 @@
 #include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/GatedDelta.h>
 #include <ATen/native/vulkan/ops/QwenLinearAttention.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
@@ -45,7 +46,26 @@ Tensor move_runtime_tensor_to_vulkan_float(const Tensor& tensor) {
 }
 
 Tensor move_to_cpu_float(const Tensor& tensor) {
-  return tensor.is_vulkan() ? tensor.cpu().to(kFloat) : tensor.to(kFloat);
+  if (tensor.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::qwen_linear_attention_context",
+        "vulkan_parameter_cpu_float_mirror",
+        {tensor},
+        VulkanCpuFallbackKind::SyncReadback);
+    return tensor.cpu().to(kFloat);
+  }
+  return tensor.to(kFloat);
+}
+
+Tensor cpu_snapshot_for_unpack(const Tensor& tensor, const char* reason) {
+  if (tensor.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "vulkan_prepack::qwen_linear_attention_context",
+        reason,
+        {tensor},
+        VulkanCpuFallbackKind::SyncReadback);
+  }
+  return tensor.cpu();
 }
 
 c10::intrusive_ptr<LinearPackedContext> make_labeled_linear_context(
@@ -92,7 +112,17 @@ Tensor maybe_restore_tensor(
     const Tensor& tensor,
     const Device& device,
     const ScalarType scalar_type) {
-  Tensor restored = device.type() == kVulkan ? tensor : tensor.cpu();
+  Tensor restored = tensor;
+  if (device.type() != kVulkan) {
+    if (tensor.is_vulkan()) {
+      report_vulkan_cpu_fallback(
+          "vulkan_prepack::qwen_linear_attention_context",
+          "restore_tensor_cpu_readback",
+          {tensor},
+          VulkanCpuFallbackKind::SyncReadback);
+    }
+    restored = tensor.cpu();
+  }
   if (restored.scalar_type() != scalar_type) {
     restored = restored.to(scalar_type);
   }
@@ -163,20 +193,29 @@ QwenLinearAttentionPrefillPackedContext::QwenLinearAttentionPrefillPackedContext
       chunk_size_(chunk_size),
       norm_eps_(norm_eps) {
   unpacked_.reserve(Unpacked::NumArgs);
-  unpacked_.emplace_back(qkv_weight.cpu());
-  unpacked_.emplace_back(z_weight.cpu());
-  unpacked_.emplace_back(a_weight.cpu());
-  unpacked_.emplace_back(b_weight.cpu());
-  unpacked_.emplace_back(out_weight.cpu());
-  unpacked_.emplace_back(conv_weight.cpu());
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(qkv_weight, "unpack_qkv_weight_readback"));
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(z_weight, "unpack_z_weight_readback"));
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(a_weight, "unpack_a_weight_readback"));
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(b_weight, "unpack_b_weight_readback"));
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(out_weight, "unpack_out_weight_readback"));
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(conv_weight, "unpack_conv_weight_readback"));
   if (conv_bias.has_value()) {
-    unpacked_.emplace_back(conv_bias->cpu());
+    unpacked_.emplace_back(
+        cpu_snapshot_for_unpack(*conv_bias, "unpack_conv_bias_readback"));
   } else {
     unpacked_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(norm_weight.cpu());
-  unpacked_.emplace_back(A_log.cpu());
-  unpacked_.emplace_back(dt_bias.cpu());
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(norm_weight, "unpack_norm_weight_readback"));
+  unpacked_.emplace_back(cpu_snapshot_for_unpack(A_log, "unpack_A_log_readback"));
+  unpacked_.emplace_back(
+      cpu_snapshot_for_unpack(dt_bias, "unpack_dt_bias_readback"));
   unpacked_.emplace_back(key_dim_);
   unpacked_.emplace_back(value_dim_);
   unpacked_.emplace_back(head_k_dim_);
@@ -359,6 +398,13 @@ Tensor run_qwen_linear_attention_prefill_context(
 
   Tensor output = run_linear_context(core_attn_out, context->out_context());
   if (!input_arg.is_vulkan()) {
+    if (output.is_vulkan()) {
+      report_vulkan_cpu_fallback(
+          "vulkan_prepack::run_qwen_linear_attention_prefill_context",
+          "restore_output_cpu_readback",
+          {output},
+          VulkanCpuFallbackKind::SyncReadback);
+    }
     output = output.cpu();
   }
   if (output.scalar_type() != input_arg.scalar_type()) {

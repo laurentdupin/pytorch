@@ -15,6 +15,7 @@
 #include <ATen/ops/tan.h>
 #endif
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -133,6 +134,8 @@ bool needs_unary_cpu_fallback(const Tensor& tensor) {
 }
 
 Tensor unary_op_cpu_fallback(const Tensor& self_arg, const UnaryOpKind op_kind) {
+  report_vulkan_cpu_fallback(
+      "aten::unary_op", "cpu_fallback", {self_arg});
   Tensor cpu_result;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);

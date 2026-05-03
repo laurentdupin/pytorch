@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Reduction.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -156,6 +157,7 @@ Tensor finalize_bfloat16_mean_output(
 Tensor mean_cpu_fallback(
     const Tensor& self_arg,
     const std::optional<ScalarType> dtype) {
+  report_vulkan_cpu_fallback("aten::mean", "cpu_fallback", {self_arg});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -172,6 +174,7 @@ Tensor mean_dim_cpu_fallback(
     int64_t dim,
     bool keepdim,
     const std::optional<ScalarType> dtype) {
+  report_vulkan_cpu_fallback("aten::mean", "dim_cpu_fallback", {self_arg});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -642,6 +645,8 @@ Tensor group_norm_cpu_fallback(
     const std::optional<Tensor>& bias_opt,
     double eps,
     bool cudnn_enabled) {
+  report_vulkan_cpu_fallback(
+      "aten::group_norm", "cpu_fallback", {input_arg});
   Tensor cpu_result;
   const Tensor input_for_cpu =
       materialize_vulkan_metadata_view_for_cpu_readback(input_arg);
@@ -926,6 +931,7 @@ Tensor mean_dim_IntList(
       !self.is_vulkan() ||
       (!is_vulkan_float_dtype(self.scalar_type()) &&
        self.scalar_type() != c10::ScalarType::BFloat16)) {
+    report_vulkan_cpu_fallback("aten::mean", "dim_IntList_cpu_fallback", {self});
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
     const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
@@ -969,11 +975,7 @@ Tensor mean_dim_IntList(
 
 Tensor mean(const Tensor& self, const std::optional<ScalarType> dtype) {
   if (self.scalar_type() == c10::ScalarType::BFloat16) {
-    return finalize_bfloat16_mean_output(
-        at::mean(
-            utils::cast_vulkan_tensor_dtype(self, c10::ScalarType::Float),
-            c10::ScalarType::Float),
-        dtype);
+    return mean_cpu_fallback(self, dtype);
   }
 
   const auto plan = utils::build_vulkan_execution_plan(

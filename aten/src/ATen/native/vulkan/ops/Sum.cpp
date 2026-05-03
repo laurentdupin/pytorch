@@ -2,6 +2,7 @@
 #include <ATen/Functions.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Reduction.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -113,6 +114,7 @@ Tensor max_dim_buffer_chunk(
 Tensor sum_cpu_fallback(
     const Tensor& self_arg,
     const std::optional<ScalarType> dtype) {
+  report_vulkan_cpu_fallback("aten::sum", "cpu_fallback", {self_arg});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -129,6 +131,7 @@ Tensor sum_dim_cpu_fallback(
     int64_t dim,
     bool keepdim,
     const std::optional<ScalarType> dtype) {
+  report_vulkan_cpu_fallback("aten::sum", "dim_cpu_fallback", {self_arg});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -144,6 +147,7 @@ Tensor amax_cpu_fallback(
     const Tensor& self_arg,
     IntArrayRef dim,
     bool keepdim) {
+  report_vulkan_cpu_fallback("aten::amax", "cpu_fallback", {self_arg});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -605,6 +609,8 @@ Tensor sum_dim_IntList(
       !self.is_vulkan() ||
       (!is_vulkan_float_dtype(self.scalar_type()) &&
        self.scalar_type() != c10::ScalarType::BFloat16)) {
+    report_vulkan_cpu_fallback(
+        "aten::sum", "dim_IntList_dtype_cpu_fallback", {self});
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
     const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
@@ -653,11 +659,7 @@ Tensor sum_dim_IntList(
 
 Tensor sum(const Tensor& self, const std::optional<ScalarType> dtype) {
   if (self.scalar_type() == c10::ScalarType::BFloat16) {
-    return finalize_bfloat16_sum_output(
-        at::sum(
-            utils::cast_vulkan_tensor_dtype(self, c10::ScalarType::Float),
-            c10::ScalarType::Float),
-        dtype);
+    return sum_cpu_fallback(self, dtype);
   }
 
   if (!is_vulkan_float_dtype(self.scalar_type())) {
@@ -743,7 +745,8 @@ Tensor amax_vulkan(const Tensor& self, IntArrayRef dim, bool keepdim) {
   return result;
 }
 
-Tensor all(const Tensor& self) {
+Tensor all_vulkan(const Tensor& self) {
+  report_vulkan_cpu_fallback("aten::all", "cpu_fallback", {self});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -751,7 +754,8 @@ Tensor all(const Tensor& self) {
       at::all(self.cpu()).vulkan(), "aten::all", "cpu_fallback", {self});
 }
 
-Tensor any(const Tensor& self) {
+Tensor any_vulkan(const Tensor& self) {
+  report_vulkan_cpu_fallback("aten::any", "cpu_fallback", {self});
   const Device output_device = vulkan_output_device(self);
   Tensor cpu_result;
   {
@@ -765,6 +769,7 @@ Tensor any(const Tensor& self) {
 }
 
 Tensor any_dim(const Tensor& self, int64_t dim, bool keepdim) {
+  report_vulkan_cpu_fallback("aten::any", "dim_cpu_fallback", {self});
   const Device output_device = vulkan_output_device(self);
   Tensor cpu_result;
   {
@@ -778,6 +783,7 @@ Tensor any_dim(const Tensor& self, int64_t dim, bool keepdim) {
 }
 
 Tensor& all_out(const Tensor& self, Tensor& out) {
+  report_vulkan_cpu_fallback("aten::all.out", "cpu_fallback", {self, out});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -790,6 +796,7 @@ Tensor& all_out(const Tensor& self, Tensor& out) {
 }
 
 Tensor& any_all_out(const Tensor& self, Tensor& out) {
+  report_vulkan_cpu_fallback("aten::any.out", "cpu_fallback", {self, out});
   Tensor cpu_result;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
@@ -809,6 +816,7 @@ Tensor& any_dim_out(
     int64_t dim,
     bool keepdim,
     Tensor& out) {
+  report_vulkan_cpu_fallback("aten::any.out", "dim_cpu_fallback", {self, out});
   Tensor cpu_result;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
@@ -827,6 +835,7 @@ Tensor argmax(
     const Tensor& self,
     const std::optional<int64_t> dim,
     bool keepdim) {
+  report_vulkan_cpu_fallback("aten::argmax", "cpu_fallback", {self});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -845,6 +854,7 @@ Tensor max_all(const Tensor& self) {
     return amax_vulkan(self, {}, false);
   }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  report_vulkan_cpu_fallback("aten::max", "cpu_fallback", {self});
   c10::InferenceMode inference_mode_guard(false);
 
   return record_tensor_write_and_return(
@@ -863,6 +873,7 @@ Tensor min_all(const Tensor& self) {
     }
   }
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  report_vulkan_cpu_fallback("aten::min", "cpu_fallback", {self});
   c10::InferenceMode inference_mode_guard(false);
 
   return record_tensor_write_and_return(
@@ -874,6 +885,7 @@ Tensor& argmax_out(
     const std::optional<int64_t> dim,
     bool keepdim,
     Tensor& out) {
+  report_vulkan_cpu_fallback("aten::argmax.out", "cpu_fallback", {self, out});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -892,9 +904,9 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
       TORCH_SELECTIVE_NAME("aten::sum.dim_IntList"), TORCH_FN(sum_dim_IntList));
   m.impl(TORCH_SELECTIVE_NAME("aten::sum"), TORCH_FN(sum));
   m.impl(TORCH_SELECTIVE_NAME("aten::amax"), TORCH_FN(amax_vulkan));
-  m.impl(TORCH_SELECTIVE_NAME("aten::all"), TORCH_FN(all));
+  m.impl(TORCH_SELECTIVE_NAME("aten::all"), TORCH_FN(all_vulkan));
   m.impl(TORCH_SELECTIVE_NAME("aten::all.all_out"), TORCH_FN(all_out));
-  m.impl(TORCH_SELECTIVE_NAME("aten::any"), TORCH_FN(any));
+  m.impl(TORCH_SELECTIVE_NAME("aten::any"), TORCH_FN(any_vulkan));
   m.impl(TORCH_SELECTIVE_NAME("aten::any.all_out"), TORCH_FN(any_all_out));
   m.impl(TORCH_SELECTIVE_NAME("aten::any.dim"), TORCH_FN(any_dim));
   m.impl(TORCH_SELECTIVE_NAME("aten::any.out"), TORCH_FN(any_dim_out));

@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
@@ -41,12 +42,15 @@ bool can_native_buffer_cast_input(const vTensor& v_input) {
   return supports_dtype &&
       v_input.storage_type() == api::StorageType::BUFFER &&
       v_input.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      v_input.has_direct_buffer_layout() &&
       !v_input.is_quantized();
 }
 
 Tensor cast_vulkan_tensor_dtype_cpu_fallback(
     const Tensor& input,
     const ScalarType dtype) {
+  ops::report_vulkan_cpu_fallback(
+      "aten::to", "cpu_dtype_fallback", {input});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
   return record_tensor_write_and_return(
@@ -159,7 +163,7 @@ Tensor cast_vulkan_tensor_dtype_buffer_native(
   api::Context* const context = api::context();
 
   Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  vTensor v_input = convert(input);
+  vTensor& v_input = convert(input);
 
   TORCH_CHECK(
       can_native_buffer_cast_input(v_input),
@@ -389,6 +393,48 @@ api::UniformParamsBuffer make_buffer_compute_metadata_ubo(
     api::Context* const context,
     const vTensor& tensor) {
   return api::UniformParamsBuffer(context, make_buffer_compute_metadata(tensor));
+}
+
+Tensor& fill_buffer_float_(Tensor& self, const float value, const char* op_name) {
+  TORCH_CHECK(self.is_vulkan(), "Vulkan buffer fill expects a Vulkan tensor");
+  TORCH_CHECK(
+      self.scalar_type() == at::kFloat,
+      "Vulkan buffer fill currently supports only float tensors");
+  vTensor& v_self = convert(self);
+  TORCH_CHECK(
+      v_self.storage_type() == api::StorageType::BUFFER,
+      "Vulkan buffer fill expects buffer storage");
+
+  api::Context* const context = api::context();
+  api::UniformParamsBuffer self_meta =
+      make_buffer_compute_metadata_ubo(context, v_self);
+  const struct Block final {
+    float start;
+    float step;
+  } block{value, 0.0f};
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size{
+      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_self.numel(), 1)),
+      1u,
+      1u,
+  };
+
+  log_vulkan_op_hit(std::string(op_name) + ".buffer_float");
+  context->submit_compute_job(
+      VK_KERNEL(range_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_self.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      self_meta.buffer(),
+      params.buffer());
+
+  return self;
 }
 
 /*
@@ -730,7 +776,7 @@ Tensor ensure_buffer_storage(
     const Tensor& input_arg,
     api::GPUMemoryLayout memory_layout) {
   Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
-  vTensor v_input = convert(input);
+  vTensor& v_input = convert(input);
 
   if (
       v_input.storage_type() == api::StorageType::BUFFER &&
@@ -1006,11 +1052,7 @@ Tensor cast_vulkan_tensor_dtype(const Tensor& input_arg, ScalarType dtype) {
     case VulkanCastMethod::Identity:
       return input;
     case VulkanCastMethod::NativeBufferFloatToInt:
-      if (!can_native_buffer_cast_input(v_input)) {
-        return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
-      }
-      return cast_vulkan_tensor_dtype_buffer_native(
-          input, dtype, VK_KERNEL(buffer_cast_float_to_int));
+      return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
     case VulkanCastMethod::NativeBufferIntToFloat:
       if (!can_native_buffer_cast_input(v_input)) {
         return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
@@ -1291,6 +1333,11 @@ std::vector<int64_t> broadcast_size(const Tensor& t1, const Tensor& t2) {
 }
 
 api::utils::vec4 extract_texel(const Tensor& input, const ivec3& pos) {
+  report_vulkan_cpu_fallback(
+      "vulkan::extract_texel",
+      "utility_sync_readback",
+      {input},
+      VulkanCpuFallbackKind::SyncReadback);
   api::Context* const context = api::context();
 
   TORCH_CHECK(input.is_vulkan());

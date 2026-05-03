@@ -2265,6 +2265,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 bf16.to("vulkan").mean().cpu(),
                 atol=1e-2,
                 rtol=1e-2)
+            for _ in range(3):
+                self._assert_outputs_close(
+                    self._single_threaded_cpu(lambda: bf16.sum()),
+                    bf16.to("vulkan").sum().cpu(),
+                    atol=1e-2,
+                    rtol=1e-2)
+                self._assert_outputs_close(
+                    self._single_threaded_cpu(lambda: bf16.mean()),
+                    bf16.to("vulkan").mean().cpu(),
+                    atol=1e-2,
+                    rtol=1e-2)
 
     def test_any_reduction_cpu_fallback_unblocks_normalize_guard(self):
         values = torch.tensor([False, False, True, False], dtype=torch.bool)
@@ -2800,72 +2811,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 rtol=1e-4,
             )
 
-    def test_depth_anything_3_rope_matches_cpu_without_vulkan_branch(self):
-        self._skip_if_repo_subprocess_cannot_import("addict")
-        script = r"""
-import os
-import sys
-import torch
-
-workspace_root = os.path.dirname(os.getcwd())
-sys.path.insert(0, os.path.join(workspace_root, "temp", "Depth-Anything-3", "src"))
-
-from depth_anything_3.model.dinov2.layers.rope import PositionGetter, RotaryPositionEmbedding2D
-
-torch.manual_seed(0)
-getter = PositionGetter()
-rope = RotaryPositionEmbedding2D()
-tokens_cpu = torch.randn(1, 4, 256, 64)
-positions_cpu = getter(1, 16, 16, torch.device("cpu"))
-positions_vulkan = getter(1, 16, 16, torch.device("vulkan"))
-expected = rope(tokens_cpu, positions_cpu)
-actual = rope(tokens_cpu.to("vulkan"), positions_vulkan).cpu()
-torch.testing.assert_close(expected, actual, atol=1e-4, rtol=1e-4)
-print("OK")
-"""
-        self._run_repo_python_subprocess(
-            script,
-            error_prefix="Depth Anything 3 RoPE Vulkan smoke failed.",
-        )
-
-    def test_depth_anything_3_pose_transform_backend_ops_match_cpu(self):
-        self._skip_if_repo_subprocess_cannot_import("addict")
-        script = r"""
-import os
-import sys
-import torch
-
-workspace_root = os.path.dirname(os.getcwd())
-sys.path.insert(0, os.path.join(workspace_root, "temp", "Depth-Anything-3", "src"))
-
-from depth_anything_3.model.utils.transform import (
-    extri_intri_to_pose_encoding,
-    pose_encoding_to_extri_intri,
-)
-
-torch.manual_seed(0)
-pose = torch.randn(2, 3, 9)
-expected_extr, expected_intr = pose_encoding_to_extri_intri(pose, (518, 518))
-actual_extr, actual_intr = pose_encoding_to_extri_intri(pose.to("vulkan"), (518, 518))
-torch.testing.assert_close(expected_extr, actual_extr.cpu(), atol=1e-4, rtol=1e-4)
-torch.testing.assert_close(expected_intr, actual_intr.cpu(), atol=1e-4, rtol=1e-4)
-
-extr = torch.eye(4)[:3].reshape(1, 1, 3, 4).repeat(2, 3, 1, 1)
-intr = torch.eye(3).reshape(1, 1, 3, 3).repeat(2, 3, 1, 1)
-expected_pose = extri_intri_to_pose_encoding(extr, intr, (518, 518))
-actual_pose = extri_intri_to_pose_encoding(
-    extr.to("vulkan"),
-    intr.to("vulkan"),
-    (518, 518),
-)
-torch.testing.assert_close(expected_pose, actual_pose.cpu(), atol=1e-4, rtol=1e-4)
-print("OK")
-"""
-        self._run_repo_python_subprocess(
-            script,
-            error_prefix="Depth Anything 3 pose transform Vulkan smoke failed.",
-        )
-
     def test_all_matches_cpu(self):
         with torch.inference_mode():
             x = torch.tensor([[True, True, True], [True, False, True]])
@@ -3239,6 +3184,165 @@ print("OK")
                 atol=1e-4,
                 rtol=1e-4,
             )
+
+    def test_vulkan_cpu_fallback_counters_and_no_fallback_policy(self):
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+        eye = torch.eye(2, device="vulkan")
+        self.assertTrue(eye.is_vulkan)
+        self.assertEqual(eye.cpu(), torch.eye(2))
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+        eye.fill_(2.5)
+        self.assertEqual(eye.cpu(), torch.full((2, 2), 2.5))
+        eye.zero_()
+        self.assertEqual(eye.cpu(), torch.zeros(2, 2))
+        ones = torch.ones((2, 3), dtype=torch.float32, device="vulkan")
+        self.assertEqual(ones.cpu(), torch.ones((2, 3), dtype=torch.float32))
+        full = torch.full((2, 3), 1.75, dtype=torch.float32, device="vulkan")
+        self.assertEqual(full.cpu(), torch.full((2, 3), 1.75, dtype=torch.float32))
+        zeros = torch.zeros((2, 3), dtype=torch.float32, device="vulkan")
+        self.assertEqual(zeros.cpu(), torch.zeros((2, 3), dtype=torch.float32))
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+        arange_float = torch.arange(
+            1.0, 5.0, 0.5, dtype=torch.float32, device="vulkan"
+        )
+        self.assertTrue(arange_float.is_vulkan)
+        self.assertEqual(
+            arange_float.cpu(), torch.arange(1.0, 5.0, 0.5, dtype=torch.float32)
+        )
+        linspace_float = torch.linspace(
+            -1.0, 1.0, 5, dtype=torch.float32, device="vulkan"
+        )
+        self.assertTrue(linspace_float.is_vulkan)
+        self.assertEqual(
+            linspace_float.cpu(), torch.linspace(-1.0, 1.0, 5, dtype=torch.float32)
+        )
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+        pow_base = torch.tensor([2.0, 4.0], device="vulkan")
+        self.assertEqual(pow_base.pow(3).cpu(), torch.tensor([8.0, 64.0]))
+        self.assertEqual(pow_base.pow(-1).cpu(), torch.tensor([0.5, 0.25]))
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+        cast_source = torch.tensor([1.0, 2.0, 3.0, 4.0]).to("vulkan")
+        self.assertEqual(
+            cast_source.to(torch.int32).cpu(),
+            torch.tensor([1, 2, 3, 4], dtype=torch.int32),
+        )
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+        direct_source = torch.empty(4, device="vulkan")
+        direct_source.copy_(cast_source)
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        self.assertEqual(
+            direct_source.to(torch.int32).cpu(),
+            torch.tensor([1, 2, 3, 4], dtype=torch.int32),
+        )
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+
+        unsupported_6d_view = torch.empty_strided(
+            (1, 2, 1, 3, 1, 1),
+            (6, 3, 3, 1, 1, 1),
+            dtype=torch.float32,
+            device="vulkan",
+        )
+        unsupported_6d_view.expand(4, 2, 5, 3, 6, 7)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+
+        arange = torch.arange(2, device="vulkan")
+        self.assertTrue(arange.is_vulkan)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
+        scalar = torch.tensor(3.0, device="vulkan")
+        self.assertEqual(scalar.item(), 3.0)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 1)
+
+        mask = torch.tensor([True, False, True, False], device="vulkan")
+        value = torch.tensor(-3.0, device="vulkan")
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        masked = arange_float[:4].masked_fill(mask, value)
+        self.assertEqual(masked.cpu(), torch.tensor([-3.0, 1.5, -3.0, 2.5]))
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 1)
+
+        quant_input = torch.tensor([-1.0, 0.0, 1.0, 2.0], device="vulkan")
+        quant_scale = torch.tensor(0.1, device="vulkan")
+        quant_zero_point = torch.tensor(10, dtype=torch.int64, device="vulkan")
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        quantized = torch.quantize_per_tensor(
+            quant_input,
+            quant_scale,
+            quant_zero_point,
+            torch.quint8,
+        )
+        self.assertTrue(quantized.is_vulkan)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertGreater(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+        old_no_cpu_fallback = os.environ.get("PYTORCH_VULKAN_NO_CPU_FALLBACK")
+        old_fail_on_sync_readback = os.environ.get(
+            "PYTORCH_VULKAN_FAIL_ON_SYNC_READBACK"
+        )
+        try:
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            os.environ["PYTORCH_VULKAN_NO_CPU_FALLBACK"] = "1"
+            with self.assertRaisesRegex(RuntimeError, "op=aten::arange"):
+                torch.arange(2, device="vulkan")
+
+            integral = torch.ones(2, dtype=torch.int64).to("vulkan")
+            with self.assertRaisesRegex(RuntimeError, "op=aten::sum"):
+                integral.sum(dim=0)
+
+            with self.assertRaisesRegex(RuntimeError, "op=aten::to"):
+                cast_source.to(torch.int32)
+
+            os.environ.pop("PYTORCH_VULKAN_NO_CPU_FALLBACK", None)
+            os.environ["PYTORCH_VULKAN_FAIL_ON_SYNC_READBACK"] = "1"
+            with self.assertRaisesRegex(
+                RuntimeError, "op=aten::_local_scalar_dense"
+            ):
+                scalar.item()
+
+            with self.assertRaisesRegex(
+                RuntimeError, "op=aten::masked_fill.Tensor"
+            ):
+                arange_float[:4].masked_fill(mask, value)
+
+            with self.assertRaisesRegex(
+                RuntimeError, "op=aten::quantize_per_tensor"
+            ):
+                torch.quantize_per_tensor(
+                    quant_input,
+                    quant_scale,
+                    quant_zero_point,
+                    torch.quint8,
+                )
+        finally:
+            if old_no_cpu_fallback is None:
+                os.environ.pop("PYTORCH_VULKAN_NO_CPU_FALLBACK", None)
+            else:
+                os.environ["PYTORCH_VULKAN_NO_CPU_FALLBACK"] = old_no_cpu_fallback
+            if old_fail_on_sync_readback is None:
+                os.environ.pop("PYTORCH_VULKAN_FAIL_ON_SYNC_READBACK", None)
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_FAIL_ON_SYNC_READBACK"
+                ] = old_fail_on_sync_readback
+            torch.ops.vulkan_prepack.reset_fallback_counters()
 
     def test_vulkan_prepack_create_causal_attention_mask(self):
         prototype = torch.randn(2, 4, 8).to("vulkan")

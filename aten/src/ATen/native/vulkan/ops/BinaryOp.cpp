@@ -16,6 +16,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convert.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Mm.h>
@@ -789,11 +790,7 @@ Tensor pow_tensor_scalar_integral_exponent(
     const Tensor& self_arg,
     const int64_t exponent) {
   Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
-  Tensor result;
-  {
-    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
-    result = at::ones_like(self.cpu()).vulkan();
-  }
+  Tensor result = at::ones_like(self);
   Tensor factor = self;
 
   const bool negative_exponent = exponent < 0;
@@ -812,11 +809,7 @@ Tensor pow_tensor_scalar_integral_exponent(
   }
 
   if (negative_exponent) {
-    Tensor numerator;
-    {
-      c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
-      numerator = at::ones_like(result.cpu()).vulkan();
-    }
+    Tensor numerator = at::ones_like(result);
     result = at::div(numerator, result);
   }
 
@@ -1044,6 +1037,8 @@ Tensor binary_op_scalar_cpu_fallback(
     const Scalar& other,
     const std::optional<Scalar>& alpha_arg,
     const BinaryOpKind op_kind) {
+  report_vulkan_cpu_fallback(
+      "aten::binary_op", "scalar_cpu_fallback", {self_arg});
   Tensor cpu_result;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
@@ -1081,6 +1076,8 @@ Tensor binary_op_tensor_cpu_fallback(
     const Tensor& other_arg,
     const std::optional<Scalar>& alpha_arg,
     const BinaryOpKind op_kind) {
+  report_vulkan_cpu_fallback(
+      "aten::binary_op", "tensor_cpu_fallback", {self_arg, other_arg});
   Tensor cpu_result;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
@@ -2595,6 +2592,8 @@ static Tensor div_scalar_mode(
     return div_scalar(self_arg, other);
   }
 
+  report_vulkan_cpu_fallback(
+      "aten::div", "scalar_mode_cpu_fallback", {self_arg});
   Tensor cpu_result;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
@@ -2640,6 +2639,8 @@ static Tensor div_tensor_mode(
     return div_tensor(self_arg, other_arg);
   }
 
+  report_vulkan_cpu_fallback(
+      "aten::div", "tensor_mode_cpu_fallback", {self_arg, other_arg});
   Tensor cpu_result;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
@@ -2793,6 +2794,8 @@ static Tensor compare_tensor_tensor_cpu_fallback(
     const Tensor& self_arg,
     const Tensor& other_arg,
     CompareFn&& compare_fn) {
+  report_vulkan_cpu_fallback(
+      "aten::comparison", "tensor_cpu_fallback", {self_arg, other_arg});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
   const Tensor self_cpu = self_arg.cpu();
@@ -2807,6 +2810,8 @@ static Tensor compare_tensor_scalar_cpu_fallback(
     const Tensor& self_arg,
     const Scalar& other,
     CompareFn&& compare_fn) {
+  report_vulkan_cpu_fallback(
+      "aten::comparison", "scalar_cpu_fallback", {self_arg});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
   const Tensor self_cpu = self_arg.cpu();

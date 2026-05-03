@@ -1,8 +1,16 @@
 #include <ATen/Functions.h>
+#include <ATen/native/RangeUtils.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 
+#include <c10/core/DefaultDtype.h>
+#include <c10/core/ScalarTypeToTypeMeta.h>
 #include <torch/library.h>
+
+#include <algorithm>
 
 namespace at {
 namespace native {
@@ -10,15 +18,68 @@ namespace vulkan {
 namespace ops {
 namespace {
 
+using namespace api::utils;
+
 Device vulkan_device_from_options(const TensorOptions& options) {
+  c10::DeviceIndex device_index = api::current_device();
   if (options.has_device()) {
     TORCH_CHECK(
         options.device().type() == at::kVulkan,
         "Vulkan factory expected a Vulkan device but got ",
         options.device());
-    return options.device();
+    if (options.device().has_index()) {
+      device_index = options.device().index();
+    }
   }
-  return Device(at::kVulkan, api::current_device());
+  api::set_current_device(device_index);
+  return Device(at::kVulkan, device_index);
+}
+
+bool resolves_to_float_dtype(const TensorOptions& options) {
+  return options.has_dtype()
+      ? c10::typeMetaToScalarType(*options.dtype_opt()) == kFloat
+      : c10::get_default_dtype_as_scalartype() == kFloat;
+}
+
+Tensor range_buffer_float(
+    const int64_t size,
+    const float start,
+    const float step,
+    const char* op_name) {
+  Tensor out = utils::create_buffer_tensor({size}, at::kFloat);
+  vTensor& v_out = convert(out);
+
+  api::Context* const context = api::context();
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_out);
+  const struct Block final {
+    float start;
+    float step;
+  } block{start, step};
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size{
+      safe_downcast<uint32_t>(std::max<int64_t>(v_out.numel(), 1)),
+      1u,
+      1u,
+  };
+
+  utils::log_vulkan_op_hit(std::string(op_name) + ".buffer_float");
+  context->submit_compute_job(
+      VK_KERNEL(range_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_out.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      params.buffer());
+
+  return record_tensor_write_and_return(
+      out, op_name, "buffer_float", {});
 }
 
 Tensor arange_impl(
@@ -26,6 +87,23 @@ Tensor arange_impl(
     const Scalar& end,
     const Scalar& step,
     TensorOptions options) {
+  vulkan_device_from_options(options);
+  const bool inferred_integral_dtype =
+      !options.has_dtype() &&
+      ((!start.has_value() || start->isIntegral(true)) && end.isIntegral(true) &&
+       step.isIntegral(true));
+  if (!inferred_integral_dtype && resolves_to_float_dtype(options)) {
+    const Scalar effective_start = start.value_or(Scalar(0));
+    const int64_t size =
+        at::native::compute_arange_size<float>(effective_start, end, step);
+    return range_buffer_float(
+        size,
+        effective_start.to<float>(),
+        step.to<float>(),
+        "aten::arange");
+  }
+
+  report_vulkan_cpu_fallback("aten::arange", "factory_cpu_materialization");
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -53,9 +131,23 @@ Tensor& arange_out_impl(
     const Scalar& end,
     const Scalar& step,
     Tensor& result) {
+  if (result.scalar_type() == kFloat) {
+    const Scalar effective_start = start.value_or(Scalar(0));
+    const int64_t size =
+        at::native::compute_arange_size<float>(effective_start, end, step);
+    Tensor out = range_buffer_float(
+        size,
+        effective_start.to<float>(),
+        step.to<float>(),
+        "aten::arange.out");
+    return rebind_vulkan_output(result, out);
+  }
+
   // Vulkan does not have a native range factory yet. Match the current
   // correctness-first approach used by other shape/factory fallbacks:
   // materialize on CPU, then copy the final tensor into Vulkan storage.
+  report_vulkan_cpu_fallback(
+      "aten::arange.out", "factory_cpu_materialization", {result});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -79,6 +171,18 @@ Tensor linspace_impl(
     const Scalar& end,
     const int64_t steps,
     TensorOptions options) {
+  TORCH_CHECK(steps >= 0, "number of steps must be non-negative");
+  vulkan_device_from_options(options);
+  if (resolves_to_float_dtype(options)) {
+    const float step =
+        steps > 1 ? (end.to<float>() - start.to<float>()) /
+                static_cast<float>(steps - 1)
+                  : 0.0f;
+    return range_buffer_float(
+        steps, start.to<float>(), step, "aten::linspace");
+  }
+
+  report_vulkan_cpu_fallback("aten::linspace", "factory_cpu_materialization");
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 
@@ -92,6 +196,19 @@ Tensor& linspace_out_impl(
     const Scalar& end,
     const int64_t steps,
     Tensor& result) {
+  TORCH_CHECK(steps >= 0, "number of steps must be non-negative");
+  if (result.scalar_type() == kFloat) {
+    const float step =
+        steps > 1 ? (end.to<float>() - start.to<float>()) /
+                static_cast<float>(steps - 1)
+                  : 0.0f;
+    Tensor out =
+        range_buffer_float(steps, start.to<float>(), step, "aten::linspace.out");
+    return rebind_vulkan_output(result, out);
+  }
+
+  report_vulkan_cpu_fallback(
+      "aten::linspace.out", "factory_cpu_materialization", {result});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
 

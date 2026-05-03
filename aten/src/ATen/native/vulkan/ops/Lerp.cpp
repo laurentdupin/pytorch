@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <torch/library.h>
 
 namespace at {
@@ -8,6 +9,20 @@ namespace ops {
 namespace {
 
 using namespace api::utils;
+
+float scalar_weight_to_float(const Tensor& weight, const char* op_name) {
+  if (!weight.is_vulkan()) {
+    return weight.item<float>();
+  }
+  report_vulkan_cpu_fallback(
+      op_name,
+      "scalar_weight_sync_readback",
+      {weight},
+      VulkanCpuFallbackKind::SyncReadback);
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  return weight.cpu().item<float>();
+}
 
 void check_inputs_elementwise_op(const Tensor& input1, const Tensor& input2) {
   TORCH_CHECK(
@@ -316,14 +331,16 @@ Tensor lerp_tensor(
     const Tensor& end,
     const Tensor& weight) {
   if (weight.sizes().size() == 0) {
-    return _lerp_scalar(start, end, weight.item<float>());
+    return _lerp_scalar(
+        start, end, scalar_weight_to_float(weight, "aten::lerp.Tensor"));
   }
   return _lerp_tensor(start, end, weight);
 }
 
 Tensor& lerp_tensor_(Tensor& self, const Tensor& end, const Tensor& weight) {
   if (weight.sizes().size() == 0) {
-    return _lerp_scalar_(self, end, weight.item<float>());
+    return _lerp_scalar_(
+        self, end, scalar_weight_to_float(weight, "aten::lerp_.Tensor"));
   }
   return _lerp_tensor_(self, end, weight);
 }

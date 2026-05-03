@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
@@ -109,6 +110,8 @@ Tensor upcast_half_linear_tensor_for_packing(const Tensor& tensor) {
         "Vulkan BF16 linear widening requires native BF16 buffer cast for large "
         "tensors, but that route is currently disabled because it is not "
         "correct for all buffer layouts");
+    report_vulkan_cpu_fallback(
+        "aten::linear", "bfloat16_widen_cpu_small", {tensor});
     utils::log_vulkan_op_hit("aten::linear.bfloat16_widen_cpu_small");
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
@@ -126,6 +129,17 @@ std::optional<Tensor> upcast_half_linear_tensor_for_packing(
     return tensor;
   }
   return upcast_half_linear_tensor_for_packing(*tensor);
+}
+
+Tensor cpu_transposed_weight_for_packing(
+    const Tensor& weight,
+    const char* reason) {
+  report_vulkan_cpu_fallback(
+      "aten::linear",
+      reason,
+      {weight},
+      VulkanCpuFallbackKind::SyncReadback);
+  return weight.cpu().t().contiguous();
 }
 
 Tensor upload_linear_tensor_to_buffer(
@@ -190,9 +204,10 @@ c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
   if (utils::has_inference_tensor(weight, bias)) {
-    const Tensor prepared_weight =
-        (weight.is_vulkan() && weight.dim() == 2) ? weight.cpu().t().contiguous()
-                                                  : weight.t();
+    const Tensor prepared_weight = (weight.is_vulkan() && weight.dim() == 2)
+        ? cpu_transposed_weight_for_packing(
+              weight, "inference_tensor_weight_cpu_transpose")
+        : weight.t();
     return c10::make_intrusive<LinearPackedContext>(
         LinearPackedContext(
             prepared_weight,
@@ -205,7 +220,8 @@ c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
   const Tensor prepared_weight =
       (c10::InferenceMode::is_enabled() && weight.is_vulkan() &&
        weight.dim() == 2)
-      ? weight.cpu().t().contiguous()
+      ? cpu_transposed_weight_for_packing(
+            weight, "inference_mode_weight_cpu_transpose")
       : weight.t();
   return c10::make_intrusive<LinearPackedContext>(
       LinearPackedContext(
@@ -3174,7 +3190,8 @@ c10::intrusive_ptr<LinearPackedContext> create_linear_context_labeled(
   const Tensor prepared_weight =
       (c10::InferenceMode::is_enabled() && weight.is_vulkan() &&
        weight.dim() == 2)
-      ? weight.cpu().t().contiguous()
+      ? cpu_transposed_weight_for_packing(
+            weight, "labeled_weight_cpu_transpose")
       : weight.t();
   const auto context = c10::make_intrusive<LinearPackedContext>(
       LinearPackedContext(

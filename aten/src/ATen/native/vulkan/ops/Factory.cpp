@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/ops/Factory.h>
+#include <c10/core/DefaultDtype.h>
 #include <torch/library.h>
 
 namespace at {
@@ -147,7 +148,7 @@ static Tensor empty_memory_format(
   return convert(vTensor{
       context,
       sizes.vec(),
-      convert_dtype(dtype ? *dtype : c10::kFloat),
+      convert_dtype(dtype.value_or(c10::get_default_dtype_as_scalartype())),
       storage_type,
       memory_format ? get_gpu_memory_layout(storage_type, *memory_format)
                     : default_memory_layout_for_storage_type(storage_type),

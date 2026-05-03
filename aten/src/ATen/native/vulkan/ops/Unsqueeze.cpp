@@ -2,6 +2,7 @@
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -81,6 +82,8 @@ Tensor unsqueeze(const at::Tensor& self, int64_t dim) {
   }();
 
   if (needs_cpu_fallback) {
+    report_vulkan_cpu_fallback(
+        "aten::unsqueeze", "cpu_fallback", {self});
     // Vulkan unsqueeze is not a true metadata-only view yet for higher-rank
     // tensors or buffer-backed tensors. Fall back to the proven CPU path and
     // rematerialize a fresh Vulkan tensor, matching the approach used by

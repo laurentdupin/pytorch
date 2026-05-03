@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/Functions.h>
 #include <torch/library.h>
@@ -12,6 +13,20 @@ namespace ops {
 namespace {
 
 using namespace api::utils;
+
+float scalar_fill_value_to_float(const Tensor& value) {
+  if (!value.is_vulkan()) {
+    return value.item<float>();
+  }
+  report_vulkan_cpu_fallback(
+      "aten::masked_fill.Tensor",
+      "scalar_value_sync_readback",
+      {value},
+      VulkanCpuFallbackKind::SyncReadback);
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  return value.cpu().item<float>();
+}
 
 Tensor masked_fill_scalar_buffer(
     const Tensor& self_arg,
@@ -90,6 +105,8 @@ Tensor masked_fill_scalar(
     const Tensor& mask_arg,
     const Scalar& value) {
   auto cpu_fallback = [&]() {
+    report_vulkan_cpu_fallback(
+        "aten::masked_fill", "cpu_fallback", {self_arg, mask_arg});
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
     const Tensor cpu_result =
@@ -231,7 +248,7 @@ Tensor masked_fill_tensor(
       "masked_fill only supports a 0-dimensional value tensor, but got tensor with ",
       value.dim(),
       " dimension(s).");
-  return masked_fill_scalar(self_arg, mask_arg, value.item<float>());
+  return masked_fill_scalar(self_arg, mask_arg, scalar_fill_value_to_float(value));
 }
 
 Tensor& masked_fill_scalar_(

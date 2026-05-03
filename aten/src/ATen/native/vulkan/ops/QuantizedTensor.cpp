@@ -1,5 +1,6 @@
 #ifdef USE_VULKAN_API
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -100,6 +101,13 @@ Tensor quantize_per_tensor_tensor_qparams(
   TORCH_CHECK(
       (scale.numel() == 1 && zero_point.numel() == 1),
       "Only 1 element expected in scale and zero_point");
+  if (scale.is_vulkan() || zero_point.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "aten::quantize_per_tensor",
+        "tensor_qparams_sync_readback",
+        {scale, zero_point},
+        VulkanCpuFallbackKind::SyncReadback);
+  }
   return quantize_per_tensor(
       input_arg, scale.item().toDouble(), zero_point.item().toLong(), dtype);
 }

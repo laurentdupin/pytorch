@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <optional>
@@ -53,6 +54,10 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
       "Vulkan gather_rows_2d expects a 2D weight tensor");
   Tensor indices_host = indices_arg;
   if (indices_host.is_vulkan()) {
+    report_vulkan_cpu_fallback(
+        "aten::index_select",
+        "indices_cpu_materialization",
+        {weight_arg, indices_arg});
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
     indices_host = indices_host.cpu();
@@ -114,6 +119,10 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
   if (
       v_weight.storage_type() == api::StorageType::BUFFER &&
       buffer_allocation_is_host_visible(v_weight)) {
+    report_vulkan_cpu_fallback(
+        "aten::index_select",
+        "host_visible_buffer_gather_cpu_fallback",
+        {weight_arg, indices_arg});
     Tensor cpu_result =
         weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
     return upload_cpu_result_to_vulkan(
@@ -127,6 +136,10 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
     // but 2D embedding-style row gathers on large buffer-backed weights still
     // mis-materialize. Keep the embedding path correct by gathering on CPU and
     // moving the selected rows back to Vulkan.
+    report_vulkan_cpu_fallback(
+        "aten::index_select",
+        "buffer_2d_indices_cpu_fallback",
+        {weight_arg, indices_arg});
     Tensor cpu_result =
         weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
     return upload_cpu_result_to_vulkan(
@@ -144,6 +157,10 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
       // embeddings now often stay in buffer-backed or width-packed Vulkan
       // storage to fit the residency budget, so gather them on CPU and move
       // the selected rows back to Vulkan.
+      report_vulkan_cpu_fallback(
+          "aten::index_select",
+          "nonfloat_buffer_gather_cpu_fallback",
+          {weight_arg, indices_arg});
       Tensor cpu_result =
           weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
       return upload_cpu_result_to_vulkan(
@@ -155,6 +172,10 @@ Tensor gather_rows_2d(const Tensor& weight_arg, const Tensor& indices_arg) {
     // Large 2D gathers such as BEiT's relative-position-bias lookup still
     // exceed the reliable Vulkan gather envelope on this backend. Materialize
     // the rows on CPU, then move the gathered result back to Vulkan.
+    report_vulkan_cpu_fallback(
+        "aten::index_select",
+        "large_float_gather_cpu_fallback",
+        {weight_arg, indices_arg});
     Tensor cpu_result =
         weight_arg.cpu().index_select(0, indices.reshape({num_indices}));
     return upload_cpu_result_to_vulkan(
@@ -356,6 +377,7 @@ std::tuple<Tensor, Tensor> topk(
     int64_t dim,
     bool largest,
     bool sorted) {
+  report_vulkan_cpu_fallback("aten::topk", "cpu_fallback", {self});
   Tensor values_cpu;
   Tensor indices_cpu;
   {
@@ -404,6 +426,8 @@ Tensor scatter_value(
     int64_t dim,
     const Tensor& index,
     const Scalar& value) {
+  report_vulkan_cpu_fallback(
+      "aten::scatter", "value_cpu_fallback", {self, index});
   Tensor result_cpu;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
@@ -420,6 +444,8 @@ Tensor& scatter_value_out(
     const Tensor& index,
     const Scalar& value,
     Tensor& out) {
+  report_vulkan_cpu_fallback(
+      "aten::scatter.out", "value_cpu_fallback", {self, index, out});
   Tensor result_cpu;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
@@ -443,6 +469,7 @@ std::tuple<Tensor, Tensor> sort_default(
     const Tensor& self,
     int64_t dim,
     bool descending) {
+  report_vulkan_cpu_fallback("aten::sort", "cpu_fallback", {self});
   Tensor values_cpu;
   Tensor indices_cpu;
   {
@@ -461,6 +488,7 @@ std::tuple<Tensor, Tensor> sort_stable(
     std::optional<bool> stable,
     int64_t dim,
     bool descending) {
+  report_vulkan_cpu_fallback("aten::sort.stable", "cpu_fallback", {self});
   Tensor values_cpu;
   Tensor indices_cpu;
   {
@@ -542,6 +570,7 @@ c10::List<std::optional<Tensor>> materialize_indices_on_cpu(
 Tensor index_tensor(
     const Tensor& self,
     const c10::List<std::optional<Tensor>>& indices) {
+  report_vulkan_cpu_fallback("aten::index.Tensor", "cpu_fallback", {self});
   Tensor result_cpu;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
@@ -573,6 +602,8 @@ Tensor index_add_default(
     const Tensor& index,
     const Tensor& source,
     const Scalar& alpha) {
+  report_vulkan_cpu_fallback(
+      "aten::index_add", "cpu_fallback", {self, index, source});
   Tensor result_cpu;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
@@ -620,6 +651,7 @@ Tensor& index_add_(
 }
 
 Tensor nonzero_vulkan(const Tensor& self) {
+  report_vulkan_cpu_fallback("aten::nonzero", "cpu_fallback", {self});
   utils::log_vulkan_op_hit("aten::nonzero.cpu_fallback");
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
