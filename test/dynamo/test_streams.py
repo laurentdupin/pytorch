@@ -12,7 +12,7 @@ from torch._dynamo.graph_bytecode_inputs import (
     store_user_object_weakrefs,
 )
 from torch._dynamo.testing import extract_graph, remove_trailing_space
-from torch.testing._internal.common_utils import requires_cuda
+from torch.testing._internal.common_utils import requires_cuda, TEST_XPU
 
 
 def remove_file_comment(gm_str: str) -> str:
@@ -168,6 +168,18 @@ class <lambda>(torch.nn.Module):
         compiled = torch.compile(fn_cuda_stream, backend="eager", fullgraph=True)
         self.assertEqual(compiled(x), fn_cuda_stream(x))
 
+    @unittest.skipIf(not TEST_XPU, "XPU is not available")
+    def test_xpu_current_stream_attrs(self):
+        """Verify that torch.xpu.current_stream() attributes are accessible
+        under torch.compile and match eager behavior."""
+
+        def fn_xpu_stream(x):
+            return torch.xpu.current_stream().sycl_queue
+
+        x = torch.zeros(1, device="xpu")
+        compiled = torch.compile(fn_xpu_stream, backend="eager", fullgraph=True)
+        self.assertEqual(compiled(x), fn_xpu_stream(x))
+
     @requires_cuda
     def test_cuda_current_stream_with_entered_stream(self):
         """Verify that torch.cuda.current_stream().cuda_stream returns the
@@ -179,6 +191,20 @@ class <lambda>(torch.nn.Module):
 
         s = torch.cuda.Stream()
         x = torch.zeros(1, device="cuda")
+        compiled = torch.compile(fn, backend="eager", fullgraph=True)
+        self.assertEqual(compiled(x, s), fn(x, s))
+
+    @unittest.skipIf(not TEST_XPU, "XPU is not available")
+    def test_xpu_current_stream_with_entered_stream(self):
+        """Verify that torch.xpu.current_stream().sycl_queue returns the
+        correct value when inside a stream context for a user-created stream."""
+
+        def fn(x, s):
+            with s:
+                return torch.xpu.current_stream().sycl_queue
+
+        s = torch.xpu.Stream()
+        x = torch.zeros(1, device="xpu")
         compiled = torch.compile(fn, backend="eager", fullgraph=True)
         self.assertEqual(compiled(x, s), fn(x, s))
 
@@ -2216,6 +2242,32 @@ class <lambda>(torch.nn.Module):
         graph_str = print_graph(fw_graphs[0])
         self.assertIn("sync_dealloc", graph_str)
         self.assertIn("record_event", graph_str)
+
+    @requires_cuda
+    def test_stream_pointer_extraction_edge_cases(self):
+        def get_ptrs(stream_a, stream_b, default_stream):
+            return (
+                stream_a.cuda_stream,
+                stream_b.cuda_stream,
+                default_stream.cuda_stream,
+            )
+
+        s1, s2 = torch.cuda.Stream(), torch.cuda.Stream()
+        default_s = torch.cuda.default_stream()
+        expected_s1, expected_s2 = s1.cuda_stream, s2.cuda_stream
+
+        self.assertNotEqual(expected_s1, expected_s2)
+        self.assertGreater(expected_s1, 1000)
+
+        opt_get_ptrs = torch.compile(get_ptrs, backend="inductor")
+
+        s3 = torch.cuda.Stream()
+        with torch.cuda.stream(s3):
+            actual_s1, actual_s2, actual_default = opt_get_ptrs(s1, s2, default_s)
+
+        self.assertEqual(actual_s1, expected_s1)
+        self.assertEqual(actual_s2, expected_s2)
+        self.assertEqual(actual_default, default_s.cuda_stream)
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ import torch
 import torch.testing
 from torch._dynamo import polyfills
 from torch._logging._internal import trace_log
-from torch.testing._internal.common_utils import (  # type: ignore[attr-defined]
+from torch.testing._internal.common_utils import (
     IS_WINDOWS,
     TEST_WITH_CROSSREF,
     TEST_WITH_TORCHDYNAMO,
@@ -75,8 +75,8 @@ class TestCase(TorchTestCase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        cls._exit_stack = contextlib.ExitStack()  # type: ignore[attr-defined]
-        cls._exit_stack.enter_context(  # type: ignore[attr-defined]
+        cls._exit_stack = contextlib.ExitStack()
+        cls._exit_stack.enter_context(
             config.patch(
                 raise_on_ctx_manager_usage=True,
                 suppress_errors=False,
@@ -106,6 +106,10 @@ class TestCase(TorchTestCase):
             log.warning("Running test changed grad mode")
             torch.set_grad_enabled(self._prior_is_grad_enabled)
         config.nested_graph_breaks = self._prior_nested_graph_breaks
+
+    def before_cuda_memory_leak_check(self) -> None:
+        reset()
+        utils.counters.clear()
 
     def assertEqual(self, x: Any, y: Any, *args: Any, **kwargs: Any) -> None:  # type: ignore[override]
         if (
@@ -223,12 +227,19 @@ class CPythonTestCase(TestCase):
             )
 
         super().setUpClass()
-        cls._stack = contextlib.ExitStack()  # type: ignore[attr-defined]
-        cls._stack.enter_context(  # type: ignore[attr-defined]
+        cls._stack = contextlib.ExitStack()
+        cls._stack.enter_context(
             config.patch(
                 enable_trace_unittest=True,
+                enable_trace_load_build_class=True,
             ),
         )
+
+    @contextlib.contextmanager
+    def subTest(self, *args, **kwargs):
+        # pytest 9.x addSubTest uses typing._GenericAlias calls that
+        # Dynamo cannot trace. Use a no-op subTest instead.
+        yield
 
     # pyrefly: ignore [implicit-any]
     def wrap_with_policy(self, method_name: str, policy: Callable) -> None:
