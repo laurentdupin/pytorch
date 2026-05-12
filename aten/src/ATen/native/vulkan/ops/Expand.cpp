@@ -38,7 +38,7 @@ Tensor expand(
       self.dim(),
       ").");
 
-  if (self.is_vulkan() && self.dim() <= 4 && output_size.size() <= 4) {
+  if (self.is_vulkan() && self.dim() <= 5 && output_size.size() <= 5) {
     const vTensor& v_self = convert(self);
     if (utils::supports_buffer_view_fast_path(v_self)) {
       const auto logical_geometry = inferExpandGeometry_dimvector(

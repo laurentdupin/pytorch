@@ -69,14 +69,15 @@ Tensor unsqueeze(const at::Tensor& self, int64_t dim) {
       dim);
 
   const bool needs_cpu_fallback = [&]() {
-    if (self.dim() > 3) {
-      return true;
-    }
     if (self.is_vulkan()) {
       const vTensor& v_self = convert(self);
       if (v_self.storage_type() == api::StorageType::BUFFER) {
-        return !utils::supports_buffer_view_fast_path(v_self);
+        return self.dim() + 1 > 5 ||
+            !utils::supports_buffer_view_fast_path(v_self);
       }
+    }
+    if (self.dim() > 3) {
+      return true;
     }
     return false;
   }();

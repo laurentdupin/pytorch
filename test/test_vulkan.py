@@ -3262,6 +3262,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
         torch.ops.vulkan_prepack.reset_fallback_counters()
 
+        four_d = torch.randn(2, 3, 4, 5).to("vulkan")
+        unsqueezed = four_d.unsqueeze(2)
+        self.assertEqual(unsqueezed.cpu(), four_d.cpu().unsqueeze(2))
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+        expandable = torch.randn(1, 2, 3, 4).to("vulkan")
+        expanded = expandable.expand(5, 1, 2, 3, 4)
+        self.assertEqual(expanded.cpu(), expandable.cpu().expand(5, 1, 2, 3, 4))
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
         arange = torch.arange(2, device="vulkan")
         self.assertTrue(arange.is_vulkan)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
