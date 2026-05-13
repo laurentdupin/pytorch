@@ -338,6 +338,26 @@ std::vector<int64_t> sync_counters_runtime() {
       static_cast<int64_t>(
           counters.allocation_reuse_after_timeline_count.load(
               std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.forced_sync_explicit_synchronize_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.forced_sync_tensor_cpu_readback_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.forced_sync_event_synchronize_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.forced_sync_retire_queue_drain_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.forced_sync_gpu_timestamp_query_reset_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.forced_sync_fallback_policy_readback_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.forced_sync_unknown_count.load(std::memory_order_relaxed)),
   };
 }
 

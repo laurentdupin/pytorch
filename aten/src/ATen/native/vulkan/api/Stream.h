@@ -3,6 +3,7 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/api/Adapter.h>
+#include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/api/vk_api.h>
 
 #include <c10/core/Stream.h>
@@ -79,7 +80,11 @@ class TORCH_API VulkanStreamPool final {
   void set_current_stream(const c10::Stream& stream);
 
   bool query_complete(const VulkanStreamState& stream, uint64_t value);
-  void wait_complete(const VulkanStreamState& stream, uint64_t value);
+  void wait_complete(
+      const VulkanStreamState& stream,
+      uint64_t value,
+      VulkanForcedSyncReason reason =
+          VulkanForcedSyncReason::ExplicitSynchronize);
   void wait_all(c10::DeviceIndex device_index);
 
  private:

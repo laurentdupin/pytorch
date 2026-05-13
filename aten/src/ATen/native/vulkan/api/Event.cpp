@@ -62,7 +62,8 @@ void synchronize_vulkan_event(const VulkanEventState& event) {
       vulkan_stream_pool().get_stream(event.device_index, event.stream_id);
   vulkan_sync_counters().event_wait_count.fetch_add(
       1u, std::memory_order_relaxed);
-  vulkan_stream_pool().wait_complete(stream, event.value);
+  vulkan_stream_pool().wait_complete(
+      stream, event.value, VulkanForcedSyncReason::EventSynchronize);
 }
 
 } // namespace api

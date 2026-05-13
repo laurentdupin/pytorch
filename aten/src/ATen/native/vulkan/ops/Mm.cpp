@@ -76,14 +76,27 @@ struct VulkanLinearPlanDecision final {
   int64_t tile_m = 0;
   int64_t tile_k = 0;
   int64_t tile_n = 0;
+  ScalarType input_dtype = ScalarType::Undefined;
+  ScalarType weight_dtype = ScalarType::Undefined;
+  ScalarType bias_dtype = ScalarType::Undefined;
+  ScalarType output_dtype = ScalarType::Undefined;
   bool input_vulkan = false;
   bool weight_packed = false;
+  bool weight_vulkan = false;
+  bool bias_present = false;
+  bool bias_vulkan = false;
   bool input_direct_buffer = false;
   bool output_direct_buffer = false;
+  bool can_use_coop_matrix = false;
   bool has_post_op = false;
   bool m_tail = false;
   bool k_tail = false;
   bool n_tail = false;
+  bool rejected_because_float_input = false;
+  bool rejected_because_float_weight = false;
+  bool rejected_because_bias_dtype = false;
+  bool rejected_because_layout = false;
+  bool rejected_because_not_packed = false;
 };
 
 struct VulkanLinearPlanCounters final {
@@ -166,14 +179,32 @@ void append_vulkan_linear_plan_log(
       << " tile_m=" << decision.tile_m
       << " tile_k=" << decision.tile_k
       << " tile_n=" << decision.tile_n
+      << " input_dtype=" << static_cast<int>(decision.input_dtype)
+      << " weight_dtype=" << static_cast<int>(decision.weight_dtype)
+      << " bias_dtype=" << static_cast<int>(decision.bias_dtype)
+      << " output_dtype=" << static_cast<int>(decision.output_dtype)
       << " m_tail=" << (decision.m_tail ? 1 : 0)
       << " k_tail=" << (decision.k_tail ? 1 : 0)
       << " n_tail=" << (decision.n_tail ? 1 : 0)
       << " input_vulkan=" << (decision.input_vulkan ? 1 : 0)
       << " weight_packed=" << (decision.weight_packed ? 1 : 0)
+      << " weight_vulkan=" << (decision.weight_vulkan ? 1 : 0)
+      << " bias_present=" << (decision.bias_present ? 1 : 0)
+      << " bias_vulkan=" << (decision.bias_vulkan ? 1 : 0)
       << " input_direct_buffer=" << (decision.input_direct_buffer ? 1 : 0)
       << " output_direct_buffer=" << (decision.output_direct_buffer ? 1 : 0)
+      << " can_use_coop_matrix=" << (decision.can_use_coop_matrix ? 1 : 0)
       << " post_op=" << (decision.has_post_op ? 1 : 0)
+      << " rejected_float_input="
+      << (decision.rejected_because_float_input ? 1 : 0)
+      << " rejected_float_weight="
+      << (decision.rejected_because_float_weight ? 1 : 0)
+      << " rejected_bias_dtype="
+      << (decision.rejected_because_bias_dtype ? 1 : 0)
+      << " rejected_layout="
+      << (decision.rejected_because_layout ? 1 : 0)
+      << " rejected_not_packed="
+      << (decision.rejected_because_not_packed ? 1 : 0)
       << '\n';
 }
 
@@ -1227,6 +1258,44 @@ Tensor run_float_buffer_linear(
     *output_opt = output;
     output = *output_opt;
   }
+
+  VulkanLinearPlanDecision decision;
+  decision.selected = VulkanLinearFastPath::FloatBuffer;
+  decision.reject = VulkanLinearRejectReason::None;
+  decision.m = input_arg_2d.size(Layout::Parameter::height);
+  decision.k = input_arg_2d.size(Layout::Parameter::width);
+  decision.n = packed_state.logical_weight_sizes[Layout::Parameter::width];
+  decision.input_dtype = input_arg_2d.scalar_type();
+  decision.weight_dtype = packed_weight_tensor.scalar_type();
+  decision.bias_dtype = packed_bias_tensor && packed_bias_tensor->defined()
+      ? packed_bias_tensor->scalar_type()
+      : ScalarType::Undefined;
+  decision.output_dtype = output.scalar_type();
+  decision.input_vulkan = input_arg_2d.is_vulkan();
+  decision.weight_packed = true;
+  decision.weight_vulkan = packed_weight_tensor.is_vulkan();
+  decision.bias_present =
+      packed_bias_tensor.has_value() && packed_bias_tensor->defined();
+  decision.bias_vulkan =
+      decision.bias_present && packed_bias_tensor->is_vulkan();
+  decision.input_direct_buffer = v_input.has_direct_buffer_layout();
+  decision.output_direct_buffer = v_output.has_direct_buffer_layout();
+  decision.can_use_coop_matrix = false;
+  decision.has_post_op = post_op != LinearPostOp::None;
+  decision.m_tail = decision.m % 16 != 0;
+  decision.k_tail = decision.k % 16 != 0;
+  decision.n_tail = decision.n % 16 != 0;
+  decision.rejected_because_float_input =
+      decision.input_dtype == ScalarType::Float;
+  decision.rejected_because_float_weight =
+      decision.weight_dtype == ScalarType::Float;
+  decision.rejected_because_bias_dtype =
+      decision.bias_present && decision.bias_dtype != ScalarType::BFloat16;
+  decision.rejected_because_layout =
+      !decision.input_direct_buffer || !decision.output_direct_buffer;
+  decision.rejected_because_not_packed = !decision.weight_packed;
+  note_linear_plan_decision(decision);
+  append_vulkan_linear_plan_log(decision, "aten::linear.float_buffer");
 
   return reshape_linear_output_if_needed(output, input_arg);
 }

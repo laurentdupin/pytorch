@@ -27,6 +27,19 @@ void reset_vulkan_sync_counters() {
   counters.allocation_reuse_deferred_count.store(0u, std::memory_order_relaxed);
   counters.allocation_reuse_after_timeline_count.store(
       0u, std::memory_order_relaxed);
+  counters.forced_sync_explicit_synchronize_count.store(
+      0u, std::memory_order_relaxed);
+  counters.forced_sync_tensor_cpu_readback_count.store(
+      0u, std::memory_order_relaxed);
+  counters.forced_sync_event_synchronize_count.store(
+      0u, std::memory_order_relaxed);
+  counters.forced_sync_retire_queue_drain_count.store(
+      0u, std::memory_order_relaxed);
+  counters.forced_sync_gpu_timestamp_query_reset_count.store(
+      0u, std::memory_order_relaxed);
+  counters.forced_sync_fallback_policy_readback_count.store(
+      0u, std::memory_order_relaxed);
+  counters.forced_sync_unknown_count.store(0u, std::memory_order_relaxed);
 }
 
 void note_vulkan_queue_wait_idle() {
@@ -34,9 +47,39 @@ void note_vulkan_queue_wait_idle() {
       1u, std::memory_order_relaxed);
 }
 
-void note_vulkan_forced_sync() {
-  vulkan_sync_counters().forced_sync_count.fetch_add(
-      1u, std::memory_order_relaxed);
+void note_vulkan_forced_sync(VulkanForcedSyncReason reason) {
+  VulkanSyncCounters& counters = vulkan_sync_counters();
+  counters.forced_sync_count.fetch_add(1u, std::memory_order_relaxed);
+  switch (reason) {
+    case VulkanForcedSyncReason::ExplicitSynchronize:
+      counters.forced_sync_explicit_synchronize_count.fetch_add(
+          1u, std::memory_order_relaxed);
+      return;
+    case VulkanForcedSyncReason::TensorCpuReadback:
+      counters.forced_sync_tensor_cpu_readback_count.fetch_add(
+          1u, std::memory_order_relaxed);
+      return;
+    case VulkanForcedSyncReason::EventSynchronize:
+      counters.forced_sync_event_synchronize_count.fetch_add(
+          1u, std::memory_order_relaxed);
+      return;
+    case VulkanForcedSyncReason::RetireQueueDrain:
+      counters.forced_sync_retire_queue_drain_count.fetch_add(
+          1u, std::memory_order_relaxed);
+      return;
+    case VulkanForcedSyncReason::GpuTimestampQueryReset:
+      counters.forced_sync_gpu_timestamp_query_reset_count.fetch_add(
+          1u, std::memory_order_relaxed);
+      return;
+    case VulkanForcedSyncReason::FallbackPolicyReadback:
+      counters.forced_sync_fallback_policy_readback_count.fetch_add(
+          1u, std::memory_order_relaxed);
+      return;
+    case VulkanForcedSyncReason::Unknown:
+      counters.forced_sync_unknown_count.fetch_add(
+          1u, std::memory_order_relaxed);
+      return;
+  }
 }
 
 } // namespace api

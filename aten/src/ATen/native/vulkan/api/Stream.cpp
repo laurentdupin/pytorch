@@ -155,7 +155,8 @@ bool VulkanStreamPool::query_complete(
 
 void VulkanStreamPool::wait_complete(
     const VulkanStreamState& stream,
-    uint64_t value) {
+    uint64_t value,
+    VulkanForcedSyncReason reason) {
   if (value == 0u) {
     return;
   }
@@ -167,7 +168,7 @@ void VulkanStreamPool::wait_complete(
       &stream.timeline,
       &value,
   };
-  note_vulkan_forced_sync();
+  note_vulkan_forced_sync(reason);
   VK_CHECK(vkWaitSemaphores(
       stream.device, &wait_info, std::numeric_limits<uint64_t>::max()));
   stream.last_known_completed_value.store(value, std::memory_order_relaxed);

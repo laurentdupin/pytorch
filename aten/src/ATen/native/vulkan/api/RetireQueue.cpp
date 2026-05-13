@@ -78,9 +78,13 @@ void RetireQueue::drain(VkDevice device) {
         &item.timeline,
         &item.value,
     };
-    note_vulkan_forced_sync();
-    VK_CHECK(vkWaitSemaphores(
-        device, &wait_info, std::numeric_limits<uint64_t>::max()));
+    uint64_t completed = 0u;
+    VK_CHECK(vkGetSemaphoreCounterValue(device, item.timeline, &completed));
+    if (completed < item.value) {
+      note_vulkan_forced_sync(VulkanForcedSyncReason::RetireQueueDrain);
+      VK_CHECK(vkWaitSemaphores(
+          device, &wait_info, std::numeric_limits<uint64_t>::max()));
+    }
     item.cleanup();
     vulkan_sync_counters().retired_resource_count.fetch_add(
         1u, std::memory_order_relaxed);
