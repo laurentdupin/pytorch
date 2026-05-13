@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -148,6 +149,10 @@ Tensor run_qlinear_context(
     double output_scale,
     int64_t output_zero_point,
     const c10::intrusive_ptr<LinearPackedContext>& context);
+
+std::vector<int64_t> linear_plan_counters_snapshot();
+
+void reset_linear_plan_counters();
 
 } // namespace ops
 } // namespace vulkan

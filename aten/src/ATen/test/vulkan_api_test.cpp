@@ -9280,6 +9280,70 @@ TEST_F(VulkanAPITest, linear_2d_large) {
   test_linear({49, 37}, {23, 37}, {23});
 }
 
+void test_bfloat16_linear_tail_m(
+    const int64_t m,
+    const int64_t k,
+    const int64_t n) {
+  c10::InferenceMode mode;
+
+  const auto input_cpu = at::randn(
+      {m, k}, at::device(at::kCPU).dtype(at::kFloat));
+  const auto weight_cpu = at::randn(
+      {n, k}, at::device(at::kCPU).dtype(at::kFloat));
+  const auto bias_cpu = at::randn({n}, at::device(at::kCPU).dtype(at::kFloat));
+
+  const auto input_bf16 = input_cpu.to(at::kBFloat16);
+  const auto weight_bf16 = weight_cpu.to(at::kBFloat16);
+  const auto bias_bf16 = bias_cpu.to(at::kBFloat16);
+  const auto expected = at::linear(
+      input_bf16.to(at::kFloat),
+      weight_bf16.to(at::kFloat),
+      bias_bf16.to(at::kFloat));
+
+  auto prepack = callOpByName(
+      "vulkan_prepack::create_linear_context",
+      "",
+      weight_bf16.t(),
+      bias_bf16);
+
+  callOpByName("vulkan_prepack::reset_fallback_counters", "");
+  const auto sync_before =
+      callOpByName("vulkan_prepack::sync_counters", "")[0].toIntVector();
+
+  auto vulkan_output = callOpByName(
+      "vulkan_prepack::run_linear_context",
+      "",
+      input_bf16.vulkan(),
+      prepack[0]);
+  callOpByName("vulkan_prepack::synchronize", "");
+
+  const auto out_vulkan = vulkan_output[0].toTensor();
+  ASSERT_EQ(out_vulkan.sizes(), expected.sizes());
+  const auto actual = out_vulkan.cpu().to(at::kFloat);
+  if (!at::allclose(actual, expected, 5e-2, 5e-2)) {
+    showRtol(expected, actual);
+  }
+  ASSERT_TRUE(at::allclose(actual, expected, 5e-2, 5e-2));
+
+  const auto plan =
+      callOpByName("vulkan_prepack::linear_plan_counters", "")[0].toIntVector();
+  const auto sync_after =
+      callOpByName("vulkan_prepack::sync_counters", "")[0].toIntVector();
+  ASSERT_GT(plan[2], 0);
+  ASSERT_EQ(sync_after[6], sync_before[6]);
+  const int64_t cpu_fallback_count =
+      callOpByName("vulkan_prepack::cpu_fallback_count", "")[0].toInt();
+  ASSERT_LE(cpu_fallback_count, 1);
+}
+
+TEST_F(VulkanAPITest, bfloat16_linear_tail_m_small_matches_cpu) {
+  test_bfloat16_linear_tail_m(17, 64, 128);
+}
+
+TEST_F(VulkanAPITest, bfloat16_linear_tail_m_2073_matches_cpu) {
+  test_bfloat16_linear_tail_m(2073, 768, 2304);
+}
+
 TEST_F(VulkanAPITest, linear_3d_flat) {
   test_linear({1, 1, 37}, {41, 37}, {41});
 }

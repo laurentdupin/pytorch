@@ -344,6 +344,7 @@ std::vector<int64_t> sync_counters_runtime() {
 void reset_fallback_counters_runtime() {
   reset_vulkan_fallback_counters();
   api::reset_vulkan_sync_counters();
+  reset_linear_plan_counters();
 }
 
 Tensor create_kv_cache_storage_for_request(
@@ -1431,6 +1432,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::sync_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::linear_plan_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_fallback_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
@@ -1531,6 +1534,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::sync_counters"),
       TORCH_FN(sync_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::linear_plan_counters"),
+      TORCH_FN(linear_plan_counters_snapshot));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_counters"),
       TORCH_FN(reset_fallback_counters_runtime));

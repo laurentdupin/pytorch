@@ -17,6 +17,9 @@
 #include <ATen/ops/zeros.h>
 #include <c10/core/InferenceMode.h>
 #include <c10/util/irange.h>
+#include <atomic>
+#include <cstdlib>
+#include <fstream>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -38,6 +41,185 @@ enum class LinearPostOp : uint8_t {
   None,
   Gelu,
 };
+
+enum class VulkanLinearFastPath : uint8_t {
+  Unknown = 0,
+  FloatBuffer,
+  BFloat16Buffer,
+  BFloat16CooperativeMatrix,
+  BFloat16CooperativeMatrixTailM,
+  CpuFallback,
+};
+
+enum class VulkanLinearRejectReason : uint8_t {
+  None = 0,
+  InputNotVulkan,
+  WeightNotVulkanOrPacked,
+  UnsupportedDType,
+  UnsupportedStorageType,
+  UnsupportedLayout,
+  KNotAligned,
+  NNotAligned,
+  MTailUnsupported,
+  PostOpUnsupported,
+  CapabilityMissing,
+  ShapeUnsupported,
+  Unknown,
+};
+
+struct VulkanLinearPlanDecision final {
+  VulkanLinearFastPath selected = VulkanLinearFastPath::Unknown;
+  VulkanLinearRejectReason reject = VulkanLinearRejectReason::None;
+  int64_t m = 0;
+  int64_t k = 0;
+  int64_t n = 0;
+  int64_t tile_m = 0;
+  int64_t tile_k = 0;
+  int64_t tile_n = 0;
+  bool input_vulkan = false;
+  bool weight_packed = false;
+  bool input_direct_buffer = false;
+  bool output_direct_buffer = false;
+  bool has_post_op = false;
+  bool m_tail = false;
+  bool k_tail = false;
+  bool n_tail = false;
+};
+
+struct VulkanLinearPlanCounters final {
+  std::atomic<uint64_t> total{0};
+  std::atomic<uint64_t> coop_hit{0};
+  std::atomic<uint64_t> coop_tail_m_hit{0};
+  std::atomic<uint64_t> reject_m_tail{0};
+  std::atomic<uint64_t> reject_k_tail{0};
+  std::atomic<uint64_t> reject_n_tail{0};
+  std::atomic<uint64_t> reject_layout{0};
+  std::atomic<uint64_t> reject_dtype{0};
+  std::atomic<uint64_t> reject_capability{0};
+  std::atomic<uint64_t> fallback_plain_bf16{0};
+  std::atomic<uint64_t> fallback_float{0};
+};
+
+VulkanLinearPlanCounters& linear_plan_counters() {
+  static VulkanLinearPlanCounters counters;
+  return counters;
+}
+
+static inline bool is_aligned_i64(const int64_t value, const int64_t alignment) {
+  return alignment <= 1 || value % alignment == 0;
+}
+
+const char* linear_reject_reason_name(const VulkanLinearRejectReason reason) {
+  switch (reason) {
+    case VulkanLinearRejectReason::None:
+      return "none";
+    case VulkanLinearRejectReason::InputNotVulkan:
+      return "input_not_vulkan";
+    case VulkanLinearRejectReason::WeightNotVulkanOrPacked:
+      return "weight_not_vulkan_or_packed";
+    case VulkanLinearRejectReason::UnsupportedDType:
+      return "unsupported_dtype";
+    case VulkanLinearRejectReason::UnsupportedStorageType:
+      return "unsupported_storage_type";
+    case VulkanLinearRejectReason::UnsupportedLayout:
+      return "unsupported_layout";
+    case VulkanLinearRejectReason::KNotAligned:
+      return "k_not_aligned";
+    case VulkanLinearRejectReason::NNotAligned:
+      return "n_not_aligned";
+    case VulkanLinearRejectReason::MTailUnsupported:
+      return "m_tail_unsupported";
+    case VulkanLinearRejectReason::PostOpUnsupported:
+      return "post_op_unsupported";
+    case VulkanLinearRejectReason::CapabilityMissing:
+      return "capability_missing";
+    case VulkanLinearRejectReason::ShapeUnsupported:
+      return "shape_unsupported";
+    default:
+      return "unknown";
+  }
+}
+
+const std::string& vulkan_linear_plan_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_LINEAR_PLAN_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+void append_vulkan_linear_plan_log(
+    const VulkanLinearPlanDecision& decision,
+    const char* label) {
+  const std::string& path = vulkan_linear_plan_log_path();
+  if (path.empty()) {
+    return;
+  }
+  std::ofstream out(path, std::ios::app);
+  out << "linear_plan"
+      << " label=" << (label ? label : "unknown")
+      << " selected=" << static_cast<int>(decision.selected)
+      << " reject=" << linear_reject_reason_name(decision.reject)
+      << " m=" << decision.m
+      << " k=" << decision.k
+      << " n=" << decision.n
+      << " tile_m=" << decision.tile_m
+      << " tile_k=" << decision.tile_k
+      << " tile_n=" << decision.tile_n
+      << " m_tail=" << (decision.m_tail ? 1 : 0)
+      << " k_tail=" << (decision.k_tail ? 1 : 0)
+      << " n_tail=" << (decision.n_tail ? 1 : 0)
+      << " input_vulkan=" << (decision.input_vulkan ? 1 : 0)
+      << " weight_packed=" << (decision.weight_packed ? 1 : 0)
+      << " input_direct_buffer=" << (decision.input_direct_buffer ? 1 : 0)
+      << " output_direct_buffer=" << (decision.output_direct_buffer ? 1 : 0)
+      << " post_op=" << (decision.has_post_op ? 1 : 0)
+      << '\n';
+}
+
+void note_linear_plan_decision(const VulkanLinearPlanDecision& decision) {
+  VulkanLinearPlanCounters& counters = linear_plan_counters();
+  counters.total.fetch_add(1, std::memory_order_relaxed);
+  switch (decision.selected) {
+    case VulkanLinearFastPath::BFloat16CooperativeMatrix:
+      counters.coop_hit.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case VulkanLinearFastPath::BFloat16CooperativeMatrixTailM:
+      counters.coop_tail_m_hit.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case VulkanLinearFastPath::BFloat16Buffer:
+      counters.fallback_plain_bf16.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case VulkanLinearFastPath::FloatBuffer:
+      counters.fallback_float.fetch_add(1, std::memory_order_relaxed);
+      break;
+    default:
+      break;
+  }
+  switch (decision.reject) {
+    case VulkanLinearRejectReason::MTailUnsupported:
+      counters.reject_m_tail.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case VulkanLinearRejectReason::KNotAligned:
+      counters.reject_k_tail.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case VulkanLinearRejectReason::NNotAligned:
+      counters.reject_n_tail.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case VulkanLinearRejectReason::UnsupportedLayout:
+    case VulkanLinearRejectReason::UnsupportedStorageType:
+      counters.reject_layout.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case VulkanLinearRejectReason::UnsupportedDType:
+      counters.reject_dtype.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case VulkanLinearRejectReason::CapabilityMissing:
+      counters.reject_capability.fetch_add(1, std::memory_order_relaxed);
+      break;
+    default:
+      break;
+  }
+}
 
 std::string format_linear_sizes(IntArrayRef sizes) {
   std::ostringstream stream;
@@ -1902,6 +2084,7 @@ bool usable(
   return (2 == input.ndimension()) &&
       (c10::DeviceType::Vulkan == input.device().type()) &&
       ((kFloat == input.scalar_type()) || (kHalf == input.scalar_type()) ||
+       (kBFloat16 == input.scalar_type()) ||
        (v_input.is_quantized() &&
         (kQUInt8 == input.scalar_type() || kQInt8 == input.scalar_type()))) &&
       (input.size(Layout::Parameter::width) ==
@@ -1955,14 +2138,16 @@ bool can_run_bfloat16_buffer_linear(
 
   vTensor v_input = convert(input);
   vTensor v_weight = convert(weight);
+  const bool valid_layout =
+      v_input.storage_type() == api::StorageType::BUFFER &&
+      v_weight.storage_type() == api::StorageType::BUFFER &&
+      v_input.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      v_weight.gpu_memory_layout() ==
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      utils::supports_buffer_view_fast_path(v_input) &&
+      utils::supports_buffer_view_fast_path(v_weight);
   if (
-      v_input.storage_type() != api::StorageType::BUFFER ||
-      v_weight.storage_type() != api::StorageType::BUFFER ||
-      v_input.gpu_memory_layout() != api::GPUMemoryLayout::TENSOR_WIDTH_PACKED ||
-      v_weight.gpu_memory_layout() !=
-          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED ||
-      !utils::supports_buffer_view_fast_path(v_input) ||
-      !utils::supports_buffer_view_fast_path(v_weight)) {
+      !valid_layout) {
     return false;
   }
 
@@ -2012,6 +2197,20 @@ Tensor run_bfloat16_buffer_linear(
 
   vTensor v_input = convert(input);
   vTensor v_weight = convert(weight);
+  constexpr int64_t kCoopTileM = 16;
+  constexpr int64_t kCoopTileN = 16;
+  constexpr int64_t kCoopTileK = 16;
+  VulkanLinearPlanDecision decision;
+  decision.m = input_compute_arg_2d.size(Layout::Parameter::height);
+  decision.k = input_compute_arg_2d.size(Layout::Parameter::width);
+  decision.n = weight.size(Layout::Parameter::height);
+  decision.tile_m = kCoopTileM;
+  decision.tile_k = kCoopTileK;
+  decision.tile_n = kCoopTileN;
+  decision.input_vulkan = input.is_vulkan();
+  decision.weight_packed = weight.is_vulkan();
+  decision.input_direct_buffer = v_input.has_direct_buffer_layout();
+  decision.has_post_op = post_op != LinearPostOp::None;
   const std::vector<int64_t> output_sizes{
       input_compute_arg_2d.sizes()[Layout::Parameter::height],
       weight.sizes()[Layout::Parameter::height],
@@ -2028,12 +2227,13 @@ Tensor run_bfloat16_buffer_linear(
             }),
             api::ExecutionLayout::BUFFER_DIRECT);
   vTensor& v_output = convert(output_tensor);
+  decision.output_direct_buffer = v_output.has_direct_buffer_layout();
 
   const struct {
     int32_t out_width;
     int32_t out_height;
     int32_t inner_dim;
-    int32_t reserved;
+    int32_t row_offset;
   } block{
       api::utils::safe_downcast<int32_t>(weight.size(Layout::Parameter::height)),
       api::utils::safe_downcast<int32_t>(
@@ -2052,46 +2252,140 @@ Tensor run_bfloat16_buffer_linear(
       1u,
   };
 
-  api::ShaderInfo linear_shader = VK_KERNEL(mm_buffer_bfloat16);
-  api::utils::uvec3 local_work_group = adaptive_work_group_size(global_size);
+  const bool m_aligned = is_aligned_i64(decision.m, kCoopTileM);
+  const bool k_aligned = is_aligned_i64(decision.k, kCoopTileK);
+  const bool n_aligned = is_aligned_i64(decision.n, kCoopTileN);
+  decision.m_tail = !m_aligned;
+  decision.k_tail = !k_aligned;
+  decision.n_tail = !n_aligned;
+  bool can_use_cooperative_matrix_kernel = false;
   if (api::Adapter* const adapter = context->adapter_ptr()) {
-    const bool can_use_cooperative_matrix_kernel =
+    can_use_cooperative_matrix_kernel =
         adapter->has_cooperative_matrix() &&
         adapter->has_compute_full_subgroups() &&
         adapter->supports_required_subgroup_size(
-            VK_SHADER_STAGE_COMPUTE_BIT, 32u) &&
-        weight.size(Layout::Parameter::height) % 16 == 0 &&
-        input_compute_arg_2d.size(Layout::Parameter::height) % 16 == 0 &&
-        input_compute_arg_2d.size(Layout::Parameter::width) % 16 == 0;
-    if (can_use_cooperative_matrix_kernel) {
-      linear_shader = VK_KERNEL(mm_buffer_bfloat16_cooperative_matrix);
-      linear_shader.required_subgroup_size = 32u;
-      linear_shader.require_full_subgroups = true;
-      local_work_group = api::utils::uvec3{32u, 1u, 1u};
-      utils::log_vulkan_op_hit(
-          "aten::linear.buffer_bfloat16_cooperative_matrix");
-    }
-  }
-  if (linear_shader.kernel_name == "mm_buffer_bfloat16") {
-    utils::log_vulkan_op_hit("aten::linear.buffer_bfloat16");
+            VK_SHADER_STAGE_COMPUTE_BIT, 32u);
   }
 
-  context->submit_compute_job(
-      linear_shader,
-      pipeline_barrier,
-      global_size,
-      local_work_group,
-      VK_NULL_HANDLE,
-      v_output.buffer(
+  if (can_use_cooperative_matrix_kernel && k_aligned && n_aligned) {
+    api::ShaderInfo coop_shader = VK_KERNEL(mm_buffer_bfloat16_cooperative_matrix);
+    coop_shader.required_subgroup_size = 32u;
+    coop_shader.require_full_subgroups = true;
+    const api::utils::uvec3 coop_local_work_group{32u, 1u, 1u};
+    const uint32_t coop_global_width =
+        api::utils::safe_downcast<uint32_t>(decision.n) *
+        coop_local_work_group.data[0u];
+    if (m_aligned) {
+      decision.selected = VulkanLinearFastPath::BFloat16CooperativeMatrix;
+      utils::log_vulkan_op_hit(
+          "aten::linear.buffer_bfloat16_cooperative_matrix");
+      const api::utils::uvec3 coop_global_size{
+          coop_global_width,
+          api::utils::safe_downcast<uint32_t>(decision.m),
+          1u,
+      };
+      context->submit_compute_job(
+          coop_shader,
           pipeline_barrier,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::WRITE),
-      v_output.buffer_metadata(),
-      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-      v_input.buffer_metadata(),
-      v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-      v_weight.buffer_metadata(),
-      params.buffer());
+          coop_global_size,
+          coop_local_work_group,
+          VK_NULL_HANDLE,
+          v_output.buffer(
+              pipeline_barrier,
+              api::PipelineStage::COMPUTE,
+              api::MemoryAccessType::WRITE),
+          v_output.buffer_metadata(),
+          v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+          v_input.buffer_metadata(),
+          v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+          v_weight.buffer_metadata(),
+          params.buffer());
+    } else {
+      decision.selected = VulkanLinearFastPath::BFloat16CooperativeMatrixTailM;
+      utils::log_vulkan_op_hit(
+          "aten::linear.buffer_bfloat16_cooperative_matrix_tail_m");
+      const int64_t aligned_m = (decision.m / kCoopTileM) * kCoopTileM;
+      if (aligned_m > 0) {
+        const api::utils::uvec3 prefix_global_size{
+            coop_global_width,
+            api::utils::safe_downcast<uint32_t>(aligned_m),
+            1u,
+        };
+        context->submit_compute_job(
+            coop_shader,
+            pipeline_barrier,
+            prefix_global_size,
+            coop_local_work_group,
+            VK_NULL_HANDLE,
+            v_output.buffer(
+                pipeline_barrier,
+                api::PipelineStage::COMPUTE,
+                api::MemoryAccessType::WRITE),
+            v_output.buffer_metadata(),
+            v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+            v_input.buffer_metadata(),
+            v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+            v_weight.buffer_metadata(),
+            params.buffer());
+      }
+      const decltype(block) tail_block{
+          block.out_width,
+          block.out_height,
+          block.inner_dim,
+          api::utils::safe_downcast<int32_t>(aligned_m),
+      };
+      api::UniformParamsBuffer tail_params(context, tail_block);
+      const api::utils::uvec3 tail_global_size{
+          api::utils::safe_downcast<uint32_t>(decision.n),
+          api::utils::safe_downcast<uint32_t>(decision.m - aligned_m),
+          1u,
+      };
+      context->submit_compute_job(
+          VK_KERNEL(mm_buffer_bfloat16_tail_m),
+          pipeline_barrier,
+          tail_global_size,
+          adaptive_work_group_size(tail_global_size),
+          VK_NULL_HANDLE,
+          v_output.buffer(
+              pipeline_barrier,
+              api::PipelineStage::COMPUTE,
+              api::MemoryAccessType::WRITE),
+          v_output.buffer_metadata(),
+          v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+          v_input.buffer_metadata(),
+          v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+          v_weight.buffer_metadata(),
+          tail_params.buffer());
+    }
+  } else {
+    decision.selected = VulkanLinearFastPath::BFloat16Buffer;
+    if (!can_use_cooperative_matrix_kernel) {
+      decision.reject = VulkanLinearRejectReason::CapabilityMissing;
+    } else if (!k_aligned) {
+      decision.reject = VulkanLinearRejectReason::KNotAligned;
+    } else if (!n_aligned) {
+      decision.reject = VulkanLinearRejectReason::NNotAligned;
+    }
+    utils::log_vulkan_op_hit("aten::linear.buffer_bfloat16");
+    context->submit_compute_job(
+        VK_KERNEL(mm_buffer_bfloat16),
+        pipeline_barrier,
+        global_size,
+        adaptive_work_group_size(global_size),
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        v_output.buffer_metadata(),
+        v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        v_input.buffer_metadata(),
+        v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        v_weight.buffer_metadata(),
+        params.buffer());
+  }
+  note_linear_plan_decision(decision);
+  append_vulkan_linear_plan_log(decision, "aten::linear.bfloat16_buffer");
 
   Tensor output = output_tensor;
   std::optional<Tensor> bias = bias_arg;
@@ -2435,6 +2729,19 @@ Tensor run_addmm_context(
         ? std::optional<Tensor>(packed_state.packed_weight.bias())
         : std::nullopt;
     Tensor buffer_input = input.requires_grad() ? input.detach() : input;
+    if (
+        buffer_input.scalar_type() == kFloat &&
+        packed_state.packed_weight.weight().scalar_type() == kBFloat16 &&
+        source_input_arg.scalar_type() == kBFloat16) {
+      const Tensor source_input_2d = source_input_arg.dim() == 2
+          ? source_input_arg
+          : reshape_to_2d(source_input_arg);
+      buffer_input = utils::mark_tensor_execution(
+          utils::ensure_buffer_storage(
+              source_input_2d, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
+          api::ExecutionLayout::BUFFER_DIRECT);
+      utils::log_vulkan_op_hit("aten::linear.buffer_bfloat16_preserve_input");
+    }
     if (buffer_input.unsafeGetTensorImpl() != input.unsafeGetTensorImpl()) {
       utils::log_vulkan_op_hit("aten::linear.buffer_forward_detach");
     }
@@ -2460,8 +2767,31 @@ Tensor run_addmm_context(
               buffer_input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
           api::ExecutionLayout::BUFFER_DIRECT);
     }
+    if (
+        !can_run_bfloat16_buffer_linear(
+            buffer_input,
+            packed_state.packed_weight.weight(),
+            packed_bias_tensor) &&
+        buffer_input.scalar_type() == kBFloat16) {
+      buffer_input = utils::mark_tensor_execution(
+          utils::ensure_buffer_storage(
+              buffer_input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
+          api::ExecutionLayout::BUFFER_DIRECT);
+    }
     log_linear_context_checkpoint(
         "buffer_input_supported", buffer_input, post_op, quantized);
+    if (can_run_bfloat16_buffer_linear(
+            buffer_input,
+            packed_state.packed_weight.weight(),
+            packed_bias_tensor)) {
+      return run_bfloat16_buffer_linear(
+          input_for_compute,
+          buffer_input,
+          packed_state.packed_weight.weight(),
+          packed_bias_tensor,
+          post_op,
+          output_opt);
+    }
     if (can_run_float_buffer_linear(
             buffer_input,
             packed_state.packed_weight.weight(),
@@ -3035,6 +3365,47 @@ void move_deferred_linear_gelu_candidate_to_alias(
   move_deferred_linear_gelu_candidate_to_alias_impl(source, alias);
 }
 
+std::vector<int64_t> linear_plan_counters_snapshot() {
+  const VulkanLinearPlanCounters& counters = linear_plan_counters();
+  return {
+      static_cast<int64_t>(counters.total.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.coop_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.coop_tail_m_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_m_tail.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_k_tail.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_n_tail.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_layout.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_dtype.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_capability.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.fallback_plain_bf16.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.fallback_float.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_linear_plan_counters() {
+  VulkanLinearPlanCounters& counters = linear_plan_counters();
+  counters.total.store(0, std::memory_order_relaxed);
+  counters.coop_hit.store(0, std::memory_order_relaxed);
+  counters.coop_tail_m_hit.store(0, std::memory_order_relaxed);
+  counters.reject_m_tail.store(0, std::memory_order_relaxed);
+  counters.reject_k_tail.store(0, std::memory_order_relaxed);
+  counters.reject_n_tail.store(0, std::memory_order_relaxed);
+  counters.reject_layout.store(0, std::memory_order_relaxed);
+  counters.reject_dtype.store(0, std::memory_order_relaxed);
+  counters.reject_capability.store(0, std::memory_order_relaxed);
+  counters.fallback_plain_bf16.store(0, std::memory_order_relaxed);
+  counters.fallback_float.store(0, std::memory_order_relaxed);
+}
+
 Tensor bmm_buffer_out_vulkan(
     const Tensor& mat1,
     const Tensor& mat2,
@@ -3078,8 +3449,12 @@ LinearPackedContext::LinearPackedContext(
   if (cached_packed_weight) {
     packed_weight_ = *cached_packed_weight;
   } else {
-    const Tensor pack_source_weight = upcast_half_linear_tensor_for_packing(weight);
-    const std::optional<Tensor> pack_source_bias =
+    const bool preserve_bfloat16_buffer_weight =
+        use_buffer_packed_weights && weight.scalar_type() == kBFloat16;
+    const Tensor pack_source_weight = preserve_bfloat16_buffer_weight
+        ? weight
+        : upcast_half_linear_tensor_for_packing(weight);
+    std::optional<Tensor> pack_source_bias =
         upcast_half_linear_tensor_for_packing(bias);
     const Tensor compute_weight = pack_source_weight;
     const std::optional<Tensor> compute_bias = pack_source_bias;
@@ -3090,8 +3465,11 @@ LinearPackedContext::LinearPackedContext(
         "individually or their combination is not supported by Vulkan Impl.");
 
     if (use_buffer_packed_weights) {
+      const Tensor buffer_weight_source = preserve_bfloat16_buffer_weight
+          ? pack_source_weight.t().contiguous()
+          : compute_weight;
       Tensor buffer_weight = upload_linear_tensor_to_buffer(
-          compute_weight, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+          buffer_weight_source, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
 
       Tensor buffer_bias_tensor;
       if (compute_bias && compute_bias->defined()) {
