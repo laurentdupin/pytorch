@@ -52,7 +52,7 @@ struct ContextConfig final {
 
 class TORCH_API Context final {
  public:
-  class ScopedExternalCommandRecording final {
+  class TORCH_API ScopedExternalCommandRecording final {
    public:
     ScopedExternalCommandRecording(Context&, CommandBuffer&);
 
@@ -114,6 +114,7 @@ class TORCH_API Context final {
   void clear_pending_retire_resources_locked();
   CommandBuffer* external_recording_cmd();
   const CommandBuffer* external_recording_cmd() const;
+  bool is_inside_owned_program_recording() const;
   DescriptorPool& active_descriptor_pool();
   CommandBuffer& active_cmd();
   void capture_external_recording_buffer_cleanup(VulkanBuffer&&);

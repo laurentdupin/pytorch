@@ -6,6 +6,7 @@
 #include <ATen/ATen.h>
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <ATen/native/vulkan/api/api.h>
+#include <ATen/native/vulkan/api/Env.h>
 #include <ATen/native/vulkan/api/Event.h>
 #include <ATen/native/vulkan/api/Stream.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
@@ -1118,6 +1119,41 @@ TEST_F(VulkanAPITest, event_orders_cross_stream_work) {
   const at::Tensor expected = (x_cpu + 2.0f) * 3.0f;
   EXPECT_TRUE(almostEqual(z.cpu(), expected));
   EXPECT_TRUE(vk_api::query_vulkan_event(event));
+}
+
+TEST_F(VulkanAPITest, prepared_submit_rejects_nested_owned_recording) {
+  namespace vk_api = at::native::vulkan::api;
+  vk_api::Context* const context = vk_api::context();
+  vk_api::CommandBuffer outer = context->acquire_persistent_command_buffer();
+  vk_api::CommandBuffer inner = context->acquire_persistent_command_buffer();
+  {
+    vk_api::Context::ScopedExternalCommandRecording recording_scope(
+        *context, outer);
+    EXPECT_THROW(
+        context->submit_prepared_command_buffer(inner),
+        ::std::exception);
+  }
+}
+
+TEST_F(VulkanAPITest, vulkan_env_flags_are_registered) {
+  namespace vk_api = at::native::vulkan::api;
+  size_t count = 0u;
+  const vk_api::VulkanEnvFlagSpec* specs =
+      vk_api::registered_vulkan_env_flags(&count);
+  ASSERT_NE(specs, nullptr);
+  EXPECT_GT(count, 0u);
+  EXPECT_NE(
+      vk_api::find_vulkan_env_flag("PYTORCH_VULKAN_LOG_CPU_FALLBACK"),
+      nullptr);
+  EXPECT_NE(
+      vk_api::find_vulkan_env_flag("PYTORCH_VULKAN_SYNC_LOG"),
+      nullptr);
+  EXPECT_NE(
+      vk_api::find_vulkan_env_flag("PYTORCH_VULKAN_VALIDATE_VALUES"),
+      nullptr);
+  EXPECT_EQ(
+      vk_api::find_vulkan_env_flag("PYTORCH_VULKAN_UNREGISTERED_TEST_FLAG"),
+      nullptr);
 }
 
 TEST_F(VulkanAPITest, executable_region_dispatch_kind_name_covers_capture_patch_tokens) {

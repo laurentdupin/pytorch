@@ -422,6 +422,10 @@ const CommandBuffer* Context::external_recording_cmd() const {
   return g_external_command_recording_state.cmd;
 }
 
+bool Context::is_inside_owned_program_recording() const {
+  return external_recording_cmd() != nullptr;
+}
+
 DescriptorPool& Context::active_descriptor_pool() {
   return external_recording_cmd() ? persistent_descriptor_pool_ : descriptor_pool_;
 }
@@ -802,10 +806,10 @@ void Context::submit_prepared_command_buffer(
     const bool final_use,
     const char* profile_label) {
   VK_CHECK_COND(
-      external_recording_cmd() == nullptr,
-      "submit_prepared_command_buffer cannot be called while an external "
-      "Vulkan replay/program recording scope is active. Nested phases must be "
-      "lowered as first-class program or executable-region stages.");
+      !is_inside_owned_program_recording(),
+      "submit_prepared_command_buffer cannot be called from inside an owned "
+      "Vulkan replay/program recording scope. Nested phases must be lowered "
+      "as first-class program or executable-region stages.");
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
