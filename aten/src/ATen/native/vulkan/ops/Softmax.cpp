@@ -1400,8 +1400,8 @@ void log_sdpa_event(
 Tensor finalize_public_sdpa_output(Tensor output) {
   if (!c10::InferenceMode::is_enabled()) {
     utils::log_vulkan_op_hit(
-        "aten::scaled_dot_product_attention.non_inference_sync");
-    api::context()->sync_and_reclaim();
+      "aten::scaled_dot_product_attention.non_inference_sync");
+    api::context()->synchronize_device();
   }
   return output;
 }
@@ -1566,7 +1566,7 @@ Tensor softmax_buffer_dim_impl(const Tensor& input_arg, const int64_t dim) {
       utils::prepare_vulkan_direct_buffer_execution_tensor(input_arg, plan);
 
   api::Context* const context = api::context();
-  context->sync_and_reclaim();
+  context->submit_pending_work_and_poll_retire();
   vTensor& v_input = convert(input);
   Tensor output = utils::mark_tensor_execution(
       convert(vTensor{

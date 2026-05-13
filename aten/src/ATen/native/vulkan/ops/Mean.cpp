@@ -36,9 +36,9 @@ void maybe_sync_after_gtx_large_group_norm(
   constexpr size_t kGtxLargeGroupNormSyncBytes = 128u * 1024u * 1024u;
   if (
       is_gtx_class_runtime_device() &&
-      v_output.gpu_nbytes() >= kGtxLargeGroupNormSyncBytes) {
+    v_output.gpu_nbytes() >= kGtxLargeGroupNormSyncBytes) {
     utils::log_vulkan_op_hit("aten::group_norm.gtx_large_buffer_sync");
-    context->sync_and_reclaim();
+    context->synchronize_device();
   }
 }
 

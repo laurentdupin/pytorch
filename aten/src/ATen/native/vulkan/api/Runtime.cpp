@@ -162,6 +162,7 @@ std::vector<Runtime::DeviceMapping> create_physical_devices(
         candidate.properties.apiVersion >= VK_API_VERSION_1_3 &&
         candidate.has_maintenance4 &&
         candidate.has_synchronization2 &&
+        candidate.has_timeline_semaphore &&
         candidate.num_compute_queues > 0u) {
       device_mappings.emplace_back(std::move(candidate), -1);
     }
@@ -342,7 +343,7 @@ uint32_t Runtime::create_adapter(const Selector& selector) {
       !device_mappings_.empty(),
       "PyTorch Vulkan backend was built for Vulkan 1.3 / SPIR-V 1.6, "
       "but no Vulkan 1.3-capable physical device with maintenance4, "
-      "synchronization2, and compute queues was found.");
+      "synchronization2, timeline semaphores, and compute queues was found.");
 
   uint32_t device_i = selector(device_mappings_);
   VK_CHECK_COND(
@@ -411,7 +412,8 @@ Runtime* runtime() {
       p_runtime,
       "PyTorch Vulkan backend was built for Vulkan 1.3 / SPIR-V 1.6, "
       "but the global runtime failed to initialize. Check that the Vulkan "
-      "loader and physical device both support Vulkan 1.3.");
+      "loader and physical device both support Vulkan 1.3 and timeline "
+      "semaphores.");
 
   return p_runtime;
 }

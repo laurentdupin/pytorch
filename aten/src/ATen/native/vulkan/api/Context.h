@@ -11,10 +11,13 @@
 #include <ATen/native/vulkan/api/Descriptor.h>
 #include <ATen/native/vulkan/api/Pipeline.h>
 #include <ATen/native/vulkan/api/QueryPool.h>
+#include <ATen/native/vulkan/api/RetireQueue.h>
 #include <ATen/native/vulkan/api/Resource.h>
 #include <ATen/native/vulkan/api/Runtime.h>
 #include <ATen/native/vulkan/api/Shader.h>
+#include <ATen/native/vulkan/api/Stream.h>
 #include <ATen/native/vulkan/api/Utils.h>
+#include <c10/macros/Export.h>
 
 #include <atomic>
 #include <cstdint>
@@ -47,7 +50,7 @@ struct ContextConfig final {
 // to be if we were to make it explicit to the user.
 //
 
-class Context final {
+class TORCH_API Context final {
  public:
   class ScopedExternalCommandRecording final {
    public:
@@ -100,15 +103,15 @@ class Context final {
   CommandBuffer cmd_;
   uint32_t submit_count_;
   // Memory Management
-  std::mutex buffer_clearlist_mutex_;
-  std::vector<VulkanBuffer> buffers_to_clear_;
-  std::mutex image_clearlist_mutex_;
-  std::vector<VulkanImage> images_to_clear_;
-  std::atomic<uint64_t> pending_cleanup_bytes_;
-  std::atomic<uint32_t> submissions_since_reclaim_;
-  uint32_t reclaims_since_pool_flush_;
+  std::mutex pending_retire_buffers_mutex_;
+  std::vector<VulkanBuffer> pending_retire_buffers_;
+  std::mutex pending_retire_images_mutex_;
+  std::vector<VulkanImage> pending_retire_images_;
+  std::atomic<uint64_t> pending_retire_bytes_;
+  RetireQueue retire_queue_;
+  VulkanSubmission last_submission_;
 
-  void clear_deferred_cleanup_locked();
+  void clear_pending_retire_resources_locked();
   CommandBuffer* external_recording_cmd();
   const CommandBuffer* external_recording_cmd() const;
   DescriptorPool& active_descriptor_pool();
@@ -125,6 +128,12 @@ class Context final {
   void gpu_profile_end(CommandBuffer&, uint32_t);
   void dump_gpu_profile_log(const char* reason);
   void reset_gpu_profile_queries();
+  VulkanSubmission submit_cmd_handle_to_gpu(
+      VulkanStreamState&,
+      VkCommandBuffer,
+      VkFence fence_handle = VK_NULL_HANDLE,
+      const bool final_use = false);
+  void retire_deferred_cleanup(VulkanSubmission);
 
  public:
   // Adapter access
@@ -213,12 +222,13 @@ class Context final {
       return;
     }
     if (buffer.owns_memory()) {
-      pending_cleanup_bytes_.fetch_add(
+      pending_retire_bytes_.fetch_add(
           static_cast<uint64_t>(buffer.allocated_size()),
           std::memory_order_relaxed);
     }
-    std::lock_guard<std::mutex> bufferlist_lock(buffer_clearlist_mutex_);
-    buffers_to_clear_.emplace_back(std::move(buffer));
+    std::lock_guard<std::mutex> bufferlist_lock(
+        pending_retire_buffers_mutex_);
+    pending_retire_buffers_.emplace_back(std::move(buffer));
   }
 
   void register_image_cleanup(VulkanImage& image) {
@@ -227,24 +237,26 @@ class Context final {
       return;
     }
     if (image.owns_memory()) {
-      pending_cleanup_bytes_.fetch_add(
+      pending_retire_bytes_.fetch_add(
           static_cast<uint64_t>(image.allocated_size()),
           std::memory_order_relaxed);
     }
-    std::lock_guard<std::mutex> imagelist_lock(image_clearlist_mutex_);
-    images_to_clear_.emplace_back(std::move(image));
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    pending_retire_images_.emplace_back(std::move(image));
   }
 
-  inline uint64_t pending_cleanup_bytes() const {
-    return pending_cleanup_bytes_.load(std::memory_order_relaxed);
+  inline uint64_t pending_retire_bytes() const {
+    return pending_retire_bytes_.load(std::memory_order_relaxed);
   }
 
-  inline uint32_t submissions_since_reclaim() const {
-    return submissions_since_reclaim_.load(std::memory_order_relaxed);
-  }
-
-  bool should_sync_and_reclaim();
-  void sync_and_reclaim();
+  void poll_retire_queue();
+  void submit_pending_work_and_poll_retire();
+  VulkanStreamState& current_stream();
+  c10::Stream current_c10_stream();
+  c10::Stream exchange_stream(c10::Stream);
+  bool query_stream(const c10::Stream&);
+  void synchronize_stream(const c10::Stream&);
+  void synchronize_device();
 
   // GPU RPC
 
@@ -289,7 +301,7 @@ class Context final {
       VkFence fence_handle,
       Arguments&&...);
 
-  void submit_cmd_to_gpu(
+  VulkanSubmission submit_cmd_to_gpu(
       VkFence fence_handle = VK_NULL_HANDLE,
       const bool final_use = false);
   void flush_pending_cmds(VkFence fence_handle = VK_NULL_HANDLE);
@@ -417,8 +429,8 @@ TORCH_API c10::DeviceIndex exchange_device(c10::DeviceIndex device_index);
 
 // The global runtime is retrieved using this function, where it is declared as
 // a static local variable.
-Context* context();
-Context* context(c10::DeviceIndex device_index);
+TORCH_API Context* context();
+TORCH_API Context* context(c10::DeviceIndex device_index);
 
 namespace detail {
 

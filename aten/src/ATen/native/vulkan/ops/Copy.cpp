@@ -1376,7 +1376,7 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
     // Vulkan -> CPU
     if (dst.device().is_cpu()) {
       pack_vulkan_to_cpu(v_src, dst);
-      v_src.context()->sync_and_reclaim();
+      v_src.context()->submit_pending_work_and_poll_retire();
     } else {
       api::fail_vulkan(
           api::VulkanFailureClass::Unsupported,

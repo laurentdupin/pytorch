@@ -405,7 +405,7 @@ static Tensor upsample_nearest_exact2d_cpu_fallback(
       "small_cpu_control_fallback",
       {input_arg});
   if (result.is_vulkan()) {
-    api::context()->sync_and_reclaim();
+    api::context()->submit_pending_work_and_poll_retire();
   }
   return result;
 }

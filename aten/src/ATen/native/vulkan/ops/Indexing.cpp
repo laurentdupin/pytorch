@@ -42,7 +42,7 @@ Tensor upload_cpu_result_to_vulkan(
           .device(prototype.device())
           .dtype(reshaped_cpu.scalar_type()));
   ops::copy_(output, reshaped_cpu);
-  api::context()->sync_and_reclaim();
+  api::context()->submit_pending_work_and_poll_retire();
   return record_tensor_write_and_return(
       output, "aten::indexing", "cpu_upload", {prototype});
 }

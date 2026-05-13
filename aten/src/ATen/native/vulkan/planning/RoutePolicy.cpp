@@ -251,7 +251,7 @@ std::string format_hard_fail(
 [[noreturn]] void fail_hard_fail(
     const char* op_name,
     const VulkanRouteDecision& decision) {
-  api::context()->sync_and_reclaim();
+  api::context()->synchronize_device();
   api::fail_vulkan(
       api::VulkanFailureClass::RouteHardFail,
       op_name,

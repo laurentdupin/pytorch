@@ -25,6 +25,18 @@ bool can_use_buffer_permute_view(const Tensor& self) {
       utils::supports_buffer_metadata_view_fast_path(v_self);
 }
 
+void validate_permute_dims(IntArrayRef dims, const int64_t nDims) {
+  TORCH_CHECK(
+      dims.size() == static_cast<size_t>(nDims),
+      "number of dims don't match in permute");
+  std::vector<bool> seen(nDims);
+  for (const auto i : c10::irange(nDims)) {
+    const auto dim = safe_downcast<uint32_t>(maybe_wrap_dim(dims[i], nDims));
+    TORCH_CHECK(!seen[dim], "repeated dim in permute");
+    seen[dim] = true;
+  }
+}
+
 Tensor permute_buffer_view(const Tensor& self, IntArrayRef dims) {
   const vTensor& v_self = convert(self);
   const int64_t nDims = self.dim();
@@ -119,8 +131,7 @@ Tensor permute_4d(
 Tensor permute(const Tensor& self, IntArrayRef dims) {
   api::AllocationScope allocation_scope("permute");
   auto nDims = safe_downcast<uint32_t>(self.dim());
-  TORCH_CHECK(
-      dims.size() == (size_t)nDims, "number of dims don't match in permute");
+  validate_permute_dims(dims, nDims);
   if (can_use_buffer_permute_view(self)) {
     return permute_buffer_view(self, dims);
   }

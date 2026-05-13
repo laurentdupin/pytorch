@@ -1189,9 +1189,7 @@ PackedWeightHandle make_float_buffer_conv2d_handle(
     const PackedWeightKind packed_weight_kind,
     const int64_t bias_channels) {
   api::Context* const context = api::context();
-  if (context->should_sync_and_reclaim()) {
-    context->sync_and_reclaim();
-  }
+  context->submit_pending_work_and_poll_retire();
 
   const Tensor pack_source_weight = upcast_half_conv_tensor_for_packing(weight);
   const std::optional<Tensor> pack_source_bias =
@@ -1260,9 +1258,9 @@ void maybe_sync_after_gtx_large_buffer_conv(
   constexpr size_t kGtxLargeConvSyncBytes = 128u * 1024u * 1024u;
   if (
       is_gtx_class_runtime_device() &&
-      v_output.gpu_nbytes() >= kGtxLargeConvSyncBytes) {
+    v_output.gpu_nbytes() >= kGtxLargeConvSyncBytes) {
     utils::log_vulkan_op_hit("aten::convolution.gtx_large_buffer_sync");
-    context->sync_and_reclaim();
+    context->synchronize_device();
   }
 }
 

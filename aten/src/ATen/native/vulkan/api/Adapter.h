@@ -11,6 +11,7 @@
 #include <ATen/native/vulkan/api/Utils.h>
 
 #include <array>
+#include <cstdint>
 #include <mutex>
 #include <ostream>
 #include <vector>
@@ -52,6 +53,7 @@ struct PhysicalDevice final {
   bool has_shader_zero_initialize_workgroup_memory;
   bool has_shader_integer_dot_product;
   bool has_pipeline_creation_cache_control;
+  bool has_timeline_semaphore;
   bool has_shader_bfloat16;
   bool has_shader_int8;
   bool has_storage_buffer_8bit;
@@ -216,6 +218,10 @@ class Adapter final {
     return physical_device_.has_pipeline_creation_cache_control;
   }
 
+  inline bool has_timeline_semaphore() const {
+    return physical_device_.has_timeline_semaphore;
+  }
+
   inline bool has_shader_bfloat16() const {
     return physical_device_.has_shader_bfloat16;
   }
@@ -332,6 +338,16 @@ class Adapter final {
   void submit_cmds(
       const Adapter::Queue&,
       const std::vector<VkCommandBuffer>&,
+      VkFence fence = VK_NULL_HANDLE);
+
+  void submit_cmd_timeline(
+      const Queue&,
+      VkCommandBuffer,
+      const std::vector<VkSemaphore>& wait_semaphores,
+      const std::vector<uint64_t>& wait_values,
+      const std::vector<VkPipelineStageFlags>& wait_stages,
+      VkSemaphore signal_semaphore,
+      uint64_t signal_value,
       VkFence fence = VK_NULL_HANDLE);
 
   // Miscellaneous

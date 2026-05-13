@@ -1,6 +1,7 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/api/Diagnostics.h>
+#include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 
 #include <c10/util/Exception.h>
@@ -134,6 +135,8 @@ void report_vulkan_cpu_fallback(
 
   if (kind == VulkanCpuFallbackKind::SyncReadback) {
     sync_readback_counter().fetch_add(1, std::memory_order_relaxed);
+    api::vulkan_sync_counters().fallback_sync_readback_count.fetch_add(
+        1, std::memory_order_relaxed);
   } else {
     cpu_fallback_counter().fetch_add(1, std::memory_order_relaxed);
   }

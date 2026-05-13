@@ -4,6 +4,7 @@
 #include <ATen/native/quantized/PackedParams.h>
 #include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
+#include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/ops/Batchnorm.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
@@ -30,6 +31,7 @@
 
 #include <cmath>
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -272,7 +274,7 @@ std::string swap_runtime_label_runtime(std::string label) {
 void synchronize_runtime() {
   if (api::available()) {
     log_vulkan_prepack_synchronize_stage("before_context_sync");
-    api::context()->sync_and_reclaim();
+    api::context()->flush();
     log_vulkan_prepack_synchronize_stage("after_context_sync");
     log_vulkan_prepack_synchronize_stage("before_packed_weight_retire_release");
     utils::release_retired_packed_weight_entries();
@@ -306,8 +308,42 @@ int64_t sync_readback_count_runtime() {
   return static_cast<int64_t>(vulkan_sync_readback_count());
 }
 
+std::vector<int64_t> sync_counters_runtime() {
+  const api::VulkanSyncCounters& counters = api::vulkan_sync_counters();
+  return {
+      static_cast<int64_t>(
+          counters.stream_submit_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.event_record_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.event_block_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.event_wait_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.retire_poll_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.retired_resource_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.queue_wait_idle_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.forced_sync_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.fallback_sync_readback_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.allocation_record_stream_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.allocation_reuse_deferred_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.allocation_reuse_after_timeline_count.load(
+              std::memory_order_relaxed)),
+  };
+}
+
 void reset_fallback_counters_runtime() {
   reset_vulkan_fallback_counters();
+  api::reset_vulkan_sync_counters();
 }
 
 Tensor create_kv_cache_storage_for_request(
@@ -399,13 +435,13 @@ Tensor maybe_move_runtime_tensor_to_device(
     return tensor;
   }
   if (device.type() == kVulkan && !tensor.is_vulkan()) {
-    api::context()->sync_and_reclaim();
+    api::context()->submit_pending_work_and_poll_retire();
     Tensor cpu_snapshot = tensor.contiguous().clone();
     Tensor output =
         utils::create_buffer_tensor(cpu_snapshot.sizes(), cpu_snapshot.scalar_type());
     output.copy_(cpu_snapshot);
     api::context()->flush();
-    api::context()->sync_and_reclaim();
+    api::context()->submit_pending_work_and_poll_retire();
     return record_tensor_write_and_return(
         output,
         "vulkan_prepack::runtime_tensor_upload",
@@ -759,7 +795,7 @@ std::tuple<Tensor, Tensor, Tensor> compute_moe_router_runtime(
 
   if (output_device.type() != kCPU) {
     utils::log_vulkan_op_hit("vulkan_prepack::compute_moe_router");
-    api::context()->sync_and_reclaim();
+    api::context()->submit_pending_work_and_poll_retire();
   }
 
   return {
@@ -1393,6 +1429,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::sync_readback_count() -> int"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::sync_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_fallback_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
@@ -1490,6 +1528,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::sync_readback_count"),
       TORCH_FN(sync_readback_count_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::sync_counters"),
+      TORCH_FN(sync_counters_runtime));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_counters"),
       TORCH_FN(reset_fallback_counters_runtime));

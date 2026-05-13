@@ -163,9 +163,7 @@ bool supports_fused_norm_last_dim(
 
 void maybe_synchronize_after_norm() {
   api::Context* const context = api::context();
-  if (context->should_sync_and_reclaim()) {
-    context->sync_and_reclaim();
-  }
+  context->submit_pending_work_and_poll_retire();
 }
 
 Tensor fused_norm_width_impl(

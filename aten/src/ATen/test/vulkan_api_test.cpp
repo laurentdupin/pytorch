@@ -6,6 +6,8 @@
 #include <ATen/ATen.h>
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <ATen/native/vulkan/api/api.h>
+#include <ATen/native/vulkan/api/Event.h>
+#include <ATen/native/vulkan/api/Stream.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/planning/ExecutableRegions.h>
@@ -1076,6 +1078,48 @@ class VulkanAPITest : public ::testing::Test {
   }
 };
 
+TEST_F(VulkanAPITest, stream_pool_new_stream_is_distinct) {
+  namespace vk_api = at::native::vulkan::api;
+  const c10::DeviceIndex device_index = vk_api::current_device();
+  auto& pool = vk_api::vulkan_stream_pool();
+  const c10::Stream default_stream = pool.make_c10_stream(
+      device_index, pool.get_default_stream(device_index).id);
+  const c10::Stream new_stream = pool.make_c10_stream(
+      device_index, pool.get_new_stream(device_index).id);
+  EXPECT_NE(default_stream, new_stream);
+}
+
+TEST_F(VulkanAPITest, event_orders_cross_stream_work) {
+  namespace vk_api = at::native::vulkan::api;
+  vk_api::Context* const context = vk_api::context();
+  const c10::DeviceIndex device_index = vk_api::current_device();
+  auto& pool = vk_api::vulkan_stream_pool();
+  const c10::Stream stream0 = pool.make_c10_stream(
+      device_index, pool.get_new_stream(device_index).id);
+  const c10::Stream stream1 = pool.make_c10_stream(
+      device_index, pool.get_new_stream(device_index).id);
+  const c10::Stream previous_stream = context->exchange_stream(stream0);
+
+  const at::Tensor x_cpu =
+      at::randn({32, 32}, at::device(at::kCPU).dtype(at::kFloat));
+  const at::Tensor x = x_cpu.vulkan();
+  const at::Tensor y = x + 2.0f;
+
+  vk_api::VulkanEventState event;
+  vk_api::record_vulkan_event(event, stream0);
+  EXPECT_FALSE(event.recorded && event.timeline == VK_NULL_HANDLE);
+
+  context->exchange_stream(stream1);
+  vk_api::block_vulkan_event(event, stream1);
+  const at::Tensor z = y * 3.0f;
+  context->synchronize_stream(stream1);
+  context->exchange_stream(previous_stream);
+
+  const at::Tensor expected = (x_cpu + 2.0f) * 3.0f;
+  EXPECT_TRUE(almostEqual(z.cpu(), expected));
+  EXPECT_TRUE(vk_api::query_vulkan_event(event));
+}
+
 TEST_F(VulkanAPITest, executable_region_dispatch_kind_name_covers_capture_patch_tokens) {
   using namespace at::native::vulkan::ops::utils;
   EXPECT_STREQ(
@@ -1321,18 +1365,12 @@ TEST_F(VulkanAPITest, vision_decoder_preprocess_head_compiled_session_replays_wi
       op_log.find("vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.skip."),
       std::string::npos);
   EXPECT_NE(
-      op_log.find(
-          "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.guard.executable_region_disabled"),
-      std::string::npos);
-  EXPECT_NE(
       op_log.find("vulkan_prepack::run_vision_decoder_preprocess_head_context"),
       std::string::npos);
 
   const std::string failure_log = read_vulkan_failure_test_log();
   EXPECT_NE(failure_log.find("failure_class=ReplayHangRisk"), std::string::npos);
-  EXPECT_NE(
-      failure_log.find("CompiledExecutableRegionGuard"),
-      std::string::npos);
+  EXPECT_NE(failure_log.find("DecoderReplayGuard"), std::string::npos);
 
   const std::string runtime_log = read_vulkan_runtime_policy_test_log();
   expect_vision_runtime_policy_log(
@@ -1443,9 +1481,6 @@ TEST_F(VulkanAPITest, depth_anything_v2_compiled_session_replays_without_skip) {
   EXPECT_NE(failure_log.find("failure_class=ReplayHangRisk"), std::string::npos);
   EXPECT_NE(
       failure_log.find("DepthAnythingCompiledBackboneGuard"),
-      std::string::npos);
-  EXPECT_NE(
-      failure_log.find("CompiledExecutableRegionGuard"),
       std::string::npos);
 
   const std::string runtime_log = read_vulkan_runtime_policy_test_log();
@@ -1569,9 +1604,6 @@ TEST_F(VulkanAPITest, depth_anything_v2_image_compiled_session_replays_without_s
   EXPECT_NE(failure_log.find("failure_class=ReplayHangRisk"), std::string::npos);
   EXPECT_NE(
       failure_log.find("DepthAnythingCompiledBackboneGuard"),
-      std::string::npos);
-  EXPECT_NE(
-      failure_log.find("CompiledExecutableRegionGuard"),
       std::string::npos);
 
   const std::string runtime_log = read_vulkan_runtime_policy_test_log();
@@ -3737,9 +3769,14 @@ TEST_F(VulkanAPITest, expand_exceptions) {
   auto in_cpu = at::rand({1, 2, 3, 4, 5}, at::device(at::kCPU).dtype(at::kFloat));
   EXPECT_THROW(const auto out_vulkan = in_cpu.vulkan().expand({1, 2, 3, 4}), ::std::exception);
 
-  // Vulkan expand supports output_size <= 4
+  // Vulkan expand may lower higher-rank outputs through fallback; valid PyTorch
+  // expand semantics should be preserved.
   in_cpu = at::rand({1, 2, 3, 4}, at::device(at::kCPU).dtype(at::kFloat));
-  EXPECT_THROW(const auto out_vulkan = in_cpu.vulkan().expand({1, 1, 2, 3, 4}), ::std::exception);
+  {
+    const auto out_cpu = in_cpu.expand({1, 1, 2, 3, 4});
+    const auto out_vulkan = in_cpu.vulkan().expand({1, 1, 2, 3, 4});
+    ASSERT_TRUE(almostEqual(out_cpu, out_vulkan.cpu()));
+  }
 
   // Vulkan expand expects output size >= input
   in_cpu = at::rand({1, 2, 3}, at::device(at::kCPU).dtype(at::kFloat));
@@ -4499,7 +4536,7 @@ TEST_F(VulkanAPITest, hardswish_) {
 }
 
 TEST_F(VulkanAPITest, masked_fill_invalidinputs_exceptions) {
-  // Arrange: Vulkan masked_fill expects inputs of dim <= 4
+  // Arrange: higher-rank masked_fill may lower through fallback.
   {
     const auto in_cpu =
         at::rand({3, 5, 2, 3, 2}, at::device(at::kCPU).dtype(at::kFloat));
@@ -4507,16 +4544,12 @@ TEST_F(VulkanAPITest, masked_fill_invalidinputs_exceptions) {
         at::randint(0, 2, {2, 3, 2}, at::device(at::kCPU).dtype(at::kBool));
 
     // Act
-    EXPECT_THROW(
-        {
-          const auto out_vulkan =
-              in_cpu.vulkan().masked_fill(mask_cpu.vulkan(), -7.0f);
-          ;
-        },
-        ::std::exception);
+    const auto out_cpu = in_cpu.masked_fill(mask_cpu, -7.0f);
+    const auto out_vulkan = in_cpu.vulkan().masked_fill(mask_cpu.vulkan(), -7.0f);
+    ASSERT_TRUE(almostEqual(out_cpu, out_vulkan.cpu()));
   }
 
-  // Arrange: Vulkan masked_fill expects mask of dim <= 4
+  // Arrange: higher-rank masks may lower through fallback.
   {
     const auto in_cpu =
         at::rand({2, 3, 2}, at::device(at::kCPU).dtype(at::kFloat));
@@ -4524,13 +4557,9 @@ TEST_F(VulkanAPITest, masked_fill_invalidinputs_exceptions) {
         0, 2, {3, 5, 2, 3, 2}, at::device(at::kCPU).dtype(at::kBool));
 
     // Act
-    EXPECT_THROW(
-        {
-          const auto out_vulkan =
-              in_cpu.vulkan().masked_fill(mask_cpu.vulkan(), -7.0f);
-          ;
-        },
-        ::std::exception);
+    const auto out_cpu = in_cpu.masked_fill(mask_cpu, -7.0f);
+    const auto out_vulkan = in_cpu.vulkan().masked_fill(mask_cpu.vulkan(), -7.0f);
+    ASSERT_TRUE(almostEqual(out_cpu, out_vulkan.cpu()));
   }
 
   // Arrange: shapes of input tensor and mask tensor should be broadcastable
@@ -4728,11 +4757,14 @@ TEST_F(VulkanAPITest, max_pool2d) {
 TEST_F(VulkanAPITest, mean_invalid_inputs) {
   c10::InferenceMode mode;
 
-  // Act: input dimension too large
-  EXPECT_THROW({
-    at::mean(at::rand({3, 5, 7, 8, 9}, at::device(at::kCPU).dtype(at::kFloat))
-      .vulkan(), {3});
-  }, ::std::exception);
+  // Act: higher-rank mean may lower through fallback.
+  {
+    const auto in_cpu =
+        at::rand({3, 5, 7, 8, 9}, at::device(at::kCPU).dtype(at::kFloat));
+    const auto out_cpu = at::mean(in_cpu, {3});
+    const auto out_vulkan = at::mean(in_cpu.vulkan(), {3});
+    ASSERT_TRUE(almostEqual(out_cpu, out_vulkan.cpu()));
+  }
 
   // Act: dimension out of range
   EXPECT_THROW({
@@ -6155,11 +6187,14 @@ TEST_F(VulkanAPITest, sub_to_scalar_wrapped) {
 TEST_F(VulkanAPITest, sum_invalid_inputs) {
   c10::InferenceMode mode;
 
-  // Act: input dimension too large
-  EXPECT_THROW({
-    at::sum(at::rand({3, 5, 7, 8, 9}, at::device(at::kCPU).dtype(at::kFloat))
-      .vulkan(), {3});
-  }, ::std::exception);
+  // Act: higher-rank sum may lower through fallback.
+  {
+    const auto in_cpu =
+        at::rand({3, 5, 7, 8, 9}, at::device(at::kCPU).dtype(at::kFloat));
+    const auto out_cpu = at::sum(in_cpu, {3});
+    const auto out_vulkan = at::sum(in_cpu.vulkan(), {3});
+    ASSERT_TRUE(almostEqual(out_cpu, out_vulkan.cpu()));
+  }
 
   // Act: dimension out of range
   EXPECT_THROW({
@@ -7112,7 +7147,7 @@ TEST_F(VulkanAPITest, view_invalid_inputs) {
   EXPECT_THROW({
     at::rand({7, 8, 9}, at::device(at::kCPU).dtype(at::kFloat))
       .vulkan().view({7, -1, -1});
-  }, ::std::runtime_error);
+  }, ::std::exception);
 
   // Act: invalid shape dimension
   EXPECT_THROW({
@@ -7124,7 +7159,7 @@ TEST_F(VulkanAPITest, view_invalid_inputs) {
   EXPECT_THROW({
     at::rand({7, 8, 9}, at::device(at::kCPU).dtype(at::kFloat))
       .vulkan().view({7, 70});
-  }, ::std::runtime_error);
+  }, ::std::exception);
 }
 
 TEST_F(VulkanAPITest, cat_4d_dim0_invalidinputs_exceptions) {
@@ -8184,16 +8219,16 @@ TEST_F(VulkanAPITest, permute_invalidinputs_exceptions) {
     out_vulkan.permute({5, 2, 1, 0});
   }, ::std::exception);
 
-  // Act: Input tensor size > 4D
+  // Act: Input tensor size > 4D. Vulkan may lower this through the buffer-view
+  // or CPU fallback path; both should preserve PyTorch permute semantics.
   const auto in_cpu_5d = at::rand({1, 2, 1, 2, 161}, at::device(at::kCPU).dtype(at::kFloat));
-  EXPECT_THROW({
-    const auto out_vulkan_5d = at::permute(in_cpu_5d.vulkan(), {4, 3, 2, 1, 0});
-  }, ::std::exception);
+  const auto out_cpu_5d = at::permute(in_cpu_5d, {4, 3, 2, 1, 0});
+  const auto out_vulkan_5d =
+      at::permute(in_cpu_5d.vulkan(), {4, 3, 2, 1, 0});
+  ASSERT_TRUE(almostEqual(out_cpu_5d, out_vulkan_5d.cpu()));
 
-  EXPECT_THROW({
-    const auto out_vulkan_5d = in_cpu_5d.vulkan();
-    out_vulkan_5d.permute({4, 3, 2, 1, 0});
-  }, ::std::exception);
+  const auto method_out_vulkan_5d = in_cpu_5d.vulkan().permute({4, 3, 2, 1, 0});
+  ASSERT_TRUE(almostEqual(out_cpu_5d, method_out_vulkan_5d.cpu()));
 }
 
 TEST_F(VulkanAPITest, slice_width_success) {

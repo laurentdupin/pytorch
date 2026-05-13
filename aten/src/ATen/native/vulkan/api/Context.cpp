@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/api/Context.h>
+#include <ATen/native/vulkan/api/Sync.h>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -22,23 +23,6 @@ namespace vulkan {
 namespace api {
 
 namespace {
-
-constexpr uint64_t kCleanupSoftThresholdBytes = 512ull * 1024ull * 1024ull;
-constexpr uint64_t kCleanupHardThresholdBytes = 1024ull * 1024ull * 1024ull;
-constexpr uint64_t kLowMemoryDiscreteCleanupSoftThresholdBytes =
-    256ull * 1024ull * 1024ull;
-constexpr uint64_t kLowMemoryDiscreteCleanupHardThresholdBytes =
-    512ull * 1024ull * 1024ull;
-constexpr uint64_t kGiB = 1024ull * 1024ull * 1024ull;
-constexpr uint64_t kVisionBackboneSoftThresholdBytes =
-    (2ull * 1024ull + 256ull) * 1024ull * 1024ull;
-constexpr uint64_t kVisionBackboneHardThresholdBytes =
-    3ull * 1024ull * 1024ull * 1024ull;
-constexpr uint32_t kCleanupSubmissionThreshold = 8u;
-constexpr uint32_t kCleanupMaxSubmissionThreshold = 16u;
-constexpr uint32_t kVisionBackboneCleanupSubmissionThreshold = 12u;
-constexpr uint32_t kVisionBackboneCleanupMaxSubmissionThreshold = 24u;
-constexpr uint32_t kSoftReclaimsPerPoolFlush = 8u;
 
 const std::string& sync_log_path() {
   static const std::string path = []() {
@@ -260,228 +244,6 @@ std::string format_sync_bytes(const uint64_t bytes) {
   return stream.str();
 }
 
-template <typename Resource>
-void accumulate_cleanup_bytes_by_label(
-    const std::vector<Resource>& resources,
-    std::unordered_map<std::string, uint64_t>& bytes_by_label) {
-  for (const auto& resource : resources) {
-    if (!resource.owns_memory()) {
-      continue;
-    }
-    bytes_by_label[resource.allocation_label()] +=
-        static_cast<uint64_t>(resource.allocated_size());
-  }
-}
-
-std::string cleanup_signature(const VulkanBuffer& buffer) {
-  std::ostringstream stream;
-  stream << "buffer(size=" << format_sync_bytes(static_cast<uint64_t>(buffer.mem_size()))
-         << ",alloc=" << format_sync_bytes(static_cast<uint64_t>(buffer.allocated_size()))
-         << ")";
-  return stream.str();
-}
-
-std::string cleanup_signature(const VulkanImage& image) {
-  const VkExtent3D extents = image.extents();
-  std::ostringstream stream;
-  stream << "image(extents=" << extents.width << "x" << extents.height << "x"
-         << extents.depth << ",alloc="
-         << format_sync_bytes(static_cast<uint64_t>(image.allocated_size())) << ")";
-  return stream.str();
-}
-
-uint64_t device_local_heap_size_bytes(const Adapter* adapter) {
-  if (!adapter) {
-    return 0u;
-  }
-
-  const VkPhysicalDeviceMemoryProperties& memory_properties =
-      adapter->physical_device().memory_properties;
-  uint64_t total_device_local = 0u;
-  for (uint32_t heap_i = 0u; heap_i < memory_properties.memoryHeapCount;
-       ++heap_i) {
-    if (memory_properties.memoryHeaps[heap_i].flags &
-        VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
-      total_device_local += memory_properties.memoryHeaps[heap_i].size;
-    }
-  }
-
-  return total_device_local;
-}
-
-bool is_gtx_class_device(const Adapter* adapter) {
-  if (!adapter) {
-    return false;
-  }
-  const char* const name = adapter->physical_device().properties.deviceName;
-  return name != nullptr && std::strstr(name, "GTX") != nullptr;
-}
-
-uint64_t cleanup_soft_threshold_bytes(const Adapter* adapter) {
-  const uint64_t device_local_bytes = device_local_heap_size_bytes(adapter);
-  if (!adapter || device_local_bytes == 0u ||
-      adapter->physical_device().properties.deviceType !=
-          VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-    return kCleanupSoftThresholdBytes;
-  }
-  if (device_local_bytes <= 8ull * kGiB || is_gtx_class_device(adapter)) {
-    return kLowMemoryDiscreteCleanupSoftThresholdBytes;
-  }
-
-  return std::min<uint64_t>(
-      1ull * kGiB,
-      std::max<uint64_t>(kCleanupSoftThresholdBytes, device_local_bytes / 12u));
-}
-
-uint64_t cleanup_hard_threshold_bytes(const Adapter* adapter) {
-  const uint64_t device_local_bytes = device_local_heap_size_bytes(adapter);
-  if (!adapter || device_local_bytes == 0u ||
-      adapter->physical_device().properties.deviceType !=
-          VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-    return kCleanupHardThresholdBytes;
-  }
-  if (device_local_bytes <= 8ull * kGiB || is_gtx_class_device(adapter)) {
-    return kLowMemoryDiscreteCleanupHardThresholdBytes;
-  }
-
-  return std::min<uint64_t>(
-      3ull * kGiB,
-      std::max<uint64_t>(kCleanupHardThresholdBytes, device_local_bytes / 6u));
-}
-
-const std::string& current_cleanup_label() {
-  const std::string& runtime_label = current_runtime_label();
-  if (!runtime_label.empty()) {
-    return runtime_label;
-  }
-  return current_allocation_label();
-}
-
-bool is_vision_backbone_cleanup_label(const std::string& label) {
-  return label.find("depth.dino.backbone.") != std::string::npos ||
-      label.find("vision_backbone") != std::string::npos ||
-      label.find("VisionBackbone") != std::string::npos;
-}
-
-uint64_t cleanup_soft_threshold_bytes_for_label(
-    const Adapter* adapter,
-    const std::string& label) {
-  const uint64_t base_threshold = cleanup_soft_threshold_bytes(adapter);
-  if (!is_vision_backbone_cleanup_label(label)) {
-    return base_threshold;
-  }
-
-  const uint64_t device_local_bytes = device_local_heap_size_bytes(adapter);
-  if (!adapter || device_local_bytes == 0u ||
-      adapter->physical_device().properties.deviceType !=
-          VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-    return std::max<uint64_t>(
-        base_threshold, kVisionBackboneSoftThresholdBytes);
-  }
-
-  return std::max<uint64_t>(
-      base_threshold,
-      std::min<uint64_t>(
-          kVisionBackboneSoftThresholdBytes, device_local_bytes / 4u));
-}
-
-uint64_t cleanup_hard_threshold_bytes_for_label(
-    const Adapter* adapter,
-    const std::string& label) {
-  const uint64_t base_threshold = cleanup_hard_threshold_bytes(adapter);
-  if (!is_vision_backbone_cleanup_label(label)) {
-    return base_threshold;
-  }
-
-  const uint64_t device_local_bytes = device_local_heap_size_bytes(adapter);
-  if (!adapter || device_local_bytes == 0u ||
-      adapter->physical_device().properties.deviceType !=
-          VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-    return std::max<uint64_t>(
-        base_threshold, kVisionBackboneHardThresholdBytes);
-  }
-
-  return std::max<uint64_t>(
-      base_threshold,
-      std::min<uint64_t>(
-          kVisionBackboneHardThresholdBytes, device_local_bytes / 3u));
-}
-
-uint32_t cleanup_submission_threshold_for_label(const std::string& label) {
-  return is_vision_backbone_cleanup_label(label)
-      ? kVisionBackboneCleanupSubmissionThreshold
-      : kCleanupSubmissionThreshold;
-}
-
-uint32_t cleanup_max_submission_threshold_for_label(const std::string& label) {
-  return is_vision_backbone_cleanup_label(label)
-      ? kVisionBackboneCleanupMaxSubmissionThreshold
-      : kCleanupMaxSubmissionThreshold;
-}
-
-template <typename Resource>
-void accumulate_unlabeled_cleanup_signatures(
-    const std::vector<Resource>& resources,
-    std::unordered_map<std::string, uint64_t>& bytes_by_signature) {
-  for (const auto& resource : resources) {
-    if (!resource.owns_memory() || resource.allocation_label() != "unlabeled") {
-      continue;
-    }
-    bytes_by_signature[cleanup_signature(resource)] +=
-        static_cast<uint64_t>(resource.allocated_size());
-  }
-}
-
-std::string top_cleanup_label_summary(
-    const std::unordered_map<std::string, uint64_t>& bytes_by_label,
-    const size_t limit = 16u) {
-  if (bytes_by_label.empty()) {
-    return {};
-  }
-
-  std::vector<std::pair<std::string, uint64_t>> entries(
-      bytes_by_label.begin(), bytes_by_label.end());
-  std::sort(
-      entries.begin(),
-      entries.end(),
-      [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
-
-  std::ostringstream stream;
-  const size_t count = std::min(limit, entries.size());
-  for (size_t idx = 0u; idx < count; ++idx) {
-    if (idx > 0u) {
-      stream << ", ";
-    }
-    stream << entries[idx].first << ":" << format_sync_bytes(entries[idx].second);
-  }
-  return stream.str();
-}
-
-std::string top_cleanup_signature_summary(
-    const std::unordered_map<std::string, uint64_t>& bytes_by_signature,
-    const size_t limit = 8u) {
-  if (bytes_by_signature.empty()) {
-    return {};
-  }
-
-  std::vector<std::pair<std::string, uint64_t>> entries(
-      bytes_by_signature.begin(), bytes_by_signature.end());
-  std::sort(
-      entries.begin(),
-      entries.end(),
-      [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
-
-  std::ostringstream stream;
-  const size_t count = std::min(limit, entries.size());
-  for (size_t idx = 0u; idx < count; ++idx) {
-    if (idx > 0u) {
-      stream << ", ";
-    }
-    stream << entries[idx].first << ":" << format_sync_bytes(entries[idx].second);
-  }
-  return stream.str();
-}
-
 void append_sync_log_line(const std::string& line) {
   if (!sync_logging_enabled()) {
     return;
@@ -608,13 +370,13 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       cmd_(VK_NULL_HANDLE, 0u, nullptr),
       submit_count_{0u},
       // Memory Management
-      buffer_clearlist_mutex_{},
-      buffers_to_clear_{},
-      image_clearlist_mutex_{},
-      images_to_clear_{},
-      pending_cleanup_bytes_{0u},
-      submissions_since_reclaim_{0u},
-      reclaims_since_pool_flush_{0u} {
+      pending_retire_buffers_mutex_{},
+      pending_retire_buffers_{},
+      pending_retire_images_mutex_{},
+      pending_retire_images_{},
+      pending_retire_bytes_{0u},
+      retire_queue_{},
+      last_submission_{} {
   enable_op_profiling_ =
       gpu_timestamp_logging_enabled() && querypool_.is_enabled();
   if (gpu_timestamp_logging_enabled()) {
@@ -755,6 +517,7 @@ void Context::reset_gpu_profile_queries() {
   reset_cmd.end();
   adapter_p_->submit_cmd(
       queue_, reset_cmd.get_submit_handle(/*final_use=*/true));
+  note_vulkan_queue_wait_idle();
   VK_CHECK(vkQueueWaitIdle(queue()));
 }
 
@@ -830,19 +593,177 @@ void Context::register_shader_dispatch(
   cmd.dispatch(effective_global_wg);
 }
 
-void Context::submit_cmd_to_gpu(VkFence fence_handle, const bool final_use) {
+VulkanStreamState& Context::current_stream() {
+  return vulkan_stream_pool().get_current_stream(device_index_);
+}
+
+c10::Stream Context::current_c10_stream() {
+  return vulkan_stream_pool().get_current_c10_stream(device_index_);
+}
+
+c10::Stream Context::exchange_stream(c10::Stream stream) {
+  VK_CHECK_COND(
+      stream.device_type() == c10::DeviceType::Vulkan,
+      "Expected a Vulkan stream, got ",
+      stream.device());
+  VK_CHECK_COND(
+      stream.device_index() == device_index_,
+      "Cannot set a Vulkan stream for device ",
+      stream.device_index(),
+      " on context for device ",
+      device_index_);
+  std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  submit_cmd_to_gpu();
+  const c10::Stream previous = current_c10_stream();
+  vulkan_stream_pool().set_current_stream(stream);
+  return previous;
+}
+
+bool Context::query_stream(const c10::Stream& stream) {
+  if (stream == current_c10_stream() && submit_count_ > 0u) {
+    return false;
+  }
+  VulkanStreamState& vk_stream = vulkan_stream_pool().unwrap(stream);
+  const uint64_t value =
+      vk_stream.last_submitted_value.load(std::memory_order_acquire);
+  return vulkan_stream_pool().query_complete(vk_stream, value);
+}
+
+void Context::synchronize_stream(const c10::Stream& stream) {
+  std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  if (stream == current_c10_stream()) {
+    submit_cmd_to_gpu();
+  }
+  context_lock.unlock();
+  VulkanStreamState& vk_stream = vulkan_stream_pool().unwrap(stream);
+  const uint64_t value =
+      vk_stream.last_submitted_value.load(std::memory_order_acquire);
+  vulkan_stream_pool().wait_complete(vk_stream, value);
+  poll_retire_queue();
+}
+
+void Context::synchronize_device() {
+  {
+    std::unique_lock<std::mutex> context_lock(dispatch_lock());
+    submit_cmd_to_gpu(/*fence_handle=*/VK_NULL_HANDLE, /*final_use=*/true);
+  }
+  vulkan_stream_pool().wait_all(device_index_);
+  retire_queue_.drain(device_);
+  command_pool_.flush();
+  descriptor_pool_.flush();
+  if (cmd_) {
+    cmd_.invalidate();
+  }
+  submit_count_ = 0u;
+  clear_pending_retire_resources_locked();
+}
+
+VulkanSubmission Context::submit_cmd_handle_to_gpu(
+    VulkanStreamState& stream,
+    VkCommandBuffer cmd,
+    VkFence fence_handle,
+    const bool final_use) {
+  std::vector<VkSemaphore> wait_semaphores;
+  std::vector<uint64_t> wait_values;
+  std::vector<VkPipelineStageFlags> wait_stages;
+  {
+    std::lock_guard<std::mutex> lock(stream.mutex);
+    wait_semaphores.reserve(stream.pending_waits.size());
+    wait_values.reserve(stream.pending_waits.size());
+    wait_stages.reserve(stream.pending_waits.size());
+    for (const auto& wait : stream.pending_waits) {
+      wait_semaphores.push_back(wait.semaphore);
+      wait_values.push_back(wait.value);
+      wait_stages.push_back(wait.wait_stage);
+    }
+    stream.pending_waits.clear();
+  }
+
+  const uint64_t signal_value = stream.reserve_signal_value();
+  adapter_p_->submit_cmd_timeline(
+      queue_,
+      cmd,
+      wait_semaphores,
+      wait_values,
+      wait_stages,
+      stream.timeline,
+      signal_value,
+      fence_handle);
+  vulkan_sync_counters().stream_submit_count.fetch_add(
+      1u, std::memory_order_relaxed);
+  return VulkanSubmission{stream.id, stream.timeline, signal_value};
+}
+
+void Context::retire_deferred_cleanup(VulkanSubmission submission) {
+  if (submission.timeline == VK_NULL_HANDLE || submission.timeline_value == 0u) {
+    clear_pending_retire_resources_locked();
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> bufferlist_lock(
+        pending_retire_buffers_mutex_);
+    for (VulkanBuffer& buffer : pending_retire_buffers_) {
+      retire_queue_.retire(RetiredResource{
+          submission.stream_id,
+          submission.timeline,
+          submission.timeline_value,
+          [buffer = std::make_shared<VulkanBuffer>(std::move(buffer))]() mutable {
+            buffer.reset();
+          },
+      });
+    }
+    pending_retire_buffers_.clear();
+  }
+  {
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    for (VulkanImage& image : pending_retire_images_) {
+      retire_queue_.retire(RetiredResource{
+          submission.stream_id,
+          submission.timeline,
+          submission.timeline_value,
+          [image = std::make_shared<VulkanImage>(std::move(image))]() mutable {
+            image.reset();
+          },
+      });
+    }
+    pending_retire_images_.clear();
+  }
+  pending_retire_bytes_.store(0u, std::memory_order_relaxed);
+}
+
+void Context::poll_retire_queue() {
+  retire_queue_.poll(device_);
+}
+
+void Context::submit_pending_work_and_poll_retire() {
+  {
+    std::unique_lock<std::mutex> context_lock(dispatch_lock());
+    submit_cmd_to_gpu();
+  }
+  poll_retire_queue();
+}
+
+VulkanSubmission Context::submit_cmd_to_gpu(
+    VkFence fence_handle,
+    const bool final_use) {
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
   const bool had_cmd = static_cast<bool>(cmd_);
+  VulkanSubmission submission{};
   if (cmd_) {
     cmd_.end();
-    adapter_p_->submit_cmd(
-        queue_, cmd_.get_submit_handle(final_use), fence_handle);
+    submission = submit_cmd_handle_to_gpu(
+        current_stream(),
+        cmd_.get_submit_handle(final_use),
+        fence_handle,
+        final_use);
+    last_submission_ = submission;
 
     submit_count_ = 0u;
-    submissions_since_reclaim_.fetch_add(1u, std::memory_order_relaxed);
+    retire_deferred_cleanup(submission);
   }
+  poll_retire_queue();
   if (cpu_timeline) {
     std::ostringstream stream;
     stream << "event=submit_cmd_to_gpu had_cmd=" << (had_cmd ? 1 : 0)
@@ -851,6 +772,7 @@ void Context::submit_cmd_to_gpu(VkFence fence_handle, const bool final_use) {
            << " final_use=" << (final_use ? 1 : 0);
     append_cpu_timeline_log_line(stream.str());
   }
+  return submission;
 }
 
 void Context::flush_pending_cmds(VkFence fence_handle) {
@@ -879,6 +801,11 @@ void Context::submit_prepared_command_buffer(
     VkFence fence_handle,
     const bool final_use,
     const char* profile_label) {
+  VK_CHECK_COND(
+      external_recording_cmd() == nullptr,
+      "submit_prepared_command_buffer cannot be called while an external "
+      "Vulkan replay/program recording scope is active. Nested phases must be "
+      "lowered as first-class program or executable-region stages.");
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
@@ -907,10 +834,12 @@ void Context::submit_prepared_command_buffer(
   }();
 
   cmd.end();
-  adapter_p_->submit_cmd(
-      queue_,
+  VulkanSubmission submission = submit_cmd_handle_to_gpu(
+      current_stream(),
       cmd.get_submit_handle(final_use),
-      profile_submit ? VK_NULL_HANDLE : fence_handle);
+      profile_submit ? VK_NULL_HANDLE : fence_handle,
+      final_use);
+  last_submission_ = submission;
 
   if (profile_submit) {
     CommandBuffer end_cmd = command_pool_.get_new_cmd(/*reusable=*/false);
@@ -924,7 +853,8 @@ void Context::submit_prepared_command_buffer(
   if (profile_submit) {
     querypool_.mark_results_pending();
   }
-  submissions_since_reclaim_.fetch_add(1u, std::memory_order_relaxed);
+  retire_deferred_cleanup(submission);
+  poll_retire_queue();
   if (cpu_timeline) {
     std::ostringstream stream;
     stream << "event=submit_prepared_command_buffer duration_us="
@@ -946,194 +876,12 @@ void Context::take_external_recording_cleanup_resources(
   g_external_command_recording_state.images_to_keep_alive.clear();
 }
 
-void Context::clear_deferred_cleanup_locked() {
-  std::lock_guard<std::mutex> bufferlist_lock(buffer_clearlist_mutex_);
-  std::lock_guard<std::mutex> imagelist_lock(image_clearlist_mutex_);
-  buffers_to_clear_.clear();
-  images_to_clear_.clear();
-  pending_cleanup_bytes_.store(0u, std::memory_order_relaxed);
-}
-
-bool Context::should_sync_and_reclaim() {
-  const uint64_t pending_cleanup = pending_cleanup_bytes();
-  const uint32_t submitted_work = submissions_since_reclaim();
-  const std::string& label = current_cleanup_label();
-  const uint64_t soft_threshold =
-      cleanup_soft_threshold_bytes_for_label(adapter_p_, label);
-  const uint64_t hard_threshold =
-      cleanup_hard_threshold_bytes_for_label(adapter_p_, label);
-  const uint32_t submission_threshold =
-      cleanup_submission_threshold_for_label(label);
-  const uint32_t max_submission_threshold =
-      cleanup_max_submission_threshold_for_label(label);
-
-  return pending_cleanup >= hard_threshold ||
-      (pending_cleanup >= soft_threshold &&
-       submitted_work >= submission_threshold) ||
-      submitted_work >= max_submission_threshold;
-}
-
-void Context::sync_and_reclaim() {
-  const bool cpu_timeline = cpu_timeline_logging_enabled();
-  const uint64_t cpu_start_us =
-      cpu_timeline ? cpu_timeline_now_us() : 0u;
-  const uint64_t pending_cleanup = pending_cleanup_bytes();
-  const uint32_t submitted_work = submissions_since_reclaim();
-  const std::string& label = current_cleanup_label();
-  const uint64_t hard_threshold =
-      cleanup_hard_threshold_bytes_for_label(adapter_p_, label);
-  if (pending_cleanup == 0u && submitted_work == 0u && submit_count_ == 0u) {
-    return;
-  }
-
-  const bool full_pool_flush =
-      pending_cleanup >= hard_threshold ||
-      reclaims_since_pool_flush_ >= kSoftReclaimsPerPoolFlush;
-
-  if (sync_logging_enabled()) {
-    std::unordered_map<std::string, uint64_t> cleanup_bytes_by_label;
-    std::unordered_map<std::string, uint64_t> unlabeled_cleanup_by_signature;
-    {
-      std::lock_guard<std::mutex> bufferlist_lock(buffer_clearlist_mutex_);
-      accumulate_cleanup_bytes_by_label(buffers_to_clear_, cleanup_bytes_by_label);
-      accumulate_unlabeled_cleanup_signatures(
-          buffers_to_clear_, unlabeled_cleanup_by_signature);
-    }
-    {
-      std::lock_guard<std::mutex> imagelist_lock(image_clearlist_mutex_);
-      accumulate_cleanup_bytes_by_label(images_to_clear_, cleanup_bytes_by_label);
-      accumulate_unlabeled_cleanup_signatures(
-          images_to_clear_, unlabeled_cleanup_by_signature);
-    }
-
-    std::ostringstream stream;
-    stream << "sync_and_reclaim: pending=" << format_sync_bytes(pending_cleanup)
-           << " submitted=" << submitted_work
-           << " submit_count=" << submit_count_
-           << " caller=" << current_allocation_label()
-           << " full_pool_flush=" << (full_pool_flush ? "1" : "0")
-           << " reclaims_since_pool_flush=" << reclaims_since_pool_flush_;
-    const std::string top_labels =
-        top_cleanup_label_summary(cleanup_bytes_by_label);
-    if (!top_labels.empty()) {
-      stream << " cleanup_labels={" << top_labels << "}";
-    }
-    const std::string top_unlabeled =
-        top_cleanup_signature_summary(unlabeled_cleanup_by_signature);
-    if (!top_unlabeled.empty()) {
-      stream << " unlabeled_signatures={" << top_unlabeled << "}";
-    }
-    append_sync_log_line(stream.str());
-  }
-
-  std::unique_lock<std::mutex> context_lock(dispatch_lock());
-
-  if (cmd_) {
-    VulkanFence fence = fences_.get_fence();
-    submit_cmd_to_gpu(fence.get_submit_handle(), full_pool_flush);
-    if (sync_logging_enabled()) {
-      append_sync_log_line("sync_and_reclaim_stage: submitted_active_cmd");
-    }
-    const uint64_t wait_start_us =
-        cpu_timeline ? cpu_timeline_now_us() : 0u;
-    fence.wait();
-    if (cpu_timeline) {
-      std::ostringstream stream;
-      stream << "event=sync_and_reclaim_fence_wait duration_us="
-             << (cpu_timeline_now_us() - wait_start_us);
-      append_cpu_timeline_log_line(stream.str());
-    }
-    if (sync_logging_enabled()) {
-      append_sync_log_line("sync_and_reclaim_stage: fence_wait_complete");
-    }
-    fences_.return_fence(fence);
-  } else if (submitted_work > 0u) {
-    const uint64_t wait_start_us =
-        cpu_timeline ? cpu_timeline_now_us() : 0u;
-    VK_CHECK(vkQueueWaitIdle(queue()));
-    if (cpu_timeline) {
-      std::ostringstream stream;
-      stream << "event=sync_and_reclaim_queue_wait_idle duration_us="
-             << (cpu_timeline_now_us() - wait_start_us);
-      append_cpu_timeline_log_line(stream.str());
-    }
-    if (sync_logging_enabled()) {
-      append_sync_log_line("sync_and_reclaim_stage: queue_wait_idle_complete");
-    }
-  } else {
-    descriptor_pool_.flush();
-    if (sync_logging_enabled()) {
-      append_sync_log_line(
-          "sync_and_reclaim_stage: no_active_work_descriptor_pool_flushed");
-    }
-    if (full_pool_flush) {
-      command_pool_.flush();
-      if (cmd_) {
-        cmd_.invalidate();
-      }
-      reclaims_since_pool_flush_ = 0u;
-      if (sync_logging_enabled()) {
-        append_sync_log_line(
-            "sync_and_reclaim_stage: no_active_work_command_pool_flushed");
-      }
-    } else {
-      reclaims_since_pool_flush_++;
-    }
-    submit_count_ = 0u;
-    submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
-    clear_deferred_cleanup_locked();
-    if (sync_logging_enabled()) {
-      append_sync_log_line(
-          "sync_and_reclaim_stage: no_active_work_deferred_cleanup_cleared");
-    }
-    dump_gpu_profile_log("sync_and_reclaim");
-    if (cpu_timeline) {
-      std::ostringstream stream;
-      stream << "event=sync_and_reclaim duration_us="
-             << (cpu_timeline_now_us() - cpu_start_us)
-             << " pending_bytes=" << pending_cleanup
-             << " submitted=" << submitted_work
-             << " full_pool_flush=" << (full_pool_flush ? 1 : 0)
-             << " active_cmd=0";
-      append_cpu_timeline_log_line(stream.str());
-    }
-    return;
-  }
-
-  descriptor_pool_.flush();
-  if (sync_logging_enabled()) {
-    append_sync_log_line("sync_and_reclaim_stage: descriptor_pool_flushed");
-  }
-
-  if (full_pool_flush) {
-    command_pool_.flush();
-    if (cmd_) {
-      cmd_.invalidate();
-    }
-    reclaims_since_pool_flush_ = 0u;
-    if (sync_logging_enabled()) {
-      append_sync_log_line("sync_and_reclaim_stage: command_pool_flushed");
-    }
-  } else {
-    reclaims_since_pool_flush_++;
-  }
-  submit_count_ = 0u;
-  submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
-  clear_deferred_cleanup_locked();
-  if (sync_logging_enabled()) {
-    append_sync_log_line("sync_and_reclaim_stage: deferred_cleanup_cleared");
-  }
-  dump_gpu_profile_log("sync_and_reclaim");
-  if (cpu_timeline) {
-    std::ostringstream stream;
-    stream << "event=sync_and_reclaim duration_us="
-           << (cpu_timeline_now_us() - cpu_start_us)
-           << " pending_bytes=" << pending_cleanup
-           << " submitted=" << submitted_work
-           << " full_pool_flush=" << (full_pool_flush ? 1 : 0)
-           << " active_cmd=1";
-    append_cpu_timeline_log_line(stream.str());
-  }
+void Context::clear_pending_retire_resources_locked() {
+  std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
+  std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+  pending_retire_buffers_.clear();
+  pending_retire_images_.clear();
+  pending_retire_bytes_.store(0u, std::memory_order_relaxed);
 }
 
 void Context::flush() {
@@ -1142,39 +890,12 @@ void Context::flush() {
       cpu_timeline ? cpu_timeline_now_us() : 0u;
   if (sync_logging_enabled()) {
     std::ostringstream stream;
-    stream << "flush: pending=" << format_sync_bytes(pending_cleanup_bytes())
-           << " submitted=" << submissions_since_reclaim()
-           << " submit_count=" << submit_count_
-           << " reclaims_since_pool_flush=" << reclaims_since_pool_flush_;
+    stream << "flush: pending=" << format_sync_bytes(pending_retire_bytes())
+           << " submit_count=" << submit_count_;
     append_sync_log_line(stream.str());
   }
 
-  {
-    std::unique_lock<std::mutex> context_lock(dispatch_lock());
-    submit_cmd_to_gpu(/*fence_handle=*/VK_NULL_HANDLE, /*final_use=*/true);
-  }
-  const uint64_t wait_start_us =
-      cpu_timeline ? cpu_timeline_now_us() : 0u;
-  VK_CHECK(vkQueueWaitIdle(queue()));
-  if (cpu_timeline) {
-    std::ostringstream stream;
-    stream << "event=flush_queue_wait_idle duration_us="
-           << (cpu_timeline_now_us() - wait_start_us);
-    append_cpu_timeline_log_line(stream.str());
-  }
-
-  command_pool_.flush();
-  descriptor_pool_.flush();
-
-  // If there is an existing command buffer, invalidate it
-  if (cmd_) {
-    cmd_.invalidate();
-  }
-
-  reclaims_since_pool_flush_ = 0u;
-  submit_count_ = 0u;
-  submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
-  clear_deferred_cleanup_locked();
+  synchronize_device();
   dump_gpu_profile_log("flush");
   if (cpu_timeline) {
     std::ostringstream stream;
@@ -1193,12 +914,10 @@ void Context::retire_after_fence_wait() {
   if (sync_logging_enabled()) {
     std::ostringstream stream;
     stream << "retire_after_fence_wait: pending="
-           << format_sync_bytes(pending_cleanup_bytes())
-           << " submitted=" << submissions_since_reclaim()
+           << format_sync_bytes(pending_retire_bytes())
            << " submit_count=" << submit_count_
            << " caller=" << current_allocation_label()
-           << " flush_pools=" << (flush_pools ? "1" : "0")
-           << " reclaims_since_pool_flush=" << reclaims_since_pool_flush_;
+           << " flush_pools=" << (flush_pools ? "1" : "0");
     append_sync_log_line(stream.str());
   }
 
@@ -1206,15 +925,12 @@ void Context::retire_after_fence_wait() {
     command_pool_.flush();
     descriptor_pool_.flush();
   }
-  reclaims_since_pool_flush_ = 0u;
-
   if (cmd_) {
     cmd_.invalidate();
   }
 
   submit_count_ = 0u;
-  submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
-  clear_deferred_cleanup_locked();
+  clear_pending_retire_resources_locked();
   dump_gpu_profile_log("retire_after_fence_wait");
   if (cpu_timeline) {
     std::ostringstream stream;
@@ -1232,11 +948,9 @@ void Context::flush_after_fence_wait() {
   if (sync_logging_enabled()) {
     std::ostringstream stream;
     stream << "flush_after_fence_wait: pending="
-           << format_sync_bytes(pending_cleanup_bytes())
-           << " submitted=" << submissions_since_reclaim()
+           << format_sync_bytes(pending_retire_bytes())
            << " submit_count=" << submit_count_
-           << " caller=" << current_allocation_label()
-           << " reclaims_since_pool_flush=" << reclaims_since_pool_flush_;
+           << " caller=" << current_allocation_label();
     append_sync_log_line(stream.str());
   }
 
@@ -1247,10 +961,8 @@ void Context::flush_after_fence_wait() {
     cmd_.invalidate();
   }
 
-  reclaims_since_pool_flush_ = 0u;
   submit_count_ = 0u;
-  submissions_since_reclaim_.store(0u, std::memory_order_relaxed);
-  clear_deferred_cleanup_locked();
+  clear_pending_retire_resources_locked();
   dump_gpu_profile_log("flush_after_fence_wait");
   if (cpu_timeline) {
     std::ostringstream stream;

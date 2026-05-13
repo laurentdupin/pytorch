@@ -48,6 +48,7 @@ PhysicalDevice::PhysicalDevice(
       has_shader_zero_initialize_workgroup_memory(false),
       has_shader_integer_dot_product(false),
       has_pipeline_creation_cache_control(false),
+      has_timeline_semaphore(false),
       has_shader_bfloat16(false),
       has_shader_int8(false),
       has_storage_buffer_8bit(false),
@@ -134,6 +135,7 @@ PhysicalDevice::PhysicalDevice(
       vulkan13_features.shaderIntegerDotProduct == VK_TRUE;
   has_pipeline_creation_cache_control =
       vulkan13_features.pipelineCreationCacheControl == VK_TRUE;
+  has_timeline_semaphore = vulkan12_features.timelineSemaphore == VK_TRUE;
 #ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
   has_cooperative_matrix =
       cooperative_matrix_features.cooperativeMatrix == VK_TRUE;
@@ -517,6 +519,8 @@ VkDevice create_logical_device(
   if (physical_device.has_storage_buffer_8bit) {
     vulkan12_features.storageBuffer8BitAccess = VK_TRUE;
   }
+  vulkan12_features.timelineSemaphore =
+      physical_device.has_timeline_semaphore ? VK_TRUE : VK_FALSE;
   vulkan13_features.maintenance4 =
       physical_device.has_maintenance4 ? VK_TRUE : VK_FALSE;
   vulkan13_features.synchronization2 =
@@ -763,6 +767,49 @@ void Adapter::submit_cmds(
   const VkResult submit_result =
       vkQueueSubmit(device_queue.handle, 1u, &submit_info, fence);
   VK_CHECK(submit_result);
+}
+
+void Adapter::submit_cmd_timeline(
+    const Adapter::Queue& device_queue,
+    VkCommandBuffer cmd,
+    const std::vector<VkSemaphore>& wait_semaphores,
+    const std::vector<uint64_t>& wait_values,
+    const std::vector<VkPipelineStageFlags>& wait_stages,
+    VkSemaphore signal_semaphore,
+    uint64_t signal_value,
+    VkFence fence) {
+  VK_CHECK_COND(
+      wait_semaphores.size() == wait_values.size() &&
+          wait_semaphores.size() == wait_stages.size(),
+      "Vulkan timeline submit wait arrays must have matching sizes.");
+  VK_CHECK_COND(
+      signal_semaphore != VK_NULL_HANDLE,
+      "Vulkan timeline submit requires a signal semaphore.");
+
+  const VkTimelineSemaphoreSubmitInfo timeline_info{
+      VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+      nullptr,
+      utils::safe_downcast<uint32_t>(wait_values.size()),
+      wait_values.empty() ? nullptr : wait_values.data(),
+      1u,
+      &signal_value,
+  };
+
+  const VkSubmitInfo submit_info{
+      VK_STRUCTURE_TYPE_SUBMIT_INFO,
+      &timeline_info,
+      utils::safe_downcast<uint32_t>(wait_semaphores.size()),
+      wait_semaphores.empty() ? nullptr : wait_semaphores.data(),
+      wait_stages.empty() ? nullptr : wait_stages.data(),
+      1u,
+      &cmd,
+      1u,
+      &signal_semaphore,
+  };
+
+  std::lock_guard<std::mutex> queue_lock(
+      queue_mutexes_[device_queue.queue_index % NUM_QUEUE_MUTEXES]);
+  VK_CHECK(vkQueueSubmit(device_queue.handle, 1u, &submit_info, fence));
 }
 
 std::string Adapter::stringize() const {
