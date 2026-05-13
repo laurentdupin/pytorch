@@ -46,6 +46,138 @@ namespace {
 
 bool output_padding_is_zero(const IntArrayRef output_padding);
 
+enum class VulkanConvPlanSelected : uint8_t {
+  Unknown = 0,
+  TextureConv,
+  FloatBufferConv,
+  FloatBufferPointwise1x1,
+  FloatBufferPointwise1x1AsLinear,
+  CpuFallback,
+  HardFailKnownBad,
+};
+
+enum class VulkanConvRejectReason : uint8_t {
+  None = 0,
+  InputNotVulkan,
+  UnsupportedDType,
+  UnsupportedRank,
+  WeightNotPacked,
+  UnsupportedLayout,
+  UnsupportedGroups,
+  UnsupportedKernel,
+  UnsupportedStridePaddingDilation,
+  KnownBadLargePointwiseConv,
+  ShapeUnsupported,
+  Unknown,
+};
+
+struct VulkanConvPlanDecision final {
+  VulkanConvPlanSelected selected{VulkanConvPlanSelected::Unknown};
+  VulkanConvRejectReason reject{VulkanConvRejectReason::None};
+  int64_t n{0};
+  int64_t cin{0};
+  int64_t h{0};
+  int64_t w{0};
+  int64_t cout{0};
+  int64_t kh{0};
+  int64_t kw{0};
+  int64_t groups{0};
+  bool input_vulkan{false};
+  bool input_buffer{false};
+  bool weight_packed{false};
+  bool bias_present{false};
+  bool transposed{false};
+  bool pointwise{false};
+  bool large{false};
+};
+
+struct VulkanConvPlanCounters final {
+  std::atomic<uint64_t> total{0u};
+  std::atomic<uint64_t> pointwise_1x1_hit{0u};
+  std::atomic<uint64_t> pointwise_1x1_as_linear_hit{0u};
+  std::atomic<uint64_t> known_bad_large_pointwise{0u};
+  std::atomic<uint64_t> cpu_fallback{0u};
+  std::atomic<uint64_t> reject_layout{0u};
+  std::atomic<uint64_t> reject_dtype{0u};
+};
+
+VulkanConvPlanCounters& conv_plan_counters() {
+  static VulkanConvPlanCounters counters;
+  return counters;
+}
+
+const std::string& vulkan_conv_plan_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_CONV_PLAN_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+void append_vulkan_conv_plan_log(
+    const VulkanConvPlanDecision& decision,
+    const char* label) {
+  const std::string& path = vulkan_conv_plan_log_path();
+  if (path.empty()) {
+    return;
+  }
+  std::ofstream out(path, std::ios::app);
+  out << "conv_plan"
+      << " label=" << (label ? label : "unknown")
+      << " selected=" << static_cast<int>(decision.selected)
+      << " reject=" << static_cast<int>(decision.reject)
+      << " n=" << decision.n
+      << " cin=" << decision.cin
+      << " h=" << decision.h
+      << " w=" << decision.w
+      << " cout=" << decision.cout
+      << " kh=" << decision.kh
+      << " kw=" << decision.kw
+      << " groups=" << decision.groups
+      << " input_vulkan=" << (decision.input_vulkan ? 1 : 0)
+      << " input_buffer=" << (decision.input_buffer ? 1 : 0)
+      << " weight_packed=" << (decision.weight_packed ? 1 : 0)
+      << " bias=" << (decision.bias_present ? 1 : 0)
+      << " transposed=" << (decision.transposed ? 1 : 0)
+      << " pointwise=" << (decision.pointwise ? 1 : 0)
+      << " large=" << (decision.large ? 1 : 0)
+      << '\n';
+}
+
+void update_conv_plan_counters(const VulkanConvPlanDecision& decision) {
+  VulkanConvPlanCounters& counters = conv_plan_counters();
+  counters.total.fetch_add(1u, std::memory_order_relaxed);
+  if (decision.selected == VulkanConvPlanSelected::FloatBufferPointwise1x1) {
+    counters.pointwise_1x1_hit.fetch_add(1u, std::memory_order_relaxed);
+  }
+  if (
+      decision.selected ==
+      VulkanConvPlanSelected::FloatBufferPointwise1x1AsLinear) {
+    counters.pointwise_1x1_as_linear_hit.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (decision.reject == VulkanConvRejectReason::KnownBadLargePointwiseConv) {
+    counters.known_bad_large_pointwise.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (decision.selected == VulkanConvPlanSelected::CpuFallback) {
+    counters.cpu_fallback.fetch_add(1u, std::memory_order_relaxed);
+  }
+  if (decision.reject == VulkanConvRejectReason::UnsupportedLayout) {
+    counters.reject_layout.fetch_add(1u, std::memory_order_relaxed);
+  }
+  if (decision.reject == VulkanConvRejectReason::UnsupportedDType) {
+    counters.reject_dtype.fetch_add(1u, std::memory_order_relaxed);
+  }
+}
+
+void record_conv_plan_decision(
+    const VulkanConvPlanDecision& decision,
+    const char* label) {
+  update_conv_plan_counters(decision);
+  append_vulkan_conv_plan_log(decision, label);
+}
+
 utils::VulkanPlanningRequest convolution_request(
     const utils::VulkanTensorRole role) {
   return utils::make_vulkan_planning_request(
@@ -1107,6 +1239,7 @@ bool should_use_generic_buffer_conv_for_dav2_decoder_project_pointwise(
   return (height == 15 && width == 10) ||
       (height == 20 && width == 13) ||
       (height == 30 && width == 20) ||
+      (height == 37 && width == 57) ||
       (height == 45 && width == 30);
 }
 
@@ -1753,16 +1886,50 @@ Tensor run_float_buffer_conv2d_impl(
       input.requires_grad(),
       convolution_request(utils::VulkanTensorRole::Input),
       utils::current_vulkan_device_policy());
+  VulkanConvPlanDecision plan_decision;
+  plan_decision.n = v_input.sizes()[0];
+  plan_decision.cin = v_input.sizes()[1];
+  plan_decision.h = v_input.sizes()[2];
+  plan_decision.w = v_input.sizes()[3];
+  plan_decision.cout = packed_weight.logical_weight_sizes()[0];
+  plan_decision.kh = packed_weight.logical_weight_sizes()[2];
+  plan_decision.kw = packed_weight.logical_weight_sizes()[3];
+  plan_decision.groups = groups;
+  plan_decision.input_vulkan = input.is_vulkan();
+  plan_decision.input_buffer =
+      v_input.storage_type() == api::StorageType::BUFFER;
+  plan_decision.weight_packed = true;
+  plan_decision.bias_present = packed_weight.has_bias();
+  plan_decision.transposed = false;
+  plan_decision.pointwise = plan_decision.kh == 1 && plan_decision.kw == 1;
+  plan_decision.large =
+      plan_decision.cin >= 384 && plan_decision.cout >= 192;
   if (route_decision.hard_fail) {
+    plan_decision.selected = VulkanConvPlanSelected::HardFailKnownBad;
+    plan_decision.reject =
+        route_decision.reject_reason ==
+            utils::VulkanRouteRejectReason::KnownBadLargePointwiseConv
+        ? VulkanConvRejectReason::KnownBadLargePointwiseConv
+        : VulkanConvRejectReason::ShapeUnsupported;
+    record_conv_plan_decision(plan_decision, "aten::convolution");
     context->flush();
     utils::fail_hard_fail("aten::convolution", route_decision);
   }
   if (route_decision.telemetry_label ==
       "SelectedGenericBufferConv2dForDav2DecoderProjectPointwise") {
     shader_kind = FloatBufferConv2dShaderKind::Generic;
+    plan_decision.selected = VulkanConvPlanSelected::FloatBufferPointwise1x1;
+    plan_decision.reject = VulkanConvRejectReason::KnownBadLargePointwiseConv;
     utils::log_vulkan_op_hit(
         "aten::convolution.buffer_float_1x1_skip.dav2_decoder_project_pointwise");
+  } else {
+    plan_decision.selected =
+        shader_kind == FloatBufferConv2dShaderKind::Pointwise1x1
+        ? VulkanConvPlanSelected::FloatBufferPointwise1x1
+        : VulkanConvPlanSelected::FloatBufferConv;
+    plan_decision.reject = VulkanConvRejectReason::None;
   }
+  record_conv_plan_decision(plan_decision, "aten::convolution");
 
   switch (shader_kind) {
     case FloatBufferConv2dShaderKind::Pointwise1x1:
@@ -3238,6 +3405,37 @@ Tensor conv2d_clamp_run(
     const Tensor& input,
     const c10::intrusive_ptr<Conv2dOpContext>& context) {
   return context->run(input);
+}
+
+std::vector<int64_t> conv_plan_counters_snapshot() {
+  const VulkanConvPlanCounters& counters = conv_plan_counters();
+  return {
+      static_cast<int64_t>(counters.total.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.pointwise_1x1_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.pointwise_1x1_as_linear_hit.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.known_bad_large_pointwise.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.cpu_fallback.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_layout.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_dtype.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_conv_plan_counters() {
+  VulkanConvPlanCounters& counters = conv_plan_counters();
+  counters.total.store(0u, std::memory_order_relaxed);
+  counters.pointwise_1x1_hit.store(0u, std::memory_order_relaxed);
+  counters.pointwise_1x1_as_linear_hit.store(0u, std::memory_order_relaxed);
+  counters.known_bad_large_pointwise.store(0u, std::memory_order_relaxed);
+  counters.cpu_fallback.store(0u, std::memory_order_relaxed);
+  counters.reject_layout.store(0u, std::memory_order_relaxed);
+  counters.reject_dtype.store(0u, std::memory_order_relaxed);
 }
 
 Conv1dPackedContext::Conv1dPackedContext(

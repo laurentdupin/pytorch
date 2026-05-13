@@ -16,6 +16,12 @@ void RetireQueue::retire(RetiredResource resource) {
   if (!resource.cleanup) {
     return;
   }
+  VK_CHECK_COND(
+      resource.timeline != VK_NULL_HANDLE,
+      "RetiredResource has null timeline");
+  VK_CHECK_COND(
+      resource.value > 0u,
+      "RetiredResource has invalid timeline value");
   std::lock_guard<std::mutex> lock(mutex_);
   retired_.push_back(std::move(resource));
 }
@@ -23,25 +29,47 @@ void RetireQueue::retire(RetiredResource resource) {
 void RetireQueue::poll(VkDevice device) {
   vulkan_sync_counters().retire_poll_count.fetch_add(
       1u, std::memory_order_relaxed);
-  std::lock_guard<std::mutex> lock(mutex_);
-  auto it = retired_.begin();
-  while (it != retired_.end()) {
-    uint64_t completed = 0u;
-    VK_CHECK(vkGetSemaphoreCounterValue(device, it->timeline, &completed));
-    if (completed >= it->value) {
-      it->cleanup();
-      vulkan_sync_counters().retired_resource_count.fetch_add(
-          1u, std::memory_order_relaxed);
-      it = retired_.erase(it);
-    } else {
-      ++it;
+  std::vector<std::function<void()>> ready;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = retired_.begin();
+    while (it != retired_.end()) {
+      VK_CHECK_COND(
+          it->timeline != VK_NULL_HANDLE,
+          "RetiredResource has null timeline");
+      VK_CHECK_COND(
+          it->value > 0u,
+          "RetiredResource has invalid timeline value");
+      uint64_t completed = 0u;
+      VK_CHECK(vkGetSemaphoreCounterValue(device, it->timeline, &completed));
+      if (completed >= it->value) {
+        ready.emplace_back(std::move(it->cleanup));
+        it = retired_.erase(it);
+      } else {
+        ++it;
+      }
     }
+  }
+  for (auto& cleanup : ready) {
+    cleanup();
+    vulkan_sync_counters().retired_resource_count.fetch_add(
+        1u, std::memory_order_relaxed);
   }
 }
 
 void RetireQueue::drain(VkDevice device) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  for (auto& item : retired_) {
+  std::vector<RetiredResource> items;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    items.swap(retired_);
+  }
+  for (auto& item : items) {
+    VK_CHECK_COND(
+        item.timeline != VK_NULL_HANDLE,
+        "RetiredResource has null timeline");
+    VK_CHECK_COND(
+        item.value > 0u,
+        "RetiredResource has invalid timeline value");
     VkSemaphoreWaitInfo wait_info{
         VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
         nullptr,
@@ -57,7 +85,6 @@ void RetireQueue::drain(VkDevice device) {
     vulkan_sync_counters().retired_resource_count.fetch_add(
         1u, std::memory_order_relaxed);
   }
-  retired_.clear();
 }
 
 bool RetireQueue::empty() const {

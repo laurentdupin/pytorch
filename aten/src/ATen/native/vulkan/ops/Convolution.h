@@ -4,6 +4,7 @@
 
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/PackedWeight.h>
+#include <c10/macros/Export.h>
 #include <limits>
 #include <torch/library.h>
 
@@ -290,6 +291,10 @@ c10::intrusive_ptr<Conv2dOpContext> conv2d_clamp_prepack(
     const int64_t groups,
     const std::optional<Scalar>& output_min,
     const std::optional<Scalar>& output_max);
+
+TORCH_API std::vector<int64_t> conv_plan_counters_snapshot();
+
+TORCH_API void reset_conv_plan_counters();
 
 class Conv1dPackedContext final : public torch::jit::CustomClassHolder {
  private:

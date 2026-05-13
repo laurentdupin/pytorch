@@ -80,6 +80,7 @@ bool is_known_dav2_decoder_project_pointwise_shape(
   return (height == 15 && width == 10) ||
       (height == 20 && width == 13) ||
       (height == 30 && width == 20) ||
+      (height == 37 && width == 57) ||
       (height == 45 && width == 30);
 }
 

@@ -605,6 +605,31 @@ c10::Stream Context::current_c10_stream() {
   return vulkan_stream_pool().get_current_c10_stream(device_index_);
 }
 
+bool Context::has_pending_work_for_current_stream() const {
+  return submit_count_ > 0u;
+}
+
+void Context::flush_if_current_stream(const c10::Stream& stream) {
+  VK_CHECK_COND(
+      stream.device_type() == c10::DeviceType::Vulkan,
+      "Expected a Vulkan stream, got ",
+      stream.device());
+  VK_CHECK_COND(
+      stream.device_index() == device_index_,
+      "Cannot flush a Vulkan stream for device ",
+      stream.device_index(),
+      " on context for device ",
+      device_index_);
+  std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  // Version-one invariant: a Context owns one active command buffer, and
+  // exchange_stream() flushes before switching streams. Therefore unsubmitted
+  // work can only belong to current_c10_stream().
+  if (stream != current_c10_stream() || !has_pending_work_for_current_stream()) {
+    return;
+  }
+  submit_cmd_to_gpu();
+}
+
 c10::Stream Context::exchange_stream(c10::Stream stream) {
   VK_CHECK_COND(
       stream.device_type() == c10::DeviceType::Vulkan,
@@ -684,8 +709,11 @@ VulkanSubmission Context::submit_cmd_handle_to_gpu(
   }
 
   const uint64_t signal_value = stream.reserve_signal_value();
+  VK_CHECK_COND(
+      stream.queue.family_index == queue_.family_index,
+      "Vulkan stream queue family does not match command buffer queue family");
   adapter_p_->submit_cmd_timeline(
-      queue_,
+      stream.queue,
       cmd,
       wait_semaphores,
       wait_values,

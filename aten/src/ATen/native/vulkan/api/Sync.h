@@ -2,6 +2,8 @@
 
 #ifdef USE_VULKAN_API
 
+#include <c10/macros/Export.h>
+
 #include <atomic>
 #include <cstdint>
 
@@ -25,11 +27,11 @@ struct VulkanSyncCounters final {
   std::atomic<uint64_t> allocation_reuse_after_timeline_count{0u};
 };
 
-VulkanSyncCounters& vulkan_sync_counters();
-void reset_vulkan_sync_counters();
+TORCH_API VulkanSyncCounters& vulkan_sync_counters();
+TORCH_API void reset_vulkan_sync_counters();
 
-void note_vulkan_queue_wait_idle();
-void note_vulkan_forced_sync();
+TORCH_API void note_vulkan_queue_wait_idle();
+TORCH_API void note_vulkan_forced_sync();
 
 } // namespace api
 } // namespace vulkan

@@ -11,10 +11,10 @@ namespace vulkan {
 namespace api {
 
 void record_vulkan_event(VulkanEventState& event, const c10::Stream& stream) {
-  VulkanStreamState& vk_stream = vulkan_stream_pool().unwrap(stream);
   if (Context* const stream_context = context(stream.device_index())) {
-    stream_context->flush_pending_cmds();
+    stream_context->flush_if_current_stream(stream);
   }
+  VulkanStreamState& vk_stream = vulkan_stream_pool().unwrap(stream);
   event.device_index = stream.device_index();
   event.recorded = true;
   event.stream_id = vk_stream.id;
@@ -28,6 +28,9 @@ void record_vulkan_event(VulkanEventState& event, const c10::Stream& stream) {
 void block_vulkan_event(VulkanEventState& event, const c10::Stream& stream) {
   if (!event.recorded || event.timeline == VK_NULL_HANDLE || event.value == 0u) {
     return;
+  }
+  if (Context* const stream_context = context(stream.device_index())) {
+    stream_context->flush_if_current_stream(stream);
   }
   VulkanStreamState& vk_stream = vulkan_stream_pool().unwrap(stream);
   {

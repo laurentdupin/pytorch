@@ -252,6 +252,8 @@ class TORCH_API Context final {
 
   void poll_retire_queue();
   void submit_pending_work_and_poll_retire();
+  bool has_pending_work_for_current_stream() const;
+  void flush_if_current_stream(const c10::Stream&);
   VulkanStreamState& current_stream();
   c10::Stream current_c10_stream();
   c10::Stream exchange_stream(c10::Stream);

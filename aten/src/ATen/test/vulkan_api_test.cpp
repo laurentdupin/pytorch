@@ -8,7 +8,9 @@
 #include <ATen/native/vulkan/api/api.h>
 #include <ATen/native/vulkan/api/Env.h>
 #include <ATen/native/vulkan/api/Event.h>
+#include <ATen/native/vulkan/api/RetireQueue.h>
 #include <ATen/native/vulkan/api/Stream.h>
+#include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/planning/ExecutableRegions.h>
@@ -18,6 +20,7 @@
 #include <c10/util/env.h>
 #include <c10/util/irange.h>
 #include <c10/util/ArrayRef.h>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 
@@ -1083,15 +1086,48 @@ TEST_F(VulkanAPITest, stream_pool_new_stream_is_distinct) {
   namespace vk_api = at::native::vulkan::api;
   const c10::DeviceIndex device_index = vk_api::current_device();
   auto& pool = vk_api::vulkan_stream_pool();
+  auto& default_stream_state = pool.get_default_stream(device_index);
+  auto& new_stream_state = pool.get_new_stream(device_index);
   const c10::Stream default_stream = pool.make_c10_stream(
-      device_index, pool.get_default_stream(device_index).id);
-  const c10::Stream new_stream = pool.make_c10_stream(
-      device_index, pool.get_new_stream(device_index).id);
+      device_index, default_stream_state.id);
+  const c10::Stream new_stream =
+      pool.make_c10_stream(device_index, new_stream_state.id);
   EXPECT_NE(default_stream, new_stream);
+  EXPECT_NE(default_stream_state.timeline, VK_NULL_HANDLE);
+  EXPECT_NE(new_stream_state.timeline, VK_NULL_HANDLE);
+}
+
+TEST_F(VulkanAPITest, event_record_query_synchronize) {
+  namespace vk_api = at::native::vulkan::api;
+  vk_api::reset_vulkan_sync_counters();
+  vk_api::Context* const context = vk_api::context();
+  const c10::Stream stream = context->current_c10_stream();
+
+  const at::Tensor x_cpu =
+      at::randn({16, 16}, at::device(at::kCPU).dtype(at::kFloat));
+  const at::Tensor y = x_cpu.vulkan() + 1.0f;
+
+  vk_api::VulkanEventState event;
+  vk_api::record_vulkan_event(event, stream);
+  vk_api::synchronize_vulkan_event(event);
+
+  EXPECT_TRUE(event.recorded);
+  EXPECT_NE(event.timeline, VK_NULL_HANDLE);
+  EXPECT_TRUE(vk_api::query_vulkan_event(event));
+  EXPECT_TRUE(almostEqual(y.cpu(), x_cpu + 1.0f));
+  EXPECT_GT(
+      vk_api::vulkan_sync_counters().event_record_count.load(
+          std::memory_order_relaxed),
+      0u);
+  EXPECT_EQ(
+      vk_api::vulkan_sync_counters().queue_wait_idle_count.load(
+          std::memory_order_relaxed),
+      0u);
 }
 
 TEST_F(VulkanAPITest, event_orders_cross_stream_work) {
   namespace vk_api = at::native::vulkan::api;
+  vk_api::reset_vulkan_sync_counters();
   vk_api::Context* const context = vk_api::context();
   const c10::DeviceIndex device_index = vk_api::current_device();
   auto& pool = vk_api::vulkan_stream_pool();
@@ -1119,6 +1155,106 @@ TEST_F(VulkanAPITest, event_orders_cross_stream_work) {
   const at::Tensor expected = (x_cpu + 2.0f) * 3.0f;
   EXPECT_TRUE(almostEqual(z.cpu(), expected));
   EXPECT_TRUE(vk_api::query_vulkan_event(event));
+  EXPECT_GT(
+      vk_api::vulkan_sync_counters().stream_submit_count.load(
+          std::memory_order_relaxed),
+      0u);
+  EXPECT_GT(
+      vk_api::vulkan_sync_counters().event_record_count.load(
+          std::memory_order_relaxed),
+      0u);
+  EXPECT_GT(
+      vk_api::vulkan_sync_counters().event_block_count.load(
+          std::memory_order_relaxed),
+      0u);
+  EXPECT_EQ(
+      vk_api::vulkan_sync_counters().queue_wait_idle_count.load(
+          std::memory_order_relaxed),
+      0u);
+}
+
+TEST_F(VulkanAPITest, event_wait_flushes_current_stream_boundary) {
+  namespace vk_api = at::native::vulkan::api;
+  vk_api::reset_vulkan_sync_counters();
+  vk_api::Context* const context = vk_api::context();
+  const c10::DeviceIndex device_index = vk_api::current_device();
+  auto& pool = vk_api::vulkan_stream_pool();
+  const c10::Stream stream0 = pool.make_c10_stream(
+      device_index, pool.get_new_stream(device_index).id);
+  const c10::Stream stream1 = pool.make_c10_stream(
+      device_index, pool.get_new_stream(device_index).id);
+  const c10::Stream previous_stream = context->exchange_stream(stream0);
+
+  const at::Tensor x_cpu =
+      at::randn({16, 16}, at::device(at::kCPU).dtype(at::kFloat));
+  const at::Tensor y = x_cpu.vulkan() + 1.0f;
+
+  vk_api::VulkanEventState event;
+  vk_api::record_vulkan_event(event, stream0);
+  const uint64_t submits_after_record =
+      vk_api::vulkan_sync_counters().stream_submit_count.load(
+          std::memory_order_relaxed);
+  EXPECT_GT(submits_after_record, 0u);
+
+  context->exchange_stream(stream1);
+  const at::Tensor before_wait = y * 2.0f;
+  vk_api::block_vulkan_event(event, stream1);
+  const uint64_t submits_after_block =
+      vk_api::vulkan_sync_counters().stream_submit_count.load(
+          std::memory_order_relaxed);
+  EXPECT_GT(submits_after_block, submits_after_record);
+
+  const at::Tensor after_wait = before_wait + 3.0f;
+  context->synchronize_stream(stream1);
+  context->exchange_stream(previous_stream);
+
+  EXPECT_TRUE(almostEqual(before_wait.cpu(), (x_cpu + 1.0f) * 2.0f));
+  EXPECT_TRUE(almostEqual(after_wait.cpu(), ((x_cpu + 1.0f) * 2.0f) + 3.0f));
+  EXPECT_EQ(
+      vk_api::vulkan_sync_counters().queue_wait_idle_count.load(
+          std::memory_order_relaxed),
+      0u);
+}
+
+TEST_F(VulkanAPITest, retire_queue_cleanup_waits_for_timeline_completion) {
+  namespace vk_api = at::native::vulkan::api;
+  vk_api::reset_vulkan_sync_counters();
+  vk_api::Context* const context = vk_api::context();
+  const c10::Stream c10_stream = context->current_c10_stream();
+  auto& stream = vk_api::vulkan_stream_pool().unwrap(c10_stream);
+  context->synchronize_stream(c10_stream);
+  const uint64_t future_value =
+      stream.last_submitted_value.load(std::memory_order_acquire) + 1u;
+
+  std::atomic<int> cleaned{0};
+  vk_api::RetireQueue retire_queue;
+  retire_queue.retire(vk_api::RetiredResource{
+      stream.id,
+      stream.timeline,
+      future_value,
+      [&cleaned]() {
+        cleaned.fetch_add(1, std::memory_order_relaxed);
+      },
+  });
+
+  retire_queue.poll(stream.device);
+  EXPECT_EQ(cleaned.load(std::memory_order_relaxed), 0);
+
+  const at::Tensor x_cpu =
+      at::randn({16, 16}, at::device(at::kCPU).dtype(at::kFloat));
+  const at::Tensor y = x_cpu.vulkan() + 1.0f;
+  context->synchronize_stream(c10_stream);
+  retire_queue.poll(stream.device);
+  EXPECT_EQ(cleaned.load(std::memory_order_relaxed), 1);
+  EXPECT_TRUE(almostEqual(y.cpu(), x_cpu + 1.0f));
+  EXPECT_GT(
+      vk_api::vulkan_sync_counters().retired_resource_count.load(
+          std::memory_order_relaxed),
+      0u);
+  EXPECT_EQ(
+      vk_api::vulkan_sync_counters().queue_wait_idle_count.load(
+          std::memory_order_relaxed),
+      0u);
 }
 
 TEST_F(VulkanAPITest, prepared_submit_rejects_nested_owned_recording) {
@@ -3364,6 +3500,55 @@ TEST_F(VulkanAPITest, conv2d_pw_prepack_bc_medium) {
     {0, 0},             // padding
     {1, 1},             // dilation
     1);                 // groups
+}
+
+TEST_F(VulkanAPITest, dav2_decoder_large_pointwise_conv_matches_cpu) {
+  namespace vk_api = at::native::vulkan::api;
+  namespace vk_ops = at::native::vulkan::ops;
+  c10::InferenceMode mode;
+  vk_api::reset_vulkan_sync_counters();
+  vk_ops::reset_conv_plan_counters();
+
+  const std::vector<int64_t> stride{1, 1};
+  const std::vector<int64_t> padding{0, 0};
+  const std::vector<int64_t> dilation{1, 1};
+  constexpr int64_t groups = 1;
+
+  at::Tensor input =
+      at::rand({1, 384, 37, 57}, at::device(at::kCPU).dtype(at::kFloat));
+  at::Tensor weight =
+      at::rand({192, 384, 1, 1}, at::device(at::kCPU).dtype(at::kFloat));
+  at::Tensor bias =
+      at::rand({192}, at::device(at::kCPU).dtype(at::kFloat));
+
+  const std::vector<int64_t> before_conv =
+      vk_ops::conv_plan_counters_snapshot();
+  const uint64_t queue_wait_idle_before =
+      vk_api::vulkan_sync_counters().queue_wait_idle_count.load(
+          std::memory_order_relaxed);
+
+  const at::Tensor expected =
+      at::conv2d(input, weight, bias, stride, padding, dilation, groups);
+  const at::Tensor actual_vk = at::conv2d(
+      input.vulkan(), weight, bias, stride, padding, dilation, groups);
+  vk_api::context()->synchronize_device();
+  const at::Tensor actual = actual_vk.cpu();
+
+  EXPECT_EQ(actual.sizes(), expected.sizes());
+  const bool check = almostEqual(expected, actual);
+  if (!check) {
+    showRtol(expected, actual);
+  }
+  ASSERT_TRUE(check);
+
+  const std::vector<int64_t> after_conv =
+      vk_ops::conv_plan_counters_snapshot();
+  EXPECT_GT(after_conv[1], before_conv[1]);
+  EXPECT_GT(after_conv[3], before_conv[3]);
+  EXPECT_EQ(
+      vk_api::vulkan_sync_counters().queue_wait_idle_count.load(
+          std::memory_order_relaxed),
+      queue_wait_idle_before);
 }
 
 // The following 2 tests failed on Meta's CI when all tests are executed.  Output

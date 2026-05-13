@@ -4,6 +4,8 @@
 
 #include <ATen/native/vulkan/api/Stream.h>
 
+#include <c10/macros/Export.h>
+
 #include <functional>
 #include <mutex>
 #include <vector>
@@ -20,7 +22,7 @@ struct RetiredResource final {
   std::function<void()> cleanup;
 };
 
-class RetireQueue final {
+class TORCH_API RetireQueue final {
  public:
   void retire(RetiredResource resource);
   void poll(VkDevice device);
