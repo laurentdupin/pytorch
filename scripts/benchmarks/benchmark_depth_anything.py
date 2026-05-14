@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import sys
 import time
@@ -29,6 +30,13 @@ from depth_anything_common import (
 
 OUTPUT_MODE_DEVICE_RESIDENT = "device_resident"
 OUTPUT_MODE_READBACK = "readback"
+
+FALLBACK_PHASE_UNKNOWN = 0
+FALLBACK_PHASE_MODEL_SETUP = 1
+FALLBACK_PHASE_OWNER_CONTEXT_CREATE = 2
+FALLBACK_PHASE_OWNER_FORWARD = 3
+FALLBACK_PHASE_POSITIONAL_EMBEDDING_SETUP = 5
+FALLBACK_PHASE_READBACK = 6
 
 
 def env_flag_enabled(name: str) -> bool:
@@ -59,47 +67,129 @@ def optional_layerscale_gamma(module: Any) -> Any:
     return gamma if gamma is not None else None
 
 
+def set_vulkan_fallback_phase(torch_module: Any, phase: int) -> None:
+    ops = getattr(getattr(torch_module, "ops", None), "vulkan_prepack", None)
+    setter = getattr(ops, "set_fallback_phase", None) if ops is not None else None
+    if setter is not None:
+        setter(int(phase))
+
+
+@contextlib.contextmanager
+def vulkan_fallback_phase(torch_module: Any, phase: int) -> Any:
+    set_vulkan_fallback_phase(torch_module, phase)
+    try:
+        yield
+    finally:
+        set_vulkan_fallback_phase(torch_module, FALLBACK_PHASE_UNKNOWN)
+
+
+class VulkanDAv2OwnerContextCache:
+    def __init__(self, torch_module: Any) -> None:
+        self.torch = torch_module
+        self._cache: dict[tuple[int, str, str, int, int], Any] = {}
+
+    def key(self, block: Any) -> tuple[int, str, str, int, int]:
+        weight = block.attn.qkv.weight
+        return (
+            id(block),
+            str(weight.device),
+            str(weight.dtype),
+            int(block.attn.num_heads),
+            int(weight.shape[1] // int(block.attn.num_heads)),
+        )
+
+    def get_or_create(self, block: Any, block_index: int) -> Any:
+        key = self.key(block)
+        cached = self._cache.get(key)
+        if cached is not None:
+            recorder = getattr(
+                self.torch.ops.vulkan_prepack,
+                "record_vision_owner_context_cache_hit",
+                None,
+            )
+            if recorder is not None:
+                recorder()
+            return cached
+
+        with vulkan_fallback_phase(self.torch, FALLBACK_PHASE_OWNER_CONTEXT_CREATE):
+            context = self.torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                block.norm1.weight,
+                block.norm1.bias,
+                float(block.norm1.eps),
+                block.attn.qkv.weight,
+                optional_bias(block.attn.qkv),
+                int(block.attn.num_heads),
+                block.attn.proj.weight,
+                optional_bias(block.attn.proj),
+                optional_layerscale_gamma(block.ls1),
+                block.norm2.weight,
+                block.norm2.bias,
+                float(block.norm2.eps),
+                block.mlp.fc1.weight,
+                optional_bias(block.mlp.fc1),
+                block.mlp.fc2.weight,
+                optional_bias(block.mlp.fc2),
+                optional_layerscale_gamma(block.ls2),
+                f"depth.dino.real.block{block_index}",
+            )
+        self._cache[key] = context
+        return context
+
+
 class VulkanDAv2BlockOwner:
-    def __init__(self, torch_module: Any, block: Any, block_index: int) -> None:
+    def __init__(
+        self,
+        torch_module: Any,
+        block: Any,
+        block_index: int,
+        context_cache: VulkanDAv2OwnerContextCache,
+    ) -> None:
         self.torch = torch_module
         self.block = block
         self.original_forward = block.forward
         self.block_index = block_index
         self.training = bool(getattr(block, "training", False))
-        self.context = torch_module.ops.vulkan_prepack.create_vision_backbone_block_context(
-            block.norm1.weight,
-            block.norm1.bias,
-            float(block.norm1.eps),
-            block.attn.qkv.weight,
-            optional_bias(block.attn.qkv),
-            int(block.attn.num_heads),
-            block.attn.proj.weight,
-            optional_bias(block.attn.proj),
-            optional_layerscale_gamma(block.ls1),
-            block.norm2.weight,
-            block.norm2.bias,
-            float(block.norm2.eps),
-            block.mlp.fc1.weight,
-            optional_bias(block.mlp.fc1),
-            block.mlp.fc2.weight,
-            optional_bias(block.mlp.fc2),
-            optional_layerscale_gamma(block.ls2),
-            f"depth.dino.real.block{block_index}",
-        )
+        self.context_cache = context_cache
+        self.context_cache.get_or_create(block, block_index)
 
     def __call__(self, x_or_x_list: Any) -> Any:
         if self.training or not isinstance(x_or_x_list, self.torch.Tensor):
             return self.original_forward(x_or_x_list)
         if getattr(x_or_x_list.device, "type", None) != "vulkan":
             return self.original_forward(x_or_x_list)
-        return self.torch.ops.vulkan_prepack.run_vision_backbone_block_context(
-            x_or_x_list,
-            self.context,
-        )
+        context = self.context_cache.get_or_create(self.block, self.block_index)
+        with vulkan_fallback_phase(self.torch, FALLBACK_PHASE_OWNER_FORWARD):
+            return self.torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                x_or_x_list,
+                context,
+            )
 
 
 def vulkan_dav2_block_owner_forward(self: Any, x_or_x_list: Any) -> Any:
     return self._vulkan_dav2_block_owner(x_or_x_list)
+
+
+def install_vulkan_fallback_phase_wrappers(torch_module: Any, model: Any) -> None:
+    pretrained = getattr(model, "pretrained", None)
+    if pretrained is None or getattr(pretrained, "_vulkan_phase_wrapped", False):
+        return
+
+    interpolate = getattr(pretrained, "interpolate_pos_encoding", None)
+    if interpolate is not None:
+
+        def phase_interpolate_pos_encoding(self: Any, *args: Any, **kwargs: Any) -> Any:
+            with vulkan_fallback_phase(
+                torch_module,
+                FALLBACK_PHASE_POSITIONAL_EMBEDDING_SETUP,
+            ):
+                return interpolate(*args, **kwargs)
+
+        pretrained.interpolate_pos_encoding = types.MethodType(
+            phase_interpolate_pos_encoding,
+            pretrained,
+        )
+
+    pretrained._vulkan_phase_wrapped = True
 
 
 def iter_dav2_block_slots(model: Any) -> Any:
@@ -120,6 +210,7 @@ def install_vulkan_dav2_block_owner(torch_module: Any, model: Any) -> dict[str, 
     limit = parse_owner_limit() if enabled else 0
     installed = 0
     if enabled and limit != 0:
+        context_cache = VulkanDAv2OwnerContextCache(torch_module)
         for block_index, (_container, _slot, block) in enumerate(
             iter_dav2_block_slots(model)
         ):
@@ -129,6 +220,7 @@ def install_vulkan_dav2_block_owner(torch_module: Any, model: Any) -> dict[str, 
                 torch_module,
                 block,
                 block_index,
+                context_cache,
             )
             block.forward = types.MethodType(vulkan_dav2_block_owner_forward, block)
             installed += 1
@@ -149,12 +241,14 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
     for name in (
         "cpu_fallback_count",
         "sync_readback_count",
+        "fallback_phase_counters",
         "sync_counters",
         "attention_plan_counters",
         "linear_plan_counters",
         "conv_plan_counters",
         "buffer_copy_counters",
         "vision_owner_counters",
+        "vision_owner_context_counters",
         "zero_counters",
     ):
         fn = getattr(ops, name, None)
@@ -227,7 +321,8 @@ def consume_depth_output(
         _ = synchronize_result(torch_module, device_kind, depth, device)
         return depth
     if output_mode == OUTPUT_MODE_READBACK:
-        return depth.cpu().numpy()
+        with vulkan_fallback_phase(torch_module, FALLBACK_PHASE_READBACK):
+            return depth.cpu().numpy()
     raise ValueError(f"Unsupported output_mode: {output_mode}")
 
 
@@ -321,17 +416,6 @@ def run() -> None:
     if not image_paths:
         raise FileNotFoundError(f"No JPG files found in {image_dir}")
 
-    model = DepthAnythingV2(**MODEL_CONFIGS[args.encoder])
-    state_dict = torch.load(checkpoint, map_location="cpu")
-    model.load_state_dict(state_dict)
-    model = model.eval()
-    if str(device) != "cpu":
-        model = model.to(device)
-    vulkan_block_owner = (
-        install_vulkan_dav2_block_owner(torch, model)
-        if device_kind == "vulkan"
-        else {"enabled": False, "limit": 0, "installed": 0}
-    )
     if device_kind == "vulkan" and hasattr(torch.ops, "vulkan_prepack"):
         reset_fallback = getattr(
             torch.ops.vulkan_prepack,
@@ -340,6 +424,21 @@ def run() -> None:
         )
         if reset_fallback is not None:
             reset_fallback()
+
+    with vulkan_fallback_phase(torch, FALLBACK_PHASE_MODEL_SETUP):
+        model = DepthAnythingV2(**MODEL_CONFIGS[args.encoder])
+        state_dict = torch.load(checkpoint, map_location="cpu")
+        model.load_state_dict(state_dict)
+        model = model.eval()
+        if str(device) != "cpu":
+            model = model.to(device)
+    vulkan_block_owner = (
+        install_vulkan_dav2_block_owner(torch, model)
+        if device_kind == "vulkan"
+        else {"enabled": False, "limit": 0, "installed": 0}
+    )
+    if device_kind == "vulkan":
+        install_vulkan_fallback_phase_wrappers(torch, model)
 
     raw_image = cv2.imread(str(image_path))
     if raw_image is None:

@@ -123,6 +123,19 @@ proper DAv2 MLP/backbone owner that can allocate an fc2-compatible GELU scratch
 inside the region. A local clone alias or global clone elision is still
 forbidden.
 
+The one-block DAv2 owner path now makes that backend boundary real and caches the
+created block context outside measured forward loops. Phase-scoped fallback
+accounting showed:
+
+- context unpack readbacks are `owner_context_create`
+- the positional embedding materialization is `positional_embedding_setup`
+- the owner block forward is fallback-free
+
+The owner MLP body already calls `run_linear_gelu_context` before `fc2`, so the
+next copy-provenance comparison should measure eager Vulkan versus one-block
+owner with that existing fused MLP path before adding a separate GELU scratch
+implementation.
+
 Copy elision should only be added when the provenance log proves that the copy is
 a true logical no-op, or that the downstream Vulkan consumer accepts the producer
 layout without changing aliasing or output semantics.

@@ -60,8 +60,19 @@ struct VulkanVisionOwnerCounters final {
   std::atomic<uint64_t> reject_python_bridge{0u};
 };
 
+struct VulkanVisionOwnerContextCounters final {
+  std::atomic<uint64_t> create_count{0u};
+  std::atomic<uint64_t> cache_hit_count{0u};
+  std::atomic<uint64_t> unpack_readback_count{0u};
+};
+
 VulkanVisionOwnerCounters& vulkan_vision_owner_counters() {
   static VulkanVisionOwnerCounters counters;
+  return counters;
+}
+
+VulkanVisionOwnerContextCounters& vulkan_vision_owner_context_counters() {
+  static VulkanVisionOwnerContextCounters counters;
   return counters;
 }
 
@@ -163,6 +174,9 @@ Tensor maybe_restore_tensor(
 
 Tensor cpu_snapshot_for_unpack(const Tensor& tensor, const char* reason) {
   if (tensor.is_vulkan()) {
+    vulkan_vision_owner_context_counters().unpack_readback_count.fetch_add(
+        1u,
+        std::memory_order_relaxed);
     report_vulkan_cpu_fallback(
         "vulkan_prepack::vision_context",
         reason,
@@ -5009,6 +5023,30 @@ void reset_vision_owner_counters() {
   counters.reject_python_bridge.store(0u, std::memory_order_relaxed);
 }
 
+std::vector<int64_t> vision_owner_context_counters_snapshot() {
+  const auto& counters = vulkan_vision_owner_context_counters();
+  return {
+      static_cast<int64_t>(counters.create_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.cache_hit_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.unpack_readback_count.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_vision_owner_context_counters() {
+  auto& counters = vulkan_vision_owner_context_counters();
+  counters.create_count.store(0u, std::memory_order_relaxed);
+  counters.cache_hit_count.store(0u, std::memory_order_relaxed);
+  counters.unpack_readback_count.store(0u, std::memory_order_relaxed);
+}
+
+void record_vision_owner_context_cache_hit() {
+  vulkan_vision_owner_context_counters().cache_hit_count.fetch_add(
+      1u,
+      std::memory_order_relaxed);
+}
+
 VisionBackboneBlockContext::VisionBackboneBlockContext(
     const Tensor& norm1_weight,
     const Tensor& norm1_bias,
@@ -5207,6 +5245,9 @@ create_vision_backbone_block_context(
     std::optional<Tensor>&& ls2_gamma,
     std::string label) {
   recover_after_vulkan_failure_if_needed();
+  vulkan_vision_owner_context_counters().create_count.fetch_add(
+      1u,
+      std::memory_order_relaxed);
   return c10::make_intrusive<VisionBackboneBlockContext>(
       norm1_weight,
       norm1_bias,
@@ -5251,6 +5292,9 @@ create_vision_backbone_block_context_with_attention_bias(
     std::optional<Tensor>&& ls2_gamma,
     std::string label) {
   recover_after_vulkan_failure_if_needed();
+  vulkan_vision_owner_context_counters().create_count.fetch_add(
+      1u,
+      std::memory_order_relaxed);
   return c10::make_intrusive<VisionBackboneBlockContext>(
       norm1_weight,
       norm1_bias,

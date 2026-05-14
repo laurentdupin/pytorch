@@ -3240,6 +3240,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
         self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
 
+        torch.ops.vulkan_prepack.reset_fallback_phase_counters()
+        torch.ops.vulkan_prepack.set_fallback_phase(3)
+        try:
+            cast_source.to(torch.int64).cpu()
+        finally:
+            torch.ops.vulkan_prepack.set_fallback_phase(0)
+        phase_counters = torch.ops.vulkan_prepack.fallback_phase_counters()
+        self.assertEqual(phase_counters[3], 1)
+        self.assertEqual(sum(phase_counters), 1)
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+
         direct_source = torch.empty(4, device="vulkan")
         direct_source.copy_(cast_source)
         torch.ops.vulkan_prepack.reset_fallback_counters()

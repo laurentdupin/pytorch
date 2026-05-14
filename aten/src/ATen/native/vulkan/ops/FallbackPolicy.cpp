@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -26,6 +27,51 @@ std::atomic<uint64_t>& cpu_fallback_counter() {
 std::atomic<uint64_t>& sync_readback_counter() {
   static std::atomic<uint64_t> counter{0};
   return counter;
+}
+
+struct VulkanFallbackPhaseCounters final {
+  std::atomic<uint64_t> unknown{0};
+  std::atomic<uint64_t> model_setup{0};
+  std::atomic<uint64_t> owner_context_create{0};
+  std::atomic<uint64_t> owner_forward{0};
+  std::atomic<uint64_t> decoder_setup{0};
+  std::atomic<uint64_t> positional_embedding_setup{0};
+  std::atomic<uint64_t> readback{0};
+  std::atomic<uint64_t> test_harness{0};
+};
+
+VulkanFallbackPhaseCounters& fallback_phase_counters() {
+  static VulkanFallbackPhaseCounters counters;
+  return counters;
+}
+
+VulkanFallbackPhase& fallback_phase_tls() {
+  thread_local VulkanFallbackPhase phase = VulkanFallbackPhase::Unknown;
+  return phase;
+}
+
+std::atomic<uint64_t>& fallback_phase_counter(
+    VulkanFallbackPhaseCounters& counters,
+    const VulkanFallbackPhase phase) {
+  switch (phase) {
+    case VulkanFallbackPhase::ModelSetup:
+      return counters.model_setup;
+    case VulkanFallbackPhase::OwnerContextCreate:
+      return counters.owner_context_create;
+    case VulkanFallbackPhase::OwnerForward:
+      return counters.owner_forward;
+    case VulkanFallbackPhase::DecoderSetup:
+      return counters.decoder_setup;
+    case VulkanFallbackPhase::PositionalEmbeddingSetup:
+      return counters.positional_embedding_setup;
+    case VulkanFallbackPhase::Readback:
+      return counters.readback;
+    case VulkanFallbackPhase::TestHarness:
+      return counters.test_harness;
+    case VulkanFallbackPhase::Unknown:
+      return counters.unknown;
+  }
+  return counters.unknown;
 }
 
 bool env_flag_enabled(const char* name) {
@@ -79,6 +125,28 @@ const char* fallback_kind_name(const VulkanCpuFallbackKind kind) {
   return "cpu_fallback";
 }
 
+const char* phase_name(const VulkanFallbackPhase phase) {
+  switch (phase) {
+    case VulkanFallbackPhase::Unknown:
+      return "unknown";
+    case VulkanFallbackPhase::ModelSetup:
+      return "model_setup";
+    case VulkanFallbackPhase::OwnerContextCreate:
+      return "owner_context_create";
+    case VulkanFallbackPhase::OwnerForward:
+      return "owner_forward";
+    case VulkanFallbackPhase::DecoderSetup:
+      return "decoder_setup";
+    case VulkanFallbackPhase::PositionalEmbeddingSetup:
+      return "positional_embedding_setup";
+    case VulkanFallbackPhase::Readback:
+      return "readback";
+    case VulkanFallbackPhase::TestHarness:
+      return "test_harness";
+  }
+  return "unknown";
+}
+
 std::string tensor_detail(const Tensor& tensor) {
   std::ostringstream out;
   out << "device=" << tensor.device() << " dtype=" << tensor.scalar_type()
@@ -93,7 +161,8 @@ std::string fallback_detail(
     const VulkanCpuFallbackKind kind,
     ArrayRef<Tensor> tensors) {
   std::ostringstream out;
-  out << "kind=" << fallback_kind_name(kind);
+  out << "kind=" << fallback_kind_name(kind)
+      << " phase=" << phase_name(fallback_phase_tls());
   for (const auto i : c10::irange(tensors.size())) {
     out << " tensor" << i << "={" << tensor_detail(tensors[i]) << '}';
   }
@@ -124,6 +193,48 @@ void reset_vulkan_fallback_counters() {
   sync_readback_counter().store(0, std::memory_order_relaxed);
 }
 
+std::vector<int64_t> vulkan_fallback_phase_counters_snapshot() {
+  const auto& counters = fallback_phase_counters();
+  return {
+      static_cast<int64_t>(counters.unknown.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.model_setup.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.owner_context_create.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.owner_forward.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.decoder_setup.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.positional_embedding_setup.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.readback.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.test_harness.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_vulkan_fallback_phase_counters() {
+  auto& counters = fallback_phase_counters();
+  counters.unknown.store(0, std::memory_order_relaxed);
+  counters.model_setup.store(0, std::memory_order_relaxed);
+  counters.owner_context_create.store(0, std::memory_order_relaxed);
+  counters.owner_forward.store(0, std::memory_order_relaxed);
+  counters.decoder_setup.store(0, std::memory_order_relaxed);
+  counters.positional_embedding_setup.store(0, std::memory_order_relaxed);
+  counters.readback.store(0, std::memory_order_relaxed);
+  counters.test_harness.store(0, std::memory_order_relaxed);
+}
+
+void set_vulkan_fallback_phase(const VulkanFallbackPhase phase) {
+  fallback_phase_tls() = phase;
+}
+
+VulkanFallbackPhase current_vulkan_fallback_phase() {
+  return fallback_phase_tls();
+}
+
+const char* vulkan_fallback_phase_name(const VulkanFallbackPhase phase) {
+  return phase_name(phase);
+}
+
 void report_vulkan_cpu_fallback(
     const char* op_name,
     const char* reason,
@@ -140,6 +251,8 @@ void report_vulkan_cpu_fallback(
   } else {
     cpu_fallback_counter().fetch_add(1, std::memory_order_relaxed);
   }
+  fallback_phase_counter(fallback_phase_counters(), fallback_phase_tls())
+      .fetch_add(1, std::memory_order_relaxed);
 
   const std::string detail = fallback_detail(kind, tensors);
   const std::string message = api::format_vulkan_failure(

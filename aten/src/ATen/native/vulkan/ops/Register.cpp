@@ -309,6 +309,23 @@ int64_t sync_readback_count_runtime() {
   return static_cast<int64_t>(vulkan_sync_readback_count());
 }
 
+std::vector<int64_t> fallback_phase_counters_runtime() {
+  return vulkan_fallback_phase_counters_snapshot();
+}
+
+void reset_fallback_phase_counters_runtime() {
+  reset_vulkan_fallback_phase_counters();
+}
+
+void set_fallback_phase_runtime(const int64_t phase) {
+  TORCH_CHECK(
+      phase >= static_cast<int64_t>(VulkanFallbackPhase::Unknown) &&
+          phase <= static_cast<int64_t>(VulkanFallbackPhase::TestHarness),
+      "Invalid Vulkan fallback phase: ",
+      phase);
+  set_vulkan_fallback_phase(static_cast<VulkanFallbackPhase>(phase));
+}
+
 std::vector<int64_t> sync_counters_runtime() {
   const api::VulkanSyncCounters& counters = api::vulkan_sync_counters();
   return {
@@ -364,6 +381,7 @@ std::vector<int64_t> sync_counters_runtime() {
 
 void reset_fallback_counters_runtime() {
   reset_vulkan_fallback_counters();
+  reset_vulkan_fallback_phase_counters();
   api::reset_vulkan_sync_counters();
   reset_linear_plan_counters();
   reset_conv_plan_counters();
@@ -372,6 +390,7 @@ void reset_fallback_counters_runtime() {
   reset_buffer_copy_aggregate();
   reset_clone_requirement_snapshot();
   reset_vision_owner_counters();
+  reset_vision_owner_context_counters();
   reset_zero_counters();
 }
 
@@ -1458,6 +1477,12 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::sync_readback_count() -> int"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::fallback_phase_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_fallback_phase_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::set_fallback_phase(int phase) -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::sync_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::linear_plan_counters() -> int[]"));
@@ -1481,6 +1506,12 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::vision_owner_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_vision_owner_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::vision_owner_context_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_vision_owner_context_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::record_vision_owner_context_cache_hit() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::zero_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -1584,6 +1615,15 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::sync_readback_count"),
       TORCH_FN(sync_readback_count_runtime));
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::fallback_phase_counters"),
+      TORCH_FN(fallback_phase_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_phase_counters"),
+      TORCH_FN(reset_fallback_phase_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::set_fallback_phase"),
+      TORCH_FN(set_fallback_phase_runtime));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::sync_counters"),
       TORCH_FN(sync_counters_runtime));
   m.impl(
@@ -1619,6 +1659,17 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_vision_owner_counters"),
       TORCH_FN(reset_vision_owner_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::vision_owner_context_counters"),
+      TORCH_FN(vision_owner_context_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_vision_owner_context_counters"),
+      TORCH_FN(reset_vision_owner_context_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::record_vision_owner_context_cache_hit"),
+      TORCH_FN(record_vision_owner_context_cache_hit));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::zero_counters"),
       TORCH_FN(zero_counters_snapshot));
