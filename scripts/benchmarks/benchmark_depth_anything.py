@@ -155,6 +155,7 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         "conv_plan_counters",
         "buffer_copy_counters",
         "vision_owner_counters",
+        "zero_counters",
     ):
         fn = getattr(ops, name, None)
         if fn is None:

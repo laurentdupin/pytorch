@@ -24,6 +24,7 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/ops/VulkanValueTrace.h>
+#include <ATen/native/vulkan/ops/Zero.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
 #include <torch/custom_class.h>
@@ -371,6 +372,7 @@ void reset_fallback_counters_runtime() {
   reset_buffer_copy_aggregate();
   reset_clone_requirement_snapshot();
   reset_vision_owner_counters();
+  reset_zero_counters();
 }
 
 Tensor create_kv_cache_storage_for_request(
@@ -1480,6 +1482,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_vision_owner_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::zero_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_zero_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_fallback_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
@@ -1613,6 +1619,12 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_vision_owner_counters"),
       TORCH_FN(reset_vision_owner_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::zero_counters"),
+      TORCH_FN(zero_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_zero_counters"),
+      TORCH_FN(reset_zero_counters));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_counters"),
       TORCH_FN(reset_fallback_counters_runtime));

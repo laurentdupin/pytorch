@@ -3946,6 +3946,45 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             vulkan.zero_()
             self._assert_outputs_close(torch.zeros_like(src), vulkan)
 
+    def test_zero_byte_buffer_no_cpu_fallback(self):
+        shapes = [
+            (17,),
+            (64,),
+            (12_736_512,),
+            (12_963_840,),
+            (50_946_048,),
+            (51_855_360,),
+        ]
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        torch.ops.vulkan_prepack.reset_zero_counters()
+
+        for shape in shapes:
+            expected = torch.zeros(shape, dtype=torch.uint8)
+            vulkan = torch.full(shape, 255, dtype=torch.uint8).to("vulkan")
+            vulkan.zero_()
+            torch.ops.vulkan_prepack.synchronize()
+            self.assertEqual(vulkan.cpu(), expected)
+
+        zero = torch.ops.vulkan_prepack.zero_counters()
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(zero[2], len(shapes))
+        self.assertEqual(zero[3], len(shapes))
+
+    def test_zero_float_buffer_still_no_cpu_fallback(self):
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        torch.ops.vulkan_prepack.reset_zero_counters()
+
+        expected = torch.zeros((128,), dtype=torch.float32)
+        vulkan = torch.full((128,), 3.0, dtype=torch.float32).to("vulkan")
+        vulkan.zero_()
+        torch.ops.vulkan_prepack.synchronize()
+
+        self.assertEqual(vulkan.cpu(), expected)
+        zero = torch.ops.vulkan_prepack.zero_counters()
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(zero[1], 1)
+
     def test_bfloat16_tensor_roundtrip_and_zeros(self):
         src = torch.tensor([[1.0, -0.5, 3.25], [4.0, 5.5, -6.0]], dtype=torch.bfloat16)
         vulkan = src.to("vulkan")
