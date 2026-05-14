@@ -427,7 +427,9 @@ Tensor activation(
 
 Tensor activation_buffer(
     const Tensor& self_arg,
-    const api::ShaderInfo& shader_descriptor) {
+    const api::ShaderInfo& shader_descriptor,
+    const char* op_name = "aten::activation",
+    const char* route_name = "buffer") {
   api::Context* const context = api::context();
 
   Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
@@ -474,7 +476,7 @@ Tensor activation_buffer(
       in_meta.buffer());
 
   return record_tensor_write_and_return(
-      convert(v_output), "aten::clamp", "texture", {self});
+      convert(v_output), op_name, route_name, {self});
 }
 
 Tensor activation_scalar_buffer(
@@ -837,7 +839,11 @@ Tensor gelu(const Tensor& self, std::string_view approximate) {
         v_self.storage_type() == api::StorageType::BUFFER &&
         utils::supports_buffer_elementwise_compute(v_self)) {
       utils::log_vulkan_op_hit("aten::gelu.buffer_float");
-      return ops::activation_buffer(gelu_input, VK_KERNEL(buffer_gelu_tanh));
+      return ops::activation_buffer(
+          gelu_input,
+          VK_KERNEL(buffer_gelu_tanh),
+          "aten::gelu",
+          "buffer_float");
     }
 
     const auto plan = utils::build_vulkan_execution_plan(
@@ -846,7 +852,11 @@ Tensor gelu(const Tensor& self, std::string_view approximate) {
       Tensor prepared =
           utils::prepare_vulkan_direct_buffer_execution_tensor(gelu_input, plan);
       utils::log_vulkan_op_hit("aten::gelu.buffer_float");
-      return ops::activation_buffer(prepared, VK_KERNEL(buffer_gelu_tanh));
+      return ops::activation_buffer(
+          prepared,
+          VK_KERNEL(buffer_gelu_tanh),
+          "aten::gelu",
+          "buffer_float");
     }
   }
 
@@ -936,7 +946,11 @@ Tensor softplus(
 Tensor sigmoid(const Tensor& self) {
   if (self.scalar_type() == at::kFloat) {
     Tensor buffer_input = utils::ensure_buffer_storage(self);
-    return ops::activation_buffer(buffer_input, VK_KERNEL(buffer_sigmoid));
+    return ops::activation_buffer(
+        buffer_input,
+        VK_KERNEL(buffer_sigmoid),
+        "aten::sigmoid",
+        "buffer_float");
   }
   return ops::activation(self, VK_KERNEL(sigmoid));
 }

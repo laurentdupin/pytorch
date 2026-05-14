@@ -79,6 +79,8 @@ Each aggregate row is keyed by:
 
 - reason
 - producer and consumer labels
+- producer and consumer roles, when tensor provenance or allocation labels are
+  available
 - dtype
 - source and destination sizes/strides
 - direct-buffer flags
@@ -96,6 +98,15 @@ copy traffic was distinct-buffer `explicit_copy` and `tensor_to_contiguous`
 traffic. Q/K/V-shaped attention materialization was visible, but it was not a
 top-five copy source by bytes in the stable aggregate profile, so the packed-QKV
 attention path was not added in that pass.
+
+The next classifier pass adds producer and consumer roles to separate broad
+`explicit_copy` traffic. In the stable DAv2 profile, the largest `[1,T,1536]`
+copies were classified as `aten::gelu` output copied into a clone destination,
+with a matching unknown producer copy of the same shape. That confirms the large
+shape is MLP-adjacent, but it is not safe to elide as a raw copy because the
+destination is a distinct buffer. A fused fc1+GELU bridge should only be enabled
+when the producer/consumer path can hand the fused result to fc2 without forcing
+extra clone lifetime or allocation pressure.
 
 Copy elision should only be added when the provenance log proves that the copy is
 a true logical no-op, or that the downstream Vulkan consumer accepts the producer

@@ -185,6 +185,9 @@ def parse_buffer_copy_aggregate(path: Path):
     by_reason_bytes: collections.Counter[str] = collections.Counter()
     by_shape_bytes: collections.Counter[str] = collections.Counter()
     by_pair_bytes: collections.Counter[str] = collections.Counter()
+    by_pair_count: collections.Counter[str] = collections.Counter()
+    by_pair_shape_bytes: collections.Counter[tuple[str, str]] = collections.Counter()
+    large_transformer: collections.Counter[str] = collections.Counter()
     logical_noop = 0
     if not path or not path.exists():
         return (
@@ -192,6 +195,9 @@ def parse_buffer_copy_aggregate(path: Path):
             by_reason_bytes,
             by_shape_bytes,
             by_pair_bytes,
+            by_pair_count,
+            by_pair_shape_bytes,
+            large_transformer,
             logical_noop,
         )
 
@@ -211,17 +217,39 @@ def parse_buffer_copy_aggregate(path: Path):
         )
         pair_key = (
             f"{parts.get('producer', 'unknown')} -> "
-            f"{parts.get('consumer', 'unknown')} reason={reason}"
+            f"{parts.get('consumer', 'unknown')} "
+            f"producer_role={parts.get('producer_role', 'unknown')} "
+            f"consumer_role={parts.get('consumer_role', 'unknown')} "
+            f"reason={reason}"
         )
         by_reason_count[reason] += count
         by_reason_bytes[reason] += bytes_
         by_shape_bytes[shape_key] += bytes_
         by_pair_bytes[pair_key] += bytes_
+        by_pair_count[pair_key] += count
+        by_pair_shape_bytes[(pair_key, shape_key)] += bytes_
+
+        src_sizes = parts.get("src_sizes", "")
+        if (
+            (
+                src_sizes.startswith("[1,")
+                and (
+                    src_sizes.endswith(",1536]")
+                    or src_sizes.endswith(",384]")
+                    or src_sizes.endswith(",1152]")
+                )
+            )
+            or (src_sizes.startswith("[6,") and src_sizes.endswith(",64]"))
+        ):
+            large_transformer[f"shape={src_sizes} {pair_key}"] += bytes_
     return (
         by_reason_count,
         by_reason_bytes,
         by_shape_bytes,
         by_pair_bytes,
+        by_pair_count,
+        by_pair_shape_bytes,
+        large_transformer,
         logical_noop,
     )
 
@@ -268,6 +296,17 @@ def print_bytes_counter(
     print(f"\n{title}")
     for rank, (label, bytes_) in enumerate(counts.most_common(limit), 1):
         print(f"{rank:02d} {label} bytes={bytes_} mb={bytes_ / 1048576.0:.3f}")
+
+
+def print_pair_shape_bytes(
+    title: str, counts: collections.Counter[tuple[str, str]], limit: int
+) -> None:
+    print(f"\n{title}")
+    for rank, ((pair, shape), bytes_) in enumerate(counts.most_common(limit), 1):
+        print(
+            f"{rank:02d} pair={pair} shape={shape} "
+            f"bytes={bytes_} mb={bytes_ / 1048576.0:.3f}"
+        )
 
 
 def main() -> None:
@@ -328,6 +367,9 @@ def main() -> None:
             by_reason_bytes,
             by_shape_bytes,
             by_pair_bytes,
+            by_pair_count,
+            by_pair_shape_bytes,
+            large_transformer,
             logical_noop,
         ) = parse_buffer_copy_aggregate(args.buffer_copy_aggregate)
         print_counter(
@@ -342,6 +384,21 @@ def main() -> None:
         print_bytes_counter(
             "buffer_copy_aggregate_producer_consumer_by_bytes",
             by_pair_bytes,
+            args.top,
+        )
+        print_counter(
+            "buffer_copy_aggregate_producer_consumer_by_count",
+            by_pair_count,
+            args.top,
+        )
+        print_pair_shape_bytes(
+            "buffer_copy_aggregate_shapes_within_producer_consumer_by_bytes",
+            by_pair_shape_bytes,
+            args.top,
+        )
+        print_bytes_counter(
+            "large_transformer_copy_suspects_by_bytes",
+            large_transformer,
             args.top,
         )
         print(f"\nbuffer_copy_aggregate_logical_noop_count count={logical_noop}")

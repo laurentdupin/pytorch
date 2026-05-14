@@ -55,6 +55,15 @@ void note_vulkan_buffer_copy(
     const char* producer_label,
     const char* consumer_label);
 
+void note_vulkan_buffer_copy(
+    VulkanBufferCopyReason reason,
+    const vTensor& src,
+    const vTensor& dst,
+    const char* producer_label,
+    const char* consumer_label,
+    const char* producer_role,
+    const char* consumer_role);
+
 std::vector<int64_t> buffer_copy_counters_snapshot();
 
 void reset_buffer_copy_counters();

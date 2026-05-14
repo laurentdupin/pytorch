@@ -52,6 +52,10 @@ Tensor record_tensor_alias_and_return(
 
 std::string describe_tensor_provenance(const Tensor& tensor);
 
+std::string tensor_provenance_writer(const Tensor& tensor);
+
+std::string tensor_provenance_route(const Tensor& tensor);
+
 bool check_tensor_finite(const Tensor& tensor, const char* consumer_op);
 
 } // namespace ops

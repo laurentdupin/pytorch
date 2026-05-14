@@ -67,6 +67,8 @@ struct VulkanBufferCopyDecision final {
   bool logical_noop = false;
   std::string producer_label;
   std::string consumer_label;
+  std::string producer_role;
+  std::string consumer_role;
 };
 
 struct VulkanBufferCopyAggregateValue final {
@@ -294,7 +296,9 @@ VulkanBufferCopyDecision make_buffer_copy_decision(
     const vTensor& src,
     const vTensor& dst,
     const char* producer_label,
-    const char* consumer_label) {
+    const char* consumer_label,
+    const char* producer_role,
+    const char* consumer_role) {
   const std::string producer = producer_label != nullptr
       ? std::string(producer_label)
       : api::current_runtime_label();
@@ -332,6 +336,10 @@ VulkanBufferCopyDecision make_buffer_copy_decision(
       src.has_direct_buffer_layout() == dst.has_direct_buffer_layout();
   decision.producer_label = producer.empty() ? "unknown" : producer;
   decision.consumer_label = consumer.empty() ? "unknown" : consumer;
+  decision.producer_role =
+      producer_role && producer_role[0] != '\0' ? producer_role : "unknown";
+  decision.consumer_role =
+      consumer_role && consumer_role[0] != '\0' ? consumer_role : "unknown";
   return decision;
 }
 
@@ -340,7 +348,9 @@ std::string make_buffer_copy_aggregate_key(
   std::ostringstream stream;
   stream << "reason=" << buffer_copy_reason_name(decision.reason)
          << " producer=" << decision.producer_label
+         << " producer_role=" << decision.producer_role
          << " consumer=" << decision.consumer_label
+         << " consumer_role=" << decision.consumer_role
          << " dtype=" << scalar_type_name(decision.dtype)
          << " src_sizes=" << format_compact_desc(compact_desc(decision.src_sizes))
          << " dst_sizes=" << format_compact_desc(compact_desc(decision.dst_sizes))
@@ -421,7 +431,9 @@ void append_buffer_copy_log(const VulkanBufferCopyDecision& decision) {
       << " dst_contig=" << (decision.dst_contiguous ? 1 : 0)
       << " logical_noop=" << (decision.logical_noop ? 1 : 0)
       << " producer=" << decision.producer_label
+      << " producer_role=" << decision.producer_role
       << " consumer=" << decision.consumer_label
+      << " consumer_role=" << decision.consumer_role
       << '\n';
 }
 
@@ -686,7 +698,13 @@ bool can_copy_vulkan_buffer_to_buffer_on_device(
   return src.dtype() == api::kFloat || src.dtype() == api::kByte;
 }
 
-void copy_vulkan_buffer_to_buffer_on_device(vTensor& src, vTensor& dst) {
+void copy_vulkan_buffer_to_buffer_on_device(
+    vTensor& src,
+    vTensor& dst,
+    const char* producer_label = nullptr,
+    const char* consumer_label = nullptr,
+    const char* producer_role = nullptr,
+    const char* consumer_role = nullptr) {
   TORCH_CHECK(
       can_copy_vulkan_buffer_to_buffer_on_device(src, dst),
       "Unsupported Vulkan buffer-to-buffer device copy");
@@ -700,8 +718,10 @@ void copy_vulkan_buffer_to_buffer_on_device(vTensor& src, vTensor& dst) {
       VulkanBufferCopyReason::ExplicitCopy,
       src,
       dst,
-      "aten::copy_",
-      "aten::copy_.buffer_to_buffer");
+      producer_label ? producer_label : "aten::copy_",
+      consumer_label ? consumer_label : "aten::copy_.buffer_to_buffer",
+      producer_role,
+      consumer_role);
 
   api::Context* const context = dst.context();
   if (
@@ -1241,7 +1261,31 @@ void note_vulkan_buffer_copy(
     const char* producer_label,
     const char* consumer_label) {
   note_buffer_copy_decision(make_buffer_copy_decision(
-      reason, src, dst, producer_label, consumer_label));
+      reason,
+      src,
+      dst,
+      producer_label,
+      consumer_label,
+      nullptr,
+      nullptr));
+}
+
+void note_vulkan_buffer_copy(
+    VulkanBufferCopyReason reason,
+    const vTensor& src,
+    const vTensor& dst,
+    const char* producer_label,
+    const char* consumer_label,
+    const char* producer_role,
+    const char* consumer_role) {
+  note_buffer_copy_decision(make_buffer_copy_decision(
+      reason,
+      src,
+      dst,
+      producer_label,
+      consumer_label,
+      producer_role,
+      consumer_role));
 }
 
 std::vector<int64_t> buffer_copy_counters_snapshot() {
@@ -1865,7 +1909,20 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
       if (can_direct_copy) {
         transfer_vulkan_to_vulkan(v_src, v_self);
       } else if (can_copy_vulkan_buffer_to_buffer_on_device(v_src, v_self)) {
-        copy_vulkan_buffer_to_buffer_on_device(v_src, v_self);
+        const std::string producer = tensor_provenance_writer(src_casted);
+        const std::string producer_role = tensor_provenance_route(src_casted);
+        const std::string allocation_label = api::current_allocation_label();
+        const std::string consumer =
+            (allocation_label.empty() || allocation_label == "unlabeled")
+            ? "aten::copy_.buffer_to_buffer"
+            : allocation_label + ".buffer_to_buffer";
+        copy_vulkan_buffer_to_buffer_on_device(
+            v_src,
+            v_self,
+            producer.c_str(),
+            consumer.c_str(),
+            producer_role.c_str(),
+            "raw_copy_destination");
       } else {
         c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
         c10::InferenceMode inference_mode_guard(false);

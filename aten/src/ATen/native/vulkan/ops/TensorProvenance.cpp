@@ -257,6 +257,30 @@ std::string describe_tensor_provenance(const Tensor& tensor) {
   return stream.str();
 }
 
+std::string tensor_provenance_writer(const Tensor& tensor) {
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  ProvenanceRegistry& registry = provenance_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+
+  const auto it = registry.by_storage.find(provenance_key(state));
+  if (it == registry.by_storage.end()) {
+    return "unknown";
+  }
+  return it->second.writer_op.empty() ? "unknown" : it->second.writer_op;
+}
+
+std::string tensor_provenance_route(const Tensor& tensor) {
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  ProvenanceRegistry& registry = provenance_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+
+  const auto it = registry.by_storage.find(provenance_key(state));
+  if (it == registry.by_storage.end()) {
+    return "unknown";
+  }
+  return it->second.route.empty() ? "unknown" : it->second.route;
+}
+
 bool check_tensor_finite(const Tensor& tensor, const char* consumer_op) {
   if (!tensor.defined() || tensor.numel() == 0) {
     return true;
