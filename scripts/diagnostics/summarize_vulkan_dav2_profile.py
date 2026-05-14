@@ -254,6 +254,37 @@ def parse_buffer_copy_aggregate(path: Path):
     )
 
 
+def parse_clone_requirements(path: Path):
+    by_reason_count: collections.Counter[str] = collections.Counter()
+    by_reason_bytes: collections.Counter[str] = collections.Counter()
+    by_pair_bytes: collections.Counter[str] = collections.Counter()
+    large_mlp: collections.Counter[str] = collections.Counter()
+    if not path or not path.exists():
+        return by_reason_count, by_reason_bytes, by_pair_bytes, large_mlp
+
+    for line in path.read_text(errors="replace").splitlines():
+        if not line.startswith("clone_requirement"):
+            continue
+        parts = parse_kv_line(line)
+        reason = parts.get("reason", "unknown")
+        count = int(parts.get("count", "0"))
+        bytes_ = int(parts.get("bytes", "0"))
+        pair_key = (
+            f"{parts.get('producer', 'unknown')} -> "
+            f"{parts.get('consumer', 'unknown')} "
+            f"producer_role={parts.get('producer_role', 'unknown')} "
+            f"consumer_role={parts.get('consumer_role', 'unknown')} "
+            f"sizes={parts.get('sizes', '?')}"
+        )
+        by_reason_count[reason] += count
+        by_reason_bytes[reason] += bytes_
+        by_pair_bytes[f"reason={reason} {pair_key}"] += bytes_
+        sizes = parts.get("sizes", "")
+        if sizes.startswith("[1,") and sizes.endswith(",1536]"):
+            large_mlp[f"reason={reason} {pair_key}"] += bytes_
+    return by_reason_count, by_reason_bytes, by_pair_bytes, large_mlp
+
+
 def print_top_gpu(by_name, limit: int) -> None:
     total_all = sum(data["total_ns"] for data in by_name.values())
     rows = []
@@ -318,6 +349,7 @@ def main() -> None:
     parser.add_argument("--attention-plan", type=Path)
     parser.add_argument("--buffer-copy-log", type=Path)
     parser.add_argument("--buffer-copy-aggregate", type=Path)
+    parser.add_argument("--clone-requirement", type=Path)
     parser.add_argument("--sync-log", type=Path)
     parser.add_argument("--cpu-timeline-summary", type=Path)
     parser.add_argument("--top", type=int, default=30)
@@ -402,6 +434,27 @@ def main() -> None:
             args.top,
         )
         print(f"\nbuffer_copy_aggregate_logical_noop_count count={logical_noop}")
+    if args.clone_requirement:
+        (
+            by_reason_count,
+            by_reason_bytes,
+            by_pair_bytes,
+            large_mlp,
+        ) = parse_clone_requirements(args.clone_requirement)
+        print_counter(
+            "clone_requirements_by_count", by_reason_count, args.top
+        )
+        print_bytes_counter(
+            "clone_requirements_by_bytes", by_reason_bytes, args.top
+        )
+        print_bytes_counter(
+            "clone_requirements_producer_consumer_by_bytes",
+            by_pair_bytes,
+            args.top,
+        )
+        print_bytes_counter(
+            "large_mlp_clone_requirements_by_bytes", large_mlp, args.top
+        )
     if args.sync_log:
         print_counter("sync_events", parse_sync_log(args.sync_log), args.top)
 

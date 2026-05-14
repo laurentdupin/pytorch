@@ -72,6 +72,10 @@ std::vector<std::string> buffer_copy_aggregate_snapshot();
 
 void reset_buffer_copy_aggregate();
 
+std::vector<std::string> clone_requirement_snapshot();
+
+void reset_clone_requirement_snapshot();
+
 vTensor to_vulkan(
     at::Tensor& src,
     const api::StorageType storage_type = api::StorageType::TEXTURE_3D,

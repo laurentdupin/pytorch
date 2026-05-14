@@ -108,6 +108,21 @@ destination is a distinct buffer. A fused fc1+GELU bridge should only be enabled
 when the producer/consumer path can hand the fused result to fc2 without forcing
 extra clone lifetime or allocation pressure.
 
+Clone requirement profiling is exposed through:
+
+```
+torch.ops.vulkan_prepack.clone_requirement_snapshot()
+torch.ops.vulkan_prepack.reset_clone_requirement_snapshot()
+```
+
+The DAv2 MLP `[1,T,1536]` GELU clone is classified as `fc2_input_preparation`.
+The real DAv2 run that produced this clone did not go through the existing
+`VisionBackboneProgram` owner, so fc1 and fc2 packed contexts were not available
+together at the backend boundary. The safe next implementation is therefore a
+proper DAv2 MLP/backbone owner that can allocate an fc2-compatible GELU scratch
+inside the region. A local clone alias or global clone elision is still
+forbidden.
+
 Copy elision should only be added when the provenance log proves that the copy is
 a true logical no-op, or that the downstream Vulkan consumer accepts the producer
 layout without changing aliasing or output semantics.

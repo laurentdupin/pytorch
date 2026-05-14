@@ -77,6 +77,26 @@ struct VulkanBufferCopyAggregateValue final {
   uint64_t logical_noop = 0u;
 };
 
+enum class VulkanCloneRequirementReason : uint8_t {
+  Unknown = 0,
+  UserVisibleAtenClone,
+  InternalDirectBufferPreparation,
+  LinearInputPreparation,
+  Fc2InputPreparation,
+  TensorToContiguous,
+  StrideNormalization,
+  StorageOffsetNormalization,
+  LayoutConversion,
+  AliasBreakRequired,
+  DistinctOutputRequired,
+  ConsumerDoesNotAcceptProducerLayout,
+};
+
+struct VulkanCloneRequirementAggregateValue final {
+  uint64_t count = 0u;
+  uint64_t bytes = 0u;
+};
+
 c10::MemoryFormat memory_format_for_buffer_layout(
     const api::GPUMemoryLayout memory_layout);
 
@@ -126,6 +146,37 @@ bool buffer_copy_aggregate_enabled() {
         std::string(env) != "false" && std::string(env) != "FALSE";
   }();
   return enabled;
+}
+
+const char* clone_requirement_reason_name(
+    const VulkanCloneRequirementReason reason) {
+  switch (reason) {
+    case VulkanCloneRequirementReason::Unknown:
+      return "unknown";
+    case VulkanCloneRequirementReason::UserVisibleAtenClone:
+      return "user_visible_aten_clone";
+    case VulkanCloneRequirementReason::InternalDirectBufferPreparation:
+      return "internal_direct_buffer_preparation";
+    case VulkanCloneRequirementReason::LinearInputPreparation:
+      return "linear_input_preparation";
+    case VulkanCloneRequirementReason::Fc2InputPreparation:
+      return "fc2_input_preparation";
+    case VulkanCloneRequirementReason::TensorToContiguous:
+      return "tensor_to_contiguous";
+    case VulkanCloneRequirementReason::StrideNormalization:
+      return "stride_normalization";
+    case VulkanCloneRequirementReason::StorageOffsetNormalization:
+      return "storage_offset_normalization";
+    case VulkanCloneRequirementReason::LayoutConversion:
+      return "layout_conversion";
+    case VulkanCloneRequirementReason::AliasBreakRequired:
+      return "alias_break_required";
+    case VulkanCloneRequirementReason::DistinctOutputRequired:
+      return "distinct_output_required";
+    case VulkanCloneRequirementReason::ConsumerDoesNotAcceptProducerLayout:
+      return "consumer_does_not_accept_producer_layout";
+  }
+  return "unknown";
 }
 
 const char* buffer_copy_reason_name(const VulkanBufferCopyReason reason) {
@@ -408,6 +459,102 @@ VulkanBufferCopyAggregateProfiler& buffer_copy_aggregate_profiler() {
   return profiler;
 }
 
+VulkanCloneRequirementReason classify_clone_requirement(
+    const VulkanBufferCopyDecision& decision) {
+  if (!has_token(decision.consumer_label, "clone")) {
+    return VulkanCloneRequirementReason::Unknown;
+  }
+  if (decision.src_storage_offset != 0 || decision.dst_storage_offset != 0) {
+    return VulkanCloneRequirementReason::StorageOffsetNormalization;
+  }
+  if (decision.src_strides != decision.dst_strides) {
+    return VulkanCloneRequirementReason::StrideNormalization;
+  }
+  if (decision.src_direct_buffer != decision.dst_direct_buffer) {
+    return VulkanCloneRequirementReason::InternalDirectBufferPreparation;
+  }
+  if (
+      decision.producer_label == "aten::gelu" &&
+      decision.src_sizes.size() == 3 && decision.src_sizes[0] == 1 &&
+      decision.src_sizes[2] == 1536) {
+    return VulkanCloneRequirementReason::Fc2InputPreparation;
+  }
+  if (
+      has_token(decision.producer_label, "linear") ||
+      has_token(decision.producer_role, "linear")) {
+    return VulkanCloneRequirementReason::LinearInputPreparation;
+  }
+  return VulkanCloneRequirementReason::UserVisibleAtenClone;
+}
+
+std::string make_clone_requirement_key(
+    const VulkanBufferCopyDecision& decision,
+    const VulkanCloneRequirementReason reason) {
+  std::ostringstream stream;
+  stream << "reason=" << clone_requirement_reason_name(reason)
+         << " producer=" << decision.producer_label
+         << " producer_role=" << decision.producer_role
+         << " consumer=" << decision.consumer_label
+         << " consumer_role=" << decision.consumer_role
+         << " dtype=" << scalar_type_name(decision.dtype)
+         << " sizes=" << format_compact_desc(compact_desc(decision.src_sizes))
+         << " src_strides="
+         << format_compact_desc(compact_desc(decision.src_strides))
+         << " dst_strides="
+         << format_compact_desc(compact_desc(decision.dst_strides))
+         << " src_direct=" << (decision.src_direct_buffer ? 1 : 0)
+         << " dst_direct=" << (decision.dst_direct_buffer ? 1 : 0)
+         << " src_offset=" << decision.src_storage_offset
+         << " dst_offset=" << decision.dst_storage_offset;
+  return stream.str();
+}
+
+class VulkanCloneRequirementProfiler final {
+ public:
+  void record(const VulkanBufferCopyDecision& decision) {
+    const VulkanCloneRequirementReason reason =
+        classify_clone_requirement(decision);
+    if (reason == VulkanCloneRequirementReason::Unknown) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto& value = entries_[make_clone_requirement_key(decision, reason)];
+    value.count += 1u;
+    value.bytes += static_cast<uint64_t>(std::max<int64_t>(decision.bytes, 0));
+  }
+
+  std::vector<std::string> snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> out;
+    out.reserve(entries_.size());
+    for (const auto& entry : entries_) {
+      std::ostringstream stream;
+      stream << "clone_requirement " << entry.first
+             << " count=" << entry.second.count
+             << " bytes=" << entry.second.bytes;
+      out.emplace_back(stream.str());
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+  }
+
+  void reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_.clear();
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::unordered_map<std::string, VulkanCloneRequirementAggregateValue>
+      entries_;
+};
+
+VulkanCloneRequirementProfiler& clone_requirement_profiler() {
+  static VulkanCloneRequirementProfiler profiler;
+  return profiler;
+}
+
 void append_buffer_copy_log(const VulkanBufferCopyDecision& decision) {
   if (!buffer_copy_logging_enabled()) {
     return;
@@ -496,6 +643,7 @@ void note_buffer_copy_decision(const VulkanBufferCopyDecision& decision) {
       break;
   }
   buffer_copy_aggregate_profiler().record(decision);
+  clone_requirement_profiler().record(decision);
   append_buffer_copy_log(decision);
 }
 
@@ -1346,6 +1494,14 @@ std::vector<std::string> buffer_copy_aggregate_snapshot() {
 
 void reset_buffer_copy_aggregate() {
   buffer_copy_aggregate_profiler().reset();
+}
+
+std::vector<std::string> clone_requirement_snapshot() {
+  return clone_requirement_profiler().snapshot();
+}
+
+void reset_clone_requirement_snapshot() {
+  clone_requirement_profiler().reset();
 }
 
 void memcpy_to_mapping(const Tensor& src, api::MemoryMap& dst_mapping) {
