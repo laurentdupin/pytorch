@@ -168,7 +168,11 @@ VulkanAttentionPlanCounters& attention_plan_counters() {
 bool vulkan_attention_qtile_enabled() {
   static const bool enabled = []() {
     const char* const env = std::getenv("PYTORCH_VULKAN_ATTENTION_QTILE");
-    return env != nullptr && std::string(env) != "0";
+    if (env == nullptr) {
+      return true;
+    }
+    const std::string value(env);
+    return value != "0" && value != "false" && value != "FALSE";
   }();
   return enabled;
 }

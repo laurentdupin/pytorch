@@ -2,8 +2,10 @@
 
 #ifdef USE_VULKAN_API
 
+#include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <ATen/native/vulkan/ops/Common.h>
 
@@ -21,6 +23,41 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst);
 void pack_vulkan_to_cpu(vTensor& src, Tensor& dst);
 
 Tensor& copy_(Tensor& dst, const Tensor& src);
+
+enum class VulkanBufferCopyReason : uint8_t {
+  Unknown = 0,
+  ExplicitCopy,
+  TensorToContiguous,
+  ViewMaterialization,
+  ReshapeMaterialization,
+  PermuteMaterialization,
+  TransposeMaterialization,
+  LayoutConversion,
+  DirectBufferConversion,
+  PackedLayoutConversion,
+  StorageOffsetNormalization,
+  StrideNormalization,
+  AttentionInputMaterialization,
+  AttentionOutputMaterialization,
+  LinearInputMaterialization,
+  LinearOutputMaterialization,
+  ConvInputMaterialization,
+  ConvOutputMaterialization,
+  DecoderFeatureMaterialization,
+  BackboneTokenMaterialization,
+  ReadbackPreparation,
+};
+
+void note_vulkan_buffer_copy(
+    VulkanBufferCopyReason reason,
+    const vTensor& src,
+    const vTensor& dst,
+    const char* producer_label,
+    const char* consumer_label);
+
+std::vector<int64_t> buffer_copy_counters_snapshot();
+
+void reset_buffer_copy_counters();
 
 vTensor to_vulkan(
     at::Tensor& src,

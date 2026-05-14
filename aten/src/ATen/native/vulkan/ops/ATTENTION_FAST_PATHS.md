@@ -12,10 +12,11 @@ scaled_dot_product_scores_value_buffer_float
 That shader computes one query row per workgroup and uses an online softmax loop
 over source tokens while directly accumulating the value output.
 
-The query-tiled path is enabled only with:
+The query-tiled path is default-on for the strict safe shape class. It can be
+disabled with:
 
 ```
-PYTORCH_VULKAN_ATTENTION_QTILE=1
+PYTORCH_VULKAN_ATTENTION_QTILE=0
 ```
 
 It routes safe head64 FP32 direct-buffer attention to the existing query-4 shader:
@@ -42,7 +43,7 @@ tile. Logical output shape is unchanged.
 Focused test:
 
 ```
-python test/test_vulkan.py -k test_dinov2_attention_qtile_matches_numpy_reference
+python test/test_vulkan.py -k test_dinov2_attention_qtile
 ```
 
 The test covers the DINOv2/DAv2-style shape:
@@ -81,7 +82,6 @@ No CPU fallback or queue idle was observed.
 
 ## Remaining limitations
 
-- The qtile path is disabled by default.
 - Query tile sizes 2 and 8 are not added yet; the current validated variant is
   query tile 4.
 - Masked, causal, dropout, BF16, and KV-cache attention remain on existing paths.

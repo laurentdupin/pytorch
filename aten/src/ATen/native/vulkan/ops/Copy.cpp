@@ -12,6 +12,8 @@
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/vulkan/Context.h>
 #include <c10/util/irange.h>
+#include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -26,6 +28,44 @@ namespace {
 
 constexpr int64_t kLargeFloatingMatrixNumelThreshold = 1 << 20;
 
+struct VulkanBufferCopyCounters final {
+  std::atomic<uint64_t> total{0u};
+  std::atomic<uint64_t> total_bytes{0u};
+  std::atomic<uint64_t> explicit_copy{0u};
+  std::atomic<uint64_t> contiguous{0u};
+  std::atomic<uint64_t> view_materialization{0u};
+  std::atomic<uint64_t> reshape_materialization{0u};
+  std::atomic<uint64_t> permute_materialization{0u};
+  std::atomic<uint64_t> transpose_materialization{0u};
+  std::atomic<uint64_t> layout_conversion{0u};
+  std::atomic<uint64_t> attention_materialization{0u};
+  std::atomic<uint64_t> linear_materialization{0u};
+  std::atomic<uint64_t> conv_materialization{0u};
+  std::atomic<uint64_t> decoder_materialization{0u};
+  std::atomic<uint64_t> backbone_materialization{0u};
+  std::atomic<uint64_t> logical_noop_copy{0u};
+};
+
+struct VulkanBufferCopyDecision final {
+  VulkanBufferCopyReason reason = VulkanBufferCopyReason::Unknown;
+  int64_t numel = 0;
+  int64_t bytes = 0;
+  std::vector<int64_t> src_sizes;
+  std::vector<int64_t> dst_sizes;
+  std::vector<int64_t> src_strides;
+  std::vector<int64_t> dst_strides;
+  int64_t src_storage_offset = 0;
+  int64_t dst_storage_offset = 0;
+  ScalarType dtype = ScalarType::Undefined;
+  bool src_direct_buffer = false;
+  bool dst_direct_buffer = false;
+  bool src_contiguous = false;
+  bool dst_contiguous = false;
+  bool logical_noop = false;
+  const char* producer_label = nullptr;
+  const char* consumer_label = nullptr;
+};
+
 c10::MemoryFormat memory_format_for_buffer_layout(
     const api::GPUMemoryLayout memory_layout);
 
@@ -37,6 +77,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
     const int64_t storage_offset,
     const bool clear_destination);
 
+std::string format_sizes(const std::vector<int64_t>& sizes);
+
 const std::string& copy_sync_log_path() {
   static const std::string path = []() {
     const char* env = std::getenv("PYTORCH_VULKAN_COPY_SYNC_LOG");
@@ -47,6 +89,299 @@ const std::string& copy_sync_log_path() {
 
 bool copy_sync_logging_enabled() {
   return !copy_sync_log_path().empty();
+}
+
+VulkanBufferCopyCounters& buffer_copy_counters() {
+  static VulkanBufferCopyCounters counters;
+  return counters;
+}
+
+const std::string& buffer_copy_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_BUFFER_COPY_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool buffer_copy_logging_enabled() {
+  return !buffer_copy_log_path().empty();
+}
+
+const char* buffer_copy_reason_name(const VulkanBufferCopyReason reason) {
+  switch (reason) {
+    case VulkanBufferCopyReason::Unknown:
+      return "unknown";
+    case VulkanBufferCopyReason::ExplicitCopy:
+      return "explicit_copy";
+    case VulkanBufferCopyReason::TensorToContiguous:
+      return "tensor_to_contiguous";
+    case VulkanBufferCopyReason::ViewMaterialization:
+      return "view_materialization";
+    case VulkanBufferCopyReason::ReshapeMaterialization:
+      return "reshape_materialization";
+    case VulkanBufferCopyReason::PermuteMaterialization:
+      return "permute_materialization";
+    case VulkanBufferCopyReason::TransposeMaterialization:
+      return "transpose_materialization";
+    case VulkanBufferCopyReason::LayoutConversion:
+      return "layout_conversion";
+    case VulkanBufferCopyReason::DirectBufferConversion:
+      return "direct_buffer_conversion";
+    case VulkanBufferCopyReason::PackedLayoutConversion:
+      return "packed_layout_conversion";
+    case VulkanBufferCopyReason::StorageOffsetNormalization:
+      return "storage_offset_normalization";
+    case VulkanBufferCopyReason::StrideNormalization:
+      return "stride_normalization";
+    case VulkanBufferCopyReason::AttentionInputMaterialization:
+      return "attention_input_materialization";
+    case VulkanBufferCopyReason::AttentionOutputMaterialization:
+      return "attention_output_materialization";
+    case VulkanBufferCopyReason::LinearInputMaterialization:
+      return "linear_input_materialization";
+    case VulkanBufferCopyReason::LinearOutputMaterialization:
+      return "linear_output_materialization";
+    case VulkanBufferCopyReason::ConvInputMaterialization:
+      return "conv_input_materialization";
+    case VulkanBufferCopyReason::ConvOutputMaterialization:
+      return "conv_output_materialization";
+    case VulkanBufferCopyReason::DecoderFeatureMaterialization:
+      return "decoder_feature_materialization";
+    case VulkanBufferCopyReason::BackboneTokenMaterialization:
+      return "backbone_token_materialization";
+    case VulkanBufferCopyReason::ReadbackPreparation:
+      return "readback_preparation";
+  }
+  return "unknown";
+}
+
+const char* scalar_type_name(const ScalarType dtype) {
+  switch (dtype) {
+    case ScalarType::Float:
+      return "float";
+    case ScalarType::BFloat16:
+      return "bfloat16";
+    case ScalarType::Half:
+      return "half";
+    case ScalarType::Byte:
+      return "byte";
+    case ScalarType::Char:
+      return "char";
+    case ScalarType::Int:
+      return "int";
+    case ScalarType::Long:
+      return "long";
+    case ScalarType::Bool:
+      return "bool";
+    case ScalarType::Undefined:
+      return "undefined";
+    default:
+      return "other";
+  }
+}
+
+bool has_token(const std::string& text, const char* token) {
+  return text.find(token) != std::string::npos;
+}
+
+bool is_contiguous_desc(
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& strides) {
+  if (sizes.size() != strides.size()) {
+    return false;
+  }
+  int64_t expected = 1;
+  for (int64_t dim = static_cast<int64_t>(sizes.size()) - 1; dim >= 0; --dim) {
+    if (sizes[dim] <= 1) {
+      continue;
+    }
+    if (strides[dim] != expected) {
+      return false;
+    }
+    expected *= sizes[dim];
+  }
+  return true;
+}
+
+VulkanBufferCopyReason refine_buffer_copy_reason(
+    const VulkanBufferCopyReason reason,
+    const std::string& producer,
+    const std::string& consumer) {
+  const std::string labels = producer + " " + consumer;
+  if (has_token(labels, "attention")) {
+    return has_token(labels, "output")
+        ? VulkanBufferCopyReason::AttentionOutputMaterialization
+        : VulkanBufferCopyReason::AttentionInputMaterialization;
+  }
+  if (has_token(labels, "linear") || has_token(labels, "mm")) {
+    return has_token(labels, "output")
+        ? VulkanBufferCopyReason::LinearOutputMaterialization
+        : VulkanBufferCopyReason::LinearInputMaterialization;
+  }
+  if (has_token(labels, "conv")) {
+    return has_token(labels, "output")
+        ? VulkanBufferCopyReason::ConvOutputMaterialization
+        : VulkanBufferCopyReason::ConvInputMaterialization;
+  }
+  if (has_token(labels, "decoder")) {
+    return VulkanBufferCopyReason::DecoderFeatureMaterialization;
+  }
+  if (has_token(labels, "backbone") || has_token(labels, "token")) {
+    return VulkanBufferCopyReason::BackboneTokenMaterialization;
+  }
+  if (has_token(labels, "contiguous")) {
+    return VulkanBufferCopyReason::TensorToContiguous;
+  }
+  if (has_token(labels, "reshape")) {
+    return VulkanBufferCopyReason::ReshapeMaterialization;
+  }
+  if (has_token(labels, "permute")) {
+    return VulkanBufferCopyReason::PermuteMaterialization;
+  }
+  if (has_token(labels, "transpose")) {
+    return VulkanBufferCopyReason::TransposeMaterialization;
+  }
+  if (has_token(labels, "materialize")) {
+    return VulkanBufferCopyReason::ViewMaterialization;
+  }
+  return reason;
+}
+
+VulkanBufferCopyDecision make_buffer_copy_decision(
+    VulkanBufferCopyReason reason,
+    const vTensor& src,
+    const vTensor& dst,
+    const char* producer_label,
+    const char* consumer_label) {
+  const std::string producer = producer_label != nullptr
+      ? std::string(producer_label)
+      : api::current_runtime_label();
+  const std::string consumer = consumer_label != nullptr
+      ? std::string(consumer_label)
+      : api::current_allocation_label();
+  reason = refine_buffer_copy_reason(reason, producer, consumer);
+
+  VulkanBufferCopyDecision decision;
+  decision.reason = reason;
+  decision.numel = src.numel();
+  decision.bytes = src.gpu_nbytes();
+  decision.src_sizes = src.sizes();
+  decision.dst_sizes = dst.sizes();
+  decision.src_strides = src.logical_strides();
+  decision.dst_strides = dst.logical_strides();
+  decision.src_storage_offset = src.storage_offset();
+  decision.dst_storage_offset = dst.storage_offset();
+  decision.dtype = convert_dtype(src.dtype());
+  decision.src_direct_buffer = src.has_direct_buffer_layout();
+  decision.dst_direct_buffer = dst.has_direct_buffer_layout();
+  decision.src_contiguous =
+      is_contiguous_desc(decision.src_sizes, decision.src_strides);
+  decision.dst_contiguous =
+      is_contiguous_desc(decision.dst_sizes, decision.dst_strides);
+  const bool same_buffer_storage =
+      src.storage_type() == api::StorageType::BUFFER &&
+      dst.storage_type() == api::StorageType::BUFFER &&
+      &src.buffer() == &dst.buffer();
+  decision.logical_noop =
+      same_buffer_storage && src.dtype() == dst.dtype() &&
+      src.sizes() == dst.sizes() &&
+      src.logical_strides() == dst.logical_strides() &&
+      src.storage_offset() == dst.storage_offset() &&
+      src.has_direct_buffer_layout() == dst.has_direct_buffer_layout();
+  decision.producer_label = producer_label;
+  decision.consumer_label = consumer_label;
+  return decision;
+}
+
+void append_buffer_copy_log(const VulkanBufferCopyDecision& decision) {
+  if (!buffer_copy_logging_enabled()) {
+    return;
+  }
+
+  std::ofstream out(buffer_copy_log_path(), std::ios::app);
+  out << "buffer_copy"
+      << " reason=" << buffer_copy_reason_name(decision.reason)
+      << " numel=" << decision.numel
+      << " bytes=" << decision.bytes
+      << " dtype=" << scalar_type_name(decision.dtype)
+      << " src_sizes=" << format_sizes(decision.src_sizes)
+      << " dst_sizes=" << format_sizes(decision.dst_sizes)
+      << " src_strides=" << format_sizes(decision.src_strides)
+      << " dst_strides=" << format_sizes(decision.dst_strides)
+      << " src_offset=" << decision.src_storage_offset
+      << " dst_offset=" << decision.dst_storage_offset
+      << " src_direct=" << (decision.src_direct_buffer ? 1 : 0)
+      << " dst_direct=" << (decision.dst_direct_buffer ? 1 : 0)
+      << " src_contig=" << (decision.src_contiguous ? 1 : 0)
+      << " dst_contig=" << (decision.dst_contiguous ? 1 : 0)
+      << " logical_noop=" << (decision.logical_noop ? 1 : 0)
+      << " producer="
+      << (decision.producer_label ? decision.producer_label : "unknown")
+      << " consumer="
+      << (decision.consumer_label ? decision.consumer_label : "unknown")
+      << '\n';
+}
+
+void note_buffer_copy_decision(const VulkanBufferCopyDecision& decision) {
+  VulkanBufferCopyCounters& counters = buffer_copy_counters();
+  counters.total.fetch_add(1u, std::memory_order_relaxed);
+  counters.total_bytes.fetch_add(
+      static_cast<uint64_t>(std::max<int64_t>(decision.bytes, 0)),
+      std::memory_order_relaxed);
+  if (decision.logical_noop) {
+    counters.logical_noop_copy.fetch_add(1u, std::memory_order_relaxed);
+  }
+  switch (decision.reason) {
+    case VulkanBufferCopyReason::ExplicitCopy:
+      counters.explicit_copy.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::TensorToContiguous:
+      counters.contiguous.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::ViewMaterialization:
+      counters.view_materialization.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::ReshapeMaterialization:
+      counters.reshape_materialization.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::PermuteMaterialization:
+      counters.permute_materialization.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::TransposeMaterialization:
+      counters.transpose_materialization.fetch_add(
+          1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::LayoutConversion:
+    case VulkanBufferCopyReason::DirectBufferConversion:
+    case VulkanBufferCopyReason::PackedLayoutConversion:
+    case VulkanBufferCopyReason::StorageOffsetNormalization:
+    case VulkanBufferCopyReason::StrideNormalization:
+      counters.layout_conversion.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::AttentionInputMaterialization:
+    case VulkanBufferCopyReason::AttentionOutputMaterialization:
+      counters.attention_materialization.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::LinearInputMaterialization:
+    case VulkanBufferCopyReason::LinearOutputMaterialization:
+      counters.linear_materialization.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::ConvInputMaterialization:
+    case VulkanBufferCopyReason::ConvOutputMaterialization:
+      counters.conv_materialization.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::DecoderFeatureMaterialization:
+      counters.decoder_materialization.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::BackboneTokenMaterialization:
+      counters.backbone_materialization.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanBufferCopyReason::ReadbackPreparation:
+    case VulkanBufferCopyReason::Unknown:
+      break;
+  }
+  append_buffer_copy_log(decision);
 }
 
 std::string readback_buffer_label(const char* suffix) {
@@ -258,6 +593,12 @@ void copy_vulkan_buffer_to_buffer_on_device(vTensor& src, vTensor& dst) {
   }
 
   utils::log_vulkan_op_hit("aten::copy_.buffer_to_buffer");
+  note_vulkan_buffer_copy(
+      VulkanBufferCopyReason::ExplicitCopy,
+      src,
+      dst,
+      "aten::copy_",
+      "aten::copy_.buffer_to_buffer");
 
   api::Context* const context = dst.context();
   if (
@@ -789,6 +1130,68 @@ bool copy_vtensor_buffer_to_staging(
 //
 // Utility functions for memcpy
 //
+
+void note_vulkan_buffer_copy(
+    VulkanBufferCopyReason reason,
+    const vTensor& src,
+    const vTensor& dst,
+    const char* producer_label,
+    const char* consumer_label) {
+  note_buffer_copy_decision(make_buffer_copy_decision(
+      reason, src, dst, producer_label, consumer_label));
+}
+
+std::vector<int64_t> buffer_copy_counters_snapshot() {
+  const VulkanBufferCopyCounters& counters = buffer_copy_counters();
+  return {
+      static_cast<int64_t>(counters.total.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.total_bytes.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.explicit_copy.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.contiguous.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.view_materialization.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reshape_materialization.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.permute_materialization.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.transpose_materialization.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.layout_conversion.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.attention_materialization.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.linear_materialization.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.conv_materialization.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.decoder_materialization.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.backbone_materialization.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.logical_noop_copy.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_buffer_copy_counters() {
+  VulkanBufferCopyCounters& counters = buffer_copy_counters();
+  counters.total.store(0u, std::memory_order_relaxed);
+  counters.total_bytes.store(0u, std::memory_order_relaxed);
+  counters.explicit_copy.store(0u, std::memory_order_relaxed);
+  counters.contiguous.store(0u, std::memory_order_relaxed);
+  counters.view_materialization.store(0u, std::memory_order_relaxed);
+  counters.reshape_materialization.store(0u, std::memory_order_relaxed);
+  counters.permute_materialization.store(0u, std::memory_order_relaxed);
+  counters.transpose_materialization.store(0u, std::memory_order_relaxed);
+  counters.layout_conversion.store(0u, std::memory_order_relaxed);
+  counters.attention_materialization.store(0u, std::memory_order_relaxed);
+  counters.linear_materialization.store(0u, std::memory_order_relaxed);
+  counters.conv_materialization.store(0u, std::memory_order_relaxed);
+  counters.decoder_materialization.store(0u, std::memory_order_relaxed);
+  counters.backbone_materialization.store(0u, std::memory_order_relaxed);
+  counters.logical_noop_copy.store(0u, std::memory_order_relaxed);
+}
 
 void memcpy_to_mapping(const Tensor& src, api::MemoryMap& dst_mapping) {
   if (src.dtype() == at::kFloat) {

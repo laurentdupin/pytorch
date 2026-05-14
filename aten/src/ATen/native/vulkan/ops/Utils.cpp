@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
@@ -731,6 +732,12 @@ vTensor materialize_to_contiguous_buffer(
       v_in.storage_type() == api::StorageType::BUFFER &&
       v_in.dtype() == api::kFloat) {
     vTensor v_src = v_in;
+    note_vulkan_buffer_copy(
+        VulkanBufferCopyReason::LayoutConversion,
+        v_src,
+        v_out,
+        "materialize_to_contiguous_buffer",
+        "buffer_to_buffer");
     api::PipelineBarrier pipeline_barrier{};
     const api::utils::uvec3 global_size = {
         api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_out.numel(), 1)),
@@ -942,6 +949,12 @@ Tensor& copy_buffer_tensor_direct_(Tensor& dst, const Tensor& src) {
         detail.str());
   }
 
+  note_vulkan_buffer_copy(
+      VulkanBufferCopyReason::ExplicitCopy,
+      v_src,
+      v_dst,
+      "copy_buffer_tensor_direct_",
+      "raw_buffer_copy");
   api::PipelineBarrier pipeline_barrier{};
   api::Context* const context = api::context();
   context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(

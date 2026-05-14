@@ -4,6 +4,7 @@
 #else
 #include <ATen/ops/cat.h>
 #endif
+#include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -185,6 +186,12 @@ bool cat_buffer_direct_out_impl(
         1u,
         1u,
     };
+    note_vulkan_buffer_copy(
+        VulkanBufferCopyReason::ViewMaterialization,
+        v_input,
+        v_output_view,
+        "aten::cat",
+        "buffer_to_buffer");
     context->submit_compute_job(
         VK_KERNEL(buffer_to_buffer),
         pipeline_barrier,

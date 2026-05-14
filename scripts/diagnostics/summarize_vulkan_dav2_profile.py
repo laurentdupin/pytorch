@@ -134,6 +134,52 @@ def parse_sync_log(path: Path) -> collections.Counter[str]:
     return counts
 
 
+def parse_buffer_copy_log(path: Path):
+    by_reason_count: collections.Counter[str] = collections.Counter()
+    by_reason_bytes: collections.Counter[str] = collections.Counter()
+    by_shape_bytes: collections.Counter[str] = collections.Counter()
+    by_pair_bytes: collections.Counter[str] = collections.Counter()
+    logical_noop = 0
+    if not path or not path.exists():
+        return (
+            by_reason_count,
+            by_reason_bytes,
+            by_shape_bytes,
+            by_pair_bytes,
+            logical_noop,
+        )
+
+    for line in path.read_text(errors="replace").splitlines():
+        if not line.startswith("buffer_copy"):
+            continue
+        parts = parse_kv_line(line)
+        reason = parts.get("reason", "unknown")
+        bytes_ = int(parts.get("bytes", "0"))
+        if parts.get("logical_noop") == "1":
+            logical_noop += 1
+        shape_key = (
+            f"src={parts.get('src_sizes', '?')} dst={parts.get('dst_sizes', '?')} "
+            f"src_strides={parts.get('src_strides', '?')} "
+            f"dst_strides={parts.get('dst_strides', '?')} "
+            f"dtype={parts.get('dtype', '?')}"
+        )
+        pair_key = (
+            f"{parts.get('producer', 'unknown')} -> "
+            f"{parts.get('consumer', 'unknown')} reason={reason}"
+        )
+        by_reason_count[reason] += 1
+        by_reason_bytes[reason] += bytes_
+        by_shape_bytes[shape_key] += bytes_
+        by_pair_bytes[pair_key] += bytes_
+    return (
+        by_reason_count,
+        by_reason_bytes,
+        by_shape_bytes,
+        by_pair_bytes,
+        logical_noop,
+    )
+
+
 def print_top_gpu(by_name, limit: int) -> None:
     total_all = sum(data["total_ns"] for data in by_name.values())
     rows = []
@@ -170,6 +216,14 @@ def print_cpu(rows, limit: int) -> None:
         )
 
 
+def print_bytes_counter(
+    title: str, counts: collections.Counter[str], limit: int
+) -> None:
+    print(f"\n{title}")
+    for rank, (label, bytes_) in enumerate(counts.most_common(limit), 1):
+        print(f"{rank:02d} {label} bytes={bytes_} mb={bytes_ / 1048576.0:.3f}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu-timestamps", type=Path)
@@ -177,6 +231,7 @@ def main() -> None:
     parser.add_argument("--conv-plan", type=Path)
     parser.add_argument("--linear-plan", type=Path)
     parser.add_argument("--attention-plan", type=Path)
+    parser.add_argument("--buffer-copy-log", type=Path)
     parser.add_argument("--sync-log", type=Path)
     parser.add_argument("--cpu-timeline-summary", type=Path)
     parser.add_argument("--top", type=int, default=30)
@@ -203,6 +258,23 @@ def main() -> None:
         print_counter("attention_plan_decisions", counts, args.top)
         print_counter("attention_plan_shapes", shapes, args.top)
         print_counter("attention_plan_rejects", rejects, args.top)
+    if args.buffer_copy_log:
+        (
+            by_reason_count,
+            by_reason_bytes,
+            by_shape_bytes,
+            by_pair_bytes,
+            logical_noop,
+        ) = parse_buffer_copy_log(args.buffer_copy_log)
+        print_counter("buffer_copy_reasons_by_count", by_reason_count, args.top)
+        print_bytes_counter(
+            "buffer_copy_reasons_by_bytes", by_reason_bytes, args.top
+        )
+        print_bytes_counter("buffer_copy_shapes_by_bytes", by_shape_bytes, args.top)
+        print_bytes_counter(
+            "buffer_copy_producer_consumer_by_bytes", by_pair_bytes, args.top
+        )
+        print(f"\nbuffer_copy_logical_noop_count count={logical_noop}")
     if args.sync_log:
         print_counter("sync_events", parse_sync_log(args.sync_log), args.top)
 

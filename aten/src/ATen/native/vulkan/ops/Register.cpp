@@ -367,6 +367,7 @@ void reset_fallback_counters_runtime() {
   reset_linear_plan_counters();
   reset_conv_plan_counters();
   reset_attention_plan_counters();
+  reset_buffer_copy_counters();
 }
 
 Tensor create_kv_cache_storage_for_request(
@@ -1460,6 +1461,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::attention_plan_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::buffer_copy_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_buffer_copy_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_fallback_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
@@ -1569,6 +1574,12 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::attention_plan_counters"),
       TORCH_FN(attention_plan_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::buffer_copy_counters"),
+      TORCH_FN(buffer_copy_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_buffer_copy_counters"),
+      TORCH_FN(reset_buffer_copy_counters));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_counters"),
       TORCH_FN(reset_fallback_counters_runtime));
