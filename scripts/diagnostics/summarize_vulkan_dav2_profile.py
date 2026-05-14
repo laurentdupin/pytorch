@@ -69,7 +69,16 @@ def parse_plan(path: Path, selected_key: str = "selected"):
         reject = parts.get("reject", "unknown")
         counts[f"selected={selected} reject={reject}"] += 1
         rejects[reject] += 1
-        if "m" in parts:
+        if "batch_heads" in parts:
+            shape = (
+                f"batch_heads={parts.get('batch_heads')} "
+                f"target_len={parts.get('target_len')} "
+                f"source_len={parts.get('source_len')} "
+                f"head_dim={parts.get('head_dim')} "
+                f"value_dim={parts.get('value_dim')} "
+                f"query_tile={parts.get('query_tile')}"
+            )
+        elif "m" in parts:
             shape = (
                 f"m={parts.get('m')} k={parts.get('k')} n={parts.get('n')} "
                 f"m_tail={parts.get('m_tail')}"
@@ -167,6 +176,7 @@ def main() -> None:
     parser.add_argument("--op-hits", type=Path)
     parser.add_argument("--conv-plan", type=Path)
     parser.add_argument("--linear-plan", type=Path)
+    parser.add_argument("--attention-plan", type=Path)
     parser.add_argument("--sync-log", type=Path)
     parser.add_argument("--cpu-timeline-summary", type=Path)
     parser.add_argument("--top", type=int, default=30)
@@ -188,6 +198,11 @@ def main() -> None:
         print_counter("linear_plan_decisions", counts, args.top)
         print_counter("linear_plan_shapes", shapes, args.top)
         print_counter("linear_plan_rejects", rejects, args.top)
+    if args.attention_plan:
+        counts, shapes, rejects = parse_plan(args.attention_plan)
+        print_counter("attention_plan_decisions", counts, args.top)
+        print_counter("attention_plan_shapes", shapes, args.top)
+        print_counter("attention_plan_rejects", rejects, args.top)
     if args.sync_log:
         print_counter("sync_events", parse_sync_log(args.sync_log), args.top)
 

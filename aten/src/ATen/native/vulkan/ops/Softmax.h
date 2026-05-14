@@ -5,6 +5,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <optional>
 #include <tuple>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -72,6 +73,10 @@ void move_decomposed_attention_candidate_to_alias(
 void move_deferred_attention_query_scale_candidate_to_alias(
     const Tensor& source,
     const Tensor& alias);
+
+std::vector<int64_t> attention_plan_counters_snapshot();
+
+void reset_attention_plan_counters();
 
 } // namespace ops
 } // namespace vulkan

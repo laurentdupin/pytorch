@@ -12090,6 +12090,82 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_dinov2_attention_qtile_matches_numpy_reference(self):
+        op_log_name = "dinov2_attention_qtile_op_hit_test.log"
+        plan_log_name = "dinov2_attention_qtile_plan_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_log_path = os.path.join(repo_root, op_log_name)
+        plan_log_path = os.path.join(repo_root, plan_log_name)
+        for path in (op_log_path, plan_log_path):
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import math
+                import numpy as np
+                import torch
+
+                torch.manual_seed(0)
+                q_cpu = torch.randn(1, 6, 601, 64, dtype=torch.float32)
+                k_cpu = torch.randn(1, 6, 601, 64, dtype=torch.float32)
+                v_cpu = torch.randn(1, 6, 601, 64, dtype=torch.float32)
+                scale = 1.0 / math.sqrt(64.0)
+
+                q_ref = (q_cpu * scale).numpy()
+                k_ref = k_cpu.numpy()
+                v_ref = v_cpu.numpy()
+                scores = np.matmul(q_ref, np.swapaxes(k_ref, -2, -1))
+                scores = scores - scores.max(axis=-1, keepdims=True)
+                probs = np.exp(scores)
+                probs = probs / probs.sum(axis=-1, keepdims=True)
+                expected = torch.from_numpy(np.matmul(probs, v_ref).copy())
+
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                q = q_cpu.to("vulkan") * scale
+                k = k_cpu.to("vulkan")
+                v = v_cpu.to("vulkan")
+                actual = (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v).cpu()
+
+                counters = torch.ops.vulkan_prepack.attention_plan_counters()
+                sync_counters = torch.ops.vulkan_prepack.sync_counters()
+                torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+                assert counters[2] > 0, counters
+                assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
+                assert sync_counters[6] == 0, sync_counters
+                print(counters)
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_ATTENTION_QTILE": "1",
+                    "PYTORCH_VULKAN_OP_HIT_LOG": op_log_name,
+                    "PYTORCH_VULKAN_ATTENTION_PLAN_LOG": plan_log_name,
+                },
+                error_prefix="DINOv2 qtile attention subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_log_path))
+            with open(op_log_path, "r", encoding="utf-8") as log_file:
+                op_log_text = log_file.read()
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention."
+                "runtime_program_buffer_fused_head64_q4",
+                op_log_text,
+            )
+
+            self.assertTrue(os.path.exists(plan_log_path))
+            with open(plan_log_path, "r", encoding="utf-8") as log_file:
+                plan_log_text = log_file.read()
+            self.assertIn("selected=2", plan_log_text)
+            self.assertIn("target_len=601", plan_log_text)
+            self.assertIn("source_len=601", plan_log_text)
+        finally:
+            for path in (op_log_path, plan_log_path):
+                if os.path.exists(path):
+                    os.remove(path)
+
     def test_dinov2_decomposed_attention_bridge_avoids_post_attention_clone(
         self,
     ):
