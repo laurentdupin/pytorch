@@ -370,6 +370,7 @@ void reset_fallback_counters_runtime() {
   reset_buffer_copy_counters();
   reset_buffer_copy_aggregate();
   reset_clone_requirement_snapshot();
+  reset_vision_owner_counters();
 }
 
 Tensor create_kv_cache_storage_for_request(
@@ -1475,6 +1476,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_clone_requirement_snapshot() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::vision_owner_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_vision_owner_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_fallback_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
@@ -1602,6 +1607,12 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_clone_requirement_snapshot"),
       TORCH_FN(reset_clone_requirement_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::vision_owner_counters"),
+      TORCH_FN(vision_owner_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_vision_owner_counters"),
+      TORCH_FN(reset_vision_owner_counters));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_counters"),
       TORCH_FN(reset_fallback_counters_runtime));

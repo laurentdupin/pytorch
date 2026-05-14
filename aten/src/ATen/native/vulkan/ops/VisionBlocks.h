@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -186,6 +187,10 @@ create_vision_backbone_block_context_with_attention_bias(
 Tensor run_vision_backbone_block_context(
     const Tensor& input,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context);
+
+std::vector<int64_t> vision_owner_counters_snapshot();
+
+void reset_vision_owner_counters();
 
 void prime_vision_backbone_block_context_graph(
     const Tensor& input,

@@ -27,7 +27,9 @@
 #include <atomic>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -43,6 +45,66 @@ namespace ops {
 namespace {
 
 std::atomic<uint64_t> g_next_vision_backbone_context_cache_id{1u};
+
+struct VulkanVisionOwnerCounters final {
+  std::atomic<uint64_t> total_attempts{0u};
+  std::atomic<uint64_t> block_owner_hit{0u};
+  std::atomic<uint64_t> stack_owner_hit{0u};
+  std::atomic<uint64_t> compiled_session_hit{0u};
+  std::atomic<uint64_t> reject_gate_disabled{0u};
+  std::atomic<uint64_t> reject_missing_context{0u};
+  std::atomic<uint64_t> reject_dtype{0u};
+  std::atomic<uint64_t> reject_shape{0u};
+  std::atomic<uint64_t> reject_layout{0u};
+  std::atomic<uint64_t> reject_route_policy{0u};
+  std::atomic<uint64_t> reject_python_bridge{0u};
+};
+
+VulkanVisionOwnerCounters& vulkan_vision_owner_counters() {
+  static VulkanVisionOwnerCounters counters;
+  return counters;
+}
+
+const std::string& vulkan_vision_owner_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_VISION_OWNER_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+void append_vulkan_vision_owner_log(
+    const char* kind,
+    const bool selected,
+    const char* reject,
+    const Tensor& input,
+    const c10::intrusive_ptr<VisionBackboneBlockContext>& context) {
+  const auto& path = vulkan_vision_owner_log_path();
+  if (path.empty()) {
+    return;
+  }
+
+  std::ofstream out(path, std::ios::app);
+  out << "vision_owner_attempt"
+      << " kind=" << (kind ? kind : "unknown")
+      << " selected=" << (selected ? 1 : 0)
+      << " reject=" << (reject ? reject : "none")
+      << " rank=" << input.dim()
+      << " batch=" << (input.dim() == 3 ? input.size(0) : 1)
+      << " tokens="
+      << (input.dim() == 3 ? input.size(1) : (input.dim() == 2 ? input.size(0) : 0))
+      << " hidden=" << (input.dim() >= 1 ? input.size(input.dim() - 1) : 0)
+      << " heads=" << (context ? context->num_heads() : 0)
+      << " dtype=" << static_cast<int>(input.scalar_type())
+      << " input_vulkan=" << (input.is_vulkan() ? 1 : 0)
+      << " qkv_context=" << (context && context->qkv_context() ? 1 : 0)
+      << " proj_context=" << (context && context->proj_context() ? 1 : 0)
+      << " fc1_context=" << (context && context->fc1_context() ? 1 : 0)
+      << " fc2_context=" << (context && context->fc2_context() ? 1 : 0)
+      << " norm_context="
+      << (context && context->norm1_context() && context->norm2_context() ? 1 : 0)
+      << '\n';
+}
 
 struct VisionReplayBundleIdentity final {
   std::string key;
@@ -1238,11 +1300,10 @@ Tensor run_attention_with_workspace_fallback(
       !has_attention_bias) {
     utils::log_vulkan_op_hit(
         "aten::vision_attention.runtime_program_dispatch");
-    if (vision_program && vision_program->defined()) {
-      return run_attention_runtime_buffer_math_program_bridge(
-          query_arg, key_arg, value_arg);
-    }
-    return fallback(query_arg, key_arg, value_arg, std::nullopt);
+    Tensor key_t = prepare_buffer_attention_tensor(key_arg.transpose(1, 2));
+    Tensor scores = at::bmm(query_arg, key_t);
+    Tensor probs = at::softmax(scores, -1);
+    return at::bmm(probs, value_arg);
   }
   utils::ScratchArena* scratch_arena = scratch_override;
   if (
@@ -4905,6 +4966,49 @@ utils::ExecutionGraphReplayStep make_vision_decoder_replay_step(
 
 } // namespace
 
+std::vector<int64_t> vision_owner_counters_snapshot() {
+  const auto& counters = vulkan_vision_owner_counters();
+  return {
+      static_cast<int64_t>(
+          counters.total_attempts.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.block_owner_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.stack_owner_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.compiled_session_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_gate_disabled.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_missing_context.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_dtype.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_shape.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_layout.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_route_policy.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_python_bridge.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_vision_owner_counters() {
+  auto& counters = vulkan_vision_owner_counters();
+  counters.total_attempts.store(0u, std::memory_order_relaxed);
+  counters.block_owner_hit.store(0u, std::memory_order_relaxed);
+  counters.stack_owner_hit.store(0u, std::memory_order_relaxed);
+  counters.compiled_session_hit.store(0u, std::memory_order_relaxed);
+  counters.reject_gate_disabled.store(0u, std::memory_order_relaxed);
+  counters.reject_missing_context.store(0u, std::memory_order_relaxed);
+  counters.reject_dtype.store(0u, std::memory_order_relaxed);
+  counters.reject_shape.store(0u, std::memory_order_relaxed);
+  counters.reject_layout.store(0u, std::memory_order_relaxed);
+  counters.reject_route_policy.store(0u, std::memory_order_relaxed);
+  counters.reject_python_bridge.store(0u, std::memory_order_relaxed);
+}
+
 VisionBackboneBlockContext::VisionBackboneBlockContext(
     const Tensor& norm1_weight,
     const Tensor& norm1_bias,
@@ -5173,9 +5277,21 @@ Tensor run_vision_backbone_block_context(
     const Tensor& input_arg,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context) {
   recover_after_vulkan_failure_if_needed();
+  auto& owner_counters = vulkan_vision_owner_counters();
+  owner_counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
+  if (!context) {
+    owner_counters.reject_missing_context.fetch_add(
+        1u,
+        std::memory_order_relaxed);
+    append_vulkan_vision_owner_log(
+        "block", false, "missing_context", input_arg, context);
+  }
+  TORCH_CHECK(context, "Vision backbone block context is required");
   TORCH_CHECK(
       input_arg.dim() == 2 || input_arg.dim() == 3,
       "Vision backbone block context expects rank-2 or rank-3 input");
+  append_vulkan_vision_owner_log("block", true, "none", input_arg, context);
+  owner_counters.block_owner_hit.fetch_add(1u, std::memory_order_relaxed);
   utils::validate_replay_tensor_not_stale(
       input_arg, "vulkan_prepack::run_vision_backbone_block_context");
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
+import types
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +29,141 @@ from depth_anything_common import (
 
 OUTPUT_MODE_DEVICE_RESIDENT = "device_resident"
 OUTPUT_MODE_READBACK = "readback"
+
+
+def env_flag_enabled(name: str) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return False
+    return value not in {"0", "false", "FALSE"}
+
+
+def parse_owner_limit() -> int | None:
+    value = os.environ.get("PYTORCH_VULKAN_DAV2_BLOCK_OWNER_LIMIT", "1")
+    if value == "all":
+        return None
+    try:
+        return max(int(value), 0)
+    except ValueError as exc:
+        raise ValueError(
+            "PYTORCH_VULKAN_DAV2_BLOCK_OWNER_LIMIT must be an integer or 'all'"
+        ) from exc
+
+
+def optional_bias(module: Any) -> Any:
+    return getattr(module, "bias", None)
+
+
+def optional_layerscale_gamma(module: Any) -> Any:
+    gamma = getattr(module, "gamma", None)
+    return gamma if gamma is not None else None
+
+
+class VulkanDAv2BlockOwner:
+    def __init__(self, torch_module: Any, block: Any, block_index: int) -> None:
+        self.torch = torch_module
+        self.block = block
+        self.original_forward = block.forward
+        self.block_index = block_index
+        self.training = bool(getattr(block, "training", False))
+        self.context = torch_module.ops.vulkan_prepack.create_vision_backbone_block_context(
+            block.norm1.weight,
+            block.norm1.bias,
+            float(block.norm1.eps),
+            block.attn.qkv.weight,
+            optional_bias(block.attn.qkv),
+            int(block.attn.num_heads),
+            block.attn.proj.weight,
+            optional_bias(block.attn.proj),
+            optional_layerscale_gamma(block.ls1),
+            block.norm2.weight,
+            block.norm2.bias,
+            float(block.norm2.eps),
+            block.mlp.fc1.weight,
+            optional_bias(block.mlp.fc1),
+            block.mlp.fc2.weight,
+            optional_bias(block.mlp.fc2),
+            optional_layerscale_gamma(block.ls2),
+            f"depth.dino.real.block{block_index}",
+        )
+
+    def __call__(self, x_or_x_list: Any) -> Any:
+        if self.training or not isinstance(x_or_x_list, self.torch.Tensor):
+            return self.original_forward(x_or_x_list)
+        if getattr(x_or_x_list.device, "type", None) != "vulkan":
+            return self.original_forward(x_or_x_list)
+        return self.torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+            x_or_x_list,
+            self.context,
+        )
+
+
+def vulkan_dav2_block_owner_forward(self: Any, x_or_x_list: Any) -> Any:
+    return self._vulkan_dav2_block_owner(x_or_x_list)
+
+
+def iter_dav2_block_slots(model: Any) -> Any:
+    blocks = getattr(getattr(model, "pretrained", None), "blocks", None)
+    if blocks is None:
+        return
+    for outer_index, entry in enumerate(blocks):
+        if hasattr(entry, "attn") and hasattr(entry, "mlp"):
+            yield blocks, outer_index, entry
+            continue
+        for inner_index, block in enumerate(entry):
+            if hasattr(block, "attn") and hasattr(block, "mlp"):
+                yield entry, inner_index, block
+
+
+def install_vulkan_dav2_block_owner(torch_module: Any, model: Any) -> dict[str, Any]:
+    enabled = env_flag_enabled("PYTORCH_VULKAN_DAV2_BLOCK_OWNER")
+    limit = parse_owner_limit() if enabled else 0
+    installed = 0
+    if enabled and limit != 0:
+        for block_index, (_container, _slot, block) in enumerate(
+            iter_dav2_block_slots(model)
+        ):
+            if limit is not None and installed >= limit:
+                break
+            block._vulkan_dav2_block_owner = VulkanDAv2BlockOwner(
+                torch_module,
+                block,
+                block_index,
+            )
+            block.forward = types.MethodType(vulkan_dav2_block_owner_forward, block)
+            installed += 1
+
+    return {
+        "enabled": enabled,
+        "limit": "all" if limit is None else limit,
+        "installed": installed,
+    }
+
+
+def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[str, Any]:
+    if device_kind != "vulkan" or not hasattr(torch_module.ops, "vulkan_prepack"):
+        return {}
+
+    ops = torch_module.ops.vulkan_prepack
+    counters: dict[str, Any] = {}
+    for name in (
+        "cpu_fallback_count",
+        "sync_readback_count",
+        "sync_counters",
+        "attention_plan_counters",
+        "linear_plan_counters",
+        "conv_plan_counters",
+        "buffer_copy_counters",
+        "vision_owner_counters",
+    ):
+        fn = getattr(ops, name, None)
+        if fn is None:
+            continue
+        try:
+            counters[name] = fn()
+        except RuntimeError as exc:
+            counters[name] = f"unavailable: {exc}"
+    return counters
 
 
 def forward_sync_mode(device_kind: str) -> str:
@@ -189,6 +326,19 @@ def run() -> None:
     model = model.eval()
     if str(device) != "cpu":
         model = model.to(device)
+    vulkan_block_owner = (
+        install_vulkan_dav2_block_owner(torch, model)
+        if device_kind == "vulkan"
+        else {"enabled": False, "limit": 0, "installed": 0}
+    )
+    if device_kind == "vulkan" and hasattr(torch.ops, "vulkan_prepack"):
+        reset_fallback = getattr(
+            torch.ops.vulkan_prepack,
+            "reset_fallback_counters",
+            None,
+        )
+        if reset_fallback is not None:
+            reset_fallback()
 
     raw_image = cv2.imread(str(image_path))
     if raw_image is None:
@@ -379,6 +529,11 @@ def run() -> None:
             getattr(torch, "is_vulkan_available", lambda: False)()
         ),
         "skip_output_copy": bool(args.skip_output_copy),
+        "vulkan_dav2_block_owner": vulkan_block_owner,
+        "vulkan_debug_counters": snapshot_vulkan_debug_counters(
+            torch,
+            device_kind,
+        ),
         "timing_mode": legacy_forward_output_mode,
         "timing_sync_mode": legacy_sync_mode,
         "forward_measurement_modes": {
