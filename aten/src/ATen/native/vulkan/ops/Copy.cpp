@@ -13,11 +13,14 @@
 #include <ATen/vulkan/Context.h>
 #include <c10/util/irange.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <mutex>
 #include <sstream>
+#include <unordered_map>
 
 namespace at {
 namespace native {
@@ -62,8 +65,14 @@ struct VulkanBufferCopyDecision final {
   bool src_contiguous = false;
   bool dst_contiguous = false;
   bool logical_noop = false;
-  const char* producer_label = nullptr;
-  const char* consumer_label = nullptr;
+  std::string producer_label;
+  std::string consumer_label;
+};
+
+struct VulkanBufferCopyAggregateValue final {
+  uint64_t count = 0u;
+  uint64_t bytes = 0u;
+  uint64_t logical_noop = 0u;
 };
 
 c10::MemoryFormat memory_format_for_buffer_layout(
@@ -106,6 +115,15 @@ const std::string& buffer_copy_log_path() {
 
 bool buffer_copy_logging_enabled() {
   return !buffer_copy_log_path().empty();
+}
+
+bool buffer_copy_aggregate_enabled() {
+  static const bool enabled = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_BUFFER_COPY_AGGREGATE");
+    return env != nullptr && std::string(env) != "0" &&
+        std::string(env) != "false" && std::string(env) != "FALSE";
+  }();
+  return enabled;
 }
 
 const char* buffer_copy_reason_name(const VulkanBufferCopyReason reason) {
@@ -204,6 +222,29 @@ bool is_contiguous_desc(
   return true;
 }
 
+std::array<int64_t, 5> compact_desc(const std::vector<int64_t>& values) {
+  std::array<int64_t, 5> out{0, 0, 0, 0, 0};
+  out[0] = static_cast<int64_t>(std::min<size_t>(values.size(), 4));
+  for (size_t idx = 0; idx < values.size() && idx < 4; ++idx) {
+    out[idx + 1] = values[idx];
+  }
+  return out;
+}
+
+std::string format_compact_desc(const std::array<int64_t, 5>& values) {
+  std::ostringstream stream;
+  stream << "[";
+  const int64_t rank = std::max<int64_t>(0, std::min<int64_t>(values[0], 4));
+  for (int64_t idx = 0; idx < rank; ++idx) {
+    if (idx > 0) {
+      stream << ",";
+    }
+    stream << values[idx + 1];
+  }
+  stream << "]";
+  return stream.str();
+}
+
 VulkanBufferCopyReason refine_buffer_copy_reason(
     const VulkanBufferCopyReason reason,
     const std::string& producer,
@@ -289,9 +330,72 @@ VulkanBufferCopyDecision make_buffer_copy_decision(
       src.logical_strides() == dst.logical_strides() &&
       src.storage_offset() == dst.storage_offset() &&
       src.has_direct_buffer_layout() == dst.has_direct_buffer_layout();
-  decision.producer_label = producer_label;
-  decision.consumer_label = consumer_label;
+  decision.producer_label = producer.empty() ? "unknown" : producer;
+  decision.consumer_label = consumer.empty() ? "unknown" : consumer;
   return decision;
+}
+
+std::string make_buffer_copy_aggregate_key(
+    const VulkanBufferCopyDecision& decision) {
+  std::ostringstream stream;
+  stream << "reason=" << buffer_copy_reason_name(decision.reason)
+         << " producer=" << decision.producer_label
+         << " consumer=" << decision.consumer_label
+         << " dtype=" << scalar_type_name(decision.dtype)
+         << " src_sizes=" << format_compact_desc(compact_desc(decision.src_sizes))
+         << " dst_sizes=" << format_compact_desc(compact_desc(decision.dst_sizes))
+         << " src_strides="
+         << format_compact_desc(compact_desc(decision.src_strides))
+         << " dst_strides="
+         << format_compact_desc(compact_desc(decision.dst_strides))
+         << " src_direct=" << (decision.src_direct_buffer ? 1 : 0)
+         << " dst_direct=" << (decision.dst_direct_buffer ? 1 : 0);
+  return stream.str();
+}
+
+class VulkanBufferCopyAggregateProfiler final {
+ public:
+  void record(const VulkanBufferCopyDecision& decision) {
+    if (!buffer_copy_aggregate_enabled()) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto& value = entries_[make_buffer_copy_aggregate_key(decision)];
+    value.count += 1u;
+    value.bytes += static_cast<uint64_t>(std::max<int64_t>(decision.bytes, 0));
+    value.logical_noop += decision.logical_noop ? 1u : 0u;
+  }
+
+  std::vector<std::string> snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> out;
+    out.reserve(entries_.size());
+    for (const auto& entry : entries_) {
+      std::ostringstream stream;
+      stream << "buffer_copy_aggregate " << entry.first
+             << " count=" << entry.second.count
+             << " bytes=" << entry.second.bytes
+             << " logical_noop=" << entry.second.logical_noop;
+      out.emplace_back(stream.str());
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+  }
+
+  void reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_.clear();
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::unordered_map<std::string, VulkanBufferCopyAggregateValue> entries_;
+};
+
+VulkanBufferCopyAggregateProfiler& buffer_copy_aggregate_profiler() {
+  static VulkanBufferCopyAggregateProfiler profiler;
+  return profiler;
 }
 
 void append_buffer_copy_log(const VulkanBufferCopyDecision& decision) {
@@ -316,10 +420,8 @@ void append_buffer_copy_log(const VulkanBufferCopyDecision& decision) {
       << " src_contig=" << (decision.src_contiguous ? 1 : 0)
       << " dst_contig=" << (decision.dst_contiguous ? 1 : 0)
       << " logical_noop=" << (decision.logical_noop ? 1 : 0)
-      << " producer="
-      << (decision.producer_label ? decision.producer_label : "unknown")
-      << " consumer="
-      << (decision.consumer_label ? decision.consumer_label : "unknown")
+      << " producer=" << decision.producer_label
+      << " consumer=" << decision.consumer_label
       << '\n';
 }
 
@@ -381,6 +483,7 @@ void note_buffer_copy_decision(const VulkanBufferCopyDecision& decision) {
     case VulkanBufferCopyReason::Unknown:
       break;
   }
+  buffer_copy_aggregate_profiler().record(decision);
   append_buffer_copy_log(decision);
 }
 
@@ -1191,6 +1294,14 @@ void reset_buffer_copy_counters() {
   counters.decoder_materialization.store(0u, std::memory_order_relaxed);
   counters.backbone_materialization.store(0u, std::memory_order_relaxed);
   counters.logical_noop_copy.store(0u, std::memory_order_relaxed);
+}
+
+std::vector<std::string> buffer_copy_aggregate_snapshot() {
+  return buffer_copy_aggregate_profiler().snapshot();
+}
+
+void reset_buffer_copy_aggregate() {
+  buffer_copy_aggregate_profiler().reset();
 }
 
 void memcpy_to_mapping(const Tensor& src, api::MemoryMap& dst_mapping) {

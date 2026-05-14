@@ -368,6 +368,7 @@ void reset_fallback_counters_runtime() {
   reset_conv_plan_counters();
   reset_attention_plan_counters();
   reset_buffer_copy_counters();
+  reset_buffer_copy_aggregate();
 }
 
 Tensor create_kv_cache_storage_for_request(
@@ -1463,7 +1464,11 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::buffer_copy_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::buffer_copy_aggregate_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_buffer_copy_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_buffer_copy_aggregate() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_fallback_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -1578,8 +1583,14 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::buffer_copy_counters"),
       TORCH_FN(buffer_copy_counters_snapshot));
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::buffer_copy_aggregate_snapshot"),
+      TORCH_FN(buffer_copy_aggregate_snapshot));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_buffer_copy_counters"),
       TORCH_FN(reset_buffer_copy_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_buffer_copy_aggregate"),
+      TORCH_FN(reset_buffer_copy_aggregate));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_counters"),
       TORCH_FN(reset_fallback_counters_runtime));
