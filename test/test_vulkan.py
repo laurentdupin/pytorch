@@ -12166,6 +12166,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 import numpy as np
                 import os
                 os.environ.pop("PYTORCH_VULKAN_ATTENTION_QTILE", None)
+                os.environ.pop("PYTORCH_VULKAN_ATTENTION_QTILE_VARIANT", None)
                 import torch
 
                 torch.manual_seed(0)
@@ -12193,6 +12194,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 sync_counters = torch.ops.vulkan_prepack.sync_counters()
                 torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
                 assert counters[2] > 0, counters
+                assert counters[11] > 0, counters
                 assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
                 assert sync_counters[6] == 0, sync_counters
                 print(counters)
@@ -12222,10 +12224,142 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn("selected=2", plan_log_text)
             self.assertIn("target_len=601", plan_log_text)
             self.assertIn("source_len=601", plan_log_text)
+            self.assertIn("query_tile=4", plan_log_text)
+            self.assertIn("variant=auto", plan_log_text)
         finally:
             for path in (op_log_path, plan_log_path):
                 if os.path.exists(path):
                     os.remove(path)
+
+    def test_dinov2_attention_qtile8_matches_numpy_reference(self):
+        op_log_name = "dinov2_attention_qtile8_op_hit_test.log"
+        plan_log_name = "dinov2_attention_qtile8_plan_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_log_path = os.path.join(repo_root, op_log_name)
+        plan_log_path = os.path.join(repo_root, plan_log_name)
+        for path in (op_log_path, plan_log_path):
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import math
+                import torch
+
+                torch.manual_seed(0)
+                q_cpu = torch.randn(1, 6, 601, 64, dtype=torch.float32)
+                k_cpu = torch.randn(1, 6, 601, 64, dtype=torch.float32)
+                v_cpu = torch.randn(1, 6, 601, 64, dtype=torch.float32)
+                scale = 1.0 / math.sqrt(64.0)
+                expected = (((q_cpu * scale) @ k_cpu.transpose(-2, -1)).softmax(dim=-1)) @ v_cpu
+
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                q = q_cpu.to("vulkan") * scale
+                k = k_cpu.to("vulkan")
+                v = v_cpu.to("vulkan")
+                actual = (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v).cpu()
+
+                counters = torch.ops.vulkan_prepack.attention_plan_counters()
+                sync_counters = torch.ops.vulkan_prepack.sync_counters()
+                torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+                assert counters[12] > 0, counters
+                assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
+                assert sync_counters[6] == 0, sync_counters
+                print(counters)
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_ATTENTION_QTILE_VARIANT": "8",
+                    "PYTORCH_VULKAN_OP_HIT_LOG": op_log_name,
+                    "PYTORCH_VULKAN_ATTENTION_PLAN_LOG": plan_log_name,
+                },
+                error_prefix="DINOv2 qtile8 attention subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_log_path))
+            with open(op_log_path, "r", encoding="utf-8") as log_file:
+                op_log_text = log_file.read()
+            self.assertIn(
+                "op=aten::scaled_dot_product_attention."
+                "runtime_program_buffer_fused_head64_q8",
+                op_log_text,
+            )
+
+            self.assertTrue(os.path.exists(plan_log_path))
+            with open(plan_log_path, "r", encoding="utf-8") as log_file:
+                plan_log_text = log_file.read()
+            self.assertIn("query_tile=8", plan_log_text)
+            self.assertIn("variant=q8", plan_log_text)
+        finally:
+            for path in (op_log_path, plan_log_path):
+                if os.path.exists(path):
+                    os.remove(path)
+
+    def test_dinov2_attention_qtile8_tail_rows_matches_reference(self):
+        script = """
+            import math
+            import torch
+
+            torch.manual_seed(1)
+            q_cpu = torch.randn(1, 6, 607, 64, dtype=torch.float32)
+            k_cpu = torch.randn(1, 6, 607, 64, dtype=torch.float32)
+            v_cpu = torch.randn(1, 6, 607, 64, dtype=torch.float32)
+            scale = 1.0 / math.sqrt(64.0)
+            expected = (((q_cpu * scale) @ k_cpu.transpose(-2, -1)).softmax(dim=-1)) @ v_cpu
+
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            q = q_cpu.to("vulkan") * scale
+            k = k_cpu.to("vulkan")
+            v = v_cpu.to("vulkan")
+            actual = (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v).cpu()
+
+            counters = torch.ops.vulkan_prepack.attention_plan_counters()
+            sync_counters = torch.ops.vulkan_prepack.sync_counters()
+            torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+            assert counters[12] > 0, counters
+            assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
+            assert sync_counters[6] == 0, sync_counters
+        """
+
+        self._run_repo_python_subprocess(
+            script,
+            extra_env={"PYTORCH_VULKAN_ATTENTION_QTILE_VARIANT": "8"},
+            error_prefix="DINOv2 qtile8 tail attention subprocess failed.",
+        )
+
+    def test_dinov2_attention_qtile2_matches_reference(self):
+        script = """
+            import math
+            import torch
+
+            torch.manual_seed(2)
+            q_cpu = torch.randn(1, 6, 601, 64, dtype=torch.float32)
+            k_cpu = torch.randn(1, 6, 601, 64, dtype=torch.float32)
+            v_cpu = torch.randn(1, 6, 601, 64, dtype=torch.float32)
+            scale = 1.0 / math.sqrt(64.0)
+            expected = (((q_cpu * scale) @ k_cpu.transpose(-2, -1)).softmax(dim=-1)) @ v_cpu
+
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            q = q_cpu.to("vulkan") * scale
+            k = k_cpu.to("vulkan")
+            v = v_cpu.to("vulkan")
+            actual = (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v).cpu()
+
+            counters = torch.ops.vulkan_prepack.attention_plan_counters()
+            sync_counters = torch.ops.vulkan_prepack.sync_counters()
+            torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+            assert counters[10] > 0, counters
+            assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
+            assert sync_counters[6] == 0, sync_counters
+        """
+
+        self._run_repo_python_subprocess(
+            script,
+            extra_env={"PYTORCH_VULKAN_ATTENTION_QTILE_VARIANT": "2"},
+            error_prefix="DINOv2 qtile2 attention subprocess failed.",
+        )
 
     def test_dinov2_attention_qtile_can_be_disabled(self):
         op_log_name = "dinov2_attention_qtile_disabled_op_hit_test.log"
@@ -12241,6 +12375,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             script = """
                 import math
                 import numpy as np
+                import os
+                os.environ.pop("PYTORCH_VULKAN_ATTENTION_QTILE_VARIANT", None)
                 import torch
 
                 torch.manual_seed(0)

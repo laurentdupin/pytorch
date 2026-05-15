@@ -25,8 +25,10 @@ directory so you don't force a rebuild against the broken state.
 # Build
 
 Always check local memory for build configuration (env vars, incremental-build shortcuts, etc.) before running the build, and apply what you find. If nothing applicable is in memory, ask the user.
-All build (both codegen, C++ and python) is done via `pip install -e . -v --no-build-isolation`.
-You should NEVER run any other command to build PyTorch.
+On this Windows machine, prefer the existing Visual Studio CMake build tree over
+`pip install -e . -v --no-build-isolation`; Ninja does not work reliably under
+the sandbox here. Use the generator/configuration already recorded in
+`build/CMakeCache.txt` unless the user asks to reconfigure.
 
 # Testing
 

@@ -58,7 +58,9 @@ constexpr int32_t kRuntimeProgramSdpaWideMaxQueryValuesPerThread = 8;
 constexpr int32_t kRuntimeProgramSdpaHead64LocalSizeX = 64;
 constexpr int32_t kRuntimeProgramSdpaHead64MaxOutputsPerThread = 1;
 constexpr int32_t kRuntimeProgramSdpaHead64MaxQueryValuesPerThread = 1;
-constexpr int32_t kRuntimeProgramSdpaHead64QueryRowsPerWorkgroup = 4;
+constexpr int32_t kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ2 = 2;
+constexpr int32_t kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ4 = 4;
+constexpr int32_t kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ8 = 8;
 constexpr int64_t kRuntimeProgramSdpaWideMaxHeadDim =
     static_cast<int64_t>(kRuntimeProgramSdpaWideLocalSizeX) *
     static_cast<int64_t>(kRuntimeProgramSdpaWideMaxQueryValuesPerThread);
@@ -72,9 +74,18 @@ enum class RuntimeProgramBufferFusedKernelVariant : uint8_t {
   Narrow16 = 0u,
   Wide32 = 1u,
   Head64 = 2u,
-  Head64Query4 = 3u,
-  Head64Subgroup64 = 4u,
-  Head64Subgroup32 = 5u,
+  Head64Query2 = 3u,
+  Head64Query4 = 4u,
+  Head64Query8 = 5u,
+  Head64Subgroup64 = 6u,
+  Head64Subgroup32 = 7u,
+};
+
+enum class VulkanAttentionQTileVariant : uint8_t {
+  Q2 = 2u,
+  Q4 = 4u,
+  Q8 = 8u,
+  Auto = 255u,
 };
 
 enum class VulkanAttentionFastPath : uint8_t {
@@ -121,6 +132,8 @@ struct VulkanAttentionPlanDecision final {
   bool dropout_nonzero{false};
   bool causal{false};
   int64_t query_tile{1};
+  VulkanAttentionQTileVariant requested_qtile_variant{
+      VulkanAttentionQTileVariant::Auto};
 };
 
 struct VulkanAttentionPlanCounters final {
@@ -134,6 +147,10 @@ struct VulkanAttentionPlanCounters final {
   std::atomic<uint64_t> reject_causal{0u};
   std::atomic<uint64_t> reject_head_dim{0u};
   std::atomic<uint64_t> reject_shape{0u};
+  std::atomic<uint64_t> qtile_q2_hit{0u};
+  std::atomic<uint64_t> qtile_q4_hit{0u};
+  std::atomic<uint64_t> qtile_q8_hit{0u};
+  std::atomic<uint64_t> reject_qtile_variant{0u};
 };
 
 enum class DecomposedAttentionStage : uint8_t {
@@ -177,6 +194,83 @@ bool vulkan_attention_qtile_enabled() {
   return enabled;
 }
 
+VulkanAttentionQTileVariant vulkan_attention_qtile_variant_from_env() {
+  static const VulkanAttentionQTileVariant variant = []() {
+    const char* const env =
+        std::getenv("PYTORCH_VULKAN_ATTENTION_QTILE_VARIANT");
+    if (env == nullptr || std::string(env).empty() ||
+        std::string(env) == "auto") {
+      return VulkanAttentionQTileVariant::Auto;
+    }
+
+    const std::string value(env);
+    if (value == "2") {
+      return VulkanAttentionQTileVariant::Q2;
+    }
+    if (value == "4") {
+      return VulkanAttentionQTileVariant::Q4;
+    }
+    if (value == "8") {
+      return VulkanAttentionQTileVariant::Q8;
+    }
+
+    TORCH_WARN(
+        "Unknown PYTORCH_VULKAN_ATTENTION_QTILE_VARIANT='",
+        value,
+        "', using auto");
+    return VulkanAttentionQTileVariant::Auto;
+  }();
+  return variant;
+}
+
+const char* qtile_variant_name(const VulkanAttentionQTileVariant variant) {
+  switch (variant) {
+    case VulkanAttentionQTileVariant::Q2:
+      return "q2";
+    case VulkanAttentionQTileVariant::Q4:
+      return "q4";
+    case VulkanAttentionQTileVariant::Q8:
+      return "q8";
+    case VulkanAttentionQTileVariant::Auto:
+      return "auto";
+  }
+  return "unknown";
+}
+
+int choose_attention_qtile_for_shape(
+    const int64_t /*batch_heads*/,
+    const int64_t /*target_len*/,
+    const int64_t /*source_len*/,
+    const int64_t head_dim,
+    const int64_t value_dim) {
+  if (head_dim != 64 || value_dim != 64) {
+    return kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ4;
+  }
+  return kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ4;
+}
+
+int selected_attention_qtile_for_shape(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value) {
+  switch (vulkan_attention_qtile_variant_from_env()) {
+    case VulkanAttentionQTileVariant::Q2:
+      return kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ2;
+    case VulkanAttentionQTileVariant::Q4:
+      return kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ4;
+    case VulkanAttentionQTileVariant::Q8:
+      return kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ8;
+    case VulkanAttentionQTileVariant::Auto:
+      return choose_attention_qtile_for_shape(
+          query.size(0),
+          query.size(1),
+          key.size(1),
+          query.size(2),
+          value.size(2));
+  }
+  return kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ4;
+}
+
 const std::string& vulkan_attention_plan_log_path() {
   static const std::string path = []() {
     const char* const env = std::getenv("PYTORCH_VULKAN_ATTENTION_PLAN_LOG");
@@ -204,6 +298,8 @@ void append_vulkan_attention_plan_log(
       << " head_dim=" << decision.head_dim
       << " value_dim=" << decision.value_dim
       << " query_tile=" << decision.query_tile
+      << " variant="
+      << qtile_variant_name(decision.requested_qtile_variant)
       << " q_buffer=" << (decision.query_direct_buffer ? 1 : 0)
       << " k_buffer=" << (decision.key_direct_buffer ? 1 : 0)
       << " v_buffer=" << (decision.value_direct_buffer ? 1 : 0)
@@ -227,6 +323,21 @@ void note_attention_plan_decision(
       break;
     case VulkanAttentionFastPath::ScoresValueFloatQueryTile:
       counters.qtile_hit.fetch_add(1u, std::memory_order_relaxed);
+      if (
+          decision.query_tile ==
+          kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ2) {
+        counters.qtile_q2_hit.fetch_add(1u, std::memory_order_relaxed);
+      } else if (
+          decision.query_tile ==
+          kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ4) {
+        counters.qtile_q4_hit.fetch_add(1u, std::memory_order_relaxed);
+      } else if (
+          decision.query_tile ==
+          kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ8) {
+        counters.qtile_q8_hit.fetch_add(1u, std::memory_order_relaxed);
+      } else {
+        counters.reject_qtile_variant.fetch_add(1u, std::memory_order_relaxed);
+      }
       break;
     case VulkanAttentionFastPath::Fallback:
     case VulkanAttentionFastPath::Unknown:
@@ -867,7 +978,15 @@ RuntimeProgramBufferFusedKernelVariant select_runtime_program_buffer_fused_varia
     const Tensor& key,
     const Tensor& value) {
   if (can_use_head64_query_tile_attention(query, key, value)) {
-    return RuntimeProgramBufferFusedKernelVariant::Head64Query4;
+    switch (selected_attention_qtile_for_shape(query, key, value)) {
+      case kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ2:
+        return RuntimeProgramBufferFusedKernelVariant::Head64Query2;
+      case kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ8:
+        return RuntimeProgramBufferFusedKernelVariant::Head64Query8;
+      case kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ4:
+      default:
+        return RuntimeProgramBufferFusedKernelVariant::Head64Query4;
+    }
   }
 
   if (can_use_dav2_head64_subgroup64_attention(query, key, value)) {
@@ -909,8 +1028,12 @@ const char* runtime_program_buffer_fused_variant_log_name(
       return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_wide";
     case RuntimeProgramBufferFusedKernelVariant::Head64:
       return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64";
+    case RuntimeProgramBufferFusedKernelVariant::Head64Query2:
+      return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_q2";
     case RuntimeProgramBufferFusedKernelVariant::Head64Query4:
       return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_q4";
+    case RuntimeProgramBufferFusedKernelVariant::Head64Query8:
+      return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_q8";
     case RuntimeProgramBufferFusedKernelVariant::Head64Subgroup64:
       return "aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_subgroup64";
     case RuntimeProgramBufferFusedKernelVariant::Head64Subgroup32:
@@ -2608,12 +2731,27 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
   decision.self_attention_shape =
       query_arg.size(1) == key_arg.size(1) &&
       query_arg.size(1) == value_arg.size(1);
+  decision.requested_qtile_variant = vulkan_attention_qtile_variant_from_env();
+  const int head64_query_tile = [&]() {
+    switch (variant) {
+      case RuntimeProgramBufferFusedKernelVariant::Head64Query2:
+        return kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ2;
+      case RuntimeProgramBufferFusedKernelVariant::Head64Query4:
+        return kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ4;
+      case RuntimeProgramBufferFusedKernelVariant::Head64Query8:
+        return kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ8;
+      default:
+        return kRuntimeProgramSdpaHead64MaxQueryValuesPerThread;
+    }
+  }();
+  const bool head64_query_tile_variant =
+      variant == RuntimeProgramBufferFusedKernelVariant::Head64Query2 ||
+      variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4 ||
+      variant == RuntimeProgramBufferFusedKernelVariant::Head64Query8;
   decision.query_tile =
-      variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4
-      ? kRuntimeProgramSdpaHead64QueryRowsPerWorkgroup
-      : 1;
+      head64_query_tile_variant ? head64_query_tile : 1;
   decision.selected =
-      variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4
+      head64_query_tile_variant
       ? VulkanAttentionFastPath::ScoresValueFloatQueryTile
       : VulkanAttentionFastPath::ScoresValueFloatSingleQuery;
   decision.reject =
@@ -2622,17 +2760,15 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
       : VulkanAttentionRejectReason::QueryTileDisabled;
   note_attention_plan_decision(
       decision,
-      variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4
+      head64_query_tile_variant
           ? "aten::scaled_dot_product_attention.buffer_float_qtile"
           : "aten::scaled_dot_product_attention.buffer_float_single_query");
 
   api::Context* const context = api::context();
   if (variant == RuntimeProgramBufferFusedKernelVariant::Head64 ||
-      variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4 ||
+      head64_query_tile_variant ||
       variant == RuntimeProgramBufferFusedKernelVariant::Head64Subgroup64 ||
       variant == RuntimeProgramBufferFusedKernelVariant::Head64Subgroup32) {
-    const bool head64_query4_variant =
-        variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4;
     const bool head64_subgroup64_variant =
         variant == RuntimeProgramBufferFusedKernelVariant::Head64Subgroup64;
     const bool head64_subgroup32_variant =
@@ -2656,8 +2792,8 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
             safe_downcast<int32_t>(value_arg.size(2)),
             kRuntimeProgramSdpaHead64LocalSizeX,
             kRuntimeProgramSdpaHead64MaxOutputsPerThread,
-            head64_query4_variant
-                ? kRuntimeProgramSdpaHead64QueryRowsPerWorkgroup
+            head64_query_tile_variant
+                ? head64_query_tile
                 : kRuntimeProgramSdpaHead64MaxQueryValuesPerThread,
         },
         {query_scale, 0.0f, 0.0f, 0.0f},
@@ -2712,16 +2848,27 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
           output_arg, api::ExecutionLayout::BUFFER_DIRECT);
     }
 
-    if (variant == RuntimeProgramBufferFusedKernelVariant::Head64Query4) {
+    if (head64_query_tile_variant) {
+      api::ShaderInfo shader = VK_KERNEL(
+          scaled_dot_product_scores_value_buffer_float_head64_q4);
+      if (head64_query_tile ==
+          kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ2) {
+        shader = VK_KERNEL(
+            scaled_dot_product_scores_value_buffer_float_head64_q2);
+      } else if (
+          head64_query_tile ==
+          kRuntimeProgramSdpaHead64QueryRowsPerWorkgroupQ8) {
+        shader = VK_KERNEL(
+            scaled_dot_product_scores_value_buffer_float_head64_q8);
+      }
       context->submit_compute_job(
-          VK_KERNEL(scaled_dot_product_scores_value_buffer_float_head64_q4),
+          shader,
           pipeline_barrier,
           {
               static_cast<uint32_t>(kRuntimeProgramSdpaHead64LocalSizeX),
               api::utils::div_up(
                   safe_downcast<uint32_t>(query_arg.size(1)),
-                  static_cast<uint32_t>(
-                      kRuntimeProgramSdpaHead64QueryRowsPerWorkgroup)),
+                  static_cast<uint32_t>(head64_query_tile)),
               safe_downcast<uint32_t>(query_arg.size(0)),
           },
           {
@@ -3754,6 +3901,11 @@ std::vector<int64_t> attention_plan_counters_snapshot() {
       static_cast<int64_t>(
           counters.reject_head_dim.load(std::memory_order_relaxed)),
       static_cast<int64_t>(counters.reject_shape.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.qtile_q2_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.qtile_q4_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.qtile_q8_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_qtile_variant.load(std::memory_order_relaxed)),
   };
 }
 
@@ -3769,6 +3921,10 @@ void reset_attention_plan_counters() {
   counters.reject_causal.store(0u, std::memory_order_relaxed);
   counters.reject_head_dim.store(0u, std::memory_order_relaxed);
   counters.reject_shape.store(0u, std::memory_order_relaxed);
+  counters.qtile_q2_hit.store(0u, std::memory_order_relaxed);
+  counters.qtile_q4_hit.store(0u, std::memory_order_relaxed);
+  counters.qtile_q8_hit.store(0u, std::memory_order_relaxed);
+  counters.reject_qtile_variant.store(0u, std::memory_order_relaxed);
 }
 
 std::tuple<Tensor, Tensor, Tensor> transform_bias_rescale_qkv_vulkan_out(

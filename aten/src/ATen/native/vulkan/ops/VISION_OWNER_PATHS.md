@@ -154,6 +154,13 @@ queue-idle waits without timestamp logging. A separate timestamp-profiling run
 recorded queue-idle waits from the profiler itself and should not be compared to
 no-timestamp latency runs.
 
+The follow-up attention variant sweep kept the all-block owner default and
+compared qtile 2, 4, and 8. Query tile 4 remained the selected default because
+it was fastest in both no-timestamp device-resident timing and timestamped
+attention totals on the measured DAv2 vits run. The owner path and fallback
+properties were unchanged across the variants: 1104 owner hits, zero timed
+fallback, and zero queue-idle waits without timestamp logging.
+
 One-image accuracy stayed in the same Vulkan band:
 
 ```
