@@ -66,6 +66,16 @@ struct VulkanVisionOwnerContextCounters final {
   std::atomic<uint64_t> unpack_readback_count{0u};
 };
 
+struct VulkanVisionOwnerMlpCounters final {
+  std::atomic<uint64_t> total{0u};
+  std::atomic<uint64_t> linear_gelu_hit{0u};
+  std::atomic<uint64_t> fc2_after_linear_gelu_hit{0u};
+  std::atomic<uint64_t> reject_no_owner{0u};
+  std::atomic<uint64_t> reject_dtype{0u};
+  std::atomic<uint64_t> reject_shape{0u};
+  std::atomic<uint64_t> reject_context{0u};
+};
+
 VulkanVisionOwnerCounters& vulkan_vision_owner_counters() {
   static VulkanVisionOwnerCounters counters;
   return counters;
@@ -73,6 +83,11 @@ VulkanVisionOwnerCounters& vulkan_vision_owner_counters() {
 
 VulkanVisionOwnerContextCounters& vulkan_vision_owner_context_counters() {
   static VulkanVisionOwnerContextCounters counters;
+  return counters;
+}
+
+VulkanVisionOwnerMlpCounters& vulkan_vision_owner_mlp_counters() {
+  static VulkanVisionOwnerMlpCounters counters;
   return counters;
 }
 
@@ -114,6 +129,54 @@ void append_vulkan_vision_owner_log(
       << " fc2_context=" << (context && context->fc2_context() ? 1 : 0)
       << " norm_context="
       << (context && context->norm1_context() && context->norm2_context() ? 1 : 0)
+      << '\n';
+}
+
+int64_t parse_vision_block_index(const std::string& label) {
+  const std::string marker = "block";
+  const auto pos = label.rfind(marker);
+  if (pos == std::string::npos) {
+    return -1;
+  }
+  int64_t value = 0;
+  bool found_digit = false;
+  for (size_t i = pos + marker.size(); i < label.size(); ++i) {
+    if (!std::isdigit(static_cast<unsigned char>(label[i]))) {
+      break;
+    }
+    found_digit = true;
+    value = value * 10 + static_cast<int64_t>(label[i] - '0');
+  }
+  return found_digit ? value : -1;
+}
+
+void append_vulkan_vision_owner_block_log(
+    const Tensor& input,
+    const c10::intrusive_ptr<VisionBackboneBlockContext>& context,
+    const bool linear_gelu_context,
+    const bool fc2_context) {
+  const auto& path = vulkan_vision_owner_log_path();
+  if (path.empty() || !context) {
+    return;
+  }
+
+  const int64_t hidden = input.dim() >= 1 ? input.size(input.dim() - 1) : 0;
+  const int64_t heads = context->num_heads();
+  const int64_t head_dim = heads > 0 ? hidden / heads : 0;
+  const int64_t mlp_hidden = hidden * 4;
+  std::ofstream out(path, std::ios::app);
+  out << "vision_owner_block"
+      << " block_index=" << parse_vision_block_index(context->allocation_label())
+      << " label=" << context->allocation_label()
+      << " tokens="
+      << (input.dim() == 3 ? input.size(1) : (input.dim() == 2 ? input.size(0) : 0))
+      << " hidden=" << hidden
+      << " heads=" << heads
+      << " head_dim=" << head_dim
+      << " mlp_hidden=" << mlp_hidden
+      << " owner_forward_fallback=0"
+      << " linear_gelu_context=" << (linear_gelu_context ? 1 : 0)
+      << " fc2_context=" << (fc2_context ? 1 : 0)
       << '\n';
 }
 
@@ -2473,15 +2536,29 @@ Tensor run_vision_backbone_block_program(
         : run_layernorm_context(
               hidden_states, normalized_shape, context->norm2_context());
   }
+  auto& mlp_counters = vulkan_vision_owner_mlp_counters();
+  mlp_counters.total.fetch_add(1u, std::memory_order_relaxed);
+  if (!context->fc1_context() || !context->fc2_context()) {
+    mlp_counters.reject_context.fetch_add(1u, std::memory_order_relaxed);
+  } else if (mlp_input.scalar_type() != kFloat) {
+    mlp_counters.reject_dtype.fetch_add(1u, std::memory_order_relaxed);
+  } else if (mlp_input.dim() != 2 && mlp_input.dim() != 3) {
+    mlp_counters.reject_shape.fetch_add(1u, std::memory_order_relaxed);
+  }
   Tensor mlp_output = vision_program
       ? run_linear_gelu_context_out(
             mlp_input, context->fc1_context(), vision_program->fc1_output())
       : run_linear_gelu_context(mlp_input, context->fc1_context());
+  mlp_counters.linear_gelu_hit.fetch_add(1u, std::memory_order_relaxed);
 
   mlp_output = vision_program
       ? run_linear_context_out(
             mlp_output, context->fc2_context(), vision_program->fc2_output())
       : run_linear_context(mlp_output, context->fc2_context());
+  mlp_counters.fc2_after_linear_gelu_hit.fetch_add(
+      1u,
+      std::memory_order_relaxed);
+  append_vulkan_vision_owner_block_log(input, context, true, true);
   Tensor mlp_addend = mlp_output;
 
   if (output_slot && output_slot->defined() && hidden_states.scalar_type() == kFloat &&
@@ -5045,6 +5122,31 @@ void record_vision_owner_context_cache_hit() {
   vulkan_vision_owner_context_counters().cache_hit_count.fetch_add(
       1u,
       std::memory_order_relaxed);
+}
+
+std::vector<int64_t> vision_owner_mlp_counters_snapshot() {
+  const auto& counters = vulkan_vision_owner_mlp_counters();
+  return {
+      static_cast<int64_t>(counters.total.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.linear_gelu_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.fc2_after_linear_gelu_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.reject_no_owner.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.reject_dtype.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.reject_shape.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.reject_context.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_vision_owner_mlp_counters() {
+  auto& counters = vulkan_vision_owner_mlp_counters();
+  counters.total.store(0u, std::memory_order_relaxed);
+  counters.linear_gelu_hit.store(0u, std::memory_order_relaxed);
+  counters.fc2_after_linear_gelu_hit.store(0u, std::memory_order_relaxed);
+  counters.reject_no_owner.store(0u, std::memory_order_relaxed);
+  counters.reject_dtype.store(0u, std::memory_order_relaxed);
+  counters.reject_shape.store(0u, std::memory_order_relaxed);
+  counters.reject_context.store(0u, std::memory_order_relaxed);
 }
 
 VisionBackboneBlockContext::VisionBackboneBlockContext(

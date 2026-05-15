@@ -74,6 +74,17 @@ def set_vulkan_fallback_phase(torch_module: Any, phase: int) -> None:
         setter(int(phase))
 
 
+def set_vulkan_timed_region(torch_module: Any, enabled: bool) -> None:
+    ops = getattr(getattr(torch_module, "ops", None), "vulkan_prepack", None)
+    setter = (
+        getattr(ops, "set_benchmark_timed_region", None)
+        if ops is not None
+        else None
+    )
+    if setter is not None:
+        setter(bool(enabled))
+
+
 @contextlib.contextmanager
 def vulkan_fallback_phase(torch_module: Any, phase: int) -> Any:
     set_vulkan_fallback_phase(torch_module, phase)
@@ -81,6 +92,15 @@ def vulkan_fallback_phase(torch_module: Any, phase: int) -> Any:
         yield
     finally:
         set_vulkan_fallback_phase(torch_module, FALLBACK_PHASE_UNKNOWN)
+
+
+@contextlib.contextmanager
+def vulkan_timed_region(torch_module: Any) -> Any:
+    set_vulkan_timed_region(torch_module, True)
+    try:
+        yield
+    finally:
+        set_vulkan_timed_region(torch_module, False)
 
 
 class VulkanDAv2OwnerContextCache:
@@ -242,13 +262,17 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         "cpu_fallback_count",
         "sync_readback_count",
         "fallback_phase_counters",
+        "timed_fallback_phase_counters",
         "sync_counters",
         "attention_plan_counters",
         "linear_plan_counters",
         "conv_plan_counters",
         "buffer_copy_counters",
+        "buffer_copy_aggregate_snapshot",
+        "clone_requirement_snapshot",
         "vision_owner_counters",
         "vision_owner_context_counters",
+        "vision_owner_mlp_counters",
         "zero_counters",
     ):
         fn = getattr(ops, name, None)
@@ -507,21 +531,7 @@ def run() -> None:
     with inference_context(torch, device_kind):
         for _ in range(args.repeats):
             start = time.perf_counter()
-            _ = infer_image_on_device(
-                model,
-                raw_image,
-                args.input_size,
-                device,
-                torch,
-                F,
-                device_kind,
-                OUTPUT_MODE_READBACK,
-            )
-            end_to_end_with_readback_durations.append(time.perf_counter() - start)
-
-        if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
-            for _ in range(args.repeats):
-                start = time.perf_counter()
+            with vulkan_timed_region(torch):
                 _ = infer_image_on_device(
                     model,
                     raw_image,
@@ -530,32 +540,50 @@ def run() -> None:
                     torch,
                     F,
                     device_kind,
-                    legacy_forward_output_mode,
+                    OUTPUT_MODE_READBACK,
                 )
+            end_to_end_with_readback_durations.append(time.perf_counter() - start)
+
+        if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
+            for _ in range(args.repeats):
+                start = time.perf_counter()
+                with vulkan_timed_region(torch):
+                    _ = infer_image_on_device(
+                        model,
+                        raw_image,
+                        args.input_size,
+                        device,
+                        torch,
+                        F,
+                        device_kind,
+                        legacy_forward_output_mode,
+                    )
                 legacy_end_to_end_durations.append(time.perf_counter() - start)
 
         for _ in range(args.repeats):
             start = time.perf_counter()
-            depth = compute_depth_on_device(model, image_tensor, (height, width), F)
-            _ = consume_depth_output(
-                depth,
-                torch,
-                device_kind,
-                device,
-                OUTPUT_MODE_DEVICE_RESIDENT,
-            )
+            with vulkan_timed_region(torch):
+                depth = compute_depth_on_device(model, image_tensor, (height, width), F)
+                _ = consume_depth_output(
+                    depth,
+                    torch,
+                    device_kind,
+                    device,
+                    OUTPUT_MODE_DEVICE_RESIDENT,
+                )
             forward_device_resident_durations.append(time.perf_counter() - start)
 
         for _ in range(args.repeats):
             start = time.perf_counter()
-            depth = compute_depth_on_device(model, image_tensor, (height, width), F)
-            _ = consume_depth_output(
-                depth,
-                torch,
-                device_kind,
-                device,
-                OUTPUT_MODE_READBACK,
-            )
+            with vulkan_timed_region(torch):
+                depth = compute_depth_on_device(model, image_tensor, (height, width), F)
+                _ = consume_depth_output(
+                    depth,
+                    torch,
+                    device_kind,
+                    device,
+                    OUTPUT_MODE_READBACK,
+                )
             forward_with_readback_durations.append(time.perf_counter() - start)
 
     corpus_with_readback_durations: list[float] = []
@@ -566,24 +594,7 @@ def run() -> None:
             if corpus_image is None:
                 raise RuntimeError(f"Failed to load corpus image: {corpus_image_path}")
             start = time.perf_counter()
-            _ = infer_image_on_device(
-                model,
-                corpus_image,
-                args.input_size,
-                device,
-                torch,
-                F,
-                device_kind,
-                OUTPUT_MODE_READBACK,
-            )
-            corpus_with_readback_durations.append(time.perf_counter() - start)
-
-        if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
-            for corpus_image_path in image_paths:
-                corpus_image = cv2.imread(str(corpus_image_path))
-                if corpus_image is None:
-                    raise RuntimeError(f"Failed to load corpus image: {corpus_image_path}")
-                start = time.perf_counter()
+            with vulkan_timed_region(torch):
                 _ = infer_image_on_device(
                     model,
                     corpus_image,
@@ -592,8 +603,27 @@ def run() -> None:
                     torch,
                     F,
                     device_kind,
-                    legacy_forward_output_mode,
+                    OUTPUT_MODE_READBACK,
                 )
+            corpus_with_readback_durations.append(time.perf_counter() - start)
+
+        if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
+            for corpus_image_path in image_paths:
+                corpus_image = cv2.imread(str(corpus_image_path))
+                if corpus_image is None:
+                    raise RuntimeError(f"Failed to load corpus image: {corpus_image_path}")
+                start = time.perf_counter()
+                with vulkan_timed_region(torch):
+                    _ = infer_image_on_device(
+                        model,
+                        corpus_image,
+                        args.input_size,
+                        device,
+                        torch,
+                        F,
+                        device_kind,
+                        legacy_forward_output_mode,
+                    )
                 legacy_corpus_durations.append(time.perf_counter() - start)
 
     if legacy_forward_output_mode == OUTPUT_MODE_READBACK:

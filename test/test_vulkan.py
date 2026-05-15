@@ -3249,7 +3249,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         phase_counters = torch.ops.vulkan_prepack.fallback_phase_counters()
         self.assertEqual(phase_counters[3], 1)
         self.assertEqual(sum(phase_counters), 1)
+        timed_phase_counters = torch.ops.vulkan_prepack.timed_fallback_phase_counters()
+        self.assertEqual(sum(timed_phase_counters), 0)
+        torch.ops.vulkan_prepack.reset_fallback_phase_counters()
+        torch.ops.vulkan_prepack.set_benchmark_timed_region(True)
+        torch.ops.vulkan_prepack.set_fallback_phase(3)
+        try:
+            cast_source.to(torch.int64).cpu()
+        finally:
+            torch.ops.vulkan_prepack.set_fallback_phase(0)
+            torch.ops.vulkan_prepack.set_benchmark_timed_region(False)
+        phase_counters = torch.ops.vulkan_prepack.fallback_phase_counters()
+        timed_phase_counters = torch.ops.vulkan_prepack.timed_fallback_phase_counters()
+        self.assertEqual(phase_counters[3], 1)
+        self.assertEqual(timed_phase_counters[3], 1)
+        self.assertEqual(sum(timed_phase_counters), 1)
         torch.ops.vulkan_prepack.reset_fallback_counters()
+
+        torch.ops.vulkan_prepack.reset_vision_owner_mlp_counters()
+        owner_mlp_counters = torch.ops.vulkan_prepack.vision_owner_mlp_counters()
+        self.assertEqual(owner_mlp_counters, [0, 0, 0, 0, 0, 0, 0])
 
         direct_source = torch.empty(4, device="vulkan")
         direct_source.copy_(cast_source)

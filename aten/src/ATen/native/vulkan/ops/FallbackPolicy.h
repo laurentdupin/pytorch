@@ -34,9 +34,12 @@ uint64_t vulkan_cpu_fallback_count();
 uint64_t vulkan_sync_readback_count();
 void reset_vulkan_fallback_counters();
 std::vector<int64_t> vulkan_fallback_phase_counters_snapshot();
+std::vector<int64_t> vulkan_timed_fallback_phase_counters_snapshot();
 void reset_vulkan_fallback_phase_counters();
 void set_vulkan_fallback_phase(VulkanFallbackPhase phase);
+void set_vulkan_benchmark_timed_region(bool enabled);
 VulkanFallbackPhase current_vulkan_fallback_phase();
+bool current_vulkan_benchmark_timed_region();
 const char* vulkan_fallback_phase_name(VulkanFallbackPhase phase);
 
 void report_vulkan_cpu_fallback(

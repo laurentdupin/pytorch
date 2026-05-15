@@ -136,6 +136,29 @@ next copy-provenance comparison should measure eager Vulkan versus one-block
 owner with that existing fused MLP path before adding a separate GELU scratch
 implementation.
 
+That comparison showed the existing owner-local fused path is sufficient for the
+measured MLP clone class. Eager Vulkan produced 1104 `[1,T,1536]`
+`fc2_input_preparation` clone requirements, totaling 14.13 GB. One owned block
+reduced that to 1012 clones and 12.95 GB, which is exactly one block's worth of
+traffic in the stable profile. With all 12 DAv2 blocks owned, the `[1,T,1536]`
+GELU clone requirement dropped to zero.
+
+The remaining clone requirements in the all-block owner run are user-visible or
+setup/context copies for weights and biases, not the MLP activation handoff:
+
+```
+[1152,384]
+[1536,384]
+[1536]
+[384,1536]
+[384,384]
+[384]
+```
+
+The remaining large runtime copy traffic after the all-block owner pass is
+dominated by Q/K/V-shaped `tensor_to_contiguous` materialization, such as
+`[6,2073,64]` and `[6,2110,64]`, plus positional-token view materialization.
+
 Copy elision should only be added when the provenance log proves that the copy is
 a true logical no-op, or that the downstream Vulkan consumer accepts the producer
 layout without changing aliasing or output semantics.

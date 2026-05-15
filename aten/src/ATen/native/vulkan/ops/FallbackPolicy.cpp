@@ -45,9 +45,19 @@ VulkanFallbackPhaseCounters& fallback_phase_counters() {
   return counters;
 }
 
+VulkanFallbackPhaseCounters& timed_fallback_phase_counters() {
+  static VulkanFallbackPhaseCounters counters;
+  return counters;
+}
+
 VulkanFallbackPhase& fallback_phase_tls() {
   thread_local VulkanFallbackPhase phase = VulkanFallbackPhase::Unknown;
   return phase;
+}
+
+bool& timed_region_tls() {
+  thread_local bool enabled = false;
+  return enabled;
 }
 
 std::atomic<uint64_t>& fallback_phase_counter(
@@ -162,7 +172,8 @@ std::string fallback_detail(
     ArrayRef<Tensor> tensors) {
   std::ostringstream out;
   out << "kind=" << fallback_kind_name(kind)
-      << " phase=" << phase_name(fallback_phase_tls());
+      << " phase=" << phase_name(fallback_phase_tls())
+      << " inside_timed_forward=" << (timed_region_tls() ? 1 : 0);
   for (const auto i : c10::irange(tensors.size())) {
     out << " tensor" << i << "={" << tensor_detail(tensors[i]) << '}';
   }
@@ -211,6 +222,24 @@ std::vector<int64_t> vulkan_fallback_phase_counters_snapshot() {
   };
 }
 
+std::vector<int64_t> vulkan_timed_fallback_phase_counters_snapshot() {
+  const auto& counters = timed_fallback_phase_counters();
+  return {
+      static_cast<int64_t>(counters.unknown.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.model_setup.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.owner_context_create.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.owner_forward.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.decoder_setup.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.positional_embedding_setup.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.readback.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.test_harness.load(std::memory_order_relaxed)),
+  };
+}
+
 void reset_vulkan_fallback_phase_counters() {
   auto& counters = fallback_phase_counters();
   counters.unknown.store(0, std::memory_order_relaxed);
@@ -221,14 +250,32 @@ void reset_vulkan_fallback_phase_counters() {
   counters.positional_embedding_setup.store(0, std::memory_order_relaxed);
   counters.readback.store(0, std::memory_order_relaxed);
   counters.test_harness.store(0, std::memory_order_relaxed);
+
+  auto& timed_counters = timed_fallback_phase_counters();
+  timed_counters.unknown.store(0, std::memory_order_relaxed);
+  timed_counters.model_setup.store(0, std::memory_order_relaxed);
+  timed_counters.owner_context_create.store(0, std::memory_order_relaxed);
+  timed_counters.owner_forward.store(0, std::memory_order_relaxed);
+  timed_counters.decoder_setup.store(0, std::memory_order_relaxed);
+  timed_counters.positional_embedding_setup.store(0, std::memory_order_relaxed);
+  timed_counters.readback.store(0, std::memory_order_relaxed);
+  timed_counters.test_harness.store(0, std::memory_order_relaxed);
 }
 
 void set_vulkan_fallback_phase(const VulkanFallbackPhase phase) {
   fallback_phase_tls() = phase;
 }
 
+void set_vulkan_benchmark_timed_region(const bool enabled) {
+  timed_region_tls() = enabled;
+}
+
 VulkanFallbackPhase current_vulkan_fallback_phase() {
   return fallback_phase_tls();
+}
+
+bool current_vulkan_benchmark_timed_region() {
+  return timed_region_tls();
 }
 
 const char* vulkan_fallback_phase_name(const VulkanFallbackPhase phase) {
@@ -253,6 +300,10 @@ void report_vulkan_cpu_fallback(
   }
   fallback_phase_counter(fallback_phase_counters(), fallback_phase_tls())
       .fetch_add(1, std::memory_order_relaxed);
+  if (timed_region_tls()) {
+    fallback_phase_counter(timed_fallback_phase_counters(), fallback_phase_tls())
+        .fetch_add(1, std::memory_order_relaxed);
+  }
 
   const std::string detail = fallback_detail(kind, tensors);
   const std::string message = api::format_vulkan_failure(

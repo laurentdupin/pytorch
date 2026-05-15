@@ -198,6 +198,10 @@ void reset_vision_owner_context_counters();
 
 void record_vision_owner_context_cache_hit();
 
+std::vector<int64_t> vision_owner_mlp_counters_snapshot();
+
+void reset_vision_owner_mlp_counters();
+
 void prime_vision_backbone_block_context_graph(
     const Tensor& input,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context);
