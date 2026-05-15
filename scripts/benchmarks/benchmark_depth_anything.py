@@ -39,15 +39,15 @@ FALLBACK_PHASE_POSITIONAL_EMBEDDING_SETUP = 5
 FALLBACK_PHASE_READBACK = 6
 
 
-def env_flag_enabled(name: str) -> bool:
-    value = os.environ.get(name)
+def vulkan_dav2_owner_enabled_default() -> bool:
+    value = os.environ.get("PYTORCH_VULKAN_DAV2_BLOCK_OWNER")
     if value is None:
-        return False
-    return value not in {"0", "false", "FALSE"}
+        return True
+    return value not in {"0", "false", "False", "FALSE"}
 
 
 def parse_owner_limit() -> int | None:
-    value = os.environ.get("PYTORCH_VULKAN_DAV2_BLOCK_OWNER_LIMIT", "1")
+    value = os.environ.get("PYTORCH_VULKAN_DAV2_BLOCK_OWNER_LIMIT", "all")
     if value == "all":
         return None
     try:
@@ -196,13 +196,33 @@ def install_vulkan_fallback_phase_wrappers(torch_module: Any, model: Any) -> Non
 
     interpolate = getattr(pretrained, "interpolate_pos_encoding", None)
     if interpolate is not None:
+        pos_cache: dict[tuple[str, str, tuple[int, ...], int, int], Any] = {}
 
         def phase_interpolate_pos_encoding(self: Any, *args: Any, **kwargs: Any) -> Any:
+            x = args[0] if args else kwargs.get("x")
+            w = args[1] if len(args) > 1 else kwargs.get("w")
+            h = args[2] if len(args) > 2 else kwargs.get("h")
+            if x is not None and w is not None and h is not None:
+                key = (
+                    str(x.device),
+                    str(x.dtype),
+                    tuple(int(s) for s in x.shape),
+                    int(w),
+                    int(h),
+                )
+                cached = pos_cache.get(key)
+                if cached is not None:
+                    return cached
+
             with vulkan_fallback_phase(
                 torch_module,
                 FALLBACK_PHASE_POSITIONAL_EMBEDDING_SETUP,
             ):
-                return interpolate(*args, **kwargs)
+                result = interpolate(*args, **kwargs)
+
+            if x is not None and w is not None and h is not None:
+                pos_cache[key] = result
+            return result
 
         pretrained.interpolate_pos_encoding = types.MethodType(
             phase_interpolate_pos_encoding,
@@ -226,7 +246,7 @@ def iter_dav2_block_slots(model: Any) -> Any:
 
 
 def install_vulkan_dav2_block_owner(torch_module: Any, model: Any) -> dict[str, Any]:
-    enabled = env_flag_enabled("PYTORCH_VULKAN_DAV2_BLOCK_OWNER")
+    enabled = vulkan_dav2_owner_enabled_default()
     limit = parse_owner_limit() if enabled else 0
     installed = 0
     if enabled and limit != 0:
@@ -250,6 +270,34 @@ def install_vulkan_dav2_block_owner(torch_module: Any, model: Any) -> dict[str, 
         "limit": "all" if limit is None else limit,
         "installed": installed,
     }
+
+
+def prewarm_vulkan_dav2_patch_and_positional_setup(
+    torch_module: Any,
+    model: Any,
+    image_tensor: Any,
+) -> None:
+    pretrained = getattr(model, "pretrained", None)
+    patch_embed = getattr(pretrained, "patch_embed", None)
+    if pretrained is None or patch_embed is None:
+        return
+    if getattr(image_tensor.device, "type", None) != "vulkan":
+        return
+
+    with vulkan_fallback_phase(torch_module, FALLBACK_PHASE_MODEL_SETUP):
+        patch_tokens = patch_embed(image_tensor)
+        cls_token = getattr(pretrained, "cls_token", None)
+        if cls_token is None:
+            return
+        tokens = torch_module.cat(
+            (cls_token.expand(patch_tokens.shape[0], -1, -1), patch_tokens),
+            dim=1,
+        )
+        pretrained.interpolate_pos_encoding(
+            tokens,
+            int(image_tensor.shape[2]),
+            int(image_tensor.shape[3]),
+        )
 
 
 def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[str, Any]:
@@ -474,6 +522,23 @@ def run() -> None:
         args.input_size,
         device,
     )
+    if device_kind == "vulkan":
+        prewarm_vulkan_dav2_patch_and_positional_setup(torch, model, image_tensor)
+        for corpus_image_path in image_paths:
+            corpus_image = cv2.imread(str(corpus_image_path))
+            if corpus_image is None:
+                raise RuntimeError(f"Failed to load corpus image: {corpus_image_path}")
+            corpus_tensor, _ = prepare_image_on_device(
+                model,
+                corpus_image,
+                args.input_size,
+                device,
+            )
+            prewarm_vulkan_dav2_patch_and_positional_setup(
+                torch,
+                model,
+                corpus_tensor,
+            )
     legacy_forward_output_mode = (
         OUTPUT_MODE_DEVICE_RESIDENT if args.skip_output_copy else OUTPUT_MODE_READBACK
     )

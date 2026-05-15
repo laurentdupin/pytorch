@@ -86,3 +86,80 @@ shape=(1362, 2048)
 Runs with GPU timestamp logging enabled increment `queue_wait_idle_count` because
 the timestamp profiler resets query pools. The same all-block owner run without
 `PYTORCH_VULKAN_GPU_TIMESTAMP_LOG` had `queue_wait_idle_count=0`.
+
+## All-Block Owner Benchmark Default
+
+The DAv2 Vulkan benchmark now enables the block owner by default and routes all
+12 transformer blocks through `run_vision_backbone_block_context`. Disable it
+with:
+
+```
+PYTORCH_VULKAN_DAV2_BLOCK_OWNER=0
+```
+
+The owner limit remains available for stepwise testing:
+
+```
+PYTORCH_VULKAN_DAV2_BLOCK_OWNER_LIMIT=<N|all>
+```
+
+Before promoting the owner default, the remaining timed fallbacks were outside
+the owner block:
+
+- `vulkan_prepack::conv2d_context` patch-embed weight materialization from the
+  first patch embedding convolution
+- `aten::view` materialization in positional embedding setup for
+  `[1, 37, 57, 384] -> [1, tokens, 384]`
+
+Both are setup/cache work, not owner forward work. The benchmark now prewarms the
+patch embedding and positional embedding setup before measured forward loops.
+The positional embedding result is cached by device, dtype, input token shape,
+and image size. This does not eliminate those setup fallbacks globally; it moves
+their cache misses outside the timed region and reports them in phase counters.
+
+A short all-owner run before this cache/prewarm step reported:
+
+```
+total CPU fallback=26
+timed positional_embedding_setup fallback=26
+timed unknown readback event=1
+owner_forward fallback=0
+queue_wait_idle_count=0
+```
+
+After the cache/prewarm step, the same all-owner configuration reported:
+
+```
+total CPU fallback=1
+timed fallback=0
+model_setup readback event=1
+positional_embedding_setup fallback=1
+owner_context_create readbacks=168
+owner_forward fallback=0
+queue_wait_idle_count=0
+```
+
+The all-owner stable benchmark on the DAv2 vits demo image used
+`warmup=3`, `repeats=10`, input size 518:
+
+```
+eager device-resident mean=0.5899s median=0.5909s p90=0.6018s
+owner device-resident mean=0.5405s median=0.5180s p90=0.5664s
+owner readback-inclusive mean=0.5112s median=0.5118s p90=0.5163s
+```
+
+The owner run had 1104 block hits, 1104 `linear_gelu_hit` events, zero
+`[1,T,1536]` MLP GELU clone requirements, zero timed fallback, and zero
+queue-idle waits without timestamp logging. A separate timestamp-profiling run
+recorded queue-idle waits from the profiler itself and should not be compared to
+no-timestamp latency runs.
+
+One-image accuracy stayed in the same Vulkan band:
+
+```
+CPU vs eager raw MAE=0.00229934 normalized MAE=0.00139754 max_abs=0.0276299
+CPU vs owner raw MAE=0.00229951 normalized MAE=0.00139764 max_abs=0.0276322
+eager vs owner MAE=4.07e-7 max_abs=2.00e-5
+NaN/Inf=0
+shape=(1362, 2048)
+```

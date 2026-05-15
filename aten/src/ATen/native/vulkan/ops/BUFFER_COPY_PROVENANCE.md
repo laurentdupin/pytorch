@@ -159,6 +159,37 @@ The remaining large runtime copy traffic after the all-block owner pass is
 dominated by Q/K/V-shaped `tensor_to_contiguous` materialization, such as
 `[6,2073,64]` and `[6,2110,64]`, plus positional-token view materialization.
 
+The follow-up all-owner cleanup made the benchmark owner path the default for
+DAv2 Vulkan runs and moved the remaining non-owner setup fallbacks out of the
+timed forward loop. The setup misses are still visible and intentionally
+reported:
+
+- one patch-embed convolution weight materialization/readback in `model_setup`
+- one positional embedding `aten::view` materialization in
+  `positional_embedding_setup`
+- owner context unpack readbacks in `owner_context_create`
+
+The timed forward counters are zero for those phases after prewarming. The
+all-block owner copy aggregate for the stable no-timestamp run reported:
+
+```
+total buffer copies=1515
+total copy bytes=4.07 GB
+explicit_copy=132
+tensor_to_contiguous=1153
+view_materialization=230
+[1,T,1536] fc2_input_preparation clones=0
+```
+
+The comparable eager Vulkan run reported:
+
+```
+total buffer copies=25623
+total copy bytes=83.14 GB
+[1,T,1536] fc2_input_preparation clones=1104
+[1,T,1536] fc2_input_preparation bytes=14.13 GB
+```
+
 Copy elision should only be added when the provenance log proves that the copy is
 a true logical no-op, or that the downstream Vulkan consumer accepts the producer
 layout without changing aliasing or output semantics.
