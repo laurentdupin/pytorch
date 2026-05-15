@@ -94,8 +94,7 @@ enum class VulkanAttentionRejectReason : uint8_t {
   DropoutNonZero = 8u,
   Causal = 9u,
   ShapeUnsupported = 10u,
-  QueryTileDisabled = 11u,
-  Unknown = 12u,
+  Unknown = 11u,
 };
 
 struct VulkanAttentionPlanDecision final {
@@ -133,6 +132,8 @@ struct VulkanAttentionPlanCounters final {
   std::atomic<uint64_t> reject_head_dim{0u};
   std::atomic<uint64_t> reject_shape{0u};
   std::atomic<uint64_t> qtile_q4_hit{0u};
+  std::atomic<uint64_t> qtile_q4_shared_hit{0u};
+  std::atomic<uint64_t> qtile_q4_subgroup_hit{0u};
 };
 
 enum class DecomposedAttentionStage : uint8_t {
@@ -162,18 +163,6 @@ struct DeferredAttentionQueryScaleCandidate {
 VulkanAttentionPlanCounters& attention_plan_counters() {
   static VulkanAttentionPlanCounters counters;
   return counters;
-}
-
-bool vulkan_attention_qtile_enabled() {
-  static const bool enabled = []() {
-    const char* const env = std::getenv("PYTORCH_VULKAN_ATTENTION_QTILE");
-    if (env == nullptr) {
-      return true;
-    }
-    const std::string value(env);
-    return value != "0" && value != "false" && value != "FALSE";
-  }();
-  return enabled;
 }
 
 const std::string& vulkan_attention_plan_log_path() {
@@ -798,9 +787,6 @@ bool can_use_head64_query_tile_attention(
     const Tensor& query,
     const Tensor& key,
     const Tensor& value) {
-  if (!vulkan_attention_qtile_enabled()) {
-    return false;
-  }
   if (query.dim() != 3 || key.dim() != 3 || value.dim() != 3) {
     return false;
   }
@@ -2486,7 +2472,7 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
       RuntimeProgramBufferFusedKernelVariant::Narrow16) {
     VulkanAttentionPlanDecision decision;
     decision.selected = VulkanAttentionFastPath::ScoresValueFloatSingleQuery;
-    decision.reject = VulkanAttentionRejectReason::QueryTileDisabled;
+    decision.reject = VulkanAttentionRejectReason::ShapeUnsupported;
     decision.batch_heads = query_arg.size(0);
     decision.target_len = query_arg.size(1);
     decision.source_len = key_arg.size(1);
@@ -2575,7 +2561,7 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
   decision.reject =
       can_use_head64_query_tile_attention(query_arg, key_arg, value_arg)
       ? VulkanAttentionRejectReason::None
-      : VulkanAttentionRejectReason::QueryTileDisabled;
+      : VulkanAttentionRejectReason::ShapeUnsupported;
   note_attention_plan_decision(
       decision,
       head64_query_tile_variant
@@ -2626,6 +2612,7 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
       api::ShaderInfo shader =
           VK_KERNEL(scaled_dot_product_scores_value_buffer_float_head64_q4);
       const api::Adapter* const adapter = context->adapter_ptr();
+      bool subgroup_q4 = false;
       if (adapter != nullptr && adapter->has_compute_full_subgroups() &&
           adapter->supports_required_subgroup_size(
               VK_SHADER_STAGE_COMPUTE_BIT, 64u)) {
@@ -2633,6 +2620,14 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
             scaled_dot_product_scores_value_buffer_float_head64_q4_subgroup);
         shader.required_subgroup_size = 64u;
         shader.require_full_subgroups = true;
+        subgroup_q4 = true;
+      }
+      VulkanAttentionPlanCounters& counters = attention_plan_counters();
+      if (subgroup_q4) {
+        counters.qtile_q4_subgroup_hit.fetch_add(
+            1u, std::memory_order_relaxed);
+      } else {
+        counters.qtile_q4_shared_hit.fetch_add(1u, std::memory_order_relaxed);
       }
       context->submit_compute_job(
           shader,
@@ -3675,6 +3670,27 @@ std::vector<int64_t> attention_plan_counters_snapshot() {
           counters.reject_head_dim.load(std::memory_order_relaxed)),
       static_cast<int64_t>(counters.reject_shape.load(std::memory_order_relaxed)),
       static_cast<int64_t>(counters.qtile_q4_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.qtile_q4_shared_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.qtile_q4_subgroup_hit.load(std::memory_order_relaxed)),
+  };
+}
+
+std::vector<int64_t> attention_subgroup_capabilities_snapshot() {
+  api::Context* const context = api::context();
+  const api::Adapter* const adapter = context ? context->adapter_ptr() : nullptr;
+  if (adapter == nullptr) {
+    return {0, 0, 0, 0, 0};
+  }
+
+  return {
+      adapter->has_compute_full_subgroups() ? 1 : 0,
+      static_cast<int64_t>(adapter->min_subgroup_size()),
+      static_cast<int64_t>(adapter->max_subgroup_size()),
+      static_cast<int64_t>(adapter->required_subgroup_size_stages()),
+      adapter->supports_required_subgroup_size(
+          VK_SHADER_STAGE_COMPUTE_BIT, 64u) ? 1 : 0,
   };
 }
 
@@ -3691,6 +3707,8 @@ void reset_attention_plan_counters() {
   counters.reject_head_dim.store(0u, std::memory_order_relaxed);
   counters.reject_shape.store(0u, std::memory_order_relaxed);
   counters.qtile_q4_hit.store(0u, std::memory_order_relaxed);
+  counters.qtile_q4_shared_hit.store(0u, std::memory_order_relaxed);
+  counters.qtile_q4_subgroup_hit.store(0u, std::memory_order_relaxed);
 }
 
 std::tuple<Tensor, Tensor, Tensor> transform_bias_rescale_qkv_vulkan_out(

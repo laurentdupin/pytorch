@@ -76,6 +76,8 @@ void move_deferred_attention_query_scale_candidate_to_alias(
 
 std::vector<int64_t> attention_plan_counters_snapshot();
 
+std::vector<int64_t> attention_subgroup_capabilities_snapshot();
+
 void reset_attention_plan_counters();
 
 } // namespace ops

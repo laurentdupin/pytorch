@@ -39,25 +39,6 @@ FALLBACK_PHASE_POSITIONAL_EMBEDDING_SETUP = 5
 FALLBACK_PHASE_READBACK = 6
 
 
-def vulkan_dav2_owner_enabled_default() -> bool:
-    value = os.environ.get("PYTORCH_VULKAN_DAV2_BLOCK_OWNER")
-    if value is None:
-        return True
-    return value not in {"0", "false", "False", "FALSE"}
-
-
-def parse_owner_limit() -> int | None:
-    value = os.environ.get("PYTORCH_VULKAN_DAV2_BLOCK_OWNER_LIMIT", "all")
-    if value == "all":
-        return None
-    try:
-        return max(int(value), 0)
-    except ValueError as exc:
-        raise ValueError(
-            "PYTORCH_VULKAN_DAV2_BLOCK_OWNER_LIMIT must be an integer or 'all'"
-        ) from exc
-
-
 def optional_bias(module: Any) -> Any:
     return getattr(module, "bias", None)
 
@@ -246,28 +227,25 @@ def iter_dav2_block_slots(model: Any) -> Any:
 
 
 def install_vulkan_dav2_block_owner(torch_module: Any, model: Any) -> dict[str, Any]:
-    enabled = vulkan_dav2_owner_enabled_default()
-    limit = parse_owner_limit() if enabled else 0
+    enabled = True
+    limit = None
     installed = 0
-    if enabled and limit != 0:
-        context_cache = VulkanDAv2OwnerContextCache(torch_module)
-        for block_index, (_container, _slot, block) in enumerate(
-            iter_dav2_block_slots(model)
-        ):
-            if limit is not None and installed >= limit:
-                break
-            block._vulkan_dav2_block_owner = VulkanDAv2BlockOwner(
-                torch_module,
-                block,
-                block_index,
-                context_cache,
-            )
-            block.forward = types.MethodType(vulkan_dav2_block_owner_forward, block)
-            installed += 1
+    context_cache = VulkanDAv2OwnerContextCache(torch_module)
+    for block_index, (_container, _slot, block) in enumerate(
+        iter_dav2_block_slots(model)
+    ):
+        block._vulkan_dav2_block_owner = VulkanDAv2BlockOwner(
+            torch_module,
+            block,
+            block_index,
+            context_cache,
+        )
+        block.forward = types.MethodType(vulkan_dav2_block_owner_forward, block)
+        installed += 1
 
     return {
         "enabled": enabled,
-        "limit": "all" if limit is None else limit,
+        "limit": "all",
         "installed": installed,
     }
 

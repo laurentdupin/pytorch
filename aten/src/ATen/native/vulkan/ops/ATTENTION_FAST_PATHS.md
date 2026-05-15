@@ -12,12 +12,8 @@ scaled_dot_product_scores_value_buffer_float
 That shader computes one query row per workgroup and uses an online softmax loop
 over source tokens while directly accumulating the value output.
 
-The query-tiled path is default-on for the strict safe shape class. It can be
-disabled with:
-
-```
-PYTORCH_VULKAN_ATTENTION_QTILE=0
-```
+The query-tiled path is canonical for the strict safe shape class. Unsupported
+shapes and capabilities use the existing generic safe paths.
 
 It routes safe head64 FP32 direct-buffer attention to the canonical query-4
 path:

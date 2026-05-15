@@ -13,10 +13,10 @@ zeros previously fell back to CPU because the Vulkan zero path only supported
 float buffers. The byte-buffer shader zero path removes that fallback for the
 owner setup tensors.
 
-The owner path remains gated by the benchmark/runtime flags and should stay
-separate from MLP scratch work. The next safe step after zero fallback is gone is
-to implement the owned `fc1 -> GELU(out scratch) -> fc2` handoff inside this
-owner, without aliasing clone outputs.
+The owner path is now canonical for the supported DAv2 Vulkan benchmark route.
+It stays separate from local clone aliasing and MLP scratch experiments; the
+existing owner-local `run_linear_gelu_context` handoff removes the measured MLP
+clone traffic without a separate GELU-out scratch path.
 
 ## Fallback Phase Accounting
 
@@ -89,19 +89,10 @@ the timestamp profiler resets query pools. The same all-block owner run without
 
 ## All-Block Owner Benchmark Default
 
-The DAv2 Vulkan benchmark now enables the block owner by default and routes all
-12 transformer blocks through `run_vision_backbone_block_context`. Disable it
-with:
-
-```
-PYTORCH_VULKAN_DAV2_BLOCK_OWNER=0
-```
-
-The owner limit remains available for stepwise testing:
-
-```
-PYTORCH_VULKAN_DAV2_BLOCK_OWNER_LIMIT=<N|all>
-```
+The DAv2 Vulkan benchmark routes all 12 transformer blocks through
+`run_vision_backbone_block_context`. The all-block owner is canonical for the
+supported DAv2 Vulkan benchmark path; there is no long-lived performance env
+selector for disabling it or limiting owner coverage.
 
 Before promoting the owner default, the remaining timed fallbacks were outside
 the owner block:
@@ -169,6 +160,33 @@ the subgroup shader. Other adapters keep the shared-memory q4 shader for the
 same supported shape class. The measured subgroup replacement reduced attention
 GPU time from 5617144.3 us to 4229888.7 us while keeping the owner and fallback
 properties unchanged.
+
+After removing the remaining performance env selectors, a fresh canonical run
+with `warmup=3`, `repeats=10`, input size 518 reported:
+
+```
+device-resident mean=0.3712s median=0.3673s p90=0.3742s
+readback-inclusive mean=0.3453s median=0.3461s p90=0.3473s
+owner hits=1104
+linear_gelu hits=1104
+q4 hits=1104
+q4 subgroup hits=1104
+timed fallback=0
+queue_wait_idle_count=0
+```
+
+A short timestamp profile for the same canonical route reported:
+
+```
+attention=4184122.3 us (31.72%)
+conv=3779737.6 us (28.65%)
+linear/mm=2672533.3 us (20.26%)
+copy=103498.9 us (0.78%)
+```
+
+Attention remains the largest bucket, but convolution is close enough that the
+next optimization should start with conv classification and profiling rather
+than another qtile variant.
 
 One-image accuracy stayed in the same Vulkan band:
 

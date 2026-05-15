@@ -1504,6 +1504,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::attention_plan_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::attention_subgroup_capabilities() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::buffer_copy_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::buffer_copy_aggregate_snapshot() -> str[]"));
@@ -1658,6 +1660,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::attention_plan_counters"),
       TORCH_FN(attention_plan_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::attention_subgroup_capabilities"),
+      TORCH_FN(attention_subgroup_capabilities_snapshot));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::buffer_copy_counters"),
       TORCH_FN(buffer_copy_counters_snapshot));
