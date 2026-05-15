@@ -19,23 +19,22 @@ disabled with:
 PYTORCH_VULKAN_ATTENTION_QTILE=0
 ```
 
-It routes safe head64 FP32 direct-buffer attention to the query-tiled shaders:
+It routes safe head64 FP32 direct-buffer attention to the canonical query-4
+path:
 
 ```
-scaled_dot_product_scores_value_buffer_float_head64_q2
+scaled_dot_product_scores_value_buffer_float_head64_q4_subgroup
 scaled_dot_product_scores_value_buffer_float_head64_q4
-scaled_dot_product_scores_value_buffer_float_head64_q8
 ```
 
-The selected tile can be forced with:
+The subgroup shader is used only when the adapter supports full compute
+subgroups and a required subgroup size of 64 for compute pipelines. Devices
+without that capability use the shared-memory q4 shader for the same logical
+path.
 
-```
-PYTORCH_VULKAN_ATTENTION_QTILE_VARIANT=<2|4|8|auto>
-```
-
-The default is `auto`. After the 2026-05 DAv2 all-owner benchmark, `auto`
-remains conservative and selects query tile 4 for the current FP32 head64
-shape. Query tile 8 and query tile 2 are available for explicit benchmarking.
+Query tile 2 and query tile 8 were benchmarked and rejected. They are not
+reachable from production routing, and there is no runtime env selector for
+competing qtile variants.
 
 Eligibility:
 
@@ -46,10 +45,10 @@ Eligibility:
 - target_len >= 128 and source_len >= 128
 - no mask, no dropout, non-causal path
 
-The qtile shaders preserve the existing online-softmax source-token order. They
-group 2, 4, or 8 query rows per workgroup so K/V loads are reused across a small
-query tile. Logical output shape is unchanged. Tail query rows are guarded, so
-the target length does not need to be divisible by the tile size.
+The qtile shader preserves the existing online-softmax source-token order. It
+groups four query rows per workgroup so K/V loads are reused across a small query
+tile. Logical output shape is unchanged. Tail query rows are guarded, so the
+target length does not need to be divisible by four.
 
 ## Validation
 
@@ -127,8 +126,47 @@ q2       0.00229948  0.00022704     0.99999916   0.0276318  0/0
 Query tile 8 matched query tile 4 exactly on the demo image. Query tile 2
 differed from query tile 4 by MAE 4.53e-7 and max abs 2.03e-5.
 
+Because q4 was fastest, q2/q8 shader files and runtime routing were removed
+after the benchmark. Future attention experiments should be evaluated as
+replacement candidates and merged only if they become the canonical path for
+this shape/capability class.
+
+## Subgroup q4 replacement
+
+The q4 shared-memory reduction was compared with a subgroup q4 replacement that
+keeps the same online-softmax order, score scaling, query tile, head64/value64
+shape, and output indexing. On the measured adapter, capability reporting was:
+
+```
+has_compute_full_subgroups=1
+min_subgroup_size=32
+max_subgroup_size=64
+required_subgroup_size_stages=32
+supports required subgroup size 64 for compute=yes
+```
+
+The subgroup q4 candidate is selected only under that capability check and sets
+`required_subgroup_size=64` plus full-subgroup pipeline creation. There is no
+runtime selector between shared and subgroup q4.
+
+All-owner DAv2 comparison:
+
+```
+path              device_resident_mean  median    p90       attention_us  attention_share
+q4 shared         0.3665s               0.3612s   0.3871s   5617144.3     37.76%
+q4 subgroup       0.3444s               0.3370s   0.3674s   4229888.7     31.49%
+```
+
+One-image CPU vs all-owner Vulkan subgroup accuracy:
+
+```
+raw_mae     normalized_mae  correlation  max_abs     NaN/Inf
+0.00229943  0.00022703     0.99999916   0.0276284   0/0
+```
+
 ## Remaining limitations
 
-- Query tile 4 remains the default selected variant because q8 was slightly
-  slower on the measured all-owner DAv2 profile and q2 was clearly slower.
+- Query tile 4 is the only production qtile variant for the validated FP32
+  head64 path. On devices that support required subgroup size 64 for compute,
+  q4 uses subgroup reduction; otherwise it uses the shared-memory q4 shader.
 - Masked, causal, dropout, BF16, and KV-cache attention remain on existing paths.

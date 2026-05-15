@@ -1,4 +1,6 @@
 #version 450 core
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 
 #include "indexing.h"
 
@@ -57,9 +59,9 @@ layout(set = 0, binding = 7) uniform restrict ValueMeta {
 uValueMeta;
 
 layout(set = 0, binding = 8) uniform restrict Block {
-  ivec4 sizes;      // batch_heads, target_len, source_len, head_dim
-  ivec4 tiled_info; // value_dim, local_size_x, max_outputs_per_thread, query_rows_per_workgroup
-  vec4 params;      // query_scale, unused, unused, unused
+  ivec4 sizes;
+  ivec4 tiled_info;
+  vec4 params;
 }
 uBlock;
 
@@ -67,10 +69,7 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 const float NEG_INF = -3.402823466e+38;
 const float MIN_DENOM = 1.0e-20;
-const int LOCAL_SIZE_X = 64;
-const int QUERY_ROWS_PER_WORKGROUP = 8;
-
-shared float sScorePartials[QUERY_ROWS_PER_WORKGROUP * LOCAL_SIZE_X];
+const int QUERY_ROWS_PER_WORKGROUP = 4;
 
 uint buffer_idx(const uvec4 coord, const uvec4 strides, const uint offset) {
   return coord_to_idx(coord, strides) + offset;
@@ -132,22 +131,6 @@ void main() {
       key_value = key_idx < key_buf_length ? uKey.data[key_idx] : 0.0;
     }
 
-    for (int row = 0; row < QUERY_ROWS_PER_WORKGROUP; ++row) {
-      sScorePartials[row * LOCAL_SIZE_X + lane] =
-          query_valid[row] ? query_values[row] * key_value : 0.0;
-    }
-    barrier();
-
-    for (int offset = LOCAL_SIZE_X / 2; offset > 0; offset /= 2) {
-      if (lane < offset) {
-        for (int row = 0; row < QUERY_ROWS_PER_WORKGROUP; ++row) {
-          const int partial_idx = row * LOCAL_SIZE_X + lane;
-          sScorePartials[partial_idx] += sScorePartials[partial_idx + offset];
-        }
-      }
-      barrier();
-    }
-
     float value_value = 0.0;
     if (has_output_value) {
       const uint value_idx = buffer_idx(
@@ -162,7 +145,7 @@ void main() {
         continue;
       }
       const float score =
-          sScorePartials[row * LOCAL_SIZE_X] * uBlock.params.x;
+          subgroupAdd(query_values[row] * key_value) * uBlock.params.x;
       const float new_max = max(row_max[row], score);
       const float previous_scale = exp(row_max[row] - new_max);
       const float current_scale = exp(score - new_max);
@@ -174,7 +157,6 @@ void main() {
             accumulators[row] * previous_scale + current_scale * value_value;
       }
     }
-    barrier();
   }
 
   if (has_output_value) {

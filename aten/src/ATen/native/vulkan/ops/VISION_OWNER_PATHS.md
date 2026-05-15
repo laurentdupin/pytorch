@@ -155,11 +155,20 @@ recorded queue-idle waits from the profiler itself and should not be compared to
 no-timestamp latency runs.
 
 The follow-up attention variant sweep kept the all-block owner default and
-compared qtile 2, 4, and 8. Query tile 4 remained the selected default because
-it was fastest in both no-timestamp device-resident timing and timestamped
-attention totals on the measured DAv2 vits run. The owner path and fallback
-properties were unchanged across the variants: 1104 owner hits, zero timed
-fallback, and zero queue-idle waits without timestamp logging.
+compared qtile 2, 4, and 8. Query tile 4 remained the canonical production path
+because it was fastest in both no-timestamp device-resident timing and
+timestamped attention totals on the measured DAv2 vits run. Query tile 2 and 8
+were removed from production routing after that measurement. The owner path and
+fallback properties were unchanged across the experiment: 1104 owner hits, zero
+timed fallback, and zero queue-idle waits without timestamp logging.
+
+The q4 path was then tested with subgroup reduction as a replacement candidate,
+not as an env-selected alternative. On adapters that support full compute
+subgroups and required subgroup size 64 for compute, the canonical q4 path uses
+the subgroup shader. Other adapters keep the shared-memory q4 shader for the
+same supported shape class. The measured subgroup replacement reduced attention
+GPU time from 5617144.3 us to 4229888.7 us while keeping the owner and fallback
+properties unchanged.
 
 One-image accuracy stayed in the same Vulkan band:
 
