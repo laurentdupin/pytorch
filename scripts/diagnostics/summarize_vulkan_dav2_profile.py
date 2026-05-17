@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import json
 import re
 from pathlib import Path
 
@@ -34,6 +35,28 @@ def parse_gpu_timestamps(path: Path):
     return by_name
 
 
+def parse_gpu_timestamp_sequence(path: Path):
+    rows = []
+    if not path or not path.exists():
+        return rows
+
+    for line in path.read_text(errors="replace").splitlines():
+        parts = parse_kv_line(line)
+        name = parts.get("name")
+        duration = parts.get("duration_ns")
+        if not name or not duration:
+            continue
+        rows.append(
+            {
+                "name": name,
+                "duration_ns": int(duration),
+                "global": parts.get("global", ""),
+                "local": parts.get("local", ""),
+            }
+        )
+    return rows
+
+
 def parse_op_hits(path: Path) -> collections.Counter[str]:
     counts: collections.Counter[str] = collections.Counter()
     if not path or not path.exists():
@@ -52,6 +75,114 @@ def parse_op_hits(path: Path) -> collections.Counter[str]:
             label = f"{label} caller={caller}"
         counts[label] += 1
     return counts
+
+
+def classify_conv_role_from_parts(parts: dict[str, str]) -> str:
+    input_shape = [
+        int(value)
+        for value in parts.get("input", "[]").strip("[]").split("x")
+        if value
+    ]
+    weight_shape = [
+        int(value)
+        for value in parts.get("weight", "[]").strip("[]").split("x")
+        if value
+    ]
+    stride = [
+        int(value)
+        for value in parts.get("stride", "[]").strip("[]").split("x")
+        if value
+    ]
+    padding = [
+        int(value)
+        for value in parts.get("padding", "[]").strip("[]").split("x")
+        if value
+    ]
+    dilation = [
+        int(value)
+        for value in parts.get("dilation", "[]").strip("[]").split("x")
+        if value
+    ]
+    groups = int(parts.get("groups", "0"))
+    cin = input_shape[1] if len(input_shape) > 1 else 0
+    cout = weight_shape[0] if weight_shape else 0
+    kh = weight_shape[2] if len(weight_shape) > 2 else 0
+    kw = weight_shape[3] if len(weight_shape) > 3 else 0
+    if cin == 3 and cout == 384 and kh == 14 and kw == 14 and stride == [14, 14]:
+        return "patch_embed"
+    if kh == 1 and kw == 1 and groups == 1:
+        return "pointwise_1x1"
+    if (
+        kh == 3
+        and kw == 3
+        and stride == [1, 1]
+        and padding == [1, 1]
+        and dilation == [1, 1]
+        and groups == 1
+    ):
+        return "conv_3x3_s1p1"
+    if groups == cin and groups == cout and groups > 1:
+        return "depthwise"
+    if len(input_shape) >= 4 and input_shape[2] <= 74 and input_shape[3] <= 114:
+        return "decoder_or_head"
+    return "generic"
+
+
+def parse_conv_submit_op_hits(path: Path):
+    rows = []
+    if not path or not path.exists():
+        return rows
+
+    for line in path.read_text(errors="replace").splitlines():
+        if "op=aten::convolution.submit" not in line:
+            continue
+        parts = parse_kv_line(line)
+        kernel = parts.get("kernel")
+        if not kernel:
+            continue
+        shape = (
+            f"input={parts.get('input', '?')} "
+            f"output={parts.get('output', '?')} "
+            f"weight={parts.get('weight', '?')} "
+            f"stride={parts.get('stride', '?')} "
+            f"padding={parts.get('padding', '?')} "
+            f"dilation={parts.get('dilation', '?')} "
+            f"groups={parts.get('groups', '?')}"
+        )
+        rows.append(
+            {
+                "kernel": kernel,
+                "shape": shape,
+                "role": classify_conv_role_from_parts(parts),
+            }
+        )
+    return rows
+
+
+def conv_gpu_time_by_submit_shape(op_hits_path: Path, gpu_path: Path):
+    submits = parse_conv_submit_op_hits(op_hits_path)
+    timestamp_queues: dict[str, collections.deque[int]] = collections.defaultdict(
+        collections.deque
+    )
+    for row in parse_gpu_timestamp_sequence(gpu_path):
+        name = row["name"]
+        if name.startswith("conv2d_buffer") or name.startswith("conv_transpose2d"):
+            timestamp_queues[name].append(row["duration_ns"])
+
+    by_kernel = collections.Counter()
+    by_shape = collections.Counter()
+    by_role = collections.Counter()
+    unmatched = collections.Counter()
+    for submit in submits:
+        queue = timestamp_queues.get(submit["kernel"])
+        if not queue:
+            unmatched[submit["kernel"]] += 1
+            continue
+        duration_ns = queue.popleft()
+        by_kernel[submit["kernel"]] += duration_ns
+        by_shape[submit["shape"]] += duration_ns
+        by_role[submit["role"]] += duration_ns
+    return by_kernel, by_shape, by_role, unmatched
 
 
 def parse_plan(path: Path, selected_key: str = "selected"):
@@ -285,6 +416,125 @@ def parse_clone_requirements(path: Path):
     return by_reason_count, by_reason_bytes, by_pair_bytes, large_mlp
 
 
+def conv_aggregate_lines(path: Path) -> list[str]:
+    if not path or not path.exists():
+        return []
+    text = path.read_text(errors="replace")
+    if path.suffix == ".json":
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = {}
+        counters = data.get("vulkan_debug_counters", {})
+        rows = counters.get("conv_aggregate_snapshot", [])
+        return [row for row in rows if isinstance(row, str)]
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip().startswith("conv_aggregate")
+    ]
+
+
+def parse_conv_aggregate(path: Path):
+    rows = []
+    by_kernel_count: collections.Counter[str] = collections.Counter()
+    by_kernel_bytes: collections.Counter[str] = collections.Counter()
+    by_shape_count: collections.Counter[str] = collections.Counter()
+    by_shape_bytes: collections.Counter[str] = collections.Counter()
+    by_role_count: collections.Counter[str] = collections.Counter()
+    by_role_bytes: collections.Counter[str] = collections.Counter()
+    by_method_count: collections.Counter[str] = collections.Counter()
+    by_method_bytes: collections.Counter[str] = collections.Counter()
+    role_buckets: dict[str, collections.Counter[str]] = {
+        "pointwise_1x1": collections.Counter(),
+        "conv_3x3_s1p1": collections.Counter(),
+        "generic": collections.Counter(),
+        "patch_embed": collections.Counter(),
+        "decoder_or_head": collections.Counter(),
+    }
+    for line in conv_aggregate_lines(path):
+        parts = parse_kv_line(line)
+        if not parts:
+            continue
+        count = int(parts.get("count", "0"))
+        input_bytes = int(parts.get("input_bytes", "0"))
+        output_bytes = int(parts.get("output_bytes", "0"))
+        weight_bytes = int(parts.get("weight_bytes", "0"))
+        bytes_ = input_bytes + output_bytes + weight_bytes
+        kernel = parts.get("kernel", "unknown")
+        role = parts.get("role", "unknown")
+        method = (
+            f"selected={parts.get('selected', 'unknown')} "
+            f"reject={parts.get('reject', 'unknown')}"
+        )
+        shape = (
+            f"input={parts.get('input', '?')} "
+            f"weight={parts.get('weight', '?')} "
+            f"stride={parts.get('stride', '?')} "
+            f"padding={parts.get('padding', '?')} "
+            f"dilation={parts.get('dilation', '?')} "
+            f"groups={parts.get('groups', '?')}"
+        )
+        rows.append(
+            {
+                "count": count,
+                "bytes": bytes_,
+                "kernel": kernel,
+                "role": role,
+                "method": method,
+                "shape": shape,
+            }
+        )
+        by_kernel_count[kernel] += count
+        by_kernel_bytes[kernel] += bytes_
+        by_shape_count[shape] += count
+        by_shape_bytes[shape] += bytes_
+        by_role_count[role] += count
+        by_role_bytes[role] += bytes_
+        by_method_count[method] += count
+        by_method_bytes[method] += bytes_
+        if role in role_buckets:
+            role_buckets[role][shape] += bytes_
+    return {
+        "rows": rows,
+        "by_kernel_count": by_kernel_count,
+        "by_kernel_bytes": by_kernel_bytes,
+        "by_shape_count": by_shape_count,
+        "by_shape_bytes": by_shape_bytes,
+        "by_role_count": by_role_count,
+        "by_role_bytes": by_role_bytes,
+        "by_method_count": by_method_count,
+        "by_method_bytes": by_method_bytes,
+        "role_buckets": role_buckets,
+    }
+
+
+def estimate_conv_gpu_from_aggregate(rows, gpu_by_name):
+    by_kernel = collections.Counter()
+    by_shape = collections.Counter()
+    by_role = collections.Counter()
+    for row in rows:
+        gpu = gpu_by_name.get(row["kernel"])
+        if not gpu or not gpu["count"]:
+            continue
+        estimated_ns = int(row["count"] * (gpu["total_ns"] / gpu["count"]))
+        by_kernel[row["kernel"]] += estimated_ns
+        by_shape[row["shape"]] += estimated_ns
+        by_role[row["role"]] += estimated_ns
+    return by_kernel, by_shape, by_role
+
+
+def print_time_counter(title: str, counts: collections.Counter[str], limit: int) -> None:
+    total_all = sum(counts.values())
+    print(f"\n{title}")
+    for rank, (label, total_ns) in enumerate(counts.most_common(limit), 1):
+        share = (100.0 * total_ns / total_all) if total_all else 0.0
+        print(
+            f"{rank:02d} {label} total_ms={total_ns / 1e6:.3f} "
+            f"share={share:.2f}%"
+        )
+
+
 def print_top_gpu(by_name, limit: int) -> None:
     total_all = sum(data["total_ns"] for data in by_name.values())
     rows = []
@@ -345,6 +595,7 @@ def main() -> None:
     parser.add_argument("--gpu-timestamps", type=Path)
     parser.add_argument("--op-hits", type=Path)
     parser.add_argument("--conv-plan", type=Path)
+    parser.add_argument("--conv-aggregate", type=Path)
     parser.add_argument("--linear-plan", type=Path)
     parser.add_argument("--attention-plan", type=Path)
     parser.add_argument("--buffer-copy-log", type=Path)
@@ -366,6 +617,51 @@ def main() -> None:
         print_counter("conv_plan_decisions", counts, args.top)
         print_counter("conv_plan_shapes", shapes, args.top)
         print_counter("conv_plan_rejects", rejects, args.top)
+    if args.conv_aggregate:
+        conv = parse_conv_aggregate(args.conv_aggregate)
+        print_counter("conv_by_kernel", conv["by_kernel_count"], args.top)
+        print_bytes_counter(
+            "conv_by_kernel_estimated_bytes", conv["by_kernel_bytes"], args.top
+        )
+        print_counter("conv_by_shape", conv["by_shape_count"], args.top)
+        print_bytes_counter(
+            "conv_by_shape_estimated_bytes", conv["by_shape_bytes"], args.top
+        )
+        print_counter("conv_by_role", conv["by_role_count"], args.top)
+        print_bytes_counter(
+            "conv_by_role_estimated_bytes", conv["by_role_bytes"], args.top
+        )
+        print_counter("conv_by_method", conv["by_method_count"], args.top)
+        print_bytes_counter(
+            "conv_by_method_estimated_bytes", conv["by_method_bytes"], args.top
+        )
+        for role, bucket in conv["role_buckets"].items():
+            print_bytes_counter(f"conv_{role}", bucket, args.top)
+        if args.gpu_timestamps:
+            if args.op_hits:
+                by_kernel, by_shape, by_role, unmatched = (
+                    conv_gpu_time_by_submit_shape(args.op_hits, args.gpu_timestamps)
+                )
+                print_time_counter("conv_by_kernel_gpu_time", by_kernel, args.top)
+                print_time_counter("conv_by_shape_gpu_time", by_shape, args.top)
+                print_time_counter("conv_by_role_gpu_time", by_role, args.top)
+                print_counter(
+                    "conv_submit_rows_without_timestamp", unmatched, args.top
+                )
+            else:
+                gpu_by_name = parse_gpu_timestamps(args.gpu_timestamps)
+                by_kernel, by_shape, by_role = estimate_conv_gpu_from_aggregate(
+                    conv["rows"], gpu_by_name
+                )
+                print_time_counter(
+                    "conv_by_kernel_estimated_gpu_time", by_kernel, args.top
+                )
+                print_time_counter(
+                    "conv_by_shape_estimated_gpu_time", by_shape, args.top
+                )
+                print_time_counter(
+                    "conv_by_role_estimated_gpu_time", by_role, args.top
+                )
     if args.linear_plan:
         counts, shapes, rejects = parse_plan(args.linear_plan)
         print_counter("linear_plan_decisions", counts, args.top)

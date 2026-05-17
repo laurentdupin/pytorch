@@ -188,6 +188,22 @@ Attention remains the largest bucket, but convolution is close enough that the
 next optimization should start with conv classification and profiling rather
 than another qtile variant.
 
+The first conv classification pass added a diagnostic-only aggregate snapshot
+and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
+GPU time across several classes:
+
+```
+pointwise_1x1   1392.572 ms (37.04% of conv)
+conv_3x3_s1p1   1117.084 ms (29.71% of conv)
+decoder_or_head  980.358 ms (26.07% of conv)
+patch_embed      269.988 ms (7.18% of conv)
+```
+
+Because no single conv class clearly dominated, no canonical conv kernel change
+was made in that pass. The result is documented in `CONV_FAST_PATHS.md`; the
+next conv implementation should target the decoder/head and large pointwise
+overlap only after that class is isolated more narrowly.
+
 One-image accuracy stayed in the same Vulkan band:
 
 ```

@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/ops/PackedWeight.h>
 #include <c10/macros/Export.h>
 #include <limits>
+#include <string>
 #include <torch/library.h>
 
 namespace at {
@@ -294,7 +295,11 @@ c10::intrusive_ptr<Conv2dOpContext> conv2d_clamp_prepack(
 
 TORCH_API std::vector<int64_t> conv_plan_counters_snapshot();
 
+TORCH_API std::vector<std::string> conv_aggregate_snapshot();
+
 TORCH_API void reset_conv_plan_counters();
+
+TORCH_API void reset_conv_aggregate();
 
 class Conv1dPackedContext final : public torch::jit::CustomClassHolder {
  private:
