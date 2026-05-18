@@ -110,6 +110,10 @@ struct VulkanPointwiseConvRouteCounters final {
   std::atomic<uint64_t> specialized_1x1_hit{0u};
   std::atomic<uint64_t> generic_1x1_hit{0u};
   std::atomic<uint64_t> reject_not_direct_buffer{0u};
+  std::atomic<uint64_t> reject_input_not_buffer{0u};
+  std::atomic<uint64_t> reject_input_not_direct_buffer{0u};
+  std::atomic<uint64_t> reject_output_not_direct_buffer{0u};
+  std::atomic<uint64_t> reject_storage_offset{0u};
   std::atomic<uint64_t> reject_dtype{0u};
   std::atomic<uint64_t> reject_groups{0u};
   std::atomic<uint64_t> reject_stride_padding_dilation{0u};
@@ -2105,10 +2109,21 @@ void record_pointwise_conv_route(
     counters.specialized_1x1_hit.fetch_add(1u, std::memory_order_relaxed);
   } else {
     counters.generic_1x1_hit.fetch_add(1u, std::memory_order_relaxed);
-    if (!decision.input_buffer || !v_input.has_direct_buffer_layout() ||
-        !v_output.has_direct_buffer_layout()) {
+    if (!decision.input_buffer) {
+      counters.reject_input_not_buffer.fetch_add(
+          1u, std::memory_order_relaxed);
+    } else if (!v_input.has_direct_buffer_layout()) {
       counters.reject_not_direct_buffer.fetch_add(
           1u, std::memory_order_relaxed);
+      counters.reject_input_not_direct_buffer.fetch_add(
+          1u, std::memory_order_relaxed);
+    } else if (!v_output.has_direct_buffer_layout()) {
+      counters.reject_not_direct_buffer.fetch_add(
+          1u, std::memory_order_relaxed);
+      counters.reject_output_not_direct_buffer.fetch_add(
+          1u, std::memory_order_relaxed);
+    } else if (v_input.storage_offset() != 0 || v_output.storage_offset() != 0) {
+      counters.reject_storage_offset.fetch_add(1u, std::memory_order_relaxed);
     } else if (decision.groups != 1) {
       counters.reject_groups.fetch_add(1u, std::memory_order_relaxed);
     } else if (decision.reject ==
@@ -2121,16 +2136,30 @@ void record_pointwise_conv_route(
   }
 
   std::ostringstream stream;
+  const IntArrayRef output_sizes = v_output.sizes();
   stream << "pointwise_route"
          << " selected=" << (specialized ? "specialized_1x1" : "generic")
          << " reject=" << conv_reject_reason_name(decision.reject)
-         << " shape=[" << decision.n << ',' << decision.cin << ','
+         << " input=[" << decision.n << ',' << decision.cin << ','
          << decision.h << ',' << decision.w << ']'
+         << " output=["
+         << (output_sizes.size() > 0 ? output_sizes[0] : 0) << ','
+         << (output_sizes.size() > 1 ? output_sizes[1] : 0) << ','
+         << (output_sizes.size() > 2 ? output_sizes[2] : 0) << ','
+         << (output_sizes.size() > 3 ? output_sizes[3] : 0) << ']'
          << " weight=[" << decision.cout << ',' << decision.cin << ",1,1]"
+         << " input_storage=" << static_cast<int>(v_input.storage_type())
+         << " output_storage=" << static_cast<int>(v_output.storage_type())
+         << " input_layout=" << static_cast<int>(v_input.gpu_memory_layout())
+         << " output_layout=" << static_cast<int>(v_output.gpu_memory_layout())
          << " input_direct=" << (v_input.has_direct_buffer_layout() ? 1 : 0)
          << " output_direct=" << (v_output.has_direct_buffer_layout() ? 1 : 0)
+         << " input_offset=" << v_input.storage_offset()
+         << " output_offset=" << v_output.storage_offset()
          << " weight_packed=" << (decision.weight_packed ? 1 : 0)
-         << " bias=" << (decision.bias_present ? 1 : 0);
+         << " bias=" << (decision.bias_present ? 1 : 0)
+         << " stride=[1,1] padding=[0,0] dilation=[1,1]"
+         << " groups=" << decision.groups;
   utils::log_vulkan_op_hit(stream.str());
 }
 
@@ -3827,6 +3856,16 @@ std::vector<int64_t> pointwise_conv_route_counters_snapshot() {
       static_cast<int64_t>(
           counters.reject_not_direct_buffer.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
+          counters.reject_input_not_buffer.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_input_not_direct_buffer.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_output_not_direct_buffer.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_storage_offset.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
           counters.reject_dtype.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.reject_groups.load(std::memory_order_relaxed)),
@@ -3918,6 +3957,10 @@ void reset_pointwise_conv_route_counters() {
   counters.specialized_1x1_hit.store(0u, std::memory_order_relaxed);
   counters.generic_1x1_hit.store(0u, std::memory_order_relaxed);
   counters.reject_not_direct_buffer.store(0u, std::memory_order_relaxed);
+  counters.reject_input_not_buffer.store(0u, std::memory_order_relaxed);
+  counters.reject_input_not_direct_buffer.store(0u, std::memory_order_relaxed);
+  counters.reject_output_not_direct_buffer.store(0u, std::memory_order_relaxed);
+  counters.reject_storage_offset.store(0u, std::memory_order_relaxed);
   counters.reject_dtype.store(0u, std::memory_order_relaxed);
   counters.reject_groups.store(0u, std::memory_order_relaxed);
   counters.reject_stride_padding_dilation.store(0u, std::memory_order_relaxed);

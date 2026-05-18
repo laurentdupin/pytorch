@@ -212,6 +212,13 @@ the target class dropped from 1051.482 ms to 159.905 ms while timed fallback
 stayed at zero. The remaining conv work is now mostly 3x3 stride1 padding1,
 pointwise 1x1, and patch embedding.
 
+The next post-s2p1 conv profile found no equally safe routing fix. The largest
+remaining conv class, `other_3x3_s1p1`, is already on the canonical specialized
+3x3 stride1 padding1 shader. The 52 pointwise generic fallthroughs are
+`KnownBadLargePointwiseConv` cases with non-direct input and output layouts and
+`input_offset=384`, so they are not safe to route into the direct-buffer 1x1
+shader. That pass only refined diagnostics and kept routing unchanged.
+
 One-image accuracy stayed in the same Vulkan band:
 
 ```

@@ -131,5 +131,59 @@ queue_wait_idle_count=0
 ## Next Target
 
 After this route change, the remaining conv time is led by 3x3 stride1
-padding1, pointwise 1x1, and patch embedding. The next implementation should be
-chosen from a fresh canonical profile, not by adding another route switch.
+padding1, pointwise 1x1, and patch embedding. A fresh post-s2p1 canonical
+profile with DAv2 vits, input size 518, `warmup=1`, `repeats=3`, and timestamp
+logging reported:
+
+```
+attention                         4355.759 ms (33.55%)
+conv2d_buffer_float_3x3_s1p1      1164.632 ms (8.97%)
+conv2d_buffer_float_1x1           1056.069 ms (8.14%)
+conv2d_buffer_float                665.596 ms (5.13%)
+conv2d_buffer_float_3x3_s2p1       154.328 ms (1.19%)
+```
+
+Within the conv bucket, the role split was:
+
+```
+other_3x3_s1p1              1164.632 ms (38.30% of conv)
+other_pointwise_1x1          775.835 ms (25.52% of conv)
+decoder_head_pointwise_1x1   672.057 ms (22.10% of conv)
+patch_embed                  273.773 ms (9.00% of conv)
+decoder_head_3x3_s2p1        154.328 ms (5.08% of conv)
+```
+
+The largest remaining conv class is already using the canonical specialized
+`conv2d_buffer_float_3x3_s1p1` path. No safe one-line routing fix exists for
+that class; improving it would require shader work and should be benchmarked as
+a replacement candidate, not added as a second runtime route.
+
+The 1x1 fallthroughs were refined with pointwise route counters and log rows.
+The short timestamp profile reported:
+
+```
+total_1x1=504
+specialized_1x1_hit=452
+generic_1x1_hit=52
+reject_not_direct_buffer=52
+reject_input_not_buffer=0
+reject_input_not_direct_buffer=52
+reject_output_not_direct_buffer=0
+reject_storage_offset=0
+```
+
+The generic 1x1 rows are the known bad decoder layouts:
+
+```
+input=[1,384,37,57]
+output=[1,192,37,57] or [1,384,37,57]
+input_direct=0
+output_direct=0
+input_offset=384
+reject=KnownBadLargePointwiseConv
+```
+
+Because both input and output are non-direct layouts, routing these tensors into
+the direct-buffer 1x1 shader would be unsafe without a separate proven layout
+normalization or a non-direct 1x1 shader. This pass therefore keeps production
+routing unchanged after the s2p1 fix and records the classification result.
