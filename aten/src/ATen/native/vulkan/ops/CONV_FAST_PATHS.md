@@ -39,23 +39,97 @@ The top individual conv shapes by GPU time were:
 ```
 
 The conv work is split across pointwise, 3x3 stride1 padding1, decoder/head
-stride2, and patch embedding. No single class is dominant enough to justify a
-new canonical kernel in this pass. The safe result is classification only.
+stride2, and patch embedding. The follow-up refined profile split the
+decoder/head overlap into explicit roles:
+
+```
+other_3x3_s1p1              1165.987 ms (29.03% of conv)
+decoder_head_3x3_s2p1       1051.482 ms (26.18% of conv)
+other_pointwise_1x1          776.602 ms (19.33% of conv)
+decoder_head_pointwise_1x1   674.670 ms (16.80% of conv)
+patch_embed                  348.118 ms (8.67% of conv)
+```
+
+The largest isolated actionable class was decoder/head 3x3 stride2 padding1,
+not pointwise 1x1. Pointwise route counters in the same run reported:
+
+```
+total_1x1=504
+specialized_1x1_hit=452
+generic_1x1_hit=52
+reject_not_direct_buffer=52
+```
+
+The 1x1 generic fallthrough is smaller and tied to non-direct-buffer decoder
+layouts, so the canonical change selected here is the existing 3x3 stride2
+padding1 buffer shader for the validated 384-channel decoder/head shape class.
 
 ## Current Canonical Routes
 
 - 1x1 pointwise FP32 buffer conv uses `conv2d_buffer_float_1x1` when the
   existing route policy accepts the shape and layout.
 - 3x3 stride1 padding1 FP32 buffer conv uses `conv2d_buffer_float_3x3_s1p1`.
-- Patch embedding and decoder/head cases still use the generic
-  `conv2d_buffer_float` route.
+- 3x3 stride2 padding1 FP32 buffer conv with 384 input and output channels uses
+  `conv2d_buffer_float_3x3_s2p1`.
+- Patch embedding and remaining decoder/head pointwise fallthrough cases still
+  use the generic `conv2d_buffer_float` route when their layout is not accepted
+  by an existing specialized route.
 - There is no runtime env selector for choosing competing conv implementations.
+
+## Decoder 3x3 Stride2 Padding1
+
+The decoder/head 3x3 stride2 padding1 path did not need a new shader. The
+`conv2d_buffer_float_3x3_s2p1` shader, dispatch, and op-hit label already
+existed, but the route selector never chose it. The selector now sends the
+validated FP32 buffer class to that shader when:
+
+```
+groups == 1
+kernel == 3x3
+stride == 2
+padding == 1
+dilation == 1
+input channels == output channels == 384
+```
+
+The exact DAv2 shapes tested are:
+
+```
+[1,384,37,56] -> [1,384,19,28], weight [384,384,3,3]
+[1,384,37,57] -> [1,384,19,29], weight [384,384,3,3]
+```
+
+The focused test `test_vulkan_conv2d_decoder_3x3_s2p1_uses_specialized_path`
+checks CPU equivalence for both shapes and asserts that the conv aggregate sees
+`kernel=conv2d_buffer_float_3x3_s2p1`.
+
+The timestamped DAv2 profile moved the target class from the generic kernel to
+the specialized kernel:
+
+```
+before decoder_head_3x3_s2p1 GPU time=1051.482 ms
+after  decoder_head_3x3_s2p1 GPU time=159.905 ms
+```
+
+Total conv GPU time in that short timestamp profile changed from about
+4016.9 ms to 3183.5 ms. The same run still reported zero timed fallback. The
+no-timestamp run reported queue_wait_idle_count=0.
+
+One-image CPU vs Vulkan accuracy remained in the existing Vulkan band:
+
+```
+raw MAE=0.00229957
+normalized MAE=0.00030728
+correlation=1.0
+max_abs_error=0.0276370
+NaN/Inf=0
+shape=(1362, 2048)
+CPU fallback=0
+queue_wait_idle_count=0
+```
 
 ## Next Target
 
-The next conv optimization should start with the decoder/head and large
-pointwise overlap rather than adding a broad conv alternative. In the measured
-profile, the largest individual shapes are small-spatial, high-channel decoder
-convs around `[1,384,37,56/57]`. A useful follow-up should decide whether those
-are best handled by a canonical specialized decoder conv or by making the
-validated 1x1 pointwise path accept the currently rejected direct-buffer cases.
+After this route change, the remaining conv time is led by 3x3 stride1
+padding1, pointwise 1x1, and patch embedding. The next implementation should be
+chosen from a fresh canonical profile, not by adding another route switch.

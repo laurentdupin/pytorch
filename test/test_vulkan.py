@@ -984,6 +984,41 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             repeats=3,
             variants=2)
 
+    def test_vulkan_conv2d_decoder_3x3_s2p1_uses_specialized_path(self):
+        for width in (56, 57):
+            torch.manual_seed(1750 + width)
+            x_cpu = torch.randn(1, 384, 37, width)
+            weight_cpu = torch.randn(384, 384, 3, 3)
+            bias_cpu = torch.randn(384)
+
+            expected = F.conv2d(
+                x_cpu,
+                weight_cpu,
+                bias_cpu,
+                stride=2,
+                padding=1,
+                dilation=1,
+                groups=1)
+
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            torch.ops.vulkan_prepack.reset_conv_aggregate()
+            actual = F.conv2d(
+                x_cpu.to("vulkan"),
+                weight_cpu.to("vulkan"),
+                bias_cpu.to("vulkan"),
+                stride=2,
+                padding=1,
+                dilation=1,
+                groups=1).cpu()
+
+            self._assert_outputs_close(expected, actual, atol=2e-2, rtol=2e-2)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            aggregate = torch.ops.vulkan_prepack.conv_aggregate_snapshot()
+            self.assertTrue(
+                any("kernel=conv2d_buffer_float_3x3_s2p1" in row
+                    for row in aggregate),
+                msg="\n".join(aggregate))
+
     def test_repeated_accuracy_linear_algebra_and_attention_matrix(self):
         def make_mm(variant):
             torch.manual_seed(1800 + variant)

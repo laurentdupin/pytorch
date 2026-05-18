@@ -105,6 +105,19 @@ struct VulkanConvPlanCounters final {
   std::atomic<uint64_t> reject_dtype{0u};
 };
 
+struct VulkanPointwiseConvRouteCounters final {
+  std::atomic<uint64_t> total_1x1{0u};
+  std::atomic<uint64_t> specialized_1x1_hit{0u};
+  std::atomic<uint64_t> generic_1x1_hit{0u};
+  std::atomic<uint64_t> reject_not_direct_buffer{0u};
+  std::atomic<uint64_t> reject_dtype{0u};
+  std::atomic<uint64_t> reject_groups{0u};
+  std::atomic<uint64_t> reject_stride_padding_dilation{0u};
+  std::atomic<uint64_t> reject_weight_layout{0u};
+  std::atomic<uint64_t> reject_bias{0u};
+  std::atomic<uint64_t> reject_shape{0u};
+};
+
 struct VulkanConvAggregateKey final {
   VulkanConvPlanSelected selected{VulkanConvPlanSelected::Unknown};
   VulkanConvRejectReason reject{VulkanConvRejectReason::None};
@@ -233,6 +246,11 @@ class VulkanConvAggregateProfiler final {
 
 VulkanConvPlanCounters& conv_plan_counters() {
   static VulkanConvPlanCounters counters;
+  return counters;
+}
+
+VulkanPointwiseConvRouteCounters& pointwise_conv_route_counters() {
+  static VulkanPointwiseConvRouteCounters counters;
   return counters;
 }
 
@@ -414,27 +432,59 @@ std::string classify_conv_role(
   const int64_t cout = weight_sizes.size() > 0 ? weight_sizes[0] : 0;
   const int64_t kh = weight_sizes.size() > 2 ? weight_sizes[2] : 0;
   const int64_t kw = weight_sizes.size() > 3 ? weight_sizes[3] : 0;
+  const int64_t n = input_sizes.size() > 0 ? input_sizes[0] : 0;
+  const int64_t h = input_sizes.size() > 2 ? input_sizes[2] : 0;
+  const int64_t w = input_sizes.size() > 3 ? input_sizes[3] : 0;
+  const int64_t stride_h = stride.size() > 0 ? stride[0] : 0;
+  const int64_t stride_w = stride.size() > 1 ? stride[1] : 0;
+  const int64_t pad_h = padding.size() > 0 ? padding[0] : 0;
+  const int64_t pad_w = padding.size() > 1 ? padding[1] : 0;
+  const int64_t dilation_h = dilation.size() > 0 ? dilation[0] : 0;
+  const int64_t dilation_w = dilation.size() > 1 ? dilation[1] : 0;
   if (cin == 3 && cout == 384 && kh == 14 && kw == 14 &&
       stride.size() >= 2 && stride[0] == 14 && stride[1] == 14 &&
       groups == 1) {
     return "patch_embed";
   }
-  if (kh == 1 && kw == 1 && groups == 1) {
-    return "pointwise_1x1";
+
+  const bool high_channel_384 =
+      n == 1 && cin == 384 && cout == 384 && groups == 1;
+  const bool small_spatial_decoder =
+      h >= 16 && h <= 80 && w >= 16 && w <= 96;
+  if (high_channel_384 && small_spatial_decoder && kh == 1 && kw == 1 &&
+      stride_h == 1 && stride_w == 1 && pad_h == 0 && pad_w == 0 &&
+      dilation_h == 1 && dilation_w == 1) {
+    return "decoder_head_pointwise_1x1";
+  }
+  if (high_channel_384 && small_spatial_decoder && kh == 3 && kw == 3 &&
+      stride_h == 2 && stride_w == 2 && pad_h == 1 && pad_w == 1 &&
+      dilation_h == 1 && dilation_w == 1) {
+    return "decoder_head_3x3_s2p1";
+  }
+  if (high_channel_384 && small_spatial_decoder && kh == 3 && kw == 3 &&
+      stride_h == 1 && stride_w == 1 && pad_h == 1 && pad_w == 1 &&
+      dilation_h == 1 && dilation_w == 1) {
+    return "decoder_head_3x3_s1p1";
   }
   if (kh == 3 && kw == 3 && stride.size() >= 2 && padding.size() >= 2 &&
       dilation.size() >= 2 && stride[0] == 1 && stride[1] == 1 &&
       padding[0] == 1 && padding[1] == 1 && dilation[0] == 1 &&
       dilation[1] == 1 && groups == 1) {
-    return "conv_3x3_s1p1";
+    return "other_3x3_s1p1";
+  }
+  if (kh == 1 && kw == 1 && groups == 1) {
+    return "other_pointwise_1x1";
   }
   if (groups == cin && groups == cout && groups > 1) {
     return "depthwise";
   }
   if (input_sizes.size() >= 4 && input_sizes[2] <= 74 && input_sizes[3] <= 114) {
-    return "decoder_or_head";
+    return "decoder_head_generic";
   }
-  return "generic";
+  if (kh == 3 && kw == 3 && groups == 1) {
+    return "other_3x3";
+  }
+  return "other_generic";
 }
 
 VulkanConvPlanSelected selected_from_conv_kernel_name(
@@ -1999,6 +2049,11 @@ FloatBufferConv2dShaderKind select_float_buffer_conv2d_shader_kind(
       return FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad0;
     }
     if (
+        padding[0] == 1 && padding[1] == 1 && stride[0] == 2 &&
+        stride[1] == 2 && in_channels == 384 && out_channels == 384) {
+      return FloatBufferConv2dShaderKind::Kernel3x3Stride2Pad1;
+    }
+    if (
         padding[0] == 1 && padding[1] == 1 && stride[0] == 1 &&
         stride[1] == 1) {
       return FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1;
@@ -2030,6 +2085,53 @@ api::utils::uvec3 select_float_buffer_conv2d_work_group_size(
   }
 
   return adaptive_work_group_size(global_size);
+}
+
+void record_pointwise_conv_route(
+    const VulkanConvPlanDecision& decision,
+    const FloatBufferConv2dShaderKind shader_kind,
+    const vTensor& v_input,
+    const vTensor& v_output) {
+  if (!decision.pointwise) {
+    return;
+  }
+
+  VulkanPointwiseConvRouteCounters& counters = pointwise_conv_route_counters();
+  counters.total_1x1.fetch_add(1u, std::memory_order_relaxed);
+
+  const bool specialized =
+      shader_kind == FloatBufferConv2dShaderKind::Pointwise1x1;
+  if (specialized) {
+    counters.specialized_1x1_hit.fetch_add(1u, std::memory_order_relaxed);
+  } else {
+    counters.generic_1x1_hit.fetch_add(1u, std::memory_order_relaxed);
+    if (!decision.input_buffer || !v_input.has_direct_buffer_layout() ||
+        !v_output.has_direct_buffer_layout()) {
+      counters.reject_not_direct_buffer.fetch_add(
+          1u, std::memory_order_relaxed);
+    } else if (decision.groups != 1) {
+      counters.reject_groups.fetch_add(1u, std::memory_order_relaxed);
+    } else if (decision.reject ==
+               VulkanConvRejectReason::KnownBadLargePointwiseConv) {
+      counters.reject_shape.fetch_add(1u, std::memory_order_relaxed);
+    } else {
+      counters.reject_stride_padding_dilation.fetch_add(
+          1u, std::memory_order_relaxed);
+    }
+  }
+
+  std::ostringstream stream;
+  stream << "pointwise_route"
+         << " selected=" << (specialized ? "specialized_1x1" : "generic")
+         << " reject=" << conv_reject_reason_name(decision.reject)
+         << " shape=[" << decision.n << ',' << decision.cin << ','
+         << decision.h << ',' << decision.w << ']'
+         << " weight=[" << decision.cout << ',' << decision.cin << ",1,1]"
+         << " input_direct=" << (v_input.has_direct_buffer_layout() ? 1 : 0)
+         << " output_direct=" << (v_output.has_direct_buffer_layout() ? 1 : 0)
+         << " weight_packed=" << (decision.weight_packed ? 1 : 0)
+         << " bias=" << (decision.bias_present ? 1 : 0);
+  utils::log_vulkan_op_hit(stream.str());
 }
 
 bool can_run_float_buffer_conv2d_add(
@@ -2250,6 +2352,7 @@ Tensor run_float_buffer_conv2d_impl(
     v_output_ptr = &owned_output;
   }
   vTensor& v_output = *v_output_ptr;
+  record_pointwise_conv_route(plan_decision, shader_kind, v_input, v_output);
 
   const struct {
     int32_t stride_w;
@@ -3711,6 +3814,34 @@ std::vector<int64_t> conv_plan_counters_snapshot() {
   };
 }
 
+std::vector<int64_t> pointwise_conv_route_counters_snapshot() {
+  const VulkanPointwiseConvRouteCounters& counters =
+      pointwise_conv_route_counters();
+  return {
+      static_cast<int64_t>(
+          counters.total_1x1.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.specialized_1x1_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.generic_1x1_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_not_direct_buffer.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_dtype.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_groups.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_stride_padding_dilation.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_weight_layout.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_bias.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_shape.load(std::memory_order_relaxed)),
+  };
+}
+
 std::vector<std::string> conv_aggregate_snapshot() {
   std::vector<std::pair<VulkanConvAggregateKey, VulkanConvAggregateValue>>
       entries = conv_aggregate_profiler().snapshot();
@@ -3779,6 +3910,20 @@ void reset_conv_plan_counters() {
   counters.cpu_fallback.store(0u, std::memory_order_relaxed);
   counters.reject_layout.store(0u, std::memory_order_relaxed);
   counters.reject_dtype.store(0u, std::memory_order_relaxed);
+}
+
+void reset_pointwise_conv_route_counters() {
+  VulkanPointwiseConvRouteCounters& counters = pointwise_conv_route_counters();
+  counters.total_1x1.store(0u, std::memory_order_relaxed);
+  counters.specialized_1x1_hit.store(0u, std::memory_order_relaxed);
+  counters.generic_1x1_hit.store(0u, std::memory_order_relaxed);
+  counters.reject_not_direct_buffer.store(0u, std::memory_order_relaxed);
+  counters.reject_dtype.store(0u, std::memory_order_relaxed);
+  counters.reject_groups.store(0u, std::memory_order_relaxed);
+  counters.reject_stride_padding_dilation.store(0u, std::memory_order_relaxed);
+  counters.reject_weight_layout.store(0u, std::memory_order_relaxed);
+  counters.reject_bias.store(0u, std::memory_order_relaxed);
+  counters.reject_shape.store(0u, std::memory_order_relaxed);
 }
 
 Conv1dPackedContext::Conv1dPackedContext(

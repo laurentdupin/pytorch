@@ -104,14 +104,47 @@ def classify_conv_role_from_parts(parts: dict[str, str]) -> str:
         if value
     ]
     groups = int(parts.get("groups", "0"))
+    n = input_shape[0] if input_shape else 0
     cin = input_shape[1] if len(input_shape) > 1 else 0
+    h = input_shape[2] if len(input_shape) > 2 else 0
+    w = input_shape[3] if len(input_shape) > 3 else 0
     cout = weight_shape[0] if weight_shape else 0
     kh = weight_shape[2] if len(weight_shape) > 2 else 0
     kw = weight_shape[3] if len(weight_shape) > 3 else 0
     if cin == 3 and cout == 384 and kh == 14 and kw == 14 and stride == [14, 14]:
         return "patch_embed"
-    if kh == 1 and kw == 1 and groups == 1:
-        return "pointwise_1x1"
+    high_channel_384 = n == 1 and cin == 384 and cout == 384 and groups == 1
+    small_spatial_decoder = 16 <= h <= 80 and 16 <= w <= 96
+    if (
+        high_channel_384
+        and small_spatial_decoder
+        and kh == 1
+        and kw == 1
+        and stride == [1, 1]
+        and padding == [0, 0]
+        and dilation == [1, 1]
+    ):
+        return "decoder_head_pointwise_1x1"
+    if (
+        high_channel_384
+        and small_spatial_decoder
+        and kh == 3
+        and kw == 3
+        and stride == [2, 2]
+        and padding == [1, 1]
+        and dilation == [1, 1]
+    ):
+        return "decoder_head_3x3_s2p1"
+    if (
+        high_channel_384
+        and small_spatial_decoder
+        and kh == 3
+        and kw == 3
+        and stride == [1, 1]
+        and padding == [1, 1]
+        and dilation == [1, 1]
+    ):
+        return "decoder_head_3x3_s1p1"
     if (
         kh == 3
         and kw == 3
@@ -120,12 +153,16 @@ def classify_conv_role_from_parts(parts: dict[str, str]) -> str:
         and dilation == [1, 1]
         and groups == 1
     ):
-        return "conv_3x3_s1p1"
+        return "other_3x3_s1p1"
+    if kh == 1 and kw == 1 and groups == 1:
+        return "other_pointwise_1x1"
     if groups == cin and groups == cout and groups > 1:
         return "depthwise"
     if len(input_shape) >= 4 and input_shape[2] <= 74 and input_shape[3] <= 114:
-        return "decoder_or_head"
-    return "generic"
+        return "decoder_head_generic"
+    if kh == 3 and kw == 3 and groups == 1:
+        return "other_3x3"
+    return "other_generic"
 
 
 def parse_conv_submit_op_hits(path: Path):
@@ -446,11 +483,15 @@ def parse_conv_aggregate(path: Path):
     by_method_count: collections.Counter[str] = collections.Counter()
     by_method_bytes: collections.Counter[str] = collections.Counter()
     role_buckets: dict[str, collections.Counter[str]] = {
-        "pointwise_1x1": collections.Counter(),
-        "conv_3x3_s1p1": collections.Counter(),
-        "generic": collections.Counter(),
         "patch_embed": collections.Counter(),
-        "decoder_or_head": collections.Counter(),
+        "decoder_head_pointwise_1x1": collections.Counter(),
+        "decoder_head_3x3_s2p1": collections.Counter(),
+        "decoder_head_3x3_s1p1": collections.Counter(),
+        "decoder_head_generic": collections.Counter(),
+        "other_pointwise_1x1": collections.Counter(),
+        "other_3x3_s1p1": collections.Counter(),
+        "other_3x3": collections.Counter(),
+        "other_generic": collections.Counter(),
     }
     for line in conv_aggregate_lines(path):
         parts = parse_kv_line(line)

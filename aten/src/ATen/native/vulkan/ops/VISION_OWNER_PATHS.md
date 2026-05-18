@@ -204,6 +204,14 @@ was made in that pass. The result is documented in `CONV_FAST_PATHS.md`; the
 next conv implementation should target the decoder/head and large pointwise
 overlap only after that class is isolated more narrowly.
 
+The refined decoder/head split selected the 3x3 stride2 padding1 class as the
+first canonical conv route change. The existing
+`conv2d_buffer_float_3x3_s2p1` shader is now selected for the validated
+384-channel FP32 buffer decoder/head shape class. In the timestamped DAv2 run,
+the target class dropped from 1051.482 ms to 159.905 ms while timed fallback
+stayed at zero. The remaining conv work is now mostly 3x3 stride1 padding1,
+pointwise 1x1, and patch embedding.
+
 One-image accuracy stayed in the same Vulkan band:
 
 ```

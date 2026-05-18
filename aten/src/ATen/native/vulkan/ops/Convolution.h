@@ -295,9 +295,13 @@ c10::intrusive_ptr<Conv2dOpContext> conv2d_clamp_prepack(
 
 TORCH_API std::vector<int64_t> conv_plan_counters_snapshot();
 
+TORCH_API std::vector<int64_t> pointwise_conv_route_counters_snapshot();
+
 TORCH_API std::vector<std::string> conv_aggregate_snapshot();
 
 TORCH_API void reset_conv_plan_counters();
+
+TORCH_API void reset_pointwise_conv_route_counters();
 
 TORCH_API void reset_conv_aggregate();
 
