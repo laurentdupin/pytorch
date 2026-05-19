@@ -7922,6 +7922,184 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         phase_counters = torch.ops.vulkan_prepack.fallback_phase_counters()
         self.assertEqual(phase_counters[3], 0)
 
+    def _make_vulkan_vision_stack_shape_plan_fixture(self, token_count, blocks=1):
+        torch.manual_seed(0)
+        embed_dim = 384
+        num_heads = 6
+        hidden_dim = 768
+        norm_eps = 1.0e-6
+
+        def randn(*sizes):
+            return torch.randn(*sizes, dtype=torch.float32) * 0.02
+
+        contexts = []
+        for block_index in range(blocks):
+            contexts.append(
+                torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                    randn(embed_dim),
+                    randn(embed_dim),
+                    norm_eps,
+                    randn(embed_dim * 3, embed_dim),
+                    randn(embed_dim * 3),
+                    num_heads,
+                    randn(embed_dim, embed_dim),
+                    randn(embed_dim),
+                    randn(embed_dim),
+                    randn(embed_dim),
+                    randn(embed_dim),
+                    norm_eps,
+                    randn(hidden_dim, embed_dim),
+                    randn(hidden_dim),
+                    randn(embed_dim, hidden_dim),
+                    randn(embed_dim),
+                    randn(embed_dim),
+                    f"depth.dino.backbone.stack.shape_plan.block{block_index}",
+                )
+            )
+        stack_context = torch.ops.vulkan_prepack.create_vision_backbone_stack_context(
+            contexts,
+            num_heads,
+            embed_dim // num_heads,
+            embed_dim,
+            hidden_dim,
+        )
+        x = randn(1, token_count, embed_dim).to("vulkan")
+        return contexts, stack_context, x
+
+    def test_vulkan_vision_stack_shape_plans_created_for_2073_and_2110(self):
+        _, stack_2073, x_2073 = self._make_vulkan_vision_stack_shape_plan_fixture(
+            2073
+        )
+        _, stack_2110, x_2110 = self._make_vulkan_vision_stack_shape_plan_fixture(
+            2110
+        )
+
+        torch.ops.vulkan_prepack.reset_stack_shape_plan_counters()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x_2073,
+                stack_2073,
+                [0],
+            )
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x_2110,
+                stack_2110,
+                [0],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        keys = torch.ops.vulkan_prepack.stack_shape_plan_keys()
+        self.assertTrue(any("tokens=2073" in key for key in keys))
+        self.assertTrue(any("tokens=2110" in key for key in keys))
+
+    def test_vulkan_vision_stack_shape_plans_are_fixed_shape(self):
+        _, stack_2073, x_2073 = self._make_vulkan_vision_stack_shape_plan_fixture(
+            2073
+        )
+        _, stack_2110, x_2110 = self._make_vulkan_vision_stack_shape_plan_fixture(
+            2110
+        )
+
+        torch.ops.vulkan_prepack.reset_stack_shape_plan_counters()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x_2073,
+                stack_2073,
+                [0],
+            )
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x_2110,
+                stack_2110,
+                [0],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        readiness = torch.ops.vulkan_prepack.stack_shape_plan_readiness()
+        self.assertTrue(
+            any(
+                "tokens=2073" in row
+                and "fixed_shapes=1" in row
+                and "safe_to_program=1" in row
+                for row in readiness
+            )
+        )
+        self.assertTrue(
+            any(
+                "tokens=2110" in row
+                and "fixed_shapes=1" in row
+                and "safe_to_program=1" in row
+                for row in readiness
+            )
+        )
+
+    def test_vulkan_vision_stack_shape_plan_cache_hit_on_repeated_tokens(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(2073)
+
+        torch.ops.vulkan_prepack.reset_stack_shape_plan_counters()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        counters = torch.ops.vulkan_prepack.stack_shape_plan_counters()
+        self.assertGreaterEqual(counters[1], 1)
+        self.assertGreaterEqual(counters[2], 1)
+        self.assertGreaterEqual(counters[4], 2)
+
+    def test_vulkan_vision_stack_shape_plan_rejects_wrong_token_binding(self):
+        _, stack_context, x_2073 = self._make_vulkan_vision_stack_shape_plan_fixture(
+            2073
+        )
+        _, _, x_2110 = self._make_vulkan_vision_stack_shape_plan_fixture(2110)
+
+        torch.ops.vulkan_prepack.reset_stack_shape_plan_counters()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x_2073,
+                stack_context,
+                [0],
+            )
+            reason = torch.ops.vulkan_prepack.validate_stack_shape_plan_binding(
+                stack_context,
+                2073,
+                x_2110,
+                [0],
+            )
+
+        self.assertEqual(reason, "tokens_mismatch")
+        counters = torch.ops.vulkan_prepack.stack_shape_plan_counters()
+        self.assertGreaterEqual(counters[5], 1)
+        self.assertGreaterEqual(counters[6], 1)
+
+    def test_vulkan_vision_stack_shape_plan_matches_stack_owner(self):
+        contexts, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            2073
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                x,
+                contexts[0],
+            )
+            actual = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )[0]
+            torch.ops.vulkan_prepack.synchronize()
+
+        self._assert_outputs_close(
+            actual.cpu(), expected.cpu(), atol=5e-3, rtol=5e-3
+        )
+
     def test_vulkan_vision_stack_execution_manifest_reports_capture_blocker(self):
         torch.manual_seed(0)
         embed_dim = 384

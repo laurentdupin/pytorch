@@ -38,12 +38,73 @@
 #include <sstream>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 
 namespace at {
 namespace native {
 namespace vulkan {
 namespace ops {
+
+bool operator==(
+    const VulkanVisionStackShapeKey& lhs,
+    const VulkanVisionStackShapeKey& rhs) {
+  return lhs.tokens == rhs.tokens && lhs.hidden == rhs.hidden &&
+      lhs.num_heads == rhs.num_heads && lhs.head_dim == rhs.head_dim &&
+      lhs.mlp_hidden == rhs.mlp_hidden &&
+      lhs.num_blocks == rhs.num_blocks && lhs.dtype == rhs.dtype &&
+      lhs.device_capability_key == rhs.device_capability_key &&
+      lhs.layout_policy_version == rhs.layout_policy_version &&
+      lhs.attention_policy_version == rhs.attention_policy_version &&
+      lhs.owner_program_version == rhs.owner_program_version &&
+      lhs.requested_intermediate_mask == rhs.requested_intermediate_mask &&
+      lhs.direct_attention == rhs.direct_attention &&
+      lhs.q4_subgroup_available == rhs.q4_subgroup_available;
+}
+
+size_t VulkanVisionStackShapeKeyHash::operator()(
+    const VulkanVisionStackShapeKey& key) const {
+  size_t seed = 0u;
+  const auto mix = [&seed](const uint64_t value) {
+    seed ^= std::hash<uint64_t>{}(value) + 0x9e3779b97f4a7c15ULL +
+        (seed << 6) + (seed >> 2);
+  };
+  mix(static_cast<uint64_t>(key.tokens));
+  mix(static_cast<uint64_t>(key.hidden));
+  mix(static_cast<uint64_t>(key.num_heads));
+  mix(static_cast<uint64_t>(key.head_dim));
+  mix(static_cast<uint64_t>(key.mlp_hidden));
+  mix(static_cast<uint64_t>(key.num_blocks));
+  mix(static_cast<uint64_t>(key.dtype));
+  mix(key.device_capability_key);
+  mix(key.layout_policy_version);
+  mix(key.attention_policy_version);
+  mix(key.owner_program_version);
+  mix(key.requested_intermediate_mask);
+  mix(key.direct_attention ? 1u : 0u);
+  mix(key.q4_subgroup_available ? 1u : 0u);
+  return seed;
+}
+
+std::string format_stack_shape_key(const VulkanVisionStackShapeKey& key) {
+  std::ostringstream out;
+  out << "tokens=" << key.tokens
+      << ",hidden=" << key.hidden
+      << ",heads=" << key.num_heads
+      << ",head_dim=" << key.head_dim
+      << ",mlp_hidden=" << key.mlp_hidden
+      << ",blocks=" << key.num_blocks
+      << ",dtype=" << c10::toString(key.dtype)
+      << ",capability=" << key.device_capability_key
+      << ",layout_policy=" << key.layout_policy_version
+      << ",attention_policy=" << key.attention_policy_version
+      << ",owner_program=" << key.owner_program_version
+      << ",requested_mask=" << key.requested_intermediate_mask
+      << ",direct_attention=" << (key.direct_attention ? 1 : 0)
+      << ",q4_subgroup=" << (key.q4_subgroup_available ? 1 : 0);
+  return out.str();
+}
+
 namespace {
 
 std::atomic<uint64_t> g_next_vision_backbone_context_cache_id{1u};
@@ -122,6 +183,20 @@ struct VulkanStackExecutionManifestRow final {
   bool safe_to_capture = false;
 };
 
+struct VulkanStackShapePlanCounters final {
+  std::atomic<uint64_t> total_attempts{0u};
+  std::atomic<uint64_t> plan_build_count{0u};
+  std::atomic<uint64_t> plan_cache_hit_count{0u};
+  std::atomic<uint64_t> plan_reject_count{0u};
+  std::atomic<uint64_t> binding_valid_count{0u};
+  std::atomic<uint64_t> binding_invalid_count{0u};
+  std::atomic<uint64_t> invalid_tokens{0u};
+  std::atomic<uint64_t> invalid_dtype{0u};
+  std::atomic<uint64_t> invalid_capability{0u};
+  std::atomic<uint64_t> invalid_requested_intermediates{0u};
+  std::atomic<uint64_t> invalid_context_identity{0u};
+};
+
 std::mutex& stack_execution_manifest_mutex() {
   static std::mutex mutex;
   return mutex;
@@ -129,6 +204,21 @@ std::mutex& stack_execution_manifest_mutex() {
 
 std::vector<VulkanStackExecutionManifestRow>& stack_execution_manifest_rows() {
   static std::vector<VulkanStackExecutionManifestRow> rows;
+  return rows;
+}
+
+std::mutex& stack_shape_plan_summary_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_map<std::string, std::string>& stack_shape_plan_readiness_rows() {
+  static std::unordered_map<std::string, std::string> rows;
+  return rows;
+}
+
+std::vector<std::string>& stack_shape_plan_manifest_rows() {
+  static std::vector<std::string> rows;
   return rows;
 }
 
@@ -154,6 +244,11 @@ VulkanVisionStackOwnerCounters& vulkan_vision_stack_owner_counters() {
 
 VulkanStackAttentionCounters& vulkan_stack_attention_counters() {
   static VulkanStackAttentionCounters counters;
+  return counters;
+}
+
+VulkanStackShapePlanCounters& vulkan_stack_shape_plan_counters() {
+  static VulkanStackShapePlanCounters counters;
   return counters;
 }
 
@@ -241,6 +336,405 @@ std::string stack_manifest_dtype_string(
     }
   }
   return "Undefined";
+}
+
+std::string stack_plan_shape_string(const std::vector<int64_t>& shape) {
+  std::ostringstream out;
+  out << '[';
+  for (size_t i = 0; i < shape.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    out << shape[i];
+  }
+  out << ']';
+  return out.str();
+}
+
+const char* stack_plan_step_kind_name(const VulkanStackPlanStepKind kind) {
+  switch (kind) {
+    case VulkanStackPlanStepKind::Norm1:
+      return "norm1";
+    case VulkanStackPlanStepKind::QkvLinear:
+      return "qkv_linear";
+    case VulkanStackPlanStepKind::QkvTransform:
+      return "qkv_transform";
+    case VulkanStackPlanStepKind::Attention:
+      return "attention";
+    case VulkanStackPlanStepKind::ProjLinear:
+      return "proj_linear";
+    case VulkanStackPlanStepKind::Residual1:
+      return "residual1";
+    case VulkanStackPlanStepKind::Norm2:
+      return "norm2";
+    case VulkanStackPlanStepKind::Fc1Gelu:
+      return "fc1_gelu";
+    case VulkanStackPlanStepKind::Fc2:
+      return "fc2";
+    case VulkanStackPlanStepKind::Residual2:
+      return "residual2";
+    case VulkanStackPlanStepKind::IntermediateCapture:
+      return "intermediate_capture";
+  }
+  return "unknown";
+}
+
+uint64_t requested_intermediate_mask(IntArrayRef capture_indices) {
+  uint64_t mask = 0u;
+  for (const int64_t index : capture_indices) {
+    if (index >= 0 && index < 64) {
+      mask |= (1ULL << static_cast<uint64_t>(index));
+    }
+  }
+  return mask;
+}
+
+bool q4_subgroup_attention_available() {
+  const auto caps = attention_subgroup_capabilities_snapshot();
+  return caps.size() >= 9 && caps[0] != 0 && caps[4] != 0 && caps[8] != 0;
+}
+
+VulkanVisionStackShapeKey make_stack_shape_key(
+    const VisionBackboneStackContext& context,
+    const Tensor& input,
+    IntArrayRef capture_indices) {
+  VulkanVisionStackShapeKey key;
+  key.tokens = input.dim() == 2 ? input.size(0) : input.size(1);
+  key.hidden = input.size(input.dim() - 1);
+  key.num_heads = context.num_heads();
+  key.head_dim = context.head_dim();
+  key.mlp_hidden = context.mlp_hidden();
+  key.num_blocks = static_cast<int64_t>(context.blocks().size());
+  key.dtype = input.scalar_type();
+  key.q4_subgroup_available = q4_subgroup_attention_available();
+  key.device_capability_key = key.q4_subgroup_available ? 2u : 1u;
+  key.layout_policy_version = 1u;
+  key.attention_policy_version = 1u;
+  key.owner_program_version = 1u;
+  key.requested_intermediate_mask = requested_intermediate_mask(capture_indices);
+  key.direct_attention = true;
+  return key;
+}
+
+void add_stack_plan_step(
+    VulkanVisionStackShapePlan& plan,
+    const int64_t block_index,
+    const VulkanStackPlanStepKind kind,
+    const char* op_label,
+    const char* kernel_label,
+    std::vector<int64_t> input_shape,
+    std::vector<int64_t> output_shape,
+    const bool escapes_stack = false,
+    const bool requested_intermediate = false) {
+  VulkanStackPlanStep step;
+  step.ordinal = static_cast<int64_t>(plan.steps.size()) + 1;
+  step.block_index = block_index;
+  step.kind = kind;
+  step.op_label = op_label ? op_label : "unknown";
+  step.kernel_label = kernel_label ? kernel_label : "unknown";
+  step.input_shape = std::move(input_shape);
+  step.output_shape = std::move(output_shape);
+  step.dtype = plan.key.dtype;
+  step.allocates_output = kind != VulkanStackPlanStepKind::IntermediateCapture;
+  step.writes_preexisting_output = false;
+  step.escapes_stack = escapes_stack;
+  step.requested_intermediate = requested_intermediate;
+  plan.steps.emplace_back(std::move(step));
+}
+
+std::unique_ptr<VulkanVisionStackShapePlan> build_stack_shape_plan(
+    const VisionBackboneStackContext& context,
+    const VulkanVisionStackShapeKey& key) {
+  auto plan = std::make_unique<VulkanVisionStackShapePlan>();
+  plan->key = key;
+
+  const std::vector<int64_t> hidden_shape{1, key.tokens, key.hidden};
+  const std::vector<int64_t> qkv_shape{1, key.tokens, key.hidden * 3};
+  const std::vector<int64_t> qkv_head_shape{
+      key.num_heads, key.tokens, key.head_dim};
+  const std::vector<int64_t> mlp_shape{1, key.tokens, key.mlp_hidden};
+
+  for (int64_t block = 0; block < key.num_blocks; ++block) {
+    add_stack_plan_step(
+        *plan,
+        block,
+        VulkanStackPlanStepKind::Norm1,
+        "vision_block.norm1",
+        "layernorm_buffer",
+        hidden_shape,
+        hidden_shape);
+    add_stack_plan_step(
+        *plan,
+        block,
+        VulkanStackPlanStepKind::QkvLinear,
+        "vision_block.qkv_linear",
+        "mm_buffer_float_bias",
+        hidden_shape,
+        qkv_shape);
+    add_stack_plan_step(
+        *plan,
+        block,
+        VulkanStackPlanStepKind::QkvTransform,
+        "vision_block.qkv_transform",
+        "transform_bias_rescale_qkv",
+        qkv_shape,
+        qkv_head_shape);
+    add_stack_plan_step(
+        *plan,
+        block,
+        VulkanStackPlanStepKind::Attention,
+        "vulkan_prepack::vision_stack_attention_direct",
+        key.q4_subgroup_available
+            ? "scaled_dot_product_scores_value_buffer_float_head64_q4_subgroup"
+            : "scaled_dot_product_scores_value_buffer_float_head64_q4_shared",
+        qkv_head_shape,
+        qkv_head_shape);
+    add_stack_plan_step(
+        *plan,
+        block,
+        VulkanStackPlanStepKind::ProjLinear,
+        "vision_block.proj_linear",
+        "mm_buffer_float_bias",
+        hidden_shape,
+        hidden_shape);
+    add_stack_plan_step(
+        *plan,
+        block,
+        VulkanStackPlanStepKind::Residual1,
+        "vision_block.residual1",
+        "add_buffer",
+        hidden_shape,
+        hidden_shape);
+    add_stack_plan_step(
+        *plan,
+        block,
+        VulkanStackPlanStepKind::Norm2,
+        "vision_block.norm2",
+        "layernorm_buffer",
+        hidden_shape,
+        hidden_shape);
+    add_stack_plan_step(
+        *plan,
+        block,
+        VulkanStackPlanStepKind::Fc1Gelu,
+        "vision_block.fc1_gelu",
+        "mm_buffer_float_gelu",
+        hidden_shape,
+        mlp_shape);
+    add_stack_plan_step(
+        *plan,
+        block,
+        VulkanStackPlanStepKind::Fc2,
+        "vision_block.fc2",
+        "mm_buffer_float_bias",
+        mlp_shape,
+        hidden_shape);
+    add_stack_plan_step(
+        *plan,
+        block,
+        VulkanStackPlanStepKind::Residual2,
+        "vision_block.residual2",
+        "add_buffer",
+        hidden_shape,
+        hidden_shape);
+    if ((key.requested_intermediate_mask & (1ULL << static_cast<uint64_t>(block))) !=
+        0u) {
+      add_stack_plan_step(
+          *plan,
+          block,
+          VulkanStackPlanStepKind::IntermediateCapture,
+          "vision_stack.intermediate_capture",
+          "none",
+          hidden_shape,
+          hidden_shape,
+          true,
+          true);
+    }
+  }
+
+  plan->fixed_shapes = key.tokens > 0 && key.hidden > 0 &&
+      key.hidden == context.hidden() && key.num_blocks > 0;
+  plan->no_cpu_fallback = true;
+  plan->no_host_sync = true;
+  plan->no_nested_replay = true;
+  plan->requested_intermediates_marked =
+      key.requested_intermediate_mask == 0u ||
+      std::any_of(
+          plan->steps.begin(),
+          plan->steps.end(),
+          [](const VulkanStackPlanStep& step) {
+            return step.requested_intermediate && step.escapes_stack;
+          });
+  plan->internal_outputs_owned = true;
+  plan->known_lifetimes = std::all_of(
+      plan->steps.begin(),
+      plan->steps.end(),
+      [](const VulkanStackPlanStep& step) {
+        return step.escapes_stack || !step.requested_intermediate;
+      });
+  return plan;
+}
+
+std::string format_stack_shape_plan_readiness(
+    const VulkanVisionStackShapePlan& plan) {
+  std::ostringstream out;
+  out << "stack_shape_plan"
+      << " key=" << format_stack_shape_key(plan.key)
+      << " tokens=" << plan.key.tokens
+      << " fixed_shapes=" << (plan.fixed_shapes ? 1 : 0)
+      << " no_cpu_fallback=" << (plan.no_cpu_fallback ? 1 : 0)
+      << " no_host_sync=" << (plan.no_host_sync ? 1 : 0)
+      << " no_nested_replay=" << (plan.no_nested_replay ? 1 : 0)
+      << " requested_intermediates_marked="
+      << (plan.requested_intermediates_marked ? 1 : 0)
+      << " internal_outputs_owned=" << (plan.internal_outputs_owned ? 1 : 0)
+      << " known_lifetimes=" << (plan.known_lifetimes ? 1 : 0)
+      << " safe_to_program="
+      << (plan.ready_for_programmed_sequence() ? 1 : 0)
+      << " steps=" << plan.steps.size();
+  return out.str();
+}
+
+void record_stack_shape_plan_summary(
+    const VulkanVisionStackShapePlan& plan) {
+  std::lock_guard<std::mutex> lock(stack_shape_plan_summary_mutex());
+  const std::string key = format_stack_shape_key(plan.key);
+  stack_shape_plan_readiness_rows()[key] =
+      format_stack_shape_plan_readiness(plan);
+
+  auto& manifest_rows = stack_shape_plan_manifest_rows();
+  manifest_rows.erase(
+      std::remove_if(
+          manifest_rows.begin(),
+          manifest_rows.end(),
+          [&key](const std::string& row) {
+            return row.find(" plan_key=" + key + " ") != std::string::npos;
+          }),
+      manifest_rows.end());
+  for (const auto& step : plan.steps) {
+    std::ostringstream out;
+    out << "stack_shape_plan_manifest"
+        << " plan_key=" << key
+        << " tokens=" << plan.key.tokens
+        << " ordinal=" << step.ordinal
+        << " block=" << step.block_index
+        << " phase=" << stack_plan_step_kind_name(step.kind)
+        << " op=" << step.op_label
+        << " kernel=" << step.kernel_label
+        << " input_shapes=" << stack_plan_shape_string(step.input_shape)
+        << " output_shapes=" << stack_plan_shape_string(step.output_shape)
+        << " dtype=" << c10::toString(step.dtype)
+        << " uses_dynamic_shape=0"
+        << " fixed_shapes=" << (plan.fixed_shapes ? 1 : 0)
+        << " allocates_output=" << (step.allocates_output ? 1 : 0)
+        << " writes_preexisting_output="
+        << (step.writes_preexisting_output ? 1 : 0)
+        << " escapes_stack=" << (step.escapes_stack ? 1 : 0)
+        << " requested_intermediate="
+        << (step.requested_intermediate ? 1 : 0)
+        << " safe_to_capture="
+        << (plan.ready_for_programmed_sequence() ? 1 : 0);
+    manifest_rows.emplace_back(out.str());
+  }
+}
+
+struct VulkanStackPlanRuntimeBinding final {
+  int64_t tokens = 0;
+  int64_t hidden = 0;
+  c10::ScalarType dtype = c10::ScalarType::Undefined;
+  uint64_t requested_intermediate_mask = 0u;
+};
+
+VulkanStackPlanRuntimeBinding make_stack_plan_runtime_binding(
+    const Tensor& input,
+    IntArrayRef capture_indices) {
+  VulkanStackPlanRuntimeBinding binding;
+  binding.tokens = input.dim() == 2 ? input.size(0) : input.size(1);
+  binding.hidden = input.size(input.dim() - 1);
+  binding.dtype = input.scalar_type();
+  binding.requested_intermediate_mask =
+      requested_intermediate_mask(capture_indices);
+  return binding;
+}
+
+bool validate_stack_plan_binding_impl(
+    const VulkanVisionStackShapePlan& plan,
+    const VulkanStackPlanRuntimeBinding& binding,
+    std::string* reason) {
+  if (binding.tokens != plan.key.tokens) {
+    if (reason) {
+      *reason = "tokens_mismatch";
+    }
+    return false;
+  }
+  if (binding.hidden != plan.key.hidden) {
+    if (reason) {
+      *reason = "hidden_mismatch";
+    }
+    return false;
+  }
+  if (binding.dtype != plan.key.dtype) {
+    if (reason) {
+      *reason = "dtype_mismatch";
+    }
+    return false;
+  }
+  if (binding.requested_intermediate_mask !=
+      plan.key.requested_intermediate_mask) {
+    if (reason) {
+      *reason = "requested_intermediates_mismatch";
+    }
+    return false;
+  }
+  if (reason) {
+    *reason = "ok";
+  }
+  return true;
+}
+
+void note_stack_plan_binding_invalid(const std::string& reason) {
+  auto& counters = vulkan_stack_shape_plan_counters();
+  counters.binding_invalid_count.fetch_add(1u, std::memory_order_relaxed);
+  if (reason == "tokens_mismatch") {
+    counters.invalid_tokens.fetch_add(1u, std::memory_order_relaxed);
+  } else if (reason == "dtype_mismatch") {
+    counters.invalid_dtype.fetch_add(1u, std::memory_order_relaxed);
+  } else if (reason == "requested_intermediates_mismatch") {
+    counters.invalid_requested_intermediates.fetch_add(
+        1u,
+        std::memory_order_relaxed);
+  } else {
+    counters.invalid_context_identity.fetch_add(1u, std::memory_order_relaxed);
+  }
+}
+
+VulkanVisionStackShapePlan& get_or_create_stack_shape_plan(
+    VisionBackboneStackContext& context,
+    const Tensor& input,
+    IntArrayRef capture_indices) {
+  auto& counters = vulkan_stack_shape_plan_counters();
+  counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
+  const VulkanVisionStackShapeKey key =
+      make_stack_shape_key(context, input, capture_indices);
+
+  std::lock_guard<std::mutex> lock(context.shape_plan_mutex());
+  auto& plans = context.shape_plans();
+  auto it = plans.find(key);
+  if (it != plans.end()) {
+    counters.plan_cache_hit_count.fetch_add(1u, std::memory_order_relaxed);
+    record_stack_shape_plan_summary(*it->second);
+    return *it->second;
+  }
+
+  auto plan = build_stack_shape_plan(context, key);
+  if (!plan->ready_for_programmed_sequence()) {
+    counters.plan_reject_count.fetch_add(1u, std::memory_order_relaxed);
+  }
+  auto& plan_ref = *plan;
+  plans.emplace(key, std::move(plan));
+  counters.plan_build_count.fetch_add(1u, std::memory_order_relaxed);
+  record_stack_shape_plan_summary(plan_ref);
+  return plan_ref;
 }
 
 void note_stack_execution_manifest_row(
@@ -5689,7 +6183,12 @@ void reset_stack_attention_counters() {
 std::vector<std::string> stack_execution_manifest_snapshot() {
   std::lock_guard<std::mutex> lock(stack_execution_manifest_mutex());
   std::vector<std::string> snapshot;
-  snapshot.reserve(stack_execution_manifest_rows().size());
+  {
+    std::lock_guard<std::mutex> plan_lock(stack_shape_plan_summary_mutex());
+    snapshot.reserve(
+        stack_execution_manifest_rows().size() +
+        stack_shape_plan_manifest_rows().size());
+  }
   for (const auto& row : stack_execution_manifest_rows()) {
     std::ostringstream out;
     out << "stack_manifest"
@@ -5717,6 +6216,12 @@ std::vector<std::string> stack_execution_manifest_snapshot() {
         << " uses_replay=" << (row.uses_replay ? 1 : 0)
         << " safe_to_capture=" << (row.safe_to_capture ? 1 : 0);
     snapshot.emplace_back(out.str());
+  }
+  {
+    std::lock_guard<std::mutex> plan_lock(stack_shape_plan_summary_mutex());
+    for (const auto& row : stack_shape_plan_manifest_rows()) {
+      snapshot.emplace_back(row);
+    }
   }
   return snapshot;
 }
@@ -5778,6 +6283,109 @@ std::vector<int64_t> stack_capture_readiness_snapshot() {
       all_outputs_have_known_lifetime ? 1 : 0,
       safe_to_capture ? 1 : 0,
   };
+}
+
+std::vector<std::string> stack_shape_plan_keys_snapshot() {
+  std::lock_guard<std::mutex> lock(stack_shape_plan_summary_mutex());
+  std::vector<std::string> keys;
+  keys.reserve(stack_shape_plan_readiness_rows().size());
+  for (const auto& entry : stack_shape_plan_readiness_rows()) {
+    keys.emplace_back(entry.first);
+  }
+  std::sort(keys.begin(), keys.end());
+  return keys;
+}
+
+std::vector<std::string> stack_shape_plan_readiness_snapshot() {
+  std::lock_guard<std::mutex> lock(stack_shape_plan_summary_mutex());
+  std::vector<std::string> rows;
+  rows.reserve(stack_shape_plan_readiness_rows().size());
+  for (const auto& entry : stack_shape_plan_readiness_rows()) {
+    rows.emplace_back(entry.second);
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
+std::vector<int64_t> stack_shape_plan_counters_snapshot() {
+  const auto& counters = vulkan_stack_shape_plan_counters();
+  return {
+      static_cast<int64_t>(
+          counters.total_attempts.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.plan_build_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.plan_cache_hit_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.plan_reject_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.binding_valid_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.binding_invalid_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.invalid_tokens.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.invalid_dtype.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.invalid_capability.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.invalid_requested_intermediates.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.invalid_context_identity.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_stack_shape_plan_counters() {
+  auto& counters = vulkan_stack_shape_plan_counters();
+  counters.total_attempts.store(0u, std::memory_order_relaxed);
+  counters.plan_build_count.store(0u, std::memory_order_relaxed);
+  counters.plan_cache_hit_count.store(0u, std::memory_order_relaxed);
+  counters.plan_reject_count.store(0u, std::memory_order_relaxed);
+  counters.binding_valid_count.store(0u, std::memory_order_relaxed);
+  counters.binding_invalid_count.store(0u, std::memory_order_relaxed);
+  counters.invalid_tokens.store(0u, std::memory_order_relaxed);
+  counters.invalid_dtype.store(0u, std::memory_order_relaxed);
+  counters.invalid_capability.store(0u, std::memory_order_relaxed);
+  counters.invalid_requested_intermediates.store(0u, std::memory_order_relaxed);
+  counters.invalid_context_identity.store(0u, std::memory_order_relaxed);
+  std::lock_guard<std::mutex> lock(stack_shape_plan_summary_mutex());
+  stack_shape_plan_readiness_rows().clear();
+  stack_shape_plan_manifest_rows().clear();
+}
+
+std::string validate_stack_shape_plan_binding(
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context,
+    const int64_t planned_tokens,
+    const Tensor& input,
+    IntArrayRef capture_indices) {
+  TORCH_CHECK(context, "Vision stack shape plan validation expects a context");
+  const VulkanStackPlanRuntimeBinding binding =
+      make_stack_plan_runtime_binding(input, capture_indices);
+  std::lock_guard<std::mutex> lock(context->shape_plan_mutex());
+  for (const auto& entry : context->shape_plans()) {
+    const auto& plan = *entry.second;
+    if (plan.key.tokens != planned_tokens) {
+      continue;
+    }
+    std::string reason;
+    const bool valid = validate_stack_plan_binding_impl(plan, binding, &reason);
+    if (valid) {
+      vulkan_stack_shape_plan_counters().binding_valid_count.fetch_add(
+          1u,
+          std::memory_order_relaxed);
+    } else {
+      note_stack_plan_binding_invalid(reason);
+    }
+    return reason;
+  }
+  vulkan_stack_shape_plan_counters().binding_invalid_count.fetch_add(
+      1u,
+      std::memory_order_relaxed);
+  vulkan_stack_shape_plan_counters().invalid_context_identity.fetch_add(
+      1u,
+      std::memory_order_relaxed);
+  return "plan_not_found";
 }
 
 VisionBackboneStackContext::VisionBackboneStackContext(
@@ -6421,6 +7029,21 @@ std::vector<Tensor> run_vision_backbone_stack_context(
         " is out of range for ",
         context->blocks().size(),
         " contexts");
+  }
+
+  {
+    VulkanVisionStackShapePlan& plan =
+        get_or_create_stack_shape_plan(*context, input_arg, capture_indices_vec);
+    const VulkanStackPlanRuntimeBinding binding =
+        make_stack_plan_runtime_binding(input_arg, capture_indices_vec);
+    std::string reason;
+    if (validate_stack_plan_binding_impl(plan, binding, &reason)) {
+      vulkan_stack_shape_plan_counters().binding_valid_count.fetch_add(
+          1u,
+          std::memory_order_relaxed);
+    } else {
+      note_stack_plan_binding_invalid(reason);
+    }
   }
 
   Tensor current = input_arg;

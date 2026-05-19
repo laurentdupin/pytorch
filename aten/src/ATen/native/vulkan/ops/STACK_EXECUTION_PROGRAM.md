@@ -113,7 +113,80 @@ manifest proves the safety properties around fallback, host sync, nested replay,
 intermediate escapes, and lifetimes, but it also identifies the exact blocker:
 fixed shapes are not established at the stack program boundary.
 
-The next program-level step should be a shape-keyed stack program plan for
-`T=2073` and `T=2110`, including explicit resource rebinding and invalidation
-rules. That should be implemented before any command-buffer replay path is made
-canonical.
+## Shape-Keyed Plans
+
+The stack context now owns a cache of fixed-shape execution plans keyed by:
+
+```
+tokens
+hidden
+num_heads
+head_dim
+mlp_hidden
+num_blocks
+dtype
+device_capability_key
+layout_policy_version
+attention_policy_version
+owner_program_version
+requested_intermediate_mask
+direct_attention
+q4_subgroup_available
+```
+
+The whole stack context can still observe multiple token lengths, so the dynamic
+stack readiness may continue to report `fixed_shapes=0`. Each shape plan is
+fixed independently. The canonical DAv2 benchmark produces separate plans for
+the two observed patch-grid token counts:
+
+```
+T=2073
+T=2110
+```
+
+These values come from DAv2 preprocessing at input size 518. Images in the
+example corpus produce patch grids of `37x56` and `37x57`; adding the class token
+gives `2073` and `2110` tokens. The token length changes across images, not
+within a block.
+
+The following diagnostic APIs expose the plan layer:
+
+```
+vulkan_prepack::stack_shape_plan_keys()
+vulkan_prepack::stack_shape_plan_readiness()
+vulkan_prepack::stack_shape_plan_counters()
+vulkan_prepack::reset_stack_shape_plan_counters()
+vulkan_prepack::validate_stack_shape_plan_binding(...)
+```
+
+Plan rows are also appended to `stack_execution_manifest()` as
+`stack_shape_plan_manifest` rows. These rows have `uses_dynamic_shape=0` and
+`fixed_shapes=1`.
+
+## Binding And Invalidation
+
+Plans store operation order, shapes, roles, policy versions, and context shape
+metadata. They do not store runtime tensor pointers, command buffers, or stale
+input/output resources.
+
+Runtime binding validation currently rejects:
+
+```
+tokens_mismatch
+hidden_mismatch
+dtype_mismatch
+requested_intermediates_mismatch
+plan_not_found
+```
+
+The invalidation model also reserves counters for device/capability and context
+identity changes. Those become mandatory before command-buffer replay can bind
+resources from cached plans.
+
+## Current Decision
+
+No command-buffer replay is merged in this pass. The shape-keyed plan cache
+turns the previous fixed-shape blocker into per-plan readiness: each observed
+token length can be fixed-shape even though the parent stack context is dynamic.
+The next pass can attempt a narrow programmed sequence or command-buffer capture
+against these shape plans, with resource rebinding validated before execution.

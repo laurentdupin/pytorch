@@ -502,6 +502,53 @@ both `T=2073` and `T=2110`, so manifest rows are marked
 `uses_dynamic_shape=1`. A safe stack execution program needs a shape-keyed plan
 and resource rebinding/invalidation rules before replay can be canonical.
 
+## Shape-Keyed Stack Plans
+
+The stack owner now builds fixed-shape execution plans inside the same canonical
+stack context. The parent context may still see multiple token lengths, but each
+observed token length has its own plan:
+
+```
+plan(T=2073)
+plan(T=2110)
+```
+
+The two token counts come from the DAv2 image preprocessing path. At input size
+518 the benchmark images produce patch grids of `37x56` and `37x57`; with the
+class token those become `2073` and `2110`. The requested intermediate set is
+included in the key so plans cannot be reused across different escaping output
+behavior.
+
+The shape key includes token count, hidden size, head count, head dimension,
+MLP hidden size, number of blocks, dtype, device/capability key, layout policy
+version, attention policy version, owner program version, requested intermediate
+mask, direct-attention flag, and q4-subgroup availability.
+
+The diagnostic APIs are:
+
+```
+vulkan_prepack::stack_shape_plan_keys()
+vulkan_prepack::stack_shape_plan_readiness()
+vulkan_prepack::stack_shape_plan_counters()
+vulkan_prepack::reset_stack_shape_plan_counters()
+vulkan_prepack::validate_stack_shape_plan_binding(...)
+```
+
+`stack_execution_manifest()` also includes `stack_shape_plan_manifest` rows for
+created plans. These rows are fixed-shape (`uses_dynamic_shape=0`) while the
+global dynamic manifest rows remain useful for showing why the whole context is
+not a single fixed-shape capture target.
+
+The first plan layer does not replay command buffers and does not change kernel
+execution. It validates runtime resource binding against the plan and falls back
+to the existing safe stack owner if a binding is invalid. Current invalidation
+reasons include token, hidden, dtype, requested-intermediate, capability, and
+context-identity changes.
+
+The next program-level step is to use the fixed-shape plan as the canonical
+scheduler for a programmed sequence, then consider command-buffer capture only
+after runtime resource rebinding is proven for each shape key.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

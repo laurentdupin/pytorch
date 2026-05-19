@@ -420,6 +420,7 @@ void reset_fallback_counters_runtime() {
   reset_vision_stack_owner_counters();
   reset_stack_attention_counters();
   reset_stack_execution_manifest();
+  reset_stack_shape_plan_counters();
   reset_zero_counters();
 }
 
@@ -1596,6 +1597,18 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_capture_readiness() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_shape_plan_keys() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_shape_plan_readiness() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_shape_plan_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_shape_plan_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::validate_stack_shape_plan_binding("
+      "__torch__.torch.classes.vulkan.VisionBackboneStackContext context, "
+      "int planned_tokens, Tensor X, int[] capture_indices) -> str"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::zero_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_zero_counters() -> ()"));
@@ -1827,6 +1840,21 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::stack_capture_readiness"),
       TORCH_FN(stack_capture_readiness_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::stack_shape_plan_keys"),
+      TORCH_FN(stack_shape_plan_keys_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::stack_shape_plan_readiness"),
+      TORCH_FN(stack_shape_plan_readiness_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::stack_shape_plan_counters"),
+      TORCH_FN(stack_shape_plan_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_stack_shape_plan_counters"),
+      TORCH_FN(reset_stack_shape_plan_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::validate_stack_shape_plan_binding"),
+      TORCH_FN(validate_stack_shape_plan_binding));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::zero_counters"),
       TORCH_FN(zero_counters_snapshot));

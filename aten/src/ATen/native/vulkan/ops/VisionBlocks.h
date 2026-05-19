@@ -9,15 +9,93 @@
 #include <torch/library.h>
 
 #include <cstdint>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 namespace at {
 namespace native {
 namespace vulkan {
 namespace ops {
+
+struct VulkanVisionStackShapeKey final {
+  int64_t tokens = 0;
+  int64_t hidden = 0;
+  int64_t num_heads = 0;
+  int64_t head_dim = 0;
+  int64_t mlp_hidden = 0;
+  int64_t num_blocks = 0;
+  c10::ScalarType dtype = c10::ScalarType::Undefined;
+  uint64_t device_capability_key = 0;
+  uint64_t layout_policy_version = 0;
+  uint64_t attention_policy_version = 0;
+  uint64_t owner_program_version = 0;
+  uint64_t requested_intermediate_mask = 0;
+  bool direct_attention = true;
+  bool q4_subgroup_available = false;
+};
+
+bool operator==(
+    const VulkanVisionStackShapeKey& lhs,
+    const VulkanVisionStackShapeKey& rhs);
+
+struct VulkanVisionStackShapeKeyHash final {
+  size_t operator()(const VulkanVisionStackShapeKey& key) const;
+};
+
+std::string format_stack_shape_key(const VulkanVisionStackShapeKey& key);
+
+enum class VulkanStackPlanStepKind : uint8_t {
+  Norm1 = 0,
+  QkvLinear,
+  QkvTransform,
+  Attention,
+  ProjLinear,
+  Residual1,
+  Norm2,
+  Fc1Gelu,
+  Fc2,
+  Residual2,
+  IntermediateCapture,
+};
+
+struct VulkanStackPlanStep final {
+  int64_t ordinal = 0;
+  int64_t block_index = 0;
+  VulkanStackPlanStepKind kind = VulkanStackPlanStepKind::Norm1;
+  std::string op_label;
+  std::string kernel_label;
+  std::vector<int64_t> input_shape;
+  std::vector<int64_t> output_shape;
+  c10::ScalarType dtype = c10::ScalarType::Undefined;
+  bool allocates_output = true;
+  bool writes_preexisting_output = false;
+  bool escapes_stack = false;
+  bool requested_intermediate = false;
+};
+
+class VulkanVisionStackShapePlan final {
+ public:
+  VulkanVisionStackShapeKey key;
+  std::vector<VulkanStackPlanStep> steps;
+  bool fixed_shapes = false;
+  bool no_cpu_fallback = false;
+  bool no_host_sync = false;
+  bool no_nested_replay = false;
+  bool requested_intermediates_marked = false;
+  bool internal_outputs_owned = false;
+  bool known_lifetimes = false;
+
+  bool ready_for_programmed_sequence() const {
+    return fixed_shapes && no_cpu_fallback && no_host_sync &&
+        no_nested_replay && requested_intermediates_marked &&
+        internal_outputs_owned && known_lifetimes;
+  }
+};
 
 class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
  private:
@@ -148,6 +226,12 @@ class VisionBackboneStackContext final : public torch::jit::CustomClassHolder {
   int64_t head_dim_{0};
   int64_t hidden_{0};
   int64_t mlp_hidden_{0};
+  mutable std::mutex shape_plan_mutex_;
+  mutable std::unordered_map<
+      VulkanVisionStackShapeKey,
+      std::unique_ptr<VulkanVisionStackShapePlan>,
+      VulkanVisionStackShapeKeyHash>
+      shape_plans_;
 
  public:
   VisionBackboneStackContext(
@@ -176,6 +260,18 @@ class VisionBackboneStackContext final : public torch::jit::CustomClassHolder {
 
   int64_t mlp_hidden() const {
     return mlp_hidden_;
+  }
+
+  std::mutex& shape_plan_mutex() const {
+    return shape_plan_mutex_;
+  }
+
+  std::unordered_map<
+      VulkanVisionStackShapeKey,
+      std::unique_ptr<VulkanVisionStackShapePlan>,
+      VulkanVisionStackShapeKeyHash>&
+  shape_plans() const {
+    return shape_plans_;
   }
 };
 
@@ -266,6 +362,20 @@ std::vector<std::string> stack_execution_manifest_snapshot();
 void reset_stack_execution_manifest();
 
 std::vector<int64_t> stack_capture_readiness_snapshot();
+
+std::vector<std::string> stack_shape_plan_keys_snapshot();
+
+std::vector<std::string> stack_shape_plan_readiness_snapshot();
+
+std::vector<int64_t> stack_shape_plan_counters_snapshot();
+
+void reset_stack_shape_plan_counters();
+
+std::string validate_stack_shape_plan_binding(
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context,
+    int64_t planned_tokens,
+    const Tensor& input,
+    IntArrayRef capture_indices);
 
 void prime_vision_backbone_block_context_graph(
     const Tensor& input,
