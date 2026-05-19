@@ -567,15 +567,17 @@ weights and norm parameters are stable. Runtime inputs, escaping outputs, and
 internal temporaries are runtime-varying resources.
 
 Replay is not enabled. The current command recording path binds concrete
-descriptor sets during each compute submission, and the shape plan does not yet
-carry descriptor set/binding indices or a descriptor update table. The resulting
-readiness is:
+descriptor sets during each compute submission. The shape plan now carries a
+descriptor table for planned re-recording, but it still does not own
+replay-stable descriptor sets. The resulting readiness is:
 
 ```
 fixed_shape_plan=1
 resources_classified=1
 runtime_bindings_validated=1
-descriptors_rebindable=0
+descriptor_table_complete=1
+descriptor_indices_known=1
+descriptors_rebindable=1
 persistent_resources_stable=1
 internal_temps_owned=1
 escaping_outputs_marked=1
@@ -587,9 +589,32 @@ command_capture_safe=0
 ```
 
 The binding mode is `re_record_command_buffer_per_forward`, not command replay.
-This avoids stale descriptor references. The next program-level task should add
-a descriptor binding table or planned command recording layer before attempting
-canonical command-buffer replay.
+This avoids stale descriptor references. The next program-level task should use
+the descriptor binding table in a planned command recording layer before
+attempting canonical command-buffer replay.
+
+## Stack Descriptor Binding Table
+
+Shape-keyed stack plans now emit descriptor binding tables:
+
+```
+vulkan_prepack::stack_descriptor_binding_table()
+vulkan_prepack::stack_descriptor_binding_validation()
+```
+
+Rows are derived from fixed plan steps and shader argument order. They mark
+runtime inputs, requested intermediate outputs, runtime tensor metadata, and
+internal temps as descriptor-update resources. Packed weights, biases, and norm
+parameters are persistent. Descriptor set `0` and binding indices are known for
+the planned stack phases, so validation can now report
+`ready_for_re_record_per_forward=1`.
+
+Command replay is still not enabled. The validation keeps
+`ready_for_command_replay=0` and `command_capture_safe=0` because the existing
+backend still records concrete descriptor sets per compute job and
+program-owned temporaries are not stable replay resources. The next safe step is
+a planned command-recording layer that uses this table to re-record each
+forward, not replay of old command buffers.
 
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv

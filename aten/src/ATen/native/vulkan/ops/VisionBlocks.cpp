@@ -258,6 +258,17 @@ std::unordered_map<std::string, std::string>& stack_replay_binding_mode_rows() {
   return rows;
 }
 
+std::vector<std::string>& stack_descriptor_binding_table_rows() {
+  static std::vector<std::string> rows;
+  return rows;
+}
+
+std::unordered_map<std::string, std::string>&
+stack_descriptor_binding_validation_rows() {
+  static std::unordered_map<std::string, std::string> rows;
+  return rows;
+}
+
 VulkanVisionOwnerCounters& vulkan_vision_owner_counters() {
   static VulkanVisionOwnerCounters counters;
   return counters;
@@ -436,6 +447,79 @@ const char* replay_binding_mode_name(const VulkanReplayBindingMode mode) {
   return "unknown";
 }
 
+const char* stack_resource_kind_name(const VulkanStackResourceKind kind) {
+  switch (kind) {
+    case VulkanStackResourceKind::Unknown:
+      return "unknown";
+    case VulkanStackResourceKind::StorageBuffer:
+      return "storage_buffer";
+    case VulkanStackResourceKind::UniformBuffer:
+      return "uniform_buffer";
+    case VulkanStackResourceKind::Image:
+      return "image";
+    case VulkanStackResourceKind::Sampler:
+      return "sampler";
+  }
+  return "unknown";
+}
+
+const char* stack_resource_lifetime_name(
+    const VulkanStackResourceLifetime lifetime) {
+  switch (lifetime) {
+    case VulkanStackResourceLifetime::Unknown:
+      return "unknown";
+    case VulkanStackResourceLifetime::PersistentWeight:
+      return "persistent_weight";
+    case VulkanStackResourceLifetime::PersistentBias:
+      return "persistent_bias";
+    case VulkanStackResourceLifetime::PersistentNormParam:
+      return "persistent_norm_param";
+    case VulkanStackResourceLifetime::RuntimeInput:
+      return "runtime_input";
+    case VulkanStackResourceLifetime::RuntimeOutput:
+      return "runtime_output";
+    case VulkanStackResourceLifetime::RequestedIntermediateOutput:
+      return "requested_intermediate_output";
+    case VulkanStackResourceLifetime::InternalTemp:
+      return "internal_temp";
+    case VulkanStackResourceLifetime::UniformMetadata:
+      return "uniform_metadata";
+  }
+  return "unknown";
+}
+
+const char* stack_descriptor_binding_mode_name(
+    const VulkanStackDescriptorBindingMode mode) {
+  switch (mode) {
+    case VulkanStackDescriptorBindingMode::Unknown:
+      return "unknown";
+    case VulkanStackDescriptorBindingMode::Persistent:
+      return "persistent";
+    case VulkanStackDescriptorBindingMode::RuntimeRebind:
+      return "runtime_rebind";
+    case VulkanStackDescriptorBindingMode::ProgramOwnedTemp:
+      return "program_owned_temp";
+    case VulkanStackDescriptorBindingMode::Unsupported:
+      return "unsupported";
+  }
+  return "unknown";
+}
+
+const char* stack_descriptor_type_name(const VkDescriptorType type) {
+  switch (type) {
+    case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+      return "storage_buffer";
+    case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+      return "uniform_buffer";
+    case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+      return "storage_image";
+    case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+      return "combined_image_sampler";
+    default:
+      return "unknown";
+  }
+}
+
 uint64_t requested_intermediate_mask(IntArrayRef capture_indices) {
   uint64_t mask = 0u;
   for (const int64_t index : capture_indices) {
@@ -497,6 +581,316 @@ void add_stack_plan_step(
   step.escapes_stack = escapes_stack;
   step.requested_intermediate = requested_intermediate;
   plan.steps.emplace_back(std::move(step));
+}
+
+VulkanStackDescriptorBindingMode choose_stack_descriptor_binding_mode(
+    const VulkanStackResourceLifetime lifetime) {
+  switch (lifetime) {
+    case VulkanStackResourceLifetime::PersistentWeight:
+    case VulkanStackResourceLifetime::PersistentBias:
+    case VulkanStackResourceLifetime::PersistentNormParam:
+      return VulkanStackDescriptorBindingMode::Persistent;
+    case VulkanStackResourceLifetime::RuntimeInput:
+    case VulkanStackResourceLifetime::RuntimeOutput:
+    case VulkanStackResourceLifetime::RequestedIntermediateOutput:
+    case VulkanStackResourceLifetime::UniformMetadata:
+      return VulkanStackDescriptorBindingMode::RuntimeRebind;
+    case VulkanStackResourceLifetime::InternalTemp:
+      return VulkanStackDescriptorBindingMode::ProgramOwnedTemp;
+    case VulkanStackResourceLifetime::Unknown:
+      return VulkanStackDescriptorBindingMode::Unsupported;
+  }
+  return VulkanStackDescriptorBindingMode::Unsupported;
+}
+
+void add_stack_descriptor_binding(
+    VulkanVisionStackShapePlan& plan,
+    const VulkanStackPlanStep& step,
+    const char* role,
+    const VulkanStackResourceKind kind,
+    const VulkanStackResourceLifetime lifetime,
+    const uint32_t binding_index,
+    const VkDescriptorType descriptor_type,
+    std::vector<int64_t> shape) {
+  VulkanStackDescriptorBinding binding;
+  binding.ordinal = step.ordinal;
+  binding.block_index = step.block_index;
+  binding.phase = step.kind;
+  binding.op_label = step.op_label;
+  binding.kernel_label = step.kernel_label;
+  binding.resource_role = role ? role : "unknown";
+  binding.resource_kind = kind;
+  binding.lifetime = lifetime;
+  binding.binding_mode = choose_stack_descriptor_binding_mode(lifetime);
+  binding.descriptor_set_index = 0u;
+  binding.binding_index = binding_index;
+  binding.descriptor_type = descriptor_type;
+  binding.tensor_shape = std::move(shape);
+  binding.dtype = step.dtype;
+  binding.is_runtime_varying =
+      binding.binding_mode != VulkanStackDescriptorBindingMode::Persistent;
+  binding.requires_descriptor_update = binding.is_runtime_varying;
+  binding.is_persistent =
+      binding.binding_mode == VulkanStackDescriptorBindingMode::Persistent;
+  binding.escapes_stack = step.escapes_stack ||
+      lifetime == VulkanStackResourceLifetime::RuntimeOutput ||
+      lifetime == VulkanStackResourceLifetime::RequestedIntermediateOutput;
+  binding.descriptor_indices_known =
+      binding.binding_mode != VulkanStackDescriptorBindingMode::Unsupported;
+  binding.safe_to_rebind =
+      binding.binding_mode != VulkanStackDescriptorBindingMode::Unsupported;
+  plan.descriptor_bindings.emplace_back(std::move(binding));
+}
+
+void append_linear_descriptor_bindings(
+    VulkanVisionStackShapePlan& plan,
+    const VulkanStackPlanStep& step) {
+  add_stack_descriptor_binding(
+      plan,
+      step,
+      step.escapes_stack ? "runtime_output" : "internal_output",
+      VulkanStackResourceKind::StorageBuffer,
+      step.escapes_stack ? VulkanStackResourceLifetime::RuntimeOutput
+                         : VulkanStackResourceLifetime::InternalTemp,
+      0u,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      step.output_shape);
+  add_stack_descriptor_binding(
+      plan,
+      step,
+      "output_metadata",
+      VulkanStackResourceKind::UniformBuffer,
+      VulkanStackResourceLifetime::UniformMetadata,
+      1u,
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      step.output_shape);
+  add_stack_descriptor_binding(
+      plan,
+      step,
+      step.block_index == 0 && step.kind == VulkanStackPlanStepKind::QkvLinear
+          ? "runtime_input"
+          : "activation_input",
+      VulkanStackResourceKind::StorageBuffer,
+      step.block_index == 0 && step.kind == VulkanStackPlanStepKind::QkvLinear
+          ? VulkanStackResourceLifetime::RuntimeInput
+          : VulkanStackResourceLifetime::InternalTemp,
+      2u,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      step.input_shape);
+  add_stack_descriptor_binding(
+      plan,
+      step,
+      "input_metadata",
+      VulkanStackResourceKind::UniformBuffer,
+      VulkanStackResourceLifetime::UniformMetadata,
+      3u,
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      step.input_shape);
+  add_stack_descriptor_binding(
+      plan,
+      step,
+      "packed_weight",
+      VulkanStackResourceKind::StorageBuffer,
+      VulkanStackResourceLifetime::PersistentWeight,
+      4u,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      {});
+  add_stack_descriptor_binding(
+      plan,
+      step,
+      "weight_metadata",
+      VulkanStackResourceKind::UniformBuffer,
+      VulkanStackResourceLifetime::PersistentWeight,
+      5u,
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      {});
+  add_stack_descriptor_binding(
+      plan,
+      step,
+      "bias",
+      VulkanStackResourceKind::StorageBuffer,
+      VulkanStackResourceLifetime::PersistentBias,
+      6u,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      {step.output_shape.empty() ? 0 : step.output_shape.back()});
+  add_stack_descriptor_binding(
+      plan,
+      step,
+      "bias_metadata",
+      VulkanStackResourceKind::UniformBuffer,
+      VulkanStackResourceLifetime::PersistentBias,
+      7u,
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      {step.output_shape.empty() ? 0 : step.output_shape.back()});
+  add_stack_descriptor_binding(
+      plan,
+      step,
+      "params",
+      VulkanStackResourceKind::UniformBuffer,
+      VulkanStackResourceLifetime::UniformMetadata,
+      8u,
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      {});
+}
+
+void append_stack_descriptor_bindings_for_step(
+    VulkanVisionStackShapePlan& plan,
+    const VulkanStackPlanStep& step) {
+  if (step.kind == VulkanStackPlanStepKind::IntermediateCapture) {
+    add_stack_descriptor_binding(
+        plan,
+        step,
+        "requested_intermediate_output",
+        VulkanStackResourceKind::StorageBuffer,
+        VulkanStackResourceLifetime::RequestedIntermediateOutput,
+        0u,
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        step.output_shape);
+    return;
+  }
+
+  switch (step.kind) {
+    case VulkanStackPlanStepKind::QkvLinear:
+    case VulkanStackPlanStepKind::ProjLinear:
+    case VulkanStackPlanStepKind::Fc1Gelu:
+    case VulkanStackPlanStepKind::Fc2:
+      append_linear_descriptor_bindings(plan, step);
+      return;
+    case VulkanStackPlanStepKind::Attention:
+      add_stack_descriptor_binding(
+          plan,
+          step,
+          "attention_output",
+          VulkanStackResourceKind::StorageBuffer,
+          VulkanStackResourceLifetime::InternalTemp,
+          0u,
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          step.output_shape);
+      add_stack_descriptor_binding(
+          plan,
+          step,
+          "output_metadata",
+          VulkanStackResourceKind::UniformBuffer,
+          VulkanStackResourceLifetime::UniformMetadata,
+          1u,
+          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+          step.output_shape);
+      for (const auto& role_binding : {
+               std::pair<const char*, uint32_t>{"query", 2u},
+               std::pair<const char*, uint32_t>{"key", 4u},
+               std::pair<const char*, uint32_t>{"value", 6u},
+           }) {
+        add_stack_descriptor_binding(
+            plan,
+            step,
+            role_binding.first,
+            VulkanStackResourceKind::StorageBuffer,
+            VulkanStackResourceLifetime::InternalTemp,
+            role_binding.second,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            step.input_shape);
+        add_stack_descriptor_binding(
+            plan,
+            step,
+            (std::string(role_binding.first) + "_metadata").c_str(),
+            VulkanStackResourceKind::UniformBuffer,
+            VulkanStackResourceLifetime::UniformMetadata,
+            role_binding.second + 1u,
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            step.input_shape);
+      }
+      add_stack_descriptor_binding(
+          plan,
+          step,
+          "params",
+          VulkanStackResourceKind::UniformBuffer,
+          VulkanStackResourceLifetime::UniformMetadata,
+          8u,
+          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+          {});
+      return;
+    case VulkanStackPlanStepKind::Norm1:
+    case VulkanStackPlanStepKind::Norm2:
+    case VulkanStackPlanStepKind::QkvTransform:
+    case VulkanStackPlanStepKind::Residual1:
+    case VulkanStackPlanStepKind::Residual2:
+      add_stack_descriptor_binding(
+          plan,
+          step,
+          step.escapes_stack ? "runtime_output" : "internal_output",
+          VulkanStackResourceKind::StorageBuffer,
+          step.escapes_stack ? VulkanStackResourceLifetime::RuntimeOutput
+                             : VulkanStackResourceLifetime::InternalTemp,
+          0u,
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          step.output_shape);
+      add_stack_descriptor_binding(
+          plan,
+          step,
+          "activation_input",
+          VulkanStackResourceKind::StorageBuffer,
+          step.block_index == 0 && step.kind == VulkanStackPlanStepKind::Norm1
+              ? VulkanStackResourceLifetime::RuntimeInput
+              : VulkanStackResourceLifetime::InternalTemp,
+          1u,
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          step.input_shape);
+      if (step.kind == VulkanStackPlanStepKind::Norm1 ||
+          step.kind == VulkanStackPlanStepKind::Norm2) {
+        add_stack_descriptor_binding(
+            plan,
+            step,
+            "norm_weight",
+            VulkanStackResourceKind::StorageBuffer,
+            VulkanStackResourceLifetime::PersistentNormParam,
+            2u,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            {plan.key.hidden});
+        add_stack_descriptor_binding(
+            plan,
+            step,
+            "norm_bias",
+            VulkanStackResourceKind::StorageBuffer,
+            VulkanStackResourceLifetime::PersistentNormParam,
+            3u,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            {plan.key.hidden});
+      }
+      return;
+  }
+}
+
+void build_stack_descriptor_binding_table(VulkanVisionStackShapePlan& plan) {
+  plan.descriptor_bindings.clear();
+  for (const auto& step : plan.steps) {
+    append_stack_descriptor_bindings_for_step(plan, step);
+  }
+  plan.descriptor_table_complete = std::all_of(
+      plan.descriptor_bindings.begin(),
+      plan.descriptor_bindings.end(),
+      [](const VulkanStackDescriptorBinding& binding) {
+        return binding.descriptor_indices_known &&
+            binding.binding_mode != VulkanStackDescriptorBindingMode::Unknown;
+      });
+  plan.descriptors_rebindable = std::all_of(
+      plan.descriptor_bindings.begin(),
+      plan.descriptor_bindings.end(),
+      [](const VulkanStackDescriptorBinding& binding) {
+        return binding.safe_to_rebind ||
+            binding.binding_mode == VulkanStackDescriptorBindingMode::Persistent;
+      });
+  const bool internal_temps_rebindable = std::all_of(
+      plan.descriptor_bindings.begin(),
+      plan.descriptor_bindings.end(),
+      [](const VulkanStackDescriptorBinding& binding) {
+        return binding.lifetime != VulkanStackResourceLifetime::InternalTemp ||
+            binding.binding_mode ==
+                VulkanStackDescriptorBindingMode::ProgramOwnedTemp;
+      });
+  plan.descriptor_re_record_ready =
+      plan.descriptor_table_complete && plan.descriptors_rebindable &&
+      internal_temps_rebindable;
+  plan.descriptor_replay_ready = false;
 }
 
 std::unique_ptr<VulkanVisionStackShapePlan> build_stack_shape_plan(
@@ -629,6 +1023,7 @@ std::unique_ptr<VulkanVisionStackShapePlan> build_stack_shape_plan(
       [](const VulkanStackPlanStep& step) {
         return step.escapes_stack || !step.requested_intermediate;
       });
+  build_stack_descriptor_binding_table(*plan);
   return plan;
 }
 
@@ -687,7 +1082,8 @@ void add_stack_step_resource_bindings(
     std::vector<std::string>& rows,
     const VulkanVisionStackShapePlan& plan,
     const VulkanStackPlanStep& step) {
-  const std::vector<int64_t> scalar_shape{step.output_shape.empty() ? 0 : step.output_shape.back()};
+  const std::vector<int64_t> scalar_shape{
+      step.output_shape.empty() ? 0 : step.output_shape.back()};
   const bool first_block_input =
       step.block_index == 0 && step.kind == VulkanStackPlanStepKind::Norm1;
   add_stack_resource_binding_row(
@@ -840,8 +1236,89 @@ void add_stack_step_resource_bindings(
 
 VulkanReplayBindingMode determine_stack_replay_binding_mode(
     const VulkanVisionStackShapePlan& plan) {
-  (void)plan;
+  if (!plan.descriptor_table_complete) {
+    return VulkanReplayBindingMode::UnsafeStaleDescriptors;
+  }
+  if (plan.descriptor_replay_ready) {
+    return VulkanReplayBindingMode::RebindDescriptorSetsPerForward;
+  }
   return VulkanReplayBindingMode::ReRecordCommandBufferPerForward;
+}
+
+std::string format_stack_descriptor_binding(
+    const VulkanVisionStackShapePlan& plan,
+    const VulkanStackDescriptorBinding& binding) {
+  std::ostringstream out;
+  out << "stack_descriptor_binding"
+      << " plan_key=" << format_stack_shape_key(plan.key)
+      << " tokens=" << plan.key.tokens
+      << " ordinal=" << binding.ordinal
+      << " block=" << binding.block_index
+      << " phase=" << stack_plan_step_kind_name(binding.phase)
+      << " op=" << binding.op_label
+      << " kernel=" << binding.kernel_label
+      << " role=" << binding.resource_role
+      << " kind=" << stack_resource_kind_name(binding.resource_kind)
+      << " lifetime=" << stack_resource_lifetime_name(binding.lifetime)
+      << " mode=" << stack_descriptor_binding_mode_name(binding.binding_mode)
+      << " set=" << binding.descriptor_set_index
+      << " binding=" << binding.binding_index
+      << " descriptor_type="
+      << stack_descriptor_type_name(binding.descriptor_type)
+      << " shape=" << stack_plan_shape_string(binding.tensor_shape)
+      << " dtype=" << c10::toString(binding.dtype)
+      << " runtime_varying=" << (binding.is_runtime_varying ? 1 : 0)
+      << " requires_update=" << (binding.requires_descriptor_update ? 1 : 0)
+      << " persistent=" << (binding.is_persistent ? 1 : 0)
+      << " escapes_stack=" << (binding.escapes_stack ? 1 : 0)
+      << " indices_known=" << (binding.descriptor_indices_known ? 1 : 0)
+      << " safe_to_rebind=" << (binding.safe_to_rebind ? 1 : 0);
+  return out.str();
+}
+
+std::string format_stack_descriptor_validation(
+    const VulkanVisionStackShapePlan& plan) {
+  const bool all_runtime_resources_rebindable = std::all_of(
+      plan.descriptor_bindings.begin(),
+      plan.descriptor_bindings.end(),
+      [](const VulkanStackDescriptorBinding& binding) {
+        return !binding.is_runtime_varying || binding.safe_to_rebind;
+      });
+  const bool all_persistent_resources_stable = std::all_of(
+      plan.descriptor_bindings.begin(),
+      plan.descriptor_bindings.end(),
+      [](const VulkanStackDescriptorBinding& binding) {
+        return !binding.is_persistent ||
+            binding.binding_mode == VulkanStackDescriptorBindingMode::Persistent;
+      });
+  const bool all_internal_temps_owned_or_rebindable = std::all_of(
+      plan.descriptor_bindings.begin(),
+      plan.descriptor_bindings.end(),
+      [](const VulkanStackDescriptorBinding& binding) {
+        return binding.lifetime != VulkanStackResourceLifetime::InternalTemp ||
+            binding.binding_mode ==
+                VulkanStackDescriptorBindingMode::ProgramOwnedTemp ||
+            binding.safe_to_rebind;
+      });
+  std::ostringstream out;
+  out << "stack_descriptor_binding_validation"
+      << " plan_key=" << format_stack_shape_key(plan.key)
+      << " tokens=" << plan.key.tokens
+      << " table_complete=" << (plan.descriptor_table_complete ? 1 : 0)
+      << " all_descriptor_indices_known="
+      << (plan.descriptor_table_complete ? 1 : 0)
+      << " all_runtime_resources_rebindable="
+      << (all_runtime_resources_rebindable ? 1 : 0)
+      << " all_persistent_resources_stable="
+      << (all_persistent_resources_stable ? 1 : 0)
+      << " all_internal_temps_owned_or_rebindable="
+      << (all_internal_temps_owned_or_rebindable ? 1 : 0)
+      << " ready_for_re_record_per_forward="
+      << (plan.descriptor_re_record_ready ? 1 : 0)
+      << " ready_for_command_replay="
+      << (plan.descriptor_replay_ready ? 1 : 0)
+      << " rows=" << plan.descriptor_bindings.size();
+  return out.str();
 }
 
 void record_stack_resource_binding_manifest(
@@ -887,14 +1364,39 @@ void record_stack_resource_binding_manifest(
         rows.end());
     rows.insert(rows.end(), new_rows.begin(), new_rows.end());
 
+    auto& descriptor_rows = stack_descriptor_binding_table_rows();
+    descriptor_rows.erase(
+        std::remove_if(
+            descriptor_rows.begin(),
+            descriptor_rows.end(),
+            [&key](const std::string& row) {
+              return row.find(" plan_key=" + key + " ") != std::string::npos;
+            }),
+        descriptor_rows.end());
+    for (const auto& binding : plan.descriptor_bindings) {
+      descriptor_rows.emplace_back(
+          format_stack_descriptor_binding(plan, binding));
+    }
+
+    stack_descriptor_binding_validation_rows()[key] =
+        format_stack_descriptor_validation(plan);
+
     auto mode = determine_stack_replay_binding_mode(plan);
     std::ostringstream out;
     out << "stack_replay_binding_mode"
         << " plan_key=" << key
         << " tokens=" << plan.key.tokens
         << " mode=" << replay_binding_mode_name(mode)
-        << " descriptor_binding_indices_known=0"
-        << " reason=descriptor_sets_are_recorded_per_compute_job";
+        << " descriptor_binding_indices_known="
+        << (plan.descriptor_table_complete ? 1 : 0)
+        << " ready_for_re_record_per_forward="
+        << (plan.descriptor_re_record_ready ? 1 : 0)
+        << " ready_for_command_replay="
+        << (plan.descriptor_replay_ready ? 1 : 0)
+        << " reason="
+        << (plan.descriptor_replay_ready
+                ? "descriptor_sets_rebindable_without_rerecord"
+                : "program_owned_temps_not_stable_for_command_replay");
     stack_replay_binding_mode_rows()[key] = out.str();
   }
 }
@@ -6688,6 +7190,28 @@ void reset_stack_resource_binding_manifest() {
   std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
   stack_resource_binding_manifest_rows().clear();
   stack_replay_binding_mode_rows().clear();
+  stack_descriptor_binding_table_rows().clear();
+  stack_descriptor_binding_validation_rows().clear();
+}
+
+std::vector<std::string> stack_descriptor_binding_table_snapshot() {
+  std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+  return stack_descriptor_binding_table_rows();
+}
+
+std::vector<std::string> stack_descriptor_binding_validation_snapshot() {
+  std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+  std::vector<std::string> rows;
+  rows.reserve(stack_descriptor_binding_validation_rows().size());
+  for (const auto& entry : stack_descriptor_binding_validation_rows()) {
+    rows.emplace_back(entry.second);
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
+void reset_stack_descriptor_binding_table() {
+  reset_stack_resource_binding_manifest();
 }
 
 std::vector<int64_t> stack_replay_readiness_snapshot() {
@@ -6703,16 +7227,50 @@ std::vector<int64_t> stack_replay_readiness_snapshot() {
     std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
     return !stack_resource_binding_manifest_rows().empty();
   }();
+  const bool descriptor_table_complete = []() {
+    std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+    return !stack_descriptor_binding_validation_rows().empty() &&
+        std::all_of(
+            stack_descriptor_binding_validation_rows().begin(),
+            stack_descriptor_binding_validation_rows().end(),
+            [](const auto& entry) {
+              return entry.second.find("table_complete=1") != std::string::npos;
+            });
+  }();
+  const bool descriptor_indices_known = []() {
+    std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+    return !stack_descriptor_binding_validation_rows().empty() &&
+        std::all_of(
+            stack_descriptor_binding_validation_rows().begin(),
+            stack_descriptor_binding_validation_rows().end(),
+            [](const auto& entry) {
+              return entry.second.find("all_descriptor_indices_known=1") !=
+                  std::string::npos;
+            });
+  }();
   const auto& shape_counters = vulkan_stack_shape_plan_counters();
   const bool runtime_bindings_validated =
       shape_counters.binding_valid_count.load(std::memory_order_relaxed) > 0u &&
       shape_counters.binding_invalid_count.load(std::memory_order_relaxed) == 0u;
-  const bool descriptors_rebindable = false;
+  const bool descriptors_rebindable = descriptor_table_complete &&
+      descriptor_indices_known &&
+      []() {
+        std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+        return std::all_of(
+            stack_descriptor_binding_validation_rows().begin(),
+            stack_descriptor_binding_validation_rows().end(),
+            [](const auto& entry) {
+              return entry.second.find(
+                         "ready_for_re_record_per_forward=1") !=
+                  std::string::npos;
+            });
+      }();
   const bool persistent_resources_stable = resources_classified;
-  const bool internal_temps_owned = resources_classified;
+  const bool internal_temps_owned = descriptors_rebindable;
   const bool escaping_outputs_marked = resources_classified;
   const auto capture_readiness = stack_capture_readiness_snapshot();
-  const bool no_cpu_fallback = capture_readiness.size() > 1 && capture_readiness[1] != 0;
+  const bool no_cpu_fallback =
+      capture_readiness.size() > 1 && capture_readiness[1] != 0;
   const bool no_host_sync = capture_readiness.size() > 2 && capture_readiness[2] != 0;
   const bool no_nested_replay =
       capture_readiness.size() > 3 && capture_readiness[3] != 0;
@@ -6720,10 +7278,22 @@ std::vector<int64_t> stack_replay_readiness_snapshot() {
       api::vulkan_sync_counters().queue_wait_idle_count.load(
           std::memory_order_relaxed) == 0u;
   const bool command_capture_safe = fixed_shape_plan && resources_classified &&
-      runtime_bindings_validated && descriptors_rebindable &&
+      runtime_bindings_validated && descriptor_table_complete &&
+      descriptor_indices_known && descriptors_rebindable &&
       persistent_resources_stable && internal_temps_owned &&
       escaping_outputs_marked && no_cpu_fallback && no_host_sync &&
-      no_nested_replay && no_queue_idle;
+      no_nested_replay && no_queue_idle &&
+      []() {
+        std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+        return !stack_descriptor_binding_validation_rows().empty() &&
+            std::all_of(
+                stack_descriptor_binding_validation_rows().begin(),
+                stack_descriptor_binding_validation_rows().end(),
+                [](const auto& entry) {
+                  return entry.second.find("ready_for_command_replay=1") !=
+                      std::string::npos;
+                });
+      }();
 
   auto& replay_counters = vulkan_stack_replay_counters();
   replay_counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
@@ -6740,6 +7310,8 @@ std::vector<int64_t> stack_replay_readiness_snapshot() {
       fixed_shape_plan ? 1 : 0,
       resources_classified ? 1 : 0,
       runtime_bindings_validated ? 1 : 0,
+      descriptor_table_complete ? 1 : 0,
+      descriptor_indices_known ? 1 : 0,
       descriptors_rebindable ? 1 : 0,
       persistent_resources_stable ? 1 : 0,
       internal_temps_owned ? 1 : 0,

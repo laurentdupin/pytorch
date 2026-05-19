@@ -1615,6 +1615,12 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_stack_resource_binding_manifest() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_descriptor_binding_table() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_descriptor_binding_validation() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_descriptor_binding_table() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_replay_readiness() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_replay_binding_mode() -> str[]"));
@@ -1876,6 +1882,17 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::reset_stack_resource_binding_manifest"),
       TORCH_FN(reset_stack_resource_binding_manifest));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::stack_descriptor_binding_table"),
+      TORCH_FN(stack_descriptor_binding_table_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::stack_descriptor_binding_validation"),
+      TORCH_FN(stack_descriptor_binding_validation_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_stack_descriptor_binding_table"),
+      TORCH_FN(reset_stack_descriptor_binding_table));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::stack_replay_readiness"),
       TORCH_FN(stack_replay_readiness_snapshot));

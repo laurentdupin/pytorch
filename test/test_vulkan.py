@@ -8316,13 +8316,135 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(readiness[0], 1)
         self.assertEqual(readiness[1], 1)
         self.assertEqual(readiness[2], 1)
-        self.assertEqual(readiness[3], 0)
-        self.assertEqual(readiness[11], 0)
+        self.assertEqual(readiness[3], 1)
+        self.assertEqual(readiness[4], 1)
+        self.assertEqual(readiness[5], 1)
+        self.assertEqual(readiness[13], 0)
         self.assertTrue(
             any("mode=re_record_command_buffer_per_forward" in row for row in modes)
         )
         self.assertGreaterEqual(replay_counters[4], 1)
-        self.assertGreaterEqual(replay_counters[5], 1)
+
+    def test_vulkan_vision_stack_descriptor_table_created_for_shape_plans(self):
+        _, stack_2073, x_2073 = self._make_vulkan_vision_stack_shape_plan_fixture(
+            2073
+        )
+        _, stack_2110, x_2110 = self._make_vulkan_vision_stack_shape_plan_fixture(
+            2110
+        )
+
+        torch.ops.vulkan_prepack.reset_stack_descriptor_binding_table()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x_2073,
+                stack_2073,
+                [0],
+            )
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x_2110,
+                stack_2110,
+                [0],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        rows = torch.ops.vulkan_prepack.stack_descriptor_binding_table()
+        self.assertTrue(any("tokens=2073" in row for row in rows))
+        self.assertTrue(any("tokens=2110" in row for row in rows))
+        self.assertTrue(any("phase=attention" in row for row in rows))
+        self.assertTrue(any("phase=fc1_gelu" in row for row in rows))
+
+    def test_vulkan_vision_stack_descriptor_table_marks_runtime_resources(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
+
+        torch.ops.vulkan_prepack.reset_stack_descriptor_binding_table()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        rows = torch.ops.vulkan_prepack.stack_descriptor_binding_table()
+        self.assertTrue(
+            any(
+                "lifetime=runtime_input" in row and "requires_update=1" in row
+                for row in rows
+            )
+        )
+        self.assertTrue(
+            any(
+                "lifetime=requested_intermediate_output" in row
+                and "requires_update=1" in row
+                for row in rows
+            )
+        )
+
+    def test_vulkan_vision_stack_descriptor_table_marks_persistent_params(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
+
+        torch.ops.vulkan_prepack.reset_stack_descriptor_binding_table()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        rows = torch.ops.vulkan_prepack.stack_descriptor_binding_table()
+        self.assertTrue(any("lifetime=persistent_weight" in row for row in rows))
+        self.assertTrue(any("lifetime=persistent_norm_param" in row for row in rows))
+
+    def test_vulkan_vision_stack_descriptor_validation_ready_for_rerecord(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
+
+        torch.ops.vulkan_prepack.reset_stack_descriptor_binding_table()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        validation = torch.ops.vulkan_prepack.stack_descriptor_binding_validation()
+        self.assertTrue(
+            any(
+                "tokens=601" in row
+                and "table_complete=1" in row
+                and "all_descriptor_indices_known=1" in row
+                and "ready_for_re_record_per_forward=1" in row
+                and "ready_for_command_replay=0" in row
+                for row in validation
+            )
+        )
+
+    def test_vulkan_vision_stack_descriptor_validation_keeps_replay_unsafe(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
+
+        torch.ops.vulkan_prepack.reset_stack_shape_plan_counters()
+        torch.ops.vulkan_prepack.reset_stack_descriptor_binding_table()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        readiness = torch.ops.vulkan_prepack.stack_replay_readiness()
+        modes = torch.ops.vulkan_prepack.stack_replay_binding_mode()
+        self.assertEqual(readiness[5], 1)
+        self.assertEqual(readiness[13], 0)
+        self.assertTrue(
+            any(
+                "mode=re_record_command_buffer_per_forward" in row
+                and "ready_for_re_record_per_forward=1" in row
+                and "ready_for_command_replay=0" in row
+                for row in modes
+            )
+        )
 
     def test_vulkan_vision_stack_execution_manifest_reports_capture_blocker(self):
         torch.manual_seed(0)

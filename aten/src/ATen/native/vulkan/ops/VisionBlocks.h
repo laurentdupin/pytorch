@@ -63,6 +63,34 @@ enum class VulkanStackPlanStepKind : uint8_t {
   IntermediateCapture,
 };
 
+enum class VulkanStackResourceKind : uint8_t {
+  Unknown = 0,
+  StorageBuffer,
+  UniformBuffer,
+  Image,
+  Sampler,
+};
+
+enum class VulkanStackResourceLifetime : uint8_t {
+  Unknown = 0,
+  PersistentWeight,
+  PersistentBias,
+  PersistentNormParam,
+  RuntimeInput,
+  RuntimeOutput,
+  RequestedIntermediateOutput,
+  InternalTemp,
+  UniformMetadata,
+};
+
+enum class VulkanStackDescriptorBindingMode : uint8_t {
+  Unknown = 0,
+  Persistent,
+  RuntimeRebind,
+  ProgramOwnedTemp,
+  Unsupported,
+};
+
 struct VulkanStackPlanStep final {
   int64_t ordinal = 0;
   int64_t block_index = 0;
@@ -78,10 +106,39 @@ struct VulkanStackPlanStep final {
   bool requested_intermediate = false;
 };
 
+struct VulkanStackDescriptorBinding final {
+  int64_t ordinal = 0;
+  int64_t block_index = -1;
+  VulkanStackPlanStepKind phase = VulkanStackPlanStepKind::Norm1;
+  std::string op_label;
+  std::string kernel_label;
+  std::string resource_role;
+  VulkanStackResourceKind resource_kind = VulkanStackResourceKind::Unknown;
+  VulkanStackResourceLifetime lifetime = VulkanStackResourceLifetime::Unknown;
+  VulkanStackDescriptorBindingMode binding_mode =
+      VulkanStackDescriptorBindingMode::Unknown;
+  uint32_t descriptor_set_index = 0;
+  uint32_t binding_index = 0;
+  VkDescriptorType descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  std::vector<int64_t> tensor_shape;
+  c10::ScalarType dtype = c10::ScalarType::Undefined;
+  bool is_runtime_varying = false;
+  bool requires_descriptor_update = false;
+  bool is_persistent = false;
+  bool escapes_stack = false;
+  bool descriptor_indices_known = false;
+  bool safe_to_rebind = false;
+};
+
 class VulkanVisionStackShapePlan final {
  public:
   VulkanVisionStackShapeKey key;
   std::vector<VulkanStackPlanStep> steps;
+  std::vector<VulkanStackDescriptorBinding> descriptor_bindings;
+  bool descriptor_table_complete = false;
+  bool descriptors_rebindable = false;
+  bool descriptor_re_record_ready = false;
+  bool descriptor_replay_ready = false;
   bool fixed_shapes = false;
   bool no_cpu_fallback = false;
   bool no_host_sync = false;
@@ -380,6 +437,12 @@ std::string validate_stack_shape_plan_binding(
 std::vector<std::string> stack_resource_binding_manifest_snapshot();
 
 void reset_stack_resource_binding_manifest();
+
+std::vector<std::string> stack_descriptor_binding_table_snapshot();
+
+std::vector<std::string> stack_descriptor_binding_validation_snapshot();
+
+void reset_stack_descriptor_binding_table();
 
 std::vector<int64_t> stack_replay_readiness_snapshot();
 

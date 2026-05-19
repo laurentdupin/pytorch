@@ -216,12 +216,11 @@ across forwards. Runtime inputs, requested outputs, and internal temporary
 buffers are not persistent and would need descriptor rebinding or command
 re-recording.
 
-The current backend records descriptor sets inside each compute job and the
-shape plan does not yet store descriptor set/binding indices or a descriptor
-update table. Resource rows therefore mark descriptor binding indices as
-unknown and runtime-varying buffers as requiring descriptor updates. This is
-enough to prove resource classes, but not enough to safely replay a previously
-recorded command buffer with new runtime tensors.
+The current backend records descriptor sets inside each compute job. The
+resource manifest is a logical classification layer; the descriptor binding
+table below records set and binding indices for planned stack steps. This is
+enough to prove re-record readiness, but not enough to safely replay a
+previously recorded command buffer with new runtime tensors.
 
 Replay readiness reports:
 
@@ -229,7 +228,9 @@ Replay readiness reports:
 fixed_shape_plan=1
 resources_classified=1
 runtime_bindings_validated=1
-descriptors_rebindable=0
+descriptor_table_complete=1
+descriptor_indices_known=1
+descriptors_rebindable=1
 persistent_resources_stable=1
 internal_temps_owned=1
 escaping_outputs_marked=1
@@ -246,11 +247,61 @@ The binding mode is:
 re_record_command_buffer_per_forward
 ```
 
-No command-buffer replay is merged. The exact blocker is descriptor rebinding:
-captured command buffers would otherwise retain descriptor sets that refer to
-old runtime inputs, internal temporaries, and escaping outputs. The next replay
-pass needs an explicit descriptor binding table or a planned recording layer
-that can update all runtime-varying descriptors before submission.
+No command-buffer replay is merged. The remaining blocker is replay-stable
+descriptor ownership: captured command buffers would otherwise retain descriptor
+sets that refer to old runtime inputs, internal temporaries, and escaping
+outputs. The next pass should use the descriptor table for planned command
+recording before attempting command replay.
+
+## Descriptor Binding Table
+
+Shape plans now build a planned descriptor binding table:
+
+```
+vulkan_prepack::stack_descriptor_binding_table()
+vulkan_prepack::stack_descriptor_binding_validation()
+vulkan_prepack::reset_stack_descriptor_binding_table()
+```
+
+The table is derived from the fixed stack plan and the current shader argument
+conventions. Each row records the plan key, step ordinal, block, phase, op,
+kernel, resource role, resource kind, lifetime, binding mode, descriptor set,
+binding index, descriptor type, shape, dtype, and whether the descriptor is
+runtime-varying.
+
+The Vulkan API path still allocates and writes concrete descriptor sets per
+compute job:
+
+```
+Context::submit_compute_job
+DescriptorPool::get_descriptor_set
+DescriptorSet::bind
+DescriptorSet::get_bind_handle
+CommandBuffer::bind_descriptors
+```
+
+The table models the same set `0` binding order without recording a command
+buffer. Runtime inputs, requested outputs, metadata tied to runtime tensors,
+and internal temps require descriptor updates when commands are re-recorded.
+Packed weights, persistent biases, and norm parameters are marked persistent.
+
+Validation currently reports:
+
+```
+table_complete=1
+all_descriptor_indices_known=1
+all_runtime_resources_rebindable=1
+all_persistent_resources_stable=1
+all_internal_temps_owned_or_rebindable=1
+ready_for_re_record_per_forward=1
+ready_for_command_replay=0
+```
+
+This means the shape plan is ready to drive planned command recording each
+forward. It does not prove that a previously recorded command buffer can be
+replayed with new resources. Command replay remains blocked because
+program-owned temporaries are not yet stable replay resources and descriptor
+updates without command re-recording have not been implemented.
 
 ## Current Decision
 
