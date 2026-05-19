@@ -38,6 +38,20 @@ FALLBACK_PHASE_OWNER_FORWARD = 3
 FALLBACK_PHASE_POSITIONAL_EMBEDDING_SETUP = 5
 FALLBACK_PHASE_READBACK = 6
 
+_TORCHVISION_COMPAT_LIBS: list[Any] = []
+
+
+def ensure_torchvision_runtime_compat(torch_module: Any) -> None:
+    try:
+        torch_module._C._dispatch_find_schema_or_throw("torchvision::nms", "")
+        return
+    except RuntimeError:
+        pass
+
+    lib = torch_module.library.Library("torchvision", "DEF")
+    lib.define("nms(Tensor dets, Tensor scores, float iou_threshold) -> Tensor")
+    _TORCHVISION_COMPAT_LIBS.append(lib)
+
 
 def optional_bias(module: Any) -> Any:
     return getattr(module, "bias", None)
@@ -371,6 +385,10 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         "stack_shape_plan_readiness",
         "stack_shape_plan_counters",
         "stack_resource_binding_manifest",
+        "stack_descriptor_binding_table",
+        "stack_descriptor_binding_validation",
+        "stack_planned_recording_readiness",
+        "stack_planned_recording_counters",
         "stack_replay_readiness",
         "stack_replay_binding_mode",
         "stack_replay_counters",
@@ -534,6 +552,8 @@ def run() -> None:
     enable_local_pytorch_repo_imports()
     import torch
     import torch.nn.functional as F
+
+    ensure_torchvision_runtime_compat(torch)
     from depth_anything_v2.dpt import DepthAnythingV2
 
     device, device_kind, device_info = resolve_runtime_device(

@@ -303,10 +303,40 @@ replayed with new resources. Command replay remains blocked because
 program-owned temporaries are not yet stable replay resources and descriptor
 updates without command re-recording have not been implemented.
 
+## Planned Per-Forward Recording Readiness
+
+`stack_planned_recording_readiness()` reports whether the shape plan and
+descriptor table are sufficient to record one stack command buffer per forward
+with current descriptors. This is intentionally separate from replay readiness.
+
+Current result:
+
+```
+shape_plan_ready=1
+descriptor_table_complete=1
+ready_for_re_record_per_forward=1
+no_cpu_fallback=1
+no_host_sync=1
+no_nested_replay=1
+no_active_capture=1
+command_recording_scope_available=0
+barriers_recordable=0
+descriptors_recordable=1
+resources_lifetime_tracked=1
+safe_to_record_stack_per_forward=0
+```
+
+The attempted stack-wide command scope exposed a command mutex re-entry hazard
+in the current `Context` submission path. The safe result for this pass is
+therefore diagnostics only: planned recording is rejected, the existing stack
+owner remains canonical, and no command-buffer replay or persistent command
+buffer is introduced. The next implementation needs a non-reentrant stack
+recording API in `Context` that can append compute jobs and preserve barriers
+without taking the per-job command mutex again.
+
 ## Current Decision
 
-No command-buffer replay is merged in this pass. The shape-keyed plan cache
-turns the previous fixed-shape blocker into per-plan readiness: each observed
-token length can be fixed-shape even though the parent stack context is dynamic.
-The next pass can attempt a narrow programmed sequence or command-buffer capture
-against these shape plans, with resource rebinding validated before execution.
+No command-buffer replay is merged. Planned per-forward recording is not merged
+as an execution path because the command recording scope is not safe yet. The
+next pass should fix the `Context` recording-scope prerequisite before trying
+to batch the stack into one command submission.

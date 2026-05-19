@@ -423,6 +423,7 @@ void reset_fallback_counters_runtime() {
   reset_stack_shape_plan_counters();
   reset_stack_resource_binding_manifest();
   reset_stack_replay_counters();
+  reset_stack_planned_recording_counters();
   reset_zero_counters();
 }
 
@@ -1621,6 +1622,12 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_stack_descriptor_binding_table() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_planned_recording_readiness() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_planned_recording_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_planned_recording_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_replay_readiness() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_replay_binding_mode() -> str[]"));
@@ -1893,6 +1900,18 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::reset_stack_descriptor_binding_table"),
       TORCH_FN(reset_stack_descriptor_binding_table));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::stack_planned_recording_readiness"),
+      TORCH_FN(stack_planned_recording_readiness_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::stack_planned_recording_counters"),
+      TORCH_FN(stack_planned_recording_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_stack_planned_recording_counters"),
+      TORCH_FN(reset_stack_planned_recording_counters));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::stack_replay_readiness"),
       TORCH_FN(stack_replay_readiness_snapshot));

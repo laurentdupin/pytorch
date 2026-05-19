@@ -616,6 +616,15 @@ program-owned temporaries are not stable replay resources. The next safe step is
 a planned command-recording layer that uses this table to re-record each
 forward, not replay of old command buffers.
 
+The planned-recording readiness pass kept that execution change unmerged. The
+shape plan and descriptor table are ready for re-recording, but the current
+`Context` command path does not yet expose a safe stack-owned recording scope:
+holding the command mutex across stack execution re-enters the same per-job
+recording lock. `stack_planned_recording_readiness()` therefore reports
+`command_recording_scope_available=0`, `barriers_recordable=0`, and
+`safe_to_record_stack_per_forward=0`. The canonical stack owner still executes
+with the existing safe per-job recording/submission behavior.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

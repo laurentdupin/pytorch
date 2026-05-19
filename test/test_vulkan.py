@@ -8446,6 +8446,72 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
         )
 
+    def test_vulkan_vision_stack_planned_recording_readiness(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
+
+        torch.ops.vulkan_prepack.reset_stack_planned_recording_counters()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        readiness = torch.ops.vulkan_prepack.stack_planned_recording_readiness()
+        self.assertEqual(readiness[0], 1)
+        self.assertEqual(readiness[1], 1)
+        self.assertEqual(readiness[2], 1)
+        self.assertEqual(readiness[7], 0)
+        self.assertEqual(readiness[8], 0)
+        self.assertEqual(readiness[11], 0)
+
+    def test_vulkan_vision_stack_planned_recording_matches_block_owner(self):
+        contexts, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            601
+        )
+
+        torch.ops.vulkan_prepack.reset_stack_planned_recording_counters()
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                x,
+                contexts[0],
+            )
+            actual = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )[0]
+            torch.ops.vulkan_prepack.synchronize()
+
+        self.assertEqual(actual.cpu(), expected.cpu(), rtol=1e-4, atol=1e-4)
+        counters = torch.ops.vulkan_prepack.stack_planned_recording_counters()
+        self.assertEqual(counters[1], 0)
+        self.assertGreater(counters[4], 0)
+
+    def test_vulkan_vision_stack_planned_recording_matches_block_owner_607(self):
+        contexts, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            607
+        )
+
+        torch.ops.vulkan_prepack.reset_stack_planned_recording_counters()
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                x,
+                contexts[0],
+            )
+            actual = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )[0]
+            torch.ops.vulkan_prepack.synchronize()
+
+        self.assertEqual(actual.cpu(), expected.cpu(), rtol=1e-4, atol=1e-4)
+        counters = torch.ops.vulkan_prepack.stack_planned_recording_counters()
+        self.assertEqual(counters[1], 0)
+        self.assertGreater(counters[4], 0)
+
     def test_vulkan_vision_stack_execution_manifest_reports_capture_blocker(self):
         torch.manual_seed(0)
         embed_dim = 384

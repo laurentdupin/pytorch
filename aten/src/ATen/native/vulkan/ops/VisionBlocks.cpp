@@ -210,6 +210,20 @@ struct VulkanStackReplayCounters final {
   std::atomic<uint64_t> reject_runtime_capture_active{0u};
 };
 
+struct VulkanStackPlannedRecordingCounters final {
+  std::atomic<uint64_t> total_attempts{0u};
+  std::atomic<uint64_t> planned_record_hit{0u};
+  std::atomic<uint64_t> recording_scope_begin_count{0u};
+  std::atomic<uint64_t> recording_scope_submit_count{0u};
+  std::atomic<uint64_t> recording_scope_reject_count{0u};
+  std::atomic<uint64_t> reject_readiness{0u};
+  std::atomic<uint64_t> reject_active_capture{0u};
+  std::atomic<uint64_t> reject_nested_replay{0u};
+  std::atomic<uint64_t> reject_barrier{0u};
+  std::atomic<uint64_t> reject_descriptor{0u};
+  std::atomic<uint64_t> reject_lifetime{0u};
+};
+
 enum class VulkanReplayBindingMode : uint8_t {
   Unknown = 0,
   PersistentResourcesOnly,
@@ -303,6 +317,14 @@ VulkanStackReplayCounters& vulkan_stack_replay_counters() {
   static VulkanStackReplayCounters counters;
   return counters;
 }
+
+VulkanStackPlannedRecordingCounters&
+vulkan_stack_planned_recording_counters() {
+  static VulkanStackPlannedRecordingCounters counters;
+  return counters;
+}
+
+bool has_explicit_runtime_capture_label();
 
 const std::string& vulkan_vision_owner_log_path() {
   static const std::string path = []() {
@@ -1243,6 +1265,12 @@ VulkanReplayBindingMode determine_stack_replay_binding_mode(
     return VulkanReplayBindingMode::RebindDescriptorSetsPerForward;
   }
   return VulkanReplayBindingMode::ReRecordCommandBufferPerForward;
+}
+
+bool stack_plan_ready_for_planned_recording(
+    const VulkanVisionStackShapePlan& plan) {
+  (void)plan;
+  return false;
 }
 
 std::string format_stack_descriptor_binding(
@@ -7214,6 +7242,115 @@ void reset_stack_descriptor_binding_table() {
   reset_stack_resource_binding_manifest();
 }
 
+std::vector<int64_t> stack_planned_recording_readiness_snapshot() {
+  const auto shape_readiness = stack_shape_plan_readiness_snapshot();
+  const bool shape_plan_ready = std::any_of(
+      shape_readiness.begin(),
+      shape_readiness.end(),
+      [](const std::string& row) {
+        return row.find("fixed_shapes=1") != std::string::npos &&
+            row.find("safe_to_program=1") != std::string::npos;
+      });
+  const bool descriptor_table_complete = []() {
+    std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+    return !stack_descriptor_binding_validation_rows().empty() &&
+        std::all_of(
+            stack_descriptor_binding_validation_rows().begin(),
+            stack_descriptor_binding_validation_rows().end(),
+            [](const auto& entry) {
+              return entry.second.find("table_complete=1") != std::string::npos;
+            });
+  }();
+  const bool ready_for_re_record_per_forward = []() {
+    std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+    return !stack_descriptor_binding_validation_rows().empty() &&
+        std::all_of(
+            stack_descriptor_binding_validation_rows().begin(),
+            stack_descriptor_binding_validation_rows().end(),
+            [](const auto& entry) {
+              return entry.second.find(
+                         "ready_for_re_record_per_forward=1") !=
+                  std::string::npos;
+            });
+  }();
+  const auto capture_readiness = stack_capture_readiness_snapshot();
+  const bool no_cpu_fallback =
+      capture_readiness.size() > 1 && capture_readiness[1] != 0;
+  const bool no_host_sync =
+      capture_readiness.size() > 2 && capture_readiness[2] != 0;
+  const bool no_nested_replay =
+      capture_readiness.size() > 3 && capture_readiness[3] != 0;
+  const bool no_active_capture = !has_explicit_runtime_capture_label();
+  const bool command_recording_scope_available = false;
+  const bool barriers_recordable = false;
+  const bool descriptors_recordable =
+      descriptor_table_complete && ready_for_re_record_per_forward;
+  const bool resources_lifetime_tracked = true;
+  const bool safe_to_record_stack_per_forward = shape_plan_ready &&
+      descriptor_table_complete && ready_for_re_record_per_forward &&
+      no_cpu_fallback && no_host_sync && no_nested_replay &&
+      no_active_capture && command_recording_scope_available &&
+      barriers_recordable && descriptors_recordable &&
+      resources_lifetime_tracked;
+  return {
+      shape_plan_ready ? 1 : 0,
+      descriptor_table_complete ? 1 : 0,
+      ready_for_re_record_per_forward ? 1 : 0,
+      no_cpu_fallback ? 1 : 0,
+      no_host_sync ? 1 : 0,
+      no_nested_replay ? 1 : 0,
+      no_active_capture ? 1 : 0,
+      command_recording_scope_available ? 1 : 0,
+      barriers_recordable ? 1 : 0,
+      descriptors_recordable ? 1 : 0,
+      resources_lifetime_tracked ? 1 : 0,
+      safe_to_record_stack_per_forward ? 1 : 0,
+  };
+}
+
+std::vector<int64_t> stack_planned_recording_counters_snapshot() {
+  const auto& counters = vulkan_stack_planned_recording_counters();
+  return {
+      static_cast<int64_t>(
+          counters.total_attempts.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.planned_record_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.recording_scope_begin_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.recording_scope_submit_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.recording_scope_reject_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_readiness.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_active_capture.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_nested_replay.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_barrier.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_descriptor.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_lifetime.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_stack_planned_recording_counters() {
+  auto& counters = vulkan_stack_planned_recording_counters();
+  counters.total_attempts.store(0u, std::memory_order_relaxed);
+  counters.planned_record_hit.store(0u, std::memory_order_relaxed);
+  counters.recording_scope_begin_count.store(0u, std::memory_order_relaxed);
+  counters.recording_scope_submit_count.store(0u, std::memory_order_relaxed);
+  counters.recording_scope_reject_count.store(0u, std::memory_order_relaxed);
+  counters.reject_readiness.store(0u, std::memory_order_relaxed);
+  counters.reject_active_capture.store(0u, std::memory_order_relaxed);
+  counters.reject_nested_replay.store(0u, std::memory_order_relaxed);
+  counters.reject_barrier.store(0u, std::memory_order_relaxed);
+  counters.reject_descriptor.store(0u, std::memory_order_relaxed);
+  counters.reject_lifetime.store(0u, std::memory_order_relaxed);
+}
+
 std::vector<int64_t> stack_replay_readiness_snapshot() {
   const auto shape_readiness = stack_shape_plan_readiness_snapshot();
   const bool fixed_shape_plan = std::any_of(
@@ -8052,9 +8189,11 @@ std::vector<Tensor> run_vision_backbone_stack_context(
         " contexts");
   }
 
+  VulkanVisionStackShapePlan* stack_shape_plan = nullptr;
   {
     VulkanVisionStackShapePlan& plan =
         get_or_create_stack_shape_plan(*context, input_arg, capture_indices_vec);
+    stack_shape_plan = &plan;
     const VulkanStackPlanRuntimeBinding binding =
         make_stack_plan_runtime_binding(input_arg, capture_indices_vec);
     std::string reason;
@@ -8065,6 +8204,25 @@ std::vector<Tensor> run_vision_backbone_stack_context(
     } else {
       note_stack_plan_binding_invalid(reason);
     }
+  }
+
+  auto& planned_counters = vulkan_stack_planned_recording_counters();
+  planned_counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
+  if (stack_shape_plan &&
+      stack_plan_ready_for_planned_recording(*stack_shape_plan)) {
+    planned_counters.planned_record_hit.fetch_add(
+        1u,
+        std::memory_order_relaxed);
+  } else {
+    planned_counters.recording_scope_reject_count.fetch_add(
+        1u,
+        std::memory_order_relaxed);
+    planned_counters.reject_readiness.fetch_add(
+        1u,
+        std::memory_order_relaxed);
+    planned_counters.reject_barrier.fetch_add(
+        1u,
+        std::memory_order_relaxed);
   }
 
   Tensor current = input_arg;

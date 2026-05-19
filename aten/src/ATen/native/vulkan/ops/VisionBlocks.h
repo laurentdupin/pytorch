@@ -444,6 +444,12 @@ std::vector<std::string> stack_descriptor_binding_validation_snapshot();
 
 void reset_stack_descriptor_binding_table();
 
+std::vector<int64_t> stack_planned_recording_readiness_snapshot();
+
+std::vector<int64_t> stack_planned_recording_counters_snapshot();
+
+void reset_stack_planned_recording_counters();
+
 std::vector<int64_t> stack_replay_readiness_snapshot();
 
 std::vector<std::string> stack_replay_binding_mode_snapshot();
