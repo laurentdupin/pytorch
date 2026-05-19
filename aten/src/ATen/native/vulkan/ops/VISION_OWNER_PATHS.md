@@ -616,14 +616,22 @@ program-owned temporaries are not stable replay resources. The next safe step is
 a planned command-recording layer that uses this table to re-record each
 forward, not replay of old command buffers.
 
-The planned-recording readiness pass kept that execution change unmerged. The
-shape plan and descriptor table are ready for re-recording, but the current
-`Context` command path does not yet expose a safe stack-owned recording scope:
-holding the command mutex across stack execution re-enters the same per-job
-recording lock. `stack_planned_recording_readiness()` therefore reports
-`command_recording_scope_available=0`, `barriers_recordable=0`, and
-`safe_to_record_stack_per_forward=0`. The canonical stack owner still executes
-with the existing safe per-job recording/submission behavior.
+The stack owner now uses planned per-forward recording when the fixed shape
+plan and descriptor table validate. The earlier deadlock came from holding the
+command mutex across stack execution while each compute op re-entered
+`submit_compute_job`. The accepted Context API instead keeps only a stack
+recording state: `begin_stack_planned_recording()` takes the command mutex
+briefly, each compute job locks once and appends descriptors, barriers, and
+dispatches to the current command buffer, and
+`end_stack_planned_recording_and_submit()` submits once at stack exit.
+
+This is not command replay. Commands are recorded with current runtime
+input/output/internal-temp descriptors every forward, and no command buffer is
+persisted across forwards. `stack_planned_recording_readiness()` now reports
+`command_recording_scope_available=1`, `barriers_recordable=1`, and
+`safe_to_record_stack_per_forward=1` for ready shape plans. Replay remains
+blocked until program-owned temporaries become replay-stable resources or can
+be safely rebound without re-recording.
 
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv

@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <sstream>
 #include <string>
+#include <thread>
 
 namespace at {
 namespace native {
@@ -40,6 +41,12 @@ struct ContextConfig final {
   CommandPoolConfig cmdPoolConfig;
   DescriptorPoolConfig descriptorPoolConfig;
   QueryPoolConfig queryPoolConfig;
+};
+
+struct StackPlannedRecordingStats final {
+  uint64_t recorded_compute_jobs = 0u;
+  uint64_t recorded_descriptor_writes = 0u;
+  uint64_t recorded_barriers = 0u;
 };
 
 //
@@ -103,6 +110,9 @@ class TORCH_API Context final {
   std::mutex cmd_mutex_;
   CommandBuffer cmd_;
   uint32_t submit_count_;
+  std::atomic<bool> stack_planned_recording_active_;
+  std::thread::id stack_planned_recording_owner_;
+  StackPlannedRecordingStats stack_planned_recording_stats_;
   // Memory Management
   std::mutex pending_retire_buffers_mutex_;
   std::vector<VulkanBuffer> pending_retire_buffers_;
@@ -116,6 +126,7 @@ class TORCH_API Context final {
   CommandBuffer* external_recording_cmd();
   const CommandBuffer* external_recording_cmd() const;
   bool is_inside_owned_program_recording() const;
+  bool stack_planned_recording_owned_by_current_thread() const;
   DescriptorPool& active_descriptor_pool();
   CommandBuffer& active_cmd();
   void capture_external_recording_buffer_cleanup(VulkanBuffer&&);
@@ -309,6 +320,10 @@ class TORCH_API Context final {
       VkFence fence_handle = VK_NULL_HANDLE,
       const bool final_use = false);
   void flush_pending_cmds(VkFence fence_handle = VK_NULL_HANDLE);
+  bool is_stack_planned_recording_active() const;
+  void begin_stack_planned_recording();
+  StackPlannedRecordingStats end_stack_planned_recording_and_submit();
+  StackPlannedRecordingStats cancel_stack_planned_recording();
   CommandBuffer acquire_persistent_command_buffer();
   void submit_prepared_command_buffer(
       CommandBuffer&,
@@ -550,6 +565,11 @@ inline bool Context::submit_copy(
     const api::utils::uvec3& dst_offset,
     VkFence fence_handle) {
   const bool external_recording = external_recording_cmd() != nullptr;
+  const bool stack_planned_recording =
+      is_stack_planned_recording_active() && !external_recording;
+  VK_CHECK_COND(
+      !stack_planned_recording || stack_planned_recording_owned_by_current_thread(),
+      "Vulkan stack planned recording used from the wrong thread");
   const bool cpu_timeline =
       cpu_timeline_logging_enabled() && !external_recording;
   const uint64_t cpu_start_us =
@@ -647,6 +667,12 @@ inline bool Context::submit_compute_job(
     VkFence fence_handle,
     Arguments&&... arguments) {
   const bool external_recording = external_recording_cmd() != nullptr;
+  const bool stack_planned_recording =
+      is_stack_planned_recording_active() && !external_recording;
+  VK_CHECK_COND(
+      !stack_planned_recording ||
+          stack_planned_recording_owned_by_current_thread(),
+      "Vulkan stack planned recording used from the wrong thread");
   const bool cpu_timeline =
       cpu_timeline_logging_enabled() && !external_recording;
   const uint64_t cpu_start_us =
@@ -726,6 +752,12 @@ inline bool Context::submit_compute_job(
       1u,
       std::memory_order_relaxed);
   note_vulkan_stack_dispatch(shader.kernel_name.c_str());
+  if (stack_planned_recording) {
+    stack_planned_recording_stats_.recorded_compute_jobs++;
+    stack_planned_recording_stats_.recorded_descriptor_writes +=
+        sizeof...(Arguments);
+    stack_planned_recording_stats_.recorded_barriers++;
+  }
 
   if (enable_op_profiling_ && !external_recording) {
     gpu_profile_end(cmd, log_idx);
@@ -738,7 +770,8 @@ inline bool Context::submit_compute_job(
   submit_count_++;
   bool submitted = false;
   if (fence_handle != VK_NULL_HANDLE ||
-      submit_count_ >= config_.cmdSubmitFrequency) {
+      (!stack_planned_recording &&
+       submit_count_ >= config_.cmdSubmitFrequency)) {
     submit_cmd_to_gpu(fence_handle);
     submitted = true;
   }

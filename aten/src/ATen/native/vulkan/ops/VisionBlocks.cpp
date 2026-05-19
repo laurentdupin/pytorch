@@ -30,6 +30,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
+#include <exception>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -215,12 +216,15 @@ struct VulkanStackPlannedRecordingCounters final {
   std::atomic<uint64_t> planned_record_hit{0u};
   std::atomic<uint64_t> recording_scope_begin_count{0u};
   std::atomic<uint64_t> recording_scope_submit_count{0u};
+  std::atomic<uint64_t> recording_scope_cancel_count{0u};
   std::atomic<uint64_t> recording_scope_reject_count{0u};
+  std::atomic<uint64_t> recorded_compute_job_count{0u};
+  std::atomic<uint64_t> recorded_barrier_count{0u};
+  std::atomic<uint64_t> recorded_descriptor_count{0u};
   std::atomic<uint64_t> reject_readiness{0u};
   std::atomic<uint64_t> reject_active_capture{0u};
-  std::atomic<uint64_t> reject_nested_replay{0u};
-  std::atomic<uint64_t> reject_barrier{0u};
-  std::atomic<uint64_t> reject_descriptor{0u};
+  std::atomic<uint64_t> reject_nested_recording{0u};
+  std::atomic<uint64_t> reject_wrong_thread{0u};
   std::atomic<uint64_t> reject_lifetime{0u};
 };
 
@@ -1269,9 +1273,73 @@ VulkanReplayBindingMode determine_stack_replay_binding_mode(
 
 bool stack_plan_ready_for_planned_recording(
     const VulkanVisionStackShapePlan& plan) {
-  (void)plan;
-  return false;
+  return plan.ready_for_programmed_sequence() &&
+      plan.descriptor_table_complete && plan.descriptor_re_record_ready &&
+      !has_explicit_runtime_capture_label();
 }
+
+class VulkanStackCommandRecordingScope final {
+ public:
+  explicit VulkanStackCommandRecordingScope(api::Context& context)
+      : context_(context), active_(true) {
+    context_.begin_stack_planned_recording();
+    vulkan_stack_planned_recording_counters()
+        .recording_scope_begin_count.fetch_add(
+            1u,
+            std::memory_order_relaxed);
+  }
+
+  VulkanStackCommandRecordingScope(const VulkanStackCommandRecordingScope&) =
+      delete;
+  VulkanStackCommandRecordingScope& operator=(
+      const VulkanStackCommandRecordingScope&) = delete;
+
+  ~VulkanStackCommandRecordingScope() {
+    if (!active_) {
+      return;
+    }
+    try {
+      if (std::uncaught_exceptions() > 0) {
+        cancel();
+        return;
+      }
+      const api::StackPlannedRecordingStats stats =
+          context_.end_stack_planned_recording_and_submit();
+      auto& counters = vulkan_stack_planned_recording_counters();
+      counters.recording_scope_submit_count.fetch_add(
+          1u,
+          std::memory_order_relaxed);
+      counters.recorded_compute_job_count.fetch_add(
+          stats.recorded_compute_jobs,
+          std::memory_order_relaxed);
+      counters.recorded_descriptor_count.fetch_add(
+          stats.recorded_descriptor_writes,
+          std::memory_order_relaxed);
+      counters.recorded_barrier_count.fetch_add(
+          stats.recorded_barriers,
+          std::memory_order_relaxed);
+      active_ = false;
+    } catch (...) {
+      active_ = false;
+    }
+  }
+
+  void cancel() {
+    if (!active_) {
+      return;
+    }
+    context_.cancel_stack_planned_recording();
+    vulkan_stack_planned_recording_counters()
+        .recording_scope_cancel_count.fetch_add(
+            1u,
+            std::memory_order_relaxed);
+    active_ = false;
+  }
+
+ private:
+  api::Context& context_;
+  bool active_;
+};
 
 std::string format_stack_descriptor_binding(
     const VulkanVisionStackShapePlan& plan,
@@ -7281,8 +7349,8 @@ std::vector<int64_t> stack_planned_recording_readiness_snapshot() {
   const bool no_nested_replay =
       capture_readiness.size() > 3 && capture_readiness[3] != 0;
   const bool no_active_capture = !has_explicit_runtime_capture_label();
-  const bool command_recording_scope_available = false;
-  const bool barriers_recordable = false;
+  const bool command_recording_scope_available = true;
+  const bool barriers_recordable = true;
   const bool descriptors_recordable =
       descriptor_table_complete && ready_for_re_record_per_forward;
   const bool resources_lifetime_tracked = true;
@@ -7320,17 +7388,23 @@ std::vector<int64_t> stack_planned_recording_counters_snapshot() {
       static_cast<int64_t>(
           counters.recording_scope_submit_count.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
+          counters.recording_scope_cancel_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
           counters.recording_scope_reject_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.recorded_compute_job_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.recorded_barrier_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.recorded_descriptor_count.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.reject_readiness.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.reject_active_capture.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
-          counters.reject_nested_replay.load(std::memory_order_relaxed)),
+          counters.reject_nested_recording.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
-          counters.reject_barrier.load(std::memory_order_relaxed)),
-      static_cast<int64_t>(
-          counters.reject_descriptor.load(std::memory_order_relaxed)),
+          counters.reject_wrong_thread.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.reject_lifetime.load(std::memory_order_relaxed)),
   };
@@ -7342,12 +7416,15 @@ void reset_stack_planned_recording_counters() {
   counters.planned_record_hit.store(0u, std::memory_order_relaxed);
   counters.recording_scope_begin_count.store(0u, std::memory_order_relaxed);
   counters.recording_scope_submit_count.store(0u, std::memory_order_relaxed);
+  counters.recording_scope_cancel_count.store(0u, std::memory_order_relaxed);
   counters.recording_scope_reject_count.store(0u, std::memory_order_relaxed);
+  counters.recorded_compute_job_count.store(0u, std::memory_order_relaxed);
+  counters.recorded_barrier_count.store(0u, std::memory_order_relaxed);
+  counters.recorded_descriptor_count.store(0u, std::memory_order_relaxed);
   counters.reject_readiness.store(0u, std::memory_order_relaxed);
   counters.reject_active_capture.store(0u, std::memory_order_relaxed);
-  counters.reject_nested_replay.store(0u, std::memory_order_relaxed);
-  counters.reject_barrier.store(0u, std::memory_order_relaxed);
-  counters.reject_descriptor.store(0u, std::memory_order_relaxed);
+  counters.reject_nested_recording.store(0u, std::memory_order_relaxed);
+  counters.reject_wrong_thread.store(0u, std::memory_order_relaxed);
   counters.reject_lifetime.store(0u, std::memory_order_relaxed);
 }
 
@@ -8208,19 +8285,19 @@ std::vector<Tensor> run_vision_backbone_stack_context(
 
   auto& planned_counters = vulkan_stack_planned_recording_counters();
   planned_counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
+  std::unique_ptr<VulkanStackCommandRecordingScope> planned_recording_scope;
   if (stack_shape_plan &&
       stack_plan_ready_for_planned_recording(*stack_shape_plan)) {
     planned_counters.planned_record_hit.fetch_add(
         1u,
         std::memory_order_relaxed);
+    planned_recording_scope =
+        std::make_unique<VulkanStackCommandRecordingScope>(*api::context());
   } else {
     planned_counters.recording_scope_reject_count.fetch_add(
         1u,
         std::memory_order_relaxed);
     planned_counters.reject_readiness.fetch_add(
-        1u,
-        std::memory_order_relaxed);
-    planned_counters.reject_barrier.fetch_add(
         1u,
         std::memory_order_relaxed);
   }
@@ -8284,6 +8361,7 @@ std::vector<Tensor> run_vision_backbone_stack_context(
       }
     }
   }
+  planned_recording_scope.reset();
 
   api::VulkanVisionStackPhaseScope stack_exit_scope(
       api::VulkanVisionStackPhase::StackExit);

@@ -326,17 +326,57 @@ resources_lifetime_tracked=1
 safe_to_record_stack_per_forward=0
 ```
 
-The attempted stack-wide command scope exposed a command mutex re-entry hazard
-in the current `Context` submission path. The safe result for this pass is
-therefore diagnostics only: planned recording is rejected, the existing stack
-owner remains canonical, and no command-buffer replay or persistent command
-buffer is introduced. The next implementation needs a non-reentrant stack
-recording API in `Context` that can append compute jobs and preserve barriers
-without taking the per-job command mutex again.
+That rejected attempt held the command mutex across stack execution and then
+re-entered the same mutex from each `submit_compute_job` call. The accepted
+Context prerequisite is a non-reentrant stack recording state:
+
+```
+begin_stack_planned_recording()
+    briefly locks the command mutex
+    flushes any prior pending command buffer
+    marks the current thread as the stack recording owner
+    releases the mutex before stack execution
+
+submit_compute_job()
+    locks once per compute job as before
+    records descriptors, barriers, profiling timestamps, and dispatch in order
+    skips `cmdSubmitFrequency` flushing while stack recording is active
+
+end_stack_planned_recording_and_submit()
+    locks once at stack exit
+    submits the accumulated command buffer
+    clears the stack recording state
+```
+
+The command mutex is never held across Python/operator execution, and no
+recursive mutex is introduced. Per-job barriers and descriptor writes remain in
+the same recording path as the safe owner path, so the change batches command
+submission without changing math or shader selection.
+
+The resulting readiness is:
+
+```
+shape_plan_ready=1
+descriptor_table_complete=1
+ready_for_re_record_per_forward=1
+no_cpu_fallback=1
+no_host_sync=1
+no_nested_replay=1
+no_active_capture=1
+command_recording_scope_available=1
+barriers_recordable=1
+descriptors_recordable=1
+resources_lifetime_tracked=1
+safe_to_record_stack_per_forward=1
+```
 
 ## Current Decision
 
-No command-buffer replay is merged. Planned per-forward recording is not merged
-as an execution path because the command recording scope is not safe yet. The
-next pass should fix the `Context` recording-scope prerequisite before trying
-to batch the stack into one command submission.
+Planned per-forward recording is the canonical path when the fixed shape plan
+and descriptor table validate. It re-records with current runtime resources
+every forward and submits once at the stack boundary. No command-buffer replay
+or persistent captured command buffer is merged.
+
+True replay remains blocked by replay-stable program-owned temporaries and a
+descriptor update model that can safely rebind those resources without
+re-recording.

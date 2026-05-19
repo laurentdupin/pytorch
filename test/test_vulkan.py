@@ -8462,9 +8462,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(readiness[0], 1)
         self.assertEqual(readiness[1], 1)
         self.assertEqual(readiness[2], 1)
-        self.assertEqual(readiness[7], 0)
-        self.assertEqual(readiness[8], 0)
-        self.assertEqual(readiness[11], 0)
+        self.assertEqual(readiness[7], 1)
+        self.assertEqual(readiness[8], 1)
+        self.assertEqual(readiness[11], 1)
 
     def test_vulkan_vision_stack_planned_recording_matches_block_owner(self):
         contexts, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
@@ -8486,8 +8486,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self.assertEqual(actual.cpu(), expected.cpu(), rtol=1e-4, atol=1e-4)
         counters = torch.ops.vulkan_prepack.stack_planned_recording_counters()
-        self.assertEqual(counters[1], 0)
-        self.assertGreater(counters[4], 0)
+        self.assertGreater(counters[1], 0)
+        self.assertGreater(counters[2], 0)
+        self.assertGreater(counters[3], 0)
+        self.assertGreater(counters[6], 0)
 
     def test_vulkan_vision_stack_planned_recording_matches_block_owner_607(self):
         contexts, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
@@ -8509,8 +8511,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self.assertEqual(actual.cpu(), expected.cpu(), rtol=1e-4, atol=1e-4)
         counters = torch.ops.vulkan_prepack.stack_planned_recording_counters()
-        self.assertEqual(counters[1], 0)
-        self.assertGreater(counters[4], 0)
+        self.assertGreater(counters[1], 0)
+        self.assertGreater(counters[2], 0)
+        self.assertGreater(counters[3], 0)
+        self.assertGreater(counters[6], 0)
 
     def test_vulkan_vision_stack_execution_manifest_reports_capture_blocker(self):
         torch.manual_seed(0)

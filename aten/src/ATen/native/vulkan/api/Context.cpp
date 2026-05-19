@@ -369,6 +369,9 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       cmd_mutex_{},
       cmd_(VK_NULL_HANDLE, 0u, nullptr),
       submit_count_{0u},
+      stack_planned_recording_active_{false},
+      stack_planned_recording_owner_{},
+      stack_planned_recording_stats_{},
       // Memory Management
       pending_retire_buffers_mutex_{},
       pending_retire_buffers_{},
@@ -424,6 +427,15 @@ const CommandBuffer* Context::external_recording_cmd() const {
 
 bool Context::is_inside_owned_program_recording() const {
   return external_recording_cmd() != nullptr;
+}
+
+bool Context::is_stack_planned_recording_active() const {
+  return stack_planned_recording_active_.load(std::memory_order_acquire);
+}
+
+bool Context::stack_planned_recording_owned_by_current_thread() const {
+  return is_stack_planned_recording_active() &&
+      stack_planned_recording_owner_ == std::this_thread::get_id();
 }
 
 DescriptorPool& Context::active_descriptor_pool() {
@@ -820,6 +832,49 @@ void Context::flush_pending_cmds(VkFence fence_handle) {
            << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0);
     append_cpu_timeline_log_line(stream.str());
   }
+}
+
+void Context::begin_stack_planned_recording() {
+  std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  VK_CHECK_COND(
+      !is_inside_owned_program_recording(),
+      "Cannot begin stack planned recording inside external command recording");
+  VK_CHECK_COND(
+      !is_stack_planned_recording_active(),
+      "Vulkan stack planned recording is already active");
+  submit_cmd_to_gpu();
+  stack_planned_recording_owner_ = std::this_thread::get_id();
+  stack_planned_recording_stats_ = StackPlannedRecordingStats{};
+  stack_planned_recording_active_.store(true, std::memory_order_release);
+}
+
+StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
+  std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  VK_CHECK_COND(
+      is_stack_planned_recording_active(),
+      "Vulkan stack planned recording is not active");
+  VK_CHECK_COND(
+      stack_planned_recording_owner_ == std::this_thread::get_id(),
+      "Vulkan stack planned recording ended from the wrong thread");
+  StackPlannedRecordingStats stats = stack_planned_recording_stats_;
+  submit_cmd_to_gpu();
+  stack_planned_recording_active_.store(false, std::memory_order_release);
+  stack_planned_recording_owner_ = std::thread::id{};
+  stack_planned_recording_stats_ = StackPlannedRecordingStats{};
+  return stats;
+}
+
+StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
+  std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  VK_CHECK_COND(
+      is_stack_planned_recording_active(),
+      "Vulkan stack planned recording is not active");
+  StackPlannedRecordingStats stats = stack_planned_recording_stats_;
+  stack_planned_recording_active_.store(false, std::memory_order_release);
+  stack_planned_recording_owner_ = std::thread::id{};
+  stack_planned_recording_stats_ = StackPlannedRecordingStats{};
+  submit_cmd_to_gpu();
+  return stats;
 }
 
 CommandBuffer Context::acquire_persistent_command_buffer() {
