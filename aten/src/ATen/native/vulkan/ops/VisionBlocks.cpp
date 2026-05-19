@@ -33,6 +33,7 @@
 #include <fstream>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -98,6 +99,39 @@ struct VulkanStackAttentionCounters final {
   std::atomic<uint64_t> reject_layout{0u};
 };
 
+struct VulkanStackExecutionManifestRow final {
+  uint64_t ordinal = 0u;
+  int64_t block_index = -1;
+  api::VulkanVisionStackPhase phase = api::VulkanVisionStackPhase::Unknown;
+  std::string op_label;
+  std::string kernel_name;
+  std::string input_shapes;
+  std::string output_shapes;
+  std::string dtype;
+  bool uses_dynamic_shape = false;
+  bool allocates_output = false;
+  bool writes_preexisting_output = false;
+  bool escapes_stack = false;
+  bool requested_intermediate = false;
+  bool requires_cpu_data = false;
+  bool uses_fallback = false;
+  bool submits_command_buffer = false;
+  bool requires_host_sync = false;
+  bool uses_runtime_capture = false;
+  bool uses_replay = false;
+  bool safe_to_capture = false;
+};
+
+std::mutex& stack_execution_manifest_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::vector<VulkanStackExecutionManifestRow>& stack_execution_manifest_rows() {
+  static std::vector<VulkanStackExecutionManifestRow> rows;
+  return rows;
+}
+
 VulkanVisionOwnerCounters& vulkan_vision_owner_counters() {
   static VulkanVisionOwnerCounters counters;
   return counters;
@@ -162,6 +196,98 @@ void append_vulkan_vision_owner_log(
       << " norm_context="
       << (context && context->norm1_context() && context->norm2_context() ? 1 : 0)
       << '\n';
+}
+
+std::string stack_manifest_shape_string(const Tensor& tensor) {
+  if (!tensor.defined()) {
+    return "[]";
+  }
+  std::ostringstream out;
+  out << '[';
+  for (int64_t i = 0; i < tensor.dim(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    out << tensor.size(i);
+  }
+  out << ']';
+  return out.str();
+}
+
+std::string stack_manifest_shapes_string(
+    std::initializer_list<std::reference_wrapper<const Tensor>> tensors) {
+  std::ostringstream out;
+  bool first = true;
+  for (const Tensor& tensor : tensors) {
+    if (!tensor.defined()) {
+      continue;
+    }
+    if (!first) {
+      out << ';';
+    }
+    out << stack_manifest_shape_string(tensor);
+    first = false;
+  }
+  return first ? "[]" : out.str();
+}
+
+std::string stack_manifest_dtype_string(
+    std::initializer_list<std::reference_wrapper<const Tensor>> tensors) {
+  for (const Tensor& tensor : tensors) {
+    if (tensor.defined()) {
+      return tensor.scalar_type() == kFloat
+          ? "Float"
+          : c10::toString(tensor.scalar_type());
+    }
+  }
+  return "Undefined";
+}
+
+void note_stack_execution_manifest_row(
+    const char* op_label,
+    const char* kernel_name,
+    std::initializer_list<std::reference_wrapper<const Tensor>> inputs,
+    std::initializer_list<std::reference_wrapper<const Tensor>> outputs,
+    const bool allocates_output,
+    const bool writes_preexisting_output,
+    const bool escapes_stack,
+    const bool requested_intermediate,
+    const bool submits_command_buffer,
+    const bool requires_host_sync = false,
+    const bool uses_runtime_capture = false,
+    const bool uses_replay = false,
+    const bool uses_fallback = false) {
+  if (!api::inside_vision_stack_phase()) {
+    return;
+  }
+
+  VulkanStackExecutionManifestRow row;
+  row.block_index = api::current_vision_stack_block_index();
+  row.phase = api::current_vision_stack_phase();
+  row.op_label = op_label ? op_label : "unknown";
+  row.kernel_name = kernel_name ? kernel_name : "unknown";
+  row.input_shapes = stack_manifest_shapes_string(inputs);
+  row.output_shapes = stack_manifest_shapes_string(outputs);
+  row.dtype = stack_manifest_dtype_string(outputs.size() > 0 ? outputs : inputs);
+  row.uses_dynamic_shape = true;
+  row.allocates_output = allocates_output;
+  row.writes_preexisting_output = writes_preexisting_output;
+  row.escapes_stack = escapes_stack;
+  row.requested_intermediate = requested_intermediate;
+  row.requires_cpu_data = false;
+  row.uses_fallback = uses_fallback;
+  row.submits_command_buffer = submits_command_buffer;
+  row.requires_host_sync = requires_host_sync;
+  row.uses_runtime_capture = uses_runtime_capture;
+  row.uses_replay = uses_replay;
+  row.safe_to_capture = !row.uses_dynamic_shape && !row.requires_cpu_data &&
+      !row.uses_fallback && !row.requires_host_sync && !row.uses_replay &&
+      !row.uses_runtime_capture;
+
+  std::lock_guard<std::mutex> lock(stack_execution_manifest_mutex());
+  auto& rows = stack_execution_manifest_rows();
+  row.ordinal = static_cast<uint64_t>(rows.size()) + 1u;
+  rows.emplace_back(std::move(row));
 }
 
 void append_vulkan_vision_stack_owner_log(
@@ -2357,6 +2483,16 @@ Tensor run_attention_projection(
       } else {
         mixed_qkv = run_linear_context(input_2d, context->qkv_context());
       }
+      note_stack_execution_manifest_row(
+          "vision_block.qkv_linear",
+          "mm_buffer_float_bias",
+          {std::cref(input_2d)},
+          {std::cref(mixed_qkv)},
+          !vision_program,
+          vision_program && vision_program->defined(),
+          false,
+          false,
+          true);
     }
     Tensor q;
     Tensor k;
@@ -2403,6 +2539,17 @@ Tensor run_attention_projection(
         v = qkv[2].reshape({token_count, context->num_heads(), head_dim})
                 .permute({1, 0, 2});
       }
+      note_stack_execution_manifest_row(
+          "vision_block.qkv_transform",
+          context->qkv_bias().defined() ? "transform_bias_rescale_qkv"
+                                        : "reshape_qkv",
+          {std::cref(mixed_qkv)},
+          {std::cref(q), std::cref(k), std::cref(v)},
+          true,
+          false,
+          false,
+          false,
+          context->qkv_bias().defined());
     }
     if (!q_is_scaled) {
       q = at::mul(
@@ -2414,6 +2561,16 @@ Tensor run_attention_projection(
           api::VulkanVisionStackPhase::Attention);
       attention_output = run_attention_with_workspace_fallback(
           q, k, v, attention_bias, vision_program, scratch_arena);
+      note_stack_execution_manifest_row(
+          "vulkan_prepack::vision_stack_attention_direct",
+          "scaled_dot_product_scores_value_buffer_float_head64_q4_subgroup",
+          {std::cref(q), std::cref(k), std::cref(v)},
+          {std::cref(attention_output)},
+          true,
+          false,
+          false,
+          false,
+          true);
     }
     Tensor scratch_merge_output;
     Tensor* merge_output_opt = nullptr;
@@ -2445,15 +2602,36 @@ Tensor run_attention_projection(
           context->num_heads(),
           head_dim,
           merge_output_opt);
+      note_stack_execution_manifest_row(
+          "vision_block.attention_merge_heads",
+          "merge_attention_heads_buffer",
+          {std::cref(attention_output)},
+          {std::cref(attention_output)},
+          merge_output_opt == nullptr,
+          merge_output_opt != nullptr,
+          false,
+          false,
+          true);
     }
     api::VulkanVisionStackPhaseScope scope(
         api::VulkanVisionStackPhase::ProjLinear);
-    return vision_program && vision_program->defined()
+    Tensor proj_output = vision_program && vision_program->defined()
         ? run_linear_context_out(
               attention_output,
               context->proj_context(),
               vision_program->proj_output())
         : run_linear_context(attention_output, context->proj_context());
+    note_stack_execution_manifest_row(
+        "vision_block.proj_linear",
+        "mm_buffer_float_bias",
+        {std::cref(attention_output)},
+        {std::cref(proj_output)},
+        !(vision_program && vision_program->defined()),
+        vision_program && vision_program->defined(),
+        false,
+        false,
+        true);
+    return proj_output;
   }
 
   Tensor mixed_qkv;
@@ -2464,6 +2642,16 @@ Tensor run_attention_projection(
         ? run_linear_context_out(
               input_2d, context->qkv_context(), vision_program->qkv_output())
         : run_linear_context(input_2d, context->qkv_context());
+    note_stack_execution_manifest_row(
+        "vision_block.qkv_linear",
+        "mm_buffer_float_bias",
+        {std::cref(input_2d)},
+        {std::cref(mixed_qkv)},
+        !(vision_program && vision_program->defined()),
+        vision_program && vision_program->defined(),
+        false,
+        false,
+        true);
   }
   if (context->qkv_bias().defined()) {
     api::VulkanVisionStackPhaseScope scope(
@@ -2483,6 +2671,16 @@ Tensor run_attention_projection(
         api::VulkanVisionStackPhase::QkvTransform);
     std::tie(q, k, v) = reshape_qkv_for_attention(
         mixed_qkv, batch_size, token_count, context->num_heads(), head_dim);
+    note_stack_execution_manifest_row(
+        "vision_block.qkv_transform",
+        "reshape_qkv",
+        {std::cref(mixed_qkv)},
+        {std::cref(q), std::cref(k), std::cref(v)},
+        true,
+        false,
+        false,
+        false,
+        false);
   }
   q = at::mul(
       q,
@@ -2492,6 +2690,16 @@ Tensor run_attention_projection(
         api::VulkanVisionStackPhase::Attention);
     attention_output = run_attention_with_workspace_fallback(
         q, k, v, attention_bias, vision_program, scratch_arena);
+    note_stack_execution_manifest_row(
+        "vulkan_prepack::vision_stack_attention_direct",
+        "scaled_dot_product_scores_value_buffer_float_head64_q4_subgroup",
+        {std::cref(q), std::cref(k), std::cref(v)},
+        {std::cref(attention_output)},
+        true,
+        false,
+        false,
+        false,
+        true);
   }
   Tensor scratch_merge_output;
   Tensor* merge_output_opt = nullptr;
@@ -2516,15 +2724,36 @@ Tensor run_attention_projection(
         context->num_heads(),
         head_dim,
         merge_output_opt);
+    note_stack_execution_manifest_row(
+        "vision_block.attention_merge_heads",
+        "merge_attention_heads_buffer",
+        {std::cref(attention_output)},
+        {std::cref(attention_output)},
+        merge_output_opt == nullptr,
+        merge_output_opt != nullptr,
+        false,
+        false,
+        true);
   }
   api::VulkanVisionStackPhaseScope scope(
       api::VulkanVisionStackPhase::ProjLinear);
-  return vision_program && vision_program->defined()
+  Tensor proj_output = vision_program && vision_program->defined()
       ? run_linear_context_out(
             attention_output,
             context->proj_context(),
             vision_program->proj_output())
       : run_linear_context(attention_output, context->proj_context());
+  note_stack_execution_manifest_row(
+      "vision_block.proj_linear",
+      "mm_buffer_float_bias",
+      {std::cref(attention_output)},
+      {std::cref(proj_output)},
+      !(vision_program && vision_program->defined()),
+      vision_program && vision_program->defined(),
+      false,
+      false,
+      true);
+  return proj_output;
 }
 
 Tensor tokens_to_feature_map_fallback(
@@ -2633,6 +2862,16 @@ Tensor run_vision_backbone_block_program(
               vision_program->norm1_output())
         : run_layernorm_context(
               input_2d, normalized_shape, context->norm1_context());
+    note_stack_execution_manifest_row(
+        "vision_block.norm1",
+        "native_layer_norm",
+        {std::cref(input_2d)},
+        {std::cref(attention_input)},
+        !vision_program,
+        vision_program != nullptr,
+        false,
+        false,
+        true);
   }
   Tensor attention_output = run_attention_projection(
       attention_input,
@@ -2689,6 +2928,16 @@ Tensor run_vision_backbone_block_program(
       api::VulkanVisionStackPhaseScope scope(
           api::VulkanVisionStackPhase::Residual1);
       hidden_states = at::add(input_2d, attention_addend);
+      note_stack_execution_manifest_row(
+          "vision_block.residual1",
+          "buffer_add",
+          {std::cref(input_2d), std::cref(attention_addend)},
+          {std::cref(hidden_states)},
+          true,
+          false,
+          false,
+          false,
+          true);
     }
     {
       api::VulkanVisionStackPhaseScope scope(api::VulkanVisionStackPhase::Norm2);
@@ -2700,6 +2949,16 @@ Tensor run_vision_backbone_block_program(
                 vision_program->norm2_output())
           : run_layernorm_context(
                 hidden_states, normalized_shape, context->norm2_context());
+      note_stack_execution_manifest_row(
+          "vision_block.norm2",
+          "native_layer_norm",
+          {std::cref(hidden_states)},
+          {std::cref(mlp_input)},
+          !vision_program,
+          vision_program != nullptr,
+          false,
+          false,
+          true);
     }
   }
   auto& mlp_counters = vulkan_vision_owner_mlp_counters();
@@ -2718,15 +2977,36 @@ Tensor run_vision_backbone_block_program(
         ? run_linear_gelu_context_out(
               mlp_input, context->fc1_context(), vision_program->fc1_output())
         : run_linear_gelu_context(mlp_input, context->fc1_context());
+    note_stack_execution_manifest_row(
+        "vision_block.fc1_gelu",
+        "mm_buffer_float_bias_gelu",
+        {std::cref(mlp_input)},
+        {std::cref(mlp_output)},
+        !vision_program,
+        vision_program != nullptr,
+        false,
+        false,
+        true);
   }
   mlp_counters.linear_gelu_hit.fetch_add(1u, std::memory_order_relaxed);
 
   {
     api::VulkanVisionStackPhaseScope scope(api::VulkanVisionStackPhase::Fc2);
+    Tensor fc2_input = mlp_output;
     mlp_output = vision_program
         ? run_linear_context_out(
-              mlp_output, context->fc2_context(), vision_program->fc2_output())
-        : run_linear_context(mlp_output, context->fc2_context());
+              fc2_input, context->fc2_context(), vision_program->fc2_output())
+        : run_linear_context(fc2_input, context->fc2_context());
+    note_stack_execution_manifest_row(
+        "vision_block.fc2",
+        "mm_buffer_float_bias",
+        {std::cref(fc2_input)},
+        {std::cref(mlp_output)},
+        !vision_program,
+        vision_program != nullptr,
+        false,
+        false,
+        true);
   }
   mlp_counters.fc2_after_linear_gelu_hit.fetch_add(
       1u,
@@ -2750,6 +3030,16 @@ Tensor run_vision_backbone_block_program(
     }
     mlp_addend = maybe_apply_layerscale(mlp_output, context->ls2_gamma());
     (void)add_buffer_out_vulkan(hidden_states, mlp_addend, add_output);
+    note_stack_execution_manifest_row(
+        "vision_block.residual2",
+        "buffer_add",
+        {std::cref(hidden_states), std::cref(mlp_addend)},
+        {std::cref(*output_slot)},
+        false,
+        true,
+        false,
+        false,
+        true);
     return *output_slot;
   }
 
@@ -2759,6 +3049,16 @@ Tensor run_vision_backbone_block_program(
         api::VulkanVisionStackPhase::Residual2);
     mlp_addend = maybe_apply_layerscale(mlp_output, context->ls2_gamma());
     output = at::add(hidden_states, mlp_addend);
+    note_stack_execution_manifest_row(
+        "vision_block.residual2",
+        "buffer_add",
+        {std::cref(hidden_states), std::cref(mlp_addend)},
+        {std::cref(output)},
+        true,
+        false,
+        false,
+        false,
+        true);
   }
   if (!use_2d_input) {
     output = output.reshape({batch_size, token_count, embed_dim});
@@ -5386,6 +5686,100 @@ void reset_stack_attention_counters() {
   counters.reject_layout.store(0u, std::memory_order_relaxed);
 }
 
+std::vector<std::string> stack_execution_manifest_snapshot() {
+  std::lock_guard<std::mutex> lock(stack_execution_manifest_mutex());
+  std::vector<std::string> snapshot;
+  snapshot.reserve(stack_execution_manifest_rows().size());
+  for (const auto& row : stack_execution_manifest_rows()) {
+    std::ostringstream out;
+    out << "stack_manifest"
+        << " ordinal=" << row.ordinal
+        << " block=" << row.block_index
+        << " phase=" << api::vision_stack_phase_name(row.phase)
+        << " op=" << row.op_label
+        << " kernel=" << row.kernel_name
+        << " input_shapes=" << row.input_shapes
+        << " output_shapes=" << row.output_shapes
+        << " dtype=" << row.dtype
+        << " uses_dynamic_shape=" << (row.uses_dynamic_shape ? 1 : 0)
+        << " allocates_output=" << (row.allocates_output ? 1 : 0)
+        << " writes_preexisting_output="
+        << (row.writes_preexisting_output ? 1 : 0)
+        << " escapes_stack=" << (row.escapes_stack ? 1 : 0)
+        << " requested_intermediate="
+        << (row.requested_intermediate ? 1 : 0)
+        << " requires_cpu_data=" << (row.requires_cpu_data ? 1 : 0)
+        << " uses_fallback=" << (row.uses_fallback ? 1 : 0)
+        << " submits_command_buffer="
+        << (row.submits_command_buffer ? 1 : 0)
+        << " requires_host_sync=" << (row.requires_host_sync ? 1 : 0)
+        << " uses_runtime_capture=" << (row.uses_runtime_capture ? 1 : 0)
+        << " uses_replay=" << (row.uses_replay ? 1 : 0)
+        << " safe_to_capture=" << (row.safe_to_capture ? 1 : 0);
+    snapshot.emplace_back(out.str());
+  }
+  return snapshot;
+}
+
+void reset_stack_execution_manifest() {
+  std::lock_guard<std::mutex> lock(stack_execution_manifest_mutex());
+  stack_execution_manifest_rows().clear();
+}
+
+std::vector<int64_t> stack_capture_readiness_snapshot() {
+  std::lock_guard<std::mutex> lock(stack_execution_manifest_mutex());
+  const auto& rows = stack_execution_manifest_rows();
+  bool fixed_shapes = !rows.empty();
+  bool no_cpu_fallback = !rows.empty();
+  bool no_host_sync = !rows.empty();
+  bool no_nested_replay = !rows.empty();
+  bool no_runtime_capture_active = !rows.empty();
+  bool requested_intermediates_marked = false;
+  bool all_requested_intermediates_escape = true;
+  bool all_internal_outputs_owned = !rows.empty();
+  bool all_outputs_have_known_lifetime = !rows.empty();
+
+  for (const auto& row : rows) {
+    fixed_shapes = fixed_shapes && !row.uses_dynamic_shape;
+    no_cpu_fallback = no_cpu_fallback && !row.uses_fallback;
+    no_host_sync = no_host_sync && !row.requires_host_sync;
+    no_nested_replay = no_nested_replay && !row.uses_replay;
+    no_runtime_capture_active =
+        no_runtime_capture_active && !row.uses_runtime_capture;
+    if (row.requested_intermediate) {
+      requested_intermediates_marked = true;
+      all_requested_intermediates_escape =
+          all_requested_intermediates_escape && row.escapes_stack;
+    }
+    if (!row.escapes_stack) {
+      all_internal_outputs_owned =
+          all_internal_outputs_owned && !row.requires_cpu_data;
+    }
+    all_outputs_have_known_lifetime =
+        all_outputs_have_known_lifetime &&
+        (row.escapes_stack || !row.requested_intermediate);
+  }
+
+  requested_intermediates_marked =
+      requested_intermediates_marked && all_requested_intermediates_escape;
+  const bool safe_to_capture = fixed_shapes && no_cpu_fallback &&
+      no_host_sync && no_nested_replay && no_runtime_capture_active &&
+      requested_intermediates_marked && all_internal_outputs_owned &&
+      all_outputs_have_known_lifetime;
+
+  return {
+      fixed_shapes ? 1 : 0,
+      no_cpu_fallback ? 1 : 0,
+      no_host_sync ? 1 : 0,
+      no_nested_replay ? 1 : 0,
+      no_runtime_capture_active ? 1 : 0,
+      requested_intermediates_marked ? 1 : 0,
+      all_internal_outputs_owned ? 1 : 0,
+      all_outputs_have_known_lifetime ? 1 : 0,
+      safe_to_capture ? 1 : 0,
+  };
+}
+
 VisionBackboneStackContext::VisionBackboneStackContext(
     std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>> blocks,
     const int64_t num_heads,
@@ -6070,6 +6464,16 @@ std::vector<Tensor> run_vision_backbone_stack_context(
             true,
             true,
             bytes);
+        note_stack_execution_manifest_row(
+            "vision_stack.intermediate_capture",
+            "none",
+            {std::cref(current)},
+            {std::cref(current)},
+            false,
+            false,
+            true,
+            true,
+            false);
         outputs[capture_pos] = record_tensor_write_and_return(
             current,
             "vulkan_prepack::run_vision_backbone_stack_context",

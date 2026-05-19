@@ -451,6 +451,57 @@ workload. The allocation and dispatch counters are deterministic and show the
 intended effect: the stack owner no longer allocates `[6,T,T]` attention carrier
 buffers for the supported direct q4 path.
 
+## Stack Execution Manifest
+
+The stack owner now exposes a diagnostic execution manifest:
+
+```
+vulkan_prepack::stack_execution_manifest()
+vulkan_prepack::reset_stack_execution_manifest()
+vulkan_prepack::stack_capture_readiness()
+```
+
+Rows are ordered by stack execution and include the block index, phase, op label,
+kernel label, input/output shapes, dtype, allocation/write mode, escape flags,
+fallback/sync/replay flags, and row-level capture safety. The manifest is
+diagnostic-only and does not select an alternate route.
+
+The DAv2 diagnostic run recorded 6528 rows with coverage for all stack phases:
+
+```
+norm1
+qkv_linear
+qkv_transform
+attention
+proj_linear
+residual1
+norm2
+fc1_gelu
+fc2
+residual2
+intermediate_capture
+```
+
+Capture readiness for that run was:
+
+```
+fixed_shapes=0
+no_cpu_fallback=1
+no_host_sync=1
+no_nested_replay=1
+no_active_capture=1
+requested_intermediates_marked=1
+internal_outputs_owned=1
+known_lifetimes=1
+safe_to_capture=0
+```
+
+No programmed sequence or command-buffer replay was merged. The exact blocker is
+fixed-shape ownership: the current canonical DAv2 benchmark stack context sees
+both `T=2073` and `T=2110`, so manifest rows are marked
+`uses_dynamic_shape=1`. A safe stack execution program needs a shape-keyed plan
+and resource rebinding/invalidation rules before replay can be canonical.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:
