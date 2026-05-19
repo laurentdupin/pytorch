@@ -7846,6 +7846,82 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         phase_counters = torch.ops.vulkan_prepack.fallback_phase_counters()
         self.assertEqual(phase_counters[3], 0)
 
+    def test_vulkan_vision_stack_direct_attention_avoids_scores_allocation(self):
+        torch.manual_seed(0)
+        embed_dim = 384
+        num_heads = 6
+        hidden_dim = 768
+        token_count = 601
+        norm_eps = 1.0e-6
+
+        def randn(*sizes):
+            return torch.randn(*sizes, dtype=torch.float32) * 0.02
+
+        context = torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+            randn(embed_dim),
+            randn(embed_dim),
+            norm_eps,
+            randn(embed_dim * 3, embed_dim),
+            randn(embed_dim * 3),
+            num_heads,
+            randn(embed_dim, embed_dim),
+            randn(embed_dim),
+            randn(embed_dim),
+            randn(embed_dim),
+            randn(embed_dim),
+            norm_eps,
+            randn(hidden_dim, embed_dim),
+            randn(hidden_dim),
+            randn(embed_dim, hidden_dim),
+            randn(embed_dim),
+            randn(embed_dim),
+            "depth.dino.backbone.stack.direct_attention.block0",
+        )
+        stack_context = torch.ops.vulkan_prepack.create_vision_backbone_stack_context(
+            [context],
+            num_heads,
+            embed_dim // num_heads,
+            embed_dim,
+            hidden_dim,
+        )
+        x = randn(1, token_count, embed_dim).to("vulkan")
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                x,
+                context,
+            )
+
+        torch.ops.vulkan_prepack.reset_stack_attention_counters()
+        torch.ops.vulkan_prepack.reset_stack_allocation_aggregate()
+        torch.ops.vulkan_prepack.reset_fallback_phase_counters()
+
+        with torch.inference_mode():
+            actual = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )[0]
+            torch.ops.vulkan_prepack.synchronize()
+
+        self._assert_outputs_close(
+            actual.cpu(), expected.cpu(), atol=5e-3, rtol=5e-3
+        )
+        rows = torch.ops.vulkan_prepack.stack_allocation_aggregate_snapshot()
+        self.assertFalse(
+            any(
+                "phase=attention" in row
+                and "shape=[6,601,601]" in row
+                and "lifetime=internal_temp" in row
+                for row in rows
+            )
+        )
+        counters = torch.ops.vulkan_prepack.stack_attention_counters()
+        self.assertGreater(counters[1], 0)
+        self.assertGreater(counters[2], 0)
+        phase_counters = torch.ops.vulkan_prepack.fallback_phase_counters()
+        self.assertEqual(phase_counters[3], 0)
+
     def test_vulkan_vision_backbone_block_context_with_attention_bias_matches_reference(self):
         torch.manual_seed(0)
         embed_dim = 32

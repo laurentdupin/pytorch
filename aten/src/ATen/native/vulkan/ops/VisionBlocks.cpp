@@ -89,6 +89,15 @@ struct VulkanVisionStackOwnerCounters final {
   std::atomic<uint64_t> reject_unsafe_replay{0u};
 };
 
+struct VulkanStackAttentionCounters final {
+  std::atomic<uint64_t> total{0u};
+  std::atomic<uint64_t> direct_hit{0u};
+  std::atomic<uint64_t> decomposed_placeholder_bypass{0u};
+  std::atomic<uint64_t> reject_shape{0u};
+  std::atomic<uint64_t> reject_dtype{0u};
+  std::atomic<uint64_t> reject_layout{0u};
+};
+
 VulkanVisionOwnerCounters& vulkan_vision_owner_counters() {
   static VulkanVisionOwnerCounters counters;
   return counters;
@@ -106,6 +115,11 @@ VulkanVisionOwnerMlpCounters& vulkan_vision_owner_mlp_counters() {
 
 VulkanVisionStackOwnerCounters& vulkan_vision_stack_owner_counters() {
   static VulkanVisionStackOwnerCounters counters;
+  return counters;
+}
+
+VulkanStackAttentionCounters& vulkan_stack_attention_counters() {
+  static VulkanStackAttentionCounters counters;
   return counters;
 }
 
@@ -1426,6 +1440,46 @@ Tensor run_attention_with_workspace_fallback(
       attention_runtime_policy.execution_program_plan->kind ==
           utils::VulkanExecutionProgramKind::AttentionRuntime &&
       !has_attention_bias) {
+    if (api::current_vision_stack_phase() ==
+        api::VulkanVisionStackPhase::Attention) {
+      auto& counters = vulkan_stack_attention_counters();
+      counters.total.fetch_add(1u, std::memory_order_relaxed);
+      if (query_arg.scalar_type() != kFloat ||
+          key_arg.scalar_type() != kFloat ||
+          value_arg.scalar_type() != kFloat) {
+        counters.reject_dtype.fetch_add(1u, std::memory_order_relaxed);
+      } else if (query_arg.dim() != 3 || key_arg.dim() != 3 ||
+          value_arg.dim() != 3 ||
+          query_arg.size(0) != key_arg.size(0) ||
+          query_arg.size(0) != value_arg.size(0) ||
+          query_arg.size(2) != 64 || key_arg.size(2) != 64 ||
+          value_arg.size(2) != 64 || key_arg.size(1) != value_arg.size(1)) {
+        counters.reject_shape.fetch_add(1u, std::memory_order_relaxed);
+      } else {
+        Tensor query = prepare_buffer_attention_tensor(query_arg);
+        Tensor key = prepare_buffer_attention_tensor(key_arg);
+        Tensor value = prepare_buffer_attention_tensor(value_arg);
+        const vTensor& v_query = convert(query);
+        const vTensor& v_key = convert(key);
+        const vTensor& v_value = convert(value);
+        if (v_query.storage_type() == api::StorageType::BUFFER &&
+            v_key.storage_type() == api::StorageType::BUFFER &&
+            v_value.storage_type() == api::StorageType::BUFFER &&
+            utils::supports_buffer_view_fast_path(v_query) &&
+            utils::supports_buffer_view_fast_path(v_key) &&
+            utils::supports_buffer_view_fast_path(v_value)) {
+          counters.direct_hit.fetch_add(1u, std::memory_order_relaxed);
+          counters.decomposed_placeholder_bypass.fetch_add(
+              1u,
+              std::memory_order_relaxed);
+          utils::log_vulkan_op_hit(
+              "vulkan_prepack::vision_stack_attention_direct");
+          return run_attention_runtime_buffer_math_program_bridge(
+              query, key, value);
+        }
+        counters.reject_layout.fetch_add(1u, std::memory_order_relaxed);
+      }
+    }
     utils::log_vulkan_op_hit(
         "aten::vision_attention.runtime_program_dispatch");
     Tensor key_t = prepare_buffer_attention_tensor(key_arg.transpose(1, 2));
@@ -5307,6 +5361,29 @@ void reset_vision_stack_owner_counters() {
   counters.reject_dtype.store(0u, std::memory_order_relaxed);
   counters.reject_layout.store(0u, std::memory_order_relaxed);
   counters.reject_unsafe_replay.store(0u, std::memory_order_relaxed);
+}
+
+std::vector<int64_t> stack_attention_counters_snapshot() {
+  const auto& counters = vulkan_stack_attention_counters();
+  return {
+      static_cast<int64_t>(counters.total.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.direct_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.decomposed_placeholder_bypass.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.reject_shape.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.reject_dtype.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.reject_layout.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_stack_attention_counters() {
+  auto& counters = vulkan_stack_attention_counters();
+  counters.total.store(0u, std::memory_order_relaxed);
+  counters.direct_hit.store(0u, std::memory_order_relaxed);
+  counters.decomposed_placeholder_bypass.store(0u, std::memory_order_relaxed);
+  counters.reject_shape.store(0u, std::memory_order_relaxed);
+  counters.reject_dtype.store(0u, std::memory_order_relaxed);
+  counters.reject_layout.store(0u, std::memory_order_relaxed);
 }
 
 VisionBackboneStackContext::VisionBackboneStackContext(

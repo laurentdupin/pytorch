@@ -418,6 +418,7 @@ void reset_fallback_counters_runtime() {
   reset_vision_owner_context_counters();
   reset_vision_owner_mlp_counters();
   reset_vision_stack_owner_counters();
+  reset_stack_attention_counters();
   reset_zero_counters();
 }
 
@@ -1584,6 +1585,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_vision_stack_owner_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_attention_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_attention_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::zero_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_zero_counters() -> ()"));
@@ -1800,6 +1805,12 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::reset_vision_stack_owner_counters"),
       TORCH_FN(reset_vision_stack_owner_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::stack_attention_counters"),
+      TORCH_FN(stack_attention_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_stack_attention_counters"),
+      TORCH_FN(reset_stack_attention_counters));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::zero_counters"),
       TORCH_FN(zero_counters_snapshot));

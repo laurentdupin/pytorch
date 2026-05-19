@@ -299,6 +299,8 @@ vulkan_prepack::stack_allocation_aggregate_snapshot()
 vulkan_prepack::reset_stack_allocation_aggregate()
 vulkan_prepack::stack_dispatch_aggregate_snapshot()
 vulkan_prepack::reset_stack_dispatch_aggregate()
+vulkan_prepack::stack_attention_counters()
+vulkan_prepack::reset_stack_attention_counters()
 ```
 
 `stack_allocation_aggregate_snapshot()` records stack-phase allocations created
@@ -389,9 +391,65 @@ copy into scratch, which would defeat the purpose and risk changing visible
 lifetimes. Requested intermediate and final stack outputs are small by
 comparison and must continue to escape the stack.
 
-The next program-level step should therefore be a narrow attention scratch arena
-or safe stack-level program capture plan with attention as a first-class phase,
-not a generic stack scratch allocator.
+The next program-level step should therefore make attention a first-class stack
+phase, not add a generic stack scratch allocator.
+
+## Stack-Owned Direct Attention
+
+The stack owner now bypasses the decomposed attention carrier tensors for the
+supported DAv2 q4 attention shape. The previous stack path entered the generic
+runtime bridge through:
+
+```
+qkv -> q/k/v -> bmm scores -> softmax probs -> bmm value
+```
+
+Inside Vulkan, the decomposed bridge recognized this pattern and consumed the
+candidate with the canonical fused q4 attention shader, but the stack allocation
+profile proved that the `scores` and `probs` carrier tensors were still created:
+
+```
+aten::decomposed_attention_bridge.scores  count=672
+aten::decomposed_attention_bridge.softmax count=672
+shape=[6,2073,2073] lifetime=internal_temp
+shape=[6,2110,2110] lifetime=internal_temp
+```
+
+Those tensors are not visible stack outputs and are not required by the q4 fused
+attention shader. For stack-owner attention phases, the block owner now calls the
+same canonical runtime attention program directly from q/k/v:
+
+```
+qkv -> q/k/v -> vulkan_prepack::vision_stack_attention_direct -> proj
+```
+
+The generic decomposed attention bridge remains available outside the stack owner
+for eager Vulkan `matmul -> softmax -> matmul` patterns. This is not a runtime
+performance selector; it is the canonical stack-owner path for the already owned
+DAv2 q4 shape.
+
+On the post-change DAv2 vits diagnostic run, the deterministic counters changed
+as follows:
+
+```
+stack_attention total/direct/bypass: 1104 / 1104 / 1104
+[6,T,T] stack allocation rows:       24 -> 0
+attention internal temp bytes/stack: 2538.9 MB -> 38.4 MB
+decomposed scores op hits:           672 -> 0
+decomposed softmax op hits:          672 -> 0
+vision_stack_attention_direct hits:  0 -> 672
+compute dispatches:                  23237 -> 22133
+submit_compute_job:                  23237 -> 22133
+buffer copy bytes:                   4071.5 MB -> 538.5 MB
+timed fallback:                      0 -> 0
+queue_wait_idle without timestamps:  0 -> 0
+```
+
+The no-timestamp timing sample collected during this pass was intentionally not
+used as a selection signal because the adapter was running another heavy
+workload. The allocation and dispatch counters are deterministic and show the
+intended effect: the stack owner no longer allocates `[6,T,T]` attention carrier
+buffers for the supported direct q4 path.
 
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv

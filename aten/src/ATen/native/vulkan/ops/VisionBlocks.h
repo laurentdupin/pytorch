@@ -257,6 +257,10 @@ std::vector<int64_t> vision_stack_owner_counters_snapshot();
 
 void reset_vision_stack_owner_counters();
 
+std::vector<int64_t> stack_attention_counters_snapshot();
+
+void reset_stack_attention_counters();
+
 void prime_vision_backbone_block_context_graph(
     const Tensor& input,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context);

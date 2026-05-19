@@ -199,6 +199,33 @@ kernel, but the extra dispatches, temporary storage traffic, and full-model
 timing did not justify replacing the canonical path. The candidate route and
 shaders were removed.
 
+## Stack-owned direct q4 attention
+
+The DAv2 stack owner uses the same canonical q4 subgroup/shared attention
+implementation, but it now calls the runtime attention program directly from
+q/k/v while the stack phase is known. This bypasses the generic decomposed
+attention carrier tensors that existed only to bridge eager
+`matmul -> softmax -> matmul` into fused attention:
+
+```
+aten::decomposed_attention_bridge.scores
+aten::decomposed_attention_bridge.softmax
+```
+
+The generic bridge remains available outside the stack owner. Inside the stack
+owner, supported FP32 head64/value64 direct-buffer attention is a first-class
+phase and records:
+
+```
+vulkan_prepack::vision_stack_attention_direct
+```
+
+The post-change stack diagnostic run showed 1104 direct stack attention hits and
+1104 decomposed placeholder bypasses. Stack allocation rows for `[6,2073,2073]`
+and `[6,2110,2110]` attention temps dropped to zero, while q4 attention plan
+selection remained unchanged. Timed fallback stayed zero and queue idle stayed
+zero in the no-timestamp run.
+
 ## Remaining limitations
 
 - Query tile 4 is the only production qtile variant for the validated FP32
