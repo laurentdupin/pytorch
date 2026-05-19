@@ -3691,6 +3691,12 @@ std::vector<int64_t> attention_subgroup_capabilities_snapshot() {
       static_cast<int64_t>(adapter->required_subgroup_size_stages()),
       adapter->supports_required_subgroup_size(
           VK_SHADER_STAGE_COMPUTE_BIT, 64u) ? 1 : 0,
+      static_cast<int64_t>(adapter->subgroup_size()),
+      static_cast<int64_t>(adapter->subgroup_supported_stages()),
+      static_cast<int64_t>(adapter->subgroup_supported_operations()),
+      adapter->supports_compute_subgroup_operations(
+          VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
+          VK_SUBGROUP_FEATURE_BALLOT_BIT) ? 1 : 0,
   };
 }
 

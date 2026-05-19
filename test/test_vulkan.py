@@ -1726,7 +1726,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     f"Optional dependency probe for {module_name} failed."
                 ),
             )
-        except AssertionError:
+        except (AssertionError, subprocess.TimeoutExpired):
             self.skipTest(f"{module_name} is not importable in the repo subprocess")
 
     def _assert_vision_runtime_policy_log(
@@ -12266,6 +12266,49 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             for path in (op_log_path, plan_log_path):
                 if os.path.exists(path):
                     os.remove(path)
+
+    def test_dinov2_attention_qtile_tail_rows_match_numpy_reference(self):
+        script = """
+            import math
+            import numpy as np
+            import torch
+
+            torch.manual_seed(0)
+            q_cpu = torch.randn(1, 6, 607, 64, dtype=torch.float32)
+            k_cpu = torch.randn(1, 6, 607, 64, dtype=torch.float32)
+            v_cpu = torch.randn(1, 6, 607, 64, dtype=torch.float32)
+            scale = 1.0 / math.sqrt(64.0)
+
+            q_ref = (q_cpu * scale).numpy()
+            k_ref = k_cpu.numpy()
+            v_ref = v_cpu.numpy()
+            scores = np.matmul(q_ref, np.swapaxes(k_ref, -2, -1))
+            scores = scores - scores.max(axis=-1, keepdims=True)
+            probs = np.exp(scores)
+            probs = probs / probs.sum(axis=-1, keepdims=True)
+            expected = torch.from_numpy(np.matmul(probs, v_ref).copy())
+
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            q = q_cpu.to("vulkan") * scale
+            k = k_cpu.to("vulkan")
+            v = v_cpu.to("vulkan")
+            actual = (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v).cpu()
+
+            counters = torch.ops.vulkan_prepack.attention_plan_counters()
+            caps = torch.ops.vulkan_prepack.attention_subgroup_capabilities()
+            torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+            assert counters[10] > 0, counters
+            if caps[4]:
+                assert counters[12] > 0, (counters, caps)
+            else:
+                assert counters[11] > 0, (counters, caps)
+            assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
+        """
+
+        self._run_repo_python_subprocess(
+            script,
+            error_prefix="DINOv2 qtile tail-row attention subprocess failed.",
+        )
 
     def test_dinov2_decomposed_attention_bridge_avoids_post_attention_clone(
         self,

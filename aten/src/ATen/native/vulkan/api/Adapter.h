@@ -60,6 +60,9 @@ struct PhysicalDevice final {
   bool has_cooperative_matrix;
   bool has_subgroup_size_control;
   bool has_compute_full_subgroups;
+  uint32_t subgroup_size;
+  uint32_t subgroup_supported_stages;
+  uint32_t subgroup_supported_operations;
   uint32_t min_subgroup_size;
   uint32_t max_subgroup_size;
   uint32_t max_compute_workgroup_subgroups;
@@ -246,6 +249,18 @@ class Adapter final {
     return physical_device_.has_compute_full_subgroups;
   }
 
+  inline uint32_t subgroup_size() const {
+    return physical_device_.subgroup_size;
+  }
+
+  inline uint32_t subgroup_supported_stages() const {
+    return physical_device_.subgroup_supported_stages;
+  }
+
+  inline uint32_t subgroup_supported_operations() const {
+    return physical_device_.subgroup_supported_operations;
+  }
+
   inline uint32_t min_subgroup_size() const {
     return physical_device_.min_subgroup_size;
   }
@@ -293,6 +308,12 @@ class Adapter final {
         (required_subgroup_size_stages() & stage) != 0u &&
         subgroup_size >= min_subgroup_size() &&
         subgroup_size <= max_subgroup_size();
+  }
+
+  inline bool supports_compute_subgroup_operations(
+      const VkSubgroupFeatureFlags operations) const {
+    return (subgroup_supported_stages() & VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
+        (subgroup_supported_operations() & operations) == operations;
   }
 
   // Queue Management

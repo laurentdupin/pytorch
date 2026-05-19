@@ -55,6 +55,9 @@ PhysicalDevice::PhysicalDevice(
       has_cooperative_matrix(false),
       has_subgroup_size_control(false),
       has_compute_full_subgroups(false),
+      subgroup_size(0u),
+      subgroup_supported_stages(0u),
+      subgroup_supported_operations(0u),
       min_subgroup_size(0u),
       max_subgroup_size(0u),
       max_compute_workgroup_subgroups(0u),
@@ -64,6 +67,21 @@ PhysicalDevice::PhysicalDevice(
       timestamp_period(0.0f) {
   // Extract physical device properties
   vkGetPhysicalDeviceProperties(handle, &properties);
+  VkPhysicalDeviceSubgroupProperties subgroup_properties{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES,
+      nullptr,
+  };
+  VkPhysicalDeviceProperties2 properties2{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+      &subgroup_properties,
+      {},
+  };
+  vkGetPhysicalDeviceProperties2(handle, &properties2);
+  subgroup_size = subgroup_properties.subgroupSize;
+  subgroup_supported_stages =
+      static_cast<uint32_t>(subgroup_properties.supportedStages);
+  subgroup_supported_operations =
+      static_cast<uint32_t>(subgroup_properties.supportedOperations);
   vkGetPhysicalDeviceMemoryProperties(handle, &memory_properties);
   api_version = properties.apiVersion;
   has_vulkan_1_3 = api_version >= VK_API_VERSION_1_3;
@@ -862,6 +880,12 @@ std::string Adapter::stringize() const {
   ss << "    computeFullSubgroups: "
      << (physical_device_.has_compute_full_subgroups ? "true" : "false")
      << std::endl;
+  ss << "    subgroupSize: " << physical_device_.subgroup_size << std::endl;
+  ss << "    subgroupSupportedStages: "
+     << get_shader_stage_flags_str(physical_device_.subgroup_supported_stages)
+     << std::endl;
+  ss << "    subgroupSupportedOperations: "
+     << physical_device_.subgroup_supported_operations << std::endl;
   ss << "    minSubgroupSize: " << physical_device_.min_subgroup_size
      << std::endl;
   ss << "    maxSubgroupSize: " << physical_device_.max_subgroup_size

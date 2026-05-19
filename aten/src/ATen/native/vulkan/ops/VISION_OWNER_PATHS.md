@@ -188,6 +188,13 @@ Attention remains the largest bucket, but convolution is close enough that the
 next optimization should start with conv classification and profiling rather
 than another qtile variant.
 
+The later q4 subgroup broadcast experiment did not replace the canonical
+attention shader. The candidate moved duplicated online-softmax scalar updates
+to an elected subgroup lane and broadcast the scales, but it regressed
+device-resident DAv2 median latency on the measured adapter. The owner path
+therefore continues to use the existing q4 subgroup shader on subgroup64-capable
+adapters and the shared-memory q4 shader otherwise.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

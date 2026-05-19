@@ -160,6 +160,14 @@ raw_mae     normalized_mae  correlation  max_abs     NaN/Inf
 0.00229943  0.00022703     0.99999916   0.0276284   0/0
 ```
 
+The q4 subgroup shader was also tested with an elected-lane broadcast update for
+the online-softmax scalar state. That candidate computed row max, denominator,
+and exp scales in one subgroup lane and broadcast the scales to the other lanes.
+It preserved the same source-token order and passed the focused qtile attention
+test, but it regressed no-timestamp DAv2 device-resident median from 0.3315s to
+0.7552s on the measured adapter. The broadcast candidate was rejected, and the
+canonical q4 subgroup shader remains the per-lane scalar update version.
+
 ## Remaining limitations
 
 - Query tile 4 is the only production qtile variant for the validated FP32
