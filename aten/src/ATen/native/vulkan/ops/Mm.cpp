@@ -18,6 +18,7 @@
 #include <c10/core/InferenceMode.h>
 #include <c10/util/irange.h>
 #include <atomic>
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <mutex>
@@ -113,9 +114,27 @@ struct VulkanLinearPlanCounters final {
   std::atomic<uint64_t> fallback_float{0};
 };
 
+struct VulkanLinearAggregateValue final {
+  uint64_t count = 0u;
+  uint64_t input_bytes = 0u;
+  uint64_t weight_bytes = 0u;
+  uint64_t output_bytes = 0u;
+};
+
 VulkanLinearPlanCounters& linear_plan_counters() {
   static VulkanLinearPlanCounters counters;
   return counters;
+}
+
+std::mutex& linear_aggregate_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_map<std::string, VulkanLinearAggregateValue>&
+linear_aggregate() {
+  static std::unordered_map<std::string, VulkanLinearAggregateValue> aggregate;
+  return aggregate;
 }
 
 static inline bool is_aligned_i64(const int64_t value, const int64_t alignment) {
@@ -344,6 +363,54 @@ std::optional<Tensor> upcast_half_linear_tensor_for_packing(
   return upcast_half_linear_tensor_for_packing(*tensor);
 }
 
+const char* linear_role_from_label(
+    const std::string& label,
+    const LinearPostOp post_op) {
+  if (label.find(".qkv") != std::string::npos) {
+    return "qkv";
+  }
+  if (label.find(".proj") != std::string::npos) {
+    return "proj";
+  }
+  if (label.find(".fc1") != std::string::npos) {
+    return post_op == LinearPostOp::Gelu ? "fc1_gelu" : "fc1";
+  }
+  if (label.find(".fc2") != std::string::npos) {
+    return "fc2";
+  }
+  if (label.find("patch") != std::string::npos) {
+    return "patch_embed";
+  }
+  return label.empty() || label == "unlabeled" ? "unknown" : "other";
+}
+
+const char* linear_kernel_kind_from_name(const char* kernel_name) {
+  if (kernel_name == nullptr) {
+    return "unknown";
+  }
+  const std::string name(kernel_name);
+  if (name.find("bmm_buffer_float") != std::string::npos) {
+    return "bmm_buffer_float";
+  }
+  if (name.find("bfloat16_cooperative_matrix_tail_m") != std::string::npos) {
+    return "bfloat16_coop_tail_m";
+  }
+  if (name.find("bfloat16_cooperative_matrix") != std::string::npos) {
+    return "bfloat16_coop";
+  }
+  if (name.find("gelu") != std::string::npos) {
+    return "mm_buffer_float_gelu";
+  }
+  if (name.find("bias") != std::string::npos) {
+    return "mm_buffer_float_bias";
+  }
+  if (name.find("mm_buffer_float") != std::string::npos ||
+      name.find("buffer_float") != std::string::npos) {
+    return "mm_buffer_float";
+  }
+  return "other";
+}
+
 Tensor cpu_transposed_weight_for_packing(
     const Tensor& weight,
     const char* reason) {
@@ -456,6 +523,56 @@ struct LinearPackedRunState final {
   const std::vector<int64_t>& logical_weight_sizes;
   bool bias_defined;
 };
+
+void note_linear_aggregate(
+    const char* kernel_name,
+    const Tensor& input_arg_2d,
+    const Tensor& packed_weight_tensor,
+    const std::optional<Tensor>& packed_bias_tensor,
+    const Tensor& output_tensor,
+    const vTensor& v_input,
+    const vTensor& v_output,
+    const LinearPackedRunState& packed_state,
+    IntArrayRef output_sizes,
+    const LinearPostOp post_op) {
+  const std::string& label = api::current_allocation_label();
+  const char* role = linear_role_from_label(label, post_op);
+  const char* kernel = linear_kernel_kind_from_name(kernel_name);
+  const bool bias =
+      packed_bias_tensor.has_value() && packed_bias_tensor->defined();
+
+  std::ostringstream key;
+  key << "linear_aggregate"
+      << " role=" << role
+      << " kernel=" << kernel
+      << " submit_kernel=" << (kernel_name ? kernel_name : "unknown")
+      << " label=" << (label.empty() ? "unlabeled" : label)
+      << " m=" << input_arg_2d.size(Layout::Parameter::height)
+      << " k=" << input_arg_2d.size(Layout::Parameter::width)
+      << " n=" << output_sizes[Layout::Parameter::width]
+      << " input_dtype=" << static_cast<int>(input_arg_2d.scalar_type())
+      << " weight_dtype=" << static_cast<int>(packed_weight_tensor.scalar_type())
+      << " bias_dtype="
+      << static_cast<int>(
+             bias ? packed_bias_tensor->scalar_type()
+                  : ScalarType::Undefined)
+      << " output_dtype=" << static_cast<int>(output_tensor.scalar_type())
+      << " post_op=" << (post_op == LinearPostOp::Gelu ? 1 : 0)
+      << " bias=" << (bias ? 1 : 0)
+      << " input_direct=" << (v_input.has_direct_buffer_layout() ? 1 : 0)
+      << " output_direct=" << (v_output.has_direct_buffer_layout() ? 1 : 0)
+      << " weight_packed=1"
+      << " input_offset=" << v_input.storage_offset()
+      << " weight_offset=" << packed_state.packed_v_weight.storage_offset()
+      << " output_offset=" << v_output.storage_offset();
+
+  std::lock_guard<std::mutex> guard(linear_aggregate_mutex());
+  VulkanLinearAggregateValue& value = linear_aggregate()[key.str()];
+  value.count += 1u;
+  value.input_bytes += static_cast<uint64_t>(input_arg_2d.nbytes());
+  value.weight_bytes += static_cast<uint64_t>(packed_weight_tensor.nbytes());
+  value.output_bytes += static_cast<uint64_t>(output_tensor.nbytes());
+}
 
 void log_float_buffer_linear_submit(
     const char* kernel_name,
@@ -1173,6 +1290,17 @@ Tensor run_float_buffer_linear(
         use_specialized_tiled_kernel,
         use_vec2_tiled_kernel,
         post_op);
+    note_linear_aggregate(
+        kernel_hit_name,
+        input_arg_2d,
+        packed_weight_tensor,
+        packed_bias_tensor,
+        output_tensor,
+        v_input,
+        v_output,
+        packed_state,
+        output_sizes,
+        post_op);
     utils::log_vulkan_op_hit(kernel_hit_name);
     context->submit_compute_job(
         use_vec2_tiled_kernel
@@ -1218,6 +1346,17 @@ Tensor run_float_buffer_linear(
         false,
         use_specialized_tiled_kernel,
         use_vec2_tiled_kernel,
+        post_op);
+    note_linear_aggregate(
+        kernel_hit_name,
+        input_arg_2d,
+        packed_weight_tensor,
+        packed_bias_tensor,
+        output_tensor,
+        v_input,
+        v_output,
+        packed_state,
+        output_sizes,
         post_op);
     utils::log_vulkan_op_hit(kernel_hit_name);
     context->submit_compute_job(
@@ -3460,6 +3599,40 @@ std::vector<int64_t> linear_plan_counters_snapshot() {
   };
 }
 
+std::vector<std::string> linear_aggregate_snapshot() {
+  std::vector<std::pair<std::string, VulkanLinearAggregateValue>> rows;
+  {
+    std::lock_guard<std::mutex> guard(linear_aggregate_mutex());
+    rows.reserve(linear_aggregate().size());
+    for (const auto& item : linear_aggregate()) {
+      rows.emplace_back(item.first, item.second);
+    }
+  }
+  std::sort(rows.begin(), rows.end(), [](const auto& lhs, const auto& rhs) {
+    const uint64_t lhs_bytes =
+        lhs.second.input_bytes + lhs.second.weight_bytes + lhs.second.output_bytes;
+    const uint64_t rhs_bytes =
+        rhs.second.input_bytes + rhs.second.weight_bytes + rhs.second.output_bytes;
+    if (lhs_bytes != rhs_bytes) {
+      return lhs_bytes > rhs_bytes;
+    }
+    return lhs.first < rhs.first;
+  });
+
+  std::vector<std::string> snapshot;
+  snapshot.reserve(rows.size());
+  for (const auto& row : rows) {
+    std::ostringstream out;
+    out << row.first
+        << " count=" << row.second.count
+        << " input_bytes=" << row.second.input_bytes
+        << " weight_bytes=" << row.second.weight_bytes
+        << " output_bytes=" << row.second.output_bytes;
+    snapshot.emplace_back(out.str());
+  }
+  return snapshot;
+}
+
 void reset_linear_plan_counters() {
   VulkanLinearPlanCounters& counters = linear_plan_counters();
   counters.total.store(0, std::memory_order_relaxed);
@@ -3473,6 +3646,11 @@ void reset_linear_plan_counters() {
   counters.reject_capability.store(0, std::memory_order_relaxed);
   counters.fallback_plain_bf16.store(0, std::memory_order_relaxed);
   counters.fallback_float.store(0, std::memory_order_relaxed);
+}
+
+void reset_linear_aggregate() {
+  std::lock_guard<std::mutex> guard(linear_aggregate_mutex());
+  linear_aggregate().clear();
 }
 
 Tensor bmm_buffer_out_vulkan(

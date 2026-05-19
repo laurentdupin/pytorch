@@ -152,7 +152,11 @@ Tensor run_qlinear_context(
 
 std::vector<int64_t> linear_plan_counters_snapshot();
 
+std::vector<std::string> linear_aggregate_snapshot();
+
 void reset_linear_plan_counters();
+
+void reset_linear_aggregate();
 
 } // namespace ops
 } // namespace vulkan

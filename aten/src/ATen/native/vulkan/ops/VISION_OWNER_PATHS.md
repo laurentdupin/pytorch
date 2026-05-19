@@ -205,6 +205,15 @@ the extra dispatches and temporary buffer traffic outweighed the source
 parallelism. The source-blocked route and shaders were removed, so the owner path
 continues to use canonical q4 subgroup attention where capability-safe.
 
+After the local attention experiments and conv routing cleanup, FP32 linear/mm
+was profiled by owner role and M/K/N shape. The profile did not identify a
+single dominant canonical target: fc1_gelu was the largest role at 710.212 ms
+and 29.05% of linear/mm time, while fc2, projection, and qkv were each about
+23-24%. The largest individual role/shape was `fc1_gelu M=2073 K=384 N=1536`
+at 380.470 ms, only 15.56% of linear/mm time. No FP32 tiled replacement was
+merged from that profile; the useful next linear work would need to cover a
+broader owner class, not just one isolated shape.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

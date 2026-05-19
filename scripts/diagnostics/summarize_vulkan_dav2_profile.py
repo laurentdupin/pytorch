@@ -550,6 +550,127 @@ def parse_conv_aggregate(path: Path):
     }
 
 
+def linear_aggregate_lines(path: Path) -> list[str]:
+    if not path or not path.exists():
+        return []
+    text = path.read_text(errors="replace")
+    if path.suffix == ".json":
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = {}
+        counters = data.get("vulkan_debug_counters", {})
+        rows = counters.get("linear_aggregate_snapshot", [])
+        return [row for row in rows if isinstance(row, str)]
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip().startswith("linear_aggregate")
+    ]
+
+
+def linear_submit_kernel_to_gpu_name(kernel: str) -> str:
+    mapping = {
+        "aten::linear.buffer_float_tiled_bias_vec2_gelu": (
+            "mm_buffer_float_tiled_bias_vec2_gelu"
+        ),
+        "aten::linear.buffer_float_tiled_bias_vec2": (
+            "mm_buffer_float_tiled_bias_vec2"
+        ),
+        "aten::linear.buffer_float_tiled_bias_gelu": (
+            "mm_buffer_float_tiled_bias_gelu"
+        ),
+        "aten::linear.buffer_float_tiled_bias": "mm_buffer_float_tiled_bias",
+        "aten::linear.buffer_float_tiled": "mm_buffer_float_tiled",
+        "aten::linear.buffer_float_bias_gelu": "mm_buffer_float_bias_gelu",
+        "aten::linear.buffer_float_bias": "mm_buffer_float_bias",
+        "aten::linear.buffer_float": "mm_buffer_float",
+    }
+    return mapping.get(kernel, kernel)
+
+
+def parse_linear_aggregate(path: Path):
+    rows = []
+    by_role_count: collections.Counter[str] = collections.Counter()
+    by_role_bytes: collections.Counter[str] = collections.Counter()
+    by_shape_count: collections.Counter[str] = collections.Counter()
+    by_shape_bytes: collections.Counter[str] = collections.Counter()
+    by_kernel_count: collections.Counter[str] = collections.Counter()
+    by_kernel_bytes: collections.Counter[str] = collections.Counter()
+    by_role_shape_count: collections.Counter[str] = collections.Counter()
+    by_role_shape_bytes: collections.Counter[str] = collections.Counter()
+    for line in linear_aggregate_lines(path):
+        parts = parse_kv_line(line)
+        if not parts:
+            continue
+        count = int(parts.get("count", "0"))
+        input_bytes = int(parts.get("input_bytes", "0"))
+        weight_bytes = int(parts.get("weight_bytes", "0"))
+        output_bytes = int(parts.get("output_bytes", "0"))
+        bytes_ = input_bytes + weight_bytes + output_bytes
+        role = parts.get("role", "unknown")
+        kernel = parts.get("submit_kernel", parts.get("kernel", "unknown"))
+        gpu_kernel = linear_submit_kernel_to_gpu_name(kernel)
+        shape = (
+            f"m={parts.get('m', '?')} k={parts.get('k', '?')} "
+            f"n={parts.get('n', '?')}"
+        )
+        role_shape = f"role={role} {shape}"
+        rows.append(
+            {
+                "count": count,
+                "bytes": bytes_,
+                "role": role,
+                "kernel": kernel,
+                "gpu_kernel": gpu_kernel,
+                "shape": shape,
+                "role_shape": role_shape,
+                "input_direct": parts.get("input_direct", "?"),
+                "output_direct": parts.get("output_direct", "?"),
+                "weight_packed": parts.get("weight_packed", "?"),
+                "input_dtype": parts.get("input_dtype", "?"),
+                "weight_dtype": parts.get("weight_dtype", "?"),
+                "output_dtype": parts.get("output_dtype", "?"),
+            }
+        )
+        by_role_count[role] += count
+        by_role_bytes[role] += bytes_
+        by_shape_count[shape] += count
+        by_shape_bytes[shape] += bytes_
+        by_kernel_count[kernel] += count
+        by_kernel_bytes[kernel] += bytes_
+        by_role_shape_count[role_shape] += count
+        by_role_shape_bytes[role_shape] += bytes_
+    return {
+        "rows": rows,
+        "by_role_count": by_role_count,
+        "by_role_bytes": by_role_bytes,
+        "by_shape_count": by_shape_count,
+        "by_shape_bytes": by_shape_bytes,
+        "by_kernel_count": by_kernel_count,
+        "by_kernel_bytes": by_kernel_bytes,
+        "by_role_shape_count": by_role_shape_count,
+        "by_role_shape_bytes": by_role_shape_bytes,
+    }
+
+
+def estimate_linear_gpu_from_aggregate(rows, gpu_by_name):
+    by_role = collections.Counter()
+    by_shape = collections.Counter()
+    by_kernel = collections.Counter()
+    by_role_shape = collections.Counter()
+    for row in rows:
+        gpu = gpu_by_name.get(row["gpu_kernel"])
+        if not gpu or not gpu["count"]:
+            continue
+        estimated_ns = int(row["count"] * (gpu["total_ns"] / gpu["count"]))
+        by_role[row["role"]] += estimated_ns
+        by_shape[row["shape"]] += estimated_ns
+        by_kernel[row["kernel"]] += estimated_ns
+        by_role_shape[row["role_shape"]] += estimated_ns
+    return by_role, by_shape, by_kernel, by_role_shape
+
+
 def estimate_conv_gpu_from_aggregate(rows, gpu_by_name):
     by_kernel = collections.Counter()
     by_shape = collections.Counter()
@@ -638,6 +759,7 @@ def main() -> None:
     parser.add_argument("--conv-plan", type=Path)
     parser.add_argument("--conv-aggregate", type=Path)
     parser.add_argument("--linear-plan", type=Path)
+    parser.add_argument("--linear-aggregate", type=Path)
     parser.add_argument("--attention-plan", type=Path)
     parser.add_argument("--buffer-copy-log", type=Path)
     parser.add_argument("--buffer-copy-aggregate", type=Path)
@@ -708,6 +830,44 @@ def main() -> None:
         print_counter("linear_plan_decisions", counts, args.top)
         print_counter("linear_plan_shapes", shapes, args.top)
         print_counter("linear_plan_rejects", rejects, args.top)
+    if args.linear_aggregate:
+        linear = parse_linear_aggregate(args.linear_aggregate)
+        print_counter("linear_by_role", linear["by_role_count"], args.top)
+        print_bytes_counter(
+            "linear_by_role_estimated_bytes", linear["by_role_bytes"], args.top
+        )
+        print_counter("linear_by_shape", linear["by_shape_count"], args.top)
+        print_bytes_counter(
+            "linear_by_shape_estimated_bytes", linear["by_shape_bytes"], args.top
+        )
+        print_counter("linear_by_kernel", linear["by_kernel_count"], args.top)
+        print_bytes_counter(
+            "linear_by_kernel_estimated_bytes",
+            linear["by_kernel_bytes"],
+            args.top,
+        )
+        print_counter(
+            "linear_by_role_and_shape",
+            linear["by_role_shape_count"],
+            args.top,
+        )
+        print_bytes_counter(
+            "linear_by_role_and_shape_estimated_bytes",
+            linear["by_role_shape_bytes"],
+            args.top,
+        )
+        if args.gpu_timestamps:
+            by_role, by_shape, by_kernel, by_role_shape = (
+                estimate_linear_gpu_from_aggregate(
+                    linear["rows"], parse_gpu_timestamps(args.gpu_timestamps)
+                )
+            )
+            print_time_counter("linear_by_role_gpu_time", by_role, args.top)
+            print_time_counter("linear_by_shape_gpu_time", by_shape, args.top)
+            print_time_counter("linear_by_kernel_gpu_time", by_kernel, args.top)
+            print_time_counter(
+                "linear_by_role_and_shape_gpu_time", by_role_shape, args.top
+            )
     if args.attention_plan:
         counts, shapes, rejects = parse_plan(args.attention_plan)
         print_counter("attention_plan_decisions", counts, args.top)

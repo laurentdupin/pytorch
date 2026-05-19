@@ -392,6 +392,7 @@ void reset_fallback_counters_runtime() {
   reset_vulkan_fallback_phase_counters();
   api::reset_vulkan_sync_counters();
   reset_linear_plan_counters();
+  reset_linear_aggregate();
   reset_conv_plan_counters();
   reset_pointwise_conv_route_counters();
   reset_conv_aggregate();
@@ -1502,6 +1503,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::linear_plan_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::linear_aggregate_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_linear_aggregate() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::conv_plan_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::pointwise_conv_route_counters() -> int[]"));
@@ -1664,6 +1669,12 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::linear_plan_counters"),
       TORCH_FN(linear_plan_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::linear_aggregate_snapshot"),
+      TORCH_FN(linear_aggregate_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_linear_aggregate"),
+      TORCH_FN(reset_linear_aggregate));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::conv_plan_counters"),
       TORCH_FN(conv_plan_counters_snapshot));
