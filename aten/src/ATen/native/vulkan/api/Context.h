@@ -16,6 +16,7 @@
 #include <ATen/native/vulkan/api/Runtime.h>
 #include <ATen/native/vulkan/api/Shader.h>
 #include <ATen/native/vulkan/api/Stream.h>
+#include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/api/Utils.h>
 #include <c10/macros/Export.h>
 
@@ -679,6 +680,9 @@ inline bool Context::submit_compute_job(
     }
     return false;
   }
+  vulkan_sync_counters().submit_compute_job_count.fetch_add(
+      1u,
+      std::memory_order_relaxed);
 
   // Serialize recording to the shared command buffer. Do not initialize with a
   // mutex just yet, since in some cases it will be externally managed.
@@ -718,6 +722,9 @@ inline bool Context::submit_compute_job(
   // Factor out template parameter independent code to minimize code bloat.
   register_shader_dispatch(
       descriptor_set, pipeline_barrier, shader, global_work_group);
+  vulkan_sync_counters().compute_dispatch_count.fetch_add(
+      1u,
+      std::memory_order_relaxed);
 
   if (enable_op_profiling_ && !external_recording) {
     gpu_profile_end(cmd, log_idx);

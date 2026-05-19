@@ -76,6 +76,18 @@ struct VulkanVisionOwnerMlpCounters final {
   std::atomic<uint64_t> reject_context{0u};
 };
 
+struct VulkanVisionStackOwnerCounters final {
+  std::atomic<uint64_t> total_attempts{0u};
+  std::atomic<uint64_t> stack_owner_hit{0u};
+  std::atomic<uint64_t> block_context_count{0u};
+  std::atomic<uint64_t> block_execute_count{0u};
+  std::atomic<uint64_t> reject_missing_context{0u};
+  std::atomic<uint64_t> reject_shape{0u};
+  std::atomic<uint64_t> reject_dtype{0u};
+  std::atomic<uint64_t> reject_layout{0u};
+  std::atomic<uint64_t> reject_unsafe_replay{0u};
+};
+
 VulkanVisionOwnerCounters& vulkan_vision_owner_counters() {
   static VulkanVisionOwnerCounters counters;
   return counters;
@@ -88,6 +100,11 @@ VulkanVisionOwnerContextCounters& vulkan_vision_owner_context_counters() {
 
 VulkanVisionOwnerMlpCounters& vulkan_vision_owner_mlp_counters() {
   static VulkanVisionOwnerMlpCounters counters;
+  return counters;
+}
+
+VulkanVisionStackOwnerCounters& vulkan_vision_stack_owner_counters() {
+  static VulkanVisionStackOwnerCounters counters;
   return counters;
 }
 
@@ -129,6 +146,39 @@ void append_vulkan_vision_owner_log(
       << " fc2_context=" << (context && context->fc2_context() ? 1 : 0)
       << " norm_context="
       << (context && context->norm1_context() && context->norm2_context() ? 1 : 0)
+      << '\n';
+}
+
+void append_vulkan_vision_stack_owner_log(
+    const bool selected,
+    const char* reject,
+    const Tensor& input,
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context) {
+  const auto& path = vulkan_vision_owner_log_path();
+  if (path.empty()) {
+    return;
+  }
+
+  const int64_t blocks =
+      context ? static_cast<int64_t>(context->blocks().size()) : 0;
+  std::ofstream out(path, std::ios::app);
+  out << "vision_stack_owner"
+      << " selected=" << (selected ? 1 : 0)
+      << " reject=" << (reject ? reject : "none")
+      << " blocks=" << blocks
+      << " tokens="
+      << (input.dim() == 3 ? input.size(1) : (input.dim() == 2 ? input.size(0) : 0))
+      << " hidden=" << (input.dim() >= 1 ? input.size(input.dim() - 1) : 0)
+      << " heads=" << (context ? context->num_heads() : 0)
+      << " head_dim=" << (context ? context->head_dim() : 0)
+      << " mlp_hidden=" << (context ? context->mlp_hidden() : 0)
+      << " owner_forward_fallback=0"
+      << " stack_contexts=" << blocks
+      << " uses_program=0"
+      << " uses_replay=0"
+      << " unsafe_nested_replay=0"
+      << " dtype=" << static_cast<int>(input.scalar_type())
+      << " input_vulkan=" << (input.is_vulkan() ? 1 : 0)
       << '\n';
 }
 
@@ -5149,6 +5199,52 @@ void reset_vision_owner_mlp_counters() {
   counters.reject_context.store(0u, std::memory_order_relaxed);
 }
 
+std::vector<int64_t> vision_stack_owner_counters_snapshot() {
+  const auto& counters = vulkan_vision_stack_owner_counters();
+  return {
+      static_cast<int64_t>(
+          counters.total_attempts.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.stack_owner_hit.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.block_context_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.block_execute_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_missing_context.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.reject_shape.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.reject_dtype.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.reject_layout.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_unsafe_replay.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_vision_stack_owner_counters() {
+  auto& counters = vulkan_vision_stack_owner_counters();
+  counters.total_attempts.store(0u, std::memory_order_relaxed);
+  counters.stack_owner_hit.store(0u, std::memory_order_relaxed);
+  counters.block_context_count.store(0u, std::memory_order_relaxed);
+  counters.block_execute_count.store(0u, std::memory_order_relaxed);
+  counters.reject_missing_context.store(0u, std::memory_order_relaxed);
+  counters.reject_shape.store(0u, std::memory_order_relaxed);
+  counters.reject_dtype.store(0u, std::memory_order_relaxed);
+  counters.reject_layout.store(0u, std::memory_order_relaxed);
+  counters.reject_unsafe_replay.store(0u, std::memory_order_relaxed);
+}
+
+VisionBackboneStackContext::VisionBackboneStackContext(
+    std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>> blocks,
+    const int64_t num_heads,
+    const int64_t head_dim,
+    const int64_t hidden,
+    const int64_t mlp_hidden)
+    : blocks_(std::move(blocks)),
+      num_heads_(num_heads),
+      head_dim_(head_dim),
+      hidden_(hidden),
+      mlp_hidden_(mlp_hidden) {}
+
 VisionBackboneBlockContext::VisionBackboneBlockContext(
     const Tensor& norm1_weight,
     const Tensor& norm1_bias,
@@ -5370,6 +5466,32 @@ create_vision_backbone_block_context(
       fc2_bias,
       ls2_gamma,
       std::move(label));
+}
+
+c10::intrusive_ptr<VisionBackboneStackContext>
+create_vision_backbone_stack_context(
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& blocks,
+    const int64_t num_heads,
+    const int64_t head_dim,
+    const int64_t hidden,
+    const int64_t mlp_hidden) {
+  recover_after_vulkan_failure_if_needed();
+  TORCH_CHECK(
+      blocks.size() > 0,
+      "Vision backbone stack context expects at least one block context");
+
+  std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>> block_contexts;
+  block_contexts.reserve(blocks.size());
+  for (const auto& context_ref : blocks) {
+    c10::intrusive_ptr<VisionBackboneBlockContext> context = context_ref;
+    TORCH_CHECK(
+        static_cast<bool>(context),
+        "Vision backbone stack context expects defined block contexts");
+    block_contexts.push_back(std::move(context));
+  }
+
+  return c10::make_intrusive<VisionBackboneStackContext>(
+      std::move(block_contexts), num_heads, head_dim, hidden, mlp_hidden);
 }
 
 c10::intrusive_ptr<VisionBackboneBlockContext>
@@ -5654,6 +5776,129 @@ Tensor run_vision_backbone_block_context(
       vision_program_ptr != nullptr ? "program_materialized" : "direct",
       {input_arg});
   return restored;
+}
+
+std::vector<Tensor> run_vision_backbone_stack_context(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context,
+    IntArrayRef capture_indices) {
+  recover_after_vulkan_failure_if_needed();
+  auto& stack_counters = vulkan_vision_stack_owner_counters();
+  stack_counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
+
+  if (!context) {
+    stack_counters.reject_missing_context.fetch_add(
+        1u,
+        std::memory_order_relaxed);
+    append_vulkan_vision_stack_owner_log(
+        false, "missing_context", input_arg, context);
+  }
+  TORCH_CHECK(context, "Vision backbone stack context is required");
+  if (context->blocks().empty()) {
+    stack_counters.reject_missing_context.fetch_add(
+        1u,
+        std::memory_order_relaxed);
+    append_vulkan_vision_stack_owner_log(
+        false, "empty_context", input_arg, context);
+  }
+  TORCH_CHECK(
+      !context->blocks().empty(),
+      "Vision backbone stack context expects at least one block context");
+
+  if (input_arg.scalar_type() != kFloat) {
+    stack_counters.reject_dtype.fetch_add(1u, std::memory_order_relaxed);
+    append_vulkan_vision_stack_owner_log(false, "dtype", input_arg, context);
+  }
+  TORCH_CHECK(
+      input_arg.scalar_type() == kFloat,
+      "Vision backbone stack context is FP32 for now");
+  if (input_arg.dim() != 2 && input_arg.dim() != 3) {
+    stack_counters.reject_shape.fetch_add(1u, std::memory_order_relaxed);
+    append_vulkan_vision_stack_owner_log(false, "shape", input_arg, context);
+  }
+  TORCH_CHECK(
+      input_arg.dim() == 2 || input_arg.dim() == 3,
+      "Vision backbone stack context expects rank-2 or rank-3 input");
+  if (context->hidden() > 0 && input_arg.size(input_arg.dim() - 1) != context->hidden()) {
+    stack_counters.reject_shape.fetch_add(1u, std::memory_order_relaxed);
+    append_vulkan_vision_stack_owner_log(
+        false, "hidden_mismatch", input_arg, context);
+  }
+  TORCH_CHECK(
+      context->hidden() <= 0 ||
+          input_arg.size(input_arg.dim() - 1) == context->hidden(),
+      "Vision backbone stack hidden dimension mismatch: expected ",
+      context->hidden(),
+      " got ",
+      input_arg.size(input_arg.dim() - 1));
+  if (!input_arg.is_vulkan()) {
+    stack_counters.reject_layout.fetch_add(1u, std::memory_order_relaxed);
+    append_vulkan_vision_stack_owner_log(
+        false, "not_vulkan", input_arg, context);
+  }
+  TORCH_CHECK(input_arg.is_vulkan(), "Vision backbone stack expects Vulkan input");
+  if (has_explicit_runtime_capture_label()) {
+    stack_counters.reject_unsafe_replay.fetch_add(
+        1u,
+        std::memory_order_relaxed);
+    append_vulkan_vision_stack_owner_log(
+        false, "unsafe_nested_replay", input_arg, context);
+  }
+  TORCH_CHECK(
+      !has_explicit_runtime_capture_label(),
+      "Vision backbone stack owner does not run under runtime capture labels");
+
+  auto& owner_counters = vulkan_vision_owner_counters();
+  owner_counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
+  owner_counters.stack_owner_hit.fetch_add(1u, std::memory_order_relaxed);
+  stack_counters.stack_owner_hit.fetch_add(1u, std::memory_order_relaxed);
+  stack_counters.block_context_count.fetch_add(
+      context->blocks().size(),
+      std::memory_order_relaxed);
+  append_vulkan_vision_stack_owner_log(true, "none", input_arg, context);
+
+  std::vector<int64_t> capture_indices_vec = capture_indices.vec();
+  if (capture_indices_vec.empty()) {
+    capture_indices_vec.push_back(
+        static_cast<int64_t>(context->blocks().size()) - 1);
+  }
+  for (const int64_t capture_idx : capture_indices_vec) {
+    TORCH_CHECK(
+        capture_idx >= 0 &&
+            capture_idx < static_cast<int64_t>(context->blocks().size()),
+        "Vision backbone stack capture index ",
+        capture_idx,
+        " is out of range for ",
+        context->blocks().size(),
+        " contexts");
+  }
+
+  Tensor current = input_arg;
+  std::vector<Tensor> outputs(capture_indices_vec.size());
+  for (size_t block_idx = 0u; block_idx < context->blocks().size(); ++block_idx) {
+    const auto& block_context = context->blocks()[block_idx];
+    TORCH_CHECK(
+        static_cast<bool>(block_context),
+        "Vision backbone stack context contains an undefined block context");
+    current = run_vision_backbone_block_context(current, block_context);
+    stack_counters.block_execute_count.fetch_add(
+        1u,
+        std::memory_order_relaxed);
+    for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
+         ++capture_pos) {
+      if (capture_indices_vec[capture_pos] == static_cast<int64_t>(block_idx)) {
+        outputs[capture_pos] = record_tensor_write_and_return(
+            current,
+            "vulkan_prepack::run_vision_backbone_stack_context",
+            "vision_stack_capture",
+            {input_arg});
+      }
+    }
+  }
+
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_vision_backbone_stack_context");
+  return outputs;
 }
 
 void prime_vision_backbone_block_context_graph(

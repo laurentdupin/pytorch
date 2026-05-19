@@ -141,6 +141,44 @@ class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
   }
 };
 
+class VisionBackboneStackContext final : public torch::jit::CustomClassHolder {
+ private:
+  std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>> blocks_;
+  int64_t num_heads_{0};
+  int64_t head_dim_{0};
+  int64_t hidden_{0};
+  int64_t mlp_hidden_{0};
+
+ public:
+  VisionBackboneStackContext(
+      std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>> blocks,
+      int64_t num_heads,
+      int64_t head_dim,
+      int64_t hidden,
+      int64_t mlp_hidden);
+
+  const std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>>& blocks()
+      const {
+    return blocks_;
+  }
+
+  int64_t num_heads() const {
+    return num_heads_;
+  }
+
+  int64_t head_dim() const {
+    return head_dim_;
+  }
+
+  int64_t hidden() const {
+    return hidden_;
+  }
+
+  int64_t mlp_hidden() const {
+    return mlp_hidden_;
+  }
+};
+
 c10::intrusive_ptr<VisionBackboneBlockContext>
 create_vision_backbone_block_context(
     Tensor&& norm1_weight,
@@ -188,6 +226,19 @@ Tensor run_vision_backbone_block_context(
     const Tensor& input,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context);
 
+c10::intrusive_ptr<VisionBackboneStackContext>
+create_vision_backbone_stack_context(
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& blocks,
+    int64_t num_heads,
+    int64_t head_dim,
+    int64_t hidden,
+    int64_t mlp_hidden);
+
+std::vector<Tensor> run_vision_backbone_stack_context(
+    const Tensor& input,
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context,
+    IntArrayRef capture_indices);
+
 std::vector<int64_t> vision_owner_counters_snapshot();
 
 void reset_vision_owner_counters();
@@ -201,6 +252,10 @@ void record_vision_owner_context_cache_hit();
 std::vector<int64_t> vision_owner_mlp_counters_snapshot();
 
 void reset_vision_owner_mlp_counters();
+
+std::vector<int64_t> vision_stack_owner_counters_snapshot();
+
+void reset_vision_stack_owner_counters();
 
 void prime_vision_backbone_block_context_graph(
     const Tensor& input,

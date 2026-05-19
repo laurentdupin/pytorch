@@ -7763,6 +7763,79 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self._assert_outputs_close(expected, actual, atol=5e-3, rtol=5e-3)
 
+    def test_vulkan_vision_backbone_stack_context_matches_sequential_owner(self):
+        torch.manual_seed(0)
+        embed_dim = 32
+        num_heads = 4
+        hidden_dim = 64
+        token_count = 17
+        norm_eps = 1.0e-6
+
+        def create_context(block_index):
+            return torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+                torch.randn(embed_dim, dtype=torch.float32),
+                torch.randn(embed_dim, dtype=torch.float32),
+                norm_eps,
+                torch.randn(embed_dim * 3, embed_dim, dtype=torch.float32),
+                torch.randn(embed_dim * 3, dtype=torch.float32),
+                num_heads,
+                torch.randn(embed_dim, embed_dim, dtype=torch.float32),
+                torch.randn(embed_dim, dtype=torch.float32),
+                torch.randn(embed_dim, dtype=torch.float32),
+                torch.randn(embed_dim, dtype=torch.float32),
+                torch.randn(embed_dim, dtype=torch.float32),
+                norm_eps,
+                torch.randn(hidden_dim, embed_dim, dtype=torch.float32),
+                torch.randn(hidden_dim, dtype=torch.float32),
+                torch.randn(embed_dim, hidden_dim, dtype=torch.float32),
+                torch.randn(embed_dim, dtype=torch.float32),
+                torch.randn(embed_dim, dtype=torch.float32),
+                f"depth.dino.backbone.stack.block{block_index}",
+            )
+
+        context0 = create_context(0)
+        context1 = create_context(1)
+        stack_context = torch.ops.vulkan_prepack.create_vision_backbone_stack_context(
+            [context0, context1],
+            num_heads,
+            embed_dim // num_heads,
+            embed_dim,
+            hidden_dim,
+        )
+        x = torch.randn(1, token_count, embed_dim, dtype=torch.float32).to("vulkan")
+
+        torch.ops.vulkan_prepack.reset_vision_owner_counters()
+        torch.ops.vulkan_prepack.reset_vision_stack_owner_counters()
+        torch.ops.vulkan_prepack.reset_fallback_phase_counters()
+
+        with torch.inference_mode():
+            y0 = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                x,
+                context0,
+            )
+            y1 = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                y0,
+                context1,
+            )
+            stack_outputs = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0, 1],
+            )
+
+        self._assert_outputs_close(
+            stack_outputs[0].cpu(), y0.cpu(), atol=5e-3, rtol=5e-3
+        )
+        self._assert_outputs_close(
+            stack_outputs[1].cpu(), y1.cpu(), atol=5e-3, rtol=5e-3
+        )
+        stack_counters = torch.ops.vulkan_prepack.vision_stack_owner_counters()
+        self.assertGreater(stack_counters[1], 0)
+        self.assertEqual(stack_counters[2], 2)
+        self.assertEqual(stack_counters[3], 2)
+        phase_counters = torch.ops.vulkan_prepack.fallback_phase_counters()
+        self.assertEqual(phase_counters[3], 0)
+
     def test_vulkan_vision_backbone_block_context_with_attention_bias_matches_reference(self):
         torch.manual_seed(0)
         embed_dim = 32

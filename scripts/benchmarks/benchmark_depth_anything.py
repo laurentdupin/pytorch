@@ -170,6 +170,65 @@ def vulkan_dav2_block_owner_forward(self: Any, x_or_x_list: Any) -> Any:
     return self._vulkan_dav2_block_owner(x_or_x_list)
 
 
+class VulkanDAv2BackboneStackOwner:
+    def __init__(
+        self,
+        torch_module: Any,
+        pretrained: Any,
+        blocks: list[Any],
+        context_cache: VulkanDAv2OwnerContextCache,
+    ) -> None:
+        self.torch = torch_module
+        self.pretrained = pretrained
+        self.blocks = blocks
+        self.context_cache = context_cache
+        self.original_not_chunked = pretrained._get_intermediate_layers_not_chunked
+        self.training = bool(getattr(pretrained, "training", False))
+        self.block_contexts = [
+            context_cache.get_or_create(block, block_index)
+            for block_index, block in enumerate(blocks)
+        ]
+        first = blocks[0]
+        hidden = int(first.attn.qkv.weight.shape[1])
+        mlp_hidden = int(first.mlp.fc1.weight.shape[0])
+        num_heads = int(first.attn.num_heads)
+        head_dim = hidden // num_heads
+        self.stack_context = (
+            self.torch.ops.vulkan_prepack.create_vision_backbone_stack_context(
+                self.block_contexts,
+                num_heads,
+                head_dim,
+                hidden,
+                mlp_hidden,
+            )
+        )
+
+    def __call__(self, x: Any, n: Any = 1) -> Any:
+        if self.training or not isinstance(x, self.torch.Tensor):
+            return self.original_not_chunked(x, n)
+        if getattr(x.device, "type", None) != "vulkan":
+            return self.original_not_chunked(x, n)
+
+        x = self.pretrained.prepare_tokens_with_masks(x)
+        total_block_len = len(self.blocks)
+        if isinstance(n, int):
+            capture_indices = list(range(total_block_len - n, total_block_len))
+        else:
+            capture_indices = [int(index) for index in n]
+
+        with vulkan_fallback_phase(self.torch, FALLBACK_PHASE_OWNER_FORWARD):
+            outputs = self.torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                self.stack_context,
+                capture_indices,
+            )
+        return list(outputs)
+
+
+def vulkan_dav2_stack_not_chunked(self: Any, x: Any, n: Any = 1) -> Any:
+    return self._vulkan_dav2_stack_owner(x, n)
+
+
 def install_vulkan_fallback_phase_wrappers(torch_module: Any, model: Any) -> None:
     pretrained = getattr(model, "pretrained", None)
     if pretrained is None or getattr(pretrained, "_vulkan_phase_wrapped", False):
@@ -231,17 +290,30 @@ def install_vulkan_dav2_block_owner(torch_module: Any, model: Any) -> dict[str, 
     limit = None
     installed = 0
     context_cache = VulkanDAv2OwnerContextCache(torch_module)
+    flat_blocks: list[Any] = []
     for block_index, (_container, _slot, block) in enumerate(
         iter_dav2_block_slots(model)
     ):
-        block._vulkan_dav2_block_owner = VulkanDAv2BlockOwner(
+        flat_blocks.append(block)
+        context_cache.get_or_create(block, block_index)
+        installed += 1
+
+    pretrained = getattr(model, "pretrained", None)
+    if (
+        pretrained is not None
+        and flat_blocks
+        and hasattr(pretrained, "_get_intermediate_layers_not_chunked")
+    ):
+        pretrained._vulkan_dav2_stack_owner = VulkanDAv2BackboneStackOwner(
             torch_module,
-            block,
-            block_index,
+            pretrained,
+            flat_blocks,
             context_cache,
         )
-        block.forward = types.MethodType(vulkan_dav2_block_owner_forward, block)
-        installed += 1
+        pretrained._get_intermediate_layers_not_chunked = types.MethodType(
+            vulkan_dav2_stack_not_chunked,
+            pretrained,
+        )
 
     return {
         "enabled": enabled,
@@ -302,6 +374,7 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         "vision_owner_counters",
         "vision_owner_context_counters",
         "vision_owner_mlp_counters",
+        "vision_stack_owner_counters",
         "zero_counters",
     ):
         fn = getattr(ops, name, None)

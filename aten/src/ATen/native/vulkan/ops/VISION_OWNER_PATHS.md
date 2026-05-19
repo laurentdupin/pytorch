@@ -214,6 +214,62 @@ at 380.470 ms, only 15.56% of linear/mm time. No FP32 tiled replacement was
 merged from that profile; the useful next linear work would need to cover a
 broader owner class, not just one isolated shape.
 
+## Diagnostic Stack Owner
+
+The DAv2 Vulkan benchmark now creates one
+`VisionBackboneStackContext` containing the 12 canonical block contexts and
+enters `vulkan_prepack::run_vision_backbone_stack_context` from the Python
+benchmark bridge. The first stack owner is intentionally a safe diagnostic
+boundary: it sequences the already validated block owner in C++ and captures the
+requested intermediate block outputs for DAv2, but it does not use replay or
+compiled-session capture.
+
+Existing stack replay and compiled-session bridges remain separate experimental
+program paths. The canonical benchmark stack owner rejects execution under an
+active runtime capture label so it cannot accidentally create unsafe nested
+replay. Stack owner log rows report:
+
+```
+vision_stack_owner selected=1 blocks=12 tokens=2073 hidden=384 heads=6 head_dim=64 mlp_hidden=1536 owner_forward_fallback=0 stack_contexts=12 uses_program=0 uses_replay=0 unsafe_nested_replay=0
+```
+
+Additional counters are exposed through
+`vision_stack_owner_counters()`:
+
+```
+total_attempts
+stack_owner_hit
+block_context_count
+block_execute_count
+reject_missing_context
+reject_shape
+reject_dtype
+reject_layout
+reject_unsafe_replay
+```
+
+The benchmark also snapshots these counters. A `warmup=3`, `repeats=10`,
+device-resident DAv2 vits run produced:
+
+```
+stack_owner_hit=92
+block_context_count=1104
+block_execute_count=1104
+owner_forward fallback=0
+timed fallback=0
+queue_wait_idle_count=0
+```
+
+The same run reported device-resident forward median 0.3423s. Because this
+first stack owner records the same kernels as the per-block owner, the useful
+result is the ownership structure: Python enters one stack-level owner call per
+backbone pass while all 12 block contexts are visible together at the backend
+boundary.
+
+`sync_counters()` keeps its existing fields and appends diagnostic
+`compute_dispatch_count` and `submit_compute_job_count` at the end. These
+counters are diagnostic-only and do not affect route selection.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

@@ -166,6 +166,14 @@ int register_vulkan_vision_backbone_block_packed_context() {
   return 0;
 }
 
+int register_vulkan_vision_backbone_stack_packed_context() {
+  static auto register_vulkan_vision_backbone_stack_context =
+      torch::selective_class_<VisionBackboneStackContext>(
+          "vulkan",
+          TORCH_SELECTIVE_CLASS("VisionBackboneStackContext"));
+  return 0;
+}
+
 int register_vulkan_vision_decoder_fusion_block_packed_context() {
   static auto register_vulkan_vision_decoder_fusion_block_context =
       torch::selective_class_<VisionDecoderFusionBlockContext>(
@@ -384,6 +392,10 @@ std::vector<int64_t> sync_counters_runtime() {
               std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.forced_sync_unknown_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.compute_dispatch_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.submit_compute_job_count.load(std::memory_order_relaxed)),
   };
 }
 
@@ -403,6 +415,7 @@ void reset_fallback_counters_runtime() {
   reset_vision_owner_counters();
   reset_vision_owner_context_counters();
   reset_vision_owner_mlp_counters();
+  reset_vision_stack_owner_counters();
   reset_zero_counters();
 }
 
@@ -1230,6 +1243,7 @@ TORCH_LIBRARY(vulkan, m) {
   register_vulkan_layernorm_packed_context();
   register_vulkan_qwen_linear_attention_prefill_packed_context();
   register_vulkan_vision_backbone_block_packed_context();
+  register_vulkan_vision_backbone_stack_packed_context();
   register_vulkan_vision_decoder_fusion_block_packed_context();
   register_vulkan_vision_decoder_head_packed_context();
   register_vulkan_vision_decoder_preprocess_head_packed_context();
@@ -1334,6 +1348,15 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_vision_backbone_block_context("
       "Tensor X, __torch__.torch.classes.vulkan.VisionBackboneBlockContext context) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_vision_backbone_stack_context("
+      "__torch__.torch.classes.vulkan.VisionBackboneBlockContext[] blocks, "
+      "int num_heads, int head_dim, int hidden, int mlp_hidden) "
+      "-> __torch__.torch.classes.vulkan.VisionBackboneStackContext"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_vision_backbone_stack_context("
+      "Tensor X, __torch__.torch.classes.vulkan.VisionBackboneStackContext context, "
+      "int[] capture_indices) -> Tensor[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::prime_vision_backbone_block_context_graph("
       "Tensor X, __torch__.torch.classes.vulkan.VisionBackboneBlockContext context) -> ()"));
@@ -1547,6 +1570,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_vision_owner_mlp_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::vision_stack_owner_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_vision_stack_owner_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::zero_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_zero_counters() -> ()"));
@@ -1667,6 +1694,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::sync_counters"),
       TORCH_FN(sync_counters_runtime));
   m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::create_vision_backbone_stack_context"),
+      TORCH_FN(create_vision_backbone_stack_context));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::linear_plan_counters"),
       TORCH_FN(linear_plan_counters_snapshot));
   m.impl(
@@ -1739,6 +1770,13 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_vision_owner_mlp_counters"),
       TORCH_FN(reset_vision_owner_mlp_counters));
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::vision_stack_owner_counters"),
+      TORCH_FN(vision_stack_owner_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_vision_stack_owner_counters"),
+      TORCH_FN(reset_vision_stack_owner_counters));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::zero_counters"),
       TORCH_FN(zero_counters_snapshot));
   m.impl(
@@ -1788,6 +1826,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vision_backbone_block_context_with_attention_bias"),
       TORCH_FN(create_vision_backbone_block_context_with_attention_bias));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::create_vision_backbone_stack_context"),
+      TORCH_FN(create_vision_backbone_stack_context));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vision_decoder_fusion_block_context"),
@@ -1917,6 +1959,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
       TORCH_FN(create_vision_backbone_block_context_with_attention_bias));
   m.impl(
       TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::create_vision_backbone_stack_context"),
+      TORCH_FN(create_vision_backbone_stack_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vision_decoder_fusion_block_context"),
       TORCH_FN(create_vision_decoder_fusion_block_context));
   m.impl(
@@ -2021,6 +2067,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_vision_backbone_block_context"),
       TORCH_FN(run_vision_backbone_block_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_vision_backbone_stack_context"),
+      TORCH_FN(run_vision_backbone_stack_context));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::run_vision_decoder_fusion_block_context"),

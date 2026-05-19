@@ -14,6 +14,8 @@ VulkanSyncCounters& vulkan_sync_counters() {
 
 void reset_vulkan_sync_counters() {
   VulkanSyncCounters& counters = vulkan_sync_counters();
+  counters.compute_dispatch_count.store(0u, std::memory_order_relaxed);
+  counters.submit_compute_job_count.store(0u, std::memory_order_relaxed);
   counters.stream_submit_count.store(0u, std::memory_order_relaxed);
   counters.event_record_count.store(0u, std::memory_order_relaxed);
   counters.event_block_count.store(0u, std::memory_order_relaxed);
