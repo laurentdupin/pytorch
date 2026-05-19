@@ -197,6 +197,27 @@ struct VulkanStackShapePlanCounters final {
   std::atomic<uint64_t> invalid_context_identity{0u};
 };
 
+struct VulkanStackReplayCounters final {
+  std::atomic<uint64_t> total_attempts{0u};
+  std::atomic<uint64_t> capture_build_count{0u};
+  std::atomic<uint64_t> replay_hit_count{0u};
+  std::atomic<uint64_t> descriptor_rebind_count{0u};
+  std::atomic<uint64_t> reject_readiness{0u};
+  std::atomic<uint64_t> reject_binding_mode{0u};
+  std::atomic<uint64_t> reject_binding_validation{0u};
+  std::atomic<uint64_t> reject_context_identity{0u};
+  std::atomic<uint64_t> reject_capability{0u};
+  std::atomic<uint64_t> reject_runtime_capture_active{0u};
+};
+
+enum class VulkanReplayBindingMode : uint8_t {
+  Unknown = 0,
+  PersistentResourcesOnly,
+  RebindDescriptorSetsPerForward,
+  ReRecordCommandBufferPerForward,
+  UnsafeStaleDescriptors,
+};
+
 std::mutex& stack_execution_manifest_mutex() {
   static std::mutex mutex;
   return mutex;
@@ -219,6 +240,21 @@ std::unordered_map<std::string, std::string>& stack_shape_plan_readiness_rows() 
 
 std::vector<std::string>& stack_shape_plan_manifest_rows() {
   static std::vector<std::string> rows;
+  return rows;
+}
+
+std::mutex& stack_resource_binding_manifest_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::vector<std::string>& stack_resource_binding_manifest_rows() {
+  static std::vector<std::string> rows;
+  return rows;
+}
+
+std::unordered_map<std::string, std::string>& stack_replay_binding_mode_rows() {
+  static std::unordered_map<std::string, std::string> rows;
   return rows;
 }
 
@@ -249,6 +285,11 @@ VulkanStackAttentionCounters& vulkan_stack_attention_counters() {
 
 VulkanStackShapePlanCounters& vulkan_stack_shape_plan_counters() {
   static VulkanStackShapePlanCounters counters;
+  return counters;
+}
+
+VulkanStackReplayCounters& vulkan_stack_replay_counters() {
+  static VulkanStackReplayCounters counters;
   return counters;
 }
 
@@ -375,6 +416,22 @@ const char* stack_plan_step_kind_name(const VulkanStackPlanStepKind kind) {
       return "residual2";
     case VulkanStackPlanStepKind::IntermediateCapture:
       return "intermediate_capture";
+  }
+  return "unknown";
+}
+
+const char* replay_binding_mode_name(const VulkanReplayBindingMode mode) {
+  switch (mode) {
+    case VulkanReplayBindingMode::Unknown:
+      return "unknown";
+    case VulkanReplayBindingMode::PersistentResourcesOnly:
+      return "persistent_resources_only";
+    case VulkanReplayBindingMode::RebindDescriptorSetsPerForward:
+      return "rebind_descriptor_sets_per_forward";
+    case VulkanReplayBindingMode::ReRecordCommandBufferPerForward:
+      return "re_record_command_buffer_per_forward";
+    case VulkanReplayBindingMode::UnsafeStaleDescriptors:
+      return "unsafe_stale_descriptors";
   }
   return "unknown";
 }
@@ -575,6 +632,273 @@ std::unique_ptr<VulkanVisionStackShapePlan> build_stack_shape_plan(
   return plan;
 }
 
+void add_stack_resource_binding_row(
+    std::vector<std::string>& rows,
+    const VulkanVisionStackShapePlan& plan,
+    const VulkanStackPlanStep& step,
+    const char* role,
+    const char* kind,
+    const std::vector<int64_t>& shape,
+    const bool is_input,
+    const bool is_output,
+    const bool is_weight,
+    const bool is_bias,
+    const bool is_intermediate,
+    const bool persistent_across_forwards,
+    const bool runtime_rebound_each_forward,
+    const int64_t descriptor_set_index,
+    const int64_t descriptor_binding_index,
+    const int64_t storage_offset,
+    const bool requires_descriptor_update,
+    const bool safe_for_replay) {
+  std::ostringstream out;
+  out << "stack_resource_binding"
+      << " plan_key=" << format_stack_shape_key(plan.key)
+      << " tokens=" << plan.key.tokens
+      << " ordinal=" << step.ordinal
+      << " block=" << step.block_index
+      << " phase=" << stack_plan_step_kind_name(step.kind)
+      << " op=" << step.op_label
+      << " role=" << (role ? role : "unknown")
+      << " kind=" << (kind ? kind : "unknown")
+      << " shape=" << stack_plan_shape_string(shape)
+      << " dtype=" << c10::toString(step.dtype)
+      << " is_input=" << (is_input ? 1 : 0)
+      << " is_output=" << (is_output ? 1 : 0)
+      << " is_weight=" << (is_weight ? 1 : 0)
+      << " is_bias=" << (is_bias ? 1 : 0)
+      << " is_intermediate=" << (is_intermediate ? 1 : 0)
+      << " escapes_stack=" << (step.escapes_stack ? 1 : 0)
+      << " persistent_across_forwards="
+      << (persistent_across_forwards ? 1 : 0)
+      << " runtime_rebound_each_forward="
+      << (runtime_rebound_each_forward ? 1 : 0)
+      << " descriptor_set=" << descriptor_set_index
+      << " binding=" << descriptor_binding_index
+      << " buffer_handle_known=0"
+      << " storage_offset=" << storage_offset
+      << " requires_descriptor_update="
+      << (requires_descriptor_update ? 1 : 0)
+      << " safe_for_replay=" << (safe_for_replay ? 1 : 0);
+  rows.emplace_back(out.str());
+}
+
+void add_stack_step_resource_bindings(
+    std::vector<std::string>& rows,
+    const VulkanVisionStackShapePlan& plan,
+    const VulkanStackPlanStep& step) {
+  const std::vector<int64_t> scalar_shape{step.output_shape.empty() ? 0 : step.output_shape.back()};
+  const bool first_block_input =
+      step.block_index == 0 && step.kind == VulkanStackPlanStepKind::Norm1;
+  add_stack_resource_binding_row(
+      rows,
+      plan,
+      step,
+      first_block_input ? "runtime_input" : "activation_input",
+      "buffer",
+      step.input_shape,
+      true,
+      false,
+      false,
+      false,
+      !first_block_input,
+      false,
+      first_block_input,
+      0,
+      -1,
+      0,
+      first_block_input,
+      false);
+
+  if (step.kind == VulkanStackPlanStepKind::Norm1 ||
+      step.kind == VulkanStackPlanStepKind::Norm2) {
+    add_stack_resource_binding_row(
+        rows,
+        plan,
+        step,
+        "norm_weight",
+        "buffer",
+        scalar_shape,
+        false,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        0,
+        -1,
+        0,
+        false,
+        true);
+    add_stack_resource_binding_row(
+        rows,
+        plan,
+        step,
+        "norm_bias",
+        "buffer",
+        scalar_shape,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true,
+        false,
+        0,
+        -1,
+        0,
+        false,
+        true);
+  } else if (
+      step.kind == VulkanStackPlanStepKind::QkvLinear ||
+      step.kind == VulkanStackPlanStepKind::ProjLinear ||
+      step.kind == VulkanStackPlanStepKind::Fc1Gelu ||
+      step.kind == VulkanStackPlanStepKind::Fc2) {
+    add_stack_resource_binding_row(
+        rows,
+        plan,
+        step,
+        "packed_weight",
+        "buffer",
+        {},
+        false,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        0,
+        -1,
+        0,
+        false,
+        true);
+    add_stack_resource_binding_row(
+        rows,
+        plan,
+        step,
+        "bias",
+        "buffer",
+        scalar_shape,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true,
+        false,
+        0,
+        -1,
+        0,
+        false,
+        true);
+  } else if (step.kind == VulkanStackPlanStepKind::Attention) {
+    for (const char* role : {"query", "key", "value"}) {
+      add_stack_resource_binding_row(
+          rows,
+          plan,
+          step,
+          role,
+          "buffer",
+          step.input_shape,
+          true,
+          false,
+          false,
+          false,
+          true,
+          false,
+          true,
+          0,
+          -1,
+          0,
+          true,
+          false);
+    }
+  }
+
+  add_stack_resource_binding_row(
+      rows,
+      plan,
+      step,
+      step.escapes_stack ? "escaping_output" : "internal_output",
+      "buffer",
+      step.output_shape,
+      false,
+      true,
+      false,
+      false,
+      !step.escapes_stack,
+      false,
+      true,
+      0,
+      -1,
+      0,
+      true,
+      false);
+}
+
+VulkanReplayBindingMode determine_stack_replay_binding_mode(
+    const VulkanVisionStackShapePlan& plan) {
+  (void)plan;
+  return VulkanReplayBindingMode::ReRecordCommandBufferPerForward;
+}
+
+void record_stack_resource_binding_manifest(
+    const VulkanVisionStackShapePlan& plan) {
+  std::vector<std::string> new_rows;
+  for (const auto& step : plan.steps) {
+    if (step.kind == VulkanStackPlanStepKind::IntermediateCapture) {
+      add_stack_resource_binding_row(
+          new_rows,
+          plan,
+          step,
+          "requested_intermediate_output",
+          "buffer",
+          step.output_shape,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          true,
+          0,
+          -1,
+          0,
+          true,
+          false);
+      continue;
+    }
+    add_stack_step_resource_bindings(new_rows, plan, step);
+  }
+
+  const std::string key = format_stack_shape_key(plan.key);
+  {
+    std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+    auto& rows = stack_resource_binding_manifest_rows();
+    rows.erase(
+        std::remove_if(
+            rows.begin(),
+            rows.end(),
+            [&key](const std::string& row) {
+              return row.find(" plan_key=" + key + " ") != std::string::npos;
+            }),
+        rows.end());
+    rows.insert(rows.end(), new_rows.begin(), new_rows.end());
+
+    auto mode = determine_stack_replay_binding_mode(plan);
+    std::ostringstream out;
+    out << "stack_replay_binding_mode"
+        << " plan_key=" << key
+        << " tokens=" << plan.key.tokens
+        << " mode=" << replay_binding_mode_name(mode)
+        << " descriptor_binding_indices_known=0"
+        << " reason=descriptor_sets_are_recorded_per_compute_job";
+    stack_replay_binding_mode_rows()[key] = out.str();
+  }
+}
+
 std::string format_stack_shape_plan_readiness(
     const VulkanVisionStackShapePlan& plan) {
   std::ostringstream out;
@@ -636,6 +960,7 @@ void record_stack_shape_plan_summary(
         << (plan.ready_for_programmed_sequence() ? 1 : 0);
     manifest_rows.emplace_back(out.str());
   }
+  record_stack_resource_binding_manifest(plan);
 }
 
 struct VulkanStackPlanRuntimeBinding final {
@@ -6352,6 +6677,130 @@ void reset_stack_shape_plan_counters() {
   std::lock_guard<std::mutex> lock(stack_shape_plan_summary_mutex());
   stack_shape_plan_readiness_rows().clear();
   stack_shape_plan_manifest_rows().clear();
+}
+
+std::vector<std::string> stack_resource_binding_manifest_snapshot() {
+  std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+  return stack_resource_binding_manifest_rows();
+}
+
+void reset_stack_resource_binding_manifest() {
+  std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+  stack_resource_binding_manifest_rows().clear();
+  stack_replay_binding_mode_rows().clear();
+}
+
+std::vector<int64_t> stack_replay_readiness_snapshot() {
+  const auto shape_readiness = stack_shape_plan_readiness_snapshot();
+  const bool fixed_shape_plan = std::any_of(
+      shape_readiness.begin(),
+      shape_readiness.end(),
+      [](const std::string& row) {
+        return row.find("fixed_shapes=1") != std::string::npos &&
+            row.find("safe_to_program=1") != std::string::npos;
+      });
+  const bool resources_classified = []() {
+    std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+    return !stack_resource_binding_manifest_rows().empty();
+  }();
+  const auto& shape_counters = vulkan_stack_shape_plan_counters();
+  const bool runtime_bindings_validated =
+      shape_counters.binding_valid_count.load(std::memory_order_relaxed) > 0u &&
+      shape_counters.binding_invalid_count.load(std::memory_order_relaxed) == 0u;
+  const bool descriptors_rebindable = false;
+  const bool persistent_resources_stable = resources_classified;
+  const bool internal_temps_owned = resources_classified;
+  const bool escaping_outputs_marked = resources_classified;
+  const auto capture_readiness = stack_capture_readiness_snapshot();
+  const bool no_cpu_fallback = capture_readiness.size() > 1 && capture_readiness[1] != 0;
+  const bool no_host_sync = capture_readiness.size() > 2 && capture_readiness[2] != 0;
+  const bool no_nested_replay =
+      capture_readiness.size() > 3 && capture_readiness[3] != 0;
+  const bool no_queue_idle =
+      api::vulkan_sync_counters().queue_wait_idle_count.load(
+          std::memory_order_relaxed) == 0u;
+  const bool command_capture_safe = fixed_shape_plan && resources_classified &&
+      runtime_bindings_validated && descriptors_rebindable &&
+      persistent_resources_stable && internal_temps_owned &&
+      escaping_outputs_marked && no_cpu_fallback && no_host_sync &&
+      no_nested_replay && no_queue_idle;
+
+  auto& replay_counters = vulkan_stack_replay_counters();
+  replay_counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
+  if (!command_capture_safe) {
+    replay_counters.reject_readiness.fetch_add(1u, std::memory_order_relaxed);
+    if (!descriptors_rebindable) {
+      replay_counters.reject_binding_mode.fetch_add(
+          1u,
+          std::memory_order_relaxed);
+    }
+  }
+
+  return {
+      fixed_shape_plan ? 1 : 0,
+      resources_classified ? 1 : 0,
+      runtime_bindings_validated ? 1 : 0,
+      descriptors_rebindable ? 1 : 0,
+      persistent_resources_stable ? 1 : 0,
+      internal_temps_owned ? 1 : 0,
+      escaping_outputs_marked ? 1 : 0,
+      no_cpu_fallback ? 1 : 0,
+      no_host_sync ? 1 : 0,
+      no_nested_replay ? 1 : 0,
+      no_queue_idle ? 1 : 0,
+      command_capture_safe ? 1 : 0,
+  };
+}
+
+std::vector<std::string> stack_replay_binding_mode_snapshot() {
+  std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+  std::vector<std::string> rows;
+  rows.reserve(stack_replay_binding_mode_rows().size());
+  for (const auto& entry : stack_replay_binding_mode_rows()) {
+    rows.emplace_back(entry.second);
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
+std::vector<int64_t> stack_replay_counters_snapshot() {
+  const auto& counters = vulkan_stack_replay_counters();
+  return {
+      static_cast<int64_t>(
+          counters.total_attempts.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.capture_build_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.replay_hit_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.descriptor_rebind_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_readiness.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_binding_mode.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_binding_validation.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_context_identity.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_capability.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.reject_runtime_capture_active.load(std::memory_order_relaxed)),
+  };
+}
+
+void reset_stack_replay_counters() {
+  auto& counters = vulkan_stack_replay_counters();
+  counters.total_attempts.store(0u, std::memory_order_relaxed);
+  counters.capture_build_count.store(0u, std::memory_order_relaxed);
+  counters.replay_hit_count.store(0u, std::memory_order_relaxed);
+  counters.descriptor_rebind_count.store(0u, std::memory_order_relaxed);
+  counters.reject_readiness.store(0u, std::memory_order_relaxed);
+  counters.reject_binding_mode.store(0u, std::memory_order_relaxed);
+  counters.reject_binding_validation.store(0u, std::memory_order_relaxed);
+  counters.reject_context_identity.store(0u, std::memory_order_relaxed);
+  counters.reject_capability.store(0u, std::memory_order_relaxed);
+  counters.reject_runtime_capture_active.store(0u, std::memory_order_relaxed);
 }
 
 std::string validate_stack_shape_plan_binding(

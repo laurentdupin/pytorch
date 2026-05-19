@@ -8100,6 +8100,45 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             actual.cpu(), expected.cpu(), atol=5e-3, rtol=5e-3
         )
 
+    def test_vulkan_vision_stack_replay_readiness_reports_binding_mode(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            2073
+        )
+
+        torch.ops.vulkan_prepack.reset_stack_shape_plan_counters()
+        torch.ops.vulkan_prepack.reset_stack_resource_binding_manifest()
+        torch.ops.vulkan_prepack.reset_stack_replay_counters()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        manifest = torch.ops.vulkan_prepack.stack_resource_binding_manifest()
+        readiness = torch.ops.vulkan_prepack.stack_replay_readiness()
+        modes = torch.ops.vulkan_prepack.stack_replay_binding_mode()
+        replay_counters = torch.ops.vulkan_prepack.stack_replay_counters()
+
+        self.assertGreater(len(manifest), 0)
+        self.assertTrue(any("role=runtime_input" in row for row in manifest))
+        self.assertTrue(any("role=packed_weight" in row for row in manifest))
+        self.assertTrue(any("role=query" in row for row in manifest))
+        self.assertTrue(
+            any("role=requested_intermediate_output" in row for row in manifest)
+        )
+        self.assertEqual(readiness[0], 1)
+        self.assertEqual(readiness[1], 1)
+        self.assertEqual(readiness[2], 1)
+        self.assertEqual(readiness[3], 0)
+        self.assertEqual(readiness[11], 0)
+        self.assertTrue(
+            any("mode=re_record_command_buffer_per_forward" in row for row in modes)
+        )
+        self.assertGreaterEqual(replay_counters[4], 1)
+        self.assertGreaterEqual(replay_counters[5], 1)
+
     def test_vulkan_vision_stack_execution_manifest_reports_capture_blocker(self):
         torch.manual_seed(0)
         embed_dim = 384

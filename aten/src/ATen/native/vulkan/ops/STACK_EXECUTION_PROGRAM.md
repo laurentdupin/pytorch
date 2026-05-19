@@ -183,6 +183,75 @@ The invalidation model also reserves counters for device/capability and context
 identity changes. Those become mandatory before command-buffer replay can bind
 resources from cached plans.
 
+## Resource Binding Manifest
+
+Shape plans now also produce a command-capture resource binding manifest:
+
+```
+vulkan_prepack::stack_resource_binding_manifest()
+vulkan_prepack::reset_stack_resource_binding_manifest()
+vulkan_prepack::stack_replay_readiness()
+vulkan_prepack::stack_replay_binding_mode()
+vulkan_prepack::stack_replay_counters()
+vulkan_prepack::reset_stack_replay_counters()
+```
+
+Rows classify the logical resources for each stack plan step:
+
+```
+runtime input tensor
+requested intermediate outputs
+internal activations
+q/k/v attention buffers
+attention output
+linear outputs
+residual outputs
+packed linear weights and biases
+norm weights and biases
+```
+
+The manifest distinguishes persistent resources from runtime-bound resources and
+internal temporaries. Persistent packed weights and norm parameters are stable
+across forwards. Runtime inputs, requested outputs, and internal temporary
+buffers are not persistent and would need descriptor rebinding or command
+re-recording.
+
+The current backend records descriptor sets inside each compute job and the
+shape plan does not yet store descriptor set/binding indices or a descriptor
+update table. Resource rows therefore mark descriptor binding indices as
+unknown and runtime-varying buffers as requiring descriptor updates. This is
+enough to prove resource classes, but not enough to safely replay a previously
+recorded command buffer with new runtime tensors.
+
+Replay readiness reports:
+
+```
+fixed_shape_plan=1
+resources_classified=1
+runtime_bindings_validated=1
+descriptors_rebindable=0
+persistent_resources_stable=1
+internal_temps_owned=1
+escaping_outputs_marked=1
+no_cpu_fallback=1
+no_host_sync=1
+no_nested_replay=1
+no_queue_idle=1
+command_capture_safe=0
+```
+
+The binding mode is:
+
+```
+re_record_command_buffer_per_forward
+```
+
+No command-buffer replay is merged. The exact blocker is descriptor rebinding:
+captured command buffers would otherwise retain descriptor sets that refer to
+old runtime inputs, internal temporaries, and escaping outputs. The next replay
+pass needs an explicit descriptor binding table or a planned recording layer
+that can update all runtime-varying descriptors before submission.
+
 ## Current Decision
 
 No command-buffer replay is merged in this pass. The shape-keyed plan cache

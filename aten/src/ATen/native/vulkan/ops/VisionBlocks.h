@@ -377,6 +377,18 @@ std::string validate_stack_shape_plan_binding(
     const Tensor& input,
     IntArrayRef capture_indices);
 
+std::vector<std::string> stack_resource_binding_manifest_snapshot();
+
+void reset_stack_resource_binding_manifest();
+
+std::vector<int64_t> stack_replay_readiness_snapshot();
+
+std::vector<std::string> stack_replay_binding_mode_snapshot();
+
+std::vector<int64_t> stack_replay_counters_snapshot();
+
+void reset_stack_replay_counters();
+
 void prime_vision_backbone_block_context_graph(
     const Tensor& input,
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context);

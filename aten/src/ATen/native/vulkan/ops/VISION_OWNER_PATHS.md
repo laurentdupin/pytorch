@@ -549,6 +549,48 @@ The next program-level step is to use the fixed-shape plan as the canonical
 scheduler for a programmed sequence, then consider command-buffer capture only
 after runtime resource rebinding is proven for each shape key.
 
+## Stack Replay Readiness
+
+The stack owner now exposes a resource binding manifest for each shape plan:
+
+```
+vulkan_prepack::stack_resource_binding_manifest()
+vulkan_prepack::stack_replay_readiness()
+vulkan_prepack::stack_replay_binding_mode()
+vulkan_prepack::stack_replay_counters()
+```
+
+The manifest classifies runtime inputs, requested intermediate outputs,
+internal activations, q/k/v attention buffers, attention outputs, linear and
+residual outputs, packed linear weights, biases, and norm parameters. Persistent
+weights and norm parameters are stable. Runtime inputs, escaping outputs, and
+internal temporaries are runtime-varying resources.
+
+Replay is not enabled. The current command recording path binds concrete
+descriptor sets during each compute submission, and the shape plan does not yet
+carry descriptor set/binding indices or a descriptor update table. The resulting
+readiness is:
+
+```
+fixed_shape_plan=1
+resources_classified=1
+runtime_bindings_validated=1
+descriptors_rebindable=0
+persistent_resources_stable=1
+internal_temps_owned=1
+escaping_outputs_marked=1
+no_cpu_fallback=1
+no_host_sync=1
+no_nested_replay=1
+no_queue_idle=1
+command_capture_safe=0
+```
+
+The binding mode is `re_record_command_buffer_per_forward`, not command replay.
+This avoids stale descriptor references. The next program-level task should add
+a descriptor binding table or planned command recording layer before attempting
+canonical command-buffer replay.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

@@ -421,6 +421,8 @@ void reset_fallback_counters_runtime() {
   reset_stack_attention_counters();
   reset_stack_execution_manifest();
   reset_stack_shape_plan_counters();
+  reset_stack_resource_binding_manifest();
+  reset_stack_replay_counters();
   reset_zero_counters();
 }
 
@@ -1609,6 +1611,18 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "__torch__.torch.classes.vulkan.VisionBackboneStackContext context, "
       "int planned_tokens, Tensor X, int[] capture_indices) -> str"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_resource_binding_manifest() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_resource_binding_manifest() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_replay_readiness() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_replay_binding_mode() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_replay_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_replay_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::zero_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_zero_counters() -> ()"));
@@ -1855,6 +1869,25 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::validate_stack_shape_plan_binding"),
       TORCH_FN(validate_stack_shape_plan_binding));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::stack_resource_binding_manifest"),
+      TORCH_FN(stack_resource_binding_manifest_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_stack_resource_binding_manifest"),
+      TORCH_FN(reset_stack_resource_binding_manifest));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::stack_replay_readiness"),
+      TORCH_FN(stack_replay_readiness_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::stack_replay_binding_mode"),
+      TORCH_FN(stack_replay_binding_mode_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::stack_replay_counters"),
+      TORCH_FN(stack_replay_counters_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_stack_replay_counters"),
+      TORCH_FN(reset_stack_replay_counters));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::zero_counters"),
       TORCH_FN(zero_counters_snapshot));
