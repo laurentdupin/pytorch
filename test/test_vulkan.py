@@ -7807,6 +7807,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         torch.ops.vulkan_prepack.reset_vision_owner_counters()
         torch.ops.vulkan_prepack.reset_vision_stack_owner_counters()
         torch.ops.vulkan_prepack.reset_fallback_phase_counters()
+        torch.ops.vulkan_prepack.reset_stack_allocation_aggregate()
+        torch.ops.vulkan_prepack.reset_stack_dispatch_aggregate()
 
         with torch.inference_mode():
             y0 = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
@@ -7833,6 +7835,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertGreater(stack_counters[1], 0)
         self.assertEqual(stack_counters[2], 2)
         self.assertEqual(stack_counters[3], 2)
+        self.assertGreater(
+            len(torch.ops.vulkan_prepack.stack_allocation_aggregate_snapshot()),
+            0,
+        )
+        self.assertGreater(
+            len(torch.ops.vulkan_prepack.stack_dispatch_aggregate_snapshot()),
+            0,
+        )
         phase_counters = torch.ops.vulkan_prepack.fallback_phase_counters()
         self.assertEqual(phase_counters[3], 0)
 

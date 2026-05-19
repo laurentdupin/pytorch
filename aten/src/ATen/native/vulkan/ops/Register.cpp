@@ -403,6 +403,8 @@ void reset_fallback_counters_runtime() {
   reset_vulkan_fallback_counters();
   reset_vulkan_fallback_phase_counters();
   api::reset_vulkan_sync_counters();
+  api::reset_stack_allocation_aggregate();
+  api::reset_stack_dispatch_aggregate();
   reset_linear_plan_counters();
   reset_linear_aggregate();
   reset_conv_plan_counters();
@@ -1524,6 +1526,14 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::sync_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_allocation_aggregate_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_allocation_aggregate() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_dispatch_aggregate_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_dispatch_aggregate() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::linear_plan_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::linear_aggregate_snapshot() -> str[]"));
@@ -1693,6 +1703,20 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::sync_counters"),
       TORCH_FN(sync_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::stack_allocation_aggregate_snapshot"),
+      TORCH_FN(api::stack_allocation_aggregate_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_stack_allocation_aggregate"),
+      TORCH_FN(api::reset_stack_allocation_aggregate));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::stack_dispatch_aggregate_snapshot"),
+      TORCH_FN(api::stack_dispatch_aggregate_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_stack_dispatch_aggregate"),
+      TORCH_FN(api::reset_stack_dispatch_aggregate));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vision_backbone_stack_context"),

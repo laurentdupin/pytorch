@@ -725,6 +725,7 @@ inline bool Context::submit_compute_job(
   vulkan_sync_counters().compute_dispatch_count.fetch_add(
       1u,
       std::memory_order_relaxed);
+  note_vulkan_stack_dispatch(shader.kernel_name.c_str());
 
   if (enable_op_profiling_ && !external_recording) {
     gpu_profile_end(cmd, log_idx);

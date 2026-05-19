@@ -270,6 +270,129 @@ boundary.
 `compute_dispatch_count` and `submit_compute_job_count` at the end. These
 counters are diagnostic-only and do not affect route selection.
 
+## Stack Lifetime And Dispatch Diagnostics
+
+The stack owner now labels internal phases while it sequences the existing block
+owner:
+
+```
+stack_entry
+block_entry
+norm1
+qkv_linear
+qkv_transform
+attention
+proj_linear
+residual1
+norm2
+fc1_gelu
+fc2
+residual2
+intermediate_capture
+stack_exit
+```
+
+Two diagnostic-only snapshots are exposed:
+
+```
+vulkan_prepack::stack_allocation_aggregate_snapshot()
+vulkan_prepack::reset_stack_allocation_aggregate()
+vulkan_prepack::stack_dispatch_aggregate_snapshot()
+vulkan_prepack::reset_stack_dispatch_aggregate()
+```
+
+`stack_allocation_aggregate_snapshot()` records stack-phase allocations created
+through Vulkan buffer tensor helpers while a stack phase is active. Rows include
+phase, block index, block allocation label, shape, strides, dtype, storage
+layout flags, and lifetime classification. The lifetime classes currently used
+by the stack owner are:
+
+```
+internal_temp
+requested_intermediate_output
+final_stack_output
+```
+
+`stack_dispatch_aggregate_snapshot()` records compute dispatches by stack phase,
+block index, and shader name. This is also diagnostic-only and does not choose a
+route.
+
+A canonical DAv2 vits stack run with `warmup=3`, `repeats=10`, and
+`--skip-output-copy` reported:
+
+```
+device-resident mean=0.3220s median=0.3212s p90=0.3245s min=0.3199s max=0.3267s
+stream_submit_count=4681
+compute_dispatch_count=23237
+submit_compute_job_count=23237
+timed_fallback=0
+queue_wait_idle_count=0
+CPU fallback count=1 setup-only
+```
+
+The allocation profile was dominated by internal attention-phase buffers:
+
+```
+shape=[6,2073,2073] lifetime=internal_temp bytes_per_stack=1326.0 MB
+shape=[6,2110,2110] lifetime=internal_temp bytes_per_stack=1190.6 MB
+shape=[6,2073,64]   lifetime=internal_temp bytes_per_stack=20.5 MB
+shape=[6,2110,64]   lifetime=internal_temp bytes_per_stack=18.1 MB
+shape=[1,2073,384]  lifetime=requested/final output bytes_per_stack=6.8 MB
+shape=[1,2110,384]  lifetime=requested/final output bytes_per_stack=6.0 MB
+```
+
+The phase split was:
+
+```
+attention internal_temp bytes_per_stack=2555.2 MB
+intermediate_capture escaping bytes_per_stack=12.8 MB
+```
+
+The dispatch profile was:
+
+```
+attention      2064 dispatches, 36.9 per stack
+residual1      1344 dispatches, 24.0 per stack
+residual2      1344 dispatches, 24.0 per stack
+fc1_gelu        816 dispatches, 14.6 per stack
+fc2             816 dispatches, 14.6 per stack
+proj_linear     816 dispatches, 14.6 per stack
+qkv_linear      816 dispatches, 14.6 per stack
+norm1           672 dispatches, 12.0 per stack
+norm2           672 dispatches, 12.0 per stack
+qkv_transform   672 dispatches, 12.0 per stack
+```
+
+Top shaders by dispatch count were:
+
+```
+buffer_add                                               1400
+mm_buffer_float_bias                                     1344
+native_layer_norm_width_buffer_float                     1344
+buffer_mul                                               1344
+buffer_to_buffer                                          672
+merge_attention_heads_buffer                              672
+scaled_dot_product_scores_value_buffer_float_head64_q4_subgroup 672
+mm_buffer_float_bias_gelu                                 672
+mm_buffer_float                                           672
+transform_bias_rescale_qkv_buffer                         672
+```
+
+The scratch decision from this profile is deliberately conservative. Internal
+temporary allocation pressure is material, but the largest reusable class is
+attention scratch (`[6,T,T]` scores/probability buffers) owned inside the
+attention implementation. Reusing it safely from the stack requires a first-class
+attention scratch/out interface or stack-level program scratch arena ownership.
+No stack scratch slot was merged in this pass because redirecting those buffers
+from the stack boundary would either require an attention-path API change or a
+copy into scratch, which would defeat the purpose and risk changing visible
+lifetimes. Requested intermediate and final stack outputs are small by
+comparison and must continue to escape the stack.
+
+The next program-level step should therefore be a narrow attention scratch arena
+or safe stack-level program capture plan with attention as a first-class phase,
+not a generic stack scratch allocator.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

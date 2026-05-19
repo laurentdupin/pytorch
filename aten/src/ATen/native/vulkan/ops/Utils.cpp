@@ -1,5 +1,7 @@
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
+#include <ATen/native/vulkan/api/Resource.h>
+#include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
@@ -904,7 +906,7 @@ Tensor create_buffer_tensor(
     IntArrayRef sizes,
     const ScalarType dtype,
     const bool persistent) {
-  return mark_tensor_execution(
+  Tensor output = mark_tensor_execution(
       convert(vTensor{
           api::context(),
           sizes.vec(),
@@ -914,6 +916,29 @@ Tensor create_buffer_tensor(
       }),
       api::ExecutionLayout::BUFFER_DIRECT,
       persistent);
+  if (api::inside_vision_stack_phase()) {
+    std::vector<int64_t> strides(sizes.size(), 1);
+    for (int64_t idx = static_cast<int64_t>(sizes.size()) - 2; idx >= 0; --idx) {
+      strides[idx] = strides[idx + 1] * std::max<int64_t>(sizes[idx + 1], 1);
+    }
+    uint64_t numel = 1u;
+    for (const int64_t size : sizes) {
+      numel *= static_cast<uint64_t>(std::max<int64_t>(size, 0));
+    }
+    api::note_vulkan_stack_allocation(
+        api::current_allocation_label().c_str(),
+        api::VulkanStackTensorLifetimeClass::InternalTemp,
+        sizes.vec(),
+        strides,
+        static_cast<int64_t>(dtype),
+        true,
+        true,
+        false,
+        false,
+        false,
+        numel * static_cast<uint64_t>(c10::elementSize(dtype)));
+  }
+  return output;
 }
 
 Tensor& copy_buffer_tensor_direct_(Tensor& dst, const Tensor& src) {

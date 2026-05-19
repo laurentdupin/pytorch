@@ -1,6 +1,7 @@
 #include <ATen/Functions.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Resource.h>
+#include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Clamp.h>
 #include <ATen/native/vulkan/ops/Concat.h>
@@ -2290,64 +2291,76 @@ Tensor run_attention_projection(
     }
 
     Tensor mixed_qkv;
-    if (vision_program && vision_program->defined()) {
-      mixed_qkv = use_scratch_qkv_projection
-          ? run_linear_context_out(
-                input_2d, context->qkv_context(), mixed_qkv_output)
-          : run_linear_context_out(
-                input_2d, context->qkv_context(), vision_program->qkv_output());
-    } else {
-      mixed_qkv = run_linear_context(input_2d, context->qkv_context());
+    {
+      api::VulkanVisionStackPhaseScope scope(
+          api::VulkanVisionStackPhase::QkvLinear);
+      if (vision_program && vision_program->defined()) {
+        mixed_qkv = use_scratch_qkv_projection
+            ? run_linear_context_out(
+                  input_2d, context->qkv_context(), mixed_qkv_output)
+            : run_linear_context_out(
+                  input_2d, context->qkv_context(), vision_program->qkv_output());
+      } else {
+        mixed_qkv = run_linear_context(input_2d, context->qkv_context());
+      }
     }
     Tensor q;
     Tensor k;
     Tensor v;
     bool q_is_scaled = false;
-    if (context->qkv_bias().defined()) {
-      if (use_scratch_qkv_projection) {
-        auto [q_slice, q_output] = reserve_scratch_buffer_tensor(
-            *scratch_arena,
-            {context->num_heads(), token_count, head_dim},
-            kFloat);
-        auto [k_slice, k_output] = reserve_scratch_buffer_tensor(
-            *scratch_arena,
-            {context->num_heads(), token_count, head_dim},
-            kFloat);
-        auto [v_slice, v_output] = reserve_scratch_buffer_tensor(
-            *scratch_arena,
-            {context->num_heads(), token_count, head_dim},
-            kFloat);
-        (void)q_slice;
-        (void)k_slice;
-        (void)v_slice;
-        std::tie(q, k, v) = transform_bias_rescale_qkv_vulkan_out(
-            mixed_qkv,
-            context->qkv_bias(),
-            context->num_heads(),
-            q_output,
-            k_output,
-            v_output);
+    {
+      api::VulkanVisionStackPhaseScope scope(
+          api::VulkanVisionStackPhase::QkvTransform);
+      if (context->qkv_bias().defined()) {
+        if (use_scratch_qkv_projection) {
+          auto [q_slice, q_output] = reserve_scratch_buffer_tensor(
+              *scratch_arena,
+              {context->num_heads(), token_count, head_dim},
+              kFloat);
+          auto [k_slice, k_output] = reserve_scratch_buffer_tensor(
+              *scratch_arena,
+              {context->num_heads(), token_count, head_dim},
+              kFloat);
+          auto [v_slice, v_output] = reserve_scratch_buffer_tensor(
+              *scratch_arena,
+              {context->num_heads(), token_count, head_dim},
+              kFloat);
+          (void)q_slice;
+          (void)k_slice;
+          (void)v_slice;
+          std::tie(q, k, v) = transform_bias_rescale_qkv_vulkan_out(
+              mixed_qkv,
+              context->qkv_bias(),
+              context->num_heads(),
+              q_output,
+              k_output,
+              v_output);
+        } else {
+          std::tie(q, k, v) = at::_transform_bias_rescale_qkv(
+              mixed_qkv, context->qkv_bias(), context->num_heads());
+        }
+        q_is_scaled = true;
       } else {
-        std::tie(q, k, v) = at::_transform_bias_rescale_qkv(
-            mixed_qkv, context->qkv_bias(), context->num_heads());
+        std::vector<Tensor> qkv = at::chunk(mixed_qkv, 3, 1);
+        q = qkv[0].reshape({token_count, context->num_heads(), head_dim})
+                .permute({1, 0, 2});
+        k = qkv[1].reshape({token_count, context->num_heads(), head_dim})
+                .permute({1, 0, 2});
+        v = qkv[2].reshape({token_count, context->num_heads(), head_dim})
+                .permute({1, 0, 2});
       }
-      q_is_scaled = true;
-    } else {
-      std::vector<Tensor> qkv = at::chunk(mixed_qkv, 3, 1);
-      q = qkv[0].reshape({token_count, context->num_heads(), head_dim})
-              .permute({1, 0, 2});
-      k = qkv[1].reshape({token_count, context->num_heads(), head_dim})
-              .permute({1, 0, 2});
-      v = qkv[2].reshape({token_count, context->num_heads(), head_dim})
-              .permute({1, 0, 2});
     }
     if (!q_is_scaled) {
       q = at::mul(
           q,
           static_cast<float>(1.0 / std::sqrt(static_cast<double>(head_dim))));
     }
-    attention_output = run_attention_with_workspace_fallback(
-        q, k, v, attention_bias, vision_program, scratch_arena);
+    {
+      api::VulkanVisionStackPhaseScope scope(
+          api::VulkanVisionStackPhase::Attention);
+      attention_output = run_attention_with_workspace_fallback(
+          q, k, v, attention_bias, vision_program, scratch_arena);
+    }
     Tensor scratch_merge_output;
     Tensor* merge_output_opt = nullptr;
     if (use_scratch_qkv_projection && mixed_qkv_slice.has_value()) {
@@ -2368,13 +2381,19 @@ Tensor run_attention_projection(
     } else if (vision_program && vision_program->defined()) {
       merge_output_opt = &vision_program->merge_output();
     }
-    attention_output = merge_attention_heads_for_projection(
-        attention_output,
-        batch_size,
-        token_count,
-        context->num_heads(),
-        head_dim,
-        merge_output_opt);
+    {
+      api::VulkanVisionStackPhaseScope scope(
+          api::VulkanVisionStackPhase::Attention);
+      attention_output = merge_attention_heads_for_projection(
+          attention_output,
+          batch_size,
+          token_count,
+          context->num_heads(),
+          head_dim,
+          merge_output_opt);
+    }
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::ProjLinear);
     return vision_program && vision_program->defined()
         ? run_linear_context_out(
               attention_output,
@@ -2383,24 +2402,43 @@ Tensor run_attention_projection(
         : run_linear_context(attention_output, context->proj_context());
   }
 
-  Tensor mixed_qkv = vision_program && vision_program->defined()
-      ? run_linear_context_out(
-            input_2d, context->qkv_context(), vision_program->qkv_output())
-      : run_linear_context(input_2d, context->qkv_context());
+  Tensor mixed_qkv;
+  {
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::QkvLinear);
+    mixed_qkv = vision_program && vision_program->defined()
+        ? run_linear_context_out(
+              input_2d, context->qkv_context(), vision_program->qkv_output())
+        : run_linear_context(input_2d, context->qkv_context());
+  }
   if (context->qkv_bias().defined()) {
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::QkvTransform);
     mixed_qkv = mixed_qkv.add(context->qkv_bias());
   }
-  mixed_qkv = mixed_qkv.reshape({batch_size, token_count, 3 * embed_dim});
+  {
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::QkvTransform);
+    mixed_qkv = mixed_qkv.reshape({batch_size, token_count, 3 * embed_dim});
+  }
   Tensor q;
   Tensor k;
   Tensor v;
-  std::tie(q, k, v) = reshape_qkv_for_attention(
-      mixed_qkv, batch_size, token_count, context->num_heads(), head_dim);
+  {
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::QkvTransform);
+    std::tie(q, k, v) = reshape_qkv_for_attention(
+        mixed_qkv, batch_size, token_count, context->num_heads(), head_dim);
+  }
   q = at::mul(
       q,
       static_cast<float>(1.0 / std::sqrt(static_cast<double>(head_dim))));
-  attention_output = run_attention_with_workspace_fallback(
-      q, k, v, attention_bias, vision_program, scratch_arena);
+  {
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::Attention);
+    attention_output = run_attention_with_workspace_fallback(
+        q, k, v, attention_bias, vision_program, scratch_arena);
+  }
   Tensor scratch_merge_output;
   Tensor* merge_output_opt = nullptr;
   if (use_program_scratch) {
@@ -2414,13 +2452,19 @@ Tensor run_attention_projection(
   } else if (vision_program && vision_program->defined()) {
     merge_output_opt = &vision_program->merge_output();
   }
-  attention_output = merge_attention_heads_for_projection(
-      attention_output,
-      batch_size,
-      token_count,
-      context->num_heads(),
-      head_dim,
-      merge_output_opt);
+  {
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::Attention);
+    attention_output = merge_attention_heads_for_projection(
+        attention_output,
+        batch_size,
+        token_count,
+        context->num_heads(),
+        head_dim,
+        merge_output_opt);
+  }
+  api::VulkanVisionStackPhaseScope scope(
+      api::VulkanVisionStackPhase::ProjLinear);
   return vision_program && vision_program->defined()
       ? run_linear_context_out(
             attention_output,
@@ -2524,13 +2568,18 @@ Tensor run_vision_backbone_block_program(
   Tensor input_2d = use_2d_input ? input : input.reshape({hidden_rows, embed_dim});
 
   const std::array<int64_t, 1> normalized_shape = {embed_dim};
-  Tensor attention_input = vision_program
-      ? run_layernorm_context_out(
-            input_2d,
-            normalized_shape,
-            context->norm1_context(),
-            vision_program->norm1_output())
-      : run_layernorm_context(input_2d, normalized_shape, context->norm1_context());
+  Tensor attention_input;
+  {
+    api::VulkanVisionStackPhaseScope scope(api::VulkanVisionStackPhase::Norm1);
+    attention_input = vision_program
+        ? run_layernorm_context_out(
+              input_2d,
+              normalized_shape,
+              context->norm1_context(),
+              vision_program->norm1_output())
+        : run_layernorm_context(
+              input_2d, normalized_shape, context->norm1_context());
+  }
   Tensor attention_output = run_attention_projection(
       attention_input,
       batch_size,
@@ -2543,6 +2592,8 @@ Tensor run_vision_backbone_block_program(
   Tensor mlp_input;
   Tensor attention_addend = attention_output;
   if (vision_program && context->ls1_gamma().defined()) {
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::Residual1);
     // norm1_output is no longer needed after attention, so use it as the
     // retained residual scratch for the fused residual-add + norm2 pass.
     auto fused_residual_norm = try_run_add_scaled_layernorm_context_out(
@@ -2559,10 +2610,14 @@ Tensor run_vision_backbone_block_program(
     }
   }
   if (!mlp_input.defined()) {
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::Residual1);
     attention_addend =
         maybe_apply_layerscale(attention_output, context->ls1_gamma());
   }
   if (vision_program && !mlp_input.defined()) {
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::Residual1);
     auto fused_residual_norm = try_run_add_layernorm_context_out(
         input_2d,
         attention_addend,
@@ -2576,15 +2631,22 @@ Tensor run_vision_backbone_block_program(
     }
   }
   if (!mlp_input.defined()) {
-    hidden_states = at::add(input_2d, attention_addend);
-    mlp_input = vision_program
-        ? run_layernorm_context_out(
-              hidden_states,
-              normalized_shape,
-              context->norm2_context(),
-              vision_program->norm2_output())
-        : run_layernorm_context(
-              hidden_states, normalized_shape, context->norm2_context());
+    {
+      api::VulkanVisionStackPhaseScope scope(
+          api::VulkanVisionStackPhase::Residual1);
+      hidden_states = at::add(input_2d, attention_addend);
+    }
+    {
+      api::VulkanVisionStackPhaseScope scope(api::VulkanVisionStackPhase::Norm2);
+      mlp_input = vision_program
+          ? run_layernorm_context_out(
+                hidden_states,
+                normalized_shape,
+                context->norm2_context(),
+                vision_program->norm2_output())
+          : run_layernorm_context(
+                hidden_states, normalized_shape, context->norm2_context());
+    }
   }
   auto& mlp_counters = vulkan_vision_owner_mlp_counters();
   mlp_counters.total.fetch_add(1u, std::memory_order_relaxed);
@@ -2595,16 +2657,23 @@ Tensor run_vision_backbone_block_program(
   } else if (mlp_input.dim() != 2 && mlp_input.dim() != 3) {
     mlp_counters.reject_shape.fetch_add(1u, std::memory_order_relaxed);
   }
-  Tensor mlp_output = vision_program
-      ? run_linear_gelu_context_out(
-            mlp_input, context->fc1_context(), vision_program->fc1_output())
-      : run_linear_gelu_context(mlp_input, context->fc1_context());
+  Tensor mlp_output;
+  {
+    api::VulkanVisionStackPhaseScope scope(api::VulkanVisionStackPhase::Fc1Gelu);
+    mlp_output = vision_program
+        ? run_linear_gelu_context_out(
+              mlp_input, context->fc1_context(), vision_program->fc1_output())
+        : run_linear_gelu_context(mlp_input, context->fc1_context());
+  }
   mlp_counters.linear_gelu_hit.fetch_add(1u, std::memory_order_relaxed);
 
-  mlp_output = vision_program
-      ? run_linear_context_out(
-            mlp_output, context->fc2_context(), vision_program->fc2_output())
-      : run_linear_context(mlp_output, context->fc2_context());
+  {
+    api::VulkanVisionStackPhaseScope scope(api::VulkanVisionStackPhase::Fc2);
+    mlp_output = vision_program
+        ? run_linear_context_out(
+              mlp_output, context->fc2_context(), vision_program->fc2_output())
+        : run_linear_context(mlp_output, context->fc2_context());
+  }
   mlp_counters.fc2_after_linear_gelu_hit.fetch_add(
       1u,
       std::memory_order_relaxed);
@@ -2613,6 +2682,8 @@ Tensor run_vision_backbone_block_program(
 
   if (output_slot && output_slot->defined() && hidden_states.scalar_type() == kFloat &&
       mlp_output.scalar_type() == kFloat) {
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::Residual2);
     Tensor add_output = use_2d_input
         ? *output_slot
         : output_slot->reshape({hidden_rows, embed_dim});
@@ -2628,8 +2699,13 @@ Tensor run_vision_backbone_block_program(
     return *output_slot;
   }
 
-  mlp_addend = maybe_apply_layerscale(mlp_output, context->ls2_gamma());
-  Tensor output = at::add(hidden_states, mlp_addend);
+  Tensor output;
+  {
+    api::VulkanVisionStackPhaseScope scope(
+        api::VulkanVisionStackPhase::Residual2);
+    mlp_addend = maybe_apply_layerscale(mlp_output, context->ls2_gamma());
+    output = at::add(hidden_states, mlp_addend);
+  }
   if (!use_2d_input) {
     output = output.reshape({batch_size, token_count, embed_dim});
   }
@@ -5555,6 +5631,7 @@ Tensor run_vision_backbone_block_context(
         "block", false, "missing_context", input_arg, context);
   }
   TORCH_CHECK(context, "Vision backbone block context is required");
+  api::AllocationScope allocation_scope(context->allocation_label());
   TORCH_CHECK(
       input_arg.dim() == 2 || input_arg.dim() == 3,
       "Vision backbone block context expects rank-2 or rank-3 input");
@@ -5783,6 +5860,8 @@ std::vector<Tensor> run_vision_backbone_stack_context(
     const c10::intrusive_ptr<VisionBackboneStackContext>& context,
     IntArrayRef capture_indices) {
   recover_after_vulkan_failure_if_needed();
+  api::VulkanVisionStackPhaseScope stack_entry_scope(
+      api::VulkanVisionStackPhase::StackEntry);
   auto& stack_counters = vulkan_vision_stack_owner_counters();
   stack_counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
 
@@ -5880,13 +5959,40 @@ std::vector<Tensor> run_vision_backbone_stack_context(
     TORCH_CHECK(
         static_cast<bool>(block_context),
         "Vision backbone stack context contains an undefined block context");
-    current = run_vision_backbone_block_context(current, block_context);
+    {
+      api::VulkanVisionStackBlockScope block_scope(
+          static_cast<int64_t>(block_idx));
+      api::VulkanVisionStackPhaseScope phase_scope(
+          api::VulkanVisionStackPhase::BlockEntry);
+      current = run_vision_backbone_block_context(current, block_context);
+    }
     stack_counters.block_execute_count.fetch_add(
         1u,
         std::memory_order_relaxed);
     for (size_t capture_pos = 0u; capture_pos < capture_indices_vec.size();
          ++capture_pos) {
       if (capture_indices_vec[capture_pos] == static_cast<int64_t>(block_idx)) {
+        api::VulkanVisionStackBlockScope block_scope(
+            static_cast<int64_t>(block_idx));
+        api::VulkanVisionStackPhaseScope phase_scope(
+            api::VulkanVisionStackPhase::IntermediateCapture);
+        const uint64_t bytes = static_cast<uint64_t>(current.numel()) *
+            static_cast<uint64_t>(current.element_size());
+        api::note_vulkan_stack_allocation(
+            "vision_stack_capture",
+            block_idx + 1u == context->blocks().size()
+                ? api::VulkanStackTensorLifetimeClass::FinalStackOutput
+                : api::VulkanStackTensorLifetimeClass::
+                      RequestedIntermediateOutput,
+            current.sizes().vec(),
+            current.strides().vec(),
+            static_cast<int64_t>(current.scalar_type()),
+            current.is_vulkan(),
+            current.is_vulkan(),
+            false,
+            true,
+            true,
+            bytes);
         outputs[capture_pos] = record_tensor_write_and_return(
             current,
             "vulkan_prepack::run_vision_backbone_stack_context",
@@ -5896,6 +6002,8 @@ std::vector<Tensor> run_vision_backbone_stack_context(
     }
   }
 
+  api::VulkanVisionStackPhaseScope stack_exit_scope(
+      api::VulkanVisionStackPhase::StackExit);
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_vision_backbone_stack_context");
   return outputs;

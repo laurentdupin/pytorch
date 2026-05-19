@@ -6,6 +6,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -20,6 +22,59 @@ enum class VulkanForcedSyncReason : uint8_t {
   GpuTimestampQueryReset,
   FallbackPolicyReadback,
   Unknown,
+};
+
+enum class VulkanVisionStackPhase : uint8_t {
+  Unknown = 0,
+  StackEntry,
+  BlockEntry,
+  Norm1,
+  QkvLinear,
+  QkvTransform,
+  Attention,
+  ProjLinear,
+  Residual1,
+  Norm2,
+  Fc1Gelu,
+  Fc2,
+  Residual2,
+  IntermediateCapture,
+  StackExit,
+};
+
+enum class VulkanStackTensorLifetimeClass : uint8_t {
+  Unknown = 0,
+  InternalTemp,
+  BlockOutputForNextBlock,
+  RequestedIntermediateOutput,
+  FinalStackOutput,
+  AliasOrView,
+};
+
+class TORCH_API VulkanVisionStackPhaseScope final {
+ public:
+  explicit VulkanVisionStackPhaseScope(VulkanVisionStackPhase phase);
+  ~VulkanVisionStackPhaseScope();
+
+  VulkanVisionStackPhaseScope(const VulkanVisionStackPhaseScope&) = delete;
+  VulkanVisionStackPhaseScope& operator=(const VulkanVisionStackPhaseScope&) =
+      delete;
+
+ private:
+  VulkanVisionStackPhase previous_;
+};
+
+class TORCH_API VulkanVisionStackBlockScope final {
+ public:
+  explicit VulkanVisionStackBlockScope(int64_t block_index);
+  ~VulkanVisionStackBlockScope();
+
+  VulkanVisionStackBlockScope(const VulkanVisionStackBlockScope&) = delete;
+  VulkanVisionStackBlockScope& operator=(const VulkanVisionStackBlockScope&) =
+      delete;
+
+ private:
+  int64_t previous_;
 };
 
 struct VulkanSyncCounters final {
@@ -52,6 +107,31 @@ TORCH_API void reset_vulkan_sync_counters();
 TORCH_API void note_vulkan_queue_wait_idle();
 TORCH_API void note_vulkan_forced_sync(
     VulkanForcedSyncReason reason = VulkanForcedSyncReason::Unknown);
+
+TORCH_API const char* vision_stack_phase_name(VulkanVisionStackPhase phase);
+TORCH_API const char* stack_tensor_lifetime_name(
+    VulkanStackTensorLifetimeClass lifetime);
+TORCH_API VulkanVisionStackPhase current_vision_stack_phase();
+TORCH_API int64_t current_vision_stack_block_index();
+TORCH_API bool inside_vision_stack_phase();
+
+TORCH_API void note_vulkan_stack_dispatch(const char* shader_name);
+TORCH_API void note_vulkan_stack_allocation(
+    const char* role,
+    VulkanStackTensorLifetimeClass lifetime,
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& strides,
+    int64_t dtype,
+    bool direct_buffer,
+    bool buffer_storage,
+    bool image_storage,
+    bool escapes_stack,
+    bool requested_intermediate,
+    uint64_t bytes);
+TORCH_API std::vector<std::string> stack_dispatch_aggregate_snapshot();
+TORCH_API std::vector<std::string> stack_allocation_aggregate_snapshot();
+TORCH_API void reset_stack_dispatch_aggregate();
+TORCH_API void reset_stack_allocation_aggregate();
 
 } // namespace api
 } // namespace vulkan
