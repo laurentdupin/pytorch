@@ -168,6 +168,37 @@ test, but it regressed no-timestamp DAv2 device-resident median from 0.3315s to
 0.7552s on the measured adapter. The broadcast candidate was rejected, and the
 canonical q4 subgroup shader remains the per-lane scalar update version.
 
+## Source-blocked q4 candidate
+
+A source-blocked q4 candidate was evaluated as a replacement for the canonical
+large-sequence DAv2 FP32 head64 path. The candidate split the source-token
+dimension into blocks, computed block-local max/denominator/unnormalized value
+partials in pass 1, and merged those summaries in pass 2 with exact softmax
+merge math. It did not use approximate softmax and preserved the same non-causal,
+no-mask, no-dropout semantics.
+
+Estimated temporary storage for the DAv2 vits attention shapes was:
+
+```
+target/source  source_block  source_blocks  temp_mib
+2073           64            33             103.49
+2073           128           17             53.31
+2073           256           9              28.22
+2073           512           5              15.68
+2110           64            33             105.28
+2110           128           17             54.24
+2110           256           9              28.71
+2110           512           5              15.95
+```
+
+The implemented candidate used source_block=256. It was functionally viable but
+slower on the measured adapter: no-timestamp DAv2 device-resident median changed
+from 0.3107s to 0.3210s. The timestamp profile showed pass 1 plus pass 2 at
+roughly 3.91s total GPU time, compared with 4.37s for the canonical q4 subgroup
+kernel, but the extra dispatches, temporary storage traffic, and full-model
+timing did not justify replacing the canonical path. The candidate route and
+shaders were removed.
+
 ## Remaining limitations
 
 - Query tile 4 is the only production qtile variant for the validated FP32

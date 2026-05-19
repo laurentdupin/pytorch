@@ -195,6 +195,16 @@ device-resident DAv2 median latency on the measured adapter. The owner path
 therefore continues to use the existing q4 subgroup shader on subgroup64-capable
 adapters and the shared-memory q4 shader otherwise.
 
+A source-blocked q4 attention experiment was also evaluated after conv routing
+cleanup. It split the source-token loop into block-local pass 1 summaries and a
+pass 2 exact softmax merge. For source_block=256, the DAv2 vits temporary storage
+requirement was about 28.2 MiB to 28.7 MiB per attention call shape. The
+candidate reduced the attention timestamp kernel total in isolation, but
+regressed no-timestamp device-resident median from 0.3107s to 0.3210s because
+the extra dispatches and temporary buffer traffic outweighed the source
+parallelism. The source-blocked route and shaders were removed, so the owner path
+continues to use canonical q4 subgroup attention where capability-safe.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:
