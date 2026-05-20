@@ -107,6 +107,45 @@ VulkanRetireDrainReason retire_drain_reason_for_current_phase() {
   }
 }
 
+VulkanRetireCallSite retire_call_site_for_current_phase() {
+  if (current_submit_phase() == VulkanSubmitPhase::StackOwner) {
+    switch (current_vision_stack_phase()) {
+      case VulkanVisionStackPhase::Norm1:
+        return VulkanRetireCallSite::StackOwnerNorm1;
+      case VulkanVisionStackPhase::Norm2:
+        return VulkanRetireCallSite::StackOwnerNorm2;
+      case VulkanVisionStackPhase::Attention:
+        return VulkanRetireCallSite::StackOwnerAttention;
+      case VulkanVisionStackPhase::QkvLinear:
+      case VulkanVisionStackPhase::ProjLinear:
+      case VulkanVisionStackPhase::Fc1Gelu:
+      case VulkanVisionStackPhase::Fc2:
+        return VulkanRetireCallSite::StackOwnerLinear;
+      case VulkanVisionStackPhase::Residual1:
+      case VulkanVisionStackPhase::Residual2:
+        return VulkanRetireCallSite::StackOwnerResidual;
+      default:
+        return VulkanRetireCallSite::StackOwnerPhaseBoundary;
+    }
+  }
+  switch (current_submit_phase()) {
+    case VulkanSubmitPhase::Readback:
+      return VulkanRetireCallSite::BenchmarkReadback;
+    case VulkanSubmitPhase::ModelSetup:
+    case VulkanSubmitPhase::PatchEmbed:
+    case VulkanSubmitPhase::PositionalEmbeddingSetup:
+      return VulkanRetireCallSite::BenchmarkSetup;
+    case VulkanSubmitPhase::ExplicitSynchronize:
+      return VulkanRetireCallSite::ContextExplicitSynchronize;
+    case VulkanSubmitPhase::Shutdown:
+      return VulkanRetireCallSite::ContextShutdown;
+    case VulkanSubmitPhase::TestHarness:
+      return VulkanRetireCallSite::DebugValidation;
+    default:
+      return VulkanRetireCallSite::ContextFlushPending;
+  }
+}
+
 struct CpuTimelineSummary final {
   uint64_t count{0u};
   uint64_t submitted{0u};
@@ -782,20 +821,37 @@ VulkanSubmission Context::submit_cmd_handle_to_gpu(
   return VulkanSubmission{stream.id, stream.timeline, signal_value};
 }
 
-void Context::retire_deferred_cleanup(VulkanSubmission submission) {
+void Context::retire_deferred_cleanup(
+    VulkanSubmission submission,
+    VulkanSubmitOrigin origin) {
   if (submission.timeline == VK_NULL_HANDLE || submission.timeline_value == 0u) {
     clear_pending_retire_resources_locked();
     return;
   }
+  const VulkanRetireCallSite callsite =
+      origin == VulkanSubmitOrigin::StackPlannedRecordingSubmit
+      ? VulkanRetireCallSite::StackPlannedRecordingEnd
+      : retire_call_site_for_current_phase();
   {
     std::lock_guard<std::mutex> bufferlist_lock(
         pending_retire_buffers_mutex_);
-    for (VulkanBuffer& buffer : pending_retire_buffers_) {
+    for (PendingRetireBuffer& pending : pending_retire_buffers_) {
+      note_vulkan_retired_resource(
+          pending.kind,
+          pending.role,
+          pending.phase,
+          pending.callsite == VulkanRetireCallSite::Unknown ? callsite
+                                                            : pending.callsite,
+          pending.bytes,
+          /*queue_submit=*/true,
+          /*blocking_wait=*/false,
+          /*poll_only=*/false);
       retire_queue_.retire(RetiredResource{
           submission.stream_id,
           submission.timeline,
           submission.timeline_value,
-          [buffer = std::make_shared<VulkanBuffer>(std::move(buffer))]() mutable {
+          [buffer = std::make_shared<VulkanBuffer>(
+               std::move(pending.buffer))]() mutable {
             buffer.reset();
           },
       });
@@ -804,12 +860,23 @@ void Context::retire_deferred_cleanup(VulkanSubmission submission) {
   }
   {
     std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
-    for (VulkanImage& image : pending_retire_images_) {
+    for (PendingRetireImage& pending : pending_retire_images_) {
+      note_vulkan_retired_resource(
+          pending.kind,
+          pending.role,
+          pending.phase,
+          pending.callsite == VulkanRetireCallSite::Unknown ? callsite
+                                                            : pending.callsite,
+          pending.bytes,
+          /*queue_submit=*/true,
+          /*blocking_wait=*/false,
+          /*poll_only=*/false);
       retire_queue_.retire(RetiredResource{
           submission.stream_id,
           submission.timeline,
           submission.timeline_value,
-          [image = std::make_shared<VulkanImage>(std::move(image))]() mutable {
+          [image = std::make_shared<VulkanImage>(
+               std::move(pending.image))]() mutable {
             image.reset();
           },
       });
@@ -826,6 +893,7 @@ void Context::poll_retire_queue() {
 void Context::submit_pending_work_and_poll_retire() {
   const uint64_t pending_bytes = pending_retire_bytes();
   uint64_t pending_resource_count = 0u;
+  const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
   {
     std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
     pending_resource_count += pending_retire_buffers_.size();
@@ -843,10 +911,41 @@ void Context::submit_pending_work_and_poll_retire() {
   }
   note_vulkan_retire_drain(
       retire_drain_reason_for_current_phase(),
+      callsite,
       had_pending_work,
       /*blocking_wait=*/false,
       pending_resource_count,
       pending_bytes);
+  if (!had_pending_work) {
+    std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
+    for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
+      note_vulkan_retired_resource(
+          pending.kind,
+          pending.role,
+          pending.phase,
+          pending.callsite == VulkanRetireCallSite::Unknown ? callsite
+                                                            : pending.callsite,
+          pending.bytes,
+          had_pending_work,
+          /*blocking_wait=*/false,
+          !had_pending_work);
+    }
+  }
+  if (!had_pending_work) {
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    for (const PendingRetireImage& pending : pending_retire_images_) {
+      note_vulkan_retired_resource(
+          pending.kind,
+          pending.role,
+          pending.phase,
+          pending.callsite == VulkanRetireCallSite::Unknown ? callsite
+                                                            : pending.callsite,
+          pending.bytes,
+          had_pending_work,
+          /*blocking_wait=*/false,
+          !had_pending_work);
+    }
+  }
   poll_retire_queue();
 }
 
@@ -870,7 +969,7 @@ VulkanSubmission Context::submit_cmd_to_gpu(
     last_submission_ = submission;
 
     submit_count_ = 0u;
-    retire_deferred_cleanup(submission);
+    retire_deferred_cleanup(submission, origin);
   }
   poll_retire_queue();
   if (cpu_timeline) {
@@ -1010,7 +1109,10 @@ void Context::submit_prepared_command_buffer(
   if (profile_submit) {
     querypool_.mark_results_pending();
   }
-  retire_deferred_cleanup(submission);
+  retire_deferred_cleanup(
+      submission,
+      profile_submit ? VulkanSubmitOrigin::ProfilingTimestampReadback
+                     : VulkanSubmitOrigin::Unknown);
   poll_retire_queue();
   if (cpu_timeline) {
     std::ostringstream stream;
@@ -1216,7 +1318,13 @@ void memcpy_to_buffer(const VulkanBuffer& src, VulkanBuffer& dst) {
 } // namespace
 
 UniformParamsBuffer::UniformParamsBuffer(const UniformParamsBuffer& other)
-    : context_p_(other.context_p_), vulkan_buffer_{} {
+    : context_p_(other.context_p_),
+      nbytes_(other.nbytes_),
+      vulkan_buffer_{},
+      retire_kind_(other.retire_kind_),
+      retire_role_(other.retire_role_),
+      retire_phase_(other.retire_phase_),
+      retire_callsite_(other.retire_callsite_) {
   if (other.vulkan_buffer_) {
     vulkan_buffer_ = context_p_->adapter_ptr()->vma().create_uniform_buffer(
         other.vulkan_buffer_.mem_size());
@@ -1229,6 +1337,11 @@ UniformParamsBuffer& UniformParamsBuffer::operator=(
     const UniformParamsBuffer& other) {
   if (&other != this) {
     context_p_ = other.context_p_;
+    nbytes_ = other.nbytes_;
+    retire_kind_ = other.retire_kind_;
+    retire_role_ = other.retire_role_;
+    retire_phase_ = other.retire_phase_;
+    retire_callsite_ = other.retire_callsite_;
 
     // Move vulkan_buffer_ to another VulkanBuffer for cleanup
     if (vulkan_buffer_) {

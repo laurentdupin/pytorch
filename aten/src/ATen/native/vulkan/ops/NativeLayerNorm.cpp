@@ -323,19 +323,30 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_buffer_width(
       0.0f,
   };
 
-  api::UniformParamsBuffer params(context, block);
-  api::UniformParamsBuffer out_meta =
-      utils::make_buffer_compute_metadata_ubo(context, v_output);
-  api::UniformParamsBuffer mean_meta =
-      utils::make_buffer_compute_metadata_ubo(context, v_mean);
-  api::UniformParamsBuffer std_inv_meta =
-      utils::make_buffer_compute_metadata_ubo(context, v_std_inv);
-  api::UniformParamsBuffer in_meta =
-      utils::make_buffer_compute_metadata_ubo(context, v_input);
-  api::UniformParamsBuffer weight_meta =
-      utils::make_buffer_compute_metadata_ubo(context, v_weight);
-  api::UniformParamsBuffer bias_meta =
-      utils::make_buffer_compute_metadata_ubo(context, v_bias);
+  api::UniformParamsBuffer params;
+  {
+    api::VulkanRetiredResourceScope scope(
+        api::VulkanRetiredResourceKind::UniformBuffer,
+        api::VulkanRetiredResourceRole::NativeLayerNormUniform);
+    params = api::UniformParamsBuffer(context, block);
+  }
+  api::UniformParamsBuffer out_meta;
+  api::UniformParamsBuffer mean_meta;
+  api::UniformParamsBuffer std_inv_meta;
+  api::UniformParamsBuffer in_meta;
+  api::UniformParamsBuffer weight_meta;
+  api::UniformParamsBuffer bias_meta;
+  {
+    api::VulkanRetiredResourceScope scope(
+        api::VulkanRetiredResourceKind::MetadataBuffer,
+        api::VulkanRetiredResourceRole::NativeLayerNormMetadata);
+    out_meta = utils::make_buffer_compute_metadata_ubo(context, v_output);
+    mean_meta = utils::make_buffer_compute_metadata_ubo(context, v_mean);
+    std_inv_meta = utils::make_buffer_compute_metadata_ubo(context, v_std_inv);
+    in_meta = utils::make_buffer_compute_metadata_ubo(context, v_input);
+    weight_meta = utils::make_buffer_compute_metadata_ubo(context, v_weight);
+    bias_meta = utils::make_buffer_compute_metadata_ubo(context, v_bias);
+  }
 
   api::PipelineBarrier pipeline_barrier{};
   const api::utils::uvec3 global_size{row_count, 1u, 1u};

@@ -51,6 +51,24 @@ struct StackPlannedRecordingStats final {
   uint64_t premature_submits = 0u;
 };
 
+struct PendingRetireBuffer final {
+  VulkanBuffer buffer;
+  VulkanRetiredResourceKind kind = VulkanRetiredResourceKind::Unknown;
+  VulkanRetiredResourceRole role = VulkanRetiredResourceRole::Unknown;
+  VulkanSubmitPhase phase = VulkanSubmitPhase::Unknown;
+  VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown;
+  uint64_t bytes = 0u;
+};
+
+struct PendingRetireImage final {
+  VulkanImage image;
+  VulkanRetiredResourceKind kind = VulkanRetiredResourceKind::Image;
+  VulkanRetiredResourceRole role = VulkanRetiredResourceRole::Unknown;
+  VulkanSubmitPhase phase = VulkanSubmitPhase::Unknown;
+  VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown;
+  uint64_t bytes = 0u;
+};
+
 //
 // Vulkan Context holds onto all relevant Vulkan state as it pertains to our
 // use of Vulkan in PyTorch.  A Context is associated with one, and only one,
@@ -117,9 +135,9 @@ class TORCH_API Context final {
   StackPlannedRecordingStats stack_planned_recording_stats_;
   // Memory Management
   std::mutex pending_retire_buffers_mutex_;
-  std::vector<VulkanBuffer> pending_retire_buffers_;
+  std::vector<PendingRetireBuffer> pending_retire_buffers_;
   std::mutex pending_retire_images_mutex_;
-  std::vector<VulkanImage> pending_retire_images_;
+  std::vector<PendingRetireImage> pending_retire_images_;
   std::atomic<uint64_t> pending_retire_bytes_;
   RetireQueue retire_queue_;
   VulkanSubmission last_submission_;
@@ -149,7 +167,7 @@ class TORCH_API Context final {
       VulkanSubmitOrigin origin,
       VkFence fence_handle = VK_NULL_HANDLE,
       const bool final_use = false);
-  void retire_deferred_cleanup(VulkanSubmission);
+  void retire_deferred_cleanup(VulkanSubmission, VulkanSubmitOrigin);
 
  public:
   // Adapter access
@@ -232,33 +250,77 @@ class TORCH_API Context final {
   }
 
   // Memory Management
-  void register_buffer_cleanup(VulkanBuffer& buffer) {
+  void register_buffer_cleanup(
+      VulkanBuffer& buffer,
+      VulkanRetiredResourceKind kind = VulkanRetiredResourceKind::Buffer,
+      VulkanRetiredResourceRole role = VulkanRetiredResourceRole::Unknown,
+      VulkanSubmitPhase phase = current_submit_phase(),
+      VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown) {
     if (external_recording_cmd()) {
       capture_external_recording_buffer_cleanup(std::move(buffer));
       return;
     }
+    const uint64_t bytes = buffer.owns_memory()
+        ? static_cast<uint64_t>(buffer.allocated_size())
+        : 0u;
     if (buffer.owns_memory()) {
       pending_retire_bytes_.fetch_add(
-          static_cast<uint64_t>(buffer.allocated_size()),
-          std::memory_order_relaxed);
+          bytes, std::memory_order_relaxed);
+    }
+    if (role == VulkanRetiredResourceRole::Unknown) {
+      if (phase == VulkanSubmitPhase::StackOwner) {
+        role = VulkanRetiredResourceRole::StackInternalTemp;
+      } else if (
+          phase == VulkanSubmitPhase::ModelSetup ||
+          phase == VulkanSubmitPhase::PatchEmbed ||
+          phase == VulkanSubmitPhase::PositionalEmbeddingSetup) {
+        role = VulkanRetiredResourceRole::SetupStaging;
+      } else if (phase == VulkanSubmitPhase::Readback) {
+        role = VulkanRetiredResourceRole::ReadbackStaging;
+      }
     }
     std::lock_guard<std::mutex> bufferlist_lock(
         pending_retire_buffers_mutex_);
-    pending_retire_buffers_.emplace_back(std::move(buffer));
+    pending_retire_buffers_.push_back(PendingRetireBuffer{
+        std::move(buffer), kind, role, phase, callsite, bytes});
   }
 
-  void register_image_cleanup(VulkanImage& image) {
+  void register_image_cleanup(
+      VulkanImage& image,
+      VulkanRetiredResourceRole role = VulkanRetiredResourceRole::Unknown,
+      VulkanSubmitPhase phase = current_submit_phase(),
+      VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown) {
     if (external_recording_cmd()) {
       capture_external_recording_image_cleanup(std::move(image));
       return;
     }
+    const uint64_t bytes = image.owns_memory()
+        ? static_cast<uint64_t>(image.allocated_size())
+        : 0u;
     if (image.owns_memory()) {
       pending_retire_bytes_.fetch_add(
-          static_cast<uint64_t>(image.allocated_size()),
-          std::memory_order_relaxed);
+          bytes, std::memory_order_relaxed);
+    }
+    if (role == VulkanRetiredResourceRole::Unknown) {
+      if (phase == VulkanSubmitPhase::StackOwner) {
+        role = VulkanRetiredResourceRole::StackInternalTemp;
+      } else if (
+          phase == VulkanSubmitPhase::ModelSetup ||
+          phase == VulkanSubmitPhase::PatchEmbed ||
+          phase == VulkanSubmitPhase::PositionalEmbeddingSetup) {
+        role = VulkanRetiredResourceRole::SetupStaging;
+      } else if (phase == VulkanSubmitPhase::Readback) {
+        role = VulkanRetiredResourceRole::ReadbackStaging;
+      }
     }
     std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
-    pending_retire_images_.emplace_back(std::move(image));
+    pending_retire_images_.push_back(PendingRetireImage{
+        std::move(image),
+        VulkanRetiredResourceKind::Image,
+        role,
+        phase,
+        callsite,
+        bytes});
   }
 
   inline uint64_t pending_retire_bytes() const {
@@ -347,15 +409,30 @@ class UniformParamsBuffer final {
  private:
   Context* context_p_;
   size_t nbytes_;
+  VulkanRetiredResourceKind retire_kind_;
+  VulkanRetiredResourceRole retire_role_;
+  VulkanSubmitPhase retire_phase_;
+  VulkanRetireCallSite retire_callsite_;
   VulkanBuffer vulkan_buffer_;
 
  public:
-  UniformParamsBuffer() : context_p_{nullptr}, vulkan_buffer_{} {}
+  UniformParamsBuffer()
+      : context_p_{nullptr},
+        nbytes_(0u),
+        retire_kind_(VulkanRetiredResourceKind::Unknown),
+        retire_role_(VulkanRetiredResourceRole::Unknown),
+        retire_phase_(VulkanSubmitPhase::Unknown),
+        retire_callsite_(VulkanRetireCallSite::Unknown),
+        vulkan_buffer_{} {}
 
   template <typename Block>
   UniformParamsBuffer(Context* context_p, const Block& block)
       : context_p_(context_p),
         nbytes_(sizeof(block)),
+        retire_kind_(current_retired_resource_kind()),
+        retire_role_(current_retired_resource_role()),
+        retire_phase_(current_submit_phase()),
+        retire_callsite_(VulkanRetireCallSite::Unknown),
         vulkan_buffer_(
             context_p_->adapter_ptr()->vma().create_params_buffer(block)) {}
 
@@ -367,7 +444,12 @@ class UniformParamsBuffer final {
 
   ~UniformParamsBuffer() {
     if (vulkan_buffer_) {
-      context_p_->register_buffer_cleanup(vulkan_buffer_);
+      context_p_->register_buffer_cleanup(
+          vulkan_buffer_,
+          retire_kind_,
+          retire_role_,
+          retire_phase_,
+          retire_callsite_);
     }
   }
 

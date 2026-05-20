@@ -473,3 +473,31 @@ Most retire submits are stack-owner native layer norm lifetime boundaries. They
 submit pending work so short-lived uniform/metadata resources can be retired by
 timeline; the profile does not prove these are safely replaceable with polling.
 No retire/sync/readback cleanup was made in this pass.
+
+The next retire pass added call-site and resource-role accounting. It showed
+that native layer norm metadata is high-count but not the byte or submit-driver
+source:
+
+```
+retire_call_site stack_owner_norm1 submit=1104 pending_bytes=294435440
+retire_call_site stack_owner_norm2 submit=1104 pending_bytes=31627193088
+retire_call_site context_flush_pending submit=490 pending_bytes=1810223264
+
+retired_resource stack_internal_temp stack_owner_phase_boundary
+  count=11090 bytes=45560691008
+retired_resource stack_internal_temp stack_owner_norm2
+  count=9088 bytes=31625501952
+retired_resource native_layer_norm_metadata stack_owner_norm2
+  count=6624 bytes=423936
+retired_resource native_layer_norm_metadata stack_owner_phase_boundary
+  count=6072 bytes=388608
+retired_resource native_layer_norm_uniform stack_owner_norm2
+  count=1104 bytes=17664
+```
+
+The native layer norm metadata/uniform contents are shape/dispatch metadata and
+stable per shape, but they are tiny compared with stack-internal tensor buffers.
+Persisting them alone would not remove the norm retire submits because the same
+call sites also retire large stack-internal buffers. No metadata persistence or
+ring was implemented. The next proven target is stack-internal temp lifetime
+planning around norm2/residual boundaries, not command-buffer replay.

@@ -159,6 +159,67 @@ enum class VulkanRetireDrainReason : uint8_t {
   DebugValidation,
 };
 
+enum class VulkanRetireCallSite : uint8_t {
+  Unknown = 0,
+  ContextFlushPending,
+  ContextSubmitFrequency,
+  ContextExplicitSynchronize,
+  ContextReadback,
+  ContextShutdown,
+  StackPlannedRecordingEnd,
+  StackOwnerPhaseBoundary,
+  StackOwnerNorm1,
+  StackOwnerNorm2,
+  StackOwnerAttention,
+  StackOwnerLinear,
+  StackOwnerResidual,
+  NativeLayerNormMetadata,
+  NativeLayerNormUniform,
+  AttentionMetadata,
+  LinearMetadata,
+  ConvMetadata,
+  AddResidualMetadata,
+  DescriptorRecycle,
+  CommandBufferRecycle,
+  StagingBufferRecycle,
+  UniformBufferRecycle,
+  MetadataBufferRecycle,
+  BenchmarkReadback,
+  BenchmarkSetup,
+  DebugValidation,
+};
+
+enum class VulkanRetiredResourceKind : uint8_t {
+  Unknown = 0,
+  Buffer,
+  Image,
+  UniformBuffer,
+  MetadataBuffer,
+  DescriptorSet,
+  DescriptorPool,
+  CommandBuffer,
+  StagingBuffer,
+  QueryBuffer,
+  Other,
+};
+
+enum class VulkanRetiredResourceRole : uint8_t {
+  Unknown = 0,
+  NativeLayerNormUniform,
+  NativeLayerNormMetadata,
+  AttentionMetadata,
+  LinearMetadata,
+  ConvMetadata,
+  ResidualAddMetadata,
+  StackInternalTemp,
+  StackRequestedOutput,
+  StackFinalOutput,
+  DescriptorRecycle,
+  CommandBufferRecycle,
+  ReadbackStaging,
+  SetupStaging,
+};
+
 struct VulkanSubmitOriginCounters final {
   std::atomic<uint64_t> total_queue_submits{0u};
   std::atomic<uint64_t> normal_cmd_submit_frequency{0u};
@@ -204,6 +265,15 @@ struct VulkanRetireDrainCounters final {
   std::atomic<uint64_t> unknown{0u};
 };
 
+struct VulkanRetireCallSiteCounter final {
+  std::atomic<uint64_t> total{0u};
+  std::atomic<uint64_t> queue_submit_count{0u};
+  std::atomic<uint64_t> blocking_wait_count{0u};
+  std::atomic<uint64_t> poll_only_count{0u};
+  std::atomic<uint64_t> pending_resource_count_total{0u};
+  std::atomic<uint64_t> pending_bytes_total{0u};
+};
+
 class VulkanSubmitPhaseScope final {
  public:
   explicit VulkanSubmitPhaseScope(VulkanSubmitPhase phase);
@@ -213,6 +283,21 @@ class VulkanSubmitPhaseScope final {
 
  private:
   VulkanSubmitPhase previous_;
+};
+
+class VulkanRetiredResourceScope final {
+ public:
+  VulkanRetiredResourceScope(
+      VulkanRetiredResourceKind kind,
+      VulkanRetiredResourceRole role);
+  ~VulkanRetiredResourceScope();
+  VulkanRetiredResourceScope(const VulkanRetiredResourceScope&) = delete;
+  VulkanRetiredResourceScope& operator=(const VulkanRetiredResourceScope&) =
+      delete;
+
+ private:
+  VulkanRetiredResourceKind previous_kind_;
+  VulkanRetiredResourceRole previous_role_;
 };
 
 TORCH_API VulkanSyncCounters& vulkan_sync_counters();
@@ -227,17 +312,36 @@ TORCH_API std::vector<std::string> submit_origin_phase_snapshot();
 TORCH_API VulkanRetireDrainCounters& vulkan_retire_drain_counters();
 TORCH_API void reset_vulkan_retire_drain_counters();
 TORCH_API std::vector<int64_t> retire_drain_counters_snapshot();
+TORCH_API std::vector<std::string> retire_call_site_counters_snapshot();
+TORCH_API void reset_retire_call_site_counters();
+TORCH_API std::vector<std::string> retired_resource_aggregate_snapshot();
+TORCH_API void reset_retired_resource_aggregate();
 TORCH_API const char* submit_origin_name(VulkanSubmitOrigin origin);
 TORCH_API const char* submit_phase_name(VulkanSubmitPhase phase);
+TORCH_API const char* retire_call_site_name(VulkanRetireCallSite callsite);
+TORCH_API const char* retired_resource_kind_name(VulkanRetiredResourceKind kind);
+TORCH_API const char* retired_resource_role_name(VulkanRetiredResourceRole role);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();
+TORCH_API VulkanRetiredResourceKind current_retired_resource_kind();
+TORCH_API VulkanRetiredResourceRole current_retired_resource_role();
 TORCH_API void note_vulkan_retire_drain(
     VulkanRetireDrainReason reason,
+    VulkanRetireCallSite callsite,
     bool queue_submit,
     bool blocking_wait,
     uint64_t pending_resource_count,
     uint64_t pending_bytes);
+TORCH_API void note_vulkan_retired_resource(
+    VulkanRetiredResourceKind kind,
+    VulkanRetiredResourceRole role,
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    uint64_t bytes,
+    bool queue_submit,
+    bool blocking_wait,
+    bool poll_only);
 
 TORCH_API void note_vulkan_queue_wait_idle();
 TORCH_API void note_vulkan_forced_sync(

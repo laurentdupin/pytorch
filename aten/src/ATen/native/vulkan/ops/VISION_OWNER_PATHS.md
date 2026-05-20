@@ -693,6 +693,26 @@ retirement, especially short-lived uniform/metadata resources around native
 layer norm. This pass did not change retire behavior because the profile did
 not prove those submits are safely avoidable.
 
+The retire call-site/resource-role follow-up refined that conclusion:
+
+```
+retire_call_site stack_owner_norm1 submit=1104 pending_bytes=294435440
+retire_call_site stack_owner_norm2 submit=1104 pending_bytes=31627193088
+retire_call_site context_flush_pending submit=490 pending_bytes=1810223264
+
+stack_internal_temp stack_owner_phase_boundary bytes=45560691008 count=11090
+stack_internal_temp stack_owner_norm2 bytes=31625501952 count=9088
+native_layer_norm_metadata stack_owner_norm2 bytes=423936 count=6624
+native_layer_norm_metadata stack_owner_phase_boundary bytes=388608 count=6072
+native_layer_norm_uniform stack_owner_norm2 bytes=17664 count=1104
+```
+
+Native layer norm metadata/uniform buffers are real and stable per shape, but
+they are not the dominant retire resource by bytes and cannot explain the queue
+submit count by themselves. The large stack-owner retire submits are attached to
+stack-internal temporary tensor buffers. No persistent metadata optimization was
+merged because it would leave the same retire submits in place.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

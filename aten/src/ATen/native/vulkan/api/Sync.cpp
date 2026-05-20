@@ -6,6 +6,7 @@
 #include <map>
 #include <mutex>
 #include <sstream>
+#include <tuple>
 
 namespace at {
 namespace native {
@@ -18,6 +19,30 @@ thread_local VulkanVisionStackPhase g_vision_stack_phase =
     VulkanVisionStackPhase::Unknown;
 thread_local int64_t g_vision_stack_block_index = -1;
 thread_local VulkanSubmitPhase g_submit_phase = VulkanSubmitPhase::Unknown;
+thread_local VulkanRetiredResourceKind g_retired_resource_kind =
+    VulkanRetiredResourceKind::Unknown;
+thread_local VulkanRetiredResourceRole g_retired_resource_role =
+    VulkanRetiredResourceRole::Unknown;
+
+struct RetiredResourceAggregateKey final {
+  VulkanRetiredResourceKind kind = VulkanRetiredResourceKind::Unknown;
+  VulkanRetiredResourceRole role = VulkanRetiredResourceRole::Unknown;
+  VulkanSubmitPhase phase = VulkanSubmitPhase::Unknown;
+  VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown;
+
+  bool operator<(const RetiredResourceAggregateKey& other) const {
+    return std::tie(kind, role, phase, callsite) <
+        std::tie(other.kind, other.role, other.phase, other.callsite);
+  }
+};
+
+struct RetiredResourceAggregateValue final {
+  uint64_t count = 0u;
+  uint64_t bytes = 0u;
+  uint64_t queue_submit_count = 0u;
+  uint64_t blocking_wait_count = 0u;
+  uint64_t poll_only_count = 0u;
+};
 
 std::mutex& stack_aggregate_mutex() {
   static std::mutex mutex;
@@ -75,6 +100,23 @@ VulkanRetireDrainCounters& vulkan_retire_drain_counters() {
   return counters;
 }
 
+std::array<VulkanRetireCallSiteCounter, 27>& retire_call_site_counters() {
+  static std::array<VulkanRetireCallSiteCounter, 27> counters;
+  return counters;
+}
+
+std::mutex& retired_resource_aggregate_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::map<RetiredResourceAggregateKey, RetiredResourceAggregateValue>&
+retired_resource_aggregate() {
+  static std::map<RetiredResourceAggregateKey, RetiredResourceAggregateValue>
+      aggregate;
+  return aggregate;
+}
+
 VulkanSubmitPhaseScope::VulkanSubmitPhaseScope(VulkanSubmitPhase phase)
     : previous_(g_submit_phase) {
   g_submit_phase = phase;
@@ -82,6 +124,20 @@ VulkanSubmitPhaseScope::VulkanSubmitPhaseScope(VulkanSubmitPhase phase)
 
 VulkanSubmitPhaseScope::~VulkanSubmitPhaseScope() {
   g_submit_phase = previous_;
+}
+
+VulkanRetiredResourceScope::VulkanRetiredResourceScope(
+    VulkanRetiredResourceKind kind,
+    VulkanRetiredResourceRole role)
+    : previous_kind_(g_retired_resource_kind),
+      previous_role_(g_retired_resource_role) {
+  g_retired_resource_kind = kind;
+  g_retired_resource_role = role;
+}
+
+VulkanRetiredResourceScope::~VulkanRetiredResourceScope() {
+  g_retired_resource_kind = previous_kind_;
+  g_retired_resource_role = previous_role_;
 }
 
 VulkanVisionStackPhaseScope::VulkanVisionStackPhaseScope(
@@ -184,6 +240,22 @@ void reset_vulkan_retire_drain_counters() {
   counters.setup_phase.store(0u, std::memory_order_relaxed);
   counters.debug_validation.store(0u, std::memory_order_relaxed);
   counters.unknown.store(0u, std::memory_order_relaxed);
+}
+
+void reset_retire_call_site_counters() {
+  for (auto& counter : retire_call_site_counters()) {
+    counter.total.store(0u, std::memory_order_relaxed);
+    counter.queue_submit_count.store(0u, std::memory_order_relaxed);
+    counter.blocking_wait_count.store(0u, std::memory_order_relaxed);
+    counter.poll_only_count.store(0u, std::memory_order_relaxed);
+    counter.pending_resource_count_total.store(0u, std::memory_order_relaxed);
+    counter.pending_bytes_total.store(0u, std::memory_order_relaxed);
+  }
+}
+
+void reset_retired_resource_aggregate() {
+  std::lock_guard<std::mutex> lock(retired_resource_aggregate_mutex());
+  retired_resource_aggregate().clear();
 }
 
 void note_vulkan_queue_submit(VulkanSubmitOrigin origin) {
@@ -320,6 +392,128 @@ const char* submit_phase_name(const VulkanSubmitPhase phase) {
   }
 }
 
+const char* retire_call_site_name(const VulkanRetireCallSite callsite) {
+  switch (callsite) {
+    case VulkanRetireCallSite::ContextFlushPending:
+      return "context_flush_pending";
+    case VulkanRetireCallSite::ContextSubmitFrequency:
+      return "context_submit_frequency";
+    case VulkanRetireCallSite::ContextExplicitSynchronize:
+      return "context_explicit_synchronize";
+    case VulkanRetireCallSite::ContextReadback:
+      return "context_readback";
+    case VulkanRetireCallSite::ContextShutdown:
+      return "context_shutdown";
+    case VulkanRetireCallSite::StackPlannedRecordingEnd:
+      return "stack_planned_recording_end";
+    case VulkanRetireCallSite::StackOwnerPhaseBoundary:
+      return "stack_owner_phase_boundary";
+    case VulkanRetireCallSite::StackOwnerNorm1:
+      return "stack_owner_norm1";
+    case VulkanRetireCallSite::StackOwnerNorm2:
+      return "stack_owner_norm2";
+    case VulkanRetireCallSite::StackOwnerAttention:
+      return "stack_owner_attention";
+    case VulkanRetireCallSite::StackOwnerLinear:
+      return "stack_owner_linear";
+    case VulkanRetireCallSite::StackOwnerResidual:
+      return "stack_owner_residual";
+    case VulkanRetireCallSite::NativeLayerNormMetadata:
+      return "native_layer_norm_metadata";
+    case VulkanRetireCallSite::NativeLayerNormUniform:
+      return "native_layer_norm_uniform";
+    case VulkanRetireCallSite::AttentionMetadata:
+      return "attention_metadata";
+    case VulkanRetireCallSite::LinearMetadata:
+      return "linear_metadata";
+    case VulkanRetireCallSite::ConvMetadata:
+      return "conv_metadata";
+    case VulkanRetireCallSite::AddResidualMetadata:
+      return "add_residual_metadata";
+    case VulkanRetireCallSite::DescriptorRecycle:
+      return "descriptor_recycle";
+    case VulkanRetireCallSite::CommandBufferRecycle:
+      return "command_buffer_recycle";
+    case VulkanRetireCallSite::StagingBufferRecycle:
+      return "staging_buffer_recycle";
+    case VulkanRetireCallSite::UniformBufferRecycle:
+      return "uniform_buffer_recycle";
+    case VulkanRetireCallSite::MetadataBufferRecycle:
+      return "metadata_buffer_recycle";
+    case VulkanRetireCallSite::BenchmarkReadback:
+      return "benchmark_readback";
+    case VulkanRetireCallSite::BenchmarkSetup:
+      return "benchmark_setup";
+    case VulkanRetireCallSite::DebugValidation:
+      return "debug_validation";
+    case VulkanRetireCallSite::Unknown:
+    default:
+      return "unknown";
+  }
+}
+
+const char* retired_resource_kind_name(const VulkanRetiredResourceKind kind) {
+  switch (kind) {
+    case VulkanRetiredResourceKind::Buffer:
+      return "buffer";
+    case VulkanRetiredResourceKind::Image:
+      return "image";
+    case VulkanRetiredResourceKind::UniformBuffer:
+      return "uniform_buffer";
+    case VulkanRetiredResourceKind::MetadataBuffer:
+      return "metadata_buffer";
+    case VulkanRetiredResourceKind::DescriptorSet:
+      return "descriptor_set";
+    case VulkanRetiredResourceKind::DescriptorPool:
+      return "descriptor_pool";
+    case VulkanRetiredResourceKind::CommandBuffer:
+      return "command_buffer";
+    case VulkanRetiredResourceKind::StagingBuffer:
+      return "staging_buffer";
+    case VulkanRetiredResourceKind::QueryBuffer:
+      return "query_buffer";
+    case VulkanRetiredResourceKind::Other:
+      return "other";
+    case VulkanRetiredResourceKind::Unknown:
+    default:
+      return "unknown";
+  }
+}
+
+const char* retired_resource_role_name(const VulkanRetiredResourceRole role) {
+  switch (role) {
+    case VulkanRetiredResourceRole::NativeLayerNormUniform:
+      return "native_layer_norm_uniform";
+    case VulkanRetiredResourceRole::NativeLayerNormMetadata:
+      return "native_layer_norm_metadata";
+    case VulkanRetiredResourceRole::AttentionMetadata:
+      return "attention_metadata";
+    case VulkanRetiredResourceRole::LinearMetadata:
+      return "linear_metadata";
+    case VulkanRetiredResourceRole::ConvMetadata:
+      return "conv_metadata";
+    case VulkanRetiredResourceRole::ResidualAddMetadata:
+      return "residual_add_metadata";
+    case VulkanRetiredResourceRole::StackInternalTemp:
+      return "stack_internal_temp";
+    case VulkanRetiredResourceRole::StackRequestedOutput:
+      return "stack_requested_output";
+    case VulkanRetiredResourceRole::StackFinalOutput:
+      return "stack_final_output";
+    case VulkanRetiredResourceRole::DescriptorRecycle:
+      return "descriptor_recycle";
+    case VulkanRetiredResourceRole::CommandBufferRecycle:
+      return "command_buffer_recycle";
+    case VulkanRetiredResourceRole::ReadbackStaging:
+      return "readback_staging";
+    case VulkanRetiredResourceRole::SetupStaging:
+      return "setup_staging";
+    case VulkanRetiredResourceRole::Unknown:
+    default:
+      return "unknown";
+  }
+}
+
 VulkanSubmitPhase current_submit_phase() {
   return g_submit_phase;
 }
@@ -330,6 +524,14 @@ void set_submit_phase(const VulkanSubmitPhase phase) {
 
 void reset_submit_phase() {
   g_submit_phase = VulkanSubmitPhase::Unknown;
+}
+
+VulkanRetiredResourceKind current_retired_resource_kind() {
+  return g_retired_resource_kind;
+}
+
+VulkanRetiredResourceRole current_retired_resource_role() {
+  return g_retired_resource_role;
 }
 
 std::vector<std::string> submit_origin_phase_snapshot() {
@@ -393,8 +595,59 @@ std::vector<int64_t> retire_drain_counters_snapshot() {
   };
 }
 
+std::vector<std::string> retire_call_site_counters_snapshot() {
+  const auto& counters = retire_call_site_counters();
+  std::vector<std::string> rows;
+  for (size_t index = 0; index < counters.size(); ++index) {
+    const auto& counter = counters[index];
+    const uint64_t total = counter.total.load(std::memory_order_relaxed);
+    if (total == 0u) {
+      continue;
+    }
+    std::ostringstream stream;
+    stream << "retire_call_site callsite="
+           << retire_call_site_name(static_cast<VulkanRetireCallSite>(index))
+           << " total=" << total << " submit="
+           << counter.queue_submit_count.load(std::memory_order_relaxed)
+           << " poll="
+           << counter.poll_only_count.load(std::memory_order_relaxed)
+           << " blocking_wait="
+           << counter.blocking_wait_count.load(std::memory_order_relaxed)
+           << " pending_resources="
+           << counter.pending_resource_count_total.load(
+                  std::memory_order_relaxed)
+           << " pending_bytes="
+           << counter.pending_bytes_total.load(std::memory_order_relaxed);
+    rows.emplace_back(stream.str());
+  }
+  return rows;
+}
+
+std::vector<std::string> retired_resource_aggregate_snapshot() {
+  std::vector<std::string> rows;
+  std::lock_guard<std::mutex> lock(retired_resource_aggregate_mutex());
+  for (const auto& entry : retired_resource_aggregate()) {
+    const auto& key = entry.first;
+    const auto& value = entry.second;
+    std::ostringstream stream;
+    stream << "retired_resource kind="
+           << retired_resource_kind_name(key.kind) << " role="
+           << retired_resource_role_name(key.role) << " phase="
+           << submit_phase_name(key.phase) << " callsite="
+           << retire_call_site_name(key.callsite) << " count=" << value.count
+           << " bytes=" << value.bytes
+           << " queue_submit=" << value.queue_submit_count
+           << " blocking_wait=" << value.blocking_wait_count
+           << " poll_only=" << value.poll_only_count;
+    rows.emplace_back(stream.str());
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
 void note_vulkan_retire_drain(
     VulkanRetireDrainReason reason,
+    VulkanRetireCallSite callsite,
     const bool queue_submit,
     const bool blocking_wait,
     const uint64_t pending_resource_count,
@@ -413,6 +666,23 @@ void note_vulkan_retire_drain(
       pending_resource_count, std::memory_order_relaxed);
   counters.pending_bytes_total.fetch_add(
       pending_bytes, std::memory_order_relaxed);
+  const size_t callsite_index = static_cast<size_t>(callsite);
+  if (callsite_index < retire_call_site_counters().size()) {
+    auto& counter = retire_call_site_counters()[callsite_index];
+    counter.total.fetch_add(1u, std::memory_order_relaxed);
+    if (queue_submit) {
+      counter.queue_submit_count.fetch_add(1u, std::memory_order_relaxed);
+    } else {
+      counter.poll_only_count.fetch_add(1u, std::memory_order_relaxed);
+    }
+    if (blocking_wait) {
+      counter.blocking_wait_count.fetch_add(1u, std::memory_order_relaxed);
+    }
+    counter.pending_resource_count_total.fetch_add(
+        pending_resource_count, std::memory_order_relaxed);
+    counter.pending_bytes_total.fetch_add(
+        pending_bytes, std::memory_order_relaxed);
+  }
   switch (reason) {
     case VulkanRetireDrainReason::ExplicitDrain:
       counters.explicit_drain.fetch_add(1u, std::memory_order_relaxed);
@@ -451,6 +721,31 @@ void note_vulkan_retire_drain(
     default:
       counters.unknown.fetch_add(1u, std::memory_order_relaxed);
       break;
+  }
+}
+
+void note_vulkan_retired_resource(
+    VulkanRetiredResourceKind kind,
+    VulkanRetiredResourceRole role,
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    const uint64_t bytes,
+    const bool queue_submit,
+    const bool blocking_wait,
+    const bool poll_only) {
+  RetiredResourceAggregateKey key{kind, role, phase, callsite};
+  std::lock_guard<std::mutex> lock(retired_resource_aggregate_mutex());
+  auto& value = retired_resource_aggregate()[key];
+  value.count += 1u;
+  value.bytes += bytes;
+  if (queue_submit) {
+    value.queue_submit_count += 1u;
+  }
+  if (blocking_wait) {
+    value.blocking_wait_count += 1u;
+  }
+  if (poll_only) {
+    value.poll_only_count += 1u;
   }
 }
 

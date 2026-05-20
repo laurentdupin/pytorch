@@ -440,6 +440,14 @@ std::vector<int64_t> retire_drain_counters_runtime() {
   return api::retire_drain_counters_snapshot();
 }
 
+std::vector<std::string> retire_call_site_counters_runtime() {
+  return api::retire_call_site_counters_snapshot();
+}
+
+std::vector<std::string> retired_resource_aggregate_snapshot_runtime() {
+  return api::retired_resource_aggregate_snapshot();
+}
+
 void set_submit_phase_runtime(const int64_t phase) {
   TORCH_CHECK(
       phase >= 0 && phase < static_cast<int64_t>(api::kNumSubmitPhases),
@@ -455,6 +463,8 @@ void reset_fallback_counters_runtime() {
   api::reset_vulkan_submit_origin_counters();
   api::reset_vulkan_submit_origin_phase_counters();
   api::reset_vulkan_retire_drain_counters();
+  api::reset_retire_call_site_counters();
+  api::reset_retired_resource_aggregate();
   api::reset_submit_phase();
   api::reset_stack_allocation_aggregate();
   api::reset_stack_dispatch_aggregate();
@@ -1597,6 +1607,14 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_retire_drain_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::retire_call_site_counters() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_retire_call_site_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::retired_resource_aggregate_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_retired_resource_aggregate() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::set_submit_phase(int phase) -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_submit_phase() -> ()"));
@@ -1843,6 +1861,20 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_retire_drain_counters"),
       TORCH_FN(api::reset_vulkan_retire_drain_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::retire_call_site_counters"),
+      TORCH_FN(retire_call_site_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_retire_call_site_counters"),
+      TORCH_FN(api::reset_retire_call_site_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::retired_resource_aggregate_snapshot"),
+      TORCH_FN(retired_resource_aggregate_snapshot_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_retired_resource_aggregate"),
+      TORCH_FN(api::reset_retired_resource_aggregate));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::set_submit_phase"),
       TORCH_FN(set_submit_phase_runtime));
