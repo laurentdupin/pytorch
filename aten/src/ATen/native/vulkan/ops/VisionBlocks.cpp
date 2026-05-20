@@ -8190,6 +8190,8 @@ std::vector<Tensor> run_vision_backbone_stack_context(
   recover_after_vulkan_failure_if_needed();
   api::VulkanVisionStackPhaseScope stack_entry_scope(
       api::VulkanVisionStackPhase::StackEntry);
+  api::VulkanSubmitPhaseScope submit_phase_scope(
+      api::VulkanSubmitPhase::StackOwner);
   auto& stack_counters = vulkan_vision_stack_owner_counters();
   stack_counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
 

@@ -72,6 +72,41 @@ bool cpu_timeline_summary_logging_enabled() {
   return !cpu_timeline_summary_log_path().empty();
 }
 
+VulkanRetireDrainReason retire_drain_reason_for_current_phase() {
+  switch (current_submit_phase()) {
+    case VulkanSubmitPhase::ModelSetup:
+    case VulkanSubmitPhase::PatchEmbed:
+    case VulkanSubmitPhase::PositionalEmbeddingSetup:
+      return VulkanRetireDrainReason::SetupPhase;
+    case VulkanSubmitPhase::StackOwner:
+    case VulkanSubmitPhase::StackOwnerNorm:
+    case VulkanSubmitPhase::StackOwnerAttention:
+    case VulkanSubmitPhase::StackOwnerLinear:
+    case VulkanSubmitPhase::StackOwnerResidual:
+      return VulkanRetireDrainReason::StackScopeEnd;
+    case VulkanSubmitPhase::Decoder:
+    case VulkanSubmitPhase::DecoderConv:
+    case VulkanSubmitPhase::DecoderUpsample:
+    case VulkanSubmitPhase::DecoderPointwise:
+      return VulkanRetireDrainReason::DecoderPhase;
+    case VulkanSubmitPhase::Readback:
+      return VulkanRetireDrainReason::ReadbackPreparation;
+    case VulkanSubmitPhase::ExplicitSynchronize:
+      return VulkanRetireDrainReason::Synchronize;
+    case VulkanSubmitPhase::Shutdown:
+      return VulkanRetireDrainReason::Shutdown;
+    case VulkanSubmitPhase::TestHarness:
+      return VulkanRetireDrainReason::DebugValidation;
+    case VulkanSubmitPhase::Retire:
+      return VulkanRetireDrainReason::ExplicitDrain;
+    case VulkanSubmitPhase::Profiling:
+      return VulkanRetireDrainReason::ResourcePressure;
+    case VulkanSubmitPhase::Unknown:
+    default:
+      return VulkanRetireDrainReason::ResourcePressure;
+  }
+}
+
 struct CpuTimelineSummary final {
   uint64_t count{0u};
   uint64_t submitted{0u};
@@ -789,11 +824,29 @@ void Context::poll_retire_queue() {
 }
 
 void Context::submit_pending_work_and_poll_retire() {
+  const uint64_t pending_bytes = pending_retire_bytes();
+  uint64_t pending_resource_count = 0u;
+  {
+    std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
+    pending_resource_count += pending_retire_buffers_.size();
+  }
+  {
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    pending_resource_count += pending_retire_images_.size();
+  }
+  bool had_pending_work = false;
   {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
+    had_pending_work = has_pending_work_for_current_stream();
     submit_cmd_to_gpu(
         VK_NULL_HANDLE, false, VulkanSubmitOrigin::RetireQueueDrain);
   }
+  note_vulkan_retire_drain(
+      retire_drain_reason_for_current_phase(),
+      had_pending_work,
+      /*blocking_wait=*/false,
+      pending_resource_count,
+      pending_bytes);
   poll_retire_queue();
 }
 

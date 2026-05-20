@@ -661,6 +661,38 @@ remaining non-stack origins were dominated by `retire_queue_drain=2698`,
 therefore classify and reduce non-stack retire/sync/readback origins before
 changing stack planned recording again.
 
+The submit-phase classification pass added `submit_origin_phase_counters()` and
+`retire_drain_counters()`. In the no-timestamp DAv2 profile:
+
+```
+retire_queue_drain stack_owner=2208
+retire_queue_drain unknown=490
+explicit_synchronize stack_owner=1104
+explicit_synchronize explicit_synchronize=46
+tensor_cpu_readback model_setup=506
+tensor_cpu_readback readback=46
+normal_cmd_submit_frequency unknown=273
+```
+
+Retire drains were actual queue submits, not blocking waits:
+
+```
+retire total=2917
+queue_submit_count=2698
+poll_only_count=219
+blocking_wait_count=0
+stack_scope_end=2208
+resource_pressure=491
+readback_preparation=46
+setup_phase=172
+```
+
+The stack-local planned-recording reduction remains valid, but the largest
+remaining submit bucket is now identified as stack-owner norm/resource lifetime
+retirement, especially short-lived uniform/metadata resources around native
+layer norm. This pass did not change retire behavior because the profile did
+not prove those submits are safely avoidable.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

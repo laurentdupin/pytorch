@@ -17,6 +17,7 @@ namespace {
 thread_local VulkanVisionStackPhase g_vision_stack_phase =
     VulkanVisionStackPhase::Unknown;
 thread_local int64_t g_vision_stack_block_index = -1;
+thread_local VulkanSubmitPhase g_submit_phase = VulkanSubmitPhase::Unknown;
 
 std::mutex& stack_aggregate_mutex() {
   static std::mutex mutex;
@@ -62,6 +63,25 @@ VulkanSyncCounters& vulkan_sync_counters() {
 VulkanSubmitOriginCounters& vulkan_submit_origin_counters() {
   static VulkanSubmitOriginCounters counters;
   return counters;
+}
+
+VulkanSubmitOriginPhaseCounters& vulkan_submit_origin_phase_counters() {
+  static VulkanSubmitOriginPhaseCounters counters;
+  return counters;
+}
+
+VulkanRetireDrainCounters& vulkan_retire_drain_counters() {
+  static VulkanRetireDrainCounters counters;
+  return counters;
+}
+
+VulkanSubmitPhaseScope::VulkanSubmitPhaseScope(VulkanSubmitPhase phase)
+    : previous_(g_submit_phase) {
+  g_submit_phase = phase;
+}
+
+VulkanSubmitPhaseScope::~VulkanSubmitPhaseScope() {
+  g_submit_phase = previous_;
 }
 
 VulkanVisionStackPhaseScope::VulkanVisionStackPhaseScope(
@@ -134,9 +154,48 @@ void reset_vulkan_submit_origin_counters() {
   counters.unknown.store(0u, std::memory_order_relaxed);
 }
 
+void reset_vulkan_submit_origin_phase_counters() {
+  VulkanSubmitOriginPhaseCounters& counters =
+      vulkan_submit_origin_phase_counters();
+  for (auto& origin_counts : counters.counts) {
+    for (auto& count : origin_counts) {
+      count.store(0u, std::memory_order_relaxed);
+    }
+  }
+}
+
+void reset_vulkan_retire_drain_counters() {
+  VulkanRetireDrainCounters& counters = vulkan_retire_drain_counters();
+  counters.total.store(0u, std::memory_order_relaxed);
+  counters.queue_submit_count.store(0u, std::memory_order_relaxed);
+  counters.blocking_wait_count.store(0u, std::memory_order_relaxed);
+  counters.poll_only_count.store(0u, std::memory_order_relaxed);
+  counters.pending_resource_count_total.store(0u, std::memory_order_relaxed);
+  counters.pending_bytes_total.store(0u, std::memory_order_relaxed);
+  counters.explicit_drain.store(0u, std::memory_order_relaxed);
+  counters.shutdown.store(0u, std::memory_order_relaxed);
+  counters.resource_pressure.store(0u, std::memory_order_relaxed);
+  counters.descriptor_pool_pressure.store(0u, std::memory_order_relaxed);
+  counters.command_buffer_recycle.store(0u, std::memory_order_relaxed);
+  counters.readback_preparation.store(0u, std::memory_order_relaxed);
+  counters.synchronize.store(0u, std::memory_order_relaxed);
+  counters.stack_scope_end.store(0u, std::memory_order_relaxed);
+  counters.decoder_phase.store(0u, std::memory_order_relaxed);
+  counters.setup_phase.store(0u, std::memory_order_relaxed);
+  counters.debug_validation.store(0u, std::memory_order_relaxed);
+  counters.unknown.store(0u, std::memory_order_relaxed);
+}
+
 void note_vulkan_queue_submit(VulkanSubmitOrigin origin) {
   VulkanSubmitOriginCounters& counters = vulkan_submit_origin_counters();
   counters.total_queue_submits.fetch_add(1u, std::memory_order_relaxed);
+  const size_t origin_index = static_cast<size_t>(origin);
+  const size_t phase_index = static_cast<size_t>(current_submit_phase());
+  if (origin_index < kNumSubmitOrigins && phase_index < kNumSubmitPhases) {
+    vulkan_submit_origin_phase_counters()
+        .counts[origin_index][phase_index]
+        .fetch_add(1u, std::memory_order_relaxed);
+  }
   switch (origin) {
     case VulkanSubmitOrigin::NormalCmdSubmitFrequency:
       counters.normal_cmd_submit_frequency.fetch_add(
@@ -179,6 +238,216 @@ void note_vulkan_queue_submit(VulkanSubmitOrigin origin) {
       counters.debug_validation.fetch_add(1u, std::memory_order_relaxed);
       break;
     case VulkanSubmitOrigin::Unknown:
+    default:
+      counters.unknown.fetch_add(1u, std::memory_order_relaxed);
+      break;
+  }
+}
+
+const char* submit_origin_name(const VulkanSubmitOrigin origin) {
+  switch (origin) {
+    case VulkanSubmitOrigin::NormalCmdSubmitFrequency:
+      return "normal_cmd_submit_frequency";
+    case VulkanSubmitOrigin::StackPlannedRecordingSubmit:
+      return "stack_planned_recording_submit";
+    case VulkanSubmitOrigin::PreStackFlush:
+      return "pre_stack_flush";
+    case VulkanSubmitOrigin::PostStackFlush:
+      return "post_stack_flush";
+    case VulkanSubmitOrigin::ExplicitSynchronize:
+      return "explicit_synchronize";
+    case VulkanSubmitOrigin::TensorCpuReadback:
+      return "tensor_cpu_readback";
+    case VulkanSubmitOrigin::FallbackReadback:
+      return "fallback_readback";
+    case VulkanSubmitOrigin::RetireQueueDrain:
+      return "retire_queue_drain";
+    case VulkanSubmitOrigin::ProfilingTimestampReset:
+      return "profiling_timestamp_reset";
+    case VulkanSubmitOrigin::ProfilingTimestampReadback:
+      return "profiling_timestamp_readback";
+    case VulkanSubmitOrigin::ContextShutdown:
+      return "shutdown";
+    case VulkanSubmitOrigin::DebugValidation:
+      return "debug_validation";
+    case VulkanSubmitOrigin::Unknown:
+    default:
+      return "unknown";
+  }
+}
+
+const char* submit_phase_name(const VulkanSubmitPhase phase) {
+  switch (phase) {
+    case VulkanSubmitPhase::ModelSetup:
+      return "model_setup";
+    case VulkanSubmitPhase::PatchEmbed:
+      return "patch_embed";
+    case VulkanSubmitPhase::PositionalEmbeddingSetup:
+      return "positional_embedding_setup";
+    case VulkanSubmitPhase::StackOwner:
+      return "stack_owner";
+    case VulkanSubmitPhase::StackOwnerNorm:
+      return "stack_owner_norm";
+    case VulkanSubmitPhase::StackOwnerAttention:
+      return "stack_owner_attention";
+    case VulkanSubmitPhase::StackOwnerLinear:
+      return "stack_owner_linear";
+    case VulkanSubmitPhase::StackOwnerResidual:
+      return "stack_owner_residual";
+    case VulkanSubmitPhase::Decoder:
+      return "decoder";
+    case VulkanSubmitPhase::DecoderConv:
+      return "decoder_conv";
+    case VulkanSubmitPhase::DecoderUpsample:
+      return "decoder_upsample";
+    case VulkanSubmitPhase::DecoderPointwise:
+      return "decoder_pointwise";
+    case VulkanSubmitPhase::Readback:
+      return "readback";
+    case VulkanSubmitPhase::ExplicitSynchronize:
+      return "explicit_synchronize";
+    case VulkanSubmitPhase::Retire:
+      return "retire";
+    case VulkanSubmitPhase::Profiling:
+      return "profiling";
+    case VulkanSubmitPhase::Shutdown:
+      return "shutdown";
+    case VulkanSubmitPhase::TestHarness:
+      return "test_harness";
+    case VulkanSubmitPhase::Unknown:
+    default:
+      return "unknown";
+  }
+}
+
+VulkanSubmitPhase current_submit_phase() {
+  return g_submit_phase;
+}
+
+void set_submit_phase(const VulkanSubmitPhase phase) {
+  g_submit_phase = phase;
+}
+
+void reset_submit_phase() {
+  g_submit_phase = VulkanSubmitPhase::Unknown;
+}
+
+std::vector<std::string> submit_origin_phase_snapshot() {
+  const auto& counters = vulkan_submit_origin_phase_counters();
+  std::vector<std::string> rows;
+  for (size_t origin = 0; origin < kNumSubmitOrigins; ++origin) {
+    for (size_t phase = 0; phase < kNumSubmitPhases; ++phase) {
+      const uint64_t count =
+          counters.counts[origin][phase].load(std::memory_order_relaxed);
+      if (count == 0u) {
+        continue;
+      }
+      std::ostringstream stream;
+      stream << "submit_origin_phase origin="
+             << submit_origin_name(static_cast<VulkanSubmitOrigin>(origin))
+             << " phase="
+             << submit_phase_name(static_cast<VulkanSubmitPhase>(phase))
+             << " count=" << count;
+      rows.emplace_back(stream.str());
+    }
+  }
+  return rows;
+}
+
+std::vector<int64_t> retire_drain_counters_snapshot() {
+  const auto& counters = vulkan_retire_drain_counters();
+  return {
+      static_cast<int64_t>(counters.total.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.queue_submit_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.blocking_wait_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.poll_only_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.pending_resource_count_total.load(
+          std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.pending_bytes_total.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.explicit_drain.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.shutdown.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.resource_pressure.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.descriptor_pool_pressure.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.command_buffer_recycle.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.readback_preparation.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.synchronize.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.stack_scope_end.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.decoder_phase.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.setup_phase.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.debug_validation.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.unknown.load(std::memory_order_relaxed)),
+  };
+}
+
+void note_vulkan_retire_drain(
+    VulkanRetireDrainReason reason,
+    const bool queue_submit,
+    const bool blocking_wait,
+    const uint64_t pending_resource_count,
+    const uint64_t pending_bytes) {
+  auto& counters = vulkan_retire_drain_counters();
+  counters.total.fetch_add(1u, std::memory_order_relaxed);
+  if (queue_submit) {
+    counters.queue_submit_count.fetch_add(1u, std::memory_order_relaxed);
+  } else {
+    counters.poll_only_count.fetch_add(1u, std::memory_order_relaxed);
+  }
+  if (blocking_wait) {
+    counters.blocking_wait_count.fetch_add(1u, std::memory_order_relaxed);
+  }
+  counters.pending_resource_count_total.fetch_add(
+      pending_resource_count, std::memory_order_relaxed);
+  counters.pending_bytes_total.fetch_add(
+      pending_bytes, std::memory_order_relaxed);
+  switch (reason) {
+    case VulkanRetireDrainReason::ExplicitDrain:
+      counters.explicit_drain.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanRetireDrainReason::Shutdown:
+      counters.shutdown.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanRetireDrainReason::ResourcePressure:
+      counters.resource_pressure.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanRetireDrainReason::DescriptorPoolPressure:
+      counters.descriptor_pool_pressure.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanRetireDrainReason::CommandBufferRecycle:
+      counters.command_buffer_recycle.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanRetireDrainReason::ReadbackPreparation:
+      counters.readback_preparation.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanRetireDrainReason::Synchronize:
+      counters.synchronize.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanRetireDrainReason::StackScopeEnd:
+      counters.stack_scope_end.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanRetireDrainReason::DecoderPhase:
+      counters.decoder_phase.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanRetireDrainReason::SetupPhase:
+      counters.setup_phase.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanRetireDrainReason::DebugValidation:
+      counters.debug_validation.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanRetireDrainReason::Unknown:
     default:
       counters.unknown.fetch_add(1u, std::memory_order_relaxed);
       break;

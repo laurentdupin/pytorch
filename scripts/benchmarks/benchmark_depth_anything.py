@@ -38,6 +38,15 @@ FALLBACK_PHASE_OWNER_FORWARD = 3
 FALLBACK_PHASE_POSITIONAL_EMBEDDING_SETUP = 5
 FALLBACK_PHASE_READBACK = 6
 
+SUBMIT_PHASE_UNKNOWN = 0
+SUBMIT_PHASE_MODEL_SETUP = 1
+SUBMIT_PHASE_PATCH_EMBED = 2
+SUBMIT_PHASE_POSITIONAL_EMBEDDING_SETUP = 3
+SUBMIT_PHASE_STACK_OWNER = 4
+SUBMIT_PHASE_DECODER = 9
+SUBMIT_PHASE_READBACK = 13
+SUBMIT_PHASE_EXPLICIT_SYNCHRONIZE = 14
+
 _TORCHVISION_COMPAT_LIBS: list[Any] = []
 
 
@@ -69,6 +78,13 @@ def set_vulkan_fallback_phase(torch_module: Any, phase: int) -> None:
         setter(int(phase))
 
 
+def set_vulkan_submit_phase(torch_module: Any, phase: int) -> None:
+    ops = getattr(getattr(torch_module, "ops", None), "vulkan_prepack", None)
+    setter = getattr(ops, "set_submit_phase", None) if ops is not None else None
+    if setter is not None:
+        setter(int(phase))
+
+
 def set_vulkan_timed_region(torch_module: Any, enabled: bool) -> None:
     ops = getattr(getattr(torch_module, "ops", None), "vulkan_prepack", None)
     setter = (
@@ -87,6 +103,15 @@ def vulkan_fallback_phase(torch_module: Any, phase: int) -> Any:
         yield
     finally:
         set_vulkan_fallback_phase(torch_module, FALLBACK_PHASE_UNKNOWN)
+
+
+@contextlib.contextmanager
+def vulkan_submit_phase(torch_module: Any, phase: int) -> Any:
+    set_vulkan_submit_phase(torch_module, phase)
+    try:
+        yield
+    finally:
+        set_vulkan_submit_phase(torch_module, SUBMIT_PHASE_UNKNOWN)
 
 
 @contextlib.contextmanager
@@ -230,7 +255,10 @@ class VulkanDAv2BackboneStackOwner:
         else:
             capture_indices = [int(index) for index in n]
 
-        with vulkan_fallback_phase(self.torch, FALLBACK_PHASE_OWNER_FORWARD):
+        with vulkan_submit_phase(
+            self.torch,
+            SUBMIT_PHASE_STACK_OWNER,
+        ), vulkan_fallback_phase(self.torch, FALLBACK_PHASE_OWNER_FORWARD):
             outputs = self.torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
                 x,
                 self.stack_context,
@@ -268,7 +296,10 @@ def install_vulkan_fallback_phase_wrappers(torch_module: Any, model: Any) -> Non
                 if cached is not None:
                     return cached
 
-            with vulkan_fallback_phase(
+            with vulkan_submit_phase(
+                torch_module,
+                SUBMIT_PHASE_POSITIONAL_EMBEDDING_SETUP,
+            ), vulkan_fallback_phase(
                 torch_module,
                 FALLBACK_PHASE_POSITIONAL_EMBEDDING_SETUP,
             ):
@@ -349,7 +380,8 @@ def prewarm_vulkan_dav2_patch_and_positional_setup(
         return
 
     with vulkan_fallback_phase(torch_module, FALLBACK_PHASE_MODEL_SETUP):
-        patch_tokens = patch_embed(image_tensor)
+        with vulkan_submit_phase(torch_module, SUBMIT_PHASE_PATCH_EMBED):
+            patch_tokens = patch_embed(image_tensor)
         cls_token = getattr(pretrained, "cls_token", None)
         if cls_token is None:
             return
@@ -357,11 +389,15 @@ def prewarm_vulkan_dav2_patch_and_positional_setup(
             (cls_token.expand(patch_tokens.shape[0], -1, -1), patch_tokens),
             dim=1,
         )
-        pretrained.interpolate_pos_encoding(
-            tokens,
-            int(image_tensor.shape[2]),
-            int(image_tensor.shape[3]),
-        )
+        with vulkan_submit_phase(
+            torch_module,
+            SUBMIT_PHASE_POSITIONAL_EMBEDDING_SETUP,
+        ):
+            pretrained.interpolate_pos_encoding(
+                tokens,
+                int(image_tensor.shape[2]),
+                int(image_tensor.shape[3]),
+            )
 
 
 def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[str, Any]:
@@ -377,6 +413,8 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         "timed_fallback_phase_counters",
         "sync_counters",
         "submit_origin_counters",
+        "submit_origin_phase_counters",
+        "retire_drain_counters",
         "stack_allocation_aggregate_snapshot",
         "stack_dispatch_aggregate_snapshot",
         "stack_attention_counters",
@@ -457,14 +495,25 @@ def compute_depth_on_device(
     image: Any,
     output_size: tuple[int, int],
     functional: Any,
+    torch_module: Any | None = None,
 ) -> Any:
-    depth = model.forward(image)
-    return functional.interpolate(
-        depth[:, None],
-        output_size,
-        mode="bilinear",
-        align_corners=True,
-    )[0, 0]
+    if torch_module is None:
+        depth = model.forward(image)
+        return functional.interpolate(
+            depth[:, None],
+            output_size,
+            mode="bilinear",
+            align_corners=True,
+        )[0, 0]
+    else:
+        with vulkan_submit_phase(torch_module, SUBMIT_PHASE_DECODER):
+            depth = model.forward(image)
+            return functional.interpolate(
+                depth[:, None],
+                output_size,
+                mode="bilinear",
+                align_corners=True,
+            )[0, 0]
 
 
 def consume_depth_output(
@@ -475,10 +524,14 @@ def consume_depth_output(
     output_mode: str,
 ) -> Any:
     if output_mode == OUTPUT_MODE_DEVICE_RESIDENT:
-        _ = synchronize_result(torch_module, device_kind, depth, device)
+        with vulkan_submit_phase(torch_module, SUBMIT_PHASE_EXPLICIT_SYNCHRONIZE):
+            _ = synchronize_result(torch_module, device_kind, depth, device)
         return depth
     if output_mode == OUTPUT_MODE_READBACK:
-        with vulkan_fallback_phase(torch_module, FALLBACK_PHASE_READBACK):
+        with vulkan_submit_phase(
+            torch_module,
+            SUBMIT_PHASE_READBACK,
+        ), vulkan_fallback_phase(torch_module, FALLBACK_PHASE_READBACK):
             return depth.cpu().numpy()
     raise ValueError(f"Unsupported output_mode: {output_mode}")
 
@@ -493,8 +546,20 @@ def infer_image_on_device(
     device_kind: str,
     output_mode: str,
 ) -> Any:
-    image, (height, width) = prepare_image_on_device(model, raw_image, input_size, device)
-    depth = compute_depth_on_device(model, image, (height, width), functional)
+    with vulkan_submit_phase(torch_module, SUBMIT_PHASE_MODEL_SETUP):
+        image, (height, width) = prepare_image_on_device(
+            model,
+            raw_image,
+            input_size,
+            device,
+        )
+    depth = compute_depth_on_device(
+        model,
+        image,
+        (height, width),
+        functional,
+        torch_module,
+    )
     return consume_depth_output(
         depth,
         torch_module,
@@ -584,43 +649,49 @@ def run() -> None:
         if reset_fallback is not None:
             reset_fallback()
 
-    with vulkan_fallback_phase(torch, FALLBACK_PHASE_MODEL_SETUP):
+    with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP), vulkan_fallback_phase(
+        torch,
+        FALLBACK_PHASE_MODEL_SETUP,
+    ):
         model = DepthAnythingV2(**MODEL_CONFIGS[args.encoder])
         state_dict = torch.load(checkpoint, map_location="cpu")
         model.load_state_dict(state_dict)
         model = model.eval()
         if str(device) != "cpu":
             model = model.to(device)
-    vulkan_block_owner = (
-        install_vulkan_dav2_block_owner(torch, model)
-        if device_kind == "vulkan"
-        else {"enabled": False, "limit": 0, "installed": 0}
-    )
     if device_kind == "vulkan":
-        install_vulkan_fallback_phase_wrappers(torch, model)
+        with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP):
+            vulkan_block_owner = install_vulkan_dav2_block_owner(torch, model)
+    else:
+        vulkan_block_owner = {"enabled": False, "limit": 0, "installed": 0}
+    if device_kind == "vulkan":
+        with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP):
+            install_vulkan_fallback_phase_wrappers(torch, model)
 
     raw_image = cv2.imread(str(image_path))
     if raw_image is None:
         raise RuntimeError(f"Failed to load image: {image_path}")
 
-    image_tensor, (height, width) = prepare_image_on_device(
-        model,
-        raw_image,
-        args.input_size,
-        device,
-    )
+    with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP):
+        image_tensor, (height, width) = prepare_image_on_device(
+            model,
+            raw_image,
+            args.input_size,
+            device,
+        )
     if device_kind == "vulkan":
         prewarm_vulkan_dav2_patch_and_positional_setup(torch, model, image_tensor)
         for corpus_image_path in image_paths:
             corpus_image = cv2.imread(str(corpus_image_path))
             if corpus_image is None:
                 raise RuntimeError(f"Failed to load corpus image: {corpus_image_path}")
-            corpus_tensor, _ = prepare_image_on_device(
-                model,
-                corpus_image,
-                args.input_size,
-                device,
-            )
+            with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP):
+                corpus_tensor, _ = prepare_image_on_device(
+                    model,
+                    corpus_image,
+                    args.input_size,
+                    device,
+                )
             prewarm_vulkan_dav2_patch_and_positional_setup(
                 torch,
                 model,
@@ -647,7 +718,13 @@ def run() -> None:
                 device_kind,
                 OUTPUT_MODE_READBACK,
             )
-            depth = compute_depth_on_device(model, image_tensor, (height, width), F)
+            depth = compute_depth_on_device(
+                model,
+                image_tensor,
+                (height, width),
+                F,
+                torch,
+            )
             _ = consume_depth_output(
                 depth,
                 torch,
@@ -655,7 +732,13 @@ def run() -> None:
                 device,
                 OUTPUT_MODE_DEVICE_RESIDENT,
             )
-            depth = compute_depth_on_device(model, image_tensor, (height, width), F)
+            depth = compute_depth_on_device(
+                model,
+                image_tensor,
+                (height, width),
+                F,
+                torch,
+            )
             _ = consume_depth_output(
                 depth,
                 torch,
@@ -715,7 +798,13 @@ def run() -> None:
         for _ in range(args.repeats):
             start = time.perf_counter()
             with vulkan_timed_region(torch):
-                depth = compute_depth_on_device(model, image_tensor, (height, width), F)
+                depth = compute_depth_on_device(
+                    model,
+                    image_tensor,
+                    (height, width),
+                    F,
+                    torch,
+                )
                 _ = consume_depth_output(
                     depth,
                     torch,
@@ -728,7 +817,13 @@ def run() -> None:
         for _ in range(args.repeats):
             start = time.perf_counter()
             with vulkan_timed_region(torch):
-                depth = compute_depth_on_device(model, image_tensor, (height, width), F)
+                depth = compute_depth_on_device(
+                    model,
+                    image_tensor,
+                    (height, width),
+                    F,
+                    torch,
+                )
                 _ = consume_depth_output(
                     depth,
                     torch,

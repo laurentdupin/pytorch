@@ -4,6 +4,7 @@
 
 #include <c10/macros/Export.h>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <string>
@@ -117,6 +118,47 @@ enum class VulkanSubmitOrigin : uint8_t {
   DebugValidation,
 };
 
+constexpr size_t kNumSubmitOrigins = 13u;
+
+enum class VulkanSubmitPhase : uint8_t {
+  Unknown = 0,
+  ModelSetup,
+  PatchEmbed,
+  PositionalEmbeddingSetup,
+  StackOwner,
+  StackOwnerNorm,
+  StackOwnerAttention,
+  StackOwnerLinear,
+  StackOwnerResidual,
+  Decoder,
+  DecoderConv,
+  DecoderUpsample,
+  DecoderPointwise,
+  Readback,
+  ExplicitSynchronize,
+  Retire,
+  Profiling,
+  Shutdown,
+  TestHarness,
+};
+
+constexpr size_t kNumSubmitPhases = 19u;
+
+enum class VulkanRetireDrainReason : uint8_t {
+  Unknown = 0,
+  ExplicitDrain,
+  Shutdown,
+  ResourcePressure,
+  DescriptorPoolPressure,
+  CommandBufferRecycle,
+  ReadbackPreparation,
+  Synchronize,
+  StackScopeEnd,
+  DecoderPhase,
+  SetupPhase,
+  DebugValidation,
+};
+
 struct VulkanSubmitOriginCounters final {
   std::atomic<uint64_t> total_queue_submits{0u};
   std::atomic<uint64_t> normal_cmd_submit_frequency{0u};
@@ -134,11 +176,68 @@ struct VulkanSubmitOriginCounters final {
   std::atomic<uint64_t> unknown{0u};
 };
 
+struct VulkanSubmitOriginPhaseCounters final {
+  std::array<
+      std::array<std::atomic<uint64_t>, kNumSubmitPhases>,
+      kNumSubmitOrigins>
+      counts{};
+};
+
+struct VulkanRetireDrainCounters final {
+  std::atomic<uint64_t> total{0u};
+  std::atomic<uint64_t> queue_submit_count{0u};
+  std::atomic<uint64_t> blocking_wait_count{0u};
+  std::atomic<uint64_t> poll_only_count{0u};
+  std::atomic<uint64_t> pending_resource_count_total{0u};
+  std::atomic<uint64_t> pending_bytes_total{0u};
+  std::atomic<uint64_t> explicit_drain{0u};
+  std::atomic<uint64_t> shutdown{0u};
+  std::atomic<uint64_t> resource_pressure{0u};
+  std::atomic<uint64_t> descriptor_pool_pressure{0u};
+  std::atomic<uint64_t> command_buffer_recycle{0u};
+  std::atomic<uint64_t> readback_preparation{0u};
+  std::atomic<uint64_t> synchronize{0u};
+  std::atomic<uint64_t> stack_scope_end{0u};
+  std::atomic<uint64_t> decoder_phase{0u};
+  std::atomic<uint64_t> setup_phase{0u};
+  std::atomic<uint64_t> debug_validation{0u};
+  std::atomic<uint64_t> unknown{0u};
+};
+
+class VulkanSubmitPhaseScope final {
+ public:
+  explicit VulkanSubmitPhaseScope(VulkanSubmitPhase phase);
+  ~VulkanSubmitPhaseScope();
+  VulkanSubmitPhaseScope(const VulkanSubmitPhaseScope&) = delete;
+  VulkanSubmitPhaseScope& operator=(const VulkanSubmitPhaseScope&) = delete;
+
+ private:
+  VulkanSubmitPhase previous_;
+};
+
 TORCH_API VulkanSyncCounters& vulkan_sync_counters();
 TORCH_API void reset_vulkan_sync_counters();
 TORCH_API VulkanSubmitOriginCounters& vulkan_submit_origin_counters();
 TORCH_API void reset_vulkan_submit_origin_counters();
 TORCH_API void note_vulkan_queue_submit(VulkanSubmitOrigin origin);
+TORCH_API VulkanSubmitOriginPhaseCounters&
+vulkan_submit_origin_phase_counters();
+TORCH_API void reset_vulkan_submit_origin_phase_counters();
+TORCH_API std::vector<std::string> submit_origin_phase_snapshot();
+TORCH_API VulkanRetireDrainCounters& vulkan_retire_drain_counters();
+TORCH_API void reset_vulkan_retire_drain_counters();
+TORCH_API std::vector<int64_t> retire_drain_counters_snapshot();
+TORCH_API const char* submit_origin_name(VulkanSubmitOrigin origin);
+TORCH_API const char* submit_phase_name(VulkanSubmitPhase phase);
+TORCH_API VulkanSubmitPhase current_submit_phase();
+TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
+TORCH_API void reset_submit_phase();
+TORCH_API void note_vulkan_retire_drain(
+    VulkanRetireDrainReason reason,
+    bool queue_submit,
+    bool blocking_wait,
+    uint64_t pending_resource_count,
+    uint64_t pending_bytes);
 
 TORCH_API void note_vulkan_queue_wait_idle();
 TORCH_API void note_vulkan_forced_sync(

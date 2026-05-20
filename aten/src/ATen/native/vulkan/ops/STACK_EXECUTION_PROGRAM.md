@@ -417,8 +417,9 @@ unknown == 0
 
 This proves the local stack behavior even when whole-benchmark submit totals
 are dominated by setup, decoder/head, readback, retire, or profiling work
-outside the stack owner. If total stream submits remain high, use the origin
-breakdown before selecting another owner boundary.
+outside the stack owner. `submit_origin_phase_counters()` further classifies
+actual queue submissions by diagnostic phase. The phase label is not used for
+routing.
 
 The no-timestamp DAv2 submit-origin profile with planned stack recording
 reported:
@@ -443,6 +444,32 @@ suppressed_frequency_flushes=868
 With `cmdSubmitFrequency=16`, the old frequency-batched stack estimate is
 `ceil(15068 / 16) = 942` submits. Planned recording submits the 92 stack scopes,
 for an estimated local stack submit reduction of 850 submits. Whole-benchmark
-submits remain high because non-stack origins dominate: retire drains,
-explicit synchronization, tensor CPU readback, and normal frequency submits
-outside the stack owner.
+submits remain high because retire, explicit synchronization, tensor CPU
+readback, and normal frequency submits remain.
+
+The submit-phase follow-up profile showed the largest remaining bucket is not a
+missed planned-recording flush:
+
+```
+retire_queue_drain stack_owner=2208
+retire_queue_drain unknown=490
+explicit_synchronize stack_owner=1104
+tensor_cpu_readback model_setup=506
+tensor_cpu_readback readback=46
+normal_cmd_submit_frequency unknown=273
+```
+
+`retire_drain_counters()` reported `queue_submit_count=2698`,
+`poll_only_count=219`, and `blocking_wait_count=0`. The reason breakdown was:
+
+```
+stack_scope_end=2208
+resource_pressure=491
+readback_preparation=46
+setup_phase=172
+```
+
+Most retire submits are stack-owner native layer norm lifetime boundaries. They
+submit pending work so short-lived uniform/metadata resources can be retired by
+timeline; the profile does not prove these are safely replaceable with polling.
+No retire/sync/readback cleanup was made in this pass.

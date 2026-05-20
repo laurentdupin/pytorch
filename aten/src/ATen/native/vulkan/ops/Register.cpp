@@ -432,11 +432,30 @@ std::vector<int64_t> submit_origin_counters_runtime() {
   };
 }
 
+std::vector<std::string> submit_origin_phase_counters_runtime() {
+  return api::submit_origin_phase_snapshot();
+}
+
+std::vector<int64_t> retire_drain_counters_runtime() {
+  return api::retire_drain_counters_snapshot();
+}
+
+void set_submit_phase_runtime(const int64_t phase) {
+  TORCH_CHECK(
+      phase >= 0 && phase < static_cast<int64_t>(api::kNumSubmitPhases),
+      "Invalid Vulkan submit phase: ",
+      phase);
+  api::set_submit_phase(static_cast<api::VulkanSubmitPhase>(phase));
+}
+
 void reset_fallback_counters_runtime() {
   reset_vulkan_fallback_counters();
   reset_vulkan_fallback_phase_counters();
   api::reset_vulkan_sync_counters();
   api::reset_vulkan_submit_origin_counters();
+  api::reset_vulkan_submit_origin_phase_counters();
+  api::reset_vulkan_retire_drain_counters();
+  api::reset_submit_phase();
   api::reset_stack_allocation_aggregate();
   api::reset_stack_dispatch_aggregate();
   reset_linear_plan_counters();
@@ -1570,6 +1589,18 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_submit_origin_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::submit_origin_phase_counters() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_submit_origin_phase_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::retire_drain_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_retire_drain_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::set_submit_phase(int phase) -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_submit_phase() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_allocation_aggregate_snapshot() -> str[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_stack_allocation_aggregate() -> ()"));
@@ -1799,6 +1830,25 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_submit_origin_counters"),
       TORCH_FN(api::reset_vulkan_submit_origin_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::submit_origin_phase_counters"),
+      TORCH_FN(submit_origin_phase_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_submit_origin_phase_counters"),
+      TORCH_FN(api::reset_vulkan_submit_origin_phase_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::retire_drain_counters"),
+      TORCH_FN(retire_drain_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_retire_drain_counters"),
+      TORCH_FN(api::reset_vulkan_retire_drain_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::set_submit_phase"),
+      TORCH_FN(set_submit_phase_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_submit_phase"),
+      TORCH_FN(api::reset_submit_phase));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::stack_allocation_aggregate_snapshot"),
