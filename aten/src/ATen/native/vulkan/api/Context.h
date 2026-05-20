@@ -47,6 +47,8 @@ struct StackPlannedRecordingStats final {
   uint64_t recorded_compute_jobs = 0u;
   uint64_t recorded_descriptor_writes = 0u;
   uint64_t recorded_barriers = 0u;
+  uint64_t suppressed_frequency_flushes = 0u;
+  uint64_t premature_submits = 0u;
 };
 
 //
@@ -144,6 +146,7 @@ class TORCH_API Context final {
   VulkanSubmission submit_cmd_handle_to_gpu(
       VulkanStreamState&,
       VkCommandBuffer,
+      VulkanSubmitOrigin origin,
       VkFence fence_handle = VK_NULL_HANDLE,
       const bool final_use = false);
   void retire_deferred_cleanup(VulkanSubmission);
@@ -318,7 +321,8 @@ class TORCH_API Context final {
 
   VulkanSubmission submit_cmd_to_gpu(
       VkFence fence_handle = VK_NULL_HANDLE,
-      const bool final_use = false);
+      const bool final_use = false,
+      VulkanSubmitOrigin origin = VulkanSubmitOrigin::Unknown);
   void flush_pending_cmds(VkFence fence_handle = VK_NULL_HANDLE);
   bool is_stack_planned_recording_active() const;
   void begin_stack_planned_recording();
@@ -582,7 +586,8 @@ inline bool Context::submit_copy(
   if (!source || !destination) {
     if (!external_recording && fence_handle != VK_NULL_HANDLE &&
         submit_count_ > 0) {
-      submit_cmd_to_gpu(fence_handle);
+      submit_cmd_to_gpu(
+          fence_handle, false, VulkanSubmitOrigin::TensorCpuReadback);
       if (cpu_timeline) {
         std::ostringstream stream;
         stream << "event=submit_copy_empty submitted=1 record_us="
@@ -635,9 +640,19 @@ inline bool Context::submit_copy(
   submit_count_++;
   bool submitted = false;
   if (fence_handle != VK_NULL_HANDLE ||
-      submit_count_ >= config_.cmdSubmitFrequency) {
-    submit_cmd_to_gpu(fence_handle);
+      (!stack_planned_recording &&
+       submit_count_ >= config_.cmdSubmitFrequency)) {
+    submit_cmd_to_gpu(
+        fence_handle,
+        false,
+        fence_handle != VK_NULL_HANDLE
+            ? VulkanSubmitOrigin::TensorCpuReadback
+            : VulkanSubmitOrigin::NormalCmdSubmitFrequency);
     submitted = true;
+  } else if (
+      stack_planned_recording &&
+      submit_count_ >= config_.cmdSubmitFrequency) {
+    stack_planned_recording_stats_.suppressed_frequency_flushes++;
   }
   if (cpu_timeline) {
     std::ostringstream stream;
@@ -685,7 +700,8 @@ inline bool Context::submit_compute_job(
   if (detail::any_arg_is_empty(arguments...)) {
     if (!external_recording && fence_handle != VK_NULL_HANDLE &&
         submit_count_ > 0) {
-      submit_cmd_to_gpu(fence_handle);
+      submit_cmd_to_gpu(
+          fence_handle, false, VulkanSubmitOrigin::TensorCpuReadback);
       if (cpu_timeline) {
         std::ostringstream stream;
         stream << "event=submit_compute_empty kernel=" << shader.kernel_name
@@ -772,8 +788,20 @@ inline bool Context::submit_compute_job(
   if (fence_handle != VK_NULL_HANDLE ||
       (!stack_planned_recording &&
        submit_count_ >= config_.cmdSubmitFrequency)) {
-    submit_cmd_to_gpu(fence_handle);
+    if (stack_planned_recording) {
+      stack_planned_recording_stats_.premature_submits++;
+    }
+    submit_cmd_to_gpu(
+        fence_handle,
+        false,
+        fence_handle != VK_NULL_HANDLE
+            ? VulkanSubmitOrigin::TensorCpuReadback
+            : VulkanSubmitOrigin::NormalCmdSubmitFrequency);
     submitted = true;
+  } else if (
+      stack_planned_recording &&
+      submit_count_ >= config_.cmdSubmitFrequency) {
+    stack_planned_recording_stats_.suppressed_frequency_flushes++;
   }
 
   if (cpu_timeline) {

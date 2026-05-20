@@ -533,6 +533,7 @@ void Context::reset_gpu_profile_queries() {
   reset_cmd.end();
   adapter_p_->submit_cmd(
       queue_, reset_cmd.get_submit_handle(/*final_use=*/true));
+  note_vulkan_queue_submit(VulkanSubmitOrigin::ProfilingTimestampReset);
   note_vulkan_queue_wait_idle();
   VK_CHECK(vkQueueWaitIdle(queue()));
 }
@@ -639,7 +640,8 @@ void Context::flush_if_current_stream(const c10::Stream& stream) {
   if (stream != current_c10_stream() || !has_pending_work_for_current_stream()) {
     return;
   }
-  submit_cmd_to_gpu();
+  submit_cmd_to_gpu(
+      VK_NULL_HANDLE, false, VulkanSubmitOrigin::ExplicitSynchronize);
 }
 
 c10::Stream Context::exchange_stream(c10::Stream stream) {
@@ -654,7 +656,8 @@ c10::Stream Context::exchange_stream(c10::Stream stream) {
       " on context for device ",
       device_index_);
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
-  submit_cmd_to_gpu();
+  submit_cmd_to_gpu(
+      VK_NULL_HANDLE, false, VulkanSubmitOrigin::ExplicitSynchronize);
   const c10::Stream previous = current_c10_stream();
   vulkan_stream_pool().set_current_stream(stream);
   return previous;
@@ -673,7 +676,8 @@ bool Context::query_stream(const c10::Stream& stream) {
 void Context::synchronize_stream(const c10::Stream& stream) {
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   if (stream == current_c10_stream()) {
-    submit_cmd_to_gpu();
+    submit_cmd_to_gpu(
+        VK_NULL_HANDLE, false, VulkanSubmitOrigin::ExplicitSynchronize);
   }
   context_lock.unlock();
   VulkanStreamState& vk_stream = vulkan_stream_pool().unwrap(stream);
@@ -686,7 +690,10 @@ void Context::synchronize_stream(const c10::Stream& stream) {
 void Context::synchronize_device() {
   {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
-    submit_cmd_to_gpu(/*fence_handle=*/VK_NULL_HANDLE, /*final_use=*/true);
+    submit_cmd_to_gpu(
+        /*fence_handle=*/VK_NULL_HANDLE,
+        /*final_use=*/true,
+        VulkanSubmitOrigin::ExplicitSynchronize);
   }
   vulkan_stream_pool().wait_all(device_index_);
   retire_queue_.drain(device_);
@@ -702,6 +709,7 @@ void Context::synchronize_device() {
 VulkanSubmission Context::submit_cmd_handle_to_gpu(
     VulkanStreamState& stream,
     VkCommandBuffer cmd,
+    VulkanSubmitOrigin origin,
     VkFence fence_handle,
     const bool final_use) {
   std::vector<VkSemaphore> wait_semaphores;
@@ -733,6 +741,7 @@ VulkanSubmission Context::submit_cmd_handle_to_gpu(
       stream.timeline,
       signal_value,
       fence_handle);
+  note_vulkan_queue_submit(origin);
   vulkan_sync_counters().stream_submit_count.fetch_add(
       1u, std::memory_order_relaxed);
   return VulkanSubmission{stream.id, stream.timeline, signal_value};
@@ -782,14 +791,16 @@ void Context::poll_retire_queue() {
 void Context::submit_pending_work_and_poll_retire() {
   {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
-    submit_cmd_to_gpu();
+    submit_cmd_to_gpu(
+        VK_NULL_HANDLE, false, VulkanSubmitOrigin::RetireQueueDrain);
   }
   poll_retire_queue();
 }
 
 VulkanSubmission Context::submit_cmd_to_gpu(
     VkFence fence_handle,
-    const bool final_use) {
+    const bool final_use,
+    VulkanSubmitOrigin origin) {
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
@@ -800,6 +811,7 @@ VulkanSubmission Context::submit_cmd_to_gpu(
     submission = submit_cmd_handle_to_gpu(
         current_stream(),
         cmd_.get_submit_handle(final_use),
+        origin,
         fence_handle,
         final_use);
     last_submission_ = submission;
@@ -824,7 +836,8 @@ void Context::flush_pending_cmds(VkFence fence_handle) {
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
-  submit_cmd_to_gpu(fence_handle);
+  submit_cmd_to_gpu(
+      fence_handle, false, VulkanSubmitOrigin::TensorCpuReadback);
   if (cpu_timeline) {
     std::ostringstream stream;
     stream << "event=flush_pending_cmds duration_us="
@@ -842,7 +855,7 @@ void Context::begin_stack_planned_recording() {
   VK_CHECK_COND(
       !is_stack_planned_recording_active(),
       "Vulkan stack planned recording is already active");
-  submit_cmd_to_gpu();
+  submit_cmd_to_gpu(VK_NULL_HANDLE, false, VulkanSubmitOrigin::PreStackFlush);
   stack_planned_recording_owner_ = std::this_thread::get_id();
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
   stack_planned_recording_active_.store(true, std::memory_order_release);
@@ -857,7 +870,8 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       stack_planned_recording_owner_ == std::this_thread::get_id(),
       "Vulkan stack planned recording ended from the wrong thread");
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
-  submit_cmd_to_gpu();
+  submit_cmd_to_gpu(
+      VK_NULL_HANDLE, false, VulkanSubmitOrigin::StackPlannedRecordingSubmit);
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
@@ -873,7 +887,7 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
-  submit_cmd_to_gpu();
+  submit_cmd_to_gpu(VK_NULL_HANDLE, false, VulkanSubmitOrigin::PostStackFlush);
   return stats;
 }
 
@@ -917,6 +931,7 @@ void Context::submit_prepared_command_buffer(
         create_extent3d({0, 0, 0}));
     begin_cmd.end();
     adapter_p_->submit_cmd(queue_, begin_cmd.get_submit_handle(/*final_use=*/true));
+    note_vulkan_queue_submit(VulkanSubmitOrigin::ProfilingTimestampReset);
     return idx;
   }();
 
@@ -924,6 +939,7 @@ void Context::submit_prepared_command_buffer(
   VulkanSubmission submission = submit_cmd_handle_to_gpu(
       current_stream(),
       cmd.get_submit_handle(final_use),
+      VulkanSubmitOrigin::DebugValidation,
       profile_submit ? VK_NULL_HANDLE : fence_handle,
       final_use);
   last_submission_ = submission;
@@ -935,6 +951,7 @@ void Context::submit_prepared_command_buffer(
     end_cmd.end();
     adapter_p_->submit_cmd(
         queue_, end_cmd.get_submit_handle(/*final_use=*/true), fence_handle);
+    note_vulkan_queue_submit(VulkanSubmitOrigin::ProfilingTimestampReadback);
   }
 
   if (profile_submit) {

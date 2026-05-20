@@ -380,3 +380,42 @@ or persistent captured command buffer is merged.
 True replay remains blocked by replay-stable program-owned temporaries and a
 descriptor update model that can safely rebind those resources without
 re-recording.
+
+## Submit-Origin Diagnostics
+
+`submit_origin_counters()` classifies actual queue submissions at the Context
+submission point. It is separate from logical `submit_compute_job` counts. The
+origin fields are:
+
+```
+total_queue_submits
+normal_cmd_submit_frequency
+stack_planned_recording_submit
+pre_stack_flush
+post_stack_flush
+explicit_synchronize
+tensor_cpu_readback
+fallback_readback
+retire_queue_drain
+profiling_timestamp_reset
+profiling_timestamp_readback
+shutdown
+debug_validation
+unknown
+```
+
+Planned recording also reports `premature_stack_submit_count` and
+`suppressed_frequency_flush_count` in `stack_planned_recording_counters()`.
+The expected healthy stack-owned run has:
+
+```
+stack_planned_recording_submit == recording_scope_submit_count
+premature_stack_submit_count == 0
+suppressed_frequency_flush_count > 0
+unknown == 0
+```
+
+This proves the local stack behavior even when whole-benchmark submit totals
+are dominated by setup, decoder/head, readback, retire, or profiling work
+outside the stack owner. If total stream submits remain high, use the origin
+breakdown before selecting another owner boundary.

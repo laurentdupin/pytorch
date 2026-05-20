@@ -59,6 +59,11 @@ VulkanSyncCounters& vulkan_sync_counters() {
   return counters;
 }
 
+VulkanSubmitOriginCounters& vulkan_submit_origin_counters() {
+  static VulkanSubmitOriginCounters counters;
+  return counters;
+}
+
 VulkanVisionStackPhaseScope::VulkanVisionStackPhaseScope(
     VulkanVisionStackPhase phase)
     : previous_(g_vision_stack_phase) {
@@ -109,6 +114,75 @@ void reset_vulkan_sync_counters() {
   counters.forced_sync_fallback_policy_readback_count.store(
       0u, std::memory_order_relaxed);
   counters.forced_sync_unknown_count.store(0u, std::memory_order_relaxed);
+}
+
+void reset_vulkan_submit_origin_counters() {
+  VulkanSubmitOriginCounters& counters = vulkan_submit_origin_counters();
+  counters.total_queue_submits.store(0u, std::memory_order_relaxed);
+  counters.normal_cmd_submit_frequency.store(0u, std::memory_order_relaxed);
+  counters.stack_planned_recording_submit.store(0u, std::memory_order_relaxed);
+  counters.pre_stack_flush.store(0u, std::memory_order_relaxed);
+  counters.post_stack_flush.store(0u, std::memory_order_relaxed);
+  counters.explicit_synchronize.store(0u, std::memory_order_relaxed);
+  counters.tensor_cpu_readback.store(0u, std::memory_order_relaxed);
+  counters.fallback_readback.store(0u, std::memory_order_relaxed);
+  counters.retire_queue_drain.store(0u, std::memory_order_relaxed);
+  counters.profiling_timestamp_reset.store(0u, std::memory_order_relaxed);
+  counters.profiling_timestamp_readback.store(0u, std::memory_order_relaxed);
+  counters.shutdown.store(0u, std::memory_order_relaxed);
+  counters.debug_validation.store(0u, std::memory_order_relaxed);
+  counters.unknown.store(0u, std::memory_order_relaxed);
+}
+
+void note_vulkan_queue_submit(VulkanSubmitOrigin origin) {
+  VulkanSubmitOriginCounters& counters = vulkan_submit_origin_counters();
+  counters.total_queue_submits.fetch_add(1u, std::memory_order_relaxed);
+  switch (origin) {
+    case VulkanSubmitOrigin::NormalCmdSubmitFrequency:
+      counters.normal_cmd_submit_frequency.fetch_add(
+          1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::StackPlannedRecordingSubmit:
+      counters.stack_planned_recording_submit.fetch_add(
+          1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::PreStackFlush:
+      counters.pre_stack_flush.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::PostStackFlush:
+      counters.post_stack_flush.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::ExplicitSynchronize:
+      counters.explicit_synchronize.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::TensorCpuReadback:
+      counters.tensor_cpu_readback.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::FallbackReadback:
+      counters.fallback_readback.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::RetireQueueDrain:
+      counters.retire_queue_drain.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::ProfilingTimestampReset:
+      counters.profiling_timestamp_reset.fetch_add(
+          1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::ProfilingTimestampReadback:
+      counters.profiling_timestamp_readback.fetch_add(
+          1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::ContextShutdown:
+      counters.shutdown.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::DebugValidation:
+      counters.debug_validation.fetch_add(1u, std::memory_order_relaxed);
+      break;
+    case VulkanSubmitOrigin::Unknown:
+    default:
+      counters.unknown.fetch_add(1u, std::memory_order_relaxed);
+      break;
+  }
 }
 
 const char* vision_stack_phase_name(const VulkanVisionStackPhase phase) {

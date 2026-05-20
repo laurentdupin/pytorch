@@ -633,6 +633,15 @@ persisted across forwards. `stack_planned_recording_readiness()` now reports
 blocked until program-owned temporaries become replay-stable resources or can
 be safely rebound without re-recording.
 
+Submit-origin diagnostics now classify actual queue submissions separately from
+logical compute jobs. `submit_origin_counters()` reports stack planned
+recording submits, normal `cmdSubmitFrequency` submits, pre/post stack flushes,
+explicit synchronization, CPU readback, retire drains, profiling submits, and
+unknown origins. `stack_planned_recording_counters()` also reports premature
+stack submits and frequency flushes suppressed by stack recording. A healthy
+stack recording has no premature stack submits, one stack submit per stack
+scope, and zero unknown submit origins in the benchmark path.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

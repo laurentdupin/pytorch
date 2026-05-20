@@ -101,8 +101,44 @@ struct VulkanSyncCounters final {
   std::atomic<uint64_t> forced_sync_unknown_count{0u};
 };
 
+enum class VulkanSubmitOrigin : uint8_t {
+  Unknown = 0,
+  NormalCmdSubmitFrequency,
+  StackPlannedRecordingSubmit,
+  PreStackFlush,
+  PostStackFlush,
+  ExplicitSynchronize,
+  TensorCpuReadback,
+  FallbackReadback,
+  RetireQueueDrain,
+  ProfilingTimestampReset,
+  ProfilingTimestampReadback,
+  ContextShutdown,
+  DebugValidation,
+};
+
+struct VulkanSubmitOriginCounters final {
+  std::atomic<uint64_t> total_queue_submits{0u};
+  std::atomic<uint64_t> normal_cmd_submit_frequency{0u};
+  std::atomic<uint64_t> stack_planned_recording_submit{0u};
+  std::atomic<uint64_t> pre_stack_flush{0u};
+  std::atomic<uint64_t> post_stack_flush{0u};
+  std::atomic<uint64_t> explicit_synchronize{0u};
+  std::atomic<uint64_t> tensor_cpu_readback{0u};
+  std::atomic<uint64_t> fallback_readback{0u};
+  std::atomic<uint64_t> retire_queue_drain{0u};
+  std::atomic<uint64_t> profiling_timestamp_reset{0u};
+  std::atomic<uint64_t> profiling_timestamp_readback{0u};
+  std::atomic<uint64_t> shutdown{0u};
+  std::atomic<uint64_t> debug_validation{0u};
+  std::atomic<uint64_t> unknown{0u};
+};
+
 TORCH_API VulkanSyncCounters& vulkan_sync_counters();
 TORCH_API void reset_vulkan_sync_counters();
+TORCH_API VulkanSubmitOriginCounters& vulkan_submit_origin_counters();
+TORCH_API void reset_vulkan_submit_origin_counters();
+TORCH_API void note_vulkan_queue_submit(VulkanSubmitOrigin origin);
 
 TORCH_API void note_vulkan_queue_wait_idle();
 TORCH_API void note_vulkan_forced_sync(

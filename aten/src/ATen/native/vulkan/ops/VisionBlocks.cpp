@@ -221,6 +221,8 @@ struct VulkanStackPlannedRecordingCounters final {
   std::atomic<uint64_t> recorded_compute_job_count{0u};
   std::atomic<uint64_t> recorded_barrier_count{0u};
   std::atomic<uint64_t> recorded_descriptor_count{0u};
+  std::atomic<uint64_t> premature_stack_submit_count{0u};
+  std::atomic<uint64_t> suppressed_frequency_flush_count{0u};
   std::atomic<uint64_t> reject_readiness{0u};
   std::atomic<uint64_t> reject_active_capture{0u};
   std::atomic<uint64_t> reject_nested_recording{0u};
@@ -1317,6 +1319,12 @@ class VulkanStackCommandRecordingScope final {
           std::memory_order_relaxed);
       counters.recorded_barrier_count.fetch_add(
           stats.recorded_barriers,
+          std::memory_order_relaxed);
+      counters.premature_stack_submit_count.fetch_add(
+          stats.premature_submits,
+          std::memory_order_relaxed);
+      counters.suppressed_frequency_flush_count.fetch_add(
+          stats.suppressed_frequency_flushes,
           std::memory_order_relaxed);
       active_ = false;
     } catch (...) {
@@ -7397,6 +7405,10 @@ std::vector<int64_t> stack_planned_recording_counters_snapshot() {
           counters.recorded_barrier_count.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.recorded_descriptor_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.premature_stack_submit_count.load(
+          std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.suppressed_frequency_flush_count.load(
+          std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.reject_readiness.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
@@ -7421,6 +7433,8 @@ void reset_stack_planned_recording_counters() {
   counters.recorded_compute_job_count.store(0u, std::memory_order_relaxed);
   counters.recorded_barrier_count.store(0u, std::memory_order_relaxed);
   counters.recorded_descriptor_count.store(0u, std::memory_order_relaxed);
+  counters.premature_stack_submit_count.store(0u, std::memory_order_relaxed);
+  counters.suppressed_frequency_flush_count.store(0u, std::memory_order_relaxed);
   counters.reject_readiness.store(0u, std::memory_order_relaxed);
   counters.reject_active_capture.store(0u, std::memory_order_relaxed);
   counters.reject_nested_recording.store(0u, std::memory_order_relaxed);

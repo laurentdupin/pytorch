@@ -399,10 +399,44 @@ std::vector<int64_t> sync_counters_runtime() {
   };
 }
 
+std::vector<int64_t> submit_origin_counters_runtime() {
+  const api::VulkanSubmitOriginCounters& counters =
+      api::vulkan_submit_origin_counters();
+  return {
+      static_cast<int64_t>(
+          counters.total_queue_submits.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.normal_cmd_submit_frequency.load(
+          std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.stack_planned_recording_submit.load(
+          std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.pre_stack_flush.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.post_stack_flush.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.explicit_synchronize.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.tensor_cpu_readback.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.fallback_readback.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.retire_queue_drain.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.profiling_timestamp_reset.load(
+          std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.profiling_timestamp_readback.load(
+          std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.shutdown.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.debug_validation.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.unknown.load(std::memory_order_relaxed)),
+  };
+}
+
 void reset_fallback_counters_runtime() {
   reset_vulkan_fallback_counters();
   reset_vulkan_fallback_phase_counters();
   api::reset_vulkan_sync_counters();
+  api::reset_vulkan_submit_origin_counters();
   api::reset_stack_allocation_aggregate();
   api::reset_stack_dispatch_aggregate();
   reset_linear_plan_counters();
@@ -1532,6 +1566,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::sync_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::submit_origin_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_submit_origin_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_allocation_aggregate_snapshot() -> str[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_stack_allocation_aggregate() -> ()"));
@@ -1755,6 +1793,12 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::sync_counters"),
       TORCH_FN(sync_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::submit_origin_counters"),
+      TORCH_FN(submit_origin_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_submit_origin_counters"),
+      TORCH_FN(api::reset_vulkan_submit_origin_counters));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::stack_allocation_aggregate_snapshot"),

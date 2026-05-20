@@ -8450,6 +8450,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
 
         torch.ops.vulkan_prepack.reset_stack_planned_recording_counters()
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
         with torch.inference_mode():
             torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
                 x,
@@ -8490,6 +8491,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertGreater(counters[2], 0)
         self.assertGreater(counters[3], 0)
         self.assertGreater(counters[6], 0)
+        self.assertEqual(counters[9], 0)
+        submit_origins = torch.ops.vulkan_prepack.submit_origin_counters()
+        self.assertGreater(submit_origins[2], 0)
+        self.assertEqual(submit_origins[13], 0)
 
     def test_vulkan_vision_stack_planned_recording_matches_block_owner_607(self):
         contexts, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
