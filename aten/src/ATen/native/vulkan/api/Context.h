@@ -769,10 +769,15 @@ inline bool Context::submit_compute_job(
       std::memory_order_relaxed);
   note_vulkan_stack_dispatch(shader.kernel_name.c_str());
   if (stack_planned_recording) {
-    stack_planned_recording_stats_.recorded_compute_jobs++;
+    const uint64_t stack_compute_job =
+        ++stack_planned_recording_stats_.recorded_compute_jobs;
     stack_planned_recording_stats_.recorded_descriptor_writes +=
         sizeof...(Arguments);
     stack_planned_recording_stats_.recorded_barriers++;
+    if (config_.cmdSubmitFrequency > 0u &&
+        stack_compute_job % config_.cmdSubmitFrequency == 0u) {
+      stack_planned_recording_stats_.suppressed_frequency_flushes++;
+    }
   }
 
   if (enable_op_profiling_ && !external_recording) {
@@ -798,10 +803,6 @@ inline bool Context::submit_compute_job(
             ? VulkanSubmitOrigin::TensorCpuReadback
             : VulkanSubmitOrigin::NormalCmdSubmitFrequency);
     submitted = true;
-  } else if (
-      stack_planned_recording &&
-      submit_count_ >= config_.cmdSubmitFrequency) {
-    stack_planned_recording_stats_.suppressed_frequency_flushes++;
   }
 
   if (cpu_timeline) {

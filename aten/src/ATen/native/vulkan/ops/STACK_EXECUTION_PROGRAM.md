@@ -419,3 +419,30 @@ This proves the local stack behavior even when whole-benchmark submit totals
 are dominated by setup, decoder/head, readback, retire, or profiling work
 outside the stack owner. If total stream submits remain high, use the origin
 breakdown before selecting another owner boundary.
+
+The no-timestamp DAv2 submit-origin profile with planned stack recording
+reported:
+
+```
+total_queue_submits=4773
+stream_submit_count=4773
+normal_cmd_submit_frequency=273
+stack_planned_recording_submit=92
+explicit_synchronize=1150
+tensor_cpu_readback=560
+retire_queue_drain=2698
+unknown=0
+
+recording_scope_begin=92
+recording_scope_submit=92
+recorded_stack_compute_jobs=15068
+premature_stack_submits=0
+suppressed_frequency_flushes=868
+```
+
+With `cmdSubmitFrequency=16`, the old frequency-batched stack estimate is
+`ceil(15068 / 16) = 942` submits. Planned recording submits the 92 stack scopes,
+for an estimated local stack submit reduction of 850 submits. Whole-benchmark
+submits remain high because non-stack origins dominate: retire drains,
+explicit synchronization, tensor CPU readback, and normal frequency submits
+outside the stack owner.

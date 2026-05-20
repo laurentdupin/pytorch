@@ -642,6 +642,25 @@ stack submits and frequency flushes suppressed by stack recording. A healthy
 stack recording has no premature stack submits, one stack submit per stack
 scope, and zero unknown submit origins in the benchmark path.
 
+The DAv2 no-timestamp submit-origin profile validates the local stack win:
+
+```
+recorded_stack_compute_jobs=15068
+cmdSubmitFrequency=16
+estimated_old_stack_submits=942
+actual_stack_planned_submits=92
+local_stack_submit_reduction=850
+premature_stack_submits=0
+suppressed_frequency_flushes=868
+```
+
+Total queue submits still measured 4773, matching `stream_submit_count`. The
+remaining non-stack origins were dominated by `retire_queue_drain=2698`,
+`explicit_synchronize=1150`, `tensor_cpu_readback=560`, and
+`normal_cmd_submit_frequency=273`; `unknown=0`. The next submit-side work should
+therefore classify and reduce non-stack retire/sync/readback origins before
+changing stack planned recording again.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:
