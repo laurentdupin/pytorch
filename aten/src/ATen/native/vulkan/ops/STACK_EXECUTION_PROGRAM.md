@@ -501,3 +501,51 @@ Persisting them alone would not remove the norm retire submits because the same
 call sites also retire large stack-internal buffers. No metadata persistence or
 ring was implemented. The next proven target is stack-internal temp lifetime
 planning around norm2/residual boundaries, not command-buffer replay.
+
+The next pass refined the broad `stack_internal_temp` bucket into phase-derived
+roles and added `stack_temp_lifetime_safety_snapshot()`. The no-timestamp DAv2
+profile still showed the same retire-submit shape:
+
+```
+total_queue_submits=4773
+retire_queue_drain=2698
+explicit_synchronize=1150
+tensor_cpu_readback=560
+normal_cmd_submit_frequency=273
+stack_planned_recording_submit=92
+unknown=0
+
+retire_call_site stack_owner_norm1 submit=1104 pending_bytes=294435440
+retire_call_site stack_owner_norm2 submit=1104 pending_bytes=31627193088
+retire_call_site context_flush_pending submit=490 pending_bytes=1810223264
+```
+
+The top stack temp rows were:
+
+```
+stack_internal_temp stack_owner_phase_boundary
+  count=7820 bytes=25025479680
+stack_internal_temp stack_owner_norm2
+  count=5520 bytes=24731062272
+stack_fc2_output stack_owner_phase_boundary
+  count=1129 bytes=18965065728
+stack_attention_output stack_owner_norm2
+  count=1104 bytes=3533008896
+stack_proj_output stack_owner_norm2
+  count=128 bytes=1643913216
+stack_qkv_output stack_owner_norm2
+  count=128 bytes=1643913216
+stack_fc1_gelu_output stack_owner_phase_boundary
+  count=117 bytes=1502674944
+```
+
+Every concrete stack temp role in the lifetime snapshot is currently classified
+as `unsafe_unknown_consumer`. This is intentional: the cleanup path that creates
+retire entries receives raw `VulkanBuffer`/`VulkanImage` resources after tensor
+storage release, not a proven producer/consumer graph, shape, dtype, escape
+state, or requested-intermediate/final-output bit for each retired allocation.
+Some resources are also still only classifiable as `stack_internal_temp` because
+they reach the retire queue outside a specific stack phase. Therefore no
+stack-internal-temp retire batching was implemented. The safe next step is to
+carry explicit stack tensor lifetime/provenance into the retire entry before any
+batching change.

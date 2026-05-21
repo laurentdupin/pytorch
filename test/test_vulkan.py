@@ -8521,6 +8521,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertGreater(counters[3], 0)
         self.assertGreater(counters[6], 0)
 
+    def test_vulkan_vision_stack_temp_lifetime_safety_snapshot(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
+
+        torch.ops.vulkan_prepack.reset_retired_resource_aggregate()
+        torch.ops.vulkan_prepack.reset_stack_temp_lifetime_safety_snapshot()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [0],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        resources = torch.ops.vulkan_prepack.retired_resource_aggregate_snapshot()
+        safety = torch.ops.vulkan_prepack.stack_temp_lifetime_safety_snapshot()
+        self.assertTrue(any("role=stack_" in row for row in resources))
+        self.assertTrue(any("safety=unsafe_unknown_consumer" in row for row in safety))
+
     def test_vulkan_vision_stack_execution_manifest_reports_capture_blocker(self):
         torch.manual_seed(0)
         embed_dim = 384

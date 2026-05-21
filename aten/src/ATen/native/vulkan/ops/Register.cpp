@@ -448,6 +448,10 @@ std::vector<std::string> retired_resource_aggregate_snapshot_runtime() {
   return api::retired_resource_aggregate_snapshot();
 }
 
+std::vector<std::string> stack_temp_lifetime_safety_snapshot_runtime() {
+  return api::stack_temp_lifetime_safety_snapshot();
+}
+
 void set_submit_phase_runtime(const int64_t phase) {
   TORCH_CHECK(
       phase >= 0 && phase < static_cast<int64_t>(api::kNumSubmitPhases),
@@ -465,6 +469,7 @@ void reset_fallback_counters_runtime() {
   api::reset_vulkan_retire_drain_counters();
   api::reset_retire_call_site_counters();
   api::reset_retired_resource_aggregate();
+  api::reset_stack_temp_lifetime_safety_snapshot();
   api::reset_submit_phase();
   api::reset_stack_allocation_aggregate();
   api::reset_stack_dispatch_aggregate();
@@ -1615,6 +1620,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_retired_resource_aggregate() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_temp_lifetime_safety_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_temp_lifetime_safety_snapshot() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::set_submit_phase(int phase) -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_submit_phase() -> ()"));
@@ -1875,6 +1884,14 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::reset_retired_resource_aggregate"),
       TORCH_FN(api::reset_retired_resource_aggregate));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::stack_temp_lifetime_safety_snapshot"),
+      TORCH_FN(stack_temp_lifetime_safety_snapshot_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_stack_temp_lifetime_safety_snapshot"),
+      TORCH_FN(api::reset_stack_temp_lifetime_safety_snapshot));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::set_submit_phase"),
       TORCH_FN(set_submit_phase_runtime));

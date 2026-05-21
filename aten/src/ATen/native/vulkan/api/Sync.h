@@ -212,12 +212,36 @@ enum class VulkanRetiredResourceRole : uint8_t {
   ConvMetadata,
   ResidualAddMetadata,
   StackInternalTemp,
+  StackNorm1Output,
+  StackQkvOutput,
+  StackQView,
+  StackKView,
+  StackVView,
+  StackAttentionOutput,
+  StackProjOutput,
+  StackResidual1Output,
+  StackNorm2Output,
+  StackFc1GeluOutput,
+  StackFc2Output,
+  StackResidual2Output,
   StackRequestedOutput,
   StackFinalOutput,
   DescriptorRecycle,
   CommandBufferRecycle,
   ReadbackStaging,
   SetupStaging,
+};
+
+enum class VulkanStackTempLifetimeSafety : uint8_t {
+  Unknown = 0,
+  SafeToDeferUntilStackSubmit,
+  SafeToDeferUntilStackScopeEnd,
+  MustRetireAtPhaseBoundary,
+  EscapesAsRequestedIntermediate,
+  EscapesAsFinalOutput,
+  AliasesRuntimeInput,
+  AliasesRuntimeOutput,
+  UnsafeUnknownConsumer,
 };
 
 struct VulkanSubmitOriginCounters final {
@@ -316,11 +340,17 @@ TORCH_API std::vector<std::string> retire_call_site_counters_snapshot();
 TORCH_API void reset_retire_call_site_counters();
 TORCH_API std::vector<std::string> retired_resource_aggregate_snapshot();
 TORCH_API void reset_retired_resource_aggregate();
+TORCH_API std::vector<std::string> stack_temp_lifetime_safety_snapshot();
+TORCH_API void reset_stack_temp_lifetime_safety_snapshot();
 TORCH_API const char* submit_origin_name(VulkanSubmitOrigin origin);
 TORCH_API const char* submit_phase_name(VulkanSubmitPhase phase);
 TORCH_API const char* retire_call_site_name(VulkanRetireCallSite callsite);
 TORCH_API const char* retired_resource_kind_name(VulkanRetiredResourceKind kind);
 TORCH_API const char* retired_resource_role_name(VulkanRetiredResourceRole role);
+TORCH_API const char* stack_temp_lifetime_safety_name(
+    VulkanStackTempLifetimeSafety safety);
+TORCH_API VulkanRetiredResourceRole stack_retired_resource_role_for_phase(
+    VulkanVisionStackPhase phase);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();

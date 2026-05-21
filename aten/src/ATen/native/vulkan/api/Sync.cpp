@@ -44,6 +44,27 @@ struct RetiredResourceAggregateValue final {
   uint64_t poll_only_count = 0u;
 };
 
+struct StackTempLifetimeSafetyKey final {
+  VulkanRetiredResourceRole role = VulkanRetiredResourceRole::Unknown;
+  VulkanStackTempLifetimeSafety safety =
+      VulkanStackTempLifetimeSafety::Unknown;
+  VulkanSubmitPhase phase = VulkanSubmitPhase::Unknown;
+  VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown;
+
+  bool operator<(const StackTempLifetimeSafetyKey& other) const {
+    return std::tie(role, safety, phase, callsite) <
+        std::tie(other.role, other.safety, other.phase, other.callsite);
+  }
+};
+
+struct StackTempLifetimeSafetyValue final {
+  uint64_t count = 0u;
+  uint64_t bytes = 0u;
+  uint64_t queue_submit_count = 0u;
+  uint64_t blocking_wait_count = 0u;
+  uint64_t poll_only_count = 0u;
+};
+
 std::mutex& stack_aggregate_mutex() {
   static std::mutex mutex;
   return mutex;
@@ -115,6 +136,67 @@ retired_resource_aggregate() {
   static std::map<RetiredResourceAggregateKey, RetiredResourceAggregateValue>
       aggregate;
   return aggregate;
+}
+
+std::mutex& stack_temp_lifetime_safety_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::map<StackTempLifetimeSafetyKey, StackTempLifetimeSafetyValue>&
+stack_temp_lifetime_safety_aggregate() {
+  static std::map<StackTempLifetimeSafetyKey, StackTempLifetimeSafetyValue>
+      aggregate;
+  return aggregate;
+}
+
+bool is_stack_temp_role(const VulkanRetiredResourceRole role) {
+  switch (role) {
+    case VulkanRetiredResourceRole::StackInternalTemp:
+    case VulkanRetiredResourceRole::StackNorm1Output:
+    case VulkanRetiredResourceRole::StackQkvOutput:
+    case VulkanRetiredResourceRole::StackQView:
+    case VulkanRetiredResourceRole::StackKView:
+    case VulkanRetiredResourceRole::StackVView:
+    case VulkanRetiredResourceRole::StackAttentionOutput:
+    case VulkanRetiredResourceRole::StackProjOutput:
+    case VulkanRetiredResourceRole::StackResidual1Output:
+    case VulkanRetiredResourceRole::StackNorm2Output:
+    case VulkanRetiredResourceRole::StackFc1GeluOutput:
+    case VulkanRetiredResourceRole::StackFc2Output:
+    case VulkanRetiredResourceRole::StackResidual2Output:
+    case VulkanRetiredResourceRole::StackRequestedOutput:
+    case VulkanRetiredResourceRole::StackFinalOutput:
+      return true;
+    default:
+      return false;
+  }
+}
+
+VulkanStackTempLifetimeSafety classify_stack_temp_lifetime_safety(
+    const VulkanRetiredResourceRole role) {
+  switch (role) {
+    case VulkanRetiredResourceRole::StackRequestedOutput:
+      return VulkanStackTempLifetimeSafety::EscapesAsRequestedIntermediate;
+    case VulkanRetiredResourceRole::StackFinalOutput:
+      return VulkanStackTempLifetimeSafety::EscapesAsFinalOutput;
+    case VulkanRetiredResourceRole::StackInternalTemp:
+    case VulkanRetiredResourceRole::StackNorm1Output:
+    case VulkanRetiredResourceRole::StackQkvOutput:
+    case VulkanRetiredResourceRole::StackQView:
+    case VulkanRetiredResourceRole::StackKView:
+    case VulkanRetiredResourceRole::StackVView:
+    case VulkanRetiredResourceRole::StackAttentionOutput:
+    case VulkanRetiredResourceRole::StackProjOutput:
+    case VulkanRetiredResourceRole::StackResidual1Output:
+    case VulkanRetiredResourceRole::StackNorm2Output:
+    case VulkanRetiredResourceRole::StackFc1GeluOutput:
+    case VulkanRetiredResourceRole::StackFc2Output:
+    case VulkanRetiredResourceRole::StackResidual2Output:
+      return VulkanStackTempLifetimeSafety::UnsafeUnknownConsumer;
+    default:
+      return VulkanStackTempLifetimeSafety::Unknown;
+  }
 }
 
 VulkanSubmitPhaseScope::VulkanSubmitPhaseScope(VulkanSubmitPhase phase)
@@ -256,6 +338,11 @@ void reset_retire_call_site_counters() {
 void reset_retired_resource_aggregate() {
   std::lock_guard<std::mutex> lock(retired_resource_aggregate_mutex());
   retired_resource_aggregate().clear();
+}
+
+void reset_stack_temp_lifetime_safety_snapshot() {
+  std::lock_guard<std::mutex> lock(stack_temp_lifetime_safety_mutex());
+  stack_temp_lifetime_safety_aggregate().clear();
 }
 
 void note_vulkan_queue_submit(VulkanSubmitOrigin origin) {
@@ -496,6 +583,30 @@ const char* retired_resource_role_name(const VulkanRetiredResourceRole role) {
       return "residual_add_metadata";
     case VulkanRetiredResourceRole::StackInternalTemp:
       return "stack_internal_temp";
+    case VulkanRetiredResourceRole::StackNorm1Output:
+      return "stack_norm1_output";
+    case VulkanRetiredResourceRole::StackQkvOutput:
+      return "stack_qkv_output";
+    case VulkanRetiredResourceRole::StackQView:
+      return "stack_q_view";
+    case VulkanRetiredResourceRole::StackKView:
+      return "stack_k_view";
+    case VulkanRetiredResourceRole::StackVView:
+      return "stack_v_view";
+    case VulkanRetiredResourceRole::StackAttentionOutput:
+      return "stack_attention_output";
+    case VulkanRetiredResourceRole::StackProjOutput:
+      return "stack_proj_output";
+    case VulkanRetiredResourceRole::StackResidual1Output:
+      return "stack_residual1_output";
+    case VulkanRetiredResourceRole::StackNorm2Output:
+      return "stack_norm2_output";
+    case VulkanRetiredResourceRole::StackFc1GeluOutput:
+      return "stack_fc1_gelu_output";
+    case VulkanRetiredResourceRole::StackFc2Output:
+      return "stack_fc2_output";
+    case VulkanRetiredResourceRole::StackResidual2Output:
+      return "stack_residual2_output";
     case VulkanRetiredResourceRole::StackRequestedOutput:
       return "stack_requested_output";
     case VulkanRetiredResourceRole::StackFinalOutput:
@@ -511,6 +622,59 @@ const char* retired_resource_role_name(const VulkanRetiredResourceRole role) {
     case VulkanRetiredResourceRole::Unknown:
     default:
       return "unknown";
+  }
+}
+
+const char* stack_temp_lifetime_safety_name(
+    const VulkanStackTempLifetimeSafety safety) {
+  switch (safety) {
+    case VulkanStackTempLifetimeSafety::SafeToDeferUntilStackSubmit:
+      return "safe_to_defer_until_stack_submit";
+    case VulkanStackTempLifetimeSafety::SafeToDeferUntilStackScopeEnd:
+      return "safe_to_defer_until_stack_scope_end";
+    case VulkanStackTempLifetimeSafety::MustRetireAtPhaseBoundary:
+      return "must_retire_at_phase_boundary";
+    case VulkanStackTempLifetimeSafety::EscapesAsRequestedIntermediate:
+      return "escapes_as_requested_intermediate";
+    case VulkanStackTempLifetimeSafety::EscapesAsFinalOutput:
+      return "escapes_as_final_output";
+    case VulkanStackTempLifetimeSafety::AliasesRuntimeInput:
+      return "aliases_runtime_input";
+    case VulkanStackTempLifetimeSafety::AliasesRuntimeOutput:
+      return "aliases_runtime_output";
+    case VulkanStackTempLifetimeSafety::UnsafeUnknownConsumer:
+      return "unsafe_unknown_consumer";
+    case VulkanStackTempLifetimeSafety::Unknown:
+    default:
+      return "unknown";
+  }
+}
+
+VulkanRetiredResourceRole stack_retired_resource_role_for_phase(
+    const VulkanVisionStackPhase phase) {
+  switch (phase) {
+    case VulkanVisionStackPhase::Norm1:
+      return VulkanRetiredResourceRole::StackNorm1Output;
+    case VulkanVisionStackPhase::QkvLinear:
+      return VulkanRetiredResourceRole::StackQkvOutput;
+    case VulkanVisionStackPhase::QkvTransform:
+      return VulkanRetiredResourceRole::StackQkvOutput;
+    case VulkanVisionStackPhase::Attention:
+      return VulkanRetiredResourceRole::StackAttentionOutput;
+    case VulkanVisionStackPhase::ProjLinear:
+      return VulkanRetiredResourceRole::StackProjOutput;
+    case VulkanVisionStackPhase::Residual1:
+      return VulkanRetiredResourceRole::StackResidual1Output;
+    case VulkanVisionStackPhase::Norm2:
+      return VulkanRetiredResourceRole::StackNorm2Output;
+    case VulkanVisionStackPhase::Fc1Gelu:
+      return VulkanRetiredResourceRole::StackFc1GeluOutput;
+    case VulkanVisionStackPhase::Fc2:
+      return VulkanRetiredResourceRole::StackFc2Output;
+    case VulkanVisionStackPhase::Residual2:
+      return VulkanRetiredResourceRole::StackResidual2Output;
+    default:
+      return VulkanRetiredResourceRole::StackInternalTemp;
   }
 }
 
@@ -645,6 +809,28 @@ std::vector<std::string> retired_resource_aggregate_snapshot() {
   return rows;
 }
 
+std::vector<std::string> stack_temp_lifetime_safety_snapshot() {
+  std::vector<std::string> rows;
+  std::lock_guard<std::mutex> lock(stack_temp_lifetime_safety_mutex());
+  for (const auto& entry : stack_temp_lifetime_safety_aggregate()) {
+    const auto& key = entry.first;
+    const auto& value = entry.second;
+    std::ostringstream stream;
+    stream << "stack_temp_lifetime role="
+           << retired_resource_role_name(key.role) << " safety="
+           << stack_temp_lifetime_safety_name(key.safety) << " phase="
+           << submit_phase_name(key.phase) << " callsite="
+           << retire_call_site_name(key.callsite) << " count=" << value.count
+           << " bytes=" << value.bytes
+           << " queue_submit=" << value.queue_submit_count
+           << " blocking_wait=" << value.blocking_wait_count
+           << " poll_only=" << value.poll_only_count;
+    rows.emplace_back(stream.str());
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
 void note_vulkan_retire_drain(
     VulkanRetireDrainReason reason,
     VulkanRetireCallSite callsite,
@@ -746,6 +932,25 @@ void note_vulkan_retired_resource(
   }
   if (poll_only) {
     value.poll_only_count += 1u;
+  }
+  if (is_stack_temp_role(role)) {
+    const VulkanStackTempLifetimeSafety safety =
+        classify_stack_temp_lifetime_safety(role);
+    StackTempLifetimeSafetyKey safety_key{role, safety, phase, callsite};
+    std::lock_guard<std::mutex> safety_lock(
+        stack_temp_lifetime_safety_mutex());
+    auto& safety_value = stack_temp_lifetime_safety_aggregate()[safety_key];
+    safety_value.count += 1u;
+    safety_value.bytes += bytes;
+    if (queue_submit) {
+      safety_value.queue_submit_count += 1u;
+    }
+    if (blocking_wait) {
+      safety_value.blocking_wait_count += 1u;
+    }
+    if (poll_only) {
+      safety_value.poll_only_count += 1u;
+    }
   }
 }
 

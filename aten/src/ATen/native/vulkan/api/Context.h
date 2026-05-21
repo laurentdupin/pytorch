@@ -269,7 +269,8 @@ class TORCH_API Context final {
     }
     if (role == VulkanRetiredResourceRole::Unknown) {
       if (phase == VulkanSubmitPhase::StackOwner) {
-        role = VulkanRetiredResourceRole::StackInternalTemp;
+        role = stack_retired_resource_role_for_phase(
+            current_vision_stack_phase());
       } else if (
           phase == VulkanSubmitPhase::ModelSetup ||
           phase == VulkanSubmitPhase::PatchEmbed ||
@@ -303,7 +304,8 @@ class TORCH_API Context final {
     }
     if (role == VulkanRetiredResourceRole::Unknown) {
       if (phase == VulkanSubmitPhase::StackOwner) {
-        role = VulkanRetiredResourceRole::StackInternalTemp;
+        role = stack_retired_resource_role_for_phase(
+            current_vision_stack_phase());
       } else if (
           phase == VulkanSubmitPhase::ModelSetup ||
           phase == VulkanSubmitPhase::PatchEmbed ||

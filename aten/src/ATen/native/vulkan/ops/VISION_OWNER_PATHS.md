@@ -713,6 +713,23 @@ submit count by themselves. The large stack-owner retire submits are attached to
 stack-internal temporary tensor buffers. No persistent metadata optimization was
 merged because it would leave the same retire submits in place.
 
+The stack-internal-temp follow-up added phase-derived temp roles and
+`stack_temp_lifetime_safety_snapshot()`. The top DAv2 rows remained large stack
+buffers, not metadata:
+
+```
+stack_internal_temp stack_owner_phase_boundary bytes=25025479680 count=7820
+stack_internal_temp stack_owner_norm2 bytes=24731062272 count=5520
+stack_fc2_output stack_owner_phase_boundary bytes=18965065728 count=1129
+stack_attention_output stack_owner_norm2 bytes=3533008896 count=1104
+```
+
+No retire batching was enabled. The current retire path has a raw buffer/image
+cleanup record, but not enough tensor-level producer/consumer, escape, shape, or
+dtype proof to mark those buffers safe to defer to the stack planned-recording
+submission timeline. The next stack lifetime task should attach explicit stack
+tensor lifetime metadata to pending retire entries before changing retirement.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:
