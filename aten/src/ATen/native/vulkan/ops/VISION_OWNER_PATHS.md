@@ -825,6 +825,13 @@ and how many remain blocked by requested intermediates, missing proof, generic
 stack temps, metadata/uniforms, or other roles. The diagnostics do not change
 retirement behavior and do not enable qkv batching.
 
+The next submit-count fix uses those diagnostics to avoid retire-drain submits
+when there are no old-path pending retire resources. In that case the helper
+only records a skipped-drain row and polls retire queues; any pending command
+buffer remains owned by the normal command batching or stack planned-recording
+submit path. Drains with real old-path pending resources still submit so those
+resources can be retired against a timeline value.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

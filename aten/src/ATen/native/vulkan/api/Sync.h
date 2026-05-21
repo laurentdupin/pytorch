@@ -393,6 +393,8 @@ struct VulkanStackRetireDrainBlockerCounters final {
   std::atomic<uint64_t> old_path_pending_bytes{0u};
   std::atomic<uint64_t> qkv_hypothetical_count{0u};
   std::atomic<uint64_t> qkv_hypothetical_bytes{0u};
+  std::atomic<uint64_t> skipped_no_old_path_pending{0u};
+  std::atomic<uint64_t> skipped_no_pending_command_work{0u};
 };
 
 class VulkanSubmitPhaseScope final {
@@ -500,7 +502,9 @@ TORCH_API void note_stack_retire_drain_blocker_summary(
     bool blocked_missing_proof,
     bool blocked_generic_stack_internal_temp,
     bool blocked_metadata_or_uniform,
-    bool blocked_other_roles);
+    bool blocked_other_roles,
+    bool skipped_no_old_path_pending,
+    bool skipped_no_pending_command_work);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();

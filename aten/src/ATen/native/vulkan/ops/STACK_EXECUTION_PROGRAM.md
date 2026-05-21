@@ -659,3 +659,10 @@ disappear if all proof-complete qkv rows were batched versus drains still blocke
 by requested intermediates, missing proof, generic stack temps, metadata/uniforms,
 or other roles. This is diagnostic only; qkv batching is not enabled by this
 pass.
+
+The retire-drain helper now distinguishes real old-path retire pressure from a
+plain pending command buffer. When a `RetireQueueDrain` call has no old-path
+pending retire resources, it records a skipped-drain diagnostic and leaves the
+pending command buffer for the normal batching or stack planned-recording submit.
+Real old-path pending resources still use the existing safe submit path so their
+cleanup can be tied to a timeline value.

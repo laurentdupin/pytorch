@@ -728,6 +728,9 @@ void reset_stack_retire_drain_blocker_counters() {
   counters.old_path_pending_bytes.store(0u, std::memory_order_relaxed);
   counters.qkv_hypothetical_count.store(0u, std::memory_order_relaxed);
   counters.qkv_hypothetical_bytes.store(0u, std::memory_order_relaxed);
+  counters.skipped_no_old_path_pending.store(0u, std::memory_order_relaxed);
+  counters.skipped_no_pending_command_work.store(
+      0u, std::memory_order_relaxed);
   std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
   stack_retire_drain_blockers().clear();
 }
@@ -1431,6 +1434,12 @@ std::vector<int64_t> stack_retire_drain_blocker_counters_snapshot() {
           counters.qkv_hypothetical_count.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.qkv_hypothetical_bytes.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.skipped_no_old_path_pending.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.skipped_no_pending_command_work.load(
+              std::memory_order_relaxed)),
   };
 }
 
@@ -1686,7 +1695,9 @@ void note_stack_retire_drain_blocker_summary(
     const bool blocked_missing_proof,
     const bool blocked_generic_stack_internal_temp,
     const bool blocked_metadata_or_uniform,
-    const bool blocked_other_roles) {
+    const bool blocked_other_roles,
+    const bool skipped_no_old_path_pending,
+    const bool skipped_no_pending_command_work) {
   auto& counters = stack_retire_drain_blocker_counters();
   counters.total_drains.fetch_add(1u, std::memory_order_relaxed);
   if (queue_submit) {
@@ -1723,6 +1734,14 @@ void note_stack_retire_drain_blocker_summary(
     counters.drains_blocked_other_roles.fetch_add(
         1u, std::memory_order_relaxed);
   }
+  if (skipped_no_old_path_pending) {
+    counters.skipped_no_old_path_pending.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (skipped_no_pending_command_work) {
+    counters.skipped_no_pending_command_work.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
   counters.old_path_pending_count.fetch_add(
       old_path_pending_count, std::memory_order_relaxed);
   counters.old_path_pending_bytes.fetch_add(
@@ -1748,7 +1767,11 @@ void note_stack_retire_drain_blocker_summary(
       << (blocked_generic_stack_internal_temp ? 1 : 0)
       << " blocked_metadata_or_uniform="
       << (blocked_metadata_or_uniform ? 1 : 0)
-      << " blocked_other_roles=" << (blocked_other_roles ? 1 : 0);
+      << " blocked_other_roles=" << (blocked_other_roles ? 1 : 0)
+      << " skipped_no_old_path_pending="
+      << (skipped_no_old_path_pending ? 1 : 0)
+      << " skipped_no_pending_command_work="
+      << (skipped_no_pending_command_work ? 1 : 0);
   std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
   auto& value = stack_retire_drain_blockers()[key.str()];
   value.count += 1u;

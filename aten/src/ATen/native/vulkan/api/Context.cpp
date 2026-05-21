@@ -972,23 +972,31 @@ void Context::submit_pending_work_and_poll_retire() {
     }
   }
   bool had_pending_work = false;
+  const bool has_old_path_pending_retire = pending_resource_count > 0u;
   {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
     had_pending_work = has_pending_work_for_current_stream();
-    submit_cmd_to_gpu(
-        VK_NULL_HANDLE, false, VulkanSubmitOrigin::RetireQueueDrain);
+    if (has_old_path_pending_retire) {
+      submit_cmd_to_gpu(
+          VK_NULL_HANDLE, false, VulkanSubmitOrigin::RetireQueueDrain);
+    }
   }
+  const bool skipped_no_old_path_pending = !has_old_path_pending_retire;
+  const bool skipped_no_pending_command_work =
+      skipped_no_old_path_pending && !had_pending_work;
+  const bool submitted_for_retire_drain =
+      has_old_path_pending_retire && had_pending_work;
   note_vulkan_retire_drain(
       retire_drain_reason_for_current_phase(),
       callsite,
-      had_pending_work,
+      submitted_for_retire_drain,
       /*blocking_wait=*/false,
       pending_resource_count,
       pending_bytes);
   note_stack_retire_drain_blocker_summary(
       phase,
       callsite,
-      had_pending_work,
+      submitted_for_retire_drain,
       pending_resource_count,
       pending_bytes,
       qkv_hypothetical_count,
@@ -1000,7 +1008,9 @@ void Context::submit_pending_work_and_poll_retire() {
       blocked_missing_proof,
       blocked_generic_stack_internal_temp,
       blocked_metadata_or_uniform,
-      blocked_other_roles);
+      blocked_other_roles,
+      skipped_no_old_path_pending,
+      skipped_no_pending_command_work);
   if (!had_pending_work) {
     std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
     for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
