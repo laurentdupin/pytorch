@@ -448,6 +448,11 @@ const char* stack_provenance_loss_reason(
   if (!is_stack_temp_role(role)) {
     return "not_stack_temp";
   }
+  if (
+      provenance.source ==
+      VulkanStackRetireProvenanceSource::ProgramScratchArenaBackingStorage) {
+    return "program_scratch_arena_backing_storage";
+  }
   if (provenance.shape.size() == 1u) {
     return "physical_raw_storage_identity";
   }
@@ -1061,6 +1066,21 @@ const char* stack_temp_lifetime_safety_name(
   }
 }
 
+const char* stack_retire_provenance_source_name(
+    const VulkanStackRetireProvenanceSource source) {
+  switch (source) {
+    case VulkanStackRetireProvenanceSource::TensorAllocation:
+      return "tensor_allocation";
+    case VulkanStackRetireProvenanceSource::StorageReallocation:
+      return "storage_reallocation";
+    case VulkanStackRetireProvenanceSource::ProgramScratchArenaBackingStorage:
+      return "program_scratch_arena_backing_storage";
+    case VulkanStackRetireProvenanceSource::Unknown:
+    default:
+      return "unknown";
+  }
+}
+
 bool is_stack_temp_retired_resource_role(
     const VulkanRetiredResourceRole role) {
   return is_stack_temp_role(role);
@@ -1115,7 +1135,8 @@ VulkanStackRetireProvenance current_stack_retire_provenance(
     const bool direct_buffer,
     const bool buffer_storage,
     const bool image_storage,
-    const bool alias_or_view) {
+    const bool alias_or_view,
+    const VulkanStackRetireProvenanceSource source) {
   if (!inside_vision_stack_phase()) {
     return {};
   }
@@ -1125,6 +1146,7 @@ VulkanStackRetireProvenance current_stack_retire_provenance(
   provenance.block_index = g_vision_stack_block_index;
   provenance.producer_role =
       stack_retired_resource_role_for_phase(g_vision_stack_phase);
+  provenance.source = source;
   provenance.lifetime = alias_or_view
       ? VulkanStackTensorLifetimeClass::AliasOrView
       : VulkanStackTensorLifetimeClass::InternalTemp;
@@ -1710,6 +1732,8 @@ void note_stack_retire_drain_blocker_resource(
       << " final_output=" << (provenance.final_output ? 1 : 0)
       << " alias_or_view=" << (provenance.alias_or_view ? 1 : 0)
       << " stack_provenance=" << (provenance.defined ? 1 : 0)
+      << " provenance_source="
+      << stack_retire_provenance_source_name(provenance.source)
       << " provenance_loss_reason="
       << stack_provenance_loss_reason(role, provenance);
   std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());

@@ -688,3 +688,11 @@ plan-derived proof for the hidden-layout `stack_attention_output` consumed by
 `proj_linear`. Raw one-dimensional QKV/proj storage rows remain unsafe and are
 diagnosed as physical storage identity rows until their source can carry full
 logical tensor proof.
+
+The raw QKV/proj follow-up identifies that source more precisely. Scratch arena
+backing storage is now tagged at allocation time as
+`program_scratch_arena_backing_storage` in stack retire provenance. Retire
+blocker rows therefore distinguish scratch backing storage from logical stack
+tensor outputs. This remains diagnostic only: scratch backing storage is owning
+program/scratch storage, not a logical qkv/proj tensor proof, so it stays on the
+old retire path until stack scratch lifecycle proof is explicit.

@@ -853,6 +853,14 @@ merges heads to hidden layout for projection. That hidden-layout
 remain conservative: they keep `physical_raw_storage_identity` diagnostics and
 are not treated as safe internal temps without a logical producer proof.
 
+The remaining raw QKV/proj rows are now traced to scratch arena backing storage.
+`create_vulkan_scratch_arena()` tags its storage provenance as
+`program_scratch_arena_backing_storage`, and retire blocker rows carry both the
+source and loss reason. These rows are owning scratch/program storage, not
+non-owning views and not logical qkv/proj outputs. They continue to block norm2
+retire drains until a stack scratch lifecycle proof can tie the backing storage
+to a safe stack submission timeline.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

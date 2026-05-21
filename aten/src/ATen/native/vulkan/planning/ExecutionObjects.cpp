@@ -1469,6 +1469,11 @@ ScratchArena create_vulkan_scratch_arena(const VulkanScratchArenaSpec& spec) {
       spec.memory_layout,
       spec.storage_type,
       spec.persistent);
+  if (storage.is_vulkan()) {
+    convert(storage).set_stack_retire_provenance_source(
+        api::VulkanStackRetireProvenanceSource::
+            ProgramScratchArenaBackingStorage);
+  }
   return ScratchArena(std::make_shared<ScratchArena::State>(
       std::move(storage),
       spec.num_bytes,

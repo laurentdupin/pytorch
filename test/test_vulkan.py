@@ -8618,6 +8618,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertTrue(
             any(
                 "reason=missing_proof" in row
+                and "provenance_source=" in row
                 and "provenance_loss_reason=" in row
                 for row in blocker
             )

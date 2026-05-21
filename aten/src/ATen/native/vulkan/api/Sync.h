@@ -244,11 +244,20 @@ enum class VulkanStackTempLifetimeSafety : uint8_t {
   UnsafeUnknownConsumer,
 };
 
+enum class VulkanStackRetireProvenanceSource : uint8_t {
+  Unknown = 0,
+  TensorAllocation,
+  StorageReallocation,
+  ProgramScratchArenaBackingStorage,
+};
+
 struct VulkanStackRetireProvenance final {
   bool defined = false;
   VulkanVisionStackPhase phase = VulkanVisionStackPhase::Unknown;
   int64_t block_index = -1;
   VulkanRetiredResourceRole producer_role = VulkanRetiredResourceRole::Unknown;
+  VulkanStackRetireProvenanceSource source =
+      VulkanStackRetireProvenanceSource::Unknown;
   bool has_last_use_proof = false;
   VulkanVisionStackPhase expected_consumer_phase =
       VulkanVisionStackPhase::Unknown;
@@ -477,7 +486,9 @@ TORCH_API VulkanStackRetireProvenance current_stack_retire_provenance(
     bool direct_buffer,
     bool buffer_storage,
     bool image_storage,
-    bool alias_or_view);
+    bool alias_or_view,
+    VulkanStackRetireProvenanceSource source =
+        VulkanStackRetireProvenanceSource::TensorAllocation);
 TORCH_API bool is_safe_stack_temp_retire_batch_candidate(
     const VulkanStackRetireProvenance& provenance);
 TORCH_API bool is_qkv_stack_temp_retire_batch_candidate(

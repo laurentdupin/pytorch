@@ -896,6 +896,11 @@ void vTensorStorage::set_stack_retire_provenance(
       alias_or_view);
 }
 
+void vTensorStorage::set_stack_retire_provenance_source(
+    const api::VulkanStackRetireProvenanceSource source) {
+  stack_retire_provenance_.source = source;
+}
+
 void vTensorStorage::transition(
     api::PipelineBarrier& pipeline_barrier,
     const api::PipelineStageFlags cur_stage,
@@ -1021,7 +1026,8 @@ void vTensorStorage::discard_and_reallocate(
       direct_buffer,
       buffer_storage,
       image_storage,
-      /*alias_or_view=*/false);
+      /*alias_or_view=*/false,
+      api::VulkanStackRetireProvenanceSource::StorageReallocation);
 }
 
 } // namespace vulkan

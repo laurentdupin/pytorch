@@ -79,6 +79,8 @@ class vTensorStorage final {
       bool buffer_storage,
       bool image_storage,
       bool alias_or_view);
+  void set_stack_retire_provenance_source(
+      api::VulkanStackRetireProvenanceSource source);
 
   // Memory barrier insertion
   void transition(
@@ -351,6 +353,11 @@ class vTensor final {
 
   inline void set_execution_persistent(const bool persistent) {
     execution_desc_.persistent = persistent;
+  }
+
+  inline void set_stack_retire_provenance_source(
+      const api::VulkanStackRetireProvenanceSource source) {
+    view_->set_stack_retire_provenance_source(source);
   }
 
   inline void mark_host_write() {
