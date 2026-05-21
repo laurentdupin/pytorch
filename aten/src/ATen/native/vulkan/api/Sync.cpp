@@ -289,9 +289,47 @@ VulkanRetireDrainCounters& vulkan_retire_drain_counters() {
   return counters;
 }
 
+VulkanStackInternalTempRetireBatchCounters&
+stack_internal_temp_retire_batch_counters() {
+  static VulkanStackInternalTempRetireBatchCounters counters;
+  return counters;
+}
+
 std::array<VulkanRetireCallSiteCounter, 27>& retire_call_site_counters() {
   static std::array<VulkanRetireCallSiteCounter, 27> counters;
   return counters;
+}
+
+const char* stack_temp_retire_batch_reject_reason(
+    const VulkanStackRetireProvenance& provenance) {
+  if (provenance.requested_intermediate || provenance.escapes_stack) {
+    return "requested_intermediate";
+  }
+  if (provenance.final_output) {
+    return "final_output";
+  }
+  if (provenance.alias_or_view) {
+    return "alias";
+  }
+  if (provenance.aliases_runtime_input || provenance.aliases_runtime_output) {
+    return "runtime_alias";
+  }
+  if (provenance.producer_role != VulkanRetiredResourceRole::StackFc1GeluOutput) {
+    return "not_target_role";
+  }
+  if (!provenance.has_last_use_proof) {
+    return "missing_proof";
+  }
+  if (!provenance.internal_non_escaping) {
+    return "not_internal_non_escaping";
+  }
+  if (!provenance.final_consumer_before_stack_submit) {
+    return "consumer_after_submit";
+  }
+  if (provenance.lifetime != VulkanStackTensorLifetimeClass::InternalTemp) {
+    return "lifetime";
+  }
+  return "accepted";
 }
 
 std::mutex& retired_resource_aggregate_mutex() {
@@ -316,6 +354,17 @@ stack_temp_lifetime_safety_aggregate() {
   static std::map<StackTempLifetimeSafetyKey, StackTempLifetimeSafetyValue>
       aggregate;
   return aggregate;
+}
+
+std::mutex& stack_temp_retire_batch_snapshot_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::map<std::string, StackTempLifetimeSafetyValue>&
+stack_temp_retire_batch_decisions() {
+  static std::map<std::string, StackTempLifetimeSafetyValue> decisions;
+  return decisions;
 }
 
 bool is_stack_temp_role(const VulkanRetiredResourceRole role) {
@@ -561,6 +610,33 @@ void reset_retired_resource_aggregate() {
 void reset_stack_temp_lifetime_safety_snapshot() {
   std::lock_guard<std::mutex> lock(stack_temp_lifetime_safety_mutex());
   stack_temp_lifetime_safety_aggregate().clear();
+}
+
+void reset_stack_internal_temp_retire_batch_counters() {
+  auto& counters = stack_internal_temp_retire_batch_counters();
+  counters.total_attempts.store(0u, std::memory_order_relaxed);
+  counters.batch_candidate_count.store(0u, std::memory_order_relaxed);
+  counters.batch_candidate_bytes.store(0u, std::memory_order_relaxed);
+  counters.batch_accepted_count.store(0u, std::memory_order_relaxed);
+  counters.batch_accepted_bytes.store(0u, std::memory_order_relaxed);
+  counters.batch_rejected_count.store(0u, std::memory_order_relaxed);
+  counters.batch_rejected_bytes.store(0u, std::memory_order_relaxed);
+  counters.submitted_batch_count.store(0u, std::memory_order_relaxed);
+  counters.submitted_batch_bytes.store(0u, std::memory_order_relaxed);
+  counters.rejected_not_target_role.store(0u, std::memory_order_relaxed);
+  counters.rejected_missing_proof.store(0u, std::memory_order_relaxed);
+  counters.rejected_not_internal_non_escaping.store(
+      0u, std::memory_order_relaxed);
+  counters.rejected_consumer_after_submit.store(
+      0u, std::memory_order_relaxed);
+  counters.rejected_requested_intermediate.store(0u, std::memory_order_relaxed);
+  counters.rejected_final_output.store(0u, std::memory_order_relaxed);
+  counters.rejected_alias.store(0u, std::memory_order_relaxed);
+  counters.rejected_runtime_alias.store(0u, std::memory_order_relaxed);
+  counters.rejected_lifetime.store(0u, std::memory_order_relaxed);
+  counters.rejected_not_stack_recording.store(0u, std::memory_order_relaxed);
+  std::lock_guard<std::mutex> lock(stack_temp_retire_batch_snapshot_mutex());
+  stack_temp_retire_batch_decisions().clear();
 }
 
 void note_vulkan_queue_submit(VulkanSubmitOrigin origin) {
@@ -1155,6 +1231,71 @@ std::vector<std::string> stack_temp_lifetime_safety_snapshot() {
   return rows;
 }
 
+std::vector<int64_t> stack_internal_temp_retire_batch_counters_snapshot() {
+  const auto& counters = stack_internal_temp_retire_batch_counters();
+  return {
+      static_cast<int64_t>(
+          counters.total_attempts.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.batch_candidate_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.batch_candidate_bytes.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.batch_accepted_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.batch_accepted_bytes.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.batch_rejected_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.batch_rejected_bytes.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.submitted_batch_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.submitted_batch_bytes.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_not_target_role.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_missing_proof.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_not_internal_non_escaping.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_consumer_after_submit.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_requested_intermediate.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_final_output.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_alias.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_runtime_alias.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_lifetime.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_not_stack_recording.load(
+              std::memory_order_relaxed)),
+  };
+}
+
+std::vector<std::string> stack_internal_temp_retire_batch_snapshot() {
+  std::vector<std::string> rows;
+  std::lock_guard<std::mutex> lock(stack_temp_retire_batch_snapshot_mutex());
+  for (const auto& entry : stack_temp_retire_batch_decisions()) {
+    std::ostringstream stream;
+    stream << "stack_internal_temp_retire_batch " << entry.first
+           << " count=" << entry.second.count
+           << " bytes=" << entry.second.bytes
+           << " queue_submit=" << entry.second.queue_submit_count
+           << " blocking_wait=" << entry.second.blocking_wait_count
+           << " poll_only=" << entry.second.poll_only_count;
+    rows.emplace_back(stream.str());
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
 void note_vulkan_retire_drain(
     VulkanRetireDrainReason reason,
     VulkanRetireCallSite callsite,
@@ -1232,6 +1373,106 @@ void note_vulkan_retire_drain(
       counters.unknown.fetch_add(1u, std::memory_order_relaxed);
       break;
   }
+}
+
+bool is_safe_stack_temp_retire_batch_candidate(
+    const VulkanStackRetireProvenance& provenance) {
+  return std::string(stack_temp_retire_batch_reject_reason(provenance)) ==
+      "accepted";
+}
+
+void note_stack_internal_temp_retire_batch_decision(
+    const VulkanStackRetireProvenance& provenance,
+    const uint64_t bytes,
+    const bool stack_recording_active,
+    const bool accepted) {
+  if (!provenance.defined || !is_stack_temp_role(provenance.producer_role)) {
+    return;
+  }
+
+  auto& counters = stack_internal_temp_retire_batch_counters();
+  counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
+
+  const char* reason = stack_temp_retire_batch_reject_reason(provenance);
+  bool candidate = std::string(reason) == "accepted";
+  if (candidate) {
+    counters.batch_candidate_count.fetch_add(1u, std::memory_order_relaxed);
+    counters.batch_candidate_bytes.fetch_add(bytes, std::memory_order_relaxed);
+  }
+
+  if (accepted) {
+    counters.batch_accepted_count.fetch_add(1u, std::memory_order_relaxed);
+    counters.batch_accepted_bytes.fetch_add(bytes, std::memory_order_relaxed);
+    reason = "accepted";
+  } else {
+    counters.batch_rejected_count.fetch_add(1u, std::memory_order_relaxed);
+    counters.batch_rejected_bytes.fetch_add(bytes, std::memory_order_relaxed);
+    if (candidate && !stack_recording_active) {
+      reason = "not_stack_recording";
+    }
+    const std::string reason_string(reason);
+    if (reason_string == "not_target_role") {
+      counters.rejected_not_target_role.fetch_add(
+          1u, std::memory_order_relaxed);
+    } else if (reason_string == "missing_proof") {
+      counters.rejected_missing_proof.fetch_add(1u, std::memory_order_relaxed);
+    } else if (reason_string == "not_internal_non_escaping") {
+      counters.rejected_not_internal_non_escaping.fetch_add(
+          1u, std::memory_order_relaxed);
+    } else if (reason_string == "consumer_after_submit") {
+      counters.rejected_consumer_after_submit.fetch_add(
+          1u, std::memory_order_relaxed);
+    } else if (reason_string == "requested_intermediate") {
+      counters.rejected_requested_intermediate.fetch_add(
+          1u, std::memory_order_relaxed);
+    } else if (reason_string == "final_output") {
+      counters.rejected_final_output.fetch_add(1u, std::memory_order_relaxed);
+    } else if (reason_string == "alias") {
+      counters.rejected_alias.fetch_add(1u, std::memory_order_relaxed);
+    } else if (reason_string == "runtime_alias") {
+      counters.rejected_runtime_alias.fetch_add(1u, std::memory_order_relaxed);
+    } else if (reason_string == "lifetime") {
+      counters.rejected_lifetime.fetch_add(1u, std::memory_order_relaxed);
+    } else if (reason_string == "not_stack_recording") {
+      counters.rejected_not_stack_recording.fetch_add(
+          1u, std::memory_order_relaxed);
+    }
+  }
+
+  std::ostringstream key;
+  key << "role=" << retired_resource_role_name(provenance.producer_role)
+      << " decision=" << (accepted ? "accepted" : "rejected")
+      << " reason=" << reason
+      << " phase=" << vision_stack_phase_name(provenance.phase)
+      << " block=" << provenance.block_index
+      << " expected_consumer_phase="
+      << vision_stack_phase_name(provenance.expected_consumer_phase)
+      << " expected_consumer_block="
+      << provenance.expected_consumer_block_index
+      << " shape=" << format_sizes(provenance.shape)
+      << " dtype=" << provenance.dtype
+      << " last_use_proof=" << (provenance.has_last_use_proof ? 1 : 0)
+      << " internal_non_escaping="
+      << (provenance.internal_non_escaping ? 1 : 0)
+      << " requested_intermediate="
+      << (provenance.requested_intermediate ? 1 : 0)
+      << " final_output=" << (provenance.final_output ? 1 : 0)
+      << " alias_or_view=" << (provenance.alias_or_view ? 1 : 0)
+      << " runtime_alias="
+      << ((provenance.aliases_runtime_input ||
+           provenance.aliases_runtime_output)
+              ? 1
+              : 0);
+  std::lock_guard<std::mutex> lock(stack_temp_retire_batch_snapshot_mutex());
+  auto& value = stack_temp_retire_batch_decisions()[key.str()];
+  value.count += 1u;
+  value.bytes += bytes;
+}
+
+void note_stack_internal_temp_retire_batch_submitted(const uint64_t bytes) {
+  auto& counters = stack_internal_temp_retire_batch_counters();
+  counters.submitted_batch_count.fetch_add(1u, std::memory_order_relaxed);
+  counters.submitted_batch_bytes.fetch_add(bytes, std::memory_order_relaxed);
 }
 
 void note_vulkan_retired_resource(

@@ -631,3 +631,21 @@ and generic `stack_internal_temp` rows that do not yet match a shape-plan proof.
 For that reason this remains a proof-only pass. The next safe implementation
 target is a narrow retire-batching change for one proof-complete resource class,
 with same-role unsafe rows explicitly excluded.
+
+The first retire-batching pass uses that exact predicate discipline. It does not
+batch by role name alone. A pending retire entry is accepted only when its
+provenance has last-use proof, is internal and non-escaping, has a final consumer
+before the stack planned-recording submit, is not requested/final output, is not
+an alias/view, does not alias runtime input/output, and is active inside a stack
+planned-recording scope. The first enabled target is the proven
+`stack_fc1_gelu_output` subset; same-role unsafe rows and every other stack temp
+role stay on the existing retire path.
+
+Accepted entries are kept out of the generic pending-retire byte pressure and
+are retired against the single stack planned-recording submission timeline at
+stack scope end. This is not scratch reuse and not command replay; it only
+changes when proof-complete temporary buffers are attached to retirement.
+`stack_internal_temp_retire_batch_counters()` reports candidate, accepted,
+rejected, submitted-batch counts/bytes, and rejection reasons.
+`stack_internal_temp_retire_batch_snapshot()` records accepted/rejected rows with
+role, shape, proof bits, and escape/alias flags.

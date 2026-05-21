@@ -8526,6 +8526,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         torch.ops.vulkan_prepack.reset_retired_resource_aggregate()
         torch.ops.vulkan_prepack.reset_stack_temp_lifetime_safety_snapshot()
+        torch.ops.vulkan_prepack.reset_stack_internal_temp_retire_batch_counters()
         with torch.inference_mode():
             torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
                 x,
@@ -8536,6 +8537,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         resources = torch.ops.vulkan_prepack.retired_resource_aggregate_snapshot()
         safety = torch.ops.vulkan_prepack.stack_temp_lifetime_safety_snapshot()
+        batch = torch.ops.vulkan_prepack.stack_internal_temp_retire_batch_snapshot()
+        batch_counters = (
+            torch.ops.vulkan_prepack.stack_internal_temp_retire_batch_counters()
+        )
         self.assertTrue(
             any(
                 "role=stack_" in row
@@ -8550,6 +8555,32 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and "last_use_proof=1" in row
                 and "internal_non_escaping=1" in row
                 for row in safety
+            )
+        )
+        self.assertGreater(batch_counters[1], 0)
+        self.assertGreater(batch_counters[3], 0)
+        self.assertGreater(batch_counters[5], 0)
+        self.assertGreater(batch_counters[7], 0)
+        self.assertTrue(
+            any(
+                "role=stack_fc1_gelu_output" in row
+                and "decision=accepted" in row
+                and "reason=accepted" in row
+                and "last_use_proof=1" in row
+                and "internal_non_escaping=1" in row
+                for row in batch
+            )
+        )
+        self.assertFalse(
+            any(
+                "decision=accepted" in row
+                and (
+                    "requested_intermediate=1" in row
+                    or "final_output=1" in row
+                    or "alias_or_view=1" in row
+                    or "runtime_alias=1" in row
+                )
+                for row in batch
             )
         )
         self.assertTrue(

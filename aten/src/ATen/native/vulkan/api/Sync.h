@@ -356,6 +356,28 @@ struct VulkanRetireCallSiteCounter final {
   std::atomic<uint64_t> pending_bytes_total{0u};
 };
 
+struct VulkanStackInternalTempRetireBatchCounters final {
+  std::atomic<uint64_t> total_attempts{0u};
+  std::atomic<uint64_t> batch_candidate_count{0u};
+  std::atomic<uint64_t> batch_candidate_bytes{0u};
+  std::atomic<uint64_t> batch_accepted_count{0u};
+  std::atomic<uint64_t> batch_accepted_bytes{0u};
+  std::atomic<uint64_t> batch_rejected_count{0u};
+  std::atomic<uint64_t> batch_rejected_bytes{0u};
+  std::atomic<uint64_t> submitted_batch_count{0u};
+  std::atomic<uint64_t> submitted_batch_bytes{0u};
+  std::atomic<uint64_t> rejected_not_target_role{0u};
+  std::atomic<uint64_t> rejected_missing_proof{0u};
+  std::atomic<uint64_t> rejected_not_internal_non_escaping{0u};
+  std::atomic<uint64_t> rejected_consumer_after_submit{0u};
+  std::atomic<uint64_t> rejected_requested_intermediate{0u};
+  std::atomic<uint64_t> rejected_final_output{0u};
+  std::atomic<uint64_t> rejected_alias{0u};
+  std::atomic<uint64_t> rejected_runtime_alias{0u};
+  std::atomic<uint64_t> rejected_lifetime{0u};
+  std::atomic<uint64_t> rejected_not_stack_recording{0u};
+};
+
 class VulkanSubmitPhaseScope final {
  public:
   explicit VulkanSubmitPhaseScope(VulkanSubmitPhase phase);
@@ -400,6 +422,11 @@ TORCH_API std::vector<std::string> retired_resource_aggregate_snapshot();
 TORCH_API void reset_retired_resource_aggregate();
 TORCH_API std::vector<std::string> stack_temp_lifetime_safety_snapshot();
 TORCH_API void reset_stack_temp_lifetime_safety_snapshot();
+TORCH_API VulkanStackInternalTempRetireBatchCounters&
+stack_internal_temp_retire_batch_counters();
+TORCH_API std::vector<int64_t> stack_internal_temp_retire_batch_counters_snapshot();
+TORCH_API std::vector<std::string> stack_internal_temp_retire_batch_snapshot();
+TORCH_API void reset_stack_internal_temp_retire_batch_counters();
 TORCH_API const char* submit_origin_name(VulkanSubmitOrigin origin);
 TORCH_API const char* submit_phase_name(VulkanSubmitPhase phase);
 TORCH_API const char* retire_call_site_name(VulkanRetireCallSite callsite);
@@ -417,6 +444,14 @@ TORCH_API VulkanStackRetireProvenance current_stack_retire_provenance(
     bool buffer_storage,
     bool image_storage,
     bool alias_or_view);
+TORCH_API bool is_safe_stack_temp_retire_batch_candidate(
+    const VulkanStackRetireProvenance& provenance);
+TORCH_API void note_stack_internal_temp_retire_batch_decision(
+    const VulkanStackRetireProvenance& provenance,
+    uint64_t bytes,
+    bool stack_recording_active,
+    bool accepted);
+TORCH_API void note_stack_internal_temp_retire_batch_submitted(uint64_t bytes);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();

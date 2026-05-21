@@ -452,6 +452,9 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       pending_retire_images_mutex_{},
       pending_retire_images_{},
       pending_retire_bytes_{0u},
+      stack_internal_temp_retire_batch_mutex_{},
+      stack_internal_temp_retire_batch_buffers_{},
+      stack_internal_temp_retire_batch_images_{},
       retire_queue_{},
       last_submission_{} {
   enable_op_profiling_ =
@@ -1026,8 +1029,9 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       stack_planned_recording_owner_ == std::this_thread::get_id(),
       "Vulkan stack planned recording ended from the wrong thread");
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
-  submit_cmd_to_gpu(
+  VulkanSubmission submission = submit_cmd_to_gpu(
       VK_NULL_HANDLE, false, VulkanSubmitOrigin::StackPlannedRecordingSubmit);
+  retire_stack_internal_temp_retire_batch_locked(submission);
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
@@ -1040,6 +1044,7 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
       is_stack_planned_recording_active(),
       "Vulkan stack planned recording is not active");
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
+  restore_stack_internal_temp_retire_batch_to_pending_locked();
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
@@ -1145,6 +1150,99 @@ void Context::clear_pending_retire_resources_locked() {
   pending_retire_buffers_.clear();
   pending_retire_images_.clear();
   pending_retire_bytes_.store(0u, std::memory_order_relaxed);
+}
+
+void Context::clear_stack_internal_temp_retire_batch_locked() {
+  std::lock_guard<std::mutex> batch_lock(
+      stack_internal_temp_retire_batch_mutex_);
+  stack_internal_temp_retire_batch_buffers_.clear();
+  stack_internal_temp_retire_batch_images_.clear();
+}
+
+void Context::restore_stack_internal_temp_retire_batch_to_pending_locked() {
+  std::lock_guard<std::mutex> batch_lock(
+      stack_internal_temp_retire_batch_mutex_);
+  if (
+      stack_internal_temp_retire_batch_buffers_.empty() &&
+      stack_internal_temp_retire_batch_images_.empty()) {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
+    for (auto& pending : stack_internal_temp_retire_batch_buffers_) {
+      pending_retire_bytes_.fetch_add(
+          pending.bytes, std::memory_order_relaxed);
+      pending_retire_buffers_.push_back(std::move(pending));
+    }
+    stack_internal_temp_retire_batch_buffers_.clear();
+  }
+  {
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    for (auto& pending : stack_internal_temp_retire_batch_images_) {
+      pending_retire_bytes_.fetch_add(
+          pending.bytes, std::memory_order_relaxed);
+      pending_retire_images_.push_back(std::move(pending));
+    }
+    stack_internal_temp_retire_batch_images_.clear();
+  }
+}
+
+void Context::retire_stack_internal_temp_retire_batch_locked(
+    const VulkanSubmission& submission) {
+  if (submission.timeline == VK_NULL_HANDLE || submission.timeline_value == 0u) {
+    restore_stack_internal_temp_retire_batch_to_pending_locked();
+    return;
+  }
+  std::lock_guard<std::mutex> batch_lock(
+      stack_internal_temp_retire_batch_mutex_);
+  uint64_t batch_bytes = 0u;
+  for (PendingRetireBuffer& pending :
+       stack_internal_temp_retire_batch_buffers_) {
+    note_vulkan_retired_resource(
+        pending.kind,
+        pending.role,
+        pending.phase,
+        VulkanRetireCallSite::StackPlannedRecordingEnd,
+        pending.bytes,
+        /*queue_submit=*/true,
+        /*blocking_wait=*/false,
+        /*poll_only=*/false,
+        pending.stack_provenance);
+    batch_bytes += pending.bytes;
+    retire_queue_.retire(RetiredResource{
+        submission.stream_id,
+        submission.timeline,
+        submission.timeline_value,
+        [buffer = std::make_shared<VulkanBuffer>(
+             std::move(pending.buffer))]() {},
+    });
+  }
+  stack_internal_temp_retire_batch_buffers_.clear();
+  for (PendingRetireImage& pending :
+       stack_internal_temp_retire_batch_images_) {
+    note_vulkan_retired_resource(
+        pending.kind,
+        pending.role,
+        pending.phase,
+        VulkanRetireCallSite::StackPlannedRecordingEnd,
+        pending.bytes,
+        /*queue_submit=*/true,
+        /*blocking_wait=*/false,
+        /*poll_only=*/false,
+        pending.stack_provenance);
+    batch_bytes += pending.bytes;
+    retire_queue_.retire(RetiredResource{
+        submission.stream_id,
+        submission.timeline,
+        submission.timeline_value,
+        [image = std::make_shared<VulkanImage>(
+             std::move(pending.image))]() {},
+    });
+  }
+  stack_internal_temp_retire_batch_images_.clear();
+  if (batch_bytes > 0u) {
+    note_stack_internal_temp_retire_batch_submitted(batch_bytes);
+  }
 }
 
 void Context::flush() {

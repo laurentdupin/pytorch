@@ -418,6 +418,8 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         "retire_call_site_counters",
         "retired_resource_aggregate_snapshot",
         "stack_temp_lifetime_safety_snapshot",
+        "stack_internal_temp_retire_batch_counters",
+        "stack_internal_temp_retire_batch_snapshot",
         "stack_allocation_aggregate_snapshot",
         "stack_dispatch_aggregate_snapshot",
         "stack_attention_counters",

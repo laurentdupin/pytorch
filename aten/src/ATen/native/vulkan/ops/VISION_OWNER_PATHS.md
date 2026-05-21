@@ -794,6 +794,27 @@ next implementation should batch only one proof-complete class and keep every
 escaping, aliasing, phase-boundary, or unknown-consumer row on the existing safe
 retire path.
 
+The first implementation follows that rule for the exact proven
+`stack_fc1_gelu_output` subset. A pending retire entry must carry last-use proof,
+be internal and non-escaping, have its final consumer before the stack
+planned-recording submit, and have no requested/final/alias/runtime-alias flags.
+Matching entries are deferred in a stack-owned retire batch and retired on the
+single stack planned-recording submission timeline. Nonmatching rows, including
+same-role unsafe rows, `stack_residual2_output`, generic `stack_internal_temp`,
+requested intermediates, final outputs, aliases, and unknown-consumer rows keep
+the old retire path.
+
+The diagnostic API for this pass is:
+
+```
+stack_internal_temp_retire_batch_counters()
+stack_internal_temp_retire_batch_snapshot()
+reset_stack_internal_temp_retire_batch_counters()
+```
+
+These counters are diagnostic and correctness checks; route selection is still
+driven only by validated retire provenance.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

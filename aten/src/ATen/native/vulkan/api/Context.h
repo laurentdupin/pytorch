@@ -141,10 +141,17 @@ class TORCH_API Context final {
   std::mutex pending_retire_images_mutex_;
   std::vector<PendingRetireImage> pending_retire_images_;
   std::atomic<uint64_t> pending_retire_bytes_;
+  std::mutex stack_internal_temp_retire_batch_mutex_;
+  std::vector<PendingRetireBuffer> stack_internal_temp_retire_batch_buffers_;
+  std::vector<PendingRetireImage> stack_internal_temp_retire_batch_images_;
   RetireQueue retire_queue_;
   VulkanSubmission last_submission_;
 
   void clear_pending_retire_resources_locked();
+  void clear_stack_internal_temp_retire_batch_locked();
+  void restore_stack_internal_temp_retire_batch_to_pending_locked();
+  void retire_stack_internal_temp_retire_batch_locked(
+      const VulkanSubmission& submission);
   CommandBuffer* external_recording_cmd();
   const CommandBuffer* external_recording_cmd() const;
   bool is_inside_owned_program_recording() const;
@@ -266,10 +273,6 @@ class TORCH_API Context final {
     const uint64_t bytes = buffer.owns_memory()
         ? static_cast<uint64_t>(buffer.allocated_size())
         : 0u;
-    if (buffer.owns_memory()) {
-      pending_retire_bytes_.fetch_add(
-          bytes, std::memory_order_relaxed);
-    }
     if (role == VulkanRetiredResourceRole::Unknown) {
       if (phase == VulkanSubmitPhase::StackOwner) {
         role = stack_retired_resource_role_for_phase(
@@ -287,16 +290,44 @@ class TORCH_API Context final {
       role = stack_provenance.producer_role;
       phase = VulkanSubmitPhase::StackOwner;
     }
-    std::lock_guard<std::mutex> bufferlist_lock(
-        pending_retire_buffers_mutex_);
-    pending_retire_buffers_.push_back(PendingRetireBuffer{
+    PendingRetireBuffer pending{
         std::move(buffer),
         kind,
         role,
         phase,
         callsite,
         bytes,
-        std::move(stack_provenance)});
+        std::move(stack_provenance)};
+    const bool batch_candidate =
+        is_safe_stack_temp_retire_batch_candidate(pending.stack_provenance);
+    const bool stack_recording_active =
+        batch_candidate && is_stack_planned_recording_active() &&
+        stack_planned_recording_owned_by_current_thread();
+    if (batch_candidate && stack_recording_active) {
+      note_stack_internal_temp_retire_batch_decision(
+          pending.stack_provenance,
+          pending.bytes,
+          stack_recording_active,
+          /*accepted=*/true);
+      std::lock_guard<std::mutex> batch_lock(
+          stack_internal_temp_retire_batch_mutex_);
+      stack_internal_temp_retire_batch_buffers_.push_back(std::move(pending));
+      return;
+    }
+    if (pending.stack_provenance.defined) {
+      note_stack_internal_temp_retire_batch_decision(
+          pending.stack_provenance,
+          pending.bytes,
+          stack_recording_active,
+          /*accepted=*/false);
+    }
+    if (pending.buffer.owns_memory()) {
+      pending_retire_bytes_.fetch_add(
+          pending.bytes, std::memory_order_relaxed);
+    }
+    std::lock_guard<std::mutex> bufferlist_lock(
+        pending_retire_buffers_mutex_);
+    pending_retire_buffers_.push_back(std::move(pending));
   }
 
   void register_image_cleanup(
@@ -312,10 +343,6 @@ class TORCH_API Context final {
     const uint64_t bytes = image.owns_memory()
         ? static_cast<uint64_t>(image.allocated_size())
         : 0u;
-    if (image.owns_memory()) {
-      pending_retire_bytes_.fetch_add(
-          bytes, std::memory_order_relaxed);
-    }
     if (role == VulkanRetiredResourceRole::Unknown) {
       if (phase == VulkanSubmitPhase::StackOwner) {
         role = stack_retired_resource_role_for_phase(
@@ -333,15 +360,43 @@ class TORCH_API Context final {
       role = stack_provenance.producer_role;
       phase = VulkanSubmitPhase::StackOwner;
     }
-    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
-    pending_retire_images_.push_back(PendingRetireImage{
+    PendingRetireImage pending{
         std::move(image),
         VulkanRetiredResourceKind::Image,
         role,
         phase,
         callsite,
         bytes,
-        std::move(stack_provenance)});
+        std::move(stack_provenance)};
+    const bool batch_candidate =
+        is_safe_stack_temp_retire_batch_candidate(pending.stack_provenance);
+    const bool stack_recording_active =
+        batch_candidate && is_stack_planned_recording_active() &&
+        stack_planned_recording_owned_by_current_thread();
+    if (batch_candidate && stack_recording_active) {
+      note_stack_internal_temp_retire_batch_decision(
+          pending.stack_provenance,
+          pending.bytes,
+          stack_recording_active,
+          /*accepted=*/true);
+      std::lock_guard<std::mutex> batch_lock(
+          stack_internal_temp_retire_batch_mutex_);
+      stack_internal_temp_retire_batch_images_.push_back(std::move(pending));
+      return;
+    }
+    if (pending.stack_provenance.defined) {
+      note_stack_internal_temp_retire_batch_decision(
+          pending.stack_provenance,
+          pending.bytes,
+          stack_recording_active,
+          /*accepted=*/false);
+    }
+    if (pending.image.owns_memory()) {
+      pending_retire_bytes_.fetch_add(
+          pending.bytes, std::memory_order_relaxed);
+    }
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    pending_retire_images_.push_back(std::move(pending));
   }
 
   inline uint64_t pending_retire_bytes() const {
