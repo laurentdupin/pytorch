@@ -1045,6 +1045,20 @@ bool is_stack_temp_retired_resource_role(
   return is_stack_temp_role(role);
 }
 
+VulkanStackTempLifetimeSafety stack_retire_lifetime_safety_for_resource(
+    const VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance) {
+  return classify_stack_temp_lifetime_safety(role, provenance);
+}
+
+const char* stack_retire_drain_blocker_reason(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance,
+    const bool qkv_would_batch) {
+  return stack_drain_blocker_reason(kind, role, provenance, qkv_would_batch);
+}
+
 VulkanRetiredResourceRole stack_retired_resource_role_for_phase(
     const VulkanVisionStackPhase phase) {
   switch (phase) {
@@ -1772,6 +1786,40 @@ void note_stack_retire_drain_blocker_summary(
       << (skipped_no_old_path_pending ? 1 : 0)
       << " skipped_no_pending_command_work="
       << (skipped_no_pending_command_work ? 1 : 0);
+  std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
+  auto& value = stack_retire_drain_blockers()[key.str()];
+  value.count += 1u;
+  value.bytes += old_path_pending_bytes;
+  if (queue_submit) {
+    value.queue_submit_count += 1u;
+  } else {
+    value.poll_only_count += 1u;
+  }
+}
+
+void note_stack_retire_drain_copresent_group(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const bool queue_submit,
+    const uint64_t old_path_pending_count,
+    const uint64_t old_path_pending_bytes,
+    const uint64_t qkv_hypothetical_count,
+    const bool qkv_would_remove_drain,
+    const bool skipped_no_old_path_pending,
+    const std::string& signature,
+    const std::string& blockers) {
+  std::ostringstream key;
+  key << "copresent_group=1 phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " queue_submit=" << (queue_submit ? 1 : 0)
+      << " old_path_pending=" << old_path_pending_count
+      << " qkv_hypothetical=" << qkv_hypothetical_count
+      << " qkv_would_remove_drain="
+      << (qkv_would_remove_drain ? 1 : 0)
+      << " skipped_no_old_path_pending="
+      << (skipped_no_old_path_pending ? 1 : 0)
+      << " blockers=" << blockers
+      << " signature=" << signature;
   std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
   auto& value = stack_retire_drain_blockers()[key.str()];
   value.count += 1u;

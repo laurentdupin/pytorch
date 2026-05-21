@@ -666,3 +666,10 @@ pending retire resources, it records a skipped-drain diagnostic and leaves the
 pending command buffer for the normal batching or stack planned-recording submit.
 Real old-path pending resources still use the existing safe submit path so their
 cleanup can be tied to a timeline value.
+
+For the remaining `stack_owner_norm2` drains, the blocker snapshot also emits
+`copresent_group=1` rows. These aggregate the complete set of old-path pending
+roles present in each drain by role, blocker reason, safety class, count, and
+bytes. A future batching/proof change should target a complete co-present group;
+partial byte reductions, such as qkv-only batching, are not enough when other
+old-path blockers remain in the same drain.

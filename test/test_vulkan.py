@@ -8591,10 +8591,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertGreater(blocker_counters[0], 0)
         self.assertGreater(blocker_counters[14], 0)
         self.assertTrue(any("summary=1" in row for row in blocker))
+        self.assertTrue(any("copresent_group=1" in row for row in blocker))
         self.assertTrue(
             any(
                 "summary=1" in row
                 and "skipped_no_old_path_pending=1" in row
+                for row in blocker
+            )
+        )
+        self.assertTrue(
+            any(
+                "copresent_group=1" in row
+                and "signature=" in row
+                and "blockers=" in row
                 for row in blocker
             )
         )

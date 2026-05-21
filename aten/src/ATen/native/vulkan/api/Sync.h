@@ -460,6 +460,14 @@ TORCH_API const char* stack_temp_lifetime_safety_name(
     VulkanStackTempLifetimeSafety safety);
 TORCH_API bool is_stack_temp_retired_resource_role(
     VulkanRetiredResourceRole role);
+TORCH_API VulkanStackTempLifetimeSafety stack_retire_lifetime_safety_for_resource(
+    VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance);
+TORCH_API const char* stack_retire_drain_blocker_reason(
+    VulkanRetiredResourceKind kind,
+    VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance,
+    bool qkv_would_batch);
 TORCH_API VulkanRetiredResourceRole stack_retired_resource_role_for_phase(
     VulkanVisionStackPhase phase);
 TORCH_API VulkanStackRetireProvenance current_stack_retire_provenance(
@@ -505,6 +513,17 @@ TORCH_API void note_stack_retire_drain_blocker_summary(
     bool blocked_other_roles,
     bool skipped_no_old_path_pending,
     bool skipped_no_pending_command_work);
+TORCH_API void note_stack_retire_drain_copresent_group(
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    bool queue_submit,
+    uint64_t old_path_pending_count,
+    uint64_t old_path_pending_bytes,
+    uint64_t qkv_hypothetical_count,
+    bool qkv_would_remove_drain,
+    bool skipped_no_old_path_pending,
+    const std::string& signature,
+    const std::string& blockers);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();

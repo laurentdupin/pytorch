@@ -832,6 +832,12 @@ buffer remains owned by the normal command batching or stack planned-recording
 submit path. Drains with real old-path pending resources still submit so those
 resources can be retired against a timeline value.
 
+The remaining norm2 investigation adds `copresent_group=1` rows to the same
+drain-blocker snapshot. Each row is keyed by the complete co-present old-path
+pending resource set, including role, blocker reason, safety class, count, and
+bytes. This keeps the next optimization honest: it must eliminate every blocker
+in a group before it can remove the corresponding retire-drain submit.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

@@ -5,8 +5,10 @@
 #include <fstream>
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <memory>
 #include <sstream>
+#include <set>
 #include <unordered_map>
 
 #ifndef VULKAN_DESCRIPTOR_POOL_SIZE
@@ -905,12 +907,31 @@ void Context::submit_pending_work_and_poll_retire() {
   bool blocked_generic_stack_internal_temp = false;
   bool blocked_metadata_or_uniform = false;
   bool blocked_other_roles = false;
+  std::map<std::string, std::pair<uint64_t, uint64_t>> copresent_resources;
+  std::set<std::string> copresent_blockers;
   const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
   const VulkanSubmitPhase phase = current_submit_phase();
   const auto inspect_pending_resource =
       [&](const auto& pending) {
         const bool qkv_would_batch =
             is_qkv_stack_temp_retire_batch_candidate(pending.stack_provenance);
+        const char* const blocker_reason =
+            stack_retire_drain_blocker_reason(
+                pending.kind,
+                pending.role,
+                pending.stack_provenance,
+                qkv_would_batch);
+        const VulkanStackTempLifetimeSafety safety =
+            stack_retire_lifetime_safety_for_resource(
+                pending.role, pending.stack_provenance);
+        std::ostringstream resource_key;
+        resource_key << retired_resource_role_name(pending.role) << ":"
+                     << blocker_reason << ":"
+                     << stack_temp_lifetime_safety_name(safety);
+        auto& resource_value = copresent_resources[resource_key.str()];
+        resource_value.first += 1u;
+        resource_value.second += pending.bytes;
+        copresent_blockers.insert(blocker_reason);
         if (qkv_would_batch) {
           qkv_hypothetical_count++;
           qkv_hypothetical_bytes += pending.bytes;
@@ -1011,6 +1032,33 @@ void Context::submit_pending_work_and_poll_retire() {
       blocked_other_roles,
       skipped_no_old_path_pending,
       skipped_no_pending_command_work);
+  std::ostringstream copresent_signature;
+  for (const auto& entry : copresent_resources) {
+    if (copresent_signature.tellp() > 0) {
+      copresent_signature << ",";
+    }
+    copresent_signature << entry.first << "#" << entry.second.first << "#"
+                        << entry.second.second;
+  }
+  std::ostringstream blocker_signature;
+  for (const auto& blocker : copresent_blockers) {
+    if (blocker_signature.tellp() > 0) {
+      blocker_signature << ",";
+    }
+    blocker_signature << blocker;
+  }
+  note_stack_retire_drain_copresent_group(
+      phase,
+      callsite,
+      submitted_for_retire_drain,
+      pending_resource_count,
+      pending_bytes,
+      qkv_hypothetical_count,
+      pending_resource_count > 0u &&
+          pending_resource_count == qkv_hypothetical_count,
+      skipped_no_old_path_pending,
+      copresent_signature.str(),
+      blocker_signature.str());
   if (!had_pending_work) {
     std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
     for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
