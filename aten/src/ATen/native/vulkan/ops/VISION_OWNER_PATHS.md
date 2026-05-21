@@ -838,6 +838,21 @@ pending resource set, including role, blocker reason, safety class, count, and
 bytes. This keeps the next optimization honest: it must eliminate every blocker
 in a group before it can remove the corresponding retire-drain submit.
 
+The proof-loss follow-up found one concrete source: storage reallocation was
+retagging stack tensors with physical GPU sizes, which can appear as raw
+one-dimensional buffer identities in retire diagnostics. Reallocation now keeps
+the logical stack sizes/strides in retire provenance. Remaining missing-proof
+rows carry `provenance_loss_reason` so they can be separated from true
+unprovable lifetimes.
+
+The stack last-use proof now also covers the attention merge output. Direct
+attention produces head-layout `[heads,T,head_dim]` data, then the stack owner
+merges heads to hidden layout for projection. That hidden-layout
+`stack_attention_output` is now represented by a shape-plan-derived proof with
+`proj_linear` as final consumer. Physical/raw QKV and projection storage rows
+remain conservative: they keep `physical_raw_storage_identity` diagnostics and
+are not treated as safe internal temps without a logical producer proof.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

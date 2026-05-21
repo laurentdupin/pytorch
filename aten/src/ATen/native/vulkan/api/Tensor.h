@@ -97,7 +97,12 @@ class vTensorStorage final {
   void discard_and_reallocate(
       const std::vector<int64_t>& gpu_sizes,
       const api::GPUMemoryLayout gpu_memory_layout,
-      const api::ScalarType dtype);
+      const api::ScalarType dtype,
+      const std::vector<int64_t>& logical_sizes,
+      const std::vector<int64_t>& logical_strides,
+      bool direct_buffer,
+      bool buffer_storage,
+      bool image_storage);
 };
 
 class vTensor final {

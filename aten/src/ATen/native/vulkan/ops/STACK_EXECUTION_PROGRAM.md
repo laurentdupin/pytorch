@@ -673,3 +673,18 @@ roles present in each drain by role, blocker reason, safety class, count, and
 bytes. A future batching/proof change should target a complete co-present group;
 partial byte reductions, such as qkv-only batching, are not enough when other
 old-path blockers remain in the same drain.
+
+Missing-proof blocker rows also report `provenance_loss_reason`. The first
+source-level fix keeps stack reallocation provenance logical: `vTensor::reallocate`
+now forwards the updated logical sizes/strides to `vTensorStorage` instead of
+retagging storage with physical GPU sizes. This is provenance propagation, not a
+retire batching policy change.
+
+The next proof-only refinement closes the plan gap for merged attention output.
+The fixed stack plan already describes direct attention output in head layout
+`[heads,T,head_dim]`, but the execution path also merges heads back to hidden
+layout before projection. `build_stack_last_use_proofs()` now emits an explicit
+plan-derived proof for the hidden-layout `stack_attention_output` consumed by
+`proj_linear`. Raw one-dimensional QKV/proj storage rows remain unsafe and are
+diagnosed as physical storage identity rows until their source can carry full
+logical tensor proof.

@@ -718,7 +718,12 @@ void vTensor::reallocate(const std::vector<int64_t>& new_sizes) {
   view_->discard_and_reallocate(
       calc_gpu_sizes(new_sizes, physical_desc_.memory_layout, storage_type()),
       physical_desc_.memory_layout,
-      logical_desc_.dtype);
+      logical_desc_.dtype,
+      logical_desc_.sizes,
+      logical_desc_.strides,
+      this->uses_buffer_execution(),
+      this->storage_type() == api::StorageType::BUFFER,
+      this->storage_type() != api::StorageType::BUFFER);
 }
 
 void vTensor::virtual_resize(const std::vector<int64_t>& new_sizes) {
@@ -981,7 +986,12 @@ void add_buffer_barrier(
 void vTensorStorage::discard_and_reallocate(
     const std::vector<int64_t>& gpu_sizes,
     const api::GPUMemoryLayout gpu_memory_layout,
-    const api::ScalarType dtype) {
+    const api::ScalarType dtype,
+    const std::vector<int64_t>& logical_sizes,
+    const std::vector<int64_t>& logical_strides,
+    const bool direct_buffer,
+    const bool buffer_storage,
+    const bool image_storage) {
   const bool image_owns_memory = image_.owns_memory();
   const bool buffer_owns_memory = buffer_.owns_memory();
 
@@ -1005,12 +1015,12 @@ void vTensorStorage::discard_and_reallocate(
       buffer_owns_memory,
       buffer_gpu_only_);
   stack_retire_provenance_ = api::current_stack_retire_provenance(
-      gpu_sizes,
-      {},
+      logical_sizes,
+      logical_strides,
       static_cast<int64_t>(dtype),
-      storage_type_ == api::StorageType::BUFFER,
-      storage_type_ == api::StorageType::BUFFER,
-      storage_type_ != api::StorageType::BUFFER,
+      direct_buffer,
+      buffer_storage,
+      image_storage,
       /*alias_or_view=*/false);
 }
 

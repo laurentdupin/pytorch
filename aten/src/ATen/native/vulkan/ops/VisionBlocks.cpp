@@ -1005,6 +1005,28 @@ std::vector<api::VulkanStackLastUseProof> build_stack_last_use_proofs(
         !proof.final_output &&
         producer.kind != VulkanStackPlanStepKind::Residual2;
     proofs.emplace_back(std::move(proof));
+
+    if (
+        producer.kind == VulkanStackPlanStepKind::Attention &&
+        consumer->kind == VulkanStackPlanStepKind::ProjLinear &&
+        !consumer->input_shape.empty() &&
+        producer.output_shape != consumer->input_shape) {
+      api::VulkanStackLastUseProof merge_proof;
+      merge_proof.producer_phase =
+          vision_phase_for_stack_plan_step(producer.kind);
+      merge_proof.producer_block_index = producer.block_index;
+      merge_proof.producer_role =
+          api::stack_retired_resource_role_for_phase(
+              merge_proof.producer_phase);
+      merge_proof.shape = consumer->input_shape;
+      merge_proof.dtype = static_cast<int64_t>(convert_dtype(producer.dtype));
+      merge_proof.expected_consumer_phase =
+          vision_phase_for_stack_plan_step(consumer->kind);
+      merge_proof.expected_consumer_block_index = consumer->block_index;
+      merge_proof.final_consumer_before_stack_submit = true;
+      merge_proof.internal_non_escaping = true;
+      proofs.emplace_back(std::move(merge_proof));
+    }
   }
   return proofs;
 }

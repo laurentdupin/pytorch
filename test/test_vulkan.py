@@ -8618,6 +8618,21 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertTrue(
             any(
                 "reason=missing_proof" in row
+                and "provenance_loss_reason=" in row
+                for row in blocker
+            )
+        )
+        self.assertTrue(
+            any(
+                "role=stack_attention_output" in row
+                and "safety=safe_to_defer_until_stack_submit" in row
+                and "last_use_proof=1" in row
+                for row in safety
+            )
+        )
+        self.assertTrue(
+            any(
+                "reason=missing_proof" in row
                 or "reason=other_role" in row
                 or "reason=requested_intermediate" in row
                 for row in blocker

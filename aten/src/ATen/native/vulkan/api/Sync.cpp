@@ -436,6 +436,27 @@ const char* stack_drain_blocker_reason(
   return "other_role";
 }
 
+const char* stack_provenance_loss_reason(
+    const VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance) {
+  if (!provenance.defined) {
+    return "no_stack_provenance";
+  }
+  if (provenance.has_last_use_proof) {
+    return "none";
+  }
+  if (!is_stack_temp_role(role)) {
+    return "not_stack_temp";
+  }
+  if (provenance.shape.size() == 1u) {
+    return "physical_raw_storage_identity";
+  }
+  if (provenance.dtype < 0) {
+    return "missing_dtype";
+  }
+  return "no_matching_stack_plan_proof";
+}
+
 bool is_stack_temp_role(const VulkanRetiredResourceRole role) {
   switch (role) {
     case VulkanRetiredResourceRole::StackInternalTemp:
@@ -1688,7 +1709,9 @@ void note_stack_retire_drain_blocker_resource(
       << (provenance.requested_intermediate ? 1 : 0)
       << " final_output=" << (provenance.final_output ? 1 : 0)
       << " alias_or_view=" << (provenance.alias_or_view ? 1 : 0)
-      << " stack_provenance=" << (provenance.defined ? 1 : 0);
+      << " stack_provenance=" << (provenance.defined ? 1 : 0)
+      << " provenance_loss_reason="
+      << stack_provenance_loss_reason(role, provenance);
   std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
   auto& value = stack_retire_drain_blockers()[key.str()];
   value.count += 1u;
