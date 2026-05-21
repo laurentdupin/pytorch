@@ -244,6 +244,25 @@ enum class VulkanStackTempLifetimeSafety : uint8_t {
   UnsafeUnknownConsumer,
 };
 
+struct VulkanStackRetireProvenance final {
+  bool defined = false;
+  VulkanVisionStackPhase phase = VulkanVisionStackPhase::Unknown;
+  int64_t block_index = -1;
+  VulkanRetiredResourceRole producer_role = VulkanRetiredResourceRole::Unknown;
+  VulkanStackTensorLifetimeClass lifetime =
+      VulkanStackTensorLifetimeClass::Unknown;
+  std::vector<int64_t> shape;
+  std::vector<int64_t> strides;
+  int64_t dtype = -1;
+  bool direct_buffer = false;
+  bool buffer_storage = false;
+  bool image_storage = false;
+  bool escapes_stack = false;
+  bool requested_intermediate = false;
+  bool final_output = false;
+  bool alias_or_view = false;
+};
+
 struct VulkanSubmitOriginCounters final {
   std::atomic<uint64_t> total_queue_submits{0u};
   std::atomic<uint64_t> normal_cmd_submit_frequency{0u};
@@ -351,6 +370,14 @@ TORCH_API const char* stack_temp_lifetime_safety_name(
     VulkanStackTempLifetimeSafety safety);
 TORCH_API VulkanRetiredResourceRole stack_retired_resource_role_for_phase(
     VulkanVisionStackPhase phase);
+TORCH_API VulkanStackRetireProvenance current_stack_retire_provenance(
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& strides,
+    int64_t dtype,
+    bool direct_buffer,
+    bool buffer_storage,
+    bool image_storage,
+    bool alias_or_view);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();
@@ -371,7 +398,8 @@ TORCH_API void note_vulkan_retired_resource(
     uint64_t bytes,
     bool queue_submit,
     bool blocking_wait,
-    bool poll_only);
+    bool poll_only,
+    const VulkanStackRetireProvenance& provenance = {});
 
 TORCH_API void note_vulkan_queue_wait_idle();
 TORCH_API void note_vulkan_forced_sync(

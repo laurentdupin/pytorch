@@ -29,10 +29,61 @@ struct RetiredResourceAggregateKey final {
   VulkanRetiredResourceRole role = VulkanRetiredResourceRole::Unknown;
   VulkanSubmitPhase phase = VulkanSubmitPhase::Unknown;
   VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown;
+  VulkanVisionStackPhase stack_phase = VulkanVisionStackPhase::Unknown;
+  int64_t block_index = -1;
+  VulkanStackTensorLifetimeClass lifetime =
+      VulkanStackTensorLifetimeClass::Unknown;
+  std::vector<int64_t> shape;
+  std::vector<int64_t> strides;
+  int64_t dtype = -1;
+  bool direct_buffer = false;
+  bool buffer_storage = false;
+  bool image_storage = false;
+  bool escapes_stack = false;
+  bool requested_intermediate = false;
+  bool final_output = false;
+  bool alias_or_view = false;
+  bool has_stack_provenance = false;
 
   bool operator<(const RetiredResourceAggregateKey& other) const {
-    return std::tie(kind, role, phase, callsite) <
-        std::tie(other.kind, other.role, other.phase, other.callsite);
+    return std::tie(
+               kind,
+               role,
+               phase,
+               callsite,
+               stack_phase,
+               block_index,
+               lifetime,
+               shape,
+               strides,
+               dtype,
+               direct_buffer,
+               buffer_storage,
+               image_storage,
+               escapes_stack,
+               requested_intermediate,
+               final_output,
+               alias_or_view,
+               has_stack_provenance) <
+        std::tie(
+               other.kind,
+               other.role,
+               other.phase,
+               other.callsite,
+               other.stack_phase,
+               other.block_index,
+               other.lifetime,
+               other.shape,
+               other.strides,
+               other.dtype,
+               other.direct_buffer,
+               other.buffer_storage,
+               other.image_storage,
+               other.escapes_stack,
+               other.requested_intermediate,
+               other.final_output,
+               other.alias_or_view,
+               other.has_stack_provenance);
   }
 };
 
@@ -50,10 +101,37 @@ struct StackTempLifetimeSafetyKey final {
       VulkanStackTempLifetimeSafety::Unknown;
   VulkanSubmitPhase phase = VulkanSubmitPhase::Unknown;
   VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown;
+  VulkanVisionStackPhase stack_phase = VulkanVisionStackPhase::Unknown;
+  int64_t block_index = -1;
+  VulkanStackTensorLifetimeClass lifetime =
+      VulkanStackTensorLifetimeClass::Unknown;
+  std::vector<int64_t> shape;
+  int64_t dtype = -1;
+  bool has_stack_provenance = false;
 
   bool operator<(const StackTempLifetimeSafetyKey& other) const {
-    return std::tie(role, safety, phase, callsite) <
-        std::tie(other.role, other.safety, other.phase, other.callsite);
+    return std::tie(
+               role,
+               safety,
+               phase,
+               callsite,
+               stack_phase,
+               block_index,
+               lifetime,
+               shape,
+               dtype,
+               has_stack_provenance) <
+        std::tie(
+               other.role,
+               other.safety,
+               other.phase,
+               other.callsite,
+               other.stack_phase,
+               other.block_index,
+               other.lifetime,
+               other.shape,
+               other.dtype,
+               other.has_stack_provenance);
   }
 };
 
@@ -174,7 +252,29 @@ bool is_stack_temp_role(const VulkanRetiredResourceRole role) {
 }
 
 VulkanStackTempLifetimeSafety classify_stack_temp_lifetime_safety(
-    const VulkanRetiredResourceRole role) {
+    const VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance) {
+  if (provenance.defined) {
+    if (provenance.requested_intermediate ||
+        provenance.lifetime ==
+            VulkanStackTensorLifetimeClass::RequestedIntermediateOutput) {
+      return VulkanStackTempLifetimeSafety::EscapesAsRequestedIntermediate;
+    }
+    if (provenance.final_output ||
+        provenance.lifetime == VulkanStackTensorLifetimeClass::FinalStackOutput) {
+      return VulkanStackTempLifetimeSafety::EscapesAsFinalOutput;
+    }
+    if (provenance.alias_or_view ||
+        provenance.lifetime == VulkanStackTensorLifetimeClass::AliasOrView) {
+      return VulkanStackTempLifetimeSafety::UnsafeUnknownConsumer;
+    }
+    if (provenance.escapes_stack) {
+      return VulkanStackTempLifetimeSafety::UnsafeUnknownConsumer;
+    }
+    if (provenance.lifetime == VulkanStackTensorLifetimeClass::InternalTemp) {
+      return VulkanStackTempLifetimeSafety::UnsafeUnknownConsumer;
+    }
+  }
   switch (role) {
     case VulkanRetiredResourceRole::StackRequestedOutput:
       return VulkanStackTempLifetimeSafety::EscapesAsRequestedIntermediate;
@@ -678,6 +778,36 @@ VulkanRetiredResourceRole stack_retired_resource_role_for_phase(
   }
 }
 
+VulkanStackRetireProvenance current_stack_retire_provenance(
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& strides,
+    const int64_t dtype,
+    const bool direct_buffer,
+    const bool buffer_storage,
+    const bool image_storage,
+    const bool alias_or_view) {
+  if (!inside_vision_stack_phase()) {
+    return {};
+  }
+  VulkanStackRetireProvenance provenance;
+  provenance.defined = true;
+  provenance.phase = g_vision_stack_phase;
+  provenance.block_index = g_vision_stack_block_index;
+  provenance.producer_role =
+      stack_retired_resource_role_for_phase(g_vision_stack_phase);
+  provenance.lifetime = alias_or_view
+      ? VulkanStackTensorLifetimeClass::AliasOrView
+      : VulkanStackTensorLifetimeClass::InternalTemp;
+  provenance.shape = shape;
+  provenance.strides = strides;
+  provenance.dtype = dtype;
+  provenance.direct_buffer = direct_buffer;
+  provenance.buffer_storage = buffer_storage;
+  provenance.image_storage = image_storage;
+  provenance.alias_or_view = alias_or_view;
+  return provenance;
+}
+
 VulkanSubmitPhase current_submit_phase() {
   return g_submit_phase;
 }
@@ -798,7 +928,22 @@ std::vector<std::string> retired_resource_aggregate_snapshot() {
            << retired_resource_kind_name(key.kind) << " role="
            << retired_resource_role_name(key.role) << " phase="
            << submit_phase_name(key.phase) << " callsite="
-           << retire_call_site_name(key.callsite) << " count=" << value.count
+           << retire_call_site_name(key.callsite) << " stack_phase="
+           << vision_stack_phase_name(key.stack_phase) << " block="
+           << key.block_index << " lifetime="
+           << stack_tensor_lifetime_name(key.lifetime) << " shape="
+           << format_sizes(key.shape) << " strides="
+           << format_sizes(key.strides) << " dtype=" << key.dtype
+           << " direct_buffer=" << (key.direct_buffer ? 1 : 0)
+           << " buffer_storage=" << (key.buffer_storage ? 1 : 0)
+           << " image_storage=" << (key.image_storage ? 1 : 0)
+           << " escapes_stack=" << (key.escapes_stack ? 1 : 0)
+           << " requested_intermediate="
+           << (key.requested_intermediate ? 1 : 0)
+           << " final_output=" << (key.final_output ? 1 : 0)
+           << " alias_or_view=" << (key.alias_or_view ? 1 : 0)
+           << " stack_provenance=" << (key.has_stack_provenance ? 1 : 0)
+           << " count=" << value.count
            << " bytes=" << value.bytes
            << " queue_submit=" << value.queue_submit_count
            << " blocking_wait=" << value.blocking_wait_count
@@ -820,7 +965,13 @@ std::vector<std::string> stack_temp_lifetime_safety_snapshot() {
            << retired_resource_role_name(key.role) << " safety="
            << stack_temp_lifetime_safety_name(key.safety) << " phase="
            << submit_phase_name(key.phase) << " callsite="
-           << retire_call_site_name(key.callsite) << " count=" << value.count
+           << retire_call_site_name(key.callsite) << " stack_phase="
+           << vision_stack_phase_name(key.stack_phase) << " block="
+           << key.block_index << " lifetime="
+           << stack_tensor_lifetime_name(key.lifetime) << " shape="
+           << format_sizes(key.shape) << " dtype=" << key.dtype
+           << " stack_provenance=" << (key.has_stack_provenance ? 1 : 0)
+           << " count=" << value.count
            << " bytes=" << value.bytes
            << " queue_submit=" << value.queue_submit_count
            << " blocking_wait=" << value.blocking_wait_count
@@ -918,8 +1069,29 @@ void note_vulkan_retired_resource(
     const uint64_t bytes,
     const bool queue_submit,
     const bool blocking_wait,
-    const bool poll_only) {
-  RetiredResourceAggregateKey key{kind, role, phase, callsite};
+    const bool poll_only,
+    const VulkanStackRetireProvenance& provenance) {
+  RetiredResourceAggregateKey key;
+  key.kind = kind;
+  key.role = role;
+  key.phase = phase;
+  key.callsite = callsite;
+  if (provenance.defined) {
+    key.stack_phase = provenance.phase;
+    key.block_index = provenance.block_index;
+    key.lifetime = provenance.lifetime;
+    key.shape = provenance.shape;
+    key.strides = provenance.strides;
+    key.dtype = provenance.dtype;
+    key.direct_buffer = provenance.direct_buffer;
+    key.buffer_storage = provenance.buffer_storage;
+    key.image_storage = provenance.image_storage;
+    key.escapes_stack = provenance.escapes_stack;
+    key.requested_intermediate = provenance.requested_intermediate;
+    key.final_output = provenance.final_output;
+    key.alias_or_view = provenance.alias_or_view;
+    key.has_stack_provenance = true;
+  }
   std::lock_guard<std::mutex> lock(retired_resource_aggregate_mutex());
   auto& value = retired_resource_aggregate()[key];
   value.count += 1u;
@@ -935,8 +1107,20 @@ void note_vulkan_retired_resource(
   }
   if (is_stack_temp_role(role)) {
     const VulkanStackTempLifetimeSafety safety =
-        classify_stack_temp_lifetime_safety(role);
-    StackTempLifetimeSafetyKey safety_key{role, safety, phase, callsite};
+        classify_stack_temp_lifetime_safety(role, provenance);
+    StackTempLifetimeSafetyKey safety_key;
+    safety_key.role = role;
+    safety_key.safety = safety;
+    safety_key.phase = phase;
+    safety_key.callsite = callsite;
+    if (provenance.defined) {
+      safety_key.stack_phase = provenance.phase;
+      safety_key.block_index = provenance.block_index;
+      safety_key.lifetime = provenance.lifetime;
+      safety_key.shape = provenance.shape;
+      safety_key.dtype = provenance.dtype;
+      safety_key.has_stack_provenance = true;
+    }
     std::lock_guard<std::mutex> safety_lock(
         stack_temp_lifetime_safety_mutex());
     auto& safety_value = stack_temp_lifetime_safety_aggregate()[safety_key];

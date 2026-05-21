@@ -356,7 +356,16 @@ vTensor::vTensor(
           physical_desc_.sizes,
           logical_desc_.dtype,
           allocate_memory,
-          buffer_gpu_only)) {}
+          buffer_gpu_only)) {
+  view_->set_stack_retire_provenance(
+      logical_desc_.sizes,
+      logical_desc_.strides,
+      logical_desc_.dtype,
+      this->uses_buffer_execution(),
+      this->storage_type() == api::StorageType::BUFFER,
+      this->storage_type() != api::StorageType::BUFFER,
+      /*alias_or_view=*/false);
+}
 
 vTensor::vTensor(
     api::Context* const context,
@@ -402,7 +411,16 @@ vTensor::vTensor(
           resolve_storage_type(sizes, dtype, storage_type),
           physical_desc_.memory_layout,
           physical_desc_.sizes,
-          logical_desc_.dtype)) {}
+          logical_desc_.dtype)) {
+  view_->set_stack_retire_provenance(
+      logical_desc_.sizes,
+      logical_desc_.strides,
+      logical_desc_.dtype,
+      this->uses_buffer_execution(),
+      this->storage_type() == api::StorageType::BUFFER,
+      this->storage_type() != api::StorageType::BUFFER,
+      /*alias_or_view=*/false);
+}
 
 vTensor::vTensor(
     const vTensor& src,
@@ -837,11 +855,40 @@ vTensorStorage::~vTensorStorage() {
 
 void vTensorStorage::flush() {
   if (image_) {
-    context_->register_image_cleanup(image_);
+    context_->register_image_cleanup(
+        image_,
+        api::VulkanRetiredResourceRole::Unknown,
+        api::current_submit_phase(),
+        api::VulkanRetireCallSite::Unknown,
+        stack_retire_provenance_);
   } else if (buffer_) {
-    context_->register_buffer_cleanup(buffer_);
+    context_->register_buffer_cleanup(
+        buffer_,
+        api::VulkanRetiredResourceKind::Buffer,
+        api::VulkanRetiredResourceRole::Unknown,
+        api::current_submit_phase(),
+        api::VulkanRetireCallSite::Unknown,
+        stack_retire_provenance_);
   }
   last_access_ = {};
+}
+
+void vTensorStorage::set_stack_retire_provenance(
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& strides,
+    const api::ScalarType dtype,
+    const bool direct_buffer,
+    const bool buffer_storage,
+    const bool image_storage,
+    const bool alias_or_view) {
+  stack_retire_provenance_ = api::current_stack_retire_provenance(
+      shape,
+      strides,
+      static_cast<int64_t>(dtype),
+      direct_buffer,
+      buffer_storage,
+      image_storage,
+      alias_or_view);
 }
 
 void vTensorStorage::transition(
@@ -957,6 +1004,14 @@ void vTensorStorage::discard_and_reallocate(
       dtype,
       buffer_owns_memory,
       buffer_gpu_only_);
+  stack_retire_provenance_ = api::current_stack_retire_provenance(
+      gpu_sizes,
+      {},
+      static_cast<int64_t>(dtype),
+      storage_type_ == api::StorageType::BUFFER,
+      storage_type_ == api::StorageType::BUFFER,
+      storage_type_ != api::StorageType::BUFFER,
+      /*alias_or_view=*/false);
 }
 
 } // namespace vulkan

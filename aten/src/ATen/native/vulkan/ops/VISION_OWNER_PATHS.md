@@ -730,6 +730,28 @@ dtype proof to mark those buffers safe to defer to the stack planned-recording
 submission timeline. The next stack lifetime task should attach explicit stack
 tensor lifetime metadata to pending retire entries before changing retirement.
 
+Pending retire entries now receive explicit stack tensor provenance from
+stack-created tensor storage. The diagnostic rows include stack phase, block,
+producer role, lifetime class, logical shape/strides, dtype, storage flags,
+escape/requested/final flags, and alias/view state. The new DAv2 profile splits
+the large stack rows into concrete roles:
+
+```
+stack_qkv_output        bytes=22842028800 count=6896
+stack_fc1_gelu_output  bytes=15775975680 count=2480
+stack_fc2_output       bytes=10108794624 count=4688
+stack_residual2_output bytes=7079187072  count=11044
+stack_residual1_output bytes=7066450560  count=11040
+stack_attention_output bytes=7066427520  count=10032
+```
+
+The safety snapshot remains conservative: all concrete stack temp roles are
+`unsafe_unknown_consumer` because producer/shape metadata is not the same as
+last-use proof. No retire batching was enabled in this pass. The next stack
+owner lifetime step is to connect stack-plan step consumers to retire entries so
+the backend can prove which internal temps are fully consumed before the stack
+planned-recording submit.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

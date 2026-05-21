@@ -63,6 +63,7 @@ class vTensorStorage final {
   mutable api::VulkanImage image_;
   mutable api::VulkanBuffer buffer_;
   bool buffer_gpu_only_{true};
+  api::VulkanStackRetireProvenance stack_retire_provenance_;
 
   // Last Access - used to insert memory barriers
   LastAccess last_access_;
@@ -70,6 +71,14 @@ class vTensorStorage final {
  private:
   // Registers underlying memory for cleanup
   void flush();
+  void set_stack_retire_provenance(
+      const std::vector<int64_t>& shape,
+      const std::vector<int64_t>& strides,
+      api::ScalarType dtype,
+      bool direct_buffer,
+      bool buffer_storage,
+      bool image_storage,
+      bool alias_or_view);
 
   // Memory barrier insertion
   void transition(

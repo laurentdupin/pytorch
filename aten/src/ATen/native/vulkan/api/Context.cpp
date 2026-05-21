@@ -845,7 +845,8 @@ void Context::retire_deferred_cleanup(
           pending.bytes,
           /*queue_submit=*/true,
           /*blocking_wait=*/false,
-          /*poll_only=*/false);
+          /*poll_only=*/false,
+          pending.stack_provenance);
       retire_queue_.retire(RetiredResource{
           submission.stream_id,
           submission.timeline,
@@ -870,7 +871,8 @@ void Context::retire_deferred_cleanup(
           pending.bytes,
           /*queue_submit=*/true,
           /*blocking_wait=*/false,
-          /*poll_only=*/false);
+          /*poll_only=*/false,
+          pending.stack_provenance);
       retire_queue_.retire(RetiredResource{
           submission.stream_id,
           submission.timeline,
@@ -928,7 +930,8 @@ void Context::submit_pending_work_and_poll_retire() {
           pending.bytes,
           had_pending_work,
           /*blocking_wait=*/false,
-          !had_pending_work);
+          !had_pending_work,
+          pending.stack_provenance);
     }
   }
   if (!had_pending_work) {
@@ -943,7 +946,8 @@ void Context::submit_pending_work_and_poll_retire() {
           pending.bytes,
           had_pending_work,
           /*blocking_wait=*/false,
-          !had_pending_work);
+          !had_pending_work,
+          pending.stack_provenance);
     }
   }
   poll_retire_queue();

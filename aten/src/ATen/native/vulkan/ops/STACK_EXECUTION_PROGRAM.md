@@ -549,3 +549,43 @@ they reach the retire queue outside a specific stack phase. Therefore no
 stack-internal-temp retire batching was implemented. The safe next step is to
 carry explicit stack tensor lifetime/provenance into the retire entry before any
 batching change.
+
+Pending retire entries now carry that stack provenance. Stack-created tensor
+storage records the active stack phase, block index, producer role, lifetime
+class, logical shape/strides, dtype, storage flags, escape/requested/final flags,
+and alias/view state. `retired_resource_aggregate_snapshot()` and
+`stack_temp_lifetime_safety_snapshot()` include this metadata for stack rows.
+
+The no-timestamp DAv2 profile after provenance propagation still reports the
+same submit totals:
+
+```
+total_queue_submits=4773
+retire_queue_drain=2698
+explicit_synchronize=1150
+tensor_cpu_readback=560
+normal_cmd_submit_frequency=273
+stack_planned_recording_submit=92
+unknown=0
+blocking_wait=0
+```
+
+The stack temp bytes now split by concrete role:
+
+```
+stack_qkv_output        bytes=22842028800 count=6896
+stack_fc1_gelu_output  bytes=15775975680 count=2480
+stack_fc2_output       bytes=10108794624 count=4688
+stack_residual2_output bytes=7079187072  count=11044
+stack_residual1_output bytes=7066450560  count=11040
+stack_attention_output bytes=7066427520  count=10032
+stack_proj_output      bytes=5177001984  count=3584
+stack_norm2_output     bytes=3606613248  count=3312
+stack_norm1_output     bytes=3606613248  count=3312
+```
+
+All of these rows remain `unsafe_unknown_consumer`. The metadata now proves
+producer, shape, dtype, and storage class, but it still does not prove the last
+consumer recorded before the stack planned-recording submit. Retire batching was
+therefore not enabled. The next lifetime step is to attach last-use/consumer
+proof from the shape plan or stack execution manifest to each stack temp.

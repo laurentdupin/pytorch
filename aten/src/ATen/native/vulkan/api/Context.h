@@ -58,6 +58,7 @@ struct PendingRetireBuffer final {
   VulkanSubmitPhase phase = VulkanSubmitPhase::Unknown;
   VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown;
   uint64_t bytes = 0u;
+  VulkanStackRetireProvenance stack_provenance;
 };
 
 struct PendingRetireImage final {
@@ -67,6 +68,7 @@ struct PendingRetireImage final {
   VulkanSubmitPhase phase = VulkanSubmitPhase::Unknown;
   VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown;
   uint64_t bytes = 0u;
+  VulkanStackRetireProvenance stack_provenance;
 };
 
 //
@@ -255,7 +257,8 @@ class TORCH_API Context final {
       VulkanRetiredResourceKind kind = VulkanRetiredResourceKind::Buffer,
       VulkanRetiredResourceRole role = VulkanRetiredResourceRole::Unknown,
       VulkanSubmitPhase phase = current_submit_phase(),
-      VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown) {
+      VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown,
+      VulkanStackRetireProvenance stack_provenance = {}) {
     if (external_recording_cmd()) {
       capture_external_recording_buffer_cleanup(std::move(buffer));
       return;
@@ -280,17 +283,28 @@ class TORCH_API Context final {
         role = VulkanRetiredResourceRole::ReadbackStaging;
       }
     }
+    if (stack_provenance.defined) {
+      role = stack_provenance.producer_role;
+      phase = VulkanSubmitPhase::StackOwner;
+    }
     std::lock_guard<std::mutex> bufferlist_lock(
         pending_retire_buffers_mutex_);
     pending_retire_buffers_.push_back(PendingRetireBuffer{
-        std::move(buffer), kind, role, phase, callsite, bytes});
+        std::move(buffer),
+        kind,
+        role,
+        phase,
+        callsite,
+        bytes,
+        std::move(stack_provenance)});
   }
 
   void register_image_cleanup(
       VulkanImage& image,
       VulkanRetiredResourceRole role = VulkanRetiredResourceRole::Unknown,
       VulkanSubmitPhase phase = current_submit_phase(),
-      VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown) {
+      VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown,
+      VulkanStackRetireProvenance stack_provenance = {}) {
     if (external_recording_cmd()) {
       capture_external_recording_image_cleanup(std::move(image));
       return;
@@ -315,6 +329,10 @@ class TORCH_API Context final {
         role = VulkanRetiredResourceRole::ReadbackStaging;
       }
     }
+    if (stack_provenance.defined) {
+      role = stack_provenance.producer_role;
+      phase = VulkanSubmitPhase::StackOwner;
+    }
     std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
     pending_retire_images_.push_back(PendingRetireImage{
         std::move(image),
@@ -322,7 +340,8 @@ class TORCH_API Context final {
         role,
         phase,
         callsite,
-        bytes});
+        bytes,
+        std::move(stack_provenance)});
   }
 
   inline uint64_t pending_retire_bytes() const {

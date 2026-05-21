@@ -8536,8 +8536,21 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         resources = torch.ops.vulkan_prepack.retired_resource_aggregate_snapshot()
         safety = torch.ops.vulkan_prepack.stack_temp_lifetime_safety_snapshot()
-        self.assertTrue(any("role=stack_" in row for row in resources))
-        self.assertTrue(any("safety=unsafe_unknown_consumer" in row for row in safety))
+        self.assertTrue(
+            any(
+                "role=stack_" in row
+                and "stack_provenance=1" in row
+                and "shape=[" in row
+                for row in resources
+            )
+        )
+        self.assertTrue(
+            any(
+                "safety=unsafe_unknown_consumer" in row
+                and "stack_provenance=1" in row
+                for row in safety
+            )
+        )
 
     def test_vulkan_vision_stack_execution_manifest_reports_capture_blocker(self):
         torch.manual_seed(0)
