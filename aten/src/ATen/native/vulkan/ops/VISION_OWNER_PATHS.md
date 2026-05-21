@@ -815,6 +815,16 @@ reset_stack_internal_temp_retire_batch_counters()
 These counters are diagnostic and correctness checks; route selection is still
 driven only by validated retire provenance.
 
+The next diagnostic layer classifies why `RetireQueueDrain` still submits after
+the `stack_fc1_gelu_output` batch is removed from old-path pending retirement.
+For each drain, `stack_retire_drain_blocker_snapshot()` aggregates the remaining
+pending resources by role, safety class, call site, proof state, and rejection
+reason. The companion counters report how many drains contain old-path pending
+resources, how many would be removed by hypothetical proof-complete qkv batching,
+and how many remain blocked by requested intermediates, missing proof, generic
+stack temps, metadata/uniforms, or other roles. The diagnostics do not change
+retirement behavior and do not enable qkv batching.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

@@ -378,6 +378,23 @@ struct VulkanStackInternalTempRetireBatchCounters final {
   std::atomic<uint64_t> rejected_not_stack_recording{0u};
 };
 
+struct VulkanStackRetireDrainBlockerCounters final {
+  std::atomic<uint64_t> total_drains{0u};
+  std::atomic<uint64_t> queue_submit_drains{0u};
+  std::atomic<uint64_t> drains_with_old_path_pending{0u};
+  std::atomic<uint64_t> drains_with_only_already_batched{0u};
+  std::atomic<uint64_t> drains_qkv_would_remove{0u};
+  std::atomic<uint64_t> drains_blocked_requested_intermediate{0u};
+  std::atomic<uint64_t> drains_blocked_missing_proof{0u};
+  std::atomic<uint64_t> drains_blocked_generic_stack_internal_temp{0u};
+  std::atomic<uint64_t> drains_blocked_metadata_or_uniform{0u};
+  std::atomic<uint64_t> drains_blocked_other_roles{0u};
+  std::atomic<uint64_t> old_path_pending_count{0u};
+  std::atomic<uint64_t> old_path_pending_bytes{0u};
+  std::atomic<uint64_t> qkv_hypothetical_count{0u};
+  std::atomic<uint64_t> qkv_hypothetical_bytes{0u};
+};
+
 class VulkanSubmitPhaseScope final {
  public:
   explicit VulkanSubmitPhaseScope(VulkanSubmitPhase phase);
@@ -427,6 +444,11 @@ stack_internal_temp_retire_batch_counters();
 TORCH_API std::vector<int64_t> stack_internal_temp_retire_batch_counters_snapshot();
 TORCH_API std::vector<std::string> stack_internal_temp_retire_batch_snapshot();
 TORCH_API void reset_stack_internal_temp_retire_batch_counters();
+TORCH_API VulkanStackRetireDrainBlockerCounters&
+stack_retire_drain_blocker_counters();
+TORCH_API std::vector<int64_t> stack_retire_drain_blocker_counters_snapshot();
+TORCH_API std::vector<std::string> stack_retire_drain_blocker_snapshot();
+TORCH_API void reset_stack_retire_drain_blocker_counters();
 TORCH_API const char* submit_origin_name(VulkanSubmitOrigin origin);
 TORCH_API const char* submit_phase_name(VulkanSubmitPhase phase);
 TORCH_API const char* retire_call_site_name(VulkanRetireCallSite callsite);
@@ -434,6 +456,8 @@ TORCH_API const char* retired_resource_kind_name(VulkanRetiredResourceKind kind)
 TORCH_API const char* retired_resource_role_name(VulkanRetiredResourceRole role);
 TORCH_API const char* stack_temp_lifetime_safety_name(
     VulkanStackTempLifetimeSafety safety);
+TORCH_API bool is_stack_temp_retired_resource_role(
+    VulkanRetiredResourceRole role);
 TORCH_API VulkanRetiredResourceRole stack_retired_resource_role_for_phase(
     VulkanVisionStackPhase phase);
 TORCH_API VulkanStackRetireProvenance current_stack_retire_provenance(
@@ -446,12 +470,37 @@ TORCH_API VulkanStackRetireProvenance current_stack_retire_provenance(
     bool alias_or_view);
 TORCH_API bool is_safe_stack_temp_retire_batch_candidate(
     const VulkanStackRetireProvenance& provenance);
+TORCH_API bool is_qkv_stack_temp_retire_batch_candidate(
+    const VulkanStackRetireProvenance& provenance);
 TORCH_API void note_stack_internal_temp_retire_batch_decision(
     const VulkanStackRetireProvenance& provenance,
     uint64_t bytes,
     bool stack_recording_active,
     bool accepted);
 TORCH_API void note_stack_internal_temp_retire_batch_submitted(uint64_t bytes);
+TORCH_API void note_stack_retire_drain_blocker_resource(
+    VulkanRetiredResourceKind kind,
+    VulkanRetiredResourceRole role,
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    uint64_t bytes,
+    bool qkv_would_batch,
+    const VulkanStackRetireProvenance& provenance);
+TORCH_API void note_stack_retire_drain_blocker_summary(
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    bool queue_submit,
+    uint64_t old_path_pending_count,
+    uint64_t old_path_pending_bytes,
+    uint64_t qkv_hypothetical_count,
+    uint64_t qkv_hypothetical_bytes,
+    bool qkv_would_remove_drain,
+    bool only_already_batched,
+    bool blocked_requested_intermediate,
+    bool blocked_missing_proof,
+    bool blocked_generic_stack_internal_temp,
+    bool blocked_metadata_or_uniform,
+    bool blocked_other_roles);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();

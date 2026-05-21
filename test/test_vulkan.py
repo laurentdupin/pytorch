@@ -8527,6 +8527,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         torch.ops.vulkan_prepack.reset_retired_resource_aggregate()
         torch.ops.vulkan_prepack.reset_stack_temp_lifetime_safety_snapshot()
         torch.ops.vulkan_prepack.reset_stack_internal_temp_retire_batch_counters()
+        torch.ops.vulkan_prepack.reset_stack_retire_drain_blocker_counters()
         with torch.inference_mode():
             torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
                 x,
@@ -8540,6 +8541,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         batch = torch.ops.vulkan_prepack.stack_internal_temp_retire_batch_snapshot()
         batch_counters = (
             torch.ops.vulkan_prepack.stack_internal_temp_retire_batch_counters()
+        )
+        blocker = torch.ops.vulkan_prepack.stack_retire_drain_blocker_snapshot()
+        blocker_counters = (
+            torch.ops.vulkan_prepack.stack_retire_drain_blocker_counters()
         )
         self.assertTrue(
             any(
@@ -8581,6 +8586,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     or "runtime_alias=1" in row
                 )
                 for row in batch
+            )
+        )
+        self.assertGreater(blocker_counters[0], 0)
+        self.assertTrue(any("summary=1" in row for row in blocker))
+        self.assertTrue(
+            any(
+                "reason=qkv_would_batch" in row
+                and "qkv_would_batch=1" in row
+                and "last_use_proof=1" in row
+                for row in blocker
+            )
+        )
+        self.assertTrue(
+            any(
+                "reason=missing_proof" in row
+                or "reason=other_role" in row
+                or "reason=requested_intermediate" in row
+                for row in blocker
             )
         )
         self.assertTrue(

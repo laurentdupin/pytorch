@@ -649,3 +649,13 @@ changes when proof-complete temporary buffers are attached to retirement.
 rejected, submitted-batch counts/bytes, and rejection reasons.
 `stack_internal_temp_retire_batch_snapshot()` records accepted/rejected rows with
 role, shape, proof bits, and escape/alias flags.
+
+The follow-up diagnostic pass classifies each old-path pending retire resource
+present at `RetireQueueDrain`. `stack_retire_drain_blocker_snapshot()` records
+the pending role, call site, safety class, proof flags, bytes, and whether a
+hypothetical qkv retire batch would have removed that resource from the drain.
+`stack_retire_drain_blocker_counters()` additionally counts drains that would
+disappear if all proof-complete qkv rows were batched versus drains still blocked
+by requested intermediates, missing proof, generic stack temps, metadata/uniforms,
+or other roles. This is diagnostic only; qkv batching is not enabled by this
+pass.

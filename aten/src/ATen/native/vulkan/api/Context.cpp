@@ -898,14 +898,78 @@ void Context::poll_retire_queue() {
 void Context::submit_pending_work_and_poll_retire() {
   const uint64_t pending_bytes = pending_retire_bytes();
   uint64_t pending_resource_count = 0u;
+  uint64_t qkv_hypothetical_count = 0u;
+  uint64_t qkv_hypothetical_bytes = 0u;
+  bool blocked_requested_intermediate = false;
+  bool blocked_missing_proof = false;
+  bool blocked_generic_stack_internal_temp = false;
+  bool blocked_metadata_or_uniform = false;
+  bool blocked_other_roles = false;
   const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
+  const VulkanSubmitPhase phase = current_submit_phase();
+  const auto inspect_pending_resource =
+      [&](const auto& pending) {
+        const bool qkv_would_batch =
+            is_qkv_stack_temp_retire_batch_candidate(pending.stack_provenance);
+        if (qkv_would_batch) {
+          qkv_hypothetical_count++;
+          qkv_hypothetical_bytes += pending.bytes;
+        } else if (
+            pending.stack_provenance.defined &&
+            (pending.stack_provenance.requested_intermediate ||
+             pending.stack_provenance.escapes_stack)) {
+          blocked_requested_intermediate = true;
+        } else if (
+            pending.stack_provenance.defined &&
+            is_stack_temp_retired_resource_role(pending.role) &&
+            !pending.stack_provenance.has_last_use_proof) {
+          blocked_missing_proof = true;
+        } else if (pending.role == VulkanRetiredResourceRole::StackInternalTemp) {
+          blocked_generic_stack_internal_temp = true;
+        } else {
+          switch (pending.role) {
+            case VulkanRetiredResourceRole::NativeLayerNormUniform:
+            case VulkanRetiredResourceRole::NativeLayerNormMetadata:
+            case VulkanRetiredResourceRole::AttentionMetadata:
+            case VulkanRetiredResourceRole::LinearMetadata:
+            case VulkanRetiredResourceRole::ConvMetadata:
+            case VulkanRetiredResourceRole::ResidualAddMetadata:
+              blocked_metadata_or_uniform = true;
+              break;
+            default:
+              if (
+                  pending.kind == VulkanRetiredResourceKind::UniformBuffer ||
+                  pending.kind == VulkanRetiredResourceKind::MetadataBuffer) {
+                blocked_metadata_or_uniform = true;
+              } else {
+                blocked_other_roles = true;
+              }
+              break;
+          }
+        }
+        note_stack_retire_drain_blocker_resource(
+            pending.kind,
+            pending.role,
+            pending.phase,
+            pending.callsite == VulkanRetireCallSite::Unknown ? callsite
+                                                              : pending.callsite,
+            pending.bytes,
+            qkv_would_batch,
+            pending.stack_provenance);
+      };
   {
     std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
     pending_resource_count += pending_retire_buffers_.size();
+    for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
+      inspect_pending_resource(pending);
+    }
   }
   {
     std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
     pending_resource_count += pending_retire_images_.size();
+    for (const PendingRetireImage& pending : pending_retire_images_) {
+      inspect_pending_resource(pending);
+    }
   }
   bool had_pending_work = false;
   {
@@ -921,6 +985,22 @@ void Context::submit_pending_work_and_poll_retire() {
       /*blocking_wait=*/false,
       pending_resource_count,
       pending_bytes);
+  note_stack_retire_drain_blocker_summary(
+      phase,
+      callsite,
+      had_pending_work,
+      pending_resource_count,
+      pending_bytes,
+      qkv_hypothetical_count,
+      qkv_hypothetical_bytes,
+      pending_resource_count > 0u &&
+          pending_resource_count == qkv_hypothetical_count,
+      /*only_already_batched=*/false,
+      blocked_requested_intermediate,
+      blocked_missing_proof,
+      blocked_generic_stack_internal_temp,
+      blocked_metadata_or_uniform,
+      blocked_other_roles);
   if (!had_pending_work) {
     std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
     for (const PendingRetireBuffer& pending : pending_retire_buffers_) {

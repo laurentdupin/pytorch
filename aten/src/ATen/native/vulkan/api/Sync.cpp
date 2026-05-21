@@ -295,10 +295,18 @@ stack_internal_temp_retire_batch_counters() {
   return counters;
 }
 
+VulkanStackRetireDrainBlockerCounters&
+stack_retire_drain_blocker_counters() {
+  static VulkanStackRetireDrainBlockerCounters counters;
+  return counters;
+}
+
 std::array<VulkanRetireCallSiteCounter, 27>& retire_call_site_counters() {
   static std::array<VulkanRetireCallSiteCounter, 27> counters;
   return counters;
 }
+
+bool is_stack_temp_role(VulkanRetiredResourceRole role);
 
 const char* stack_temp_retire_batch_reject_reason(
     const VulkanStackRetireProvenance& provenance) {
@@ -365,6 +373,67 @@ std::map<std::string, StackTempLifetimeSafetyValue>&
 stack_temp_retire_batch_decisions() {
   static std::map<std::string, StackTempLifetimeSafetyValue> decisions;
   return decisions;
+}
+
+std::mutex& stack_retire_drain_blocker_snapshot_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::map<std::string, StackTempLifetimeSafetyValue>&
+stack_retire_drain_blockers() {
+  static std::map<std::string, StackTempLifetimeSafetyValue> blockers;
+  return blockers;
+}
+
+bool has_proven_internal_stack_temp_lifetime(
+    const VulkanStackRetireProvenance& provenance) {
+  return provenance.defined && provenance.has_last_use_proof &&
+      provenance.internal_non_escaping &&
+      provenance.final_consumer_before_stack_submit &&
+      !provenance.requested_intermediate && !provenance.escapes_stack &&
+      !provenance.final_output && !provenance.alias_or_view &&
+      !provenance.aliases_runtime_input &&
+      !provenance.aliases_runtime_output &&
+      provenance.lifetime == VulkanStackTensorLifetimeClass::InternalTemp;
+}
+
+const char* stack_drain_blocker_reason(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance,
+    const bool qkv_would_batch) {
+  if (qkv_would_batch) {
+    return "qkv_would_batch";
+  }
+  if (role == VulkanRetiredResourceRole::StackInternalTemp) {
+    return "generic_stack_internal_temp";
+  }
+  if (provenance.defined) {
+    if (provenance.requested_intermediate || provenance.escapes_stack) {
+      return "requested_intermediate";
+    }
+    if (!provenance.has_last_use_proof && is_stack_temp_role(role)) {
+      return "missing_proof";
+    }
+  }
+  switch (role) {
+    case VulkanRetiredResourceRole::NativeLayerNormUniform:
+    case VulkanRetiredResourceRole::NativeLayerNormMetadata:
+    case VulkanRetiredResourceRole::AttentionMetadata:
+    case VulkanRetiredResourceRole::LinearMetadata:
+    case VulkanRetiredResourceRole::ConvMetadata:
+    case VulkanRetiredResourceRole::ResidualAddMetadata:
+      return "metadata_or_uniform";
+    default:
+      break;
+  }
+  if (
+      kind == VulkanRetiredResourceKind::UniformBuffer ||
+      kind == VulkanRetiredResourceKind::MetadataBuffer) {
+    return "metadata_or_uniform";
+  }
+  return "other_role";
 }
 
 bool is_stack_temp_role(const VulkanRetiredResourceRole role) {
@@ -637,6 +706,30 @@ void reset_stack_internal_temp_retire_batch_counters() {
   counters.rejected_not_stack_recording.store(0u, std::memory_order_relaxed);
   std::lock_guard<std::mutex> lock(stack_temp_retire_batch_snapshot_mutex());
   stack_temp_retire_batch_decisions().clear();
+}
+
+void reset_stack_retire_drain_blocker_counters() {
+  auto& counters = stack_retire_drain_blocker_counters();
+  counters.total_drains.store(0u, std::memory_order_relaxed);
+  counters.queue_submit_drains.store(0u, std::memory_order_relaxed);
+  counters.drains_with_old_path_pending.store(0u, std::memory_order_relaxed);
+  counters.drains_with_only_already_batched.store(
+      0u, std::memory_order_relaxed);
+  counters.drains_qkv_would_remove.store(0u, std::memory_order_relaxed);
+  counters.drains_blocked_requested_intermediate.store(
+      0u, std::memory_order_relaxed);
+  counters.drains_blocked_missing_proof.store(0u, std::memory_order_relaxed);
+  counters.drains_blocked_generic_stack_internal_temp.store(
+      0u, std::memory_order_relaxed);
+  counters.drains_blocked_metadata_or_uniform.store(
+      0u, std::memory_order_relaxed);
+  counters.drains_blocked_other_roles.store(0u, std::memory_order_relaxed);
+  counters.old_path_pending_count.store(0u, std::memory_order_relaxed);
+  counters.old_path_pending_bytes.store(0u, std::memory_order_relaxed);
+  counters.qkv_hypothetical_count.store(0u, std::memory_order_relaxed);
+  counters.qkv_hypothetical_bytes.store(0u, std::memory_order_relaxed);
+  std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
+  stack_retire_drain_blockers().clear();
 }
 
 void note_vulkan_queue_submit(VulkanSubmitOrigin origin) {
@@ -942,6 +1035,11 @@ const char* stack_temp_lifetime_safety_name(
     default:
       return "unknown";
   }
+}
+
+bool is_stack_temp_retired_resource_role(
+    const VulkanRetiredResourceRole role) {
+  return is_stack_temp_role(role);
 }
 
 VulkanRetiredResourceRole stack_retired_resource_role_for_phase(
@@ -1296,6 +1394,63 @@ std::vector<std::string> stack_internal_temp_retire_batch_snapshot() {
   return rows;
 }
 
+std::vector<int64_t> stack_retire_drain_blocker_counters_snapshot() {
+  const auto& counters = stack_retire_drain_blocker_counters();
+  return {
+      static_cast<int64_t>(
+          counters.total_drains.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.queue_submit_drains.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.drains_with_old_path_pending.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.drains_with_only_already_batched.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.drains_qkv_would_remove.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.drains_blocked_requested_intermediate.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.drains_blocked_missing_proof.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.drains_blocked_generic_stack_internal_temp.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.drains_blocked_metadata_or_uniform.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.drains_blocked_other_roles.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.old_path_pending_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.old_path_pending_bytes.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.qkv_hypothetical_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.qkv_hypothetical_bytes.load(std::memory_order_relaxed)),
+  };
+}
+
+std::vector<std::string> stack_retire_drain_blocker_snapshot() {
+  std::vector<std::string> rows;
+  std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
+  for (const auto& entry : stack_retire_drain_blockers()) {
+    std::ostringstream stream;
+    stream << "stack_retire_drain_blocker " << entry.first
+           << " count=" << entry.second.count
+           << " bytes=" << entry.second.bytes
+           << " queue_submit=" << entry.second.queue_submit_count
+           << " blocking_wait=" << entry.second.blocking_wait_count
+           << " poll_only=" << entry.second.poll_only_count;
+    rows.emplace_back(stream.str());
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
 void note_vulkan_retire_drain(
     VulkanRetireDrainReason reason,
     VulkanRetireCallSite callsite,
@@ -1379,6 +1534,12 @@ bool is_safe_stack_temp_retire_batch_candidate(
     const VulkanStackRetireProvenance& provenance) {
   return std::string(stack_temp_retire_batch_reject_reason(provenance)) ==
       "accepted";
+}
+
+bool is_qkv_stack_temp_retire_batch_candidate(
+    const VulkanStackRetireProvenance& provenance) {
+  return provenance.producer_role == VulkanRetiredResourceRole::StackQkvOutput &&
+      has_proven_internal_stack_temp_lifetime(provenance);
 }
 
 void note_stack_internal_temp_retire_batch_decision(
@@ -1473,6 +1634,130 @@ void note_stack_internal_temp_retire_batch_submitted(const uint64_t bytes) {
   auto& counters = stack_internal_temp_retire_batch_counters();
   counters.submitted_batch_count.fetch_add(1u, std::memory_order_relaxed);
   counters.submitted_batch_bytes.fetch_add(bytes, std::memory_order_relaxed);
+}
+
+void note_stack_retire_drain_blocker_resource(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const uint64_t bytes,
+    const bool qkv_would_batch,
+    const VulkanStackRetireProvenance& provenance) {
+  const char* reason =
+      stack_drain_blocker_reason(kind, role, provenance, qkv_would_batch);
+  const VulkanStackTempLifetimeSafety safety =
+      classify_stack_temp_lifetime_safety(role, provenance);
+  std::ostringstream key;
+  key << "role=" << retired_resource_role_name(role)
+      << " reason=" << reason
+      << " safety=" << stack_temp_lifetime_safety_name(safety)
+      << " phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " stack_phase=" << vision_stack_phase_name(provenance.phase)
+      << " block=" << provenance.block_index
+      << " shape=" << format_sizes(provenance.shape)
+      << " dtype=" << provenance.dtype
+      << " qkv_would_batch=" << (qkv_would_batch ? 1 : 0)
+      << " last_use_proof="
+      << (provenance.has_last_use_proof ? 1 : 0)
+      << " requested_intermediate="
+      << (provenance.requested_intermediate ? 1 : 0)
+      << " final_output=" << (provenance.final_output ? 1 : 0)
+      << " alias_or_view=" << (provenance.alias_or_view ? 1 : 0)
+      << " stack_provenance=" << (provenance.defined ? 1 : 0);
+  std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
+  auto& value = stack_retire_drain_blockers()[key.str()];
+  value.count += 1u;
+  value.bytes += bytes;
+}
+
+void note_stack_retire_drain_blocker_summary(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const bool queue_submit,
+    const uint64_t old_path_pending_count,
+    const uint64_t old_path_pending_bytes,
+    const uint64_t qkv_hypothetical_count,
+    const uint64_t qkv_hypothetical_bytes,
+    const bool qkv_would_remove_drain,
+    const bool only_already_batched,
+    const bool blocked_requested_intermediate,
+    const bool blocked_missing_proof,
+    const bool blocked_generic_stack_internal_temp,
+    const bool blocked_metadata_or_uniform,
+    const bool blocked_other_roles) {
+  auto& counters = stack_retire_drain_blocker_counters();
+  counters.total_drains.fetch_add(1u, std::memory_order_relaxed);
+  if (queue_submit) {
+    counters.queue_submit_drains.fetch_add(1u, std::memory_order_relaxed);
+  }
+  if (old_path_pending_count > 0u) {
+    counters.drains_with_old_path_pending.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (only_already_batched) {
+    counters.drains_with_only_already_batched.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (qkv_would_remove_drain) {
+    counters.drains_qkv_would_remove.fetch_add(1u, std::memory_order_relaxed);
+  }
+  if (blocked_requested_intermediate) {
+    counters.drains_blocked_requested_intermediate.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (blocked_missing_proof) {
+    counters.drains_blocked_missing_proof.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (blocked_generic_stack_internal_temp) {
+    counters.drains_blocked_generic_stack_internal_temp.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (blocked_metadata_or_uniform) {
+    counters.drains_blocked_metadata_or_uniform.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (blocked_other_roles) {
+    counters.drains_blocked_other_roles.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  counters.old_path_pending_count.fetch_add(
+      old_path_pending_count, std::memory_order_relaxed);
+  counters.old_path_pending_bytes.fetch_add(
+      old_path_pending_bytes, std::memory_order_relaxed);
+  counters.qkv_hypothetical_count.fetch_add(
+      qkv_hypothetical_count, std::memory_order_relaxed);
+  counters.qkv_hypothetical_bytes.fetch_add(
+      qkv_hypothetical_bytes, std::memory_order_relaxed);
+
+  std::ostringstream key;
+  key << "summary=1 phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " queue_submit=" << (queue_submit ? 1 : 0)
+      << " old_path_pending=" << old_path_pending_count
+      << " qkv_hypothetical=" << qkv_hypothetical_count
+      << " qkv_would_remove_drain="
+      << (qkv_would_remove_drain ? 1 : 0)
+      << " only_already_batched=" << (only_already_batched ? 1 : 0)
+      << " blocked_requested_intermediate="
+      << (blocked_requested_intermediate ? 1 : 0)
+      << " blocked_missing_proof=" << (blocked_missing_proof ? 1 : 0)
+      << " blocked_generic_stack_internal_temp="
+      << (blocked_generic_stack_internal_temp ? 1 : 0)
+      << " blocked_metadata_or_uniform="
+      << (blocked_metadata_or_uniform ? 1 : 0)
+      << " blocked_other_roles=" << (blocked_other_roles ? 1 : 0);
+  std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
+  auto& value = stack_retire_drain_blockers()[key.str()];
+  value.count += 1u;
+  value.bytes += old_path_pending_bytes;
+  if (queue_submit) {
+    value.queue_submit_count += 1u;
+  } else {
+    value.poll_only_count += 1u;
+  }
 }
 
 void note_vulkan_retired_resource(
