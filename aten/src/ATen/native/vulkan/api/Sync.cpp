@@ -23,6 +23,7 @@ thread_local VulkanRetiredResourceKind g_retired_resource_kind =
     VulkanRetiredResourceKind::Unknown;
 thread_local VulkanRetiredResourceRole g_retired_resource_role =
     VulkanRetiredResourceRole::Unknown;
+thread_local std::vector<VulkanStackLastUseProof> g_stack_last_use_proofs;
 
 struct RetiredResourceAggregateKey final {
   VulkanRetiredResourceKind kind = VulkanRetiredResourceKind::Unknown;
@@ -43,6 +44,14 @@ struct RetiredResourceAggregateKey final {
   bool requested_intermediate = false;
   bool final_output = false;
   bool alias_or_view = false;
+  bool has_last_use_proof = false;
+  VulkanVisionStackPhase expected_consumer_phase =
+      VulkanVisionStackPhase::Unknown;
+  int64_t expected_consumer_block_index = -1;
+  bool final_consumer_before_stack_submit = false;
+  bool internal_non_escaping = false;
+  bool aliases_runtime_input = false;
+  bool aliases_runtime_output = false;
   bool has_stack_provenance = false;
 
   bool operator<(const RetiredResourceAggregateKey& other) const {
@@ -64,6 +73,13 @@ struct RetiredResourceAggregateKey final {
                requested_intermediate,
                final_output,
                alias_or_view,
+               has_last_use_proof,
+               expected_consumer_phase,
+               expected_consumer_block_index,
+               final_consumer_before_stack_submit,
+               internal_non_escaping,
+               aliases_runtime_input,
+               aliases_runtime_output,
                has_stack_provenance) <
         std::tie(
                other.kind,
@@ -83,6 +99,13 @@ struct RetiredResourceAggregateKey final {
                other.requested_intermediate,
                other.final_output,
                other.alias_or_view,
+               other.has_last_use_proof,
+               other.expected_consumer_phase,
+               other.expected_consumer_block_index,
+               other.final_consumer_before_stack_submit,
+               other.internal_non_escaping,
+               other.aliases_runtime_input,
+               other.aliases_runtime_output,
                other.has_stack_provenance);
   }
 };
@@ -107,6 +130,18 @@ struct StackTempLifetimeSafetyKey final {
       VulkanStackTensorLifetimeClass::Unknown;
   std::vector<int64_t> shape;
   int64_t dtype = -1;
+  bool has_last_use_proof = false;
+  VulkanVisionStackPhase expected_consumer_phase =
+      VulkanVisionStackPhase::Unknown;
+  int64_t expected_consumer_block_index = -1;
+  bool final_consumer_before_stack_submit = false;
+  bool internal_non_escaping = false;
+  bool escapes_stack = false;
+  bool requested_intermediate = false;
+  bool final_output = false;
+  bool alias_or_view = false;
+  bool aliases_runtime_input = false;
+  bool aliases_runtime_output = false;
   bool has_stack_provenance = false;
 
   bool operator<(const StackTempLifetimeSafetyKey& other) const {
@@ -120,6 +155,17 @@ struct StackTempLifetimeSafetyKey final {
                lifetime,
                shape,
                dtype,
+               has_last_use_proof,
+               expected_consumer_phase,
+               expected_consumer_block_index,
+               final_consumer_before_stack_submit,
+               internal_non_escaping,
+               escapes_stack,
+               requested_intermediate,
+               final_output,
+               alias_or_view,
+               aliases_runtime_input,
+               aliases_runtime_output,
                has_stack_provenance) <
         std::tie(
                other.role,
@@ -131,6 +177,17 @@ struct StackTempLifetimeSafetyKey final {
                other.lifetime,
                other.shape,
                other.dtype,
+               other.has_last_use_proof,
+               other.expected_consumer_phase,
+               other.expected_consumer_block_index,
+               other.final_consumer_before_stack_submit,
+               other.internal_non_escaping,
+               other.escapes_stack,
+               other.requested_intermediate,
+               other.final_output,
+               other.alias_or_view,
+               other.aliases_runtime_input,
+               other.aliases_runtime_output,
                other.has_stack_provenance);
   }
 };
@@ -142,6 +199,39 @@ struct StackTempLifetimeSafetyValue final {
   uint64_t blocking_wait_count = 0u;
   uint64_t poll_only_count = 0u;
 };
+
+bool stack_shapes_match(
+    const std::vector<int64_t>& lhs,
+    const std::vector<int64_t>& rhs) {
+  if (lhs == rhs) {
+    return true;
+  }
+  if (lhs.size() + 1 == rhs.size() && rhs.front() == 1) {
+    return std::equal(lhs.begin(), lhs.end(), rhs.begin() + 1);
+  }
+  if (rhs.size() + 1 == lhs.size() && lhs.front() == 1) {
+    return std::equal(rhs.begin(), rhs.end(), lhs.begin() + 1);
+  }
+  return false;
+}
+
+const VulkanStackLastUseProof* find_stack_last_use_proof(
+    const VulkanVisionStackPhase phase,
+    const int64_t block_index,
+    const VulkanRetiredResourceRole role,
+    const std::vector<int64_t>& shape,
+    const int64_t dtype) {
+  for (const VulkanStackLastUseProof& proof : g_stack_last_use_proofs) {
+    if (
+        proof.producer_phase == phase &&
+        proof.producer_block_index == block_index &&
+        proof.producer_role == role && proof.dtype == dtype &&
+        stack_shapes_match(shape, proof.shape)) {
+      return &proof;
+    }
+  }
+  return nullptr;
+}
 
 std::mutex& stack_aggregate_mutex() {
   static std::mutex mutex;
@@ -264,6 +354,12 @@ VulkanStackTempLifetimeSafety classify_stack_temp_lifetime_safety(
         provenance.lifetime == VulkanStackTensorLifetimeClass::FinalStackOutput) {
       return VulkanStackTempLifetimeSafety::EscapesAsFinalOutput;
     }
+    if (provenance.aliases_runtime_input) {
+      return VulkanStackTempLifetimeSafety::AliasesRuntimeInput;
+    }
+    if (provenance.aliases_runtime_output) {
+      return VulkanStackTempLifetimeSafety::AliasesRuntimeOutput;
+    }
     if (provenance.alias_or_view ||
         provenance.lifetime == VulkanStackTensorLifetimeClass::AliasOrView) {
       return VulkanStackTempLifetimeSafety::UnsafeUnknownConsumer;
@@ -271,7 +367,19 @@ VulkanStackTempLifetimeSafety classify_stack_temp_lifetime_safety(
     if (provenance.escapes_stack) {
       return VulkanStackTempLifetimeSafety::UnsafeUnknownConsumer;
     }
-    if (provenance.lifetime == VulkanStackTensorLifetimeClass::InternalTemp) {
+    if (
+        provenance.has_last_use_proof && provenance.internal_non_escaping &&
+        provenance.final_consumer_before_stack_submit &&
+        provenance.lifetime == VulkanStackTensorLifetimeClass::InternalTemp) {
+      return VulkanStackTempLifetimeSafety::SafeToDeferUntilStackSubmit;
+    }
+    if (
+        provenance.lifetime ==
+        VulkanStackTensorLifetimeClass::BlockOutputForNextBlock) {
+      return VulkanStackTempLifetimeSafety::MustRetireAtPhaseBoundary;
+    }
+    if (
+        provenance.lifetime == VulkanStackTensorLifetimeClass::InternalTemp) {
       return VulkanStackTempLifetimeSafety::UnsafeUnknownConsumer;
     }
   }
@@ -320,6 +428,16 @@ VulkanRetiredResourceScope::VulkanRetiredResourceScope(
 VulkanRetiredResourceScope::~VulkanRetiredResourceScope() {
   g_retired_resource_kind = previous_kind_;
   g_retired_resource_role = previous_role_;
+}
+
+VulkanStackLastUseProofScope::VulkanStackLastUseProofScope(
+    std::vector<VulkanStackLastUseProof> proofs)
+    : previous_(std::move(g_stack_last_use_proofs)) {
+  g_stack_last_use_proofs = std::move(proofs);
+}
+
+VulkanStackLastUseProofScope::~VulkanStackLastUseProofScope() {
+  g_stack_last_use_proofs = std::move(previous_);
 }
 
 VulkanVisionStackPhaseScope::VulkanVisionStackPhaseScope(
@@ -805,6 +923,34 @@ VulkanStackRetireProvenance current_stack_retire_provenance(
   provenance.buffer_storage = buffer_storage;
   provenance.image_storage = image_storage;
   provenance.alias_or_view = alias_or_view;
+  if (const VulkanStackLastUseProof* proof = find_stack_last_use_proof(
+          provenance.phase,
+          provenance.block_index,
+          provenance.producer_role,
+          shape,
+          dtype)) {
+    provenance.has_last_use_proof = true;
+    provenance.expected_consumer_phase = proof->expected_consumer_phase;
+    provenance.expected_consumer_block_index =
+        proof->expected_consumer_block_index;
+    provenance.final_consumer_before_stack_submit =
+        proof->final_consumer_before_stack_submit;
+    provenance.internal_non_escaping = proof->internal_non_escaping;
+    provenance.escapes_stack = proof->escapes_stack;
+    provenance.requested_intermediate = proof->requested_intermediate;
+    provenance.final_output = proof->final_output;
+    provenance.aliases_runtime_input = proof->aliases_runtime_input;
+    provenance.aliases_runtime_output = proof->aliases_runtime_output;
+    if (proof->escapes_stack || proof->requested_intermediate) {
+      provenance.lifetime =
+          VulkanStackTensorLifetimeClass::RequestedIntermediateOutput;
+    } else if (proof->final_output) {
+      provenance.lifetime = VulkanStackTensorLifetimeClass::FinalStackOutput;
+    } else if (!proof->internal_non_escaping) {
+      provenance.lifetime =
+          VulkanStackTensorLifetimeClass::BlockOutputForNextBlock;
+    }
+  }
   return provenance;
 }
 
@@ -942,6 +1088,24 @@ std::vector<std::string> retired_resource_aggregate_snapshot() {
            << (key.requested_intermediate ? 1 : 0)
            << " final_output=" << (key.final_output ? 1 : 0)
            << " alias_or_view=" << (key.alias_or_view ? 1 : 0)
+           << " last_use_proof=" << (key.has_last_use_proof ? 1 : 0)
+           << " expected_consumer_phase="
+           << vision_stack_phase_name(key.expected_consumer_phase)
+           << " expected_consumer_block="
+           << key.expected_consumer_block_index
+           << " final_consumer_before_stack_submit="
+           << (key.final_consumer_before_stack_submit ? 1 : 0)
+           << " internal_non_escaping="
+           << (key.internal_non_escaping ? 1 : 0)
+           << " escapes_stack=" << (key.escapes_stack ? 1 : 0)
+           << " requested_intermediate="
+           << (key.requested_intermediate ? 1 : 0)
+           << " final_output=" << (key.final_output ? 1 : 0)
+           << " alias_or_view=" << (key.alias_or_view ? 1 : 0)
+           << " aliases_runtime_input="
+           << (key.aliases_runtime_input ? 1 : 0)
+           << " aliases_runtime_output="
+           << (key.aliases_runtime_output ? 1 : 0)
            << " stack_provenance=" << (key.has_stack_provenance ? 1 : 0)
            << " count=" << value.count
            << " bytes=" << value.bytes
@@ -970,6 +1134,15 @@ std::vector<std::string> stack_temp_lifetime_safety_snapshot() {
            << key.block_index << " lifetime="
            << stack_tensor_lifetime_name(key.lifetime) << " shape="
            << format_sizes(key.shape) << " dtype=" << key.dtype
+           << " last_use_proof=" << (key.has_last_use_proof ? 1 : 0)
+           << " expected_consumer_phase="
+           << vision_stack_phase_name(key.expected_consumer_phase)
+           << " expected_consumer_block="
+           << key.expected_consumer_block_index
+           << " final_consumer_before_stack_submit="
+           << (key.final_consumer_before_stack_submit ? 1 : 0)
+           << " internal_non_escaping="
+           << (key.internal_non_escaping ? 1 : 0)
            << " stack_provenance=" << (key.has_stack_provenance ? 1 : 0)
            << " count=" << value.count
            << " bytes=" << value.bytes
@@ -1090,6 +1263,13 @@ void note_vulkan_retired_resource(
     key.requested_intermediate = provenance.requested_intermediate;
     key.final_output = provenance.final_output;
     key.alias_or_view = provenance.alias_or_view;
+    key.has_last_use_proof = provenance.has_last_use_proof;
+    key.expected_consumer_phase = provenance.expected_consumer_phase;
+    key.expected_consumer_block_index =
+        provenance.expected_consumer_block_index;
+    key.final_consumer_before_stack_submit =
+        provenance.final_consumer_before_stack_submit;
+    key.internal_non_escaping = provenance.internal_non_escaping;
     key.has_stack_provenance = true;
   }
   std::lock_guard<std::mutex> lock(retired_resource_aggregate_mutex());
@@ -1119,6 +1299,19 @@ void note_vulkan_retired_resource(
       safety_key.lifetime = provenance.lifetime;
       safety_key.shape = provenance.shape;
       safety_key.dtype = provenance.dtype;
+      safety_key.has_last_use_proof = provenance.has_last_use_proof;
+      safety_key.expected_consumer_phase = provenance.expected_consumer_phase;
+      safety_key.expected_consumer_block_index =
+          provenance.expected_consumer_block_index;
+      safety_key.final_consumer_before_stack_submit =
+          provenance.final_consumer_before_stack_submit;
+      safety_key.internal_non_escaping = provenance.internal_non_escaping;
+      safety_key.escapes_stack = provenance.escapes_stack;
+      safety_key.requested_intermediate = provenance.requested_intermediate;
+      safety_key.final_output = provenance.final_output;
+      safety_key.alias_or_view = provenance.alias_or_view;
+      safety_key.aliases_runtime_input = provenance.aliases_runtime_input;
+      safety_key.aliases_runtime_output = provenance.aliases_runtime_output;
       safety_key.has_stack_provenance = true;
     }
     std::lock_guard<std::mutex> safety_lock(

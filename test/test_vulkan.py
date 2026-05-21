@@ -8546,8 +8546,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         )
         self.assertTrue(
             any(
+                "safety=safe_to_defer_until_stack_submit" in row
+                and "last_use_proof=1" in row
+                and "internal_non_escaping=1" in row
+                for row in safety
+            )
+        )
+        self.assertTrue(
+            any(
                 "safety=unsafe_unknown_consumer" in row
                 and "stack_provenance=1" in row
+                for row in safety
+            )
+        )
+        self.assertFalse(
+            any(
+                "requested_intermediate=1" in row
+                and "safety=safe_to_defer_until_stack_submit" in row
                 for row in safety
             )
         )

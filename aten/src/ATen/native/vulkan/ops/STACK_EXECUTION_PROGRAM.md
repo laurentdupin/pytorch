@@ -589,3 +589,45 @@ producer, shape, dtype, and storage class, but it still does not prove the last
 consumer recorded before the stack planned-recording submit. Retire batching was
 therefore not enabled. The next lifetime step is to attach last-use/consumer
 proof from the shape plan or stack execution manifest to each stack temp.
+
+The stack owner now installs a diagnostic last-use proof scope derived from the
+fixed shape plan while a stack forward is running. Each proof row records the
+producer phase/block/role, the expected final consumer phase/block, whether that
+consumer is recorded before the stack planned-recording submit, and whether the
+resource is internal and non-escaping. Pending retire provenance uses this proof
+only for diagnostics; no retire batching or replay behavior is enabled.
+
+The no-timestamp DAv2 profile after last-use proof propagation kept the same
+submit totals:
+
+```
+total_queue_submits=4773
+retire_queue_drain=2698
+explicit_synchronize=1150
+tensor_cpu_readback=560
+normal_cmd_submit_frequency=273
+stack_planned_recording_submit=92
+unknown=0
+blocking_wait=0
+```
+
+Some fixed-plan internal temps are now provably safe to defer in the diagnostic
+snapshot:
+
+```
+stack_qkv_output       safe_to_defer_until_stack_submit count=4416 bytes=21198053376
+stack_fc1_gelu_output  safe_to_defer_until_stack_submit count=1104 bytes=14132035584
+stack_residual1_output safe_to_defer_until_stack_submit count=2208 bytes=7066017792
+stack_fc2_output       safe_to_defer_until_stack_submit count=1104 bytes=3533008896
+stack_norm1_output     safe_to_defer_until_stack_submit count=1104 bytes=3533008896
+stack_norm2_output     safe_to_defer_until_stack_submit count=1104 bytes=3533008896
+stack_proj_output      safe_to_defer_until_stack_submit count=1104 bytes=3533008896
+stack_attention_output safe_to_defer_until_stack_submit count=1104 bytes=3533008896
+```
+
+The same profile still has mixed unsafe rows for several roles, requested
+intermediate escapes for `stack_residual2_output`, phase-boundary block outputs,
+and generic `stack_internal_temp` rows that do not yet match a shape-plan proof.
+For that reason this remains a proof-only pass. The next safe implementation
+target is a narrow retire-batching change for one proof-complete resource class,
+with same-role unsafe rows explicitly excluded.

@@ -752,6 +752,48 @@ owner lifetime step is to connect stack-plan step consumers to retire entries so
 the backend can prove which internal temps are fully consumed before the stack
 planned-recording submit.
 
+That consumer proof is now attached diagnostically from the fixed shape plan.
+During stack execution, the owner installs a last-use proof scope that maps each
+planned producer step to the next expected consumer step. Pending retire rows now
+report `last_use_proof`, `expected_consumer_phase`,
+`expected_consumer_block`, `final_consumer_before_stack_submit`,
+`internal_non_escaping`, and explicit escape/alias flags in
+`stack_temp_lifetime_safety_snapshot()`.
+
+The DAv2 no-timestamp profile after this proof pass still reports unchanged
+submit totals:
+
+```
+total_queue_submits=4773
+retire_queue_drain=2698
+explicit_synchronize=1150
+tensor_cpu_readback=560
+normal_cmd_submit_frequency=273
+stack_planned_recording_submit=92
+unknown=0
+blocking_wait=0
+```
+
+The proof is visible for a subset of stack temps:
+
+```
+stack_qkv_output       safe_to_defer_until_stack_submit count=4416 bytes=21198053376
+stack_fc1_gelu_output  safe_to_defer_until_stack_submit count=1104 bytes=14132035584
+stack_residual1_output safe_to_defer_until_stack_submit count=2208 bytes=7066017792
+stack_fc2_output       safe_to_defer_until_stack_submit count=1104 bytes=3533008896
+stack_norm1_output     safe_to_defer_until_stack_submit count=1104 bytes=3533008896
+stack_norm2_output     safe_to_defer_until_stack_submit count=1104 bytes=3533008896
+stack_proj_output      safe_to_defer_until_stack_submit count=1104 bytes=3533008896
+stack_attention_output safe_to_defer_until_stack_submit count=1104 bytes=3533008896
+```
+
+Retire batching is still disabled. Several roles have both safe and unsafe rows,
+`stack_residual2_output` can be a requested intermediate or phase-boundary block
+output, and generic `stack_internal_temp` rows still lack consumer proof. The
+next implementation should batch only one proof-complete class and keep every
+escaping, aliasing, phase-boundary, or unknown-consumer row on the existing safe
+retire path.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

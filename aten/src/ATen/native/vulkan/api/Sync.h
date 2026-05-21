@@ -249,6 +249,14 @@ struct VulkanStackRetireProvenance final {
   VulkanVisionStackPhase phase = VulkanVisionStackPhase::Unknown;
   int64_t block_index = -1;
   VulkanRetiredResourceRole producer_role = VulkanRetiredResourceRole::Unknown;
+  bool has_last_use_proof = false;
+  VulkanVisionStackPhase expected_consumer_phase =
+      VulkanVisionStackPhase::Unknown;
+  int64_t expected_consumer_block_index = -1;
+  bool final_consumer_before_stack_submit = false;
+  bool internal_non_escaping = false;
+  bool aliases_runtime_input = false;
+  bool aliases_runtime_output = false;
   VulkanStackTensorLifetimeClass lifetime =
       VulkanStackTensorLifetimeClass::Unknown;
   std::vector<int64_t> shape;
@@ -261,6 +269,37 @@ struct VulkanStackRetireProvenance final {
   bool requested_intermediate = false;
   bool final_output = false;
   bool alias_or_view = false;
+};
+
+struct VulkanStackLastUseProof final {
+  VulkanVisionStackPhase producer_phase = VulkanVisionStackPhase::Unknown;
+  int64_t producer_block_index = -1;
+  VulkanRetiredResourceRole producer_role = VulkanRetiredResourceRole::Unknown;
+  std::vector<int64_t> shape;
+  int64_t dtype = -1;
+  VulkanVisionStackPhase expected_consumer_phase =
+      VulkanVisionStackPhase::Unknown;
+  int64_t expected_consumer_block_index = -1;
+  bool final_consumer_before_stack_submit = false;
+  bool internal_non_escaping = false;
+  bool escapes_stack = false;
+  bool requested_intermediate = false;
+  bool final_output = false;
+  bool aliases_runtime_input = false;
+  bool aliases_runtime_output = false;
+};
+
+class TORCH_API VulkanStackLastUseProofScope final {
+ public:
+  explicit VulkanStackLastUseProofScope(std::vector<VulkanStackLastUseProof>);
+  ~VulkanStackLastUseProofScope();
+
+  VulkanStackLastUseProofScope(const VulkanStackLastUseProofScope&) = delete;
+  VulkanStackLastUseProofScope& operator=(
+      const VulkanStackLastUseProofScope&) = delete;
+
+ private:
+  std::vector<VulkanStackLastUseProof> previous_;
 };
 
 struct VulkanSubmitOriginCounters final {

@@ -5,6 +5,7 @@
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Clamp.h>
 #include <ATen/native/vulkan/ops/Concat.h>
+#include <ATen/native/vulkan/ops/Convert.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
@@ -457,6 +458,35 @@ const char* stack_plan_step_kind_name(const VulkanStackPlanStepKind kind) {
       return "intermediate_capture";
   }
   return "unknown";
+}
+
+api::VulkanVisionStackPhase vision_phase_for_stack_plan_step(
+    const VulkanStackPlanStepKind kind) {
+  switch (kind) {
+    case VulkanStackPlanStepKind::Norm1:
+      return api::VulkanVisionStackPhase::Norm1;
+    case VulkanStackPlanStepKind::QkvLinear:
+      return api::VulkanVisionStackPhase::QkvLinear;
+    case VulkanStackPlanStepKind::QkvTransform:
+      return api::VulkanVisionStackPhase::QkvTransform;
+    case VulkanStackPlanStepKind::Attention:
+      return api::VulkanVisionStackPhase::Attention;
+    case VulkanStackPlanStepKind::ProjLinear:
+      return api::VulkanVisionStackPhase::ProjLinear;
+    case VulkanStackPlanStepKind::Residual1:
+      return api::VulkanVisionStackPhase::Residual1;
+    case VulkanStackPlanStepKind::Norm2:
+      return api::VulkanVisionStackPhase::Norm2;
+    case VulkanStackPlanStepKind::Fc1Gelu:
+      return api::VulkanVisionStackPhase::Fc1Gelu;
+    case VulkanStackPlanStepKind::Fc2:
+      return api::VulkanVisionStackPhase::Fc2;
+    case VulkanStackPlanStepKind::Residual2:
+      return api::VulkanVisionStackPhase::Residual2;
+    case VulkanStackPlanStepKind::IntermediateCapture:
+      return api::VulkanVisionStackPhase::IntermediateCapture;
+  }
+  return api::VulkanVisionStackPhase::Unknown;
 }
 
 const char* replay_binding_mode_name(const VulkanReplayBindingMode mode) {
@@ -919,6 +949,64 @@ void build_stack_descriptor_binding_table(VulkanVisionStackShapePlan& plan) {
       plan.descriptor_table_complete && plan.descriptors_rebindable &&
       internal_temps_rebindable;
   plan.descriptor_replay_ready = false;
+}
+
+std::vector<api::VulkanStackLastUseProof> build_stack_last_use_proofs(
+    const VulkanVisionStackShapePlan& plan) {
+  std::vector<api::VulkanStackLastUseProof> proofs;
+  proofs.reserve(plan.steps.size());
+  for (size_t index = 0; index < plan.steps.size(); ++index) {
+    const VulkanStackPlanStep& producer = plan.steps[index];
+    if (
+        producer.kind == VulkanStackPlanStepKind::IntermediateCapture ||
+        producer.output_shape.empty()) {
+      continue;
+    }
+
+    const VulkanStackPlanStep* consumer = nullptr;
+    for (size_t consumer_index = index + 1; consumer_index < plan.steps.size();
+         ++consumer_index) {
+      const VulkanStackPlanStep& candidate = plan.steps[consumer_index];
+      if (candidate.kind == VulkanStackPlanStepKind::IntermediateCapture) {
+        if (
+            candidate.block_index == producer.block_index &&
+            producer.kind == VulkanStackPlanStepKind::Residual2) {
+          consumer = &candidate;
+          break;
+        }
+        continue;
+      }
+      consumer = &candidate;
+      break;
+    }
+    if (!consumer) {
+      continue;
+    }
+
+    api::VulkanStackLastUseProof proof;
+    proof.producer_phase = vision_phase_for_stack_plan_step(producer.kind);
+    proof.producer_block_index = producer.block_index;
+    proof.producer_role =
+        api::stack_retired_resource_role_for_phase(proof.producer_phase);
+    proof.shape = producer.output_shape;
+    proof.dtype = static_cast<int64_t>(convert_dtype(producer.dtype));
+    proof.expected_consumer_phase =
+        vision_phase_for_stack_plan_step(consumer->kind);
+    proof.expected_consumer_block_index = consumer->block_index;
+    proof.final_consumer_before_stack_submit = true;
+    proof.escapes_stack = producer.escapes_stack || consumer->escapes_stack;
+    proof.requested_intermediate = producer.requested_intermediate ||
+        consumer->requested_intermediate;
+    proof.final_output =
+        producer.kind == VulkanStackPlanStepKind::Residual2 &&
+        producer.block_index + 1 == plan.key.num_blocks;
+    proof.internal_non_escaping =
+        !proof.escapes_stack && !proof.requested_intermediate &&
+        !proof.final_output &&
+        producer.kind != VulkanStackPlanStepKind::Residual2;
+    proofs.emplace_back(std::move(proof));
+  }
+  return proofs;
 }
 
 std::unique_ptr<VulkanVisionStackShapePlan> build_stack_shape_plan(
@@ -8316,6 +8404,13 @@ std::vector<Tensor> run_vision_backbone_stack_context(
     planned_counters.reject_readiness.fetch_add(
         1u,
         std::memory_order_relaxed);
+  }
+
+  std::unique_ptr<api::VulkanStackLastUseProofScope> last_use_proof_scope;
+  if (stack_shape_plan) {
+    last_use_proof_scope =
+        std::make_unique<api::VulkanStackLastUseProofScope>(
+            build_stack_last_use_proofs(*stack_shape_plan));
   }
 
   Tensor current = input_arg;
