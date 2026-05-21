@@ -901,6 +901,15 @@ void vTensorStorage::set_stack_retire_provenance_source(
   stack_retire_provenance_.source = source;
 }
 
+void vTensorStorage::set_stack_retire_provenance_source(
+    const api::VulkanStackRetireProvenanceSource source,
+    const uint64_t source_identity,
+    const uint64_t source_generation) {
+  stack_retire_provenance_.source = source;
+  stack_retire_provenance_.source_identity = source_identity;
+  stack_retire_provenance_.source_generation = source_generation;
+}
+
 void vTensorStorage::transition(
     api::PipelineBarrier& pipeline_barrier,
     const api::PipelineStageFlags cur_stage,

@@ -258,6 +258,8 @@ struct VulkanStackRetireProvenance final {
   VulkanRetiredResourceRole producer_role = VulkanRetiredResourceRole::Unknown;
   VulkanStackRetireProvenanceSource source =
       VulkanStackRetireProvenanceSource::Unknown;
+  uint64_t source_identity = 0u;
+  uint64_t source_generation = 0u;
   bool has_last_use_proof = false;
   VulkanVisionStackPhase expected_consumer_phase =
       VulkanVisionStackPhase::Unknown;
@@ -460,6 +462,8 @@ stack_retire_drain_blocker_counters();
 TORCH_API std::vector<int64_t> stack_retire_drain_blocker_counters_snapshot();
 TORCH_API std::vector<std::string> stack_retire_drain_blocker_snapshot();
 TORCH_API void reset_stack_retire_drain_blocker_counters();
+TORCH_API std::vector<std::string> stack_scratch_arena_lifetime_snapshot();
+TORCH_API void reset_stack_scratch_arena_lifetime_snapshot();
 TORCH_API const char* submit_origin_name(VulkanSubmitOrigin origin);
 TORCH_API const char* submit_phase_name(VulkanSubmitPhase phase);
 TORCH_API const char* retire_call_site_name(VulkanRetireCallSite callsite);

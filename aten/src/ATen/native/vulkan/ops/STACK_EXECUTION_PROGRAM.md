@@ -696,3 +696,12 @@ blocker rows therefore distinguish scratch backing storage from logical stack
 tensor outputs. This remains diagnostic only: scratch backing storage is owning
 program/scratch storage, not a logical qkv/proj tensor proof, so it stays on the
 old retire path until stack scratch lifecycle proof is explicit.
+
+The arena lifetime proof pass adds `stack_scratch_arena_lifetime_snapshot()`.
+Rows include the scratch arena identity when available, generation, first
+producer phase/block, whether retirement was submitted with the stack planned
+recording timeline, escape/runtime-alias flags, and
+`safe_to_retire_on_stack_submit`. The current result is conservative:
+program-scratch backing storage can be identified, but no arena-level stack
+scope id or final-consumer proof is attached to the cached arena owner, so
+`safe_to_retire_on_stack_submit=0` and no arena retirement behavior changes.

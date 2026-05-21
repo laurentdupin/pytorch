@@ -200,6 +200,61 @@ struct StackTempLifetimeSafetyValue final {
   uint64_t poll_only_count = 0u;
 };
 
+struct StackScratchArenaLifetimeKey final {
+  uint64_t arena_id = 0u;
+  uint64_t generation = 0u;
+  VulkanSubmitPhase phase = VulkanSubmitPhase::Unknown;
+  VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown;
+  VulkanVisionStackPhase first_producer_phase = VulkanVisionStackPhase::Unknown;
+  int64_t first_producer_block = -1;
+  VulkanVisionStackPhase last_consumer_phase = VulkanVisionStackPhase::Unknown;
+  int64_t last_consumer_block = -1;
+  bool submitted_with_stack_timeline = false;
+  bool escapes_stack = false;
+  bool aliases_runtime_input = false;
+  bool aliases_runtime_output = false;
+  bool safe_to_retire_on_stack_submit = false;
+
+  bool operator<(const StackScratchArenaLifetimeKey& other) const {
+    return std::tie(
+               arena_id,
+               generation,
+               phase,
+               callsite,
+               first_producer_phase,
+               first_producer_block,
+               last_consumer_phase,
+               last_consumer_block,
+               submitted_with_stack_timeline,
+               escapes_stack,
+               aliases_runtime_input,
+               aliases_runtime_output,
+               safe_to_retire_on_stack_submit) <
+        std::tie(
+               other.arena_id,
+               other.generation,
+               other.phase,
+               other.callsite,
+               other.first_producer_phase,
+               other.first_producer_block,
+               other.last_consumer_phase,
+               other.last_consumer_block,
+               other.submitted_with_stack_timeline,
+               other.escapes_stack,
+               other.aliases_runtime_input,
+               other.aliases_runtime_output,
+               other.safe_to_retire_on_stack_submit);
+  }
+};
+
+struct StackScratchArenaLifetimeValue final {
+  uint64_t count = 0u;
+  uint64_t bytes = 0u;
+  uint64_t queue_submit_count = 0u;
+  uint64_t blocking_wait_count = 0u;
+  uint64_t poll_only_count = 0u;
+};
+
 bool stack_shapes_match(
     const std::vector<int64_t>& lhs,
     const std::vector<int64_t>& rhs) {
@@ -360,6 +415,18 @@ std::mutex& stack_temp_lifetime_safety_mutex() {
 std::map<StackTempLifetimeSafetyKey, StackTempLifetimeSafetyValue>&
 stack_temp_lifetime_safety_aggregate() {
   static std::map<StackTempLifetimeSafetyKey, StackTempLifetimeSafetyValue>
+      aggregate;
+  return aggregate;
+}
+
+std::mutex& stack_scratch_arena_lifetime_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::map<StackScratchArenaLifetimeKey, StackScratchArenaLifetimeValue>&
+stack_scratch_arena_lifetime_aggregate() {
+  static std::map<StackScratchArenaLifetimeKey, StackScratchArenaLifetimeValue>
       aggregate;
   return aggregate;
 }
@@ -705,6 +772,11 @@ void reset_retired_resource_aggregate() {
 void reset_stack_temp_lifetime_safety_snapshot() {
   std::lock_guard<std::mutex> lock(stack_temp_lifetime_safety_mutex());
   stack_temp_lifetime_safety_aggregate().clear();
+}
+
+void reset_stack_scratch_arena_lifetime_snapshot() {
+  std::lock_guard<std::mutex> lock(stack_scratch_arena_lifetime_mutex());
+  stack_scratch_arena_lifetime_aggregate().clear();
 }
 
 void reset_stack_internal_temp_retire_batch_counters() {
@@ -1389,6 +1461,44 @@ std::vector<std::string> stack_temp_lifetime_safety_snapshot() {
   return rows;
 }
 
+std::vector<std::string> stack_scratch_arena_lifetime_snapshot() {
+  std::vector<std::string> rows;
+  std::lock_guard<std::mutex> lock(stack_scratch_arena_lifetime_mutex());
+  for (const auto& entry : stack_scratch_arena_lifetime_aggregate()) {
+    const auto& key = entry.first;
+    const auto& value = entry.second;
+    std::ostringstream stream;
+    stream << "stack_scratch_arena_lifetime"
+           << " arena_id=" << key.arena_id
+           << " generation=" << key.generation
+           << " phase=" << submit_phase_name(key.phase)
+           << " callsite=" << retire_call_site_name(key.callsite)
+           << " first_producer_phase="
+           << vision_stack_phase_name(key.first_producer_phase)
+           << " first_producer_block=" << key.first_producer_block
+           << " last_consumer_phase="
+           << vision_stack_phase_name(key.last_consumer_phase)
+           << " last_consumer_block=" << key.last_consumer_block
+           << " submitted_with_stack_timeline="
+           << (key.submitted_with_stack_timeline ? 1 : 0)
+           << " escapes_stack=" << (key.escapes_stack ? 1 : 0)
+           << " aliases_runtime_input="
+           << (key.aliases_runtime_input ? 1 : 0)
+           << " aliases_runtime_output="
+           << (key.aliases_runtime_output ? 1 : 0)
+           << " safe_to_retire_on_stack_submit="
+           << (key.safe_to_retire_on_stack_submit ? 1 : 0)
+           << " count=" << value.count
+           << " bytes=" << value.bytes
+           << " queue_submit=" << value.queue_submit_count
+           << " blocking_wait=" << value.blocking_wait_count
+           << " poll_only=" << value.poll_only_count;
+    rows.emplace_back(stream.str());
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
 std::vector<int64_t> stack_internal_temp_retire_batch_counters_snapshot() {
   const auto& counters = stack_internal_temp_retire_batch_counters();
   return {
@@ -1734,6 +1844,8 @@ void note_stack_retire_drain_blocker_resource(
       << " stack_provenance=" << (provenance.defined ? 1 : 0)
       << " provenance_source="
       << stack_retire_provenance_source_name(provenance.source)
+      << " provenance_source_id=" << provenance.source_identity
+      << " provenance_source_generation=" << provenance.source_generation
       << " provenance_loss_reason="
       << stack_provenance_loss_reason(role, provenance);
   std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
@@ -1928,6 +2040,43 @@ void note_vulkan_retired_resource(
   }
   if (poll_only) {
     value.poll_only_count += 1u;
+  }
+  if (
+      provenance.defined &&
+      provenance.source ==
+          VulkanStackRetireProvenanceSource::
+              ProgramScratchArenaBackingStorage) {
+    StackScratchArenaLifetimeKey arena_key;
+    arena_key.arena_id = provenance.source_identity;
+    arena_key.generation = provenance.source_generation;
+    arena_key.phase = phase;
+    arena_key.callsite = callsite;
+    arena_key.first_producer_phase = provenance.phase;
+    arena_key.first_producer_block = provenance.block_index;
+    arena_key.last_consumer_phase = VulkanVisionStackPhase::Unknown;
+    arena_key.last_consumer_block = -1;
+    arena_key.submitted_with_stack_timeline =
+        queue_submit &&
+        callsite == VulkanRetireCallSite::StackPlannedRecordingEnd;
+    arena_key.escapes_stack = provenance.escapes_stack ||
+        provenance.requested_intermediate || provenance.final_output;
+    arena_key.aliases_runtime_input = provenance.aliases_runtime_input;
+    arena_key.aliases_runtime_output = provenance.aliases_runtime_output;
+    arena_key.safe_to_retire_on_stack_submit = false;
+    std::lock_guard<std::mutex> arena_lock(
+        stack_scratch_arena_lifetime_mutex());
+    auto& arena_value = stack_scratch_arena_lifetime_aggregate()[arena_key];
+    arena_value.count += 1u;
+    arena_value.bytes += bytes;
+    if (queue_submit) {
+      arena_value.queue_submit_count += 1u;
+    }
+    if (blocking_wait) {
+      arena_value.blocking_wait_count += 1u;
+    }
+    if (poll_only) {
+      arena_value.poll_only_count += 1u;
+    }
   }
   if (is_stack_temp_role(role)) {
     const VulkanStackTempLifetimeSafety safety =

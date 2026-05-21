@@ -861,6 +861,15 @@ non-owning views and not logical qkv/proj outputs. They continue to block norm2
 retire drains until a stack scratch lifecycle proof can tie the backing storage
 to a safe stack submission timeline.
 
+The follow-up arena lifetime diagnostics expose
+`stack_scratch_arena_lifetime_snapshot()`. The snapshot records arena identity,
+generation, producer phase/block, whether the retire was attached to the stack
+planned-recording timeline, escape/runtime-alias flags, and the safety decision.
+The current owner path still rejects arena-level retirement batching because the
+cached scratch arena does not carry a stack scope id or complete final-consumer
+proof. Raw QKV/proj backing storage therefore remains an explicit blocker, not
+a role-based batching candidate.
+
 The first conv classification pass added a diagnostic-only aggregate snapshot
 and kept routing unchanged. The timestamped all-owner DAv2 profile split conv
 GPU time across several classes:

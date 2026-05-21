@@ -468,6 +468,10 @@ std::vector<std::string> stack_retire_drain_blocker_snapshot_runtime() {
   return api::stack_retire_drain_blocker_snapshot();
 }
 
+std::vector<std::string> stack_scratch_arena_lifetime_snapshot_runtime() {
+  return api::stack_scratch_arena_lifetime_snapshot();
+}
+
 void set_submit_phase_runtime(const int64_t phase) {
   TORCH_CHECK(
       phase >= 0 && phase < static_cast<int64_t>(api::kNumSubmitPhases),
@@ -488,6 +492,7 @@ void reset_fallback_counters_runtime() {
   api::reset_stack_temp_lifetime_safety_snapshot();
   api::reset_stack_internal_temp_retire_batch_counters();
   api::reset_stack_retire_drain_blocker_counters();
+  api::reset_stack_scratch_arena_lifetime_snapshot();
   api::reset_submit_phase();
   api::reset_stack_allocation_aggregate();
   api::reset_stack_dispatch_aggregate();
@@ -1654,6 +1659,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_stack_retire_drain_blocker_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_scratch_arena_lifetime_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_scratch_arena_lifetime_snapshot() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::set_submit_phase(int phase) -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_submit_phase() -> ()"));
@@ -1945,6 +1954,14 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::reset_stack_retire_drain_blocker_counters"),
       TORCH_FN(api::reset_stack_retire_drain_blocker_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::stack_scratch_arena_lifetime_snapshot"),
+      TORCH_FN(stack_scratch_arena_lifetime_snapshot_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_stack_scratch_arena_lifetime_snapshot"),
+      TORCH_FN(api::reset_stack_scratch_arena_lifetime_snapshot));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::set_submit_phase"),
       TORCH_FN(set_submit_phase_runtime));

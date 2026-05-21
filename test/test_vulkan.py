@@ -8546,6 +8546,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         blocker_counters = (
             torch.ops.vulkan_prepack.stack_retire_drain_blocker_counters()
         )
+        scratch = torch.ops.vulkan_prepack.stack_scratch_arena_lifetime_snapshot()
         self.assertTrue(
             any(
                 "role=stack_" in row
@@ -8622,6 +8623,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and "provenance_loss_reason=" in row
                 for row in blocker
             )
+        )
+        self.assertFalse(
+            any("safe_to_retire_on_stack_submit=1" in row for row in scratch)
         )
         self.assertTrue(
             any(

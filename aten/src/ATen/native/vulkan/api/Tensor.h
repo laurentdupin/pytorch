@@ -81,6 +81,10 @@ class vTensorStorage final {
       bool alias_or_view);
   void set_stack_retire_provenance_source(
       api::VulkanStackRetireProvenanceSource source);
+  void set_stack_retire_provenance_source(
+      api::VulkanStackRetireProvenanceSource source,
+      uint64_t source_identity,
+      uint64_t source_generation);
 
   // Memory barrier insertion
   void transition(
@@ -358,6 +362,14 @@ class vTensor final {
   inline void set_stack_retire_provenance_source(
       const api::VulkanStackRetireProvenanceSource source) {
     view_->set_stack_retire_provenance_source(source);
+  }
+
+  inline void set_stack_retire_provenance_source(
+      const api::VulkanStackRetireProvenanceSource source,
+      const uint64_t source_identity,
+      const uint64_t source_generation) {
+    view_->set_stack_retire_provenance_source(
+        source, source_identity, source_generation);
   }
 
   inline void mark_host_write() {
