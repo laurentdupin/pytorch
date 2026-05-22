@@ -13,6 +13,7 @@
 #include <ATen/ops/empty.h>
 #include <ATen/ops/index.h>
 #include <ATen/ops/index_add.h>
+#include <ATen/ops/isin.h>
 #include <ATen/ops/nonzero.h>
 #include <ATen/ops/scatter.h>
 #include <ATen/ops/sort.h>
@@ -659,6 +660,74 @@ Tensor nonzero_vulkan(const Tensor& self) {
   return at::nonzero(self_cpu);
 }
 
+const Tensor& isin_vulkan_prototype(
+    const Tensor& elements,
+    const Tensor& test_elements) {
+  return elements.is_vulkan() ? elements : test_elements;
+}
+
+Tensor isin_tensor_tensor(
+    const Tensor& elements,
+    const Tensor& test_elements,
+    bool assume_unique,
+    bool invert) {
+  report_vulkan_cpu_fallback(
+      "aten::isin.Tensor_Tensor",
+      "small_control_tensor_cpu_fallback",
+      {elements, test_elements},
+      VulkanCpuFallbackKind::SyncReadback);
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor elements_cpu =
+        elements.is_vulkan() ? elements.detach().cpu() : elements.detach();
+    const Tensor test_elements_cpu = test_elements.is_vulkan()
+        ? test_elements.detach().cpu()
+        : test_elements.detach();
+    result_cpu =
+        at::isin(elements_cpu, test_elements_cpu, assume_unique, invert);
+  }
+  const Tensor& prototype = isin_vulkan_prototype(elements, test_elements);
+  return upload_cpu_result_to_vulkan(result_cpu, result_cpu.sizes(), prototype);
+}
+
+Tensor& isin_tensor_tensor_out(
+    const Tensor& elements,
+    const Tensor& test_elements,
+    bool assume_unique,
+    bool invert,
+    Tensor& out) {
+  report_vulkan_cpu_fallback(
+      "aten::isin.Tensor_Tensor_out",
+      "small_control_tensor_cpu_fallback",
+      {elements, test_elements, out},
+      VulkanCpuFallbackKind::SyncReadback);
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor elements_cpu =
+        elements.is_vulkan() ? elements.detach().cpu() : elements.detach();
+    const Tensor test_elements_cpu = test_elements.is_vulkan()
+        ? test_elements.detach().cpu()
+        : test_elements.detach();
+    result_cpu =
+        at::isin(elements_cpu, test_elements_cpu, assume_unique, invert);
+  }
+
+  if (out.is_vulkan()) {
+    const Tensor& prototype = isin_vulkan_prototype(elements, test_elements);
+    Tensor result =
+        upload_cpu_result_to_vulkan(result_cpu, result_cpu.sizes(), prototype);
+    ops::copy_(out, result);
+    record_tensor_write(out, "aten::isin", "out_cpu_upload", {result});
+  } else {
+    out.copy_(result_cpu);
+  }
+  return out;
+}
+
 #ifdef USE_VULKAN_API
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
@@ -684,6 +753,12 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::index_add.out"), TORCH_FN(index_add_out));
   m.impl(TORCH_SELECTIVE_NAME("aten::index_add_"), TORCH_FN(index_add_));
   m.impl(TORCH_SELECTIVE_NAME("aten::nonzero"), TORCH_FN(nonzero_vulkan));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::isin.Tensor_Tensor"),
+      TORCH_FN(isin_tensor_tensor));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::isin.Tensor_Tensor_out"),
+      TORCH_FN(isin_tensor_tensor_out));
 }
 
 #endif /* USE_VULKAN_API */

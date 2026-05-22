@@ -3220,6 +3220,61 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 rtol=1e-4,
             )
 
+    def test_isin_tensor_tensor_vulkan_matches_cpu(self):
+        elements_cpu = torch.tensor([0, 1, 2, 3, 5, 8], dtype=torch.long)
+        test_elements_cpu = torch.tensor([1, 8, 13], dtype=torch.long)
+
+        elements_vulkan = elements_cpu.to("vulkan")
+        test_elements_vulkan = test_elements_cpu.to("vulkan")
+
+        expected = torch.isin(elements_cpu, test_elements_cpu)
+        actual = torch.isin(elements_vulkan, test_elements_vulkan)
+
+        self.assertTrue(actual.is_vulkan)
+        self.assertEqual(actual.cpu(), expected)
+
+    def test_isin_tensor_tensor_out_vulkan_matches_cpu(self):
+        elements_cpu = torch.tensor([7, 11, 13, 17], dtype=torch.long)
+        test_elements_cpu = torch.tensor([11, 19], dtype=torch.long)
+        expected = torch.isin(elements_cpu, test_elements_cpu)
+
+        elements_vulkan = elements_cpu.to("vulkan")
+        test_elements_vulkan = test_elements_cpu.to("vulkan")
+        out = torch.empty(elements_cpu.shape, dtype=torch.bool, device="vulkan")
+        actual = torch.isin(elements_vulkan, test_elements_vulkan, out=out)
+
+        self.assertIs(actual, out)
+        self.assertEqual(out.cpu(), expected)
+
+    def test_isin_tensor_tensor_vulkan_invert_matches_cpu(self):
+        elements_cpu = torch.tensor([0, 1, 2, 3], dtype=torch.long)
+        test_elements_cpu = torch.tensor([1, 3], dtype=torch.long)
+
+        actual = torch.isin(
+            elements_cpu.to("vulkan"),
+            test_elements_cpu.to("vulkan"),
+            invert=True,
+        )
+
+        self.assertEqual(
+            actual.cpu(),
+            torch.isin(elements_cpu, test_elements_cpu, invert=True),
+        )
+
+    def test_isin_tensor_tensor_vulkan_generation_control_dtype(self):
+        eos_token_tensor_cpu = torch.tensor([2], dtype=torch.long)
+        pad_token_tensor_cpu = torch.tensor([0], dtype=torch.long)
+
+        actual = torch.isin(
+            eos_token_tensor_cpu.to("vulkan"),
+            pad_token_tensor_cpu.to("vulkan"),
+        )
+
+        self.assertEqual(
+            actual.cpu(),
+            torch.isin(eos_token_tensor_cpu, pad_token_tensor_cpu),
+        )
+
     def test_vulkan_cpu_fallback_counters_and_no_fallback_policy(self):
         torch.ops.vulkan_prepack.reset_fallback_counters()
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
@@ -6166,9 +6221,51 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         with torch.inference_mode():
             with self.assertRaisesRegex(
-                    RuntimeError,
-                    "KnownBadLargePointwiseConv"):
+                RuntimeError,
+                "KnownBadLargePointwiseConv"):
                 module_vulkan(x_vulkan)
+
+    def test_large_pointwise_conv2d_paddleocr_small_spatial_matches_cpu(self):
+        torch.manual_seed(0)
+        cases = (
+            ((1, 512, 7, 7), 512),
+            ((1, 512, 1, 1), 1280),
+        )
+        for shape, out_channels in cases:
+            with self.subTest(shape=shape, out_channels=out_channels):
+                x_cpu = torch.randn(*shape)
+                x_vulkan = x_cpu.to("vulkan")
+                module_cpu = torch.nn.Conv2d(
+                    512,
+                    out_channels,
+                    kernel_size=1,
+                    bias=True).eval()
+                module_vulkan = torch.nn.Conv2d(
+                    512,
+                    out_channels,
+                    kernel_size=1,
+                    bias=True).eval()
+                module_vulkan.load_state_dict(module_cpu.state_dict())
+                module_vulkan = module_vulkan.to("vulkan")
+
+                with torch.inference_mode():
+                    expected = module_cpu(x_cpu)
+                    actual = None
+                    for _ in range(3):
+                        current = module_vulkan(x_vulkan).cpu()
+                        if actual is not None:
+                            self._assert_outputs_close(
+                                actual,
+                                current,
+                                atol=1e-5,
+                                rtol=1e-5)
+                        actual = current
+
+                self._assert_outputs_close(
+                    expected,
+                    actual,
+                    atol=1e-4,
+                    rtol=1e-4)
 
     def test_large_pointwise_conv_weight_roundtrip(self):
         torch.manual_seed(0)

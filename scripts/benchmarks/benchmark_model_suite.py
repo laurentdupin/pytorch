@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.metadata
+import re
 import sys
 import time
 import traceback
@@ -206,6 +207,58 @@ def tensor_sanity(torch: Any, payload: Any) -> dict[str, Any]:
         "max": float(cpu.max().item()),
         "mean": float(cpu.mean().item()),
     }
+
+
+def classify_model_move_failure(
+    torch: Any,
+    model: Any,
+    exc: BaseException,
+    backend: str,
+) -> dict[str, Any]:
+    text = "".join(traceback.format_exception(exc))
+    if backend != "vulkan" or (
+        "VK_ERROR_OUT_OF_DEVICE_MEMORY" not in text
+        and "Failed to move tensor" not in text
+    ):
+        return {}
+    info: dict[str, Any] = {
+        "kind": "model_weight_vulkan_oom",
+        "backend": backend,
+        "exception": text[:500],
+    }
+    match = re.search(r"Failed to move tensor '([^']+)'", text)
+    if match:
+        tensor_name = match.group(1)
+        info["tensor_name"] = tensor_name
+        try:
+            for name, parameter in model.named_parameters():
+                if tensor_name == name or tensor_name.endswith(f".{name}"):
+                    info.update(
+                        {
+                            "parameter_name": name,
+                            "dtype": str(parameter.dtype),
+                            "shape": [int(dim) for dim in parameter.shape],
+                            "numel": int(parameter.numel()),
+                            "bytes": int(parameter.numel() * parameter.element_size()),
+                        }
+                    )
+                    break
+        except Exception as metadata_exc:
+            info["parameter_metadata_error"] = (
+                f"{type(metadata_exc).__name__}: {str(metadata_exc)[:200]}"
+            )
+    vulkan_module = getattr(torch, "vulkan", None)
+    if vulkan_module is not None:
+        try:
+            if hasattr(vulkan_module, "memory_stats"):
+                info["device_memory_stats"] = vulkan_module.memory_stats()
+            elif hasattr(vulkan_module, "memory_allocated"):
+                info["device_memory_allocated"] = int(vulkan_module.memory_allocated())
+        except Exception as memory_exc:
+            info["device_memory_info_error"] = (
+                f"{type(memory_exc).__name__}: {str(memory_exc)[:200]}"
+            )
+    return info
 
 
 def run_torch_ops(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
@@ -515,7 +568,19 @@ def run_text_generation(
             torch_dtype=torch_dtype,
             trust_remote_code=True,
             local_files_only=not args.allow_downloads,
-        ).to(device)
+        )
+        try:
+            model = model.to(device)
+        except Exception as move_exc:
+            move_info = classify_model_move_failure(
+                torch,
+                model,
+                move_exc,
+                backend,
+            )
+            if move_info:
+                setattr(move_exc, "_benchmark_model_move_failure", move_info)
+            raise
         model.eval()
         setup_s = time.perf_counter() - setup_start
         inputs = tokenizer(prompt, return_tensors="pt").to(device)
@@ -581,6 +646,9 @@ def run_text_generation(
             debug_traceback=args.debug_traceback,
             status="skip" if reason != f"{model_name}_run_failed" else None,
         )
+        move_failure = getattr(exc, "_benchmark_model_move_failure", None)
+        if move_failure:
+            record.failure["model_move_failure"] = move_failure
         record.failure["distributed_c10d_status"] = benchmark_distributed_import_status(torch)
         record.failure["distributed_import_shim"] = distributed_import
         return record
@@ -596,6 +664,8 @@ def classify_transformers_failure(
         return "transformers_source_tree_torch_distributed_missing"
     if backend == "vulkan" and "AutoModelForCausalLM" in text:
         return "transformers_source_tree_torch_distributed_missing"
+    if backend == "vulkan" and "VK_ERROR_OUT_OF_DEVICE_MEMORY" in text:
+        return "model_weight_vulkan_oom"
     if backend == "vulkan":
         return "transformers_vulkan_mapping_failed"
     if is_environment_skip(exc):

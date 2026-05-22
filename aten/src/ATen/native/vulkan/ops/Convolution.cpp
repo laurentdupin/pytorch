@@ -2337,6 +2337,14 @@ Tensor run_float_buffer_conv2d_impl(
     plan_decision.reject = VulkanConvRejectReason::KnownBadLargePointwiseConv;
     utils::log_vulkan_op_hit(
         "aten::convolution.buffer_float_1x1_skip.dav2_decoder_project_pointwise");
+  } else if (
+      route_decision.telemetry_label ==
+      "SelectedGenericBufferConv2dForPaddleOCRSmallSpatialPointwise") {
+    shader_kind = FloatBufferConv2dShaderKind::Generic;
+    plan_decision.selected = VulkanConvPlanSelected::FloatBufferPointwise1x1;
+    plan_decision.reject = VulkanConvRejectReason::KnownBadLargePointwiseConv;
+    utils::log_vulkan_op_hit(
+        "aten::convolution.buffer_float_1x1_skip.paddleocr_small_spatial_pointwise");
   } else {
     plan_decision.selected =
         shader_kind == FloatBufferConv2dShaderKind::Pointwise1x1

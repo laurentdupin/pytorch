@@ -84,6 +84,24 @@ bool is_known_dav2_decoder_project_pointwise_shape(
       (height == 45 && width == 30);
 }
 
+bool is_known_paddleocr_small_spatial_pointwise_shape(
+    IntArrayRef input_sizes,
+    IntArrayRef weight_sizes) {
+  if (input_sizes.size() != 4 || weight_sizes.size() != 4) {
+    return false;
+  }
+  if (
+      input_sizes[0] != 1 || input_sizes[1] != 512 ||
+      weight_sizes[1] != 512 || weight_sizes[2] != 1 ||
+      weight_sizes[3] != 1) {
+    return false;
+  }
+  return (input_sizes[2] == 7 && input_sizes[3] == 7 &&
+          weight_sizes[0] == 512) ||
+      (input_sizes[2] == 1 && input_sizes[3] == 1 &&
+       weight_sizes[0] == 1280);
+}
+
 std::string sdpa_shape_summary(
     const Tensor& query,
     const Tensor& key,
@@ -453,6 +471,23 @@ VulkanRouteDecision select_conv2d_route(
       decision.kernel_family = "buffer_float_conv2d_generic";
       decision.telemetry_label =
           "SelectedGenericBufferConv2dForDav2DecoderProjectPointwise";
+      decision.shape_summary = shape_summary;
+      decision.device_summary = describe_device_policy(device_policy);
+      decision.hard_fail = false;
+      log_route_decision("aten::convolution", decision);
+      return decision;
+    }
+    if (is_known_paddleocr_small_spatial_pointwise_shape(
+            input_sizes, weight_sizes)) {
+      VulkanRouteDecision decision;
+      decision.kind = VulkanRouteKind::VulkanBufferDirectKernel;
+      decision.reject_reason =
+          VulkanRouteRejectReason::KnownBadLargePointwiseConv;
+      decision.runtime_policy = runtime_policy;
+      decision.lane = lane;
+      decision.kernel_family = "buffer_float_conv2d_generic";
+      decision.telemetry_label =
+          "SelectedGenericBufferConv2dForPaddleOCRSmallSpatialPointwise";
       decision.shape_summary = shape_summary;
       decision.device_summary = describe_device_policy(device_policy);
       decision.hard_fail = false;
