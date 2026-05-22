@@ -3275,6 +3275,58 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             torch.isin(eos_token_tensor_cpu, pad_token_tensor_cpu),
         )
 
+    def test_prelu_scalar_weight_vulkan_matches_cpu(self):
+        torch.manual_seed(0)
+        input_cpu = torch.randn(2, 3, 5, 7, dtype=torch.float32)
+        weight_cpu = torch.tensor([0.25], dtype=torch.float32)
+
+        expected = torch.prelu(input_cpu, weight_cpu)
+        actual = torch.prelu(input_cpu.to("vulkan"), weight_cpu.to("vulkan"))
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual, atol=1e-5, rtol=1e-5)
+
+    def test_prelu_per_channel_vulkan_matches_cpu(self):
+        torch.manual_seed(0)
+        input_cpu = torch.randn(2, 4, 5, 7, dtype=torch.float32)
+        weight_cpu = torch.linspace(0.05, 0.2, 4, dtype=torch.float32)
+
+        expected = torch.prelu(input_cpu, weight_cpu)
+        actual = torch.prelu(input_cpu.to("vulkan"), weight_cpu.to("vulkan"))
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual, atol=1e-5, rtol=1e-5)
+
+    def test_prelu_kernel_paddleocr_shape_vulkan_matches_cpu(self):
+        torch.manual_seed(0)
+        input_cpu = torch.randn(1, 512, 7, 7, dtype=torch.float32)
+        weight_cpu = torch.linspace(0.01, 0.25, 512, dtype=torch.float32)
+        kernel_weight_cpu = weight_cpu.reshape(1, 512, 1, 1)
+
+        expected = torch.ops.aten._prelu_kernel.default(
+            input_cpu,
+            kernel_weight_cpu,
+        )
+        actual = torch.ops.aten._prelu_kernel.default(
+            input_cpu.to("vulkan"),
+            kernel_weight_cpu.to("vulkan"),
+        )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual, atol=1e-5, rtol=1e-5)
+
+    def test_prelu_vulkan_repeated_run_determinism(self):
+        torch.manual_seed(0)
+        input_cpu = torch.randn(1, 512, 7, 7, dtype=torch.float32)
+        weight_cpu = torch.rand(512, dtype=torch.float32) * 0.25
+        input_vulkan = input_cpu.to("vulkan")
+        weight_vulkan = weight_cpu.to("vulkan")
+
+        first = torch.prelu(input_vulkan, weight_vulkan).cpu()
+        second = torch.prelu(input_vulkan, weight_vulkan).cpu()
+
+        self.assertEqual(first, second, atol=0, rtol=0)
+
     def test_vulkan_cpu_fallback_counters_and_no_fallback_policy(self):
         torch.ops.vulkan_prepack.reset_fallback_counters()
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
