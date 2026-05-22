@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib.util
+import importlib.metadata
 import json
 import os
 import platform
@@ -33,6 +34,14 @@ os.environ.setdefault(
     "HF_HUB_CACHE",
     str(REPO_ROOT / "agent_space" / "hf_home" / "hub"),
 )
+os.environ.setdefault(
+    "PADDLE_PDX_CACHE_HOME",
+    str(REPO_ROOT / "agent_space" / "paddlex_cache"),
+)
+HF_HOME = Path(os.environ["HF_HOME"])
+HF_HUB_CACHE = Path(os.environ["HF_HUB_CACHE"])
+PADDLE_PDX_CACHE_HOME = Path(os.environ["PADDLE_PDX_CACHE_HOME"])
+TORCH_IMPORT_MODE = "source"
 
 
 VULKAN_COUNTER_NAMES = (
@@ -77,12 +86,42 @@ def module_available(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
 
 
+def module_version(name: str) -> str | None:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def configure_hf_cache(cache_dir: Path | str | None) -> None:
+    if cache_dir is None:
+        return
+    global HF_HOME, HF_HUB_CACHE
+    HF_HOME = Path(cache_dir).resolve()
+    HF_HUB_CACHE = HF_HOME / "hub"
+    os.environ["HF_HOME"] = str(HF_HOME)
+    os.environ["HF_HUB_CACHE"] = str(HF_HUB_CACHE)
+
+
+def configure_torch_import_mode(mode: str) -> None:
+    if mode not in {"source", "installed"}:
+        raise ValueError(f"Unsupported torch import mode: {mode}")
+    global TORCH_IMPORT_MODE
+    TORCH_IMPORT_MODE = mode
+
+
 def import_torch() -> Any:
-    if str(REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT))
+    repo_root = str(REPO_ROOT)
+    if TORCH_IMPORT_MODE == "source":
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+    else:
+        sys.path[:] = [
+            path for path in sys.path if Path(path or ".").resolve() != REPO_ROOT
+        ]
     if sys.platform == "win32":
         build_bin = REPO_ROOT / "build" / "bin" / "Release"
-        if build_bin.is_dir():
+        if TORCH_IMPORT_MODE == "source" and build_bin.is_dir():
             current = os.environ.get("PATH", "")
             parts = current.split(os.pathsep) if current else []
             if str(build_bin) not in parts:
@@ -255,12 +294,18 @@ def make_failure(
     repeats: int,
     reason: str,
     exc: BaseException | None = None,
+    debug_traceback: bool = False,
+    status: str | None = None,
 ) -> BenchmarkRecord:
     failure: dict[str, Any] = {"reason": reason}
     if exc is not None:
         failure["exception_type"] = type(exc).__name__
-        failure["exception"] = repr(exc)
-        failure["traceback"] = traceback.format_exc(limit=12)
+        failure["exception"] = concise_exception(exc)
+        if debug_traceback:
+            failure["traceback"] = traceback.format_exc(limit=12)
+    resolved_status = status
+    if resolved_status is None:
+        resolved_status = "skip" if exc is None or is_environment_skip(exc) else "failure"
     record = BenchmarkRecord(
         task=task,
         model_name=model_name,
@@ -270,11 +315,39 @@ def make_failure(
         dtype=dtype,
         warmup=warmup,
         repeats=repeats,
-        status="skip" if exc is None else "failure",
+        status=resolved_status,
         failure=failure,
     )
     record.environment = environment_summary()
     return record
+
+
+def concise_exception(exc: BaseException) -> str:
+    text = str(exc).strip().splitlines()
+    if not text:
+        return type(exc).__name__
+    return text[0][:500]
+
+
+def is_environment_skip(exc: BaseException) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    skip_markers = (
+        "localentrynotfound",
+        "local entry not found",
+        "couldn't connect to 'https://huggingface.co'",
+        "cannot find the requested files in the disk cache",
+        "outgoing traffic has been disabled",
+        "gated repo",
+        "requires you to be authenticated",
+        "401 client error",
+        "403 client error",
+        "permissionerror",
+        "access denied",
+        "accès refusé",
+        "no module named",
+        "not found in your environment",
+    )
+    return any(marker in text for marker in skip_markers)
 
 
 def environment_summary() -> dict[str, Any]:
@@ -283,13 +356,48 @@ def environment_summary() -> dict[str, Any]:
         "python_version": sys.version,
         "platform": platform.platform(),
         "repo_root": str(REPO_ROOT),
+        "torch_import_mode": TORCH_IMPORT_MODE,
+        "hf_home": str(HF_HOME),
+        "hf_hub_cache": str(HF_HUB_CACHE),
+        "paddle_pdx_cache_home": str(PADDLE_PDX_CACHE_HOME),
     }
 
 
 def probe_accelerators() -> dict[str, Any]:
-    torch = import_torch()
     payload: dict[str, Any] = {
-        "torch_version": getattr(torch, "__version__", None),
+        "dependency_versions": probe_dependency_versions(),
+        "cache": {
+            "hf_home": str(HF_HOME),
+            "hf_hub_cache": str(HF_HUB_CACHE),
+            "hf_home_exists": HF_HOME.exists(),
+            "hf_hub_cache_exists": HF_HUB_CACHE.exists(),
+            "paddle_pdx_cache_home": str(PADDLE_PDX_CACHE_HOME),
+            "paddle_pdx_cache_exists": PADDLE_PDX_CACHE_HOME.exists(),
+        },
+    }
+    try:
+        torch = import_torch()
+    except Exception as exc:
+        payload["torch_import"] = {
+            "available": False,
+            "exception_type": type(exc).__name__,
+            "exception": concise_exception(exc),
+        }
+        payload["vulkan"] = {"available": False, "skip_reason": "torch_import_failed"}
+        payload["directml"] = {"available": False, "skip_reason": "torch_import_failed"}
+        payload["cuda"] = {"available": False, "skip_reason": "torch_import_failed"}
+        payload["vulkaninfo"] = probe_vulkaninfo()
+        return payload
+
+    payload.update(
+        {
+            "torch_version": getattr(torch, "__version__", None),
+            "torch_import": {"available": True},
+            "distributed": probe_torch_distributed(torch),
+        }
+    )
+    payload.update(
+        {
         "vulkan": {
             "available": bool(getattr(torch, "is_vulkan_available", lambda: False)()),
         },
@@ -299,7 +407,8 @@ def probe_accelerators() -> dict[str, Any]:
             "device_count": int(torch.cuda.device_count()) if torch.cuda.is_available() else 0,
             "devices": [],
         },
-    }
+        }
+    )
     if hasattr(torch, "vulkan"):
         try:
             count = int(torch.vulkan.device_count())
@@ -341,6 +450,55 @@ def probe_accelerators() -> dict[str, Any]:
             payload["directml"]["error"] = repr(exc)
     payload["vulkaninfo"] = probe_vulkaninfo()
     return payload
+
+
+def probe_torch_distributed(torch_module: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "has_distributed_c10d_extension": hasattr(
+            getattr(torch_module, "_C", None),
+            "_distributed_c10d",
+        )
+    }
+    try:
+        import torch.distributed as dist
+
+        payload["python_import_available"] = True
+        payload["is_available"] = bool(getattr(dist, "is_available", lambda: False)())
+        payload["has_store"] = hasattr(dist, "Store")
+        payload["has_backend"] = hasattr(dist, "Backend")
+        payload["has_init_process_group"] = hasattr(dist, "init_process_group")
+    except Exception as exc:
+        payload["python_import_available"] = False
+        payload["exception_type"] = type(exc).__name__
+        payload["exception"] = concise_exception(exc)
+    try:
+        config = torch_module.__config__.show()
+        payload["config"] = {
+            "use_gloo": "USE_GLOO=ON" in config,
+            "use_mpi": "USE_MPI=ON" in config,
+            "use_nccl": "USE_NCCL=ON" in config,
+        }
+    except Exception as exc:
+        payload["config_error"] = concise_exception(exc)
+    return payload
+
+
+def probe_dependency_versions() -> dict[str, Any]:
+    names = {
+        "transformers": "transformers",
+        "diffusers": "diffusers",
+        "huggingface_hub": "huggingface-hub",
+        "paddleocr": "paddleocr",
+        "torchvision": "torchvision",
+        "torch_directml": "torch-directml",
+    }
+    versions: dict[str, Any] = {}
+    for key, package_name in names.items():
+        versions[key] = {
+            "available": module_available(key),
+            "version": module_version(package_name),
+        }
+    return versions
 
 
 def probe_vulkaninfo() -> dict[str, Any]:
