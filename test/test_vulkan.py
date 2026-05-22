@@ -6405,6 +6405,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             ((1, 512, 7, 7), 512, True),
             ((1, 512, 14, 14), 192, False),
             ((1, 512, 1, 1), 1280, True),
+            ((1, 1664, 14, 14), 512, False),
         )
         for shape, out_channels, bias in cases:
             with self.subTest(
@@ -6414,12 +6415,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 x_cpu = torch.randn(*shape)
                 x_vulkan = x_cpu.to("vulkan")
                 module_cpu = torch.nn.Conv2d(
-                    512,
+                    shape[1],
                     out_channels,
                     kernel_size=1,
                     bias=bias).eval()
                 module_vulkan = torch.nn.Conv2d(
-                    512,
+                    shape[1],
                     out_channels,
                     kernel_size=1,
                     bias=bias).eval()

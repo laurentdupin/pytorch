@@ -91,17 +91,21 @@ bool is_known_paddleocr_small_spatial_pointwise_shape(
     return false;
   }
   if (
-      input_sizes[0] != 1 || input_sizes[1] != 512 ||
-      weight_sizes[1] != 512 || weight_sizes[2] != 1 ||
+      input_sizes[0] != 1 || weight_sizes[2] != 1 ||
       weight_sizes[3] != 1) {
     return false;
   }
-  return (input_sizes[2] == 7 && input_sizes[3] == 7 &&
+  if (input_sizes[1] == 512 && weight_sizes[1] == 512) {
+    return (input_sizes[2] == 7 && input_sizes[3] == 7 &&
           weight_sizes[0] == 512) ||
-      (input_sizes[2] == 14 && input_sizes[3] == 14 &&
-       weight_sizes[0] == 192) ||
-      (input_sizes[2] == 1 && input_sizes[3] == 1 &&
-       weight_sizes[0] == 1280);
+        (input_sizes[2] == 14 && input_sizes[3] == 14 &&
+         weight_sizes[0] == 192) ||
+        (input_sizes[2] == 1 && input_sizes[3] == 1 &&
+         weight_sizes[0] == 1280);
+  }
+  return input_sizes[1] == 1664 && weight_sizes[1] == 1664 &&
+      input_sizes[2] == 14 && input_sizes[3] == 14 &&
+      weight_sizes[0] == 512;
 }
 
 std::string sdpa_shape_summary(
