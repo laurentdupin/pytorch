@@ -7368,6 +7368,50 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             enable_gqa=enable_gqa,
                         )
 
+    def test_scaled_dot_product_attention_hymt_causal_gqa_matches_cpu(self):
+        torch.manual_seed(0)
+        scale = 0.0883883
+        cases = (
+            ("hymt_causal", 16, 16, True, False, None),
+            ("hymt_gqa", 16, 4, False, True, None),
+            ("hymt_causal_gqa_explicit_scale", 16, 4, True, True, scale),
+        )
+        with torch.inference_mode():
+            for name, query_heads, key_value_heads, is_causal, enable_gqa, scale_arg in cases:
+                with self.subTest(name=name):
+                    query = torch.randn(1, query_heads, 14, 128)
+                    key = torch.randn(1, key_value_heads, 14, 128)
+                    value = torch.randn(1, key_value_heads, 14, 128)
+                    expected = F.scaled_dot_product_attention(
+                        query,
+                        key,
+                        value,
+                        dropout_p=0.0,
+                        is_causal=is_causal,
+                        scale=scale_arg,
+                        enable_gqa=enable_gqa,
+                    )
+                    actual = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=is_causal,
+                        scale=scale_arg,
+                        enable_gqa=enable_gqa,
+                    ).cpu()
+                    repeat = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=is_causal,
+                        scale=scale_arg,
+                        enable_gqa=enable_gqa,
+                    ).cpu()
+                    self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                    self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
+
     def test_vulkan_dispatch_tables_expose_backend_kernels(self):
         dispatch_expectations = {
             "aten::mm": ("Vulkan: registered at", "Mm.cpp"),
