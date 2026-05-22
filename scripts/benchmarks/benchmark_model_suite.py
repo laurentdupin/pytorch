@@ -784,6 +784,83 @@ def restore_paddleocr_transformers_device_patch(patch_info: dict[str, Any]) -> N
             pass
 
 
+def install_paddleocr_postprocess_cpu_metadata_patch(
+    torch: Any,
+    backend: str,
+) -> tuple[list[dict[str, Any]], Any]:
+    if backend != "vulkan":
+        return [], None
+    try:
+        from transformers.models.pp_ocrv5_server_det import (
+            image_processing_pp_ocrv5_server_det,
+        )
+    except Exception:
+        return [], None
+
+    cls = image_processing_pp_ocrv5_server_det.PPOCRV5ServerDetImageProcessor
+    original = cls.post_process_object_detection
+    calls: list[dict[str, Any]] = []
+
+    def post_process_object_detection_cpu_metadata(
+        self: Any,
+        predictions: Any,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        last_hidden_state = predictions.last_hidden_state
+        target_device = str(last_hidden_state.device)
+        cpu_predictions = types.SimpleNamespace(last_hidden_state=last_hidden_state.cpu())
+        original_boxes_from_bitmap = self._boxes_from_bitmap
+
+        def boxes_from_bitmap_recorder(*box_args: Any, **box_kwargs: Any) -> Any:
+            boxes, scores = original_boxes_from_bitmap(*box_args, **box_kwargs)
+            calls.append(
+                {
+                    "reason": "paddleocr_postprocess_cpu_metadata_tensor",
+                    "module": cls.__module__,
+                    "target_device_without_patch": target_device,
+                    "boxes_numpy_dtype": str(getattr(boxes, "dtype", None)),
+                    "boxes_shape": list(getattr(boxes, "shape", ())),
+                    "boxes_numel": int(getattr(boxes, "size", 0)),
+                    "scores_count": len(scores),
+                    "participates_in_model_compute": False,
+                }
+            )
+            return boxes, scores
+
+        self._boxes_from_bitmap = boxes_from_bitmap_recorder
+        try:
+            results = original(self, cpu_predictions, *args, **kwargs)
+        finally:
+            self._boxes_from_bitmap = original_boxes_from_bitmap
+
+        for call, result in zip(calls[-len(results) :], results):
+            boxes = result.get("boxes")
+            scores = result.get("scores")
+            labels = result.get("labels")
+            call.update(
+                {
+                    "result_boxes_dtype": str(getattr(boxes, "dtype", None)),
+                    "result_boxes_device": str(getattr(boxes, "device", None)),
+                    "result_scores_dtype": str(getattr(scores, "dtype", None)),
+                    "result_scores_device": str(getattr(scores, "device", None)),
+                    "result_labels_dtype": str(getattr(labels, "dtype", None)),
+                    "result_labels_device": str(getattr(labels, "device", None)),
+                }
+            )
+        return results
+
+    cls.post_process_object_detection = post_process_object_detection_cpu_metadata
+    return calls, (cls, original)
+
+
+def restore_paddleocr_postprocess_cpu_metadata_patch(patch: Any) -> None:
+    if patch is None:
+        return
+    cls, original = patch
+    cls.post_process_object_detection = original
+
+
 def public_patch_info(patch_info: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in patch_info.items() if not key.startswith("_")}
 
@@ -912,6 +989,8 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
     patch_info: dict[str, Any] = {"attempted": False}
     grid_sample_calls: list[dict[str, Any]] = []
     grid_sample_patch = None
+    postprocess_metadata_calls: list[dict[str, Any]] = []
+    postprocess_metadata_patch = None
     distributed_import = install_benchmark_distributed_import_shim(torch)
     try:
         from paddleocr import PaddleOCR
@@ -920,6 +999,9 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         patch_info = try_patch_paddleocr_transformers_device(torch, backend)
         if backend == "vulkan":
             grid_sample_calls, grid_sample_patch = install_grid_sample_call_recorder()
+            postprocess_metadata_calls, postprocess_metadata_patch = (
+                install_paddleocr_postprocess_cpu_metadata_patch(torch, backend)
+            )
         setup_start = time.perf_counter()
         try:
             ocr = PaddleOCR(engine="transformers", **device_kwargs)
@@ -964,14 +1046,17 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             "paddleocr_device_patch": public_patch_info(patch_info),
             "paddleocr_transformers_model_mapping": model_mapping_info,
             "grid_sample_calls": grid_sample_calls,
+            "paddleocr_postprocess_cpu_metadata_tensors": postprocess_metadata_calls,
             "distributed_c10d_status": distributed_import["status"],
             "distributed_import_shim": distributed_import,
         }
         record.environment = environment_summary()
+        restore_paddleocr_postprocess_cpu_metadata_patch(postprocess_metadata_patch)
         restore_grid_sample_call_recorder(grid_sample_patch)
         restore_paddleocr_transformers_device_patch(patch_info)
         return record
     except Exception as exc:
+        restore_paddleocr_postprocess_cpu_metadata_patch(postprocess_metadata_patch)
         restore_grid_sample_call_recorder(grid_sample_patch)
         restore_paddleocr_transformers_device_patch(patch_info)
         reason = classify_paddleocr_backend_failure(exc, backend)
@@ -990,6 +1075,9 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             status="skip" if reason != "paddleocr_run_failed" else None,
         )
         record.failure["grid_sample_calls"] = grid_sample_calls
+        record.failure["paddleocr_postprocess_cpu_metadata_tensors"] = (
+            postprocess_metadata_calls
+        )
         record.failure["distributed_c10d_status"] = benchmark_distributed_import_status(torch)
         record.failure["distributed_import_shim"] = distributed_import
         return record

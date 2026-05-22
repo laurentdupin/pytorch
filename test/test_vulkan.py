@@ -6402,10 +6402,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
     def test_large_pointwise_conv2d_paddleocr_small_spatial_matches_cpu(self):
         torch.manual_seed(0)
         cases = (
-            ((1, 512, 7, 7), 512, True),
+            ((1, 384, 7, 7), 384, False),
+            ((1, 512, 7, 7), 512, False),
             ((1, 512, 14, 14), 192, False),
-            ((1, 512, 1, 1), 1280, True),
+            ((1, 512, 14, 14), 1024, False),
+            ((1, 512, 1, 1), 1280, False),
+            ((1, 1024, 7, 7), 384, False),
+            ((1, 1024, 7, 7), 2048, False),
+            ((1, 1024, 14, 14), 192, False),
+            ((1, 1024, 14, 14), 256, False),
             ((1, 1664, 14, 14), 512, False),
+            ((1, 2048, 7, 7), 256, False),
+            ((1, 2176, 14, 14), 512, False),
+            ((1, 3328, 7, 7), 1024, False),
         )
         for shape, out_channels, bias in cases:
             with self.subTest(

@@ -95,17 +95,36 @@ bool is_known_paddleocr_small_spatial_pointwise_shape(
       weight_sizes[3] != 1) {
     return false;
   }
-  if (input_sizes[1] == 512 && weight_sizes[1] == 512) {
-    return (input_sizes[2] == 7 && input_sizes[3] == 7 &&
-          weight_sizes[0] == 512) ||
-        (input_sizes[2] == 14 && input_sizes[3] == 14 &&
-         weight_sizes[0] == 192) ||
-        (input_sizes[2] == 1 && input_sizes[3] == 1 &&
-         weight_sizes[0] == 1280);
-  }
-  return input_sizes[1] == 1664 && weight_sizes[1] == 1664 &&
-      input_sizes[2] == 14 && input_sizes[3] == 14 &&
-      weight_sizes[0] == 512;
+  return (input_sizes[1] == 384 && weight_sizes[1] == 384 &&
+          input_sizes[2] == 7 && input_sizes[3] == 7 &&
+          weight_sizes[0] == 384) ||
+      (input_sizes[1] == 512 && weight_sizes[1] == 512 &&
+       input_sizes[2] == 7 && input_sizes[3] == 7 &&
+       weight_sizes[0] == 512) ||
+      (input_sizes[1] == 512 && weight_sizes[1] == 512 &&
+       input_sizes[2] == 14 && input_sizes[3] == 14 &&
+       (weight_sizes[0] == 192 || weight_sizes[0] == 1024)) ||
+      (input_sizes[1] == 512 && weight_sizes[1] == 512 &&
+       input_sizes[2] == 1 && input_sizes[3] == 1 &&
+       weight_sizes[0] == 1280) ||
+      (input_sizes[1] == 1024 && weight_sizes[1] == 1024 &&
+       input_sizes[2] == 7 && input_sizes[3] == 7 &&
+       (weight_sizes[0] == 384 || weight_sizes[0] == 2048)) ||
+      (input_sizes[1] == 1024 && weight_sizes[1] == 1024 &&
+       input_sizes[2] == 14 && input_sizes[3] == 14 &&
+       (weight_sizes[0] == 192 || weight_sizes[0] == 256)) ||
+      (input_sizes[1] == 1664 && weight_sizes[1] == 1664 &&
+       input_sizes[2] == 14 && input_sizes[3] == 14 &&
+       weight_sizes[0] == 512) ||
+      (input_sizes[1] == 2048 && weight_sizes[1] == 2048 &&
+       input_sizes[2] == 7 && input_sizes[3] == 7 &&
+       weight_sizes[0] == 256) ||
+      (input_sizes[1] == 2176 && weight_sizes[1] == 2176 &&
+       input_sizes[2] == 14 && input_sizes[3] == 14 &&
+       weight_sizes[0] == 512) ||
+      (input_sizes[1] == 3328 && weight_sizes[1] == 3328 &&
+       input_sizes[2] == 7 && input_sizes[3] == 7 &&
+       weight_sizes[0] == 1024);
 }
 
 std::string sdpa_shape_summary(
