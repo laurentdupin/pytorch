@@ -136,6 +136,55 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
     }
 
 
+def install_grid_sample_call_recorder() -> tuple[list[dict[str, Any]], Any]:
+    import torch.nn.functional as torch_functional
+
+    calls: list[dict[str, Any]] = []
+    original_grid_sample = torch_functional.grid_sample
+
+    def tensor_desc(tensor: Any) -> dict[str, Any]:
+        return {
+            "shape": list(tensor.shape),
+            "dtype": str(tensor.dtype),
+            "device": str(tensor.device),
+            "stride": list(tensor.stride()),
+        }
+
+    def wrapped_grid_sample(
+        input: Any,
+        grid: Any,
+        mode: str = "bilinear",
+        padding_mode: str = "zeros",
+        align_corners: bool | None = None,
+    ) -> Any:
+        calls.append(
+            {
+                "input": tensor_desc(input),
+                "grid": tensor_desc(grid),
+                "mode": mode,
+                "padding_mode": padding_mode,
+                "align_corners": align_corners,
+            }
+        )
+        return original_grid_sample(
+            input,
+            grid,
+            mode=mode,
+            padding_mode=padding_mode,
+            align_corners=align_corners,
+        )
+
+    torch_functional.grid_sample = wrapped_grid_sample
+    return calls, (torch_functional, original_grid_sample)
+
+
+def restore_grid_sample_call_recorder(patch: Any) -> None:
+    if patch is None:
+        return
+    torch_functional, original_grid_sample = patch
+    torch_functional.grid_sample = original_grid_sample
+
+
 def paddleocr_cache_has_models() -> bool:
     official_models = PADDLE_PDX_CACHE_HOME / "official_models"
     if not official_models.is_dir():
@@ -861,12 +910,16 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
     if backend == "cpu":
         device_kwargs["device"] = "cpu"
     patch_info: dict[str, Any] = {"attempted": False}
+    grid_sample_calls: list[dict[str, Any]] = []
+    grid_sample_patch = None
     distributed_import = install_benchmark_distributed_import_shim(torch)
     try:
         from paddleocr import PaddleOCR
 
         image_path = make_document_image(Path(args.out).with_suffix(".doc.png"), args.image_size)
         patch_info = try_patch_paddleocr_transformers_device(torch, backend)
+        if backend == "vulkan":
+            grid_sample_calls, grid_sample_patch = install_grid_sample_call_recorder()
         setup_start = time.perf_counter()
         try:
             ocr = PaddleOCR(engine="transformers", **device_kwargs)
@@ -910,13 +963,16 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             "output_items": len(output) if hasattr(output, "__len__") else None,
             "paddleocr_device_patch": public_patch_info(patch_info),
             "paddleocr_transformers_model_mapping": model_mapping_info,
+            "grid_sample_calls": grid_sample_calls,
             "distributed_c10d_status": distributed_import["status"],
             "distributed_import_shim": distributed_import,
         }
         record.environment = environment_summary()
+        restore_grid_sample_call_recorder(grid_sample_patch)
         restore_paddleocr_transformers_device_patch(patch_info)
         return record
     except Exception as exc:
+        restore_grid_sample_call_recorder(grid_sample_patch)
         restore_paddleocr_transformers_device_patch(patch_info)
         reason = classify_paddleocr_backend_failure(exc, backend)
         record = make_failure(
@@ -933,6 +989,7 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             debug_traceback=args.debug_traceback,
             status="skip" if reason != "paddleocr_run_failed" else None,
         )
+        record.failure["grid_sample_calls"] = grid_sample_calls
         record.failure["distributed_c10d_status"] = benchmark_distributed_import_status(torch)
         record.failure["distributed_import_shim"] = distributed_import
         return record

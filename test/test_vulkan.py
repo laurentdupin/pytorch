@@ -3327,6 +3327,128 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self.assertEqual(first, second, atol=0, rtol=0)
 
+    def test_grid_sampler_2d_bilinear_zeros_align_corners_matches_cpu(self):
+        input_cpu = torch.arange(1 * 1 * 3 * 3, dtype=torch.float32).reshape(
+            1, 1, 3, 3)
+        grid_cpu = torch.tensor(
+            [[[[0.0, 0.0], [1.0, 1.0]], [[-1.0, -1.0], [0.5, -0.5]]]],
+            dtype=torch.float32,
+        )
+
+        expected = F.grid_sample(
+            input_cpu,
+            grid_cpu,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        )
+        actual = F.grid_sample(
+            input_cpu.to("vulkan"),
+            grid_cpu.to("vulkan"),
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual, atol=1e-5, rtol=1e-5)
+
+    def test_grid_sampler_2d_align_corners_false_matches_cpu(self):
+        torch.manual_seed(0)
+        input_cpu = torch.randn(1, 2, 4, 5, dtype=torch.float32)
+        grid_cpu = torch.rand(1, 3, 4, 2, dtype=torch.float32) * 2.0 - 1.0
+
+        expected = F.grid_sample(
+            input_cpu,
+            grid_cpu,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=False,
+        )
+        actual = F.grid_sample(
+            input_cpu.to("vulkan"),
+            grid_cpu.to("vulkan"),
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=False,
+        )
+
+        self._assert_outputs_close(expected, actual, atol=1e-5, rtol=1e-5)
+
+    def test_grid_sampler_2d_uvdoc_shape_vulkan_matches_cpu(self):
+        torch.manual_seed(0)
+        input_cpu = torch.randn(1, 3, 128, 128, dtype=torch.float32)
+        grid_cpu = torch.rand(1, 128, 128, 2, dtype=torch.float32) * 2.0 - 1.0
+        grid_cpu = grid_cpu.transpose(2, 3).contiguous().transpose(2, 3)
+
+        expected = F.grid_sample(
+            input_cpu,
+            grid_cpu,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        )
+        actual = F.grid_sample(
+            input_cpu.to("vulkan"),
+            grid_cpu.to("vulkan"),
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual, atol=1e-5, rtol=1e-5)
+
+    def test_grid_sampler_2d_repeated_run_determinism(self):
+        torch.manual_seed(0)
+        input_vulkan = torch.randn(1, 3, 16, 16, dtype=torch.float32).to("vulkan")
+        grid_vulkan = (torch.rand(1, 16, 16, 2, dtype=torch.float32) * 2.0 - 1.0).to(
+            "vulkan")
+
+        first = F.grid_sample(
+            input_vulkan,
+            grid_vulkan,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        ).cpu()
+        second = F.grid_sample(
+            input_vulkan,
+            grid_vulkan,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        ).cpu()
+
+        self.assertEqual(first, second, atol=0, rtol=0)
+
+    def test_grid_sampler_2d_unsupported_mode_uses_recorded_fallback(self):
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        input_cpu = torch.arange(1 * 1 * 3 * 3, dtype=torch.float32).reshape(
+            1, 1, 3, 3)
+        grid_cpu = torch.tensor([[[[0.0, 0.0]]]], dtype=torch.float32)
+
+        expected = F.grid_sample(
+            input_cpu,
+            grid_cpu,
+            mode="nearest",
+            padding_mode="zeros",
+            align_corners=True,
+        )
+        actual = F.grid_sample(
+            input_cpu.to("vulkan"),
+            grid_cpu.to("vulkan"),
+            mode="nearest",
+            padding_mode="zeros",
+            align_corners=True,
+        )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual, atol=1e-5, rtol=1e-5)
+        self.assertGreater(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+        self.assertGreater(
+            sum(torch.ops.vulkan_prepack.fallback_phase_counters()), 0)
+
     def test_vulkan_cpu_fallback_counters_and_no_fallback_policy(self):
         torch.ops.vulkan_prepack.reset_fallback_counters()
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
