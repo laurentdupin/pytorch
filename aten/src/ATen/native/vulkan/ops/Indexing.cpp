@@ -11,6 +11,7 @@
 #include <ATen/Functions.h>
 #else
 #include <ATen/ops/empty.h>
+#include <ATen/ops/gather.h>
 #include <ATen/ops/index.h>
 #include <ATen/ops/index_add.h>
 #include <ATen/ops/isin.h>
@@ -370,6 +371,187 @@ Tensor embedding(
       "Vulkan embedding currently supports 1D or 2D indices");
 
   return gather_rows_2d(weight, indices);
+}
+
+Tensor gather_cpu_fallback(
+    const Tensor& self,
+    int64_t dim,
+    const Tensor& index,
+    bool sparse_grad,
+    const char* reason) {
+  report_vulkan_cpu_fallback(
+      "aten::gather",
+      reason,
+      {self, index},
+      VulkanCpuFallbackKind::SyncReadback);
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor self_cpu = self.is_vulkan() ? self.detach().cpu() : self.detach();
+    const Tensor index_cpu =
+        index.is_vulkan() ? index.detach().cpu() : index.detach();
+    result_cpu = at::gather(self_cpu, dim, index_cpu, sparse_grad);
+  }
+  return upload_cpu_result_to_vulkan(result_cpu, result_cpu.sizes(), self);
+}
+
+bool can_gather_dim1_2d_buffer_float(
+    const Tensor& self,
+    int64_t normalized_dim,
+    const Tensor& index,
+    bool sparse_grad) {
+  return !sparse_grad && self.is_vulkan() && index.is_vulkan() &&
+      self.scalar_type() == kFloat &&
+      (index.scalar_type() == kLong || index.scalar_type() == kInt) &&
+      self.dim() == 2 && index.dim() == 2 && normalized_dim == 1 &&
+      self.size(0) == index.size(0);
+}
+
+Tensor gather_dim1_2d_buffer_float(
+    const Tensor& self,
+    int64_t normalized_dim,
+    const Tensor& index,
+    bool sparse_grad) {
+  if (!can_gather_dim1_2d_buffer_float(
+          self, normalized_dim, index, sparse_grad)) {
+    return gather_cpu_fallback(
+        self, normalized_dim, index, sparse_grad, "unsupported_shape");
+  }
+
+  Tensor index_host = index.cpu().contiguous();
+  const int64_t batch_count = self.size(0);
+  const int64_t input_cols = self.size(1);
+  const int64_t gather_cols = index.size(1);
+  const int64_t num_indices = index_host.numel();
+
+  api::Context* const context = api::context();
+  api::StorageBuffer index_buffer(context, api::kInt, num_indices);
+  {
+    api::MemoryMap mapping(index_buffer.buffer(), api::MemoryAccessType::WRITE);
+    int32_t* const dst = mapping.template data<int32_t>();
+
+    if (index_host.scalar_type() == kLong) {
+      const int64_t* const src = index_host.const_data_ptr<int64_t>();
+      for (const auto idx : c10::irange(num_indices)) {
+        const int64_t value = src[idx];
+        TORCH_CHECK_INDEX(
+            value >= 0 && value < input_cols,
+            "Vulkan gather: index ",
+            value,
+            " is out of bounds for dimension 1 with size ",
+            input_cols);
+        dst[idx] = safe_downcast<int32_t>(value);
+      }
+    } else {
+      const int32_t* const src = index_host.const_data_ptr<int32_t>();
+      for (const auto idx : c10::irange(num_indices)) {
+        const int64_t value = src[idx];
+        TORCH_CHECK_INDEX(
+            value >= 0 && value < input_cols,
+            "Vulkan gather: index ",
+            value,
+            " is out of bounds for dimension 1 with size ",
+            input_cols);
+        dst[idx] = src[idx];
+      }
+    }
+  }
+
+  vTensor v_self = convert(self);
+  if (
+      v_self.storage_type() != api::StorageType::BUFFER ||
+      !v_self.has_direct_buffer_layout() ||
+      v_self.gpu_memory_layout() !=
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED) {
+    v_self = utils::materialize_to_contiguous_buffer(
+        v_self, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  }
+
+  vTensor v_output{
+      context,
+      index.sizes().vec(),
+      convert_dtype(self.scalar_type()),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const struct Block final {
+    ivec4 info;
+  } block{
+      safe_downcast<int32_t>(input_cols),
+      safe_downcast<int32_t>(gather_cols),
+      safe_downcast<int32_t>(batch_count),
+      0,
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size{
+      safe_downcast<uint32_t>(gather_cols),
+      safe_downcast<uint32_t>(batch_count),
+      1u,
+  };
+
+  context->submit_compute_job(
+      VK_KERNEL(gather_dim1_2d_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      index_buffer.buffer(),
+      params.buffer());
+
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::gather", "dim1_2d_buffer_float", {self, index});
+}
+
+Tensor gather_vulkan(
+    const Tensor& self,
+    int64_t dim,
+    const Tensor& index,
+    bool sparse_grad) {
+  api::AllocationScope allocation_scope("gather");
+  const int64_t normalized_dim = maybe_wrap_dim(dim, self.dim());
+  return gather_dim1_2d_buffer_float(
+      self, normalized_dim, index, sparse_grad);
+}
+
+Tensor& gather_out(
+    const Tensor& self,
+    int64_t dim,
+    const Tensor& index,
+    bool sparse_grad,
+    Tensor& out) {
+  api::AllocationScope allocation_scope("gather_out");
+  report_vulkan_cpu_fallback(
+      "aten::gather.out",
+      "preallocated_out_cpu_fallback",
+      {self, index, out},
+      VulkanCpuFallbackKind::SyncReadback);
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor self_cpu = self.is_vulkan() ? self.detach().cpu() : self.detach();
+    const Tensor index_cpu =
+        index.is_vulkan() ? index.detach().cpu() : index.detach();
+    result_cpu = at::gather(self_cpu, dim, index_cpu, sparse_grad);
+  }
+
+  if (out.is_vulkan()) {
+    ops::copy_(out, result_cpu);
+    api::context()->submit_pending_work_and_poll_retire();
+    record_tensor_write(out, "aten::gather", "out_cpu_upload", {self, index});
+  } else {
+    out.copy_(result_cpu);
+  }
+  return out;
 }
 
 std::tuple<Tensor, Tensor> topk(
@@ -733,6 +915,8 @@ Tensor& isin_tensor_tensor_out(
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::index_select"), TORCH_FN(index_select));
   m.impl(TORCH_SELECTIVE_NAME("aten::embedding"), TORCH_FN(embedding));
+  m.impl(TORCH_SELECTIVE_NAME("aten::gather"), TORCH_FN(gather_vulkan));
+  m.impl(TORCH_SELECTIVE_NAME("aten::gather.out"), TORCH_FN(gather_out));
   m.impl(TORCH_SELECTIVE_NAME("aten::topk"), TORCH_FN(topk));
   m.impl(TORCH_SELECTIVE_NAME("aten::topk.values"), TORCH_FN(topk_out));
   m.impl(TORCH_SELECTIVE_NAME("aten::scatter.value"), TORCH_FN(scatter_value));

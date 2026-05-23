@@ -3058,6 +3058,72 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 atol=1e-4,
                 rtol=1e-4)
 
+    def test_gather_dim1_2d_with_vulkan_input_and_indices(self):
+        torch.manual_seed(0)
+        scores_cpu = torch.randn(1, 120818)
+        indices_cpu = torch.tensor(
+            [[0, 17, 4096, 120817, 512, 4097, 9, 42, 1000, 65535, 13, 14, 15, 16]],
+            dtype=torch.long,
+        )
+
+        with torch.inference_mode():
+            expected = torch.gather(scores_cpu, 1, indices_cpu)
+            actual = torch.gather(
+                scores_cpu.to("vulkan"),
+                1,
+                indices_cpu.to("vulkan"),
+            )
+            repeat = torch.gather(
+                scores_cpu.to("vulkan"),
+                1,
+                indices_cpu.to("vulkan"),
+            )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual.cpu(), atol=1e-4, rtol=1e-4)
+        self._assert_outputs_close(actual.cpu(), repeat.cpu(), atol=1e-5, rtol=1e-5)
+
+    def test_gather_dim1_2d_out_with_vulkan_input_and_indices(self):
+        torch.manual_seed(0)
+        scores_cpu = torch.randn(3, 37)
+        indices_cpu = torch.tensor(
+            [[0, 2, 36], [4, 5, 6], [31, 12, 9]],
+            dtype=torch.long,
+        )
+
+        with torch.inference_mode():
+            expected = torch.gather(scores_cpu, 1, indices_cpu)
+            out = torch.empty_like(expected).to("vulkan")
+            result = torch.gather(
+                scores_cpu.to("vulkan"),
+                1,
+                indices_cpu.to("vulkan"),
+                out=out,
+            )
+
+        self.assertIs(result, out)
+        self.assertTrue(out.is_vulkan)
+        self._assert_outputs_close(expected, out.cpu(), atol=1e-4, rtol=1e-4)
+
+    def test_gather_unsupported_dim_falls_back_to_cpu(self):
+        torch.manual_seed(0)
+        values_cpu = torch.randn(5, 7)
+        indices_cpu = torch.tensor(
+            [[0, 1, 2, 3, 4, 0, 1], [4, 3, 2, 1, 0, 4, 3]],
+            dtype=torch.long,
+        )
+
+        with torch.inference_mode():
+            expected = torch.gather(values_cpu, 0, indices_cpu)
+            actual = torch.gather(
+                values_cpu.to("vulkan"),
+                0,
+                indices_cpu.to("vulkan"),
+            )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual.cpu(), atol=1e-4, rtol=1e-4)
+
     def test_topk_with_vulkan_input(self):
         torch.manual_seed(0)
         logits_cpu = torch.randn(17, 8)
