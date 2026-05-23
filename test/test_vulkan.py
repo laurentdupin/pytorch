@@ -3124,6 +3124,96 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertTrue(actual.is_vulkan)
         self._assert_outputs_close(expected, actual.cpu(), atol=1e-4, rtol=1e-4)
 
+    def test_where_self_hymt_logits_processor_shape(self):
+        scores_cpu = torch.tensor(
+            [[
+                -1.5,
+                0.0,
+                2.0,
+                -0.25,
+                3.5,
+                -4.0,
+                1.25,
+                -2.5,
+                0.75,
+                -0.125,
+                6.0,
+                -7.0,
+                8.5,
+                -9.25,
+            ]],
+            dtype=torch.float32,
+        )
+        penalty = 1.2
+
+        with torch.inference_mode():
+            scores_vulkan = scores_cpu.to("vulkan")
+            condition = scores_vulkan < 0
+            self_branch = scores_vulkan * penalty
+            other_branch = scores_vulkan / penalty
+            expected = torch.where(
+                scores_cpu < 0,
+                scores_cpu * penalty,
+                scores_cpu / penalty,
+            )
+            actual = torch.where(condition, self_branch, other_branch)
+            repeat = torch.where(condition, self_branch, other_branch)
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual.cpu(), atol=1e-4, rtol=1e-4)
+        self._assert_outputs_close(actual.cpu(), repeat.cpu(), atol=1e-5, rtol=1e-5)
+
+    def test_where_self_same_shape_float_buffer_matches_cpu(self):
+        torch.manual_seed(0)
+        self_cpu = torch.randn(1, 5)
+        other_cpu = torch.randn(1, 5)
+        condition_cpu = self_cpu > 0
+
+        with torch.inference_mode():
+            expected = torch.where(condition_cpu, self_cpu, other_cpu)
+            actual = torch.where(
+                condition_cpu.to("vulkan"),
+                self_cpu.to("vulkan"),
+                other_cpu.to("vulkan"),
+            )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual.cpu(), atol=1e-4, rtol=1e-4)
+
+    def test_where_self_unsupported_same_shape_falls_back_to_cpu(self):
+        torch.manual_seed(0)
+        self_cpu = torch.randn(3, 5)
+        other_cpu = torch.randn(3, 5)
+        condition_cpu = self_cpu > 0
+
+        with torch.inference_mode():
+            expected = torch.where(condition_cpu, self_cpu, other_cpu)
+            actual = torch.where(
+                condition_cpu.to("vulkan"),
+                self_cpu.to("vulkan"),
+                other_cpu.to("vulkan"),
+            )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual.cpu(), atol=1e-4, rtol=1e-4)
+
+    def test_where_self_broadcast_falls_back_to_cpu(self):
+        torch.manual_seed(0)
+        self_cpu = torch.randn(3, 5)
+        other_cpu = torch.randn(3, 5)
+        condition_cpu = torch.tensor([[True, False, True, False, True]])
+
+        with torch.inference_mode():
+            expected = torch.where(condition_cpu, self_cpu, other_cpu)
+            actual = torch.where(
+                condition_cpu.to("vulkan"),
+                self_cpu.to("vulkan"),
+                other_cpu.to("vulkan"),
+            )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual.cpu(), atol=1e-4, rtol=1e-4)
+
     def test_topk_with_vulkan_input(self):
         torch.manual_seed(0)
         logits_cpu = torch.randn(17, 8)
