@@ -7847,6 +7847,45 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
                     self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
 
+    def test_scaled_dot_product_attention_hymt_decode_gqa_matches_cpu(self):
+        torch.manual_seed(0)
+        scale = 0.0883883
+        with torch.inference_mode():
+            for source_len in (1, 15, 32):
+                with self.subTest(source_len=source_len):
+                    query = torch.randn(1, 16, 1, 128)
+                    key = torch.randn(1, 4, source_len, 128)
+                    value = torch.randn(1, 4, source_len, 128)
+                    expected = F.scaled_dot_product_attention(
+                        query,
+                        key,
+                        value,
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=scale,
+                        enable_gqa=True,
+                    )
+                    actual = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=scale,
+                        enable_gqa=True,
+                    ).cpu()
+                    repeat = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=scale,
+                        enable_gqa=True,
+                    ).cpu()
+                    self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                    self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
+
     def test_vulkan_dispatch_tables_expose_backend_kernels(self):
         dispatch_expectations = {
             "aten::mm": ("Vulkan: registered at", "Mm.cpp"),
