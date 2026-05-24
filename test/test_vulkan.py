@@ -6066,6 +6066,35 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(torch.bitwise_and(x, y), actual.cpu())
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
 
+    def test_maximum_scalar_metadata_hymt_dynamic_rope_shape(self):
+        position_ids = torch.arange(14, dtype=torch.int64).unsqueeze(0)
+        position_ids_vulkan = position_ids.to("vulkan")
+
+        with torch.inference_mode():
+            seq_len = torch.max(position_ids_vulkan) + 1
+            limit = torch.tensor(32768, dtype=seq_len.dtype, device=seq_len.device)
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = torch.maximum(seq_len, limit)
+
+        expected = torch.maximum(
+            torch.max(position_ids) + 1,
+            torch.tensor(32768, dtype=torch.int64),
+        )
+        self.assertEqual(expected, actual.cpu())
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
+    def test_maximum_scalar_metadata_out_matches_cpu(self):
+        left = torch.tensor(14, dtype=torch.int64)
+        right = torch.tensor(32768, dtype=torch.int64)
+        out = torch.empty((), dtype=torch.int64).to("vulkan")
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        with torch.inference_mode():
+            torch.maximum(left.to("vulkan"), right.to("vulkan"), out=out)
+
+        self.assertEqual(torch.maximum(left, right), out.cpu())
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
     def test_bool_buffer_binary_ops_on_metadata_views(self):
         torch.manual_seed(0)
         x = torch.randint(0, 2, (513, 257), dtype=torch.int32).to(torch.bool)

@@ -13,6 +13,7 @@
 #include <ATen/ops/logical_and.h>
 #include <ATen/ops/logical_not.h>
 #include <ATen/ops/logical_or.h>
+#include <ATen/ops/maximum.h>
 #include <ATen/ops/mul.h>
 #include <ATen/ops/ones_like.h>
 #include <ATen/ops/pow.h>
@@ -1116,6 +1117,38 @@ Tensor bool_not_tensor_cpu_fallback(
   }
   return record_tensor_write_and_return(
       cpu_result.vulkan(), op_name, "bool_not_cpu_fallback", {self_arg});
+}
+
+bool should_run_small_control_tensor_fallback(
+    const Tensor& self_arg,
+    const Tensor& other_arg) {
+  return self_arg.numel() <= 16 && other_arg.numel() <= 16;
+}
+
+Tensor maximum_tensor_small_control_cpu_fallback(
+    const Tensor& self_arg,
+    const Tensor& other_arg) {
+  TORCH_CHECK(
+      should_run_small_control_tensor_fallback(self_arg, other_arg),
+      "Vulkan aten::maximum currently supports only small control tensors; "
+      "got self numel=",
+      self_arg.numel(),
+      " and other numel=",
+      other_arg.numel());
+  report_vulkan_cpu_fallback(
+      "aten::maximum", "small_control_cpu_fallback", {self_arg, other_arg});
+  Tensor cpu_result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
+    const Tensor other_cpu = other_arg.is_vulkan() ? other_arg.cpu() : other_arg;
+    cpu_result = at::maximum(self_cpu, other_cpu);
+  }
+  return record_tensor_write_and_return(
+      cpu_result.vulkan(),
+      "aten::maximum",
+      "small_control_cpu_fallback",
+      {self_arg, other_arg});
 }
 
 Tensor binary_op_scalar_cpu_fallback(
@@ -2769,6 +2802,19 @@ static Tensor& logical_not_tensor_out(const Tensor& self, Tensor& out) {
   return bool_not_tensor_out(self, out, "aten::logical_not", true);
 }
 
+static Tensor maximum_tensor(const Tensor& self, const Tensor& other) {
+  return maximum_tensor_small_control_cpu_fallback(self, other);
+}
+
+static Tensor& maximum_tensor_out(
+    const Tensor& self,
+    const Tensor& other,
+    Tensor& out) {
+  const Tensor result = maximum_tensor_small_control_cpu_fallback(self, other);
+  out.copy_(result);
+  return out;
+}
+
 static Tensor div_scalar(const Tensor& self_arg, const Scalar& other) {
   return binary_op_scalar(
       self_arg,
@@ -3203,6 +3249,10 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("aten::logical_not.out"),
       TORCH_FN(logical_not_tensor_out));
+  m.impl(TORCH_SELECTIVE_NAME("aten::maximum"), TORCH_FN(maximum_tensor));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::maximum.out"),
+      TORCH_FN(maximum_tensor_out));
   m.impl(TORCH_SELECTIVE_NAME("aten::div.Scalar"), TORCH_FN(div_scalar));
   m.impl(TORCH_SELECTIVE_NAME("aten::div_.Scalar"), TORCH_FN(div_scalar_));
   m.impl(TORCH_SELECTIVE_NAME("aten::div.Tensor"), TORCH_FN(div_tensor));
