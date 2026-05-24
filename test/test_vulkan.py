@@ -3240,6 +3240,113 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self._assert_outputs_close(expected, actual)
 
+    def test_scatter_src_dim1_2d_hymt_logits_processor_shape(self):
+        torch.manual_seed(0)
+        base_cpu = torch.randn(1, 64)
+        index_cpu = torch.tensor(
+            [[0, 17, 17, 63, 5, 12, 13, 14, 15, 16, 32, 33, 34, 35]],
+            dtype=torch.long,
+        )
+        src_cpu = torch.randn(1, 14)
+
+        with torch.inference_mode():
+            expected = base_cpu.scatter(1, index_cpu, src_cpu)
+            actual = base_cpu.to("vulkan").scatter(
+                1,
+                index_cpu.to("vulkan"),
+                src_cpu.to("vulkan"),
+            )
+            repeat = base_cpu.to("vulkan").scatter(
+                1,
+                index_cpu.to("vulkan"),
+                src_cpu.to("vulkan"),
+            )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual.cpu(), atol=1e-4, rtol=1e-4)
+        self._assert_outputs_close(actual.cpu(), repeat.cpu(), atol=1e-5, rtol=1e-5)
+
+    def test_scatter_src_dim1_2d_int32_indices_falls_back_to_cpu(self):
+        torch.manual_seed(0)
+        base_cpu = torch.randn(2, 37)
+        index_cpu = torch.tensor(
+            [[0, 2, 36, 2], [4, 5, 6, 4]],
+            dtype=torch.int,
+        )
+        src_cpu = torch.randn(2, 4)
+
+        with torch.inference_mode():
+            expected = base_cpu.scatter(1, index_cpu, src_cpu)
+            actual = base_cpu.to("vulkan").scatter(
+                1,
+                index_cpu.to("vulkan"),
+                src_cpu.to("vulkan"),
+            )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual.cpu(), atol=1e-4, rtol=1e-4)
+
+    def test_scatter_src_dim1_2d_large_vocab_shape(self):
+        torch.manual_seed(0)
+        base_cpu = torch.randn(1, 120818)
+        index_cpu = torch.tensor(
+            [[0, 17, 4096, 120817, 512, 4097, 9, 42, 1000, 65535, 13, 14, 15, 16]],
+            dtype=torch.long,
+        )
+        src_cpu = torch.randn(1, 14)
+
+        with torch.inference_mode():
+            expected = base_cpu.scatter(1, index_cpu, src_cpu)
+            actual = base_cpu.to("vulkan").scatter(
+                1,
+                index_cpu.to("vulkan"),
+                src_cpu.to("vulkan"),
+            )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual.cpu(), atol=1e-4, rtol=1e-4)
+
+    def test_scatter_src_dim1_2d_out_with_vulkan_inputs(self):
+        torch.manual_seed(0)
+        base_cpu = torch.randn(1, 64)
+        index_cpu = torch.tensor([[0, 17, 17, 63]], dtype=torch.long)
+        src_cpu = torch.randn(1, 4)
+
+        with torch.inference_mode():
+            expected = base_cpu.scatter(1, index_cpu, src_cpu)
+            out = torch.empty_like(base_cpu).to("vulkan")
+            result = torch.scatter(
+                base_cpu.to("vulkan"),
+                1,
+                index_cpu.to("vulkan"),
+                src_cpu.to("vulkan"),
+                out=out,
+            )
+
+        self.assertIs(result, out)
+        self.assertTrue(out.is_vulkan)
+        self._assert_outputs_close(expected, out.cpu(), atol=1e-4, rtol=1e-4)
+
+    def test_scatter_src_unsupported_dim_falls_back_to_cpu(self):
+        torch.manual_seed(0)
+        base_cpu = torch.randn(5, 7)
+        index_cpu = torch.tensor(
+            [[0, 1, 2, 3, 4, 0, 1], [4, 3, 2, 1, 0, 4, 3]],
+            dtype=torch.long,
+        )
+        src_cpu = torch.randn(2, 7)
+
+        with torch.inference_mode():
+            expected = base_cpu.scatter(0, index_cpu, src_cpu)
+            actual = base_cpu.to("vulkan").scatter(
+                0,
+                index_cpu.to("vulkan"),
+                src_cpu.to("vulkan"),
+            )
+
+        self.assertTrue(actual.is_vulkan)
+        self._assert_outputs_close(expected, actual.cpu(), atol=1e-4, rtol=1e-4)
+
     def test_sort_with_vulkan_input(self):
         torch.manual_seed(0)
         logits_cpu = torch.randn(17, 8)

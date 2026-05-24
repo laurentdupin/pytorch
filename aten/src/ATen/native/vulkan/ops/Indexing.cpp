@@ -396,6 +396,30 @@ Tensor gather_cpu_fallback(
   return upload_cpu_result_to_vulkan(result_cpu, result_cpu.sizes(), self);
 }
 
+Tensor scatter_src_cpu_fallback(
+    const Tensor& self,
+    int64_t dim,
+    const Tensor& index,
+    const Tensor& src,
+    const char* reason) {
+  report_vulkan_cpu_fallback(
+      "aten::scatter.src",
+      reason,
+      {self, index, src},
+      VulkanCpuFallbackKind::SyncReadback);
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor self_cpu = self.is_vulkan() ? self.detach().cpu() : self.detach();
+    const Tensor index_cpu =
+        index.is_vulkan() ? index.detach().cpu() : index.detach();
+    const Tensor src_cpu = src.is_vulkan() ? src.detach().cpu() : src.detach();
+    result_cpu = at::scatter(self_cpu, dim, index_cpu, src_cpu);
+  }
+  return upload_cpu_result_to_vulkan(result_cpu, result_cpu.sizes(), self);
+}
+
 bool can_gather_dim1_2d_buffer_float(
     const Tensor& self,
     int64_t normalized_dim,
@@ -509,6 +533,169 @@ Tensor gather_dim1_2d_buffer_float(
 
   return record_tensor_write_and_return(
       convert(v_output), "aten::gather", "dim1_2d_buffer_float", {self, index});
+}
+
+bool can_scatter_src_dim1_2d_buffer_float(
+    const Tensor& self,
+    int64_t normalized_dim,
+    const Tensor& index,
+    const Tensor& src) {
+  return self.is_vulkan() && index.is_vulkan() && src.is_vulkan() &&
+      self.scalar_type() == kFloat && src.scalar_type() == kFloat &&
+      index.scalar_type() == kLong && self.dim() == 2 && index.dim() == 2 &&
+      src.dim() == 2 && normalized_dim == 1 && self.size(0) == index.size(0) &&
+      index.sizes().equals(src.sizes());
+}
+
+api::StorageBuffer make_scatter_dim1_index_buffer(
+    api::Context* const context,
+    const Tensor& index,
+    int64_t input_cols) {
+  Tensor index_host = index.cpu().contiguous();
+  const int64_t num_indices = index_host.numel();
+  api::StorageBuffer index_buffer(context, api::kInt, num_indices);
+  api::MemoryMap mapping(index_buffer.buffer(), api::MemoryAccessType::WRITE);
+  int32_t* const dst = mapping.template data<int32_t>();
+
+  if (index_host.scalar_type() == kLong) {
+    const int64_t* const src = index_host.const_data_ptr<int64_t>();
+    for (const auto idx : c10::irange(num_indices)) {
+      const int64_t value = src[idx];
+      TORCH_CHECK_INDEX(
+          value >= 0 && value < input_cols,
+          "Vulkan scatter: index ",
+          value,
+          " is out of bounds for dimension 1 with size ",
+          input_cols);
+      dst[idx] = safe_downcast<int32_t>(value);
+    }
+  } else {
+    const int32_t* const src = index_host.const_data_ptr<int32_t>();
+    for (const auto idx : c10::irange(num_indices)) {
+      const int64_t value = src[idx];
+      TORCH_CHECK_INDEX(
+          value >= 0 && value < input_cols,
+          "Vulkan scatter: index ",
+          value,
+          " is out of bounds for dimension 1 with size ",
+          input_cols);
+      dst[idx] = src[idx];
+    }
+  }
+
+  return index_buffer;
+}
+
+Tensor scatter_src_dim1_2d_buffer_float(
+    const Tensor& self,
+    int64_t normalized_dim,
+    const Tensor& index,
+    const Tensor& src) {
+  if (!can_scatter_src_dim1_2d_buffer_float(
+          self, normalized_dim, index, src)) {
+    return scatter_src_cpu_fallback(
+        self, normalized_dim, index, src, "unsupported_shape");
+  }
+
+  const int64_t batch_count = self.size(0);
+  const int64_t input_cols = self.size(1);
+  const int64_t scatter_cols = index.size(1);
+  api::Context* const context = api::context();
+  api::StorageBuffer index_buffer =
+      make_scatter_dim1_index_buffer(context, index, input_cols);
+
+  vTensor v_self = convert(self);
+  if (
+      v_self.storage_type() != api::StorageType::BUFFER ||
+      !v_self.has_direct_buffer_layout() ||
+      v_self.gpu_memory_layout() !=
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED) {
+    v_self = utils::materialize_to_contiguous_buffer(
+        v_self, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  }
+
+  vTensor v_src = convert(src);
+  if (
+      v_src.storage_type() != api::StorageType::BUFFER ||
+      !v_src.has_direct_buffer_layout() ||
+      v_src.gpu_memory_layout() !=
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED) {
+    v_src = utils::materialize_to_contiguous_buffer(
+        v_src, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  }
+
+  vTensor v_output{
+      context,
+      self.sizes().vec(),
+      convert_dtype(self.scalar_type()),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const struct Block final {
+    ivec4 info;
+  } block{
+      safe_downcast<int32_t>(input_cols),
+      safe_downcast<int32_t>(scatter_cols),
+      safe_downcast<int32_t>(batch_count),
+      0,
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size{
+      safe_downcast<uint32_t>(input_cols),
+      safe_downcast<uint32_t>(batch_count),
+      1u,
+  };
+
+  context->submit_compute_job(
+      VK_KERNEL(scatter_src_dim1_2d_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      index_buffer.buffer(),
+      v_src.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      params.buffer());
+
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::scatter",
+      "dim1_2d_buffer_float",
+      {self, index, src});
+}
+
+Tensor scatter_src(
+    const Tensor& self,
+    int64_t dim,
+    const Tensor& index,
+    const Tensor& src) {
+  api::AllocationScope allocation_scope("scatter_src");
+  const int64_t normalized_dim = maybe_wrap_dim(dim, self.dim());
+  return scatter_src_dim1_2d_buffer_float(self, normalized_dim, index, src);
+}
+
+Tensor& scatter_src_out(
+    const Tensor& self,
+    int64_t dim,
+    const Tensor& index,
+    const Tensor& src,
+    Tensor& out) {
+  api::AllocationScope allocation_scope("scatter_src_out");
+  Tensor result = scatter_src(self, dim, index, src);
+  if (out.is_vulkan()) {
+    ops::copy_(out, result);
+    record_tensor_write(out, "aten::scatter", "src_out", {self, index, src});
+  } else {
+    out.copy_(result.cpu());
+  }
+  return out;
 }
 
 Tensor gather_vulkan(
@@ -923,6 +1110,10 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("aten::scatter.value_out"),
       TORCH_FN(scatter_value_out));
+  m.impl(TORCH_SELECTIVE_NAME("aten::scatter.src"), TORCH_FN(scatter_src));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::scatter.src_out"),
+      TORCH_FN(scatter_src_out));
   m.impl(TORCH_SELECTIVE_NAME("aten::sort"), TORCH_FN(sort_default));
   m.impl(TORCH_SELECTIVE_NAME("aten::sort.stable"), TORCH_FN(sort_stable));
   m.impl(TORCH_SELECTIVE_NAME("aten::sort.values"), TORCH_FN(sort_values_out));
