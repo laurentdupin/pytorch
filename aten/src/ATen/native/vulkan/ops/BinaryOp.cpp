@@ -5,9 +5,13 @@
 #else
 #include <ATen/ops/add.h>
 #include <ATen/ops/as_strided.h>
+#include <ATen/ops/bitwise_and.h>
+#include <ATen/ops/bitwise_not.h>
 #include <ATen/ops/bitwise_or.h>
 #include <ATen/ops/div.h>
 #include <ATen/ops/floor_divide.h>
+#include <ATen/ops/logical_and.h>
+#include <ATen/ops/logical_not.h>
 #include <ATen/ops/logical_or.h>
 #include <ATen/ops/mul.h>
 #include <ATen/ops/ones_like.h>
@@ -1077,6 +1081,43 @@ Tensor bool_or_tensor_cpu_fallback(
       {self_arg, other_arg});
 }
 
+Tensor bool_and_tensor_cpu_fallback(
+    const Tensor& self_arg,
+    const Tensor& other_arg,
+    const char* op_name,
+    const bool logical) {
+  report_vulkan_cpu_fallback(
+      op_name, "bool_and_cpu_fallback", {self_arg, other_arg});
+  Tensor cpu_result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
+    const Tensor other_cpu = other_arg.is_vulkan() ? other_arg.cpu() : other_arg;
+    cpu_result = logical ? at::logical_and(self_cpu, other_cpu)
+                         : at::bitwise_and(self_cpu, other_cpu);
+  }
+  return record_tensor_write_and_return(
+      cpu_result.vulkan(),
+      op_name,
+      "bool_and_cpu_fallback",
+      {self_arg, other_arg});
+}
+
+Tensor bool_not_tensor_cpu_fallback(
+    const Tensor& self_arg,
+    const char* op_name,
+    const bool logical) {
+  report_vulkan_cpu_fallback(op_name, "bool_not_cpu_fallback", {self_arg});
+  Tensor cpu_result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
+    cpu_result = logical ? at::logical_not(self_cpu) : at::bitwise_not(self_cpu);
+  }
+  return record_tensor_write_and_return(
+      cpu_result.vulkan(), op_name, "bool_not_cpu_fallback", {self_arg});
+}
+
 Tensor binary_op_scalar_cpu_fallback(
     const Tensor& self_arg,
     const Scalar& other,
@@ -2060,6 +2101,21 @@ static Tensor bool_or_tensor_native(
   return bool_or_tensor_cpu_fallback(self_arg, other_arg, op_name, logical);
 }
 
+static Tensor bool_and_tensor_native(
+    const Tensor& self_arg,
+    const Tensor& other_arg,
+    const char* op_name,
+    const bool logical) {
+  return bool_and_tensor_cpu_fallback(self_arg, other_arg, op_name, logical);
+}
+
+static Tensor bool_not_tensor_native(
+    const Tensor& self_arg,
+    const char* op_name,
+    const bool logical) {
+  return bool_not_tensor_cpu_fallback(self_arg, op_name, logical);
+}
+
 static Tensor& bool_or_tensor_out(
     const Tensor& self,
     const Tensor& other,
@@ -2076,6 +2132,43 @@ static Tensor& bool_or_tensor_out(
     cpu_result =
         logical ? at::logical_or(self_cpu, other_cpu)
                 : at::bitwise_or(self_cpu, other_cpu);
+  }
+  out.copy_(cpu_result);
+  return out;
+}
+
+static Tensor& bool_and_tensor_out(
+    const Tensor& self,
+    const Tensor& other,
+    Tensor& out,
+    const char* op_name,
+    const bool logical) {
+  report_vulkan_cpu_fallback(
+      op_name, "bool_and_out_cpu_fallback", {self, other, out});
+  Tensor cpu_result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
+    const Tensor other_cpu = other.is_vulkan() ? other.cpu() : other;
+    cpu_result =
+        logical ? at::logical_and(self_cpu, other_cpu)
+                : at::bitwise_and(self_cpu, other_cpu);
+  }
+  out.copy_(cpu_result);
+  return out;
+}
+
+static Tensor& bool_not_tensor_out(
+    const Tensor& self,
+    Tensor& out,
+    const char* op_name,
+    const bool logical) {
+  report_vulkan_cpu_fallback(op_name, "bool_not_out_cpu_fallback", {self, out});
+  Tensor cpu_result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
+    cpu_result = logical ? at::logical_not(self_cpu) : at::bitwise_not(self_cpu);
   }
   out.copy_(cpu_result);
   return out;
@@ -2638,6 +2731,44 @@ static Tensor& logical_or_tensor_out(
   return bool_or_tensor_out(self, other, out, "aten::logical_or", true);
 }
 
+static Tensor bitwise_and_tensor(const Tensor& self, const Tensor& other) {
+  return bool_and_tensor_native(self, other, "aten::bitwise_and", false);
+}
+
+static Tensor& bitwise_and_tensor_out(
+    const Tensor& self,
+    const Tensor& other,
+    Tensor& out) {
+  return bool_and_tensor_out(self, other, out, "aten::bitwise_and", false);
+}
+
+static Tensor logical_and_tensor(const Tensor& self, const Tensor& other) {
+  return bool_and_tensor_native(self, other, "aten::logical_and", true);
+}
+
+static Tensor& logical_and_tensor_out(
+    const Tensor& self,
+    const Tensor& other,
+    Tensor& out) {
+  return bool_and_tensor_out(self, other, out, "aten::logical_and", true);
+}
+
+static Tensor bitwise_not_tensor(const Tensor& self) {
+  return bool_not_tensor_native(self, "aten::bitwise_not", false);
+}
+
+static Tensor& bitwise_not_tensor_out(const Tensor& self, Tensor& out) {
+  return bool_not_tensor_out(self, out, "aten::bitwise_not", false);
+}
+
+static Tensor logical_not_tensor(const Tensor& self) {
+  return bool_not_tensor_native(self, "aten::logical_not", true);
+}
+
+static Tensor& logical_not_tensor_out(const Tensor& self, Tensor& out) {
+  return bool_not_tensor_out(self, out, "aten::logical_not", true);
+}
+
 static Tensor div_scalar(const Tensor& self_arg, const Scalar& other) {
   return binary_op_scalar(
       self_arg,
@@ -3048,6 +3179,30 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("aten::logical_or.out"),
       TORCH_FN(logical_or_tensor_out));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::bitwise_and.Tensor"),
+      TORCH_FN(bitwise_and_tensor));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::bitwise_and.Tensor_out"),
+      TORCH_FN(bitwise_and_tensor_out));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::logical_and"),
+      TORCH_FN(logical_and_tensor));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::logical_and.out"),
+      TORCH_FN(logical_and_tensor_out));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::bitwise_not"),
+      TORCH_FN(bitwise_not_tensor));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::bitwise_not.out"),
+      TORCH_FN(bitwise_not_tensor_out));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::logical_not"),
+      TORCH_FN(logical_not_tensor));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::logical_not.out"),
+      TORCH_FN(logical_not_tensor_out));
   m.impl(TORCH_SELECTIVE_NAME("aten::div.Scalar"), TORCH_FN(div_scalar));
   m.impl(TORCH_SELECTIVE_NAME("aten::div_.Scalar"), TORCH_FN(div_scalar_));
   m.impl(TORCH_SELECTIVE_NAME("aten::div.Tensor"), TORCH_FN(div_tensor));

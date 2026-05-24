@@ -5967,6 +5967,105 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(torch.bitwise_or(x, y), actual.cpu())
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
 
+    def test_bool_buffer_and_not_hymt_stopping_criteria_shape(self):
+        cases = (
+            (False, False),
+            (False, True),
+            (True, False),
+            (True, True),
+        )
+        with torch.inference_mode():
+            for left, right in cases:
+                x = torch.tensor([left], dtype=torch.bool)
+                y = torch.tensor([right], dtype=torch.bool)
+                x_vulkan = x.to("vulkan")
+                y_vulkan = y.to("vulkan")
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+
+                self.assertEqual((x & y), (x_vulkan & y_vulkan).cpu())
+                self.assertEqual(
+                    torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
+                actual = torch.bitwise_and(x_vulkan, y_vulkan)
+                self.assertEqual(torch.bitwise_and(x, y), actual.cpu())
+
+                out = torch.empty_like(x_vulkan)
+                torch.bitwise_and(x_vulkan, y_vulkan, out=out)
+                self.assertEqual(torch.bitwise_and(x, y), out.cpu())
+
+                logical = torch.logical_and(x_vulkan, y_vulkan)
+                self.assertEqual(torch.logical_and(x, y), logical.cpu())
+
+                logical_out = torch.empty_like(x_vulkan)
+                torch.logical_and(x_vulkan, y_vulkan, out=logical_out)
+                self.assertEqual(torch.logical_and(x, y), logical_out.cpu())
+
+                self.assertEqual((~x), (~x_vulkan).cpu())
+
+                bitwise_not = torch.bitwise_not(x_vulkan)
+                self.assertEqual(torch.bitwise_not(x), bitwise_not.cpu())
+
+                bitwise_not_out = torch.empty_like(x_vulkan)
+                torch.bitwise_not(x_vulkan, out=bitwise_not_out)
+                self.assertEqual(torch.bitwise_not(x), bitwise_not_out.cpu())
+
+                logical_not = torch.logical_not(x_vulkan)
+                self.assertEqual(torch.logical_not(x), logical_not.cpu())
+
+                logical_not_out = torch.empty_like(x_vulkan)
+                torch.logical_not(x_vulkan, out=logical_not_out)
+                self.assertEqual(torch.logical_not(x), logical_not_out.cpu())
+
+                combined = x_vulkan & ~y_vulkan
+                self.assertEqual((x & ~y), combined.cpu())
+
+    def test_bool_buffer_and_not_repeated_run_determinism(self):
+        x = torch.tensor([True], dtype=torch.bool)
+        y = torch.tensor([False], dtype=torch.bool)
+        x_vulkan = x.to("vulkan")
+        y_vulkan = y.to("vulkan")
+
+        with torch.inference_mode():
+            expected_and = torch.bitwise_and(x, y)
+            first_and = torch.bitwise_and(x_vulkan, y_vulkan).cpu()
+            second_and = torch.bitwise_and(x_vulkan, y_vulkan).cpu()
+            expected_not = torch.bitwise_not(y)
+            first_not = torch.bitwise_not(y_vulkan).cpu()
+            second_not = torch.bitwise_not(y_vulkan).cpu()
+
+        self.assertEqual(expected_and, first_and)
+        self.assertEqual(expected_and, second_and)
+        self.assertEqual(expected_not, first_not)
+        self.assertEqual(expected_not, second_not)
+
+    def test_bool_buffer_and_not_unsupported_cases_fall_back(self):
+        x = torch.tensor([False, True, False, True], dtype=torch.bool)
+        y = torch.tensor([False, False, True, True], dtype=torch.bool)
+        x_vulkan = x.to("vulkan")
+        y_vulkan = y.to("vulkan")
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        with torch.inference_mode():
+            actual_and = torch.bitwise_and(x_vulkan, y_vulkan)
+            actual_not = torch.bitwise_not(x_vulkan)
+
+        self.assertEqual(torch.bitwise_and(x, y), actual_and.cpu())
+        self.assertEqual(torch.bitwise_not(x), actual_not.cpu())
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 2)
+
+    def test_bool_buffer_and_broadcast_falls_back(self):
+        x = torch.tensor([False, True, False], dtype=torch.bool)
+        y = torch.tensor([[False, True, False]], dtype=torch.bool)
+        x_vulkan = x.to("vulkan")
+        y_vulkan = y.to("vulkan")
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        with torch.inference_mode():
+            actual = torch.bitwise_and(x_vulkan, y_vulkan)
+
+        self.assertEqual(torch.bitwise_and(x, y), actual.cpu())
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
     def test_bool_buffer_binary_ops_on_metadata_views(self):
         torch.manual_seed(0)
         x = torch.randint(0, 2, (513, 257), dtype=torch.int32).to(torch.bool)
