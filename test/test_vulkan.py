@@ -9490,6 +9490,72 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             any("packed_weight_residency_summary" in row for row in packed_rows)
         )
 
+    def test_vulkan_linear_weight_cache_reuse_and_invalidation(self):
+        torch.manual_seed(0)
+        torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
+        linear = torch.nn.Linear(64, 128).eval().to("vulkan")
+        x_cpu = torch.randn(1, 32, 64)
+        x = x_cpu.to("vulkan")
+
+        for _ in range(5):
+            y = linear(x)
+        torch.ops.vulkan_prepack.synchronize()
+
+        expected = torch.nn.functional.linear(
+            x_cpu, linear.weight.cpu(), linear.bias.cpu()
+        )
+        self.assertEqual(y.cpu(), expected)
+        rows = torch.ops.vulkan_prepack.linear_pack_residency_snapshot()
+        self.assertTrue(
+            any(
+                "weight_shape=[64,128]" in row
+                and "count=5" in row
+                and "created=1" in row
+                and "reused=4" in row
+                for row in rows
+            )
+        )
+
+        with torch.no_grad():
+            linear.weight.copy_(torch.randn_like(linear.weight.cpu()).to("vulkan"))
+
+        y = linear(x)
+        torch.ops.vulkan_prepack.synchronize()
+
+        expected = torch.nn.functional.linear(
+            x_cpu, linear.weight.cpu(), linear.bias.cpu()
+        )
+        self.assertEqual(y.cpu(), expected)
+        rows = torch.ops.vulkan_prepack.linear_pack_residency_snapshot()
+        self.assertTrue(
+            any(
+                "weight_shape=[64,128]" in row
+                and "count=6" in row
+                and "created=2" in row
+                and "reused=4" in row
+                for row in rows
+            )
+        )
+
+        other = torch.nn.Linear(64, 128).eval().to("vulkan")
+        y = other(x)
+        torch.ops.vulkan_prepack.synchronize()
+
+        expected = torch.nn.functional.linear(
+            x_cpu, other.weight.cpu(), other.bias.cpu()
+        )
+        self.assertEqual(y.cpu(), expected)
+        rows = torch.ops.vulkan_prepack.linear_pack_residency_snapshot()
+        self.assertTrue(
+            any(
+                "weight_shape=[64,128]" in row
+                and "count=7" in row
+                and "created=3" in row
+                and "reused=4" in row
+                for row in rows
+            )
+        )
+
     def test_vulkan_vision_stack_execution_manifest_reports_capture_blocker(self):
         torch.manual_seed(0)
         embed_dim = 384

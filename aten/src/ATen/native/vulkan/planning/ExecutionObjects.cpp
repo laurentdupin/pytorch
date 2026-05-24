@@ -77,9 +77,9 @@ std::optional<TensorWeakRef> make_tensor_weak_ref(const Tensor& tensor) {
   return TensorWeakRef(tensor.getIntrusivePtr());
 }
 
-const TensorBase& packed_weight_identity_tensor(const Tensor& tensor) {
+TensorBase packed_weight_identity_tensor(const Tensor& tensor) {
   if (tensor.defined() && tensor.is_view()) {
-    const TensorBase& base = tensor._base();
+    const TensorBase base = tensor._base();
     if (base.defined()) {
       return base;
     }
@@ -92,7 +92,8 @@ std::optional<TensorWeakRef> make_packed_weight_weak_ref(
   if (!tensor.defined()) {
     return std::nullopt;
   }
-  return TensorWeakRef(packed_weight_identity_tensor(tensor).getIntrusivePtr());
+  const TensorBase identity = packed_weight_identity_tensor(tensor);
+  return TensorWeakRef(identity.getIntrusivePtr());
 }
 
 bool packed_weight_ref_matches_tensor(
@@ -101,8 +102,9 @@ bool packed_weight_ref_matches_tensor(
   if (!ref.has_value() || !tensor.defined()) {
     return false;
   }
-  return !ref->expired() && ref->_unsafe_get_target() ==
-      packed_weight_identity_tensor(tensor).unsafeGetTensorImpl();
+  const TensorBase identity = packed_weight_identity_tensor(tensor);
+  return !ref->expired() &&
+      ref->_unsafe_get_target() == identity.unsafeGetTensorImpl();
 }
 
 std::optional<StorageWeakRef> make_storage_weak_ref(const Tensor& tensor) {
