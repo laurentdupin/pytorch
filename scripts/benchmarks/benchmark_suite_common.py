@@ -79,6 +79,9 @@ VULKAN_COUNTER_NAMES = (
     "stack_replay_counters",
     "attention_plan_counters",
     "linear_plan_counters",
+    "linear_pack_residency_snapshot",
+    "vulkan_memory_residency_snapshot",
+    "packed_weight_residency_snapshot",
 )
 
 

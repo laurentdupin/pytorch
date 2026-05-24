@@ -121,6 +121,17 @@ struct VulkanLinearAggregateValue final {
   uint64_t output_bytes = 0u;
 };
 
+struct VulkanLinearPackResidencyValue final {
+  uint64_t count = 0u;
+  uint64_t created = 0u;
+  uint64_t reused = 0u;
+  uint64_t packed_bytes = 0u;
+  uint64_t raw_weight_bytes = 0u;
+  uint64_t raw_bias_bytes = 0u;
+  uint64_t raw_weight_vulkan = 0u;
+  uint64_t retain_unpacked = 0u;
+};
+
 VulkanLinearPlanCounters& linear_plan_counters() {
   static VulkanLinearPlanCounters counters;
   return counters;
@@ -135,6 +146,69 @@ std::unordered_map<std::string, VulkanLinearAggregateValue>&
 linear_aggregate() {
   static std::unordered_map<std::string, VulkanLinearAggregateValue> aggregate;
   return aggregate;
+}
+
+std::mutex& linear_pack_residency_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_map<std::string, VulkanLinearPackResidencyValue>&
+linear_pack_residency_aggregate() {
+  static auto* aggregate =
+      new std::unordered_map<std::string, VulkanLinearPackResidencyValue>();
+  return *aggregate;
+}
+
+std::string format_linear_shape(IntArrayRef shape) {
+  std::ostringstream stream;
+  stream << "[";
+  for (const auto i : c10::irange(shape.size())) {
+    if (i > 0) {
+      stream << ",";
+    }
+    stream << shape[i];
+  }
+  stream << "]";
+  return stream.str();
+}
+
+uint64_t tensor_nbytes_for_diagnostics(const Tensor& tensor) {
+  if (!tensor.defined()) {
+    return 0u;
+  }
+  return static_cast<uint64_t>(tensor.numel()) *
+      static_cast<uint64_t>(tensor.element_size());
+}
+
+void note_linear_pack_residency(
+    const Tensor& weight,
+    const std::optional<Tensor>& bias,
+    const PackedWeightHandle& handle,
+    const bool reused,
+    const bool retain_unpacked,
+    const bool use_batch,
+    const bool use_buffer_packed_weights) {
+  std::ostringstream key;
+  key << "weight_shape=" << format_linear_shape(weight.sizes())
+      << " dtype=" << weight.scalar_type()
+      << " use_batch=" << (use_batch ? 1 : 0)
+      << " buffer_packed=" << (use_buffer_packed_weights ? 1 : 0)
+      << " has_bias=" << (bias && bias->defined() ? 1 : 0);
+  std::lock_guard<std::mutex> lock(linear_pack_residency_mutex());
+  auto& value = linear_pack_residency_aggregate()[key.str()];
+  value.count += 1u;
+  if (reused) {
+    value.reused += 1u;
+  } else {
+    value.created += 1u;
+  }
+  value.packed_bytes += static_cast<uint64_t>(handle.resident_nbytes());
+  value.raw_weight_bytes += tensor_nbytes_for_diagnostics(weight);
+  value.raw_bias_bytes +=
+      bias && bias->defined() ? tensor_nbytes_for_diagnostics(*bias) : 0u;
+  value.raw_weight_vulkan += weight.is_vulkan() ? 1u : 0u;
+  value.retain_unpacked += retain_unpacked ? 1u : 0u;
 }
 
 static inline bool is_aligned_i64(const int64_t value, const int64_t alignment) {
@@ -3633,6 +3707,40 @@ std::vector<std::string> linear_aggregate_snapshot() {
   return snapshot;
 }
 
+std::vector<std::string> linear_pack_residency_snapshot() {
+  std::vector<std::pair<std::string, VulkanLinearPackResidencyValue>> rows;
+  {
+    std::lock_guard<std::mutex> guard(linear_pack_residency_mutex());
+    rows.reserve(linear_pack_residency_aggregate().size());
+    for (const auto& item : linear_pack_residency_aggregate()) {
+      rows.emplace_back(item.first, item.second);
+    }
+  }
+  std::sort(rows.begin(), rows.end(), [](const auto& lhs, const auto& rhs) {
+    if (lhs.second.packed_bytes != rhs.second.packed_bytes) {
+      return lhs.second.packed_bytes > rhs.second.packed_bytes;
+    }
+    return lhs.first < rhs.first;
+  });
+
+  std::vector<std::string> snapshot;
+  snapshot.reserve(rows.size());
+  for (const auto& row : rows) {
+    std::ostringstream out;
+    out << "linear_pack_residency " << row.first
+        << " count=" << row.second.count
+        << " created=" << row.second.created
+        << " reused=" << row.second.reused
+        << " packed_bytes=" << row.second.packed_bytes
+        << " raw_weight_bytes=" << row.second.raw_weight_bytes
+        << " raw_bias_bytes=" << row.second.raw_bias_bytes
+        << " raw_weight_vulkan=" << row.second.raw_weight_vulkan
+        << " retain_unpacked=" << row.second.retain_unpacked;
+    snapshot.emplace_back(out.str());
+  }
+  return snapshot;
+}
+
 void reset_linear_plan_counters() {
   VulkanLinearPlanCounters& counters = linear_plan_counters();
   counters.total.store(0, std::memory_order_relaxed);
@@ -3651,6 +3759,11 @@ void reset_linear_plan_counters() {
 void reset_linear_aggregate() {
   std::lock_guard<std::mutex> guard(linear_aggregate_mutex());
   linear_aggregate().clear();
+}
+
+void reset_linear_pack_residency_snapshot() {
+  std::lock_guard<std::mutex> guard(linear_pack_residency_mutex());
+  linear_pack_residency_aggregate().clear();
 }
 
 Tensor bmm_buffer_out_vulkan(
@@ -3693,6 +3806,7 @@ LinearPackedContext::LinearPackedContext(
           weight.is_quantized(),
           pack_options);
   }
+  const bool reused_packed_weight = cached_packed_weight.has_value();
   if (cached_packed_weight) {
     packed_weight_ = *cached_packed_weight;
   } else {
@@ -3782,6 +3896,14 @@ LinearPackedContext::LinearPackedContext(
           pack_options);
     }
   }
+  note_linear_pack_residency(
+      weight,
+      normalized_bias,
+      packed_weight_,
+      reused_packed_weight,
+      retain_unpacked && !at::globalContext().releaseWeightsWhenPrepacking(),
+      use_batch,
+      use_buffer_packed_weights);
 
   if (retain_unpacked && !at::globalContext().releaseWeightsWhenPrepacking()) {
     unpacked_.reserve(Unpacked::NumArgs);

@@ -154,9 +154,13 @@ std::vector<int64_t> linear_plan_counters_snapshot();
 
 std::vector<std::string> linear_aggregate_snapshot();
 
+std::vector<std::string> linear_pack_residency_snapshot();
+
 void reset_linear_plan_counters();
 
 void reset_linear_aggregate();
+
+void reset_linear_pack_residency_snapshot();
 
 } // namespace ops
 } // namespace vulkan

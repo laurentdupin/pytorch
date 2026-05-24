@@ -309,6 +309,8 @@ class TORCH_API Context final {
           pending.bytes,
           stack_recording_active,
           /*accepted=*/true);
+      mark_vulkan_memory_residency_state(
+          pending.buffer.allocation_id(), "stack_batched_retire");
       std::lock_guard<std::mutex> batch_lock(
           stack_internal_temp_retire_batch_mutex_);
       stack_internal_temp_retire_batch_buffers_.push_back(std::move(pending));
@@ -322,6 +324,8 @@ class TORCH_API Context final {
           /*accepted=*/false);
     }
     if (pending.buffer.owns_memory()) {
+      mark_vulkan_memory_residency_state(
+          pending.buffer.allocation_id(), "pending_retire");
       pending_retire_bytes_.fetch_add(
           pending.bytes, std::memory_order_relaxed);
     }
@@ -379,6 +383,8 @@ class TORCH_API Context final {
           pending.bytes,
           stack_recording_active,
           /*accepted=*/true);
+      mark_vulkan_memory_residency_state(
+          pending.image.allocation_id(), "stack_batched_retire");
       std::lock_guard<std::mutex> batch_lock(
           stack_internal_temp_retire_batch_mutex_);
       stack_internal_temp_retire_batch_images_.push_back(std::move(pending));
@@ -392,6 +398,8 @@ class TORCH_API Context final {
           /*accepted=*/false);
     }
     if (pending.image.owns_memory()) {
+      mark_vulkan_memory_residency_state(
+          pending.image.allocation_id(), "pending_retire");
       pending_retire_bytes_.fetch_add(
           pending.bytes, std::memory_order_relaxed);
     }

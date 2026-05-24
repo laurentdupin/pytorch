@@ -15,6 +15,7 @@
 #include <stack>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 std::ostream& operator<<(std::ostream& out, VmaTotalStatistics stats);
 
@@ -26,6 +27,9 @@ namespace api {
 const std::string& current_allocation_label();
 const std::string& current_runtime_label();
 std::string swap_runtime_label(std::string label);
+std::vector<std::string> vulkan_memory_residency_snapshot();
+void reset_vulkan_memory_residency_snapshot();
+void mark_vulkan_memory_residency_state(uint64_t allocation_id, const char* state);
 
 class AllocationScope final {
  public:
@@ -148,6 +152,7 @@ class VulkanBuffer final {
   VmaAllocator allocator_;
   MemoryAllocation memory_;
   VkDeviceSize allocated_size_;
+  uint64_t allocation_id_;
   std::string allocation_label_;
   // Indicates whether the underlying memory is owned by this resource
   bool owns_memory_;
@@ -190,6 +195,10 @@ class VulkanBuffer final {
 
   inline VkDeviceSize allocated_size() const {
     return allocated_size_;
+  }
+
+  inline uint64_t allocation_id() const {
+    return allocation_id_;
   }
 
   inline bool has_memory() const {
@@ -358,6 +367,7 @@ class VulkanImage final {
   // Handles to the allocated memory
   MemoryAllocation memory_;
   VkDeviceSize allocated_size_;
+  uint64_t allocation_id_;
   std::string allocation_label_;
   // Indicates whether the underlying memory is owned by this resource
   bool owns_memory_;
@@ -421,6 +431,10 @@ class VulkanImage final {
 
   inline VkDeviceSize allocated_size() const {
     return allocated_size_;
+  }
+
+  inline uint64_t allocation_id() const {
+    return allocation_id_;
   }
 
   inline void set_layout(const VkImageLayout layout) {

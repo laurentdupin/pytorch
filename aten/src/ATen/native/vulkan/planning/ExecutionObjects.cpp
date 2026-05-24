@@ -54,6 +54,19 @@ void hash_combine_sizes(size_t& seed, const std::vector<int64_t>& sizes) {
   }
 }
 
+std::string format_size_list(const std::vector<int64_t>& sizes) {
+  std::ostringstream stream;
+  stream << "[";
+  for (size_t i = 0; i < sizes.size(); ++i) {
+    if (i > 0u) {
+      stream << ",";
+    }
+    stream << sizes[i];
+  }
+  stream << "]";
+  return stream.str();
+}
+
 using TensorWeakRef = c10::weak_intrusive_ptr<TensorImpl, UndefinedTensorImpl>;
 using StorageWeakRef = c10::weak_intrusive_ptr<c10::StorageImpl>;
 
@@ -493,6 +506,55 @@ class PackedWeightResidencyManager final {
   }
 
  public:
+  std::vector<std::string> snapshot() {
+    std::vector<std::string> rows;
+    std::lock_guard<std::mutex> lock(mutex_);
+    rows.reserve(cache_.size() + 1u);
+
+    size_t live_bytes = 0u;
+    size_t live_persistent_bytes = 0u;
+    for (const PackedWeightResidencyEntry& entry : cache_) {
+      const size_t resident_bytes = entry.handle.resident_nbytes();
+      live_bytes += resident_bytes;
+      if (
+          entry.residency_class ==
+          PackedWeightResidencyClass::PersistentInference) {
+        live_persistent_bytes += resident_bytes;
+      }
+      std::ostringstream stream;
+      stream << "packed_weight_residency"
+             << " state=live"
+             << " kind=" << to_string(entry.kind)
+             << " residency_class=" << to_string(entry.residency_class)
+             << " bytes=" << resident_bytes
+             << " logical_weight_shape="
+             << format_size_list(entry.logical_weight_sizes)
+             << " dtype=" << entry.weight_dtype
+             << " quantized=" << (entry.quantized ? 1 : 0)
+             << " options_key=" << entry.options_key
+             << " source_tensor_alive="
+             << (weak_tensor_ref_alive(entry.weight_ref) ? 1 : 0)
+             << " source_storage_alive="
+             << (weak_storage_ref_alive(entry.weight_storage_ref) ? 1 : 0)
+             << " raw_weight_storage_identity="
+             << reinterpret_cast<uintptr_t>(entry.weight_storage_identity)
+             << " pack_identity="
+             << reinterpret_cast<uintptr_t>(entry.handle.identity());
+      rows.emplace_back(stream.str());
+    }
+
+    std::ostringstream summary;
+    summary << "packed_weight_residency_summary"
+            << " live_entries=" << cache_.size()
+            << " live_bytes=" << live_bytes
+            << " live_persistent_bytes=" << live_persistent_bytes
+            << " cache_limit_bytes=" << packed_weight_cache_limit_bytes()
+            << " manager_cache_bytes=" << cache_bytes_
+            << " manager_persistent_cache_bytes=" << persistent_cache_bytes_;
+    rows.emplace_back(summary.str());
+    return rows;
+  }
+
   std::optional<PackedWeightHandle> lookup(
       const Tensor& source_weight,
       const std::optional<Tensor>& normalized_bias,
@@ -1138,6 +1200,12 @@ bool release_retired_linear_contexts() {
 bool release_retired_packed_weight_entries() {
   return release_retired_packed_weight_entries_impl();
 }
+
+std::vector<std::string> packed_weight_residency_snapshot() {
+  return packed_weight_residency_manager().snapshot();
+}
+
+void reset_packed_weight_residency_snapshot() {}
 
 const char* execution_object_kind_name(const VulkanExecutionObjectKind kind) {
   switch (kind) {

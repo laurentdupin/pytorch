@@ -1678,8 +1678,14 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::linear_plan_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::linear_aggregate_snapshot() -> str[]"));
+  m.def("linear_pack_residency_snapshot() -> str[]");
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_linear_aggregate() -> ()"));
+  m.def("reset_linear_pack_residency_snapshot() -> ()");
+  m.def("vulkan_memory_residency_snapshot() -> str[]");
+  m.def("reset_vulkan_memory_residency_snapshot() -> ()");
+  m.def("packed_weight_residency_snapshot() -> str[]");
+  m.def("reset_packed_weight_residency_snapshot() -> ()");
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::conv_plan_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -1993,8 +1999,26 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::linear_aggregate_snapshot"),
       TORCH_FN(linear_aggregate_snapshot));
   m.impl(
+      "linear_pack_residency_snapshot",
+      TORCH_FN(linear_pack_residency_snapshot));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_linear_aggregate"),
       TORCH_FN(reset_linear_aggregate));
+  m.impl(
+      "reset_linear_pack_residency_snapshot",
+      TORCH_FN(reset_linear_pack_residency_snapshot));
+  m.impl(
+      "vulkan_memory_residency_snapshot",
+      TORCH_FN(api::vulkan_memory_residency_snapshot));
+  m.impl(
+      "reset_vulkan_memory_residency_snapshot",
+      TORCH_FN(api::reset_vulkan_memory_residency_snapshot));
+  m.impl(
+      "packed_weight_residency_snapshot",
+      TORCH_FN(utils::packed_weight_residency_snapshot));
+  m.impl(
+      "reset_packed_weight_residency_snapshot",
+      TORCH_FN(utils::reset_packed_weight_residency_snapshot));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::conv_plan_counters"),
       TORCH_FN(conv_plan_counters_snapshot));

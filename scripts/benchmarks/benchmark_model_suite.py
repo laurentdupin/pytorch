@@ -981,6 +981,29 @@ def run_text_generation(
                 )
             record.failure["vulkan_failure_counters"] = failure_counters
             if reason == "model_weight_vulkan_oom":
+                raw_vs_packed = {
+                    "model_name": model_name,
+                    "model_id": model_id,
+                    "backend": backend,
+                    "raw_model_parameters": vulkan_parameter_summary,
+                    "linear_pack_residency_snapshot": failure_counters.get(
+                        "linear_pack_residency_snapshot", []
+                    ),
+                    "packed_weight_residency_snapshot": failure_counters.get(
+                        "packed_weight_residency_snapshot", []
+                    ),
+                    "vulkan_memory_residency_snapshot": failure_counters.get(
+                        "vulkan_memory_residency_snapshot", []
+                    ),
+                    "linear_forward_diagnostics": record.failure.get(
+                        "linear_forward_diagnostics", {}
+                    ),
+                }
+                raw_vs_packed_path = (
+                    Path("agent_space")
+                    / "hymt_raw_vs_packed_weight_residency.json"
+                )
+                write_json_artifact(raw_vs_packed_path, raw_vs_packed)
                 memory_summary = {
                     "model_name": model_name,
                     "model_id": model_id,
@@ -999,9 +1022,9 @@ def run_text_generation(
                         failure_counters
                     ),
                     "notes": {
-                        "live_vulkan_buffer_bytes": "not exposed by current debug counters",
+                        "live_vulkan_buffer_bytes": "reported by vulkan_memory_residency_snapshot",
                         "retire_poll_before_failed_pack": "not attempted; diagnostics only",
-                        "packed_weight_bytes_are_estimated_from_linear_weights": True,
+                        "packed_weight_bytes_are_reported_by_linear_pack_residency_snapshot": True,
                     },
                 }
                 memory_summary_path = (
@@ -1010,6 +1033,9 @@ def run_text_generation(
                 write_json_artifact(memory_summary_path, memory_summary)
                 record.failure["linear_pack_memory_summary_path"] = str(
                     memory_summary_path.resolve()
+                )
+                record.failure["raw_vs_packed_weight_residency_path"] = str(
+                    raw_vs_packed_path.resolve()
                 )
             if linear_diag:
                 remove_linear_forward_diagnostics(linear_diag)

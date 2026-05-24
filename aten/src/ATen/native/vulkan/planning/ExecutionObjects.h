@@ -273,6 +273,10 @@ void store_packed_weight_handle(
     bool quantized = false,
     uint64_t options_key = 0u);
 
+std::vector<std::string> packed_weight_residency_snapshot();
+
+void reset_packed_weight_residency_snapshot();
+
 std::optional<c10::intrusive_ptr<LinearPackedContext>> lookup_linear_context(
     const Tensor& weight,
     const std::optional<Tensor>& bias);

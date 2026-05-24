@@ -9461,6 +9461,35 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
         )
 
+    def test_vulkan_memory_and_linear_pack_residency_snapshots(self):
+        torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
+        weight = torch.randn(16, 8, dtype=torch.float32).to("vulkan")
+        bias = torch.randn(16, dtype=torch.float32).to("vulkan")
+        x = torch.randn(2, 8, dtype=torch.float32).to("vulkan")
+
+        with torch.inference_mode():
+            y = torch.nn.functional.linear(x, weight, bias)
+            torch.ops.vulkan_prepack.synchronize()
+
+        expected = torch.nn.functional.linear(x.cpu(), weight.cpu(), bias.cpu())
+        self.assertEqual(y.cpu(), expected)
+        memory_rows = torch.ops.vulkan_prepack.vulkan_memory_residency_snapshot()
+        linear_rows = torch.ops.vulkan_prepack.linear_pack_residency_snapshot()
+        packed_rows = torch.ops.vulkan_prepack.packed_weight_residency_snapshot()
+        self.assertTrue(any("kind=buffer" in row for row in memory_rows))
+        self.assertTrue(
+            any(
+                "linear_pack_residency" in row
+                and "weight_shape=[8,16]" in row
+                and "created=" in row
+                and "packed_bytes=" in row
+                for row in linear_rows
+            )
+        )
+        self.assertTrue(
+            any("packed_weight_residency_summary" in row for row in packed_rows)
+        )
+
     def test_vulkan_vision_stack_execution_manifest_reports_capture_blocker(self):
         torch.manual_seed(0)
         embed_dim = 384

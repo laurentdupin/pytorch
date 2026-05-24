@@ -2,6 +2,7 @@
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Resource.h>
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <deque>
 #include <fstream>
@@ -22,6 +23,99 @@ struct AllocationTelemetryState final {
   std::unordered_map<std::string, uint64_t> high_water_bytes_by_label;
   std::deque<std::string> recent_events;
 };
+
+struct VulkanMemoryResidencyRecord final {
+  uint64_t id{0u};
+  uint64_t generation{0u};
+  std::string kind;
+  std::string state;
+  uint64_t requested_bytes{0u};
+  uint64_t allocated_bytes{0u};
+  std::string label;
+  std::string role;
+  bool owns_memory{false};
+};
+
+std::mutex& vulkan_memory_residency_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_map<uint64_t, VulkanMemoryResidencyRecord>&
+vulkan_memory_residency_records() {
+  static auto* records =
+      new std::unordered_map<uint64_t, VulkanMemoryResidencyRecord>();
+  return *records;
+}
+
+std::atomic<uint64_t>& next_vulkan_memory_allocation_id() {
+  static std::atomic<uint64_t> id{1u};
+  return id;
+}
+
+std::atomic<uint64_t>& next_vulkan_memory_allocation_generation() {
+  static std::atomic<uint64_t> generation{1u};
+  return generation;
+}
+
+std::string classify_allocation_role(const std::string& label) {
+  if (
+      label.find("linear.pack") != std::string::npos ||
+      label.find("bmm.pack") != std::string::npos) {
+    return "packed_linear_storage";
+  }
+  if (
+      label.find("scratch") != std::string::npos ||
+      label.find("arena") != std::string::npos) {
+    return "scratch";
+  }
+  if (label.find("metadata") != std::string::npos) {
+    return "metadata";
+  }
+  if (label.find("uniform") != std::string::npos) {
+    return "uniform";
+  }
+  if (label.find("staging") != std::string::npos) {
+    return "staging";
+  }
+  if (label.empty() || label == "unlabeled") {
+    return "raw_tensor_or_unknown";
+  }
+  return "activation_temp_or_unknown";
+}
+
+void record_vulkan_memory_allocation(
+    const uint64_t id,
+    const char* kind,
+    const uint64_t requested_bytes,
+    const uint64_t allocated_bytes,
+    const std::string& label,
+    const bool owns_memory) {
+  if (id == 0u || allocated_bytes == 0u) {
+    return;
+  }
+  VulkanMemoryResidencyRecord record;
+  record.id = id;
+  record.generation = next_vulkan_memory_allocation_generation().fetch_add(
+      1u, std::memory_order_relaxed);
+  record.kind = kind;
+  record.state = "live";
+  record.requested_bytes = requested_bytes;
+  record.allocated_bytes = allocated_bytes;
+  record.label = label.empty() ? "unlabeled" : label;
+  record.role = classify_allocation_role(record.label);
+  record.owns_memory = owns_memory;
+  std::lock_guard<std::mutex> lock(vulkan_memory_residency_mutex());
+  vulkan_memory_residency_records()[id] = std::move(record);
+}
+
+void erase_vulkan_memory_allocation(const uint64_t id) {
+  if (id == 0u) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(vulkan_memory_residency_mutex());
+  vulkan_memory_residency_records().erase(id);
+}
 
 std::string& mutable_current_allocation_label() {
   static thread_local std::string label = "unlabeled";
@@ -442,6 +536,56 @@ std::string swap_runtime_label(std::string label) {
   return previous;
 }
 
+std::vector<std::string> vulkan_memory_residency_snapshot() {
+  std::vector<VulkanMemoryResidencyRecord> records;
+  {
+    std::lock_guard<std::mutex> lock(vulkan_memory_residency_mutex());
+    records.reserve(vulkan_memory_residency_records().size());
+    for (const auto& entry : vulkan_memory_residency_records()) {
+      records.emplace_back(entry.second);
+    }
+  }
+  std::sort(records.begin(), records.end(), [](const auto& lhs, const auto& rhs) {
+    if (lhs.allocated_bytes != rhs.allocated_bytes) {
+      return lhs.allocated_bytes > rhs.allocated_bytes;
+    }
+    return lhs.id < rhs.id;
+  });
+
+  std::vector<std::string> snapshot;
+  snapshot.reserve(records.size());
+  for (const VulkanMemoryResidencyRecord& record : records) {
+    std::ostringstream stream;
+    stream << "vulkan_memory_residency"
+           << " id=" << record.id
+           << " generation=" << record.generation
+           << " kind=" << record.kind
+           << " state=" << record.state
+           << " role=" << record.role
+           << " requested_bytes=" << record.requested_bytes
+           << " allocated_bytes=" << record.allocated_bytes
+           << " owns_memory=" << (record.owns_memory ? 1 : 0)
+           << " label=" << record.label;
+    snapshot.emplace_back(stream.str());
+  }
+  return snapshot;
+}
+
+void reset_vulkan_memory_residency_snapshot() {}
+
+void mark_vulkan_memory_residency_state(
+    const uint64_t allocation_id,
+    const char* state) {
+  if (allocation_id == 0u || state == nullptr || state[0] == '\0') {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(vulkan_memory_residency_mutex());
+  auto it = vulkan_memory_residency_records().find(allocation_id);
+  if (it != vulkan_memory_residency_records().end()) {
+    it->second.state = state;
+  }
+}
+
 AllocationScope::AllocationScope(const char* label)
     : previous_(current_allocation_label()) {
   mutable_current_allocation_label() =
@@ -547,6 +691,7 @@ VulkanBuffer::VulkanBuffer()
       allocator_(VK_NULL_HANDLE),
       memory_{},
       allocated_size_(0u),
+      allocation_id_(0u),
       allocation_label_(),
       owns_memory_(false),
       handle_(VK_NULL_HANDLE) {}
@@ -566,6 +711,7 @@ VulkanBuffer::VulkanBuffer(
       allocator_(vma_allocator),
       memory_{},
       allocated_size_(0u),
+      allocation_id_(0u),
       allocation_label_(current_allocation_label()),
       owns_memory_(allocate_memory),
       handle_(VK_NULL_HANDLE) {
@@ -609,6 +755,15 @@ VulkanBuffer::VulkanBuffer(
     }
     VK_CHECK(create_result);
     allocated_size_ = query_allocation_size(allocator_, memory_.allocation);
+    allocation_id_ = next_vulkan_memory_allocation_id().fetch_add(
+        1u, std::memory_order_relaxed);
+    record_vulkan_memory_allocation(
+        allocation_id_,
+        "buffer",
+        static_cast<uint64_t>(size),
+        static_cast<uint64_t>(allocated_size_),
+        allocation_label_,
+        owns_memory_);
     log_allocation_success(
         "buffer",
         static_cast<uint64_t>(size),
@@ -628,23 +783,27 @@ VulkanBuffer::VulkanBuffer(VulkanBuffer&& other) noexcept
       allocator_(other.allocator_),
       memory_(std::move(other.memory_)),
       allocated_size_(other.allocated_size_),
+      allocation_id_(other.allocation_id_),
       allocation_label_(std::move(other.allocation_label_)),
       owns_memory_(other.owns_memory_),
       handle_(other.handle_) {
   other.handle_ = VK_NULL_HANDLE;
   other.allocated_size_ = 0u;
+  other.allocation_id_ = 0u;
 }
 
 VulkanBuffer& VulkanBuffer::operator=(VulkanBuffer&& other) noexcept {
   VkBuffer tmp_buffer = handle_;
   bool tmp_owns_memory = owns_memory_;
   VkDeviceSize tmp_allocated_size = allocated_size_;
+  uint64_t tmp_allocation_id = allocation_id_;
   std::string tmp_allocation_label = std::move(allocation_label_);
 
   buffer_properties_ = other.buffer_properties_;
   allocator_ = other.allocator_;
   memory_ = std::move(other.memory_);
   allocated_size_ = other.allocated_size_;
+  allocation_id_ = other.allocation_id_;
   allocation_label_ = std::move(other.allocation_label_);
   owns_memory_ = other.owns_memory_;
   handle_ = other.handle_;
@@ -652,6 +811,7 @@ VulkanBuffer& VulkanBuffer::operator=(VulkanBuffer&& other) noexcept {
   other.handle_ = tmp_buffer;
   other.owns_memory_ = tmp_owns_memory;
   other.allocated_size_ = tmp_allocated_size;
+  other.allocation_id_ = tmp_allocation_id;
   other.allocation_label_ = std::move(tmp_allocation_label);
 
   return *this;
@@ -660,6 +820,7 @@ VulkanBuffer& VulkanBuffer::operator=(VulkanBuffer&& other) noexcept {
 VulkanBuffer::~VulkanBuffer() {
   if (VK_NULL_HANDLE != handle_) {
     if (owns_memory_ && allocated_size_ > 0u) {
+      erase_vulkan_memory_allocation(allocation_id_);
       log_allocation_free(
           "buffer",
           static_cast<uint64_t>(allocated_size_),
@@ -676,6 +837,7 @@ VulkanBuffer::~VulkanBuffer() {
     // memory
     memory_.allocation = VK_NULL_HANDLE;
     allocated_size_ = 0u;
+    allocation_id_ = 0u;
   }
 }
 
@@ -845,6 +1007,7 @@ VulkanImage::VulkanImage()
       allocator_(VK_NULL_HANDLE),
       memory_{},
       allocated_size_(0u),
+      allocation_id_(0u),
       owns_memory_(false),
       handles_{
           VK_NULL_HANDLE,
@@ -868,6 +1031,7 @@ VulkanImage::VulkanImage(
       allocator_(vma_allocator),
       memory_{},
       allocated_size_(0u),
+      allocation_id_(0u),
       allocation_label_(current_allocation_label()),
       owns_memory_{allocate_memory},
       handles_{
@@ -928,6 +1092,15 @@ VulkanImage::VulkanImage(
     }
     VK_CHECK(create_result);
     allocated_size_ = query_allocation_size(allocator_, memory_.allocation);
+    allocation_id_ = next_vulkan_memory_allocation_id().fetch_add(
+        1u, std::memory_order_relaxed);
+    record_vulkan_memory_allocation(
+        allocation_id_,
+        "image",
+        estimate_image_bytes(image_properties_),
+        static_cast<uint64_t>(allocated_size_),
+        allocation_label_,
+        owns_memory_);
     log_allocation_success(
         "image",
         estimate_image_bytes(image_properties_),
@@ -949,6 +1122,7 @@ VulkanImage::VulkanImage(VulkanImage&& other) noexcept
       allocator_(other.allocator_),
       memory_(std::move(other.memory_)),
       allocated_size_(other.allocated_size_),
+      allocation_id_(other.allocation_id_),
       allocation_label_(std::move(other.allocation_label_)),
       owns_memory_(other.owns_memory_),
       handles_(other.handles_),
@@ -958,6 +1132,7 @@ VulkanImage::VulkanImage(VulkanImage&& other) noexcept
   other.handles_.sampler = VK_NULL_HANDLE;
   other.owns_memory_ = false;
   other.allocated_size_ = 0u;
+  other.allocation_id_ = 0u;
 }
 
 VulkanImage& VulkanImage::operator=(VulkanImage&& other) noexcept {
@@ -965,6 +1140,7 @@ VulkanImage& VulkanImage::operator=(VulkanImage&& other) noexcept {
   VkImageView tmp_image_view = handles_.image_view;
   bool tmp_owns_memory = owns_memory_;
   VkDeviceSize tmp_allocated_size = allocated_size_;
+  uint64_t tmp_allocation_id = allocation_id_;
   std::string tmp_allocation_label = std::move(allocation_label_);
 
   image_properties_ = other.image_properties_;
@@ -973,6 +1149,7 @@ VulkanImage& VulkanImage::operator=(VulkanImage&& other) noexcept {
   allocator_ = other.allocator_;
   memory_ = std::move(other.memory_);
   allocated_size_ = other.allocated_size_;
+  allocation_id_ = other.allocation_id_;
   allocation_label_ = std::move(other.allocation_label_);
   owns_memory_ = other.owns_memory_;
   handles_ = other.handles_;
@@ -982,6 +1159,7 @@ VulkanImage& VulkanImage::operator=(VulkanImage&& other) noexcept {
   other.handles_.image_view = tmp_image_view;
   other.owns_memory_ = tmp_owns_memory;
   other.allocated_size_ = tmp_allocated_size;
+  other.allocation_id_ = tmp_allocation_id;
   other.allocation_label_ = std::move(tmp_allocation_label);
 
   return *this;
@@ -994,6 +1172,7 @@ VulkanImage::~VulkanImage() {
 
   if (VK_NULL_HANDLE != handles_.image) {
     if (owns_memory_ && allocated_size_ > 0u) {
+      erase_vulkan_memory_allocation(allocation_id_);
       log_allocation_free(
           "image",
           static_cast<uint64_t>(allocated_size_),
@@ -1010,6 +1189,7 @@ VulkanImage::~VulkanImage() {
     // memory
     memory_.allocation = VK_NULL_HANDLE;
     allocated_size_ = 0u;
+    allocation_id_ = 0u;
   }
 }
 
