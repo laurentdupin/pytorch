@@ -5,8 +5,10 @@
 #else
 #include <ATen/ops/add.h>
 #include <ATen/ops/as_strided.h>
+#include <ATen/ops/bitwise_or.h>
 #include <ATen/ops/div.h>
 #include <ATen/ops/floor_divide.h>
+#include <ATen/ops/logical_or.h>
 #include <ATen/ops/mul.h>
 #include <ATen/ops/ones_like.h>
 #include <ATen/ops/pow.h>
@@ -26,6 +28,7 @@
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
+#include <algorithm>
 #include <cmath>
 #include <c10/util/irange.h>
 #include <mutex>
@@ -1032,6 +1035,48 @@ bool should_run_buffer_binary_scalar_bool(
       utils::scalar_fits_vulkan_int32(*alpha_arg);
 }
 
+bool should_run_bool_or_tensor_native(const Tensor& self, const Tensor& other) {
+  return self.is_vulkan() && other.is_vulkan() && self.scalar_type() == kBool &&
+      other.scalar_type() == kBool && self.dim() == 1 &&
+      self.numel() == 1 && self.sizes().equals(other.sizes()) &&
+      self.is_contiguous() &&
+      other.is_contiguous() && self.storage_offset() == 0 &&
+      other.storage_offset() == 0;
+}
+
+bool should_write_bool_or_tensor_native_out(
+    const Tensor& out,
+    const Tensor& self,
+    const Tensor& other) {
+  return should_run_bool_or_tensor_native(self, other) && out.is_vulkan() &&
+      out.scalar_type() == kBool && out.dim() == 1 &&
+      out.sizes().equals(self.sizes()) && out.is_contiguous() &&
+      out.storage_offset() == 0 && convert(out).dtype() == api::kBool &&
+      convert(out).storage_type() == api::StorageType::BUFFER;
+}
+
+Tensor bool_or_tensor_cpu_fallback(
+    const Tensor& self_arg,
+    const Tensor& other_arg,
+    const char* op_name,
+    const bool logical) {
+  report_vulkan_cpu_fallback(
+      op_name, "bool_or_cpu_fallback", {self_arg, other_arg});
+  Tensor cpu_result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    const Tensor self_cpu = self_arg.is_vulkan() ? self_arg.cpu() : self_arg;
+    const Tensor other_cpu = other_arg.is_vulkan() ? other_arg.cpu() : other_arg;
+    cpu_result = logical ? at::logical_or(self_cpu, other_cpu)
+                         : at::bitwise_or(self_cpu, other_cpu);
+  }
+  return record_tensor_write_and_return(
+      cpu_result.vulkan(),
+      op_name,
+      "bool_or_cpu_fallback",
+      {self_arg, other_arg});
+}
+
 Tensor binary_op_scalar_cpu_fallback(
     const Tensor& self_arg,
     const Scalar& other,
@@ -2007,6 +2052,35 @@ static Tensor binary_op_tensor(
       convert(v_output), "aten::binary_op", "tensor_texture", {self, other});
 }
 
+static Tensor bool_or_tensor_native(
+    const Tensor& self_arg,
+    const Tensor& other_arg,
+    const char* op_name,
+    const bool logical) {
+  return bool_or_tensor_cpu_fallback(self_arg, other_arg, op_name, logical);
+}
+
+static Tensor& bool_or_tensor_out(
+    const Tensor& self,
+    const Tensor& other,
+    Tensor& out,
+    const char* op_name,
+    const bool logical) {
+  report_vulkan_cpu_fallback(
+      op_name, "bool_or_out_cpu_fallback", {self, other, out});
+  Tensor cpu_result;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    const Tensor self_cpu = self.is_vulkan() ? self.cpu() : self;
+    const Tensor other_cpu = other.is_vulkan() ? other.cpu() : other;
+    cpu_result =
+        logical ? at::logical_or(self_cpu, other_cpu)
+                : at::bitwise_or(self_cpu, other_cpu);
+  }
+  out.copy_(cpu_result);
+  return out;
+}
+
 static Tensor quantized_binary_op_tensor(
     const Tensor& self_arg,
     const Tensor& other_arg,
@@ -2542,6 +2616,28 @@ static Tensor& mul_tensor_(Tensor& self, const Tensor& other_arg) {
       BinaryOpKind::Mul);
 }
 
+static Tensor bitwise_or_tensor(const Tensor& self, const Tensor& other) {
+  return bool_or_tensor_native(self, other, "aten::bitwise_or", false);
+}
+
+static Tensor& bitwise_or_tensor_out(
+    const Tensor& self,
+    const Tensor& other,
+    Tensor& out) {
+  return bool_or_tensor_out(self, other, out, "aten::bitwise_or", false);
+}
+
+static Tensor logical_or_tensor(const Tensor& self, const Tensor& other) {
+  return bool_or_tensor_native(self, other, "aten::logical_or", true);
+}
+
+static Tensor& logical_or_tensor_out(
+    const Tensor& self,
+    const Tensor& other,
+    Tensor& out) {
+  return bool_or_tensor_out(self, other, out, "aten::logical_or", true);
+}
+
 static Tensor div_scalar(const Tensor& self_arg, const Scalar& other) {
   return binary_op_scalar(
       self_arg,
@@ -2940,6 +3036,18 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::mul_.Scalar"), TORCH_FN(mul_scalar_));
   m.impl(TORCH_SELECTIVE_NAME("aten::mul.Tensor"), TORCH_FN(mul_tensor));
   m.impl(TORCH_SELECTIVE_NAME("aten::mul_.Tensor"), TORCH_FN(mul_tensor_));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::bitwise_or.Tensor"),
+      TORCH_FN(bitwise_or_tensor));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::bitwise_or.Tensor_out"),
+      TORCH_FN(bitwise_or_tensor_out));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::logical_or"),
+      TORCH_FN(logical_or_tensor));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::logical_or.out"),
+      TORCH_FN(logical_or_tensor_out));
   m.impl(TORCH_SELECTIVE_NAME("aten::div.Scalar"), TORCH_FN(div_scalar));
   m.impl(TORCH_SELECTIVE_NAME("aten::div_.Scalar"), TORCH_FN(div_scalar_));
   m.impl(TORCH_SELECTIVE_NAME("aten::div.Tensor"), TORCH_FN(div_tensor));

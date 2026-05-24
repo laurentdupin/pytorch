@@ -5894,6 +5894,79 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertTrue(torch.equal(x + True, (x_vulkan + True).cpu()))
             self.assertTrue(torch.equal(x * False, (x_vulkan * False).cpu()))
 
+    def test_bool_buffer_or_hymt_stopping_criteria_shape(self):
+        cases = (
+            (False, False),
+            (False, True),
+            (True, False),
+            (True, True),
+        )
+        with torch.inference_mode():
+            for left, right in cases:
+                x = torch.tensor([left], dtype=torch.bool)
+                y = torch.tensor([right], dtype=torch.bool)
+                x_vulkan = x.to("vulkan")
+                y_vulkan = y.to("vulkan")
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+
+                self.assertEqual((x | y), (x_vulkan | y_vulkan).cpu())
+                self.assertEqual(
+                    torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
+                actual = torch.bitwise_or(x_vulkan, y_vulkan)
+                self.assertEqual(torch.bitwise_or(x, y), actual.cpu())
+
+                out = torch.empty_like(x_vulkan)
+                torch.bitwise_or(x_vulkan, y_vulkan, out=out)
+                self.assertEqual(torch.bitwise_or(x, y), out.cpu())
+
+                logical = torch.logical_or(x_vulkan, y_vulkan)
+                self.assertEqual(torch.logical_or(x, y), logical.cpu())
+
+                logical_out = torch.empty_like(x_vulkan)
+                torch.logical_or(x_vulkan, y_vulkan, out=logical_out)
+                self.assertEqual(torch.logical_or(x, y), logical_out.cpu())
+
+    def test_bool_buffer_or_repeated_run_determinism(self):
+        x = torch.tensor([False], dtype=torch.bool)
+        y = torch.tensor([True], dtype=torch.bool)
+        x_vulkan = x.to("vulkan")
+        y_vulkan = y.to("vulkan")
+
+        with torch.inference_mode():
+            expected = torch.bitwise_or(x, y)
+            first = torch.bitwise_or(x_vulkan, y_vulkan).cpu()
+            second = torch.bitwise_or(x_vulkan, y_vulkan).cpu()
+
+        self.assertEqual(expected, first)
+        self.assertEqual(expected, second)
+
+    def test_bool_buffer_or_unsupported_rank1_size_falls_back(self):
+        x = torch.tensor([False, True, False, True], dtype=torch.bool)
+        y = torch.tensor([False, False, True, True], dtype=torch.bool)
+        x_vulkan = x.to("vulkan")
+        y_vulkan = y.to("vulkan")
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        with torch.inference_mode():
+            actual = torch.bitwise_or(x_vulkan, y_vulkan)
+
+        self.assertEqual(torch.bitwise_or(x, y), actual.cpu())
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
+    def test_bool_buffer_or_broadcast_falls_back(self):
+        x = torch.tensor([False, True, False], dtype=torch.bool)
+        y = torch.tensor([[False, True, False]], dtype=torch.bool)
+        x_vulkan = x.to("vulkan")
+        y_vulkan = y.to("vulkan")
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        with torch.inference_mode():
+            actual = torch.bitwise_or(x_vulkan, y_vulkan)
+
+        self.assertEqual(torch.bitwise_or(x, y), actual.cpu())
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
     def test_bool_buffer_binary_ops_on_metadata_views(self):
         torch.manual_seed(0)
         x = torch.randint(0, 2, (513, 257), dtype=torch.int32).to(torch.bool)
