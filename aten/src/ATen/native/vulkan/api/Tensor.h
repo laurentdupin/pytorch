@@ -439,6 +439,14 @@ class vTensor final {
     return physical_desc_.strides;
   }
 
+  inline const void* storage_identity() const {
+    return view_.get();
+  }
+
+  inline std::weak_ptr<const vTensorStorage> storage_weak_ref() const {
+    return view_;
+  }
+
   inline const api::utils::uvec3& virtual_extents() const {
     return physical_desc_.virtual_extents;
   }

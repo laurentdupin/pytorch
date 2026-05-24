@@ -39,13 +39,17 @@ Tensor transpose_buffer_view(
   std::swap(output_logical_strides[index0], output_logical_strides[index1]);
   std::swap(output_physical_strides[index0], output_physical_strides[index1]);
 
-  return make_buffer_metadata_view_checked(
+  return record_tensor_alias_and_return(
+      make_buffer_metadata_view_checked(
+          self,
+          output_sizes,
+          output_logical_strides,
+          output_physical_strides,
+          v_self.storage_offset(),
+          "aten::transpose"),
       self,
-      output_sizes,
-      output_logical_strides,
-      output_physical_strides,
-      v_self.storage_offset(),
-      "aten::transpose");
+      "aten::transpose",
+      "buffer_metadata_view");
 }
 
 Tensor transpose_4d(
@@ -110,7 +114,7 @@ Tensor transpose_4d(
       params.buffer());
 
   return record_tensor_write_and_return(
-      convert(v_output), "aten::transpose", "texture_4d", {input});
+      convert(v_output), "aten::transpose", "texture_4d", {input_arg});
 }
 
 Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
@@ -195,7 +199,7 @@ Tensor transpose(const Tensor& self, int64_t index0, int64_t index1) {
 Tensor t(const Tensor& self) {
   TORCH_CHECK(self.dim() <= 2, "t() only supports tensors <= 2 dimensions");
   return ::at::native::vulkan::ops::transpose(
-      self.detach(), 0, self.dim() < 2 ? 0 : 1);
+      self, 0, self.dim() < 2 ? 0 : 1);
 }
 
 #ifdef USE_VULKAN_API

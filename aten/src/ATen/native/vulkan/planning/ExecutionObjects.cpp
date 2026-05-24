@@ -10,6 +10,7 @@
 
 #include <ATen/native/vulkan/ops/InferenceCache.h>
 #include <ATen/native/vulkan/ops/Mm.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 
 #include <atomic>
@@ -18,6 +19,7 @@
 #include <deque>
 #include <functional>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <c10/core/Storage.h>
@@ -32,7 +34,7 @@ namespace {
 
 using namespace api::utils;
 
-constexpr size_t kPackedWeightResidencyMaxEntries = 256u;
+constexpr size_t kPackedWeightResidencyMaxEntries = 1024u;
 constexpr size_t kPackedWeightResidencyLimitBytes =
     size_t{2} * 1024u * 1024u * 1024u;
 constexpr size_t kLinearContextCacheSize = 128u;
@@ -69,6 +71,7 @@ std::string format_size_list(const std::vector<int64_t>& sizes) {
 
 using TensorWeakRef = c10::weak_intrusive_ptr<TensorImpl, UndefinedTensorImpl>;
 using StorageWeakRef = c10::weak_intrusive_ptr<c10::StorageImpl>;
+using VulkanStorageWeakRef = std::weak_ptr<const vTensorStorage>;
 
 std::optional<TensorWeakRef> make_tensor_weak_ref(const Tensor& tensor) {
   if (!tensor.defined()) {
@@ -114,11 +117,33 @@ std::optional<StorageWeakRef> make_storage_weak_ref(const Tensor& tensor) {
   return tensor.storage().getWeakStorageImpl();
 }
 
+std::optional<VulkanStorageWeakRef> make_vulkan_storage_weak_ref(
+    const Tensor& tensor) {
+  if (!tensor.defined() || !tensor.is_vulkan()) {
+    return std::nullopt;
+  }
+  return convert(tensor).storage_weak_ref();
+}
+
 const void* tensor_storage_identity_ptr(const Tensor& tensor) {
   if (!tensor.defined() || !tensor.unsafeGetTensorImpl()->has_storage()) {
     return nullptr;
   }
   return static_cast<const void*>(tensor.storage().unsafeGetStorageImpl());
+}
+
+const void* tensor_vulkan_storage_identity_ptr(const Tensor& tensor) {
+  if (!tensor.defined() || !tensor.is_vulkan()) {
+    return nullptr;
+  }
+  return convert(tensor).storage_identity();
+}
+
+uint64_t tensor_packed_weight_source_key(const Tensor& tensor) {
+  if (!tensor.defined() || !tensor.is_vulkan()) {
+    return 0u;
+  }
+  return tensor_provenance_first_input_key(tensor);
 }
 
 bool weak_ref_matches_tensor(
@@ -165,6 +190,11 @@ bool weak_storage_ref_alive(const std::optional<StorageWeakRef>& ref) {
   return ref.has_value() && !ref->expired();
 }
 
+bool weak_vulkan_storage_ref_alive(
+    const std::optional<VulkanStorageWeakRef>& ref) {
+  return ref.has_value() && !ref->expired();
+}
+
 bool optional_weak_tensor_ref_alive(const std::optional<TensorWeakRef>& ref) {
   return !ref.has_value() || !ref->expired();
 }
@@ -203,12 +233,16 @@ struct PackedWeightResidencyEntry final {
   std::optional<TensorWeakRef> weight_ref;
   std::optional<TensorWeakRef> bias_ref;
   std::optional<StorageWeakRef> weight_storage_ref;
+  std::optional<VulkanStorageWeakRef> weight_vulkan_storage_ref;
   const void* weight_storage_identity;
+  const void* weight_vulkan_storage_identity;
+  uint64_t weight_source_key;
   int64_t weight_storage_offset;
   std::vector<int64_t> weight_strides;
   c10::ScalarType weight_dtype;
   int64_t weight_version;
   int64_t bias_version;
+  uint64_t bias_source_key;
   std::vector<int64_t> logical_weight_sizes;
   PackedWeightKind kind;
   PackedWeightResidencyClass residency_class;
@@ -253,14 +287,20 @@ size_t packed_weight_handle_nbytes(const Tensor& weight, const Tensor& bias) {
 struct PackedWeightResidencyLogState final {
   std::atomic<uint64_t> lookups{0u};
   std::atomic<uint64_t> hits{0u};
+  std::atomic<uint64_t> misses{0u};
+  std::atomic<uint64_t> miss_empty_cache{0u};
+  std::atomic<uint64_t> miss_no_match{0u};
   std::atomic<uint64_t> stores{0u};
   std::atomic<uint64_t> evictions{0u};
+  std::atomic<uint64_t> persistent_evictions{0u};
+  std::atomic<uint64_t> transient_evictions{0u};
+  std::atomic<uint64_t> pruned_expired_sources{0u};
   std::atomic<uint64_t> cache_bytes{0u};
   std::atomic<uint64_t> peak_cache_bytes{0u};
   std::atomic<uint64_t> persistent_cache_bytes{0u};
   std::atomic<uint64_t> peak_persistent_cache_bytes{0u};
 
-  ~PackedWeightResidencyLogState() {
+  void log() const {
     if (!packed_weight_cache_logging_enabled()) {
       return;
     }
@@ -271,6 +311,16 @@ struct PackedWeightResidencyLogState final {
         << " hits=" << hits.load(std::memory_order_relaxed)
         << " stores=" << stores.load(std::memory_order_relaxed)
         << " evictions=" << evictions.load(std::memory_order_relaxed)
+        << " misses=" << misses.load(std::memory_order_relaxed)
+        << " miss_empty_cache="
+        << miss_empty_cache.load(std::memory_order_relaxed)
+        << " miss_no_match=" << miss_no_match.load(std::memory_order_relaxed)
+        << " persistent_evictions="
+        << persistent_evictions.load(std::memory_order_relaxed)
+        << " transient_evictions="
+        << transient_evictions.load(std::memory_order_relaxed)
+        << " pruned_expired_sources="
+        << pruned_expired_sources.load(std::memory_order_relaxed)
         << " cache_bytes=" << cache_bytes.load(std::memory_order_relaxed)
         << " peak_cache_bytes="
         << peak_cache_bytes.load(std::memory_order_relaxed)
@@ -280,11 +330,33 @@ struct PackedWeightResidencyLogState final {
         << peak_persistent_cache_bytes.load(std::memory_order_relaxed)
         << " cache_limit_bytes=" << packed_weight_cache_limit_bytes() << '\n';
   }
+
+  ~PackedWeightResidencyLogState() {
+    log();
+  }
 };
 
 PackedWeightResidencyLogState& packed_weight_cache_log_state() {
   static PackedWeightResidencyLogState state;
   return state;
+}
+
+void reset_packed_weight_cache_log_state() {
+  auto& state = packed_weight_cache_log_state();
+  state.lookups.store(0u, std::memory_order_relaxed);
+  state.hits.store(0u, std::memory_order_relaxed);
+  state.misses.store(0u, std::memory_order_relaxed);
+  state.miss_empty_cache.store(0u, std::memory_order_relaxed);
+  state.miss_no_match.store(0u, std::memory_order_relaxed);
+  state.stores.store(0u, std::memory_order_relaxed);
+  state.evictions.store(0u, std::memory_order_relaxed);
+  state.persistent_evictions.store(0u, std::memory_order_relaxed);
+  state.transient_evictions.store(0u, std::memory_order_relaxed);
+  state.pruned_expired_sources.store(0u, std::memory_order_relaxed);
+  state.cache_bytes.store(0u, std::memory_order_relaxed);
+  state.peak_cache_bytes.store(0u, std::memory_order_relaxed);
+  state.persistent_cache_bytes.store(0u, std::memory_order_relaxed);
+  state.peak_persistent_cache_bytes.store(0u, std::memory_order_relaxed);
 }
 
 std::mutex& retired_packed_weight_mutex() {
@@ -366,19 +438,42 @@ class PackedWeightResidencyManager final {
   static bool source_refs_alive(const PackedWeightResidencyEntry& entry) {
     if (
         !weak_tensor_ref_alive(entry.weight_ref) &&
-        !weak_storage_ref_alive(entry.weight_storage_ref)) {
+        !weak_storage_ref_alive(entry.weight_storage_ref) &&
+        !weak_vulkan_storage_ref_alive(entry.weight_vulkan_storage_ref) &&
+        entry.weight_source_key == 0u) {
       return false;
     }
-    return optional_weak_tensor_ref_alive(entry.bias_ref);
+    return optional_weak_tensor_ref_alive(entry.bias_ref) ||
+        entry.bias_source_key != 0u;
+  }
+
+  static bool bias_matches_optional_tensor(
+      const PackedWeightResidencyEntry& entry,
+      const std::optional<Tensor>& normalized_bias) {
+    if (!normalized_bias || !normalized_bias->defined()) {
+      return !entry.bias_ref.has_value() && entry.bias_source_key == 0u;
+    }
+    return weak_ref_matches_tensor(entry.bias_ref, *normalized_bias) ||
+        (entry.bias_source_key != 0u &&
+         tensor_packed_weight_source_key(*normalized_bias) ==
+             entry.bias_source_key);
   }
 
   static bool storage_view_matches_tensor(
       const PackedWeightResidencyEntry& entry,
       const Tensor& source_weight) {
+    const bool c10_storage_matches =
+        entry.weight_storage_identity != nullptr &&
+        tensor_storage_identity_ptr(source_weight) == entry.weight_storage_identity;
+    const bool vulkan_storage_matches =
+        entry.weight_vulkan_storage_identity != nullptr &&
+        tensor_vulkan_storage_identity_ptr(source_weight) ==
+            entry.weight_vulkan_storage_identity;
+    const bool provenance_source_matches = entry.weight_source_key != 0u &&
+        tensor_packed_weight_source_key(source_weight) == entry.weight_source_key;
     if (
-        entry.weight_storage_identity == nullptr ||
-        tensor_storage_identity_ptr(source_weight) !=
-            entry.weight_storage_identity ||
+        (!c10_storage_matches && !vulkan_storage_matches &&
+         !provenance_source_matches) ||
         entry.weight_storage_offset != source_weight.storage_offset() ||
         entry.weight_dtype != source_weight.scalar_type() ||
         entry.logical_weight_sizes.size() !=
@@ -411,7 +506,7 @@ class PackedWeightResidencyManager final {
         storage_view_matches_tensor(entry, source_weight);
     return weight_matches &&
         entry.weight_version == weight_version &&
-        weak_ref_matches_optional_tensor(entry.bias_ref, normalized_bias) &&
+        bias_matches_optional_tensor(entry, normalized_bias) &&
         entry.bias_version == bias_version &&
         entry.logical_weight_sizes.size() == logical_weight_sizes.size() &&
         std::equal(
@@ -455,50 +550,59 @@ class PackedWeightResidencyManager final {
             std::memory_order_relaxed,
             std::memory_order_relaxed)) {
     }
+    log_state.log();
   }
 
   std::deque<PackedWeightResidencyEntry>::iterator retire_entry_locked(
       std::deque<PackedWeightResidencyEntry>::iterator entry_it,
       std::deque<PackedWeightResidencyEntry>& retired_entries,
       const bool count_eviction) {
-    cache_bytes_ -= entry_it->handle.resident_nbytes();
-    if (
+    const bool persistent_entry =
         entry_it->residency_class ==
-        PackedWeightResidencyClass::PersistentInference) {
+        PackedWeightResidencyClass::PersistentInference;
+    cache_bytes_ -= entry_it->handle.resident_nbytes();
+    if (persistent_entry) {
       persistent_cache_bytes_ -= entry_it->handle.resident_nbytes();
     }
     retired_entries.emplace_back(std::move(*entry_it));
     auto next_it = cache_.erase(entry_it);
-    if (count_eviction && packed_weight_cache_logging_enabled()) {
-      packed_weight_cache_log_state().evictions.fetch_add(
-          1u, std::memory_order_relaxed);
+    if (count_eviction) {
+      auto& log_state = packed_weight_cache_log_state();
+      log_state.evictions.fetch_add(1u, std::memory_order_relaxed);
+      if (persistent_entry) {
+        log_state.persistent_evictions.fetch_add(1u, std::memory_order_relaxed);
+      } else {
+        log_state.transient_evictions.fetch_add(1u, std::memory_order_relaxed);
+      }
     }
     return next_it;
   }
 
   std::deque<PackedWeightResidencyEntry>::iterator
-  select_eviction_candidate_locked() {
-    auto transient_it = cache_.end();
+  select_transient_eviction_candidate_locked() {
     for (auto it = cache_.end(); it != cache_.begin();) {
       --it;
       if (
           it->residency_class == PackedWeightResidencyClass::Transient &&
           it->handle.defined()) {
-        transient_it = it;
-        break;
+        return it;
       }
-    }
-    if (transient_it != cache_.end()) {
-      return transient_it;
     }
     return cache_.empty() ? cache_.end() : std::prev(cache_.end());
   }
 
   void trim_locked(std::deque<PackedWeightResidencyEntry>& retired_entries) {
-    while (
-        cache_.size() > kPackedWeightResidencyMaxEntries ||
-        cache_bytes_ > packed_weight_cache_limit_bytes()) {
-      auto victim = select_eviction_candidate_locked();
+    while (cache_bytes_ > packed_weight_cache_limit_bytes()) {
+      auto victim = select_transient_eviction_candidate_locked();
+      if (
+          victim == cache_.end() ||
+          victim->residency_class != PackedWeightResidencyClass::Transient) {
+        break;
+      }
+      retire_entry_locked(victim, retired_entries, true);
+    }
+    while (cache_.size() > kPackedWeightResidencyMaxEntries) {
+      auto victim = select_transient_eviction_candidate_locked();
       if (victim == cache_.end()) {
         break;
       }
@@ -538,13 +642,23 @@ class PackedWeightResidencyManager final {
              << (weak_tensor_ref_alive(entry.weight_ref) ? 1 : 0)
              << " source_storage_alive="
              << (weak_storage_ref_alive(entry.weight_storage_ref) ? 1 : 0)
+             << " source_vulkan_storage_alive="
+             << (weak_vulkan_storage_ref_alive(entry.weight_vulkan_storage_ref)
+                     ? 1
+                     : 0)
              << " raw_weight_storage_identity="
              << reinterpret_cast<uintptr_t>(entry.weight_storage_identity)
+             << " raw_weight_vulkan_storage_identity="
+             << reinterpret_cast<uintptr_t>(
+                    entry.weight_vulkan_storage_identity)
+             << " weight_source_key=" << entry.weight_source_key
+             << " bias_source_key=" << entry.bias_source_key
              << " pack_identity="
              << reinterpret_cast<uintptr_t>(entry.handle.identity());
       rows.emplace_back(stream.str());
     }
 
+    auto& log_state = packed_weight_cache_log_state();
     std::ostringstream summary;
     summary << "packed_weight_residency_summary"
             << " live_entries=" << cache_.size()
@@ -552,7 +666,23 @@ class PackedWeightResidencyManager final {
             << " live_persistent_bytes=" << live_persistent_bytes
             << " cache_limit_bytes=" << packed_weight_cache_limit_bytes()
             << " manager_cache_bytes=" << cache_bytes_
-            << " manager_persistent_cache_bytes=" << persistent_cache_bytes_;
+            << " manager_persistent_cache_bytes=" << persistent_cache_bytes_
+            << " lookups=" << log_state.lookups.load(std::memory_order_relaxed)
+            << " hits=" << log_state.hits.load(std::memory_order_relaxed)
+            << " misses=" << log_state.misses.load(std::memory_order_relaxed)
+            << " miss_empty_cache="
+            << log_state.miss_empty_cache.load(std::memory_order_relaxed)
+            << " miss_no_match="
+            << log_state.miss_no_match.load(std::memory_order_relaxed)
+            << " stores=" << log_state.stores.load(std::memory_order_relaxed)
+            << " evictions="
+            << log_state.evictions.load(std::memory_order_relaxed)
+            << " persistent_evictions="
+            << log_state.persistent_evictions.load(std::memory_order_relaxed)
+            << " transient_evictions="
+            << log_state.transient_evictions.load(std::memory_order_relaxed)
+            << " pruned_expired_sources="
+            << log_state.pruned_expired_sources.load(std::memory_order_relaxed);
     rows.emplace_back(summary.str());
     return rows;
   }
@@ -568,10 +698,8 @@ class PackedWeightResidencyManager final {
       return std::nullopt;
     }
 
-    if (packed_weight_cache_logging_enabled()) {
-      packed_weight_cache_log_state().lookups.fetch_add(
-          1u, std::memory_order_relaxed);
-    }
+    auto& log_state = packed_weight_cache_log_state();
+    log_state.lookups.fetch_add(1u, std::memory_order_relaxed);
 
     const int64_t weight_version = tensor_version_or_zero(source_weight);
     const int64_t bias_version =
@@ -579,10 +707,14 @@ class PackedWeightResidencyManager final {
 
     std::deque<PackedWeightResidencyEntry> retired_entries;
     std::optional<PackedWeightHandle> result;
+    bool cache_was_empty = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      cache_was_empty = cache_.empty();
       for (auto it = cache_.begin(); it != cache_.end();) {
         if (!source_refs_alive(*it)) {
+          log_state.pruned_expired_sources.fetch_add(
+              1u, std::memory_order_relaxed);
           it = retire_entry_locked(it, retired_entries, true);
           continue;
         }
@@ -608,12 +740,17 @@ class PackedWeightResidencyManager final {
           handle = cache_.front().handle;
         }
 
-        if (packed_weight_cache_logging_enabled()) {
-          packed_weight_cache_log_state().hits.fetch_add(
-              1u, std::memory_order_relaxed);
-        }
+        log_state.hits.fetch_add(1u, std::memory_order_relaxed);
         result = handle;
         break;
+      }
+      if (!result.has_value()) {
+        log_state.misses.fetch_add(1u, std::memory_order_relaxed);
+        if (cache_was_empty) {
+          log_state.miss_empty_cache.fetch_add(1u, std::memory_order_relaxed);
+        } else {
+          log_state.miss_no_match.fetch_add(1u, std::memory_order_relaxed);
+        }
       }
       update_log_snapshot_locked();
     }
@@ -639,13 +776,20 @@ class PackedWeightResidencyManager final {
     entry.bias_ref = normalized_bias ? make_tensor_weak_ref(*normalized_bias)
                                      : std::nullopt;
     entry.weight_storage_ref = make_storage_weak_ref(source_weight);
+    entry.weight_vulkan_storage_ref =
+        make_vulkan_storage_weak_ref(source_weight);
     entry.weight_storage_identity = tensor_storage_identity_ptr(source_weight);
+    entry.weight_vulkan_storage_identity =
+        tensor_vulkan_storage_identity_ptr(source_weight);
+    entry.weight_source_key = tensor_packed_weight_source_key(source_weight);
     entry.weight_storage_offset = source_weight.storage_offset();
     entry.weight_strides = source_weight.strides().vec();
     entry.weight_dtype = source_weight.scalar_type();
     entry.weight_version = tensor_version_or_zero(source_weight);
     entry.bias_version =
         normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
+    entry.bias_source_key =
+        normalized_bias ? tensor_packed_weight_source_key(*normalized_bias) : 0u;
     entry.logical_weight_sizes = std::vector<int64_t>(
         logical_weight_sizes.begin(), logical_weight_sizes.end());
     entry.kind = kind;
@@ -654,16 +798,16 @@ class PackedWeightResidencyManager final {
     entry.options_key = options_key;
     entry.handle = handle;
 
-    if (packed_weight_cache_logging_enabled()) {
-      packed_weight_cache_log_state().stores.fetch_add(
-          1u, std::memory_order_relaxed);
-    }
+    packed_weight_cache_log_state().stores.fetch_add(
+        1u, std::memory_order_relaxed);
 
     std::deque<PackedWeightResidencyEntry> retired_entries;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       for (auto it = cache_.begin(); it != cache_.end();) {
         if (!source_refs_alive(*it)) {
+          packed_weight_cache_log_state().pruned_expired_sources.fetch_add(
+              1u, std::memory_order_relaxed);
           it = retire_entry_locked(it, retired_entries, true);
           continue;
         }
@@ -1207,7 +1351,9 @@ std::vector<std::string> packed_weight_residency_snapshot() {
   return packed_weight_residency_manager().snapshot();
 }
 
-void reset_packed_weight_residency_snapshot() {}
+void reset_packed_weight_residency_snapshot() {
+  reset_packed_weight_cache_log_state();
+}
 
 const char* execution_object_kind_name(const VulkanExecutionObjectKind kind) {
   switch (kind) {

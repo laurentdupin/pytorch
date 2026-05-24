@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/ops/Common.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <torch/library.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
@@ -35,7 +36,7 @@ Tensor clone(
   }
 
   self.copy_(src);
-  return self;
+  return record_tensor_write_and_return(self, "aten::clone", "copy", {src});
 }
 
 #ifdef USE_VULKAN_API

@@ -9585,6 +9585,65 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
         )
 
+    def test_vulkan_linear_weight_cache_reuses_inference_mode_views(self):
+        torch.manual_seed(0)
+        torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
+        torch.ops.vulkan_prepack.reset_packed_weight_residency_snapshot()
+        linear = torch.nn.Linear(64, 128).eval().to("vulkan")
+        x_cpu = torch.randn(1, 32, 64)
+        x = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            for _ in range(5):
+                y = linear(x)
+        torch.ops.vulkan_prepack.synchronize()
+
+        expected = torch.nn.functional.linear(
+            x_cpu, linear.weight.cpu(), linear.bias.cpu()
+        )
+        self.assertEqual(y.cpu(), expected)
+        rows = torch.ops.vulkan_prepack.linear_pack_residency_snapshot()
+        self.assertTrue(
+            any(
+                "weight_shape=[64,128]" in row
+                and "count=5" in row
+                and "created=1" in row
+                and "reused=4" in row
+                for row in rows
+            )
+        )
+        packed_rows = torch.ops.vulkan_prepack.packed_weight_residency_snapshot()
+        self.assertTrue(
+            any(
+                "packed_weight_residency_summary" in row
+                and "hits=4" in row
+                and "misses=1" in row
+                for row in packed_rows
+            )
+        )
+
+        with torch.no_grad():
+            linear.weight.copy_(torch.randn_like(linear.weight.cpu()).to("vulkan"))
+
+        with torch.inference_mode():
+            y = linear(x)
+        torch.ops.vulkan_prepack.synchronize()
+
+        expected = torch.nn.functional.linear(
+            x_cpu, linear.weight.cpu(), linear.bias.cpu()
+        )
+        self.assertEqual(y.cpu(), expected)
+        rows = torch.ops.vulkan_prepack.linear_pack_residency_snapshot()
+        self.assertTrue(
+            any(
+                "weight_shape=[64,128]" in row
+                and "count=6" in row
+                and "created=2" in row
+                and "reused=4" in row
+                for row in rows
+            )
+        )
+
     def test_vulkan_vision_stack_execution_manifest_reports_capture_blocker(self):
         torch.manual_seed(0)
         embed_dim = 384

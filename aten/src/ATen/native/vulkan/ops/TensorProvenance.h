@@ -19,11 +19,13 @@ struct VulkanTensorProvenanceRecord final {
   uint64_t view_id{0};
   uint64_t generation{0};
   uint64_t logical_desc_hash{0};
+  uint64_t root_input_key{0};
   std::string writer_op;
   std::string route;
   std::string output_state;
   std::vector<std::string> input_states;
   std::vector<std::string> input_writers;
+  std::vector<uint64_t> input_state_keys;
 };
 
 void record_tensor_write(
@@ -55,6 +57,8 @@ std::string describe_tensor_provenance(const Tensor& tensor);
 std::string tensor_provenance_writer(const Tensor& tensor);
 
 std::string tensor_provenance_route(const Tensor& tensor);
+
+uint64_t tensor_provenance_first_input_key(const Tensor& tensor);
 
 bool check_tensor_finite(const Tensor& tensor, const char* consumer_op);
 

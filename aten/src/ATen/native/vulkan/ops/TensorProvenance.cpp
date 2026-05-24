@@ -40,6 +40,14 @@ uint64_t provenance_key(const VulkanTensorStateDesc& state) {
   return key;
 }
 
+uint64_t packed_weight_source_key(const VulkanTensorStateDesc& state) {
+  uint64_t key = state.storage_id;
+  key ^= state.logical_desc_hash + 0x9e3779b97f4a7c15ULL + (key << 6) +
+      (key >> 2);
+  key ^= state.generation + 0x9e3779b97f4a7c15ULL + (key << 6) + (key >> 2);
+  return key;
+}
+
 std::string describe_known_writer_locked(
     const VulkanTensorStateDesc& state,
     const ProvenanceRegistry& registry) {
@@ -79,6 +87,16 @@ std::string describe_input_writers_locked(
     stream << "input" << idx << '{' << record.input_writers[idx] << '}';
   }
   return stream.str();
+}
+
+uint64_t root_input_key_locked(
+    const VulkanTensorStateDesc& state,
+    const ProvenanceRegistry& registry) {
+  const auto it = registry.by_storage.find(provenance_key(state));
+  if (it != registry.by_storage.end() && it->second.root_input_key != 0u) {
+    return it->second.root_input_key;
+  }
+  return packed_weight_source_key(state);
 }
 
 Tensor finite_check_source(const Tensor& snapshot) {
@@ -146,11 +164,17 @@ void record_tensor_provenance(
     record.output_state = describe_tensor_state(output_state);
     record.input_states.reserve(inputs.size());
     record.input_writers.reserve(inputs.size());
+    record.input_state_keys.reserve(inputs.size());
     for (const Tensor& input : inputs) {
       const VulkanTensorStateDesc input_state = inspect_tensor_state(input);
       record.input_states.emplace_back(describe_tensor_state(input_state));
       record.input_writers.emplace_back(
           describe_known_writer_locked(input_state, registry));
+      record.input_state_keys.emplace_back(
+          root_input_key_locked(input_state, registry));
+    }
+    if (!record.input_state_keys.empty()) {
+      record.root_input_key = record.input_state_keys.front();
     }
 
     registry.by_storage[provenance_key(output_state)] = std::move(record);
@@ -279,6 +303,27 @@ std::string tensor_provenance_route(const Tensor& tensor) {
     return "unknown";
   }
   return it->second.route.empty() ? "unknown" : it->second.route;
+}
+
+uint64_t tensor_provenance_first_input_key(const Tensor& tensor) {
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  if (state.storage_id == 0u) {
+    return 0u;
+  }
+  ProvenanceRegistry& registry = provenance_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+
+  const auto it = registry.by_storage.find(provenance_key(state));
+  if (it == registry.by_storage.end()) {
+    return packed_weight_source_key(state);
+  }
+  if (it->second.root_input_key != 0u) {
+    return it->second.root_input_key;
+  }
+  if (!it->second.input_state_keys.empty()) {
+    return it->second.input_state_keys.front();
+  }
+  return packed_weight_source_key(state);
 }
 
 bool check_tensor_finite(const Tensor& tensor, const char* consumer_op) {
