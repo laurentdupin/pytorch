@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.metadata
+import json
 import os
 import re
 import sys
@@ -370,14 +371,66 @@ def summarize_model_parameters(torch: Any, model: Any) -> dict[str, Any]:
     }
 
 
+def parse_key_value_log_line(line: str) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for part in line.strip().split():
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        parsed[key] = value
+    return parsed
+
+
+def summarize_linear_plan_log(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.exists():
+        return {"path": str(path) if path is not None else None, "exists": False}
+    lines = path.read_text(errors="replace").splitlines()
+    parsed = [parse_key_value_log_line(line) for line in lines if line.strip()]
+    selected = [item for item in parsed if item.get("selected") == "1"]
+    shape_counts: dict[str, int] = {}
+    for item in selected:
+        shape = f"m={item.get('m')} k={item.get('k')} n={item.get('n')}"
+        shape_counts[shape] = shape_counts.get(shape, 0) + 1
+    return {
+        "path": str(path.resolve()),
+        "exists": True,
+        "line_count": len(lines),
+        "selected_count": len(selected),
+        "shape_counts": shape_counts,
+        "tail": lines[-32:],
+    }
+
+
+def sum_retired_buffer_bytes(counters: dict[str, Any]) -> int:
+    total = 0
+    for row in counters.get("retired_resource_aggregate_snapshot", []):
+        parsed = parse_key_value_log_line(str(row))
+        if parsed.get("kind") == "buffer":
+            try:
+                total += int(parsed.get("bytes", "0"))
+            except ValueError:
+                pass
+    return total
+
+
+def write_json_artifact(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def install_linear_forward_diagnostics(torch: Any, model: Any) -> dict[str, Any]:
     state: dict[str, Any] = {
         "installed": False,
         "events": [],
+        "timeline": [],
         "last_entered": None,
         "last_successful": None,
         "failed_candidate": None,
         "module_count": 0,
+        "enter_count": 0,
+        "exit_count": 0,
+        "unique_weight_bytes_seen": 0,
+        "seen_modules": {},
     }
     handles = []
 
@@ -400,12 +453,15 @@ def install_linear_forward_diagnostics(torch: Any, model: Any) -> dict[str, Any]
         input_tensor = first_tensor(args)
         weight = getattr(module, "weight", None)
         bias = getattr(module, "bias", None)
+        seen_modules = state["seen_modules"]
+        seen_before = name in seen_modules
         event = {
             "module": name,
             "type": type(module).__name__,
             "input": tensor_metadata(torch, input_tensor),
             "weight": tensor_metadata(torch, weight),
             "bias": tensor_metadata(torch, bias) if bias is not None else None,
+            "seen_before": seen_before,
         }
         weight_meta = event["weight"]
         bias_meta = event["bias"] or {}
@@ -414,26 +470,43 @@ def install_linear_forward_diagnostics(torch: Any, model: Any) -> dict[str, Any]
         event["estimated_min_pack_bytes"] = (
             event["estimated_raw_weight_bytes"] + event["estimated_raw_bias_bytes"]
         )
+        if not seen_before:
+            state["unique_weight_bytes_seen"] += event["estimated_raw_weight_bytes"]
+            seen_modules[name] = {
+                "weight": weight_meta,
+                "estimated_raw_weight_bytes": event["estimated_raw_weight_bytes"],
+            }
+        event["cumulative_unique_weight_bytes_seen"] = state[
+            "unique_weight_bytes_seen"
+        ]
         return event
 
     def pre_hook(name: str) -> Any:
         def hook(module: Any, args: Any) -> None:
             event = make_event(name, module, args)
+            state["enter_count"] += 1
+            event["order"] = state["enter_count"]
             state["last_entered"] = event
             state["failed_candidate"] = event
             state["events"].append({"stage": "enter", **event})
             state["events"] = state["events"][-64:]
+            state["timeline"].append({"stage": "enter", **event})
+            state["timeline"] = state["timeline"][-256:]
 
         return hook
 
     def post_hook(name: str) -> Any:
         def hook(module: Any, args: Any, output: Any) -> None:
             event = make_event(name, module, args)
+            state["exit_count"] += 1
+            event["order"] = state["exit_count"]
             event["output"] = tensor_metadata(torch, first_tensor(output))
             state["last_successful"] = event
             state["failed_candidate"] = None
             state["events"].append({"stage": "exit", **event})
             state["events"] = state["events"][-64:]
+            state["timeline"].append({"stage": "exit", **event})
+            state["timeline"] = state["timeline"][-256:]
 
         return hook
 
@@ -754,6 +827,7 @@ def run_text_generation(
     distributed_import = install_benchmark_distributed_import_shim(torch)
     linear_diag: dict[str, Any] = {}
     parameter_summary: dict[str, Any] = {}
+    vulkan_parameter_summary: dict[str, Any] = {}
     linear_plan_log_path: Path | None = None
     if backend == "vulkan":
         linear_plan_log_path = (
@@ -802,6 +876,8 @@ def run_text_generation(
             if move_info:
                 setattr(move_exc, "_benchmark_model_move_failure", move_info)
             raise
+        if backend == "vulkan":
+            vulkan_parameter_summary = summarize_model_parameters(torch, model)
         model.eval()
         linear_diag = install_linear_forward_diagnostics(torch, model)
         setup_s = time.perf_counter() - setup_start
@@ -874,23 +950,69 @@ def run_text_generation(
         if move_failure:
             record.failure["model_move_failure"] = move_failure
         if backend == "vulkan":
+            failure_counters = snapshot_vulkan_debug_counters(torch, backend)
             if linear_diag:
                 record.failure["linear_forward_diagnostics"] = {
                     "installed": linear_diag.get("installed", False),
                     "module_count": linear_diag.get("module_count", 0),
+                    "enter_count": linear_diag.get("enter_count", 0),
+                    "exit_count": linear_diag.get("exit_count", 0),
+                    "unique_module_count_seen": len(
+                        linear_diag.get("seen_modules", {})
+                    ),
+                    "unique_weight_bytes_seen": linear_diag.get(
+                        "unique_weight_bytes_seen", 0
+                    ),
                     "last_successful": linear_diag.get("last_successful"),
                     "failed_candidate": linear_diag.get("failed_candidate"),
                     "last_entered": linear_diag.get("last_entered"),
                     "recent_events": linear_diag.get("events", [])[-16:],
+                    "recent_timeline": linear_diag.get("timeline", [])[-64:],
                 }
-                remove_linear_forward_diagnostics(linear_diag)
             if parameter_summary:
                 record.failure["model_parameter_summary"] = parameter_summary
+            if vulkan_parameter_summary:
+                record.failure["vulkan_model_parameter_summary"] = (
+                    vulkan_parameter_summary
+                )
             if linear_plan_log_path is not None:
-                record.failure["linear_plan_log"] = {
-                    "path": str(linear_plan_log_path.resolve()),
-                    "tail": read_text_tail(linear_plan_log_path),
+                record.failure["linear_plan_log"] = summarize_linear_plan_log(
+                    linear_plan_log_path
+                )
+            record.failure["vulkan_failure_counters"] = failure_counters
+            if reason == "model_weight_vulkan_oom":
+                memory_summary = {
+                    "model_name": model_name,
+                    "model_id": model_id,
+                    "backend": backend,
+                    "failure_reason": reason,
+                    "exception_type": type(exc).__name__,
+                    "exception": str(exc),
+                    "linear_forward_diagnostics": record.failure.get(
+                        "linear_forward_diagnostics", {}
+                    ),
+                    "model_parameter_summary": parameter_summary,
+                    "vulkan_model_parameter_summary": vulkan_parameter_summary,
+                    "linear_plan_log": record.failure.get("linear_plan_log", {}),
+                    "vulkan_failure_counters": failure_counters,
+                    "retired_buffer_bytes_observed": sum_retired_buffer_bytes(
+                        failure_counters
+                    ),
+                    "notes": {
+                        "live_vulkan_buffer_bytes": "not exposed by current debug counters",
+                        "retire_poll_before_failed_pack": "not attempted; diagnostics only",
+                        "packed_weight_bytes_are_estimated_from_linear_weights": True,
+                    },
                 }
+                memory_summary_path = (
+                    Path("agent_space") / "hymt_linear_pack_memory_summary.json"
+                )
+                write_json_artifact(memory_summary_path, memory_summary)
+                record.failure["linear_pack_memory_summary_path"] = str(
+                    memory_summary_path.resolve()
+                )
+            if linear_diag:
+                remove_linear_forward_diagnostics(linear_diag)
         record.failure["distributed_c10d_status"] = benchmark_distributed_import_status(torch)
         record.failure["distributed_import_shim"] = distributed_import
         return record
