@@ -40,6 +40,8 @@ DEFAULT_MODELS = {
     "gemma": "google/gemma-4-E2B-it",
 }
 
+HY_MT_DECODE_REUSE_PROMPT = "Translate to French: Hello world."
+
 
 def benchmark_distributed_import_status(torch: Any) -> str:
     if hasattr(getattr(torch, "_C", None), "_distributed_c10d"):
@@ -416,6 +418,80 @@ def sum_retired_buffer_bytes(counters: dict[str, Any]) -> int:
 def write_json_artifact(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def summarize_linear_forward_diagnostics(state: dict[str, Any]) -> dict[str, Any]:
+    seen_modules = state.get("seen_modules", {})
+    return {
+        "installed": state.get("installed", False),
+        "module_count": state.get("module_count", 0),
+        "enter_count": state.get("enter_count", 0),
+        "exit_count": state.get("exit_count", 0),
+        "unique_module_count_seen": len(seen_modules),
+        "unique_weight_bytes_seen": state.get("unique_weight_bytes_seen", 0),
+        "last_successful": state.get("last_successful"),
+        "failed_candidate": state.get("failed_candidate"),
+        "last_entered": state.get("last_entered"),
+        "per_module_call_counts": {
+            name: int(payload.get("call_count", 0))
+            for name, payload in sorted(seen_modules.items())
+        },
+    }
+
+
+def reset_linear_forward_diagnostics_state(state: dict[str, Any]) -> None:
+    handles = state.get("_handles", [])
+    installed = state.get("installed", False)
+    module_count = state.get("module_count", 0)
+    state.clear()
+    state.update(
+        {
+            "installed": installed,
+            "events": [],
+            "timeline": [],
+            "last_entered": None,
+            "last_successful": None,
+            "failed_candidate": None,
+            "module_count": module_count,
+            "enter_count": 0,
+            "exit_count": 0,
+            "unique_weight_bytes_seen": 0,
+            "seen_modules": {},
+            "_handles": handles,
+        }
+    )
+
+
+def summarize_linear_pack_cache(counters: dict[str, Any]) -> dict[str, Any]:
+    totals = {
+        "count": 0,
+        "created": 0,
+        "reused": 0,
+        "packed_bytes": 0,
+        "raw_weight_bytes": 0,
+        "raw_bias_bytes": 0,
+    }
+    for row in counters.get("linear_pack_residency_snapshot", []):
+        parsed = parse_key_value_log_line(str(row))
+        for key in totals:
+            try:
+                totals[key] += int(parsed.get(key, "0"))
+            except ValueError:
+                pass
+
+    summary: dict[str, Any] = {}
+    for row in counters.get("packed_weight_residency_snapshot", []):
+        if "packed_weight_residency_summary" not in str(row):
+            continue
+        for key, value in parse_key_value_log_line(str(row)).items():
+            try:
+                summary[key] = int(value)
+            except ValueError:
+                summary[key] = value
+    return {
+        "linear_pack_totals": totals,
+        "packed_weight_cache_summary": summary,
+    }
 
 
 def install_linear_forward_diagnostics(torch: Any, model: Any) -> dict[str, Any]:
@@ -881,21 +957,80 @@ def run_text_generation(
         model.eval()
         linear_diag = install_linear_forward_diagnostics(torch, model)
         setup_s = time.perf_counter() - setup_start
-        inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
-        def generate() -> Any:
-            return model.generate(**inputs, max_new_tokens=args.max_new_tokens, do_sample=False)
+        prompt_candidates = [prompt]
+        if (
+            args.min_generated_tokens > 0
+            and model_name == "hy_mt"
+            and args.translation_decode_reuse_prompt
+            and args.translation_decode_reuse_prompt not in prompt_candidates
+        ):
+            prompt_candidates.append(args.translation_decode_reuse_prompt)
 
-        with torch.inference_mode():
-            for _ in range(args.warmup):
-                generate()
-            timing, output = measure_repeated(
-                "device_resident_generate",
-                args.repeats,
-                generate,
-                torch_module=torch,
-                backend=backend,
-                device=device,
+        prompt_attempts = []
+        selected: dict[str, Any] | None = None
+        last_output = None
+        for prompt_index, prompt_candidate in enumerate(prompt_candidates):
+            if backend == "vulkan":
+                reset_vulkan_debug_counters(torch, backend)
+            if linear_diag:
+                reset_linear_forward_diagnostics_state(linear_diag)
+            inputs = tokenizer(prompt_candidate, return_tensors="pt").to(device)
+
+            def generate() -> Any:
+                return model.generate(
+                    **inputs,
+                    max_new_tokens=args.max_new_tokens,
+                    do_sample=False,
+                )
+
+            with torch.inference_mode():
+                for _ in range(args.warmup):
+                    generate()
+                timing, output = measure_repeated(
+                    "device_resident_generate",
+                    args.repeats,
+                    generate,
+                    torch_module=torch,
+                    backend=backend,
+                    device=device,
+                )
+            generated_tokens = int(output.shape[-1] - inputs["input_ids"].shape[-1])
+            attempt = {
+                "prompt_index": prompt_index,
+                "prompt": prompt_candidate,
+                "prompt_tokens": int(inputs["input_ids"].shape[-1]),
+                "max_new_tokens": args.max_new_tokens,
+                "generated_tokens": generated_tokens,
+                "decode_step_2_reached": generated_tokens >= 2,
+            }
+            prompt_attempts.append(attempt)
+            selected = {
+                "prompt": prompt_candidate,
+                "inputs": inputs,
+                "timing": timing,
+                "generated_tokens": generated_tokens,
+                "attempt": attempt,
+            }
+            last_output = output
+            if generated_tokens >= args.min_generated_tokens:
+                break
+
+        if selected is None or last_output is None:
+            raise RuntimeError("HY-MT generation produced no benchmark attempt")
+
+        inputs = selected["inputs"]
+        timing = selected["timing"]
+        output = last_output
+        generated_tokens = selected["generated_tokens"]
+        selected_prompt = selected["prompt"]
+        selected_attempt = selected["attempt"]
+        decode_step_2_reached = generated_tokens >= 2
+        if args.min_generated_tokens > 0 and generated_tokens < args.min_generated_tokens:
+            raise RuntimeError(
+                "HY-MT decode reuse probe did not reach the requested "
+                f"{args.min_generated_tokens} generated tokens; "
+                f"last_generated_tokens={generated_tokens}"
             )
         text = tokenizer.decode(output[0], skip_special_tokens=True)
         generated_tokens = int(output.shape[-1] - inputs["input_ids"].shape[-1])
@@ -911,14 +1046,19 @@ def run_text_generation(
         )
         record.device = device_info
         record.input = {
-            "prompt": prompt,
+            "prompt": selected_prompt,
             "prompt_tokens": int(inputs["input_ids"].shape[-1]),
             "max_new_tokens": args.max_new_tokens,
+            "min_generated_tokens": args.min_generated_tokens,
+            "decode_step_2_reached": decode_step_2_reached,
+            "prompt_attempts": prompt_attempts,
         }
         record.timings = {"setup_s": setup_s, "device_resident_generate": timing}
         record.counters = {"vulkan_debug": snapshot_vulkan_debug_counters(torch, backend)}
         record.output_sanity = {
             "generated_tokens": generated_tokens,
+            "decode_step_2_reached": decode_step_2_reached,
+            "selected_prompt_attempt": selected_attempt,
             "tokens_per_s": (
                 generated_tokens / timing["mean_s"] if timing["mean_s"] > 0 else 0.0
             ),
@@ -926,6 +1066,13 @@ def run_text_generation(
             "distributed_c10d_status": distributed_import["status"],
             "distributed_import_shim": distributed_import,
         }
+        if backend == "vulkan":
+            record.output_sanity["linear_forward_diagnostics"] = (
+                summarize_linear_forward_diagnostics(linear_diag)
+            )
+            record.output_sanity["linear_pack_cache"] = summarize_linear_pack_cache(
+                record.counters["vulkan_debug"]
+            )
         if linear_diag:
             remove_linear_forward_diagnostics(linear_diag)
         record.environment = environment_summary()
@@ -1507,6 +1654,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-inference-steps", type=int, default=1)
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument(
+        "--min-generated-tokens",
+        type=int,
+        default=0,
+        help="Require at least this many generated tokens for generation probes.",
+    )
+    parser.add_argument(
         "--cache-dir",
         default="agent_space/hf_home",
         help="Hugging Face cache root. Defaults inside the repo scratch space.",
@@ -1546,6 +1699,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--translation-prompt",
         default="Translate to French: The Vulkan backend should report clean skips.",
+    )
+    parser.add_argument(
+        "--translation-decode-reuse-prompt",
+        default=HY_MT_DECODE_REUSE_PROMPT,
+        help=(
+            "Fallback HY-MT prompt used by the decode-reuse probe when the "
+            "default prompt stops before the requested token count."
+        ),
     )
     parser.add_argument(
         "--gemma-prompt",

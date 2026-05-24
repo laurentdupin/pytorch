@@ -179,7 +179,7 @@ bool is_known_hymt_small_causal_gqa_sdpa_shape(
   if (
       query.size(0) != 1 || key.size(0) != 1 || value.size(0) != 1 ||
       query.size(1) != 16 ||
-      (query.size(2) != 1 && query.size(2) != 14) ||
+      query.size(2) < 1 || query.size(2) > 14 ||
       query.size(3) != 128 || key.size(2) < query.size(2) ||
       key.size(2) > 64 || key.size(3) != 128 ||
       value.size(2) != key.size(2) || value.size(3) != 128 ||
