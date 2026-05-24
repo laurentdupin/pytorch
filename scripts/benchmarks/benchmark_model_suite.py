@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.metadata
+import os
 import re
 import sys
 import time
@@ -310,6 +311,160 @@ def classify_model_move_failure(
     return info
 
 
+def tensor_metadata(torch: Any, tensor: Any) -> dict[str, Any]:
+    if not torch.is_tensor(tensor):
+        return {"tensor_present": False, "type": type(tensor).__name__}
+    meta: dict[str, Any] = {
+        "tensor_present": True,
+        "shape": [int(dim) for dim in tensor.shape],
+        "stride": [int(dim) for dim in tensor.stride()],
+        "dtype": str(tensor.dtype),
+        "device": str(tensor.device),
+        "numel": int(tensor.numel()),
+        "element_size": int(tensor.element_size()),
+        "bytes": int(tensor.numel() * tensor.element_size()),
+        "requires_grad": bool(getattr(tensor, "requires_grad", False)),
+    }
+    try:
+        meta["storage_offset"] = int(tensor.storage_offset())
+    except Exception as exc:
+        meta["storage_offset_error"] = f"{type(exc).__name__}: {str(exc)[:120]}"
+    try:
+        meta["is_contiguous"] = bool(tensor.is_contiguous())
+    except Exception as exc:
+        meta["is_contiguous_error"] = f"{type(exc).__name__}: {str(exc)[:120]}"
+    return meta
+
+
+def summarize_model_parameters(torch: Any, model: Any) -> dict[str, Any]:
+    total_numel = 0
+    total_bytes = 0
+    by_dtype: dict[str, dict[str, int]] = {}
+    largest: list[dict[str, Any]] = []
+    for name, parameter in model.named_parameters():
+        bytes_ = int(parameter.numel() * parameter.element_size())
+        total_numel += int(parameter.numel())
+        total_bytes += bytes_
+        dtype = str(parameter.dtype)
+        bucket = by_dtype.setdefault(dtype, {"numel": 0, "bytes": 0, "count": 0})
+        bucket["numel"] += int(parameter.numel())
+        bucket["bytes"] += bytes_
+        bucket["count"] += 1
+        largest.append(
+            {
+                "name": name,
+                "shape": [int(dim) for dim in parameter.shape],
+                "dtype": dtype,
+                "device": str(parameter.device),
+                "numel": int(parameter.numel()),
+                "bytes": bytes_,
+            }
+        )
+    largest.sort(key=lambda item: int(item["bytes"]), reverse=True)
+    return {
+        "parameter_count": sum(bucket["count"] for bucket in by_dtype.values()),
+        "total_numel": total_numel,
+        "total_bytes": total_bytes,
+        "by_dtype": by_dtype,
+        "largest_parameters": largest[:16],
+    }
+
+
+def install_linear_forward_diagnostics(torch: Any, model: Any) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "installed": False,
+        "events": [],
+        "last_entered": None,
+        "last_successful": None,
+        "failed_candidate": None,
+        "module_count": 0,
+    }
+    handles = []
+
+    def first_tensor(payload: Any) -> Any:
+        if torch.is_tensor(payload):
+            return payload
+        if isinstance(payload, (list, tuple)):
+            for item in payload:
+                found = first_tensor(item)
+                if found is not None:
+                    return found
+        if isinstance(payload, dict):
+            for item in payload.values():
+                found = first_tensor(item)
+                if found is not None:
+                    return found
+        return None
+
+    def make_event(name: str, module: Any, args: Any) -> dict[str, Any]:
+        input_tensor = first_tensor(args)
+        weight = getattr(module, "weight", None)
+        bias = getattr(module, "bias", None)
+        event = {
+            "module": name,
+            "type": type(module).__name__,
+            "input": tensor_metadata(torch, input_tensor),
+            "weight": tensor_metadata(torch, weight),
+            "bias": tensor_metadata(torch, bias) if bias is not None else None,
+        }
+        weight_meta = event["weight"]
+        bias_meta = event["bias"] or {}
+        event["estimated_raw_weight_bytes"] = int(weight_meta.get("bytes", 0) or 0)
+        event["estimated_raw_bias_bytes"] = int(bias_meta.get("bytes", 0) or 0)
+        event["estimated_min_pack_bytes"] = (
+            event["estimated_raw_weight_bytes"] + event["estimated_raw_bias_bytes"]
+        )
+        return event
+
+    def pre_hook(name: str) -> Any:
+        def hook(module: Any, args: Any) -> None:
+            event = make_event(name, module, args)
+            state["last_entered"] = event
+            state["failed_candidate"] = event
+            state["events"].append({"stage": "enter", **event})
+            state["events"] = state["events"][-64:]
+
+        return hook
+
+    def post_hook(name: str) -> Any:
+        def hook(module: Any, args: Any, output: Any) -> None:
+            event = make_event(name, module, args)
+            event["output"] = tensor_metadata(torch, first_tensor(output))
+            state["last_successful"] = event
+            state["failed_candidate"] = None
+            state["events"].append({"stage": "exit", **event})
+            state["events"] = state["events"][-64:]
+
+        return hook
+
+    for name, module in model.named_modules():
+        if isinstance(module, torch.nn.Linear):
+            handles.append(module.register_forward_pre_hook(pre_hook(name)))
+            handles.append(module.register_forward_hook(post_hook(name)))
+            state["module_count"] += 1
+    state["installed"] = bool(handles)
+    state["_handles"] = handles
+    return state
+
+
+def remove_linear_forward_diagnostics(state: dict[str, Any]) -> None:
+    for handle in state.get("_handles", []):
+        try:
+            handle.remove()
+        except Exception:
+            pass
+    state.pop("_handles", None)
+
+
+def read_text_tail(path: Path, max_lines: int = 128) -> list[str]:
+    try:
+        if not path.is_file():
+            return []
+        return path.read_text(encoding="utf-8", errors="replace").splitlines()[-max_lines:]
+    except Exception as exc:
+        return [f"read_error={type(exc).__name__}: {str(exc)[:200]}"]
+
+
 def run_torch_ops(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
     task = "torch_backend_smoke"
     model_name = "torch_ops"
@@ -597,6 +752,22 @@ def run_text_generation(
         )
     torch = import_torch()
     distributed_import = install_benchmark_distributed_import_shim(torch)
+    linear_diag: dict[str, Any] = {}
+    parameter_summary: dict[str, Any] = {}
+    linear_plan_log_path: Path | None = None
+    if backend == "vulkan":
+        linear_plan_log_path = (
+            Path("agent_space")
+            / f"{model_name}_vulkan_linear_plan_{int(time.time() * 1000)}.log"
+        )
+        linear_plan_log_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            linear_plan_log_path.unlink()
+        except FileNotFoundError:
+            pass
+        os.environ["PYTORCH_VULKAN_LINEAR_PLAN_LOG"] = str(
+            linear_plan_log_path.resolve()
+        )
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -618,6 +789,7 @@ def run_text_generation(
             trust_remote_code=True,
             local_files_only=not args.allow_downloads,
         )
+        parameter_summary = summarize_model_parameters(torch, model)
         try:
             model = model.to(device)
         except Exception as move_exc:
@@ -631,6 +803,7 @@ def run_text_generation(
                 setattr(move_exc, "_benchmark_model_move_failure", move_info)
             raise
         model.eval()
+        linear_diag = install_linear_forward_diagnostics(torch, model)
         setup_s = time.perf_counter() - setup_start
         inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
@@ -677,6 +850,8 @@ def run_text_generation(
             "distributed_c10d_status": distributed_import["status"],
             "distributed_import_shim": distributed_import,
         }
+        if linear_diag:
+            remove_linear_forward_diagnostics(linear_diag)
         record.environment = environment_summary()
         return record
     except Exception as exc:
@@ -698,6 +873,24 @@ def run_text_generation(
         move_failure = getattr(exc, "_benchmark_model_move_failure", None)
         if move_failure:
             record.failure["model_move_failure"] = move_failure
+        if backend == "vulkan":
+            if linear_diag:
+                record.failure["linear_forward_diagnostics"] = {
+                    "installed": linear_diag.get("installed", False),
+                    "module_count": linear_diag.get("module_count", 0),
+                    "last_successful": linear_diag.get("last_successful"),
+                    "failed_candidate": linear_diag.get("failed_candidate"),
+                    "last_entered": linear_diag.get("last_entered"),
+                    "recent_events": linear_diag.get("events", [])[-16:],
+                }
+                remove_linear_forward_diagnostics(linear_diag)
+            if parameter_summary:
+                record.failure["model_parameter_summary"] = parameter_summary
+            if linear_plan_log_path is not None:
+                record.failure["linear_plan_log"] = {
+                    "path": str(linear_plan_log_path.resolve()),
+                    "tail": read_text_tail(linear_plan_log_path),
+                }
         record.failure["distributed_c10d_status"] = benchmark_distributed_import_status(torch)
         record.failure["distributed_import_shim"] = distributed_import
         return record
