@@ -7977,6 +7977,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         cases = (
             (7, 7, True),
             (11, 11, True),
+            (99, 99, True),
         )
         with torch.inference_mode():
             for target_len, source_len, is_causal in cases:

@@ -179,14 +179,18 @@ bool is_known_hymt_small_causal_gqa_sdpa_shape(
   if (
       query.size(0) != 1 || key.size(0) != 1 || value.size(0) != 1 ||
       query.size(1) != 16 ||
-      query.size(2) < 1 || query.size(2) > 14 ||
+      query.size(2) < 1 || query.size(2) > 128 ||
       query.size(3) != 128 || key.size(2) < query.size(2) ||
-      key.size(2) > 64 || key.size(3) != 128 ||
+      key.size(3) != 128 ||
       value.size(2) != key.size(2) || value.size(3) != 128 ||
       key.size(1) != value.size(1)) {
     return false;
   }
-  if (is_causal && query.size(2) != key.size(2)) {
+  if (is_causal) {
+    if (query.size(2) != key.size(2) || key.size(2) > 128) {
+      return false;
+    }
+  } else if (query.size(2) > 14 || key.size(2) > 64) {
     return false;
   }
   return enable_gqa ? key.size(1) == 4 : key.size(1) == 16;
