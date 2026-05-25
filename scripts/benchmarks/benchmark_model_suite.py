@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import collections
+import contextlib
 import importlib.metadata
 import json
 import os
@@ -41,6 +43,26 @@ DEFAULT_MODELS = {
 }
 
 HY_MT_DECODE_REUSE_PROMPT = "Translate to French: Hello world."
+
+
+def is_vulkan_tensor(torch: Any, value: Any) -> bool:
+    return torch.is_tensor(value) and str(value.device).startswith("vulkan")
+
+
+def flatten_tensors(torch: Any, payload: Any) -> list[Any]:
+    if torch.is_tensor(payload):
+        return [payload]
+    if isinstance(payload, (list, tuple)):
+        tensors: list[Any] = []
+        for item in payload:
+            tensors.extend(flatten_tensors(torch, item))
+        return tensors
+    if isinstance(payload, dict):
+        tensors = []
+        for item in payload.values():
+            tensors.extend(flatten_tensors(torch, item))
+        return tensors
+    return []
 
 
 def benchmark_distributed_import_status(torch: Any) -> str:
@@ -337,6 +359,392 @@ def tensor_metadata(torch: Any, tensor: Any) -> dict[str, Any]:
     except Exception as exc:
         meta["is_contiguous_error"] = f"{type(exc).__name__}: {str(exc)[:120]}"
     return meta
+
+
+def compact_tensor_metadata(torch: Any, tensor: Any) -> dict[str, Any]:
+    meta = tensor_metadata(torch, tensor)
+    return {
+        key: meta[key]
+        for key in (
+            "shape",
+            "stride",
+            "dtype",
+            "device",
+            "numel",
+            "element_size",
+            "bytes",
+        )
+        if key in meta
+    }
+
+
+class VulkanFallbackAttribution:
+    def __init__(self, torch: Any, *, max_samples_per_key: int = 4) -> None:
+        self.torch = torch
+        self.max_samples_per_key = max_samples_per_key
+        self.enabled = False
+        self.rows_by_op: dict[str, dict[str, Any]] = {}
+        self.rows_by_callsite: dict[str, dict[str, Any]] = {}
+        self.rows_by_op_callsite: dict[tuple[str, str], dict[str, Any]] = {}
+        self.samples: list[dict[str, Any]] = []
+        self.total_dispatches = 0
+        self.vulkan_dispatches = 0
+        self.dispatch_error: str | None = None
+        self._mode: Any = None
+        self._cpu_count = None
+        self._readback_count = None
+        self._submit_counters = None
+
+    def __enter__(self) -> "VulkanFallbackAttribution":
+        try:
+            from torch.utils._python_dispatch import TorchDispatchMode
+        except Exception as exc:
+            self.dispatch_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+            return self
+
+        ops = getattr(getattr(self.torch, "ops", None), "vulkan_prepack", None)
+        self._cpu_count = getattr(ops, "cpu_fallback_count", None) if ops else None
+        self._readback_count = (
+            getattr(ops, "sync_readback_count", None) if ops else None
+        )
+        self._submit_counters = (
+            getattr(ops, "submit_origin_counters", None) if ops else None
+        )
+        owner = self
+
+        class AttributionMode(TorchDispatchMode):
+            def __torch_dispatch__(
+                self,
+                func: Any,
+                types: Any,
+                args: tuple[Any, ...] = (),
+                kwargs: dict[str, Any] | None = None,
+            ) -> Any:
+                return owner._dispatch(func, args, kwargs or {})
+
+        self._mode = AttributionMode()
+        self._mode.__enter__()
+        self.enabled = True
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if self._mode is not None:
+            self._mode.__exit__(exc_type, exc, tb)
+        self.enabled = False
+
+    def _counter_value(self, fn: Any) -> int:
+        if fn is None:
+            return 0
+        try:
+            return int(fn())
+        except Exception:
+            return 0
+
+    def _submit_value(self) -> list[int]:
+        if self._submit_counters is None:
+            return []
+        try:
+            return [int(value) for value in self._submit_counters()]
+        except Exception:
+            return []
+
+    def _dispatch(self, func: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+        self.total_dispatches += 1
+        all_inputs = flatten_tensors(self.torch, args) + flatten_tensors(
+            self.torch, kwargs
+        )
+        has_vulkan = any(is_vulkan_tensor(self.torch, tensor) for tensor in all_inputs)
+        if has_vulkan:
+            self.vulkan_dispatches += 1
+        before_cpu = self._counter_value(self._cpu_count) if has_vulkan else 0
+        before_readback = (
+            self._counter_value(self._readback_count) if has_vulkan else 0
+        )
+        before_submit = self._submit_value() if has_vulkan else []
+        result = func(*args, **kwargs)
+        if not has_vulkan:
+            return result
+        after_cpu = self._counter_value(self._cpu_count)
+        after_readback = self._counter_value(self._readback_count)
+        after_submit = self._submit_value()
+        cpu_delta = max(0, after_cpu - before_cpu)
+        readback_delta = max(0, after_readback - before_readback)
+        submit_delta = self._submit_delta(before_submit, after_submit)
+        if cpu_delta == 0 and readback_delta == 0 and submit_delta["total"] == 0:
+            return result
+        self._record(
+            func,
+            args,
+            kwargs,
+            result,
+            cpu_delta=cpu_delta,
+            readback_delta=readback_delta,
+            submit_delta=submit_delta,
+        )
+        return result
+
+    def _submit_delta(self, before: list[int], after: list[int]) -> dict[str, int]:
+        if not before or not after:
+            return {"total": 0}
+        width = min(len(before), len(after))
+        deltas = [max(0, after[index] - before[index]) for index in range(width)]
+        names = {
+            "total": 0,
+            "normal_cmd_submit_frequency": 1,
+            "stack_planned_recording_submit": 5,
+            "tensor_cpu_readback": 6,
+            "retire_queue_drain": 8,
+        }
+        return {
+            name: deltas[index] if index < len(deltas) else 0
+            for name, index in names.items()
+        }
+
+    def _op_name(self, func: Any) -> str:
+        schema = getattr(func, "_schema", None)
+        if schema is not None:
+            return str(schema).split("(", 1)[0]
+        return str(func)
+
+    def _callsite(self) -> dict[str, Any]:
+        stack = traceback.extract_stack(limit=48)
+        preferred = None
+        fallback = None
+        for frame in reversed(stack[:-2]):
+            path = frame.filename.replace("\\", "/")
+            lower_path = path.lower()
+            if "torch/utils/_python_dispatch.py" in lower_path:
+                continue
+            if "scripts/benchmarks/benchmark_model_suite.py" in lower_path:
+                continue
+            if "/torch/" in lower_path or "\\torch\\" in lower_path:
+                continue
+            item = {
+                "file": path,
+                "line": int(frame.lineno),
+                "function": frame.name,
+                "code": (frame.line or "").strip()[:240],
+            }
+            if "transformers" in lower_path:
+                preferred = item
+                break
+            if fallback is None:
+                fallback = item
+        selected = preferred or fallback or {}
+        if not selected:
+            return {"site": "unknown"}
+        selected["site"] = (
+            f"{selected.get('file')}:{selected.get('line')}:"
+            f"{selected.get('function')}"
+        )
+        return selected
+
+    def _classify(self, op_name: str, callsite: dict[str, Any], tensors: list[Any]) -> str:
+        site = str(callsite.get("site", "")).lower()
+        max_numel = max((int(tensor.numel()) for tensor in tensors), default=0)
+        dtypes = {str(tensor.dtype) for tensor in tensors}
+        if "transformers/integrations/sdpa_attention.py" in site:
+            return "model_core_tensor_ops"
+        if "transformers/cache_utils.py" in site:
+            return "model_core_tensor_ops"
+        if (
+            "transformers/modeling_rope_utils.py" in site
+            or "transformers/masking_utils.py" in site
+        ):
+            return "model_core_metadata" if max_numel <= 1024 else "model_core_tensor_ops"
+        if "generation/logits_process.py" in site:
+            return "logits_processors"
+        if "generation/stopping_criteria.py" in site or "generation/utils.py" in site:
+            return "tiny_generation_metadata" if max_numel <= 1024 else "generation_metadata"
+        if max_numel <= 1024 and any("bool" in dtype or "int" in dtype for dtype in dtypes):
+            return "tiny_generation_metadata"
+        if "modeling" in site or "transformers/models" in site:
+            return "model_core_tensor_ops"
+        if "benchmark" in site:
+            return "benchmark_harness_overhead"
+        return "uncategorized"
+
+    def _record(
+        self,
+        func: Any,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
+        *,
+        cpu_delta: int,
+        readback_delta: int,
+        submit_delta: dict[str, int],
+    ) -> None:
+        op_name = self._op_name(func)
+        callsite = self._callsite()
+        input_tensors = flatten_tensors(self.torch, args) + flatten_tensors(
+            self.torch, kwargs
+        )
+        output_tensors = flatten_tensors(self.torch, result)
+        input_bytes = sum(
+            int(tensor.numel() * tensor.element_size()) for tensor in input_tensors
+        )
+        output_bytes = sum(
+            int(tensor.numel() * tensor.element_size()) for tensor in output_tensors
+        )
+        category = self._classify(op_name, callsite, input_tensors + output_tensors)
+        payload = {
+            "op": op_name,
+            "callsite": callsite,
+            "category": category,
+            "count": 1,
+            "cpu_fallback_count": int(cpu_delta),
+            "sync_readback_count": int(readback_delta),
+            "submit_origin_delta": submit_delta,
+            "input_bytes": int(input_bytes),
+            "output_bytes": int(output_bytes),
+            "estimated_bytes": int(input_bytes + output_bytes),
+            "inputs": [
+                compact_tensor_metadata(self.torch, tensor) for tensor in input_tensors[:4]
+            ],
+            "outputs": [
+                compact_tensor_metadata(self.torch, tensor) for tensor in output_tensors[:4]
+            ],
+        }
+        self._merge(self.rows_by_op, op_name, payload)
+        self._merge(self.rows_by_callsite, str(callsite.get("site", "unknown")), payload)
+        self._merge(self.rows_by_op_callsite, (op_name, str(callsite.get("site", "unknown"))), payload)
+        if len(self.samples) < 128:
+            self.samples.append(payload)
+
+    def _merge(self, rows: dict[Any, dict[str, Any]], key: Any, payload: dict[str, Any]) -> None:
+        row = rows.get(key)
+        if row is None:
+            row = {
+                "op": payload["op"],
+                "callsite": payload["callsite"],
+                "category": payload["category"],
+                "count": 0,
+                "cpu_fallback_count": 0,
+                "sync_readback_count": 0,
+                "submit_origin_delta": collections.Counter(),
+                "input_bytes": 0,
+                "output_bytes": 0,
+                "estimated_bytes": 0,
+                "samples": [],
+            }
+            rows[key] = row
+        row["count"] += payload["count"]
+        row["cpu_fallback_count"] += payload["cpu_fallback_count"]
+        row["sync_readback_count"] += payload["sync_readback_count"]
+        row["input_bytes"] += payload["input_bytes"]
+        row["output_bytes"] += payload["output_bytes"]
+        row["estimated_bytes"] += payload["estimated_bytes"]
+        row["submit_origin_delta"].update(payload["submit_origin_delta"])
+        if len(row["samples"]) < self.max_samples_per_key:
+            row["samples"].append(
+                {
+                    "inputs": payload["inputs"],
+                    "outputs": payload["outputs"],
+                    "callsite": payload["callsite"],
+                }
+            )
+
+    def _finalize_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        finalized = dict(row)
+        finalized["submit_origin_delta"] = dict(row.get("submit_origin_delta", {}))
+        return finalized
+
+    def summary(self, top_n: int = 20) -> dict[str, Any]:
+        by_op = [self._finalize_row(row) for row in self.rows_by_op.values()]
+        by_callsite = [
+            self._finalize_row(row) for row in self.rows_by_callsite.values()
+        ]
+        by_op_callsite = [
+            self._finalize_row(row) for row in self.rows_by_op_callsite.values()
+        ]
+        categories: dict[str, dict[str, int]] = {}
+        for row in by_op_callsite:
+            bucket = categories.setdefault(
+                str(row.get("category", "uncategorized")),
+                {
+                    "count": 0,
+                    "cpu_fallback_count": 0,
+                    "sync_readback_count": 0,
+                    "estimated_bytes": 0,
+                },
+            )
+            bucket["count"] += int(row.get("count", 0))
+            bucket["cpu_fallback_count"] += int(row.get("cpu_fallback_count", 0))
+            bucket["sync_readback_count"] += int(row.get("sync_readback_count", 0))
+            bucket["estimated_bytes"] += int(row.get("estimated_bytes", 0))
+        return {
+            "enabled": self.enabled,
+            "dispatch_error": self.dispatch_error,
+            "total_dispatches": self.total_dispatches,
+            "vulkan_dispatches": self.vulkan_dispatches,
+            "categories": categories,
+            "top_ops_by_count": sorted(
+                by_op,
+                key=lambda row: (
+                    int(row.get("cpu_fallback_count", 0))
+                    + int(row.get("sync_readback_count", 0)),
+                    int(row.get("count", 0)),
+                ),
+                reverse=True,
+            )[:top_n],
+            "top_ops_by_estimated_bytes": sorted(
+                by_op,
+                key=lambda row: int(row.get("estimated_bytes", 0)),
+                reverse=True,
+            )[:top_n],
+            "top_callsites_by_count": sorted(
+                by_callsite,
+                key=lambda row: (
+                    int(row.get("cpu_fallback_count", 0))
+                    + int(row.get("sync_readback_count", 0)),
+                    int(row.get("count", 0)),
+                ),
+                reverse=True,
+            )[:top_n],
+            "top_callsites_by_readback": sorted(
+                by_callsite,
+                key=lambda row: (
+                    int(row.get("sync_readback_count", 0)),
+                    int(row.get("count", 0)),
+                ),
+                reverse=True,
+            )[:top_n],
+            "top_ops_by_tensor_cpu_readback_submit": sorted(
+                by_op,
+                key=lambda row: (
+                    int(
+                        row.get("submit_origin_delta", {}).get(
+                            "tensor_cpu_readback", 0
+                        )
+                    ),
+                    int(row.get("count", 0)),
+                ),
+                reverse=True,
+            )[:top_n],
+            "top_callsites_by_tensor_cpu_readback_submit": sorted(
+                by_callsite,
+                key=lambda row: (
+                    int(
+                        row.get("submit_origin_delta", {}).get(
+                            "tensor_cpu_readback", 0
+                        )
+                    ),
+                    int(row.get("count", 0)),
+                ),
+                reverse=True,
+            )[:top_n],
+            "top_op_callsites": sorted(
+                by_op_callsite,
+                key=lambda row: (
+                    int(row.get("cpu_fallback_count", 0))
+                    + int(row.get("sync_readback_count", 0)),
+                    int(row.get("count", 0)),
+                ),
+                reverse=True,
+            )[:top_n],
+            "samples": self.samples,
+        }
 
 
 def summarize_model_parameters(torch: Any, model: Any) -> dict[str, Any]:
@@ -904,6 +1312,7 @@ def run_text_generation(
     linear_diag: dict[str, Any] = {}
     parameter_summary: dict[str, Any] = {}
     vulkan_parameter_summary: dict[str, Any] = {}
+    fallback_attribution: dict[str, Any] | None = None
     linear_plan_log_path: Path | None = None
     if backend == "vulkan":
         linear_plan_log_path = (
@@ -985,15 +1394,26 @@ def run_text_generation(
                 )
 
             with torch.inference_mode():
-                for _ in range(args.warmup):
-                    generate()
-                timing, output = measure_repeated(
-                    "device_resident_generate",
-                    args.repeats,
-                    generate,
-                    torch_module=torch,
-                    backend=backend,
-                    device=device,
+                attribution = None
+                if (
+                    backend == "vulkan"
+                    and model_name == "hy_mt"
+                    and args.vulkan_fallback_attribution
+                ):
+                    attribution = VulkanFallbackAttribution(torch)
+                with attribution if attribution is not None else contextlib.nullcontext():
+                    for _ in range(args.warmup):
+                        generate()
+                    timing, output = measure_repeated(
+                        "device_resident_generate",
+                        args.repeats,
+                        generate,
+                        torch_module=torch,
+                        backend=backend,
+                        device=device,
+                    )
+                attempt_attribution = (
+                    attribution.summary(top_n=32) if attribution is not None else None
                 )
             generated_tokens = int(output.shape[-1] - inputs["input_ids"].shape[-1])
             attempt = {
@@ -1004,6 +1424,12 @@ def run_text_generation(
                 "generated_tokens": generated_tokens,
                 "decode_step_2_reached": generated_tokens >= 2,
             }
+            if attempt_attribution is not None:
+                attempt["fallback_attribution_summary"] = {
+                    "total_dispatches": attempt_attribution.get("total_dispatches", 0),
+                    "vulkan_dispatches": attempt_attribution.get("vulkan_dispatches", 0),
+                    "categories": attempt_attribution.get("categories", {}),
+                }
             prompt_attempts.append(attempt)
             selected = {
                 "prompt": prompt_candidate,
@@ -1011,6 +1437,7 @@ def run_text_generation(
                 "timing": timing,
                 "generated_tokens": generated_tokens,
                 "attempt": attempt,
+                "fallback_attribution": attempt_attribution,
             }
             last_output = output
             if generated_tokens >= args.min_generated_tokens:
@@ -1025,6 +1452,7 @@ def run_text_generation(
         generated_tokens = selected["generated_tokens"]
         selected_prompt = selected["prompt"]
         selected_attempt = selected["attempt"]
+        fallback_attribution = selected.get("fallback_attribution")
         decode_step_2_reached = generated_tokens >= 2
         if args.min_generated_tokens > 0 and generated_tokens < args.min_generated_tokens:
             raise RuntimeError(
@@ -1073,6 +1501,62 @@ def run_text_generation(
             record.output_sanity["linear_pack_cache"] = summarize_linear_pack_cache(
                 record.counters["vulkan_debug"]
             )
+            if fallback_attribution is not None:
+                attribution_path = (
+                    Path("agent_space")
+                    / "hymt_fallback_readback_attribution_16tok.json"
+                )
+                callsite_path = (
+                    Path("agent_space")
+                    / "hymt_fallback_readback_top_callsites_16tok.json"
+                )
+                write_json_artifact(
+                    attribution_path,
+                    {
+                        "model_name": model_name,
+                        "model_id": model_id,
+                        "backend": backend,
+                        "prompt": selected_prompt,
+                        "prompt_tokens": int(inputs["input_ids"].shape[-1]),
+                        "max_new_tokens": args.max_new_tokens,
+                        "generated_tokens": generated_tokens,
+                        "vulkan_debug": record.counters["vulkan_debug"],
+                        "attribution": fallback_attribution,
+                    },
+                )
+                write_json_artifact(
+                    callsite_path,
+                    {
+                        "model_name": model_name,
+                        "model_id": model_id,
+                        "backend": backend,
+                        "top_callsites_by_count": fallback_attribution.get(
+                            "top_callsites_by_count", []
+                        ),
+                        "top_callsites_by_readback": fallback_attribution.get(
+                            "top_callsites_by_readback", []
+                        ),
+                        "top_callsites_by_tensor_cpu_readback_submit": (
+                            fallback_attribution.get(
+                                "top_callsites_by_tensor_cpu_readback_submit", []
+                            )
+                        ),
+                        "top_op_callsites": fallback_attribution.get(
+                            "top_op_callsites", []
+                        ),
+                    },
+                )
+                record.output_sanity["fallback_readback_attribution"] = {
+                    "path": str(attribution_path.resolve()),
+                    "top_callsites_path": str(callsite_path.resolve()),
+                    "categories": fallback_attribution.get("categories", {}),
+                    "total_dispatches": fallback_attribution.get(
+                        "total_dispatches", 0
+                    ),
+                    "vulkan_dispatches": fallback_attribution.get(
+                        "vulkan_dispatches", 0
+                    ),
+                }
         if linear_diag:
             remove_linear_forward_diagnostics(linear_diag)
         record.environment = environment_summary()
@@ -1682,6 +2166,14 @@ def parse_args() -> argparse.Namespace:
         "--debug-traceback",
         action="store_true",
         help="Include short Python tracebacks in failure rows.",
+    )
+    parser.add_argument(
+        "--vulkan-fallback-attribution",
+        action="store_true",
+        help=(
+            "Attribute HY-MT Vulkan CPU fallback/readback deltas by dispatched op "
+            "and Python call site."
+        ),
     )
     parser.add_argument(
         "--torch-import-mode",
