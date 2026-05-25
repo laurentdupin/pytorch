@@ -2127,6 +2127,137 @@ Tensor repeat_attention_heads_for_gqa(
       .reshape({batch, heads * repeat_factor, sequence_length, head_dim});
 }
 
+bool can_use_direct_gqa_sdpa_buffer_path(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const std::optional<Tensor>& attn_mask,
+    const bool is_causal) {
+  if (
+      attn_mask.has_value() || query.dim() != 4 || key.dim() != 4 ||
+      value.dim() != 4 || query.scalar_type() != kFloat ||
+      key.scalar_type() != kFloat || value.scalar_type() != kFloat ||
+      query.size(0) != 1 || key.size(0) != 1 || value.size(0) != 1 ||
+      key.size(1) != value.size(1) || key.size(1) <= 0 ||
+      query.size(1) % key.size(1) != 0 || query.size(3) != key.size(3) ||
+      key.size(2) != value.size(2)) {
+    return false;
+  }
+  if (is_causal && query.size(2) != key.size(2)) {
+    return false;
+  }
+  if (!is_causal) {
+    return false;
+  }
+  if (
+      query.size(3) > kTiledSdpaBufferMaxHeadDim ||
+      value.size(3) > kTiledSdpaMaxValueDim) {
+    return false;
+  }
+  return query.is_vulkan() && key.is_vulkan() && value.is_vulkan() &&
+      convert(query).storage_type() == api::StorageType::BUFFER &&
+      convert(key).storage_type() == api::StorageType::BUFFER &&
+      convert(value).storage_type() == api::StorageType::BUFFER;
+}
+
+Tensor scaled_dot_product_attention_direct_gqa_4d_buffer_vulkan(
+    const Tensor& query_arg,
+    const Tensor& key_arg,
+    const Tensor& value_arg,
+    const double query_scale,
+    const bool is_causal) {
+  api::AllocationScope allocation_scope("sdpa.direct_gqa_buffer");
+  Tensor query = prepare_buffer_math_input_direct(query_arg);
+  Tensor key = prepare_buffer_math_input_direct(key_arg);
+  Tensor value = prepare_buffer_math_input_direct(value_arg);
+
+  const int64_t batch = query.size(0);
+  const int64_t query_heads = query.size(1);
+  const int64_t key_value_heads = key.size(1);
+  const int64_t target_len = query.size(2);
+  const int64_t source_len = key.size(2);
+  const int64_t head_dim = query.size(3);
+  const int64_t value_dim = value.size(3);
+  const int64_t repeat_factor = query_heads / key_value_heads;
+
+  Tensor output = utils::create_buffer_tensor(
+      {batch * query_heads, target_len, value_dim},
+      query.scalar_type(),
+      /*persistent=*/false);
+  output = utils::mark_tensor_execution(
+      output,
+      utils::resolve_buffer_execution_layout(convert(output)),
+      false);
+
+  const vTensor& v_query = convert(query);
+  const vTensor& v_key = convert(key);
+  const vTensor& v_value = convert(value);
+  vTensor& v_output = convert(output);
+
+  api::Context* const context = api::context();
+  const struct Block final {
+    ivec4 sizes;
+    ivec4 tiled_info;
+    vec4 params;
+  } block{
+      {
+          safe_downcast<int32_t>(batch),
+          safe_downcast<int32_t>(query_heads),
+          safe_downcast<int32_t>(target_len),
+          safe_downcast<int32_t>(source_len),
+      },
+      {
+          safe_downcast<int32_t>(head_dim),
+          safe_downcast<int32_t>(value_dim),
+          safe_downcast<int32_t>(repeat_factor),
+          is_causal ? 1 : 0,
+      },
+      {static_cast<float>(query_scale), 0.0f, 0.0f, 0.0f},
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer query_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_query);
+  api::UniformParamsBuffer key_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_key);
+  api::UniformParamsBuffer value_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_value);
+  api::PipelineBarrier pipeline_barrier{};
+
+  context->submit_compute_job(
+      VK_KERNEL(scaled_dot_product_scores_value_gqa_buffer_float),
+      pipeline_barrier,
+      {
+          static_cast<uint32_t>(kTiledSdpaLocalSizeX),
+          safe_downcast<uint32_t>(target_len),
+          safe_downcast<uint32_t>(batch * query_heads),
+      },
+      {
+          static_cast<uint32_t>(kTiledSdpaLocalSizeX),
+          1u,
+          1u,
+      },
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_query.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      query_meta.buffer(),
+      v_key.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      key_meta.buffer(),
+      v_value.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      value_meta.buffer(),
+      params.buffer());
+
+  utils::log_vulkan_op_hit(
+      "aten::scaled_dot_product_attention.direct_gqa_buffer");
+  return utils::mark_tensor_execution(output, api::ExecutionLayout::BUFFER_DIRECT);
+}
+
 Tensor expand_attention_mask_3d(
     const Tensor& attn_mask,
     const int64_t batch,
@@ -3070,6 +3201,22 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
         key.size(1) == value.size(1) &&
             query.size(1) % key.size(1) == 0,
         "Vulkan SDPA GQA expects query heads to be divisible by key/value heads");
+    if (can_use_direct_gqa_sdpa_buffer_path(
+            query, key, value, attn_mask, is_causal)) {
+      const int64_t head_dim = query.size(3);
+      const double sdpa_scale =
+          scale.value_or(1.0 / std::sqrt(static_cast<double>(head_dim)));
+      Tensor output = scaled_dot_product_attention_direct_gqa_4d_buffer_vulkan(
+          query, key, value, sdpa_scale, is_causal);
+      Tensor output_4d =
+          output.reshape({query.size(0), query.size(1), query.size(2), value.size(3)});
+      Tensor materialized_output = utils::ensure_buffer_storage(
+          output_4d, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+      return std::make_tuple(
+          utils::mark_tensor_execution(
+              materialized_output, api::ExecutionLayout::BUFFER_DIRECT),
+          Tensor());
+    }
     const int64_t repeat_factor = query.size(1) / key.size(1);
     key = repeat_attention_heads_for_gqa(key, repeat_factor);
     value = repeat_attention_heads_for_gqa(value, repeat_factor);

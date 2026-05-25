@@ -7971,6 +7971,83 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
                     self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
 
+    def test_scaled_dot_product_attention_hymt_direct_gqa_prefill_avoids_fallback(self):
+        torch.manual_seed(0)
+        scale = 0.0883883
+        cases = (
+            (7, 7, True),
+            (11, 11, True),
+        )
+        with torch.inference_mode():
+            for target_len, source_len, is_causal in cases:
+                with self.subTest(
+                        target_len=target_len,
+                        source_len=source_len,
+                        is_causal=is_causal):
+                    query = torch.randn(1, 16, target_len, 128)
+                    key = torch.randn(1, 4, source_len, 128)
+                    value = torch.randn(1, 4, source_len, 128)
+                    expected = F.scaled_dot_product_attention(
+                        query,
+                        key,
+                        value,
+                        dropout_p=0.0,
+                        is_causal=is_causal,
+                        scale=scale,
+                        enable_gqa=True,
+                    )
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=is_causal,
+                        scale=scale,
+                        enable_gqa=True,
+                    ).cpu()
+                    repeat = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=is_causal,
+                        scale=scale,
+                        enable_gqa=True,
+                    ).cpu()
+                    self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                    self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
+                    self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_scaled_dot_product_attention_hymt_decode_gqa_stays_correct(self):
+        torch.manual_seed(0)
+        scale = 0.0883883
+        with torch.inference_mode():
+            for source_len in (15, 26):
+                with self.subTest(source_len=source_len):
+                    query = torch.randn(1, 16, 1, 128)
+                    key = torch.randn(1, 4, source_len, 128)
+                    value = torch.randn(1, 4, source_len, 128)
+                    expected = F.scaled_dot_product_attention(
+                        query,
+                        key,
+                        value,
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=scale,
+                        enable_gqa=True,
+                    )
+                    actual = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=scale,
+                        enable_gqa=True,
+                    ).cpu()
+                    self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+
     def test_vulkan_dispatch_tables_expose_backend_kernels(self):
         dispatch_expectations = {
             "aten::mm": ("Vulkan: registered at", "Mm.cpp"),
