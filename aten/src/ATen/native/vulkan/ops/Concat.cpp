@@ -96,6 +96,108 @@ bool can_use_buffer_cat_fast_path(
   return has_buffer_input;
 }
 
+bool can_use_last_dim2_buffer_cat(
+    const MaterializedITensorListRef& tensors,
+    const int64_t dim) {
+  if (tensors.size() != 2) {
+    return false;
+  }
+  const Tensor& reference = tensors[0];
+  if (
+      reference.scalar_type() != kFloat || reference.dim() == 0 ||
+      dim != reference.dim() - 1) {
+    return false;
+  }
+  for (const Tensor& tensor : tensors) {
+    if (!tensor.is_vulkan() || tensor.dim() != reference.dim()) {
+      return false;
+    }
+    if (tensor.scalar_type() != reference.scalar_type()) {
+      return false;
+    }
+    const vTensor& v_tensor = convert(tensor);
+    if (v_tensor.storage_type() != api::StorageType::BUFFER) {
+      return false;
+    }
+    for (const auto d : c10::irange(reference.dim())) {
+      if (d != dim && tensor.size(d) != reference.size(d)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+Tensor cat_last_dim2_buffer(
+    const MaterializedITensorListRef& tensors,
+    IntArrayRef result_size) {
+  api::AllocationScope allocation_scope("cat.last_dim2_buffer");
+  Tensor left = utils::mark_tensor_execution(
+      tensors[0],
+      utils::resolve_buffer_execution_layout(convert(tensors[0])),
+      false);
+  Tensor right = utils::mark_tensor_execution(
+      tensors[1],
+      utils::resolve_buffer_execution_layout(convert(tensors[1])),
+      false);
+  Tensor output = utils::create_buffer_tensor(
+      result_size,
+      tensors[0].get().scalar_type(),
+      /*persistent=*/false);
+  output = utils::mark_tensor_execution(
+      output,
+      utils::resolve_buffer_execution_layout(convert(output)),
+      false);
+
+  vTensor& v_output = convert(output);
+  vTensor& v_left = convert(left);
+  vTensor& v_right = convert(right);
+  api::Context* const context = api::context();
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size = {
+      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+  const struct Block final {
+    uint32_t left_width;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    uint32_t reserved2;
+  } block{
+      api::utils::safe_downcast<uint32_t>(tensors[0].get().size(-1)),
+      0u,
+      0u,
+      0u,
+  };
+  api::UniformParamsBuffer params(context, block);
+
+  context->submit_compute_job(
+      VK_KERNEL(cat_last_dim2_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      utils::make_buffer_compute_metadata_ubo(context, v_output).buffer(),
+      v_left.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      utils::make_buffer_compute_metadata_ubo(context, v_left).buffer(),
+      v_right.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      utils::make_buffer_compute_metadata_ubo(context, v_right).buffer(),
+      params.buffer());
+
+  return output;
+}
+
 bool cat_buffer_direct_out_impl(
     at::ArrayRef<Tensor> tensors,
     const int64_t dim,
@@ -535,6 +637,9 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
   TORCH_INTERNAL_ASSERT(!result_size.empty(), "Accessing empty array");
   result_size[dim] = cat_dim_size;
 
+  if (can_use_last_dim2_buffer_cat(materialized, dim)) {
+    return cat_last_dim2_buffer(materialized, result_size);
+  }
   if (can_use_buffer_cat_fast_path(materialized, dim)) {
     return cat_buffer_direct(materialized, dim, result_size);
   }

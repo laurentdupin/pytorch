@@ -4422,6 +4422,59 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             actual_cat = torch.cat(tuple(vulkan.split(split_sizes, dim=0)), dim=0).cpu()
             self.assertEqual(actual_cat, expected_cat)
 
+    def test_float_last_dim_cat_two_buffer_inputs_matches_cpu(self):
+        with torch.inference_mode():
+            left = torch.randn(1, 16, 7, 64, dtype=torch.float32)
+            right = torch.randn(1, 16, 7, 64, dtype=torch.float32)
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+
+            expected = torch.cat((left, right), dim=-1)
+            actual = torch.cat((left.to("vulkan"), right.to("vulkan")), dim=-1).cpu()
+
+            self.assertEqual(actual, expected)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_float_last_dim_cat_two_buffer_inputs_repeated_deterministic(self):
+        with torch.inference_mode():
+            left = torch.randn(1, 4, 3, 5, dtype=torch.float32)
+            right = torch.randn(1, 4, 3, 7, dtype=torch.float32)
+            expected = torch.cat((left, right), dim=-1)
+            left_vulkan = left.to("vulkan")
+            right_vulkan = right.to("vulkan")
+
+            for _ in range(3):
+                actual = torch.cat((left_vulkan, right_vulkan), dim=-1).cpu()
+                self.assertEqual(actual, expected)
+
+    def test_float_last_dim_cat_two_buffer_inputs_rope_strides_match_cpu(self):
+        with torch.inference_mode():
+            base = torch.randn(1, 11, 16, 128, dtype=torch.float32)
+            view = base.transpose(1, 2)
+            left = -view[..., 64:]
+            right = view[..., :64]
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+
+            expected = torch.cat((left, right), dim=-1)
+            actual = torch.cat((left.to("vulkan"), right.to("vulkan")), dim=-1).cpu()
+
+            self.assertEqual(actual, expected)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_float_last_dim_cat_three_buffer_inputs_falls_back(self):
+        with torch.inference_mode():
+            tensors = [
+                torch.randn(1, 4, 3, 5, dtype=torch.float32),
+                torch.randn(1, 4, 3, 7, dtype=torch.float32),
+                torch.randn(1, 4, 3, 9, dtype=torch.float32),
+            ]
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+
+            expected = torch.cat(tensors, dim=-1)
+            actual = torch.cat(tuple(t.to("vulkan") for t in tensors), dim=-1).cpu()
+
+            self.assertEqual(actual, expected)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
     def test_affine_inverse_style_buffer_views_match_cpu(self):
         def affine_inverse_style(A):
             R = A[..., :3, :3]
