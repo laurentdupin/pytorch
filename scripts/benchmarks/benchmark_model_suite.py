@@ -264,6 +264,26 @@ def make_document_image(path: Path, size: int) -> Path:
     return path
 
 
+def image_file_metadata(path: Path) -> dict[str, Any]:
+    from PIL import Image
+
+    with Image.open(path) as image:
+        return {
+            "path": str(path),
+            "width": image.width,
+            "height": image.height,
+            "format": image.format,
+            "mode": image.mode,
+        }
+
+
+def load_rgb_image(path: Path) -> Any:
+    from PIL import Image
+
+    with Image.open(path) as image:
+        return image.convert("RGB")
+
+
 def tensor_sanity(torch: Any, payload: Any) -> dict[str, Any]:
     tensor = payload
     if isinstance(payload, dict):
@@ -1216,7 +1236,14 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         )
         pipe = pipe.to(device)
         setup_s = time.perf_counter() - setup_start
-        image = make_test_image(args.image_size)
+        image_metadata: dict[str, Any]
+        if args.image_path:
+            image_path = Path(args.image_path)
+            image = load_rgb_image(image_path)
+            image_metadata = image_file_metadata(image_path)
+        else:
+            image = make_test_image(args.image_size)
+            image_metadata = {"image_size": args.image_size, "generated": True}
 
         def forward() -> Any:
             return pipe(image, num_inference_steps=args.num_inference_steps)
@@ -1242,7 +1269,10 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             repeats=args.repeats,
         )
         record.device = device_info
-        record.input = {"image_size": args.image_size, "num_inference_steps": args.num_inference_steps}
+        record.input = {
+            "image": image_metadata,
+            "num_inference_steps": args.num_inference_steps,
+        }
         record.timings = {"setup_s": setup_s, "device_resident_forward": timing}
         record.counters = {"vulkan_debug": snapshot_vulkan_debug_counters(torch, backend)}
         record.output_sanity = {
@@ -1967,7 +1997,11 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
     try:
         from paddleocr import PaddleOCR
 
-        image_path = make_document_image(Path(args.out).with_suffix(".doc.png"), args.image_size)
+        image_path = (
+            Path(args.document_image_path)
+            if args.document_image_path
+            else make_document_image(Path(args.out).with_suffix(".doc.png"), args.image_size)
+        )
         patch_info = try_patch_paddleocr_transformers_device(torch, backend)
         if backend == "vulkan":
             grid_sample_calls, grid_sample_patch = install_grid_sample_call_recorder()
@@ -2009,7 +2043,10 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             repeats=args.repeats,
         )
         record.device = device_info
-        record.input = {"document_image": str(image_path), "image_size": args.image_size}
+        record.input = {
+            "document_image": image_file_metadata(image_path),
+            "image_size": args.image_size,
+        }
         record.timings = {"setup_s": setup_s, "end_to_end": timing}
         record.counters = {"vulkan_debug": snapshot_vulkan_debug_counters(torch, backend)}
         record.output_sanity = {
@@ -2135,6 +2172,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--dtype", default="float32", choices=["float32", "float16", "bfloat16"])
     parser.add_argument("--image-size", type=int, default=224)
+    parser.add_argument("--image-path")
+    parser.add_argument("--document-image-path")
     parser.add_argument("--num-inference-steps", type=int, default=1)
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument(

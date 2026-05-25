@@ -2255,7 +2255,13 @@ Tensor scaled_dot_product_attention_direct_gqa_4d_buffer_vulkan(
 
   utils::log_vulkan_op_hit(
       "aten::scaled_dot_product_attention.direct_gqa_buffer");
-  return utils::mark_tensor_execution(output, api::ExecutionLayout::BUFFER_DIRECT);
+  output = utils::mark_tensor_execution(
+      output, api::ExecutionLayout::BUFFER_DIRECT);
+  return record_tensor_write_and_return(
+      output,
+      "aten::scaled_dot_product_attention",
+      "direct_gqa_buffer",
+      {query, key, value});
 }
 
 Tensor expand_attention_mask_3d(
