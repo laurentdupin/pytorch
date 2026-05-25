@@ -290,6 +290,13 @@ struct PackedWeightResidencyLogState final {
   std::atomic<uint64_t> misses{0u};
   std::atomic<uint64_t> miss_empty_cache{0u};
   std::atomic<uint64_t> miss_no_match{0u};
+  std::atomic<uint64_t> mismatch_tensor_impl{0u};
+  std::atomic<uint64_t> mismatch_storage_identity{0u};
+  std::atomic<uint64_t> mismatch_provenance_source{0u};
+  std::atomic<uint64_t> mismatch_shape_stride_dtype{0u};
+  std::atomic<uint64_t> mismatch_version{0u};
+  std::atomic<uint64_t> mismatch_bias{0u};
+  std::atomic<uint64_t> mismatch_context_device{0u};
   std::atomic<uint64_t> stores{0u};
   std::atomic<uint64_t> evictions{0u};
   std::atomic<uint64_t> persistent_evictions{0u};
@@ -315,6 +322,19 @@ struct PackedWeightResidencyLogState final {
         << " miss_empty_cache="
         << miss_empty_cache.load(std::memory_order_relaxed)
         << " miss_no_match=" << miss_no_match.load(std::memory_order_relaxed)
+        << " mismatch_tensor_impl="
+        << mismatch_tensor_impl.load(std::memory_order_relaxed)
+        << " mismatch_storage_identity="
+        << mismatch_storage_identity.load(std::memory_order_relaxed)
+        << " mismatch_provenance_source="
+        << mismatch_provenance_source.load(std::memory_order_relaxed)
+        << " mismatch_shape_stride_dtype="
+        << mismatch_shape_stride_dtype.load(std::memory_order_relaxed)
+        << " mismatch_version="
+        << mismatch_version.load(std::memory_order_relaxed)
+        << " mismatch_bias=" << mismatch_bias.load(std::memory_order_relaxed)
+        << " mismatch_context_device="
+        << mismatch_context_device.load(std::memory_order_relaxed)
         << " persistent_evictions="
         << persistent_evictions.load(std::memory_order_relaxed)
         << " transient_evictions="
@@ -348,6 +368,13 @@ void reset_packed_weight_cache_log_state() {
   state.misses.store(0u, std::memory_order_relaxed);
   state.miss_empty_cache.store(0u, std::memory_order_relaxed);
   state.miss_no_match.store(0u, std::memory_order_relaxed);
+  state.mismatch_tensor_impl.store(0u, std::memory_order_relaxed);
+  state.mismatch_storage_identity.store(0u, std::memory_order_relaxed);
+  state.mismatch_provenance_source.store(0u, std::memory_order_relaxed);
+  state.mismatch_shape_stride_dtype.store(0u, std::memory_order_relaxed);
+  state.mismatch_version.store(0u, std::memory_order_relaxed);
+  state.mismatch_bias.store(0u, std::memory_order_relaxed);
+  state.mismatch_context_device.store(0u, std::memory_order_relaxed);
   state.stores.store(0u, std::memory_order_relaxed);
   state.evictions.store(0u, std::memory_order_relaxed);
   state.persistent_evictions.store(0u, std::memory_order_relaxed);
@@ -425,8 +452,10 @@ bool release_retired_packed_weight_entries_impl() {
 
 class PackedWeightResidencyManager final {
  private:
+  static constexpr size_t kRecentMissRowsLimit = 64u;
   std::mutex mutex_;
   std::deque<PackedWeightResidencyEntry> cache_;
+  std::deque<std::string> recent_misses_;
   size_t cache_bytes_{0u};
   size_t persistent_cache_bytes_{0u};
 
@@ -515,6 +544,179 @@ class PackedWeightResidencyManager final {
             entry.logical_weight_sizes.begin()) &&
         entry.kind == kind && entry.quantized == quantized &&
         entry.options_key == options_key;
+  }
+
+  struct MissBreakdown final {
+    bool tensor_impl{false};
+    bool storage_identity{false};
+    bool provenance_source{false};
+    bool shape_stride_dtype{false};
+    bool version{false};
+    bool bias{false};
+    bool context_device{false};
+    int score{0};
+    std::string row;
+  };
+
+  static bool same_logical_sizes(
+      IntArrayRef lhs,
+      const std::vector<int64_t>& rhs) {
+    return lhs.size() == rhs.size() &&
+        std::equal(lhs.begin(), lhs.end(), rhs.begin());
+  }
+
+  static bool same_weight_shape_stride_dtype(
+      const PackedWeightResidencyEntry& entry,
+      const Tensor& source_weight) {
+    return entry.weight_storage_offset == source_weight.storage_offset() &&
+        entry.weight_dtype == source_weight.scalar_type() &&
+        entry.logical_weight_sizes.size() ==
+            static_cast<size_t>(source_weight.dim()) &&
+        entry.weight_strides.size() == static_cast<size_t>(source_weight.dim()) &&
+        std::equal(
+               entry.logical_weight_sizes.begin(),
+               entry.logical_weight_sizes.end(),
+               source_weight.sizes().begin()) &&
+        std::equal(
+               entry.weight_strides.begin(),
+               entry.weight_strides.end(),
+               source_weight.strides().begin());
+  }
+
+  static MissBreakdown analyze_miss_candidate(
+      const PackedWeightResidencyEntry& entry,
+      const Tensor& source_weight,
+      const std::optional<Tensor>& normalized_bias,
+      const int64_t weight_version,
+      const int64_t bias_version,
+      IntArrayRef logical_weight_sizes,
+      const PackedWeightKind kind,
+      const bool quantized,
+      const uint64_t options_key) {
+    const bool tensor_impl_matches =
+        packed_weight_ref_matches_tensor(entry.weight_ref, source_weight);
+    const bool c10_storage_matches =
+        entry.weight_storage_identity != nullptr &&
+        tensor_storage_identity_ptr(source_weight) == entry.weight_storage_identity;
+    const bool vulkan_storage_matches =
+        entry.weight_vulkan_storage_identity != nullptr &&
+        tensor_vulkan_storage_identity_ptr(source_weight) ==
+            entry.weight_vulkan_storage_identity;
+    const uint64_t source_weight_key =
+        tensor_packed_weight_source_key(source_weight);
+    const bool provenance_source_matches =
+        entry.weight_source_key != 0u &&
+        source_weight_key == entry.weight_source_key;
+    const bool shape_stride_dtype_matches =
+        same_weight_shape_stride_dtype(entry, source_weight) &&
+        same_logical_sizes(logical_weight_sizes, entry.logical_weight_sizes);
+    const bool version_matches = entry.weight_version == weight_version &&
+        entry.bias_version == bias_version;
+    const bool bias_matches =
+        bias_matches_optional_tensor(entry, normalized_bias);
+    const bool context_device_matches = entry.kind == kind &&
+        entry.quantized == quantized && entry.options_key == options_key;
+
+    MissBreakdown breakdown;
+    breakdown.tensor_impl = !tensor_impl_matches;
+    breakdown.storage_identity = !(c10_storage_matches || vulkan_storage_matches);
+    breakdown.provenance_source = !provenance_source_matches;
+    breakdown.shape_stride_dtype = !shape_stride_dtype_matches;
+    breakdown.version = !version_matches;
+    breakdown.bias = !bias_matches;
+    breakdown.context_device = !context_device_matches;
+    breakdown.score = (tensor_impl_matches ? 1 : 0) +
+        ((c10_storage_matches || vulkan_storage_matches) ? 1 : 0) +
+        (provenance_source_matches ? 1 : 0) +
+        (shape_stride_dtype_matches ? 1 : 0) + (version_matches ? 1 : 0) +
+        (bias_matches ? 1 : 0) + (context_device_matches ? 1 : 0);
+
+    std::ostringstream stream;
+    stream << "packed_weight_cache_miss"
+           << " query_tensor_impl="
+           << reinterpret_cast<uintptr_t>(tensor_identity_ptr(source_weight))
+           << " query_base_tensor_impl="
+           << reinterpret_cast<uintptr_t>(
+                  tensor_identity_ptr(packed_weight_identity_tensor(source_weight)))
+           << " query_storage_identity="
+           << reinterpret_cast<uintptr_t>(tensor_storage_identity_ptr(source_weight))
+           << " query_vulkan_storage_identity="
+           << reinterpret_cast<uintptr_t>(
+                  tensor_vulkan_storage_identity_ptr(source_weight))
+           << " query_source_key=" << source_weight_key
+           << " query_shape=" << format_size_list(source_weight.sizes().vec())
+           << " query_stride=" << format_size_list(source_weight.strides().vec())
+           << " query_dtype=" << source_weight.scalar_type()
+           << " query_version=" << weight_version
+           << " query_bias_present="
+           << (normalized_bias && normalized_bias->defined() ? 1 : 0)
+           << " query_bias_source_key="
+           << (normalized_bias ? tensor_packed_weight_source_key(*normalized_bias)
+                               : 0u)
+           << " query_bias_version=" << bias_version
+           << " stored_tensor_alive="
+           << (weak_tensor_ref_alive(entry.weight_ref) ? 1 : 0)
+           << " stored_storage_alive="
+           << (weak_storage_ref_alive(entry.weight_storage_ref) ? 1 : 0)
+           << " stored_vulkan_storage_alive="
+           << (weak_vulkan_storage_ref_alive(entry.weight_vulkan_storage_ref)
+                   ? 1
+                   : 0)
+           << " stored_storage_identity="
+           << reinterpret_cast<uintptr_t>(entry.weight_storage_identity)
+           << " stored_vulkan_storage_identity="
+           << reinterpret_cast<uintptr_t>(entry.weight_vulkan_storage_identity)
+           << " stored_source_key=" << entry.weight_source_key
+           << " stored_shape=" << format_size_list(entry.logical_weight_sizes)
+           << " stored_stride=" << format_size_list(entry.weight_strides)
+           << " stored_dtype=" << entry.weight_dtype
+           << " stored_version=" << entry.weight_version
+           << " stored_bias_present="
+           << (entry.bias_ref.has_value() || entry.bias_source_key != 0u ? 1 : 0)
+           << " stored_bias_source_key=" << entry.bias_source_key
+           << " stored_bias_version=" << entry.bias_version
+           << " mismatch_tensor_impl=" << (breakdown.tensor_impl ? 1 : 0)
+           << " mismatch_storage_identity="
+           << (breakdown.storage_identity ? 1 : 0)
+           << " mismatch_provenance_source="
+           << (breakdown.provenance_source ? 1 : 0)
+           << " mismatch_shape_stride_dtype="
+           << (breakdown.shape_stride_dtype ? 1 : 0)
+           << " mismatch_version=" << (breakdown.version ? 1 : 0)
+           << " mismatch_bias=" << (breakdown.bias ? 1 : 0)
+           << " mismatch_context_device="
+           << (breakdown.context_device ? 1 : 0);
+    breakdown.row = stream.str();
+    return breakdown;
+  }
+
+  static void note_miss_breakdown(const MissBreakdown& breakdown) {
+    auto& log_state = packed_weight_cache_log_state();
+    if (breakdown.tensor_impl) {
+      log_state.mismatch_tensor_impl.fetch_add(1u, std::memory_order_relaxed);
+    }
+    if (breakdown.storage_identity) {
+      log_state.mismatch_storage_identity.fetch_add(
+          1u, std::memory_order_relaxed);
+    }
+    if (breakdown.provenance_source) {
+      log_state.mismatch_provenance_source.fetch_add(
+          1u, std::memory_order_relaxed);
+    }
+    if (breakdown.shape_stride_dtype) {
+      log_state.mismatch_shape_stride_dtype.fetch_add(
+          1u, std::memory_order_relaxed);
+    }
+    if (breakdown.version) {
+      log_state.mismatch_version.fetch_add(1u, std::memory_order_relaxed);
+    }
+    if (breakdown.bias) {
+      log_state.mismatch_bias.fetch_add(1u, std::memory_order_relaxed);
+    }
+    if (breakdown.context_device) {
+      log_state.mismatch_context_device.fetch_add(
+          1u, std::memory_order_relaxed);
+    }
   }
 
   void update_log_snapshot_locked() const {
@@ -674,6 +876,22 @@ class PackedWeightResidencyManager final {
             << log_state.miss_empty_cache.load(std::memory_order_relaxed)
             << " miss_no_match="
             << log_state.miss_no_match.load(std::memory_order_relaxed)
+            << " mismatch_tensor_impl="
+            << log_state.mismatch_tensor_impl.load(std::memory_order_relaxed)
+            << " mismatch_storage_identity="
+            << log_state.mismatch_storage_identity.load(std::memory_order_relaxed)
+            << " mismatch_provenance_source="
+            << log_state.mismatch_provenance_source.load(
+                   std::memory_order_relaxed)
+            << " mismatch_shape_stride_dtype="
+            << log_state.mismatch_shape_stride_dtype.load(
+                   std::memory_order_relaxed)
+            << " mismatch_version="
+            << log_state.mismatch_version.load(std::memory_order_relaxed)
+            << " mismatch_bias="
+            << log_state.mismatch_bias.load(std::memory_order_relaxed)
+            << " mismatch_context_device="
+            << log_state.mismatch_context_device.load(std::memory_order_relaxed)
             << " stores=" << log_state.stores.load(std::memory_order_relaxed)
             << " evictions="
             << log_state.evictions.load(std::memory_order_relaxed)
@@ -684,7 +902,15 @@ class PackedWeightResidencyManager final {
             << " pruned_expired_sources="
             << log_state.pruned_expired_sources.load(std::memory_order_relaxed);
     rows.emplace_back(summary.str());
+    for (const std::string& row : recent_misses_) {
+      rows.emplace_back(row);
+    }
     return rows;
+  }
+
+  void reset_diagnostics() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    recent_misses_.clear();
   }
 
   std::optional<PackedWeightHandle> lookup(
@@ -711,6 +937,7 @@ class PackedWeightResidencyManager final {
     {
       std::lock_guard<std::mutex> lock(mutex_);
       cache_was_empty = cache_.empty();
+      std::optional<MissBreakdown> best_miss;
       for (auto it = cache_.begin(); it != cache_.end();) {
         if (!source_refs_alive(*it)) {
           log_state.pruned_expired_sources.fetch_add(
@@ -728,6 +955,19 @@ class PackedWeightResidencyManager final {
                 kind,
                 quantized,
                 options_key)) {
+          MissBreakdown breakdown = analyze_miss_candidate(
+              *it,
+              source_weight,
+              normalized_bias,
+              weight_version,
+              bias_version,
+              logical_weight_sizes,
+              kind,
+              quantized,
+              options_key);
+          if (!best_miss.has_value() || breakdown.score > best_miss->score) {
+            best_miss = std::move(breakdown);
+          }
           ++it;
           continue;
         }
@@ -750,6 +990,13 @@ class PackedWeightResidencyManager final {
           log_state.miss_empty_cache.fetch_add(1u, std::memory_order_relaxed);
         } else {
           log_state.miss_no_match.fetch_add(1u, std::memory_order_relaxed);
+          if (best_miss.has_value()) {
+            note_miss_breakdown(*best_miss);
+            recent_misses_.emplace_back(std::move(best_miss->row));
+            while (recent_misses_.size() > kRecentMissRowsLimit) {
+              recent_misses_.pop_front();
+            }
+          }
         }
       }
       update_log_snapshot_locked();
@@ -1353,6 +1600,7 @@ std::vector<std::string> packed_weight_residency_snapshot() {
 
 void reset_packed_weight_residency_snapshot() {
   reset_packed_weight_cache_log_state();
+  packed_weight_residency_manager().reset_diagnostics();
 }
 
 const char* execution_object_kind_name(const VulkanExecutionObjectKind kind) {

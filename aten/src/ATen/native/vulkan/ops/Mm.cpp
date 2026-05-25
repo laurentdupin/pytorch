@@ -3451,7 +3451,11 @@ Tensor addmm(
     const Tensor& weight,
     const Scalar& beta,
     const Scalar& alpha) {
-  const std::optional<Tensor> optional_bias = bias;
+  const bool beta_zero = beta.to<double>() == 0.0;
+  const bool use_packed_bias =
+      bias.dim() == 1 && beta.to<double>() == 1.0 && bias.requires_grad();
+  const std::optional<Tensor> optional_bias =
+      use_packed_bias ? std::optional<Tensor>(bias) : std::nullopt;
   if (
       input.scalar_type() == kBFloat16 ||
       weight.scalar_type() == kBFloat16 ||
@@ -3465,35 +3469,48 @@ Tensor addmm(
         ? (weight.is_vulkan() ? utils::cast_vulkan_tensor_dtype(weight, kFloat)
                               : weight.to(kFloat))
         : weight;
-    const std::optional<Tensor> float_bias = bias.scalar_type() == kBFloat16
-        ? std::optional<Tensor>(
-              bias.is_vulkan() ? utils::cast_vulkan_tensor_dtype(bias, kFloat)
-                               : bias.to(kFloat))
-        : optional_bias;
+    const std::optional<Tensor> float_bias = use_packed_bias
+        ? (bias.scalar_type() == kBFloat16
+               ? std::optional<Tensor>(
+                     bias.is_vulkan()
+                         ? utils::cast_vulkan_tensor_dtype(bias, kFloat)
+                         : bias.to(kFloat))
+               : optional_bias)
+        : std::nullopt;
     const auto linear_context = c10::make_intrusive<LinearPackedContext>(
         LinearPackedContext(float_weight, float_bias));
     Tensor output = run_addmm_context(
         float_input,
         alpha.to<float>(),
-        beta.to<float>(),
+        1.0f,
         linear_context,
         false,
         0,
         0);
+    if (!beta_zero && !use_packed_bias) {
+      const Tensor bias_for_add = bias.scalar_type() == kBFloat16
+          ? (bias.is_vulkan() ? utils::cast_vulkan_tensor_dtype(bias, kFloat)
+                              : bias.to(kFloat))
+          : bias;
+      output = output.add(bias_for_add.mul(beta.to<float>()));
+    }
     api::context()->flush_pending_cmds();
     return output;
   }
 
   const auto linear_context = c10::make_intrusive<LinearPackedContext>(
-      LinearPackedContext(weight, bias));
+      LinearPackedContext(weight, optional_bias));
   Tensor output = run_addmm_context(
       input,
       alpha.to<float>(),
-      beta.to<float>(),
+      1.0f,
       linear_context,
       false,
       0,
       0);
+  if (!beta_zero && !use_packed_bias) {
+    output = output.add(bias.mul(beta.to<float>()));
+  }
   api::context()->flush_pending_cmds();
   return output;
 }

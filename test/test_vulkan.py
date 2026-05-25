@@ -5697,6 +5697,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 fc1_bias_cpu = torch.randn(1536, dtype=torch.float32)
                 fc2_weight_cpu = torch.randn(384, 1536, dtype=torch.float32)
                 fc2_bias_cpu = torch.randn(384, dtype=torch.float32)
+                fc1_bias_cpu.requires_grad_()
+                fc2_bias_cpu.requires_grad_()
 
                 def run_block(x, norm_weight, norm_bias, fc1_weight, fc1_bias, fc2_weight, fc2_bias):
                     x = F.layer_norm(x, (384,), norm_weight, norm_bias, 1.0e-6)
@@ -9642,6 +9644,49 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and "created=2" in row
                 and "reused=4" in row
                 for row in rows
+            )
+        )
+
+    def test_vulkan_addmm_addend_does_not_poison_weight_cache_key(self):
+        torch.manual_seed(0)
+        torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
+        torch.ops.vulkan_prepack.reset_packed_weight_residency_snapshot()
+        weight_cpu = torch.randn(128, 64)
+        x_cpu = torch.randn(2, 64)
+        weight = weight_cpu.to("vulkan")
+        x = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            for _ in range(5):
+                bias = torch.randn(2, 128).to("vulkan")
+                y = torch.addmm(bias, x, weight.t(), beta=0.25, alpha=1.0)
+        torch.ops.vulkan_prepack.synchronize()
+
+        self.assertEqual(y.cpu(), torch.addmm(bias.cpu(), x_cpu, weight_cpu.t(), beta=0.25))
+        rows = torch.ops.vulkan_prepack.linear_pack_residency_snapshot()
+        self.assertTrue(
+            any(
+                "weight_shape=[64,128]" in row
+                and "count=5" in row
+                and "created=1" in row
+                and "reused=4" in row
+                for row in rows
+            )
+        )
+        packed_rows = torch.ops.vulkan_prepack.packed_weight_residency_snapshot()
+        self.assertTrue(
+            any(
+                "packed_weight_residency_summary" in row
+                and "hits=4" in row
+                for row in packed_rows
+            )
+        )
+        self.assertTrue(
+            any(
+                "kind=Linear" in row
+                and "logical_weight_shape=[64,128]" in row
+                and "bias_source_key=0" in row
+                for row in packed_rows
             )
         )
 
@@ -13815,6 +13860,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 x_cpu = torch.randn(384, 1280, dtype=torch.float32)
                 w_cpu = torch.randn(1280, 1280, dtype=torch.float32)
                 b_cpu = torch.randn(1280, dtype=torch.float32)
+                b_cpu.requires_grad_()
 
                 actual = F.linear(
                     x_cpu.to("vulkan"),
@@ -14943,6 +14989,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 x = torch.randn(1, 601, 384, dtype=torch.float32) * 0.1
                 weight = torch.randn(1536, 384, dtype=torch.float32) * 0.1
                 bias = torch.randn(1536, dtype=torch.float32) * 0.1
+                bias.requires_grad_()
+                x_vulkan = x.to("vulkan")
+                weight_vulkan = weight.to("vulkan")
+                bias_vulkan = bias.to("vulkan")
 
                 with torch.no_grad():
                     expected = F.gelu(
@@ -14951,9 +15001,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     )
                     actual = F.gelu(
                         F.linear(
-                            x.to("vulkan"),
-                            weight.to("vulkan"),
-                            bias.to("vulkan"),
+                            x_vulkan,
+                            weight_vulkan,
+                            bias_vulkan,
                         ),
                         approximate="tanh",
                     ).cpu()
