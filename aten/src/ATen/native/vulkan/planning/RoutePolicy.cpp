@@ -225,7 +225,7 @@ bool is_supported_tiny_float_mask_sdpa_shape(
       attn_mask->size(2) == 2 && attn_mask->size(3) == 2;
 }
 
-bool is_supported_single_head_diffusion_sdpa_shape(
+bool is_supported_materialized_diffusion_sdpa_shape(
     const Tensor& query,
     const Tensor& key,
     const Tensor& value,
@@ -234,7 +234,6 @@ bool is_supported_single_head_diffusion_sdpa_shape(
     const bool is_causal,
     const std::optional<double> scale,
     const bool enable_gqa) {
-  constexpr double kHeadDim512Scale = 0.04419417382415922;
   if (
       (attn_mask && attn_mask->defined()) || dropout_p != 0.0 ||
       is_causal || enable_gqa || query.scalar_type() != kFloat ||
@@ -242,13 +241,36 @@ bool is_supported_single_head_diffusion_sdpa_shape(
       query.dim() != 4 || key.dim() != 4 || value.dim() != 4) {
     return false;
   }
-  if (scale.has_value() && std::abs(*scale - kHeadDim512Scale) > 1.0e-6) {
+  if (
+      query.size(0) != 1 || key.size(0) != 1 || value.size(0) != 1 ||
+      query.size(2) != 640 || key.size(2) != 640 || value.size(2) != 640) {
     return false;
   }
-  return query.size(0) == 1 && key.size(0) == 1 && value.size(0) == 1 &&
+  const bool single_head_512 =
       query.size(1) == 1 && key.size(1) == 1 && value.size(1) == 1 &&
-      query.size(2) == 640 && key.size(2) == 640 && value.size(2) == 640 &&
       query.size(3) == 512 && key.size(3) == 512 && value.size(3) == 512;
+  const bool multi_head_64 =
+      query.size(1) == 5 && key.size(1) == 5 && value.size(1) == 5 &&
+      query.size(3) == 64 && key.size(3) == 64 && value.size(3) == 64;
+  if (!single_head_512 && !multi_head_64) {
+    return false;
+  }
+  if (scale.has_value()) {
+    const double expected_scale = single_head_512 ? 0.04419417382415922 : 0.125;
+    if (std::abs(*scale - expected_scale) > 1.0e-6) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool is_supported_diffusion_sdpa_score_softmax_shape(
+    const Tensor& input,
+    const int64_t dim) {
+  return input.scalar_type() == kFloat && input.dim() == 3 &&
+      dim == input.dim() - 1 &&
+      (input.size(0) == 1 || input.size(0) == 5) &&
+      input.size(1) == 640 && input.size(2) == 640;
 }
 
 std::string hard_fail_detail(const VulkanRouteDecision& decision) {
@@ -405,7 +427,9 @@ VulkanRouteDecision select_softmax_route(
     const int64_t dim,
     const VulkanPlanningRequest& request,
     const VulkanDevicePolicy& device_policy) {
-  if (input.dim() == 3 && dim == input.dim() - 1 && input.size(dim) >= 64) {
+  if (
+      input.dim() == 3 && dim == input.dim() - 1 && input.size(dim) >= 64 &&
+      !is_supported_diffusion_sdpa_score_softmax_shape(input, dim)) {
     return make_hard_fail_route(
         "aten::_softmax",
         VulkanRouteRejectReason::KnownBadBufferLastDimSoftmax,
@@ -448,8 +472,8 @@ VulkanRouteDecision select_sdpa_route(
   const bool allow_tiny_float_mask =
       is_supported_tiny_float_mask_sdpa_shape(
           query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
-  const bool allow_single_head_diffusion =
-      is_supported_single_head_diffusion_sdpa_shape(
+  const bool allow_materialized_diffusion =
+      is_supported_materialized_diffusion_sdpa_shape(
           query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
 
   if (
@@ -475,7 +499,7 @@ VulkanRouteDecision select_sdpa_route(
   if (
       scale.has_value() && std::abs(*scale - 1.0) > 1.0e-9 &&
       !allow_hymt_small_causal_gqa && !allow_tiny_float_mask &&
-      !allow_single_head_diffusion) {
+      !allow_materialized_diffusion) {
     return make_hard_fail_route(
         "aten::scaled_dot_product_attention",
         VulkanRouteRejectReason::KnownBadSdpaExplicitScale,
@@ -489,7 +513,7 @@ VulkanRouteDecision select_sdpa_route(
       lane != VulkanModelLane::LLM &&
       !allow_hymt_small_causal_gqa &&
       !allow_tiny_float_mask &&
-      !allow_single_head_diffusion &&
+      !allow_materialized_diffusion &&
       (query.dim() == 3 || query.dim() == 4)) {
     const int64_t target_len = query.size(query.dim() - 2);
     const int64_t source_len = key.size(key.dim() - 2);

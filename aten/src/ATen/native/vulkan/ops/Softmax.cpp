@@ -1552,7 +1552,13 @@ bool can_run_buffer_softmax(const Tensor& input, const int64_t dim) {
   if (dim != input.dim() - 1) {
     return input.numel() > 0;
   }
-  if (input.dim() == 3 && dim == input.dim() - 1 && input.size(dim) >= 64) {
+  const bool is_diffusion_sdpa_score_softmax =
+      input.dim() == 3 && dim == input.dim() - 1 &&
+      (input.size(0) == 1 || input.size(0) == 5) &&
+      input.size(1) == 640 && input.size(2) == 640;
+  if (
+      input.dim() == 3 && dim == input.dim() - 1 && input.size(dim) >= 64 &&
+      !is_diffusion_sdpa_score_softmax) {
     return false;
   }
 
@@ -3327,6 +3333,12 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
         Tensor());
   }
 
+  const bool materialize_diffusion_attention_probabilities =
+      query.dim() == 4 && batch == 1 && target_len == 640 &&
+      source_len == 640 && !has_explicit_mask && !is_causal && !enable_gqa &&
+      ((heads == 1 && head_dim == 512 && value_dim == 512) ||
+       (heads == 5 && head_dim == 64 && value_dim == 64));
+
   Tensor attn = at::bmm(query_3d, key_3d.transpose(1, 2));
   Tensor additive_bias = prepare_attention_bias(
       attn_mask,
@@ -3339,11 +3351,11 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
   if (additive_bias.defined()) {
     attn = at::add(attn, additive_bias);
   }
+  if (materialize_diffusion_attention_probabilities) {
+    attn = prepare_buffer_math_input_direct(attn);
+  }
   attn = attn.softmax(-1);
-  if (
-      query.dim() == 4 && batch == 1 && heads == 1 && target_len == 640 &&
-      source_len == 640 && head_dim == 512 && value_dim == 512 &&
-      !has_explicit_mask && !is_causal && !enable_gqa) {
+  if (materialize_diffusion_attention_probabilities) {
     attn = attn.clone();
   }
   Tensor output = at::bmm(attn, value_3d);
