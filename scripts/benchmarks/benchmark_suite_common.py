@@ -36,7 +36,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault(
     "PADDLE_PDX_CACHE_HOME",
-    str(REPO_ROOT / "agent_space" / "paddlex_cache"),
+    str(REPO_ROOT / "agent_space" / "paddlex_cache_fresh"),
 )
 HF_HOME = Path(os.environ["HF_HOME"])
 HF_HUB_CACHE = Path(os.environ["HF_HUB_CACHE"])

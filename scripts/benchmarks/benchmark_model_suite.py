@@ -4,6 +4,7 @@ import argparse
 import collections
 import contextlib
 import importlib.metadata
+import importlib.machinery
 import json
 import os
 import re
@@ -68,6 +69,10 @@ def flatten_tensors(torch: Any, payload: Any) -> list[Any]:
 def benchmark_distributed_import_status(torch: Any) -> str:
     if hasattr(getattr(torch, "_C", None), "_distributed_c10d"):
         return "real_distributed_c10d"
+    if "torch._C._distributed_c10d" in sys.modules:
+        module = sys.modules["torch._C._distributed_c10d"]
+        if getattr(module, "_benchmark_distributed_import_shim", False):
+            return "distributed_import_shim"
     if "transformers.generation.continuous_batching" in sys.modules:
         module = sys.modules["transformers.generation.continuous_batching"]
         if getattr(module, "_benchmark_distributed_import_shim", False):
@@ -78,6 +83,83 @@ def benchmark_distributed_import_status(torch: Any) -> str:
 def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
     if hasattr(getattr(torch, "_C", None), "_distributed_c10d"):
         return {"status": "real_distributed_c10d", "installed": False}
+    c10d_module_name = "torch._C._distributed_c10d"
+    c10d_existing = sys.modules.get(c10d_module_name)
+    c10d_installed = False
+    if c10d_existing is None:
+        c10d_module = types.ModuleType(c10d_module_name)
+
+        class _UnavailableDistributedObject:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                raise RuntimeError(
+                    "Benchmark distributed import shim does not implement "
+                    "torch.distributed collectives."
+                )
+
+        class _UnavailableBackend:
+            FAKE = "fake"
+            GLOO = "gloo"
+            MPI = "mpi"
+            NCCL = "nccl"
+            UCC = "ucc"
+            UNDEFINED = "undefined"
+
+            @classmethod
+            def register_backend(cls, *args: Any, **kwargs: Any) -> None:
+                return None
+
+        def _unavailable_distributed_function(*args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError(
+                "Benchmark distributed import shim does not implement "
+                "torch.distributed collectives."
+            )
+
+        def _c10d_getattr(name: str) -> Any:
+            if name.startswith("__"):
+                raise AttributeError(name)
+            if name.startswith("_") and name not in {
+                "_DistributedBackendOptions",
+                "_DEFAULT_PG_TIMEOUT",
+                "_DEFAULT_PG_NCCL_TIMEOUT",
+            }:
+                return _unavailable_distributed_function
+            return _UnavailableDistributedObject
+
+        c10d_module.__getattr__ = _c10d_getattr
+        c10d_module.__file__ = "<benchmark_distributed_import_shim>"
+        c10d_module.__spec__ = importlib.machinery.ModuleSpec(
+            c10d_module_name,
+            loader=None,
+        )
+        c10d_module._DEFAULT_PG_TIMEOUT = 1800
+        c10d_module._DEFAULT_PG_NCCL_TIMEOUT = 1800
+        c10d_module.Backend = _UnavailableBackend
+        c10d_module._DistributedBackendOptions = _UnavailableDistributedObject
+        c10d_module._benchmark_distributed_import_shim = True
+        sys.modules[c10d_module_name] = c10d_module
+        c10d_installed = True
+        try:
+            import torch.distributed as torch_distributed
+
+            for attr_name in (
+                "FileStore",
+                "HashStore",
+                "PrefixStore",
+                "ProcessGroup",
+                "Store",
+                "TCPStore",
+                "Work",
+            ):
+                if not hasattr(torch_distributed, attr_name):
+                    setattr(
+                        torch_distributed,
+                        attr_name,
+                        _UnavailableDistributedObject,
+                    )
+            if not hasattr(torch_distributed, "Backend"):
+                torch_distributed.Backend = _UnavailableBackend
+        except Exception:
+            pass
     module_name = "transformers.generation.continuous_batching"
     existing = sys.modules.get(module_name)
     if existing is not None:
@@ -87,7 +169,7 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
                 if getattr(existing, "_benchmark_distributed_import_shim", False)
                 else "missing_distributed_c10d"
             ),
-            "installed": False,
+            "installed": c10d_installed,
         }
 
     module = types.ModuleType(module_name)
@@ -158,8 +240,14 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
     return {
         "status": "distributed_import_shim",
         "installed": True,
-        "scope": "transformers_continuous_batching_import_only",
+        "scope": "torch_c_distributed_c10d_and_transformers_continuous_batching_import_only",
     }
+
+
+def prepare_benchmark_distributed_import(torch: Any) -> dict[str, Any]:
+    if hasattr(getattr(torch, "_C", None), "_distributed_c10d"):
+        return {"status": "real_distributed_c10d", "installed": False}
+    return install_benchmark_distributed_import_shim(torch)
 
 
 def install_grid_sample_call_recorder() -> tuple[list[dict[str, Any]], Any]:
@@ -1193,6 +1281,18 @@ def load_diffusion_pipeline_with_source_tree_torch(torch: Any) -> tuple[Any, boo
     return DiffusionPipeline, True
 
 
+def load_lotus_depth_pipeline_class() -> tuple[Any, str | None]:
+    lotus_repo = Path.cwd() / "agent_space" / "Lotus"
+    pipeline_py = lotus_repo / "pipeline.py"
+    if not pipeline_py.is_file():
+        return None, None
+    if str(lotus_repo) not in sys.path:
+        sys.path.insert(0, str(lotus_repo))
+    from pipeline import LotusDPipeline
+
+    return LotusDPipeline, str(lotus_repo)
+
+
 def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
     task = "depth_estimation"
     model_name = "lotus"
@@ -1210,29 +1310,23 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             reason="missing_diffusers",
         )
     torch = import_torch()
-    if backend == "vulkan":
-        return make_failure(
-            task=task,
-            model_name=model_name,
-            model_id=model_id,
-            backend=backend,
-            device_index=args.device_index,
-            dtype=args.dtype,
-            warmup=args.warmup,
-            repeats=args.repeats,
-            reason="diffusers_pipeline_does_not_support_torch_vulkan_device",
-        )
+    distributed_import = prepare_benchmark_distributed_import(torch)
     try:
-        DiffusionPipeline, diffusers_patched = (
-            load_diffusion_pipeline_with_source_tree_torch(torch)
-        )
+        lotus_pipeline_class, lotus_repo = load_lotus_depth_pipeline_class()
+        diffusers_patched = False
+        if lotus_pipeline_class is None:
+            DiffusionPipeline, diffusers_patched = (
+                load_diffusion_pipeline_with_source_tree_torch(torch)
+            )
+            lotus_pipeline_class = DiffusionPipeline
 
         device, device_info = torch_device_for_backend(torch, backend, args.device_index)
         setup_start = time.perf_counter()
-        pipe = DiffusionPipeline.from_pretrained(
+        pipe = lotus_pipeline_class.from_pretrained(
             model_id,
             trust_remote_code=True,
             local_files_only=not args.allow_downloads,
+            torch_dtype=torch.float32,
         )
         pipe = pipe.to(device)
         setup_s = time.perf_counter() - setup_start
@@ -1246,7 +1340,25 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             image_metadata = {"image_size": args.image_size, "generated": True}
 
         def forward() -> Any:
-            return pipe(image, num_inference_steps=args.num_inference_steps)
+            if lotus_repo is None:
+                return pipe(image, num_inference_steps=args.num_inference_steps)
+            import numpy as np
+
+            rgb = np.array(image).astype(np.float32)
+            rgb_tensor = torch.tensor(rgb).permute(2, 0, 1).unsqueeze(0)
+            rgb_tensor = rgb_tensor / 127.5 - 1.0
+            rgb_tensor = rgb_tensor.to(device)
+            task_emb = torch.tensor([1, 0]).float().unsqueeze(0).to(device)
+            task_emb = torch.cat([torch.sin(task_emb), torch.cos(task_emb)], dim=-1)
+            return pipe(
+                rgb_in=rgb_tensor,
+                prompt="",
+                output_type="np",
+                timesteps=[1],
+                task_emb=task_emb,
+                processing_res=args.image_size,
+                match_input_res=True,
+            )
 
         for _ in range(args.warmup):
             forward()
@@ -1275,9 +1387,32 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         }
         record.timings = {"setup_s": setup_s, "device_resident_forward": timing}
         record.counters = {"vulkan_debug": snapshot_vulkan_debug_counters(torch, backend)}
+        lotus_depth_sanity: dict[str, Any] = {}
+        if (
+            lotus_repo is not None
+            and hasattr(output, "images")
+            and len(output.images) > 0
+        ):
+            import numpy as np
+
+            depth = np.asarray(output.images[0])
+            if depth.ndim == 3:
+                depth = depth.mean(axis=-1)
+            lotus_depth_sanity = {
+                "depth_shape": list(depth.shape),
+                "depth_min": float(np.nanmin(depth)),
+                "depth_max": float(np.nanmax(depth)),
+                "depth_mean": float(np.nanmean(depth)),
+                "nan_count": int(np.isnan(depth).sum()),
+                "inf_count": int(np.isinf(depth).sum()),
+            }
         record.output_sanity = {
             "output_type": type(output).__name__,
+            **lotus_depth_sanity,
             "diffusers_source_tree_torch_patch": diffusers_patched,
+            "lotus_pipeline_source": lotus_repo,
+            "distributed_c10d_status": distributed_import["status"],
+            "distributed_import_shim": distributed_import,
         }
         record.environment = environment_summary()
         return record
@@ -1300,7 +1435,7 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
                 )
             )
         )
-        return make_failure(
+        record = make_failure(
             task=task,
             model_name=model_name,
             model_id=model_id,
@@ -1314,6 +1449,9 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             debug_traceback=args.debug_traceback,
             status="skip" if diffusers_reason != "lotus_run_failed" else None,
         )
+        record.failure["distributed_c10d_status"] = benchmark_distributed_import_status(torch)
+        record.failure["distributed_import_shim"] = distributed_import
+        return record
 
 
 def run_text_generation(
@@ -1338,7 +1476,7 @@ def run_text_generation(
             reason="missing_transformers",
         )
     torch = import_torch()
-    distributed_import = install_benchmark_distributed_import_shim(torch)
+    distributed_import = prepare_benchmark_distributed_import(torch)
     linear_diag: dict[str, Any] = {}
     parameter_summary: dict[str, Any] = {}
     vulkan_parameter_summary: dict[str, Any] = {}
@@ -1993,7 +2131,7 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
     grid_sample_patch = None
     postprocess_metadata_calls: list[dict[str, Any]] = []
     postprocess_metadata_patch = None
-    distributed_import = install_benchmark_distributed_import_shim(torch)
+    distributed_import = prepare_benchmark_distributed_import(torch)
     try:
         from paddleocr import PaddleOCR
 
