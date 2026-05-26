@@ -196,6 +196,35 @@ bool is_known_hymt_small_causal_gqa_sdpa_shape(
   return enable_gqa ? key.size(1) == 4 : key.size(1) == 16;
 }
 
+bool is_supported_tiny_float_mask_sdpa_shape(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const std::optional<Tensor>& attn_mask,
+    const double dropout_p,
+    const bool is_causal,
+    const std::optional<double> scale,
+    const bool enable_gqa) {
+  constexpr double kHeadDim64Scale = 0.125;
+  if (
+      !attn_mask || !attn_mask->defined() || dropout_p != 0.0 ||
+      is_causal || enable_gqa || query.scalar_type() != kFloat ||
+      key.scalar_type() != kFloat || value.scalar_type() != kFloat ||
+      attn_mask->scalar_type() != kFloat || query.dim() != 4 ||
+      key.dim() != 4 || value.dim() != 4 || attn_mask->dim() != 4) {
+    return false;
+  }
+  if (scale.has_value() && std::abs(*scale - kHeadDim64Scale) > 1.0e-6) {
+    return false;
+  }
+  return query.size(0) == 1 && key.size(0) == 1 && value.size(0) == 1 &&
+      query.size(1) == 16 && key.size(1) == 16 && value.size(1) == 16 &&
+      query.size(2) == 2 && key.size(2) == 2 && value.size(2) == 2 &&
+      query.size(3) == 64 && key.size(3) == 64 && value.size(3) == 64 &&
+      attn_mask->size(0) == 1 && attn_mask->size(1) == 1 &&
+      attn_mask->size(2) == 2 && attn_mask->size(3) == 2;
+}
+
 std::string hard_fail_detail(const VulkanRouteDecision& decision) {
   std::ostringstream out;
   out << "lane=" << model_lane_name(decision.lane);
@@ -390,10 +419,13 @@ VulkanRouteDecision select_sdpa_route(
   const bool allow_hymt_small_causal_gqa =
       is_known_hymt_small_causal_gqa_sdpa_shape(
           query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
+  const bool allow_tiny_float_mask =
+      is_supported_tiny_float_mask_sdpa_shape(
+          query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
 
   if (
       (attn_mask && attn_mask->defined() || is_causal || enable_gqa) &&
-      !allow_hymt_small_causal_gqa) {
+      !allow_hymt_small_causal_gqa && !allow_tiny_float_mask) {
     return make_hard_fail_route(
         "aten::scaled_dot_product_attention",
         VulkanRouteRejectReason::KnownBadSdpaMaskOrCausal,
@@ -413,7 +445,7 @@ VulkanRouteDecision select_sdpa_route(
 
   if (
       scale.has_value() && std::abs(*scale - 1.0) > 1.0e-9 &&
-      !allow_hymt_small_causal_gqa) {
+      !allow_hymt_small_causal_gqa && !allow_tiny_float_mask) {
     return make_hard_fail_route(
         "aten::scaled_dot_product_attention",
         VulkanRouteRejectReason::KnownBadSdpaExplicitScale,
@@ -426,6 +458,7 @@ VulkanRouteDecision select_sdpa_route(
       device_policy.disable_generic_4d_sdpa &&
       lane != VulkanModelLane::LLM &&
       !allow_hymt_small_causal_gqa &&
+      !allow_tiny_float_mask &&
       (query.dim() == 3 || query.dim() == 4)) {
     const int64_t target_len = query.size(query.dim() - 2);
     const int64_t source_len = key.size(key.dim() - 2);

@@ -2304,6 +2304,9 @@ Tensor expand_attention_mask_3d(
       (attn_mask.size(0) == batch || attn_mask.size(0) == 1) &&
           (attn_mask.size(1) == heads || attn_mask.size(1) == 1),
       "Vulkan SDPA 4D attention mask batch/head dimensions must be 1 or match the input");
+  if (attn_mask.size(0) == 1 && attn_mask.size(1) == 1) {
+    return attn_mask.reshape({1, target_len, source_len});
+  }
   return attn_mask.expand({batch, heads, target_len, source_len})
       .reshape({batch * heads, target_len, source_len});
 }

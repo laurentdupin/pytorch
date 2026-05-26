@@ -8140,6 +8140,84 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     ).cpu()
                     self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
 
+    def test_scaled_dot_product_attention_tiny_float_mask_matches_cpu(self):
+        torch.manual_seed(0)
+        query = torch.randn(1, 16, 2, 64)
+        key = torch.randn(1, 16, 2, 64)
+        value = torch.randn(1, 16, 2, 64)
+        mask = torch.tensor(
+            [[[[0.0, torch.finfo(torch.float32).min],
+               [torch.finfo(torch.float32).min, torch.finfo(torch.float32).min]]]],
+            dtype=torch.float32)
+
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            attn_mask=mask,
+            dropout_p=0.0,
+            is_causal=False,
+            scale=0.125,
+        )
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                attn_mask=mask.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+                scale=0.125,
+            ).cpu()
+            repeat = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                attn_mask=mask.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+                scale=0.125,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_scaled_dot_product_attention_tiny_bool_mask_still_rejected(self):
+        query = torch.randn(1, 16, 2, 64)
+        key = torch.randn(1, 16, 2, 64)
+        value = torch.randn(1, 16, 2, 64)
+        mask = torch.tensor([[[[True, False], [False, False]]]])
+
+        with self.assertRaisesRegex(RuntimeError, "KnownBadSdpaMaskOrCausal"):
+            F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                attn_mask=mask.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+                scale=0.125,
+            )
+
+    def test_scaled_dot_product_attention_tiny_float_mask_shape_guard(self):
+        query = torch.randn(1, 16, 2, 64)
+        key = torch.randn(1, 16, 2, 64)
+        value = torch.randn(1, 16, 2, 64)
+        mask = torch.zeros(1, 1, 2, 3)
+
+        with self.assertRaisesRegex(RuntimeError, "KnownBadSdpaMaskOrCausal"):
+            F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                attn_mask=mask.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+                scale=0.125,
+            )
+
     def test_vulkan_dispatch_tables_expose_backend_kernels(self):
         dispatch_expectations = {
             "aten::mm": ("Vulkan: registered at", "Mm.cpp"),
