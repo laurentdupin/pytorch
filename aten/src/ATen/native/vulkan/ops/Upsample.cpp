@@ -1,4 +1,5 @@
 #include <ATen/native/UpSample.h>
+#include <ATen/ops/_upsample_bilinear2d_aa.h>
 #include <ATen/ops/_upsample_nearest_exact2d.h>
 #include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/ops/Common.h>
@@ -441,6 +442,84 @@ static Tensor& upsample_nearest_exact2d_out(
   return out;
 }
 
+static Tensor upsample_bilinear2d_aa_cpu_fallback(
+    const Tensor& input_arg,
+    const IntArrayRef output_sizes,
+    bool align_corners,
+    const std::optional<double> scales_h,
+    const std::optional<double> scales_w) {
+  TORCH_CHECK(
+      input_arg.is_vulkan(),
+      "Vulkan _upsample_bilinear2d_aa fallback expects a Vulkan input");
+  TORCH_CHECK(
+      input_arg.scalar_type() == kFloat && input_arg.dim() == 4 &&
+          output_sizes.size() == 2,
+      "Vulkan _upsample_bilinear2d_aa fallback currently supports float 4D input");
+
+  report_vulkan_cpu_fallback(
+      "aten::_upsample_bilinear2d_aa",
+      "model_core_preprocessing_fallback",
+      {input_arg});
+
+  Tensor result_cpu;
+  {
+    c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+    c10::InferenceMode inference_mode_guard(false);
+    const Tensor input_cpu = input_arg.cpu();
+    result_cpu = at::_upsample_bilinear2d_aa(
+        input_cpu,
+        output_sizes,
+        align_corners,
+        scales_h,
+        scales_w);
+  }
+
+  Tensor result = record_tensor_write_and_return(
+      result_cpu.to(input_arg.device()),
+      "aten::_upsample_bilinear2d_aa",
+      "model_core_preprocessing_fallback",
+      {input_arg});
+  if (result.is_vulkan()) {
+    api::context()->submit_pending_work_and_poll_retire();
+  }
+  return result;
+}
+
+static Tensor upsample_bilinear2d_aa(
+    const Tensor& input_arg,
+    const IntArrayRef output_sizes,
+    bool align_corners,
+    const std::optional<double> scales_h,
+    const std::optional<double> scales_w) {
+  utils::log_vulkan_op_hit("aten::_upsample_bilinear2d_aa.cpu_fallback");
+  return upsample_bilinear2d_aa_cpu_fallback(
+      input_arg,
+      output_sizes,
+      align_corners,
+      scales_h,
+      scales_w);
+}
+
+static Tensor& upsample_bilinear2d_aa_out(
+    const Tensor& input_arg,
+    const IntArrayRef output_sizes,
+    bool align_corners,
+    const std::optional<double> scales_h,
+    const std::optional<double> scales_w,
+    Tensor& out) {
+  Tensor result = upsample_bilinear2d_aa(
+      input_arg,
+      output_sizes,
+      align_corners,
+      scales_h,
+      scales_w);
+  if (out.is_vulkan()) {
+    return rebind_vulkan_output(out, result);
+  }
+  out.copy_(result.cpu());
+  return out;
+}
+
 static Tensor upsample_bilinear2d(
     const Tensor& input_arg,
     const IntArrayRef output_sizes,
@@ -751,6 +830,12 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("aten::upsample_bilinear2d"),
       TORCH_FN(upsample_bilinear2d));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::_upsample_bilinear2d_aa"),
+      TORCH_FN(upsample_bilinear2d_aa));
+  m.impl(
+      TORCH_SELECTIVE_NAME("aten::_upsample_bilinear2d_aa.out"),
+      TORCH_FN(upsample_bilinear2d_aa_out));
   m.impl(
       TORCH_SELECTIVE_NAME("aten::upsample_bicubic2d"),
       TORCH_FN(upsample_bicubic2d));

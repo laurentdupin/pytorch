@@ -6420,6 +6420,97 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(expected.dtype, actual.dtype)
         self.assertEqual(expected, actual)
 
+    def test_upsample_bilinear2d_aa_matches_cpu(self):
+        torch.manual_seed(0)
+        x = torch.randn(1, 3, 37, 57)
+
+        expected = F.interpolate(
+            x,
+            size=(5, 7),
+            mode="bilinear",
+            align_corners=False,
+            antialias=True)
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        actual = F.interpolate(
+            x.to("vulkan"),
+            size=(5, 7),
+            mode="bilinear",
+            align_corners=False,
+            antialias=True).cpu()
+
+        self.assertEqual(actual, expected, atol=1e-6, rtol=1e-6)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
+    def test_upsample_bilinear2d_aa_lotus_shape_matches_cpu(self):
+        torch.manual_seed(0)
+        x = torch.randn(1, 3, 1483, 2280)
+
+        expected = F.interpolate(
+            x,
+            size=(166, 256),
+            mode="bilinear",
+            align_corners=False,
+            antialias=True)
+        actual = F.interpolate(
+            x.to("vulkan"),
+            size=(166, 256),
+            mode="bilinear",
+            align_corners=False,
+            antialias=True).cpu()
+
+        self.assertEqual(actual, expected, atol=1e-6, rtol=1e-6)
+
+    def test_upsample_bilinear2d_aa_out_matches_cpu(self):
+        torch.manual_seed(0)
+        x = torch.randn(1, 2, 19, 23)
+        out = torch.empty((1, 2, 6, 8), device="vulkan")
+
+        expected = torch.ops.aten._upsample_bilinear2d_aa(
+            x,
+            [6, 8],
+            False,
+            None,
+            None)
+        actual = torch.ops.aten._upsample_bilinear2d_aa.out(
+            x.to("vulkan"),
+            [6, 8],
+            False,
+            None,
+            None,
+            out=out).cpu()
+
+        self.assertEqual(actual, expected, atol=1e-6, rtol=1e-6)
+
+    def test_upsample_bilinear2d_non_aa_stays_native(self):
+        torch.manual_seed(0)
+        x = torch.randn(1, 3, 17, 23)
+
+        expected = F.interpolate(
+            x,
+            size=(9, 11),
+            mode="bilinear",
+            align_corners=False)
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        actual = F.interpolate(
+            x.to("vulkan"),
+            size=(9, 11),
+            mode="bilinear",
+            align_corners=False).cpu()
+
+        self.assertEqual(actual, expected, atol=1e-5, rtol=1e-5)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_upsample_bilinear2d_aa_rejects_non_float(self):
+        x = torch.randint(0, 16, (1, 3, 8, 8), dtype=torch.uint8)
+
+        with self.assertRaisesRegex(RuntimeError, "supports float 4D"):
+            F.interpolate(
+                x.to("vulkan"),
+                size=(4, 4),
+                mode="bilinear",
+                align_corners=False,
+                antialias=True)
+
     def test_hwc_uint8_upload_roundtrip_matches_cpu(self):
         torch.manual_seed(0)
         image = torch.randint(
