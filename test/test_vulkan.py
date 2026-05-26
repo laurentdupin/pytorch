@@ -8218,6 +8218,34 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 scale=0.125,
             )
 
+    def test_scaled_dot_product_attention_lotus_diffusion_shape_still_guarded(self):
+        query = torch.randn(1, 1, 640, 512)
+        key = torch.randn(1, 1, 640, 512)
+        value = torch.randn(1, 1, 640, 512)
+
+        with torch.inference_mode():
+            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
+                F.scaled_dot_product_attention(
+                    query.to("vulkan"),
+                    key.to("vulkan"),
+                    value.to("vulkan"),
+                    dropout_p=0.0,
+                    is_causal=False,
+                )
+
+            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
+                torch.ops.aten._scaled_dot_product_attention_math(
+                    query.to("vulkan"),
+                    key.to("vulkan"),
+                    value.to("vulkan"),
+                    None,
+                    0.0,
+                    False,
+                    None,
+                    scale=None,
+                    enable_gqa=False,
+                )
+
     def test_vulkan_dispatch_tables_expose_backend_kernels(self):
         dispatch_expectations = {
             "aten::mm": ("Vulkan: registered at", "Mm.cpp"),
