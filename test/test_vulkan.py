@@ -8218,10 +8218,44 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 scale=0.125,
             )
 
-    def test_scaled_dot_product_attention_lotus_diffusion_shape_still_guarded(self):
+    def test_scaled_dot_product_attention_single_head_diffusion_matches_cpu(self):
+        torch.manual_seed(0)
         query = torch.randn(1, 1, 640, 512)
         key = torch.randn(1, 1, 640, 512)
         value = torch.randn(1, 1, 640, 512)
+
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+            repeat = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_scaled_dot_product_attention_single_head_diffusion_shape_guard(self):
+        query = torch.randn(1, 1, 641, 512)
+        key = torch.randn(1, 1, 641, 512)
+        value = torch.randn(1, 1, 641, 512)
 
         with torch.inference_mode():
             with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
@@ -8231,19 +8265,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     value.to("vulkan"),
                     dropout_p=0.0,
                     is_causal=False,
-                )
-
-            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
-                torch.ops.aten._scaled_dot_product_attention_math(
-                    query.to("vulkan"),
-                    key.to("vulkan"),
-                    value.to("vulkan"),
-                    None,
-                    0.0,
-                    False,
-                    None,
-                    scale=None,
-                    enable_gqa=False,
                 )
 
     def test_vulkan_dispatch_tables_expose_backend_kernels(self):

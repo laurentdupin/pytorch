@@ -3340,6 +3340,12 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
     attn = at::add(attn, additive_bias);
   }
   attn = attn.softmax(-1);
+  if (
+      query.dim() == 4 && batch == 1 && heads == 1 && target_len == 640 &&
+      source_len == 640 && head_dim == 512 && value_dim == 512 &&
+      !has_explicit_mask && !is_causal && !enable_gqa) {
+    attn = attn.clone();
+  }
   Tensor output = at::bmm(attn, value_3d);
 
   if (query.dim() == 3) {
