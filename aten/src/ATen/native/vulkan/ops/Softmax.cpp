@@ -1539,6 +1539,18 @@ Tensor maybe_scale_query(const Tensor& query, const double query_scale) {
   return query.mul(query_scale);
 }
 
+bool is_materialized_diffusion_sdpa_score_shape(const Tensor& input) {
+  if (
+      input.scalar_type() != kFloat || input.dim() != 3 ||
+      input.size(1) != input.size(2)) {
+    return false;
+  }
+  const int64_t heads = input.size(0);
+  const int64_t sequence = input.size(1);
+  return (heads == 1 && (sequence == 504 || sequence == 640)) ||
+      (heads == 5 && sequence == 640);
+}
+
 bool can_run_buffer_softmax(const Tensor& input, const int64_t dim) {
   if (
       !input.is_vulkan() ||
@@ -1552,13 +1564,9 @@ bool can_run_buffer_softmax(const Tensor& input, const int64_t dim) {
   if (dim != input.dim() - 1) {
     return input.numel() > 0;
   }
-  const bool is_diffusion_sdpa_score_softmax =
-      input.dim() == 3 && dim == input.dim() - 1 &&
-      (input.size(0) == 1 || input.size(0) == 5) &&
-      input.size(1) == 640 && input.size(2) == 640;
   if (
       input.dim() == 3 && dim == input.dim() - 1 && input.size(dim) >= 64 &&
-      !is_diffusion_sdpa_score_softmax) {
+      !is_materialized_diffusion_sdpa_score_shape(input)) {
     return false;
   }
 
@@ -2367,6 +2375,27 @@ Tensor make_causal_attention_bias(
   return causal_bias.to(query.scalar_type())
       .unsqueeze(0)
       .expand({batch_heads, target_len, source_len});
+}
+
+bool is_materialized_diffusion_sdpa_contract(
+    const Tensor& query,
+    const int64_t batch,
+    const int64_t heads,
+    const int64_t target_len,
+    const int64_t source_len,
+    const int64_t head_dim,
+    const int64_t value_dim,
+    const bool has_explicit_mask,
+    const bool is_causal,
+    const bool enable_gqa) {
+  if (
+      query.dim() != 4 || batch != 1 || target_len != source_len ||
+      has_explicit_mask || is_causal || enable_gqa || head_dim != value_dim) {
+    return false;
+  }
+  return (heads == 1 && target_len == 640 && head_dim == 512) ||
+      (heads == 5 && target_len == 640 && head_dim == 64) ||
+      (heads == 1 && target_len == 504 && head_dim == 512);
 }
 
 Tensor prepare_attention_bias(
@@ -3334,10 +3363,17 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
   }
 
   const bool materialize_diffusion_attention_probabilities =
-      query.dim() == 4 && batch == 1 && target_len == 640 &&
-      source_len == 640 && !has_explicit_mask && !is_causal && !enable_gqa &&
-      ((heads == 1 && head_dim == 512 && value_dim == 512) ||
-       (heads == 5 && head_dim == 64 && value_dim == 64));
+      is_materialized_diffusion_sdpa_contract(
+          query,
+          batch,
+          heads,
+          target_len,
+          source_len,
+          head_dim,
+          value_dim,
+          has_explicit_mask,
+          is_causal,
+          enable_gqa);
 
   Tensor attn = at::bmm(query_3d, key_3d.transpose(1, 2));
   Tensor additive_bias = prepare_attention_bias(

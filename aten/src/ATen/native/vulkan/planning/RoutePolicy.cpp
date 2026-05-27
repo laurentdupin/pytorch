@@ -234,6 +234,8 @@ bool is_supported_materialized_diffusion_sdpa_shape(
     const bool is_causal,
     const std::optional<double> scale,
     const bool enable_gqa) {
+  constexpr double kHeadDim512Scale = 0.04419417382415922;
+  constexpr double kHeadDim64Scale = 0.125;
   if (
       (attn_mask && attn_mask->defined()) || dropout_p != 0.0 ||
       is_causal || enable_gqa || query.scalar_type() != kFloat ||
@@ -243,20 +245,24 @@ bool is_supported_materialized_diffusion_sdpa_shape(
   }
   if (
       query.size(0) != 1 || key.size(0) != 1 || value.size(0) != 1 ||
-      query.size(2) != 640 || key.size(2) != 640 || value.size(2) != 640) {
+      query.size(1) != key.size(1) || query.size(1) != value.size(1) ||
+      query.size(2) != key.size(2) || query.size(2) != value.size(2) ||
+      query.size(3) != key.size(3) || query.size(3) != value.size(3)) {
     return false;
   }
-  const bool single_head_512 =
-      query.size(1) == 1 && key.size(1) == 1 && value.size(1) == 1 &&
-      query.size(3) == 512 && key.size(3) == 512 && value.size(3) == 512;
-  const bool multi_head_64 =
-      query.size(1) == 5 && key.size(1) == 5 && value.size(1) == 5 &&
-      query.size(3) == 64 && key.size(3) == 64 && value.size(3) == 64;
-  if (!single_head_512 && !multi_head_64) {
+  const int64_t heads = query.size(1);
+  const int64_t sequence = query.size(2);
+  const int64_t head_dim = query.size(3);
+  const bool supported =
+      (heads == 1 && sequence == 640 && head_dim == 512) ||
+      (heads == 5 && sequence == 640 && head_dim == 64) ||
+      (heads == 1 && sequence == 504 && head_dim == 512);
+  if (!supported) {
     return false;
   }
   if (scale.has_value()) {
-    const double expected_scale = single_head_512 ? 0.04419417382415922 : 0.125;
+    const double expected_scale =
+        head_dim == 512 ? kHeadDim512Scale : kHeadDim64Scale;
     if (std::abs(*scale - expected_scale) > 1.0e-6) {
       return false;
     }
@@ -267,10 +273,15 @@ bool is_supported_materialized_diffusion_sdpa_shape(
 bool is_supported_diffusion_sdpa_score_softmax_shape(
     const Tensor& input,
     const int64_t dim) {
-  return input.scalar_type() == kFloat && input.dim() == 3 &&
-      dim == input.dim() - 1 &&
-      (input.size(0) == 1 || input.size(0) == 5) &&
-      input.size(1) == 640 && input.size(2) == 640;
+  if (
+      input.scalar_type() != kFloat || input.dim() != 3 ||
+      dim != input.dim() - 1 || input.size(1) != input.size(2)) {
+    return false;
+  }
+  const int64_t heads = input.size(0);
+  const int64_t sequence = input.size(1);
+  return (heads == 1 && (sequence == 504 || sequence == 640)) ||
+      (heads == 5 && sequence == 640);
 }
 
 std::string hard_fail_detail(const VulkanRouteDecision& decision) {

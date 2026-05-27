@@ -8316,23 +8316,60 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     is_causal=False,
                 )
 
-    def test_softmax_diffusion_score_shape_matches_cpu(self):
+    def test_scaled_dot_product_attention_single_head_504_diffusion_matches_cpu(self):
         torch.manual_seed(0)
-        scores = torch.randn(5, 640, 640)
+        query = torch.randn(1, 1, 504, 512)
+        key = torch.randn(1, 1, 504, 512)
+        value = torch.randn(1, 1, 504, 512)
 
-        expected = scores.softmax(-1)
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
         with torch.inference_mode():
             torch.ops.vulkan_prepack.reset_fallback_counters()
-            actual = scores.to("vulkan").softmax(-1).cpu()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+            repeat = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
 
         self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
-        self.assertEqual(
-            actual.sum(dim=-1),
-            torch.ones(5, 640),
-            rtol=1e-4,
-            atol=1e-4,
-        )
+        self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_softmax_diffusion_score_shape_matches_cpu(self):
+        torch.manual_seed(0)
+        score_shapes = ((5, 640, 640), (1, 504, 504))
+
+        for shape in score_shapes:
+            scores = torch.randn(*shape)
+
+            expected = scores.softmax(-1)
+            with torch.inference_mode():
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                actual = scores.to("vulkan").softmax(-1).cpu()
+
+            self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+            self.assertEqual(
+                actual.sum(dim=-1),
+                torch.ones(shape[0], shape[1]),
+                rtol=1e-4,
+                atol=1e-4,
+            )
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
     def test_vulkan_dispatch_tables_expose_backend_kernels(self):
         dispatch_expectations = {
