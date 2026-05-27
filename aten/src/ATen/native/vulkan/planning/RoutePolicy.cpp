@@ -292,10 +292,17 @@ bool is_supported_diffusion_cross_sdpa_shape(
   if (scale.has_value() && std::abs(*scale - kHeadDim64Scale) > 1.0e-6) {
     return false;
   }
-  return query.size(0) == 1 && key.size(0) == 1 && value.size(0) == 1 &&
-      query.size(1) == 5 && key.size(1) == 5 && value.size(1) == 5 &&
-      query.size(2) == 504 && key.size(2) == 2 && value.size(2) == 2 &&
-      query.size(3) == 64 && key.size(3) == 64 && value.size(3) == 64;
+  if (
+      query.size(0) != 1 || key.size(0) != 1 || value.size(0) != 1 ||
+      query.size(1) != key.size(1) || query.size(1) != value.size(1) ||
+      query.size(3) != 64 || key.size(3) != 64 || value.size(3) != 64 ||
+      key.size(2) != 2 || value.size(2) != 2) {
+    return false;
+  }
+  const int64_t heads = query.size(1);
+  const int64_t query_sequence = query.size(2);
+  return (heads == 5 && query_sequence == 504) ||
+      (heads == 10 && query_sequence == 126);
 }
 
 bool is_supported_diffusion_sdpa_score_softmax_shape(
