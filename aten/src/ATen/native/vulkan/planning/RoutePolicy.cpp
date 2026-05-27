@@ -271,6 +271,32 @@ bool is_supported_materialized_diffusion_sdpa_shape(
   return true;
 }
 
+bool is_supported_diffusion_cross_sdpa_shape(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const std::optional<Tensor>& attn_mask,
+    const double dropout_p,
+    const bool is_causal,
+    const std::optional<double> scale,
+    const bool enable_gqa) {
+  constexpr double kHeadDim64Scale = 0.125;
+  if (
+      (attn_mask && attn_mask->defined()) || dropout_p != 0.0 ||
+      is_causal || enable_gqa || query.scalar_type() != kFloat ||
+      key.scalar_type() != kFloat || value.scalar_type() != kFloat ||
+      query.dim() != 4 || key.dim() != 4 || value.dim() != 4) {
+    return false;
+  }
+  if (scale.has_value() && std::abs(*scale - kHeadDim64Scale) > 1.0e-6) {
+    return false;
+  }
+  return query.size(0) == 1 && key.size(0) == 1 && value.size(0) == 1 &&
+      query.size(1) == 5 && key.size(1) == 5 && value.size(1) == 5 &&
+      query.size(2) == 504 && key.size(2) == 2 && value.size(2) == 2 &&
+      query.size(3) == 64 && key.size(3) == 64 && value.size(3) == 64;
+}
+
 bool is_supported_diffusion_sdpa_score_softmax_shape(
     const Tensor& input,
     const int64_t dim) {
@@ -487,6 +513,9 @@ VulkanRouteDecision select_sdpa_route(
   const bool allow_materialized_diffusion =
       is_supported_materialized_diffusion_sdpa_shape(
           query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
+  const bool allow_diffusion_cross =
+      is_supported_diffusion_cross_sdpa_shape(
+          query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
 
   if (
       (attn_mask && attn_mask->defined() || is_causal || enable_gqa) &&
@@ -511,7 +540,7 @@ VulkanRouteDecision select_sdpa_route(
   if (
       scale.has_value() && std::abs(*scale - 1.0) > 1.0e-9 &&
       !allow_hymt_small_causal_gqa && !allow_tiny_float_mask &&
-      !allow_materialized_diffusion) {
+      !allow_materialized_diffusion && !allow_diffusion_cross) {
     return make_hard_fail_route(
         "aten::scaled_dot_product_attention",
         VulkanRouteRejectReason::KnownBadSdpaExplicitScale,
@@ -526,6 +555,7 @@ VulkanRouteDecision select_sdpa_route(
       !allow_hymt_small_causal_gqa &&
       !allow_tiny_float_mask &&
       !allow_materialized_diffusion &&
+      !allow_diffusion_cross &&
       (query.dim() == 3 || query.dim() == 4)) {
     const int64_t target_len = query.size(query.dim() - 2);
     const int64_t source_len = key.size(key.dim() - 2);
