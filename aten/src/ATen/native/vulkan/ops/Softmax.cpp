@@ -2399,6 +2399,50 @@ bool is_materialized_diffusion_sdpa_contract(
       (heads == 5 && target_len == 504 && head_dim == 64);
 }
 
+bool is_clone_only_diffusion_sdpa_contract(
+    const Tensor& query,
+    const int64_t batch,
+    const int64_t heads,
+    const int64_t target_len,
+    const int64_t source_len,
+    const int64_t head_dim,
+    const int64_t value_dim,
+    const bool has_explicit_mask,
+    const bool is_causal,
+    const bool enable_gqa) {
+  if (
+      query.dim() != 4 || batch != 1 || target_len != source_len ||
+      has_explicit_mask || is_causal || enable_gqa || head_dim != value_dim) {
+    return false;
+  }
+  return heads == 10 && target_len == 126 && head_dim == 64;
+}
+
+bool is_materialized_diffusion_sdpa_tensor_contract(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const std::optional<Tensor>& attn_mask,
+    const double dropout_p,
+    const bool is_causal,
+    const std::optional<double> scale,
+    const bool enable_gqa) {
+  constexpr double kHeadDim64Scale = 0.125;
+  if (
+      (attn_mask && attn_mask->defined()) || dropout_p != 0.0 ||
+      is_causal || enable_gqa || query.dim() != 4 || key.dim() != 4 ||
+      value.dim() != 4) {
+    return false;
+  }
+  if (scale.has_value() && std::abs(*scale - kHeadDim64Scale) > 1.0e-6) {
+    return false;
+  }
+  return query.size(0) == 1 && key.size(0) == 1 && value.size(0) == 1 &&
+      query.size(1) == 10 && key.size(1) == 10 && value.size(1) == 10 &&
+      query.size(2) == 126 && key.size(2) == 126 && value.size(2) == 126 &&
+      query.size(3) == 64 && key.size(3) == 64 && value.size(3) == 64;
+}
+
 Tensor prepare_attention_bias(
     const std::optional<Tensor>& attn_mask,
     const utils::VulkanAttentionPolicy& attention_policy,
@@ -3212,17 +3256,23 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
   Tensor value =
       value_arg.is_contiguous_or_false() ? value_arg : value_arg.contiguous();
 
-  if (const auto fast_output = try_scaled_dot_product_attention_tiled_fast_path(
-          input_runtime_policy,
-          query,
-          key,
-          value,
-          attn_mask,
-          dropout_p,
-          is_causal,
-          scale,
-          enable_gqa)) {
-    return std::make_tuple(*fast_output, Tensor());
+  const bool materialized_diffusion_input =
+      is_materialized_diffusion_sdpa_tensor_contract(
+          query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
+
+  if (!materialized_diffusion_input) {
+    if (const auto fast_output = try_scaled_dot_product_attention_tiled_fast_path(
+            input_runtime_policy,
+            query,
+            key,
+            value,
+            attn_mask,
+            dropout_p,
+            is_causal,
+            scale,
+            enable_gqa)) {
+      return std::make_tuple(*fast_output, Tensor());
+    }
   }
 
   log_sdpa_event(
@@ -3375,6 +3425,18 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
           has_explicit_mask,
           is_causal,
           enable_gqa);
+  const bool clone_only_diffusion_attention_probabilities =
+      is_clone_only_diffusion_sdpa_contract(
+          query,
+          batch,
+          heads,
+          target_len,
+          source_len,
+          head_dim,
+          value_dim,
+          has_explicit_mask,
+          is_causal,
+          enable_gqa);
 
   Tensor attn = at::bmm(query_3d, key_3d.transpose(1, 2));
   Tensor additive_bias = prepare_attention_bias(
@@ -3392,7 +3454,9 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
     attn = prepare_buffer_math_input_direct(attn);
   }
   attn = attn.softmax(-1);
-  if (materialize_diffusion_attention_probabilities) {
+  if (
+      materialize_diffusion_attention_probabilities ||
+      clone_only_diffusion_attention_probabilities) {
     attn = attn.clone();
   }
   Tensor output = at::bmm(attn, value_3d);
@@ -3508,17 +3572,22 @@ Tensor scaled_dot_product_attention_vulkan_impl(
       is_causal,
       scale,
       enable_gqa);
-  if (const auto fast_output = try_scaled_dot_product_attention_tiled_fast_path(
-          input_runtime_policy,
-          query,
-          key,
-          value,
-          attn_mask,
-          dropout_p,
-          is_causal,
-          scale,
-          enable_gqa)) {
-    return finalize_public_sdpa_output(*fast_output);
+  const bool materialized_diffusion_input =
+      is_materialized_diffusion_sdpa_tensor_contract(
+          query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
+  if (!materialized_diffusion_input) {
+    if (const auto fast_output = try_scaled_dot_product_attention_tiled_fast_path(
+            input_runtime_policy,
+            query,
+            key,
+            value,
+            attn_mask,
+            dropout_p,
+            is_causal,
+            scale,
+            enable_gqa)) {
+      return finalize_public_sdpa_output(*fast_output);
+    }
   }
   log_sdpa_event(
       "public_vulkan_entry",
@@ -3535,6 +3604,7 @@ Tensor scaled_dot_product_attention_vulkan_impl(
   if (
       input_runtime_policy.attention_execution_strategy ==
           utils::VulkanAttentionExecutionStrategy::RuntimeProgram &&
+      !materialized_diffusion_input &&
       !is_generic_attention_policy(input_runtime_policy) &&
       dropout_p == 0.0 && !attn_mask.has_value() && !is_causal &&
       !enable_gqa && (query.dim() == 3 || query.dim() == 4)) {
