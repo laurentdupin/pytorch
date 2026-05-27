@@ -256,7 +256,8 @@ bool is_supported_materialized_diffusion_sdpa_shape(
   const bool supported =
       (heads == 1 && sequence == 640 && head_dim == 512) ||
       (heads == 5 && sequence == 640 && head_dim == 64) ||
-      (heads == 1 && sequence == 504 && head_dim == 512);
+      (heads == 1 && sequence == 504 && head_dim == 512) ||
+      (heads == 5 && sequence == 504 && head_dim == 64);
   if (!supported) {
     return false;
   }
@@ -281,7 +282,7 @@ bool is_supported_diffusion_sdpa_score_softmax_shape(
   const int64_t heads = input.size(0);
   const int64_t sequence = input.size(1);
   return (heads == 1 && (sequence == 504 || sequence == 640)) ||
-      (heads == 5 && sequence == 640);
+      (heads == 5 && (sequence == 504 || sequence == 640));
 }
 
 std::string hard_fail_detail(const VulkanRouteDecision& decision) {

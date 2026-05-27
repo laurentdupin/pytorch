@@ -8350,9 +8350,43 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
+    def test_scaled_dot_product_attention_multi_head_504_diffusion_matches_cpu(self):
+        torch.manual_seed(0)
+        query = torch.randn(1, 5, 504, 64)
+        key = torch.randn(1, 5, 504, 64)
+        value = torch.randn(1, 5, 504, 64)
+
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+            repeat = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
     def test_softmax_diffusion_score_shape_matches_cpu(self):
         torch.manual_seed(0)
-        score_shapes = ((5, 640, 640), (1, 504, 504))
+        score_shapes = ((5, 640, 640), (1, 504, 504), (5, 504, 504))
 
         for shape in score_shapes:
             scores = torch.randn(*shape)

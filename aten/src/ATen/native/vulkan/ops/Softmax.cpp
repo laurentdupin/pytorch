@@ -1548,7 +1548,7 @@ bool is_materialized_diffusion_sdpa_score_shape(const Tensor& input) {
   const int64_t heads = input.size(0);
   const int64_t sequence = input.size(1);
   return (heads == 1 && (sequence == 504 || sequence == 640)) ||
-      (heads == 5 && sequence == 640);
+      (heads == 5 && (sequence == 504 || sequence == 640));
 }
 
 bool can_run_buffer_softmax(const Tensor& input, const int64_t dim) {
@@ -2395,7 +2395,8 @@ bool is_materialized_diffusion_sdpa_contract(
   }
   return (heads == 1 && target_len == 640 && head_dim == 512) ||
       (heads == 5 && target_len == 640 && head_dim == 64) ||
-      (heads == 1 && target_len == 504 && head_dim == 512);
+      (heads == 1 && target_len == 504 && head_dim == 512) ||
+      (heads == 5 && target_len == 504 && head_dim == 64);
 }
 
 Tensor prepare_attention_bias(
