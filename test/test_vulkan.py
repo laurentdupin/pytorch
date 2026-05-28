@@ -7065,6 +7065,57 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     atol=1e-4,
                     rtol=1e-4)
 
+    def test_large_pointwise_conv2d_diffusion_small_spatial_matches_cpu(self):
+        torch.manual_seed(0)
+        x_cpu = torch.randn(1, 640, 5, 7)
+        x_vulkan = x_cpu.to("vulkan")
+        module_cpu = torch.nn.Conv2d(
+            640,
+            1280,
+            kernel_size=1,
+            bias=True).eval()
+        module_vulkan = torch.nn.Conv2d(
+            640,
+            1280,
+            kernel_size=1,
+            bias=True).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+
+        with torch.inference_mode():
+            expected = module_cpu(x_cpu)
+            actual = None
+            for _ in range(3):
+                current = module_vulkan(x_vulkan).cpu()
+                if actual is not None:
+                    self._assert_outputs_close(
+                        actual,
+                        current,
+                        atol=1e-5,
+                        rtol=1e-5)
+                actual = current
+
+        self._assert_outputs_close(
+            expected,
+            actual,
+            atol=1e-4,
+            rtol=1e-4)
+
+    def test_large_pointwise_conv2d_diffusion_small_spatial_shape_guard(self):
+        x_cpu = torch.randn(1, 640, 5, 8)
+        x_vulkan = x_cpu.to("vulkan")
+        module_vulkan = torch.nn.Conv2d(
+            640,
+            1280,
+            kernel_size=1,
+            bias=True).eval().to("vulkan")
+
+        with torch.inference_mode():
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "KnownBadLargePointwiseConv"):
+                module_vulkan(x_vulkan)
+
     def test_large_pointwise_conv_weight_roundtrip(self):
         torch.manual_seed(0)
 
