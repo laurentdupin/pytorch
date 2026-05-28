@@ -275,7 +275,8 @@ bool is_supported_materialized_diffusion_sdpa_shape(
       (heads == 1 && sequence == 504 && head_dim == 512) ||
       (heads == 5 && sequence == 504 && head_dim == 64) ||
       (heads == 10 && sequence == 126 && head_dim == 64) ||
-      (heads == 20 && sequence == 35 && head_dim == 64);
+      (heads == 20 && sequence == 35 && head_dim == 64) ||
+      (heads == 20 && sequence == 12 && head_dim == 64);
   if (!supported) {
     return false;
   }
