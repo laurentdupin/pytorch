@@ -321,7 +321,7 @@ bool is_supported_diffusion_cross_sdpa_shape(
   const int64_t query_sequence = query.size(2);
   return (heads == 5 && query_sequence == 504) ||
       (heads == 10 && query_sequence == 126) ||
-      (heads == 20 && query_sequence == 35);
+      (heads == 20 && (query_sequence == 12 || query_sequence == 35));
 }
 
 bool is_supported_diffusion_sdpa_score_softmax_shape(
