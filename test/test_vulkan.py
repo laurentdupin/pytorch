@@ -16341,6 +16341,60 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_lotus_permute_reshape_alias_materializes_direct_buffer(self):
+        log_name = "lotus_reshape_alias_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                cases = (
+                    (640, 9, 14),
+                    (320, 18, 28),
+                    (1280, 5, 7),
+                )
+                for channels, height, width in cases:
+                    x_cpu = torch.randn(1, channels, height, width, dtype=torch.float32)
+                    x_perm_cpu = x_cpu.permute(0, 2, 3, 1)
+                    x = x_cpu.to("vulkan").permute(0, 2, 3, 1)
+                    y = torch.ops.aten._reshape_alias.default(
+                        x,
+                        [1, height * width, channels],
+                        [height * width * channels, 1, height * width],
+                    )
+                    expected = torch.as_strided(
+                        x_perm_cpu,
+                        (1, height * width, channels),
+                        (height * width * channels, 1, height * width),
+                    )
+                    torch.testing.assert_close(y.cpu(), expected, atol=1e-4, rtol=1e-4)
+                print("ok")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Lotus reshape_alias subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn(
+                "op=aten::_reshape_alias.materialized_direct_buffer_reshape",
+                log_text,
+            )
+            self.assertNotIn("op=aten::_reshape_alias.cpu_as_strided_materialize", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_dinov2_positional_reshape_runs_without_inference_mode(self):
         script = """
             import torch

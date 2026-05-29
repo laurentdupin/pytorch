@@ -12,6 +12,7 @@
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <algorithm>
 #include <optional>
 #include <torch/library.h>
 
@@ -26,6 +27,29 @@ bool is_contiguous_stride(
     IntArrayRef sizes,
     IntArrayRef strides) {
   return strides.equals(c10::contiguous_strides(sizes));
+}
+
+bool is_non_overlapping_dense_stride(IntArrayRef sizes, IntArrayRef strides) {
+  TORCH_INTERNAL_ASSERT(sizes.size() == strides.size());
+  std::vector<size_t> dims;
+  dims.reserve(sizes.size());
+  for (const auto i : c10::irange(sizes.size())) {
+    if (sizes[i] > 1) {
+      dims.push_back(i);
+    }
+  }
+  std::sort(dims.begin(), dims.end(), [&](const size_t a, const size_t b) {
+    return strides[a] < strides[b];
+  });
+
+  int64_t required_stride = 1;
+  for (const size_t dim : dims) {
+    if (strides[dim] != required_stride) {
+      return false;
+    }
+    required_stride *= sizes[dim];
+  }
+  return true;
 }
 
 bool is_vulkan_logically_contiguous(const Tensor& tensor) {
@@ -206,9 +230,35 @@ bool can_use_materialized_direct_buffer_reshape(
   return output_size.empty() || output_size.back() % 4 == 0;
 }
 
+bool can_use_materialized_direct_buffer_reshape_alias(
+    const vTensor& v_self,
+    IntArrayRef output_size,
+    IntArrayRef output_stride,
+    const int64_t storage_offset) {
+  if (
+      v_self.dtype() != api::kFloat ||
+      v_self.storage_type() != api::StorageType::BUFFER ||
+      v_self.sizes().size() > 4 || output_size.size() > 5 ||
+      storage_offset != 0 ||
+      !is_non_overlapping_dense_stride(v_self.sizes(), logical_strides(v_self)) ||
+      !is_non_overlapping_dense_stride(output_size, output_stride)) {
+    return false;
+  }
+
+  if (
+      c10::multiply_integers(v_self.sizes()) !=
+      c10::multiply_integers(output_size)) {
+    return false;
+  }
+
+  return output_size.empty() || output_size.back() % 4 == 0;
+}
+
 Tensor reshape_contiguous_as_direct_buffer(
     const Tensor& self_arg,
-    IntArrayRef output_size) {
+    IntArrayRef output_size,
+    const char* op_name = "aten::view",
+    const char* route_name = "materialized_direct_buffer_reshape") {
   api::AllocationScope allocation_scope("reshape.direct_buffer");
   api::Context* const context = api::context();
 
@@ -240,11 +290,11 @@ Tensor reshape_contiguous_as_direct_buffer(
       api::MemoryAccessType::READ);
   utils::pack_buffer_to_vtensor(staging.buffer(), v_output, pipeline_barrier);
 
-  utils::log_vulkan_op_hit("aten::view.materialized_direct_buffer_reshape");
+  utils::log_vulkan_op_hit(std::string(op_name) + "." + route_name);
   return record_tensor_write_and_return(
       convert(v_output),
-      "aten::view",
-      "materialized_direct_buffer_reshape",
+      op_name,
+      route_name,
       {input});
 }
 
@@ -481,6 +531,15 @@ Tensor view_internal(
     if (can_use_materialized_direct_buffer_reshape(
             v_self, output_size, output_stride, resolved_storage_offset)) {
       return reshape_contiguous_as_direct_buffer(self_arg, output_size);
+    }
+
+    if (can_use_materialized_direct_buffer_reshape_alias(
+            v_self, output_size, output_stride, resolved_storage_offset)) {
+      return reshape_contiguous_as_direct_buffer(
+          self_arg,
+          output_size,
+          "aten::_reshape_alias",
+          "materialized_direct_buffer_reshape");
     }
 
     if (can_use_texture_contiguous_reshape(
