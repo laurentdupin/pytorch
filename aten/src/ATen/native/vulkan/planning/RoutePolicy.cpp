@@ -154,7 +154,12 @@ bool is_known_diffusion_small_spatial_pointwise_shape(
           input_sizes[1] == 2560 &&
           input_sizes[2] == 5 &&
           input_sizes[3] == 7 &&
-          weight_sizes[1] == 2560);
+          weight_sizes[1] == 2560) ||
+      (
+          input_sizes[1] == 1920 &&
+          input_sizes[2] == 5 &&
+          input_sizes[3] == 7 &&
+          weight_sizes[1] == 1920);
 }
 
 std::string sdpa_shape_summary(

@@ -7069,6 +7069,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         torch.manual_seed(0)
         cases = (
             ((1, 640, 5, 7), 1280),
+            ((1, 1920, 5, 7), 1280),
             ((1, 2560, 3, 4), 1280),
             ((1, 2560, 5, 7), 1280),
         )
@@ -7111,6 +7112,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
     def test_large_pointwise_conv2d_diffusion_small_spatial_shape_guard(self):
         cases = (
             ((1, 640, 5, 8), 1280),
+            ((1, 1920, 5, 8), 1280),
             ((1, 2560, 3, 5), 1280),
             ((1, 2560, 5, 8), 1280),
         )
