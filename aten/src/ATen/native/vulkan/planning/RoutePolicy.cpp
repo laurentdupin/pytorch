@@ -149,6 +149,11 @@ bool is_known_diffusion_small_spatial_pointwise_shape(
           input_sizes[1] == 2560 &&
           input_sizes[2] == 3 &&
           input_sizes[3] == 4 &&
+          weight_sizes[1] == 2560) ||
+      (
+          input_sizes[1] == 2560 &&
+          input_sizes[2] == 5 &&
+          input_sizes[3] == 7 &&
           weight_sizes[1] == 2560);
 }
 

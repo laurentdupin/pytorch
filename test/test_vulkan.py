@@ -7070,6 +7070,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         cases = (
             ((1, 640, 5, 7), 1280),
             ((1, 2560, 3, 4), 1280),
+            ((1, 2560, 5, 7), 1280),
         )
         for shape, out_channels in cases:
             with self.subTest(shape=shape, out_channels=out_channels):
@@ -7111,6 +7112,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         cases = (
             ((1, 640, 5, 8), 1280),
             ((1, 2560, 3, 5), 1280),
+            ((1, 2560, 5, 8), 1280),
         )
         for shape, out_channels in cases:
             with self.subTest(shape=shape, out_channels=out_channels):
