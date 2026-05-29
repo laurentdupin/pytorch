@@ -16272,11 +16272,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 )
                 x.copy_(x_cpu)
 
-                y = x.reshape(1, 9, 24)
+                y = x.reshape(1, 8, 27)
                 x_readback = x.cpu()
                 torch.testing.assert_close(
                     y.cpu(),
-                    x_readback.reshape(1, 9, 24),
+                    x_readback.reshape(1, 8, 27),
                     atol=1e-4,
                     rtol=1e-4,
                 )
@@ -16298,6 +16298,45 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertNotIn(
                 "op=aten::view.texture_to_buffer_metadata_reshape", log_text
             )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_lotus_unaligned_texture_view_materializes_direct_buffer(self):
+        log_name = "lotus_unaligned_texture_view_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                for channels, groups in ((320, 32), (640, 32)):
+                    x_cpu = torch.randn(1, channels, 9, 14, dtype=torch.float32)
+                    x = x_cpu.to("vulkan")
+                    y = x.view(1, groups, channels * 9 * 14 // groups)
+                    expected = x_cpu.view(1, groups, channels * 9 * 14 // groups)
+                    torch.testing.assert_close(y.cpu(), expected, atol=1e-4, rtol=1e-4)
+                print("ok")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix="Lotus unaligned texture view subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn(
+                "op=aten::view.materialized_direct_buffer_reshape", log_text
+            )
+            self.assertNotIn("op=aten::view.texture_contiguous_reshape", log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)

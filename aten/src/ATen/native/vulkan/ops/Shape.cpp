@@ -186,6 +186,68 @@ bool can_use_buffer_materialized_contiguous_reshape(
       c10::multiply_integers(output_size);
 }
 
+bool can_use_materialized_direct_buffer_reshape(
+    const vTensor& v_self,
+    IntArrayRef output_size,
+    IntArrayRef output_stride,
+    const int64_t storage_offset) {
+  if (
+      v_self.sizes().size() > 4 || output_size.size() > 5 || storage_offset != 0 ||
+      !is_contiguous_stride(output_size, output_stride)) {
+    return false;
+  }
+
+  if (
+      c10::multiply_integers(v_self.sizes()) !=
+      c10::multiply_integers(output_size)) {
+    return false;
+  }
+
+  return output_size.empty() || output_size.back() % 4 == 0;
+}
+
+Tensor reshape_contiguous_as_direct_buffer(
+    const Tensor& self_arg,
+    IntArrayRef output_size) {
+  api::AllocationScope allocation_scope("reshape.direct_buffer");
+  api::Context* const context = api::context();
+
+  Tensor input = utils::prepare_vulkan_execution_tensor(
+      self_arg, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  const vTensor& v_input = convert(input);
+
+  vTensor v_output{
+      context,
+      output_size.vec(),
+      v_input.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+  TORCH_INTERNAL_ASSERT(
+      v_output.has_direct_buffer_layout(),
+      "Direct-buffer reshape materialization requires direct output layout");
+
+  api::StorageBuffer staging(context, v_input.dtype(), v_input.numel());
+  vTensor v_src = v_input;
+  utils::pack_vtensor_to_staging(v_src, staging.buffer());
+  api::PipelineBarrier pipeline_barrier{};
+  add_buffer_barrier(
+      pipeline_barrier,
+      staging.buffer(),
+      api::PipelineStage::COMPUTE | api::PipelineStage::TRANSFER,
+      api::MemoryAccessType::WRITE,
+      api::PipelineStage::COMPUTE | api::PipelineStage::TRANSFER,
+      api::MemoryAccessType::READ);
+  utils::pack_buffer_to_vtensor(staging.buffer(), v_output, pipeline_barrier);
+
+  utils::log_vulkan_op_hit("aten::view.materialized_direct_buffer_reshape");
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::view",
+      "materialized_direct_buffer_reshape",
+      {input});
+}
+
 std::vector<int64_t> texture_gpu_sizes_for_contiguous_view(
     IntArrayRef sizes,
     const api::GPUMemoryLayout memory_layout) {
@@ -414,6 +476,11 @@ Tensor view_internal(
             v_self, output_size, output_stride, resolved_storage_offset)) {
       return reshape_contiguous_as_buffer_view(
           self_arg, output_size, output_stride);
+    }
+
+    if (can_use_materialized_direct_buffer_reshape(
+            v_self, output_size, output_stride, resolved_storage_offset)) {
+      return reshape_contiguous_as_direct_buffer(self_arg, output_size);
     }
 
     if (can_use_texture_contiguous_reshape(
