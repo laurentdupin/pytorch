@@ -7070,6 +7070,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         cases = (
             ((1, 640, 5, 7), 1280),
             ((1, 1920, 5, 7), 1280),
+            ((1, 1920, 9, 14), 640),
             ((1, 2560, 3, 4), 1280),
             ((1, 2560, 5, 7), 1280),
         )
@@ -7113,6 +7114,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         cases = (
             ((1, 640, 5, 8), 1280),
             ((1, 1920, 5, 8), 1280),
+            ((1, 1920, 9, 15), 640),
             ((1, 2560, 3, 5), 1280),
             ((1, 2560, 5, 8), 1280),
         )

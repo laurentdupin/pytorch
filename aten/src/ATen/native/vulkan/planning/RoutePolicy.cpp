@@ -135,7 +135,6 @@ bool is_known_diffusion_small_spatial_pointwise_shape(
   }
   if (
       input_sizes[0] != 1 ||
-      weight_sizes[0] != 1280 ||
       weight_sizes[2] != 1 ||
       weight_sizes[3] != 1) {
     return false;
@@ -144,21 +143,31 @@ bool is_known_diffusion_small_spatial_pointwise_shape(
       input_sizes[1] == 640 &&
       input_sizes[2] == 5 &&
       input_sizes[3] == 7 &&
+      weight_sizes[0] == 1280 &&
       weight_sizes[1] == 640) ||
       (
           input_sizes[1] == 2560 &&
           input_sizes[2] == 3 &&
           input_sizes[3] == 4 &&
+          weight_sizes[0] == 1280 &&
           weight_sizes[1] == 2560) ||
       (
           input_sizes[1] == 2560 &&
           input_sizes[2] == 5 &&
           input_sizes[3] == 7 &&
+          weight_sizes[0] == 1280 &&
           weight_sizes[1] == 2560) ||
       (
           input_sizes[1] == 1920 &&
           input_sizes[2] == 5 &&
           input_sizes[3] == 7 &&
+          weight_sizes[0] == 1280 &&
+          weight_sizes[1] == 1920) ||
+      (
+          input_sizes[1] == 1920 &&
+          input_sizes[2] == 9 &&
+          input_sizes[3] == 14 &&
+          weight_sizes[0] == 640 &&
           weight_sizes[1] == 1920);
 }
 
