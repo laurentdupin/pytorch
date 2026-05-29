@@ -7068,7 +7068,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
     def test_large_pointwise_conv2d_diffusion_small_spatial_matches_cpu(self):
         torch.manual_seed(0)
         cases = (
+            ((1, 4, 18, 28), 4),
+            ((1, 8, 18, 28), 8),
+            ((1, 128, 72, 112), 256),
+            ((1, 256, 36, 56), 512),
+            ((1, 256, 144, 224), 128),
+            ((1, 320, 9, 14), 640),
+            ((1, 512, 72, 112), 256),
             ((1, 640, 5, 7), 1280),
+            ((1, 640, 18, 28), 320),
+            ((1, 960, 9, 14), 640),
+            ((1, 960, 18, 28), 320),
+            ((1, 1280, 9, 14), 640),
             ((1, 1920, 5, 7), 1280),
             ((1, 1920, 9, 14), 640),
             ((1, 2560, 3, 4), 1280),
@@ -7112,7 +7123,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
     def test_large_pointwise_conv2d_diffusion_small_spatial_shape_guard(self):
         cases = (
+            ((1, 512, 72, 113), 256),
             ((1, 640, 5, 8), 1280),
+            ((1, 640, 18, 29), 320),
+            ((1, 960, 9, 15), 640),
+            ((1, 960, 18, 29), 320),
+            ((1, 1280, 9, 15), 640),
             ((1, 1920, 5, 8), 1280),
             ((1, 1920, 9, 15), 640),
             ((1, 2560, 3, 5), 1280),

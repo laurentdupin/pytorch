@@ -140,11 +140,35 @@ bool is_known_diffusion_small_spatial_pointwise_shape(
     return false;
   }
   return (
-      input_sizes[1] == 640 &&
-      input_sizes[2] == 5 &&
-      input_sizes[3] == 7 &&
-      weight_sizes[0] == 1280 &&
-      weight_sizes[1] == 640) ||
+      input_sizes[1] == 128 &&
+      input_sizes[2] == 72 &&
+      input_sizes[3] == 112 &&
+      weight_sizes[0] == 256 &&
+      weight_sizes[1] == 128) ||
+      (
+          input_sizes[1] == 256 &&
+          input_sizes[2] == 36 &&
+          input_sizes[3] == 56 &&
+          weight_sizes[0] == 512 &&
+          weight_sizes[1] == 256) ||
+      (
+          input_sizes[1] == 8 &&
+          input_sizes[2] == 18 &&
+          input_sizes[3] == 28 &&
+          weight_sizes[0] == 8 &&
+          weight_sizes[1] == 8) ||
+      (
+          input_sizes[1] == 320 &&
+          input_sizes[2] == 9 &&
+          input_sizes[3] == 14 &&
+          weight_sizes[0] == 640 &&
+          weight_sizes[1] == 320) ||
+      (
+          input_sizes[1] == 640 &&
+          input_sizes[2] == 5 &&
+          input_sizes[3] == 7 &&
+          weight_sizes[0] == 1280 &&
+          weight_sizes[1] == 640) ||
       (
           input_sizes[1] == 2560 &&
           input_sizes[2] == 3 &&
@@ -168,7 +192,49 @@ bool is_known_diffusion_small_spatial_pointwise_shape(
           input_sizes[2] == 9 &&
           input_sizes[3] == 14 &&
           weight_sizes[0] == 640 &&
-          weight_sizes[1] == 1920);
+          weight_sizes[1] == 1920) ||
+      (
+          input_sizes[1] == 1280 &&
+          input_sizes[2] == 9 &&
+          input_sizes[3] == 14 &&
+          weight_sizes[0] == 640 &&
+          weight_sizes[1] == 1280) ||
+      (
+          input_sizes[1] == 960 &&
+          input_sizes[2] == 9 &&
+          input_sizes[3] == 14 &&
+          weight_sizes[0] == 640 &&
+          weight_sizes[1] == 960) ||
+      (
+          input_sizes[1] == 960 &&
+          input_sizes[2] == 18 &&
+          input_sizes[3] == 28 &&
+          weight_sizes[0] == 320 &&
+          weight_sizes[1] == 960) ||
+      (
+          input_sizes[1] == 640 &&
+          input_sizes[2] == 18 &&
+          input_sizes[3] == 28 &&
+          weight_sizes[0] == 320 &&
+          weight_sizes[1] == 640) ||
+      (
+          input_sizes[1] == 4 &&
+          input_sizes[2] == 18 &&
+          input_sizes[3] == 28 &&
+          weight_sizes[0] == 4 &&
+          weight_sizes[1] == 4) ||
+      (
+          input_sizes[1] == 512 &&
+          input_sizes[2] == 72 &&
+          input_sizes[3] == 112 &&
+          weight_sizes[0] == 256 &&
+          weight_sizes[1] == 512) ||
+      (
+          input_sizes[1] == 256 &&
+          input_sizes[2] == 144 &&
+          input_sizes[3] == 224 &&
+          weight_sizes[0] == 128 &&
+          weight_sizes[1] == 256);
 }
 
 std::string sdpa_shape_summary(
