@@ -4475,6 +4475,85 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(actual, expected)
             self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
 
+    def test_float_channel_cat_two_buffer_view_inputs_lotus_shapes_match_cpu(self):
+        def make_nchw_buffer_view(tensor):
+            n, c, h, w = tensor.shape
+            nhwc_flat = tensor.permute(0, 2, 3, 1).reshape(n, h * w, c)
+            return nhwc_flat.to("vulkan").view(n, h, w, c).permute(0, 3, 1, 2)
+
+        with torch.inference_mode():
+            cases = [
+                ((1, 1280, 5, 7), (1, 1280, 5, 7)),
+                ((1, 1280, 5, 7), (1, 640, 5, 7)),
+                ((1, 1280, 9, 14), (1, 640, 9, 14)),
+                ((1, 640, 9, 14), (1, 640, 9, 14)),
+                ((1, 640, 9, 14), (1, 320, 9, 14)),
+            ]
+
+            for left_shape, right_shape in cases:
+                left = torch.randn(*left_shape, dtype=torch.float32)
+                right = torch.randn(*right_shape, dtype=torch.float32)
+                left_vulkan = make_nchw_buffer_view(left)
+                right_vulkan = make_nchw_buffer_view(right)
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+
+                expected = torch.cat((left, right), dim=1)
+                actual = torch.cat((left_vulkan, right_vulkan), dim=1).cpu()
+
+                self.assertEqual(actual, expected)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_float_channel_cat_two_buffer_view_inputs_repeated_deterministic(self):
+        def make_nchw_buffer_view(tensor):
+            n, c, h, w = tensor.shape
+            nhwc_flat = tensor.permute(0, 2, 3, 1).reshape(n, h * w, c)
+            return nhwc_flat.to("vulkan").view(n, h, w, c).permute(0, 3, 1, 2)
+
+        with torch.inference_mode():
+            left = torch.randn(1, 1280, 5, 7, dtype=torch.float32)
+            right = torch.randn(1, 640, 5, 7, dtype=torch.float32)
+            left_vulkan = make_nchw_buffer_view(left)
+            right_vulkan = make_nchw_buffer_view(right)
+            expected = torch.cat((left, right), dim=1)
+
+            for _ in range(3):
+                actual = torch.cat((left_vulkan, right_vulkan), dim=1).cpu()
+                self.assertEqual(actual, expected)
+
+    def test_float_dim1_cat_two_rank3_buffer_view_inputs_matches_cpu(self):
+        with torch.inference_mode():
+            left = torch.randn(1, 8, 384, dtype=torch.float32)
+            right = torch.randn(1, 4, 384, dtype=torch.float32)
+            left_vulkan = left.to("vulkan").transpose(1, 2).transpose(1, 2)
+            right_vulkan = right.to("vulkan").transpose(1, 2).transpose(1, 2)
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+
+            expected = torch.cat((left, right), dim=1)
+            actual = torch.cat((left_vulkan, right_vulkan), dim=1).cpu()
+
+            self.assertEqual(actual, expected)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_float_non_channel_cat_buffer_view_inputs_falls_back(self):
+        def make_nchw_buffer_view(tensor):
+            n, c, h, w = tensor.shape
+            nhwc_flat = tensor.permute(0, 2, 3, 1).reshape(n, h * w, c)
+            return nhwc_flat.to("vulkan").view(n, h, w, c).permute(0, 3, 1, 2)
+
+        with torch.inference_mode():
+            left = torch.randn(1, 1280, 5, 7, dtype=torch.float32)
+            right = torch.randn(1, 1280, 3, 7, dtype=torch.float32)
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+
+            expected = torch.cat((left, right), dim=2)
+            actual = torch.cat(
+                (make_nchw_buffer_view(left), make_nchw_buffer_view(right)),
+                dim=2,
+            ).cpu()
+
+            self.assertEqual(actual, expected)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
     def test_affine_inverse_style_buffer_views_match_cpu(self):
         def affine_inverse_style(A):
             R = A[..., :3, :3]

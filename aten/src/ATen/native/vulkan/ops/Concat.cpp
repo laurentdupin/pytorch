@@ -83,6 +83,7 @@ bool can_use_buffer_cat_fast_path(
   }
 
   bool has_buffer_input = false;
+  bool has_buffer_view_input = false;
   for (const Tensor& tensor : tensors) {
     if (!tensor.is_vulkan() || tensor.dim() != reference.dim()) {
       return false;
@@ -90,6 +91,28 @@ bool can_use_buffer_cat_fast_path(
     const vTensor& v_tensor = convert(tensor);
     if (v_tensor.storage_type() == api::StorageType::BUFFER) {
       has_buffer_input = true;
+      has_buffer_view_input = has_buffer_view_input ||
+          !v_tensor.has_direct_buffer_layout();
+    }
+  }
+
+  if (has_buffer_view_input) {
+    if (
+        tensors.size() != 2 || dim != 1 ||
+        (reference.dim() != 3 && reference.dim() != 4)) {
+      return false;
+    }
+    if (reference.dim() == 4) {
+      int64_t cat_dim_size = 0;
+      for (const Tensor& tensor : tensors) {
+        if (tensor.size(1) % 4 != 0) {
+          return false;
+        }
+        cat_dim_size += tensor.size(1);
+      }
+      if (cat_dim_size % 4 != 0) {
+        return false;
+      }
     }
   }
 
@@ -222,11 +245,11 @@ bool cat_buffer_direct_out_impl(
       prepared = utils::mark_tensor_execution(
           utils::ensure_buffer_storage(
               prepared, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
-          api::ExecutionLayout::BUFFER_DIRECT);
+          api::ExecutionLayout::BUFFER_VIEW);
       const vTensor& v_buffer = convert(prepared);
       TORCH_CHECK(
           v_buffer.storage_type() == api::StorageType::BUFFER &&
-              v_buffer.has_direct_buffer_layout(),
+              utils::supports_buffer_elementwise_compute(v_buffer),
           "Vulkan buffer cat requires buffer-backed inputs");
     }
     prepared_tensors.push_back(std::move(prepared));
@@ -259,9 +282,17 @@ bool cat_buffer_direct_out_impl(
   vTensor& v_output = convert(output);
   if (
       v_output.storage_type() != api::StorageType::BUFFER ||
-      !v_output.has_direct_buffer_layout()) {
+      !utils::supports_buffer_elementwise_compute(v_output)) {
     return false;
   }
+  bool uses_buffer_view = !v_output.has_direct_buffer_layout();
+  for (const Tensor& tensor : prepared_tensors) {
+    uses_buffer_view = uses_buffer_view ||
+        !convert(tensor).has_direct_buffer_layout();
+  }
+  utils::log_vulkan_op_hit(
+      uses_buffer_view ? "aten::cat.buffer_channel_view"
+                       : "aten::cat.buffer_direct");
   int64_t dst_dim_offset = 0;
 
   for (const Tensor& tensor : prepared_tensors) {
