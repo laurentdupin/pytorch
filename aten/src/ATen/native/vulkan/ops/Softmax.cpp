@@ -2121,6 +2121,98 @@ Tensor flatten_attention_batch_heads(
   return tensor.reshape({batch_heads, sequence_length, feature_size});
 }
 
+bool can_use_bounded_decode_gqa_repeat_materialization(
+    const Tensor& tensor,
+    const int64_t repeat_factor) {
+  if (
+      !tensor.is_vulkan() || tensor.scalar_type() != kFloat ||
+      tensor.dim() != 4 || repeat_factor != 4 || tensor.size(0) != 1 ||
+      tensor.size(1) != 4 || tensor.size(2) < 100 ||
+      tensor.size(2) > 116 || tensor.size(3) != 128) {
+    return false;
+  }
+  return convert(tensor).storage_type() == api::StorageType::BUFFER;
+}
+
+Tensor materialize_bounded_decode_gqa_repeat(
+    const Tensor& tensor,
+    const int64_t repeat_factor) {
+  api::AllocationScope allocation_scope("sdpa.gqa_repeat");
+  TORCH_INTERNAL_ASSERT(
+      can_use_bounded_decode_gqa_repeat_materialization(tensor, repeat_factor));
+
+  const int64_t batch = tensor.size(0);
+  const int64_t heads = tensor.size(1);
+  const int64_t sequence_length = tensor.size(2);
+  const int64_t head_dim = tensor.size(3);
+  Tensor output = utils::create_buffer_tensor(
+      {batch, heads * repeat_factor, sequence_length, head_dim},
+      tensor.scalar_type(),
+      /*persistent=*/false);
+  output = utils::mark_tensor_execution(
+      output,
+      utils::resolve_buffer_execution_layout(convert(output)),
+      false);
+
+  const vTensor& v_input = convert(tensor);
+  vTensor& v_output = convert(output);
+  api::Context* const context = api::context();
+  const struct Block final {
+    ivec4 sizes;
+    ivec4 repeat_info;
+  } block{
+      {
+          safe_downcast<int32_t>(batch),
+          safe_downcast<int32_t>(heads),
+          safe_downcast<int32_t>(sequence_length),
+          safe_downcast<int32_t>(head_dim),
+      },
+      {
+          safe_downcast<int32_t>(repeat_factor),
+          0,
+          0,
+          0,
+      },
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer input_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size{
+      safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+
+  utils::log_vulkan_op_hit(
+      "aten::scaled_dot_product_attention.bounded_gqa_repeat_materialize");
+  context->submit_compute_job(
+      VK_KERNEL(gqa_repeat_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      input_meta.buffer(),
+      params.buffer());
+
+  output = utils::mark_tensor_execution(
+      output, api::ExecutionLayout::BUFFER_DIRECT);
+  return record_tensor_write_and_return(
+      output,
+      "aten::scaled_dot_product_attention",
+      "gqa_repeat_materialize",
+      {tensor});
+}
+
 Tensor repeat_attention_heads_for_gqa(
     const Tensor& tensor,
     const int64_t repeat_factor) {
@@ -2135,6 +2227,10 @@ Tensor repeat_attention_heads_for_gqa(
   const int64_t heads = tensor.size(1);
   const int64_t sequence_length = tensor.size(2);
   const int64_t head_dim = tensor.size(3);
+
+  if (can_use_bounded_decode_gqa_repeat_materialization(tensor, repeat_factor)) {
+    return materialize_bounded_decode_gqa_repeat(tensor, repeat_factor);
+  }
 
   return tensor.unsqueeze(2)
       .expand({batch, heads, repeat_factor, sequence_length, head_dim})

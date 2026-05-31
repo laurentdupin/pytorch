@@ -8226,6 +8226,52 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
                     self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
 
+    def test_scaled_dot_product_attention_hymt_decode_gqa_repeat_materializes_native(self):
+        torch.manual_seed(0)
+        scale = 0.0883883
+        with torch.inference_mode():
+            for source_len in (100, 101, 116):
+                with self.subTest(source_len=source_len):
+                    query = torch.randn(1, 16, 1, 128)
+                    key = torch.randn(1, 4, source_len, 128)
+                    value = torch.randn(1, 4, source_len, 128)
+                    expected = F.scaled_dot_product_attention(
+                        query,
+                        key,
+                        value,
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=scale,
+                        enable_gqa=True,
+                    )
+                    query_vulkan = query.to("vulkan")
+                    key_vulkan = key.to("vulkan")
+                    value_vulkan = value.to("vulkan")
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = F.scaled_dot_product_attention(
+                        query_vulkan,
+                        key_vulkan,
+                        value_vulkan,
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=scale,
+                        enable_gqa=True,
+                    )
+                    self.assertEqual(
+                        torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                    actual_cpu = actual.cpu()
+                    repeat_cpu = F.scaled_dot_product_attention(
+                        query_vulkan,
+                        key_vulkan,
+                        value_vulkan,
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=scale,
+                        enable_gqa=True,
+                    ).cpu()
+                    self.assertEqual(actual_cpu, expected, rtol=1e-4, atol=1e-4)
+                    self.assertEqual(repeat_cpu, actual_cpu, rtol=1e-5, atol=1e-5)
+
     def test_scaled_dot_product_attention_hymt_decode_gqa_shape_guard(self):
         torch.manual_seed(0)
         scale = 0.0883883
