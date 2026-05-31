@@ -300,7 +300,10 @@ bool is_known_hymt_small_causal_gqa_sdpa_shape(
     if (query.size(2) != key.size(2) || key.size(2) > 128) {
       return false;
     }
-  } else if (query.size(2) > 14 || key.size(2) > 64) {
+  } else if (
+      !(enable_gqa && query.size(2) == 1 &&
+        key.size(2) >= 100 && key.size(2) <= 116) &&
+      (query.size(2) > 14 || key.size(2) > 64)) {
     return false;
   }
   return enable_gqa ? key.size(1) == 4 : key.size(1) == 16;

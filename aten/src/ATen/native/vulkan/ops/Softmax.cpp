@@ -2418,6 +2418,23 @@ bool is_clone_only_diffusion_sdpa_contract(
   return heads == 10 && target_len == 126 && head_dim == 64;
 }
 
+bool is_clone_only_hymt_decode_gqa_sdpa_contract(
+    const Tensor& query,
+    const int64_t batch,
+    const int64_t heads,
+    const int64_t target_len,
+    const int64_t source_len,
+    const int64_t head_dim,
+    const int64_t value_dim,
+    const bool has_explicit_mask,
+    const bool is_causal,
+    const bool enable_gqa) {
+  return query.dim() == 4 && batch == 1 && heads == 16 && target_len == 1 &&
+      source_len >= 100 && source_len <= 116 &&
+      head_dim == 128 && value_dim == 128 &&
+      !has_explicit_mask && !is_causal && enable_gqa;
+}
+
 bool is_materialized_diffusion_sdpa_tensor_contract(
     const Tensor& query,
     const Tensor& key,
@@ -3437,6 +3454,18 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
           has_explicit_mask,
           is_causal,
           enable_gqa);
+  const bool clone_only_hymt_decode_gqa_attention_probabilities =
+      is_clone_only_hymt_decode_gqa_sdpa_contract(
+          query,
+          batch,
+          heads,
+          target_len,
+          source_len,
+          head_dim,
+          value_dim,
+          has_explicit_mask,
+          is_causal,
+          enable_gqa);
 
   Tensor attn = at::bmm(query_3d, key_3d.transpose(1, 2));
   Tensor additive_bias = prepare_attention_bias(
@@ -3456,7 +3485,8 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
   attn = attn.softmax(-1);
   if (
       materialize_diffusion_attention_probabilities ||
-      clone_only_diffusion_attention_probabilities) {
+      clone_only_diffusion_attention_probabilities ||
+      clone_only_hymt_decode_gqa_attention_probabilities) {
     attn = attn.clone();
   }
   Tensor output = at::bmm(attn, value_3d);

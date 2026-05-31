@@ -8191,7 +8191,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         torch.manual_seed(0)
         scale = 0.0883883
         with torch.inference_mode():
-            for source_len in (1, 15, 32):
+            for source_len in (1, 15, 32, 100, 101, 116):
                 with self.subTest(source_len=source_len):
                     query = torch.randn(1, 16, 1, 128)
                     key = torch.randn(1, 4, source_len, 128)
@@ -8225,6 +8225,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     ).cpu()
                     self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
                     self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
+
+    def test_scaled_dot_product_attention_hymt_decode_gqa_shape_guard(self):
+        torch.manual_seed(0)
+        scale = 0.0883883
+        query = torch.randn(1, 16, 1, 128)
+        key = torch.randn(1, 4, 117, 128)
+        value = torch.randn(1, 4, 117, 128)
+        with torch.inference_mode():
+            with self.assertRaisesRegex(RuntimeError, "KnownBadSdpaMaskOrCausal"):
+                F.scaled_dot_product_attention(
+                    query.to("vulkan"),
+                    key.to("vulkan"),
+                    value.to("vulkan"),
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=scale,
+                    enable_gqa=True,
+                )
 
     def test_scaled_dot_product_attention_hymt_direct_gqa_prefill_avoids_fallback(self):
         torch.manual_seed(0)
