@@ -68,6 +68,52 @@ bool cat_requires_cpu_fallback(const MaterializedITensorListRef& tensors) {
   return false;
 }
 
+bool is_hymt_kv_cache_cat_tensor(const Tensor& tensor) {
+  if (
+      !tensor.is_vulkan() || tensor.scalar_type() != kFloat ||
+      tensor.dim() != 4) {
+    return false;
+  }
+  return tensor.size(0) == 1 && tensor.size(1) == 4 &&
+      tensor.size(2) >= 99 && tensor.size(2) <= 116 &&
+      tensor.size(3) == 128;
+}
+
+bool is_hymt_kv_cache_token_tensor(const Tensor& tensor) {
+  if (
+      !tensor.is_vulkan() || tensor.scalar_type() != kFloat ||
+      tensor.dim() != 4) {
+    return false;
+  }
+  return tensor.size(0) == 1 && tensor.size(1) == 4 &&
+      tensor.size(2) == 1 && tensor.size(3) == 128;
+}
+
+bool can_use_hymt_kv_cache_append_cat(
+    const MaterializedITensorListRef& tensors,
+    const int64_t dim) {
+  if (tensors.size() != 2 || dim != 2) {
+    return false;
+  }
+  const Tensor& left = tensors[0];
+  const Tensor& right = tensors[1];
+  return is_hymt_kv_cache_cat_tensor(left) &&
+      is_hymt_kv_cache_token_tensor(right) && left.size(2) <= 115;
+}
+
+bool can_use_hymt_kv_cache_initial_cat(
+    const MaterializedITensorListRef& tensors,
+    const int64_t in_dim) {
+  if (tensors.size() != 2) {
+    return false;
+  }
+  const Tensor& left = tensors[0];
+  const Tensor& right = tensors[1];
+  const int64_t normalized_right_dim = normalize_dim(in_dim, right.dim());
+  return left.is_vulkan() && left.numel() == 0 && left.dim() == 1 &&
+      normalized_right_dim == 2 && is_hymt_kv_cache_cat_tensor(right);
+}
+
 bool can_use_buffer_cat_fast_path(
     const MaterializedITensorListRef& tensors,
     const int64_t dim) {
@@ -97,12 +143,13 @@ bool can_use_buffer_cat_fast_path(
   }
 
   if (has_buffer_view_input) {
-    if (
-        tensors.size() != 2 || dim != 1 ||
-        (reference.dim() != 3 && reference.dim() != 4)) {
+    const bool supported_channel_cat =
+        tensors.size() == 2 && dim == 1 &&
+        (reference.dim() == 3 || reference.dim() == 4);
+    if (!supported_channel_cat && !can_use_hymt_kv_cache_append_cat(tensors, dim)) {
       return false;
     }
-    if (reference.dim() == 4) {
+    if (supported_channel_cat && reference.dim() == 4) {
       int64_t cat_dim_size = 0;
       for (const Tensor& tensor : tensors) {
         if (tensor.size(1) % 4 != 0) {
@@ -197,6 +244,82 @@ Tensor cat_last_dim2_buffer(
 
   context->submit_compute_job(
       VK_KERNEL(cat_last_dim2_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      utils::make_buffer_compute_metadata_ubo(context, v_output).buffer(),
+      v_left.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      utils::make_buffer_compute_metadata_ubo(context, v_left).buffer(),
+      v_right.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      utils::make_buffer_compute_metadata_ubo(context, v_right).buffer(),
+      params.buffer());
+
+  return output;
+}
+
+Tensor cat_hymt_kv_cache_dim2_buffer(
+    const MaterializedITensorListRef& tensors,
+    IntArrayRef result_size) {
+  api::AllocationScope allocation_scope("cat.hymt_kv_cache_dim2_buffer");
+  Tensor left = utils::mark_tensor_execution(
+      tensors[0],
+      utils::resolve_buffer_execution_layout(convert(tensors[0])),
+      false);
+  Tensor right = utils::mark_tensor_execution(
+      tensors[1],
+      utils::resolve_buffer_execution_layout(convert(tensors[1])),
+      false);
+  Tensor output = utils::create_buffer_tensor(
+      result_size,
+      tensors[0].get().scalar_type(),
+      /*persistent=*/false);
+  output = utils::mark_tensor_execution(
+      output,
+      utils::resolve_buffer_execution_layout(convert(output)),
+      false);
+
+  vTensor& v_output = convert(output);
+  vTensor& v_left = convert(left);
+  vTensor& v_right = convert(right);
+  TORCH_CHECK(
+      v_left.storage_type() == api::StorageType::BUFFER &&
+          v_right.storage_type() == api::StorageType::BUFFER &&
+          v_output.storage_type() == api::StorageType::BUFFER,
+      "Vulkan HY-MT KV-cache cat requires buffer-backed tensors");
+  api::Context* const context = api::context();
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size = {
+      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+  const struct Block final {
+    uint32_t left_seq;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    uint32_t reserved2;
+  } block{
+      api::utils::safe_downcast<uint32_t>(tensors[0].get().size(2)),
+      0u,
+      0u,
+      0u,
+  };
+  api::UniformParamsBuffer params(context, block);
+
+  utils::log_vulkan_op_hit("aten::cat.hymt_kv_cache_dim2_buffer");
+  context->submit_compute_job(
+      VK_KERNEL(cat_dim2_4d_buffer_float),
       pipeline_barrier,
       global_size,
       adaptive_work_group_size(global_size),
@@ -634,6 +757,20 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
   TORCH_CHECK(!tensors.empty(), "Vulkan cat expects at least one tensor");
   auto materialized = tensors.materialize();
   TORCH_INTERNAL_ASSERT(!materialized.empty(), "Accessing empty array");
+  if (can_use_hymt_kv_cache_initial_cat(materialized, in_dim)) {
+    const Tensor& right = materialized[1];
+    std::vector<Tensor> non_empty{right};
+    Tensor output = utils::create_buffer_tensor(
+        right.sizes(),
+        right.scalar_type(),
+        /*persistent=*/false);
+    const bool success = cat_buffer_direct_out_impl(
+        non_empty, normalize_dim(in_dim, right.dim()), output);
+    if (success) {
+      return output;
+    }
+    return cat_cpu_fallback(materialized, in_dim);
+  }
   const at::Tensor& tensor = materialized[0];
   auto ndim = safe_downcast<uint32_t>(tensor.dim());
   const int64_t dim = normalize_dim(in_dim, ndim);
@@ -670,6 +807,9 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
 
   if (can_use_last_dim2_buffer_cat(materialized, dim)) {
     return cat_last_dim2_buffer(materialized, result_size);
+  }
+  if (can_use_hymt_kv_cache_append_cat(materialized, dim)) {
+    return cat_hymt_kv_cache_dim2_buffer(materialized, result_size);
   }
   if (can_use_buffer_cat_fast_path(materialized, dim)) {
     return cat_buffer_direct(materialized, dim, result_size);

@@ -4554,6 +4554,85 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(actual, expected)
             self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
 
+    def test_float_kv_cache_cat_initial_empty_matches_cpu(self):
+        def make_value_state_view(tensor):
+            return tensor.transpose(1, 2)
+
+        with torch.inference_mode():
+            empty = torch.empty(0, dtype=torch.float32)
+            value_base = torch.randn(1, 99, 4, 128, dtype=torch.float32)
+            value = make_value_state_view(value_base)
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+
+            expected = torch.cat((empty, value), dim=-2)
+            actual = torch.cat(
+                (empty.to("vulkan"), value.to("vulkan")),
+                dim=-2,
+            ).cpu()
+
+            self.assertEqual(actual, expected)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_float_kv_cache_cat_sequence_append_matches_cpu(self):
+        def make_value_state_view(tensor):
+            return tensor.transpose(1, 2)
+
+        with torch.inference_mode():
+            for seq_len in (99, 100, 115):
+                cache = torch.randn(1, 4, seq_len, 128, dtype=torch.float32)
+                token_base = torch.randn(1, 1, 4, 128, dtype=torch.float32)
+                token = make_value_state_view(token_base)
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+
+                expected = torch.cat((cache, token), dim=-2)
+                token_vulkan = token_base.to("vulkan").transpose(1, 2)
+                actual = torch.cat(
+                    (cache.to("vulkan"), token_vulkan),
+                    dim=-2,
+                ).cpu()
+
+                self.assertEqual(actual, expected)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_float_kv_cache_cat_sequence_append_repeated_deterministic(self):
+        def make_value_state_view(tensor):
+            return tensor.transpose(1, 2)
+
+        with torch.inference_mode():
+            cache = torch.randn(1, 4, 100, 128, dtype=torch.float32)
+            token_base = torch.randn(1, 1, 4, 128, dtype=torch.float32)
+            token = make_value_state_view(token_base)
+            expected = torch.cat((cache, token), dim=-2)
+            cache_vulkan = cache.to("vulkan")
+            token_vulkan = token_base.to("vulkan").transpose(1, 2)
+
+            for _ in range(3):
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                actual = torch.cat((cache_vulkan, token_vulkan), dim=-2).cpu()
+                self.assertEqual(actual, expected)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_float_kv_cache_cat_unsupported_adjacent_shape_falls_back(self):
+        def make_value_state_view(tensor):
+            return tensor.transpose(1, 2)
+
+        with torch.inference_mode():
+            cache = torch.randn(1, 4, 116, 128, dtype=torch.float32)
+            token = make_value_state_view(torch.randn(1, 1, 4, 128, dtype=torch.float32))
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+
+            expected = torch.cat((cache, token), dim=-2)
+            actual = torch.cat(
+                (
+                    cache.to("vulkan").transpose(2, 3).transpose(2, 3),
+                    token.to("vulkan").transpose(2, 3).transpose(2, 3),
+                ),
+                dim=-2,
+            ).cpu()
+
+            self.assertEqual(actual, expected)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
     def test_affine_inverse_style_buffer_views_match_cpu(self):
         def affine_inverse_style(A):
             R = A[..., :3, :3]
