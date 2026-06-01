@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Utils.h>
 #include <ATen/native/vulkan/impl/Packing.h>
+#include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/RoutePolicy.h>
 #include <ATen/native/vulkan/ops/BinaryOp.h>
@@ -1542,45 +1543,6 @@ bool should_force_image_conv_for_known_bad_large_buffer_conv(
   return true;
 }
 
-bool should_use_generic_buffer_conv_for_dav2_decoder_project_pointwise(
-    const Tensor& input,
-    const Tensor& weight,
-    const IntArrayRef stride,
-    const IntArrayRef padding,
-    const IntArrayRef dilation,
-    const int64_t groups) {
-  if (
-      !input.is_vulkan() ||
-      input.scalar_type() != kFloat ||
-      input.dim() != 4 ||
-      weight.dim() != 4 ||
-      stride.size() != 2 ||
-      padding.size() != 2 ||
-      dilation.size() != 2 ||
-      groups != 1 ||
-      input.size(0) != 1 ||
-      input.size(1) != 384 ||
-      weight.size(1) != 384 ||
-      weight.size(2) != 1 ||
-      weight.size(3) != 1 ||
-      (weight.size(0) != 192 && weight.size(0) != 384) ||
-      stride[0] != 1 ||
-      stride[1] != 1 ||
-      padding[0] != 0 ||
-      padding[1] != 0 ||
-      dilation[0] != 1 ||
-      dilation[1] != 1) {
-    return false;
-  }
-  const int64_t height = input.size(2);
-  const int64_t width = input.size(3);
-  return (height == 15 && width == 10) ||
-      (height == 20 && width == 13) ||
-      (height == 30 && width == 20) ||
-      (height == 37 && width == 57) ||
-      (height == 45 && width == 30);
-}
-
 bool can_run_bfloat16_buffer_conv2d(
     const Tensor& input,
     const Tensor& weight,
@@ -2330,21 +2292,33 @@ Tensor run_float_buffer_conv2d_impl(
     context->flush();
     utils::fail_hard_fail("aten::convolution", route_decision);
   }
-  if (route_decision.telemetry_label ==
-      "SelectedGenericBufferConv2dForDav2DecoderProjectPointwise") {
-    shader_kind = FloatBufferConv2dShaderKind::Generic;
-    plan_decision.selected = VulkanConvPlanSelected::FloatBufferPointwise1x1;
-    plan_decision.reject = VulkanConvRejectReason::KnownBadLargePointwiseConv;
-    utils::log_vulkan_op_hit(
-        "aten::convolution.buffer_float_1x1_skip.dav2_decoder_project_pointwise");
-  } else if (
-      route_decision.telemetry_label ==
-      "SelectedGenericBufferConv2dForPaddleOCRSmallSpatialPointwise") {
-    shader_kind = FloatBufferConv2dShaderKind::Generic;
-    plan_decision.selected = VulkanConvPlanSelected::FloatBufferPointwise1x1;
-    plan_decision.reject = VulkanConvRejectReason::KnownBadLargePointwiseConv;
-    utils::log_vulkan_op_hit(
-        "aten::convolution.buffer_float_1x1_skip.paddleocr_small_spatial_pointwise");
+  const SmallSpatialPointwiseConvMatch pointwise_contract =
+      match_small_spatial_pointwise_conv_contract(
+          input.sizes(),
+          packed_weight.logical_weight_sizes(),
+          stride,
+          padding,
+          dilation,
+          groups,
+          input.scalar_type());
+  if (pointwise_contract.matched) {
+    if (
+        pointwise_contract.family ==
+            SmallSpatialPointwiseConvFamily::DepthVisionProjection ||
+        pointwise_contract.family ==
+            SmallSpatialPointwiseConvFamily::OCRProjection) {
+      shader_kind = FloatBufferConv2dShaderKind::Generic;
+      plan_decision.selected = VulkanConvPlanSelected::FloatBufferPointwise1x1;
+      plan_decision.reject = VulkanConvRejectReason::KnownBadLargePointwiseConv;
+      utils::log_vulkan_op_hit(small_spatial_pointwise_conv_op_hit_label(
+          pointwise_contract.family));
+    } else {
+      plan_decision.selected =
+          shader_kind == FloatBufferConv2dShaderKind::Pointwise1x1
+          ? VulkanConvPlanSelected::FloatBufferPointwise1x1
+          : VulkanConvPlanSelected::FloatBufferConv;
+      plan_decision.reject = VulkanConvRejectReason::None;
+    }
   } else {
     plan_decision.selected =
         shader_kind == FloatBufferConv2dShaderKind::Pointwise1x1
@@ -2902,13 +2876,16 @@ Tensor run_bfloat16_buffer_conv2d(
           groups);
   if (
       avoid_large_buffer_conv_3x3 ||
-      should_use_generic_buffer_conv_for_dav2_decoder_project_pointwise(
-          compute_input,
-          weight,
+      match_small_spatial_pointwise_conv_contract(
+          compute_input.sizes(),
+          weight.sizes(),
           stride,
           padding,
           dilation,
-          groups)) {
+          groups,
+          compute_input.scalar_type())
+              .family ==
+          SmallSpatialPointwiseConvFamily::DepthVisionProjection) {
     utils::select_conv2d_route(
         compute_input.sizes(),
         weight.sizes(),
