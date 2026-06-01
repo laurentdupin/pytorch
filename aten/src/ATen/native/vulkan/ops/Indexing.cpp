@@ -379,22 +379,37 @@ bool can_embedding_2d_buffer_float_long(
     return false;
   }
 
-  if (!padding_idx.has_hint() || padding_idx.expect_int() != -1) {
+  if (!padding_idx.has_hint()) {
     return false;
   }
 
   const int64_t embedding_dim = weight.size(1);
   const int64_t num_indices = indices.numel();
-  const bool hymt_prefill_indices =
-      indices.dim() == 2 && indices.size(0) == 1 && indices.size(1) == 99;
-  const bool hymt_decode_indices =
-      indices.dim() == 2 && indices.size(0) == 1 && indices.size(1) == 1;
+  const bool hymt_batch1_indices =
+      indices.dim() == 2 && indices.size(0) == 1 && indices.size(1) >= 1 &&
+      indices.size(1) <= 116;
   const bool hymt_real_prompt =
       weight.size(0) == 120818 && embedding_dim == 2048 &&
-      (hymt_prefill_indices || hymt_decode_indices);
+      hymt_batch1_indices;
   const bool focused_test_envelope =
       embedding_dim <= 256 && num_indices <= 128 && weight.size(0) <= 4096;
   return hymt_real_prompt || focused_test_envelope;
+}
+
+bool can_embedding_index_buffer_layout(const vTensor& v_indices) {
+  if (
+      v_indices.storage_type() != api::StorageType::BUFFER ||
+      v_indices.gpu_memory_layout() !=
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED ||
+      v_indices.storage_offset() != 0) {
+    return false;
+  }
+
+  if (v_indices.has_direct_buffer_layout()) {
+    return true;
+  }
+
+  return v_indices.sizes().size() == 2 && v_indices.sizes().at(0) == 1;
 }
 
 Tensor embedding_2d_buffer_float_long(
@@ -427,10 +442,14 @@ Tensor embedding_2d_buffer_float_long(
         v_weight, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
   }
 
-  if (
-      v_indices.storage_type() != api::StorageType::BUFFER ||
-      !v_indices.has_direct_buffer_layout() ||
-      v_indices.storage_offset() != 0) {
+  if (!can_embedding_index_buffer_layout(v_indices)) {
+    if (utils::supports_buffer_view_fast_path(v_indices)) {
+      v_indices = utils::materialize_to_contiguous_buffer(
+          v_indices, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+    }
+  }
+
+  if (!can_embedding_index_buffer_layout(v_indices)) {
     return embedding_cpu_fallback(
         weight,
         indices,

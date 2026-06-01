@@ -4299,6 +4299,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 atol=1e-4,
                 rtol=1e-4)
             self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
 
             repeat = F.embedding(indices_vulkan, weight_vulkan).cpu()
             self._assert_outputs_close(
@@ -4312,20 +4313,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         weight_cpu = torch.randn(4096, 256)
         weight_vulkan = weight_cpu.to("vulkan")
 
-        for token_count in (1, 99):
+        for token_count in (1, 7, 99):
             indices_cpu = torch.arange(token_count, dtype=torch.long).reshape(1, token_count)
             indices_vulkan = indices_cpu.to("vulkan")
 
             with torch.inference_mode():
                 torch.ops.vulkan_prepack.reset_fallback_counters()
-                expected = F.embedding(indices_cpu, weight_cpu)
-                actual = F.embedding(indices_vulkan, weight_vulkan).cpu()
+                expected = F.embedding(indices_cpu, weight_cpu, padding_idx=0)
+                actual = F.embedding(
+                    indices_vulkan, weight_vulkan, padding_idx=0).cpu()
                 self._assert_outputs_close(
                     expected,
                     actual,
                     atol=1e-4,
                     rtol=1e-4)
                 self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
 
     def test_embedding_sparse_forward_matches_cpu(self):
         torch.manual_seed(0)
