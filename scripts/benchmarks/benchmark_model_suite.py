@@ -250,18 +250,62 @@ def prepare_benchmark_distributed_import(torch: Any) -> dict[str, Any]:
     return install_benchmark_distributed_import_shim(torch)
 
 
-def install_grid_sample_call_recorder() -> tuple[list[dict[str, Any]], Any]:
+def install_grid_sample_call_recorder(
+    torch: Any,
+    backend: str,
+) -> tuple[list[dict[str, Any]], Any]:
     import torch.nn.functional as torch_functional
 
     calls: list[dict[str, Any]] = []
     original_grid_sample = torch_functional.grid_sample
+    diag_mode = os.environ.get("PYTORCH_BENCHMARK_PADDLEOCR_GRID_SAMPLE_DIAG", "")
+    capture_snapshots = diag_mode in {"trace", "synchronize_before"}
+    synchronize_before = diag_mode == "synchronize_before"
 
-    def tensor_desc(tensor: Any) -> dict[str, Any]:
-        return {
+    def tensor_desc(tensor: Any, include_storage: bool = False) -> dict[str, Any]:
+        desc = {
             "shape": list(tensor.shape),
             "dtype": str(tensor.dtype),
             "device": str(tensor.device),
             "stride": list(tensor.stride()),
+            "is_contiguous": bool(tensor.is_contiguous()),
+        }
+        if not include_storage:
+            return desc
+        desc.update(
+            {
+                "numel": int(tensor.numel()),
+                "element_size": int(tensor.element_size()),
+                "bytes": int(tensor.numel() * tensor.element_size()),
+                "storage_offset": int(tensor.storage_offset()),
+            }
+        )
+        try:
+            desc["layout"] = str(tensor.layout)
+        except Exception as exc:
+            desc["layout_error"] = repr(exc)
+        try:
+            storage = tensor.untyped_storage()
+            desc["storage_nbytes"] = int(storage.nbytes())
+            desc["storage_data_ptr"] = int(storage.data_ptr())
+        except Exception as exc:
+            desc["storage_error"] = repr(exc)
+        return desc
+
+    def grid_sampler_dispatch_desc(input: Any, grid: Any) -> dict[str, Any]:
+        output_numel = int(input.shape[0] * input.shape[1] * grid.shape[1] * grid.shape[2])
+        return {
+            "output_shape": [
+                int(input.shape[0]),
+                int(input.shape[1]),
+                int(grid.shape[1]),
+                int(grid.shape[2]),
+            ],
+            "output_numel": output_numel,
+            "output_bytes": output_numel * int(input.element_size()),
+            "dispatch_global": [output_numel, 1, 1],
+            "dispatch_local": [16, 4, 1],
+            "dispatch_groups": [(output_numel + 15) // 16, 1, 1],
         }
 
     def wrapped_grid_sample(
@@ -271,22 +315,48 @@ def install_grid_sample_call_recorder() -> tuple[list[dict[str, Any]], Any]:
         padding_mode: str = "zeros",
         align_corners: bool | None = None,
     ) -> Any:
-        calls.append(
-            {
-                "input": tensor_desc(input),
-                "grid": tensor_desc(grid),
-                "mode": mode,
-                "padding_mode": padding_mode,
-                "align_corners": align_corners,
-            }
-        )
-        return original_grid_sample(
-            input,
-            grid,
-            mode=mode,
-            padding_mode=padding_mode,
-            align_corners=align_corners,
-        )
+        call: dict[str, Any] = {
+            "index": len(calls),
+            "input": tensor_desc(input, include_storage=capture_snapshots),
+            "grid": tensor_desc(grid, include_storage=capture_snapshots),
+            "mode": mode,
+            "padding_mode": padding_mode,
+            "align_corners": align_corners,
+            "dispatch": grid_sampler_dispatch_desc(input, grid),
+            "diagnostic_mode": diag_mode or "off",
+        }
+        if capture_snapshots:
+            call["pre_snapshot"] = snapshot_vulkan_debug_counters(torch, backend)
+        if synchronize_before:
+            try:
+                torch.ops.vulkan_prepack.synchronize()
+                call["pre_call_synchronize"] = "ok"
+            except Exception as exc:
+                call["pre_call_synchronize"] = f"{type(exc).__name__}: {exc}"
+            call["after_pre_call_synchronize_snapshot"] = snapshot_vulkan_debug_counters(
+                torch, backend
+            )
+        calls.append(call)
+        try:
+            output = original_grid_sample(
+                input,
+                grid,
+                mode=mode,
+                padding_mode=padding_mode,
+                align_corners=align_corners,
+            )
+            call["output"] = tensor_desc(output, include_storage=capture_snapshots)
+            if capture_snapshots:
+                call["post_snapshot"] = snapshot_vulkan_debug_counters(torch, backend)
+            return output
+        except Exception as exc:
+            call["exception_type"] = type(exc).__name__
+            call["exception"] = str(exc)
+            if capture_snapshots:
+                call["post_exception_snapshot"] = snapshot_vulkan_debug_counters(
+                    torch, backend
+                )
+            raise
 
     torch_functional.grid_sample = wrapped_grid_sample
     return calls, (torch_functional, original_grid_sample)
@@ -2142,7 +2212,10 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         )
         patch_info = try_patch_paddleocr_transformers_device(torch, backend)
         if backend == "vulkan":
-            grid_sample_calls, grid_sample_patch = install_grid_sample_call_recorder()
+            grid_sample_calls, grid_sample_patch = install_grid_sample_call_recorder(
+                torch,
+                backend,
+            )
             postprocess_metadata_calls, postprocess_metadata_patch = (
                 install_paddleocr_postprocess_cpu_metadata_patch(torch, backend)
             )
