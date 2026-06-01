@@ -6423,6 +6423,119 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
 
+    def test_batch_norm_eval_native_inference_contract(self):
+        cases = [
+            (1, 16, 72, 128),
+            (1, 32, 36, 64),
+            (2, 8, 9, 7),
+        ]
+        for shape in cases:
+            with self.subTest(shape=shape):
+                torch.manual_seed(sum(shape))
+                channels = shape[1]
+                x_cpu = torch.randn(*shape)
+                weight_cpu = torch.randn(channels)
+                bias_cpu = torch.randn(channels)
+                running_mean_cpu = torch.randn(channels)
+                running_var_cpu = torch.rand(channels) + 0.5
+
+                expected = F.batch_norm(
+                    x_cpu,
+                    running_mean_cpu,
+                    running_var_cpu,
+                    weight_cpu,
+                    bias_cpu,
+                    training=False,
+                    momentum=0.1,
+                    eps=1e-5,
+                )
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                actual_vulkan = F.batch_norm(
+                    x_cpu.to("vulkan"),
+                    running_mean_cpu.to("vulkan"),
+                    running_var_cpu.to("vulkan"),
+                    weight_cpu.to("vulkan"),
+                    bias_cpu.to("vulkan"),
+                    training=False,
+                    momentum=0.1,
+                    eps=1e-5,
+                )
+                self.assertTrue(actual_vulkan.is_vulkan)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self._assert_outputs_close(
+                    expected,
+                    actual_vulkan.cpu(),
+                    atol=2e-4,
+                    rtol=2e-4)
+
+                repeated = F.batch_norm(
+                    x_cpu.to("vulkan"),
+                    running_mean_cpu.to("vulkan"),
+                    running_var_cpu.to("vulkan"),
+                    weight_cpu.to("vulkan"),
+                    bias_cpu.to("vulkan"),
+                    training=False,
+                    momentum=0.1,
+                    eps=1e-5,
+                )
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self._assert_outputs_close(
+                    actual_vulkan.cpu(),
+                    repeated.cpu(),
+                    atol=0,
+                    rtol=0)
+
+    def test_batch_norm_eval_native_without_affine(self):
+        torch.manual_seed(0)
+        x_cpu = torch.randn(1, 8, 11, 13)
+        running_mean_cpu = torch.randn(8)
+        running_var_cpu = torch.rand(8) + 0.5
+
+        expected = F.batch_norm(
+            x_cpu,
+            running_mean_cpu,
+            running_var_cpu,
+            weight=None,
+            bias=None,
+            training=False,
+            momentum=0.1,
+            eps=1e-5,
+        )
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        actual_vulkan = F.batch_norm(
+            x_cpu.to("vulkan"),
+            running_mean_cpu.to("vulkan"),
+            running_var_cpu.to("vulkan"),
+            weight=None,
+            bias=None,
+            training=False,
+            momentum=0.1,
+            eps=1e-5,
+        )
+
+        self.assertTrue(actual_vulkan.is_vulkan)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self._assert_outputs_close(expected, actual_vulkan.cpu(), atol=2e-4, rtol=2e-4)
+
+    def test_batch_norm_training_remains_unsupported(self):
+        x_vulkan = torch.randn(1, 4, 5, 7).to("vulkan")
+        running_mean_vulkan = torch.zeros(4).to("vulkan")
+        running_var_vulkan = torch.ones(4).to("vulkan")
+        weight_vulkan = torch.ones(4).to("vulkan")
+        bias_vulkan = torch.zeros(4).to("vulkan")
+
+        with self.assertRaisesRegex(RuntimeError, "Only evaluation mode is supported"):
+            F.batch_norm(
+                x_vulkan,
+                running_mean_vulkan,
+                running_var_vulkan,
+                weight_vulkan,
+                bias_vulkan,
+                training=True,
+                momentum=0.1,
+                eps=1e-5,
+            )
+
     def test_permute_reshape_then_linear(self):
         torch.manual_seed(0)
         x = torch.randn(1, 2, 17, 8)

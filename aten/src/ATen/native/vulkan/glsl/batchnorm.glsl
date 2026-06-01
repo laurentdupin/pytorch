@@ -26,6 +26,8 @@ layout(set = 0, binding = 6) uniform PRECISION restrict Block {
   // channels divided by 4, rounded up.
   ivec4 out_extents;
   float eps;
+  int has_weight;
+  int has_bias;
 }
 uBlock;
 
@@ -49,8 +51,10 @@ void main() {
   const ivec3 ch_pos = ivec3(0, 0, pos.z % uBlock.out_extents.w);
 
   const vec4 in_tex = texelFetch(uInput, pos, 0);
-  const vec4 gamma_tex = texelFetch(uGamma, ch_pos, 0);
-  const vec4 beta_tex = texelFetch(uBeta, ch_pos, 0);
+  const vec4 gamma_tex =
+      uBlock.has_weight != 0 ? texelFetch(uGamma, ch_pos, 0) : vec4(1.0);
+  const vec4 beta_tex =
+      uBlock.has_bias != 0 ? texelFetch(uBeta, ch_pos, 0) : vec4(0.0);
   const vec4 mean_tex = texelFetch(uMean, ch_pos, 0);
   const vec4 var_tex = texelFetch(uVar, ch_pos, 0);
 

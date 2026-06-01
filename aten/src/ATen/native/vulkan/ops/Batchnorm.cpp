@@ -4,7 +4,10 @@
 #include <ATen/native/vulkan/ops/Batchnorm.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
+
+#include <algorithm>
 
 namespace at {
 namespace native {
@@ -17,6 +20,8 @@ struct Params final {
   api::utils::ivec3 out_extents;
   int32_t c4;
   float eps;
+  int32_t has_weight;
+  int32_t has_bias;
 };
 
 static void record_op(
@@ -27,7 +32,9 @@ static void record_op(
     const vTensor& v_bias,
     const vTensor& v_running_mean,
     const vTensor& v_running_var,
-    const float eps) {
+    const float eps,
+    const bool has_weight,
+    const bool has_bias) {
   api::PipelineBarrier pipeline_barrier{};
 
   api::utils::uvec3 global_size = v_output.extents();
@@ -40,6 +47,8 @@ static void record_op(
       api::utils::make_ivec3(v_output.extents()),
       api::utils::safe_downcast<int32_t>(channels_ext),
       eps,
+      has_weight ? 1 : 0,
+      has_bias ? 1 : 0,
   };
 
   api::UniformParamsBuffer params(context, block);
@@ -69,6 +78,88 @@ static void record_op(
       params.buffer());
 }
 
+static Tensor run_buffer_op(
+    const Tensor& input_arg,
+    const Tensor& weight_arg,
+    const Tensor& bias_arg,
+    const Tensor& running_mean_arg,
+    const Tensor& running_var_arg,
+    const double eps,
+    const bool has_weight,
+    const bool has_bias) {
+  api::Context* const context = api::context();
+  Tensor output =
+      utils::create_buffer_tensor(input_arg.sizes(), c10::ScalarType::Float);
+  vTensor& v_output = convert(output);
+  vTensor& v_input = convert(input_arg);
+  vTensor& v_weight = convert(weight_arg);
+  vTensor& v_bias = convert(bias_arg);
+  vTensor& v_running_mean = convert(running_mean_arg);
+  vTensor& v_running_var = convert(running_var_arg);
+
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+  api::UniformParamsBuffer weight_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_weight);
+  api::UniformParamsBuffer bias_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_bias);
+  api::UniformParamsBuffer mean_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_running_mean);
+  api::UniformParamsBuffer var_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_running_var);
+
+  const struct Block final {
+    api::utils::uvec4 info;
+    float eps;
+  } block{{
+              api::utils::safe_downcast<uint32_t>(input_arg.size(1)),
+              has_weight ? 1u : 0u,
+              has_bias ? 1u : 0u,
+              0u,
+          },
+          api::utils::safe_downcast<float>(eps)};
+  api::UniformParamsBuffer params(context, block);
+
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size = {
+      api::utils::safe_downcast<uint32_t>(
+          std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+
+  context->submit_compute_job(
+      VK_KERNEL(batchnorm_4d_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      weight_meta.buffer(),
+      v_bias.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      bias_meta.buffer(),
+      v_running_mean.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      mean_meta.buffer(),
+      v_running_var.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      var_meta.buffer(),
+      params.buffer());
+
+  return record_tensor_write_and_return(
+      output,
+      "aten::batch_norm",
+      "buffer_inference_4d_float",
+      {input_arg, weight_arg, bias_arg, running_mean_arg, running_var_arg});
+}
+
 } // namespace batchnorm
 
 namespace {
@@ -86,6 +177,66 @@ Tensor batch_norm(
     double eps,
     bool /* cudnn_enable, deprecated */) {
   TORCH_CHECK(!training, "Only evaluation mode is supported!");
+
+  const auto is_defined = [](const std::optional<Tensor>& tensor) {
+    return tensor.has_value() && tensor->defined();
+  };
+  const auto is_optional_vulkan_float_1d =
+      [](const std::optional<Tensor>& tensor, const int64_t num_features) {
+        return !tensor.has_value() ||
+            (
+                tensor->defined() &&
+                tensor->is_vulkan() &&
+                tensor->scalar_type() == at::kFloat &&
+                tensor->dim() == 1 &&
+                tensor->numel() == num_features &&
+                tensor->is_contiguous());
+      };
+  const bool can_use_native =
+      input_arg.is_vulkan() &&
+      input_arg.scalar_type() == at::kFloat &&
+      input_arg.dim() == 4 &&
+      input_arg.is_contiguous() &&
+      is_defined(running_mean_opt) &&
+      is_defined(running_var_opt) &&
+      running_mean_opt->is_vulkan() &&
+      running_var_opt->is_vulkan() &&
+      running_mean_opt->scalar_type() == at::kFloat &&
+      running_var_opt->scalar_type() == at::kFloat &&
+      running_mean_opt->dim() == 1 &&
+      running_var_opt->dim() == 1 &&
+      running_mean_opt->numel() == input_arg.size(1) &&
+      running_var_opt->numel() == input_arg.size(1) &&
+      running_mean_opt->is_contiguous() &&
+      running_var_opt->is_contiguous() &&
+      is_optional_vulkan_float_1d(weight_opt, input_arg.size(1)) &&
+      is_optional_vulkan_float_1d(bias_opt, input_arg.size(1));
+
+  if (can_use_native) {
+    const Tensor weight_arg =
+        is_defined(weight_opt) ? *weight_opt : *running_mean_opt;
+    const Tensor bias_arg = is_defined(bias_opt) ? *bias_opt : *running_mean_opt;
+    const vTensor& v_input = convert(input_arg);
+    const vTensor& v_weight = convert(weight_arg);
+    const vTensor& v_bias = convert(bias_arg);
+    const vTensor& v_running_mean = convert(*running_mean_opt);
+    const vTensor& v_running_var = convert(*running_var_opt);
+    if (v_input.storage_type() == api::StorageType::BUFFER &&
+        v_weight.storage_type() == api::StorageType::BUFFER &&
+        v_bias.storage_type() == api::StorageType::BUFFER &&
+        v_running_mean.storage_type() == api::StorageType::BUFFER &&
+        v_running_var.storage_type() == api::StorageType::BUFFER) {
+      return batchnorm::run_buffer_op(
+          input_arg,
+          weight_arg,
+          bias_arg,
+          *running_mean_opt,
+          *running_var_opt,
+          eps,
+          is_defined(weight_opt),
+          is_defined(bias_opt));
+    }
+  }
 
   const Device output_device = input_arg.device();
   report_vulkan_cpu_fallback(
@@ -290,7 +441,9 @@ Tensor run_batchnorm_context(
       v_bias,
       v_running_mean,
       v_running_var,
-      eps);
+      eps,
+      true,
+      true);
 
   return record_tensor_write_and_return(
       convert(v_output),
