@@ -4281,6 +4281,75 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 atol=1e-4,
                 rtol=1e-4)
 
+    def test_embedding_buffer_float_long_vulkan_indices_no_fallback(self):
+        torch.manual_seed(0)
+        weight_cpu = torch.randn(4096, 256)
+        weight_vulkan = weight_cpu.to("vulkan")
+        indices_cpu = torch.tensor(
+            [[1, 5, 7, 2, 9, 4, 1024, 1600]], dtype=torch.long)
+        indices_vulkan = indices_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            expected = F.embedding(indices_cpu, weight_cpu)
+            actual = F.embedding(indices_vulkan, weight_vulkan).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+            repeat = F.embedding(indices_vulkan, weight_vulkan).cpu()
+            self._assert_outputs_close(
+                actual,
+                repeat,
+                atol=0,
+                rtol=0)
+
+    def test_embedding_buffer_float_long_hymt_token_shapes_no_fallback(self):
+        torch.manual_seed(0)
+        weight_cpu = torch.randn(4096, 256)
+        weight_vulkan = weight_cpu.to("vulkan")
+
+        for token_count in (1, 99):
+            indices_cpu = torch.arange(token_count, dtype=torch.long).reshape(1, token_count)
+            indices_vulkan = indices_cpu.to("vulkan")
+
+            with torch.inference_mode():
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                expected = F.embedding(indices_cpu, weight_cpu)
+                actual = F.embedding(indices_vulkan, weight_vulkan).cpu()
+                self._assert_outputs_close(
+                    expected,
+                    actual,
+                    atol=1e-4,
+                    rtol=1e-4)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_embedding_sparse_forward_matches_cpu(self):
+        torch.manual_seed(0)
+        weight_cpu = torch.randn(128, 32)
+        weight_vulkan = weight_cpu.to("vulkan")
+        indices_cpu = torch.tensor([[1, 5, 7, 2]], dtype=torch.long)
+        indices_vulkan = indices_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            expected = F.embedding(indices_cpu, weight_cpu, sparse=True)
+            actual = F.embedding(indices_vulkan, weight_vulkan, sparse=True).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+
+    def test_embedding_invalid_cpu_indices_still_throw(self):
+        weight_vulkan = torch.randn(16, 8).to("vulkan")
+
+        with self.assertRaisesRegex(IndexError, "out of range"):
+            F.embedding(torch.tensor([[17]], dtype=torch.long), weight_vulkan)
+
     def test_embedding_with_large_buffer_backed_vulkan_weight_and_cpu_indices(self):
         script = textwrap.dedent(
             """

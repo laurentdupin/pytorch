@@ -263,6 +263,9 @@ function Resolve-VulkanSdkPath {
     if ($env:VULKAN_SDK) {
         $inputs += $env:VULKAN_SDK
     }
+    if ($env:VK_SDK_PATH) {
+        $inputs += $env:VK_SDK_PATH
+    }
 
     foreach ($inputPath in $inputs) {
         if (-not $inputPath) {
@@ -275,12 +278,16 @@ function Resolve-VulkanSdkPath {
 
         $resolved = (Resolve-Path -LiteralPath $inputPath).Path
         $glslc = Join-Path $resolved "Bin\glslc.exe"
-        if (Test-Path -LiteralPath $glslc) {
+        $vulkanLib = Join-Path $resolved "Lib\vulkan-1.lib"
+        if ((Test-Path -LiteralPath $glslc) -and (Test-Path -LiteralPath $vulkanLib)) {
             return $resolved
         }
 
         $versioned = Get-ChildItem -LiteralPath $resolved -Directory -ErrorAction SilentlyContinue |
-            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "Bin\glslc.exe") } |
+            Where-Object {
+                (Test-Path -LiteralPath (Join-Path $_.FullName "Bin\glslc.exe")) -and
+                (Test-Path -LiteralPath (Join-Path $_.FullName "Lib\vulkan-1.lib"))
+            } |
             Sort-Object Name -Descending |
             Select-Object -First 1
 
@@ -379,23 +386,23 @@ function Resolve-CMakeGenerator {
     }
 
     if ($CleanBuild) {
-        return "Ninja"
+        return "Visual Studio 17 2022"
     }
 
     $cachePath = Join-Path $RepoRoot "build\CMakeCache.txt"
     if (-not (Test-Path -LiteralPath $cachePath)) {
-        return "Ninja"
+        return "Visual Studio 17 2022"
     }
 
     $line = Select-String -LiteralPath $cachePath -Pattern '^CMAKE_GENERATOR:INTERNAL=' -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if ($null -eq $line) {
-        return "Ninja"
+        return "Visual Studio 17 2022"
     }
 
     $value = $line.Line.Substring("CMAKE_GENERATOR:INTERNAL=".Length).Trim()
     if (-not $value) {
-        return "Ninja"
+        return "Visual Studio 17 2022"
     }
 
     return $value
@@ -460,7 +467,7 @@ if (-not $DryRun -or (-not $buildPython.PendingBootstrap -and -not $buildPython.
         throw "cmake was not found for the selected build environment."
     }
 
-    if (-not (Test-CommandExists -Name "ninja" -ToolsDir $toolsDir)) {
+    if ($cmakeGenerator -eq "Ninja" -and -not (Test-CommandExists -Name "ninja" -ToolsDir $toolsDir)) {
         throw "ninja was not found for the selected build environment."
     }
 }
@@ -516,6 +523,7 @@ $cmdLines = @(
     "if errorlevel 1 exit /b %errorlevel%",
     "cd /d `"$repoRoot`"",
     "set `"VULKAN_SDK=$vulkanSdkPath`"",
+    "set `"VK_SDK_PATH=$vulkanSdkPath`"",
     "set `"Path=$pathPrefix;%Path%`"",
     "set `"CMAKE_GENERATOR=$cmakeGenerator`"",
     "set `"CMAKE_BUILD_TYPE=Release`"",
@@ -535,6 +543,11 @@ $cmdLines = @(
     "set `"BUILD_TEST=0`"",
     "set `"BUILD_BINARY=0`""
 )
+
+if ($cmakeGenerator -like "Visual Studio*") {
+    $cmdLines += "set `"CMAKE_GENERATOR_PLATFORM=x64`""
+    $cmdLines += "set `"CMAKE_GENERATOR_TOOLSET=host=x64`""
+}
 
 if ($BuildVersion) {
     $cmdLines += "set `"PYTORCH_BUILD_VERSION=$BuildVersion`""
