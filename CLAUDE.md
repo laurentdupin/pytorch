@@ -30,6 +30,26 @@ On this Windows machine, prefer the existing Visual Studio CMake build tree over
 the sandbox here. Use the generator/configuration already recorded in
 `build/CMakeCache.txt` unless the user asks to reconfigure.
 
+# Vulkan Contract Planning
+
+For Vulkan backend work, read `docs/vulkan/PROJECT_CHARTER.md`,
+`docs/vulkan/CURRENT_STATE.md`, `docs/vulkan/ROADMAP.md`,
+`docs/vulkan/REVIEW_CHECKLIST.md`, and
+`docs/vulkan/TEMPORARY_EXCEPTIONS.md` before changing production code.
+
+DAv2, Lotus, HY-MT, PaddleOCR, and Gemma E2B are a coverage corpus. Use them to
+find reusable backend contracts and diagnostics; do not treat them as a license
+to add model-name production routes or grow exact-shape allowlists.
+
+Prefer explicit `KernelFamilyContract`, `RegionContract`, and
+`LayoutTransitionContract` style work over bespoke shaders or one-off model
+paths. Any temporary exception must have an expiry condition and a migration
+target recorded in `docs/vulkan/TEMPORARY_EXCEPTIONS.md`.
+
+Do not hide CPU fallback/readback, fake storage or `data_ptr` behavior, or add
+permanent feature flags. CUDA and DirectML comparisons are milestone checks, not
+daily drivers for selecting the next exact Vulkan kernel shape.
+
 # Testing
 
 Use our test class and test runner:
