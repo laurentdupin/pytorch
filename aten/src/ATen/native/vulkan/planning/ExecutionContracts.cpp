@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 
 #include <cmath>
+#include <cstring>
 
 namespace at {
 namespace native {
@@ -17,6 +18,7 @@ struct SmallSpatialPointwiseConvTuple final {
   int64_t input_w;
   int64_t output_c;
   const char* tuple_id;
+  ExecutionContractMetadata metadata;
 };
 
 struct DiffusionSDPATuple final {
@@ -26,11 +28,112 @@ struct DiffusionSDPATuple final {
   int64_t key_value_sequence;
   int64_t head_dim;
   const char* tuple_id;
+  ExecutionContractMetadata metadata;
 };
+
+constexpr ExecutionContractMetadata make_execution_contract_metadata(
+    const char* contract_name,
+    const char* family_name,
+    const char* tuple_id,
+    const char* evidence_id,
+    const char* guard_id,
+    const char* fallback_policy,
+    const char* materialization_policy) {
+  return ExecutionContractMetadata{
+      contract_name,
+      family_name,
+      tuple_id,
+      evidence_id,
+      guard_id,
+      fallback_policy,
+      materialization_policy};
+}
+
+bool has_text(const char* value) {
+  return value != nullptr && value[0] != '\0';
+}
+
+constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
+    "unsupported_shapes_do_not_match";
+constexpr const char* kMaterializationNone = "none";
+constexpr const char* kMaterializationNativeBufferKernel =
+    "native_buffer_kernel";
+constexpr const char* kMaterializationDelegatedToSDPAExecutionPolicy =
+    "delegated_to_sdpa_execution_policy";
+constexpr const char* kMaterializationScorePreMaterializeAndPostSoftmaxClone =
+    "score_pre_materialization_and_post_softmax_clone";
+constexpr const char* kMaterializationMaterializedMathAndPostSoftmaxClone =
+    "materialized_math_path_and_post_softmax_clone";
+constexpr const char* kMaterializationPostSoftmaxClone =
+    "post_softmax_clone";
+constexpr const char* kMaterializationGQARepeatBuffer =
+    "gqa_repeat_buffer_materialization";
+constexpr const char* kMaterializationKVCacheAppendBuffer =
+    "kv_cache_append_buffer_kernel";
+constexpr const char* kMaterializationEmbeddingLookupBuffer =
+    "embedding_lookup_buffer_kernel";
 
 constexpr double kTransformerHeadDim128Scale = 0.08838834764831845;
 constexpr double kHeadDim64Scale = 0.125;
 constexpr double kHeadDim512Scale = 0.04419417382415922;
+
+constexpr const char* kTransformerGQASDPACausalGQATupleId =
+    "causal_gqa_head128_len_le_128";
+constexpr const char* kTransformerGQASDPACausalMHATupleId =
+    "causal_mha_head128_len_le_128";
+constexpr const char* kTransformerGQASDPADecodeGQATupleId =
+    "decode_gqa_head128_source_100_116";
+constexpr const char* kTransformerGQASDPASmallNonCausalGQATupleId =
+    "small_non_causal_gqa_head128";
+constexpr ExecutionContractMetadata kTransformerGQASDPACausalGQAMetadata =
+    make_execution_contract_metadata(
+        "TransformerGQASDPAContract",
+        "CausalPrefill",
+        kTransformerGQASDPACausalGQATupleId,
+        "transformer_gqa_sdpa_focused_tests",
+        "transformer_gqa_sdpa_adjacent_guards",
+        kFallbackUnsupportedShapesDoNotMatch,
+        kMaterializationDelegatedToSDPAExecutionPolicy);
+constexpr ExecutionContractMetadata kTransformerGQASDPACausalMHAMetadata =
+    make_execution_contract_metadata(
+        "TransformerGQASDPAContract",
+        "CausalPrefill",
+        kTransformerGQASDPACausalMHATupleId,
+        "transformer_gqa_sdpa_focused_tests",
+        "transformer_gqa_sdpa_adjacent_guards",
+        kFallbackUnsupportedShapesDoNotMatch,
+        kMaterializationDelegatedToSDPAExecutionPolicy);
+constexpr ExecutionContractMetadata kTransformerGQASDPADecodeGQAMetadata =
+    make_execution_contract_metadata(
+        "TransformerGQASDPAContract",
+        "DecodeGQA",
+        kTransformerGQASDPADecodeGQATupleId,
+        "transformer_gqa_sdpa_focused_tests",
+        "transformer_gqa_sdpa_adjacent_guards",
+        kFallbackUnsupportedShapesDoNotMatch,
+        kMaterializationDelegatedToSDPAExecutionPolicy);
+constexpr ExecutionContractMetadata
+    kTransformerGQASDPASmallNonCausalGQAMetadata =
+        make_execution_contract_metadata(
+            "TransformerGQASDPAContract",
+            "SmallNonCausalGQA",
+            kTransformerGQASDPASmallNonCausalGQATupleId,
+            "transformer_gqa_sdpa_focused_tests",
+            "transformer_gqa_sdpa_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationDelegatedToSDPAExecutionPolicy);
+
+constexpr const char* kMaskedTinySDPAAdditiveFloatMaskTupleId =
+    "qkv_1x16x2x64_mask_1x1x2x2";
+constexpr ExecutionContractMetadata kMaskedTinySDPAAdditiveFloatMaskMetadata =
+    make_execution_contract_metadata(
+        "MaskedTinySDPAContract",
+        "AdditiveFloatMask",
+        kMaskedTinySDPAAdditiveFloatMaskTupleId,
+        "masked_tiny_sdpa_focused_tests",
+        "masked_tiny_sdpa_adjacent_guards",
+        kFallbackUnsupportedShapesDoNotMatch,
+        kMaterializationNone);
 
 constexpr int64_t kKVCacheAppendBatch = 1;
 constexpr int64_t kKVCacheAppendHeads = 4;
@@ -43,6 +146,24 @@ constexpr const char* kKVCacheAppendInitialTupleId =
     "initial_empty_s99_to_s116_heads4_dim128";
 constexpr const char* kKVCacheAppendSequenceTupleId =
     "sequence_append_s99_to_s115_token1_heads4_dim128";
+constexpr ExecutionContractMetadata kKVCacheAppendInitialMetadata =
+    make_execution_contract_metadata(
+        "KVCacheAppendContract",
+        "InitialCache",
+        kKVCacheAppendInitialTupleId,
+        "kv_cache_append_focused_tests",
+        "kv_cache_append_adjacent_guards",
+        kFallbackUnsupportedShapesDoNotMatch,
+        kMaterializationKVCacheAppendBuffer);
+constexpr ExecutionContractMetadata kKVCacheAppendSequenceMetadata =
+    make_execution_contract_metadata(
+        "KVCacheAppendContract",
+        "SequenceAppend",
+        kKVCacheAppendSequenceTupleId,
+        "kv_cache_append_focused_tests",
+        "kv_cache_append_adjacent_guards",
+        kFallbackUnsupportedShapesDoNotMatch,
+        kMaterializationKVCacheAppendBuffer);
 
 constexpr int64_t kEmbeddingLookupTokenNumEmbeddings = 120818;
 constexpr int64_t kEmbeddingLookupTokenEmbeddingDim = 2048;
@@ -56,6 +177,24 @@ constexpr const char* kEmbeddingLookupTokenBatch1TupleId =
     "token_batch1_vocab120818_dim2048_indices1_to_116";
 constexpr const char* kEmbeddingLookupSmallBoundedTupleId =
     "small_bounded_vocab4096_dim256_indices128";
+constexpr ExecutionContractMetadata kEmbeddingLookupTokenBatch1Metadata =
+    make_execution_contract_metadata(
+        "EmbeddingLookupContract",
+        "TokenBatch1",
+        kEmbeddingLookupTokenBatch1TupleId,
+        "embedding_lookup_focused_tests",
+        "embedding_lookup_adjacent_guards",
+        kFallbackUnsupportedShapesDoNotMatch,
+        kMaterializationEmbeddingLookupBuffer);
+constexpr ExecutionContractMetadata kEmbeddingLookupSmallBoundedMetadata =
+    make_execution_contract_metadata(
+        "EmbeddingLookupContract",
+        "SmallBoundedLookup",
+        kEmbeddingLookupSmallBoundedTupleId,
+        "embedding_lookup_focused_tests",
+        "embedding_lookup_adjacent_guards",
+        kFallbackUnsupportedShapesDoNotMatch,
+        kMaterializationEmbeddingLookupBuffer);
 
 constexpr int64_t kGQARepeatBatch = 1;
 constexpr int64_t kGQARepeatSourceHeads = 4;
@@ -65,62 +204,277 @@ constexpr int64_t kGQARepeatMaxSequence = 116;
 constexpr int64_t kGQARepeatHeadDim = 128;
 constexpr const char* kGQARepeatTupleId =
     "gqa_repeat_batch1_heads4_factor4_sequence100_to_116_dim128";
+constexpr ExecutionContractMetadata kGQARepeatMetadata =
+    make_execution_contract_metadata(
+        "GQARepeatContract",
+        "Batch1Heads4Factor4Sequence100To116Dim128",
+        kGQARepeatTupleId,
+        "gqa_repeat_focused_tests",
+        "gqa_repeat_adjacent_guards",
+        kFallbackUnsupportedShapesDoNotMatch,
+        kMaterializationGQARepeatBuffer);
+
+constexpr const char* kSDPAExecutionTransformerDecodeGQACloneOnlyTupleId =
+    "transformer_decode_gqa_clone_only_head128_source100_to_116";
+constexpr const char* kSDPAExecutionSquareHeads1Sequence640Dim512TupleId =
+    "square_heads1_sequence640_dim512";
+constexpr const char* kSDPAExecutionSquareHeads5Sequence640Dim64TupleId =
+    "square_heads5_sequence640_dim64";
+constexpr const char* kSDPAExecutionSquareHeads1Sequence504Dim512TupleId =
+    "square_heads1_sequence504_dim512";
+constexpr const char* kSDPAExecutionSquareHeads5Sequence504Dim64TupleId =
+    "square_heads5_sequence504_dim64";
+constexpr const char* kSDPAExecutionSquareHeads10Sequence126Dim64TupleId =
+    "square_heads10_sequence126_dim64";
+constexpr ExecutionContractMetadata
+    kSDPAExecutionSquareHeads1Sequence640Dim512Metadata =
+        make_execution_contract_metadata(
+            "SDPAExecutionPolicyContract",
+            "DiffusionMaterializedSquare",
+            kSDPAExecutionSquareHeads1Sequence640Dim512TupleId,
+            "sdpa_execution_policy_focused_tests",
+            "sdpa_execution_policy_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationScorePreMaterializeAndPostSoftmaxClone);
+constexpr ExecutionContractMetadata
+    kSDPAExecutionSquareHeads5Sequence640Dim64Metadata =
+        make_execution_contract_metadata(
+            "SDPAExecutionPolicyContract",
+            "DiffusionMaterializedSquare",
+            kSDPAExecutionSquareHeads5Sequence640Dim64TupleId,
+            "sdpa_execution_policy_focused_tests",
+            "sdpa_execution_policy_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationScorePreMaterializeAndPostSoftmaxClone);
+constexpr ExecutionContractMetadata
+    kSDPAExecutionSquareHeads1Sequence504Dim512Metadata =
+        make_execution_contract_metadata(
+            "SDPAExecutionPolicyContract",
+            "DiffusionMaterializedSquare",
+            kSDPAExecutionSquareHeads1Sequence504Dim512TupleId,
+            "sdpa_execution_policy_focused_tests",
+            "sdpa_execution_policy_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationScorePreMaterializeAndPostSoftmaxClone);
+constexpr ExecutionContractMetadata
+    kSDPAExecutionSquareHeads5Sequence504Dim64Metadata =
+        make_execution_contract_metadata(
+            "SDPAExecutionPolicyContract",
+            "DiffusionMaterializedSquare",
+            kSDPAExecutionSquareHeads5Sequence504Dim64TupleId,
+            "sdpa_execution_policy_focused_tests",
+            "sdpa_execution_policy_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationScorePreMaterializeAndPostSoftmaxClone);
+constexpr ExecutionContractMetadata
+    kSDPAExecutionSquareHeads10Sequence126Dim64Metadata =
+        make_execution_contract_metadata(
+            "SDPAExecutionPolicyContract",
+            "DiffusionCloneOnlySquare",
+            kSDPAExecutionSquareHeads10Sequence126Dim64TupleId,
+            "sdpa_execution_policy_focused_tests",
+            "sdpa_execution_policy_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationMaterializedMathAndPostSoftmaxClone);
+constexpr ExecutionContractMetadata
+    kSDPAExecutionTransformerDecodeGQACloneOnlyMetadata =
+        make_execution_contract_metadata(
+            "SDPAExecutionPolicyContract",
+            "TransformerDecodeGQACloneOnly",
+            kSDPAExecutionTransformerDecodeGQACloneOnlyTupleId,
+            "sdpa_execution_policy_focused_tests",
+            "sdpa_execution_policy_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationPostSoftmaxClone);
+
+const ExecutionContractMetadata* sdpa_execution_policy_metadata(
+    const SDPAExecutionPolicyFamily family,
+    const char* tuple_id) {
+  if (tuple_id == nullptr) {
+    return nullptr;
+  }
+  if (family == SDPAExecutionPolicyFamily::DiffusionMaterializedSquare) {
+    if (std::strcmp(
+            tuple_id,
+            kSDPAExecutionSquareHeads1Sequence640Dim512TupleId) == 0) {
+      return &kSDPAExecutionSquareHeads1Sequence640Dim512Metadata;
+    }
+    if (std::strcmp(
+            tuple_id, kSDPAExecutionSquareHeads5Sequence640Dim64TupleId) ==
+        0) {
+      return &kSDPAExecutionSquareHeads5Sequence640Dim64Metadata;
+    }
+    if (std::strcmp(
+            tuple_id,
+            kSDPAExecutionSquareHeads1Sequence504Dim512TupleId) == 0) {
+      return &kSDPAExecutionSquareHeads1Sequence504Dim512Metadata;
+    }
+    if (std::strcmp(
+            tuple_id, kSDPAExecutionSquareHeads5Sequence504Dim64TupleId) ==
+        0) {
+      return &kSDPAExecutionSquareHeads5Sequence504Dim64Metadata;
+    }
+  }
+  if (
+      family == SDPAExecutionPolicyFamily::DiffusionCloneOnlySquare &&
+      std::strcmp(
+          tuple_id, kSDPAExecutionSquareHeads10Sequence126Dim64TupleId) == 0) {
+    return &kSDPAExecutionSquareHeads10Sequence126Dim64Metadata;
+  }
+  if (
+      family == SDPAExecutionPolicyFamily::TransformerDecodeGQACloneOnly &&
+      std::strcmp(
+          tuple_id, kSDPAExecutionTransformerDecodeGQACloneOnlyTupleId) == 0) {
+    return &kSDPAExecutionTransformerDecodeGQACloneOnlyMetadata;
+  }
+  return nullptr;
+}
+
+#define SMALL_SPATIAL_POINTWISE_CONV_TUPLE(                            \
+    FAMILY, INPUT_C, INPUT_H, INPUT_W, OUTPUT_C, TUPLE_ID)             \
+  {                                                                    \
+      SmallSpatialPointwiseConvFamily::FAMILY,                         \
+      INPUT_C,                                                         \
+      INPUT_H,                                                         \
+      INPUT_W,                                                         \
+      OUTPUT_C,                                                        \
+      TUPLE_ID,                                                        \
+      make_execution_contract_metadata(                                \
+          "SmallSpatialPointwiseConvContract",                         \
+          #FAMILY,                                                     \
+          TUPLE_ID,                                                    \
+          "small_spatial_pointwise_conv_focused_tests",                \
+          "small_spatial_pointwise_conv_adjacent_guards",              \
+          kFallbackUnsupportedShapesDoNotMatch,                        \
+          kMaterializationNativeBufferKernel)}
 
 constexpr SmallSpatialPointwiseConvTuple kSmallSpatialPointwiseConvTuples[] = {
-    {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 15, 10, 192, "depth_projection_384_15x10_192"},
-    {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 15, 10, 384, "depth_projection_384_15x10_384"},
-    {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 20, 13, 192, "depth_projection_384_20x13_192"},
-    {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 20, 13, 384, "depth_projection_384_20x13_384"},
-    {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 30, 20, 192, "depth_projection_384_30x20_192"},
-    {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 30, 20, 384, "depth_projection_384_30x20_384"},
-    {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 37, 57, 192, "depth_projection_384_37x57_192"},
-    {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 37, 57, 384, "depth_projection_384_37x57_384"},
-    {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 45, 30, 192, "depth_projection_384_45x30_192"},
-    {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 45, 30, 384, "depth_projection_384_45x30_384"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 384, 7, 7, 384, "ocr_projection_384_7x7_384"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 512, 7, 7, 512, "ocr_projection_512_7x7_512"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 512, 14, 14, 192, "ocr_projection_512_14x14_192"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 512, 14, 14, 1024, "ocr_projection_512_14x14_1024"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 512, 1, 1, 1280, "ocr_projection_512_1x1_1280"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 1024, 7, 7, 384, "ocr_projection_1024_7x7_384"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 1024, 7, 7, 2048, "ocr_projection_1024_7x7_2048"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 1024, 14, 14, 192, "ocr_projection_1024_14x14_192"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 1024, 14, 14, 256, "ocr_projection_1024_14x14_256"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 1664, 14, 14, 512, "ocr_projection_1664_14x14_512"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 2048, 7, 7, 256, "ocr_projection_2048_7x7_256"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 2176, 14, 14, 512, "ocr_projection_2176_14x14_512"},
-    {SmallSpatialPointwiseConvFamily::OCRProjection, 3328, 7, 7, 1024, "ocr_projection_3328_7x7_1024"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 128, 72, 112, 256, "diffusion_projection_128_72x112_256"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 256, 36, 56, 512, "diffusion_projection_256_36x56_512"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 8, 18, 28, 8, "diffusion_projection_8_18x28_8"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 320, 9, 14, 640, "diffusion_projection_320_9x14_640"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 640, 5, 7, 1280, "diffusion_projection_640_5x7_1280"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 2560, 3, 4, 1280, "diffusion_projection_2560_3x4_1280"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 2560, 5, 7, 1280, "diffusion_projection_2560_5x7_1280"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 1920, 5, 7, 1280, "diffusion_projection_1920_5x7_1280"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 1920, 9, 14, 640, "diffusion_projection_1920_9x14_640"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 1280, 9, 14, 640, "diffusion_projection_1280_9x14_640"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 960, 9, 14, 640, "diffusion_projection_960_9x14_640"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 960, 18, 28, 320, "diffusion_projection_960_18x28_320"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 640, 18, 28, 320, "diffusion_projection_640_18x28_320"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 4, 18, 28, 4, "diffusion_projection_4_18x28_4"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 512, 72, 112, 256, "diffusion_projection_512_72x112_256"},
-    {SmallSpatialPointwiseConvFamily::DiffusionProjection, 256, 144, 224, 128, "diffusion_projection_256_144x224_128"},
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DepthVisionProjection, 384, 15, 10, 192, "depth_projection_384_15x10_192"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DepthVisionProjection, 384, 15, 10, 384, "depth_projection_384_15x10_384"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DepthVisionProjection, 384, 20, 13, 192, "depth_projection_384_20x13_192"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DepthVisionProjection, 384, 20, 13, 384, "depth_projection_384_20x13_384"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DepthVisionProjection, 384, 30, 20, 192, "depth_projection_384_30x20_192"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DepthVisionProjection, 384, 30, 20, 384, "depth_projection_384_30x20_384"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DepthVisionProjection, 384, 37, 57, 192, "depth_projection_384_37x57_192"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DepthVisionProjection, 384, 37, 57, 384, "depth_projection_384_37x57_384"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DepthVisionProjection, 384, 45, 30, 192, "depth_projection_384_45x30_192"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DepthVisionProjection, 384, 45, 30, 384, "depth_projection_384_45x30_384"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 384, 7, 7, 384, "ocr_projection_384_7x7_384"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 512, 7, 7, 512, "ocr_projection_512_7x7_512"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 512, 14, 14, 192, "ocr_projection_512_14x14_192"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 512, 14, 14, 1024, "ocr_projection_512_14x14_1024"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 512, 1, 1, 1280, "ocr_projection_512_1x1_1280"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 1024, 7, 7, 384, "ocr_projection_1024_7x7_384"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 1024, 7, 7, 2048, "ocr_projection_1024_7x7_2048"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 1024, 14, 14, 192, "ocr_projection_1024_14x14_192"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 1024, 14, 14, 256, "ocr_projection_1024_14x14_256"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 1664, 14, 14, 512, "ocr_projection_1664_14x14_512"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 2048, 7, 7, 256, "ocr_projection_2048_7x7_256"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 2176, 14, 14, 512, "ocr_projection_2176_14x14_512"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        OCRProjection, 3328, 7, 7, 1024, "ocr_projection_3328_7x7_1024"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 128, 72, 112, 256, "diffusion_projection_128_72x112_256"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 256, 36, 56, 512, "diffusion_projection_256_36x56_512"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 8, 18, 28, 8, "diffusion_projection_8_18x28_8"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 320, 9, 14, 640, "diffusion_projection_320_9x14_640"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 640, 5, 7, 1280, "diffusion_projection_640_5x7_1280"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 2560, 3, 4, 1280, "diffusion_projection_2560_3x4_1280"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 2560, 5, 7, 1280, "diffusion_projection_2560_5x7_1280"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 1920, 5, 7, 1280, "diffusion_projection_1920_5x7_1280"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 1920, 9, 14, 640, "diffusion_projection_1920_9x14_640"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 1280, 9, 14, 640, "diffusion_projection_1280_9x14_640"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 960, 9, 14, 640, "diffusion_projection_960_9x14_640"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 960, 18, 28, 320, "diffusion_projection_960_18x28_320"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 640, 18, 28, 320, "diffusion_projection_640_18x28_320"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 4, 18, 28, 4, "diffusion_projection_4_18x28_4"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 512, 72, 112, 256, "diffusion_projection_512_72x112_256"),
+    SMALL_SPATIAL_POINTWISE_CONV_TUPLE(
+        DiffusionProjection, 256, 144, 224, 128, "diffusion_projection_256_144x224_128"),
 };
 
+#undef SMALL_SPATIAL_POINTWISE_CONV_TUPLE
+
+#define DIFFUSION_SDPA_TUPLE(                                      \
+    FAMILY, HEADS, QUERY_SEQUENCE, KEY_VALUE_SEQUENCE, DIM, TUPLE_ID) \
+  {                                                                \
+      DiffusionSDPAFamily::FAMILY,                                 \
+      HEADS,                                                       \
+      QUERY_SEQUENCE,                                              \
+      KEY_VALUE_SEQUENCE,                                          \
+      DIM,                                                         \
+      TUPLE_ID,                                                    \
+      make_execution_contract_metadata(                            \
+          "DiffusionSDPAContract",                                 \
+          #FAMILY,                                                 \
+          TUPLE_ID,                                                \
+          "diffusion_sdpa_focused_tests",                          \
+          "diffusion_sdpa_adjacent_guards",                        \
+          kFallbackUnsupportedShapesDoNotMatch,                    \
+          kMaterializationDelegatedToSDPAExecutionPolicy)}
+
 constexpr DiffusionSDPATuple kDiffusionSDPATuples[] = {
-    {DiffusionSDPAFamily::SquareSelfAttention, 1, 640, 640, 512, "square_heads1_sequence640_dim512"},
-    {DiffusionSDPAFamily::SquareSelfAttention, 5, 640, 640, 64, "square_heads5_sequence640_dim64"},
-    {DiffusionSDPAFamily::SquareSelfAttention, 1, 504, 504, 512, "square_heads1_sequence504_dim512"},
-    {DiffusionSDPAFamily::SquareSelfAttention, 5, 504, 504, 64, "square_heads5_sequence504_dim64"},
-    {DiffusionSDPAFamily::SquareSelfAttention, 10, 126, 126, 64, "square_heads10_sequence126_dim64"},
-    {DiffusionSDPAFamily::SquareSelfAttention, 20, 35, 35, 64, "square_heads20_sequence35_dim64"},
-    {DiffusionSDPAFamily::SquareSelfAttention, 20, 12, 12, 64, "square_heads20_sequence12_dim64"},
-    {DiffusionSDPAFamily::CrossAttention, 5, 504, 2, 64, "cross_heads5_query504_kv2_dim64"},
-    {DiffusionSDPAFamily::CrossAttention, 10, 126, 2, 64, "cross_heads10_query126_kv2_dim64"},
-    {DiffusionSDPAFamily::CrossAttention, 20, 35, 2, 64, "cross_heads20_query35_kv2_dim64"},
-    {DiffusionSDPAFamily::CrossAttention, 20, 12, 2, 64, "cross_heads20_query12_kv2_dim64"},
+    DIFFUSION_SDPA_TUPLE(
+        SquareSelfAttention, 1, 640, 640, 512, "square_heads1_sequence640_dim512"),
+    DIFFUSION_SDPA_TUPLE(
+        SquareSelfAttention, 5, 640, 640, 64, "square_heads5_sequence640_dim64"),
+    DIFFUSION_SDPA_TUPLE(
+        SquareSelfAttention, 1, 504, 504, 512, "square_heads1_sequence504_dim512"),
+    DIFFUSION_SDPA_TUPLE(
+        SquareSelfAttention, 5, 504, 504, 64, "square_heads5_sequence504_dim64"),
+    DIFFUSION_SDPA_TUPLE(
+        SquareSelfAttention, 10, 126, 126, 64, "square_heads10_sequence126_dim64"),
+    DIFFUSION_SDPA_TUPLE(
+        SquareSelfAttention, 20, 35, 35, 64, "square_heads20_sequence35_dim64"),
+    DIFFUSION_SDPA_TUPLE(
+        SquareSelfAttention, 20, 12, 12, 64, "square_heads20_sequence12_dim64"),
+    DIFFUSION_SDPA_TUPLE(
+        CrossAttention, 5, 504, 2, 64, "cross_heads5_query504_kv2_dim64"),
+    DIFFUSION_SDPA_TUPLE(
+        CrossAttention, 10, 126, 2, 64, "cross_heads10_query126_kv2_dim64"),
+    DIFFUSION_SDPA_TUPLE(
+        CrossAttention, 20, 35, 2, 64, "cross_heads20_query35_kv2_dim64"),
+    DIFFUSION_SDPA_TUPLE(
+        CrossAttention, 20, 12, 2, 64, "cross_heads20_query12_kv2_dim64"),
 };
+
+#undef DIFFUSION_SDPA_TUPLE
 
 bool matches_kv_cache_state_shape(const IntArrayRef sizes) {
   return sizes.size() == 4 && sizes[0] == kKVCacheAppendBatch &&
@@ -150,6 +504,15 @@ int64_t product_of_sizes(const IntArrayRef sizes) {
 }
 
 } // namespace
+
+bool has_complete_execution_contract_metadata(
+    const ExecutionContractMetadata* metadata) {
+  return metadata != nullptr && has_text(metadata->contract_name) &&
+      has_text(metadata->family_name) && has_text(metadata->tuple_id) &&
+      has_text(metadata->evidence_id) && has_text(metadata->guard_id) &&
+      has_text(metadata->fallback_policy) &&
+      has_text(metadata->materialization_policy);
+}
 
 const char* small_spatial_pointwise_conv_family_name(
     const SmallSpatialPointwiseConvFamily family) {
@@ -225,6 +588,7 @@ SmallSpatialPointwiseConvMatch match_small_spatial_pointwise_conv_contract(
       result.matched = true;
       result.family = tuple.family;
       result.tuple_id = tuple.tuple_id;
+      result.metadata = &tuple.metadata;
       return result;
     }
   }
@@ -322,8 +686,10 @@ TransformerGQASDPAMatch match_transformer_gqa_sdpa_contract(
     }
     result.matched = true;
     result.family = TransformerGQASDPAFamily::CausalPrefill;
-    result.tuple_id = enable_gqa ? "causal_gqa_head128_len_le_128"
-                                 : "causal_mha_head128_len_le_128";
+    result.tuple_id = enable_gqa ? kTransformerGQASDPACausalGQATupleId
+                                 : kTransformerGQASDPACausalMHATupleId;
+    result.metadata = enable_gqa ? &kTransformerGQASDPACausalGQAMetadata
+                                 : &kTransformerGQASDPACausalMHAMetadata;
     return result;
   }
 
@@ -332,14 +698,16 @@ TransformerGQASDPAMatch match_transformer_gqa_sdpa_contract(
       key_sizes[2] <= 116) {
     result.matched = true;
     result.family = TransformerGQASDPAFamily::DecodeGQA;
-    result.tuple_id = "decode_gqa_head128_source_100_116";
+    result.tuple_id = kTransformerGQASDPADecodeGQATupleId;
+    result.metadata = &kTransformerGQASDPADecodeGQAMetadata;
     return result;
   }
 
   if (query_sizes[2] <= 14 && key_sizes[2] <= 64) {
     result.matched = true;
     result.family = TransformerGQASDPAFamily::SmallNonCausalGQA;
-    result.tuple_id = "small_non_causal_gqa_head128";
+    result.tuple_id = kTransformerGQASDPASmallNonCausalGQATupleId;
+    result.metadata = &kTransformerGQASDPASmallNonCausalGQAMetadata;
     return result;
   }
   return result;
@@ -418,7 +786,8 @@ MaskedTinySDPAMatch match_masked_tiny_sdpa_contract(
       attn_mask_sizes[2] == 2 && attn_mask_sizes[3] == 2) {
     result.matched = true;
     result.family = MaskedTinySDPAFamily::AdditiveFloatMask;
-    result.tuple_id = "qkv_1x16x2x64_mask_1x1x2x2";
+    result.tuple_id = kMaskedTinySDPAAdditiveFloatMaskTupleId;
+    result.metadata = &kMaskedTinySDPAAdditiveFloatMaskMetadata;
   }
   return result;
 }
@@ -516,6 +885,7 @@ DiffusionSDPAMatch match_diffusion_sdpa_contract(
     result.matched = true;
     result.family = tuple.family;
     result.tuple_id = tuple.tuple_id;
+    result.metadata = &tuple.metadata;
     return result;
   }
   return result;
@@ -610,6 +980,8 @@ SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
         result.matched = true;
         result.family = SDPAExecutionPolicyFamily::DiffusionMaterializedSquare;
         result.tuple_id = diffusion_match.tuple_id;
+        result.metadata =
+            sdpa_execution_policy_metadata(result.family, result.tuple_id);
         result.requires_score_pre_materialization = true;
         result.requires_post_softmax_clone = true;
         return result;
@@ -621,6 +993,8 @@ SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
         result.matched = true;
         result.family = SDPAExecutionPolicyFamily::DiffusionMaterializedSquare;
         result.tuple_id = diffusion_match.tuple_id;
+        result.metadata =
+            sdpa_execution_policy_metadata(result.family, result.tuple_id);
         result.requires_score_pre_materialization = true;
         result.requires_post_softmax_clone = true;
         return result;
@@ -631,6 +1005,8 @@ SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
         result.matched = true;
         result.family = SDPAExecutionPolicyFamily::DiffusionCloneOnlySquare;
         result.tuple_id = diffusion_match.tuple_id;
+        result.metadata =
+            sdpa_execution_policy_metadata(result.family, result.tuple_id);
         result.requires_materialized_math_path = true;
         result.requires_post_softmax_clone = true;
         return result;
@@ -645,7 +1021,9 @@ SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
       key_sizes[2] <= 116 && query_sizes[3] == 128) {
     result.matched = true;
     result.family = SDPAExecutionPolicyFamily::TransformerDecodeGQACloneOnly;
-    result.tuple_id = "transformer_decode_gqa_clone_only_head128_source100_to_116";
+    result.tuple_id = kSDPAExecutionTransformerDecodeGQACloneOnlyTupleId;
+    result.metadata =
+        sdpa_execution_policy_metadata(result.family, result.tuple_id);
     result.requires_post_softmax_clone = true;
     return result;
   }
@@ -689,6 +1067,7 @@ GQARepeatMatch match_gqa_repeat_contract(
   }
   result.matched = true;
   result.tuple_id = kGQARepeatTupleId;
+  result.metadata = &kGQARepeatMetadata;
   result.sequence_length = tensor_sizes[2];
   return result;
 }
@@ -750,6 +1129,7 @@ KVCacheAppendMatch match_kv_cache_append_contract(
     result.matched = true;
     result.family = KVCacheAppendFamily::InitialCache;
     result.tuple_id = kKVCacheAppendInitialTupleId;
+    result.metadata = &kKVCacheAppendInitialMetadata;
     result.sequence_length = right_sizes[2];
     return result;
   }
@@ -761,6 +1141,7 @@ KVCacheAppendMatch match_kv_cache_append_contract(
     result.matched = true;
     result.family = KVCacheAppendFamily::SequenceAppend;
     result.tuple_id = kKVCacheAppendSequenceTupleId;
+    result.metadata = &kKVCacheAppendSequenceMetadata;
     result.sequence_length = left_sizes[2];
     return result;
   }
@@ -847,6 +1228,7 @@ EmbeddingLookupMatch match_embedding_lookup_contract(
     result.matched = true;
     result.family = EmbeddingLookupFamily::TokenBatch1;
     result.tuple_id = kEmbeddingLookupTokenBatch1TupleId;
+    result.metadata = &kEmbeddingLookupTokenBatch1Metadata;
     return result;
   }
 
@@ -857,6 +1239,7 @@ EmbeddingLookupMatch match_embedding_lookup_contract(
     result.matched = true;
     result.family = EmbeddingLookupFamily::SmallBoundedLookup;
     result.tuple_id = kEmbeddingLookupSmallBoundedTupleId;
+    result.metadata = &kEmbeddingLookupSmallBoundedMetadata;
     return result;
   }
 

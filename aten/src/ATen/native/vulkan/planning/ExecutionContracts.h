@@ -14,6 +14,16 @@ namespace vulkan {
 namespace ops {
 namespace utils {
 
+struct ExecutionContractMetadata final {
+  const char* contract_name{nullptr};
+  const char* family_name{nullptr};
+  const char* tuple_id{nullptr};
+  const char* evidence_id{nullptr};
+  const char* guard_id{nullptr};
+  const char* fallback_policy{nullptr};
+  const char* materialization_policy{nullptr};
+};
+
 enum class SmallSpatialPointwiseConvFamily : uint8_t {
   None = 0u,
   DepthVisionProjection,
@@ -26,6 +36,7 @@ struct SmallSpatialPointwiseConvMatch final {
   SmallSpatialPointwiseConvFamily family{
       SmallSpatialPointwiseConvFamily::None};
   const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
 };
 
 enum class TransformerGQASDPAFamily : uint8_t {
@@ -39,6 +50,7 @@ struct TransformerGQASDPAMatch final {
   bool matched{false};
   TransformerGQASDPAFamily family{TransformerGQASDPAFamily::None};
   const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
 };
 
 enum class MaskedTinySDPAFamily : uint8_t {
@@ -50,6 +62,7 @@ struct MaskedTinySDPAMatch final {
   bool matched{false};
   MaskedTinySDPAFamily family{MaskedTinySDPAFamily::None};
   const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
 };
 
 enum class DiffusionSDPAFamily : uint8_t {
@@ -62,6 +75,7 @@ struct DiffusionSDPAMatch final {
   bool matched{false};
   DiffusionSDPAFamily family{DiffusionSDPAFamily::None};
   const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
 };
 
 enum class SDPAExecutionPolicyFamily : uint8_t {
@@ -75,6 +89,7 @@ struct SDPAExecutionPolicyMatch final {
   bool matched{false};
   SDPAExecutionPolicyFamily family{SDPAExecutionPolicyFamily::None};
   const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
   bool requires_materialized_math_path{false};
   bool requires_score_pre_materialization{false};
   bool requires_post_softmax_clone{false};
@@ -83,6 +98,7 @@ struct SDPAExecutionPolicyMatch final {
 struct GQARepeatMatch final {
   bool matched{false};
   const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
   int64_t sequence_length{0};
 };
 
@@ -96,6 +112,7 @@ struct KVCacheAppendMatch final {
   bool matched{false};
   KVCacheAppendFamily family{KVCacheAppendFamily::None};
   const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
   int64_t sequence_length{0};
 };
 
@@ -109,10 +126,14 @@ struct EmbeddingLookupMatch final {
   bool matched{false};
   EmbeddingLookupFamily family{EmbeddingLookupFamily::None};
   const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
   int64_t num_embeddings{0};
   int64_t embedding_dim{0};
   int64_t num_indices{0};
 };
+
+bool has_complete_execution_contract_metadata(
+    const ExecutionContractMetadata* metadata);
 
 const char* small_spatial_pointwise_conv_family_name(
     SmallSpatialPointwiseConvFamily family);

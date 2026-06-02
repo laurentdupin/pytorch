@@ -31,6 +31,14 @@ Contract direction:
 
 - Coverage model(s):
 - Proposed contract:
+- Exact tuple/envelope metadata, if any:
+  - `contract_name`:
+  - `family_name`:
+  - `tuple_id`:
+  - `evidence_id`:
+  - `guard_id`:
+  - `fallback_policy`:
+  - `materialization_policy`:
 - Positive evidence:
 - Negative/guard evidence:
 - Temporary exception, if any:
@@ -45,6 +53,7 @@ Stop conditions:
 Validation:
 
 - `git diff --check`
+- static scan/diff review confirming no unintended shape or envelope changes:
 - focused tests:
 - `git status --short --untracked-files=all`
 - If docs are the only changes, no build is needed.

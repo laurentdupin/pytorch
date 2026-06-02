@@ -23,7 +23,10 @@ condition and migration target.
 - Status: temporary but allowed
 - Reason: finite rows are proven by existing artifacts and keep unsupported
   adjacent shapes guarded.
-- Expiry: contract table metadata and generated tests cover the family well
+- Metadata: each new exact row must carry contract/family/tuple/evidence/guard,
+  fallback, and materialization metadata. Metadata is a migration guardrail, not
+  an expiry condition by itself.
+- Expiry: generated positive and adjacent negative tests cover the family well
   enough to review a parameterized policy.
 - Migration target: generated `KernelFamilyContract` tables with positive and
   negative tests.

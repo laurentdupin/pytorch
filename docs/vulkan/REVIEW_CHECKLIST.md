@@ -9,6 +9,9 @@ Use this checklist for Vulkan backend changes.
 - Exact tuples live in a contract table with contract name, family, tuple
   fields, materialization policy, parity evidence, device coverage, and
   fallback behavior.
+- New exact tuples or finite envelopes include execution-contract metadata:
+  `contract_name`, `family_name`, `tuple_id`, `evidence_id`, `guard_id`,
+  `fallback_policy`, and `materialization_policy`.
 - Any model-name production occurrence is either removed or listed in
   `TEMPORARY_EXCEPTIONS.md` with expiry and migration target.
 - Broad route enablement is backed by positive parity tests and adjacent
@@ -35,6 +38,8 @@ Use this checklist for Vulkan backend changes.
 - New or changed route logic maps to a `KernelFamilyContract`,
   `RegionContract`, or `LayoutTransitionContract`.
 - Contract labels are stable and reusable across model evidence.
+- Exact-row metadata is complete and points to evidence and guard coverage; it
+  is a review guardrail, not proof that broader shapes are legal.
 - Materialization and layout transition behavior is part of the contract, not a
   hidden side effect.
 - Temporary feature flags have expiry and migration target; permanent flags are
