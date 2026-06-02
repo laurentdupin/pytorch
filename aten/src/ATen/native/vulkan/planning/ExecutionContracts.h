@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 namespace at {
 namespace native {
@@ -130,6 +131,46 @@ struct EmbeddingLookupMatch final {
   int64_t num_embeddings{0};
   int64_t embedding_dim{0};
   int64_t num_indices{0};
+};
+
+struct LinearGeluBridgeTensorInfo final {
+  int64_t input_rank{0};
+  int64_t input_batch{0};
+  int64_t input_rows{0};
+  int64_t input_features{0};
+  int64_t flattened_rank{0};
+  int64_t flattened_rows{0};
+  int64_t flattened_features{0};
+};
+
+struct LinearGeluBridgePackedInfo final {
+  int64_t weight_height{0};
+  int64_t weight_width{0};
+  bool bias_defined{false};
+  bool can_run_float_buffer_linear{false};
+};
+
+struct LinearGeluBridgeOptions final {
+  bool inference_mode_enabled{false};
+  bool has_output{false};
+  bool post_op_is_none{false};
+  bool alpha_is_one{false};
+  bool beta_is_one{false};
+};
+
+enum class LinearGeluBridgeFamily : uint8_t {
+  None = 0u,
+  BackboneMlpHidden384To1536,
+};
+
+struct LinearGeluBridgeMatch final {
+  bool matched{false};
+  LinearGeluBridgeFamily family{LinearGeluBridgeFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+  bool may_defer{false};
+  bool may_consume_gelu_none{false};
+  bool may_consume_gelu_tanh{false};
 };
 
 struct BatchNormInferenceTensorInfo final {
@@ -373,6 +414,21 @@ bool matches_embedding_lookup_contract(
     bool padding_idx_has_hint,
     bool scale_grad_by_freq,
     bool sparse);
+
+const char* linear_gelu_bridge_family_name(LinearGeluBridgeFamily family);
+
+LinearGeluBridgeMatch match_linear_gelu_bridge_contract(
+    const LinearGeluBridgeTensorInfo& tensor,
+    const LinearGeluBridgePackedInfo& packed,
+    const LinearGeluBridgeOptions& options);
+
+bool matches_linear_gelu_bridge_contract(
+    const LinearGeluBridgeTensorInfo& tensor,
+    const LinearGeluBridgePackedInfo& packed,
+    const LinearGeluBridgeOptions& options);
+
+bool matches_linear_gelu_bridge_gelu_approximation_contract(
+    std::string_view approximate);
 
 const char* batch_norm_inference_family_name(
     BatchNormInferenceFamily family);

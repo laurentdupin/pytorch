@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
 
@@ -992,7 +993,28 @@ Tensor reshape_linear_output_if_needed(
   return reshaped_output;
 }
 
-bool can_defer_dav2_linear_gelu_candidate(
+utils::LinearGeluBridgeTensorInfo linear_gelu_bridge_tensor_info(
+    const Tensor& input_arg,
+    const Tensor& input_arg_2d) {
+  utils::LinearGeluBridgeTensorInfo info;
+  info.input_rank = input_arg.dim();
+  if (input_arg.dim() == 2) {
+    info.input_rows = input_arg.size(0);
+    info.input_features = input_arg.size(1);
+  } else if (input_arg.dim() == 3) {
+    info.input_batch = input_arg.size(0);
+    info.input_rows = input_arg.size(1);
+    info.input_features = input_arg.size(2);
+  }
+  info.flattened_rank = input_arg_2d.dim();
+  if (input_arg_2d.dim() == 2) {
+    info.flattened_rows = input_arg_2d.size(0);
+    info.flattened_features = input_arg_2d.size(1);
+  }
+  return info;
+}
+
+utils::LinearGeluBridgeMatch match_linear_gelu_bridge_candidate(
     const Tensor& input_arg,
     const Tensor& input_arg_2d,
     const LinearPackedRunState& packed_state,
@@ -1000,33 +1022,26 @@ bool can_defer_dav2_linear_gelu_candidate(
     const float beta,
     const LinearPostOp post_op,
     const Tensor* output_opt) {
-  if (
-      c10::InferenceMode::is_enabled() ||
-      output_opt != nullptr ||
-      post_op != LinearPostOp::None ||
-      alpha != 1.0f ||
-      beta != 1.0f ||
-      !packed_state.bias_defined ||
-      (input_arg.dim() != 2 && input_arg.dim() != 3) ||
-      input_arg_2d.dim() != 2 ||
-      input_arg_2d.size(0) < 512 ||
-      input_arg_2d.size(1) != 384 ||
-      packed_state.logical_weight_sizes[Layout::Parameter::height] != 384 ||
-      packed_state.logical_weight_sizes[Layout::Parameter::width] != 1536) {
-    return false;
-  }
-
-  if (
-      input_arg.dim() == 3 &&
-      (input_arg.size(0) != 1 || input_arg.size(1) != input_arg_2d.size(0) ||
-       input_arg.size(2) != input_arg_2d.size(1))) {
-    return false;
-  }
-
   const Tensor& packed_weight_tensor = packed_state.packed_weight.weight();
-  const Tensor packed_bias_tensor = packed_state.packed_weight.bias();
-  return can_run_float_buffer_linear(
-      input_arg_2d, packed_weight_tensor, std::optional<Tensor>(packed_bias_tensor));
+  const std::optional<Tensor> packed_bias_tensor = packed_state.bias_defined
+      ? std::optional<Tensor>(packed_state.packed_weight.bias())
+      : std::nullopt;
+  const utils::LinearGeluBridgePackedInfo packed_info{
+      packed_state.logical_weight_sizes[Layout::Parameter::height],
+      packed_state.logical_weight_sizes[Layout::Parameter::width],
+      packed_state.bias_defined,
+      can_run_float_buffer_linear(
+          input_arg_2d, packed_weight_tensor, packed_bias_tensor)};
+  const utils::LinearGeluBridgeOptions options{
+      c10::InferenceMode::is_enabled(),
+      output_opt != nullptr,
+      post_op == LinearPostOp::None,
+      alpha == 1.0f,
+      beta == 1.0f};
+  return utils::match_linear_gelu_bridge_contract(
+      linear_gelu_bridge_tensor_info(input_arg, input_arg_2d),
+      packed_info,
+      options);
 }
 
 Tensor make_deferred_linear_gelu_placeholder(
@@ -1597,7 +1612,8 @@ void move_deferred_linear_gelu_candidate_to_alias_impl(
 std::optional<Tensor> try_consume_deferred_linear_gelu_impl(
     const Tensor& input,
     std::string_view approximate) {
-  if (approximate != "none" && approximate != "tanh") {
+  if (!utils::matches_linear_gelu_bridge_gelu_approximation_contract(
+          approximate)) {
     return std::nullopt;
   }
 
@@ -3078,14 +3094,16 @@ Tensor run_addmm_context(
             buffer_input,
             packed_state.packed_weight.weight(),
             packed_bias_tensor)) {
-      if (can_defer_dav2_linear_gelu_candidate(
+      const utils::LinearGeluBridgeMatch bridge_match =
+          match_linear_gelu_bridge_candidate(
               input_for_compute,
               buffer_input,
               packed_state,
               alpha,
               beta,
               post_op,
-              output_opt)) {
+              output_opt);
+      if (bridge_match.matched && bridge_match.may_defer) {
         Tensor placeholder = make_deferred_linear_gelu_placeholder(
             input_for_compute, buffer_input, packed_state);
         DeferredLinearGeluCandidate candidate;
