@@ -77,6 +77,21 @@ struct KVCacheAppendMatch final {
   int64_t sequence_length{0};
 };
 
+enum class EmbeddingLookupFamily : uint8_t {
+  None = 0u,
+  SmallBoundedLookup,
+  TokenBatch1,
+};
+
+struct EmbeddingLookupMatch final {
+  bool matched{false};
+  EmbeddingLookupFamily family{EmbeddingLookupFamily::None};
+  const char* tuple_id{nullptr};
+  int64_t num_embeddings{0};
+  int64_t embedding_dim{0};
+  int64_t num_indices{0};
+};
+
 const char* small_spatial_pointwise_conv_family_name(
     SmallSpatialPointwiseConvFamily family);
 
@@ -217,6 +232,32 @@ bool matches_kv_cache_append_contract(
     bool left_is_vulkan,
     bool right_is_vulkan,
     int64_t dim);
+
+const char* embedding_lookup_family_name(EmbeddingLookupFamily family);
+
+const char* embedding_lookup_write_label(EmbeddingLookupFamily family);
+
+EmbeddingLookupMatch match_embedding_lookup_contract(
+    IntArrayRef weight_sizes,
+    IntArrayRef indices_sizes,
+    ScalarType weight_dtype,
+    ScalarType indices_dtype,
+    bool weight_is_vulkan,
+    bool indices_is_vulkan,
+    bool padding_idx_has_hint,
+    bool scale_grad_by_freq,
+    bool sparse);
+
+bool matches_embedding_lookup_contract(
+    IntArrayRef weight_sizes,
+    IntArrayRef indices_sizes,
+    ScalarType weight_dtype,
+    ScalarType indices_dtype,
+    bool weight_is_vulkan,
+    bool indices_is_vulkan,
+    bool padding_idx_has_hint,
+    bool scale_grad_by_freq,
+    bool sparse);
 
 } // namespace utils
 } // namespace ops

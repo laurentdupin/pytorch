@@ -54,8 +54,8 @@ These files are diagnostic inputs. Production code must not depend on
 
 - `SmallSpatialPointwiseConvContract`: first migrated table; keep exact rows
   until broader legality is proven.
-- `EmbeddingGatherContract`: proposed migration target for bounded gather and
-  HY-MT-derived exact envelopes.
+- `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
+  lookup contract; keep exact rows until broader legality is proven.
 - `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
   cat patterns.
 - `KVCacheAppendContract`: proposed migration target for bounded Transformer

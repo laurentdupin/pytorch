@@ -4330,6 +4330,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
                 self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
 
+    def test_embedding_buffer_float_long_adjacent_num_indices_falls_back(self):
+        torch.manual_seed(0)
+        weight_cpu = torch.randn(4096, 256)
+        weight_vulkan = weight_cpu.to("vulkan")
+        indices_cpu = torch.arange(129, dtype=torch.long).reshape(1, 129)
+        indices_vulkan = indices_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            expected = F.embedding(indices_cpu, weight_cpu)
+            actual = F.embedding(indices_vulkan, weight_vulkan).cpu()
+            self._assert_outputs_close(
+                expected,
+                actual,
+                atol=1e-4,
+                rtol=1e-4)
+            self.assertGreater(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
     def test_embedding_sparse_forward_matches_cpu(self):
         torch.manual_seed(0)
         weight_cpu = torch.randn(128, 32)

@@ -49,6 +49,19 @@ condition and migration target.
 - Migration target: generated `KVCacheAppendContract` and `CatAxisContract`
   tables with positive and negative tests.
 
+### Embedding Lookup Exact Tuples
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  `aten/src/ATen/native/vulkan/ops/Indexing.cpp`
+- Status: temporary, contract-named
+- Reason: finite token-batch and small-bounded embedding lookup rows are proven
+  by existing embedding tests, but broader vocab, index-rank, and layout
+  behavior is not proven yet.
+- Expiry: broader embedding lookup parity plus adjacent negative coverage are
+  available.
+- Migration target: generated `EmbeddingLookupContract` tables with positive
+  and negative tests.
+
 ### HY-MT-Derived GQA Repeat Envelope
 
 - Location: SDPA/GQA repeat materialization helpers

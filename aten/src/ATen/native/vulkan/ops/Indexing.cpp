@@ -3,6 +3,7 @@
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <optional>
 #include <tuple>
 #include <torch/library.h>
@@ -362,38 +363,22 @@ Tensor embedding_cpu_fallback(
   return upload_cpu_result_to_vulkan(cpu_result, cpu_result.sizes(), weight);
 }
 
-bool can_embedding_2d_buffer_float_long(
+utils::EmbeddingLookupMatch match_embedding_2d_buffer_float_long_contract(
     const Tensor& weight,
     const Tensor& indices,
     const c10::SymInt padding_idx,
     const bool scale_grad_by_freq,
     const bool sparse) {
-  if (
-      weight.scalar_type() != kFloat ||
-      indices.scalar_type() != kLong ||
-      !indices.is_vulkan() ||
-      weight.dim() != 2 ||
-      (indices.dim() != 1 && indices.dim() != 2) ||
-      scale_grad_by_freq ||
-      sparse) {
-    return false;
-  }
-
-  if (!padding_idx.has_hint()) {
-    return false;
-  }
-
-  const int64_t embedding_dim = weight.size(1);
-  const int64_t num_indices = indices.numel();
-  const bool hymt_batch1_indices =
-      indices.dim() == 2 && indices.size(0) == 1 && indices.size(1) >= 1 &&
-      indices.size(1) <= 116;
-  const bool hymt_real_prompt =
-      weight.size(0) == 120818 && embedding_dim == 2048 &&
-      hymt_batch1_indices;
-  const bool focused_test_envelope =
-      embedding_dim <= 256 && num_indices <= 128 && weight.size(0) <= 4096;
-  return hymt_real_prompt || focused_test_envelope;
+  return utils::match_embedding_lookup_contract(
+      weight.sizes(),
+      indices.sizes(),
+      weight.scalar_type(),
+      indices.scalar_type(),
+      weight.is_vulkan(),
+      indices.is_vulkan(),
+      padding_idx.has_hint(),
+      scale_grad_by_freq,
+      sparse);
 }
 
 bool can_embedding_index_buffer_layout(const vTensor& v_indices) {
@@ -418,8 +403,10 @@ Tensor embedding_2d_buffer_float_long(
     c10::SymInt padding_idx,
     bool scale_grad_by_freq,
     bool sparse) {
-  if (!can_embedding_2d_buffer_float_long(
-          weight, indices, padding_idx, scale_grad_by_freq, sparse)) {
+  const utils::EmbeddingLookupMatch embedding_contract =
+      match_embedding_2d_buffer_float_long_contract(
+          weight, indices, padding_idx, scale_grad_by_freq, sparse);
+  if (!embedding_contract.matched) {
     return embedding_cpu_fallback(
         weight,
         indices,
@@ -506,7 +493,10 @@ Tensor embedding_2d_buffer_float_long(
       params.buffer());
 
   return record_tensor_write_and_return(
-      convert(v_output), "aten::embedding", "buffer_float_long", {weight, indices});
+      convert(v_output),
+      "aten::embedding",
+      utils::embedding_lookup_write_label(embedding_contract.family),
+      {weight, indices});
 }
 
 Tensor index_select(const Tensor& self, int64_t dim, const Tensor& index) {

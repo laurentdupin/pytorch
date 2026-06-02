@@ -44,6 +44,19 @@ constexpr const char* kKVCacheAppendInitialTupleId =
 constexpr const char* kKVCacheAppendSequenceTupleId =
     "sequence_append_s99_to_s115_token1_heads4_dim128";
 
+constexpr int64_t kEmbeddingLookupTokenNumEmbeddings = 120818;
+constexpr int64_t kEmbeddingLookupTokenEmbeddingDim = 2048;
+constexpr int64_t kEmbeddingLookupTokenBatch = 1;
+constexpr int64_t kEmbeddingLookupTokenMinIndices = 1;
+constexpr int64_t kEmbeddingLookupTokenMaxIndices = 116;
+constexpr int64_t kEmbeddingLookupSmallMaxNumEmbeddings = 4096;
+constexpr int64_t kEmbeddingLookupSmallMaxEmbeddingDim = 256;
+constexpr int64_t kEmbeddingLookupSmallMaxNumIndices = 128;
+constexpr const char* kEmbeddingLookupTokenBatch1TupleId =
+    "token_batch1_vocab120818_dim2048_indices1_to_116";
+constexpr const char* kEmbeddingLookupSmallBoundedTupleId =
+    "small_bounded_vocab4096_dim256_indices128";
+
 constexpr SmallSpatialPointwiseConvTuple kSmallSpatialPointwiseConvTuples[] = {
     {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 15, 10, 192, "depth_projection_384_15x10_192"},
     {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 15, 10, 384, "depth_projection_384_15x10_384"},
@@ -117,6 +130,14 @@ bool matches_kv_cache_token_shape(const IntArrayRef sizes) {
 
 bool matches_empty_initial_cache_shape(const IntArrayRef sizes) {
   return sizes.size() == 1 && sizes[0] == 0;
+}
+
+int64_t product_of_sizes(const IntArrayRef sizes) {
+  int64_t product = 1;
+  for (const int64_t size : sizes) {
+    product *= size;
+  }
+  return product;
 }
 
 } // namespace
@@ -593,6 +614,106 @@ bool matches_kv_cache_append_contract(
              left_is_vulkan,
              right_is_vulkan,
              dim)
+      .matched;
+}
+
+const char* embedding_lookup_family_name(const EmbeddingLookupFamily family) {
+  switch (family) {
+    case EmbeddingLookupFamily::SmallBoundedLookup:
+      return "EmbeddingLookupSmallBoundedLookup";
+    case EmbeddingLookupFamily::TokenBatch1:
+      return "EmbeddingLookupTokenBatch1";
+    case EmbeddingLookupFamily::None:
+      return "EmbeddingLookupNone";
+  }
+  return "EmbeddingLookupNone";
+}
+
+const char* embedding_lookup_write_label(const EmbeddingLookupFamily family) {
+  switch (family) {
+    case EmbeddingLookupFamily::SmallBoundedLookup:
+      return "buffer_float_long.small_bounded_lookup";
+    case EmbeddingLookupFamily::TokenBatch1:
+      return "buffer_float_long.token_batch1";
+    case EmbeddingLookupFamily::None:
+      return "buffer_float_long.none";
+  }
+  return "buffer_float_long.none";
+}
+
+EmbeddingLookupMatch match_embedding_lookup_contract(
+    const IntArrayRef weight_sizes,
+    const IntArrayRef indices_sizes,
+    const ScalarType weight_dtype,
+    const ScalarType indices_dtype,
+    const bool weight_is_vulkan,
+    const bool indices_is_vulkan,
+    const bool padding_idx_has_hint,
+    const bool scale_grad_by_freq,
+    const bool sparse) {
+  EmbeddingLookupMatch result;
+  if (
+      !weight_is_vulkan || !indices_is_vulkan ||
+      weight_dtype != kFloat || indices_dtype != kLong ||
+      weight_sizes.size() != 2 ||
+      (indices_sizes.size() != 1 && indices_sizes.size() != 2) ||
+      !padding_idx_has_hint || scale_grad_by_freq || sparse) {
+    return result;
+  }
+
+  const int64_t num_embeddings = weight_sizes[0];
+  const int64_t embedding_dim = weight_sizes[1];
+  const int64_t num_indices = product_of_sizes(indices_sizes);
+  result.num_embeddings = num_embeddings;
+  result.embedding_dim = embedding_dim;
+  result.num_indices = num_indices;
+
+  if (
+      num_embeddings == kEmbeddingLookupTokenNumEmbeddings &&
+      embedding_dim == kEmbeddingLookupTokenEmbeddingDim &&
+      indices_sizes.size() == 2 &&
+      indices_sizes[0] == kEmbeddingLookupTokenBatch &&
+      indices_sizes[1] >= kEmbeddingLookupTokenMinIndices &&
+      indices_sizes[1] <= kEmbeddingLookupTokenMaxIndices) {
+    result.matched = true;
+    result.family = EmbeddingLookupFamily::TokenBatch1;
+    result.tuple_id = kEmbeddingLookupTokenBatch1TupleId;
+    return result;
+  }
+
+  if (
+      embedding_dim <= kEmbeddingLookupSmallMaxEmbeddingDim &&
+      num_indices <= kEmbeddingLookupSmallMaxNumIndices &&
+      num_embeddings <= kEmbeddingLookupSmallMaxNumEmbeddings) {
+    result.matched = true;
+    result.family = EmbeddingLookupFamily::SmallBoundedLookup;
+    result.tuple_id = kEmbeddingLookupSmallBoundedTupleId;
+    return result;
+  }
+
+  return result;
+}
+
+bool matches_embedding_lookup_contract(
+    const IntArrayRef weight_sizes,
+    const IntArrayRef indices_sizes,
+    const ScalarType weight_dtype,
+    const ScalarType indices_dtype,
+    const bool weight_is_vulkan,
+    const bool indices_is_vulkan,
+    const bool padding_idx_has_hint,
+    const bool scale_grad_by_freq,
+    const bool sparse) {
+  return match_embedding_lookup_contract(
+             weight_sizes,
+             indices_sizes,
+             weight_dtype,
+             indices_dtype,
+             weight_is_vulkan,
+             indices_is_vulkan,
+             padding_idx_has_hint,
+             scale_grad_by_freq,
+             sparse)
       .matched;
 }
 
