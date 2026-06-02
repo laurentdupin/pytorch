@@ -88,51 +88,6 @@ std::string sdpa_shape_summary(
   return out.str();
 }
 
-bool is_known_hymt_small_causal_gqa_sdpa_shape(
-    const Tensor& query,
-    const Tensor& key,
-    const Tensor& value,
-    const std::optional<Tensor>& attn_mask,
-    const double dropout_p,
-    const bool is_causal,
-    const std::optional<double> scale,
-    const bool enable_gqa) {
-  constexpr double kHymtHeadDim128Scale = 0.08838834764831845;
-  if (
-      (attn_mask && attn_mask->defined()) || dropout_p != 0.0 ||
-      (!is_causal && !enable_gqa) || query.scalar_type() != kFloat ||
-      key.scalar_type() != kFloat || value.scalar_type() != kFloat ||
-      query.dim() != 4 || key.dim() != 4 || value.dim() != 4) {
-    return false;
-  }
-  if (
-      scale.has_value() &&
-      std::abs(*scale - kHymtHeadDim128Scale) > 1.0e-6) {
-    return false;
-  }
-  if (
-      query.size(0) != 1 || key.size(0) != 1 || value.size(0) != 1 ||
-      query.size(1) != 16 ||
-      query.size(2) < 1 || query.size(2) > 128 ||
-      query.size(3) != 128 || key.size(2) < query.size(2) ||
-      key.size(3) != 128 ||
-      value.size(2) != key.size(2) || value.size(3) != 128 ||
-      key.size(1) != value.size(1)) {
-    return false;
-  }
-  if (is_causal) {
-    if (query.size(2) != key.size(2) || key.size(2) > 128) {
-      return false;
-    }
-  } else if (
-      !(enable_gqa && query.size(2) == 1 &&
-        key.size(2) >= 100 && key.size(2) <= 116) &&
-      (query.size(2) > 14 || key.size(2) > 64)) {
-    return false;
-  }
-  return enable_gqa ? key.size(1) == 4 : key.size(1) == 16;
-}
-
 bool is_supported_tiny_float_mask_sdpa_shape(
     const Tensor& query,
     const Tensor& key,
@@ -452,9 +407,21 @@ VulkanRouteDecision select_sdpa_route(
       query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
   const VulkanRuntimePolicy runtime_policy = build_vulkan_runtime_policy(request);
   const VulkanModelLane lane = infer_model_lane(request);
-  const bool allow_hymt_small_causal_gqa =
-      is_known_hymt_small_causal_gqa_sdpa_shape(
-          query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
+  const TransformerGQASDPAMatch transformer_gqa_sdpa_match =
+      match_transformer_gqa_sdpa_contract(
+          query.sizes(),
+          key.sizes(),
+          value.sizes(),
+          query.scalar_type(),
+          key.scalar_type(),
+          value.scalar_type(),
+          attn_mask && attn_mask->defined(),
+          dropout_p,
+          is_causal,
+          scale,
+          enable_gqa);
+  const bool allow_transformer_gqa_sdpa =
+      transformer_gqa_sdpa_match.matched;
   const bool allow_tiny_float_mask =
       is_supported_tiny_float_mask_sdpa_shape(
           query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
@@ -467,7 +434,7 @@ VulkanRouteDecision select_sdpa_route(
 
   if (
       (attn_mask && attn_mask->defined() || is_causal || enable_gqa) &&
-      !allow_hymt_small_causal_gqa && !allow_tiny_float_mask) {
+      !allow_transformer_gqa_sdpa && !allow_tiny_float_mask) {
     return make_hard_fail_route(
         "aten::scaled_dot_product_attention",
         VulkanRouteRejectReason::KnownBadSdpaMaskOrCausal,
@@ -487,7 +454,7 @@ VulkanRouteDecision select_sdpa_route(
 
   if (
       scale.has_value() && std::abs(*scale - 1.0) > 1.0e-9 &&
-      !allow_hymt_small_causal_gqa && !allow_tiny_float_mask &&
+      !allow_transformer_gqa_sdpa && !allow_tiny_float_mask &&
       !allow_materialized_diffusion && !allow_diffusion_cross) {
     return make_hard_fail_route(
         "aten::scaled_dot_product_attention",
@@ -500,7 +467,7 @@ VulkanRouteDecision select_sdpa_route(
   if (
       device_policy.disable_generic_4d_sdpa &&
       lane != VulkanModelLane::LLM &&
-      !allow_hymt_small_causal_gqa &&
+      !allow_transformer_gqa_sdpa &&
       !allow_tiny_float_mask &&
       !allow_materialized_diffusion &&
       !allow_diffusion_cross &&
@@ -529,8 +496,11 @@ VulkanRouteDecision select_sdpa_route(
   decision.reject_reason = VulkanRouteRejectReason::None;
   decision.runtime_policy = runtime_policy;
   decision.lane = lane;
-  decision.kernel_family = "sdpa";
-  decision.telemetry_label = "SelectedSdpa";
+  decision.kernel_family =
+      allow_transformer_gqa_sdpa ? "transformer_gqa_sdpa" : "sdpa";
+  decision.telemetry_label = allow_transformer_gqa_sdpa
+      ? transformer_gqa_sdpa_route_label(transformer_gqa_sdpa_match.family)
+      : "SelectedSdpa";
   decision.shape_summary = shape_summary;
   decision.device_summary = describe_device_policy(device_policy);
   log_route_decision("aten::scaled_dot_product_attention", decision);

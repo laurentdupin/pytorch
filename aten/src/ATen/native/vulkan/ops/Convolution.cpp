@@ -2292,8 +2292,8 @@ Tensor run_float_buffer_conv2d_impl(
     context->flush();
     utils::fail_hard_fail("aten::convolution", route_decision);
   }
-  const SmallSpatialPointwiseConvMatch pointwise_contract =
-      match_small_spatial_pointwise_conv_contract(
+  const utils::SmallSpatialPointwiseConvMatch pointwise_contract =
+      utils::match_small_spatial_pointwise_conv_contract(
           input.sizes(),
           packed_weight.logical_weight_sizes(),
           stride,
@@ -2304,14 +2304,15 @@ Tensor run_float_buffer_conv2d_impl(
   if (pointwise_contract.matched) {
     if (
         pointwise_contract.family ==
-            SmallSpatialPointwiseConvFamily::DepthVisionProjection ||
+            utils::SmallSpatialPointwiseConvFamily::DepthVisionProjection ||
         pointwise_contract.family ==
-            SmallSpatialPointwiseConvFamily::OCRProjection) {
+            utils::SmallSpatialPointwiseConvFamily::OCRProjection) {
       shader_kind = FloatBufferConv2dShaderKind::Generic;
       plan_decision.selected = VulkanConvPlanSelected::FloatBufferPointwise1x1;
       plan_decision.reject = VulkanConvRejectReason::KnownBadLargePointwiseConv;
-      utils::log_vulkan_op_hit(small_spatial_pointwise_conv_op_hit_label(
-          pointwise_contract.family));
+      utils::log_vulkan_op_hit(
+          utils::small_spatial_pointwise_conv_op_hit_label(
+              pointwise_contract.family));
     } else {
       plan_decision.selected =
           shader_kind == FloatBufferConv2dShaderKind::Pointwise1x1
@@ -2876,7 +2877,7 @@ Tensor run_bfloat16_buffer_conv2d(
           groups);
   if (
       avoid_large_buffer_conv_3x3 ||
-      match_small_spatial_pointwise_conv_contract(
+      utils::match_small_spatial_pointwise_conv_contract(
           compute_input.sizes(),
           weight.sizes(),
           stride,
@@ -2885,7 +2886,7 @@ Tensor run_bfloat16_buffer_conv2d(
           groups,
           compute_input.scalar_type())
               .family ==
-          SmallSpatialPointwiseConvFamily::DepthVisionProjection) {
+          utils::SmallSpatialPointwiseConvFamily::DepthVisionProjection) {
     utils::select_conv2d_route(
         compute_input.sizes(),
         weight.sizes(),

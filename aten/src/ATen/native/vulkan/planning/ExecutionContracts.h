@@ -2,10 +2,11 @@
 
 #ifdef USE_VULKAN_API
 
-#include <ATen/core/ArrayRef.h>
+#include <ATen/ArrayRef.h>
 #include <ATen/core/ScalarType.h>
 
 #include <cstdint>
+#include <optional>
 
 namespace at {
 namespace native {
@@ -24,6 +25,19 @@ struct SmallSpatialPointwiseConvMatch final {
   bool matched{false};
   SmallSpatialPointwiseConvFamily family{
       SmallSpatialPointwiseConvFamily::None};
+  const char* tuple_id{nullptr};
+};
+
+enum class TransformerGQASDPAFamily : uint8_t {
+  None = 0u,
+  CausalPrefill,
+  SmallNonCausalGQA,
+  DecodeGQA,
+};
+
+struct TransformerGQASDPAMatch final {
+  bool matched{false};
+  TransformerGQASDPAFamily family{TransformerGQASDPAFamily::None};
   const char* tuple_id{nullptr};
 };
 
@@ -53,6 +67,38 @@ bool matches_small_spatial_pointwise_conv_contract(
     IntArrayRef dilation,
     int64_t groups,
     ScalarType dtype);
+
+const char* transformer_gqa_sdpa_family_name(
+    TransformerGQASDPAFamily family);
+
+const char* transformer_gqa_sdpa_route_label(
+    TransformerGQASDPAFamily family);
+
+TransformerGQASDPAMatch match_transformer_gqa_sdpa_contract(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa);
+
+bool matches_transformer_gqa_sdpa_contract(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa);
 
 } // namespace utils
 } // namespace ops
