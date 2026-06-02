@@ -16296,6 +16296,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 r"op=aten::linear\.buffer_float(?:_tiled)?_bias(?:_vec2)?_gelu",
             )
             self.assertNotIn("op=aten::gelu.buffer_float", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
 
             if os.path.exists(materialize_log_path):
                 with open(materialize_log_path, "r", encoding="utf-8") as log_file:
@@ -16309,6 +16311,142 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             for path in (materialize_log_path, op_hit_log_path):
                 if os.path.exists(path):
                     os.remove(path)
+
+    def test_linear_gelu_bridge_rejects_adjacent_unsupported_cases(self):
+        op_hit_log_name = "linear_gelu_bridge_negative_guards_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                def run_case(
+                    name,
+                    x_shape,
+                    weight_shape,
+                    has_bias=True,
+                    use_inference_mode=False,
+                ):
+                    torch.manual_seed(100 + len(name))
+                    x = torch.randn(*x_shape, dtype=torch.float32) * 0.1
+                    weight = torch.randn(*weight_shape, dtype=torch.float32) * 0.1
+                    bias = None
+                    if has_bias:
+                        bias = torch.randn(weight_shape[0], dtype=torch.float32) * 0.1
+                        bias.requires_grad_()
+
+                    def run_cpu():
+                        return F.gelu(
+                            F.linear(x, weight, bias),
+                            approximate="tanh",
+                        )
+
+                    def run_vulkan():
+                        x_vulkan = x.to("vulkan")
+                        weight_vulkan = weight.to("vulkan")
+                        bias_vulkan = bias.to("vulkan") if bias is not None else None
+                        return F.gelu(
+                            F.linear(x_vulkan, weight_vulkan, bias_vulkan),
+                            approximate="tanh",
+                        ).cpu()
+
+                    if use_inference_mode:
+                        with torch.inference_mode():
+                            expected = run_cpu()
+                            actual = run_vulkan()
+                    else:
+                        with torch.no_grad():
+                            expected = run_cpu()
+                            actual = run_vulkan()
+
+                    torch.testing.assert_close(actual, expected, atol=3e-4, rtol=3e-3)
+                    print(name, float(actual.sum()))
+
+                run_case("rows_below_512", (1, 511, 384), (1536, 384))
+                run_case("features_not_384", (1, 512, 385), (1536, 385))
+                run_case("output_not_1536", (1, 512, 384), (1024, 384))
+                run_case("missing_bias", (1, 512, 384), (1536, 384), False)
+                run_case(
+                    "inference_mode",
+                    (1, 512, 384),
+                    (1536, 384),
+                    use_inference_mode=True,
+                )
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+                error_prefix="linear GELU bridge negative guard subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_hit_log_path))
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                op_hit_text = log_file.read()
+
+            self.assertNotIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.materialize", op_hit_text)
+        finally:
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+
+    def test_linear_gelu_bridge_materialized_input_uses_plain_gelu(self):
+        op_hit_log_name = "linear_gelu_bridge_materialize_before_gelu_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(0)
+                x = torch.randn(1, 601, 384, dtype=torch.float32) * 0.1
+                weight = torch.randn(1536, 384, dtype=torch.float32) * 0.1
+                bias = torch.randn(1536, dtype=torch.float32) * 0.1
+                bias.requires_grad_()
+
+                with torch.no_grad():
+                    expected = F.gelu(
+                        F.linear(x, weight, bias) + 0.0,
+                        approximate="tanh",
+                    )
+                    x_vulkan = x.to("vulkan")
+                    weight_vulkan = weight.to("vulkan")
+                    bias_vulkan = bias.to("vulkan")
+                    linear = F.linear(x_vulkan, weight_vulkan, bias_vulkan)
+                    materialized = linear + 0.0
+                    actual = F.gelu(materialized, approximate="tanh").cpu()
+
+                torch.testing.assert_close(actual, expected, atol=3e-4, rtol=3e-3)
+                print(float(actual.sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+                error_prefix="linear GELU bridge materialized input subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(op_hit_log_path))
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                op_hit_text = log_file.read()
+
+            self.assertIn("op=aten::binary_op.buffer_float", op_hit_text)
+            self.assertIn("op=aten::gelu.buffer_float", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.materialize", op_hit_text)
+        finally:
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
 
     def test_dav2_mlp_linear_gelu_bridge_uses_fused_shader(self):
         materialize_log_name = "dav2_mlp_linear_gelu_bridge_materialize_test.log"
