@@ -37,14 +37,17 @@ condition and migration target.
 - Migration target: `TransformerGQASDPAContract` with split prefill/decode
   legality, explicit scale/dropout/mask/GQA fields, and adjacent guard tests.
 
-### HY-MT-Derived KV Cache Append Names
+### KV Cache Append Exact Tuples
 
-- Location: `aten/src/ATen/native/vulkan/ops/Concat.cpp`
-- Status: migrate
-- Reason: helpers implement a reusable Transformer KV-cache append pattern but
-  retain HY-MT names.
-- Expiry: next concat/KV contract migration task.
-- Migration target: `KVCacheAppendContract` and `CatAxisContract`.
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  `aten/src/ATen/native/vulkan/ops/Concat.cpp`
+- Status: temporary, contract-named
+- Reason: finite Transformer KV-cache append rows are proven by existing cat
+  tests, but broader sequence/head/layout behavior is not proven yet.
+- Expiry: broader KV-cache append and cat-axis parity plus adjacent negative
+  coverage are available.
+- Migration target: generated `KVCacheAppendContract` and `CatAxisContract`
+  tables with positive and negative tests.
 
 ### HY-MT-Derived GQA Repeat Envelope
 

@@ -64,6 +64,19 @@ struct DiffusionSDPAMatch final {
   const char* tuple_id{nullptr};
 };
 
+enum class KVCacheAppendFamily : uint8_t {
+  None = 0u,
+  InitialCache,
+  SequenceAppend,
+};
+
+struct KVCacheAppendMatch final {
+  bool matched{false};
+  KVCacheAppendFamily family{KVCacheAppendFamily::None};
+  const char* tuple_id{nullptr};
+  int64_t sequence_length{0};
+};
+
 const char* small_spatial_pointwise_conv_family_name(
     SmallSpatialPointwiseConvFamily family);
 
@@ -182,6 +195,28 @@ bool matches_diffusion_sdpa_contract(
     bool is_causal,
     std::optional<double> scale,
     bool enable_gqa);
+
+const char* kv_cache_append_family_name(KVCacheAppendFamily family);
+
+const char* kv_cache_append_op_hit_label(KVCacheAppendFamily family);
+
+KVCacheAppendMatch match_kv_cache_append_contract(
+    IntArrayRef left_sizes,
+    IntArrayRef right_sizes,
+    ScalarType left_dtype,
+    ScalarType right_dtype,
+    bool left_is_vulkan,
+    bool right_is_vulkan,
+    int64_t dim);
+
+bool matches_kv_cache_append_contract(
+    IntArrayRef left_sizes,
+    IntArrayRef right_sizes,
+    ScalarType left_dtype,
+    ScalarType right_dtype,
+    bool left_is_vulkan,
+    bool right_is_vulkan,
+    int64_t dim);
 
 } // namespace utils
 } // namespace ops
