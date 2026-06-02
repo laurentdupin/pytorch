@@ -88,118 +88,6 @@ std::string sdpa_shape_summary(
   return out.str();
 }
 
-bool is_supported_tiny_float_mask_sdpa_shape(
-    const Tensor& query,
-    const Tensor& key,
-    const Tensor& value,
-    const std::optional<Tensor>& attn_mask,
-    const double dropout_p,
-    const bool is_causal,
-    const std::optional<double> scale,
-    const bool enable_gqa) {
-  constexpr double kHeadDim64Scale = 0.125;
-  if (
-      !attn_mask || !attn_mask->defined() || dropout_p != 0.0 ||
-      is_causal || enable_gqa || query.scalar_type() != kFloat ||
-      key.scalar_type() != kFloat || value.scalar_type() != kFloat ||
-      attn_mask->scalar_type() != kFloat || query.dim() != 4 ||
-      key.dim() != 4 || value.dim() != 4 || attn_mask->dim() != 4) {
-    return false;
-  }
-  if (scale.has_value() && std::abs(*scale - kHeadDim64Scale) > 1.0e-6) {
-    return false;
-  }
-  return query.size(0) == 1 && key.size(0) == 1 && value.size(0) == 1 &&
-      query.size(1) == 16 && key.size(1) == 16 && value.size(1) == 16 &&
-      query.size(2) == 2 && key.size(2) == 2 && value.size(2) == 2 &&
-      query.size(3) == 64 && key.size(3) == 64 && value.size(3) == 64 &&
-      attn_mask->size(0) == 1 && attn_mask->size(1) == 1 &&
-      attn_mask->size(2) == 2 && attn_mask->size(3) == 2;
-}
-
-bool is_supported_materialized_diffusion_sdpa_shape(
-    const Tensor& query,
-    const Tensor& key,
-    const Tensor& value,
-    const std::optional<Tensor>& attn_mask,
-    const double dropout_p,
-    const bool is_causal,
-    const std::optional<double> scale,
-    const bool enable_gqa) {
-  constexpr double kHeadDim512Scale = 0.04419417382415922;
-  constexpr double kHeadDim64Scale = 0.125;
-  if (
-      (attn_mask && attn_mask->defined()) || dropout_p != 0.0 ||
-      is_causal || enable_gqa || query.scalar_type() != kFloat ||
-      key.scalar_type() != kFloat || value.scalar_type() != kFloat ||
-      query.dim() != 4 || key.dim() != 4 || value.dim() != 4) {
-    return false;
-  }
-  if (
-      query.size(0) != 1 || key.size(0) != 1 || value.size(0) != 1 ||
-      query.size(1) != key.size(1) || query.size(1) != value.size(1) ||
-      query.size(2) != key.size(2) || query.size(2) != value.size(2) ||
-      query.size(3) != key.size(3) || query.size(3) != value.size(3)) {
-    return false;
-  }
-  const int64_t heads = query.size(1);
-  const int64_t sequence = query.size(2);
-  const int64_t head_dim = query.size(3);
-  const bool supported =
-      (heads == 1 && sequence == 640 && head_dim == 512) ||
-      (heads == 5 && sequence == 640 && head_dim == 64) ||
-      (heads == 1 && sequence == 504 && head_dim == 512) ||
-      (heads == 5 && sequence == 504 && head_dim == 64) ||
-      (heads == 10 && sequence == 126 && head_dim == 64) ||
-      (heads == 20 && sequence == 35 && head_dim == 64) ||
-      (heads == 20 && sequence == 12 && head_dim == 64);
-  if (!supported) {
-    return false;
-  }
-  if (scale.has_value()) {
-    const double expected_scale =
-        head_dim == 512 ? kHeadDim512Scale : kHeadDim64Scale;
-    if (std::abs(*scale - expected_scale) > 1.0e-6) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool is_supported_diffusion_cross_sdpa_shape(
-    const Tensor& query,
-    const Tensor& key,
-    const Tensor& value,
-    const std::optional<Tensor>& attn_mask,
-    const double dropout_p,
-    const bool is_causal,
-    const std::optional<double> scale,
-    const bool enable_gqa) {
-  constexpr double kHeadDim64Scale = 0.125;
-  if (
-      (attn_mask && attn_mask->defined()) || dropout_p != 0.0 ||
-      is_causal || enable_gqa || query.scalar_type() != kFloat ||
-      key.scalar_type() != kFloat || value.scalar_type() != kFloat ||
-      query.dim() != 4 || key.dim() != 4 || value.dim() != 4) {
-    return false;
-  }
-  if (scale.has_value() && std::abs(*scale - kHeadDim64Scale) > 1.0e-6) {
-    return false;
-  }
-  if (
-      query.size(0) != 1 || key.size(0) != 1 || value.size(0) != 1 ||
-      query.size(1) != key.size(1) || query.size(1) != value.size(1) ||
-      query.size(3) != 64 || key.size(3) != 64 || value.size(3) != 64 ||
-      key.size(2) != 2 || value.size(2) != 2) {
-    return false;
-  }
-  const int64_t heads = query.size(1);
-  const int64_t query_sequence = query.size(2);
-  return (heads == 5 && query_sequence == 504) ||
-      (heads == 10 && query_sequence == 126) ||
-      (heads == 20 && (query_sequence == 12 || query_sequence == 35));
-}
-
 bool is_supported_diffusion_sdpa_score_softmax_shape(
     const Tensor& input,
     const int64_t dim) {
@@ -407,6 +295,11 @@ VulkanRouteDecision select_sdpa_route(
       query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
   const VulkanRuntimePolicy runtime_policy = build_vulkan_runtime_policy(request);
   const VulkanModelLane lane = infer_model_lane(request);
+  const bool has_attn_mask = attn_mask && attn_mask->defined();
+  const IntArrayRef attn_mask_sizes =
+      has_attn_mask ? attn_mask->sizes() : IntArrayRef{};
+  const ScalarType attn_mask_dtype =
+      has_attn_mask ? attn_mask->scalar_type() : ScalarType::Undefined;
   const TransformerGQASDPAMatch transformer_gqa_sdpa_match =
       match_transformer_gqa_sdpa_contract(
           query.sizes(),
@@ -415,26 +308,47 @@ VulkanRouteDecision select_sdpa_route(
           query.scalar_type(),
           key.scalar_type(),
           value.scalar_type(),
-          attn_mask && attn_mask->defined(),
+          has_attn_mask,
           dropout_p,
           is_causal,
           scale,
           enable_gqa);
   const bool allow_transformer_gqa_sdpa =
       transformer_gqa_sdpa_match.matched;
-  const bool allow_tiny_float_mask =
-      is_supported_tiny_float_mask_sdpa_shape(
-          query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
-  const bool allow_materialized_diffusion =
-      is_supported_materialized_diffusion_sdpa_shape(
-          query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
-  const bool allow_diffusion_cross =
-      is_supported_diffusion_cross_sdpa_shape(
-          query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
+  const MaskedTinySDPAMatch masked_tiny_sdpa_match =
+      match_masked_tiny_sdpa_contract(
+          query.sizes(),
+          key.sizes(),
+          value.sizes(),
+          attn_mask_sizes,
+          query.scalar_type(),
+          key.scalar_type(),
+          value.scalar_type(),
+          attn_mask_dtype,
+          has_attn_mask,
+          dropout_p,
+          is_causal,
+          scale,
+          enable_gqa);
+  const bool allow_masked_tiny_sdpa = masked_tiny_sdpa_match.matched;
+  const DiffusionSDPAMatch diffusion_sdpa_match =
+      match_diffusion_sdpa_contract(
+          query.sizes(),
+          key.sizes(),
+          value.sizes(),
+          query.scalar_type(),
+          key.scalar_type(),
+          value.scalar_type(),
+          has_attn_mask,
+          dropout_p,
+          is_causal,
+          scale,
+          enable_gqa);
+  const bool allow_diffusion_sdpa = diffusion_sdpa_match.matched;
 
   if (
-      (attn_mask && attn_mask->defined() || is_causal || enable_gqa) &&
-      !allow_transformer_gqa_sdpa && !allow_tiny_float_mask) {
+      (has_attn_mask || is_causal || enable_gqa) &&
+      !allow_transformer_gqa_sdpa && !allow_masked_tiny_sdpa) {
     return make_hard_fail_route(
         "aten::scaled_dot_product_attention",
         VulkanRouteRejectReason::KnownBadSdpaMaskOrCausal,
@@ -454,8 +368,8 @@ VulkanRouteDecision select_sdpa_route(
 
   if (
       scale.has_value() && std::abs(*scale - 1.0) > 1.0e-9 &&
-      !allow_transformer_gqa_sdpa && !allow_tiny_float_mask &&
-      !allow_materialized_diffusion && !allow_diffusion_cross) {
+      !allow_transformer_gqa_sdpa && !allow_masked_tiny_sdpa &&
+      !allow_diffusion_sdpa) {
     return make_hard_fail_route(
         "aten::scaled_dot_product_attention",
         VulkanRouteRejectReason::KnownBadSdpaExplicitScale,
@@ -468,9 +382,8 @@ VulkanRouteDecision select_sdpa_route(
       device_policy.disable_generic_4d_sdpa &&
       lane != VulkanModelLane::LLM &&
       !allow_transformer_gqa_sdpa &&
-      !allow_tiny_float_mask &&
-      !allow_materialized_diffusion &&
-      !allow_diffusion_cross &&
+      !allow_masked_tiny_sdpa &&
+      !allow_diffusion_sdpa &&
       (query.dim() == 3 || query.dim() == 4)) {
     const int64_t target_len = query.size(query.dim() - 2);
     const int64_t source_len = key.size(key.dim() - 2);
@@ -496,11 +409,22 @@ VulkanRouteDecision select_sdpa_route(
   decision.reject_reason = VulkanRouteRejectReason::None;
   decision.runtime_policy = runtime_policy;
   decision.lane = lane;
-  decision.kernel_family =
-      allow_transformer_gqa_sdpa ? "transformer_gqa_sdpa" : "sdpa";
-  decision.telemetry_label = allow_transformer_gqa_sdpa
-      ? transformer_gqa_sdpa_route_label(transformer_gqa_sdpa_match.family)
-      : "SelectedSdpa";
+  if (allow_transformer_gqa_sdpa) {
+    decision.kernel_family = "transformer_gqa_sdpa";
+    decision.telemetry_label =
+        transformer_gqa_sdpa_route_label(transformer_gqa_sdpa_match.family);
+  } else if (allow_masked_tiny_sdpa) {
+    decision.kernel_family = "masked_tiny_sdpa";
+    decision.telemetry_label =
+        masked_tiny_sdpa_route_label(masked_tiny_sdpa_match.family);
+  } else if (allow_diffusion_sdpa) {
+    decision.kernel_family = "diffusion_sdpa";
+    decision.telemetry_label =
+        diffusion_sdpa_route_label(diffusion_sdpa_match.family);
+  } else {
+    decision.kernel_family = "sdpa";
+    decision.telemetry_label = "SelectedSdpa";
+  }
   decision.shape_summary = shape_summary;
   decision.device_summary = describe_device_policy(device_policy);
   log_route_decision("aten::scaled_dot_product_attention", decision);

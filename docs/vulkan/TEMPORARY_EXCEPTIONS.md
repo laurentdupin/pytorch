@@ -57,8 +57,9 @@ condition and migration target.
 
 ### Diffusion SDPA Exact Tuples
 
-- Location: SDPA route policy and Lotus diffusion contract drafts
-- Status: temporary
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  Lotus diffusion contract drafts
+- Status: temporary, contract-named
 - Reason: materialization requirements differ by tuple, so enabling by formula
   is not justified yet.
 - Expiry: broader parity and materialization census covers adjacent diffusion
@@ -68,8 +69,8 @@ condition and migration target.
 
 ### Tiny Mask SDPA Tuple
 
-- Location: SDPA route policy
-- Status: temporary
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`
+- Status: temporary, contract-named
 - Reason: a tiny additive-mask shape is proven, but mask-family behavior is not
   broad enough to merge into diffusion SDPA.
 - Expiry: mask-family parity and negative tests are available.

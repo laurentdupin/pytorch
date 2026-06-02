@@ -41,6 +41,29 @@ struct TransformerGQASDPAMatch final {
   const char* tuple_id{nullptr};
 };
 
+enum class MaskedTinySDPAFamily : uint8_t {
+  None = 0u,
+  AdditiveFloatMask,
+};
+
+struct MaskedTinySDPAMatch final {
+  bool matched{false};
+  MaskedTinySDPAFamily family{MaskedTinySDPAFamily::None};
+  const char* tuple_id{nullptr};
+};
+
+enum class DiffusionSDPAFamily : uint8_t {
+  None = 0u,
+  SquareSelfAttention,
+  CrossAttention,
+};
+
+struct DiffusionSDPAMatch final {
+  bool matched{false};
+  DiffusionSDPAFamily family{DiffusionSDPAFamily::None};
+  const char* tuple_id{nullptr};
+};
+
 const char* small_spatial_pointwise_conv_family_name(
     SmallSpatialPointwiseConvFamily family);
 
@@ -88,6 +111,66 @@ TransformerGQASDPAMatch match_transformer_gqa_sdpa_contract(
     bool enable_gqa);
 
 bool matches_transformer_gqa_sdpa_contract(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa);
+
+const char* masked_tiny_sdpa_route_label(MaskedTinySDPAFamily family);
+
+MaskedTinySDPAMatch match_masked_tiny_sdpa_contract(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    IntArrayRef attn_mask_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    ScalarType attn_mask_dtype,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa);
+
+bool matches_masked_tiny_sdpa_contract(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    IntArrayRef attn_mask_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    ScalarType attn_mask_dtype,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa);
+
+const char* diffusion_sdpa_route_label(DiffusionSDPAFamily family);
+
+DiffusionSDPAMatch match_diffusion_sdpa_contract(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa);
+
+bool matches_diffusion_sdpa_contract(
     IntArrayRef query_sizes,
     IntArrayRef key_sizes,
     IntArrayRef value_sizes,
