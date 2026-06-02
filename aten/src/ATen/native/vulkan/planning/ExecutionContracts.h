@@ -64,6 +64,28 @@ struct DiffusionSDPAMatch final {
   const char* tuple_id{nullptr};
 };
 
+enum class SDPAExecutionPolicyFamily : uint8_t {
+  None = 0u,
+  DiffusionMaterializedSquare,
+  DiffusionCloneOnlySquare,
+  TransformerDecodeGQACloneOnly,
+};
+
+struct SDPAExecutionPolicyMatch final {
+  bool matched{false};
+  SDPAExecutionPolicyFamily family{SDPAExecutionPolicyFamily::None};
+  const char* tuple_id{nullptr};
+  bool requires_materialized_math_path{false};
+  bool requires_score_pre_materialization{false};
+  bool requires_post_softmax_clone{false};
+};
+
+struct GQARepeatMatch final {
+  bool matched{false};
+  const char* tuple_id{nullptr};
+  int64_t sequence_length{0};
+};
+
 enum class KVCacheAppendFamily : uint8_t {
   None = 0u,
   InitialCache,
@@ -210,6 +232,41 @@ bool matches_diffusion_sdpa_contract(
     bool is_causal,
     std::optional<double> scale,
     bool enable_gqa);
+
+const char* sdpa_execution_policy_family_name(
+    SDPAExecutionPolicyFamily family);
+
+SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa);
+
+bool matches_sdpa_buffer_softmax_score_contract(
+    IntArrayRef input_sizes,
+    ScalarType input_dtype,
+    int64_t dim);
+
+GQARepeatMatch match_gqa_repeat_contract(
+    IntArrayRef tensor_sizes,
+    ScalarType tensor_dtype,
+    bool tensor_is_vulkan,
+    bool tensor_has_buffer_storage,
+    int64_t repeat_factor);
+
+bool matches_gqa_repeat_contract(
+    IntArrayRef tensor_sizes,
+    ScalarType tensor_dtype,
+    bool tensor_is_vulkan,
+    bool tensor_has_buffer_storage,
+    int64_t repeat_factor);
 
 const char* kv_cache_append_family_name(KVCacheAppendFamily family);
 

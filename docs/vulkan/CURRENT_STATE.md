@@ -62,11 +62,15 @@ These files are diagnostic inputs. Production code must not depend on
   sequence append.
 - `UNetChannelConcatContract`: mostly generic already; keep model provenance in
   tests/docs.
-- `GQARepeatContract`: proposed migration target for bounded K/V head repeat.
+- `GQARepeatContract`: finite bounded K/V head repeat contract; keep exact
+  rows until broader legality is proven.
 - `BatchNormInferenceContract`: already contract-shaped for float32 4D
   inference batch norm.
 - `DiffusionSDPAContract` and `DiffusionCrossAttentionContract`: finite
   explicit tuple contracts until broader materialization behavior is proven.
+- `SDPAExecutionPolicyContract`: finite execution materialization, softmax
+  score, post-softmax clone, and repeat policy contract; keep exact rows until
+  broader layout-transition behavior is proven.
 - `SafeViewReshapeMaterializationContract`: mostly generic; document alias,
   dense materialization, storage-offset, and provenance rules.
 - DAv2 region/stack contracts: best current example of shape keys, capability

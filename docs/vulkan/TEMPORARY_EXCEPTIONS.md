@@ -62,14 +62,31 @@ condition and migration target.
 - Migration target: generated `EmbeddingLookupContract` tables with positive
   and negative tests.
 
-### HY-MT-Derived GQA Repeat Envelope
+### GQA Repeat Exact Tuples
 
-- Location: SDPA/GQA repeat materialization helpers
-- Status: migrate
-- Reason: bounded repeat `[1,4,S,128]` to `[1,16,S,128]` is a reusable
-  Transformer contract, while direct decode GQA remains disabled.
-- Expiry: next SDPA materialization contract task.
-- Migration target: `GQARepeatContract`.
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  `aten/src/ATen/native/vulkan/ops/Softmax.cpp`
+- Status: temporary, contract-named
+- Reason: bounded repeat `[1,4,S,128]` to `[1,16,S,128]` is proven for the
+  current Transformer decode envelope, but broader GQA materialization behavior
+  is not proven yet.
+- Expiry: broader GQA repeat parity plus adjacent negative coverage are
+  available.
+- Migration target: generated `GQARepeatContract` tables with positive and
+  negative tests.
+
+### SDPA Execution Policy Exact Tuples
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  `aten/src/ATen/native/vulkan/ops/Softmax.cpp`
+- Status: temporary, contract-named
+- Reason: materialization, repeat, and post-softmax clone decisions are proven
+  for finite SDPA execution envelopes, but broader layout-transition behavior is
+  not proven yet.
+- Expiry: broader SDPA execution/layout parity plus adjacent negative coverage
+  are available.
+- Migration target: generated `SDPAExecutionPolicyContract` tables with
+  positive and negative tests.
 
 ### Diffusion SDPA Exact Tuples
 

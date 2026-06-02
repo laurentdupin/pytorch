@@ -88,20 +88,6 @@ std::string sdpa_shape_summary(
   return out.str();
 }
 
-bool is_supported_diffusion_sdpa_score_softmax_shape(
-    const Tensor& input,
-    const int64_t dim) {
-  if (
-      input.scalar_type() != kFloat || input.dim() != 3 ||
-      dim != input.dim() - 1 || input.size(1) != input.size(2)) {
-    return false;
-  }
-  const int64_t heads = input.size(0);
-  const int64_t sequence = input.size(1);
-  return (heads == 1 && (sequence == 504 || sequence == 640)) ||
-      (heads == 5 && (sequence == 504 || sequence == 640));
-}
-
 std::string hard_fail_detail(const VulkanRouteDecision& decision) {
   std::ostringstream out;
   out << "lane=" << model_lane_name(decision.lane);
@@ -258,7 +244,8 @@ VulkanRouteDecision select_softmax_route(
     const VulkanDevicePolicy& device_policy) {
   if (
       input.dim() == 3 && dim == input.dim() - 1 && input.size(dim) >= 64 &&
-      !is_supported_diffusion_sdpa_score_softmax_shape(input, dim)) {
+      !matches_sdpa_buffer_softmax_score_contract(
+          input.sizes(), input.scalar_type(), dim)) {
     return make_hard_fail_route(
         "aten::_softmax",
         VulkanRouteRejectReason::KnownBadBufferLastDimSoftmax,

@@ -57,6 +57,15 @@ constexpr const char* kEmbeddingLookupTokenBatch1TupleId =
 constexpr const char* kEmbeddingLookupSmallBoundedTupleId =
     "small_bounded_vocab4096_dim256_indices128";
 
+constexpr int64_t kGQARepeatBatch = 1;
+constexpr int64_t kGQARepeatSourceHeads = 4;
+constexpr int64_t kGQARepeatFactor = 4;
+constexpr int64_t kGQARepeatMinSequence = 100;
+constexpr int64_t kGQARepeatMaxSequence = 116;
+constexpr int64_t kGQARepeatHeadDim = 128;
+constexpr const char* kGQARepeatTupleId =
+    "gqa_repeat_batch1_heads4_factor4_sequence100_to_116_dim128";
+
 constexpr SmallSpatialPointwiseConvTuple kSmallSpatialPointwiseConvTuples[] = {
     {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 15, 10, 192, "depth_projection_384_15x10_192"},
     {SmallSpatialPointwiseConvFamily::DepthVisionProjection, 384, 15, 10, 384, "depth_projection_384_15x10_384"},
@@ -536,6 +545,166 @@ bool matches_diffusion_sdpa_contract(
              is_causal,
              scale,
              enable_gqa)
+      .matched;
+}
+
+const char* sdpa_execution_policy_family_name(
+    const SDPAExecutionPolicyFamily family) {
+  switch (family) {
+    case SDPAExecutionPolicyFamily::DiffusionMaterializedSquare:
+      return "SDPAExecutionDiffusionMaterializedSquare";
+    case SDPAExecutionPolicyFamily::DiffusionCloneOnlySquare:
+      return "SDPAExecutionDiffusionCloneOnlySquare";
+    case SDPAExecutionPolicyFamily::TransformerDecodeGQACloneOnly:
+      return "SDPAExecutionTransformerDecodeGQACloneOnly";
+    case SDPAExecutionPolicyFamily::None:
+      return "SDPAExecutionNone";
+  }
+  return "SDPAExecutionNone";
+}
+
+SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
+    const IntArrayRef query_sizes,
+    const IntArrayRef key_sizes,
+    const IntArrayRef value_sizes,
+    const ScalarType query_dtype,
+    const ScalarType key_dtype,
+    const ScalarType value_dtype,
+    const bool has_attn_mask,
+    const double dropout_p,
+    const bool is_causal,
+    const std::optional<double> scale,
+    const bool enable_gqa) {
+  SDPAExecutionPolicyMatch result;
+  if (
+      has_attn_mask || dropout_p != 0.0 ||
+      query_dtype != kFloat || key_dtype != kFloat || value_dtype != kFloat ||
+      query_sizes.size() != 4 || key_sizes.size() != 4 ||
+      value_sizes.size() != 4 || query_sizes[0] != 1 ||
+      key_sizes[0] != 1 || value_sizes[0] != 1 ||
+      key_sizes[2] != value_sizes[2] || query_sizes[3] != key_sizes[3] ||
+      query_sizes[3] != value_sizes[3]) {
+    return result;
+  }
+
+  if (!is_causal && !enable_gqa) {
+    const DiffusionSDPAMatch diffusion_match = match_diffusion_sdpa_contract(
+        query_sizes,
+        key_sizes,
+        value_sizes,
+        query_dtype,
+        key_dtype,
+        value_dtype,
+        has_attn_mask,
+        dropout_p,
+        is_causal,
+        scale,
+        enable_gqa);
+    if (
+        diffusion_match.matched &&
+        diffusion_match.family == DiffusionSDPAFamily::SquareSelfAttention) {
+      if (
+          query_sizes[1] == 1 &&
+          (query_sizes[2] == 504 || query_sizes[2] == 640) &&
+          query_sizes[3] == 512) {
+        result.matched = true;
+        result.family = SDPAExecutionPolicyFamily::DiffusionMaterializedSquare;
+        result.tuple_id = diffusion_match.tuple_id;
+        result.requires_score_pre_materialization = true;
+        result.requires_post_softmax_clone = true;
+        return result;
+      }
+      if (
+          query_sizes[1] == 5 &&
+          (query_sizes[2] == 504 || query_sizes[2] == 640) &&
+          query_sizes[3] == 64) {
+        result.matched = true;
+        result.family = SDPAExecutionPolicyFamily::DiffusionMaterializedSquare;
+        result.tuple_id = diffusion_match.tuple_id;
+        result.requires_score_pre_materialization = true;
+        result.requires_post_softmax_clone = true;
+        return result;
+      }
+      if (
+          query_sizes[1] == 10 && query_sizes[2] == 126 &&
+          query_sizes[3] == 64) {
+        result.matched = true;
+        result.family = SDPAExecutionPolicyFamily::DiffusionCloneOnlySquare;
+        result.tuple_id = diffusion_match.tuple_id;
+        result.requires_materialized_math_path = true;
+        result.requires_post_softmax_clone = true;
+        return result;
+      }
+    }
+  }
+
+  if (
+      !is_causal && enable_gqa && query_sizes[1] == 16 &&
+      key_sizes[1] == 16 && value_sizes[1] == 16 &&
+      query_sizes[2] == 1 && key_sizes[2] >= 100 &&
+      key_sizes[2] <= 116 && query_sizes[3] == 128) {
+    result.matched = true;
+    result.family = SDPAExecutionPolicyFamily::TransformerDecodeGQACloneOnly;
+    result.tuple_id = "transformer_decode_gqa_clone_only_head128_source100_to_116";
+    result.requires_post_softmax_clone = true;
+    return result;
+  }
+
+  return result;
+}
+
+bool matches_sdpa_buffer_softmax_score_contract(
+    const IntArrayRef input_sizes,
+    const ScalarType input_dtype,
+    const int64_t dim) {
+  if (
+      input_dtype != kFloat || input_sizes.size() != 3 ||
+      dim != static_cast<int64_t>(input_sizes.size()) - 1 ||
+      input_sizes[1] != input_sizes[2]) {
+    return false;
+  }
+  const int64_t heads = input_sizes[0];
+  const int64_t sequence = input_sizes[1];
+  return (heads == 1 && (sequence == 504 || sequence == 640)) ||
+      (heads == 5 && (sequence == 504 || sequence == 640));
+}
+
+GQARepeatMatch match_gqa_repeat_contract(
+    const IntArrayRef tensor_sizes,
+    const ScalarType tensor_dtype,
+    const bool tensor_is_vulkan,
+    const bool tensor_has_buffer_storage,
+    const int64_t repeat_factor) {
+  GQARepeatMatch result;
+  if (
+      !tensor_is_vulkan || !tensor_has_buffer_storage ||
+      tensor_dtype != kFloat || tensor_sizes.size() != 4 ||
+      repeat_factor != kGQARepeatFactor ||
+      tensor_sizes[0] != kGQARepeatBatch ||
+      tensor_sizes[1] != kGQARepeatSourceHeads ||
+      tensor_sizes[2] < kGQARepeatMinSequence ||
+      tensor_sizes[2] > kGQARepeatMaxSequence ||
+      tensor_sizes[3] != kGQARepeatHeadDim) {
+    return result;
+  }
+  result.matched = true;
+  result.tuple_id = kGQARepeatTupleId;
+  result.sequence_length = tensor_sizes[2];
+  return result;
+}
+
+bool matches_gqa_repeat_contract(
+    const IntArrayRef tensor_sizes,
+    const ScalarType tensor_dtype,
+    const bool tensor_is_vulkan,
+    const bool tensor_has_buffer_storage,
+    const int64_t repeat_factor) {
+  return match_gqa_repeat_contract(
+             tensor_sizes,
+             tensor_dtype,
+             tensor_is_vulkan,
+             tensor_has_buffer_storage,
+             repeat_factor)
       .matched;
 }
 
