@@ -5,6 +5,7 @@
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <torch/library.h>
 
 #include <algorithm>
@@ -166,6 +167,35 @@ namespace {
 
 using namespace api::utils;
 
+utils::BatchNormInferenceTensorInfo make_batch_norm_inference_tensor_info(
+    const Tensor& tensor) {
+  utils::BatchNormInferenceTensorInfo info;
+  info.has_value = true;
+  info.defined = tensor.defined();
+  if (!info.defined) {
+    return info;
+  }
+  info.is_vulkan = tensor.is_vulkan();
+  info.dtype = tensor.scalar_type();
+  info.dim = tensor.dim();
+  info.channels = tensor.dim() > 1 ? tensor.size(1) : 0;
+  info.numel = tensor.numel();
+  info.is_contiguous = tensor.is_contiguous();
+  if (tensor.is_vulkan()) {
+    info.has_buffer_storage =
+        convert(tensor).storage_type() == api::StorageType::BUFFER;
+  }
+  return info;
+}
+
+utils::BatchNormInferenceTensorInfo make_batch_norm_inference_tensor_info(
+    const std::optional<Tensor>& tensor) {
+  if (!tensor.has_value()) {
+    return {};
+  }
+  return make_batch_norm_inference_tensor_info(*tensor);
+}
+
 Tensor batch_norm(
     const at::Tensor& input_arg,
     const std::optional<Tensor>& weight_opt /* optional */,
@@ -181,61 +211,29 @@ Tensor batch_norm(
   const auto is_defined = [](const std::optional<Tensor>& tensor) {
     return tensor.has_value() && tensor->defined();
   };
-  const auto is_optional_vulkan_float_1d =
-      [](const std::optional<Tensor>& tensor, const int64_t num_features) {
-        return !tensor.has_value() ||
-            (
-                tensor->defined() &&
-                tensor->is_vulkan() &&
-                tensor->scalar_type() == at::kFloat &&
-                tensor->dim() == 1 &&
-                tensor->numel() == num_features &&
-                tensor->is_contiguous());
-      };
-  const bool can_use_native =
-      input_arg.is_vulkan() &&
-      input_arg.scalar_type() == at::kFloat &&
-      input_arg.dim() == 4 &&
-      input_arg.is_contiguous() &&
-      is_defined(running_mean_opt) &&
-      is_defined(running_var_opt) &&
-      running_mean_opt->is_vulkan() &&
-      running_var_opt->is_vulkan() &&
-      running_mean_opt->scalar_type() == at::kFloat &&
-      running_var_opt->scalar_type() == at::kFloat &&
-      running_mean_opt->dim() == 1 &&
-      running_var_opt->dim() == 1 &&
-      running_mean_opt->numel() == input_arg.size(1) &&
-      running_var_opt->numel() == input_arg.size(1) &&
-      running_mean_opt->is_contiguous() &&
-      running_var_opt->is_contiguous() &&
-      is_optional_vulkan_float_1d(weight_opt, input_arg.size(1)) &&
-      is_optional_vulkan_float_1d(bias_opt, input_arg.size(1));
 
-  if (can_use_native) {
+  const utils::BatchNormInferenceMatch batch_norm_match =
+      utils::match_batch_norm_inference_contract(
+          make_batch_norm_inference_tensor_info(input_arg),
+          make_batch_norm_inference_tensor_info(weight_opt),
+          make_batch_norm_inference_tensor_info(bias_opt),
+          make_batch_norm_inference_tensor_info(running_mean_opt),
+          make_batch_norm_inference_tensor_info(running_var_opt),
+          training);
+
+  if (batch_norm_match.matched) {
     const Tensor weight_arg =
         is_defined(weight_opt) ? *weight_opt : *running_mean_opt;
     const Tensor bias_arg = is_defined(bias_opt) ? *bias_opt : *running_mean_opt;
-    const vTensor& v_input = convert(input_arg);
-    const vTensor& v_weight = convert(weight_arg);
-    const vTensor& v_bias = convert(bias_arg);
-    const vTensor& v_running_mean = convert(*running_mean_opt);
-    const vTensor& v_running_var = convert(*running_var_opt);
-    if (v_input.storage_type() == api::StorageType::BUFFER &&
-        v_weight.storage_type() == api::StorageType::BUFFER &&
-        v_bias.storage_type() == api::StorageType::BUFFER &&
-        v_running_mean.storage_type() == api::StorageType::BUFFER &&
-        v_running_var.storage_type() == api::StorageType::BUFFER) {
-      return batchnorm::run_buffer_op(
-          input_arg,
-          weight_arg,
-          bias_arg,
-          *running_mean_opt,
-          *running_var_opt,
-          eps,
-          is_defined(weight_opt),
-          is_defined(bias_opt));
-    }
+    return batchnorm::run_buffer_op(
+        input_arg,
+        weight_arg,
+        bias_arg,
+        *running_mean_opt,
+        *running_var_opt,
+        eps,
+        is_defined(weight_opt),
+        is_defined(bias_opt));
   }
 
   const Device output_device = input_arg.device();

@@ -132,6 +132,30 @@ struct EmbeddingLookupMatch final {
   int64_t num_indices{0};
 };
 
+struct BatchNormInferenceTensorInfo final {
+  bool has_value{false};
+  bool defined{false};
+  bool is_vulkan{false};
+  ScalarType dtype{kFloat};
+  int64_t dim{0};
+  int64_t channels{0};
+  int64_t numel{0};
+  bool is_contiguous{false};
+  bool has_buffer_storage{false};
+};
+
+enum class BatchNormInferenceFamily : uint8_t {
+  None = 0u,
+  BufferFloat4D,
+};
+
+struct BatchNormInferenceMatch final {
+  bool matched{false};
+  BatchNormInferenceFamily family{BatchNormInferenceFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+};
+
 enum class SafeViewReshapeFamily : uint8_t {
   None = 0u,
   ViewMaterializedDirectBuffer,
@@ -349,6 +373,25 @@ bool matches_embedding_lookup_contract(
     bool padding_idx_has_hint,
     bool scale_grad_by_freq,
     bool sparse);
+
+const char* batch_norm_inference_family_name(
+    BatchNormInferenceFamily family);
+
+BatchNormInferenceMatch match_batch_norm_inference_contract(
+    const BatchNormInferenceTensorInfo& input,
+    const BatchNormInferenceTensorInfo& weight,
+    const BatchNormInferenceTensorInfo& bias,
+    const BatchNormInferenceTensorInfo& running_mean,
+    const BatchNormInferenceTensorInfo& running_var,
+    bool training);
+
+bool matches_batch_norm_inference_contract(
+    const BatchNormInferenceTensorInfo& input,
+    const BatchNormInferenceTensorInfo& weight,
+    const BatchNormInferenceTensorInfo& bias,
+    const BatchNormInferenceTensorInfo& running_mean,
+    const BatchNormInferenceTensorInfo& running_var,
+    bool training);
 
 const char* safe_view_reshape_family_name(SafeViewReshapeFamily family);
 
