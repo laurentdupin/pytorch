@@ -132,6 +132,18 @@ struct EmbeddingLookupMatch final {
   int64_t num_indices{0};
 };
 
+enum class SafeViewReshapeFamily : uint8_t {
+  None = 0u,
+  ReshapeAliasDenseBufferDirect,
+};
+
+struct SafeViewReshapeMatch final {
+  bool matched{false};
+  SafeViewReshapeFamily family{SafeViewReshapeFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+};
+
 bool has_complete_execution_contract_metadata(
     const ExecutionContractMetadata* metadata);
 
@@ -336,6 +348,26 @@ bool matches_embedding_lookup_contract(
     bool padding_idx_has_hint,
     bool scale_grad_by_freq,
     bool sparse);
+
+const char* safe_view_reshape_family_name(SafeViewReshapeFamily family);
+
+SafeViewReshapeMatch match_safe_view_reshape_contract(
+    IntArrayRef input_sizes,
+    IntArrayRef input_logical_strides,
+    IntArrayRef output_sizes,
+    IntArrayRef output_strides,
+    bool input_is_float,
+    bool input_has_buffer_storage,
+    int64_t storage_offset);
+
+bool matches_safe_view_reshape_contract(
+    IntArrayRef input_sizes,
+    IntArrayRef input_logical_strides,
+    IntArrayRef output_sizes,
+    IntArrayRef output_strides,
+    bool input_is_float,
+    bool input_has_buffer_storage,
+    int64_t storage_offset);
 
 } // namespace utils
 } // namespace ops

@@ -1,7 +1,11 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 
+#include <c10/util/Exception.h>
+
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -72,6 +76,8 @@ constexpr const char* kMaterializationKVCacheAppendBuffer =
     "kv_cache_append_buffer_kernel";
 constexpr const char* kMaterializationEmbeddingLookupBuffer =
     "embedding_lookup_buffer_kernel";
+constexpr const char* kMaterializationReshapeAliasDirectBuffer =
+    "reshape_alias_materialized_direct_buffer";
 
 constexpr double kTransformerHeadDim128Scale = 0.08838834764831845;
 constexpr double kHeadDim64Scale = 0.125;
@@ -195,6 +201,19 @@ constexpr ExecutionContractMetadata kEmbeddingLookupSmallBoundedMetadata =
         "embedding_lookup_adjacent_guards",
         kFallbackUnsupportedShapesDoNotMatch,
         kMaterializationEmbeddingLookupBuffer);
+
+constexpr const char* kSafeViewReshapeAliasDenseBufferDirectTupleId =
+    "materialized_direct_buffer_reshape";
+constexpr ExecutionContractMetadata
+    kSafeViewReshapeAliasDenseBufferDirectMetadata =
+        make_execution_contract_metadata(
+            "SafeViewReshapeContract",
+            "ReshapeAliasDenseBufferDirect",
+            kSafeViewReshapeAliasDenseBufferDirectTupleId,
+            "reshape_alias_direct_buffer_focused_tests",
+            "reshape_alias_direct_buffer_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationReshapeAliasDirectBuffer);
 
 constexpr int64_t kGQARepeatBatch = 1;
 constexpr int64_t kGQARepeatSourceHeads = 4;
@@ -493,6 +512,30 @@ bool matches_kv_cache_token_shape(const IntArrayRef sizes) {
 
 bool matches_empty_initial_cache_shape(const IntArrayRef sizes) {
   return sizes.size() == 1 && sizes[0] == 0;
+}
+
+bool is_non_overlapping_dense_stride(
+    const IntArrayRef sizes,
+    const IntArrayRef strides) {
+  TORCH_INTERNAL_ASSERT(sizes.size() == strides.size());
+  std::vector<size_t> dims;
+  dims.reserve(sizes.size());
+  for (size_t i = 0; i < sizes.size(); ++i) {
+    if (sizes[i] > 1) {
+      dims.push_back(i);
+    }
+  }
+  std::sort(dims.begin(), dims.end(), [&](const size_t lhs, const size_t rhs) {
+    return strides[lhs] < strides[rhs];
+  });
+  int64_t expected_stride = 1;
+  for (const size_t dim : dims) {
+    if (strides[dim] != expected_stride) {
+      return false;
+    }
+    expected_stride *= sizes[dim];
+  }
+  return true;
 }
 
 int64_t product_of_sizes(const IntArrayRef sizes) {
@@ -1266,6 +1309,69 @@ bool matches_embedding_lookup_contract(
              padding_idx_has_hint,
              scale_grad_by_freq,
              sparse)
+      .matched;
+}
+
+const char* safe_view_reshape_family_name(
+    const SafeViewReshapeFamily family) {
+  switch (family) {
+    case SafeViewReshapeFamily::ReshapeAliasDenseBufferDirect:
+      return "SafeViewReshapeReshapeAliasDenseBufferDirect";
+    case SafeViewReshapeFamily::None:
+      return "SafeViewReshapeNone";
+  }
+  return "SafeViewReshapeNone";
+}
+
+SafeViewReshapeMatch match_safe_view_reshape_contract(
+    const IntArrayRef input_sizes,
+    const IntArrayRef input_logical_strides,
+    const IntArrayRef output_sizes,
+    const IntArrayRef output_strides,
+    const bool input_is_float,
+    const bool input_has_buffer_storage,
+    const int64_t storage_offset) {
+  SafeViewReshapeMatch result;
+  if (
+      !input_is_float || !input_has_buffer_storage ||
+      input_sizes.size() > 4 || output_sizes.size() > 5 ||
+      storage_offset != 0 ||
+      !is_non_overlapping_dense_stride(input_sizes, input_logical_strides) ||
+      !is_non_overlapping_dense_stride(output_sizes, output_strides)) {
+    return result;
+  }
+
+  if (product_of_sizes(input_sizes) != product_of_sizes(output_sizes)) {
+    return result;
+  }
+
+  if (!output_sizes.empty() && output_sizes.back() % 4 != 0) {
+    return result;
+  }
+
+  result.matched = true;
+  result.family = SafeViewReshapeFamily::ReshapeAliasDenseBufferDirect;
+  result.tuple_id = kSafeViewReshapeAliasDenseBufferDirectTupleId;
+  result.metadata = &kSafeViewReshapeAliasDenseBufferDirectMetadata;
+  return result;
+}
+
+bool matches_safe_view_reshape_contract(
+    const IntArrayRef input_sizes,
+    const IntArrayRef input_logical_strides,
+    const IntArrayRef output_sizes,
+    const IntArrayRef output_strides,
+    const bool input_is_float,
+    const bool input_has_buffer_storage,
+    const int64_t storage_offset) {
+  return match_safe_view_reshape_contract(
+             input_sizes,
+             input_logical_strides,
+             output_sizes,
+             output_strides,
+             input_is_float,
+             input_has_buffer_storage,
+             storage_offset)
       .matched;
 }
 

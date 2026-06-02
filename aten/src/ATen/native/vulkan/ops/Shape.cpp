@@ -12,6 +12,7 @@
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <algorithm>
 #include <optional>
 #include <torch/library.h>
@@ -27,29 +28,6 @@ bool is_contiguous_stride(
     IntArrayRef sizes,
     IntArrayRef strides) {
   return strides.equals(c10::contiguous_strides(sizes));
-}
-
-bool is_non_overlapping_dense_stride(IntArrayRef sizes, IntArrayRef strides) {
-  TORCH_INTERNAL_ASSERT(sizes.size() == strides.size());
-  std::vector<size_t> dims;
-  dims.reserve(sizes.size());
-  for (const auto i : c10::irange(sizes.size())) {
-    if (sizes[i] > 1) {
-      dims.push_back(i);
-    }
-  }
-  std::sort(dims.begin(), dims.end(), [&](const size_t a, const size_t b) {
-    return strides[a] < strides[b];
-  });
-
-  int64_t required_stride = 1;
-  for (const size_t dim : dims) {
-    if (strides[dim] != required_stride) {
-      return false;
-    }
-    required_stride *= sizes[dim];
-  }
-  return true;
 }
 
 bool is_vulkan_logically_contiguous(const Tensor& tensor) {
@@ -235,23 +213,14 @@ bool can_use_materialized_direct_buffer_reshape_alias(
     IntArrayRef output_size,
     IntArrayRef output_stride,
     const int64_t storage_offset) {
-  if (
-      v_self.dtype() != api::kFloat ||
-      v_self.storage_type() != api::StorageType::BUFFER ||
-      v_self.sizes().size() > 4 || output_size.size() > 5 ||
-      storage_offset != 0 ||
-      !is_non_overlapping_dense_stride(v_self.sizes(), logical_strides(v_self)) ||
-      !is_non_overlapping_dense_stride(output_size, output_stride)) {
-    return false;
-  }
-
-  if (
-      c10::multiply_integers(v_self.sizes()) !=
-      c10::multiply_integers(output_size)) {
-    return false;
-  }
-
-  return output_size.empty() || output_size.back() % 4 == 0;
+  return utils::matches_safe_view_reshape_contract(
+      v_self.sizes(),
+      logical_strides(v_self),
+      output_size,
+      output_stride,
+      v_self.dtype() == api::kFloat,
+      v_self.storage_type() == api::StorageType::BUFFER,
+      storage_offset);
 }
 
 Tensor reshape_contiguous_as_direct_buffer(
