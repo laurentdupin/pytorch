@@ -134,6 +134,7 @@ struct EmbeddingLookupMatch final {
 
 enum class SafeViewReshapeFamily : uint8_t {
   None = 0u,
+  ViewMaterializedDirectBuffer,
   ReshapeAliasDenseBufferDirect,
 };
 
@@ -367,6 +368,18 @@ bool matches_safe_view_reshape_contract(
     IntArrayRef output_strides,
     bool input_is_float,
     bool input_has_buffer_storage,
+    int64_t storage_offset);
+
+SafeViewReshapeMatch match_safe_view_reshape_materialized_direct_buffer_contract(
+    IntArrayRef input_sizes,
+    IntArrayRef output_sizes,
+    IntArrayRef output_strides,
+    int64_t storage_offset);
+
+bool matches_safe_view_reshape_materialized_direct_buffer_contract(
+    IntArrayRef input_sizes,
+    IntArrayRef output_sizes,
+    IntArrayRef output_strides,
     int64_t storage_offset);
 
 } // namespace utils

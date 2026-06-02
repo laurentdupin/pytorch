@@ -193,19 +193,8 @@ bool can_use_materialized_direct_buffer_reshape(
     IntArrayRef output_size,
     IntArrayRef output_stride,
     const int64_t storage_offset) {
-  if (
-      v_self.sizes().size() > 4 || output_size.size() > 5 || storage_offset != 0 ||
-      !is_contiguous_stride(output_size, output_stride)) {
-    return false;
-  }
-
-  if (
-      c10::multiply_integers(v_self.sizes()) !=
-      c10::multiply_integers(output_size)) {
-    return false;
-  }
-
-  return output_size.empty() || output_size.back() % 4 == 0;
+  return utils::matches_safe_view_reshape_materialized_direct_buffer_contract(
+      v_self.sizes(), output_size, output_stride, storage_offset);
 }
 
 bool can_use_materialized_direct_buffer_reshape_alias(

@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 
 #include <c10/util/Exception.h>
+#include <c10/util/strides.h>
 
 #include <algorithm>
 #include <cmath>
@@ -78,6 +79,8 @@ constexpr const char* kMaterializationEmbeddingLookupBuffer =
     "embedding_lookup_buffer_kernel";
 constexpr const char* kMaterializationReshapeAliasDirectBuffer =
     "reshape_alias_materialized_direct_buffer";
+constexpr const char* kMaterializationViewDirectBuffer =
+    "view_materialized_direct_buffer";
 
 constexpr double kTransformerHeadDim128Scale = 0.08838834764831845;
 constexpr double kHeadDim64Scale = 0.125;
@@ -204,6 +207,18 @@ constexpr ExecutionContractMetadata kEmbeddingLookupSmallBoundedMetadata =
 
 constexpr const char* kSafeViewReshapeAliasDenseBufferDirectTupleId =
     "materialized_direct_buffer_reshape";
+constexpr const char* kSafeViewReshapeViewMaterializedDirectBufferTupleId =
+    "materialized_direct_buffer_reshape";
+constexpr ExecutionContractMetadata
+    kSafeViewReshapeViewMaterializedDirectBufferMetadata =
+        make_execution_contract_metadata(
+            "SafeViewReshapeContract",
+            "ViewMaterializedDirectBuffer",
+            kSafeViewReshapeViewMaterializedDirectBufferTupleId,
+            "view_direct_buffer_focused_tests",
+            "view_direct_buffer_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationViewDirectBuffer);
 constexpr ExecutionContractMetadata
     kSafeViewReshapeAliasDenseBufferDirectMetadata =
         make_execution_contract_metadata(
@@ -512,6 +527,12 @@ bool matches_kv_cache_token_shape(const IntArrayRef sizes) {
 
 bool matches_empty_initial_cache_shape(const IntArrayRef sizes) {
   return sizes.size() == 1 && sizes[0] == 0;
+}
+
+bool is_contiguous_stride(
+    const IntArrayRef sizes,
+    const IntArrayRef strides) {
+  return strides.equals(c10::contiguous_strides(sizes));
 }
 
 bool is_non_overlapping_dense_stride(
@@ -1315,12 +1336,53 @@ bool matches_embedding_lookup_contract(
 const char* safe_view_reshape_family_name(
     const SafeViewReshapeFamily family) {
   switch (family) {
+    case SafeViewReshapeFamily::ViewMaterializedDirectBuffer:
+      return "SafeViewReshapeViewMaterializedDirectBuffer";
     case SafeViewReshapeFamily::ReshapeAliasDenseBufferDirect:
       return "SafeViewReshapeReshapeAliasDenseBufferDirect";
     case SafeViewReshapeFamily::None:
       return "SafeViewReshapeNone";
   }
   return "SafeViewReshapeNone";
+}
+
+SafeViewReshapeMatch
+match_safe_view_reshape_materialized_direct_buffer_contract(
+    const IntArrayRef input_sizes,
+    const IntArrayRef output_sizes,
+    const IntArrayRef output_strides,
+    const int64_t storage_offset) {
+  SafeViewReshapeMatch result;
+  if (
+      input_sizes.size() > 4 || output_sizes.size() > 5 ||
+      storage_offset != 0 ||
+      !is_contiguous_stride(output_sizes, output_strides)) {
+    return result;
+  }
+
+  if (product_of_sizes(input_sizes) != product_of_sizes(output_sizes)) {
+    return result;
+  }
+
+  if (!output_sizes.empty() && output_sizes.back() % 4 != 0) {
+    return result;
+  }
+
+  result.matched = true;
+  result.family = SafeViewReshapeFamily::ViewMaterializedDirectBuffer;
+  result.tuple_id = kSafeViewReshapeViewMaterializedDirectBufferTupleId;
+  result.metadata = &kSafeViewReshapeViewMaterializedDirectBufferMetadata;
+  return result;
+}
+
+bool matches_safe_view_reshape_materialized_direct_buffer_contract(
+    const IntArrayRef input_sizes,
+    const IntArrayRef output_sizes,
+    const IntArrayRef output_strides,
+    const int64_t storage_offset) {
+  return match_safe_view_reshape_materialized_direct_buffer_contract(
+             input_sizes, output_sizes, output_strides, storage_offset)
+      .matched;
 }
 
 SafeViewReshapeMatch match_safe_view_reshape_contract(

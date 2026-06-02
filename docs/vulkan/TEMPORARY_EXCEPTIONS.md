@@ -96,9 +96,9 @@ condition and migration target.
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
   `aten/src/ATen/native/vulkan/ops/Shape.cpp`
 - Status: temporary, contract-named
-- Reason: dense direct-buffer `_reshape_alias` materialization is proven for
-  the current guarded envelope, but broader view/layout behavior is not proven
-  yet.
+- Reason: dense direct-buffer `view` and `_reshape_alias` materialization is
+  proven for the current guarded envelope, but broader view/layout behavior is
+  not proven yet.
 - Expiry: broader view/reshape parity plus adjacent negative coverage are
   available.
 - Migration target: generated `SafeViewReshapeContract` tables with positive
