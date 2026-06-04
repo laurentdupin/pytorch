@@ -38,6 +38,10 @@ condition and migration target.
 - Status: temporary, contract-named
 - Reason: finite Transformer KV-cache append rows are proven by existing cat
   tests, but broader sequence/head/layout behavior is not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/kv_cache_append_contract.json`
+  covers the `SequenceAppend` slice with generated positive and adjacent
+  negative runtime tests. The initial empty-cache slice still needs a fixture
+  or a documented reason to remain outside the spec path.
 - Expiry: broader KV-cache append and cat-axis parity plus adjacent negative
   coverage are available.
 - Migration target: generated `KVCacheAppendContract` and `CatAxisContract`
@@ -51,10 +55,30 @@ condition and migration target.
 - Reason: finite token-batch and small-bounded embedding lookup rows are proven
   by existing embedding tests, but broader vocab, index-rank, and layout
   behavior is not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/embedding_lookup_contract.json`
+  covers the small-bounded lookup slice with generated positive and adjacent
+  negative runtime tests. Other embedding rows still need broader generated
+  coverage before the exception can expire.
 - Expiry: broader embedding lookup parity plus adjacent negative coverage are
   available.
 - Migration target: generated `EmbeddingLookupContract` tables with positive
   and negative tests.
+
+### Cat Axis And Channel Cat Exact Tuples
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  `aten/src/ATen/native/vulkan/ops/Concat.cpp`
+- Status: temporary, contract-named
+- Reason: bounded cat rows are proven for current last-dim, channel-dim, and
+  rank-3 patterns, but broader axis/layout behavior is not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/channel_cat_contract.json`
+  covers the rank-4 dim-1 channel-cat buffer slice with generated positive and
+  adjacent negative runtime tests. Other cat-axis rows still need fixtures or
+  documented follow-up before this exception can expire.
+- Expiry: broader cat-axis parity plus adjacent negative coverage are
+  available.
+- Migration target: generated `CatAxisContract` and `ChannelCatContract`
+  tables with positive and negative tests.
 
 ### GQA Repeat Exact Tuples
 

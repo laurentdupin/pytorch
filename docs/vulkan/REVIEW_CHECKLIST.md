@@ -9,6 +9,8 @@ Use this checklist for Vulkan backend changes.
 - Capability-profile tests route only from normalized feature bits after
   intersection with the live adapter. Profile IDs and GPU-family labels are
   test selectors, not dispatch predicates.
+- Capability-profile admission changes include a canary when an optional
+  feature, limit, or layout policy can affect route selection.
 - Exact tuples live in a contract table with contract name, family, tuple
   fields, materialization policy, parity evidence, device coverage, and
   fallback behavior.
@@ -19,6 +21,9 @@ Use this checklist for Vulkan backend changes.
   `TEMPORARY_EXCEPTIONS.md` with expiry and migration target.
 - Broad route enablement is backed by positive parity tests and adjacent
   negative tests.
+- Exact or finite contract-row changes update an existing
+  `test/vulkan_contract_specs/*.json` fixture, add a new fixture, or explicitly
+  document why no fixture is suitable yet.
 
 ## Fallback And Readback
 
@@ -57,3 +62,6 @@ Use this checklist for Vulkan backend changes.
 - No `.ci/docker` edits unless rebuilding Docker images is intentional.
 - Documentation updates match the code behavior and do not claim unvalidated
   model readiness.
+- Rerun the real-model matrix after default backend behavior changes or before
+  claiming or raising model gates. Pure docs, spec-helper, or fixture-only
+  changes do not require a matrix refresh unless they reveal stale gate claims.

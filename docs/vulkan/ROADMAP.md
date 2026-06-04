@@ -46,11 +46,18 @@ support:
 Generated output should be deterministic and narrow. Do not introduce a broad
 kernel generator or shader generator before the table/test path is proven.
 
+Current MVP status:
+
+- JSON contract spec fixtures exist for `EmbeddingLookupContract`,
+  `ChannelCatContract`, and `KVCacheAppendContract` `SequenceAppend`.
+- `test/vulkan_contract_specs/contract_spec_utils.py` owns shared spec loading,
+  case iteration, log naming, and expected-negative helpers.
+- `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,
+  and checks fixture metadata against live `ExecutionContracts*.cpp`.
+
 ## Phase 3: Migrate Next Contract Family
 
 Use `agent_space/vulkan_contract_migration_plan.md` as the decision record.
-The current recommended next family is `TransformerGQASDPAContract` because
-HY-MT-specific naming remains in SDPA route policy and related helpers.
 
 Migration shape:
 
@@ -59,6 +66,17 @@ Migration shape:
 - keep existing legality unless the task explicitly asks for new coverage
 - add or update negative tests for adjacent unsupported shapes
 - record any remaining temporary exception
+
+Choose the next task by trigger, not by a stale fixed family name:
+
+- Add the next spec fixture when an exact tuple has stable positive and
+  adjacent-negative evidence but lacks generated fixture coverage.
+- Add or tighten a capability-profile canary when route admission depends on
+  optional device features.
+- Split an `ExecutionContracts` family when the shared table becomes harder to
+  review without changing behavior.
+- Refresh the real-model matrix after a default backend behavior change or
+  before claiming or raising a model gate.
 
 ## Phase 4: Region And Layout Contracts
 

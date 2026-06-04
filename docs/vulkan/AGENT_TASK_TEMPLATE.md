@@ -41,6 +41,17 @@ Contract direction:
   - `materialization_policy`:
 - Positive evidence:
 - Negative/guard evidence:
+- Contract-spec fixture impact:
+  - update existing fixture:
+  - add new fixture:
+  - not suitable yet, because:
+- Capability-profile impact:
+  - affected optional features/limits:
+  - canary added or updated:
+- Real-model matrix trigger:
+  - default backend behavior changed:
+  - gate claim or threshold changed:
+  - matrix run required:
 - Temporary exception, if any:
 
 Stop conditions:

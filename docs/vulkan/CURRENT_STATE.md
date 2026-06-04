@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-04 at local HEAD
-`2566f675f6de3b68cd8d626fa07ca2cf12333939`.
+Last refreshed: 2026-06-05 at local HEAD
+`0ab05c16eb9f655989caba7c8ef54f341cf0848e`.
 
 ## Repo State Summary
 
@@ -24,12 +24,18 @@ is built.
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
 CPU readbacks classified separately and applies the tiny-old-path pending
-handling only to the fenced conv prepack upload path.
+handling only to the fenced conv prepack upload path. Recent stability work
+keeps the prepack-retire drain policy scoped to float-buffer conv prepack
+uploads and preserves real tensor CPU readback behavior and diagnostics.
 
 `docs/vulkan/CAPABILITY_PROFILES.md` and
 `docs/vulkan/capability_profiles.json` define the first capability-profile
 harness. Profiles are reduced feature masks intersected with the live adapter;
 they are not GPU emulation and must not route by profile or GPU-family name.
+Focused canaries cover manifest shape and C++ ID parity, non-emulation docs,
+minimum-profile runtime-policy feature masking, minimum-profile compiled-session
+layout clamping, and minimum-profile SDPA qtile admission to the shared path
+instead of the subgroup path.
 
 ## Coverage Corpus
 
@@ -82,11 +88,16 @@ These files are diagnostic inputs. Production code must not depend on
   score, post-softmax clone, and repeat policy contract; keep exact rows until
   broader layout-transition behavior is proven.
 - `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
-  lookup contract; keep exact rows until broader legality is proven.
+  lookup contract; the small-bounded lookup slice has a JSON contract spec with
+  generated positive and adjacent negative runtime coverage. Keep remaining
+  exact rows until broader legality is proven.
 - `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
-  cat patterns.
+  cat patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
+  contract spec with generated positive and adjacent negative runtime coverage.
 - `KVCacheAppendContract`: bounded Transformer sequence append and initial
-  empty-cache cat rows.
+  empty-cache cat rows. The `SequenceAppend` slice has a JSON contract spec
+  with generated positive and adjacent negative runtime coverage; initial
+  empty-cache coverage remains a future fixture slice.
 - `UNetChannelConcatContract`: mostly generic already; keep model provenance in
   tests/docs.
 - `GQARepeatContract`: finite bounded K/V head repeat contract; keep exact
@@ -109,6 +120,13 @@ These files are diagnostic inputs. Production code must not depend on
   exceptions include expiry and migration target, active exception locations
   still resolve where practical, and selected generic routing files do not
   introduce model-name strings.
+- Contract spec governance discovers all `test/vulkan_contract_specs/*.json`,
+  validates a shared schema, checks `contract_name`/`family`/`tuple_id` against
+  live `ExecutionContracts*.cpp` metadata, and keeps family-specific shape
+  checks for EmbeddingLookup, ChannelCat, and KVCacheAppend. Shared helpers in
+  `test/vulkan_contract_specs/contract_spec_utils.py` keep generated runtime
+  tests from copying spec loading, case iteration, log naming, and expected
+  negative handling.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.
@@ -132,9 +150,11 @@ These files are diagnostic inputs. Production code must not depend on
 - Gemma E2B is a memory/dtype milestone, not a reason to add exact route
   exceptions.
 - PaddleOCR completes current matrix-sensitive RX 9070/RX 6700 XT/GTX 1080
-  smoke coverage in Task033 artifacts with zero sync readback, but still has
-  residual postprocess CPU fallback budget. Treat it as a contract discovery
-  source until tight budgets are established.
+  smoke coverage in Task033/Task034-era artifacts with zero sync readback, but
+  that matrix is stale by commit relative to the profile/spec governance stack.
+  The intervening work should not change default no-profile model routing, but
+  rerun the real-model matrix after the next backend behavior change or before
+  claiming or raising a model gate.
 
 ## Build Context
 
