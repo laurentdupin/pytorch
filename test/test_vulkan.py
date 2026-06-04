@@ -109,12 +109,41 @@ VULKAN_CAPABILITY_PROFILE_LIMIT_KEYS = (
 )
 
 VULKAN_CONTRACT_SPEC_DIR = os.path.join(REPO_ROOT, "test", "vulkan_contract_specs")
+VULKAN_CONTRACT_SPEC_REQUIRED_FIELDS = (
+    "schema_version",
+    "contract_name",
+    "family",
+    "tuple_id",
+    "writer_op",
+    "route_label",
+    "bounds",
+    "positive_cases",
+    "negative_cases",
+)
+VULKAN_CONTRACT_SPEC_STRING_FIELDS = (
+    "contract_name",
+    "family",
+    "tuple_id",
+    "writer_op",
+    "route_label",
+)
 
 
 def _load_vulkan_contract_spec(file_name):
     path = os.path.join(VULKAN_CONTRACT_SPEC_DIR, file_name)
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _vulkan_contract_spec_paths():
+    return sorted(glob.glob(os.path.join(VULKAN_CONTRACT_SPEC_DIR, "*.json")))
+
+
+def _load_all_vulkan_contract_specs():
+    return [
+        (os.path.basename(path), _load_vulkan_contract_spec(os.path.basename(path)))
+        for path in _vulkan_contract_spec_paths()
+    ]
 
 
 def _require_contract_spec_fields(mapping, required_fields, context):
@@ -351,23 +380,101 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("intersect_vulkan_capability_profiles", source)
         self.assertIn("std::min(actual.api_version, requested.api_version)", source)
 
+    def test_vulkan_contract_specs_have_common_schema(self):
+        specs = _load_all_vulkan_contract_specs()
+        self.assertGreater(len(specs), 0)
+
+        for file_name, spec in specs:
+            context = f"{file_name} contract spec"
+            _require_contract_spec_fields(
+                spec,
+                VULKAN_CONTRACT_SPEC_REQUIRED_FIELDS,
+                context,
+            )
+            self.assertEqual(spec["schema_version"], 1, context)
+            for field in VULKAN_CONTRACT_SPEC_STRING_FIELDS:
+                self.assertIsInstance(spec[field], str, f"{context} {field}")
+                self.assertNotEqual(spec[field], "", f"{context} {field}")
+            self.assertIsInstance(spec["bounds"], dict, f"{context} bounds")
+            self.assertGreater(len(spec["bounds"]), 0, f"{context} bounds")
+
+            case_names = []
+            for section in ("positive_cases", "negative_cases"):
+                cases = spec[section]
+                self.assertIsInstance(cases, list, f"{context} {section}")
+                self.assertGreater(len(cases), 0, f"{context} {section}")
+                for case in cases:
+                    self.assertIsInstance(case, dict, f"{context} {section} case")
+                    _require_contract_spec_fields(
+                        case,
+                        ("name",),
+                        f"{context} {section} case",
+                    )
+                    self.assertIsInstance(
+                        case["name"],
+                        str,
+                        f"{context} {section} case name",
+                    )
+                    self.assertNotEqual(
+                        case["name"],
+                        "",
+                        f"{context} {section} case name",
+                    )
+                    case_names.append(case["name"])
+                    if section == "negative_cases":
+                        _require_contract_spec_fields(
+                            case,
+                            ("violates", "expected_native_route"),
+                            f"{context} negative case",
+                        )
+                        self.assertIsInstance(
+                            case["violates"],
+                            str,
+                            f"{context} negative case violates",
+                        )
+                        self.assertNotEqual(
+                            case["violates"],
+                            "",
+                            f"{context} negative case violates",
+                        )
+                        self.assertIs(
+                            case["expected_native_route"],
+                            False,
+                            f"{context} negative case expected_native_route",
+                        )
+            self.assertEqual(
+                len(case_names),
+                len(set(case_names)),
+                f"{context} case names must be unique",
+            )
+
+    def test_vulkan_contract_specs_reference_live_contract_metadata(self):
+        source_pattern = os.path.join(
+            REPO_ROOT,
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "ExecutionContracts*.cpp",
+        )
+        source_text = ""
+        for source_file in sorted(glob.glob(source_pattern)):
+            with open(source_file, encoding="utf-8") as handle:
+                source_text += handle.read()
+
+        self.assertNotEqual(source_text, "")
+        for file_name, spec in _load_all_vulkan_contract_specs():
+            for field in ("contract_name", "family", "tuple_id"):
+                self.assertIn(
+                    f'"{spec[field]}"',
+                    source_text,
+                    f"{file_name} {field} is not present in ExecutionContracts*.cpp",
+                )
+
     def test_vulkan_embedding_lookup_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("embedding_lookup_contract.json")
-        _require_contract_spec_fields(
-            spec,
-            (
-                "schema_version",
-                "contract_name",
-                "family",
-                "tuple_id",
-                "writer_op",
-                "route_label",
-                "bounds",
-                "positive_cases",
-                "negative_cases",
-            ),
-            "EmbeddingLookupContract spec",
-        )
         self.assertEqual(spec["schema_version"], 1)
         self.assertEqual(spec["contract_name"], "EmbeddingLookupContract")
         self.assertEqual(spec["family"], "SmallBoundedLookup")
