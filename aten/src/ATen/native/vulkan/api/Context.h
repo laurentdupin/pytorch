@@ -176,6 +176,13 @@ class TORCH_API Context final {
       VulkanSubmitOrigin origin,
       VkFence fence_handle = VK_NULL_HANDLE,
       const bool final_use = false);
+  std::string format_submit_failure_diagnostics(
+      const VulkanStreamState&,
+      VulkanSubmitOrigin origin,
+      uint64_t signal_value,
+      size_t wait_count,
+      VkFence fence_handle,
+      bool final_use);
   void retire_deferred_cleanup(VulkanSubmission, VulkanSubmitOrigin);
 
  public:

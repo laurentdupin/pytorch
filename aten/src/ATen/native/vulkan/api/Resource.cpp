@@ -127,6 +127,11 @@ std::string& mutable_current_runtime_label() {
   return label;
 }
 
+std::string& mutable_recent_op_label() {
+  static thread_local std::string label;
+  return label;
+}
+
 AllocationTelemetryState& allocation_telemetry_state() {
   static AllocationTelemetryState state;
   return state;
@@ -530,10 +535,18 @@ const std::string& current_runtime_label() {
   return mutable_current_runtime_label();
 }
 
+const std::string& recent_op_label() {
+  return mutable_recent_op_label();
+}
+
 std::string swap_runtime_label(std::string label) {
   std::string previous = current_runtime_label();
   mutable_current_runtime_label() = normalize_runtime_label(std::move(label));
   return previous;
+}
+
+void set_recent_op_label(std::string label) {
+  mutable_recent_op_label() = normalize_runtime_label(std::move(label));
 }
 
 std::vector<std::string> vulkan_memory_residency_snapshot() {

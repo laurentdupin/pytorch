@@ -785,6 +785,108 @@ void Context::synchronize_device() {
   clear_pending_retire_resources_locked();
 }
 
+std::string Context::format_submit_failure_diagnostics(
+    const VulkanStreamState& stream_state,
+    const VulkanSubmitOrigin origin,
+    const uint64_t signal_value,
+    const size_t wait_count,
+    const VkFence fence_handle,
+    const bool final_use) {
+  std::vector<std::string> pending_samples;
+  pending_samples.reserve(4u);
+  uint64_t pending_buffer_count = 0u;
+  uint64_t pending_image_count = 0u;
+
+  const auto append_stack_provenance =
+      [](std::ostringstream& out,
+         const VulkanStackRetireProvenance& provenance) {
+        if (!provenance.defined) {
+          return;
+        }
+        out << " stack_phase=" << vision_stack_phase_name(provenance.phase)
+            << " block=" << provenance.block_index
+            << " proof=" << (provenance.has_last_use_proof ? 1 : 0)
+            << " escapes=" << (provenance.escapes_stack ? 1 : 0)
+            << " requested_intermediate="
+            << (provenance.requested_intermediate ? 1 : 0);
+      };
+
+  {
+    std::lock_guard<std::mutex> lock(pending_retire_buffers_mutex_);
+    pending_buffer_count = pending_retire_buffers_.size();
+    for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
+      if (pending_samples.size() >= 4u) {
+        break;
+      }
+      std::ostringstream sample;
+      sample << "buffer{kind=" << retired_resource_kind_name(pending.kind)
+             << " role=" << retired_resource_role_name(pending.role)
+             << " phase=" << submit_phase_name(pending.phase)
+             << " callsite=" << retire_call_site_name(pending.callsite)
+             << " bytes=" << pending.bytes
+             << " label=" << pending.buffer.allocation_label();
+      append_stack_provenance(sample, pending.stack_provenance);
+      sample << "}";
+      pending_samples.emplace_back(sample.str());
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(pending_retire_images_mutex_);
+    pending_image_count = pending_retire_images_.size();
+    for (const PendingRetireImage& pending : pending_retire_images_) {
+      if (pending_samples.size() >= 4u) {
+        break;
+      }
+      std::ostringstream sample;
+      sample << "image{kind=" << retired_resource_kind_name(pending.kind)
+             << " role=" << retired_resource_role_name(pending.role)
+             << " phase=" << submit_phase_name(pending.phase)
+             << " callsite=" << retire_call_site_name(pending.callsite)
+             << " bytes=" << pending.bytes
+             << " label=" << pending.image.allocation_label();
+      append_stack_provenance(sample, pending.stack_provenance);
+      sample << "}";
+      pending_samples.emplace_back(sample.str());
+    }
+  }
+
+  std::ostringstream out;
+  out << " submit_breadcrumbs origin=" << submit_origin_name(origin)
+      << " caller=" << current_allocation_label()
+      << " stream_id=" << stream_state.id
+      << " stream_device=" << stream_state.device_index
+      << " queue_family=" << stream_state.queue.family_index
+      << " queue_index=" << stream_state.queue.queue_index
+      << " signal_value=" << signal_value
+      << " last_submitted_value="
+      << stream_state.last_submitted_value.load(std::memory_order_relaxed)
+      << " wait_count=" << wait_count
+      << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0)
+      << " final_use=" << (final_use ? 1 : 0)
+      << " pending_retire_count="
+      << (pending_buffer_count + pending_image_count)
+      << " pending_retire_buffers=" << pending_buffer_count
+      << " pending_retire_images=" << pending_image_count
+      << " pending_retire_bytes=" << pending_retire_bytes();
+  if (!current_runtime_label().empty()) {
+    out << " runtime_label=" << current_runtime_label();
+  }
+  if (!recent_op_label().empty()) {
+    out << " recent_op=" << recent_op_label();
+  }
+  if (!pending_samples.empty()) {
+    out << " pending_retire_samples=[";
+    for (size_t i = 0; i < pending_samples.size(); ++i) {
+      if (i > 0u) {
+        out << ";";
+      }
+      out << pending_samples[i];
+    }
+    out << "]";
+  }
+  return out.str();
+}
+
 VulkanSubmission Context::submit_cmd_handle_to_gpu(
     VulkanStreamState& stream,
     VkCommandBuffer cmd,
@@ -811,15 +913,27 @@ VulkanSubmission Context::submit_cmd_handle_to_gpu(
   VK_CHECK_COND(
       stream.queue.family_index == queue_.family_index,
       "Vulkan stream queue family does not match command buffer queue family");
-  adapter_p_->submit_cmd_timeline(
-      stream.queue,
-      cmd,
-      wait_semaphores,
-      wait_values,
-      wait_stages,
-      stream.timeline,
-      signal_value,
-      fence_handle);
+  try {
+    adapter_p_->submit_cmd_timeline(
+        stream.queue,
+        cmd,
+        wait_semaphores,
+        wait_values,
+        wait_stages,
+        stream.timeline,
+        signal_value,
+        fence_handle);
+  } catch (const Error& error) {
+    VK_THROW(
+        error.msg(),
+        format_submit_failure_diagnostics(
+            stream,
+            origin,
+            signal_value,
+            wait_values.size(),
+            fence_handle,
+            final_use));
+  }
   note_vulkan_queue_submit(origin);
   vulkan_sync_counters().stream_submit_count.fetch_add(
       1u, std::memory_order_relaxed);

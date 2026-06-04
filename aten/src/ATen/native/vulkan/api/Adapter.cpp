@@ -827,7 +827,23 @@ void Adapter::submit_cmd_timeline(
 
   std::lock_guard<std::mutex> queue_lock(
       queue_mutexes_[device_queue.queue_index % NUM_QUEUE_MUTEXES]);
-  VK_CHECK(vkQueueSubmit(device_queue.handle, 1u, &submit_info, fence));
+  const VkResult submit_result =
+      vkQueueSubmit(device_queue.handle, 1u, &submit_info, fence);
+  if (submit_result != VK_SUCCESS) {
+    VK_THROW(
+        "vkQueueSubmit timeline submit returned ",
+        submit_result,
+        " queue_family=",
+        device_queue.family_index,
+        " queue_index=",
+        device_queue.queue_index,
+        " wait_count=",
+        wait_values.size(),
+        " signal_value=",
+        signal_value,
+        " fence=",
+        fence != VK_NULL_HANDLE ? 1 : 0);
+  }
 }
 
 std::string Adapter::stringize() const {
