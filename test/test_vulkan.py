@@ -7648,6 +7648,56 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 rtol=2e-4,
                 label="large_spatial_conv2d")
 
+    def test_float_buffer_conv2d_prepack_tiny_retire_drain_defers_submit(self):
+        torch.manual_seed(2600)
+        x_cpu = torch.randn(1, 256, 16, 16)
+        x_vulkan = x_cpu.to("vulkan")
+
+        modules_vulkan = []
+        expected_outputs = []
+        actual_outputs = []
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        torch.ops.vulkan_prepack.reset_retire_drain_counters()
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
+
+        with torch.inference_mode():
+            for index in range(4):
+                torch.manual_seed(2601 + index)
+                module_cpu = torch.nn.Conv2d(
+                    256,
+                    64,
+                    kernel_size=9,
+                    stride=1,
+                    padding=4,
+                    bias=True).eval()
+                module_vulkan = torch.nn.Conv2d(
+                    256,
+                    64,
+                    kernel_size=9,
+                    stride=1,
+                    padding=4,
+                    bias=True).eval()
+                module_vulkan.load_state_dict(module_cpu.state_dict())
+                module_vulkan = module_vulkan.to("vulkan")
+                modules_vulkan.append(module_vulkan)
+
+                expected_outputs.append(module_cpu(x_cpu))
+                actual_outputs.append(module_vulkan(x_vulkan))
+
+            retire_drains = torch.ops.vulkan_prepack.retire_drain_counters()
+            submit_origins = torch.ops.vulkan_prepack.submit_origin_counters()
+            self.assertGreater(retire_drains[3], 0)
+            self.assertEqual(submit_origins[8], 0)
+
+            for expected, actual in zip(expected_outputs, actual_outputs):
+                self._assert_outputs_close(
+                    expected,
+                    actual.cpu(),
+                    atol=5e-3,
+                    rtol=5e-3)
+
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
     def test_dav2_decoder_stride1_conv2d_module_matches_unfold_reference(self):
         self._skip_unless_large_buffer_conv3x3_supported()
         torch.manual_seed(0)

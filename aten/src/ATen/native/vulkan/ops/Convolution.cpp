@@ -1622,7 +1622,8 @@ PackedWeightHandle make_float_buffer_conv2d_handle(
     const PackedWeightKind packed_weight_kind,
     const int64_t bias_channels) {
   api::Context* const context = api::context();
-  context->submit_pending_work_and_poll_retire();
+  context->submit_pending_work_and_poll_retire(
+      api::PendingWorkRetireDrainPolicy::DeferTinyOldPathPending);
 
   const Tensor pack_source_weight = upcast_half_conv_tensor_for_packing(weight);
   const std::optional<Tensor> pack_source_bias =

@@ -71,6 +71,11 @@ struct PendingRetireImage final {
   VulkanStackRetireProvenance stack_provenance;
 };
 
+enum class PendingWorkRetireDrainPolicy : uint8_t {
+  SubmitOldPathPending,
+  DeferTinyOldPathPending,
+};
+
 //
 // Vulkan Context holds onto all relevant Vulkan state as it pertains to our
 // use of Vulkan in PyTorch.  A Context is associated with one, and only one,
@@ -419,7 +424,9 @@ class TORCH_API Context final {
   }
 
   void poll_retire_queue();
-  void submit_pending_work_and_poll_retire();
+  void submit_pending_work_and_poll_retire(
+      PendingWorkRetireDrainPolicy policy =
+          PendingWorkRetireDrainPolicy::SubmitOldPathPending);
   bool has_pending_work_for_current_stream() const;
   void flush_if_current_stream(const c10::Stream&);
   VulkanStreamState& current_stream();

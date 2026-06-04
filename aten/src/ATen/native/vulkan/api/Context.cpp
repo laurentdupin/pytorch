@@ -320,6 +320,18 @@ std::string format_sync_bytes(const uint64_t bytes) {
   return stream.str();
 }
 
+bool should_defer_tiny_old_path_retire_drain(
+    const PendingWorkRetireDrainPolicy policy,
+    const uint64_t pending_resource_count,
+    const uint64_t pending_bytes) {
+  constexpr uint64_t kTinyPendingRetireResourceCountLimit = 32u;
+  constexpr uint64_t kTinyPendingRetireBytesLimit = 4u * 1024u;
+  return policy == PendingWorkRetireDrainPolicy::DeferTinyOldPathPending &&
+      pending_resource_count > 0u &&
+      pending_resource_count <= kTinyPendingRetireResourceCountLimit &&
+      pending_bytes <= kTinyPendingRetireBytesLimit;
+}
+
 void append_sync_log_line(const std::string& line) {
   if (!sync_logging_enabled()) {
     return;
@@ -1011,7 +1023,8 @@ void Context::poll_retire_queue() {
   retire_queue_.poll(device_);
 }
 
-void Context::submit_pending_work_and_poll_retire() {
+void Context::submit_pending_work_and_poll_retire(
+    const PendingWorkRetireDrainPolicy policy) {
   const uint64_t pending_bytes = pending_retire_bytes();
   uint64_t pending_resource_count = 0u;
   uint64_t qkv_hypothetical_count = 0u;
@@ -1108,10 +1121,15 @@ void Context::submit_pending_work_and_poll_retire() {
   }
   bool had_pending_work = false;
   const bool has_old_path_pending_retire = pending_resource_count > 0u;
+  const bool should_defer_tiny_old_path_pending =
+      should_defer_tiny_old_path_retire_drain(
+          policy, pending_resource_count, pending_bytes);
+  const bool should_submit_old_path_pending =
+      has_old_path_pending_retire && !should_defer_tiny_old_path_pending;
   {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
     had_pending_work = has_pending_work_for_current_stream();
-    if (has_old_path_pending_retire) {
+    if (should_submit_old_path_pending) {
       submit_cmd_to_gpu(
           VK_NULL_HANDLE, false, VulkanSubmitOrigin::RetireQueueDrain);
     }
@@ -1120,7 +1138,7 @@ void Context::submit_pending_work_and_poll_retire() {
   const bool skipped_no_pending_command_work =
       skipped_no_old_path_pending && !had_pending_work;
   const bool submitted_for_retire_drain =
-      has_old_path_pending_retire && had_pending_work;
+      should_submit_old_path_pending && had_pending_work;
   note_vulkan_retire_drain(
       retire_drain_reason_for_current_phase(),
       callsite,
