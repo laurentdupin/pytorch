@@ -535,6 +535,81 @@ class TestVulkanGovernance(TestCase):
             self.assertFalse(case["expected_native_route"])
             self.assertTrue(case["expected_sync_readback"])
 
+    def test_vulkan_channel_cat_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec("channel_cat_contract.json")
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["contract_name"], "ChannelCatContract")
+        self.assertEqual(spec["family"], "Rank4Dim1BufferView")
+        self.assertEqual(
+            spec["tuple_id"],
+            "rank4_dim1_inputs3_to_8_c_mult4_spatial_le128_total_c_le1024",
+        )
+        self.assertEqual(spec["writer_op"], "aten::cat")
+        self.assertEqual(spec["route_label"], "aten::cat.buffer_channel_view")
+
+        bounds = spec["bounds"]
+        _require_contract_spec_fields(
+            bounds,
+            (
+                "dtype",
+                "rank",
+                "dim",
+                "input_count",
+                "batch",
+                "channels",
+                "height",
+                "width",
+                "requires_vulkan",
+                "requires_contiguous",
+                "requires_buffer_storage",
+                "requires_buffer_compute",
+            ),
+            "ChannelCatContract bounds",
+        )
+        self.assertEqual(bounds["dtype"], "float32")
+        self.assertEqual(bounds["rank"], 4)
+        self.assertEqual(bounds["dim"], 1)
+        self.assertEqual(bounds["input_count"], {"min": 3, "max": 8})
+        self.assertEqual(bounds["batch"], 1)
+        self.assertEqual(
+            bounds["channels"],
+            {
+                "min": 4,
+                "max_per_input": 256,
+                "multiple_of": 4,
+                "max_total": 1024,
+            },
+        )
+        self.assertEqual(bounds["height"], {"min": 1, "max": 128})
+        self.assertEqual(bounds["width"], {"min": 1, "max": 128})
+        self.assertTrue(bounds["requires_vulkan"])
+        self.assertTrue(bounds["requires_contiguous"])
+        self.assertTrue(bounds["requires_buffer_storage"])
+        self.assertTrue(bounds["requires_buffer_compute"])
+
+        case_fields = ("name", "input_shapes", "dim")
+        for section in ("positive_cases", "negative_cases"):
+            self.assertGreater(len(spec[section]), 0)
+            for case in spec[section]:
+                _require_contract_spec_fields(
+                    case,
+                    case_fields,
+                    f"ChannelCatContract {section} case",
+                )
+                self.assertGreater(len(case["input_shapes"]), 0)
+                for shape in case["input_shapes"]:
+                    self.assertEqual(len(shape), bounds["rank"])
+                    self.assertEqual(shape[0], bounds["batch"])
+
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("violates", "expected_native_route", "expected_cpu_fallback"),
+                "ChannelCatContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
+            self.assertTrue(case["expected_cpu_fallback"])
+
 
 @unittest.skipUnless(torch.is_vulkan_available(),
                      "Vulkan backend must be available for these tests.")
@@ -4930,6 +5005,84 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             for path in case_log_paths:
                 if os.path.exists(path):
                     os.remove(path)
+
+    def test_channel_cat_contract_generated_rank4_dim1_spec(self):
+        spec = _load_vulkan_contract_spec("channel_cat_contract.json")
+        op_hit_log_name = "channel_cat_contract_generated_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        try:
+            script = """
+                import json
+                import os
+                import torch
+
+                spec_path = os.path.join(
+                    os.getcwd(),
+                    "test",
+                    "vulkan_contract_specs",
+                    "channel_cat_contract.json",
+                )
+                with open(spec_path, encoding="utf-8") as handle:
+                    spec = json.load(handle)
+
+                op_hit = "op=" + spec["route_label"]
+                op_hit_log = os.environ["PYTORCH_VULKAN_OP_HIT_LOG"]
+
+                def read_op_hit_log():
+                    if not os.path.exists(op_hit_log):
+                        return ""
+                    with open(op_hit_log, encoding="utf-8") as log_file:
+                        return log_file.read()
+
+                def run_case(case, expect_native_route):
+                    if os.path.exists(op_hit_log):
+                        os.remove(op_hit_log)
+                    torch.manual_seed(2000 + len(case["name"]))
+                    tensors = [
+                        torch.randn(*shape, dtype=torch.float32)
+                        for shape in case["input_shapes"]
+                    ]
+                    vulkan_tensors = tuple(
+                        tensor.to("vulkan")
+                        for tensor in tensors
+                    )
+
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    expected = torch.cat(tuple(tensors), dim=case["dim"])
+                    actual = torch.cat(vulkan_tensors, dim=case["dim"]).cpu()
+                    torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+
+                    fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                    op_hit_text = read_op_hit_log()
+                    if expect_native_route:
+                        assert fallback_count == 0, (case, fallback_count, op_hit_text)
+                        assert op_hit in op_hit_text, (case, op_hit_text)
+                    else:
+                        assert op_hit not in op_hit_text, (case, op_hit_text)
+                        if case.get("expected_cpu_fallback", False):
+                            assert fallback_count == 1, (
+                                case,
+                                fallback_count,
+                                op_hit_text,
+                            )
+
+                for case in spec["positive_cases"]:
+                    run_case(case, True)
+                for case in spec["negative_cases"]:
+                    run_case(case, case["expected_native_route"])
+            """
+            self._run_repo_python_subprocess(
+                script,
+                error_prefix="Channel cat generated contract spec failed.",
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+            )
+        finally:
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
 
     def test_embedding_sparse_forward_matches_cpu(self):
         torch.manual_seed(0)

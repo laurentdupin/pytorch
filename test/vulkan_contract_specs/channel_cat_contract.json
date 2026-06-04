@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "contract_name": "ChannelCatContract",
+  "family": "Rank4Dim1BufferView",
+  "tuple_id": "rank4_dim1_inputs3_to_8_c_mult4_spatial_le128_total_c_le1024",
+  "writer_op": "aten::cat",
+  "route_label": "aten::cat.buffer_channel_view",
+  "bounds": {
+    "dtype": "float32",
+    "rank": 4,
+    "dim": 1,
+    "input_count": {
+      "min": 3,
+      "max": 8
+    },
+    "batch": 1,
+    "channels": {
+      "min": 4,
+      "max_per_input": 256,
+      "multiple_of": 4,
+      "max_total": 1024
+    },
+    "height": {
+      "min": 1,
+      "max": 128
+    },
+    "width": {
+      "min": 1,
+      "max": 128
+    },
+    "requires_vulkan": true,
+    "requires_contiguous": true,
+    "requires_buffer_storage": true,
+    "requires_buffer_compute": true
+  },
+  "positive_cases": [
+    {
+      "name": "min_three_inputs",
+      "input_shapes": [
+        [1, 4, 1, 1],
+        [1, 4, 1, 1],
+        [1, 4, 1, 1]
+      ],
+      "dim": 1
+    },
+    {
+      "name": "interior_six_inputs",
+      "input_shapes": [
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7]
+      ],
+      "dim": 1
+    },
+    {
+      "name": "max_eight_inputs",
+      "input_shapes": [
+        [1, 4, 2, 3],
+        [1, 4, 2, 3],
+        [1, 4, 2, 3],
+        [1, 4, 2, 3],
+        [1, 4, 2, 3],
+        [1, 4, 2, 3],
+        [1, 4, 2, 3],
+        [1, 4, 2, 3]
+      ],
+      "dim": 1
+    },
+    {
+      "name": "max_per_input_and_total_channels",
+      "input_shapes": [
+        [1, 256, 2, 2],
+        [1, 256, 2, 2],
+        [1, 256, 2, 2],
+        [1, 256, 2, 2]
+      ],
+      "dim": 1
+    },
+    {
+      "name": "max_height",
+      "input_shapes": [
+        [1, 4, 128, 7],
+        [1, 4, 128, 7],
+        [1, 4, 128, 7]
+      ],
+      "dim": 1
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "too_many_inputs",
+      "input_shapes": [
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7]
+      ],
+      "dim": 1,
+      "violates": "input_count",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "unaligned_channels",
+      "input_shapes": [
+        [1, 6, 5, 7],
+        [1, 6, 5, 7],
+        [1, 6, 5, 7]
+      ],
+      "dim": 1,
+      "violates": "channels.multiple_of",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "per_input_channels_260",
+      "input_shapes": [
+        [1, 260, 5, 7],
+        [1, 260, 5, 7],
+        [1, 260, 5, 7]
+      ],
+      "dim": 1,
+      "violates": "channels.max_per_input",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "total_channels_1280",
+      "input_shapes": [
+        [1, 256, 2, 2],
+        [1, 256, 2, 2],
+        [1, 256, 2, 2],
+        [1, 256, 2, 2],
+        [1, 256, 2, 2]
+      ],
+      "dim": 1,
+      "violates": "channels.max_total",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "height_129",
+      "input_shapes": [
+        [1, 16, 129, 7],
+        [1, 16, 129, 7],
+        [1, 16, 129, 7]
+      ],
+      "dim": 1,
+      "violates": "height.max",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "width_129",
+      "input_shapes": [
+        [1, 16, 5, 129],
+        [1, 16, 5, 129],
+        [1, 16, 5, 129]
+      ],
+      "dim": 1,
+      "violates": "width.max",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "dim_not_channel",
+      "input_shapes": [
+        [1, 16, 5, 7],
+        [1, 16, 5, 7],
+        [1, 16, 5, 7]
+      ],
+      "dim": 2,
+      "violates": "dim",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    }
+  ]
+}
