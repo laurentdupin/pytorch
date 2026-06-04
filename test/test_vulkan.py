@@ -152,23 +152,46 @@ class TestVulkanGovernance(TestCase):
             self.assertIn(f"const char* {field}", header)
         self.assertIn("const ExecutionContractMetadata* metadata", header)
 
-        source = self._repo_text(
+        source_pattern = os.path.join(
+            REPO_ROOT,
             "aten",
             "src",
             "ATen",
             "native",
             "vulkan",
             "planning",
-            "ExecutionContracts.cpp",
+            "ExecutionContracts*.cpp",
         )
-        lines = source.splitlines()
-        tuple_match_lines = [
-            index for index, line in enumerate(lines) if "result.tuple_id =" in line
-        ]
-        self.assertGreater(len(tuple_match_lines), 0)
-        for index in tuple_match_lines:
-            window = "\n".join(lines[index : index + 6])
-            self.assertIn("result.metadata =", window)
+        source_files = sorted(glob.glob(source_pattern))
+        self.assertIn(
+            os.path.join(
+                REPO_ROOT,
+                "aten",
+                "src",
+                "ATen",
+                "native",
+                "vulkan",
+                "planning",
+                "ExecutionContractsLinearGeluBridge.cpp",
+            ),
+            source_files,
+        )
+        tuple_match_count = 0
+        for source_file in source_files:
+            with open(source_file, encoding="utf-8") as handle:
+                lines = handle.read().splitlines()
+            tuple_match_lines = [
+                index for index, line in enumerate(lines) if "result.tuple_id =" in line
+            ]
+            tuple_match_count += len(tuple_match_lines)
+            for index in tuple_match_lines:
+                window = "\n".join(lines[index : index + 6])
+                self.assertIn(
+                    "result.metadata =",
+                    window,
+                    f"missing metadata after tuple match in {source_file}:{index + 1}",
+                )
+        self.assertGreater(tuple_match_count, 0)
 
     def test_active_temporary_exceptions_have_expiry_and_targets(self):
         sections = self._active_temporary_exception_sections()
