@@ -7598,6 +7598,123 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         "KnownBadLargePointwiseConv"):
                         module_vulkan(x_vulkan)
 
+    def test_small_metadata_padded_conv2d_materializes_input(self):
+        log_name = "small_metadata_padded_conv2d_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        script = """
+            import torch
+            import torch.nn.functional as F
+
+            torch.manual_seed(2900)
+            x_cpu = torch.randn(1, 16, 720, 1280)
+            padded_cpu = F.pad(x_cpu, (0, 1, 0, 1))
+            weight_cpu = torch.zeros(32, 16, 2, 2)
+            bias_cpu = torch.linspace(-0.5, 0.5, 32)
+            expected = torch.empty(1, 32, 720, 1280)
+            for oc in range(32):
+                ic0 = oc % 16
+                ic1 = (oc + 1) % 16
+                weight_cpu[oc, ic0, 0, 0] = 1.0
+                weight_cpu[oc, ic1, 1, 1] = -0.25
+                expected[:, oc, :, :] = (
+                    padded_cpu[:, ic0, :720, :1280]
+                    - 0.25 * padded_cpu[:, ic1, 1:721, 1:1281]
+                    + bias_cpu[oc]
+                )
+
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            with torch.inference_mode():
+                padded_vulkan = F.pad(x_cpu.to("vulkan"), (0, 1, 0, 1))
+                actual = F.conv2d(
+                    padded_vulkan,
+                    weight_cpu.to("vulkan"),
+                    bias_cpu.to("vulkan")).cpu()
+
+            torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+            assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
+            assert torch.ops.vulkan_prepack.sync_readback_count() == 0
+            print("OK")
+        """
+        try:
+            _, result = self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                timeout=180,
+                error_prefix="small-metadata padded conv2d subprocess failed.",
+            )
+            self.assertIn("OK", result.stdout)
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+            self.assertIn("op=aten::constant_pad_nd.buffer", log_text)
+            self.assertIn("output_direct=0", log_text)
+            self.assertIn(
+                "op=aten::convolution.small_metadata_padded_conv2d.materialize_input",
+                log_text)
+            self.assertIn("op=aten::convolution.buffer_float", log_text)
+            self.assertNotIn(
+                "op=aten::convolution.buffer_float_skip.small_metadata_input",
+                log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_small_metadata_padded_conv2d_adjacent_shape_keeps_guard(self):
+        log_name = "small_metadata_padded_conv2d_adjacent_guard_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        script = """
+            import torch
+            import torch.nn.functional as F
+
+            torch.manual_seed(2901)
+            x_cpu = torch.randn(1, 16, 32, 64)
+            weight_cpu = torch.randn(32, 16, 2, 2)
+            bias_cpu = torch.randn(32)
+
+            with torch.inference_mode():
+                expected = F.conv2d(
+                    F.pad(x_cpu, (0, 1, 0, 1)),
+                    weight_cpu,
+                    bias_cpu)
+                actual = F.conv2d(
+                    F.pad(x_cpu.to("vulkan"), (0, 1, 0, 1)),
+                    weight_cpu.to("vulkan"),
+                    bias_cpu.to("vulkan")).cpu()
+
+            torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+            print("OK")
+        """
+        try:
+            _, result = self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix=(
+                    "small-metadata padded conv2d adjacent guard "
+                    "subprocess failed."
+                ),
+            )
+            self.assertIn("OK", result.stdout)
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+            self.assertIn(
+                "op=aten::convolution.buffer_float_skip.small_metadata_input",
+                log_text)
+            self.assertNotIn(
+                "op=aten::convolution.small_metadata_padded_conv2d.materialize_input",
+                log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_large_pointwise_conv_weight_roundtrip(self):
         torch.manual_seed(0)
 

@@ -40,6 +40,57 @@ struct SmallSpatialPointwiseConvMatch final {
   const ExecutionContractMetadata* metadata{nullptr};
 };
 
+struct SmallMetadataPaddedConv2DTensorInfo final {
+  bool is_vulkan{false};
+  ScalarType dtype{kFloat};
+  int64_t rank{0};
+  int64_t batch{0};
+  int64_t channels{0};
+  int64_t height{0};
+  int64_t width{0};
+  bool has_buffer_storage{false};
+  bool is_width_packed{false};
+  bool has_direct_buffer_layout{false};
+  bool supports_buffer_compute{false};
+};
+
+struct SmallMetadataPaddedConv2DWeightInfo final {
+  bool defined{false};
+  ScalarType dtype{kFloat};
+  int64_t rank{0};
+  int64_t output_channels{0};
+  int64_t input_channels{0};
+  int64_t kernel_h{0};
+  int64_t kernel_w{0};
+};
+
+struct SmallMetadataPaddedConv2DOptions final {
+  bool transposed{false};
+  bool quantized{false};
+  int64_t groups{0};
+  int64_t stride_h{0};
+  int64_t stride_w{0};
+  int64_t padding_h{0};
+  int64_t padding_w{0};
+  int64_t dilation_h{0};
+  int64_t dilation_w{0};
+  bool output_padding_is_zero{false};
+};
+
+enum class SmallMetadataPaddedConv2DFamily : uint8_t {
+  None = 0u,
+  MaterializedBufferInput2x2,
+};
+
+struct SmallMetadataPaddedConv2DMatch final {
+  bool matched{false};
+  SmallMetadataPaddedConv2DFamily family{
+      SmallMetadataPaddedConv2DFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+  bool requires_input_materialization{false};
+};
+
 struct NoOverlapConvTranspose2DTensorInfo final {
   bool is_vulkan{false};
   ScalarType dtype{kFloat};
@@ -320,6 +371,19 @@ bool matches_small_spatial_pointwise_conv_contract(
     IntArrayRef dilation,
     int64_t groups,
     ScalarType dtype);
+
+const char* small_metadata_padded_conv2d_family_name(
+    SmallMetadataPaddedConv2DFamily family);
+
+SmallMetadataPaddedConv2DMatch match_small_metadata_padded_conv2d_contract(
+    const SmallMetadataPaddedConv2DTensorInfo& input,
+    const SmallMetadataPaddedConv2DWeightInfo& weight,
+    const SmallMetadataPaddedConv2DOptions& options);
+
+bool matches_small_metadata_padded_conv2d_contract(
+    const SmallMetadataPaddedConv2DTensorInfo& input,
+    const SmallMetadataPaddedConv2DWeightInfo& weight,
+    const SmallMetadataPaddedConv2DOptions& options);
 
 const char* no_overlap_conv_transpose2d_family_name(
     NoOverlapConvTranspose2DFamily family);

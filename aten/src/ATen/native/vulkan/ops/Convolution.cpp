@@ -1509,6 +1509,68 @@ bool should_force_image_conv_for_small_metadata_input(const Tensor& input) {
       !v_input.has_direct_buffer_layout();
 }
 
+utils::SmallMetadataPaddedConv2DTensorInfo
+small_metadata_padded_conv2d_tensor_info(const Tensor& input) {
+  utils::SmallMetadataPaddedConv2DTensorInfo info;
+  info.is_vulkan = input.is_vulkan();
+  info.dtype = input.scalar_type();
+  info.rank = input.dim();
+  if (input.dim() == 4) {
+    info.batch = input.size(0);
+    info.channels = input.size(1);
+    info.height = input.size(2);
+    info.width = input.size(3);
+  }
+  if (input.is_vulkan()) {
+    const vTensor& v_input = convert(input);
+    info.has_buffer_storage =
+        v_input.storage_type() == api::StorageType::BUFFER;
+    info.is_width_packed =
+        v_input.gpu_memory_layout() ==
+        api::GPUMemoryLayout::TENSOR_WIDTH_PACKED;
+    info.has_direct_buffer_layout = v_input.has_direct_buffer_layout();
+    info.supports_buffer_compute =
+        utils::supports_buffer_elementwise_compute(v_input);
+  }
+  return info;
+}
+
+utils::SmallMetadataPaddedConv2DWeightInfo
+small_metadata_padded_conv2d_weight_info(const Tensor& weight) {
+  utils::SmallMetadataPaddedConv2DWeightInfo info;
+  info.defined = weight.defined();
+  info.dtype = weight.defined() ? weight.scalar_type() : kFloat;
+  info.rank = weight.defined() ? weight.dim() : 0;
+  if (weight.defined() && weight.dim() == 4) {
+    info.output_channels = weight.size(0);
+    info.input_channels = weight.size(1);
+    info.kernel_h = weight.size(2);
+    info.kernel_w = weight.size(3);
+  }
+  return info;
+}
+
+utils::SmallMetadataPaddedConv2DOptions small_metadata_padded_conv2d_options(
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const bool transposed,
+    const IntArrayRef output_padding,
+    const int64_t groups) {
+  utils::SmallMetadataPaddedConv2DOptions options;
+  options.transposed = transposed;
+  options.quantized = false;
+  options.groups = groups;
+  options.stride_h = stride.size() == 2 ? stride[0] : -1;
+  options.stride_w = stride.size() == 2 ? stride[1] : -1;
+  options.padding_h = padding.size() == 2 ? padding[0] : -1;
+  options.padding_w = padding.size() == 2 ? padding[1] : -1;
+  options.dilation_h = dilation.size() == 2 ? dilation[0] : -1;
+  options.dilation_w = dilation.size() == 2 ? dilation[1] : -1;
+  options.output_padding_is_zero = output_padding_is_zero(output_padding);
+  return options;
+}
+
 bool should_force_image_conv_for_known_bad_large_buffer_conv(
     const Tensor& input,
     const Tensor& weight,
@@ -3008,7 +3070,7 @@ Tensor run_bfloat16_buffer_conv2d(
     const bool transposed,
     const IntArrayRef output_padding,
     const int64_t groups) {
-      const Tensor compute_input = input.is_vulkan()
+      Tensor compute_input = input.is_vulkan()
           ? materialize_deferred_image_normalize_candidate_if_needed(input)
           : input;
       if (can_run_bfloat16_buffer_conv2d(
@@ -3033,6 +3095,23 @@ Tensor run_bfloat16_buffer_conv2d(
           padding,
           dilation,
           groups);
+  const auto small_metadata_padded_conv2d_match =
+      utils::match_small_metadata_padded_conv2d_contract(
+          small_metadata_padded_conv2d_tensor_info(compute_input),
+          small_metadata_padded_conv2d_weight_info(compute_weight),
+          small_metadata_padded_conv2d_options(
+              stride, padding, dilation, transposed, output_padding, groups));
+  if (
+      small_metadata_padded_conv2d_match.matched &&
+      small_metadata_padded_conv2d_match.requires_input_materialization) {
+    compute_input = utils::mark_tensor_execution(
+        utils::ensure_buffer_storage(
+            compute_input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
+        api::ExecutionLayout::BUFFER_DIRECT,
+        true);
+    utils::log_vulkan_op_hit(
+        "aten::convolution.small_metadata_padded_conv2d.materialize_input");
+  }
   if (
       avoid_large_buffer_conv_3x3 ||
       utils::match_small_spatial_pointwise_conv_contract(
@@ -3057,12 +3136,14 @@ Tensor run_bfloat16_buffer_conv2d(
         convolution_request(utils::VulkanTensorRole::Input),
         utils::current_vulkan_device_policy());
   }
+  const bool force_small_metadata_image_pack =
+      should_force_image_conv_for_small_metadata_input(compute_input) &&
+      !small_metadata_padded_conv2d_match.matched;
   const bool force_legacy_image_pack =
-      should_force_image_conv_for_small_metadata_input(compute_input) ||
-      avoid_large_buffer_conv_3x3;
+      force_small_metadata_image_pack || avoid_large_buffer_conv_3x3;
   if (force_legacy_image_pack) {
     utils::log_vulkan_op_hit(
-        should_force_image_conv_for_small_metadata_input(compute_input)
+        force_small_metadata_image_pack
             ? "aten::convolution.buffer_float_skip.small_metadata_input"
             : "aten::convolution.buffer_float_skip.known_bad_large_3x3");
   }

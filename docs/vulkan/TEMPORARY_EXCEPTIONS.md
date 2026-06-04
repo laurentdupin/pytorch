@@ -104,6 +104,19 @@ condition and migration target.
 - Migration target: generated `SafeViewReshapeContract` tables with positive
   and negative tests.
 
+### Small Metadata Padded Conv2D Exact Tuple
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  `aten/src/ATen/native/vulkan/ops/Convolution.cpp`
+- Status: temporary, contract-named
+- Reason: the padded low-channel buffer materialization is proven for one
+  finite 2x2 conv2d tuple, but broader small-metadata padded conv behavior is
+  not proven yet.
+- Expiry: broader padded-conv layout parity plus adjacent negative coverage are
+  available.
+- Migration target: generated `SmallMetadataPaddedConv2DContract` or
+  `LayoutTransitionContract` tables with positive and negative tests.
+
 ### Diffusion SDPA Exact Tuples
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
