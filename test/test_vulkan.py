@@ -7852,6 +7852,142 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_no_overlap_conv_transpose2d_mvp_topologies_use_nonoverlap_kernel(self):
+        log_name = "no_overlap_conv_transpose2d_mvp_topologies_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                def run_case(out_channels):
+                    module_cpu = torch.nn.ConvTranspose2d(
+                        64,
+                        out_channels,
+                        kernel_size=2,
+                        stride=2,
+                        padding=0,
+                        bias=True,
+                    ).eval()
+                    module_vulkan = torch.nn.ConvTranspose2d(
+                        64,
+                        out_channels,
+                        kernel_size=2,
+                        stride=2,
+                        padding=0,
+                        bias=True,
+                    ).eval()
+                    module_vulkan.load_state_dict(module_cpu.state_dict())
+                    module_vulkan = module_vulkan.to("vulkan")
+
+                    x_cpu = torch.randn(1, 64, 8, 10, dtype=torch.float32)
+                    expected = module_cpu(x_cpu)
+                    actual = module_vulkan(x_cpu.to("vulkan")).cpu()
+                    torch.testing.assert_close(actual, expected, atol=1e-3, rtol=1e-3)
+
+                torch.manual_seed(0)
+                run_case(64)
+                run_case(1)
+                print("ok")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix=(
+                    "No-overlap conv_transpose2d MVP topology subprocess failed."
+                ),
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertGreaterEqual(
+                log_text.count(
+                    "op=aten::convolution.buffer_float_transpose_nonoverlap"
+                ),
+                2,
+            )
+            self.assertNotIn(
+                "op=aten::convolution.buffer_float_transpose_exact_rearrange",
+                log_text,
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_no_overlap_conv_transpose2d_mvp_rejects_adjacent_options(self):
+        log_name = "no_overlap_conv_transpose2d_mvp_negative_op_hit_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                def run_case(kernel_size, stride, padding):
+                    module_cpu = torch.nn.ConvTranspose2d(
+                        64,
+                        4,
+                        kernel_size=kernel_size,
+                        stride=stride,
+                        padding=padding,
+                        bias=True,
+                    ).eval()
+                    module_vulkan = torch.nn.ConvTranspose2d(
+                        64,
+                        4,
+                        kernel_size=kernel_size,
+                        stride=stride,
+                        padding=padding,
+                        bias=True,
+                    ).eval()
+                    module_vulkan.load_state_dict(module_cpu.state_dict())
+                    module_vulkan = module_vulkan.to("vulkan")
+
+                    x_cpu = torch.randn(1, 64, 5, 7, dtype=torch.float32)
+                    expected = module_cpu(x_cpu)
+                    actual = module_vulkan(x_cpu.to("vulkan")).cpu()
+                    torch.testing.assert_close(actual, expected, atol=1e-3, rtol=1e-3)
+
+                torch.manual_seed(0)
+                run_case(3, 2, 0)
+                run_case(2, 1, 0)
+                run_case(2, 2, 1)
+                print("ok")
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": log_name},
+                error_prefix=(
+                    "No-overlap conv_transpose2d MVP negative subprocess failed."
+                ),
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertNotIn(
+                "op=aten::convolution.buffer_float_transpose_nonoverlap",
+                log_text,
+            )
+            self.assertNotIn(
+                "op=aten::convolution.buffer_float_transpose_exact_rearrange",
+                log_text,
+            )
+            self.assertIn("op=aten::convolution.buffer_float_transpose", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_vits_resize1_conv_transpose2d_prefers_nonoverlap_kernel(self):
         log_name = "vits_resize1_conv_transpose2d_nonoverlap_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

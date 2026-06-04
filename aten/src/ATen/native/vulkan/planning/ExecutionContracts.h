@@ -40,6 +40,57 @@ struct SmallSpatialPointwiseConvMatch final {
   const ExecutionContractMetadata* metadata{nullptr};
 };
 
+struct NoOverlapConvTranspose2DTensorInfo final {
+  bool is_vulkan{false};
+  ScalarType dtype{kFloat};
+  int64_t rank{0};
+  int64_t batch{0};
+  int64_t channels{0};
+  bool has_buffer_storage{false};
+  bool supports_buffer_compute{false};
+};
+
+struct NoOverlapConvTranspose2DPackedInfo final {
+  bool defined{false};
+  bool execution_is_buffer_direct{false};
+  bool quantized{false};
+  ScalarType weight_dtype{kFloat};
+  int64_t weight_rank{0};
+  int64_t input_channels{0};
+  int64_t output_channels{0};
+  int64_t kernel_h{0};
+  int64_t kernel_w{0};
+  bool weight_has_buffer_storage{false};
+  bool bias_has_buffer_storage{false};
+  bool bias_is_float{false};
+};
+
+struct NoOverlapConvTranspose2DOptions final {
+  bool transposed{false};
+  bool quantized{false};
+  int64_t groups{0};
+  int64_t stride_h{0};
+  int64_t stride_w{0};
+  int64_t padding_h{0};
+  int64_t padding_w{0};
+  int64_t dilation_h{0};
+  int64_t dilation_w{0};
+  bool output_padding_is_zero{false};
+};
+
+enum class NoOverlapConvTranspose2DFamily : uint8_t {
+  None = 0u,
+  Kernel2Stride2FloatBuffer,
+};
+
+struct NoOverlapConvTranspose2DMatch final {
+  bool matched{false};
+  NoOverlapConvTranspose2DFamily family{
+      NoOverlapConvTranspose2DFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+};
+
 enum class TransformerGQASDPAFamily : uint8_t {
   None = 0u,
   CausalPrefill,
@@ -239,6 +290,19 @@ bool matches_small_spatial_pointwise_conv_contract(
     IntArrayRef dilation,
     int64_t groups,
     ScalarType dtype);
+
+const char* no_overlap_conv_transpose2d_family_name(
+    NoOverlapConvTranspose2DFamily family);
+
+NoOverlapConvTranspose2DMatch match_no_overlap_conv_transpose2d_contract(
+    const NoOverlapConvTranspose2DTensorInfo& input,
+    const NoOverlapConvTranspose2DPackedInfo& packed,
+    const NoOverlapConvTranspose2DOptions& options);
+
+bool matches_no_overlap_conv_transpose2d_contract(
+    const NoOverlapConvTranspose2DTensorInfo& input,
+    const NoOverlapConvTranspose2DPackedInfo& packed,
+    const NoOverlapConvTranspose2DOptions& options);
 
 const char* transformer_gqa_sdpa_family_name(
     TransformerGQASDPAFamily family);

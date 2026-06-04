@@ -1858,6 +1858,128 @@ bool can_use_float_buffer_nonoverlap_conv_transpose2d(
       get_dim<DimTConv2DKernel::Width>(logical_weight_sizes) == stride[1];
 }
 
+bool might_match_no_overlap_conv_transpose2d_contract(
+    const Tensor& input,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
+  if (
+      input.device().type() != c10::DeviceType::Vulkan ||
+      input.scalar_type() != kFloat || input.dim() != 4 ||
+      input.size(0) != 1 || input.size(1) < 64 ||
+      !conv_context->transposed() || conv_context->quantized() ||
+      conv_context->groups() != 1) {
+    return false;
+  }
+
+  const auto& stride = conv_context->stride();
+  const auto& padding = conv_context->padding();
+  const auto& dilation = conv_context->dilation();
+  const auto& output_padding = conv_context->output_padding();
+  if (
+      stride.size() != 2 || padding.size() != 2 || dilation.size() != 2 ||
+      stride[0] != 2 || stride[1] != 2 ||
+      padding[0] != 0 || padding[1] != 0 ||
+      dilation[0] != 1 || dilation[1] != 1 ||
+      !output_padding_is_zero(output_padding)) {
+    return false;
+  }
+
+  const PackedWeightHandle& packed_weight = conv_context->packed_weight();
+  if (
+      !packed_weight.defined() ||
+      packed_weight.execution_layout() != api::ExecutionLayout::BUFFER_DIRECT ||
+      packed_weight.quantized()) {
+    return false;
+  }
+
+  const auto& logical_weight_sizes = packed_weight.logical_weight_sizes();
+  return logical_weight_sizes.size() == 4 &&
+      get_dim<DimTConv2DKernel::InChannels>(logical_weight_sizes) ==
+      input.size(1) &&
+      get_dim<DimTConv2DKernel::Height>(logical_weight_sizes) == 2 &&
+      get_dim<DimTConv2DKernel::Width>(logical_weight_sizes) == 2;
+}
+
+utils::NoOverlapConvTranspose2DTensorInfo
+no_overlap_conv_transpose2d_tensor_info(const Tensor& input) {
+  utils::NoOverlapConvTranspose2DTensorInfo info;
+  info.is_vulkan = input.is_vulkan();
+  info.dtype = input.scalar_type();
+  info.rank = input.dim();
+  if (input.dim() == 4) {
+    info.batch = input.size(0);
+    info.channels = input.size(1);
+  }
+  if (input.is_vulkan()) {
+    const vTensor& v_input = convert(input);
+    info.has_buffer_storage =
+        v_input.storage_type() == api::StorageType::BUFFER;
+    info.supports_buffer_compute =
+        utils::supports_buffer_elementwise_compute(v_input);
+  }
+  return info;
+}
+
+utils::NoOverlapConvTranspose2DPackedInfo
+no_overlap_conv_transpose2d_packed_info(
+    const PackedWeightHandle& packed_weight) {
+  utils::NoOverlapConvTranspose2DPackedInfo info;
+  info.defined = packed_weight.defined();
+  if (!packed_weight.defined()) {
+    return info;
+  }
+
+  info.execution_is_buffer_direct =
+      packed_weight.execution_layout() == api::ExecutionLayout::BUFFER_DIRECT;
+  info.quantized = packed_weight.quantized();
+  const auto& logical_weight_sizes = packed_weight.logical_weight_sizes();
+  info.weight_rank = logical_weight_sizes.size();
+  if (logical_weight_sizes.size() == 4) {
+    info.input_channels =
+        get_dim<DimTConv2DKernel::InChannels>(logical_weight_sizes);
+    info.output_channels =
+        get_dim<DimTConv2DKernel::OutChannels>(logical_weight_sizes);
+    info.kernel_h = get_dim<DimTConv2DKernel::Height>(logical_weight_sizes);
+    info.kernel_w = get_dim<DimTConv2DKernel::Width>(logical_weight_sizes);
+  }
+
+  const vTensor& v_weight = packed_weight.weight_vtensor();
+  info.weight_dtype =
+      v_weight.dtype() == api::kFloat ? kFloat : ScalarType::Undefined;
+  info.weight_has_buffer_storage =
+      v_weight.storage_type() == api::StorageType::BUFFER;
+  const vTensor& v_bias = packed_weight.bias_vtensor();
+  info.bias_has_buffer_storage =
+      v_bias.storage_type() == api::StorageType::BUFFER;
+  info.bias_is_float = v_bias.dtype() == api::kFloat;
+  return info;
+}
+
+utils::NoOverlapConvTranspose2DOptions no_overlap_conv_transpose2d_options(
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
+  utils::NoOverlapConvTranspose2DOptions options;
+  options.transposed = conv_context->transposed();
+  options.quantized = conv_context->quantized();
+  options.groups = conv_context->groups();
+  const auto& stride = conv_context->stride();
+  const auto& padding = conv_context->padding();
+  const auto& dilation = conv_context->dilation();
+  if (stride.size() == 2) {
+    options.stride_h = stride[0];
+    options.stride_w = stride[1];
+  }
+  if (padding.size() == 2) {
+    options.padding_h = padding[0];
+    options.padding_w = padding[1];
+  }
+  if (dilation.size() == 2) {
+    options.dilation_h = dilation[0];
+    options.dilation_w = dilation[1];
+  }
+  options.output_padding_is_zero =
+      output_padding_is_zero(conv_context->output_padding());
+  return options;
+}
+
 bool can_run_exact_pointwise_nooverlap_conv_transpose2d(
     const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
   if (
@@ -2751,6 +2873,41 @@ Tensor run_float_buffer_conv_transpose2d(
       nullptr);
 }
 
+std::optional<Tensor> try_run_no_overlap_conv_transpose2d_contract(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
+    const float output_min,
+    const float output_max,
+    Tensor* output_arg) {
+  if (!might_match_no_overlap_conv_transpose2d_contract(
+          input_arg, conv_context)) {
+    return std::nullopt;
+  }
+
+  Tensor buffer_input = prepare_runtime_float_buffer_conv_input(input_arg);
+  const PackedWeightHandle& packed_weight = conv_context->packed_weight();
+  const utils::NoOverlapConvTranspose2DMatch match =
+      utils::match_no_overlap_conv_transpose2d_contract(
+          no_overlap_conv_transpose2d_tensor_info(buffer_input),
+          no_overlap_conv_transpose2d_packed_info(packed_weight),
+          no_overlap_conv_transpose2d_options(conv_context));
+  if (!match.matched) {
+    return std::nullopt;
+  }
+
+  return run_float_buffer_conv_transpose2d_impl(
+      buffer_input,
+      packed_weight,
+      conv_context->stride(),
+      conv_context->padding(),
+      conv_context->dilation(),
+      conv_context->output_padding(),
+      conv_context->groups(),
+      output_min,
+      output_max,
+      output_arg);
+}
+
 Tensor run_bfloat16_buffer_conv2d(
     const Tensor& input,
     const Tensor& weight,
@@ -3502,6 +3659,14 @@ static Tensor run_conv2d_context_impl(
       input_arg.device().type() == c10::DeviceType::Vulkan &&
       input_arg.scalar_type() == kFloat &&
       can_run_exact_pointwise_nooverlap_conv_transpose2d(conv_context)) {
+    if (auto no_overlap_output = try_run_no_overlap_conv_transpose2d_contract(
+            input_arg,
+            conv_context,
+            output_min,
+            output_max,
+            output_arg)) {
+      return *no_overlap_output;
+    }
     return run_exact_pointwise_nooverlap_conv_transpose2d(
         input_arg,
         conv_context,

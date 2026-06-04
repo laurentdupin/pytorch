@@ -63,6 +63,8 @@ constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
 constexpr const char* kMaterializationNone = "none";
 constexpr const char* kMaterializationNativeBufferKernel =
     "native_buffer_kernel";
+constexpr const char* kMaterializationConvTransposeNoOverlapBuffer =
+    "conv_transpose2d_no_overlap_buffer_kernel";
 constexpr const char* kMaterializationDelegatedToSDPAExecutionPolicy =
     "delegated_to_sdpa_execution_policy";
 constexpr const char* kMaterializationScorePreMaterializeAndPostSoftmaxClone =
@@ -85,6 +87,23 @@ constexpr const char* kMaterializationViewDirectBuffer =
     "view_materialized_direct_buffer";
 constexpr const char* kMaterializationLinearGeluBridgeDeferred =
     "defer_linear_until_gelu_or_materialize_plain_linear";
+
+constexpr int64_t kNoOverlapConvTranspose2DBatch = 1;
+constexpr int64_t kNoOverlapConvTranspose2DMinInputChannels = 64;
+constexpr int64_t kNoOverlapConvTranspose2DKernel = 2;
+constexpr int64_t kNoOverlapConvTranspose2DStride = 2;
+constexpr const char* kNoOverlapConvTranspose2DTupleId =
+    "batch1_cin_ge64_kernel2_stride2_float_buffer";
+constexpr ExecutionContractMetadata
+    kNoOverlapConvTranspose2DKernel2Stride2FloatBufferMetadata =
+        make_execution_contract_metadata(
+            "NoOverlapConvTranspose2DContract",
+            "Kernel2Stride2FloatBuffer",
+            kNoOverlapConvTranspose2DTupleId,
+            "conv_transpose2d_no_overlap_2x2_stride2_buffer_float",
+            "conv_transpose2d_no_overlap_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationConvTransposeNoOverlapBuffer);
 
 constexpr double kTransformerHeadDim128Scale = 0.08838834764831845;
 constexpr double kHeadDim64Scale = 0.125;
@@ -723,6 +742,59 @@ bool matches_small_spatial_pointwise_conv_contract(
     const ScalarType dtype) {
   return match_small_spatial_pointwise_conv_contract(
              input_sizes, weight_sizes, stride, padding, dilation, groups, dtype)
+      .matched;
+}
+
+const char* no_overlap_conv_transpose2d_family_name(
+    const NoOverlapConvTranspose2DFamily family) {
+  switch (family) {
+    case NoOverlapConvTranspose2DFamily::Kernel2Stride2FloatBuffer:
+      return "NoOverlapConvTranspose2DKernel2Stride2FloatBuffer";
+    case NoOverlapConvTranspose2DFamily::None:
+      return "NoOverlapConvTranspose2DNone";
+  }
+  return "NoOverlapConvTranspose2DNone";
+}
+
+NoOverlapConvTranspose2DMatch match_no_overlap_conv_transpose2d_contract(
+    const NoOverlapConvTranspose2DTensorInfo& input,
+    const NoOverlapConvTranspose2DPackedInfo& packed,
+    const NoOverlapConvTranspose2DOptions& options) {
+  NoOverlapConvTranspose2DMatch result;
+  if (
+      !options.transposed || options.quantized || options.groups != 1 ||
+      options.stride_h != kNoOverlapConvTranspose2DStride ||
+      options.stride_w != kNoOverlapConvTranspose2DStride ||
+      options.padding_h != 0 || options.padding_w != 0 ||
+      options.dilation_h != 1 || options.dilation_w != 1 ||
+      !options.output_padding_is_zero || !input.is_vulkan ||
+      input.dtype != kFloat || input.rank != 4 ||
+      input.batch != kNoOverlapConvTranspose2DBatch ||
+      input.channels < kNoOverlapConvTranspose2DMinInputChannels ||
+      !input.has_buffer_storage || !input.supports_buffer_compute ||
+      !packed.defined || !packed.execution_is_buffer_direct ||
+      packed.quantized || packed.weight_dtype != kFloat ||
+      packed.weight_rank != 4 ||
+      packed.input_channels != input.channels ||
+      packed.kernel_h != kNoOverlapConvTranspose2DKernel ||
+      packed.kernel_w != kNoOverlapConvTranspose2DKernel ||
+      !packed.weight_has_buffer_storage || !packed.bias_has_buffer_storage ||
+      !packed.bias_is_float) {
+    return result;
+  }
+
+  result.matched = true;
+  result.family = NoOverlapConvTranspose2DFamily::Kernel2Stride2FloatBuffer;
+  result.tuple_id = kNoOverlapConvTranspose2DTupleId;
+  result.metadata = &kNoOverlapConvTranspose2DKernel2Stride2FloatBufferMetadata;
+  return result;
+}
+
+bool matches_no_overlap_conv_transpose2d_contract(
+    const NoOverlapConvTranspose2DTensorInfo& input,
+    const NoOverlapConvTranspose2DPackedInfo& packed,
+    const NoOverlapConvTranspose2DOptions& options) {
+  return match_no_overlap_conv_transpose2d_contract(input, packed, options)
       .matched;
 }
 

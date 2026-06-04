@@ -67,7 +67,10 @@ def flatten_tensors(torch: Any, payload: Any) -> list[Any]:
 
 
 def benchmark_distributed_import_status(torch: Any) -> str:
-    if hasattr(getattr(torch, "_C", None), "_distributed_c10d"):
+    torch_c10d = getattr(getattr(torch, "_C", None), "_distributed_c10d", None)
+    if torch_c10d is not None:
+        if getattr(torch_c10d, "_benchmark_distributed_import_shim", False):
+            return "distributed_import_shim"
         return "real_distributed_c10d"
     if "torch._C._distributed_c10d" in sys.modules:
         module = sys.modules["torch._C._distributed_c10d"]
@@ -81,7 +84,13 @@ def benchmark_distributed_import_status(torch: Any) -> str:
 
 
 def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
-    if hasattr(getattr(torch, "_C", None), "_distributed_c10d"):
+    torch_c = getattr(torch, "_C", None)
+    torch_c10d = getattr(torch_c, "_distributed_c10d", None)
+    if torch_c10d is not None and not getattr(
+        torch_c10d,
+        "_benchmark_distributed_import_shim",
+        False,
+    ):
         return {"status": "real_distributed_c10d", "installed": False}
     c10d_module_name = "torch._C._distributed_c10d"
     c10d_existing = sys.modules.get(c10d_module_name)
@@ -90,6 +99,47 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
         c10d_module = types.ModuleType(c10d_module_name)
 
         class _UnavailableDistributedObject:
+            class BackendType:
+                CUSTOM = "custom"
+                GLOO = "gloo"
+                MPI = "mpi"
+                NCCL = "nccl"
+                UCC = "ucc"
+                UNDEFINED = "undefined"
+                XCCL = "xccl"
+
+            class RedOpType:
+                SUM = "sum"
+                PRODUCT = "product"
+                MIN = "min"
+                MAX = "max"
+                BAND = "band"
+                BOR = "bor"
+                BXOR = "bxor"
+                PREMUL_SUM = "premul_sum"
+                AVG = "avg"
+
+            RedOpType.__members__ = {
+                "SUM": RedOpType.SUM,
+                "PRODUCT": RedOpType.PRODUCT,
+                "MIN": RedOpType.MIN,
+                "MAX": RedOpType.MAX,
+                "BAND": RedOpType.BAND,
+                "BOR": RedOpType.BOR,
+                "BXOR": RedOpType.BXOR,
+                "PREMUL_SUM": RedOpType.PREMUL_SUM,
+                "AVG": RedOpType.AVG,
+            }
+            SUM = RedOpType.SUM
+            PRODUCT = RedOpType.PRODUCT
+            MIN = RedOpType.MIN
+            MAX = RedOpType.MAX
+            BAND = RedOpType.BAND
+            BOR = RedOpType.BOR
+            BXOR = RedOpType.BXOR
+            PREMUL_SUM = RedOpType.PREMUL_SUM
+            AVG = RedOpType.AVG
+
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 raise RuntimeError(
                     "Benchmark distributed import shim does not implement "
@@ -137,6 +187,8 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
         c10d_module._DistributedBackendOptions = _UnavailableDistributedObject
         c10d_module._benchmark_distributed_import_shim = True
         sys.modules[c10d_module_name] = c10d_module
+        if torch_c is not None:
+            setattr(torch_c, "_distributed_c10d", c10d_module)
         c10d_installed = True
         try:
             import torch.distributed as torch_distributed
@@ -158,6 +210,45 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
                     )
             if not hasattr(torch_distributed, "Backend"):
                 torch_distributed.Backend = _UnavailableBackend
+            distributed_c10d = importlib.import_module(
+                "torch.distributed.distributed_c10d"
+            )
+            torch_distributed.distributed_c10d = distributed_c10d
+            for attr_name in getattr(distributed_c10d, "__all__", ()):
+                if not hasattr(torch_distributed, attr_name):
+                    setattr(
+                        torch_distributed,
+                        attr_name,
+                        getattr(distributed_c10d, attr_name),
+                    )
+            if not hasattr(torch_distributed, "_remote_device"):
+                from torch.distributed.remote_device import _remote_device
+
+                torch_distributed._remote_device = _remote_device
+            fsdp_package_name = "torch.distributed.fsdp"
+            fsdp_fully_shard_name = "torch.distributed.fsdp._fully_shard"
+            fsdp_package = sys.modules.get(fsdp_package_name)
+            if fsdp_package is None:
+                fsdp_package = types.ModuleType(fsdp_package_name)
+                fsdp_package.__path__ = []
+                fsdp_package.__spec__ = importlib.machinery.ModuleSpec(
+                    fsdp_package_name,
+                    loader=None,
+                    is_package=True,
+                )
+                fsdp_package._benchmark_distributed_import_shim = True
+                sys.modules[fsdp_package_name] = fsdp_package
+                torch_distributed.fsdp = fsdp_package
+            if fsdp_fully_shard_name not in sys.modules:
+                fsdp_fully_shard = types.ModuleType(fsdp_fully_shard_name)
+                fsdp_fully_shard.__spec__ = importlib.machinery.ModuleSpec(
+                    fsdp_fully_shard_name,
+                    loader=None,
+                )
+                fsdp_fully_shard._fsdp_param_group = None
+                fsdp_fully_shard._benchmark_distributed_import_shim = True
+                sys.modules[fsdp_fully_shard_name] = fsdp_fully_shard
+                fsdp_package._fully_shard = fsdp_fully_shard
         except Exception:
             pass
     module_name = "transformers.generation.continuous_batching"
