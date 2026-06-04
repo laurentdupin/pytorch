@@ -13,8 +13,13 @@ TEST_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(TEST_FILE_DIR)
 LOCAL_BUILD_BIN_DIR = os.path.join(REPO_ROOT, "build", "bin", "Release")
 LOCAL_TORCH_LIB_DIR = os.path.join(REPO_ROOT, "torch", "lib")
+VULKAN_CONTRACT_SPEC_DIR = os.path.join(REPO_ROOT, "test", "vulkan_contract_specs")
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
+if VULKAN_CONTRACT_SPEC_DIR not in sys.path:
+    sys.path.insert(0, VULKAN_CONTRACT_SPEC_DIR)
+import contract_spec_utils
+
 if sys.platform == "win32":
     for dll_dir in (LOCAL_TORCH_LIB_DIR, LOCAL_BUILD_BIN_DIR):
         if os.path.isdir(dll_dir):
@@ -108,48 +113,16 @@ VULKAN_CAPABILITY_PROFILE_LIMIT_KEYS = (
     "max_compute_shared_memory_size",
 )
 
-VULKAN_CONTRACT_SPEC_DIR = os.path.join(REPO_ROOT, "test", "vulkan_contract_specs")
-VULKAN_CONTRACT_SPEC_REQUIRED_FIELDS = (
-    "schema_version",
-    "contract_name",
-    "family",
-    "tuple_id",
-    "writer_op",
-    "route_label",
-    "bounds",
-    "positive_cases",
-    "negative_cases",
-)
-VULKAN_CONTRACT_SPEC_STRING_FIELDS = (
-    "contract_name",
-    "family",
-    "tuple_id",
-    "writer_op",
-    "route_label",
-)
-
-
 def _load_vulkan_contract_spec(file_name):
-    path = os.path.join(VULKAN_CONTRACT_SPEC_DIR, file_name)
-    with open(path, encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-def _vulkan_contract_spec_paths():
-    return sorted(glob.glob(os.path.join(VULKAN_CONTRACT_SPEC_DIR, "*.json")))
+    return contract_spec_utils.load_contract_spec(REPO_ROOT, file_name)
 
 
 def _load_all_vulkan_contract_specs():
-    return [
-        (os.path.basename(path), _load_vulkan_contract_spec(os.path.basename(path)))
-        for path in _vulkan_contract_spec_paths()
-    ]
+    return contract_spec_utils.load_all_contract_specs(REPO_ROOT)
 
 
 def _require_contract_spec_fields(mapping, required_fields, context):
-    missing = sorted(field for field in required_fields if field not in mapping)
-    if missing:
-        raise AssertionError(f"{context} missing required fields: {missing}")
+    contract_spec_utils.require_fields(mapping, required_fields, context)
 
 
 def _vulkan_test_log_capture_enabled():
@@ -388,11 +361,11 @@ class TestVulkanGovernance(TestCase):
             context = f"{file_name} contract spec"
             _require_contract_spec_fields(
                 spec,
-                VULKAN_CONTRACT_SPEC_REQUIRED_FIELDS,
+                contract_spec_utils.CONTRACT_SPEC_REQUIRED_FIELDS,
                 context,
             )
             self.assertEqual(spec["schema_version"], 1, context)
-            for field in VULKAN_CONTRACT_SPEC_STRING_FIELDS:
+            for field in contract_spec_utils.CONTRACT_SPEC_STRING_FIELDS:
                 self.assertIsInstance(spec[field], str, f"{context} {field}")
                 self.assertNotEqual(spec[field], "", f"{context} {field}")
             self.assertIsInstance(spec["bounds"], dict, f"{context} bounds")
@@ -4876,9 +4849,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
     def test_embedding_lookup_contract_generated_small_bounded_spec(self):
         spec = _load_vulkan_contract_spec("embedding_lookup_contract.json")
         case_log_names = [
-            f"embedding_lookup_contract_{case['name']}_value_trace.jsonl"
-            for section in ("positive_cases", "negative_cases")
-            for case in spec[section]
+            contract_spec_utils.contract_log_name(
+                spec,
+                case,
+                "value_trace.jsonl",
+            )
+            for _, case, _ in contract_spec_utils.iter_contract_cases(spec)
         ]
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         case_log_paths = [os.path.join(repo_root, name) for name in case_log_names]
@@ -4890,8 +4866,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             script = """
                 import json
                 import os
+                import sys
                 import torch
                 import torch.nn.functional as F
+                sys.path.insert(
+                    0,
+                    os.path.join(os.getcwd(), "test", "vulkan_contract_specs"),
+                )
+                import contract_spec_utils
 
                 spec_path = os.path.join(
                     os.getcwd(),
@@ -4931,9 +4913,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         ]
 
                 def run_case(case, expect_native_route):
-                    log_name = (
-                        f"embedding_lookup_contract_{case['name']}"
-                        "_value_trace.jsonl"
+                    log_name = contract_spec_utils.contract_log_name(
+                        spec,
+                        case,
+                        "value_trace.jsonl",
                     )
                     log_path = os.path.join(os.getcwd(), log_name)
                     if os.path.exists(log_path):
@@ -4989,13 +4972,16 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         assert route_hit in provenance, (case, provenance)
                     else:
                         assert route_hit not in provenance, (case, provenance)
-                        if case.get("expected_sync_readback", False):
+                        if contract_spec_utils.expected_negative_flag(
+                            case,
+                            "expected_sync_readback",
+                        ):
                             assert readback_count > 0, (case, readback_count)
 
-                for case in spec["positive_cases"]:
-                    run_case(case, True)
-                for case in spec["negative_cases"]:
-                    run_case(case, case["expected_native_route"])
+                for _, case, expect_native_route in (
+                    contract_spec_utils.iter_contract_cases(spec)
+                ):
+                    run_case(case, expect_native_route)
             """
             self._run_repo_python_subprocess(
                 script,
@@ -5008,7 +4994,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
     def test_channel_cat_contract_generated_rank4_dim1_spec(self):
         spec = _load_vulkan_contract_spec("channel_cat_contract.json")
-        op_hit_log_name = "channel_cat_contract_generated_op_hit_test.log"
+        op_hit_log_name = contract_spec_utils.contract_log_name(
+            spec,
+            {"name": "generated"},
+            "op_hit_test.log",
+        )
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
         if os.path.exists(op_hit_log_path):
@@ -5018,7 +5008,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             script = """
                 import json
                 import os
+                import sys
                 import torch
+                sys.path.insert(
+                    0,
+                    os.path.join(os.getcwd(), "test", "vulkan_contract_specs"),
+                )
+                import contract_spec_utils
 
                 spec_path = os.path.join(
                     os.getcwd(),
@@ -5063,17 +5059,20 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         assert op_hit in op_hit_text, (case, op_hit_text)
                     else:
                         assert op_hit not in op_hit_text, (case, op_hit_text)
-                        if case.get("expected_cpu_fallback", False):
+                        if contract_spec_utils.expected_negative_flag(
+                            case,
+                            "expected_cpu_fallback",
+                        ):
                             assert fallback_count == 1, (
                                 case,
                                 fallback_count,
                                 op_hit_text,
                             )
 
-                for case in spec["positive_cases"]:
-                    run_case(case, True)
-                for case in spec["negative_cases"]:
-                    run_case(case, case["expected_native_route"])
+                for _, case, expect_native_route in (
+                    contract_spec_utils.iter_contract_cases(spec)
+                ):
+                    run_case(case, expect_native_route)
             """
             self._run_repo_python_subprocess(
                 script,
