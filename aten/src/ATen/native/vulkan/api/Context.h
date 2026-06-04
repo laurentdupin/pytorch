@@ -468,7 +468,8 @@ class TORCH_API Context final {
       const api::utils::uvec3&,
       const api::utils::uvec3&,
       const api::utils::uvec3&,
-      VkFence fence_handle);
+      VkFence fence_handle,
+      VulkanSubmitOrigin origin = VulkanSubmitOrigin::Unknown);
 
   template <typename... Arguments>
   bool submit_compute_job(
@@ -747,7 +748,8 @@ inline bool Context::submit_copy(
     const api::utils::uvec3& copy_range,
     const api::utils::uvec3& src_offset,
     const api::utils::uvec3& dst_offset,
-    VkFence fence_handle) {
+    VkFence fence_handle,
+    VulkanSubmitOrigin origin) {
   const bool external_recording = external_recording_cmd() != nullptr;
   const bool stack_planned_recording =
       is_stack_planned_recording_active() && !external_recording;
@@ -758,6 +760,10 @@ inline bool Context::submit_copy(
       cpu_timeline_logging_enabled() && !external_recording;
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
+  const VulkanSubmitOrigin fenced_submit_origin =
+      origin == VulkanSubmitOrigin::Unknown
+      ? VulkanSubmitOrigin::TensorCpuReadback
+      : origin;
 
   // If any of the provided arguments does not have memory associated with it,
   // then exit early as there is no work to be done. However, if a fence has
@@ -767,7 +773,7 @@ inline bool Context::submit_copy(
     if (!external_recording && fence_handle != VK_NULL_HANDLE &&
         submit_count_ > 0) {
       submit_cmd_to_gpu(
-          fence_handle, false, VulkanSubmitOrigin::TensorCpuReadback);
+          fence_handle, false, fenced_submit_origin);
       if (cpu_timeline) {
         std::ostringstream stream;
         stream << "event=submit_copy_empty submitted=1 record_us="
@@ -826,7 +832,7 @@ inline bool Context::submit_copy(
         fence_handle,
         false,
         fence_handle != VK_NULL_HANDLE
-            ? VulkanSubmitOrigin::TensorCpuReadback
+            ? fenced_submit_origin
             : VulkanSubmitOrigin::NormalCmdSubmitFrequency);
     submitted = true;
   } else if (

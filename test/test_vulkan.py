@@ -7765,12 +7765,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 rtol=2e-4,
                 label="large_spatial_conv2d")
 
-    def test_float_buffer_conv2d_prepack_tiny_retire_drain_defers_submit(self):
+    def test_float_buffer_conv2d_prepack_upload_submit_origin(self):
         torch.manual_seed(2600)
         x_cpu = torch.randn(1, 256, 16, 16)
         x_vulkan = x_cpu.to("vulkan")
 
-        modules_vulkan = []
+        contexts = []
         expected_outputs = []
         actual_outputs = []
         torch.ops.vulkan_prepack.reset_fallback_counters()
@@ -7780,31 +7780,33 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         with torch.inference_mode():
             for index in range(4):
                 torch.manual_seed(2601 + index)
-                module_cpu = torch.nn.Conv2d(
-                    256,
+                weight = torch.randn(
                     64,
-                    kernel_size=9,
-                    stride=1,
-                    padding=4,
-                    bias=True).eval()
-                module_vulkan = torch.nn.Conv2d(
                     256,
-                    64,
-                    kernel_size=9,
-                    stride=1,
-                    padding=4,
-                    bias=True).eval()
-                module_vulkan.load_state_dict(module_cpu.state_dict())
-                module_vulkan = module_vulkan.to("vulkan")
-                modules_vulkan.append(module_vulkan)
+                    9,
+                    9,
+                    dtype=torch.float32)
+                bias = torch.randn(64, dtype=torch.float32)
+                context = torch.ops.vulkan_prepack.create_conv2d_context(
+                    weight,
+                    bias,
+                    [1, 1],
+                    [4, 4],
+                    [1, 1],
+                    1,
+                )
+                contexts.append(context)
 
-                expected_outputs.append(module_cpu(x_cpu))
-                actual_outputs.append(module_vulkan(x_vulkan))
+                expected_outputs.append(
+                    F.conv2d(x_cpu, weight, bias, stride=1, padding=4))
+                actual_outputs.append(
+                    torch.ops.vulkan_prepack.run_conv2d_context(
+                        x_vulkan, context))
 
-            retire_drains = torch.ops.vulkan_prepack.retire_drain_counters()
             submit_origins = torch.ops.vulkan_prepack.submit_origin_counters()
-            self.assertGreater(retire_drains[3], 0)
+            self.assertEqual(submit_origins[6], 0)
             self.assertEqual(submit_origins[8], 0)
+            self.assertGreater(submit_origins[13], 0)
 
             for expected, actual in zip(expected_outputs, actual_outputs):
                 self._assert_outputs_close(
@@ -7814,6 +7816,20 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     rtol=5e-3)
 
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_tensor_cpu_readback_submit_origin_stays_readback(self):
+        torch.manual_seed(2602)
+        x_vulkan = torch.randn(1, 4, 8, 8).to("vulkan")
+
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
+
+        with torch.inference_mode():
+            y_cpu = (x_vulkan + 1.0).cpu()
+
+        submit_origins = torch.ops.vulkan_prepack.submit_origin_counters()
+        self.assertGreater(submit_origins[6], 0)
+        self.assertEqual(submit_origins[13], 0)
+        self.assertEqual(y_cpu.device.type, "cpu")
 
     def test_dav2_decoder_stride1_conv2d_module_matches_unfold_reference(self):
         self._skip_unless_large_buffer_conv3x3_supported()
@@ -11060,6 +11076,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         submit_origins = torch.ops.vulkan_prepack.submit_origin_counters()
         self.assertGreater(submit_origins[2], 0)
         self.assertEqual(submit_origins[13], 0)
+        self.assertEqual(submit_origins[14], 0)
 
     def test_vulkan_vision_stack_planned_recording_matches_block_owner_607(self):
         contexts, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(

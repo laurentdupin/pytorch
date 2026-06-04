@@ -1330,7 +1330,9 @@ void copy_staging_buffer_to_vtensor_buffer(
     api::Context* const context,
     api::VulkanBuffer& staging,
     vTensor& dst,
-    const VkFence fence_handle) {
+    const VkFence fence_handle,
+    const api::VulkanSubmitOrigin fenced_submit_origin =
+        api::VulkanSubmitOrigin::TensorCpuReadback) {
   api::PipelineBarrier pipeline_barrier{};
   context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
       pipeline_barrier,
@@ -1342,7 +1344,8 @@ void copy_staging_buffer_to_vtensor_buffer(
       {api::utils::safe_downcast<uint32_t>(staging.mem_size()), 0u, 0u},
       {0u, 0u, 0u},
       {0u, 0u, 0u},
-      fence_handle);
+      fence_handle,
+      fenced_submit_origin);
 }
 
 bool copy_vtensor_buffer_to_staging(
@@ -1679,7 +1682,10 @@ static void transfer_vulkan_to_vulkan(vTensor& src, vTensor& dst) {
 // CPU <-> GPU copy implementations (these functions use compute shaders)
 //
 
-void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
+void pack_cpu_to_vulkan(
+    const Tensor& src,
+    vTensor& dst,
+    const api::VulkanSubmitOrigin fenced_submit_origin) {
   api::Context* const context = dst.context();
 
   if (dst.storage_type() == api::StorageType::BUFFER) {
@@ -1783,7 +1789,11 @@ void pack_cpu_to_vulkan(const Tensor& src, vTensor& dst) {
       {
         std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
         copy_staging_buffer_to_vtensor_buffer(
-            context, staging.buffer(), dst, fence.get_submit_handle());
+            context,
+            staging.buffer(),
+            dst,
+            fence.get_submit_handle(),
+            fenced_submit_origin);
         const bool cpu_timeline = api::cpu_timeline_logging_enabled();
         const uint64_t wait_start_us =
             cpu_timeline ? api::cpu_timeline_now_us() : 0u;

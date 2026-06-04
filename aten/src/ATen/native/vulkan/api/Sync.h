@@ -116,9 +116,10 @@ enum class VulkanSubmitOrigin : uint8_t {
   ProfilingTimestampReadback,
   ContextShutdown,
   DebugValidation,
+  ConvPrepackUpload,
 };
 
-constexpr size_t kNumSubmitOrigins = 13u;
+constexpr size_t kNumSubmitOrigins = 14u;
 
 enum class VulkanSubmitPhase : uint8_t {
   Unknown = 0,
@@ -327,6 +328,7 @@ struct VulkanSubmitOriginCounters final {
   std::atomic<uint64_t> profiling_timestamp_readback{0u};
   std::atomic<uint64_t> shutdown{0u};
   std::atomic<uint64_t> debug_validation{0u};
+  std::atomic<uint64_t> conv_prepack_upload{0u};
   std::atomic<uint64_t> unknown{0u};
 };
 

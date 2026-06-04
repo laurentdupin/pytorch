@@ -959,6 +959,24 @@ void Context::retire_deferred_cleanup(
     clear_pending_retire_resources_locked();
     return;
   }
+  if (origin == VulkanSubmitOrigin::ConvPrepackUpload) {
+    uint64_t pending_resource_count = 0u;
+    {
+      std::lock_guard<std::mutex> bufferlist_lock(
+          pending_retire_buffers_mutex_);
+      pending_resource_count += pending_retire_buffers_.size();
+    }
+    {
+      std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+      pending_resource_count += pending_retire_images_.size();
+    }
+    if (should_defer_tiny_old_path_retire_drain(
+            PendingWorkRetireDrainPolicy::DeferTinyOldPathPending,
+            pending_resource_count,
+            pending_retire_bytes())) {
+      return;
+    }
+  }
   const VulkanRetireCallSite callsite =
       origin == VulkanSubmitOrigin::StackPlannedRecordingSubmit
       ? VulkanRetireCallSite::StackPlannedRecordingEnd

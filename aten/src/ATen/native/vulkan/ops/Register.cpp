@@ -428,6 +428,8 @@ std::vector<int64_t> submit_origin_counters_runtime() {
       static_cast<int64_t>(counters.shutdown.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.debug_validation.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.conv_prepack_upload.load(std::memory_order_relaxed)),
       static_cast<int64_t>(counters.unknown.load(std::memory_order_relaxed)),
   };
 }

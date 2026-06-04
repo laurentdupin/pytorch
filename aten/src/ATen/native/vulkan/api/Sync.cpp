@@ -718,6 +718,7 @@ void reset_vulkan_submit_origin_counters() {
   counters.profiling_timestamp_readback.store(0u, std::memory_order_relaxed);
   counters.shutdown.store(0u, std::memory_order_relaxed);
   counters.debug_validation.store(0u, std::memory_order_relaxed);
+  counters.conv_prepack_upload.store(0u, std::memory_order_relaxed);
   counters.unknown.store(0u, std::memory_order_relaxed);
 }
 
@@ -884,6 +885,9 @@ void note_vulkan_queue_submit(VulkanSubmitOrigin origin) {
     case VulkanSubmitOrigin::DebugValidation:
       counters.debug_validation.fetch_add(1u, std::memory_order_relaxed);
       break;
+    case VulkanSubmitOrigin::ConvPrepackUpload:
+      counters.conv_prepack_upload.fetch_add(1u, std::memory_order_relaxed);
+      break;
     case VulkanSubmitOrigin::Unknown:
     default:
       counters.unknown.fetch_add(1u, std::memory_order_relaxed);
@@ -917,6 +921,8 @@ const char* submit_origin_name(const VulkanSubmitOrigin origin) {
       return "shutdown";
     case VulkanSubmitOrigin::DebugValidation:
       return "debug_validation";
+    case VulkanSubmitOrigin::ConvPrepackUpload:
+      return "conv_prepack_upload";
     case VulkanSubmitOrigin::Unknown:
     default:
       return "unknown";

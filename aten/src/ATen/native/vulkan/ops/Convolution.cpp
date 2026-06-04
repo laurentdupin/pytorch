@@ -1466,7 +1466,8 @@ Tensor upload_conv_tensor_to_buffer(
       api::StorageType::BUFFER,
       memory_layout,
   };
-  pack_cpu_to_vulkan(source, v_buffer);
+  pack_cpu_to_vulkan(
+      source, v_buffer, api::VulkanSubmitOrigin::ConvPrepackUpload);
   return utils::mark_tensor_execution(
       convert(v_buffer), api::ExecutionLayout::BUFFER_DIRECT, true);
 }
@@ -1683,10 +1684,6 @@ PackedWeightHandle make_float_buffer_conv2d_handle(
     const std::vector<int64_t>& logical_weight_sizes,
     const PackedWeightKind packed_weight_kind,
     const int64_t bias_channels) {
-  api::Context* const context = api::context();
-  context->submit_pending_work_and_poll_retire(
-      api::PendingWorkRetireDrainPolicy::DeferTinyOldPathPending);
-
   const Tensor pack_source_weight = upcast_half_conv_tensor_for_packing(weight);
   const std::optional<Tensor> pack_source_bias =
       upcast_half_conv_tensor_for_packing(bias);
