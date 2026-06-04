@@ -108,6 +108,20 @@ VULKAN_CAPABILITY_PROFILE_LIMIT_KEYS = (
     "max_compute_shared_memory_size",
 )
 
+VULKAN_CONTRACT_SPEC_DIR = os.path.join(REPO_ROOT, "test", "vulkan_contract_specs")
+
+
+def _load_vulkan_contract_spec(file_name):
+    path = os.path.join(VULKAN_CONTRACT_SPEC_DIR, file_name)
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _require_contract_spec_fields(mapping, required_fields, context):
+    missing = sorted(field for field in required_fields if field not in mapping)
+    if missing:
+        raise AssertionError(f"{context} missing required fields: {missing}")
+
 
 def _vulkan_test_log_capture_enabled():
     value = os.environ.get("PYTORCH_VULKAN_CAPTURE_TEST_LOGS", "")
@@ -336,6 +350,83 @@ class TestVulkanGovernance(TestCase):
             self.assertIn(f'"{profile["id"]}"', source)
         self.assertIn("intersect_vulkan_capability_profiles", source)
         self.assertIn("std::min(actual.api_version, requested.api_version)", source)
+
+    def test_vulkan_embedding_lookup_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec("embedding_lookup_contract.json")
+        _require_contract_spec_fields(
+            spec,
+            (
+                "schema_version",
+                "contract_name",
+                "family",
+                "tuple_id",
+                "writer_op",
+                "route_label",
+                "bounds",
+                "positive_cases",
+                "negative_cases",
+            ),
+            "EmbeddingLookupContract spec",
+        )
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["contract_name"], "EmbeddingLookupContract")
+        self.assertEqual(spec["family"], "SmallBoundedLookup")
+        self.assertEqual(spec["writer_op"], "aten::embedding")
+        self.assertEqual(spec["route_label"], "buffer_float_long.small_bounded_lookup")
+
+        bounds = spec["bounds"]
+        _require_contract_spec_fields(
+            bounds,
+            (
+                "weight_dtype",
+                "indices_dtype",
+                "weight_rank",
+                "index_ranks",
+                "num_embeddings",
+                "embedding_dim",
+                "num_indices",
+                "padding_idx_has_hint",
+                "scale_grad_by_freq",
+                "sparse",
+            ),
+            "EmbeddingLookupContract bounds",
+        )
+        self.assertEqual(bounds["weight_dtype"], "float32")
+        self.assertEqual(bounds["indices_dtype"], "int64")
+        self.assertEqual(bounds["weight_rank"], 2)
+        self.assertEqual(bounds["index_ranks"], [1, 2])
+        self.assertEqual(bounds["num_embeddings"], {"min": 1, "max": 4096})
+        self.assertEqual(bounds["embedding_dim"], {"min": 1, "max": 256})
+        self.assertEqual(bounds["num_indices"], {"min": 1, "max": 128})
+        self.assertTrue(bounds["padding_idx_has_hint"])
+        self.assertFalse(bounds["scale_grad_by_freq"])
+        self.assertFalse(bounds["sparse"])
+
+        case_fields = (
+            "name",
+            "num_embeddings",
+            "embedding_dim",
+            "indices_shape",
+            "indices_dtype",
+            "padding_idx",
+        )
+        for section in ("positive_cases", "negative_cases"):
+            self.assertGreater(len(spec[section]), 0)
+            for case in spec[section]:
+                _require_contract_spec_fields(
+                    case,
+                    case_fields,
+                    f"EmbeddingLookupContract {section} case",
+                )
+                self.assertIn(len(case["indices_shape"]), bounds["index_ranks"])
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("violates", "expected_native_route", "expected_sync_readback"),
+                "EmbeddingLookupContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
+            self.assertTrue(case["expected_sync_readback"])
 
 
 @unittest.skipUnless(torch.is_vulkan_available(),
@@ -4599,6 +4690,139 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 atol=1e-4,
                 rtol=1e-4)
             self.assertGreater(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+    def test_embedding_lookup_contract_generated_small_bounded_spec(self):
+        spec = _load_vulkan_contract_spec("embedding_lookup_contract.json")
+        case_log_names = [
+            f"embedding_lookup_contract_{case['name']}_value_trace.jsonl"
+            for section in ("positive_cases", "negative_cases")
+            for case in spec[section]
+        ]
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        case_log_paths = [os.path.join(repo_root, name) for name in case_log_names]
+        for path in case_log_paths:
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import json
+                import os
+                import torch
+                import torch.nn.functional as F
+
+                spec_path = os.path.join(
+                    os.getcwd(),
+                    "test",
+                    "vulkan_contract_specs",
+                    "embedding_lookup_contract.json",
+                )
+                with open(spec_path, encoding="utf-8") as handle:
+                    spec = json.load(handle)
+
+                route_hit = "route=" + spec["route_label"]
+
+                def product(values):
+                    result = 1
+                    for value in values:
+                        result *= value
+                    return result
+
+                def make_indices(case):
+                    dtype = {
+                        "int64": torch.long,
+                        "int32": torch.int32,
+                    }[case["indices_dtype"]]
+                    numel = product(case["indices_shape"])
+                    values = torch.arange(numel, dtype=dtype)
+                    values = values % case["num_embeddings"]
+                    return values.reshape(case["indices_shape"])
+
+                def read_value_trace(log_path):
+                    if not os.path.exists(log_path):
+                        return []
+                    with open(log_path, encoding="utf-8") as log_file:
+                        return [
+                            json.loads(line)
+                            for line in log_file
+                            if line.strip()
+                        ]
+
+                def run_case(case, expect_native_route):
+                    log_name = (
+                        f"embedding_lookup_contract_{case['name']}"
+                        "_value_trace.jsonl"
+                    )
+                    log_path = os.path.join(os.getcwd(), log_name)
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    os.environ["PYTORCH_VULKAN_VALIDATE_VALUES"] = "1"
+                    os.environ["PYTORCH_VULKAN_VALUE_TRACE_LOG"] = log_path
+                    os.environ["PYTORCH_VULKAN_VALUE_TRACE_SAMPLES"] = "1"
+
+                    torch.manual_seed(1000 + len(case["name"]))
+                    weight_cpu = torch.randn(
+                        case["num_embeddings"],
+                        case["embedding_dim"],
+                        dtype=torch.float32,
+                    )
+                    indices_cpu = make_indices(case)
+                    weight_vulkan = weight_cpu.to("vulkan")
+                    indices_vulkan = indices_cpu.to("vulkan")
+
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    expected = F.embedding(
+                        indices_cpu,
+                        weight_cpu,
+                        padding_idx=case["padding_idx"],
+                        scale_grad_by_freq=case.get("scale_grad_by_freq", False),
+                        sparse=case.get("sparse", False),
+                    )
+                    actual_vulkan = F.embedding(
+                        indices_vulkan,
+                        weight_vulkan,
+                        padding_idx=case["padding_idx"],
+                        scale_grad_by_freq=case.get("scale_grad_by_freq", False),
+                        sparse=case.get("sparse", False),
+                    )
+                    assert actual_vulkan.device.type == "vulkan", case
+                    actual = actual_vulkan.cpu()
+                    torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+
+                    fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                    readback_count = torch.ops.vulkan_prepack.sync_readback_count()
+                    trace_records = read_value_trace(log_path)
+                    provenance = "\\n".join(
+                        str(record.get("output_provenance", ""))
+                        for record in trace_records
+                    )
+
+                    if expect_native_route:
+                        assert fallback_count == 0, (
+                            case,
+                            fallback_count,
+                            readback_count,
+                            trace_records,
+                        )
+                        assert route_hit in provenance, (case, provenance)
+                    else:
+                        assert route_hit not in provenance, (case, provenance)
+                        if case.get("expected_sync_readback", False):
+                            assert readback_count > 0, (case, readback_count)
+
+                for case in spec["positive_cases"]:
+                    run_case(case, True)
+                for case in spec["negative_cases"]:
+                    run_case(case, case["expected_native_route"])
+            """
+            self._run_repo_python_subprocess(
+                script,
+                error_prefix="Embedding lookup generated contract spec failed.",
+            )
+        finally:
+            for path in case_log_paths:
+                if os.path.exists(path):
+                    os.remove(path)
 
     def test_embedding_sparse_forward_matches_cpu(self):
         torch.manual_seed(0)

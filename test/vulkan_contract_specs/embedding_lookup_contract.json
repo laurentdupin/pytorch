@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "contract_name": "EmbeddingLookupContract",
+  "family": "SmallBoundedLookup",
+  "tuple_id": "small_bounded_vocab4096_dim256_indices128",
+  "writer_op": "aten::embedding",
+  "route_label": "buffer_float_long.small_bounded_lookup",
+  "bounds": {
+    "weight_dtype": "float32",
+    "indices_dtype": "int64",
+    "weight_rank": 2,
+    "index_ranks": [
+      1,
+      2
+    ],
+    "num_embeddings": {
+      "min": 1,
+      "max": 4096
+    },
+    "embedding_dim": {
+      "min": 1,
+      "max": 256
+    },
+    "num_indices": {
+      "min": 1,
+      "max": 128
+    },
+    "padding_idx_has_hint": true,
+    "scale_grad_by_freq": false,
+    "sparse": false
+  },
+  "positive_cases": [
+    {
+      "name": "min_rank2",
+      "num_embeddings": 1,
+      "embedding_dim": 1,
+      "indices_shape": [
+        1,
+        1
+      ],
+      "indices_dtype": "int64",
+      "padding_idx": -1
+    },
+    {
+      "name": "interior_rank2",
+      "num_embeddings": 64,
+      "embedding_dim": 24,
+      "indices_shape": [
+        1,
+        8
+      ],
+      "indices_dtype": "int64",
+      "padding_idx": -1
+    },
+    {
+      "name": "boundary_rank2",
+      "num_embeddings": 4096,
+      "embedding_dim": 256,
+      "indices_shape": [
+        1,
+        128
+      ],
+      "indices_dtype": "int64",
+      "padding_idx": -1
+    },
+    {
+      "name": "boundary_rank1",
+      "num_embeddings": 4096,
+      "embedding_dim": 256,
+      "indices_shape": [
+        128
+      ],
+      "indices_dtype": "int64",
+      "padding_idx": -1
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "adjacent_num_indices_129",
+      "num_embeddings": 4096,
+      "embedding_dim": 256,
+      "indices_shape": [
+        1,
+        129
+      ],
+      "indices_dtype": "int64",
+      "padding_idx": -1,
+      "violates": "num_indices",
+      "expected_native_route": false,
+      "expected_sync_readback": true
+    },
+    {
+      "name": "adjacent_embedding_dim_257",
+      "num_embeddings": 4096,
+      "embedding_dim": 257,
+      "indices_shape": [
+        1,
+        8
+      ],
+      "indices_dtype": "int64",
+      "padding_idx": -1,
+      "violates": "embedding_dim",
+      "expected_native_route": false,
+      "expected_sync_readback": true
+    },
+    {
+      "name": "adjacent_num_embeddings_4097",
+      "num_embeddings": 4097,
+      "embedding_dim": 256,
+      "indices_shape": [
+        1,
+        8
+      ],
+      "indices_dtype": "int64",
+      "padding_idx": -1,
+      "violates": "num_embeddings",
+      "expected_native_route": false,
+      "expected_sync_readback": true
+    },
+    {
+      "name": "adjacent_indices_dtype_int32",
+      "num_embeddings": 4096,
+      "embedding_dim": 256,
+      "indices_shape": [
+        1,
+        8
+      ],
+      "indices_dtype": "int32",
+      "padding_idx": -1,
+      "violates": "indices_dtype",
+      "expected_native_route": false,
+      "expected_sync_readback": true
+    }
+  ]
+}
