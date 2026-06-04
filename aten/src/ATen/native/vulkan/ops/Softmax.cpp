@@ -7,6 +7,7 @@
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/Capabilities.h>
 #include <ATen/native/vulkan/planning/InferenceGraphs.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
@@ -68,6 +69,20 @@ constexpr int64_t kRuntimeProgramSdpaWideMaxValueDim =
     static_cast<int64_t>(kRuntimeProgramSdpaWideMaxOutputsPerThread);
 constexpr int64_t kRuntimeProgramSdpaWideLongSequenceMin = 1024;
 constexpr int64_t kRuntimeProgramSdpaWideLongSequenceMinHeadDim = 64;
+
+bool supports_effective_qtile_q4_subgroup_kernel() {
+  const auto capabilities = utils::query_vulkan_runtime_capability_profile();
+  constexpr uint32_t kRequiredSubgroupSize =
+      static_cast<uint32_t>(kRuntimeProgramSdpaHead64LocalSizeX);
+  const bool supports_required_compute_stage =
+      (capabilities.required_subgroup_size_stages &
+       VK_SHADER_STAGE_COMPUTE_BIT) != 0u;
+  return capabilities.has_compute_full_subgroups &&
+      capabilities.has_subgroup_size_control &&
+      supports_required_compute_stage &&
+      capabilities.min_subgroup_size <= kRequiredSubgroupSize &&
+      capabilities.max_subgroup_size >= kRequiredSubgroupSize;
+}
 
 enum class RuntimeProgramBufferFusedKernelVariant : uint8_t {
   Narrow16 = 0u,
@@ -2852,11 +2867,8 @@ Tensor scaled_dot_product_attention_runtime_fused_3d_buffer_out_vulkan(
     if (head64_query_tile_variant) {
       api::ShaderInfo shader =
           VK_KERNEL(scaled_dot_product_scores_value_buffer_float_head64_q4);
-      const api::Adapter* const adapter = context->adapter_ptr();
       bool subgroup_q4 = false;
-      if (adapter != nullptr && adapter->has_compute_full_subgroups() &&
-          adapter->supports_required_subgroup_size(
-              VK_SHADER_STAGE_COMPUTE_BIT, 64u)) {
+      if (supports_effective_qtile_q4_subgroup_kernel()) {
         shader = VK_KERNEL(
             scaled_dot_product_scores_value_buffer_float_head64_q4_subgroup);
         shader.required_subgroup_size = 64u;
