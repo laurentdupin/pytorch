@@ -1,20 +1,30 @@
 # Vulkan Current State
 
-Last bootstrapped: 2026-06-02.
+Last refreshed: 2026-06-04 at local HEAD
+`2566f675f6de3b68cd8d626fa07ca2cf12333939`.
 
 ## Repo State Summary
 
-`docs/vulkan` was absent before this bootstrap. Existing direction lived in
-ignored `agent_space` artifacts and Vulkan ops markdown files.
+The Vulkan backend planning direction is now repo-local in `docs/vulkan`.
+Ignored `agent_space` artifacts remain evidence inputs, not production
+dependencies.
 
-The worktree already has a first contract-table migration:
+`ExecutionContracts.*` is the shared contract table for the current bounded
+operator-family envelopes:
 
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.cpp`
 
-That table currently represents `SmallSpatialPointwiseConvContract` families
-for depth vision projection, OCR projection, and diffusion projection without
-adding or removing tuples.
+The table owns finite tuples/envelopes with `ExecutionContractMetadata` for
+contract name, family, tuple id, evidence id, guard id, fallback policy, and
+materialization policy. Some rows are still exact and temporary; they are
+allowed only as guarded contract rows while generated parity/negative coverage
+is built.
+
+The current local tree also has a submit-origin diagnostic split for
+CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
+CPU readbacks classified separately and applies the tiny-old-path pending
+handling only to the fenced conv prepack upload path.
 
 ## Coverage Corpus
 
@@ -52,30 +62,51 @@ These files are diagnostic inputs. Production code must not depend on
 
 ## Current Contract Groups
 
-- `SmallSpatialPointwiseConvContract`: first migrated table; keep exact rows
+- `SmallSpatialPointwiseConvContract`: finite projection rows; keep exact rows
   until broader legality is proven.
-- `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
-  lookup contract; keep exact rows until broader legality is proven.
-- `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
-  cat patterns.
-- `KVCacheAppendContract`: proposed migration target for bounded Transformer
-  sequence append.
-- `UNetChannelConcatContract`: mostly generic already; keep model provenance in
-  tests/docs.
-- `GQARepeatContract`: finite bounded K/V head repeat contract; keep exact
-  rows until broader legality is proven.
-- `BatchNormInferenceContract`: already contract-shaped for float32 4D
-  inference batch norm.
+- `NoOverlapConvTranspose2DContract`: bounded float-buffer 2x2 stride-2
+  no-overlap transposed-conv envelope; preserve unsupported-case fallback.
+- `SmallMetadataPaddedConv2DContract`: one proven padded low-channel
+  buffer-input materialization tuple; keep adjacent guards.
+- `TransformerGQASDPAContract`: bounded Transformer causal/prefill and decode
+  GQA SDPA legality with model-neutral naming.
+- `MaskedTinySDPAContract`: tiny additive-mask SDPA tuple.
 - `DiffusionSDPAContract` and `DiffusionCrossAttentionContract`: finite
   explicit tuple contracts until broader materialization behavior is proven.
 - `SDPAExecutionPolicyContract`: finite execution materialization, softmax
   score, post-softmax clone, and repeat policy contract; keep exact rows until
   broader layout-transition behavior is proven.
+- `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
+  lookup contract; keep exact rows until broader legality is proven.
+- `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
+  cat patterns.
+- `KVCacheAppendContract`: bounded Transformer sequence append and initial
+  empty-cache cat rows.
+- `UNetChannelConcatContract`: mostly generic already; keep model provenance in
+  tests/docs.
+- `GQARepeatContract`: finite bounded K/V head repeat contract; keep exact
+  rows until broader legality is proven.
+- `BatchNormInferenceContract`: float32 4D inference batch norm, including the
+  materialized-buffer layout transition used by current OCR evidence.
 - `SafeViewReshapeContract`: finite dense direct-buffer view and reshape-alias
   contract; document alias, dense materialization, storage-offset, and
   provenance rules.
+- `LinearGeluBridgeContract`: pure legality for the deferred linear/GELU
+  bridge; registry, alias, and materialization side effects stay outside the
+  contract.
 - DAv2 region/stack contracts: best current example of shape keys, capability
   keys, planned regions, binding validation, and replay-readiness diagnostics.
+
+## Governance Guardrails
+
+- `test/test_vulkan.py::TestVulkanGovernance` statically checks that tuple
+  matches in `ExecutionContracts.cpp` set metadata, active temporary
+  exceptions include expiry and migration target, active exception locations
+  still resolve where practical, and selected generic routing files do not
+  introduce model-name strings.
+- Submit-origin counter tests use a named Python helper instead of raw numeric
+  indices. The helper is intentionally test-local; no C++ diagnostic API change
+  was made for this guardrail refresh.
 
 ## Validation Caveats
 
@@ -88,9 +119,10 @@ These files are diagnostic inputs. Production code must not depend on
   optimization signal; RX 6700 XT and GTX 1080 are compatibility checks.
 - Gemma E2B is a memory/dtype milestone, not a reason to add exact route
   exceptions.
-- PaddleOCR completes smoke coverage in current artifacts but retains high
-  fallback/readback budget. Treat it as a contract discovery source until tight
-  budgets are established.
+- PaddleOCR completes current matrix-sensitive RX 9070/RX 6700 XT/GTX 1080
+  smoke coverage in Task033 artifacts with zero sync readback, but still has
+  residual postprocess CPU fallback budget. Treat it as a contract discovery
+  source until tight budgets are established.
 
 ## Build Context
 

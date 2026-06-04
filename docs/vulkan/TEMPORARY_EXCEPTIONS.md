@@ -31,15 +31,6 @@ condition and migration target.
 - Migration target: generated `KernelFamilyContract` tables with positive and
   negative tests.
 
-### Transformer GQA SDPA HY-MT-Derived Naming
-
-- Location: SDPA route policy and related helpers
-- Status: migrate
-- Reason: HY-MT exposed reusable causal/GQA SDPA prefill and decode patterns.
-- Expiry: next SDPA contract migration task.
-- Migration target: `TransformerGQASDPAContract` with split prefill/decode
-  legality, explicit scale/dropout/mask/GQA fields, and adjacent guard tests.
-
 ### KV Cache Append Exact Tuples
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

@@ -1,7 +1,9 @@
 # Owner(s): ["oncall: mobile"]
 
 import os
+import glob
 import json
+import re
 import subprocess
 import sys
 import textwrap
@@ -46,6 +48,24 @@ VULKAN_TEST_LOG_ENV_KEYS = {
     "replay": "PYTORCH_VULKAN_REPLAY_LOG",
 }
 
+VULKAN_SUBMIT_ORIGIN_COUNTER_NAMES = (
+    "total",
+    "normal_cmd_submit_frequency",
+    "stack_planned_recording_submit",
+    "pre_stack_flush",
+    "post_stack_flush",
+    "explicit_synchronize",
+    "tensor_cpu_readback",
+    "fallback_readback",
+    "retire_queue_drain",
+    "profiling_timestamp_reset",
+    "profiling_timestamp_readback",
+    "shutdown",
+    "debug_validation",
+    "conv_prepack_upload",
+    "unknown",
+)
+
 
 def _vulkan_test_log_capture_enabled():
     value = os.environ.get("PYTORCH_VULKAN_CAPTURE_TEST_LOGS", "")
@@ -56,6 +76,16 @@ def _vulkan_test_log_capture_enabled():
 
 def _safe_vulkan_test_name(test_id):
     return "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in test_id)
+
+
+def _vulkan_submit_origin_counters_by_name():
+    counters = torch.ops.vulkan_prepack.submit_origin_counters()
+    if len(counters) != len(VULKAN_SUBMIT_ORIGIN_COUNTER_NAMES):
+        raise AssertionError(
+            "submit_origin_counters schema changed: "
+            f"expected {len(VULKAN_SUBMIT_ORIGIN_COUNTER_NAMES)}, got {len(counters)}"
+        )
+    return dict(zip(VULKAN_SUBMIT_ORIGIN_COUNTER_NAMES, counters))
 
 
 class VulkanDiagnosticLogMixin:
@@ -85,6 +115,109 @@ class VulkanDiagnosticLogMixin:
                     os.environ[env_key] = value
         finally:
             super().tearDown()
+
+
+class TestVulkanGovernance(TestCase):
+    @staticmethod
+    def _repo_text(*path_parts):
+        with open(os.path.join(REPO_ROOT, *path_parts), encoding="utf-8") as handle:
+            return handle.read()
+
+    @classmethod
+    def _active_temporary_exception_sections(cls):
+        doc = cls._repo_text("docs", "vulkan", "TEMPORARY_EXCEPTIONS.md")
+        active = doc.split("## Active Exceptions", 1)[1]
+        active = active.split("## Rules For New Exceptions", 1)[0]
+        return re.findall(r"^### (.+?)\n(.*?)(?=^### |\Z)", active, re.S | re.M)
+
+    def test_execution_contract_tuple_matches_carry_metadata(self):
+        header = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "ExecutionContracts.h",
+        )
+        for field in (
+            "contract_name",
+            "family_name",
+            "tuple_id",
+            "evidence_id",
+            "guard_id",
+            "fallback_policy",
+            "materialization_policy",
+        ):
+            self.assertIn(f"const char* {field}", header)
+        self.assertIn("const ExecutionContractMetadata* metadata", header)
+
+        source = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "ExecutionContracts.cpp",
+        )
+        lines = source.splitlines()
+        tuple_match_lines = [
+            index for index, line in enumerate(lines) if "result.tuple_id =" in line
+        ]
+        self.assertGreater(len(tuple_match_lines), 0)
+        for index in tuple_match_lines:
+            window = "\n".join(lines[index : index + 6])
+            self.assertIn("result.metadata =", window)
+
+    def test_active_temporary_exceptions_have_expiry_and_targets(self):
+        sections = self._active_temporary_exception_sections()
+        self.assertGreater(len(sections), 0)
+        headings = {heading for heading, _ in sections}
+        self.assertNotIn("Transformer GQA SDPA HY-MT-Derived Naming", headings)
+
+        for heading, body in sections:
+            self.assertRegex(body, r"(?m)^- Expiry: .+")
+            self.assertRegex(body, r"(?m)^- Migration target: .+")
+            location_line = re.search(r"(?m)^- Location: (.+)$", body)
+            if location_line is None:
+                continue
+            for location in re.findall(r"`([^`]+)`", location_line.group(1)):
+                if location.startswith("agent_space/"):
+                    continue
+                pattern = os.path.join(REPO_ROOT, location.replace("/", os.sep))
+                self.assertTrue(
+                    glob.glob(pattern),
+                    f"{heading} location is stale or missing: {location}",
+                )
+
+    def test_generic_vulkan_routing_has_no_model_name_strings(self):
+        checked_paths = (
+            ("aten", "src", "ATen", "native", "vulkan", "planning", "RoutePolicy.cpp"),
+            ("aten", "src", "ATen", "native", "vulkan", "planning", "Request.cpp"),
+            ("aten", "src", "ATen", "native", "vulkan", "ops", "Batchnorm.cpp"),
+            ("aten", "src", "ATen", "native", "vulkan", "ops", "Concat.cpp"),
+            ("aten", "src", "ATen", "native", "vulkan", "ops", "Convolution.cpp"),
+            ("aten", "src", "ATen", "native", "vulkan", "ops", "Indexing.cpp"),
+            ("aten", "src", "ATen", "native", "vulkan", "ops", "Mm.cpp"),
+            ("aten", "src", "ATen", "native", "vulkan", "ops", "Shape.cpp"),
+            ("aten", "src", "ATen", "native", "vulkan", "ops", "Softmax.cpp"),
+        )
+        model_name = re.compile(
+            r"\b(DAv2|dav2|Lotus|lotus|HY-MT|hymt|PaddleOCR|paddleocr|Gemma|gemma)\b"
+        )
+        hits = []
+        for path_parts in checked_paths:
+            path = os.path.join(REPO_ROOT, *path_parts)
+            with open(path, encoding="utf-8") as handle:
+                for line_no, line in enumerate(handle, 1):
+                    stripped = line.strip()
+                    if stripped.startswith(("//", "/*", "*")):
+                        continue
+                    if model_name.search(line):
+                        hits.append(f"{os.path.relpath(path, REPO_ROOT)}:{line_no}")
+        self.assertEqual(hits, [])
+
 
 @unittest.skipUnless(torch.is_vulkan_available(),
                      "Vulkan backend must be available for these tests.")
@@ -7803,10 +7936,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     torch.ops.vulkan_prepack.run_conv2d_context(
                         x_vulkan, context))
 
-            submit_origins = torch.ops.vulkan_prepack.submit_origin_counters()
-            self.assertEqual(submit_origins[6], 0)
-            self.assertEqual(submit_origins[8], 0)
-            self.assertGreater(submit_origins[13], 0)
+            submit_origins = _vulkan_submit_origin_counters_by_name()
+            self.assertEqual(submit_origins["tensor_cpu_readback"], 0)
+            self.assertEqual(submit_origins["retire_queue_drain"], 0)
+            self.assertGreater(submit_origins["conv_prepack_upload"], 0)
 
             for expected, actual in zip(expected_outputs, actual_outputs):
                 self._assert_outputs_close(
@@ -7826,9 +7959,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         with torch.inference_mode():
             y_cpu = (x_vulkan + 1.0).cpu()
 
-        submit_origins = torch.ops.vulkan_prepack.submit_origin_counters()
-        self.assertGreater(submit_origins[6], 0)
-        self.assertEqual(submit_origins[13], 0)
+        submit_origins = _vulkan_submit_origin_counters_by_name()
+        self.assertGreater(submit_origins["tensor_cpu_readback"], 0)
+        self.assertEqual(submit_origins["conv_prepack_upload"], 0)
         self.assertEqual(y_cpu.device.type, "cpu")
 
     def test_dav2_decoder_stride1_conv2d_module_matches_unfold_reference(self):
@@ -11073,10 +11206,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertGreater(counters[3], 0)
         self.assertGreater(counters[6], 0)
         self.assertEqual(counters[9], 0)
-        submit_origins = torch.ops.vulkan_prepack.submit_origin_counters()
-        self.assertGreater(submit_origins[2], 0)
-        self.assertEqual(submit_origins[13], 0)
-        self.assertEqual(submit_origins[14], 0)
+        submit_origins = _vulkan_submit_origin_counters_by_name()
+        self.assertGreater(submit_origins["stack_planned_recording_submit"], 0)
+        self.assertEqual(submit_origins["conv_prepack_upload"], 0)
+        self.assertEqual(submit_origins["unknown"], 0)
 
     def test_vulkan_vision_stack_planned_recording_matches_block_owner_607(self):
         contexts, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
