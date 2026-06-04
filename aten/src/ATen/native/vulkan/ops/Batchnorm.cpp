@@ -182,8 +182,11 @@ utils::BatchNormInferenceTensorInfo make_batch_norm_inference_tensor_info(
   info.numel = tensor.numel();
   info.is_contiguous = tensor.is_contiguous();
   if (tensor.is_vulkan()) {
+    const vTensor& v_tensor = convert(tensor);
     info.has_buffer_storage =
-        convert(tensor).storage_type() == api::StorageType::BUFFER;
+        v_tensor.storage_type() == api::StorageType::BUFFER;
+    info.supports_buffer_compute =
+        utils::supports_buffer_elementwise_compute(v_tensor);
   }
   return info;
 }
@@ -222,18 +225,58 @@ Tensor batch_norm(
           training);
 
   if (batch_norm_match.matched) {
-    const Tensor weight_arg =
-        is_defined(weight_opt) ? *weight_opt : *running_mean_opt;
-    const Tensor bias_arg = is_defined(bias_opt) ? *bias_opt : *running_mean_opt;
-    return batchnorm::run_buffer_op(
-        input_arg,
-        weight_arg,
-        bias_arg,
-        *running_mean_opt,
-        *running_var_opt,
-        eps,
-        is_defined(weight_opt),
-        is_defined(bias_opt));
+    if (batch_norm_match.requires_materialization) {
+      const Tensor input_buffer = utils::ensure_buffer_storage(input_arg);
+      const Tensor running_mean_buffer =
+          utils::ensure_buffer_storage(*running_mean_opt);
+      const Tensor running_var_buffer =
+          utils::ensure_buffer_storage(*running_var_opt);
+      const std::optional<Tensor> weight_buffer =
+          is_defined(weight_opt)
+          ? std::optional<Tensor>(utils::ensure_buffer_storage(*weight_opt))
+          : std::nullopt;
+      const std::optional<Tensor> bias_buffer =
+          is_defined(bias_opt)
+          ? std::optional<Tensor>(utils::ensure_buffer_storage(*bias_opt))
+          : std::nullopt;
+      const Tensor weight_arg =
+          weight_buffer.has_value() ? *weight_buffer : running_mean_buffer;
+      const Tensor bias_arg =
+          bias_buffer.has_value() ? *bias_buffer : running_mean_buffer;
+      const utils::BatchNormInferenceMatch materialized_match =
+          utils::match_batch_norm_inference_contract(
+              make_batch_norm_inference_tensor_info(input_buffer),
+              make_batch_norm_inference_tensor_info(weight_buffer),
+              make_batch_norm_inference_tensor_info(bias_buffer),
+              make_batch_norm_inference_tensor_info(running_mean_buffer),
+              make_batch_norm_inference_tensor_info(running_var_buffer),
+              training);
+      if (materialized_match.matched) {
+        return batchnorm::run_buffer_op(
+            input_buffer,
+            weight_arg,
+            bias_arg,
+            running_mean_buffer,
+            running_var_buffer,
+            eps,
+            is_defined(weight_opt),
+            is_defined(bias_opt));
+      }
+    } else {
+      const Tensor weight_arg =
+          is_defined(weight_opt) ? *weight_opt : *running_mean_opt;
+      const Tensor bias_arg =
+          is_defined(bias_opt) ? *bias_opt : *running_mean_opt;
+      return batchnorm::run_buffer_op(
+          input_arg,
+          weight_arg,
+          bias_arg,
+          *running_mean_opt,
+          *running_var_opt,
+          eps,
+          is_defined(weight_opt),
+          is_defined(bias_opt));
+    }
   }
 
   const Device output_device = input_arg.device();

@@ -6535,6 +6535,51 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
         self._assert_outputs_close(expected, actual_vulkan.cpu(), atol=2e-4, rtol=2e-4)
 
+    def test_batch_norm_eval_materializes_texture_input(self):
+        torch.manual_seed(0)
+        x_cpu = torch.randn(1, 32, 36, 64)
+        weight_cpu = torch.randn(32)
+        bias_cpu = torch.randn(32)
+        running_mean_cpu = torch.randn(32)
+        running_var_cpu = torch.rand(32) + 0.5
+
+        expected = F.batch_norm(
+            x_cpu,
+            running_mean_cpu,
+            running_var_cpu,
+            weight_cpu,
+            bias_cpu,
+            training=False,
+            momentum=0.1,
+            eps=1e-5,
+        )
+        x_vulkan = torch.empty(
+            x_cpu.shape,
+            dtype=x_cpu.dtype,
+            device="vulkan",
+        )
+        x_vulkan.copy_(x_cpu)
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        actual_vulkan = F.batch_norm(
+            x_vulkan,
+            running_mean_cpu.to("vulkan"),
+            running_var_cpu.to("vulkan"),
+            weight_cpu.to("vulkan"),
+            bias_cpu.to("vulkan"),
+            training=False,
+            momentum=0.1,
+            eps=1e-5,
+        )
+
+        self.assertTrue(actual_vulkan.is_vulkan)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self._assert_outputs_close(
+            expected,
+            actual_vulkan.cpu(),
+            atol=2e-4,
+            rtol=2e-4)
+
     def test_batch_norm_training_remains_unsupported(self):
         x_vulkan = torch.randn(1, 4, 5, 7).to("vulkan")
         running_mean_vulkan = torch.zeros(4).to("vulkan")

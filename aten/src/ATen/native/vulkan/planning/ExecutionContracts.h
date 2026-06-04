@@ -234,11 +234,13 @@ struct BatchNormInferenceTensorInfo final {
   int64_t numel{0};
   bool is_contiguous{false};
   bool has_buffer_storage{false};
+  bool supports_buffer_compute{false};
 };
 
 enum class BatchNormInferenceFamily : uint8_t {
   None = 0u,
   BufferFloat4D,
+  MaterializedBufferFloat4D,
 };
 
 struct BatchNormInferenceMatch final {
@@ -246,6 +248,7 @@ struct BatchNormInferenceMatch final {
   BatchNormInferenceFamily family{BatchNormInferenceFamily::None};
   const char* tuple_id{nullptr};
   const ExecutionContractMetadata* metadata{nullptr};
+  bool requires_materialization{false};
 };
 
 enum class SafeViewReshapeFamily : uint8_t {
