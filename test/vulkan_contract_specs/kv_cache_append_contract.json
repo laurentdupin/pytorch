@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "contract_name": "KVCacheAppendContract",
+  "family": "SequenceAppend",
+  "tuple_id": "sequence_append_s99_to_s115_token1_heads4_dim128",
+  "writer_op": "aten::cat",
+  "route_label": "aten::cat.kv_cache_append_dim2_buffer",
+  "bounds": {
+    "dtype": "float32",
+    "rank": 4,
+    "dim": 2,
+    "batch": 1,
+    "heads": 4,
+    "source_sequence": {
+      "min": 99,
+      "max": 115
+    },
+    "token_sequence": 1,
+    "head_dim": 128,
+    "requires_vulkan": true
+  },
+  "positive_cases": [
+    {
+      "name": "min_source_99",
+      "cache_shape": [1, 4, 99, 128],
+      "token_shape": [1, 4, 1, 128],
+      "dim": 2,
+      "dtype": "float32",
+      "expected_route_label": "aten::cat.kv_cache_append_dim2_buffer",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "interior_source_100",
+      "cache_shape": [1, 4, 100, 128],
+      "token_shape": [1, 4, 1, 128],
+      "dim": 2,
+      "dtype": "float32",
+      "expected_route_label": "aten::cat.kv_cache_append_dim2_buffer",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "max_source_115",
+      "cache_shape": [1, 4, 115, 128],
+      "token_shape": [1, 4, 1, 128],
+      "dim": 2,
+      "dtype": "float32",
+      "expected_route_label": "aten::cat.kv_cache_append_dim2_buffer",
+      "expected_cpu_fallback": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "source_sequence_98",
+      "cache_shape": [1, 4, 98, 128],
+      "token_shape": [1, 4, 1, 128],
+      "dim": 2,
+      "dtype": "float32",
+      "force_buffer_view": true,
+      "violates": "source_sequence.min",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "source_sequence_116",
+      "cache_shape": [1, 4, 116, 128],
+      "token_shape": [1, 4, 1, 128],
+      "dim": 2,
+      "dtype": "float32",
+      "force_buffer_view": true,
+      "violates": "source_sequence.max",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "token_sequence_2",
+      "cache_shape": [1, 4, 100, 128],
+      "token_shape": [1, 4, 2, 128],
+      "dim": 2,
+      "dtype": "float32",
+      "force_buffer_view": true,
+      "violates": "token_sequence",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "heads_5",
+      "cache_shape": [1, 5, 100, 128],
+      "token_shape": [1, 5, 1, 128],
+      "dim": 2,
+      "dtype": "float32",
+      "force_buffer_view": true,
+      "violates": "heads",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "head_dim_64",
+      "cache_shape": [1, 4, 100, 64],
+      "token_shape": [1, 4, 1, 64],
+      "dim": 2,
+      "dtype": "float32",
+      "force_buffer_view": true,
+      "violates": "head_dim",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    }
+  ]
+}

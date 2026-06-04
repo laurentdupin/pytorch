@@ -583,6 +583,80 @@ class TestVulkanGovernance(TestCase):
             self.assertFalse(case["expected_native_route"])
             self.assertTrue(case["expected_cpu_fallback"])
 
+    def test_vulkan_kv_cache_append_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec("kv_cache_append_contract.json")
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["contract_name"], "KVCacheAppendContract")
+        self.assertEqual(spec["family"], "SequenceAppend")
+        self.assertEqual(
+            spec["tuple_id"],
+            "sequence_append_s99_to_s115_token1_heads4_dim128",
+        )
+        self.assertEqual(spec["writer_op"], "aten::cat")
+        self.assertEqual(spec["route_label"], "aten::cat.kv_cache_append_dim2_buffer")
+
+        bounds = spec["bounds"]
+        _require_contract_spec_fields(
+            bounds,
+            (
+                "dtype",
+                "rank",
+                "dim",
+                "batch",
+                "heads",
+                "source_sequence",
+                "token_sequence",
+                "head_dim",
+                "requires_vulkan",
+            ),
+            "KVCacheAppendContract bounds",
+        )
+        self.assertEqual(bounds["dtype"], "float32")
+        self.assertEqual(bounds["rank"], 4)
+        self.assertEqual(bounds["dim"], 2)
+        self.assertEqual(bounds["batch"], 1)
+        self.assertEqual(bounds["heads"], 4)
+        self.assertEqual(bounds["source_sequence"], {"min": 99, "max": 115})
+        self.assertEqual(bounds["token_sequence"], 1)
+        self.assertEqual(bounds["head_dim"], 128)
+        self.assertTrue(bounds["requires_vulkan"])
+
+        case_fields = ("name", "cache_shape", "token_shape", "dim", "dtype")
+        for section in ("positive_cases", "negative_cases"):
+            self.assertGreater(len(spec[section]), 0)
+            for case in spec[section]:
+                _require_contract_spec_fields(
+                    case,
+                    case_fields,
+                    f"KVCacheAppendContract {section} case",
+                )
+                self.assertEqual(len(case["cache_shape"]), bounds["rank"])
+                self.assertEqual(len(case["token_shape"]), bounds["rank"])
+                self.assertEqual(case["dtype"], bounds["dtype"])
+
+        for case in spec["positive_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("expected_route_label", "expected_cpu_fallback"),
+                "KVCacheAppendContract positive case",
+            )
+            self.assertEqual(case["expected_route_label"], spec["route_label"])
+            self.assertFalse(case["expected_cpu_fallback"])
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                (
+                    "violates",
+                    "expected_native_route",
+                    "expected_cpu_fallback",
+                    "force_buffer_view",
+                ),
+                "KVCacheAppendContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
+            self.assertTrue(case["expected_cpu_fallback"])
+            self.assertTrue(case["force_buffer_view"])
+
 
 @unittest.skipUnless(torch.is_vulkan_available(),
                      "Vulkan backend must be available for these tests.")
@@ -5077,6 +5151,110 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self._run_repo_python_subprocess(
                 script,
                 error_prefix="Channel cat generated contract spec failed.",
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+            )
+        finally:
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+
+    def test_kv_cache_append_contract_generated_sequence_append_spec(self):
+        spec = _load_vulkan_contract_spec("kv_cache_append_contract.json")
+        op_hit_log_name = contract_spec_utils.contract_log_name(
+            spec,
+            {"name": "generated"},
+            "op_hit_test.log",
+        )
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        try:
+            script = """
+                import json
+                import os
+                import sys
+                import torch
+                sys.path.insert(
+                    0,
+                    os.path.join(os.getcwd(), "test", "vulkan_contract_specs"),
+                )
+                import contract_spec_utils
+
+                spec_path = os.path.join(
+                    os.getcwd(),
+                    "test",
+                    "vulkan_contract_specs",
+                    "kv_cache_append_contract.json",
+                )
+                with open(spec_path, encoding="utf-8") as handle:
+                    spec = json.load(handle)
+
+                route_hit = "op=" + spec["route_label"]
+                op_hit_log = os.environ["PYTORCH_VULKAN_OP_HIT_LOG"]
+
+                def dtype_for_case(case):
+                    return {
+                        "float32": torch.float32,
+                    }[case["dtype"]]
+
+                def read_op_hit_log():
+                    if not os.path.exists(op_hit_log):
+                        return ""
+                    with open(op_hit_log, encoding="utf-8") as log_file:
+                        return log_file.read()
+
+                def maybe_force_buffer_view(tensor, force):
+                    vulkan = tensor.to("vulkan")
+                    if not force:
+                        return vulkan
+                    return vulkan.transpose(2, 3).transpose(2, 3)
+
+                def run_case(case, expect_native_route):
+                    if os.path.exists(op_hit_log):
+                        os.remove(op_hit_log)
+                    torch.manual_seed(3000 + len(case["name"]))
+                    dtype = dtype_for_case(case)
+                    cache = torch.randn(*case["cache_shape"], dtype=dtype)
+                    token = torch.randn(*case["token_shape"], dtype=dtype)
+                    force_buffer_view = case.get("force_buffer_view", False)
+                    cache_vulkan = maybe_force_buffer_view(cache, force_buffer_view)
+                    token_vulkan = maybe_force_buffer_view(token, force_buffer_view)
+
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    expected = torch.cat((cache, token), dim=case["dim"])
+                    actual = torch.cat(
+                        (cache_vulkan, token_vulkan),
+                        dim=case["dim"],
+                    ).cpu()
+                    torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+
+                    fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                    op_hit_text = read_op_hit_log()
+                    if expect_native_route:
+                        assert fallback_count == 0, (case, fallback_count, op_hit_text)
+                        expected_route = "op=" + case["expected_route_label"]
+                        assert expected_route in op_hit_text, (case, op_hit_text)
+                    else:
+                        assert route_hit not in op_hit_text, (case, op_hit_text)
+                        if contract_spec_utils.expected_negative_flag(
+                            case,
+                            "expected_cpu_fallback",
+                        ):
+                            assert fallback_count == 1, (
+                                case,
+                                fallback_count,
+                                op_hit_text,
+                            )
+
+                for _, case, expect_native_route in (
+                    contract_spec_utils.iter_contract_cases(spec)
+                ):
+                    run_case(case, expect_native_route)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                error_prefix="KV-cache append generated contract spec failed.",
                 extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
             )
         finally:
