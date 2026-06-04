@@ -168,6 +168,33 @@ struct KVCacheAppendMatch final {
   int64_t sequence_length{0};
 };
 
+struct ChannelCatTensorInfo final {
+  bool is_vulkan{false};
+  ScalarType dtype{kFloat};
+  int64_t rank{0};
+  int64_t batch{0};
+  int64_t channels{0};
+  int64_t height{0};
+  int64_t width{0};
+  bool is_contiguous{false};
+  bool has_buffer_storage{false};
+  bool supports_buffer_compute{false};
+};
+
+enum class ChannelCatFamily : uint8_t {
+  None = 0u,
+  Rank4Dim1BufferView,
+};
+
+struct ChannelCatMatch final {
+  bool matched{false};
+  ChannelCatFamily family{ChannelCatFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+  int64_t input_count{0};
+  int64_t total_channels{0};
+};
+
 enum class EmbeddingLookupFamily : uint8_t {
   None = 0u,
   SmallBoundedLookup,
@@ -454,6 +481,18 @@ bool matches_kv_cache_append_contract(
     ScalarType right_dtype,
     bool left_is_vulkan,
     bool right_is_vulkan,
+    int64_t dim);
+
+const char* channel_cat_family_name(ChannelCatFamily family);
+
+const char* channel_cat_op_hit_label(ChannelCatFamily family);
+
+ChannelCatMatch match_channel_cat_contract(
+    ArrayRef<ChannelCatTensorInfo> tensors,
+    int64_t dim);
+
+bool matches_channel_cat_contract(
+    ArrayRef<ChannelCatTensorInfo> tensors,
     int64_t dim);
 
 const char* embedding_lookup_family_name(EmbeddingLookupFamily family);

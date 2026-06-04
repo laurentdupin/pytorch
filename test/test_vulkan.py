@@ -4610,6 +4610,48 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 actual = torch.cat((left_vulkan, right_vulkan), dim=1).cpu()
                 self.assertEqual(actual, expected)
 
+    def test_float_channel_cat_multi_buffer_view_inputs_match_cpu(self):
+        with torch.inference_mode():
+            cases = [
+                (6, (1, 128, 45, 31)),
+                (3, (1, 16, 5, 7)),
+            ]
+            for count, shape in cases:
+                with self.subTest(count=count, shape=shape):
+                    tensors = [
+                        torch.randn(*shape, dtype=torch.float32)
+                        for _ in range(count)
+                    ]
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+
+                    expected = torch.cat(tensors, dim=1)
+                    actual = torch.cat(
+                        tuple(tensor.to("vulkan") for tensor in tensors),
+                        dim=1,
+                    ).cpu()
+
+                    self.assertEqual(actual, expected)
+                    self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_float_channel_cat_multi_buffer_view_adjacent_guards_fall_back(self):
+        with torch.inference_mode():
+            cases = [
+                ("too_many_inputs", [torch.randn(1, 16, 5, 7) for _ in range(9)]),
+                ("unaligned_channels", [torch.randn(1, 6, 5, 7) for _ in range(3)]),
+            ]
+            for name, tensors in cases:
+                with self.subTest(name=name):
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+
+                    expected = torch.cat(tensors, dim=1)
+                    actual = torch.cat(
+                        tuple(tensor.to("vulkan") for tensor in tensors),
+                        dim=1,
+                    ).cpu()
+
+                    self.assertEqual(actual, expected)
+                    self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
     def test_float_dim1_cat_two_rank3_buffer_view_inputs_matches_cpu(self):
         with torch.inference_mode():
             left = torch.randn(1, 8, 384, dtype=torch.float32)

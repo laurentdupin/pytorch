@@ -106,6 +106,40 @@ utils::KVCacheAppendMatch match_kv_cache_initial_cat_contract(
       normalized_right_dim);
 }
 
+utils::ChannelCatTensorInfo make_channel_cat_tensor_info(
+    const Tensor& tensor) {
+  utils::ChannelCatTensorInfo info;
+  info.is_vulkan = tensor.is_vulkan();
+  info.dtype = tensor.scalar_type();
+  info.rank = tensor.dim();
+  if (tensor.dim() == 4) {
+    info.batch = tensor.size(0);
+    info.channels = tensor.size(1);
+    info.height = tensor.size(2);
+    info.width = tensor.size(3);
+  }
+  info.is_contiguous = tensor.is_contiguous();
+  if (tensor.is_vulkan()) {
+    const vTensor& v_tensor = convert(tensor);
+    info.has_buffer_storage =
+        v_tensor.storage_type() == api::StorageType::BUFFER;
+    info.supports_buffer_compute =
+        utils::supports_buffer_elementwise_compute(v_tensor);
+  }
+  return info;
+}
+
+utils::ChannelCatMatch match_channel_cat_buffer_view_contract(
+    const MaterializedITensorListRef& tensors,
+    const int64_t dim) {
+  std::vector<utils::ChannelCatTensorInfo> tensor_infos;
+  tensor_infos.reserve(tensors.size());
+  for (const Tensor& tensor : tensors) {
+    tensor_infos.push_back(make_channel_cat_tensor_info(tensor));
+  }
+  return utils::match_channel_cat_contract(tensor_infos, dim);
+}
+
 bool can_use_buffer_cat_fast_path(
     const MaterializedITensorListRef& tensors,
     const int64_t dim) {
@@ -135,15 +169,19 @@ bool can_use_buffer_cat_fast_path(
   }
 
   if (has_buffer_view_input) {
-    const bool supported_channel_cat =
+    const bool supported_pair_channel_cat =
         tensors.size() == 2 && dim == 1 &&
         (reference.dim() == 3 || reference.dim() == 4);
+    const utils::ChannelCatMatch channel_cat_contract =
+        match_channel_cat_buffer_view_contract(tensors, dim);
     if (
-        !supported_channel_cat &&
+        !supported_pair_channel_cat && !channel_cat_contract.matched &&
         !match_kv_cache_append_cat_contract(tensors, dim).matched) {
       return false;
     }
-    if (supported_channel_cat && reference.dim() == 4) {
+    if (
+        (supported_pair_channel_cat || channel_cat_contract.matched) &&
+        reference.dim() == 4) {
       int64_t cat_dim_size = 0;
       for (const Tensor& tensor : tensors) {
         if (tensor.size(1) % 4 != 0) {
@@ -755,7 +793,9 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
   TORCH_INTERNAL_ASSERT(!materialized.empty(), "Accessing empty array");
   const utils::KVCacheAppendMatch initial_kv_cache_contract =
       match_kv_cache_initial_cat_contract(materialized, in_dim);
-  if (initial_kv_cache_contract.matched) {
+  if (
+      initial_kv_cache_contract.matched &&
+      initial_kv_cache_contract.family == utils::KVCacheAppendFamily::InitialCache) {
     const Tensor& right = materialized[1];
     std::vector<Tensor> non_empty{right};
     Tensor output = utils::create_buffer_tensor(
