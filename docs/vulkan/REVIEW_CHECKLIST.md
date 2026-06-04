@@ -6,6 +6,9 @@ Use this checklist for Vulkan backend changes.
 
 - No new production predicate is named for DAv2, Lotus, HY-MT, PaddleOCR,
   Gemma, or another model.
+- Capability-profile tests route only from normalized feature bits after
+  intersection with the live adapter. Profile IDs and GPU-family labels are
+  test selectors, not dispatch predicates.
 - Exact tuples live in a contract table with contract name, family, tuple
   fields, materialization policy, parity evidence, device coverage, and
   fallback behavior.
@@ -49,6 +52,8 @@ Use this checklist for Vulkan backend changes.
 
 - No unrelated Vulkan source edits.
 - No benchmark behavior changes unless the task explicitly requests them.
+- No capability-profile row is treated as GPU emulation; RX 9070, RX 6700 XT,
+  and GTX 1080 remain real-hardware validation rows.
 - No `.ci/docker` edits unless rebuilding Docker images is intentional.
 - Documentation updates match the code behavior and do not claim unvalidated
   model readiness.

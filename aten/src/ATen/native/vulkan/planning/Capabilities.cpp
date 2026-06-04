@@ -1,7 +1,12 @@
 #include <ATen/native/vulkan/api/Adapter.h>
+#include <ATen/native/vulkan/planning/CapabilityProfiles.h>
 #include <ATen/native/vulkan/planning/Capabilities.h>
 
+#include <c10/util/Exception.h>
+
 #include <algorithm>
+#include <cstdlib>
+#include <string_view>
 
 namespace at {
 namespace native {
@@ -96,7 +101,24 @@ VulkanRuntimeCapabilityProfile query_vulkan_runtime_capability_profile() {
       adapter->physical_handle() != VK_NULL_HANDLE
       ? adapter->physical_device().properties.limits.maxComputeSharedMemorySize
       : 0u;
-  return profile;
+  return effective_vulkan_runtime_capability_profile(profile);
+}
+
+VulkanRuntimeCapabilityProfile effective_vulkan_runtime_capability_profile(
+    const VulkanRuntimeCapabilityProfile& actual) {
+  const char* const requested_id =
+      std::getenv("PYTORCH_VULKAN_CAPABILITY_PROFILE");
+  if (requested_id == nullptr || requested_id[0] == '\0') {
+    return actual;
+  }
+
+  const VulkanCapabilityProfileSpec* const requested =
+      find_vulkan_capability_profile(std::string_view(requested_id));
+  TORCH_CHECK(
+      requested != nullptr,
+      "Unknown PYTORCH_VULKAN_CAPABILITY_PROFILE: ",
+      requested_id);
+  return intersect_vulkan_capability_profiles(actual, requested->profile);
 }
 
 } // namespace utils

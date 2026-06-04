@@ -46,6 +46,9 @@ struct VulkanRuntimeCapabilityProfile final {
 
 VulkanRuntimeCapabilityProfile query_vulkan_runtime_capability_profile();
 
+VulkanRuntimeCapabilityProfile effective_vulkan_runtime_capability_profile(
+    const VulkanRuntimeCapabilityProfile& actual);
+
 } // namespace utils
 } // namespace ops
 } // namespace vulkan

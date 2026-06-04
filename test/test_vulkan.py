@@ -66,6 +66,48 @@ VULKAN_SUBMIT_ORIGIN_COUNTER_NAMES = (
     "unknown",
 )
 
+VULKAN_CAPABILITY_PROFILE_IDS = (
+    "amd_polaris",
+    "amd_vega",
+    "amd_rdna1",
+    "amd_rdna2",
+    "amd_rdna3",
+    "amd_rdna4",
+    "nvidia_pascal",
+    "nvidia_volta",
+    "nvidia_turing",
+    "nvidia_ampere",
+    "nvidia_ada",
+    "nvidia_blackwell",
+    "vk_min_1_1_compute",
+    "vk_min_1_2_compute",
+    "roadmap_2022",
+    "roadmap_2024",
+)
+
+VULKAN_CAPABILITY_PROFILE_FEATURE_KEYS = (
+    "api_version",
+    "unified_memory",
+    "maintenance4",
+    "synchronization2",
+    "shader_integer_dot_product",
+    "shader_bfloat16",
+    "shader_int8",
+    "storage_buffer_8bit",
+    "cooperative_matrix",
+    "subgroup_size_control",
+    "compute_full_subgroups",
+    "int8_buffer_arithmetic",
+)
+
+VULKAN_CAPABILITY_PROFILE_LIMIT_KEYS = (
+    "num_compute_queues",
+    "min_subgroup_size",
+    "max_subgroup_size",
+    "max_compute_workgroup_invocations",
+    "max_compute_shared_memory_size",
+)
+
 
 def _vulkan_test_log_capture_enabled():
     value = os.environ.get("PYTORCH_VULKAN_CAPTURE_TEST_LOGS", "")
@@ -129,6 +171,12 @@ class TestVulkanGovernance(TestCase):
         active = doc.split("## Active Exceptions", 1)[1]
         active = active.split("## Rules For New Exceptions", 1)[0]
         return re.findall(r"^### (.+?)\n(.*?)(?=^### |\Z)", active, re.S | re.M)
+
+    @staticmethod
+    def _capability_profile_manifest():
+        path = os.path.join(REPO_ROOT, "docs", "vulkan", "capability_profiles.json")
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
 
     def test_execution_contract_tuple_matches_carry_metadata(self):
         header = self._repo_text(
@@ -240,6 +288,54 @@ class TestVulkanGovernance(TestCase):
                     if model_name.search(line):
                         hits.append(f"{os.path.relpath(path, REPO_ROOT)}:{line_no}")
         self.assertEqual(hits, [])
+
+    def test_vulkan_capability_profile_manifest_shape(self):
+        manifest = self._capability_profile_manifest()
+        self.assertEqual(manifest["schema_version"], 1)
+        profiles = manifest["profiles"]
+        ids = [profile["id"] for profile in profiles]
+        self.assertEqual(ids, list(VULKAN_CAPABILITY_PROFILE_IDS))
+
+        for profile in profiles:
+            for key in ("id", "family", "kind", "description", "features", "limits"):
+                self.assertIn(key, profile)
+            self.assertEqual(
+                set(profile["features"].keys()),
+                set(VULKAN_CAPABILITY_PROFILE_FEATURE_KEYS),
+            )
+            self.assertEqual(
+                set(profile["limits"].keys()),
+                set(VULKAN_CAPABILITY_PROFILE_LIMIT_KEYS),
+            )
+            self.assertIn(profile["kind"], {"vendor_family_bucket", "standard_floor"})
+
+    def test_vulkan_capability_profile_docs_define_non_emulation_contract(self):
+        docs = self._repo_text("docs", "vulkan", "CAPABILITY_PROFILES.md")
+        current_state = self._repo_text("docs", "vulkan", "CURRENT_STATE.md")
+        review_checklist = self._repo_text("docs", "vulkan", "REVIEW_CHECKLIST.md")
+        self.assertIn("They are not GPU emulation.", docs)
+        self.assertIn("intersected with the live adapter", docs)
+        self.assertIn("RX 9070", docs)
+        self.assertIn("RX 6700 XT", docs)
+        self.assertIn("GTX 1080", docs)
+        self.assertIn("not route by profile or GPU-family name", current_state)
+        self.assertIn("Profile IDs and GPU-family labels", review_checklist)
+
+    def test_vulkan_capability_profile_manifest_matches_cpp_ids(self):
+        manifest = self._capability_profile_manifest()
+        source = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "CapabilityProfiles.cpp",
+        )
+        for profile in manifest["profiles"]:
+            self.assertIn(f'"{profile["id"]}"', source)
+        self.assertIn("intersect_vulkan_capability_profiles", source)
+        self.assertIn("std::min(actual.api_version, requested.api_version)", source)
 
 
 @unittest.skipUnless(torch.is_vulkan_available(),
@@ -11861,6 +11957,81 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             error_prefix="Planning runtime bridge subprocess failed.",
         )
         self.assertIn("ok", result.stdout)
+
+    def test_vulkan_capability_profile_minimum_masks_runtime_policy_features(self):
+        policy_log_name = "vulkan_capability_profile_min_policy_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        policy_log_path = os.path.join(repo_root, policy_log_name)
+        if os.path.exists(policy_log_path):
+            os.remove(policy_log_path)
+
+        try:
+            script = """
+                import torch
+
+                prototype = torch.randn(1, dtype=torch.float32).to("vulkan")
+                policy = list(torch.ops.vulkan_prepack.query_runtime_policy(
+                    prototype,
+                    9,  # VisionBackbone
+                    1,  # Vision
+                    3,  # Backbone
+                    0,  # Input
+                ))
+                assert len(policy) == 21
+                assert policy[0] == 0  # backend_route=Vulkan
+                assert policy[11] != 3  # linear_kernel_family!=CooperativeMatrix
+                assert policy[14] == 0  # has_boundary_plan
+                print(policy)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_CAPABILITY_PROFILE": "vk_min_1_1_compute",
+                    "PYTORCH_VULKAN_RUNTIME_POLICY_LOG": policy_log_name,
+                },
+                error_prefix="Capability-profile runtime-policy subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(policy_log_path))
+            with open(policy_log_path, "r", encoding="utf-8") as log_file:
+                policy_log_text = log_file.read()
+
+            capability_line = next(
+                line
+                for line in policy_log_text.splitlines()
+                if line.startswith("runtime_capabilities ")
+            )
+            capability_fields = dict(
+                field.split("=", 1) for field in capability_line.split()[1:]
+            )
+            for field in (
+                "has_shader_bfloat16",
+                "has_shader_int8",
+                "has_storage_buffer_8bit",
+                "has_cooperative_matrix",
+                "supports_int8_buffer_arithmetic",
+            ):
+                self.assertEqual(capability_fields[field], "0")
+
+            policy_line = next(
+                line
+                for line in policy_log_text.splitlines()
+                if line.startswith("runtime_policy ")
+                and "workload=VisionBackbone" in line
+                and "linear_kernel_family=" in line
+            )
+            policy_fields = dict(
+                field.split("=", 1) for field in policy_line.split()[1:]
+            )
+            self.assertEqual(policy_fields["backend_route"], "Vulkan")
+            self.assertEqual(
+                policy_fields["linear_kernel_family"], "UnifiedBufferView"
+            )
+            self.assertEqual(policy_fields["has_boundary_plan"], "0")
+            self.assertNotIn("linear_kernel_family=CooperativeMatrix", policy_log_text)
+        finally:
+            if os.path.exists(policy_log_path):
+                os.remove(policy_log_path)
 
     def test_vulkan_vision_backbone_execution_program_bridge(self):
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

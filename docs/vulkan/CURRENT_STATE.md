@@ -26,6 +26,11 @@ CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
 CPU readbacks classified separately and applies the tiny-old-path pending
 handling only to the fenced conv prepack upload path.
 
+`docs/vulkan/CAPABILITY_PROFILES.md` and
+`docs/vulkan/capability_profiles.json` define the first capability-profile
+harness. Profiles are reduced feature masks intersected with the live adapter;
+they are not GPU emulation and must not route by profile or GPU-family name.
+
 ## Coverage Corpus
 
 The five-model corpus is:
@@ -107,6 +112,10 @@ These files are diagnostic inputs. Production code must not depend on
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.
+- Capability-profile governance checks ensure the required profile IDs are in
+  the manifest, the normalized feature/limit keys are present, docs state the
+  non-emulation semantics, and runtime-policy tests verify optional ML features
+  are clamped under `vk_min_1_1_compute`.
 
 ## Validation Caveats
 
@@ -117,6 +126,9 @@ These files are diagnostic inputs. Production code must not depend on
   replay until descriptor ownership and binding validation are ready.
 - Some compatibility evidence is device-specific. RX 9070 remains the primary
   optimization signal; RX 6700 XT and GTX 1080 are compatibility checks.
+- Capability-profile tests are planner admission checks on the current device.
+  They can find route over-admission under reduced feature masks, but they do
+  not replace the RX 9070/RX 6700 XT/GTX 1080 real-hardware rows.
 - Gemma E2B is a memory/dtype milestone, not a reason to add exact route
   exceptions.
 - PaddleOCR completes current matrix-sensitive RX 9070/RX 6700 XT/GTX 1080
