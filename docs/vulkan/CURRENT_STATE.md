@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-05 at local HEAD
-`9d718dbb9602264f93915812b4cf76d47c166c87`.
+`5e6c3e47185f61fdcb1b97ffba3dd065cb7130a1`.
 
 ## Repo State Summary
 
@@ -23,6 +23,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsLinearGeluBridge.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSafeViewReshape.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp`
 
 The table owns finite tuples/envelopes with `ExecutionContractMetadata` for
 contract name, family, tuple id, evidence id, guard id, fallback policy, and
@@ -31,8 +32,9 @@ allowed only as guarded contract rows while generated parity/negative coverage
 is built. `BatchNormInferenceContract`, `ChannelCatContract`,
 `EmbeddingLookupContract`, `GQARepeatContract`, `KVCacheAppendContract`,
 `LinearGeluBridgeContract`, `NoOverlapConvTranspose2DContract`, and
-`SafeViewReshapeContract` are split into family-specific sources; other
-contract families remain in the main source for now.
+`SafeViewReshapeContract`, and `SmallMetadataPaddedConv2DContract` are split
+into family-specific sources; other contract families remain in the main
+source for now.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
@@ -93,7 +95,8 @@ These files are diagnostic inputs. Production code must not depend on
   has a JSON contract spec with generated positive and adjacent negative
   runtime coverage; preserve unsupported-case fallback outside that envelope.
 - `SmallMetadataPaddedConv2DContract`: one proven padded low-channel
-  buffer-input materialization tuple; keep adjacent guards.
+  buffer-input materialization tuple, now split into a family-specific source;
+  keep adjacent guards.
 - `TransformerGQASDPAContract`: bounded Transformer causal/prefill and decode
   GQA SDPA legality with model-neutral naming.
 - `MaskedTinySDPAContract`: tiny additive-mask SDPA tuple.
@@ -173,10 +176,10 @@ These files are diagnostic inputs. Production code must not depend on
   The intervening spec/profile work, InitialCache observability-label update,
   NoOverlapConvTranspose2D fixture coverage, ChannelCat source split, and
   NoOverlapConvTranspose2D, BatchNormInference, KVCacheAppend,
-  EmbeddingLookup, GQARepeat, and SafeViewReshape source splits should not
-  change accepted shapes or default no-profile model routing, but rerun the
-  real-model matrix after the next backend behavior change or before claiming
-  or raising a model gate.
+  EmbeddingLookup, GQARepeat, SafeViewReshape, and
+  SmallMetadataPaddedConv2D source splits should not change accepted shapes or
+  default no-profile model routing, but rerun the real-model matrix after the
+  next backend behavior change or before claiming or raising a model gate.
 
 ## Build Context
 
