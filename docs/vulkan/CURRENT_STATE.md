@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-05 at local HEAD
-`0ab05c16eb9f655989caba7c8ef54f341cf0848e`.
+`9d8de9f651f56cdf886da3016ef3b0e9de47b28f`.
 
 ## Repo State Summary
 
@@ -95,9 +95,11 @@ These files are diagnostic inputs. Production code must not depend on
   cat patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
   contract spec with generated positive and adjacent negative runtime coverage.
 - `KVCacheAppendContract`: bounded Transformer sequence append and initial
-  empty-cache cat rows. The `SequenceAppend` slice has a JSON contract spec
-  with generated positive and adjacent negative runtime coverage; initial
-  empty-cache coverage remains a future fixture slice.
+  empty-cache cat rows. Both `SequenceAppend` and `InitialCache` slices have
+  JSON contract specs with generated positive and adjacent negative runtime
+  coverage. InitialCache positives now log the contract-owned
+  `aten::cat.kv_cache_initial_dim2_buffer` op-hit label while unrelated
+  direct-buffer cat paths keep their generic labels.
 - `UNetChannelConcatContract`: mostly generic already; keep model provenance in
   tests/docs.
 - `GQARepeatContract`: finite bounded K/V head repeat contract; keep exact
@@ -152,7 +154,8 @@ These files are diagnostic inputs. Production code must not depend on
 - PaddleOCR completes current matrix-sensitive RX 9070/RX 6700 XT/GTX 1080
   smoke coverage in Task033/Task034-era artifacts with zero sync readback, but
   that matrix is stale by commit relative to the profile/spec governance stack.
-  The intervening work should not change default no-profile model routing, but
+  The intervening spec/profile work and InitialCache observability-label update
+  should not change accepted shapes or default no-profile model routing, but
   rerun the real-model matrix after the next backend behavior change or before
   claiming or raising a model gate.
 

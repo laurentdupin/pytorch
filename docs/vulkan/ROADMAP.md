@@ -49,7 +49,8 @@ kernel generator or shader generator before the table/test path is proven.
 Current MVP status:
 
 - JSON contract spec fixtures exist for `EmbeddingLookupContract`,
-  `ChannelCatContract`, and `KVCacheAppendContract` `SequenceAppend`.
+  `ChannelCatContract`, and `KVCacheAppendContract` `SequenceAppend` and
+  `InitialCache`.
 - `test/vulkan_contract_specs/contract_spec_utils.py` owns shared spec loading,
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,

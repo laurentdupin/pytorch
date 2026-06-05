@@ -39,9 +39,11 @@ condition and migration target.
 - Reason: finite Transformer KV-cache append rows are proven by existing cat
   tests, but broader sequence/head/layout behavior is not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/kv_cache_append_contract.json`
-  covers the `SequenceAppend` slice with generated positive and adjacent
-  negative runtime tests. The initial empty-cache slice still needs a fixture
-  or a documented reason to remain outside the spec path.
+  covers the `SequenceAppend` slice and
+  `test/vulkan_contract_specs/kv_cache_append_initial_contract.json` covers the
+  `InitialCache` slice with generated positive and adjacent negative runtime
+  tests. InitialCache positives log
+  `aten::cat.kv_cache_initial_dim2_buffer`.
 - Expiry: broader KV-cache append and cat-axis parity plus adjacent negative
   coverage are available.
 - Migration target: generated `KVCacheAppendContract` and `CatAxisContract`
