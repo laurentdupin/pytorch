@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-05 at local HEAD
-`5826eaac3002758fbdc8e470261a6c0bfa6e0c83`.
+`d47b1cf1a9f3798492263bfb19f747bb0bf71208`.
 
 ## Repo State Summary
 
@@ -17,6 +17,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsBatchNormInference.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsChannelCat.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsEmbeddingLookup.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsKVCacheAppend.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsLinearGeluBridge.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp`
@@ -26,7 +27,7 @@ contract name, family, tuple id, evidence id, guard id, fallback policy, and
 materialization policy. Some rows are still exact and temporary; they are
 allowed only as guarded contract rows while generated parity/negative coverage
 is built. `BatchNormInferenceContract`, `ChannelCatContract`,
-`KVCacheAppendContract`, `LinearGeluBridgeContract`, and
+`EmbeddingLookupContract`, `KVCacheAppendContract`, `LinearGeluBridgeContract`, and
 `NoOverlapConvTranspose2DContract` are split into family-specific sources;
 other contract families remain in the main source for now.
 
@@ -168,10 +169,10 @@ These files are diagnostic inputs. Production code must not depend on
   that matrix is stale by commit relative to the profile/spec governance stack.
   The intervening spec/profile work, InitialCache observability-label update,
   NoOverlapConvTranspose2D fixture coverage, ChannelCat source split, and
-  NoOverlapConvTranspose2D, BatchNormInference, and KVCacheAppend source splits
-  should not change accepted shapes or default no-profile model routing, but
-  rerun the real-model matrix after the next backend behavior change or before
-  claiming or raising a model gate.
+  NoOverlapConvTranspose2D, BatchNormInference, KVCacheAppend, and
+  EmbeddingLookup source splits should not change accepted shapes or default
+  no-profile model routing, but rerun the real-model matrix after the next
+  backend behavior change or before claiming or raising a model gate.
 
 ## Build Context
 
