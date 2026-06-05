@@ -73,8 +73,6 @@ constexpr const char* kMaterializationMaterializedMathAndPostSoftmaxClone =
     "materialized_math_path_and_post_softmax_clone";
 constexpr const char* kMaterializationPostSoftmaxClone =
     "post_softmax_clone";
-constexpr const char* kMaterializationGQARepeatBuffer =
-    "gqa_repeat_buffer_materialization";
 constexpr const char* kMaterializationReshapeAliasDirectBuffer =
     "reshape_alias_materialized_direct_buffer";
 constexpr const char* kMaterializationViewDirectBuffer =
@@ -185,24 +183,6 @@ constexpr ExecutionContractMetadata
             "reshape_alias_direct_buffer_adjacent_guards",
             kFallbackUnsupportedShapesDoNotMatch,
             kMaterializationReshapeAliasDirectBuffer);
-
-constexpr int64_t kGQARepeatBatch = 1;
-constexpr int64_t kGQARepeatSourceHeads = 4;
-constexpr int64_t kGQARepeatFactor = 4;
-constexpr int64_t kGQARepeatMinSequence = 100;
-constexpr int64_t kGQARepeatMaxSequence = 116;
-constexpr int64_t kGQARepeatHeadDim = 128;
-constexpr const char* kGQARepeatTupleId =
-    "gqa_repeat_batch1_heads4_factor4_sequence100_to_116_dim128";
-constexpr ExecutionContractMetadata kGQARepeatMetadata =
-    make_execution_contract_metadata(
-        "GQARepeatContract",
-        "Batch1Heads4Factor4Sequence100To116Dim128",
-        kGQARepeatTupleId,
-        "gqa_repeat_focused_tests",
-        "gqa_repeat_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationGQARepeatBuffer);
 
 constexpr const char* kSDPAExecutionTransformerDecodeGQACloneOnlyTupleId =
     "transformer_decode_gqa_clone_only_head128_source100_to_116";
@@ -1101,46 +1081,6 @@ bool matches_sdpa_buffer_softmax_score_contract(
   const int64_t sequence = input_sizes[1];
   return (heads == 1 && (sequence == 504 || sequence == 640)) ||
       (heads == 5 && (sequence == 504 || sequence == 640));
-}
-
-GQARepeatMatch match_gqa_repeat_contract(
-    const IntArrayRef tensor_sizes,
-    const ScalarType tensor_dtype,
-    const bool tensor_is_vulkan,
-    const bool tensor_has_buffer_storage,
-    const int64_t repeat_factor) {
-  GQARepeatMatch result;
-  if (
-      !tensor_is_vulkan || !tensor_has_buffer_storage ||
-      tensor_dtype != kFloat || tensor_sizes.size() != 4 ||
-      repeat_factor != kGQARepeatFactor ||
-      tensor_sizes[0] != kGQARepeatBatch ||
-      tensor_sizes[1] != kGQARepeatSourceHeads ||
-      tensor_sizes[2] < kGQARepeatMinSequence ||
-      tensor_sizes[2] > kGQARepeatMaxSequence ||
-      tensor_sizes[3] != kGQARepeatHeadDim) {
-    return result;
-  }
-  result.matched = true;
-  result.tuple_id = kGQARepeatTupleId;
-  result.metadata = &kGQARepeatMetadata;
-  result.sequence_length = tensor_sizes[2];
-  return result;
-}
-
-bool matches_gqa_repeat_contract(
-    const IntArrayRef tensor_sizes,
-    const ScalarType tensor_dtype,
-    const bool tensor_is_vulkan,
-    const bool tensor_has_buffer_storage,
-    const int64_t repeat_factor) {
-  return match_gqa_repeat_contract(
-             tensor_sizes,
-             tensor_dtype,
-             tensor_is_vulkan,
-             tensor_has_buffer_storage,
-             repeat_factor)
-      .matched;
 }
 
 const char* safe_view_reshape_family_name(
