@@ -124,6 +124,7 @@ list(APPEND native_vulkan_cpp
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsKVCacheAppend.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsSafeViewReshape.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ModelLanePolicy.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ReplayTensorState.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/RoutePolicy.cpp"
