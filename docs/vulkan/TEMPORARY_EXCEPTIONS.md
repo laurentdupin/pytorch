@@ -134,6 +134,22 @@ condition and migration target.
 - Migration target: generated `SmallMetadataPaddedConv2DContract` or
   `LayoutTransitionContract` tables with positive and negative tests.
 
+### No-Overlap ConvTranspose2D Exact Envelope
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  `aten/src/ATen/native/vulkan/ops/Convolution.cpp`
+- Status: temporary, contract-named
+- Reason: the float-buffer 2x2 stride-2 no-overlap transposed-conv envelope is
+  proven for bounded current topologies, but broader transposed-conv
+  shape/options behavior is not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/no_overlap_conv_transpose2d_contract.json`
+  covers the `Kernel2Stride2FloatBuffer` slice with generated positive and
+  adjacent negative runtime tests.
+- Expiry: broader conv-transpose parity plus adjacent negative coverage are
+  available.
+- Migration target: generated `NoOverlapConvTranspose2DContract` tables with
+  positive and negative tests.
+
 ### Diffusion SDPA Exact Tuples
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

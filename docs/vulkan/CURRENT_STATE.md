@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-05 at local HEAD
-`9d8de9f651f56cdf886da3016ef3b0e9de47b28f`.
+`a3a2c4f83513ecfa3d5313b9e34352da01c5335e`.
 
 ## Repo State Summary
 
@@ -76,7 +76,9 @@ These files are diagnostic inputs. Production code must not depend on
 - `SmallSpatialPointwiseConvContract`: finite projection rows; keep exact rows
   until broader legality is proven.
 - `NoOverlapConvTranspose2DContract`: bounded float-buffer 2x2 stride-2
-  no-overlap transposed-conv envelope; preserve unsupported-case fallback.
+  no-overlap transposed-conv envelope. The `Kernel2Stride2FloatBuffer` slice
+  has a JSON contract spec with generated positive and adjacent negative
+  runtime coverage; preserve unsupported-case fallback outside that envelope.
 - `SmallMetadataPaddedConv2DContract`: one proven padded low-channel
   buffer-input materialization tuple; keep adjacent guards.
 - `TransformerGQASDPAContract`: bounded Transformer causal/prefill and decode
@@ -125,7 +127,8 @@ These files are diagnostic inputs. Production code must not depend on
 - Contract spec governance discovers all `test/vulkan_contract_specs/*.json`,
   validates a shared schema, checks `contract_name`/`family`/`tuple_id` against
   live `ExecutionContracts*.cpp` metadata, and keeps family-specific shape
-  checks for EmbeddingLookup, ChannelCat, and KVCacheAppend. Shared helpers in
+  checks for EmbeddingLookup, ChannelCat, KVCacheAppend, and
+  NoOverlapConvTranspose2D. Shared helpers in
   `test/vulkan_contract_specs/contract_spec_utils.py` keep generated runtime
   tests from copying spec loading, case iteration, log naming, and expected
   negative handling.
@@ -154,10 +157,11 @@ These files are diagnostic inputs. Production code must not depend on
 - PaddleOCR completes current matrix-sensitive RX 9070/RX 6700 XT/GTX 1080
   smoke coverage in Task033/Task034-era artifacts with zero sync readback, but
   that matrix is stale by commit relative to the profile/spec governance stack.
-  The intervening spec/profile work and InitialCache observability-label update
-  should not change accepted shapes or default no-profile model routing, but
-  rerun the real-model matrix after the next backend behavior change or before
-  claiming or raising a model gate.
+  The intervening spec/profile work, InitialCache observability-label update,
+  and NoOverlapConvTranspose2D fixture coverage should not change accepted
+  shapes or default no-profile model routing, but rerun the real-model matrix
+  after the next backend behavior change or before claiming or raising a model
+  gate.
 
 ## Build Context
 
