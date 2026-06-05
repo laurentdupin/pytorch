@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-05 at local HEAD
-`e9f7d5fa6007dc9642faafa167fd970e3b5aebfb`.
+`9d718dbb9602264f93915812b4cf76d47c166c87`.
 
 ## Repo State Summary
 
@@ -22,6 +22,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsKVCacheAppend.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsLinearGeluBridge.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsSafeViewReshape.cpp`
 
 The table owns finite tuples/envelopes with `ExecutionContractMetadata` for
 contract name, family, tuple id, evidence id, guard id, fallback policy, and
@@ -29,9 +30,9 @@ materialization policy. Some rows are still exact and temporary; they are
 allowed only as guarded contract rows while generated parity/negative coverage
 is built. `BatchNormInferenceContract`, `ChannelCatContract`,
 `EmbeddingLookupContract`, `GQARepeatContract`, `KVCacheAppendContract`,
-`LinearGeluBridgeContract`, and `NoOverlapConvTranspose2DContract` are split
-into family-specific sources; other contract families remain in the main
-source for now.
+`LinearGeluBridgeContract`, `NoOverlapConvTranspose2DContract`, and
+`SafeViewReshapeContract` are split into family-specific sources; other
+contract families remain in the main source for now.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
@@ -121,8 +122,8 @@ These files are diagnostic inputs. Production code must not depend on
 - `BatchNormInferenceContract`: float32 4D inference batch norm, including the
   materialized-buffer layout transition used by current OCR evidence.
 - `SafeViewReshapeContract`: finite dense direct-buffer view and reshape-alias
-  contract; document alias, dense materialization, storage-offset, and
-  provenance rules.
+  contract, now split into a family-specific source; document alias, dense
+  materialization, storage-offset, and provenance rules.
 - `LinearGeluBridgeContract`: pure legality for the deferred linear/GELU
   bridge; registry, alias, and materialization side effects stay outside the
   contract.
@@ -171,10 +172,11 @@ These files are diagnostic inputs. Production code must not depend on
   that matrix is stale by commit relative to the profile/spec governance stack.
   The intervening spec/profile work, InitialCache observability-label update,
   NoOverlapConvTranspose2D fixture coverage, ChannelCat source split, and
-  NoOverlapConvTranspose2D, BatchNormInference, KVCacheAppend, and
-  EmbeddingLookup and GQARepeat source splits should not change accepted shapes
-  or default no-profile model routing, but rerun the real-model matrix after
-  the next backend behavior change or before claiming or raising a model gate.
+  NoOverlapConvTranspose2D, BatchNormInference, KVCacheAppend,
+  EmbeddingLookup, GQARepeat, and SafeViewReshape source splits should not
+  change accepted shapes or default no-profile model routing, but rerun the
+  real-model matrix after the next backend behavior change or before claiming
+  or raising a model gate.
 
 ## Build Context
 
