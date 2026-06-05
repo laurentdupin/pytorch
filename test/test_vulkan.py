@@ -694,6 +694,98 @@ class TestVulkanGovernance(TestCase):
             self.assertTrue(case["expected_cpu_fallback"])
             self.assertTrue(case["force_buffer_view"])
 
+    def test_vulkan_no_overlap_conv_transpose2d_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec("no_overlap_conv_transpose2d_contract.json")
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["contract_name"], "NoOverlapConvTranspose2DContract")
+        self.assertEqual(spec["family"], "Kernel2Stride2FloatBuffer")
+        self.assertEqual(
+            spec["tuple_id"],
+            "batch1_cin_ge64_kernel2_stride2_float_buffer",
+        )
+        self.assertEqual(spec["writer_op"], "aten::convolution")
+        self.assertEqual(
+            spec["route_label"],
+            "aten::convolution.buffer_float_transpose_nonoverlap",
+        )
+
+        bounds = spec["bounds"]
+        _require_contract_spec_fields(
+            bounds,
+            (
+                "dtype",
+                "rank",
+                "batch",
+                "input_channels",
+                "kernel",
+                "stride",
+                "padding",
+                "dilation",
+                "groups",
+                "output_padding",
+                "requires_vulkan",
+                "requires_buffer_storage",
+                "requires_packed_weight",
+                "requires_float_bias",
+            ),
+            "NoOverlapConvTranspose2DContract bounds",
+        )
+        self.assertEqual(bounds["dtype"], "float32")
+        self.assertEqual(bounds["rank"], 4)
+        self.assertEqual(bounds["batch"], 1)
+        self.assertEqual(bounds["input_channels"], {"min": 64})
+        self.assertEqual(bounds["kernel"], [2, 2])
+        self.assertEqual(bounds["stride"], [2, 2])
+        self.assertEqual(bounds["padding"], [0, 0])
+        self.assertEqual(bounds["dilation"], [1, 1])
+        self.assertEqual(bounds["groups"], 1)
+        self.assertEqual(bounds["output_padding"], [0, 0])
+        self.assertTrue(bounds["requires_vulkan"])
+        self.assertTrue(bounds["requires_buffer_storage"])
+        self.assertTrue(bounds["requires_packed_weight"])
+        self.assertTrue(bounds["requires_float_bias"])
+
+        case_fields = (
+            "name",
+            "input_shape",
+            "out_channels",
+            "kernel_size",
+            "stride",
+            "padding",
+            "dilation",
+            "groups",
+            "output_padding",
+            "bias",
+            "dtype",
+        )
+        for section in ("positive_cases", "negative_cases"):
+            self.assertGreater(len(spec[section]), 0)
+            for case in spec[section]:
+                _require_contract_spec_fields(
+                    case,
+                    case_fields,
+                    f"NoOverlapConvTranspose2DContract {section} case",
+                )
+                self.assertEqual(len(case["input_shape"]), bounds["rank"])
+                self.assertEqual(case["input_shape"][0], bounds["batch"])
+                self.assertEqual(case["dtype"], bounds["dtype"])
+
+        for case in spec["positive_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("expected_route_label", "expected_cpu_fallback"),
+                "NoOverlapConvTranspose2DContract positive case",
+            )
+            self.assertEqual(case["expected_route_label"], spec["route_label"])
+            self.assertFalse(case["expected_cpu_fallback"])
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("violates", "expected_native_route"),
+                "NoOverlapConvTranspose2DContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
+
 
 @unittest.skipUnless(torch.is_vulkan_available(),
                      "Vulkan backend must be available for these tests.")
@@ -5401,6 +5493,119 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self._run_repo_python_subprocess(
                 script,
                 error_prefix="KV-cache initial generated contract spec failed.",
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+            )
+        finally:
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+
+    def test_no_overlap_conv_transpose2d_contract_generated_spec(self):
+        spec = _load_vulkan_contract_spec("no_overlap_conv_transpose2d_contract.json")
+        op_hit_log_name = contract_spec_utils.contract_log_name(
+            spec,
+            {"name": "generated"},
+            "op_hit_test.log",
+        )
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        try:
+            script = """
+                import json
+                import os
+                import sys
+                import torch
+                sys.path.insert(
+                    0,
+                    os.path.join(os.getcwd(), "test", "vulkan_contract_specs"),
+                )
+                import contract_spec_utils
+
+                spec_path = os.path.join(
+                    os.getcwd(),
+                    "test",
+                    "vulkan_contract_specs",
+                    "no_overlap_conv_transpose2d_contract.json",
+                )
+                with open(spec_path, encoding="utf-8") as handle:
+                    spec = json.load(handle)
+
+                route_hit = "op=" + spec["route_label"]
+                op_hit_log = os.environ["PYTORCH_VULKAN_OP_HIT_LOG"]
+
+                def dtype_for_case(case):
+                    return {
+                        "float32": torch.float32,
+                    }[case["dtype"]]
+
+                def read_op_hit_log():
+                    if not os.path.exists(op_hit_log):
+                        return ""
+                    with open(op_hit_log, encoding="utf-8") as log_file:
+                        return log_file.read()
+
+                def pair(values):
+                    return tuple(values)
+
+                def run_case(case, expect_native_route):
+                    if os.path.exists(op_hit_log):
+                        os.remove(op_hit_log)
+
+                    torch.manual_seed(5000 + len(case["name"]))
+                    dtype = dtype_for_case(case)
+                    in_channels = case["input_shape"][1]
+                    module_cpu = torch.nn.ConvTranspose2d(
+                        in_channels,
+                        case["out_channels"],
+                        kernel_size=pair(case["kernel_size"]),
+                        stride=pair(case["stride"]),
+                        padding=pair(case["padding"]),
+                        output_padding=pair(case["output_padding"]),
+                        groups=case["groups"],
+                        bias=case["bias"],
+                        dilation=pair(case["dilation"]),
+                    ).eval().to(dtype=dtype)
+                    module_vulkan = torch.nn.ConvTranspose2d(
+                        in_channels,
+                        case["out_channels"],
+                        kernel_size=pair(case["kernel_size"]),
+                        stride=pair(case["stride"]),
+                        padding=pair(case["padding"]),
+                        output_padding=pair(case["output_padding"]),
+                        groups=case["groups"],
+                        bias=case["bias"],
+                        dilation=pair(case["dilation"]),
+                    ).eval()
+                    module_vulkan.load_state_dict(module_cpu.state_dict())
+                    module_vulkan = module_vulkan.to("vulkan")
+
+                    x_cpu = torch.randn(*case["input_shape"], dtype=dtype)
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    expected = module_cpu(x_cpu)
+                    actual = module_vulkan(x_cpu.to("vulkan")).cpu()
+                    torch.testing.assert_close(actual, expected, atol=1e-3, rtol=1e-3)
+
+                    fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                    op_hit_text = read_op_hit_log()
+                    if expect_native_route:
+                        assert fallback_count == 0, (case, fallback_count, op_hit_text)
+                        expected_route = "op=" + case["expected_route_label"]
+                        assert expected_route in op_hit_text, (case, op_hit_text)
+                    else:
+                        assert route_hit not in op_hit_text, (case, op_hit_text)
+
+                for _, case, expect_native_route in (
+                    contract_spec_utils.iter_contract_cases(spec)
+                ):
+                    run_case(case, expect_native_route)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                error_prefix=(
+                    "No-overlap conv_transpose2d generated contract spec failed."
+                ),
                 extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
             )
         finally:
