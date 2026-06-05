@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-05 at local HEAD
-`a3a2c4f83513ecfa3d5313b9e34352da01c5335e`.
+`22f81c8a17f1efdc3333edb276a1171214494c90`.
 
 ## Repo State Summary
 
@@ -10,16 +10,21 @@ Ignored `agent_space` artifacts remain evidence inputs, not production
 dependencies.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
-operator-family envelopes:
+operator-family envelopes. `ExecutionContracts.h` remains the public umbrella
+API; implementation is now split across:
 
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsChannelCat.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsLinearGeluBridge.cpp`
 
 The table owns finite tuples/envelopes with `ExecutionContractMetadata` for
 contract name, family, tuple id, evidence id, guard id, fallback policy, and
 materialization policy. Some rows are still exact and temporary; they are
 allowed only as guarded contract rows while generated parity/negative coverage
-is built.
+is built. `ChannelCatContract` and `LinearGeluBridgeContract` are split into
+family-specific sources; other contract families remain in the main source for
+now.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
@@ -120,7 +125,7 @@ These files are diagnostic inputs. Production code must not depend on
 ## Governance Guardrails
 
 - `test/test_vulkan.py::TestVulkanGovernance` statically checks that tuple
-  matches in `ExecutionContracts.cpp` set metadata, active temporary
+  matches in `ExecutionContracts*.cpp` set metadata, active temporary
   exceptions include expiry and migration target, active exception locations
   still resolve where practical, and selected generic routing files do not
   introduce model-name strings.
@@ -158,10 +163,10 @@ These files are diagnostic inputs. Production code must not depend on
   smoke coverage in Task033/Task034-era artifacts with zero sync readback, but
   that matrix is stale by commit relative to the profile/spec governance stack.
   The intervening spec/profile work, InitialCache observability-label update,
-  and NoOverlapConvTranspose2D fixture coverage should not change accepted
-  shapes or default no-profile model routing, but rerun the real-model matrix
-  after the next backend behavior change or before claiming or raising a model
-  gate.
+  NoOverlapConvTranspose2D fixture coverage, and ChannelCat source split should
+  not change accepted shapes or default no-profile model routing, but rerun the
+  real-model matrix after the next backend behavior change or before claiming
+  or raising a model gate.
 
 ## Build Context
 
