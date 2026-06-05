@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-05 at local HEAD
-`22f81c8a17f1efdc3333edb276a1171214494c90`.
+`588347cd74ae927002bae554d847eb1d1e21ceef`.
 
 ## Repo State Summary
 
@@ -17,14 +17,15 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsChannelCat.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsLinearGeluBridge.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp`
 
 The table owns finite tuples/envelopes with `ExecutionContractMetadata` for
 contract name, family, tuple id, evidence id, guard id, fallback policy, and
 materialization policy. Some rows are still exact and temporary; they are
 allowed only as guarded contract rows while generated parity/negative coverage
-is built. `ChannelCatContract` and `LinearGeluBridgeContract` are split into
-family-specific sources; other contract families remain in the main source for
-now.
+is built. `ChannelCatContract`, `LinearGeluBridgeContract`, and
+`NoOverlapConvTranspose2DContract` are split into family-specific sources;
+other contract families remain in the main source for now.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
@@ -163,10 +164,10 @@ These files are diagnostic inputs. Production code must not depend on
   smoke coverage in Task033/Task034-era artifacts with zero sync readback, but
   that matrix is stale by commit relative to the profile/spec governance stack.
   The intervening spec/profile work, InitialCache observability-label update,
-  NoOverlapConvTranspose2D fixture coverage, and ChannelCat source split should
-  not change accepted shapes or default no-profile model routing, but rerun the
-  real-model matrix after the next backend behavior change or before claiming
-  or raising a model gate.
+  NoOverlapConvTranspose2D fixture coverage, ChannelCat source split, and
+  NoOverlapConvTranspose2D source split should not change accepted shapes or
+  default no-profile model routing, but rerun the real-model matrix after the
+  next backend behavior change or before claiming or raising a model gate.
 
 ## Build Context
 
