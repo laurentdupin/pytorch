@@ -1,0 +1,215 @@
+#include <ATen/native/vulkan/planning/ExecutionContracts.h>
+
+#include <c10/util/Exception.h>
+#include <c10/util/strides.h>
+
+#include <algorithm>
+#include <vector>
+
+namespace at {
+namespace native {
+namespace vulkan {
+namespace ops {
+namespace utils {
+
+namespace {
+
+constexpr ExecutionContractMetadata make_execution_contract_metadata(
+    const char* contract_name,
+    const char* family_name,
+    const char* tuple_id,
+    const char* evidence_id,
+    const char* guard_id,
+    const char* fallback_policy,
+    const char* materialization_policy) {
+  return ExecutionContractMetadata{
+      contract_name,
+      family_name,
+      tuple_id,
+      evidence_id,
+      guard_id,
+      fallback_policy,
+      materialization_policy};
+}
+
+constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
+    "unsupported_shapes_do_not_match";
+constexpr const char* kMaterializationReshapeAliasDirectBuffer =
+    "reshape_alias_materialized_direct_buffer";
+constexpr const char* kMaterializationViewDirectBuffer =
+    "view_materialized_direct_buffer";
+
+constexpr const char* kSafeViewReshapeAliasDenseBufferDirectTupleId =
+    "materialized_direct_buffer_reshape";
+constexpr const char* kSafeViewReshapeViewMaterializedDirectBufferTupleId =
+    "materialized_direct_buffer_reshape";
+constexpr ExecutionContractMetadata
+    kSafeViewReshapeViewMaterializedDirectBufferMetadata =
+        make_execution_contract_metadata(
+            "SafeViewReshapeContract",
+            "ViewMaterializedDirectBuffer",
+            kSafeViewReshapeViewMaterializedDirectBufferTupleId,
+            "view_direct_buffer_focused_tests",
+            "view_direct_buffer_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationViewDirectBuffer);
+constexpr ExecutionContractMetadata
+    kSafeViewReshapeAliasDenseBufferDirectMetadata =
+        make_execution_contract_metadata(
+            "SafeViewReshapeContract",
+            "ReshapeAliasDenseBufferDirect",
+            kSafeViewReshapeAliasDenseBufferDirectTupleId,
+            "reshape_alias_direct_buffer_focused_tests",
+            "reshape_alias_direct_buffer_adjacent_guards",
+            kFallbackUnsupportedShapesDoNotMatch,
+            kMaterializationReshapeAliasDirectBuffer);
+
+bool is_contiguous_stride(
+    const IntArrayRef sizes,
+    const IntArrayRef strides) {
+  return strides.equals(c10::contiguous_strides(sizes));
+}
+
+bool is_non_overlapping_dense_stride(
+    const IntArrayRef sizes,
+    const IntArrayRef strides) {
+  TORCH_INTERNAL_ASSERT(sizes.size() == strides.size());
+  std::vector<size_t> dims;
+  dims.reserve(sizes.size());
+  for (size_t i = 0; i < sizes.size(); ++i) {
+    if (sizes[i] > 1) {
+      dims.push_back(i);
+    }
+  }
+  std::sort(dims.begin(), dims.end(), [&](const size_t lhs, const size_t rhs) {
+    return strides[lhs] < strides[rhs];
+  });
+  int64_t expected_stride = 1;
+  for (const size_t dim : dims) {
+    if (strides[dim] != expected_stride) {
+      return false;
+    }
+    expected_stride *= sizes[dim];
+  }
+  return true;
+}
+
+int64_t product_of_sizes(const IntArrayRef sizes) {
+  int64_t product = 1;
+  for (const int64_t size : sizes) {
+    product *= size;
+  }
+  return product;
+}
+
+} // namespace
+
+const char* safe_view_reshape_family_name(
+    const SafeViewReshapeFamily family) {
+  switch (family) {
+    case SafeViewReshapeFamily::ViewMaterializedDirectBuffer:
+      return "SafeViewReshapeViewMaterializedDirectBuffer";
+    case SafeViewReshapeFamily::ReshapeAliasDenseBufferDirect:
+      return "SafeViewReshapeReshapeAliasDenseBufferDirect";
+    case SafeViewReshapeFamily::None:
+      return "SafeViewReshapeNone";
+  }
+  return "SafeViewReshapeNone";
+}
+
+SafeViewReshapeMatch
+match_safe_view_reshape_materialized_direct_buffer_contract(
+    const IntArrayRef input_sizes,
+    const IntArrayRef output_sizes,
+    const IntArrayRef output_strides,
+    const int64_t storage_offset) {
+  SafeViewReshapeMatch result;
+  if (
+      input_sizes.size() > 4 || output_sizes.size() > 5 ||
+      storage_offset != 0 ||
+      !is_contiguous_stride(output_sizes, output_strides)) {
+    return result;
+  }
+
+  if (product_of_sizes(input_sizes) != product_of_sizes(output_sizes)) {
+    return result;
+  }
+
+  if (!output_sizes.empty() && output_sizes.back() % 4 != 0) {
+    return result;
+  }
+
+  result.matched = true;
+  result.family = SafeViewReshapeFamily::ViewMaterializedDirectBuffer;
+  result.tuple_id = kSafeViewReshapeViewMaterializedDirectBufferTupleId;
+  result.metadata = &kSafeViewReshapeViewMaterializedDirectBufferMetadata;
+  return result;
+}
+
+bool matches_safe_view_reshape_materialized_direct_buffer_contract(
+    const IntArrayRef input_sizes,
+    const IntArrayRef output_sizes,
+    const IntArrayRef output_strides,
+    const int64_t storage_offset) {
+  return match_safe_view_reshape_materialized_direct_buffer_contract(
+             input_sizes, output_sizes, output_strides, storage_offset)
+      .matched;
+}
+
+SafeViewReshapeMatch match_safe_view_reshape_contract(
+    const IntArrayRef input_sizes,
+    const IntArrayRef input_logical_strides,
+    const IntArrayRef output_sizes,
+    const IntArrayRef output_strides,
+    const bool input_is_float,
+    const bool input_has_buffer_storage,
+    const int64_t storage_offset) {
+  SafeViewReshapeMatch result;
+  if (
+      !input_is_float || !input_has_buffer_storage ||
+      input_sizes.size() > 4 || output_sizes.size() > 5 ||
+      storage_offset != 0 ||
+      !is_non_overlapping_dense_stride(input_sizes, input_logical_strides) ||
+      !is_non_overlapping_dense_stride(output_sizes, output_strides)) {
+    return result;
+  }
+
+  if (product_of_sizes(input_sizes) != product_of_sizes(output_sizes)) {
+    return result;
+  }
+
+  if (!output_sizes.empty() && output_sizes.back() % 4 != 0) {
+    return result;
+  }
+
+  result.matched = true;
+  result.family = SafeViewReshapeFamily::ReshapeAliasDenseBufferDirect;
+  result.tuple_id = kSafeViewReshapeAliasDenseBufferDirectTupleId;
+  result.metadata = &kSafeViewReshapeAliasDenseBufferDirectMetadata;
+  return result;
+}
+
+bool matches_safe_view_reshape_contract(
+    const IntArrayRef input_sizes,
+    const IntArrayRef input_logical_strides,
+    const IntArrayRef output_sizes,
+    const IntArrayRef output_strides,
+    const bool input_is_float,
+    const bool input_has_buffer_storage,
+    const int64_t storage_offset) {
+  return match_safe_view_reshape_contract(
+             input_sizes,
+             input_logical_strides,
+             output_sizes,
+             output_strides,
+             input_is_float,
+             input_has_buffer_storage,
+             storage_offset)
+      .matched;
+}
+
+} // namespace utils
+} // namespace ops
+} // namespace vulkan
+} // namespace native
+} // namespace at
