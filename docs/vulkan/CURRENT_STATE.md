@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-05 at local HEAD
-`a5bc8b1597df6c94b260b51126ea2c4a8a01e934`.
+`6e66c80dd06c8fea7ba5df2a5284aaceab687313`.
 
 ## Repo State Summary
 
@@ -26,6 +26,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSafeViewReshape.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsTransformerGQASDPA.cpp`
 
 The table owns finite tuples/envelopes with `ExecutionContractMetadata` for
 contract name, family, tuple id, evidence id, guard id, fallback policy, and
@@ -35,12 +36,14 @@ is built. `BatchNormInferenceContract`, `ChannelCatContract`,
 `EmbeddingLookupContract`, `GQARepeatContract`, `KVCacheAppendContract`,
 `LinearGeluBridgeContract`, `NoOverlapConvTranspose2DContract`, and
 `SafeViewReshapeContract`, `SmallMetadataPaddedConv2DContract`,
-`SmallSpatialPointwiseConvContract`, and `MaskedTinySDPAContract` are split
-into family-specific sources. The remaining main-source contract families are
-`TransformerGQASDPAContract`, `DiffusionSDPAContract`,
-`DiffusionCrossAttentionContract`, and `SDPAExecutionPolicyContract`;
-`TransformerGQASDPAContract` is the likely next isolated split if the SDPA
-source boundary remains behavior-preserving.
+`SmallSpatialPointwiseConvContract`, `MaskedTinySDPAContract`, and
+`TransformerGQASDPAContract` are split into family-specific sources. The
+remaining main-source SDPA code is the coupled
+`DiffusionSDPAContract`/`DiffusionCrossAttentionContract` and
+`SDPAExecutionPolicyContract` boundary. The next SDPA step should decide
+whether diffusion route admission can split cleanly while execution policy
+continues to consume the public diffusion matcher, or whether an SDPA-private
+helper boundary is needed first.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
@@ -104,7 +107,8 @@ These files are diagnostic inputs. Production code must not depend on
   buffer-input materialization tuple, now split into a family-specific source;
   keep adjacent guards.
 - `TransformerGQASDPAContract`: bounded Transformer causal/prefill and decode
-  GQA SDPA legality with model-neutral naming.
+  GQA SDPA legality with model-neutral naming, now split into a
+  family-specific source.
 - `MaskedTinySDPAContract`: tiny additive-mask SDPA tuple, now split into a
   family-specific source; keep the exact tuple until broader mask-family
   behavior is proven.
@@ -185,10 +189,10 @@ These files are diagnostic inputs. Production code must not depend on
   NoOverlapConvTranspose2D fixture coverage, ChannelCat source split, and
   NoOverlapConvTranspose2D, BatchNormInference, KVCacheAppend,
   EmbeddingLookup, GQARepeat, SafeViewReshape, and
-  SmallMetadataPaddedConv2D, SmallSpatialPointwiseConv, and MaskedTinySDPA
-  source splits should not change accepted shapes or default no-profile model
-  routing, but rerun the real-model matrix after the next backend behavior
-  change or before claiming or raising a model gate.
+  SmallMetadataPaddedConv2D, SmallSpatialPointwiseConv, MaskedTinySDPA, and
+  TransformerGQASDPA source splits should not change accepted shapes or default
+  no-profile model routing, but rerun the real-model matrix after the next
+  backend behavior change or before claiming or raising a model gate.
 
 ## Build Context
 
