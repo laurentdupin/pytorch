@@ -25,6 +25,12 @@ CONTRACT_SPEC_STRING_FIELDS = (
 )
 
 
+def _require_non_empty_string(mapping, field, context):
+    value = mapping[field]
+    if not isinstance(value, str) or value == "":
+        raise AssertionError(f"{context} {field} must be a non-empty string")
+
+
 def contract_spec_dir(repo_root):
     return os.path.join(repo_root, "test", "vulkan_contract_specs")
 
@@ -50,6 +56,78 @@ def require_fields(mapping, required_fields, context):
     missing = sorted(field for field in required_fields if field not in mapping)
     if missing:
         raise AssertionError(f"{context} missing required fields: {missing}")
+
+
+def validate_contract_spec(file_name, spec):
+    context = f"{file_name} contract spec"
+    require_fields(spec, CONTRACT_SPEC_REQUIRED_FIELDS, context)
+    if spec["schema_version"] != 1:
+        raise AssertionError(f"{context} schema_version must be 1")
+    for field in CONTRACT_SPEC_STRING_FIELDS:
+        _require_non_empty_string(spec, field, context)
+
+    if not isinstance(spec["bounds"], dict) or not spec["bounds"]:
+        raise AssertionError(f"{context} bounds must be a non-empty object")
+
+    case_names = []
+    for section in ("positive_cases", "negative_cases"):
+        cases = spec[section]
+        if not isinstance(cases, list) or not cases:
+            raise AssertionError(f"{context} {section} must be a non-empty list")
+        for case in cases:
+            if not isinstance(case, dict):
+                raise AssertionError(f"{context} {section} case must be an object")
+            case_context = f"{context} {section} case"
+            require_fields(case, ("name",), case_context)
+            _require_non_empty_string(case, "name", case_context)
+            case_names.append(case["name"])
+            if section == "negative_cases":
+                require_fields(
+                    case,
+                    ("violates", "expected_native_route"),
+                    f"{context} negative case",
+                )
+                _require_non_empty_string(case, "violates", f"{context} negative case")
+                if case["expected_native_route"] is not False:
+                    raise AssertionError(
+                        f"{context} negative case expected_native_route must be false"
+                    )
+
+    if len(case_names) != len(set(case_names)):
+        raise AssertionError(f"{context} case names must be unique")
+
+
+def validate_all_contract_specs(repo_root):
+    specs = load_all_contract_specs(repo_root)
+    if not specs:
+        raise AssertionError("no Vulkan contract specs found")
+    for file_name, spec in specs:
+        validate_contract_spec(file_name, spec)
+    return specs
+
+
+def contract_spec_summary(repo_root):
+    rows = []
+    for file_name, spec in validate_all_contract_specs(repo_root):
+        rows.append(
+            {
+                "file_name": file_name,
+                "contract_name": spec["contract_name"],
+                "family": spec["family"],
+                "tuple_id": spec["tuple_id"],
+                "positive_cases": len(spec["positive_cases"]),
+                "negative_cases": len(spec["negative_cases"]),
+            }
+        )
+    return rows
+
+
+def format_contract_spec_summary_row(row):
+    return (
+        f"{row['file_name']}: {row['contract_name']} {row['family']} "
+        f"{row['tuple_id']} positive_cases={row['positive_cases']} "
+        f"negative_cases={row['negative_cases']}"
+    )
 
 
 def iter_contract_cases(spec):
@@ -86,16 +164,21 @@ def _main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", default=os.getcwd())
     parser.add_argument("--list", action="store_true")
+    parser.add_argument("--summary", action="store_true")
+    parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
 
-    specs = load_all_contract_specs(args.repo_root)
-    for file_name, spec in specs:
-        require_fields(spec, CONTRACT_SPEC_REQUIRED_FIELDS, file_name)
-        if args.list:
-            print(
-                f"{file_name}: {spec['contract_name']} "
-                f"{spec['family']} {spec['tuple_id']}"
-            )
+    rows = contract_spec_summary(args.repo_root)
+    if args.list or args.summary:
+        for row in rows:
+            print(format_contract_spec_summary_row(row))
+    if args.validate:
+        total_positive = sum(row["positive_cases"] for row in rows)
+        total_negative = sum(row["negative_cases"] for row in rows)
+        print(
+            f"validated {len(rows)} Vulkan contract specs "
+            f"positive_cases={total_positive} negative_cases={total_negative}"
+        )
 
 
 if __name__ == "__main__":

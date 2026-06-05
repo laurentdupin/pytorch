@@ -121,6 +121,10 @@ def _load_all_vulkan_contract_specs():
     return contract_spec_utils.load_all_contract_specs(REPO_ROOT)
 
 
+def _validate_all_vulkan_contract_specs():
+    return contract_spec_utils.validate_all_contract_specs(REPO_ROOT)
+
+
 def _require_contract_spec_fields(mapping, required_fields, context):
     contract_spec_utils.require_fields(mapping, required_fields, context)
 
@@ -354,72 +358,32 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("std::min(actual.api_version, requested.api_version)", source)
 
     def test_vulkan_contract_specs_have_common_schema(self):
-        specs = _load_all_vulkan_contract_specs()
+        specs = _validate_all_vulkan_contract_specs()
         self.assertGreater(len(specs), 0)
 
-        for file_name, spec in specs:
-            context = f"{file_name} contract spec"
-            _require_contract_spec_fields(
-                spec,
-                contract_spec_utils.CONTRACT_SPEC_REQUIRED_FIELDS,
-                context,
-            )
-            self.assertEqual(spec["schema_version"], 1, context)
-            for field in contract_spec_utils.CONTRACT_SPEC_STRING_FIELDS:
-                self.assertIsInstance(spec[field], str, f"{context} {field}")
-                self.assertNotEqual(spec[field], "", f"{context} {field}")
-            self.assertIsInstance(spec["bounds"], dict, f"{context} bounds")
-            self.assertGreater(len(spec["bounds"]), 0, f"{context} bounds")
-
-            case_names = []
-            for section in ("positive_cases", "negative_cases"):
-                cases = spec[section]
-                self.assertIsInstance(cases, list, f"{context} {section}")
-                self.assertGreater(len(cases), 0, f"{context} {section}")
-                for case in cases:
-                    self.assertIsInstance(case, dict, f"{context} {section} case")
-                    _require_contract_spec_fields(
-                        case,
-                        ("name",),
-                        f"{context} {section} case",
-                    )
-                    self.assertIsInstance(
-                        case["name"],
-                        str,
-                        f"{context} {section} case name",
-                    )
-                    self.assertNotEqual(
-                        case["name"],
-                        "",
-                        f"{context} {section} case name",
-                    )
-                    case_names.append(case["name"])
-                    if section == "negative_cases":
-                        _require_contract_spec_fields(
-                            case,
-                            ("violates", "expected_native_route"),
-                            f"{context} negative case",
-                        )
-                        self.assertIsInstance(
-                            case["violates"],
-                            str,
-                            f"{context} negative case violates",
-                        )
-                        self.assertNotEqual(
-                            case["violates"],
-                            "",
-                            f"{context} negative case violates",
-                        )
-                        self.assertIs(
-                            case["expected_native_route"],
-                            False,
-                            f"{context} negative case expected_native_route",
-                        )
-            self.assertEqual(
-                len(case_names),
-                len(set(case_names)),
-                f"{context} case names must be unique",
-            )
+    def test_vulkan_contract_spec_utility_cli_summary(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "test",
+                    "vulkan_contract_specs",
+                    "contract_spec_utils.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--validate",
+                "--summary",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertIn("validated ", result.stdout)
+        self.assertIn("positive_cases=", result.stdout)
+        self.assertIn("negative_cases=", result.stdout)
 
     def test_vulkan_contract_specs_reference_live_contract_metadata(self):
         source_pattern = os.path.join(
