@@ -118,6 +118,7 @@ list(APPEND native_vulkan_cpp
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/api/Diagnostics.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/DevicePolicy.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsChannelCat.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ModelLanePolicy.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ReplayTensorState.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/RoutePolicy.cpp"
