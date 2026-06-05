@@ -79,8 +79,6 @@ constexpr const char* kMaterializationGQARepeatBuffer =
     "gqa_repeat_buffer_materialization";
 constexpr const char* kMaterializationKVCacheAppendBuffer =
     "kv_cache_append_buffer_kernel";
-constexpr const char* kMaterializationChannelCatBufferView =
-    "channel_cat_buffer_view_copy_kernel";
 constexpr const char* kMaterializationEmbeddingLookupBuffer =
     "embedding_lookup_buffer_kernel";
 constexpr const char* kMaterializationBatchNormInferenceBuffer =
@@ -219,25 +217,6 @@ constexpr ExecutionContractMetadata kKVCacheAppendSequenceMetadata =
         "kv_cache_append_adjacent_guards",
         kFallbackUnsupportedShapesDoNotMatch,
         kMaterializationKVCacheAppendBuffer);
-
-constexpr int64_t kChannelCatRank4Dim1MinInputs = 3;
-constexpr int64_t kChannelCatRank4Dim1MaxInputs = 8;
-constexpr int64_t kChannelCatRank4Dim1Batch = 1;
-constexpr int64_t kChannelCatRank4Dim1MaxInputChannels = 256;
-constexpr int64_t kChannelCatRank4Dim1MaxTotalChannels = 1024;
-constexpr int64_t kChannelCatRank4Dim1MaxHeight = 128;
-constexpr int64_t kChannelCatRank4Dim1MaxWidth = 128;
-constexpr const char* kChannelCatRank4Dim1BufferViewTupleId =
-    "rank4_dim1_inputs3_to_8_c_mult4_spatial_le128_total_c_le1024";
-constexpr ExecutionContractMetadata kChannelCatRank4Dim1BufferViewMetadata =
-    make_execution_contract_metadata(
-        "ChannelCatContract",
-        "Rank4Dim1BufferView",
-        kChannelCatRank4Dim1BufferViewTupleId,
-        "channel_cat_buffer_view_focused_tests",
-        "channel_cat_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationChannelCatBufferView);
 
 constexpr int64_t kEmbeddingLookupTokenNumEmbeddings = 120818;
 constexpr int64_t kEmbeddingLookupTokenEmbeddingDim = 2048;
@@ -1476,83 +1455,6 @@ bool matches_kv_cache_append_contract(
              right_is_vulkan,
              dim)
       .matched;
-}
-
-const char* channel_cat_family_name(const ChannelCatFamily family) {
-  switch (family) {
-    case ChannelCatFamily::Rank4Dim1BufferView:
-      return "ChannelCatRank4Dim1BufferView";
-    case ChannelCatFamily::None:
-      return "ChannelCatNone";
-  }
-  return "ChannelCatNone";
-}
-
-const char* channel_cat_op_hit_label(const ChannelCatFamily family) {
-  switch (family) {
-    case ChannelCatFamily::Rank4Dim1BufferView:
-      return "aten::cat.buffer_channel_view";
-    case ChannelCatFamily::None:
-      return "aten::cat.channel_cat.none";
-  }
-  return "aten::cat.channel_cat.none";
-}
-
-ChannelCatMatch match_channel_cat_contract(
-    ArrayRef<ChannelCatTensorInfo> tensors,
-    const int64_t dim) {
-  ChannelCatMatch result;
-  if (
-      tensors.size() < kChannelCatRank4Dim1MinInputs ||
-      tensors.size() > kChannelCatRank4Dim1MaxInputs || dim != 1) {
-    return result;
-  }
-
-  const ChannelCatTensorInfo& reference = tensors[0];
-  if (
-      !reference.is_vulkan || reference.dtype != kFloat ||
-      reference.rank != 4 || reference.batch != kChannelCatRank4Dim1Batch ||
-      !reference.is_contiguous || reference.height <= 0 ||
-      reference.height > kChannelCatRank4Dim1MaxHeight ||
-      reference.width <= 0 || reference.width > kChannelCatRank4Dim1MaxWidth) {
-    return result;
-  }
-
-  int64_t total_channels = 0;
-  for (const ChannelCatTensorInfo& tensor : tensors) {
-    if (
-        !tensor.is_vulkan || tensor.dtype != reference.dtype ||
-        tensor.rank != reference.rank || tensor.batch != reference.batch ||
-        tensor.height != reference.height || tensor.width != reference.width ||
-        !tensor.is_contiguous || !tensor.has_buffer_storage ||
-        !tensor.supports_buffer_compute || tensor.channels <= 0 ||
-        tensor.channels > kChannelCatRank4Dim1MaxInputChannels ||
-        tensor.channels % 4 != 0) {
-      return result;
-    }
-    total_channels += tensor.channels;
-  }
-
-  if (
-      total_channels <= 0 ||
-      total_channels > kChannelCatRank4Dim1MaxTotalChannels ||
-      total_channels % 4 != 0) {
-    return result;
-  }
-
-  result.matched = true;
-  result.family = ChannelCatFamily::Rank4Dim1BufferView;
-  result.tuple_id = kChannelCatRank4Dim1BufferViewTupleId;
-  result.metadata = &kChannelCatRank4Dim1BufferViewMetadata;
-  result.input_count = static_cast<int64_t>(tensors.size());
-  result.total_channels = total_channels;
-  return result;
-}
-
-bool matches_channel_cat_contract(
-    ArrayRef<ChannelCatTensorInfo> tensors,
-    const int64_t dim) {
-  return match_channel_cat_contract(tensors, dim).matched;
 }
 
 const char* embedding_lookup_family_name(const EmbeddingLookupFamily family) {
