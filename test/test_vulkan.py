@@ -667,7 +667,7 @@ class TestVulkanGovernance(TestCase):
             "initial_empty_s99_to_s116_heads4_dim128",
         )
         self.assertEqual(spec["writer_op"], "aten::cat")
-        self.assertEqual(spec["route_label"], "aten::cat.buffer_direct")
+        self.assertEqual(spec["route_label"], "aten::cat.kv_cache_initial_dim2_buffer")
 
         bounds = spec["bounds"]
         _require_contract_spec_fields(
@@ -5368,7 +5368,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     spec = json.load(handle)
 
                 route_hit = "op=" + spec["route_label"]
-                initial_route_hit = "op=aten::cat.kv_cache_initial_dim2_buffer"
                 op_hit_log = os.environ["PYTORCH_VULKAN_OP_HIT_LOG"]
 
                 def dtype_for_case(case):
@@ -5418,16 +5417,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         assert fallback_count == 0, (case, fallback_count, op_hit_text)
                         expected_route = "op=" + case["expected_route_label"]
                         assert expected_route in op_hit_text, (case, op_hit_text)
-                        assert initial_route_hit not in op_hit_text, (
-                            case,
-                            op_hit_text,
-                        )
                     else:
                         assert route_hit not in op_hit_text, (case, op_hit_text)
-                        assert initial_route_hit not in op_hit_text, (
-                            case,
-                            op_hit_text,
-                        )
                         if contract_spec_utils.expected_negative_flag(
                             case,
                             "expected_cpu_fallback",

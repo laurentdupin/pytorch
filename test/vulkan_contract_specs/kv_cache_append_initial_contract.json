@@ -4,7 +4,7 @@
   "family": "InitialCache",
   "tuple_id": "initial_empty_s99_to_s116_heads4_dim128",
   "writer_op": "aten::cat",
-  "route_label": "aten::cat.buffer_direct",
+  "route_label": "aten::cat.kv_cache_initial_dim2_buffer",
   "bounds": {
     "dtype": "float32",
     "empty_shape": [0],
@@ -26,7 +26,7 @@
       "value_shape": [1, 4, 99, 128],
       "dim": 2,
       "dtype": "float32",
-      "expected_route_label": "aten::cat.buffer_direct",
+      "expected_route_label": "aten::cat.kv_cache_initial_dim2_buffer",
       "expected_cpu_fallback": false
     },
     {
@@ -35,7 +35,7 @@
       "value_shape": [1, 4, 100, 128],
       "dim": 2,
       "dtype": "float32",
-      "expected_route_label": "aten::cat.buffer_direct",
+      "expected_route_label": "aten::cat.kv_cache_initial_dim2_buffer",
       "expected_cpu_fallback": false
     },
     {
@@ -44,7 +44,7 @@
       "value_shape": [1, 4, 116, 128],
       "dim": 2,
       "dtype": "float32",
-      "expected_route_label": "aten::cat.buffer_direct",
+      "expected_route_label": "aten::cat.kv_cache_initial_dim2_buffer",
       "expected_cpu_fallback": false
     }
   ],

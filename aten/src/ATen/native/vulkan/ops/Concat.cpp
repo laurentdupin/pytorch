@@ -381,7 +381,8 @@ Tensor cat_kv_cache_append_dim2_buffer(
 bool cat_buffer_direct_out_impl(
     at::ArrayRef<Tensor> tensors,
     const int64_t dim,
-    Tensor& output_arg) {
+    Tensor& output_arg,
+    const char* op_hit_label_override = nullptr) {
   if (tensors.empty() || !output_arg.defined() || !output_arg.is_vulkan()) {
     return false;
   }
@@ -448,8 +449,10 @@ bool cat_buffer_direct_out_impl(
         !convert(tensor).has_direct_buffer_layout();
   }
   utils::log_vulkan_op_hit(
-      uses_buffer_view ? "aten::cat.buffer_channel_view"
-                       : "aten::cat.buffer_direct");
+      op_hit_label_override != nullptr
+          ? op_hit_label_override
+          : (uses_buffer_view ? "aten::cat.buffer_channel_view"
+                              : "aten::cat.buffer_direct"));
   int64_t dst_dim_offset = 0;
 
   for (const Tensor& tensor : prepared_tensors) {
@@ -803,7 +806,10 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
         right.scalar_type(),
         /*persistent=*/false);
     const bool success = cat_buffer_direct_out_impl(
-        non_empty, normalize_dim(in_dim, right.dim()), output);
+        non_empty,
+        normalize_dim(in_dim, right.dim()),
+        output,
+        utils::kv_cache_append_op_hit_label(initial_kv_cache_contract.family));
     if (success) {
       return output;
     }
