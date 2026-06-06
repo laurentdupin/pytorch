@@ -508,6 +508,99 @@ class TestVulkanGovernance(TestCase):
             )
             self.assertFalse(case["expected_cpu_fallback"])
 
+    def test_vulkan_gqa_repeat_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec("gqa_repeat_contract.json")
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["contract_name"], "GQARepeatContract")
+        self.assertEqual(
+            spec["family"],
+            "Batch1Heads4Factor4Sequence100To116Dim128",
+        )
+        self.assertEqual(
+            spec["tuple_id"],
+            "gqa_repeat_batch1_heads4_factor4_sequence100_to_116_dim128",
+        )
+        self.assertEqual(spec["writer_op"], "aten::scaled_dot_product_attention")
+        self.assertEqual(
+            spec["route_label"],
+            "aten::scaled_dot_product_attention.bounded_gqa_repeat_materialize",
+        )
+
+        bounds = spec["bounds"]
+        _require_contract_spec_fields(
+            bounds,
+            (
+                "dtype",
+                "rank",
+                "batch",
+                "source_heads",
+                "target_heads",
+                "repeat_factor",
+                "target_sequence",
+                "source_sequence",
+                "head_dim",
+                "requires_vulkan",
+                "requires_buffer_storage",
+                "enable_gqa",
+            ),
+            "GQARepeatContract bounds",
+        )
+        self.assertEqual(bounds["dtype"], "float32")
+        self.assertEqual(bounds["rank"], 4)
+        self.assertEqual(bounds["batch"], 1)
+        self.assertEqual(bounds["source_heads"], 4)
+        self.assertEqual(bounds["target_heads"], 16)
+        self.assertEqual(bounds["repeat_factor"], 4)
+        self.assertEqual(bounds["target_sequence"], 1)
+        self.assertEqual(bounds["source_sequence"], {"min": 100, "max": 116})
+        self.assertEqual(bounds["head_dim"], 128)
+        self.assertTrue(bounds["requires_vulkan"])
+        self.assertTrue(bounds["requires_buffer_storage"])
+        self.assertTrue(bounds["enable_gqa"])
+
+        case_fields = (
+            "name",
+            "query_shape",
+            "key_shape",
+            "value_shape",
+            "dropout_p",
+            "is_causal",
+            "scale",
+            "enable_gqa",
+            "dtype",
+        )
+        for section in ("positive_cases", "negative_cases"):
+            self.assertGreater(len(spec[section]), 0)
+            for case in spec[section]:
+                _require_contract_spec_fields(
+                    case,
+                    case_fields,
+                    f"GQARepeatContract {section} case",
+                )
+                self.assertEqual(len(case["query_shape"]), bounds["rank"])
+                self.assertEqual(len(case["key_shape"]), bounds["rank"])
+                self.assertEqual(len(case["value_shape"]), bounds["rank"])
+                self.assertEqual(case["dtype"], bounds["dtype"])
+                self.assertEqual(case["query_shape"][0], bounds["batch"])
+                self.assertEqual(case["key_shape"][0], bounds["batch"])
+                self.assertEqual(case["value_shape"][0], bounds["batch"])
+
+        for case in spec["positive_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("expected_route_label", "expected_cpu_fallback"),
+                "GQARepeatContract positive case",
+            )
+            self.assertEqual(case["expected_route_label"], spec["route_label"])
+            self.assertFalse(case["expected_cpu_fallback"])
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("violates", "expected_native_route"),
+                "GQARepeatContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
+
     def test_vulkan_embedding_lookup_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("embedding_lookup_contract.json")
         self.assertEqual(spec["schema_version"], 1)
@@ -10321,6 +10414,114 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     ).cpu()
                     self.assertEqual(actual_cpu, expected, rtol=1e-4, atol=1e-4)
                     self.assertEqual(repeat_cpu, actual_cpu, rtol=1e-5, atol=1e-5)
+
+    def test_gqa_repeat_contract_generated_spec(self):
+        spec = _load_vulkan_contract_spec("gqa_repeat_contract.json")
+        op_hit_log_name = contract_spec_utils.contract_log_name(
+            spec,
+            {"name": "generated"},
+            "op_hit_test.log",
+        )
+        op_hit_log_path = os.path.join(REPO_ROOT, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+
+        def read_op_hits():
+            if not os.path.exists(op_hit_log_path):
+                return []
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                return [
+                    line.split("op=", 1)[1].split()[0]
+                    for line in log_file
+                    if "op=" in line
+                ]
+
+        def dtype_for_case(case):
+            return {
+                "float32": torch.float32,
+            }[case["dtype"]]
+
+        def make_tensors(case):
+            dtype = dtype_for_case(case)
+            return (
+                torch.randn(*case["query_shape"], dtype=dtype),
+                torch.randn(*case["key_shape"], dtype=dtype),
+                torch.randn(*case["value_shape"], dtype=dtype),
+            )
+
+        try:
+            os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = op_hit_log_path
+            for _, case, expect_native_route in (
+                contract_spec_utils.iter_contract_cases(spec)
+            ):
+                with self.subTest(case=case["name"]):
+                    if os.path.exists(op_hit_log_path):
+                        os.remove(op_hit_log_path)
+                    torch.manual_seed(7000 + len(case["name"]))
+                    query, key, value = make_tensors(case)
+                    query_vulkan = query.to("vulkan")
+                    key_vulkan = key.to("vulkan")
+                    value_vulkan = value.to("vulkan")
+
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        if "expected_runtime_error" in case:
+                            with self.assertRaisesRegex(
+                                RuntimeError,
+                                case["expected_runtime_error"],
+                            ):
+                                F.scaled_dot_product_attention(
+                                    query_vulkan,
+                                    key_vulkan,
+                                    value_vulkan,
+                                    dropout_p=case["dropout_p"],
+                                    is_causal=case["is_causal"],
+                                    scale=case["scale"],
+                                    enable_gqa=case["enable_gqa"],
+                                )
+                        else:
+                            expected = F.scaled_dot_product_attention(
+                                query,
+                                key,
+                                value,
+                                dropout_p=case["dropout_p"],
+                                is_causal=case["is_causal"],
+                                scale=case["scale"],
+                                enable_gqa=case["enable_gqa"],
+                            )
+                            actual = F.scaled_dot_product_attention(
+                                query_vulkan,
+                                key_vulkan,
+                                value_vulkan,
+                                dropout_p=case["dropout_p"],
+                                is_causal=case["is_causal"],
+                                scale=case["scale"],
+                                enable_gqa=case["enable_gqa"],
+                            ).cpu()
+                            self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+
+                    fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                    op_hits = read_op_hits()
+                    if expect_native_route:
+                        self.assertFalse(case["expected_cpu_fallback"])
+                        self.assertEqual(fallback_count, 0)
+                        self.assertIn(case["expected_route_label"], op_hits)
+                    else:
+                        self.assertNotIn(spec["route_label"], op_hits)
+                        if "expected_cpu_fallback" in case:
+                            self.assertEqual(
+                                fallback_count,
+                                1 if case["expected_cpu_fallback"] else 0,
+                            )
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
 
     def test_scaled_dot_product_attention_hymt_decode_gqa_shape_guard(self):
         torch.manual_seed(0)

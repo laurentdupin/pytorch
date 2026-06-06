@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "contract_name": "GQARepeatContract",
+  "family": "Batch1Heads4Factor4Sequence100To116Dim128",
+  "tuple_id": "gqa_repeat_batch1_heads4_factor4_sequence100_to_116_dim128",
+  "writer_op": "aten::scaled_dot_product_attention",
+  "route_label": "aten::scaled_dot_product_attention.bounded_gqa_repeat_materialize",
+  "bounds": {
+    "dtype": "float32",
+    "rank": 4,
+    "batch": 1,
+    "source_heads": 4,
+    "target_heads": 16,
+    "repeat_factor": 4,
+    "target_sequence": 1,
+    "source_sequence": {
+      "min": 100,
+      "max": 116
+    },
+    "head_dim": 128,
+    "requires_vulkan": true,
+    "requires_buffer_storage": true,
+    "enable_gqa": true
+  },
+  "positive_cases": [
+    {
+      "name": "source_sequence100",
+      "query_shape": [1, 16, 1, 128],
+      "key_shape": [1, 4, 100, 128],
+      "value_shape": [1, 4, 100, 128],
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "dtype": "float32",
+      "expected_route_label": "aten::scaled_dot_product_attention.bounded_gqa_repeat_materialize",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "source_sequence101",
+      "query_shape": [1, 16, 1, 128],
+      "key_shape": [1, 4, 101, 128],
+      "value_shape": [1, 4, 101, 128],
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "dtype": "float32",
+      "expected_route_label": "aten::scaled_dot_product_attention.bounded_gqa_repeat_materialize",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "source_sequence116",
+      "query_shape": [1, 16, 1, 128],
+      "key_shape": [1, 4, 116, 128],
+      "value_shape": [1, 4, 116, 128],
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "dtype": "float32",
+      "expected_route_label": "aten::scaled_dot_product_attention.bounded_gqa_repeat_materialize",
+      "expected_cpu_fallback": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "source_sequence99",
+      "query_shape": [1, 16, 1, 128],
+      "key_shape": [1, 4, 99, 128],
+      "value_shape": [1, 4, 99, 128],
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "dtype": "float32",
+      "violates": "source_sequence.min",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal"
+    },
+    {
+      "name": "source_sequence117",
+      "query_shape": [1, 16, 1, 128],
+      "key_shape": [1, 4, 117, 128],
+      "value_shape": [1, 4, 117, 128],
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "dtype": "float32",
+      "violates": "source_sequence.max",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal"
+    }
+  ]
+}

@@ -90,10 +90,13 @@ condition and migration target.
 - Reason: bounded repeat `[1,4,S,128]` to `[1,16,S,128]` is proven for the
   current Transformer decode envelope, but broader GQA materialization behavior
   is not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/gqa_repeat_contract.json`
+  covers the `Batch1Heads4Factor4Sequence100To116Dim128` slice with generated
+  positive and adjacent negative runtime tests.
 - Expiry: broader GQA repeat parity plus adjacent negative coverage are
   available.
-- Migration target: generated `GQARepeatContract` tables with positive and
-  negative tests.
+- Migration target: broader generated `GQARepeatContract` tables with positive
+  and negative tests.
 
 ### SDPA Execution Policy Exact Tuples
 

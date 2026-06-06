@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-06 at local HEAD
-`64e36838f76806db0155ea9889a6e424318d406f`.
+Last refreshed: 2026-06-07 at local HEAD
+`4f350053969825a2a2cd6053b78add89b4d02500`.
 
 ## Repo State Summary
 
@@ -143,7 +143,10 @@ These files are diagnostic inputs. Production code must not depend on
 - `UNetChannelConcatContract`: mostly generic already; keep model provenance in
   tests/docs.
 - `GQARepeatContract`: finite bounded K/V head repeat contract, now split into
-  a family-specific source; keep exact rows until broader legality is proven.
+  a family-specific source. The
+  `Batch1Heads4Factor4Sequence100To116Dim128` slice has a JSON contract spec
+  with generated positive and adjacent negative runtime coverage; keep exact
+  rows until broader legality is proven.
 - `BatchNormInferenceContract`: float32 4D inference batch norm, including the
   materialized-buffer layout transition used by current OCR evidence.
 - `SafeViewReshapeContract`: finite dense direct-buffer view and reshape-alias
@@ -165,8 +168,8 @@ These files are diagnostic inputs. Production code must not depend on
 - Contract spec governance discovers all `test/vulkan_contract_specs/*.json`,
   validates a shared schema, checks `contract_name`/`family`/`tuple_id` against
   live `ExecutionContracts*.cpp` metadata, and keeps family-specific shape
-  checks for EmbeddingLookup, ChannelCat, KVCacheAppend, SDPAScoreSoftmax, and
-  NoOverlapConvTranspose2D. Shared helpers in
+  checks for EmbeddingLookup, ChannelCat, KVCacheAppend, GQARepeat,
+  SDPAScoreSoftmax, and NoOverlapConvTranspose2D. Shared helpers in
   `test/vulkan_contract_specs/contract_spec_utils.py` keep generated runtime
   tests from copying spec loading, case iteration, log naming, and expected
   negative handling.
@@ -196,8 +199,8 @@ These files are diagnostic inputs. Production code must not depend on
   smoke coverage in Task033/Task034-era artifacts with zero sync readback, but
   that matrix is stale by commit relative to the profile/spec governance stack.
   The intervening spec/profile work, InitialCache observability-label update,
-  NoOverlapConvTranspose2D and SDPAScoreSoftmax fixture coverage, ChannelCat
-  source split, and
+  NoOverlapConvTranspose2D, GQARepeat, and SDPAScoreSoftmax fixture coverage,
+  ChannelCat source split, and
   NoOverlapConvTranspose2D, BatchNormInference, KVCacheAppend,
   EmbeddingLookup, GQARepeat, SafeViewReshape, DiffusionSDPA, and
   SDPAExecutionPolicy, SDPAScoreSoftmax, SmallMetadataPaddedConv2D,

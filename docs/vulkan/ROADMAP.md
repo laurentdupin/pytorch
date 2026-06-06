@@ -52,7 +52,8 @@ Current MVP status:
   `ChannelCatContract`, and `KVCacheAppendContract` `SequenceAppend` and
   `InitialCache`, plus `NoOverlapConvTranspose2DContract`
   `Kernel2Stride2FloatBuffer` and `SDPAScoreSoftmaxContract`
-  `DiffusionSquareScores`.
+  `DiffusionSquareScores`, plus `GQARepeatContract`
+  `Batch1Heads4Factor4Sequence100To116Dim128`.
 - `test/vulkan_contract_specs/contract_spec_utils.py` owns shared spec loading,
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,
