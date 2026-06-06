@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-05 at local HEAD
-`6e66c80dd06c8fea7ba5df2a5284aaceab687313`.
+Last refreshed: 2026-06-06 at local HEAD
+`f41ed3bbe9d10aa2ba17d1e4e783dfa4d9decdc7`.
 
 ## Repo State Summary
 
@@ -17,6 +17,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsBatchNormInference.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsChannelCat.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsDiffusionSDPA.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsEmbeddingLookup.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsGQARepeat.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsKVCacheAppend.cpp`
@@ -37,13 +38,14 @@ is built. `BatchNormInferenceContract`, `ChannelCatContract`,
 `LinearGeluBridgeContract`, `NoOverlapConvTranspose2DContract`, and
 `SafeViewReshapeContract`, `SmallMetadataPaddedConv2DContract`,
 `SmallSpatialPointwiseConvContract`, `MaskedTinySDPAContract`, and
-`TransformerGQASDPAContract` are split into family-specific sources. The
-remaining main-source SDPA code is the coupled
-`DiffusionSDPAContract`/`DiffusionCrossAttentionContract` and
-`SDPAExecutionPolicyContract` boundary. The next SDPA step should decide
-whether diffusion route admission can split cleanly while execution policy
-continues to consume the public diffusion matcher, or whether an SDPA-private
-helper boundary is needed first.
+`TransformerGQASDPAContract`, `DiffusionSDPAContract`, and
+`DiffusionCrossAttentionContract` are split into family-specific sources. The
+remaining main-source SDPA code is `SDPAExecutionPolicyContract` plus the
+score-softmax allowlist. A behavior-preserving execution-policy source split is
+feasible if scoped to execution-policy tuple IDs, metadata, family naming, and
+matcher logic while continuing to consume the public diffusion matcher. Keep
+the score-softmax allowlist separate unless a future task explicitly scopes
+that policy surface.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
@@ -113,7 +115,8 @@ These files are diagnostic inputs. Production code must not depend on
   family-specific source; keep the exact tuple until broader mask-family
   behavior is proven.
 - `DiffusionSDPAContract` and `DiffusionCrossAttentionContract`: finite
-  explicit tuple contracts until broader materialization behavior is proven.
+  explicit tuple contracts, now split into a family-specific source; keep exact
+  rows until broader materialization behavior is proven.
 - `SDPAExecutionPolicyContract`: finite execution materialization, softmax
   score, post-softmax clone, and repeat policy contract; keep exact rows until
   broader layout-transition behavior is proven.
@@ -188,7 +191,7 @@ These files are diagnostic inputs. Production code must not depend on
   The intervening spec/profile work, InitialCache observability-label update,
   NoOverlapConvTranspose2D fixture coverage, ChannelCat source split, and
   NoOverlapConvTranspose2D, BatchNormInference, KVCacheAppend,
-  EmbeddingLookup, GQARepeat, SafeViewReshape, and
+  EmbeddingLookup, GQARepeat, SafeViewReshape, DiffusionSDPA, and
   SmallMetadataPaddedConv2D, SmallSpatialPointwiseConv, MaskedTinySDPA, and
   TransformerGQASDPA source splits should not change accepted shapes or default
   no-profile model routing, but rerun the real-model matrix after the next
