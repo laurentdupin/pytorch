@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-06 at local HEAD
-`f41ed3bbe9d10aa2ba17d1e4e783dfa4d9decdc7`.
+`9a2e039b828cf5475693db43156092f50860a5cd`.
 
 ## Repo State Summary
 
@@ -25,6 +25,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsMaskedTinySDPA.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSafeViewReshape.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsTransformerGQASDPA.cpp`
@@ -38,14 +39,14 @@ is built. `BatchNormInferenceContract`, `ChannelCatContract`,
 `LinearGeluBridgeContract`, `NoOverlapConvTranspose2DContract`, and
 `SafeViewReshapeContract`, `SmallMetadataPaddedConv2DContract`,
 `SmallSpatialPointwiseConvContract`, `MaskedTinySDPAContract`, and
-`TransformerGQASDPAContract`, `DiffusionSDPAContract`, and
-`DiffusionCrossAttentionContract` are split into family-specific sources. The
-remaining main-source SDPA code is `SDPAExecutionPolicyContract` plus the
-score-softmax allowlist. A behavior-preserving execution-policy source split is
-feasible if scoped to execution-policy tuple IDs, metadata, family naming, and
-matcher logic while continuing to consume the public diffusion matcher. Keep
-the score-softmax allowlist separate unless a future task explicitly scopes
-that policy surface.
+`TransformerGQASDPAContract`, `DiffusionSDPAContract`,
+`DiffusionCrossAttentionContract`, and `SDPAExecutionPolicyContract` are split
+into family-specific sources. The only remaining SDPA-related main-source
+policy is `matches_sdpa_buffer_softmax_score_contract`, the score-softmax
+allowlist used by route admission and softmax execution. Give that boundary a
+read-only design pass before any split, deciding whether it should remain an
+umbrella utility, move to a named policy source, or become a metadata-backed
+contract row with governance.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
@@ -118,8 +119,9 @@ These files are diagnostic inputs. Production code must not depend on
   explicit tuple contracts, now split into a family-specific source; keep exact
   rows until broader materialization behavior is proven.
 - `SDPAExecutionPolicyContract`: finite execution materialization, softmax
-  score, post-softmax clone, and repeat policy contract; keep exact rows until
-  broader layout-transition behavior is proven.
+  score, post-softmax clone, and repeat policy contract, now split into a
+  family-specific source; keep exact rows until broader layout-transition
+  behavior is proven.
 - `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
   lookup contract; the small-bounded lookup slice has a JSON contract spec with
   generated positive and adjacent negative runtime coverage. Keep remaining
@@ -192,10 +194,11 @@ These files are diagnostic inputs. Production code must not depend on
   NoOverlapConvTranspose2D fixture coverage, ChannelCat source split, and
   NoOverlapConvTranspose2D, BatchNormInference, KVCacheAppend,
   EmbeddingLookup, GQARepeat, SafeViewReshape, DiffusionSDPA, and
-  SmallMetadataPaddedConv2D, SmallSpatialPointwiseConv, MaskedTinySDPA, and
-  TransformerGQASDPA source splits should not change accepted shapes or default
-  no-profile model routing, but rerun the real-model matrix after the next
-  backend behavior change or before claiming or raising a model gate.
+  SDPAExecutionPolicy, SmallMetadataPaddedConv2D,
+  SmallSpatialPointwiseConv, MaskedTinySDPA, and TransformerGQASDPA source
+  splits should not change accepted shapes or default no-profile model
+  routing, but rerun the real-model matrix after the next backend behavior
+  change or before claiming or raising a model gate.
 
 ## Build Context
 
