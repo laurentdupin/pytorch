@@ -410,6 +410,29 @@ class TestVulkanGovernance(TestCase):
                     f"{file_name} {field} is not present in ExecutionContracts*.cpp",
                 )
 
+    def test_sdpa_score_softmax_contract_metadata(self):
+        source = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "ExecutionContractsSDPAScoreSoftmax.cpp",
+        )
+        for expected in (
+            '"SDPAScoreSoftmaxContract"',
+            '"DiffusionSquareScores"',
+            '"heads1_or5_sequence504_or640_float_rank3_square"',
+            '"sdpa_score_softmax_focused_tests"',
+            '"sdpa_score_softmax_adjacent_guards"',
+            '"unsupported_shapes_hard_fail_or_do_not_match"',
+            '"none"',
+            "result.family = SDPAScoreSoftmaxFamily::DiffusionSquareScores",
+            "result.metadata = &kSDPAScoreSoftmaxDiffusionSquareScoresMetadata",
+        ):
+            self.assertIn(expected, source)
+
     def test_vulkan_embedding_lookup_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("embedding_lookup_contract.json")
         self.assertEqual(spec["schema_version"], 1)
@@ -10909,7 +10932,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
     def test_softmax_diffusion_score_shape_matches_cpu(self):
         torch.manual_seed(0)
-        score_shapes = ((5, 640, 640), (1, 504, 504), (5, 504, 504))
+        score_shapes = (
+            (1, 640, 640),
+            (5, 640, 640),
+            (1, 504, 504),
+            (5, 504, 504),
+        )
 
         for shape in score_shapes:
             scores = torch.randn(*shape)
@@ -10927,6 +10955,52 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 atol=1e-4,
             )
             self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_softmax_diffusion_score_shape_guard(self):
+        log_name = "softmax_diffusion_score_shape_guard_op_hit_test.log"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        cases = (
+            (2, 64, 64),
+            (1, 65, 65),
+            (1, 64, 65),
+        )
+
+        try:
+            os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+            for shape in cases:
+                with self.subTest(shape=shape):
+                    scores = torch.randn(*shape)
+                    expected = scores.softmax(-1)
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = scores.to("vulkan").softmax(-1).cpu()
+
+                    self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                    self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                op_hits = [
+                    line.split("op=", 1)[1].split()[0]
+                    for line in log_file
+                    if "op=" in line
+                ]
+            self.assertIn(
+                "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
+                op_hits,
+            )
+            self.assertNotIn("aten::_softmax.buffer_lastdim", op_hits)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(log_path):
+                os.remove(log_path)
 
     def test_vulkan_dispatch_tables_expose_backend_kernels(self):
         dispatch_expectations = {

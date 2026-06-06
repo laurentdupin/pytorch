@@ -108,6 +108,20 @@ condition and migration target.
 - Migration target: generated `SDPAExecutionPolicyContract` tables with
   positive and negative tests.
 
+### SDPA Score Softmax Exact Envelope
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`,
+  `aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp`, and
+  `aten/src/ATen/native/vulkan/ops/Softmax.cpp`
+- Status: temporary, contract-named
+- Reason: finite SDPA score-softmax shapes guard route hard-fail and native
+  buffer softmax eligibility, but broader score-softmax/layout behavior is not
+  proven yet.
+- Expiry: broader SDPA score-softmax parity plus adjacent negative coverage, or
+  generated spec coverage, is available.
+- Migration target: generated `SDPAScoreSoftmaxContract` tables with positive
+  and negative tests.
+
 ### Safe View Reshape Exact Envelope
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

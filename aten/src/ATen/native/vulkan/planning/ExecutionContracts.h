@@ -198,6 +198,18 @@ struct SDPAExecutionPolicyMatch final {
   bool requires_post_softmax_clone{false};
 };
 
+enum class SDPAScoreSoftmaxFamily : uint8_t {
+  None = 0u,
+  DiffusionSquareScores,
+};
+
+struct SDPAScoreSoftmaxMatch final {
+  bool matched{false};
+  SDPAScoreSoftmaxFamily family{SDPAScoreSoftmaxFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+};
+
 struct GQARepeatMatch final {
   bool matched{false};
   const char* tuple_id{nullptr};
@@ -505,6 +517,11 @@ SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
     bool is_causal,
     std::optional<double> scale,
     bool enable_gqa);
+
+SDPAScoreSoftmaxMatch match_sdpa_buffer_softmax_score_contract(
+    IntArrayRef input_sizes,
+    ScalarType input_dtype,
+    int64_t dim);
 
 bool matches_sdpa_buffer_softmax_score_contract(
     IntArrayRef input_sizes,

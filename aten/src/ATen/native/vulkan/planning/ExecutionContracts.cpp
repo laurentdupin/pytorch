@@ -23,22 +23,6 @@ bool has_complete_execution_contract_metadata(
       has_text(metadata->materialization_policy);
 }
 
-bool matches_sdpa_buffer_softmax_score_contract(
-    const IntArrayRef input_sizes,
-    const ScalarType input_dtype,
-    const int64_t dim) {
-  if (
-      input_dtype != kFloat || input_sizes.size() != 3 ||
-      dim != static_cast<int64_t>(input_sizes.size()) - 1 ||
-      input_sizes[1] != input_sizes[2]) {
-    return false;
-  }
-  const int64_t heads = input_sizes[0];
-  const int64_t sequence = input_sizes[1];
-  return (heads == 1 && (sequence == 504 || sequence == 640)) ||
-      (heads == 5 && (sequence == 504 || sequence == 640));
-}
-
 } // namespace utils
 } // namespace ops
 } // namespace vulkan
