@@ -433,6 +433,81 @@ class TestVulkanGovernance(TestCase):
         ):
             self.assertIn(expected, source)
 
+    def test_vulkan_sdpa_score_softmax_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec("sdpa_score_softmax_contract.json")
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["contract_name"], "SDPAScoreSoftmaxContract")
+        self.assertEqual(spec["family"], "DiffusionSquareScores")
+        self.assertEqual(
+            spec["tuple_id"],
+            "heads1_or5_sequence504_or640_float_rank3_square",
+        )
+        self.assertEqual(spec["writer_op"], "aten::_softmax")
+        self.assertEqual(spec["route_label"], "aten::_softmax.buffer_lastdim")
+
+        bounds = spec["bounds"]
+        _require_contract_spec_fields(
+            bounds,
+            (
+                "dtype",
+                "rank",
+                "dim",
+                "heads",
+                "sequence",
+                "square_scores",
+                "requires_vulkan",
+                "requires_buffer_storage",
+            ),
+            "SDPAScoreSoftmaxContract bounds",
+        )
+        self.assertEqual(bounds["dtype"], "float32")
+        self.assertEqual(bounds["rank"], 3)
+        self.assertEqual(bounds["dim"], -1)
+        self.assertEqual(bounds["heads"], [1, 5])
+        self.assertEqual(bounds["sequence"], [504, 640])
+        self.assertTrue(bounds["square_scores"])
+        self.assertTrue(bounds["requires_vulkan"])
+        self.assertTrue(bounds["requires_buffer_storage"])
+
+        case_fields = ("name", "shape", "dim", "dtype")
+        for section in ("positive_cases", "negative_cases"):
+            self.assertGreater(len(spec[section]), 0)
+            for case in spec[section]:
+                _require_contract_spec_fields(
+                    case,
+                    case_fields,
+                    f"SDPAScoreSoftmaxContract {section} case",
+                )
+                self.assertEqual(len(case["shape"]), bounds["rank"])
+                self.assertEqual(case["dim"], bounds["dim"])
+                self.assertEqual(case["dtype"], bounds["dtype"])
+
+        for case in spec["positive_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("expected_route_label", "expected_cpu_fallback"),
+                "SDPAScoreSoftmaxContract positive case",
+            )
+            self.assertEqual(case["expected_route_label"], spec["route_label"])
+            self.assertFalse(case["expected_cpu_fallback"])
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                (
+                    "violates",
+                    "expected_native_route",
+                    "expected_guard_route_label",
+                    "expected_cpu_fallback",
+                ),
+                "SDPAScoreSoftmaxContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
+            self.assertEqual(
+                case["expected_guard_route_label"],
+                "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
+            )
+            self.assertFalse(case["expected_cpu_fallback"])
+
     def test_vulkan_embedding_lookup_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("embedding_lookup_contract.json")
         self.assertEqual(spec["schema_version"], 1)
@@ -11001,6 +11076,74 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
             if os.path.exists(log_path):
                 os.remove(log_path)
+
+    def test_sdpa_score_softmax_contract_generated_spec(self):
+        spec = _load_vulkan_contract_spec("sdpa_score_softmax_contract.json")
+        op_hit_log_name = contract_spec_utils.contract_log_name(
+            spec,
+            {"name": "generated"},
+            "op_hit_test.log",
+        )
+        op_hit_log_path = os.path.join(REPO_ROOT, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+
+        def read_op_hits():
+            if not os.path.exists(op_hit_log_path):
+                return []
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                return [
+                    line.split("op=", 1)[1].split()[0]
+                    for line in log_file
+                    if "op=" in line
+                ]
+
+        def dtype_for_case(case):
+            return {
+                "float32": torch.float32,
+            }[case["dtype"]]
+
+        try:
+            os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = op_hit_log_path
+            for _, case, expect_native_route in (
+                contract_spec_utils.iter_contract_cases(spec)
+            ):
+                with self.subTest(case=case["name"]):
+                    if os.path.exists(op_hit_log_path):
+                        os.remove(op_hit_log_path)
+                    torch.manual_seed(6000 + len(case["name"]))
+                    scores = torch.randn(
+                        *case["shape"],
+                        dtype=dtype_for_case(case),
+                    )
+
+                    expected = scores.softmax(case["dim"])
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = scores.to("vulkan").softmax(case["dim"]).cpu()
+
+                    self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                    fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                    op_hits = read_op_hits()
+                    if expect_native_route:
+                        self.assertFalse(case["expected_cpu_fallback"])
+                        self.assertEqual(fallback_count, 0)
+                        self.assertIn(case["expected_route_label"], op_hits)
+                    else:
+                        self.assertNotIn(spec["route_label"], op_hits)
+                        if "expected_guard_route_label" in case:
+                            self.assertIn(case["expected_guard_route_label"], op_hits)
+                        if not case.get("expected_cpu_fallback", True):
+                            self.assertEqual(fallback_count, 0)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
 
     def test_vulkan_dispatch_tables_expose_backend_kernels(self):
         dispatch_expectations = {

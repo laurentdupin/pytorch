@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "contract_name": "SDPAScoreSoftmaxContract",
+  "family": "DiffusionSquareScores",
+  "tuple_id": "heads1_or5_sequence504_or640_float_rank3_square",
+  "writer_op": "aten::_softmax",
+  "route_label": "aten::_softmax.buffer_lastdim",
+  "bounds": {
+    "dtype": "float32",
+    "rank": 3,
+    "dim": -1,
+    "heads": [1, 5],
+    "sequence": [504, 640],
+    "square_scores": true,
+    "requires_vulkan": true,
+    "requires_buffer_storage": true
+  },
+  "positive_cases": [
+    {
+      "name": "heads1_sequence640",
+      "shape": [1, 640, 640],
+      "dim": -1,
+      "dtype": "float32",
+      "expected_route_label": "aten::_softmax.buffer_lastdim",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "heads5_sequence640",
+      "shape": [5, 640, 640],
+      "dim": -1,
+      "dtype": "float32",
+      "expected_route_label": "aten::_softmax.buffer_lastdim",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "heads1_sequence504",
+      "shape": [1, 504, 504],
+      "dim": -1,
+      "dtype": "float32",
+      "expected_route_label": "aten::_softmax.buffer_lastdim",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "heads5_sequence504",
+      "shape": [5, 504, 504],
+      "dim": -1,
+      "dtype": "float32",
+      "expected_route_label": "aten::_softmax.buffer_lastdim",
+      "expected_cpu_fallback": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "heads2_sequence640",
+      "shape": [2, 640, 640],
+      "dim": -1,
+      "dtype": "float32",
+      "violates": "heads",
+      "expected_native_route": false,
+      "expected_guard_route_label": "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "heads1_sequence641",
+      "shape": [1, 641, 641],
+      "dim": -1,
+      "dtype": "float32",
+      "violates": "sequence",
+      "expected_native_route": false,
+      "expected_guard_route_label": "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "heads1_sequence640_nonsquare",
+      "shape": [1, 640, 641],
+      "dim": -1,
+      "dtype": "float32",
+      "violates": "square_scores",
+      "expected_native_route": false,
+      "expected_guard_route_label": "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
+      "expected_cpu_fallback": false
+    }
+  ]
+}

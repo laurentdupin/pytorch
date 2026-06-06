@@ -117,10 +117,13 @@ condition and migration target.
 - Reason: finite SDPA score-softmax shapes guard route hard-fail and native
   buffer softmax eligibility, but broader score-softmax/layout behavior is not
   proven yet.
-- Expiry: broader SDPA score-softmax parity plus adjacent negative coverage, or
-  generated spec coverage, is available.
-- Migration target: generated `SDPAScoreSoftmaxContract` tables with positive
-  and negative tests.
+- Generated spec coverage: `test/vulkan_contract_specs/sdpa_score_softmax_contract.json`
+  covers the `DiffusionSquareScores` slice with generated positive and
+  adjacent negative runtime tests.
+- Expiry: broader SDPA score-softmax/layout parity plus adjacent negative
+  coverage is available.
+- Migration target: broader generated `SDPAScoreSoftmaxContract` tables with
+  positive and negative tests.
 
 ### Safe View Reshape Exact Envelope
 

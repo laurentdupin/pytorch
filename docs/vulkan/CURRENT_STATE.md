@@ -123,10 +123,10 @@ These files are diagnostic inputs. Production code must not depend on
   family-specific source; keep exact rows until broader layout-transition
   behavior is proven.
 - `SDPAScoreSoftmaxContract`: finite float rank-3 square score-softmax
-  contract for heads `{1, 5}` and sequence `{504, 640}`, now named and
-  metadata-backed in a family-specific source. Keep the temporary exception
-  until broader score-softmax/layout behavior is proven or generated spec
-  coverage lands.
+  contract for heads `{1, 5}` and sequence `{504, 640}`. The
+  `DiffusionSquareScores` slice has a JSON contract spec with generated
+  positive and adjacent negative runtime coverage; keep the temporary exception
+  until broader score-softmax/layout behavior is proven.
 - `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
   lookup contract; the small-bounded lookup slice has a JSON contract spec with
   generated positive and adjacent negative runtime coverage. Keep remaining
@@ -165,14 +165,11 @@ These files are diagnostic inputs. Production code must not depend on
 - Contract spec governance discovers all `test/vulkan_contract_specs/*.json`,
   validates a shared schema, checks `contract_name`/`family`/`tuple_id` against
   live `ExecutionContracts*.cpp` metadata, and keeps family-specific shape
-  checks for EmbeddingLookup, ChannelCat, KVCacheAppend, and
+  checks for EmbeddingLookup, ChannelCat, KVCacheAppend, SDPAScoreSoftmax, and
   NoOverlapConvTranspose2D. Shared helpers in
   `test/vulkan_contract_specs/contract_spec_utils.py` keep generated runtime
   tests from copying spec loading, case iteration, log naming, and expected
   negative handling.
-- `SDPAScoreSoftmaxContract` has stable metadata but no JSON contract spec
-  fixture yet. Treat that fixture as follow-up governance work, not as a reason
-  to refresh the real-model matrix by itself.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.
@@ -199,7 +196,8 @@ These files are diagnostic inputs. Production code must not depend on
   smoke coverage in Task033/Task034-era artifacts with zero sync readback, but
   that matrix is stale by commit relative to the profile/spec governance stack.
   The intervening spec/profile work, InitialCache observability-label update,
-  NoOverlapConvTranspose2D fixture coverage, ChannelCat source split, and
+  NoOverlapConvTranspose2D and SDPAScoreSoftmax fixture coverage, ChannelCat
+  source split, and
   NoOverlapConvTranspose2D, BatchNormInference, KVCacheAppend,
   EmbeddingLookup, GQARepeat, SafeViewReshape, DiffusionSDPA, and
   SDPAExecutionPolicy, SDPAScoreSoftmax, SmallMetadataPaddedConv2D,
