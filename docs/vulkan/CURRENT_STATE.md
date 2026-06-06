@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-06 at local HEAD
-`9a2e039b828cf5475693db43156092f50860a5cd`.
+`64e36838f76806db0155ea9889a6e424318d406f`.
 
 ## Repo State Summary
 
@@ -26,6 +26,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSafeViewReshape.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAScoreSoftmax.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsTransformerGQASDPA.cpp`
@@ -40,13 +41,12 @@ is built. `BatchNormInferenceContract`, `ChannelCatContract`,
 `SafeViewReshapeContract`, `SmallMetadataPaddedConv2DContract`,
 `SmallSpatialPointwiseConvContract`, `MaskedTinySDPAContract`, and
 `TransformerGQASDPAContract`, `DiffusionSDPAContract`,
-`DiffusionCrossAttentionContract`, and `SDPAExecutionPolicyContract` are split
-into family-specific sources. The only remaining SDPA-related main-source
-policy is `matches_sdpa_buffer_softmax_score_contract`, the score-softmax
-allowlist used by route admission and softmax execution. Give that boundary a
-read-only design pass before any split, deciding whether it should remain an
-umbrella utility, move to a named policy source, or become a metadata-backed
-contract row with governance.
+`DiffusionCrossAttentionContract`, `SDPAExecutionPolicyContract`, and
+`SDPAScoreSoftmaxContract` are split into family-specific sources. The former
+score-softmax allowlist is now a named, metadata-backed finite contract for
+float rank-3 square score tensors with heads `{1, 5}` and sequence
+`{504, 640}`. `ExecutionContracts.cpp` now owns the shared metadata
+completeness helper rather than an SDPA-specific route-policy bucket.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
@@ -122,6 +122,11 @@ These files are diagnostic inputs. Production code must not depend on
   score, post-softmax clone, and repeat policy contract, now split into a
   family-specific source; keep exact rows until broader layout-transition
   behavior is proven.
+- `SDPAScoreSoftmaxContract`: finite float rank-3 square score-softmax
+  contract for heads `{1, 5}` and sequence `{504, 640}`, now named and
+  metadata-backed in a family-specific source. Keep the temporary exception
+  until broader score-softmax/layout behavior is proven or generated spec
+  coverage lands.
 - `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
   lookup contract; the small-bounded lookup slice has a JSON contract spec with
   generated positive and adjacent negative runtime coverage. Keep remaining
@@ -165,6 +170,9 @@ These files are diagnostic inputs. Production code must not depend on
   `test/vulkan_contract_specs/contract_spec_utils.py` keep generated runtime
   tests from copying spec loading, case iteration, log naming, and expected
   negative handling.
+- `SDPAScoreSoftmaxContract` has stable metadata but no JSON contract spec
+  fixture yet. Treat that fixture as follow-up governance work, not as a reason
+  to refresh the real-model matrix by itself.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.
@@ -194,7 +202,7 @@ These files are diagnostic inputs. Production code must not depend on
   NoOverlapConvTranspose2D fixture coverage, ChannelCat source split, and
   NoOverlapConvTranspose2D, BatchNormInference, KVCacheAppend,
   EmbeddingLookup, GQARepeat, SafeViewReshape, DiffusionSDPA, and
-  SDPAExecutionPolicy, SmallMetadataPaddedConv2D,
+  SDPAExecutionPolicy, SDPAScoreSoftmax, SmallMetadataPaddedConv2D,
   SmallSpatialPointwiseConv, MaskedTinySDPA, and TransformerGQASDPA source
   splits should not change accepted shapes or default no-profile model
   routing, but rerun the real-model matrix after the next backend behavior
