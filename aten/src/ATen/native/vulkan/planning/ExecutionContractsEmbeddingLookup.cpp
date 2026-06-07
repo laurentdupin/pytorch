@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsEmbeddingLookupSpec.h>
 
 namespace at {
 namespace native {
@@ -36,13 +37,8 @@ constexpr int64_t kEmbeddingLookupTokenEmbeddingDim = 2048;
 constexpr int64_t kEmbeddingLookupTokenBatch = 1;
 constexpr int64_t kEmbeddingLookupTokenMinIndices = 1;
 constexpr int64_t kEmbeddingLookupTokenMaxIndices = 116;
-constexpr int64_t kEmbeddingLookupSmallMaxNumEmbeddings = 4096;
-constexpr int64_t kEmbeddingLookupSmallMaxEmbeddingDim = 256;
-constexpr int64_t kEmbeddingLookupSmallMaxNumIndices = 128;
 constexpr const char* kEmbeddingLookupTokenBatch1TupleId =
     "token_batch1_vocab120818_dim2048_indices1_to_116";
-constexpr const char* kEmbeddingLookupSmallBoundedTupleId =
-    "small_bounded_vocab4096_dim256_indices128";
 constexpr ExecutionContractMetadata kEmbeddingLookupTokenBatch1Metadata =
     make_execution_contract_metadata(
         "EmbeddingLookupContract",
@@ -54,13 +50,13 @@ constexpr ExecutionContractMetadata kEmbeddingLookupTokenBatch1Metadata =
         kMaterializationEmbeddingLookupBuffer);
 constexpr ExecutionContractMetadata kEmbeddingLookupSmallBoundedMetadata =
     make_execution_contract_metadata(
-        "EmbeddingLookupContract",
-        "SmallBoundedLookup",
-        kEmbeddingLookupSmallBoundedTupleId,
-        "embedding_lookup_focused_tests",
-        "embedding_lookup_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationEmbeddingLookupBuffer);
+        generated::kEmbeddingLookupSmallBoundedLookupSpec.contract_name,
+        generated::kEmbeddingLookupSmallBoundedLookupSpec.family_name,
+        generated::kEmbeddingLookupSmallBoundedLookupSpec.tuple_id,
+        generated::kEmbeddingLookupSmallBoundedLookupSpec.evidence_id,
+        generated::kEmbeddingLookupSmallBoundedLookupSpec.guard_id,
+        generated::kEmbeddingLookupSmallBoundedLookupSpec.fallback_policy,
+        generated::kEmbeddingLookupSmallBoundedLookupSpec.materialization_policy);
 
 int64_t product_of_sizes(const IntArrayRef sizes) {
   int64_t product = 1;
@@ -87,7 +83,7 @@ const char* embedding_lookup_family_name(const EmbeddingLookupFamily family) {
 const char* embedding_lookup_write_label(const EmbeddingLookupFamily family) {
   switch (family) {
     case EmbeddingLookupFamily::SmallBoundedLookup:
-      return "buffer_float_long.small_bounded_lookup";
+      return generated::kEmbeddingLookupSmallBoundedLookupSpec.route_label;
     case EmbeddingLookupFamily::TokenBatch1:
       return "buffer_float_long.token_batch1";
     case EmbeddingLookupFamily::None:
@@ -119,6 +115,7 @@ EmbeddingLookupMatch match_embedding_lookup_contract(
   const int64_t num_embeddings = weight_sizes[0];
   const int64_t embedding_dim = weight_sizes[1];
   const int64_t num_indices = product_of_sizes(indices_sizes);
+  const auto& small_spec = generated::kEmbeddingLookupSmallBoundedLookupSpec;
   result.num_embeddings = num_embeddings;
   result.embedding_dim = embedding_dim;
   result.num_indices = num_indices;
@@ -138,12 +135,12 @@ EmbeddingLookupMatch match_embedding_lookup_contract(
   }
 
   if (
-      embedding_dim <= kEmbeddingLookupSmallMaxEmbeddingDim &&
-      num_indices <= kEmbeddingLookupSmallMaxNumIndices &&
-      num_embeddings <= kEmbeddingLookupSmallMaxNumEmbeddings) {
+      embedding_dim <= small_spec.max_embedding_dim &&
+      num_indices <= small_spec.max_num_indices &&
+      num_embeddings <= small_spec.max_num_embeddings) {
     result.matched = true;
     result.family = EmbeddingLookupFamily::SmallBoundedLookup;
-    result.tuple_id = kEmbeddingLookupSmallBoundedTupleId;
+    result.tuple_id = small_spec.tuple_id;
     result.metadata = &kEmbeddingLookupSmallBoundedMetadata;
     return result;
   }

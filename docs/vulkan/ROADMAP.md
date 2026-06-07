@@ -62,6 +62,10 @@ Current MVP status:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `ExecutionContractsChannelCatSpec.h` from `channel_cat_contract.json`, with
   cross-input iteration and match result construction still handwritten.
+- `EmbeddingLookupContract` `SmallBoundedLookup` has the second generated C++
+  artifact: the same generator emits `ExecutionContractsEmbeddingLookupSpec.h`
+  from `embedding_lookup_contract.json` for metadata, route label, and simple
+  bounds. The token-batch row remains handwritten until it gets its own fixture.
 
 ## Phase 3: Migrate Next Contract Family
 

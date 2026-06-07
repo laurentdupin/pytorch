@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-07 at local HEAD
-`806f19d4bfbd80021ea1ce47d59a650446719eb9`.
+`80580fdd3242a96f1db60f70035a2e24e3fac68a`.
 
 ## Repo State Summary
 
@@ -20,6 +20,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsChannelCatSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsDiffusionSDPA.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsEmbeddingLookup.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsEmbeddingLookupSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsGQARepeat.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsKVCacheAppend.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsLinearGeluBridge.cpp`
@@ -130,8 +131,10 @@ These files are diagnostic inputs. Production code must not depend on
   until broader score-softmax/layout behavior is proven.
 - `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
   lookup contract; the small-bounded lookup slice has a JSON contract spec with
-  generated positive and adjacent negative runtime coverage. Keep remaining
-  exact rows until broader legality is proven.
+  generated positive and adjacent negative runtime coverage. The
+  `SmallBoundedLookup` slice has generated C++ metadata and bounds from that
+  fixture while the token-batch row remains handwritten. Keep remaining exact
+  rows until broader legality is proven.
 - `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
   cat patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
   contract spec with generated positive and adjacent negative runtime coverage.
@@ -183,6 +186,11 @@ These files are diagnostic inputs. Production code must not depend on
   `generated/ExecutionContractsChannelCatSpec.h` from
   `channel_cat_contract.json`, including a typed row and helper predicates, and
   governance compares the output byte-for-byte with the checked-in header.
+- EmbeddingLookup `SmallBoundedLookup` has the second generated C++ contract
+  artifact. The same generator emits
+  `generated/ExecutionContractsEmbeddingLookupSpec.h` from
+  `embedding_lookup_contract.json` for metadata, route label, and simple bounds;
+  the matcher loop and token-batch family remain handwritten.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.

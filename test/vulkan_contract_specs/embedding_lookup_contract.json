@@ -5,6 +5,12 @@
   "tuple_id": "small_bounded_vocab4096_dim256_indices128",
   "writer_op": "aten::embedding",
   "route_label": "buffer_float_long.small_bounded_lookup",
+  "metadata": {
+    "evidence_id": "embedding_lookup_focused_tests",
+    "guard_id": "embedding_lookup_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "embedding_lookup_buffer_kernel"
+  },
   "bounds": {
     "weight_dtype": "float32",
     "indices_dtype": "int64",

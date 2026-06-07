@@ -462,6 +462,44 @@ class TestVulkanGovernance(TestCase):
             expected = handle.read()
         self.assertEqual(result.stdout, expected)
 
+    def test_vulkan_embedding_lookup_generated_header_matches_spec(self):
+        generated_header_path = os.path.join(
+            REPO_ROOT,
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "generated",
+            "ExecutionContractsEmbeddingLookupSpec.h",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "tools",
+                    "vulkan_contracts",
+                    "gen_contract_spec_cpp.py",
+                ),
+                "--spec",
+                os.path.join(
+                    "test",
+                    "vulkan_contract_specs",
+                    "embedding_lookup_contract.json",
+                ),
+                "--stdout",
+            ],
+            check=True,
+            cwd=REPO_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        with open(generated_header_path, "rb") as handle:
+            expected = handle.read()
+        self.assertEqual(result.stdout, expected)
+
     def test_sdpa_score_softmax_contract_metadata(self):
         source = self._repo_text(
             "aten",
@@ -660,6 +698,25 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(spec["family"], "SmallBoundedLookup")
         self.assertEqual(spec["writer_op"], "aten::embedding")
         self.assertEqual(spec["route_label"], "buffer_float_long.small_bounded_lookup")
+
+        metadata = spec["metadata"]
+        _require_contract_spec_fields(
+            metadata,
+            (
+                "evidence_id",
+                "guard_id",
+                "fallback_policy",
+                "materialization_policy",
+            ),
+            "EmbeddingLookupContract metadata",
+        )
+        self.assertEqual(metadata["evidence_id"], "embedding_lookup_focused_tests")
+        self.assertEqual(metadata["guard_id"], "embedding_lookup_adjacent_guards")
+        self.assertEqual(metadata["fallback_policy"], "unsupported_shapes_do_not_match")
+        self.assertEqual(
+            metadata["materialization_policy"],
+            "embedding_lookup_buffer_kernel",
+        )
 
         bounds = spec["bounds"]
         _require_contract_spec_fields(
