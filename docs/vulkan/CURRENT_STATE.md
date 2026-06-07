@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-07 at local HEAD
-`4f350053969825a2a2cd6053b78add89b4d02500`.
+`987b86bfa1c955da8982e4b77fe407eae310ed03`.
 
 ## Repo State Summary
 
