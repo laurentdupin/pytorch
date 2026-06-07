@@ -57,7 +57,11 @@ Current MVP status:
 - `test/vulkan_contract_specs/contract_spec_utils.py` owns shared spec loading,
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,
-  and checks fixture metadata against live `ExecutionContracts*.cpp`.
+  and checks fixture metadata against live contract sources.
+- `ChannelCatContract` has the first generated C++ identity/bounds artifact:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `ExecutionContractsChannelCatSpec.h` from `channel_cat_contract.json`, with
+  handwritten matcher behavior preserved.
 
 ## Phase 3: Migrate Next Contract Family
 

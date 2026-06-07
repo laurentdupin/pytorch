@@ -17,6 +17,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsBatchNormInference.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsChannelCat.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsChannelCatSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsDiffusionSDPA.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsEmbeddingLookup.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsGQARepeat.cpp`
@@ -134,6 +135,8 @@ These files are diagnostic inputs. Production code must not depend on
 - `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
   cat patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
   contract spec with generated positive and adjacent negative runtime coverage.
+  Its contract identity, route label, and simple bounds are also emitted into a
+  generated C++ header while the matcher predicate remains handwritten.
 - `KVCacheAppendContract`: bounded Transformer sequence append and initial
   empty-cache cat rows. Both `SequenceAppend` and `InitialCache` slices have
   JSON contract specs with generated positive and adjacent negative runtime
@@ -167,12 +170,17 @@ These files are diagnostic inputs. Production code must not depend on
   introduce model-name strings.
 - Contract spec governance discovers all `test/vulkan_contract_specs/*.json`,
   validates a shared schema, checks `contract_name`/`family`/`tuple_id` against
-  live `ExecutionContracts*.cpp` metadata, and keeps family-specific shape
+  live contract sources, and keeps family-specific shape
   checks for EmbeddingLookup, ChannelCat, KVCacheAppend, GQARepeat,
   SDPAScoreSoftmax, and NoOverlapConvTranspose2D. Shared helpers in
   `test/vulkan_contract_specs/contract_spec_utils.py` keep generated runtime
   tests from copying spec loading, case iteration, log naming, and expected
   negative handling.
+- ChannelCat has the first source-of-truth C++ generation proof:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` regenerates
+  `generated/ExecutionContractsChannelCatSpec.h` from
+  `channel_cat_contract.json`, and governance compares the output
+  byte-for-byte with the checked-in header.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.

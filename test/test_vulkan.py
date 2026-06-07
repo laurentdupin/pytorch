@@ -386,20 +386,34 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("negative_cases=", result.stdout)
 
     def test_vulkan_contract_specs_reference_live_contract_metadata(self):
-        source_pattern = os.path.join(
-            REPO_ROOT,
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "ExecutionContracts*.cpp",
+        source_patterns = (
+            os.path.join(
+                REPO_ROOT,
+                "aten",
+                "src",
+                "ATen",
+                "native",
+                "vulkan",
+                "planning",
+                "ExecutionContracts*.cpp",
+            ),
+            os.path.join(
+                REPO_ROOT,
+                "aten",
+                "src",
+                "ATen",
+                "native",
+                "vulkan",
+                "planning",
+                "generated",
+                "ExecutionContracts*Spec.h",
+            ),
         )
         source_text = ""
-        for source_file in sorted(glob.glob(source_pattern)):
-            with open(source_file, encoding="utf-8") as handle:
-                source_text += handle.read()
+        for source_pattern in source_patterns:
+            for source_file in sorted(glob.glob(source_pattern)):
+                with open(source_file, encoding="utf-8") as handle:
+                    source_text += handle.read()
 
         self.assertNotEqual(source_text, "")
         for file_name, spec in _load_all_vulkan_contract_specs():
@@ -407,8 +421,46 @@ class TestVulkanGovernance(TestCase):
                 self.assertIn(
                     f'"{spec[field]}"',
                     source_text,
-                    f"{file_name} {field} is not present in ExecutionContracts*.cpp",
+                    f"{file_name} {field} is not present in contract sources",
                 )
+
+    def test_vulkan_channel_cat_generated_header_matches_spec(self):
+        generated_header_path = os.path.join(
+            REPO_ROOT,
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "generated",
+            "ExecutionContractsChannelCatSpec.h",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "tools",
+                    "vulkan_contracts",
+                    "gen_contract_spec_cpp.py",
+                ),
+                "--spec",
+                os.path.join(
+                    "test",
+                    "vulkan_contract_specs",
+                    "channel_cat_contract.json",
+                ),
+                "--stdout",
+            ],
+            check=True,
+            cwd=REPO_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        with open(generated_header_path, "rb") as handle:
+            expected = handle.read()
+        self.assertEqual(result.stdout, expected)
 
     def test_sdpa_score_softmax_contract_metadata(self):
         source = self._repo_text(
