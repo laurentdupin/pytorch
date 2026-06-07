@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <ATen/core/ScalarType.h>
 #include <cstdint>
 
 namespace at {
@@ -27,6 +28,7 @@ constexpr std::int64_t kChannelCatRank4Dim1Batch = 1;
 constexpr std::int64_t kChannelCatRank4Dim1MinInputChannels = 4;
 constexpr std::int64_t kChannelCatRank4Dim1MaxInputChannels = 256;
 constexpr std::int64_t kChannelCatRank4Dim1ChannelMultiple = 4;
+constexpr std::int64_t kChannelCatRank4Dim1MinTotalChannels = 1;
 constexpr std::int64_t kChannelCatRank4Dim1MaxTotalChannels = 1024;
 constexpr std::int64_t kChannelCatRank4Dim1MinHeight = 1;
 constexpr std::int64_t kChannelCatRank4Dim1MaxHeight = 128;
@@ -36,6 +38,110 @@ constexpr bool kChannelCatRank4Dim1RequiresVulkan = true;
 constexpr bool kChannelCatRank4Dim1RequiresContiguous = true;
 constexpr bool kChannelCatRank4Dim1RequiresBufferStorage = true;
 constexpr bool kChannelCatRank4Dim1RequiresBufferCompute = true;
+
+struct ChannelCatRank4Dim1BufferViewSpec final {
+  const char* contract_name;
+  const char* family_name;
+  const char* tuple_id;
+  const char* writer_op;
+  const char* route_label;
+  const char* evidence_id;
+  const char* guard_id;
+  const char* fallback_policy;
+  const char* materialization_policy;
+  at::ScalarType dtype;
+  std::int64_t rank;
+  std::int64_t dim;
+  std::int64_t min_inputs;
+  std::int64_t max_inputs;
+  std::int64_t batch;
+  std::int64_t min_input_channels;
+  std::int64_t max_input_channels;
+  std::int64_t channel_multiple;
+  std::int64_t min_total_channels;
+  std::int64_t max_total_channels;
+  std::int64_t min_height;
+  std::int64_t max_height;
+  std::int64_t min_width;
+  std::int64_t max_width;
+  bool requires_vulkan;
+  bool requires_contiguous;
+  bool requires_buffer_storage;
+  bool requires_buffer_compute;
+};
+
+constexpr ChannelCatRank4Dim1BufferViewSpec
+    kChannelCatRank4Dim1BufferViewSpec = {
+        kChannelCatContractName,
+        kChannelCatRank4Dim1BufferViewFamilyName,
+        kChannelCatRank4Dim1BufferViewTupleId,
+        kChannelCatRank4Dim1BufferViewWriterOp,
+        kChannelCatRank4Dim1BufferViewRouteLabel,
+        "channel_cat_buffer_view_focused_tests",
+        "channel_cat_adjacent_guards",
+        "unsupported_shapes_do_not_match",
+        "channel_cat_buffer_view_copy_kernel",
+        at::kFloat,
+        kChannelCatRank4Dim1Rank,
+        kChannelCatRank4Dim1Dim,
+        kChannelCatRank4Dim1MinInputs,
+        kChannelCatRank4Dim1MaxInputs,
+        kChannelCatRank4Dim1Batch,
+        kChannelCatRank4Dim1MinInputChannels,
+        kChannelCatRank4Dim1MaxInputChannels,
+        kChannelCatRank4Dim1ChannelMultiple,
+        kChannelCatRank4Dim1MinTotalChannels,
+        kChannelCatRank4Dim1MaxTotalChannels,
+        kChannelCatRank4Dim1MinHeight,
+        kChannelCatRank4Dim1MaxHeight,
+        kChannelCatRank4Dim1MinWidth,
+        kChannelCatRank4Dim1MaxWidth,
+        kChannelCatRank4Dim1RequiresVulkan,
+        kChannelCatRank4Dim1RequiresContiguous,
+        kChannelCatRank4Dim1RequiresBufferStorage,
+        kChannelCatRank4Dim1RequiresBufferCompute};
+
+constexpr bool channel_cat_input_count_in_bounds(
+    const ChannelCatRank4Dim1BufferViewSpec& spec,
+    const std::int64_t input_count) {
+  return input_count >= spec.min_inputs && input_count <= spec.max_inputs;
+}
+
+inline bool channel_cat_reference_in_bounds(
+    const ChannelCatRank4Dim1BufferViewSpec& spec,
+    const ChannelCatTensorInfo& reference) {
+  return (!spec.requires_vulkan || reference.is_vulkan) &&
+      reference.dtype == spec.dtype && reference.rank == spec.rank &&
+      reference.batch == spec.batch &&
+      (!spec.requires_contiguous || reference.is_contiguous) &&
+      reference.height >= spec.min_height &&
+      reference.height <= spec.max_height &&
+      reference.width >= spec.min_width && reference.width <= spec.max_width;
+}
+
+inline bool channel_cat_input_in_bounds(
+    const ChannelCatRank4Dim1BufferViewSpec& spec,
+    const ChannelCatTensorInfo& reference,
+    const ChannelCatTensorInfo& tensor) {
+  return (!spec.requires_vulkan || tensor.is_vulkan) &&
+      tensor.dtype == reference.dtype && tensor.rank == reference.rank &&
+      tensor.batch == reference.batch &&
+      tensor.height == reference.height && tensor.width == reference.width &&
+      (!spec.requires_contiguous || tensor.is_contiguous) &&
+      (!spec.requires_buffer_storage || tensor.has_buffer_storage) &&
+      (!spec.requires_buffer_compute || tensor.supports_buffer_compute) &&
+      tensor.channels >= spec.min_input_channels &&
+      tensor.channels <= spec.max_input_channels &&
+      tensor.channels % spec.channel_multiple == 0;
+}
+
+constexpr bool channel_cat_total_channels_in_bounds(
+    const ChannelCatRank4Dim1BufferViewSpec& spec,
+    const std::int64_t total_channels) {
+  return total_channels >= spec.min_total_channels &&
+      total_channels <= spec.max_total_channels &&
+      total_channels % spec.channel_multiple == 0;
+}
 
 } // namespace generated
 } // namespace utils

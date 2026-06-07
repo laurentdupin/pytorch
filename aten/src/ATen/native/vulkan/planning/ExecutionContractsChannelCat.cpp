@@ -27,20 +27,15 @@ constexpr ExecutionContractMetadata make_execution_contract_metadata(
       materialization_policy};
 }
 
-constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
-    "unsupported_shapes_do_not_match";
-constexpr const char* kMaterializationChannelCatBufferView =
-    "channel_cat_buffer_view_copy_kernel";
-
 constexpr ExecutionContractMetadata kChannelCatRank4Dim1BufferViewMetadata =
     make_execution_contract_metadata(
-        generated::kChannelCatContractName,
-        generated::kChannelCatRank4Dim1BufferViewFamilyName,
-        generated::kChannelCatRank4Dim1BufferViewTupleId,
-        "channel_cat_buffer_view_focused_tests",
-        "channel_cat_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationChannelCatBufferView);
+        generated::kChannelCatRank4Dim1BufferViewSpec.contract_name,
+        generated::kChannelCatRank4Dim1BufferViewSpec.family_name,
+        generated::kChannelCatRank4Dim1BufferViewSpec.tuple_id,
+        generated::kChannelCatRank4Dim1BufferViewSpec.evidence_id,
+        generated::kChannelCatRank4Dim1BufferViewSpec.guard_id,
+        generated::kChannelCatRank4Dim1BufferViewSpec.fallback_policy,
+        generated::kChannelCatRank4Dim1BufferViewSpec.materialization_policy);
 
 } // namespace
 
@@ -57,7 +52,7 @@ const char* channel_cat_family_name(const ChannelCatFamily family) {
 const char* channel_cat_op_hit_label(const ChannelCatFamily family) {
   switch (family) {
     case ChannelCatFamily::Rank4Dim1BufferView:
-      return generated::kChannelCatRank4Dim1BufferViewRouteLabel;
+      return generated::kChannelCatRank4Dim1BufferViewSpec.route_label;
     case ChannelCatFamily::None:
       return "aten::cat.channel_cat.none";
   }
@@ -67,60 +62,35 @@ const char* channel_cat_op_hit_label(const ChannelCatFamily family) {
 ChannelCatMatch match_channel_cat_contract(
     ArrayRef<ChannelCatTensorInfo> tensors,
     const int64_t dim) {
+  const auto& spec = generated::kChannelCatRank4Dim1BufferViewSpec;
   ChannelCatMatch result;
   if (
-      tensors.size() < generated::kChannelCatRank4Dim1MinInputs ||
-      tensors.size() > generated::kChannelCatRank4Dim1MaxInputs ||
-      dim != generated::kChannelCatRank4Dim1Dim) {
+      !generated::channel_cat_input_count_in_bounds(
+          spec, static_cast<int64_t>(tensors.size())) ||
+      dim != spec.dim) {
     return result;
   }
 
   const ChannelCatTensorInfo& reference = tensors[0];
-  if (
-      (generated::kChannelCatRank4Dim1RequiresVulkan &&
-       !reference.is_vulkan) ||
-      reference.dtype != kFloat ||
-      reference.rank != generated::kChannelCatRank4Dim1Rank ||
-      reference.batch != generated::kChannelCatRank4Dim1Batch ||
-      (generated::kChannelCatRank4Dim1RequiresContiguous &&
-       !reference.is_contiguous) ||
-      reference.height < generated::kChannelCatRank4Dim1MinHeight ||
-      reference.height > generated::kChannelCatRank4Dim1MaxHeight ||
-      reference.width < generated::kChannelCatRank4Dim1MinWidth ||
-      reference.width > generated::kChannelCatRank4Dim1MaxWidth) {
+  if (!generated::channel_cat_reference_in_bounds(spec, reference)) {
     return result;
   }
 
   int64_t total_channels = 0;
   for (const ChannelCatTensorInfo& tensor : tensors) {
-    if (
-        !tensor.is_vulkan || tensor.dtype != reference.dtype ||
-        tensor.rank != reference.rank || tensor.batch != reference.batch ||
-        tensor.height != reference.height || tensor.width != reference.width ||
-        (generated::kChannelCatRank4Dim1RequiresContiguous &&
-         !tensor.is_contiguous) ||
-        (generated::kChannelCatRank4Dim1RequiresBufferStorage &&
-         !tensor.has_buffer_storage) ||
-        (generated::kChannelCatRank4Dim1RequiresBufferCompute &&
-         !tensor.supports_buffer_compute) ||
-        tensor.channels < generated::kChannelCatRank4Dim1MinInputChannels ||
-        tensor.channels > generated::kChannelCatRank4Dim1MaxInputChannels ||
-        tensor.channels % generated::kChannelCatRank4Dim1ChannelMultiple != 0) {
+    if (!generated::channel_cat_input_in_bounds(spec, reference, tensor)) {
       return result;
     }
     total_channels += tensor.channels;
   }
 
-  if (
-      total_channels <= 0 ||
-      total_channels > generated::kChannelCatRank4Dim1MaxTotalChannels ||
-      total_channels % generated::kChannelCatRank4Dim1ChannelMultiple != 0) {
+  if (!generated::channel_cat_total_channels_in_bounds(spec, total_channels)) {
     return result;
   }
 
   result.matched = true;
   result.family = ChannelCatFamily::Rank4Dim1BufferView;
-  result.tuple_id = generated::kChannelCatRank4Dim1BufferViewTupleId;
+  result.tuple_id = spec.tuple_id;
   result.metadata = &kChannelCatRank4Dim1BufferViewMetadata;
   result.input_count = static_cast<int64_t>(tensors.size());
   result.total_channels = total_channels;

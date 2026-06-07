@@ -5,6 +5,12 @@
   "tuple_id": "rank4_dim1_inputs3_to_8_c_mult4_spatial_le128_total_c_le1024",
   "writer_op": "aten::cat",
   "route_label": "aten::cat.buffer_channel_view",
+  "metadata": {
+    "evidence_id": "channel_cat_buffer_view_focused_tests",
+    "guard_id": "channel_cat_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "channel_cat_buffer_view_copy_kernel"
+  },
   "bounds": {
     "dtype": "float32",
     "rank": 4,
@@ -32,6 +38,31 @@
     "requires_contiguous": true,
     "requires_buffer_storage": true,
     "requires_buffer_compute": true
+  },
+  "matcher": {
+    "tensor_info": "ChannelCatTensorInfo",
+    "reference_index": 0,
+    "per_input_same_as_reference": [
+      "dtype",
+      "rank",
+      "batch",
+      "height",
+      "width"
+    ],
+    "per_input_required_flags": [
+      "is_vulkan",
+      "is_contiguous",
+      "has_buffer_storage",
+      "supports_buffer_compute"
+    ],
+    "channel_axis": "channels",
+    "aggregate": {
+      "field": "channels",
+      "result_name": "total_channels",
+      "min": 1,
+      "max_from_bounds": "channels.max_total",
+      "multiple_of_from_bounds": "channels.multiple_of"
+    }
   },
   "positive_cases": [
     {

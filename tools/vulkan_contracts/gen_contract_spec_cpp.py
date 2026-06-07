@@ -7,11 +7,49 @@ import sys
 
 EXPECTED_CONTRACT_NAME = "ChannelCatContract"
 EXPECTED_FAMILY = "Rank4Dim1BufferView"
+EXPECTED_MATCHER = {
+    "tensor_info": "ChannelCatTensorInfo",
+    "reference_index": 0,
+    "per_input_same_as_reference": [
+        "dtype",
+        "rank",
+        "batch",
+        "height",
+        "width",
+    ],
+    "per_input_required_flags": [
+        "is_vulkan",
+        "is_contiguous",
+        "has_buffer_storage",
+        "supports_buffer_compute",
+    ],
+    "channel_axis": "channels",
+    "aggregate": {
+        "field": "channels",
+        "result_name": "total_channels",
+        "min": 1,
+        "max_from_bounds": "channels.max_total",
+        "multiple_of_from_bounds": "channels.multiple_of",
+    },
+}
+SCALAR_TYPE_BY_DTYPE = {
+    "float32": "at::kFloat",
+}
 
 
 def _require(condition, message):
     if not condition:
         raise RuntimeError(message)
+
+
+def _require_keys(mapping, keys, context):
+    missing = sorted(key for key in keys if key not in mapping)
+    _require(not missing, f"{context} missing required keys: {missing}")
+
+
+def _require_non_empty_string(mapping, key, context):
+    value = mapping.get(key)
+    _require(isinstance(value, str) and value != "", f"{context}.{key} invalid")
 
 
 def _cpp_string(value):
@@ -27,6 +65,14 @@ def _load_spec(path):
         return json.load(handle)
 
 
+def _validate_bool(value, context):
+    _require(isinstance(value, bool), f"{context} must be boolean")
+
+
+def _validate_int(value, context):
+    _require(isinstance(value, int), f"{context} must be integer")
+
+
 def _validate_channel_cat_spec(spec):
     _require(
         spec.get("contract_name") == EXPECTED_CONTRACT_NAME,
@@ -36,30 +82,94 @@ def _validate_channel_cat_spec(spec):
         spec.get("family") == EXPECTED_FAMILY,
         "expected Rank4Dim1BufferView family",
     )
-    bounds = spec.get("bounds")
+    _require_keys(
+        spec,
+        (
+            "tuple_id",
+            "writer_op",
+            "route_label",
+            "metadata",
+            "bounds",
+            "matcher",
+        ),
+        "ChannelCatContract spec",
+    )
+    for key in ("tuple_id", "writer_op", "route_label"):
+        _require_non_empty_string(spec, key, "ChannelCatContract spec")
+
+    metadata = spec["metadata"]
+    _require(isinstance(metadata, dict), "metadata must be an object")
+    _require_keys(
+        metadata,
+        (
+            "evidence_id",
+            "guard_id",
+            "fallback_policy",
+            "materialization_policy",
+        ),
+        "ChannelCatContract metadata",
+    )
+    for key in metadata:
+        _require_non_empty_string(metadata, key, "ChannelCatContract metadata")
+
+    bounds = spec["bounds"]
     _require(isinstance(bounds, dict), "spec bounds must be an object")
-    _require(bounds.get("channels", {}).get("min") is not None, "missing channel min")
-    _require(
-        bounds.get("channels", {}).get("max_per_input") is not None,
-        "missing per-input channel max",
+    _require_keys(
+        bounds,
+        (
+            "dtype",
+            "rank",
+            "dim",
+            "input_count",
+            "batch",
+            "channels",
+            "height",
+            "width",
+            "requires_vulkan",
+            "requires_contiguous",
+            "requires_buffer_storage",
+            "requires_buffer_compute",
+        ),
+        "ChannelCatContract bounds",
     )
-    _require(
-        bounds.get("channels", {}).get("multiple_of") is not None,
-        "missing channel multiple",
+    _require(bounds["dtype"] in SCALAR_TYPE_BY_DTYPE, "unsupported dtype")
+    for key in ("rank", "dim", "batch"):
+        _validate_int(bounds[key], f"bounds.{key}")
+    for key in (
+        "requires_vulkan",
+        "requires_contiguous",
+        "requires_buffer_storage",
+        "requires_buffer_compute",
+    ):
+        _validate_bool(bounds[key], f"bounds.{key}")
+
+    channels = bounds["channels"]
+    _require(isinstance(channels, dict), "bounds.channels must be an object")
+    _require_keys(
+        channels,
+        ("min", "max_per_input", "multiple_of", "max_total"),
+        "ChannelCatContract channels",
     )
-    _require(
-        bounds.get("channels", {}).get("max_total") is not None,
-        "missing total channel max",
-    )
+    for key in channels:
+        _validate_int(channels[key], f"bounds.channels.{key}")
+
     for key in ("input_count", "height", "width"):
-        _require(bounds.get(key, {}).get("min") is not None, f"missing {key} min")
-        _require(bounds.get(key, {}).get("max") is not None, f"missing {key} max")
+        value = bounds[key]
+        _require(isinstance(value, dict), f"bounds.{key} must be an object")
+        _require_keys(value, ("min", "max"), f"ChannelCatContract {key}")
+        _validate_int(value["min"], f"bounds.{key}.min")
+        _validate_int(value["max"], f"bounds.{key}.max")
+
+    _require(spec["matcher"] == EXPECTED_MATCHER, "unexpected matcher schema")
 
 
 def generate_channel_cat_header(spec, source_name):
     _validate_channel_cat_spec(spec)
+    metadata = spec["metadata"]
     bounds = spec["bounds"]
     channels = bounds["channels"]
+    matcher = spec["matcher"]
+    aggregate = matcher["aggregate"]
 
     lines = [
         "// Generated by tools/vulkan_contracts/gen_contract_spec_cpp.py",
@@ -68,6 +178,7 @@ def generate_channel_cat_header(spec, source_name):
         "",
         "#pragma once",
         "",
+        "#include <ATen/core/ScalarType.h>",
         "#include <cstdint>",
         "",
         "namespace at {",
@@ -119,6 +230,10 @@ def generate_channel_cat_header(spec, source_name):
             f"{channels['multiple_of']};"
         ),
         (
+            "constexpr std::int64_t kChannelCatRank4Dim1MinTotalChannels = "
+            f"{aggregate['min']};"
+        ),
+        (
             "constexpr std::int64_t kChannelCatRank4Dim1MaxTotalChannels = "
             f"{channels['max_total']};"
         ),
@@ -154,6 +269,110 @@ def generate_channel_cat_header(spec, source_name):
             "constexpr bool kChannelCatRank4Dim1RequiresBufferCompute = "
             f"{_cpp_bool(bounds['requires_buffer_compute'])};"
         ),
+        "",
+        "struct ChannelCatRank4Dim1BufferViewSpec final {",
+        "  const char* contract_name;",
+        "  const char* family_name;",
+        "  const char* tuple_id;",
+        "  const char* writer_op;",
+        "  const char* route_label;",
+        "  const char* evidence_id;",
+        "  const char* guard_id;",
+        "  const char* fallback_policy;",
+        "  const char* materialization_policy;",
+        "  at::ScalarType dtype;",
+        "  std::int64_t rank;",
+        "  std::int64_t dim;",
+        "  std::int64_t min_inputs;",
+        "  std::int64_t max_inputs;",
+        "  std::int64_t batch;",
+        "  std::int64_t min_input_channels;",
+        "  std::int64_t max_input_channels;",
+        "  std::int64_t channel_multiple;",
+        "  std::int64_t min_total_channels;",
+        "  std::int64_t max_total_channels;",
+        "  std::int64_t min_height;",
+        "  std::int64_t max_height;",
+        "  std::int64_t min_width;",
+        "  std::int64_t max_width;",
+        "  bool requires_vulkan;",
+        "  bool requires_contiguous;",
+        "  bool requires_buffer_storage;",
+        "  bool requires_buffer_compute;",
+        "};",
+        "",
+        "constexpr ChannelCatRank4Dim1BufferViewSpec",
+        "    kChannelCatRank4Dim1BufferViewSpec = {",
+        "        kChannelCatContractName,",
+        "        kChannelCatRank4Dim1BufferViewFamilyName,",
+        "        kChannelCatRank4Dim1BufferViewTupleId,",
+        "        kChannelCatRank4Dim1BufferViewWriterOp,",
+        "        kChannelCatRank4Dim1BufferViewRouteLabel,",
+        f"        {_cpp_string(metadata['evidence_id'])},",
+        f"        {_cpp_string(metadata['guard_id'])},",
+        f"        {_cpp_string(metadata['fallback_policy'])},",
+        f"        {_cpp_string(metadata['materialization_policy'])},",
+        f"        {SCALAR_TYPE_BY_DTYPE[bounds['dtype']]},",
+        "        kChannelCatRank4Dim1Rank,",
+        "        kChannelCatRank4Dim1Dim,",
+        "        kChannelCatRank4Dim1MinInputs,",
+        "        kChannelCatRank4Dim1MaxInputs,",
+        "        kChannelCatRank4Dim1Batch,",
+        "        kChannelCatRank4Dim1MinInputChannels,",
+        "        kChannelCatRank4Dim1MaxInputChannels,",
+        "        kChannelCatRank4Dim1ChannelMultiple,",
+        "        kChannelCatRank4Dim1MinTotalChannels,",
+        "        kChannelCatRank4Dim1MaxTotalChannels,",
+        "        kChannelCatRank4Dim1MinHeight,",
+        "        kChannelCatRank4Dim1MaxHeight,",
+        "        kChannelCatRank4Dim1MinWidth,",
+        "        kChannelCatRank4Dim1MaxWidth,",
+        "        kChannelCatRank4Dim1RequiresVulkan,",
+        "        kChannelCatRank4Dim1RequiresContiguous,",
+        "        kChannelCatRank4Dim1RequiresBufferStorage,",
+        "        kChannelCatRank4Dim1RequiresBufferCompute};",
+        "",
+        "constexpr bool channel_cat_input_count_in_bounds(",
+        "    const ChannelCatRank4Dim1BufferViewSpec& spec,",
+        "    const std::int64_t input_count) {",
+        "  return input_count >= spec.min_inputs && input_count <= spec.max_inputs;",
+        "}",
+        "",
+        "inline bool channel_cat_reference_in_bounds(",
+        "    const ChannelCatRank4Dim1BufferViewSpec& spec,",
+        "    const ChannelCatTensorInfo& reference) {",
+        "  return (!spec.requires_vulkan || reference.is_vulkan) &&",
+        "      reference.dtype == spec.dtype && reference.rank == spec.rank &&",
+        "      reference.batch == spec.batch &&",
+        "      (!spec.requires_contiguous || reference.is_contiguous) &&",
+        "      reference.height >= spec.min_height &&",
+        "      reference.height <= spec.max_height &&",
+        "      reference.width >= spec.min_width && reference.width <= spec.max_width;",
+        "}",
+        "",
+        "inline bool channel_cat_input_in_bounds(",
+        "    const ChannelCatRank4Dim1BufferViewSpec& spec,",
+        "    const ChannelCatTensorInfo& reference,",
+        "    const ChannelCatTensorInfo& tensor) {",
+        "  return (!spec.requires_vulkan || tensor.is_vulkan) &&",
+        "      tensor.dtype == reference.dtype && tensor.rank == reference.rank &&",
+        "      tensor.batch == reference.batch &&",
+        "      tensor.height == reference.height && tensor.width == reference.width &&",
+        "      (!spec.requires_contiguous || tensor.is_contiguous) &&",
+        "      (!spec.requires_buffer_storage || tensor.has_buffer_storage) &&",
+        "      (!spec.requires_buffer_compute || tensor.supports_buffer_compute) &&",
+        "      tensor.channels >= spec.min_input_channels &&",
+        "      tensor.channels <= spec.max_input_channels &&",
+        "      tensor.channels % spec.channel_multiple == 0;",
+        "}",
+        "",
+        "constexpr bool channel_cat_total_channels_in_bounds(",
+        "    const ChannelCatRank4Dim1BufferViewSpec& spec,",
+        "    const std::int64_t total_channels) {",
+        "  return total_channels >= spec.min_total_channels &&",
+        "      total_channels <= spec.max_total_channels &&",
+        "      total_channels % spec.channel_multiple == 0;",
+        "}",
         "",
         "} // namespace generated",
         "} // namespace utils",

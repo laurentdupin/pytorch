@@ -58,10 +58,10 @@ Current MVP status:
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,
   and checks fixture metadata against live contract sources.
-- `ChannelCatContract` has the first generated C++ identity/bounds artifact:
+- `ChannelCatContract` has the first generated C++ typed-row/helper artifact:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `ExecutionContractsChannelCatSpec.h` from `channel_cat_contract.json`, with
-  handwritten matcher behavior preserved.
+  cross-input iteration and match result construction still handwritten.
 
 ## Phase 3: Migrate Next Contract Family
 

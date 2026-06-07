@@ -727,6 +727,25 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(spec["writer_op"], "aten::cat")
         self.assertEqual(spec["route_label"], "aten::cat.buffer_channel_view")
 
+        metadata = spec["metadata"]
+        _require_contract_spec_fields(
+            metadata,
+            (
+                "evidence_id",
+                "guard_id",
+                "fallback_policy",
+                "materialization_policy",
+            ),
+            "ChannelCatContract metadata",
+        )
+        self.assertEqual(metadata["evidence_id"], "channel_cat_buffer_view_focused_tests")
+        self.assertEqual(metadata["guard_id"], "channel_cat_adjacent_guards")
+        self.assertEqual(metadata["fallback_policy"], "unsupported_shapes_do_not_match")
+        self.assertEqual(
+            metadata["materialization_policy"],
+            "channel_cat_buffer_view_copy_kernel",
+        )
+
         bounds = spec["bounds"]
         _require_contract_spec_fields(
             bounds,
@@ -766,6 +785,46 @@ class TestVulkanGovernance(TestCase):
         self.assertTrue(bounds["requires_contiguous"])
         self.assertTrue(bounds["requires_buffer_storage"])
         self.assertTrue(bounds["requires_buffer_compute"])
+
+        matcher = spec["matcher"]
+        _require_contract_spec_fields(
+            matcher,
+            (
+                "tensor_info",
+                "reference_index",
+                "per_input_same_as_reference",
+                "per_input_required_flags",
+                "channel_axis",
+                "aggregate",
+            ),
+            "ChannelCatContract matcher",
+        )
+        self.assertEqual(matcher["tensor_info"], "ChannelCatTensorInfo")
+        self.assertEqual(matcher["reference_index"], 0)
+        self.assertEqual(
+            matcher["per_input_same_as_reference"],
+            ["dtype", "rank", "batch", "height", "width"],
+        )
+        self.assertEqual(
+            matcher["per_input_required_flags"],
+            [
+                "is_vulkan",
+                "is_contiguous",
+                "has_buffer_storage",
+                "supports_buffer_compute",
+            ],
+        )
+        self.assertEqual(matcher["channel_axis"], "channels")
+        self.assertEqual(
+            matcher["aggregate"],
+            {
+                "field": "channels",
+                "result_name": "total_channels",
+                "min": 1,
+                "max_from_bounds": "channels.max_total",
+                "multiple_of_from_bounds": "channels.multiple_of",
+            },
+        )
 
         case_fields = ("name", "input_shapes", "dim")
         for section in ("positive_cases", "negative_cases"):

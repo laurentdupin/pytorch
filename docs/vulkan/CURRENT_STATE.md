@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-07 at local HEAD
-`987b86bfa1c955da8982e4b77fe407eae310ed03`.
+`806f19d4bfbd80021ea1ce47d59a650446719eb9`.
 
 ## Repo State Summary
 
@@ -135,8 +135,10 @@ These files are diagnostic inputs. Production code must not depend on
 - `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
   cat patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
   contract spec with generated positive and adjacent negative runtime coverage.
-  Its contract identity, route label, and simple bounds are also emitted into a
-  generated C++ header while the matcher predicate remains handwritten.
+  Its contract identity, route label, metadata, simple bounds, typed spec row,
+  and scalar/per-input helper predicates are emitted into a generated C++
+  header while the cross-input loop and match result construction remain
+  handwritten.
 - `KVCacheAppendContract`: bounded Transformer sequence append and initial
   empty-cache cat rows. Both `SequenceAppend` and `InitialCache` slices have
   JSON contract specs with generated positive and adjacent negative runtime
@@ -176,11 +178,11 @@ These files are diagnostic inputs. Production code must not depend on
   `test/vulkan_contract_specs/contract_spec_utils.py` keep generated runtime
   tests from copying spec loading, case iteration, log naming, and expected
   negative handling.
-- ChannelCat has the first source-of-truth C++ generation proof:
+- ChannelCat has the first source-of-truth C++ table/matcher proof:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` regenerates
   `generated/ExecutionContractsChannelCatSpec.h` from
-  `channel_cat_contract.json`, and governance compares the output
-  byte-for-byte with the checked-in header.
+  `channel_cat_contract.json`, including a typed row and helper predicates, and
+  governance compares the output byte-for-byte with the checked-in header.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.
