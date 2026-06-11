@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-11 at local HEAD
-`f3b0b7d859d7983cf46a5a8a64b49f994b78c416`.
+`a4d73ef9b7eb001090f89a649fde841aee40192e`.
 
 ## Repo State Summary
 
@@ -183,11 +183,12 @@ These files are diagnostic inputs. Production code must not depend on
   Shared helpers in `test/vulkan_contract_specs/contract_spec_utils.py` keep
   generated runtime tests from copying spec loading, case iteration, log
   naming, expected negative handling, and shape-envelope validation. ChannelCat
-  and EmbeddingLookup also have deterministic `ShapeEnvelope` adjacent-negative
-  generators that must match the checked-in negative cases by violated axis,
-  adjacent value, and fallback/readback policy. Their runtime spec tests now
-  execute generated adjacent negatives through shared iterator plumbing while
-  checked-in negatives remain review/parity fixtures.
+  and EmbeddingLookup also have deterministic `ShapeEnvelope` legal-case and
+  adjacent-negative generators that must match the checked-in positive and
+  negative cases by semantic key, violated axis, adjacent value, and
+  fallback/readback policy. Their runtime spec tests now execute generated
+  legal positives and adjacent negatives through shared iterator plumbing while
+  checked-in cases remain review/parity fixtures.
 - ChannelCat has the first source-of-truth C++ table/matcher proof:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` regenerates
   `generated/ExecutionContractsChannelCatSpec.h` from

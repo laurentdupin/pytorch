@@ -429,20 +429,48 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("channel_cat_contract.json:7", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
 
-    def test_vulkan_shape_envelope_runtime_iterator_uses_generated_negatives(self):
+    def test_vulkan_shape_envelope_legal_case_utility_cli(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "test",
+                    "vulkan_contract_specs",
+                    "contract_spec_utils.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--validate-legal-cases",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertIn(
+            "validated 2 ShapeEnvelope legal-case generators",
+            result.stdout,
+        )
+        self.assertIn("generated_cases=9", result.stdout)
+        self.assertIn("channel_cat_contract.json:5", result.stdout)
+        self.assertIn("embedding_lookup_contract.json:4", result.stdout)
+
+    def test_vulkan_shape_envelope_runtime_iterator_uses_generated_cases(self):
         expected_generated_counts = {
-            "channel_cat_contract.json": 7,
-            "embedding_lookup_contract.json": 4,
+            "channel_cat_contract.json": (5, 7),
+            "embedding_lookup_contract.json": (4, 4),
         }
-        for file_name, expected_generated_count in expected_generated_counts.items():
+        for file_name, expected_counts in expected_generated_counts.items():
+            expected_legal_count, expected_negative_count = expected_counts
             spec = _load_vulkan_contract_spec(file_name)
             runtime_cases = list(
                 contract_spec_utils.iter_shape_envelope_contract_cases(spec)
             )
-            positive_cases = [
-                case
-                for section, case, _ in runtime_cases
-                if section == "positive_cases"
+            generated_legal_cases = [
+                (case, expect_native_route)
+                for section, case, expect_native_route in runtime_cases
+                if section == "generated_legal_cases"
             ]
             generated_negative_cases = [
                 (case, expect_native_route)
@@ -450,10 +478,19 @@ class TestVulkanGovernance(TestCase):
                 if section == "generated_negative_cases"
             ]
 
-            self.assertEqual(len(positive_cases), len(spec["positive_cases"]))
+            self.assertEqual(
+                len(generated_legal_cases),
+                expected_legal_count,
+            )
             self.assertEqual(
                 len(generated_negative_cases),
-                expected_generated_count,
+                expected_negative_count,
+            )
+            self.assertTrue(
+                all(
+                    expect_native_route is True
+                    for _, expect_native_route in generated_legal_cases
+                )
             )
             self.assertTrue(
                 all(

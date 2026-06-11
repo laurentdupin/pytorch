@@ -541,6 +541,79 @@ def _channel_cat_expected_negative_policy():
     }
 
 
+def _generated_channel_cat_legal_cases(spec):
+    envelope = spec["shape_envelope"]
+    bounds = envelope["bounds"]
+    base_shape = _channel_cat_base_shape(bounds)
+    min_input_count = bounds["input_count"]["min"]
+    max_input_count = bounds["input_count"]["max"]
+    min_channels = bounds["channels"]["min"]
+    max_per_input_channels = bounds["channels"]["max_per_input"]
+    max_total_channels = bounds["channels"]["max_total"]
+
+    def make_case(name, input_shapes, dim=None):
+        return {
+            "name": name,
+            "input_shapes": input_shapes,
+            "dim": bounds["dim"] if dim is None else dim,
+        }
+
+    return [
+        make_case(
+            "generated_min_three_inputs",
+            [
+                [
+                    bounds["batch"],
+                    min_channels,
+                    bounds["height"]["min"],
+                    bounds["width"]["min"],
+                ]
+                for _ in range(min_input_count)
+            ],
+        ),
+        make_case(
+            "generated_interior_six_inputs",
+            [list(base_shape) for _ in range(min(max_input_count, 6))],
+        ),
+        make_case(
+            "generated_max_eight_inputs",
+            [
+                [
+                    bounds["batch"],
+                    min_channels,
+                    min(bounds["height"]["min"] + 1, bounds["height"]["max"]),
+                    min(bounds["width"]["min"] + 2, bounds["width"]["max"]),
+                ]
+                for _ in range(max_input_count)
+            ],
+        ),
+        make_case(
+            "generated_max_per_input_and_total_channels",
+            [
+                [
+                    bounds["batch"],
+                    max_per_input_channels,
+                    min(bounds["height"]["min"] + 1, bounds["height"]["max"]),
+                    min(bounds["width"]["min"] + 1, bounds["width"]["max"]),
+                ]
+                for _ in range(max_total_channels // max_per_input_channels)
+            ],
+        ),
+        make_case(
+            "generated_max_height",
+            [
+                [
+                    bounds["batch"],
+                    min_channels,
+                    bounds["height"]["max"],
+                    min(max(bounds["width"]["min"], 7), bounds["width"]["max"]),
+                ]
+                for _ in range(min_input_count)
+            ],
+        ),
+    ]
+
+
 def _generated_channel_cat_adjacent_negative_cases(spec):
     envelope = spec["shape_envelope"]
     bounds = envelope["bounds"]
@@ -637,6 +710,61 @@ def _embedding_expected_negative_policy():
     }
 
 
+def _generated_embedding_lookup_legal_cases(spec):
+    envelope = spec["shape_envelope"]
+    bounds = envelope["bounds"]
+    indices_dtype = bounds["indices_dtype"]
+    max_num_indices = bounds["num_indices"]["max"]
+
+    def make_case(
+        name,
+        num_embeddings,
+        embedding_dim,
+        indices_shape,
+    ):
+        return {
+            "name": name,
+            "num_embeddings": num_embeddings,
+            "embedding_dim": embedding_dim,
+            "indices_shape": indices_shape,
+            "indices_dtype": indices_dtype,
+            "padding_idx": -1,
+        }
+
+    return [
+        make_case(
+            "generated_min_rank2",
+            bounds["num_embeddings"]["min"],
+            bounds["embedding_dim"]["min"],
+            [1, 1],
+        ),
+        make_case(
+            "generated_interior_rank2",
+            min(
+                max(bounds["num_embeddings"]["min"], 64),
+                bounds["num_embeddings"]["max"],
+            ),
+            min(
+                max(bounds["embedding_dim"]["min"], 24),
+                bounds["embedding_dim"]["max"],
+            ),
+            [1, min(max(bounds["num_indices"]["min"], 8), max_num_indices)],
+        ),
+        make_case(
+            "generated_boundary_rank2",
+            bounds["num_embeddings"]["max"],
+            bounds["embedding_dim"]["max"],
+            [1, max_num_indices],
+        ),
+        make_case(
+            "generated_boundary_rank1",
+            bounds["num_embeddings"]["max"],
+            bounds["embedding_dim"]["max"],
+            [max_num_indices],
+        ),
+    ]
+
+
 def _generated_embedding_lookup_adjacent_negative_cases(spec):
     envelope = spec["shape_envelope"]
     bounds = envelope["bounds"]
@@ -704,6 +832,18 @@ def _generated_embedding_lookup_adjacent_negative_cases(spec):
     return cases
 
 
+def generated_shape_envelope_legal_cases(spec):
+    envelope = spec.get("shape_envelope")
+    if envelope is None:
+        return []
+    role = envelope["role"]
+    if role == "multi_input_rank4_channel_cat":
+        return _generated_channel_cat_legal_cases(spec)
+    if role == "embedding_lookup_small_bounded":
+        return _generated_embedding_lookup_legal_cases(spec)
+    raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
+
+
 def generated_shape_envelope_adjacent_negative_cases(spec):
     envelope = spec.get("shape_envelope")
     if envelope is None:
@@ -721,6 +861,17 @@ def _product(values):
     for value in values:
         result *= value
     return result
+
+
+def _channel_cat_legal_key(case):
+    input_shapes = [tuple(shape) for shape in case["input_shapes"]]
+    total_channels = sum(shape[1] for shape in case["input_shapes"])
+    return (
+        len(case["input_shapes"]),
+        case["dim"],
+        tuple(input_shapes),
+        total_channels,
+    )
 
 
 def _channel_cat_adjacent_negative_key(case):
@@ -747,6 +898,18 @@ def _channel_cat_adjacent_negative_key(case):
     )
 
 
+def _embedding_lookup_legal_key(case):
+    return (
+        case["num_embeddings"],
+        case["embedding_dim"],
+        tuple(case["indices_shape"]),
+        case["indices_dtype"],
+        case["padding_idx"],
+        case.get("scale_grad_by_freq", False),
+        case.get("sparse", False),
+    )
+
+
 def _embedding_lookup_adjacent_negative_key(case):
     violates = case["violates"]
     if violates == "num_indices":
@@ -767,6 +930,15 @@ def _embedding_lookup_adjacent_negative_key(case):
     )
 
 
+def _legal_case_key(spec, case):
+    role = spec["shape_envelope"]["role"]
+    if role == "multi_input_rank4_channel_cat":
+        return _channel_cat_legal_key(case)
+    if role == "embedding_lookup_small_bounded":
+        return _embedding_lookup_legal_key(case)
+    raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
+
+
 def _adjacent_negative_key(spec, case):
     role = spec["shape_envelope"]["role"]
     if role == "multi_input_rank4_channel_cat":
@@ -774,6 +946,28 @@ def _adjacent_negative_key(spec, case):
     if role == "embedding_lookup_small_bounded":
         return _embedding_lookup_adjacent_negative_key(case)
     raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
+
+
+def validate_generated_shape_envelope_legal_cases(file_name, spec):
+    if "shape_envelope" not in spec:
+        return []
+    generated_cases = generated_shape_envelope_legal_cases(spec)
+    generated_keys = {
+        _legal_case_key(spec, case)
+        for case in generated_cases
+    }
+    checked_in_keys = {
+        _legal_case_key(spec, case)
+        for case in spec["positive_cases"]
+    }
+    if generated_keys != checked_in_keys:
+        missing = sorted(checked_in_keys - generated_keys)
+        extra = sorted(generated_keys - checked_in_keys)
+        raise AssertionError(
+            f"{file_name} generated legal cases mismatch "
+            f"missing={missing} extra={extra}"
+        )
+    return generated_cases
 
 
 def validate_generated_shape_envelope_adjacent_negatives(file_name, spec):
@@ -863,6 +1057,7 @@ def validate_contract_spec(file_name, spec):
     if len(case_names) != len(set(case_names)):
         raise AssertionError(f"{context} case names must be unique")
     validate_shape_envelope_spec(file_name, spec)
+    validate_generated_shape_envelope_legal_cases(file_name, spec)
     validate_generated_shape_envelope_adjacent_negatives(file_name, spec)
 
 
@@ -939,6 +1134,24 @@ def shape_envelope_adjacent_negative_summary(repo_root):
     return rows
 
 
+def shape_envelope_legal_case_summary(repo_root):
+    rows = []
+    for file_name, spec in validate_all_contract_specs(repo_root):
+        if "shape_envelope" not in spec:
+            continue
+        generated_cases = generated_shape_envelope_legal_cases(spec)
+        rows.append(
+            {
+                "file_name": file_name,
+                "contract_name": spec["contract_name"],
+                "family": spec["family"],
+                "role": spec["shape_envelope"]["role"],
+                "generated_legal_cases": len(generated_cases),
+            }
+        )
+    return rows
+
+
 def iter_contract_cases(spec):
     for section, expect_native_route in (
         ("positive_cases", True),
@@ -955,8 +1168,8 @@ def iter_shape_envelope_contract_cases(spec):
     if "shape_envelope" not in spec:
         yield from iter_contract_cases(spec)
         return
-    for case in spec["positive_cases"]:
-        yield "positive_cases", case, True
+    for case in generated_shape_envelope_legal_cases(spec):
+        yield "generated_legal_cases", case, True
     for case in generated_shape_envelope_adjacent_negative_cases(spec):
         yield "generated_negative_cases", case, case["expected_native_route"]
 
@@ -986,6 +1199,7 @@ def _main():
     parser.add_argument("--summary", action="store_true")
     parser.add_argument("--validate", action="store_true")
     parser.add_argument("--validate-shape-envelope", action="store_true")
+    parser.add_argument("--validate-legal-cases", action="store_true")
     parser.add_argument("--validate-adjacent-negatives", action="store_true")
     args = parser.parse_args()
 
@@ -1008,6 +1222,20 @@ def _main():
             f"{row['file_name']}:{row['role']}" for row in envelope_rows
         )
         print(f"validated {len(envelope_rows)} ShapeEnvelope v1 specs {roles}")
+    if args.validate_legal_cases:
+        legal_rows = shape_envelope_legal_case_summary(args.repo_root)
+        if not legal_rows:
+            raise AssertionError("no generated legal cases found")
+        total_generated = sum(row["generated_legal_cases"] for row in legal_rows)
+        roles = ", ".join(
+            f"{row['file_name']}:{row['generated_legal_cases']}"
+            for row in legal_rows
+        )
+        print(
+            "validated "
+            f"{len(legal_rows)} ShapeEnvelope legal-case generators "
+            f"generated_cases={total_generated} {roles}"
+        )
     if args.validate_adjacent_negatives:
         negative_rows = shape_envelope_adjacent_negative_summary(args.repo_root)
         if not negative_rows:
