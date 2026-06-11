@@ -261,6 +261,36 @@ class TestVulkanGovernance(TestCase):
                 )
         self.assertGreater(tuple_match_count, 0)
 
+    def test_tensor_provenance_can_record_contract_admission_metadata(self):
+        header = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "ops",
+            "TensorProvenance.h",
+        )
+        source = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "ops",
+            "TensorProvenance.cpp",
+        )
+        for field in (
+            "contract_name",
+            "contract_family",
+            "contract_tuple_id",
+            "contract_materialization_policy",
+        ):
+            self.assertIn(field, header)
+            self.assertIn(field, source)
+        self.assertIn("TensorContractProvenance", header)
+        self.assertIn("append_contract_provenance", source)
+
     def test_active_temporary_exceptions_have_expiry_and_targets(self):
         sections = self._active_temporary_exception_sections()
         self.assertGreater(len(sections), 0)
@@ -8894,6 +8924,156 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             atol=2e-4,
             rtol=2e-4)
 
+    def test_batch_norm_contract_admission_provenance_records_family_tuple(self):
+        log_names = (
+            "batch_norm_contract_provenance_direct.jsonl",
+            "batch_norm_contract_provenance_materialized.jsonl",
+        )
+        log_paths = [os.path.join(REPO_ROOT, name) for name in log_names]
+        for path in log_paths:
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import json
+                import os
+                import torch
+                import torch.nn.functional as F
+
+                def read_value_trace(log_path):
+                    if not os.path.exists(log_path):
+                        return []
+                    with open(log_path, encoding="utf-8") as log_file:
+                        return [
+                            json.loads(line)
+                            for line in log_file
+                            if line.strip()
+                        ]
+
+                def value_trace_provenance(log_path):
+                    trace_records = read_value_trace(log_path)
+                    return trace_records, "\\n".join(
+                        str(record.get("output_provenance", ""))
+                        for record in trace_records
+                    )
+
+                def make_tensors(shape):
+                    torch.manual_seed(sum(shape))
+                    channels = shape[1]
+                    x = torch.randn(*shape)
+                    running_mean = torch.randn(channels)
+                    running_var = torch.rand(channels) + 0.5
+                    weight = torch.randn(channels)
+                    bias = torch.randn(channels)
+                    return x, running_mean, running_var, weight, bias
+
+                def run_case(
+                    log_name,
+                    *,
+                    materialized_input,
+                    expected_family,
+                    expected_tuple_id,
+                    expected_materialization_policy,
+                ):
+                    log_path = os.path.join(os.getcwd(), log_name)
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    os.environ["PYTORCH_VULKAN_VALIDATE_VALUES"] = "1"
+                    os.environ["PYTORCH_VULKAN_VALUE_TRACE_LOG"] = log_path
+                    os.environ["PYTORCH_VULKAN_VALUE_TRACE_SAMPLES"] = "1"
+
+                    tensors = make_tensors((1, 32, 9, 7))
+                    x, running_mean, running_var, weight, bias = tensors
+                    expected = F.batch_norm(
+                        x,
+                        running_mean,
+                        running_var,
+                        weight,
+                        bias,
+                        training=False,
+                        momentum=0.1,
+                        eps=1e-5,
+                    )
+                    if materialized_input:
+                        x_vulkan = torch.empty(
+                            x.shape,
+                            dtype=x.dtype,
+                            device="vulkan",
+                        )
+                        x_vulkan.copy_(x)
+                    else:
+                        x_vulkan = x.to("vulkan")
+
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = F.batch_norm(
+                        x_vulkan,
+                        running_mean.to("vulkan"),
+                        running_var.to("vulkan"),
+                        weight.to("vulkan"),
+                        bias.to("vulkan"),
+                        training=False,
+                        momentum=0.1,
+                        eps=1e-5,
+                    )
+                    torch.testing.assert_close(
+                        actual.cpu(),
+                        expected,
+                        atol=2e-4,
+                        rtol=2e-4,
+                    )
+                    assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
+
+                    trace_records, provenance = value_trace_provenance(log_path)
+                    expected_entries = (
+                        "writer_op=aten::batch_norm",
+                        "route=buffer_inference_4d_float",
+                        "contract_name=BatchNormInferenceContract",
+                        "contract_family=" + expected_family,
+                        "contract_tuple_id=" + expected_tuple_id,
+                        (
+                            "contract_materialization_policy="
+                            + expected_materialization_policy
+                        ),
+                    )
+                    for expected_entry in expected_entries:
+                        assert expected_entry in provenance, (
+                            expected_entry,
+                            provenance,
+                            trace_records,
+                        )
+
+                run_case(
+                    "batch_norm_contract_provenance_direct.jsonl",
+                    materialized_input=False,
+                    expected_family="BufferFloat4D",
+                    expected_tuple_id="buffer_inference_4d_float",
+                    expected_materialization_policy=(
+                        "batch_norm_inference_buffer_kernel"
+                    ),
+                )
+                run_case(
+                    "batch_norm_contract_provenance_materialized.jsonl",
+                    materialized_input=True,
+                    expected_family="MaterializedBufferFloat4D",
+                    expected_tuple_id="materialized_buffer_inference_4d_float",
+                    expected_materialization_policy=(
+                        "materialize_to_buffer_then_"
+                        "batch_norm_inference_buffer_kernel"
+                    ),
+                )
+            """
+            self._run_repo_python_subprocess(
+                script,
+                error_prefix=(
+                    "BatchNorm contract-admission provenance subprocess failed."
+                ),
+            )
+        finally:
+            for path in log_paths:
+                if os.path.exists(path):
+                    os.remove(path)
+
     def test_batch_norm_training_remains_unsupported(self):
         x_vulkan = torch.randn(1, 4, 5, 7).to("vulkan")
         running_mean_vulkan = torch.zeros(4).to("vulkan")
@@ -9094,8 +9274,37 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         ].removeprefix(spec["writer_op"] + ".")
                         expected_route = "route=" + expected_route_name
                         expected_writer = "writer_op=" + spec["writer_op"]
+                        expected_contract_name = (
+                            "contract_name=" + spec["contract_name"]
+                        )
+                        expected_contract_family = (
+                            "contract_family=" + spec["family"]
+                        )
+                        expected_contract_tuple = (
+                            "contract_tuple_id=" + spec["tuple_id"]
+                        )
+                        expected_contract_materialization = (
+                            "contract_materialization_policy="
+                            + spec["metadata"]["materialization_policy"]
+                        )
                         assert expected_writer in provenance, (case, provenance)
                         assert expected_route in provenance, (case, provenance)
+                        assert expected_contract_name in provenance, (
+                            case,
+                            provenance,
+                        )
+                        assert expected_contract_family in provenance, (
+                            case,
+                            provenance,
+                        )
+                        assert expected_contract_tuple in provenance, (
+                            case,
+                            provenance,
+                        )
+                        assert expected_contract_materialization in provenance, (
+                            case,
+                            provenance,
+                        )
                     else:
                         assert route_hit not in provenance, (case, provenance)
                         if case["expected_cpu_fallback"]:

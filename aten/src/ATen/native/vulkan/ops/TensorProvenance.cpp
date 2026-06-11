@@ -48,6 +48,53 @@ uint64_t packed_weight_source_key(const VulkanTensorStateDesc& state) {
   return key;
 }
 
+void set_contract_provenance(
+    VulkanTensorProvenanceRecord& record,
+    const TensorContractProvenance* contract_provenance) {
+  if (contract_provenance == nullptr) {
+    return;
+  }
+  if (
+      contract_provenance->contract_name != nullptr &&
+      contract_provenance->contract_name[0] != '\0') {
+    record.contract_name = contract_provenance->contract_name;
+  }
+  if (
+      contract_provenance->contract_family != nullptr &&
+      contract_provenance->contract_family[0] != '\0') {
+    record.contract_family = contract_provenance->contract_family;
+  }
+  if (
+      contract_provenance->contract_tuple_id != nullptr &&
+      contract_provenance->contract_tuple_id[0] != '\0') {
+    record.contract_tuple_id = contract_provenance->contract_tuple_id;
+  }
+  if (
+      contract_provenance->contract_materialization_policy != nullptr &&
+      contract_provenance->contract_materialization_policy[0] != '\0') {
+    record.contract_materialization_policy =
+        contract_provenance->contract_materialization_policy;
+  }
+}
+
+void append_contract_provenance(
+    std::ostringstream& stream,
+    const VulkanTensorProvenanceRecord& record) {
+  if (!record.contract_name.empty()) {
+    stream << " contract_name=" << record.contract_name;
+  }
+  if (!record.contract_family.empty()) {
+    stream << " contract_family=" << record.contract_family;
+  }
+  if (!record.contract_tuple_id.empty()) {
+    stream << " contract_tuple_id=" << record.contract_tuple_id;
+  }
+  if (!record.contract_materialization_policy.empty()) {
+    stream << " contract_materialization_policy="
+           << record.contract_materialization_policy;
+  }
+}
+
 std::string describe_known_writer_locked(
     const VulkanTensorStateDesc& state,
     const ProvenanceRegistry& registry) {
@@ -69,6 +116,7 @@ std::string describe_known_writer_locked(
          << record.logical_desc_hash
          << " current_logical_hash=0x" << state.logical_desc_hash
          << std::dec;
+  append_contract_provenance(stream, record);
   if (
       record.generation != state.generation ||
       record.logical_desc_hash != state.logical_desc_hash) {
@@ -131,7 +179,8 @@ void record_tensor_provenance(
     const char* route_name,
     ArrayRef<Tensor> inputs,
     const bool clear_replay_stamp,
-    const bool check_finite_after_write) {
+    const bool check_finite_after_write,
+    const TensorContractProvenance* contract_provenance) {
   if (!output.defined()) {
     return;
   }
@@ -161,6 +210,7 @@ void record_tensor_provenance(
     record.writer_op = writer_op;
     record.route =
         route_name && route_name[0] != '\0' ? route_name : "<unspecified>";
+    set_contract_provenance(record, contract_provenance);
     record.output_state = describe_tensor_state(output_state);
     record.input_states.reserve(inputs.size());
     record.input_writers.reserve(inputs.size());
@@ -199,22 +249,30 @@ void record_tensor_write(
     const Tensor& output,
     const char* op_name,
     const char* route_name,
-    ArrayRef<Tensor> inputs) {
+    ArrayRef<Tensor> inputs,
+    const TensorContractProvenance* contract_provenance) {
   record_tensor_provenance(
       output,
       op_name,
       route_name,
       inputs,
       /*clear_replay_stamp=*/true,
-      /*check_finite_after_write=*/true);
+      /*check_finite_after_write=*/true,
+      contract_provenance);
 }
 
 Tensor record_tensor_write_and_return(
     Tensor output,
     const char* op_name,
     const char* route_name,
-    ArrayRef<Tensor> inputs) {
-  record_tensor_write(output, op_name, route_name, inputs);
+    ArrayRef<Tensor> inputs,
+    const TensorContractProvenance* contract_provenance) {
+  record_tensor_write(
+      output,
+      op_name,
+      route_name,
+      inputs,
+      contract_provenance);
   return output;
 }
 
@@ -229,7 +287,8 @@ void record_tensor_alias(
       route_name,
       {base},
       /*clear_replay_stamp=*/false,
-      /*check_finite_after_write=*/false);
+      /*check_finite_after_write=*/false,
+      nullptr);
 }
 
 Tensor record_tensor_alias_and_return(
@@ -267,6 +326,7 @@ std::string describe_tensor_provenance(const Tensor& tensor) {
          << record.logical_desc_hash
          << " current_logical_hash=0x" << state.logical_desc_hash
          << std::dec;
+  append_contract_provenance(stream, record);
   if (
       record.generation != state.generation ||
       record.logical_desc_hash != state.logical_desc_hash) {

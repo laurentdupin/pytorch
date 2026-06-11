@@ -87,7 +87,8 @@ static Tensor run_buffer_op(
     const Tensor& running_var_arg,
     const double eps,
     const bool has_weight,
-    const bool has_bias) {
+    const bool has_bias,
+    const TensorContractProvenance* contract_provenance = nullptr) {
   api::Context* const context = api::context();
   Tensor output =
       utils::create_buffer_tensor(input_arg.sizes(), c10::ScalarType::Float);
@@ -158,7 +159,8 @@ static Tensor run_buffer_op(
       output,
       "aten::batch_norm",
       "buffer_inference_4d_float",
-      {input_arg, weight_arg, bias_arg, running_mean_arg, running_var_arg});
+      {input_arg, weight_arg, bias_arg, running_mean_arg, running_var_arg},
+      contract_provenance);
 }
 
 } // namespace batchnorm
@@ -199,6 +201,19 @@ utils::BatchNormInferenceTensorInfo make_batch_norm_inference_tensor_info(
   return make_batch_norm_inference_tensor_info(*tensor);
 }
 
+TensorContractProvenance make_tensor_contract_provenance(
+    const utils::ExecutionContractMetadata* metadata) {
+  TensorContractProvenance provenance;
+  if (metadata == nullptr) {
+    return provenance;
+  }
+  provenance.contract_name = metadata->contract_name;
+  provenance.contract_family = metadata->family_name;
+  provenance.contract_tuple_id = metadata->tuple_id;
+  provenance.contract_materialization_policy = metadata->materialization_policy;
+  return provenance;
+}
+
 Tensor batch_norm(
     const at::Tensor& input_arg,
     const std::optional<Tensor>& weight_opt /* optional */,
@@ -225,6 +240,8 @@ Tensor batch_norm(
           training);
 
   if (batch_norm_match.matched) {
+    const TensorContractProvenance contract_provenance =
+        make_tensor_contract_provenance(batch_norm_match.metadata);
     if (batch_norm_match.requires_materialization) {
       const Tensor input_buffer = utils::ensure_buffer_storage(input_arg);
       const Tensor running_mean_buffer =
@@ -260,7 +277,8 @@ Tensor batch_norm(
             running_var_buffer,
             eps,
             is_defined(weight_opt),
-            is_defined(bias_opt));
+            is_defined(bias_opt),
+            &contract_provenance);
       }
     } else {
       const Tensor weight_arg =
@@ -275,7 +293,8 @@ Tensor batch_norm(
           *running_var_opt,
           eps,
           is_defined(weight_opt),
-          is_defined(bias_opt));
+          is_defined(bias_opt),
+          &contract_provenance);
     }
   }
 

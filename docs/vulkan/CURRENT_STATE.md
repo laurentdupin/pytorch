@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-11 at local HEAD
-`126a850a944683e6ea7a5ed594eebcedad07178a`.
+`d3b435dfcc2aa63e04434fd6e3cfe498adc2a497`.
 
 ## Repo State Summary
 
@@ -161,7 +161,9 @@ These files are diagnostic inputs. Production code must not depend on
   `BufferFloat4D` slice has a JSON contract spec backed by `ShapeEnvelope` v1
   and checked-in positive/adjacent-negative runtime cases. The
   `MaterializedBufferFloat4D` layout-transition slice remains separate and is
-  not covered by the first fixture.
+  not covered by the first fixture. Tensor provenance and value traces can now
+  report the admitted contract name, family, tuple id, and materialization
+  policy for BatchNorm canaries without changing the visible execution route.
 - `SafeViewReshapeContract`: finite dense direct-buffer view and reshape-alias
   contract, now split into a family-specific source. Both direct-buffer slices
   now have JSON contract specs with ShapeEnvelope-generated legal and
@@ -223,6 +225,12 @@ These files are diagnostic inputs. Production code must not depend on
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.
+- Tensor provenance/value-trace diagnostics can carry optional admitted
+  contract metadata (`contract_name`, `contract_family`, `contract_tuple_id`,
+  and `contract_materialization_policy`) for producers that pass an existing
+  contract match. BatchNorm is the first canary so direct buffer and
+  materialized-buffer admission can be distinguished while the executed buffer
+  kernel route label remains stable.
 - Capability-profile governance checks ensure the required profile IDs are in
   the manifest, the normalized feature/limit keys are present, docs state the
   non-emulation semantics, and runtime-policy tests verify optional ML features

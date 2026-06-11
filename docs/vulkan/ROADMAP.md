@@ -101,6 +101,11 @@ Current MVP status:
   from the `ShapeEnvelope` v1 data in `embedding_lookup_contract.json` for
   metadata, route label, simple bounds, and matcher helper predicates. The
   token-batch row remains handwritten until it gets its own fixture.
+- Tensor provenance/value traces can carry optional contract-admission
+  metadata for producers that pass an existing match. The first canary is
+  `BatchNormInferenceContract`, where direct `BufferFloat4D` admission and
+  materialized `MaterializedBufferFloat4D` admission can be distinguished
+  without changing the executed `buffer_inference_4d_float` route label.
 
 ## Phase 3: Migrate Next Contract Family
 
