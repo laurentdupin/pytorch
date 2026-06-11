@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-11 at local HEAD
-`8ebca778d19d3e1766ff4bdebfe44c96e1cf752c`.
+`c8f3c27555b030203e4b5e77d76a3d649804f86c`.
 
 ## Repo State Summary
 
@@ -133,8 +133,9 @@ These files are diagnostic inputs. Production code must not depend on
   lookup contract; the small-bounded lookup slice has a JSON contract spec with
   generated positive and adjacent negative runtime coverage. The
   `SmallBoundedLookup` slice is backed by `ShapeEnvelope` v1 for generated C++
-  metadata and bounds while the token-batch row remains handwritten. Keep
-  remaining exact rows until broader legality is proven.
+  metadata, bounds, and matcher helper predicates while the token-batch row
+  remains handwritten. Keep remaining exact rows until broader legality is
+  proven.
 - `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
   cat patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
   contract spec with generated positive and adjacent negative runtime coverage
@@ -191,9 +192,9 @@ These files are diagnostic inputs. Production code must not depend on
 - EmbeddingLookup `SmallBoundedLookup` has the second generated C++ contract
   artifact. The same generator emits
   `generated/ExecutionContractsEmbeddingLookupSpec.h` from
-  `embedding_lookup_contract.json` for metadata, route label, and simple bounds
-  from `ShapeEnvelope` v1; the matcher loop and token-batch family remain
-  handwritten.
+  `embedding_lookup_contract.json` for metadata, route label, simple bounds,
+  and helper predicates from `ShapeEnvelope` v1; the matcher loop, result
+  construction, and token-batch family remain handwritten.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.

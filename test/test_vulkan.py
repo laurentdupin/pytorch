@@ -541,6 +541,24 @@ class TestVulkanGovernance(TestCase):
             expected = handle.read()
         self.assertEqual(result.stdout, expected)
 
+    def test_vulkan_embedding_lookup_generated_header_has_matcher_helpers(self):
+        generated_header = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "generated",
+            "ExecutionContractsEmbeddingLookupSpec.h",
+        )
+        for expected in (
+            "embedding_lookup_index_rank_in_bounds",
+            "embedding_lookup_small_bounded_options_match",
+            "embedding_lookup_small_bounded_in_bounds",
+        ):
+            self.assertIn(expected, generated_header)
+
     def test_sdpa_score_softmax_contract_metadata(self):
         source = self._repo_text(
             "aten",

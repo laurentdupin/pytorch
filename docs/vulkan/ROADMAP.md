@@ -72,8 +72,8 @@ Current MVP status:
 - `EmbeddingLookupContract` `SmallBoundedLookup` has the second generated C++
   artifact: the same generator emits `ExecutionContractsEmbeddingLookupSpec.h`
   from the `ShapeEnvelope` v1 data in `embedding_lookup_contract.json` for
-  metadata, route label, and simple bounds. The token-batch row remains
-  handwritten until it gets its own fixture.
+  metadata, route label, simple bounds, and matcher helper predicates. The
+  token-batch row remains handwritten until it gets its own fixture.
 
 ## Phase 3: Migrate Next Contract Family
 

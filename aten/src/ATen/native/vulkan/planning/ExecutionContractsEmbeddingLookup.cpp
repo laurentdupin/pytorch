@@ -116,6 +116,8 @@ EmbeddingLookupMatch match_embedding_lookup_contract(
   const int64_t embedding_dim = weight_sizes[1];
   const int64_t num_indices = product_of_sizes(indices_sizes);
   const auto& small_spec = generated::kEmbeddingLookupSmallBoundedLookupSpec;
+  const int64_t weight_rank = static_cast<int64_t>(weight_sizes.size());
+  const int64_t index_rank = static_cast<int64_t>(indices_sizes.size());
   result.num_embeddings = num_embeddings;
   result.embedding_dim = embedding_dim;
   result.num_indices = num_indices;
@@ -135,9 +137,20 @@ EmbeddingLookupMatch match_embedding_lookup_contract(
   }
 
   if (
-      embedding_dim <= small_spec.max_embedding_dim &&
-      num_indices <= small_spec.max_num_indices &&
-      num_embeddings <= small_spec.max_num_embeddings) {
+      generated::embedding_lookup_small_bounded_options_match(
+          small_spec,
+          weight_dtype,
+          indices_dtype,
+          weight_rank,
+          index_rank,
+          padding_idx_has_hint,
+          scale_grad_by_freq,
+          sparse) &&
+      generated::embedding_lookup_small_bounded_in_bounds(
+          small_spec,
+          num_embeddings,
+          embedding_dim,
+          num_indices)) {
     result.matched = true;
     result.family = EmbeddingLookupFamily::SmallBoundedLookup;
     result.tuple_id = small_spec.tuple_id;
