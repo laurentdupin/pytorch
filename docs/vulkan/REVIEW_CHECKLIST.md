@@ -24,6 +24,11 @@ Use this checklist for Vulkan backend changes.
 - Exact or finite contract-row changes update an existing
   `test/vulkan_contract_specs/*.json` fixture, add a new fixture, or explicitly
   document why no fixture is suitable yet.
+- Generated C++ contract fixtures that are ready for schema validation use
+  `ShapeEnvelope` v1 or document why they remain pre-envelope. The envelope
+  records symbolic dims, bounds, relationships, aggregate bounds,
+  layout/capability requirements, policies, positives, adjacent negatives, and
+  fuzz hints without changing route legality.
 
 ## Fallback And Readback
 

@@ -58,14 +58,22 @@ Current MVP status:
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,
   and checks fixture metadata against live contract sources.
+- `ShapeEnvelope` v1 now backs the two generated C++ source-of-truth fixtures:
+  `ChannelCatContract` `Rank4Dim1BufferView` and `EmbeddingLookupContract`
+  `SmallBoundedLookup`. The schema captures symbolic dims, min/max, values,
+  multiples, optional dims, relationships, aggregate bounds, layout and
+  capability requirements, policies, positive cases, adjacent negatives, and
+  fuzz hints for validation and codegen.
 - `ChannelCatContract` has the first generated C++ typed-row/helper artifact:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
-  `ExecutionContractsChannelCatSpec.h` from `channel_cat_contract.json`, with
-  cross-input iteration and match result construction still handwritten.
+  `ExecutionContractsChannelCatSpec.h` from the `ShapeEnvelope` v1 data in
+  `channel_cat_contract.json`, with cross-input iteration and match result
+  construction still handwritten.
 - `EmbeddingLookupContract` `SmallBoundedLookup` has the second generated C++
   artifact: the same generator emits `ExecutionContractsEmbeddingLookupSpec.h`
-  from `embedding_lookup_contract.json` for metadata, route label, and simple
-  bounds. The token-batch row remains handwritten until it gets its own fixture.
+  from the `ShapeEnvelope` v1 data in `embedding_lookup_contract.json` for
+  metadata, route label, and simple bounds. The token-batch row remains
+  handwritten until it gets its own fixture.
 
 ## Phase 3: Migrate Next Contract Family
 

@@ -361,6 +361,47 @@ class TestVulkanGovernance(TestCase):
         specs = _validate_all_vulkan_contract_specs()
         self.assertGreater(len(specs), 0)
 
+    def test_vulkan_shape_envelope_v1_specs_validate(self):
+        expected_roles = {
+            "channel_cat_contract.json": "multi_input_rank4_channel_cat",
+            "embedding_lookup_contract.json": "embedding_lookup_small_bounded",
+        }
+        envelope_rows = contract_spec_utils.shape_envelope_summary(REPO_ROOT)
+        roles_by_file = {
+            row["file_name"]: row["role"]
+            for row in envelope_rows
+        }
+        self.assertEqual(roles_by_file, expected_roles)
+
+    def test_vulkan_shape_envelope_utility_cli(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "test",
+                    "vulkan_contract_specs",
+                    "contract_spec_utils.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--validate-shape-envelope",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertIn("validated 2 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn(
+            "channel_cat_contract.json:multi_input_rank4_channel_cat",
+            result.stdout,
+        )
+        self.assertIn(
+            "embedding_lookup_contract.json:embedding_lookup_small_bounded",
+            result.stdout,
+        )
+
     def test_vulkan_contract_spec_utility_cli_summary(self):
         result = subprocess.run(
             [

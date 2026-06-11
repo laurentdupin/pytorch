@@ -11,6 +11,189 @@
     "fallback_policy": "unsupported_shapes_do_not_match",
     "materialization_policy": "channel_cat_buffer_view_copy_kernel"
   },
+  "shape_envelope": {
+    "version": 1,
+    "role": "multi_input_rank4_channel_cat",
+    "inputs": {
+      "tensors": {
+        "kind": "variadic_tensor_list",
+        "count": {
+          "min": 3,
+          "max": 8
+        },
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "C",
+            "field": "channels",
+            "min": 4,
+            "max": 256,
+            "multiple_of": 4
+          },
+          {
+            "symbol": "H",
+            "field": "height",
+            "min": 1,
+            "max": 128
+          },
+          {
+            "symbol": "W",
+            "field": "width",
+            "min": 1,
+            "max": 128
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "dim": {
+        "values": [
+          1
+        ]
+      }
+    },
+    "bounds": {
+      "dtype": "float32",
+      "rank": 4,
+      "dim": 1,
+      "input_count": {
+        "min": 3,
+        "max": 8
+      },
+      "batch": 1,
+      "channels": {
+        "min": 4,
+        "max_per_input": 256,
+        "multiple_of": 4,
+        "max_total": 1024
+      },
+      "height": {
+        "min": 1,
+        "max": 128
+      },
+      "width": {
+        "min": 1,
+        "max": 128
+      },
+      "requires_vulkan": true,
+      "requires_contiguous": true,
+      "requires_buffer_storage": true,
+      "requires_buffer_compute": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "all_inputs",
+        "fields": [
+          "dtype",
+          "rank",
+          "N",
+          "H",
+          "W"
+        ]
+      },
+      {
+        "type": "sum_output",
+        "input": "tensors",
+        "dim": "C",
+        "result": "total_channels"
+      }
+    ],
+    "aggregate_bounds": {
+      "total_channels": {
+        "input": "tensors",
+        "field": "channels",
+        "min": 1,
+        "max": 1024,
+        "multiple_of": 4
+      }
+    },
+    "layout": {
+      "requires_vulkan": true,
+      "requires_contiguous": true,
+      "requires_buffer_storage": true
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "channel_cat_buffer_view_focused_tests",
+      "guard_id": "channel_cat_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "channel_cat_buffer_view_copy_kernel"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "channel_cat_buffer_view_copy_kernel"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "input_count",
+        "adjacent": "above_max",
+        "value": 9
+      },
+      {
+        "violates": "channels.multiple_of",
+        "adjacent": "not_multiple_of",
+        "value": 6
+      },
+      {
+        "violates": "channels.max_per_input",
+        "adjacent": "above_max",
+        "value": 260
+      },
+      {
+        "violates": "channels.max_total",
+        "adjacent": "above_max",
+        "value": 1280
+      },
+      {
+        "violates": "height.max",
+        "adjacent": "above_max",
+        "value": 129
+      },
+      {
+        "violates": "width.max",
+        "adjacent": "above_max",
+        "value": 129
+      },
+      {
+        "violates": "dim",
+        "adjacent": "unsupported_value",
+        "value": 2
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "C",
+        "H",
+        "W",
+        "input_count"
+      ],
+      "prefer_boundaries": true
+    }
+  },
   "bounds": {
     "dtype": "float32",
     "rank": 4,

@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-07 at local HEAD
-`80580fdd3242a96f1db60f70035a2e24e3fac68a`.
+Last refreshed: 2026-06-11 at local HEAD
+`8ebca778d19d3e1766ff4bdebfe44c96e1cf752c`.
 
 ## Repo State Summary
 
@@ -132,16 +132,17 @@ These files are diagnostic inputs. Production code must not depend on
 - `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
   lookup contract; the small-bounded lookup slice has a JSON contract spec with
   generated positive and adjacent negative runtime coverage. The
-  `SmallBoundedLookup` slice has generated C++ metadata and bounds from that
-  fixture while the token-batch row remains handwritten. Keep remaining exact
-  rows until broader legality is proven.
+  `SmallBoundedLookup` slice is backed by `ShapeEnvelope` v1 for generated C++
+  metadata and bounds while the token-batch row remains handwritten. Keep
+  remaining exact rows until broader legality is proven.
 - `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
   cat patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
-  contract spec with generated positive and adjacent negative runtime coverage.
-  Its contract identity, route label, metadata, simple bounds, typed spec row,
-  and scalar/per-input helper predicates are emitted into a generated C++
-  header while the cross-input loop and match result construction remain
-  handwritten.
+  contract spec with generated positive and adjacent negative runtime coverage
+  and a `ShapeEnvelope` v1 source for symbolic dims, relationships, aggregate
+  bounds, layout/capability requirements, and policies. Its contract identity,
+  route label, metadata, simple bounds, typed spec row, and scalar/per-input
+  helper predicates are emitted into a generated C++ header while the
+  cross-input loop and match result construction remain handwritten.
 - `KVCacheAppendContract`: bounded Transformer sequence append and initial
   empty-cache cat rows. Both `SequenceAppend` and `InitialCache` slices have
   JSON contract specs with generated positive and adjacent negative runtime
@@ -175,22 +176,24 @@ These files are diagnostic inputs. Production code must not depend on
   introduce model-name strings.
 - Contract spec governance discovers all `test/vulkan_contract_specs/*.json`,
   validates a shared schema, checks `contract_name`/`family`/`tuple_id` against
-  live contract sources, and keeps family-specific shape
-  checks for EmbeddingLookup, ChannelCat, KVCacheAppend, GQARepeat,
-  SDPAScoreSoftmax, and NoOverlapConvTranspose2D. Shared helpers in
-  `test/vulkan_contract_specs/contract_spec_utils.py` keep generated runtime
-  tests from copying spec loading, case iteration, log naming, and expected
-  negative handling.
+  live contract sources, validates any `ShapeEnvelope` v1 blocks present, and
+  keeps family-specific shape checks for EmbeddingLookup, ChannelCat,
+  KVCacheAppend, GQARepeat, SDPAScoreSoftmax, and NoOverlapConvTranspose2D.
+  Shared helpers in `test/vulkan_contract_specs/contract_spec_utils.py` keep
+  generated runtime tests from copying spec loading, case iteration, log
+  naming, expected negative handling, and shape-envelope validation.
 - ChannelCat has the first source-of-truth C++ table/matcher proof:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` regenerates
   `generated/ExecutionContractsChannelCatSpec.h` from
-  `channel_cat_contract.json`, including a typed row and helper predicates, and
-  governance compares the output byte-for-byte with the checked-in header.
+  `channel_cat_contract.json`, including a typed row and helper predicates.
+  Generation now consumes the fixture's `ShapeEnvelope` v1 metadata and bounds,
+  and governance compares the output byte-for-byte with the checked-in header.
 - EmbeddingLookup `SmallBoundedLookup` has the second generated C++ contract
   artifact. The same generator emits
   `generated/ExecutionContractsEmbeddingLookupSpec.h` from
-  `embedding_lookup_contract.json` for metadata, route label, and simple bounds;
-  the matcher loop and token-batch family remain handwritten.
+  `embedding_lookup_contract.json` for metadata, route label, and simple bounds
+  from `ShapeEnvelope` v1; the matcher loop and token-batch family remain
+  handwritten.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.
