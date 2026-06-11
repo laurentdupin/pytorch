@@ -963,7 +963,31 @@ def _validate_batch_norm_inference_shape_envelope(file_name, spec, envelope):
         "BatchNormInferenceContract",
         f"{context} contract",
     )
-    _require_equal(spec["family"], "BufferFloat4D", f"{context} family")
+    family_expectations = {
+        "BufferFloat4D": {
+            "tuple_id": "buffer_inference_4d_float",
+            "materialization_policy": "batch_norm_inference_buffer_kernel",
+            "requires_buffer_storage": True,
+        },
+        "MaterializedBufferFloat4D": {
+            "tuple_id": "materialized_buffer_inference_4d_float",
+            "materialization_policy": (
+                "materialize_to_buffer_then_batch_norm_inference_buffer_kernel"
+            ),
+            "requires_buffer_storage": False,
+            "requires_materialization": True,
+        },
+    }
+    family = spec["family"]
+    if family not in family_expectations:
+        raise AssertionError(f"{context} unsupported family {family!r}")
+    expectation = family_expectations[family]
+    _require_equal(spec["tuple_id"], expectation["tuple_id"], f"{context} tuple_id")
+    _require_equal(
+        spec["metadata"]["materialization_policy"],
+        expectation["materialization_policy"],
+        f"{context} materialization policy",
+    )
     _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
 
     inputs = envelope["inputs"]
@@ -1037,6 +1061,17 @@ def _validate_batch_norm_inference_shape_envelope(file_name, spec, envelope):
         bounds["requires_buffer_compute"],
         f"{context} requires_buffer_compute",
     )
+    _require_equal(
+        bounds["requires_buffer_storage"],
+        expectation["requires_buffer_storage"],
+        f"{context} requires_buffer_storage",
+    )
+    if "requires_materialization" in expectation:
+        _require_equal(
+            bounds.get("requires_materialization"),
+            expectation["requires_materialization"],
+            f"{context} requires_materialization",
+        )
 
     for section in ("positive_cases", "negative_cases"):
         for case in spec[section]:
@@ -1565,6 +1600,60 @@ def _product(values):
     return result
 
 
+_BATCH_NORM_LEGAL_KEY_FIELDS = (
+    "input_shape",
+    "parameter_features",
+    "dtype",
+    "training",
+    "has_weight",
+    "has_bias",
+    ("materialized_input", False),
+    "expected_route_label",
+    "expected_cpu_fallback",
+    ("expected_contract_family", None),
+    ("expected_contract_tuple_id", None),
+    ("expected_contract_materialization_policy", None),
+)
+
+_BATCH_NORM_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "input_shape",
+    "parameter_features",
+    "dtype",
+    "training",
+    "has_weight",
+    "has_bias",
+    ("materialized_input", False),
+    "expected_native_route",
+    "expected_cpu_fallback",
+    ("expected_error_regex", ""),
+)
+
+_BATCH_NORM_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.bias.dtype",
+    "inputs.bias.rank",
+    "inputs.bias.dims.C",
+    "inputs.input.dtype",
+    "inputs.input.rank",
+    "inputs.input.dims.N",
+    "inputs.input.dims.C",
+    "inputs.input.dims.H",
+    "inputs.input.dims.W",
+    "inputs.running_mean.dtype",
+    "inputs.running_mean.rank",
+    "inputs.running_mean.dims.C",
+    "inputs.running_var.dtype",
+    "inputs.running_var.rank",
+    "inputs.running_var.dims.C",
+    "inputs.weight.dtype",
+    "inputs.weight.rank",
+    "inputs.weight.dims.C",
+    "attributes.bias_has_value",
+    "attributes.training",
+    "attributes.weight_has_value",
+)
+
+
 SHAPE_ENVELOPE_ROLE_REGISTRY = {
     "batch_norm_inference_buffer_float_4d": {
         "validate": _validate_batch_norm_inference_shape_envelope,
@@ -1573,51 +1662,20 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         "adjacent_negative_cases": (
             _checked_in_shape_envelope_adjacent_negative_cases
         ),
-        "legal_key_fields": (
-            "input_shape",
-            "parameter_features",
-            "dtype",
-            "training",
-            "has_weight",
-            "has_bias",
-            "expected_route_label",
-            "expected_cpu_fallback",
+        "legal_key_fields": _BATCH_NORM_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": _BATCH_NORM_ASSIGNMENT_COVERAGE_FIELDS,
+        "adjacent_negative_key_fields": _BATCH_NORM_ADJACENT_NEGATIVE_KEY_FIELDS,
+    },
+    "batch_norm_inference_materialized_buffer_float_4d": {
+        "validate": _validate_batch_norm_inference_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
         ),
-        "assignment_coverage_fields": (
-            "inputs.bias.dtype",
-            "inputs.bias.rank",
-            "inputs.bias.dims.C",
-            "inputs.input.dtype",
-            "inputs.input.rank",
-            "inputs.input.dims.N",
-            "inputs.input.dims.C",
-            "inputs.input.dims.H",
-            "inputs.input.dims.W",
-            "inputs.running_mean.dtype",
-            "inputs.running_mean.rank",
-            "inputs.running_mean.dims.C",
-            "inputs.running_var.dtype",
-            "inputs.running_var.rank",
-            "inputs.running_var.dims.C",
-            "inputs.weight.dtype",
-            "inputs.weight.rank",
-            "inputs.weight.dims.C",
-            "attributes.bias_has_value",
-            "attributes.training",
-            "attributes.weight_has_value",
-        ),
-        "adjacent_negative_key_fields": (
-            "violates",
-            "input_shape",
-            "parameter_features",
-            "dtype",
-            "training",
-            "has_weight",
-            "has_bias",
-            "expected_native_route",
-            "expected_cpu_fallback",
-            ("expected_error_regex", ""),
-        ),
+        "legal_key_fields": _BATCH_NORM_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": _BATCH_NORM_ASSIGNMENT_COVERAGE_FIELDS,
+        "adjacent_negative_key_fields": _BATCH_NORM_ADJACENT_NEGATIVE_KEY_FIELDS,
     },
     "multi_input_rank4_channel_cat": {
         "validate": _validate_channel_cat_shape_envelope,

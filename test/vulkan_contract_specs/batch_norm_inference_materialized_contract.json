@@ -1,0 +1,331 @@
+{
+  "schema_version": 1,
+  "contract_name": "BatchNormInferenceContract",
+  "family": "MaterializedBufferFloat4D",
+  "tuple_id": "materialized_buffer_inference_4d_float",
+  "writer_op": "aten::batch_norm",
+  "route_label": "aten::batch_norm.buffer_inference_4d_float",
+  "metadata": {
+    "evidence_id": "batch_norm_inference_materialized_buffer_focused_tests",
+    "guard_id": "batch_norm_inference_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "materialize_to_buffer_then_batch_norm_inference_buffer_kernel"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "batch_norm_inference_materialized_buffer_float_4d",
+    "inputs": {
+      "input": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "min": 1
+          },
+          {
+            "symbol": "C",
+            "field": "channels",
+            "min": 1
+          },
+          {
+            "symbol": "H",
+            "field": "height",
+            "min": 1
+          },
+          {
+            "symbol": "W",
+            "field": "width",
+            "min": 1
+          }
+        ]
+      },
+      "running_mean": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            1
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "C",
+            "field": "channels",
+            "min": 1
+          }
+        ]
+      },
+      "running_var": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            1
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "C",
+            "field": "channels",
+            "min": 1
+          }
+        ]
+      },
+      "weight": {
+        "kind": "optional_tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            1
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "C",
+            "field": "channels",
+            "min": 1
+          }
+        ]
+      },
+      "bias": {
+        "kind": "optional_tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            1
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "C",
+            "field": "channels",
+            "min": 1
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "training": {
+        "values": [
+          false
+        ]
+      },
+      "weight_has_value": {
+        "values": [
+          true,
+          false
+        ]
+      },
+      "bias_has_value": {
+        "values": [
+          true,
+          false
+        ]
+      }
+    },
+    "bounds": {
+      "input_dtype": "float32",
+      "parameter_dtype": "float32",
+      "input_rank": 4,
+      "parameter_rank": 1,
+      "input_channels": {
+        "min": 1
+      },
+      "training": false,
+      "weight_optional": true,
+      "bias_optional": true,
+      "requires_vulkan": true,
+      "requires_contiguous": true,
+      "requires_buffer_storage": false,
+      "requires_buffer_compute": true,
+      "requires_materialization": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "feature_count",
+        "fields": [
+          "input.C",
+          "running_mean.C",
+          "running_var.C",
+          "weight.C",
+          "bias.C"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "requires_contiguous": true,
+      "requires_buffer_storage": false,
+      "requires_materialization": true
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "batch_norm_inference_materialized_buffer_focused_tests",
+      "guard_id": "batch_norm_inference_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "materialize_to_buffer_then_batch_norm_inference_buffer_kernel"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "unsupported_shapes_may_readback",
+      "copy": "materialize_to_buffer_then_batch_norm_inference_buffer_kernel"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "training",
+        "adjacent": "unsupported_value",
+        "value": true
+      },
+      {
+        "violates": "input_rank",
+        "adjacent": "unsupported_value",
+        "value": 3
+      },
+      {
+        "violates": "feature_count.equal",
+        "adjacent": "mismatch",
+        "value": 7
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "N",
+        "C",
+        "H",
+        "W"
+      ],
+      "prefer_boundaries": true
+    }
+  },
+  "bounds": {
+    "input_dtype": "float32",
+    "parameter_dtype": "float32",
+    "input_rank": 4,
+    "parameter_rank": 1,
+    "input_channels": {
+      "min": 1
+    },
+    "training": false,
+    "weight_optional": true,
+    "bias_optional": true,
+    "requires_vulkan": true,
+    "requires_contiguous": true,
+    "requires_buffer_storage": false,
+    "requires_buffer_compute": true,
+    "requires_materialization": true
+  },
+  "positive_cases": [
+    {
+      "name": "materialized_affine_1_32_36_64",
+      "input_shape": [
+        1,
+        32,
+        36,
+        64
+      ],
+      "parameter_features": 32,
+      "dtype": "float32",
+      "training": false,
+      "has_weight": true,
+      "has_bias": true,
+      "materialized_input": true,
+      "expected_route_label": "aten::batch_norm.buffer_inference_4d_float",
+      "expected_contract_family": "MaterializedBufferFloat4D",
+      "expected_contract_tuple_id": "materialized_buffer_inference_4d_float",
+      "expected_contract_materialization_policy": "materialize_to_buffer_then_batch_norm_inference_buffer_kernel",
+      "expected_cpu_fallback": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "materialized_training_true",
+      "input_shape": [
+        1,
+        4,
+        5,
+        7
+      ],
+      "parameter_features": 4,
+      "dtype": "float32",
+      "training": true,
+      "has_weight": true,
+      "has_bias": true,
+      "materialized_input": true,
+      "violates": "training",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "Only evaluation mode is supported"
+    },
+    {
+      "name": "materialized_input_rank_3",
+      "input_shape": [
+        1,
+        8,
+        11
+      ],
+      "parameter_features": 8,
+      "dtype": "float32",
+      "training": false,
+      "has_weight": true,
+      "has_bias": true,
+      "materialized_input": true,
+      "violates": "input_rank",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "materialized_feature_count_mismatch",
+      "input_shape": [
+        1,
+        8,
+        5,
+        7
+      ],
+      "parameter_features": 7,
+      "dtype": "float32",
+      "training": false,
+      "has_weight": true,
+      "has_bias": true,
+      "materialized_input": true,
+      "violates": "feature_count.equal",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true,
+      "expected_error_regex": "running_mean should contain"
+    }
+  ]
+}

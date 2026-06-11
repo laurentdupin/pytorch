@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-11 at local HEAD
-`d3b435dfcc2aa63e04434fd6e3cfe498adc2a497`.
+`29c1956b1a7c468f2d2d100fd7f95f245ee9c8b7`.
 
 ## Repo State Summary
 
@@ -158,10 +158,9 @@ These files are diagnostic inputs. Production code must not depend on
   with generated positive and adjacent negative runtime coverage; keep exact
   rows until broader legality is proven.
 - `BatchNormInferenceContract`: float32 4D inference batch norm. The
-  `BufferFloat4D` slice has a JSON contract spec backed by `ShapeEnvelope` v1
-  and checked-in positive/adjacent-negative runtime cases. The
-  `MaterializedBufferFloat4D` layout-transition slice remains separate and is
-  not covered by the first fixture. Tensor provenance and value traces can now
+  `BufferFloat4D` and `MaterializedBufferFloat4D` slices both have JSON
+  contract specs backed by `ShapeEnvelope` v1 with checked-in
+  positive/adjacent-negative runtime cases. Tensor provenance and value traces
   report the admitted contract name, family, tuple id, and materialization
   policy for BatchNorm canaries without changing the visible execution route.
 - `SafeViewReshapeContract`: finite dense direct-buffer view and reshape-alias
@@ -201,9 +200,10 @@ These files are diagnostic inputs. Production code must not depend on
   dims, scalar attributes, and adjacent-negative axes, plus a generic coverage
   bridge that maps abstract assignment paths and adjacent-negative axes onto
   the current generated/checked-in runtime cases without executing additional
-  fuzz assignments. BatchNormInference `BufferFloat4D` uses generic checked-in
-  case plumbing under the ShapeEnvelope registry. ChannelCat, EmbeddingLookup,
-  and both SafeViewReshape direct-buffer slices have
+  fuzz assignments. BatchNormInference `BufferFloat4D` and
+  `MaterializedBufferFloat4D` use generic checked-in case plumbing under the
+  ShapeEnvelope registry. ChannelCat, EmbeddingLookup, and both
+  SafeViewReshape direct-buffer slices have
   deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
   that must match the checked-in positive and negative cases by semantic key,
   violated axis, adjacent value, and fallback/readback policy. Their runtime

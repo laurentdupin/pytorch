@@ -108,9 +108,10 @@ condition and migration target.
   not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/batch_norm_inference_contract.json`
   covers the `BufferFloat4D` slice with ShapeEnvelope-backed checked-in
-  positive and adjacent negative runtime cases. The
-  `MaterializedBufferFloat4D` slice remains separate and uncovered by this
-  first fixture.
+  positive and adjacent negative runtime cases.
+  `test/vulkan_contract_specs/batch_norm_inference_materialized_contract.json`
+  covers the `MaterializedBufferFloat4D` layout-transition slice with
+  checked-in positive and adjacent negative runtime cases.
 - Expiry: broader batch-norm inference parity plus adjacent negative coverage
   are available for buffer and materialized-buffer families.
 - Migration target: broader generated `BatchNormInferenceContract` tables with
