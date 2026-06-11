@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-11 at local HEAD
-`fea48388de740873593d8d6bc1deda504aeaca72`.
+`237dc9ea568238129607a557d9a900af3e2aedd1`.
 
 ## Repo State Summary
 
@@ -190,13 +190,17 @@ These files are diagnostic inputs. Production code must not depend on
   naming, expected negative handling, and shape-envelope validation. A
   `SHAPE_ENVELOPE_ROLE_REGISTRY` now centralizes role validation, temporary
   runtime-case adapters, and data-driven semantic key fields so new roles do
-  not add another open-coded key dispatch table. ChannelCat, EmbeddingLookup,
-  and both SafeViewReshape direct-buffer slices have deterministic
-  `ShapeEnvelope` legal-case and adjacent-negative generators that must match
-  the checked-in positive and negative cases by semantic key, violated axis,
-  adjacent value, and fallback/readback policy. Their runtime spec tests now
-  execute generated legal positives and adjacent negatives through shared
-  iterator plumbing while checked-in cases remain review/parity fixtures.
+  not add another open-coded key dispatch table. The same utility layer also
+  has deterministic boundary/fuzz assignment generation for common
+  ShapeEnvelope v1 concepts: value sets, min/max bounds, multiples, optional
+  dims, scalar attributes, and adjacent-negative axes. ChannelCat,
+  EmbeddingLookup, and both SafeViewReshape direct-buffer slices have
+  deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
+  that must match the checked-in positive and negative cases by semantic key,
+  violated axis, adjacent value, and fallback/readback policy. Their runtime
+  spec tests now execute generated legal positives and adjacent negatives
+  through shared iterator plumbing while checked-in cases remain review/parity
+  fixtures.
 - ChannelCat has the first source-of-truth C++ table/matcher proof:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` regenerates
   `generated/ExecutionContractsChannelCatSpec.h` from

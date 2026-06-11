@@ -473,6 +473,48 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("safe_view_reshape_alias_contract.json:2", result.stdout)
         self.assertIn("safe_view_reshape_contract.json:2", result.stdout)
 
+    def test_vulkan_shape_envelope_fuzz_assignment_utility_cli(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "test",
+                    "vulkan_contract_specs",
+                    "contract_spec_utils.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--validate-fuzz-assignments",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertIn(
+            "validated 4 ShapeEnvelope fuzz assignment generators",
+            result.stdout,
+        )
+        self.assertIn("legal_assignments=8", result.stdout)
+        self.assertIn("adjacent_negative_assignments=18", result.stdout)
+        self.assertIn(
+            "channel_cat_contract.json:legal=2:adjacent=7",
+            result.stdout,
+        )
+        self.assertIn(
+            "embedding_lookup_contract.json:legal=2:adjacent=4",
+            result.stdout,
+        )
+        self.assertIn(
+            "safe_view_reshape_alias_contract.json:legal=2:adjacent=4",
+            result.stdout,
+        )
+        self.assertIn(
+            "safe_view_reshape_contract.json:legal=2:adjacent=3",
+            result.stdout,
+        )
+
     def test_vulkan_shape_envelope_runtime_iterator_uses_generated_cases(self):
         expected_generated_counts = {
             "channel_cat_contract.json": (5, 7),
@@ -532,6 +574,7 @@ class TestVulkanGovernance(TestCase):
         for adapter in registry.values():
             for callable_field in (
                 "validate",
+                "assignment_cases",
                 "legal_cases",
                 "adjacent_negative_cases",
             ):
@@ -541,6 +584,11 @@ class TestVulkanGovernance(TestCase):
                 self.assertFalse(
                     any(callable(field) for field in adapter[key_field])
                 )
+        assignment_generators = {
+            adapter["assignment_cases"]
+            for adapter in registry.values()
+        }
+        self.assertEqual(len(assignment_generators), 1)
 
         source = self._repo_text(
             "test",
@@ -548,7 +596,11 @@ class TestVulkanGovernance(TestCase):
             "contract_spec_utils.py",
         )
         self.assertIn("SHAPE_ENVELOPE_ROLE_REGISTRY", source)
+        self.assertIn("_generated_shape_envelope_assignment_cases", source)
+        self.assertIn("_shape_envelope_boundary_values", source)
         self.assertIn("_shape_envelope_case_key", source)
+        self.assertNotIn("_generated_channel_cat_assignment", source)
+        self.assertNotIn("_generated_embedding_lookup_assignment", source)
         self.assertNotIn("def _channel_cat_legal_key", source)
         self.assertNotIn("def _embedding_lookup_legal_key", source)
         self.assertNotIn("def _safe_view_reshape_legal_key", source)

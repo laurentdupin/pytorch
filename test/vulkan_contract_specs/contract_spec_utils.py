@@ -370,6 +370,148 @@ def _shape_envelope_case_key(case, fields):
     return tuple(key)
 
 
+def _dedupe_preserving_order(values):
+    result = []
+    seen = set()
+    for value in values:
+        canonical = _canonical_case_value(value)
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        result.append(value)
+    return result
+
+
+def _shape_envelope_boundary_values(field):
+    if "values" in field:
+        return list(_shape_envelope_value_set(field, "ShapeEnvelope field"))
+
+    values = []
+    has_min = "min" in field
+    has_max = "max" in field
+    if has_min:
+        minimum = field["min"]
+        if "multiple_of" in field:
+            multiple = field["multiple_of"]
+            aligned_minimum = ((minimum + multiple - 1) // multiple) * multiple
+            values.append(aligned_minimum)
+        else:
+            values.append(minimum)
+    if has_max:
+        maximum = field["max"]
+        if "multiple_of" in field:
+            multiple = field["multiple_of"]
+            aligned_maximum = (maximum // multiple) * multiple
+            values.append(aligned_maximum)
+        else:
+            values.append(maximum)
+    if not values and "multiple_of" in field:
+        values.append(field["multiple_of"])
+    if field.get("optional"):
+        values.append(None)
+    return _dedupe_preserving_order(values)
+
+
+def _shape_envelope_value_candidates(field):
+    if "values" in field:
+        return list(_shape_envelope_value_set(field, "ShapeEnvelope field"))
+    return _shape_envelope_boundary_values(field)
+
+
+def _shape_envelope_symbolic_bounds(envelope):
+    bounds = []
+    for input_name in sorted(envelope["inputs"]):
+        input_spec = envelope["inputs"][input_name]
+        for field_name in ("count", "dtype", "rank"):
+            if field_name in input_spec:
+                field = input_spec[field_name]
+                bounds.append(
+                    {
+                        "path": f"inputs.{input_name}.{field_name}",
+                        "candidates": _shape_envelope_value_candidates(field),
+                        "optional": field.get("optional", False),
+                    }
+                )
+        for dim in input_spec.get("dims", ()):
+            symbol = dim["symbol"]
+            bounds.append(
+                {
+                    "path": f"inputs.{input_name}.dims.{symbol}",
+                    "field": dim.get("field"),
+                    "candidates": _shape_envelope_value_candidates(dim),
+                    "optional": dim.get("optional", False),
+                }
+            )
+
+    for attribute_name in sorted(envelope["attributes"]):
+        attribute = envelope["attributes"][attribute_name]
+        bounds.append(
+            {
+                "path": f"attributes.{attribute_name}",
+                "candidates": _shape_envelope_value_candidates(attribute),
+                "optional": attribute.get("optional", False),
+            }
+        )
+    return bounds
+
+
+def _shape_envelope_assignment_from_bounds(name, symbolic_bounds, index):
+    values = {}
+    for bound in symbolic_bounds:
+        candidates = bound["candidates"]
+        if not candidates:
+            continue
+        values[bound["path"]] = candidates[min(index, len(candidates) - 1)]
+    return {
+        "name": name,
+        "kind": "legal_boundary",
+        "values": values,
+    }
+
+
+def _shape_envelope_legal_assignments(envelope):
+    symbolic_bounds = _shape_envelope_symbolic_bounds(envelope)
+    if not symbolic_bounds:
+        return []
+    return [
+        _shape_envelope_assignment_from_bounds(
+            "generated_boundary_min",
+            symbolic_bounds,
+            0,
+        ),
+        _shape_envelope_assignment_from_bounds(
+            "generated_boundary_max",
+            symbolic_bounds,
+            -1,
+        ),
+    ]
+
+
+def _shape_envelope_adjacent_assignments(envelope):
+    assignments = []
+    for axis in envelope["negative_axes"]:
+        assignments.append(
+            {
+                "name": f"generated_adjacent_{axis['violates']}",
+                "kind": "adjacent_negative",
+                "violates": axis["violates"],
+                "adjacent": axis.get("adjacent"),
+                "value": axis.get("value"),
+            }
+        )
+    return assignments
+
+
+def _generated_shape_envelope_assignment_cases(spec):
+    envelope = spec["shape_envelope"]
+    return {
+        "legal_assignments": _shape_envelope_legal_assignments(envelope),
+        "adjacent_negative_assignments": (
+            _shape_envelope_adjacent_assignments(envelope)
+        ),
+    }
+
+
 def _validate_shape_envelope_common(file_name, spec, envelope):
     context = f"{file_name} ShapeEnvelope v1"
     _require_mapping(envelope, context)
@@ -1323,6 +1465,7 @@ def _product(values):
 SHAPE_ENVELOPE_ROLE_REGISTRY = {
     "multi_input_rank4_channel_cat": {
         "validate": _validate_channel_cat_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
         "legal_cases": _generated_channel_cat_legal_cases,
         "adjacent_negative_cases": _generated_channel_cat_adjacent_negative_cases,
         "legal_key_fields": (
@@ -1374,6 +1517,7 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
     },
     "embedding_lookup_small_bounded": {
         "validate": _validate_embedding_lookup_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
         "legal_cases": _generated_embedding_lookup_legal_cases,
         "adjacent_negative_cases": _generated_embedding_lookup_adjacent_negative_cases,
         "legal_key_fields": (
@@ -1413,6 +1557,7 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
     },
     "safe_view_materialized_direct_buffer": {
         "validate": _validate_safe_view_reshape_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
         "legal_cases": _generated_safe_view_reshape_legal_cases,
         "adjacent_negative_cases": _generated_safe_view_reshape_adjacent_negative_cases,
         "legal_key_fields": (
@@ -1432,6 +1577,7 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
     },
     "safe_reshape_alias_dense_buffer_direct": {
         "validate": _validate_safe_view_reshape_alias_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
         "legal_cases": _generated_safe_view_reshape_alias_legal_cases,
         "adjacent_negative_cases": (
             _generated_safe_view_reshape_alias_adjacent_negative_cases
@@ -1481,6 +1627,16 @@ def generated_shape_envelope_adjacent_negative_cases(spec):
     return _shape_envelope_role_adapter(envelope["role"])[
         "adjacent_negative_cases"
     ](spec)
+
+
+def generated_shape_envelope_assignment_cases(spec):
+    envelope = spec.get("shape_envelope")
+    if envelope is None:
+        return {
+            "legal_assignments": [],
+            "adjacent_negative_assignments": [],
+        }
+    return _shape_envelope_role_adapter(envelope["role"])["assignment_cases"](spec)
 
 
 def _legal_case_key(spec, case):
@@ -1697,6 +1853,31 @@ def shape_envelope_legal_case_summary(repo_root):
     return rows
 
 
+def shape_envelope_fuzz_assignment_summary(repo_root):
+    rows = []
+    for file_name, spec in validate_all_contract_specs(repo_root):
+        if "shape_envelope" not in spec:
+            continue
+        assignments = generated_shape_envelope_assignment_cases(spec)
+        legal_assignments = assignments["legal_assignments"]
+        adjacent_assignments = assignments["adjacent_negative_assignments"]
+        if not legal_assignments:
+            raise AssertionError(f"{file_name} has no legal fuzz assignments")
+        if not adjacent_assignments:
+            raise AssertionError(f"{file_name} has no adjacent fuzz assignments")
+        rows.append(
+            {
+                "file_name": file_name,
+                "contract_name": spec["contract_name"],
+                "family": spec["family"],
+                "role": spec["shape_envelope"]["role"],
+                "legal_assignments": len(legal_assignments),
+                "adjacent_negative_assignments": len(adjacent_assignments),
+            }
+        )
+    return rows
+
+
 def iter_contract_cases(spec):
     for section, expect_native_route in (
         ("positive_cases", True),
@@ -1746,6 +1927,7 @@ def _main():
     parser.add_argument("--validate-shape-envelope", action="store_true")
     parser.add_argument("--validate-legal-cases", action="store_true")
     parser.add_argument("--validate-adjacent-negatives", action="store_true")
+    parser.add_argument("--validate-fuzz-assignments", action="store_true")
     args = parser.parse_args()
 
     rows = contract_spec_summary(args.repo_root)
@@ -1796,6 +1978,25 @@ def _main():
             "validated "
             f"{len(negative_rows)} ShapeEnvelope adjacent-negative generators "
             f"generated_cases={total_generated} {roles}"
+        )
+    if args.validate_fuzz_assignments:
+        assignment_rows = shape_envelope_fuzz_assignment_summary(args.repo_root)
+        if not assignment_rows:
+            raise AssertionError("no generated fuzz assignments found")
+        total_legal = sum(row["legal_assignments"] for row in assignment_rows)
+        total_adjacent = sum(
+            row["adjacent_negative_assignments"] for row in assignment_rows
+        )
+        roles = ", ".join(
+            f"{row['file_name']}:legal={row['legal_assignments']}:"
+            f"adjacent={row['adjacent_negative_assignments']}"
+            for row in assignment_rows
+        )
+        print(
+            "validated "
+            f"{len(assignment_rows)} ShapeEnvelope fuzz assignment generators "
+            f"legal_assignments={total_legal} "
+            f"adjacent_negative_assignments={total_adjacent} {roles}"
         )
 
 
