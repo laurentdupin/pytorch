@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-11 at local HEAD
-`237dc9ea568238129607a557d9a900af3e2aedd1`.
+`875d302dae788538065966c4cb3b83e260ae4942`.
 
 ## Repo State Summary
 
@@ -193,8 +193,11 @@ These files are diagnostic inputs. Production code must not depend on
   not add another open-coded key dispatch table. The same utility layer also
   has deterministic boundary/fuzz assignment generation for common
   ShapeEnvelope v1 concepts: value sets, min/max bounds, multiples, optional
-  dims, scalar attributes, and adjacent-negative axes. ChannelCat,
-  EmbeddingLookup, and both SafeViewReshape direct-buffer slices have
+  dims, scalar attributes, and adjacent-negative axes, plus a generic coverage
+  bridge that maps abstract assignment paths and adjacent-negative axes onto
+  the current generated/checked-in runtime cases without executing additional
+  fuzz assignments. ChannelCat, EmbeddingLookup, and both SafeViewReshape
+  direct-buffer slices have
   deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
   that must match the checked-in positive and negative cases by semantic key,
   violated axis, adjacent value, and fallback/readback policy. Their runtime

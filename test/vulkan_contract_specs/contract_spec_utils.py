@@ -1472,6 +1472,16 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
             "input_shapes",
             "dim",
         ),
+        "assignment_coverage_fields": (
+            "inputs.tensors.count",
+            "inputs.tensors.dtype",
+            "inputs.tensors.rank",
+            "inputs.tensors.dims.N",
+            "inputs.tensors.dims.C",
+            "inputs.tensors.dims.H",
+            "inputs.tensors.dims.W",
+            "attributes.dim",
+        ),
         "adjacent_negative_key_fields": (
             "violates",
             {
@@ -1529,6 +1539,19 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
             ("scale_grad_by_freq", False),
             ("sparse", False),
         ),
+        "assignment_coverage_fields": (
+            "inputs.indices.dtype",
+            "inputs.indices.rank",
+            "inputs.indices.dims.I0",
+            "inputs.indices.dims.I1",
+            "inputs.weight.dtype",
+            "inputs.weight.rank",
+            "inputs.weight.dims.V",
+            "inputs.weight.dims.D",
+            "attributes.padding_idx_has_hint",
+            "attributes.scale_grad_by_freq",
+            "attributes.sparse",
+        ),
         "adjacent_negative_key_fields": (
             "violates",
             {
@@ -1566,6 +1589,13 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
             "output_stride",
             "storage_offset",
         ),
+        "assignment_coverage_fields": (
+            "inputs.input.rank",
+            "inputs.output.rank",
+            "attributes.storage_offset",
+            "attributes.output_last_dim_multiple_of",
+            "attributes.output_stride_policy",
+        ),
         "adjacent_negative_key_fields": (
             "violates",
             "input_shape",
@@ -1588,6 +1618,15 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
             "output_shape",
             "output_stride",
             "storage_offset",
+        ),
+        "assignment_coverage_fields": (
+            "inputs.input.dtype",
+            "inputs.input.rank",
+            "inputs.output.rank",
+            "attributes.storage_offset",
+            "attributes.input_stride_policy",
+            "attributes.output_last_dim_multiple_of",
+            "attributes.output_stride_policy",
         ),
         "adjacent_negative_key_fields": (
             "violates",
@@ -1878,6 +1917,125 @@ def shape_envelope_fuzz_assignment_summary(repo_root):
     return rows
 
 
+def _shape_envelope_assignment_value_paths(assignments):
+    paths = set()
+    for assignment in assignments:
+        paths.update(assignment.get("values", {}).keys())
+    return tuple(sorted(paths))
+
+
+def _shape_envelope_assignment_status(assignment, coverage_fields):
+    paths = set(assignment.get("values", {}))
+    covered_paths = paths & coverage_fields
+    uncovered_paths = paths - coverage_fields
+    if paths and not uncovered_paths:
+        status = "covered"
+    elif covered_paths:
+        status = "partial"
+    else:
+        status = "unmapped"
+    return {
+        "name": assignment["name"],
+        "status": status,
+        "covered_paths": tuple(sorted(covered_paths)),
+        "uncovered_paths": tuple(sorted(uncovered_paths)),
+    }
+
+
+def _shape_envelope_violated_axes(cases):
+    axes = set()
+    for case in cases:
+        if "violates" not in case:
+            raise AssertionError(f"case {case['name']} missing violates")
+        axes.add(case["violates"])
+    return axes
+
+
+def validate_shape_envelope_fuzz_assignment_coverage(file_name, spec):
+    if "shape_envelope" not in spec:
+        return None
+    envelope = spec["shape_envelope"]
+    adapter = _shape_envelope_role_adapter(envelope["role"], file_name)
+    assignments = generated_shape_envelope_assignment_cases(spec)
+    legal_assignments = assignments["legal_assignments"]
+    adjacent_assignments = assignments["adjacent_negative_assignments"]
+    if not legal_assignments:
+        raise AssertionError(f"{file_name} has no legal fuzz assignments")
+    if not adjacent_assignments:
+        raise AssertionError(f"{file_name} has no adjacent fuzz assignments")
+
+    coverage_fields = set(adapter["assignment_coverage_fields"])
+    legal_assignment_paths = set(
+        _shape_envelope_assignment_value_paths(legal_assignments)
+    )
+    unknown_coverage_fields = coverage_fields - legal_assignment_paths
+    if unknown_coverage_fields:
+        raise AssertionError(
+            f"{file_name} assignment coverage fields are not generated "
+            f"assignment paths: {sorted(unknown_coverage_fields)}"
+        )
+
+    assignment_statuses = [
+        _shape_envelope_assignment_status(assignment, coverage_fields)
+        for assignment in legal_assignments
+    ]
+    coverage_gaps = [
+        status for status in assignment_statuses
+        if status["status"] != "covered"
+    ]
+    if coverage_gaps:
+        raise AssertionError(
+            f"{file_name} fuzz assignment coverage gaps: {coverage_gaps}"
+        )
+
+    generated_legal_cases = validate_generated_shape_envelope_legal_cases(
+        file_name,
+        spec,
+    )
+    generated_negative_cases = validate_generated_shape_envelope_adjacent_negatives(
+        file_name,
+        spec,
+    )
+    assignment_axes = _shape_envelope_violated_axes(adjacent_assignments)
+    checked_in_axes = _shape_envelope_violated_axes(spec["negative_cases"])
+    generated_negative_axes = _shape_envelope_violated_axes(generated_negative_cases)
+    if assignment_axes != checked_in_axes:
+        raise AssertionError(
+            f"{file_name} adjacent assignment axes mismatch checked-in negatives "
+            f"missing={sorted(checked_in_axes - assignment_axes)} "
+            f"extra={sorted(assignment_axes - checked_in_axes)}"
+        )
+    if assignment_axes != generated_negative_axes:
+        raise AssertionError(
+            f"{file_name} adjacent assignment axes mismatch generated negatives "
+            f"missing={sorted(generated_negative_axes - assignment_axes)} "
+            f"extra={sorted(assignment_axes - generated_negative_axes)}"
+        )
+
+    return {
+        "file_name": file_name,
+        "contract_name": spec["contract_name"],
+        "family": spec["family"],
+        "role": envelope["role"],
+        "legal_assignments": len(legal_assignments),
+        "legal_assignment_paths": len(legal_assignment_paths),
+        "covered_legal_assignment_paths": len(coverage_fields),
+        "legal_assignment_status": "covered",
+        "adjacent_negative_axes": len(assignment_axes),
+        "generated_legal_cases": len(generated_legal_cases),
+        "generated_negative_cases": len(generated_negative_cases),
+    }
+
+
+def shape_envelope_fuzz_assignment_coverage_summary(repo_root):
+    rows = []
+    for file_name, spec in validate_all_contract_specs(repo_root):
+        row = validate_shape_envelope_fuzz_assignment_coverage(file_name, spec)
+        if row is not None:
+            rows.append(row)
+    return rows
+
+
 def iter_contract_cases(spec):
     for section, expect_native_route in (
         ("positive_cases", True),
@@ -1928,6 +2086,7 @@ def _main():
     parser.add_argument("--validate-legal-cases", action="store_true")
     parser.add_argument("--validate-adjacent-negatives", action="store_true")
     parser.add_argument("--validate-fuzz-assignments", action="store_true")
+    parser.add_argument("--validate-fuzz-assignment-coverage", action="store_true")
     args = parser.parse_args()
 
     rows = contract_spec_summary(args.repo_root)
@@ -1997,6 +2156,44 @@ def _main():
             f"{len(assignment_rows)} ShapeEnvelope fuzz assignment generators "
             f"legal_assignments={total_legal} "
             f"adjacent_negative_assignments={total_adjacent} {roles}"
+        )
+    if args.validate_fuzz_assignment_coverage:
+        coverage_rows = shape_envelope_fuzz_assignment_coverage_summary(
+            args.repo_root
+        )
+        if not coverage_rows:
+            raise AssertionError("no generated fuzz assignment coverage found")
+        total_legal_assignments = sum(
+            row["legal_assignments"] for row in coverage_rows
+        )
+        total_legal_paths = sum(
+            row["legal_assignment_paths"] for row in coverage_rows
+        )
+        total_adjacent_axes = sum(
+            row["adjacent_negative_axes"] for row in coverage_rows
+        )
+        total_runtime_legal = sum(
+            row["generated_legal_cases"] for row in coverage_rows
+        )
+        total_runtime_adjacent = sum(
+            row["generated_negative_cases"] for row in coverage_rows
+        )
+        roles = ", ".join(
+            f"{row['file_name']}:legal={row['legal_assignments']}:"
+            f"status={row['legal_assignment_status']}:"
+            f"paths={row['covered_legal_assignment_paths']}/"
+            f"{row['legal_assignment_paths']}:"
+            f"adjacent_axes={row['adjacent_negative_axes']}"
+            for row in coverage_rows
+        )
+        print(
+            "validated "
+            f"{len(coverage_rows)} ShapeEnvelope fuzz assignment coverage "
+            f"bridges legal_assignments={total_legal_assignments} "
+            f"legal_paths={total_legal_paths} "
+            f"adjacent_negative_axes={total_adjacent_axes} "
+            f"runtime_legal_cases={total_runtime_legal} "
+            f"runtime_adjacent_negative_cases={total_runtime_adjacent} {roles}"
         )
 
 

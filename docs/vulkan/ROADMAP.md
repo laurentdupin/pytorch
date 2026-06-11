@@ -67,8 +67,10 @@ Current MVP status:
 - Generic deterministic boundary/fuzz assignment generation now interprets
   common ShapeEnvelope v1 value sets, min/max bounds, multiples, optional dims,
   scalar attributes, and adjacent-negative axes. It is governance-only today:
-  runtime case counts remain unchanged until a later task explicitly opts a
-  family into extra checked-in cases.
+  a coverage bridge validates which abstract assignment paths and
+  adjacent-negative axes are represented by the current generated/checked-in
+  runtime cases, and runtime case counts remain unchanged until a later task
+  explicitly opts a family into extra checked-in cases.
 - `ShapeEnvelope` v1 now backs the two generated C++ source-of-truth fixtures,
   `ChannelCatContract` `Rank4Dim1BufferView` and `EmbeddingLookupContract`
   `SmallBoundedLookup`, plus the first layout/materialization runtime fixture,

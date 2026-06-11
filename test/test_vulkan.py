@@ -515,6 +515,55 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
 
+    def test_vulkan_shape_envelope_fuzz_assignment_coverage_cli(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "test",
+                    "vulkan_contract_specs",
+                    "contract_spec_utils.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--validate-fuzz-assignment-coverage",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertIn(
+            "validated 4 ShapeEnvelope fuzz assignment coverage bridges",
+            result.stdout,
+        )
+        self.assertIn("legal_assignments=8", result.stdout)
+        self.assertIn("legal_paths=31", result.stdout)
+        self.assertIn("adjacent_negative_axes=18", result.stdout)
+        self.assertIn("runtime_legal_cases=13", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=18", result.stdout)
+        self.assertIn(
+            "channel_cat_contract.json:legal=2:status=covered:paths=8/8:"
+            "adjacent_axes=7",
+            result.stdout,
+        )
+        self.assertIn(
+            "embedding_lookup_contract.json:legal=2:status=covered:paths=11/11:"
+            "adjacent_axes=4",
+            result.stdout,
+        )
+        self.assertIn(
+            "safe_view_reshape_alias_contract.json:legal=2:status=covered:"
+            "paths=7/7:adjacent_axes=4",
+            result.stdout,
+        )
+        self.assertIn(
+            "safe_view_reshape_contract.json:legal=2:status=covered:"
+            "paths=5/5:adjacent_axes=3",
+            result.stdout,
+        )
+
     def test_vulkan_shape_envelope_runtime_iterator_uses_generated_cases(self):
         expected_generated_counts = {
             "channel_cat_contract.json": (5, 7),
@@ -584,6 +633,10 @@ class TestVulkanGovernance(TestCase):
                 self.assertFalse(
                     any(callable(field) for field in adapter[key_field])
                 )
+            self.assertGreater(len(adapter["assignment_coverage_fields"]), 0)
+            self.assertFalse(
+                any(callable(field) for field in adapter["assignment_coverage_fields"])
+            )
         assignment_generators = {
             adapter["assignment_cases"]
             for adapter in registry.values()
@@ -597,10 +650,15 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("SHAPE_ENVELOPE_ROLE_REGISTRY", source)
         self.assertIn("_generated_shape_envelope_assignment_cases", source)
+        self.assertIn("assignment_coverage_fields", source)
         self.assertIn("_shape_envelope_boundary_values", source)
         self.assertIn("_shape_envelope_case_key", source)
+        self.assertIn("shape_envelope_fuzz_assignment_coverage_summary", source)
         self.assertNotIn("_generated_channel_cat_assignment", source)
         self.assertNotIn("_generated_embedding_lookup_assignment", source)
+        self.assertNotIn("def _channel_cat_assignment_coverage", source)
+        self.assertNotIn("def _embedding_lookup_assignment_coverage", source)
+        self.assertNotIn("def _safe_view_reshape_assignment_coverage", source)
         self.assertNotIn("def _channel_cat_legal_key", source)
         self.assertNotIn("def _embedding_lookup_legal_key", source)
         self.assertNotIn("def _safe_view_reshape_legal_key", source)
