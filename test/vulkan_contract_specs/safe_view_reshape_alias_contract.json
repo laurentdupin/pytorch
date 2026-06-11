@@ -1,0 +1,377 @@
+{
+  "schema_version": 1,
+  "contract_name": "SafeViewReshapeContract",
+  "family": "ReshapeAliasDenseBufferDirect",
+  "tuple_id": "materialized_direct_buffer_reshape",
+  "writer_op": "aten::_reshape_alias",
+  "route_label": "aten::_reshape_alias.materialized_direct_buffer_reshape",
+  "metadata": {
+    "evidence_id": "reshape_alias_direct_buffer_focused_tests",
+    "guard_id": "reshape_alias_direct_buffer_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "reshape_alias_materialized_direct_buffer"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "safe_reshape_alias_dense_buffer_direct",
+    "inputs": {
+      "input": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "min": 0,
+          "max": 4
+        }
+      },
+      "output": {
+        "kind": "shape",
+        "rank": {
+          "min": 0,
+          "max": 5
+        }
+      }
+    },
+    "attributes": {
+      "storage_offset": {
+        "values": [
+          0
+        ]
+      },
+      "input_stride_policy": {
+        "values": [
+          "non_overlapping_dense"
+        ]
+      },
+      "output_stride_policy": {
+        "values": [
+          "non_overlapping_dense"
+        ]
+      },
+      "output_last_dim_multiple_of": {
+        "values": [
+          4
+        ]
+      }
+    },
+    "bounds": {
+      "input_dtype": "float32",
+      "input_storage": "buffer",
+      "input_rank": {
+        "min": 0,
+        "max": 4
+      },
+      "output_rank": {
+        "min": 0,
+        "max": 5
+      },
+      "storage_offset": 0,
+      "product_equal": true,
+      "input_stride": "non_overlapping_dense",
+      "output_stride": "non_overlapping_dense",
+      "output_last_dim_multiple_of": 4,
+      "requires_vulkan": true
+    },
+    "relationships": [
+      {
+        "type": "product",
+        "input": "input",
+        "dims": "all",
+        "result": "input_numel"
+      },
+      {
+        "type": "product",
+        "input": "output",
+        "dims": "all",
+        "result": "output_numel"
+      },
+      {
+        "type": "equal",
+        "scope": "derived",
+        "fields": [
+          "input_numel",
+          "output_numel"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "input_storage": "buffer",
+      "output_storage": "materialized_direct_buffer"
+    },
+    "capability_requirements": {},
+    "metadata": {
+      "evidence_id": "reshape_alias_direct_buffer_focused_tests",
+      "guard_id": "reshape_alias_direct_buffer_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "reshape_alias_materialized_direct_buffer"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "reshape_alias_materialized_direct_buffer"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "input_rank.max",
+        "adjacent": "above_max",
+        "value": 5
+      },
+      {
+        "violates": "output_rank.max",
+        "adjacent": "above_max",
+        "value": 6
+      },
+      {
+        "violates": "output_last_dim_multiple_of",
+        "adjacent": "not_multiple_of",
+        "value": 3
+      },
+      {
+        "violates": "output_stride_policy",
+        "adjacent": "overlapping",
+        "value": "overlapping"
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "C",
+        "H",
+        "W"
+      ],
+      "prefer_boundaries": true,
+      "lotus_cases": [
+        {
+          "channels": 640,
+          "height": 9,
+          "width": 14
+        },
+        {
+          "channels": 1280,
+          "height": 5,
+          "width": 7
+        }
+      ]
+    }
+  },
+  "bounds": {
+    "input_dtype": "float32",
+    "input_storage": "buffer",
+    "input_rank": {
+      "min": 0,
+      "max": 4
+    },
+    "output_rank": {
+      "min": 0,
+      "max": 5
+    },
+    "storage_offset": 0,
+    "product_equal": true,
+    "input_stride": "non_overlapping_dense",
+    "output_stride": "non_overlapping_dense",
+    "output_last_dim_multiple_of": 4,
+    "requires_vulkan": true
+  },
+  "positive_cases": [
+    {
+      "name": "lotus_alias_640_9_14",
+      "source_shape": [
+        1,
+        640,
+        9,
+        14
+      ],
+      "input_permute": [
+        0,
+        2,
+        3,
+        1
+      ],
+      "input_shape": [
+        1,
+        9,
+        14,
+        640
+      ],
+      "input_stride": [
+        80640,
+        14,
+        1,
+        126
+      ],
+      "output_shape": [
+        1,
+        126,
+        640
+      ],
+      "output_stride": [
+        80640,
+        1,
+        126
+      ],
+      "storage_offset": 0
+    },
+    {
+      "name": "lotus_alias_1280_5_7",
+      "source_shape": [
+        1,
+        1280,
+        5,
+        7
+      ],
+      "input_permute": [
+        0,
+        2,
+        3,
+        1
+      ],
+      "input_shape": [
+        1,
+        5,
+        7,
+        1280
+      ],
+      "input_stride": [
+        44800,
+        7,
+        1,
+        35
+      ],
+      "output_shape": [
+        1,
+        35,
+        1280
+      ],
+      "output_stride": [
+        44800,
+        1,
+        35
+      ],
+      "storage_offset": 0
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "input_rank_5",
+      "input_shape": [
+        1,
+        1,
+        1,
+        1,
+        16
+      ],
+      "input_stride": [
+        16,
+        16,
+        16,
+        16,
+        1
+      ],
+      "output_shape": [
+        1,
+        4,
+        4
+      ],
+      "output_stride": [
+        16,
+        1,
+        4
+      ],
+      "storage_offset": 0,
+      "violates": "input_rank.max",
+      "expected_native_route": false
+    },
+    {
+      "name": "output_rank_6",
+      "input_shape": [
+        16
+      ],
+      "input_stride": [
+        1
+      ],
+      "output_shape": [
+        1,
+        1,
+        1,
+        1,
+        4,
+        4
+      ],
+      "output_stride": [
+        16,
+        16,
+        16,
+        16,
+        1,
+        4
+      ],
+      "storage_offset": 0,
+      "violates": "output_rank.max",
+      "expected_native_route": false
+    },
+    {
+      "name": "output_last_dim_not_multiple_of_4",
+      "input_shape": [
+        1,
+        12,
+        1,
+        1
+      ],
+      "input_stride": [
+        12,
+        1,
+        1,
+        1
+      ],
+      "output_shape": [
+        1,
+        4,
+        3
+      ],
+      "output_stride": [
+        12,
+        1,
+        4
+      ],
+      "storage_offset": 0,
+      "violates": "output_last_dim_multiple_of",
+      "expected_native_route": false
+    },
+    {
+      "name": "overlapping_output_stride",
+      "input_shape": [
+        1,
+        16,
+        1,
+        1
+      ],
+      "input_stride": [
+        16,
+        1,
+        1,
+        1
+      ],
+      "output_shape": [
+        1,
+        4,
+        4
+      ],
+      "output_stride": [
+        16,
+        1,
+        1
+      ],
+      "storage_offset": 0,
+      "violates": "output_stride_policy",
+      "expected_native_route": false
+    }
+  ]
+}

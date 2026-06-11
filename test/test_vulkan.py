@@ -365,6 +365,9 @@ class TestVulkanGovernance(TestCase):
         expected_roles = {
             "channel_cat_contract.json": "multi_input_rank4_channel_cat",
             "embedding_lookup_contract.json": "embedding_lookup_small_bounded",
+            "safe_view_reshape_alias_contract.json": (
+                "safe_reshape_alias_dense_buffer_direct"
+            ),
             "safe_view_reshape_contract.json": "safe_view_materialized_direct_buffer",
         }
         envelope_rows = contract_spec_utils.shape_envelope_summary(REPO_ROOT)
@@ -393,13 +396,18 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 3 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 4 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "channel_cat_contract.json:multi_input_rank4_channel_cat",
             result.stdout,
         )
         self.assertIn(
             "embedding_lookup_contract.json:embedding_lookup_small_bounded",
+            result.stdout,
+        )
+        self.assertIn(
+            "safe_view_reshape_alias_contract.json:"
+            "safe_reshape_alias_dense_buffer_direct",
             result.stdout,
         )
         self.assertIn(
@@ -427,12 +435,13 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 3 ShapeEnvelope adjacent-negative generators",
+            "validated 4 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=14", result.stdout)
+        self.assertIn("generated_cases=18", result.stdout)
         self.assertIn("channel_cat_contract.json:7", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
+        self.assertIn("safe_view_reshape_alias_contract.json:4", result.stdout)
         self.assertIn("safe_view_reshape_contract.json:3", result.stdout)
 
     def test_vulkan_shape_envelope_legal_case_utility_cli(self):
@@ -455,18 +464,20 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 3 ShapeEnvelope legal-case generators",
+            "validated 4 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=11", result.stdout)
+        self.assertIn("generated_cases=13", result.stdout)
         self.assertIn("channel_cat_contract.json:5", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
+        self.assertIn("safe_view_reshape_alias_contract.json:2", result.stdout)
         self.assertIn("safe_view_reshape_contract.json:2", result.stdout)
 
     def test_vulkan_shape_envelope_runtime_iterator_uses_generated_cases(self):
         expected_generated_counts = {
             "channel_cat_contract.json": (5, 7),
             "embedding_lookup_contract.json": (4, 4),
+            "safe_view_reshape_alias_contract.json": (2, 4),
             "safe_view_reshape_contract.json": (2, 3),
         }
         for file_name, expected_counts in expected_generated_counts.items():
@@ -5892,6 +5903,120 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self._run_repo_python_subprocess(
                 script,
                 error_prefix="Safe view reshape generated contract spec failed.",
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+            )
+        finally:
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+
+    def test_safe_view_reshape_alias_contract_generated_dense_buffer_direct_spec(self):
+        spec = _load_vulkan_contract_spec("safe_view_reshape_alias_contract.json")
+        op_hit_log_name = contract_spec_utils.contract_log_name(
+            spec,
+            {"name": "generated"},
+            "op_hit_test.log",
+        )
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        try:
+            script = """
+                import json
+                import os
+                import sys
+                import torch
+                sys.path.insert(
+                    0,
+                    os.path.join(os.getcwd(), "test", "vulkan_contract_specs"),
+                )
+                import contract_spec_utils
+
+                spec_path = os.path.join(
+                    os.getcwd(),
+                    "test",
+                    "vulkan_contract_specs",
+                    "safe_view_reshape_alias_contract.json",
+                )
+                with open(spec_path, encoding="utf-8") as handle:
+                    spec = json.load(handle)
+
+                op_hit = "op=" + spec["route_label"]
+                op_hit_log = os.environ["PYTORCH_VULKAN_OP_HIT_LOG"]
+
+                def read_op_hit_log():
+                    if not os.path.exists(op_hit_log):
+                        return ""
+                    with open(op_hit_log, encoding="utf-8") as log_file:
+                        return log_file.read()
+
+                def make_input(case):
+                    if "source_shape" in case:
+                        source_cpu = torch.randn(
+                            *case["source_shape"],
+                            dtype=torch.float32,
+                        )
+                        input_cpu = source_cpu.permute(*case["input_permute"])
+                        source_vulkan = source_cpu.to("vulkan")
+                        input_vulkan = source_vulkan.permute(*case["input_permute"])
+                    else:
+                        input_cpu = torch.randn(
+                            *case["input_shape"],
+                            dtype=torch.float32,
+                        )
+                        input_vulkan = input_cpu.to("vulkan")
+                    assert list(input_cpu.shape) == case["input_shape"], case
+                    assert list(input_cpu.stride()) == case["input_stride"], case
+                    return input_cpu, input_vulkan
+
+                def run_case(case, expect_native_route):
+                    if os.path.exists(op_hit_log):
+                        os.remove(op_hit_log)
+                    torch.manual_seed(5500 + len(case["name"]))
+                    input_cpu = None
+                    try:
+                        input_cpu, input_vulkan = make_input(case)
+                        expected = torch.as_strided(
+                            input_cpu,
+                            case["output_shape"],
+                            case["output_stride"],
+                            storage_offset=case["storage_offset"],
+                        )
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual_vulkan = torch.ops.aten._reshape_alias.default(
+                            input_vulkan,
+                            case["output_shape"],
+                            case["output_stride"],
+                        )
+                        actual = actual_vulkan.cpu()
+                    except RuntimeError:
+                        assert not expect_native_route, case
+                        assert op_hit not in read_op_hit_log(), (
+                            case,
+                            read_op_hit_log(),
+                        )
+                        return
+
+                    torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+                    op_hit_text = read_op_hit_log()
+                    if expect_native_route:
+                        assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0, (
+                            case,
+                            op_hit_text,
+                        )
+                        assert op_hit in op_hit_text, (case, op_hit_text)
+                    else:
+                        assert op_hit not in op_hit_text, (case, op_hit_text)
+
+                for _, case, expect_native_route in (
+                    contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+                ):
+                    run_case(case, expect_native_route)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                error_prefix="Safe reshape_alias generated contract spec failed.",
                 extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
             )
         finally:

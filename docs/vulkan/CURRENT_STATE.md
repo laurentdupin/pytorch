@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-11 at local HEAD
-`c059769a18e58e317a0486e6dba1dad2cc4fecf0`.
+`279d307a8d57b3c880530f5e1fd7613547f814ad`.
 
 ## Repo State Summary
 
@@ -160,12 +160,12 @@ These files are diagnostic inputs. Production code must not depend on
 - `BatchNormInferenceContract`: float32 4D inference batch norm, including the
   materialized-buffer layout transition used by current OCR evidence.
 - `SafeViewReshapeContract`: finite dense direct-buffer view and reshape-alias
-  contract, now split into a family-specific source. The
-  `ViewMaterializedDirectBuffer` slice has a JSON contract spec with
-  ShapeEnvelope-generated legal and adjacent-negative runtime coverage for the
-  materialized `aten::view` path. `_reshape_alias` remains pre-ShapeEnvelope;
-  keep alias, dense materialization, storage-offset, and provenance rules
-  documented separately.
+  contract, now split into a family-specific source. Both direct-buffer slices
+  now have JSON contract specs with ShapeEnvelope-generated legal and
+  adjacent-negative runtime coverage: `ViewMaterializedDirectBuffer` for the
+  materialized `aten::view` path and `ReshapeAliasDenseBufferDirect` for the
+  materialized `aten::_reshape_alias` path. Keep broader view/layout,
+  storage-offset, and provenance rules documented separately.
 - `LinearGeluBridgeContract`: pure legality for the deferred linear/GELU
   bridge; registry, alias, and materialization side effects stay outside the
   contract.
@@ -183,11 +183,12 @@ These files are diagnostic inputs. Production code must not depend on
   validates a shared schema, checks `contract_name`/`family`/`tuple_id` against
   live contract sources, validates any `ShapeEnvelope` v1 blocks present, and
   keeps family-specific shape checks for EmbeddingLookup, ChannelCat,
-  KVCacheAppend, GQARepeat, SDPAScoreSoftmax, and NoOverlapConvTranspose2D.
+  KVCacheAppend, GQARepeat, SDPAScoreSoftmax, NoOverlapConvTranspose2D, and
+  SafeViewReshape.
   Shared helpers in `test/vulkan_contract_specs/contract_spec_utils.py` keep
   generated runtime tests from copying spec loading, case iteration, log
   naming, expected negative handling, and shape-envelope validation. ChannelCat,
-  EmbeddingLookup, and the SafeViewReshape view-materialization slice have
+  EmbeddingLookup, and both SafeViewReshape direct-buffer slices have
   deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
   that must match the checked-in positive and negative cases by semantic key,
   violated axis, adjacent value, and fallback/readback policy. Their runtime

@@ -54,7 +54,8 @@ Current MVP status:
   `Kernel2Stride2FloatBuffer` and `SDPAScoreSoftmaxContract`
   `DiffusionSquareScores`, plus `GQARepeatContract`
   `Batch1Heads4Factor4Sequence100To116Dim128`, plus
-  `SafeViewReshapeContract` `ViewMaterializedDirectBuffer`.
+  `SafeViewReshapeContract` `ViewMaterializedDirectBuffer` and
+  `ReshapeAliasDenseBufferDirect`.
 - `test/vulkan_contract_specs/contract_spec_utils.py` owns shared spec loading,
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,
@@ -62,13 +63,16 @@ Current MVP status:
 - `ShapeEnvelope` v1 now backs the two generated C++ source-of-truth fixtures,
   `ChannelCatContract` `Rank4Dim1BufferView` and `EmbeddingLookupContract`
   `SmallBoundedLookup`, plus the first layout/materialization runtime fixture,
-  `SafeViewReshapeContract` `ViewMaterializedDirectBuffer`. The schema captures
-  symbolic dims, min/max, values, multiples, optional dims, relationships,
-  aggregate bounds, layout and capability requirements, policies, positive
-  cases, adjacent negatives, and fuzz hints for validation and codegen.
+  `SafeViewReshapeContract` `ViewMaterializedDirectBuffer`, and the matching
+  `_reshape_alias` direct-buffer fixture,
+  `SafeViewReshapeContract` `ReshapeAliasDenseBufferDirect`. The schema
+  captures symbolic dims, min/max, values, multiples, optional dims,
+  relationships, aggregate bounds, layout and capability requirements,
+  policies, positive cases, adjacent negatives, and fuzz hints for validation
+  and codegen.
 - Deterministic legal-case and adjacent-negative generation is active for
-  ShapeEnvelope-backed ChannelCat, EmbeddingLookup, and SafeViewReshape view
-  materialization fixtures. The MVP compares generated legal positives and
+  ShapeEnvelope-backed ChannelCat, EmbeddingLookup, and both SafeViewReshape
+  direct-buffer fixtures. The MVP compares generated legal positives and
   negatives against checked-in cases by semantic key, violated axis, adjacent
   value, and expected fallback/readback policy, then the runtime spec tests
   execute the generated cases through shared iterator plumbing. Checked-in

@@ -138,8 +138,10 @@ condition and migration target.
   not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/safe_view_reshape_contract.json`
   covers the `ViewMaterializedDirectBuffer` slice with generated legal and
-  adjacent-negative runtime tests. `_reshape_alias` remains outside this
-  ShapeEnvelope fixture.
+  adjacent-negative runtime tests.
+  `test/vulkan_contract_specs/safe_view_reshape_alias_contract.json` covers the
+  `ReshapeAliasDenseBufferDirect` slice with generated legal and
+  adjacent-negative runtime tests.
 - Expiry: broader view/reshape parity plus adjacent negative coverage are
   available.
 - Migration target: generated `SafeViewReshapeContract` tables with positive

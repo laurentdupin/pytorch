@@ -509,6 +509,19 @@ def _contiguous_strides(sizes):
     return strides
 
 
+def _is_non_overlapping_dense_stride(sizes, strides):
+    if len(sizes) != len(strides):
+        return False
+    dims = [index for index, size in enumerate(sizes) if size > 1]
+    dims.sort(key=lambda index: strides[index])
+    expected_stride = 1
+    for dim in dims:
+        if strides[dim] != expected_stride:
+            return False
+        expected_stride *= sizes[dim]
+    return True
+
+
 def _validate_safe_view_reshape_shape_envelope(file_name, spec, envelope):
     context = f"{file_name} SafeViewReshape ShapeEnvelope"
     _require_equal(
@@ -583,6 +596,117 @@ def _validate_safe_view_reshape_shape_envelope(file_name, spec, envelope):
                 raise AssertionError(f"{case_context} output stride is not contiguous")
 
 
+def _validate_safe_view_reshape_alias_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} SafeViewReshapeAlias ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "SafeViewReshapeContract",
+        f"{context} contract",
+    )
+    _require_equal(
+        spec["family"],
+        "ReshapeAliasDenseBufferDirect",
+        f"{context} family",
+    )
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    inputs = envelope["inputs"]
+    require_fields(inputs, ("input", "output"), f"{context} inputs")
+    input_spec = inputs["input"]
+    bounds = envelope["bounds"]
+    _require_equal(
+        _single_value(input_spec["dtype"], f"{context} input dtype"),
+        bounds["input_dtype"],
+        f"{context} input dtype",
+    )
+    _require_equal(
+        input_spec["rank"],
+        bounds["input_rank"],
+        f"{context} input rank",
+    )
+    _require_equal(
+        inputs["output"]["rank"],
+        bounds["output_rank"],
+        f"{context} output rank",
+    )
+
+    attributes = envelope["attributes"]
+    _require_equal(
+        _single_value(attributes["storage_offset"], f"{context} storage offset"),
+        bounds["storage_offset"],
+        f"{context} storage offset",
+    )
+    _require_equal(
+        _single_value(attributes["input_stride_policy"], f"{context} input stride"),
+        bounds["input_stride"],
+        f"{context} input stride",
+    )
+    _require_equal(
+        _single_value(attributes["output_stride_policy"], f"{context} output stride"),
+        bounds["output_stride"],
+        f"{context} output stride",
+    )
+    _require_equal(
+        _single_value(
+            attributes["output_last_dim_multiple_of"],
+            f"{context} output last dim multiple",
+        ),
+        bounds["output_last_dim_multiple_of"],
+        f"{context} output last dim multiple",
+    )
+
+    relationships = _relationship_types(envelope)
+    if "product" not in relationships or "equal" not in relationships:
+        raise AssertionError(f"{context} missing product/equal relationship")
+    _require_equal(
+        envelope["layout"]["requires_vulkan"],
+        bounds["requires_vulkan"],
+        f"{context} requires_vulkan",
+    )
+    _require_equal(
+        envelope["layout"]["input_storage"],
+        bounds["input_storage"],
+        f"{context} input storage",
+    )
+    _require_equal(
+        envelope["layout"]["output_storage"],
+        "materialized_direct_buffer",
+        f"{context} output storage",
+    )
+
+    for section in ("positive_cases", "negative_cases"):
+        for case in spec[section]:
+            case_context = f"{context} {section} {case['name']}"
+            if _product(case["input_shape"]) != _product(case["output_shape"]):
+                raise AssertionError(f"{case_context} product mismatch")
+            if not _is_non_overlapping_dense_stride(
+                case["input_shape"],
+                case["input_stride"],
+            ):
+                raise AssertionError(
+                    f"{case_context} input stride is not non-overlapping dense"
+                )
+            output_stride_is_dense = _is_non_overlapping_dense_stride(
+                case["output_shape"],
+                case["output_stride"],
+            )
+            if case.get("violates") == "output_stride_policy":
+                if output_stride_is_dense:
+                    raise AssertionError(
+                        f"{case_context} output stride unexpectedly dense"
+                    )
+            elif not output_stride_is_dense:
+                raise AssertionError(
+                    f"{case_context} output stride is not non-overlapping dense"
+                )
+            if (
+                case.get("violates") != "output_last_dim_multiple_of" and
+                case["output_shape"] and
+                case["output_shape"][-1] % bounds["output_last_dim_multiple_of"] != 0
+            ):
+                raise AssertionError(f"{case_context} output last dim is unaligned")
+
+
 def validate_shape_envelope_spec(file_name, spec):
     envelope = spec.get("shape_envelope")
     if envelope is None:
@@ -595,6 +719,8 @@ def validate_shape_envelope_spec(file_name, spec):
         _validate_embedding_lookup_shape_envelope(file_name, spec, envelope)
     elif role == "safe_view_materialized_direct_buffer":
         _validate_safe_view_reshape_shape_envelope(file_name, spec, envelope)
+    elif role == "safe_reshape_alias_dense_buffer_direct":
+        _validate_safe_view_reshape_alias_shape_envelope(file_name, spec, envelope)
     else:
         raise AssertionError(f"{file_name} unsupported ShapeEnvelope role {role!r}")
     return envelope
@@ -988,6 +1114,121 @@ def _generated_safe_view_reshape_adjacent_negative_cases(spec):
     return cases
 
 
+def _safe_view_reshape_alias_case(
+    name,
+    input_shape,
+    input_stride,
+    output_shape,
+    output_stride,
+    storage_offset=0,
+    source_shape=None,
+    input_permute=None,
+    violates=None,
+):
+    case = {
+        "name": name,
+        "input_shape": input_shape,
+        "input_stride": input_stride,
+        "output_shape": output_shape,
+        "output_stride": output_stride,
+        "storage_offset": storage_offset,
+    }
+    if source_shape is not None:
+        case["source_shape"] = source_shape
+    if input_permute is not None:
+        case["input_permute"] = input_permute
+    if violates is not None:
+        case["violates"] = violates
+        case["expected_native_route"] = False
+    return case
+
+
+def _safe_view_reshape_alias_lotus_case(name, channels, height, width):
+    source_shape = [1, channels, height, width]
+    source_stride = _contiguous_strides(source_shape)
+    input_permute = [0, 2, 3, 1]
+    input_shape = [source_shape[index] for index in input_permute]
+    input_stride = [source_stride[index] for index in input_permute]
+    output_shape = [1, height * width, channels]
+    output_stride = [height * width * channels, 1, height * width]
+    return _safe_view_reshape_alias_case(
+        name,
+        input_shape,
+        input_stride,
+        output_shape,
+        output_stride,
+        source_shape=source_shape,
+        input_permute=input_permute,
+    )
+
+
+def _generated_safe_view_reshape_alias_legal_cases(spec):
+    cases = []
+    for hint in spec["shape_envelope"]["fuzz_hints"]["lotus_cases"]:
+        channels = hint["channels"]
+        height = hint["height"]
+        width = hint["width"]
+        cases.append(
+            _safe_view_reshape_alias_lotus_case(
+                f"generated_lotus_alias_{channels}_{height}_{width}",
+                channels,
+                height,
+                width,
+            )
+        )
+    return cases
+
+
+def _generated_safe_view_reshape_alias_adjacent_negative_cases(spec):
+    axes = _shape_envelope_negative_axis_by_name(spec["shape_envelope"])
+    cases = []
+    if "input_rank.max" in axes:
+        cases.append(
+            _safe_view_reshape_alias_case(
+                "generated_input_rank_max",
+                [1, 1, 1, 1, 16],
+                [16, 16, 16, 16, 1],
+                [1, 4, 4],
+                [16, 1, 4],
+                violates="input_rank.max",
+            )
+        )
+    if "output_rank.max" in axes:
+        cases.append(
+            _safe_view_reshape_alias_case(
+                "generated_output_rank_max",
+                [16],
+                [1],
+                [1, 1, 1, 1, 4, 4],
+                [16, 16, 16, 16, 1, 4],
+                violates="output_rank.max",
+            )
+        )
+    if "output_last_dim_multiple_of" in axes:
+        cases.append(
+            _safe_view_reshape_alias_case(
+                "generated_output_last_dim_multiple_of",
+                [1, 12, 1, 1],
+                [12, 1, 1, 1],
+                [1, 4, 3],
+                [12, 1, 4],
+                violates="output_last_dim_multiple_of",
+            )
+        )
+    if "output_stride_policy" in axes:
+        cases.append(
+            _safe_view_reshape_alias_case(
+                "generated_output_stride_policy",
+                [1, 16, 1, 1],
+                [16, 1, 1, 1],
+                [1, 4, 4],
+                [16, 1, 1],
+                violates="output_stride_policy",
+            )
+        )
+    return cases
+
+
 def generated_shape_envelope_legal_cases(spec):
     envelope = spec.get("shape_envelope")
     if envelope is None:
@@ -999,6 +1240,8 @@ def generated_shape_envelope_legal_cases(spec):
         return _generated_embedding_lookup_legal_cases(spec)
     if role == "safe_view_materialized_direct_buffer":
         return _generated_safe_view_reshape_legal_cases(spec)
+    if role == "safe_reshape_alias_dense_buffer_direct":
+        return _generated_safe_view_reshape_alias_legal_cases(spec)
     raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
 
 
@@ -1013,6 +1256,8 @@ def generated_shape_envelope_adjacent_negative_cases(spec):
         return _generated_embedding_lookup_adjacent_negative_cases(spec)
     if role == "safe_view_materialized_direct_buffer":
         return _generated_safe_view_reshape_adjacent_negative_cases(spec)
+    if role == "safe_reshape_alias_dense_buffer_direct":
+        return _generated_safe_view_reshape_alias_adjacent_negative_cases(spec)
     raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
 
 
@@ -1110,6 +1355,28 @@ def _safe_view_reshape_adjacent_negative_key(case):
     )
 
 
+def _safe_view_reshape_alias_legal_key(case):
+    return (
+        tuple(case["input_shape"]),
+        tuple(case["input_stride"]),
+        tuple(case["output_shape"]),
+        tuple(case["output_stride"]),
+        case["storage_offset"],
+    )
+
+
+def _safe_view_reshape_alias_adjacent_negative_key(case):
+    return (
+        case["violates"],
+        tuple(case["input_shape"]),
+        tuple(case["input_stride"]),
+        tuple(case["output_shape"]),
+        tuple(case["output_stride"]),
+        case["storage_offset"],
+        case["expected_native_route"],
+    )
+
+
 def _legal_case_key(spec, case):
     role = spec["shape_envelope"]["role"]
     if role == "multi_input_rank4_channel_cat":
@@ -1118,6 +1385,8 @@ def _legal_case_key(spec, case):
         return _embedding_lookup_legal_key(case)
     if role == "safe_view_materialized_direct_buffer":
         return _safe_view_reshape_legal_key(case)
+    if role == "safe_reshape_alias_dense_buffer_direct":
+        return _safe_view_reshape_alias_legal_key(case)
     raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
 
 
@@ -1129,6 +1398,8 @@ def _adjacent_negative_key(spec, case):
         return _embedding_lookup_adjacent_negative_key(case)
     if role == "safe_view_materialized_direct_buffer":
         return _safe_view_reshape_adjacent_negative_key(case)
+    if role == "safe_reshape_alias_dense_buffer_direct":
+        return _safe_view_reshape_alias_adjacent_negative_key(case)
     raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
 
 
