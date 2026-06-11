@@ -60,6 +60,10 @@ Current MVP status:
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,
   and checks fixture metadata against live contract sources.
+- ShapeEnvelope role handling now goes through a small
+  `SHAPE_ENVELOPE_ROLE_REGISTRY` with generic case-key fields and temporary
+  runtime-case adapters, preserving current generated case counts while
+  avoiding another open-coded role/key dispatch table.
 - `ShapeEnvelope` v1 now backs the two generated C++ source-of-truth fixtures,
   `ChannelCatContract` `Rank4Dim1BufferView` and `EmbeddingLookupContract`
   `SmallBoundedLookup`, plus the first layout/materialization runtime fixture,

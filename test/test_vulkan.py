@@ -518,6 +518,41 @@ class TestVulkanGovernance(TestCase):
                 )
             )
 
+    def test_vulkan_shape_envelope_uses_role_registry_key_fields(self):
+        registry = contract_spec_utils.shape_envelope_role_registry()
+        self.assertEqual(
+            set(registry),
+            {
+                "multi_input_rank4_channel_cat",
+                "embedding_lookup_small_bounded",
+                "safe_reshape_alias_dense_buffer_direct",
+                "safe_view_materialized_direct_buffer",
+            },
+        )
+        for adapter in registry.values():
+            for callable_field in (
+                "validate",
+                "legal_cases",
+                "adjacent_negative_cases",
+            ):
+                self.assertTrue(callable(adapter[callable_field]))
+            for key_field in ("legal_key_fields", "adjacent_negative_key_fields"):
+                self.assertGreater(len(adapter[key_field]), 0)
+                self.assertFalse(
+                    any(callable(field) for field in adapter[key_field])
+                )
+
+        source = self._repo_text(
+            "test",
+            "vulkan_contract_specs",
+            "contract_spec_utils.py",
+        )
+        self.assertIn("SHAPE_ENVELOPE_ROLE_REGISTRY", source)
+        self.assertIn("_shape_envelope_case_key", source)
+        self.assertNotIn("def _channel_cat_legal_key", source)
+        self.assertNotIn("def _embedding_lookup_legal_key", source)
+        self.assertNotIn("def _safe_view_reshape_legal_key", source)
+
     def test_vulkan_contract_spec_utility_cli_summary(self):
         result = subprocess.run(
             [

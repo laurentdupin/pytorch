@@ -253,9 +253,34 @@ def _relationship_types(envelope):
     return {relationship["type"] for relationship in envelope["relationships"]}
 
 
-def _single_value(field, context):
+def _shape_envelope_rank_constraint(input_spec, context):
+    if "rank" not in input_spec:
+        raise AssertionError(f"{context} missing rank constraint")
+    return input_spec["rank"]
+
+
+def _shape_envelope_value_set(field, context):
     values = field.get("values")
     _require_list(values, f"{context}.values")
+    return values
+
+
+def _shape_envelope_numeric_bound(field, bound_name, context):
+    if bound_name not in field:
+        raise AssertionError(f"{context} missing {bound_name}")
+    _require_int(field[bound_name], f"{context}.{bound_name}")
+    return field[bound_name]
+
+
+def _shape_envelope_multiple_of(field, context):
+    if "multiple_of" not in field:
+        raise AssertionError(f"{context} missing multiple_of")
+    _require_int(field["multiple_of"], f"{context}.multiple_of")
+    return field["multiple_of"]
+
+
+def _single_value(field, context):
+    values = _shape_envelope_value_set(field, context)
     if len(values) != 1:
         raise AssertionError(f"{context}.values must contain one value")
     return values[0]
@@ -269,6 +294,80 @@ def _dims_by_symbol(input_spec, context):
             raise AssertionError(f"{context} duplicate dim symbol {symbol}")
         dims[symbol] = dim
     return dims
+
+
+def _shape_envelope_negative_axes(envelope):
+    axes = {}
+    for axis in envelope["negative_axes"]:
+        violates = axis["violates"]
+        if violates in axes:
+            raise AssertionError(f"duplicate ShapeEnvelope negative axis {violates}")
+        axes[violates] = axis
+    return axes
+
+
+_MISSING_CASE_FIELD = object()
+
+
+def _canonical_case_value(value):
+    if isinstance(value, list):
+        return tuple(_canonical_case_value(item) for item in value)
+    if isinstance(value, dict):
+        return tuple(
+            (key, _canonical_case_value(child))
+            for key, child in sorted(value.items())
+        )
+    return value
+
+
+def _shape_envelope_derived_case_value(case, field):
+    if "by_violates" in field:
+        violates = case["violates"]
+        if violates not in field["by_violates"]:
+            raise AssertionError(
+                f"case {case['name']} has unsupported violated axis {violates}"
+            )
+        return _shape_envelope_derived_case_value(
+            case,
+            field["by_violates"][violates],
+        )
+
+    op = field["op"]
+    source = case[field["field"]]
+    if op == "field":
+        return source
+    if op == "len":
+        return len(source)
+    if op == "product":
+        return _product(source)
+    if op == "shape_dim":
+        return source[field.get("index", 0)][field["dim"]]
+    if op == "sum_shape_dim":
+        return sum(shape[field["dim"]] for shape in source)
+    raise AssertionError(f"unsupported ShapeEnvelope case key op {op!r}")
+
+
+def _shape_envelope_case_key(case, fields):
+    key = []
+    for field in fields:
+        if isinstance(field, tuple):
+            field_name, default = field
+        elif isinstance(field, dict):
+            key.append(_canonical_case_value(
+                _shape_envelope_derived_case_value(case, field)
+            ))
+            continue
+        else:
+            field_name = field
+            default = _MISSING_CASE_FIELD
+        if field_name in case:
+            value = case[field_name]
+        elif default is not _MISSING_CASE_FIELD:
+            value = default
+        else:
+            raise AssertionError(f"case {case['name']} missing field {field_name}")
+        key.append(_canonical_case_value(value))
+    return tuple(key)
 
 
 def _validate_shape_envelope_common(file_name, spec, envelope):
@@ -713,27 +812,12 @@ def validate_shape_envelope_spec(file_name, spec):
         return None
     _validate_shape_envelope_common(file_name, spec, envelope)
     role = envelope["role"]
-    if role == "multi_input_rank4_channel_cat":
-        _validate_channel_cat_shape_envelope(file_name, spec, envelope)
-    elif role == "embedding_lookup_small_bounded":
-        _validate_embedding_lookup_shape_envelope(file_name, spec, envelope)
-    elif role == "safe_view_materialized_direct_buffer":
-        _validate_safe_view_reshape_shape_envelope(file_name, spec, envelope)
-    elif role == "safe_reshape_alias_dense_buffer_direct":
-        _validate_safe_view_reshape_alias_shape_envelope(file_name, spec, envelope)
-    else:
-        raise AssertionError(f"{file_name} unsupported ShapeEnvelope role {role!r}")
+    _shape_envelope_role_adapter(role, file_name)["validate"](
+        file_name,
+        spec,
+        envelope,
+    )
     return envelope
-
-
-def _shape_envelope_negative_axis_by_name(envelope):
-    axes = {}
-    for axis in envelope["negative_axes"]:
-        violates = axis["violates"]
-        if violates in axes:
-            raise AssertionError(f"duplicate ShapeEnvelope negative axis {violates}")
-        axes[violates] = axis
-    return axes
 
 
 def _channel_cat_base_shape(bounds):
@@ -828,7 +912,7 @@ def _generated_channel_cat_legal_cases(spec):
 def _generated_channel_cat_adjacent_negative_cases(spec):
     envelope = spec["shape_envelope"]
     bounds = envelope["bounds"]
-    axes = _shape_envelope_negative_axis_by_name(envelope)
+    axes = _shape_envelope_negative_axes(envelope)
     base_shape = _channel_cat_base_shape(bounds)
     base_input_count = bounds["input_count"]["min"]
     cases = []
@@ -979,7 +1063,7 @@ def _generated_embedding_lookup_legal_cases(spec):
 def _generated_embedding_lookup_adjacent_negative_cases(spec):
     envelope = spec["shape_envelope"]
     bounds = envelope["bounds"]
-    axes = _shape_envelope_negative_axis_by_name(envelope)
+    axes = _shape_envelope_negative_axes(envelope)
     cases = []
 
     def add_case(
@@ -1082,7 +1166,7 @@ def _generated_safe_view_reshape_legal_cases(spec):
 
 
 def _generated_safe_view_reshape_adjacent_negative_cases(spec):
-    axes = _shape_envelope_negative_axis_by_name(spec["shape_envelope"])
+    axes = _shape_envelope_negative_axes(spec["shape_envelope"])
     cases = []
     if "input_rank.max" in axes:
         cases.append(
@@ -1180,7 +1264,7 @@ def _generated_safe_view_reshape_alias_legal_cases(spec):
 
 
 def _generated_safe_view_reshape_alias_adjacent_negative_cases(spec):
-    axes = _shape_envelope_negative_axis_by_name(spec["shape_envelope"])
+    axes = _shape_envelope_negative_axes(spec["shape_envelope"])
     cases = []
     if "input_rank.max" in axes:
         cases.append(
@@ -1229,38 +1313,6 @@ def _generated_safe_view_reshape_alias_adjacent_negative_cases(spec):
     return cases
 
 
-def generated_shape_envelope_legal_cases(spec):
-    envelope = spec.get("shape_envelope")
-    if envelope is None:
-        return []
-    role = envelope["role"]
-    if role == "multi_input_rank4_channel_cat":
-        return _generated_channel_cat_legal_cases(spec)
-    if role == "embedding_lookup_small_bounded":
-        return _generated_embedding_lookup_legal_cases(spec)
-    if role == "safe_view_materialized_direct_buffer":
-        return _generated_safe_view_reshape_legal_cases(spec)
-    if role == "safe_reshape_alias_dense_buffer_direct":
-        return _generated_safe_view_reshape_alias_legal_cases(spec)
-    raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
-
-
-def generated_shape_envelope_adjacent_negative_cases(spec):
-    envelope = spec.get("shape_envelope")
-    if envelope is None:
-        return []
-    role = envelope["role"]
-    if role == "multi_input_rank4_channel_cat":
-        return _generated_channel_cat_adjacent_negative_cases(spec)
-    if role == "embedding_lookup_small_bounded":
-        return _generated_embedding_lookup_adjacent_negative_cases(spec)
-    if role == "safe_view_materialized_direct_buffer":
-        return _generated_safe_view_reshape_adjacent_negative_cases(spec)
-    if role == "safe_reshape_alias_dense_buffer_direct":
-        return _generated_safe_view_reshape_alias_adjacent_negative_cases(spec)
-    raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
-
-
 def _product(values):
     result = 1
     for value in values:
@@ -1268,139 +1320,177 @@ def _product(values):
     return result
 
 
-def _channel_cat_legal_key(case):
-    input_shapes = [tuple(shape) for shape in case["input_shapes"]]
-    total_channels = sum(shape[1] for shape in case["input_shapes"])
-    return (
-        len(case["input_shapes"]),
-        case["dim"],
-        tuple(input_shapes),
-        total_channels,
-    )
+SHAPE_ENVELOPE_ROLE_REGISTRY = {
+    "multi_input_rank4_channel_cat": {
+        "validate": _validate_channel_cat_shape_envelope,
+        "legal_cases": _generated_channel_cat_legal_cases,
+        "adjacent_negative_cases": _generated_channel_cat_adjacent_negative_cases,
+        "legal_key_fields": (
+            "input_shapes",
+            "dim",
+        ),
+        "adjacent_negative_key_fields": (
+            "violates",
+            {
+                "by_violates": {
+                    "input_count": {
+                        "op": "len",
+                        "field": "input_shapes",
+                    },
+                    "channels.multiple_of": {
+                        "op": "shape_dim",
+                        "field": "input_shapes",
+                        "dim": 1,
+                    },
+                    "channels.max_per_input": {
+                        "op": "shape_dim",
+                        "field": "input_shapes",
+                        "dim": 1,
+                    },
+                    "channels.max_total": {
+                        "op": "sum_shape_dim",
+                        "field": "input_shapes",
+                        "dim": 1,
+                    },
+                    "height.max": {
+                        "op": "shape_dim",
+                        "field": "input_shapes",
+                        "dim": 2,
+                    },
+                    "width.max": {
+                        "op": "shape_dim",
+                        "field": "input_shapes",
+                        "dim": 3,
+                    },
+                    "dim": {
+                        "op": "field",
+                        "field": "dim",
+                    },
+                }
+            },
+            "expected_native_route",
+            "expected_cpu_fallback",
+        ),
+    },
+    "embedding_lookup_small_bounded": {
+        "validate": _validate_embedding_lookup_shape_envelope,
+        "legal_cases": _generated_embedding_lookup_legal_cases,
+        "adjacent_negative_cases": _generated_embedding_lookup_adjacent_negative_cases,
+        "legal_key_fields": (
+            "num_embeddings",
+            "embedding_dim",
+            "indices_shape",
+            "indices_dtype",
+            "padding_idx",
+            ("scale_grad_by_freq", False),
+            ("sparse", False),
+        ),
+        "adjacent_negative_key_fields": (
+            "violates",
+            {
+                "by_violates": {
+                    "num_indices": {
+                        "op": "product",
+                        "field": "indices_shape",
+                    },
+                    "embedding_dim": {
+                        "op": "field",
+                        "field": "embedding_dim",
+                    },
+                    "num_embeddings": {
+                        "op": "field",
+                        "field": "num_embeddings",
+                    },
+                    "indices_dtype": {
+                        "op": "field",
+                        "field": "indices_dtype",
+                    },
+                }
+            },
+            "expected_native_route",
+            "expected_sync_readback",
+        ),
+    },
+    "safe_view_materialized_direct_buffer": {
+        "validate": _validate_safe_view_reshape_shape_envelope,
+        "legal_cases": _generated_safe_view_reshape_legal_cases,
+        "adjacent_negative_cases": _generated_safe_view_reshape_adjacent_negative_cases,
+        "legal_key_fields": (
+            "input_shape",
+            "output_shape",
+            "output_stride",
+            "storage_offset",
+        ),
+        "adjacent_negative_key_fields": (
+            "violates",
+            "input_shape",
+            "output_shape",
+            "output_stride",
+            "storage_offset",
+            "expected_native_route",
+        ),
+    },
+    "safe_reshape_alias_dense_buffer_direct": {
+        "validate": _validate_safe_view_reshape_alias_shape_envelope,
+        "legal_cases": _generated_safe_view_reshape_alias_legal_cases,
+        "adjacent_negative_cases": (
+            _generated_safe_view_reshape_alias_adjacent_negative_cases
+        ),
+        "legal_key_fields": (
+            "input_shape",
+            "input_stride",
+            "output_shape",
+            "output_stride",
+            "storage_offset",
+        ),
+        "adjacent_negative_key_fields": (
+            "violates",
+            "input_shape",
+            "input_stride",
+            "output_shape",
+            "output_stride",
+            "storage_offset",
+            "expected_native_route",
+        ),
+    },
+}
 
 
-def _channel_cat_adjacent_negative_key(case):
-    violates = case["violates"]
-    if violates == "input_count":
-        value = len(case["input_shapes"])
-    elif violates in ("channels.multiple_of", "channels.max_per_input"):
-        value = case["input_shapes"][0][1]
-    elif violates == "channels.max_total":
-        value = sum(shape[1] for shape in case["input_shapes"])
-    elif violates == "height.max":
-        value = case["input_shapes"][0][2]
-    elif violates == "width.max":
-        value = case["input_shapes"][0][3]
-    elif violates == "dim":
-        value = case["dim"]
-    else:
-        raise AssertionError(f"unsupported ChannelCat negative axis {violates}")
-    return (
-        violates,
-        value,
-        case["expected_native_route"],
-        case.get("expected_cpu_fallback"),
-    )
+def shape_envelope_role_registry():
+    return SHAPE_ENVELOPE_ROLE_REGISTRY
 
 
-def _embedding_lookup_legal_key(case):
-    return (
-        case["num_embeddings"],
-        case["embedding_dim"],
-        tuple(case["indices_shape"]),
-        case["indices_dtype"],
-        case["padding_idx"],
-        case.get("scale_grad_by_freq", False),
-        case.get("sparse", False),
-    )
+def _shape_envelope_role_adapter(role, file_name=None):
+    if role in SHAPE_ENVELOPE_ROLE_REGISTRY:
+        return SHAPE_ENVELOPE_ROLE_REGISTRY[role]
+    context = file_name if file_name is not None else "ShapeEnvelope"
+    raise AssertionError(f"{context} unsupported ShapeEnvelope role {role!r}")
 
 
-def _embedding_lookup_adjacent_negative_key(case):
-    violates = case["violates"]
-    if violates == "num_indices":
-        value = _product(case["indices_shape"])
-    elif violates == "embedding_dim":
-        value = case["embedding_dim"]
-    elif violates == "num_embeddings":
-        value = case["num_embeddings"]
-    elif violates == "indices_dtype":
-        value = case["indices_dtype"]
-    else:
-        raise AssertionError(f"unsupported EmbeddingLookup negative axis {violates}")
-    return (
-        violates,
-        value,
-        case["expected_native_route"],
-        case.get("expected_sync_readback"),
-    )
+def generated_shape_envelope_legal_cases(spec):
+    envelope = spec.get("shape_envelope")
+    if envelope is None:
+        return []
+    return _shape_envelope_role_adapter(envelope["role"])["legal_cases"](spec)
 
 
-def _safe_view_reshape_legal_key(case):
-    return (
-        tuple(case["input_shape"]),
-        tuple(case["output_shape"]),
-        tuple(case["output_stride"]),
-        case["storage_offset"],
-    )
-
-
-def _safe_view_reshape_adjacent_negative_key(case):
-    return (
-        case["violates"],
-        tuple(case["input_shape"]),
-        tuple(case["output_shape"]),
-        tuple(case["output_stride"]),
-        case["storage_offset"],
-        case["expected_native_route"],
-    )
-
-
-def _safe_view_reshape_alias_legal_key(case):
-    return (
-        tuple(case["input_shape"]),
-        tuple(case["input_stride"]),
-        tuple(case["output_shape"]),
-        tuple(case["output_stride"]),
-        case["storage_offset"],
-    )
-
-
-def _safe_view_reshape_alias_adjacent_negative_key(case):
-    return (
-        case["violates"],
-        tuple(case["input_shape"]),
-        tuple(case["input_stride"]),
-        tuple(case["output_shape"]),
-        tuple(case["output_stride"]),
-        case["storage_offset"],
-        case["expected_native_route"],
-    )
+def generated_shape_envelope_adjacent_negative_cases(spec):
+    envelope = spec.get("shape_envelope")
+    if envelope is None:
+        return []
+    return _shape_envelope_role_adapter(envelope["role"])[
+        "adjacent_negative_cases"
+    ](spec)
 
 
 def _legal_case_key(spec, case):
-    role = spec["shape_envelope"]["role"]
-    if role == "multi_input_rank4_channel_cat":
-        return _channel_cat_legal_key(case)
-    if role == "embedding_lookup_small_bounded":
-        return _embedding_lookup_legal_key(case)
-    if role == "safe_view_materialized_direct_buffer":
-        return _safe_view_reshape_legal_key(case)
-    if role == "safe_reshape_alias_dense_buffer_direct":
-        return _safe_view_reshape_alias_legal_key(case)
-    raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
+    adapter = _shape_envelope_role_adapter(spec["shape_envelope"]["role"])
+    return _shape_envelope_case_key(case, adapter["legal_key_fields"])
 
 
 def _adjacent_negative_key(spec, case):
-    role = spec["shape_envelope"]["role"]
-    if role == "multi_input_rank4_channel_cat":
-        return _channel_cat_adjacent_negative_key(case)
-    if role == "embedding_lookup_small_bounded":
-        return _embedding_lookup_adjacent_negative_key(case)
-    if role == "safe_view_materialized_direct_buffer":
-        return _safe_view_reshape_adjacent_negative_key(case)
-    if role == "safe_reshape_alias_dense_buffer_direct":
-        return _safe_view_reshape_alias_adjacent_negative_key(case)
-    raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
+    adapter = _shape_envelope_role_adapter(spec["shape_envelope"]["role"])
+    return _shape_envelope_case_key(case, adapter["adjacent_negative_key_fields"])
 
 
 def validate_generated_shape_envelope_legal_cases(file_name, spec):
