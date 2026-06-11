@@ -136,6 +136,10 @@ condition and migration target.
 - Reason: dense direct-buffer `view` and `_reshape_alias` materialization is
   proven for the current guarded envelope, but broader view/layout behavior is
   not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/safe_view_reshape_contract.json`
+  covers the `ViewMaterializedDirectBuffer` slice with generated legal and
+  adjacent-negative runtime tests. `_reshape_alias` remains outside this
+  ShapeEnvelope fixture.
 - Expiry: broader view/reshape parity plus adjacent negative coverage are
   available.
 - Migration target: generated `SafeViewReshapeContract` tables with positive

@@ -500,6 +500,89 @@ def _validate_embedding_lookup_shape_envelope(file_name, spec, envelope):
     )
 
 
+def _contiguous_strides(sizes):
+    stride = 1
+    strides = []
+    for size in reversed(sizes):
+        strides.insert(0, stride)
+        stride *= size
+    return strides
+
+
+def _validate_safe_view_reshape_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} SafeViewReshape ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "SafeViewReshapeContract",
+        f"{context} contract",
+    )
+    _require_equal(
+        spec["family"],
+        "ViewMaterializedDirectBuffer",
+        f"{context} family",
+    )
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    inputs = envelope["inputs"]
+    require_fields(inputs, ("input", "output"), f"{context} inputs")
+    bounds = envelope["bounds"]
+    _require_equal(
+        inputs["input"]["rank"],
+        bounds["input_rank"],
+        f"{context} input rank",
+    )
+    _require_equal(
+        inputs["output"]["rank"],
+        bounds["output_rank"],
+        f"{context} output rank",
+    )
+
+    attributes = envelope["attributes"]
+    _require_equal(
+        _single_value(attributes["storage_offset"], f"{context} storage offset"),
+        bounds["storage_offset"],
+        f"{context} storage offset",
+    )
+    _require_equal(
+        _single_value(
+            attributes["output_stride_policy"],
+            f"{context} output stride policy",
+        ),
+        bounds["output_stride"],
+        f"{context} output stride policy",
+    )
+    _require_equal(
+        _single_value(
+            attributes["output_last_dim_multiple_of"],
+            f"{context} output last dim multiple",
+        ),
+        bounds["output_last_dim_multiple_of"],
+        f"{context} output last dim multiple",
+    )
+
+    relationships = _relationship_types(envelope)
+    if "product" not in relationships or "equal" not in relationships:
+        raise AssertionError(f"{context} missing product/equal relationship")
+    _require_equal(
+        envelope["layout"]["requires_vulkan"],
+        bounds["requires_vulkan"],
+        f"{context} requires_vulkan",
+    )
+    _require_equal(
+        envelope["layout"]["output_storage"],
+        "materialized_direct_buffer",
+        f"{context} output storage",
+    )
+
+    for section in ("positive_cases", "negative_cases"):
+        for case in spec[section]:
+            case_context = f"{context} {section} {case['name']}"
+            if _product(case["input_shape"]) != _product(case["output_shape"]):
+                raise AssertionError(f"{case_context} product mismatch")
+            if case["output_stride"] != _contiguous_strides(case["output_shape"]):
+                raise AssertionError(f"{case_context} output stride is not contiguous")
+
+
 def validate_shape_envelope_spec(file_name, spec):
     envelope = spec.get("shape_envelope")
     if envelope is None:
@@ -510,6 +593,8 @@ def validate_shape_envelope_spec(file_name, spec):
         _validate_channel_cat_shape_envelope(file_name, spec, envelope)
     elif role == "embedding_lookup_small_bounded":
         _validate_embedding_lookup_shape_envelope(file_name, spec, envelope)
+    elif role == "safe_view_materialized_direct_buffer":
+        _validate_safe_view_reshape_shape_envelope(file_name, spec, envelope)
     else:
         raise AssertionError(f"{file_name} unsupported ShapeEnvelope role {role!r}")
     return envelope
@@ -832,6 +917,77 @@ def _generated_embedding_lookup_adjacent_negative_cases(spec):
     return cases
 
 
+def _safe_view_reshape_case(
+    name,
+    input_shape,
+    output_shape,
+    storage_offset=0,
+    violates=None,
+):
+    case = {
+        "name": name,
+        "input_shape": input_shape,
+        "output_shape": output_shape,
+        "output_stride": _contiguous_strides(output_shape),
+        "storage_offset": storage_offset,
+    }
+    if violates is not None:
+        case["violates"] = violates
+        case["expected_native_route"] = False
+    return case
+
+
+def _generated_safe_view_reshape_legal_cases(spec):
+    envelope = spec["shape_envelope"]
+    hints = envelope["fuzz_hints"]
+    groups = hints["groups"]
+    height, width = hints["spatial"]
+    cases = []
+    for channels in hints["channels"]:
+        output_last_dim = channels * height * width // groups
+        cases.append(
+            _safe_view_reshape_case(
+                f"generated_lotus_view_{channels}_groups{groups}",
+                [1, channels, height, width],
+                [1, groups, output_last_dim],
+            )
+        )
+    return cases
+
+
+def _generated_safe_view_reshape_adjacent_negative_cases(spec):
+    axes = _shape_envelope_negative_axis_by_name(spec["shape_envelope"])
+    cases = []
+    if "input_rank.max" in axes:
+        cases.append(
+            _safe_view_reshape_case(
+                "generated_input_rank_max",
+                [1, 1, 1, 1, 16],
+                [1, 4, 4],
+                violates="input_rank.max",
+            )
+        )
+    if "output_rank.max" in axes:
+        cases.append(
+            _safe_view_reshape_case(
+                "generated_output_rank_max",
+                [16],
+                [1, 1, 1, 1, 4, 4],
+                violates="output_rank.max",
+            )
+        )
+    if "output_last_dim_multiple_of" in axes:
+        cases.append(
+            _safe_view_reshape_case(
+                "generated_output_last_dim_multiple_of",
+                [1, 12, 1, 1],
+                [1, 4, 3],
+                violates="output_last_dim_multiple_of",
+            )
+        )
+    return cases
+
+
 def generated_shape_envelope_legal_cases(spec):
     envelope = spec.get("shape_envelope")
     if envelope is None:
@@ -841,6 +997,8 @@ def generated_shape_envelope_legal_cases(spec):
         return _generated_channel_cat_legal_cases(spec)
     if role == "embedding_lookup_small_bounded":
         return _generated_embedding_lookup_legal_cases(spec)
+    if role == "safe_view_materialized_direct_buffer":
+        return _generated_safe_view_reshape_legal_cases(spec)
     raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
 
 
@@ -853,6 +1011,8 @@ def generated_shape_envelope_adjacent_negative_cases(spec):
         return _generated_channel_cat_adjacent_negative_cases(spec)
     if role == "embedding_lookup_small_bounded":
         return _generated_embedding_lookup_adjacent_negative_cases(spec)
+    if role == "safe_view_materialized_direct_buffer":
+        return _generated_safe_view_reshape_adjacent_negative_cases(spec)
     raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
 
 
@@ -930,12 +1090,34 @@ def _embedding_lookup_adjacent_negative_key(case):
     )
 
 
+def _safe_view_reshape_legal_key(case):
+    return (
+        tuple(case["input_shape"]),
+        tuple(case["output_shape"]),
+        tuple(case["output_stride"]),
+        case["storage_offset"],
+    )
+
+
+def _safe_view_reshape_adjacent_negative_key(case):
+    return (
+        case["violates"],
+        tuple(case["input_shape"]),
+        tuple(case["output_shape"]),
+        tuple(case["output_stride"]),
+        case["storage_offset"],
+        case["expected_native_route"],
+    )
+
+
 def _legal_case_key(spec, case):
     role = spec["shape_envelope"]["role"]
     if role == "multi_input_rank4_channel_cat":
         return _channel_cat_legal_key(case)
     if role == "embedding_lookup_small_bounded":
         return _embedding_lookup_legal_key(case)
+    if role == "safe_view_materialized_direct_buffer":
+        return _safe_view_reshape_legal_key(case)
     raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
 
 
@@ -945,6 +1127,8 @@ def _adjacent_negative_key(spec, case):
         return _channel_cat_adjacent_negative_key(case)
     if role == "embedding_lookup_small_bounded":
         return _embedding_lookup_adjacent_negative_key(case)
+    if role == "safe_view_materialized_direct_buffer":
+        return _safe_view_reshape_adjacent_negative_key(case)
     raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
 
 

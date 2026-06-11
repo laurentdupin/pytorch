@@ -53,24 +53,26 @@ Current MVP status:
   `InitialCache`, plus `NoOverlapConvTranspose2DContract`
   `Kernel2Stride2FloatBuffer` and `SDPAScoreSoftmaxContract`
   `DiffusionSquareScores`, plus `GQARepeatContract`
-  `Batch1Heads4Factor4Sequence100To116Dim128`.
+  `Batch1Heads4Factor4Sequence100To116Dim128`, plus
+  `SafeViewReshapeContract` `ViewMaterializedDirectBuffer`.
 - `test/vulkan_contract_specs/contract_spec_utils.py` owns shared spec loading,
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,
   and checks fixture metadata against live contract sources.
-- `ShapeEnvelope` v1 now backs the two generated C++ source-of-truth fixtures:
+- `ShapeEnvelope` v1 now backs the two generated C++ source-of-truth fixtures,
   `ChannelCatContract` `Rank4Dim1BufferView` and `EmbeddingLookupContract`
-  `SmallBoundedLookup`. The schema captures symbolic dims, min/max, values,
-  multiples, optional dims, relationships, aggregate bounds, layout and
-  capability requirements, policies, positive cases, adjacent negatives, and
-  fuzz hints for validation and codegen.
+  `SmallBoundedLookup`, plus the first layout/materialization runtime fixture,
+  `SafeViewReshapeContract` `ViewMaterializedDirectBuffer`. The schema captures
+  symbolic dims, min/max, values, multiples, optional dims, relationships,
+  aggregate bounds, layout and capability requirements, policies, positive
+  cases, adjacent negatives, and fuzz hints for validation and codegen.
 - Deterministic legal-case and adjacent-negative generation is active for
-  those two ShapeEnvelope-backed fixtures. The MVP compares generated legal
-  positives and negatives against checked-in cases by semantic key, violated
-  axis, adjacent value, and expected fallback/readback policy, then the
-  ChannelCat and EmbeddingLookup runtime spec tests execute the generated
-  cases through shared iterator plumbing. Checked-in cases remain
-  review/parity fixtures.
+  ShapeEnvelope-backed ChannelCat, EmbeddingLookup, and SafeViewReshape view
+  materialization fixtures. The MVP compares generated legal positives and
+  negatives against checked-in cases by semantic key, violated axis, adjacent
+  value, and expected fallback/readback policy, then the runtime spec tests
+  execute the generated cases through shared iterator plumbing. Checked-in
+  cases remain review/parity fixtures.
 - `ChannelCatContract` has the first generated C++ typed-row/helper artifact:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `ExecutionContractsChannelCatSpec.h` from the `ShapeEnvelope` v1 data in

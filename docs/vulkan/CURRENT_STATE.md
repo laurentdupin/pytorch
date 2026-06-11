@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-11 at local HEAD
-`a4d73ef9b7eb001090f89a649fde841aee40192e`.
+`c059769a18e58e317a0486e6dba1dad2cc4fecf0`.
 
 ## Repo State Summary
 
@@ -160,8 +160,12 @@ These files are diagnostic inputs. Production code must not depend on
 - `BatchNormInferenceContract`: float32 4D inference batch norm, including the
   materialized-buffer layout transition used by current OCR evidence.
 - `SafeViewReshapeContract`: finite dense direct-buffer view and reshape-alias
-  contract, now split into a family-specific source; document alias, dense
-  materialization, storage-offset, and provenance rules.
+  contract, now split into a family-specific source. The
+  `ViewMaterializedDirectBuffer` slice has a JSON contract spec with
+  ShapeEnvelope-generated legal and adjacent-negative runtime coverage for the
+  materialized `aten::view` path. `_reshape_alias` remains pre-ShapeEnvelope;
+  keep alias, dense materialization, storage-offset, and provenance rules
+  documented separately.
 - `LinearGeluBridgeContract`: pure legality for the deferred linear/GELU
   bridge; registry, alias, and materialization side effects stay outside the
   contract.
@@ -182,13 +186,14 @@ These files are diagnostic inputs. Production code must not depend on
   KVCacheAppend, GQARepeat, SDPAScoreSoftmax, and NoOverlapConvTranspose2D.
   Shared helpers in `test/vulkan_contract_specs/contract_spec_utils.py` keep
   generated runtime tests from copying spec loading, case iteration, log
-  naming, expected negative handling, and shape-envelope validation. ChannelCat
-  and EmbeddingLookup also have deterministic `ShapeEnvelope` legal-case and
-  adjacent-negative generators that must match the checked-in positive and
-  negative cases by semantic key, violated axis, adjacent value, and
-  fallback/readback policy. Their runtime spec tests now execute generated
-  legal positives and adjacent negatives through shared iterator plumbing while
-  checked-in cases remain review/parity fixtures.
+  naming, expected negative handling, and shape-envelope validation. ChannelCat,
+  EmbeddingLookup, and the SafeViewReshape view-materialization slice have
+  deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
+  that must match the checked-in positive and negative cases by semantic key,
+  violated axis, adjacent value, and fallback/readback policy. Their runtime
+  spec tests now execute generated legal positives and adjacent negatives
+  through shared iterator plumbing while checked-in cases remain review/parity
+  fixtures.
 - ChannelCat has the first source-of-truth C++ table/matcher proof:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` regenerates
   `generated/ExecutionContractsChannelCatSpec.h` from

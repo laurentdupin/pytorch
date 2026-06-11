@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "contract_name": "SafeViewReshapeContract",
+  "family": "ViewMaterializedDirectBuffer",
+  "tuple_id": "materialized_direct_buffer_reshape",
+  "writer_op": "aten::view",
+  "route_label": "aten::view.materialized_direct_buffer_reshape",
+  "metadata": {
+    "evidence_id": "view_direct_buffer_focused_tests",
+    "guard_id": "view_direct_buffer_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "view_materialized_direct_buffer"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "safe_view_materialized_direct_buffer",
+    "inputs": {
+      "input": {
+        "kind": "tensor",
+        "rank": {
+          "min": 0,
+          "max": 4
+        }
+      },
+      "output": {
+        "kind": "shape",
+        "rank": {
+          "min": 0,
+          "max": 5
+        }
+      }
+    },
+    "attributes": {
+      "storage_offset": {
+        "values": [
+          0
+        ]
+      },
+      "output_stride_policy": {
+        "values": [
+          "contiguous"
+        ]
+      },
+      "output_last_dim_multiple_of": {
+        "values": [
+          4
+        ]
+      }
+    },
+    "bounds": {
+      "input_rank": {
+        "min": 0,
+        "max": 4
+      },
+      "output_rank": {
+        "min": 0,
+        "max": 5
+      },
+      "storage_offset": 0,
+      "product_equal": true,
+      "output_stride": "contiguous",
+      "output_last_dim_multiple_of": 4,
+      "requires_vulkan": true
+    },
+    "relationships": [
+      {
+        "type": "product",
+        "input": "input",
+        "dims": "all",
+        "result": "input_numel"
+      },
+      {
+        "type": "product",
+        "input": "output",
+        "dims": "all",
+        "result": "output_numel"
+      },
+      {
+        "type": "equal",
+        "scope": "derived",
+        "fields": [
+          "input_numel",
+          "output_numel"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "output_storage": "materialized_direct_buffer"
+    },
+    "capability_requirements": {},
+    "metadata": {
+      "evidence_id": "view_direct_buffer_focused_tests",
+      "guard_id": "view_direct_buffer_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "view_materialized_direct_buffer"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "view_materialized_direct_buffer"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "input_rank.max",
+        "adjacent": "above_max",
+        "value": 5
+      },
+      {
+        "violates": "output_rank.max",
+        "adjacent": "above_max",
+        "value": 6
+      },
+      {
+        "violates": "output_last_dim_multiple_of",
+        "adjacent": "not_multiple_of",
+        "value": 3
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "input_rank",
+        "output_rank",
+        "output_last_dim"
+      ],
+      "prefer_boundaries": true,
+      "channels": [
+        320,
+        640
+      ],
+      "groups": 32,
+      "spatial": [
+        9,
+        14
+      ]
+    }
+  },
+  "bounds": {
+    "input_rank": {
+      "min": 0,
+      "max": 4
+    },
+    "output_rank": {
+      "min": 0,
+      "max": 5
+    },
+    "storage_offset": 0,
+    "product_equal": true,
+    "output_stride": "contiguous",
+    "output_last_dim_multiple_of": 4,
+    "requires_vulkan": true
+  },
+  "positive_cases": [
+    {
+      "name": "lotus_view_320_groups32",
+      "input_shape": [
+        1,
+        320,
+        9,
+        14
+      ],
+      "output_shape": [
+        1,
+        32,
+        1260
+      ],
+      "output_stride": [
+        40320,
+        1260,
+        1
+      ],
+      "storage_offset": 0
+    },
+    {
+      "name": "lotus_view_640_groups32",
+      "input_shape": [
+        1,
+        640,
+        9,
+        14
+      ],
+      "output_shape": [
+        1,
+        32,
+        2520
+      ],
+      "output_stride": [
+        80640,
+        2520,
+        1
+      ],
+      "storage_offset": 0
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "input_rank_5",
+      "input_shape": [
+        1,
+        1,
+        1,
+        1,
+        16
+      ],
+      "output_shape": [
+        1,
+        4,
+        4
+      ],
+      "output_stride": [
+        16,
+        4,
+        1
+      ],
+      "storage_offset": 0,
+      "violates": "input_rank.max",
+      "expected_native_route": false
+    },
+    {
+      "name": "output_rank_6",
+      "input_shape": [
+        16
+      ],
+      "output_shape": [
+        1,
+        1,
+        1,
+        1,
+        4,
+        4
+      ],
+      "output_stride": [
+        16,
+        16,
+        16,
+        16,
+        4,
+        1
+      ],
+      "storage_offset": 0,
+      "violates": "output_rank.max",
+      "expected_native_route": false
+    },
+    {
+      "name": "output_last_dim_not_multiple_of_4",
+      "input_shape": [
+        1,
+        12,
+        1,
+        1
+      ],
+      "output_shape": [
+        1,
+        4,
+        3
+      ],
+      "output_stride": [
+        12,
+        3,
+        1
+      ],
+      "storage_offset": 0,
+      "violates": "output_last_dim_multiple_of",
+      "expected_native_route": false
+    }
+  ]
+}
