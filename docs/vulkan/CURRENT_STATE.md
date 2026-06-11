@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-11 at local HEAD
-`29c1956b1a7c468f2d2d100fd7f95f245ee9c8b7`.
+`5b418b7f82aca6112074e6db05939d75c6c8f561`.
 
 ## Repo State Summary
 
@@ -173,6 +173,11 @@ These files are diagnostic inputs. Production code must not depend on
 - `LinearGeluBridgeContract`: pure legality for the deferred linear/GELU
   bridge; registry, alias, and materialization side effects stay outside the
   contract.
+- `ElementwiseBroadcastContract`: schema-only first fixture for the
+  `FloatTensorTensorBufferBroadcast` slice. It records the existing float32
+  tensor/tensor buffer broadcast route shape in JSON and runtime tests, backed
+  by a generic `ShapeEnvelope` `broadcast_compatible` relationship. It is not
+  a production matcher or new route admission surface yet.
 - DAv2 region/stack contracts: best current example of shape keys, capability
   keys, planned regions, binding validation, and replay-readiness diagnostics.
 
@@ -197,12 +202,14 @@ These files are diagnostic inputs. Production code must not depend on
   not add another open-coded key dispatch table. The same utility layer also
   has deterministic boundary/fuzz assignment generation for common
   ShapeEnvelope v1 concepts: value sets, min/max bounds, multiples, optional
-  dims, scalar attributes, and adjacent-negative axes, plus a generic coverage
-  bridge that maps abstract assignment paths and adjacent-negative axes onto
-  the current generated/checked-in runtime cases without executing additional
-  fuzz assignments. BatchNormInference `BufferFloat4D` and
-  `MaterializedBufferFloat4D` use generic checked-in case plumbing under the
-  ShapeEnvelope registry. ChannelCat, EmbeddingLookup, and both
+  dims, scalar attributes, `broadcast_compatible` relationships, and
+  adjacent-negative axes, plus a generic coverage bridge that maps abstract
+  assignment paths and adjacent-negative axes onto the current
+  generated/checked-in runtime cases without executing additional fuzz
+  assignments. BatchNormInference `BufferFloat4D`,
+  `MaterializedBufferFloat4D`, and schema-only ElementwiseBroadcast
+  `FloatTensorTensorBufferBroadcast` use generic checked-in case plumbing under
+  the ShapeEnvelope registry. ChannelCat, EmbeddingLookup, and both
   SafeViewReshape direct-buffer slices have
   deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
   that must match the checked-in positive and negative cases by semantic key,

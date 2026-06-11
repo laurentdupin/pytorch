@@ -174,14 +174,40 @@ def _validate_shape_envelope_attributes(attributes, context):
         )
 
 
-def _validate_shape_envelope_relationships(relationships, context):
+def _validate_shape_envelope_results(results, context):
+    _require_mapping(results, f"{context} results", allow_empty=True)
+    for result_name, result_spec in results.items():
+        _require_mapping(result_spec, f"{context} results.{result_name}")
+        for field_name in ("dtype", "rank"):
+            if field_name in result_spec:
+                _validate_shape_field(
+                    result_spec[field_name],
+                    f"{context} results.{result_name}.{field_name}",
+                    require_bound=True,
+                )
+        if "dims" in result_spec:
+            _require_list(result_spec["dims"], f"{context} results.{result_name}.dims")
+            for index, dim in enumerate(result_spec["dims"]):
+                dim_context = f"{context} results.{result_name}.dims[{index}]"
+                _validate_shape_field(dim, dim_context, require_bound=True)
+                _require_non_empty_string(dim, "symbol", dim_context)
+
+
+def _validate_shape_envelope_relationships(
+    relationships,
+    context,
+    input_names=(),
+    result_names=(),
+):
     _require_list(relationships, f"{context} relationships", allow_empty=True)
+    input_names = set(input_names)
+    result_names = set(result_names)
     for index, relationship in enumerate(relationships):
         rel_context = f"{context} relationships[{index}]"
         _require_mapping(relationship, rel_context)
         _require_non_empty_string(relationship, "type", rel_context)
         rel_type = relationship["type"]
-        if rel_type not in ("equal", "sum_output", "product"):
+        if rel_type not in ("equal", "sum_output", "product", "broadcast_compatible"):
             raise AssertionError(f"{rel_context} has unsupported type {rel_type!r}")
         if rel_type == "equal":
             require_fields(relationship, ("scope", "fields"), rel_context)
@@ -203,6 +229,33 @@ def _validate_shape_envelope_relationships(relationships, context):
             else:
                 _validate_scalar(relationship["dims"], f"{rel_context}.dims")
             _require_non_empty_string(relationship, "result", rel_context)
+        elif rel_type == "broadcast_compatible":
+            require_fields(
+                relationship,
+                ("left", "right", "result", "align", "max_rank"),
+                rel_context,
+            )
+            for field in ("left", "right", "result", "align"):
+                _require_non_empty_string(relationship, field, rel_context)
+            if relationship["left"] not in input_names:
+                raise AssertionError(
+                    f"{rel_context}.left references unknown input "
+                    f"{relationship['left']!r}"
+                )
+            if relationship["right"] not in input_names:
+                raise AssertionError(
+                    f"{rel_context}.right references unknown input "
+                    f"{relationship['right']!r}"
+                )
+            if relationship["result"] not in result_names:
+                raise AssertionError(
+                    f"{rel_context}.result references unknown result "
+                    f"{relationship['result']!r}"
+                )
+            _require_equal(relationship["align"], "right", f"{rel_context}.align")
+            _require_int(relationship["max_rank"], f"{rel_context}.max_rank")
+            if relationship["max_rank"] > 4:
+                raise AssertionError(f"{rel_context}.max_rank must be <= 4")
 
 
 def _validate_shape_envelope_aggregate_bounds(aggregate_bounds, context):
@@ -443,6 +496,29 @@ def _shape_envelope_symbolic_bounds(envelope):
                 }
             )
 
+    for result_name in sorted(envelope.get("results", {})):
+        result_spec = envelope["results"][result_name]
+        for field_name in ("dtype", "rank"):
+            if field_name in result_spec:
+                field = result_spec[field_name]
+                bounds.append(
+                    {
+                        "path": f"results.{result_name}.{field_name}",
+                        "candidates": _shape_envelope_value_candidates(field),
+                        "optional": field.get("optional", False),
+                    }
+                )
+        for dim in result_spec.get("dims", ()):
+            symbol = dim["symbol"]
+            bounds.append(
+                {
+                    "path": f"results.{result_name}.dims.{symbol}",
+                    "field": dim.get("field"),
+                    "candidates": _shape_envelope_value_candidates(dim),
+                    "optional": dim.get("optional", False),
+                }
+            )
+
     for attribute_name in sorted(envelope["attributes"]):
         attribute = envelope["attributes"][attribute_name]
         bounds.append(
@@ -451,6 +527,33 @@ def _shape_envelope_symbolic_bounds(envelope):
                 "candidates": _shape_envelope_value_candidates(attribute),
                 "optional": attribute.get("optional", False),
             }
+        )
+    for relationship in envelope["relationships"]:
+        if relationship["type"] != "broadcast_compatible":
+            continue
+        bounds.extend(
+            [
+                {
+                    "path": "relationships.broadcast_compatible.left",
+                    "candidates": [relationship["left"]],
+                    "optional": False,
+                },
+                {
+                    "path": "relationships.broadcast_compatible.right",
+                    "candidates": [relationship["right"]],
+                    "optional": False,
+                },
+                {
+                    "path": "relationships.broadcast_compatible.result",
+                    "candidates": [relationship["result"]],
+                    "optional": False,
+                },
+                {
+                    "path": "relationships.broadcast_compatible.max_rank",
+                    "candidates": [relationship["max_rank"]],
+                    "optional": False,
+                },
+            ]
         )
     return bounds
 
@@ -529,9 +632,15 @@ def _validate_shape_envelope_common(file_name, spec, envelope):
     _require_non_empty_string(envelope, "role", context)
 
     _validate_shape_envelope_inputs(envelope["inputs"], context)
+    _validate_shape_envelope_results(envelope.get("results", {}), context)
     _validate_shape_envelope_attributes(envelope["attributes"], context)
     _validate_bounds_tree(envelope["bounds"], f"{context} bounds")
-    _validate_shape_envelope_relationships(envelope["relationships"], context)
+    _validate_shape_envelope_relationships(
+        envelope["relationships"],
+        context,
+        input_names=envelope["inputs"],
+        result_names=envelope.get("results", {}),
+    )
     _validate_shape_envelope_aggregate_bounds(envelope["aggregate_bounds"], context)
     _validate_shape_envelope_layout(envelope["layout"], context)
     _validate_shape_envelope_capabilities(
@@ -1084,6 +1193,143 @@ def _validate_batch_norm_inference_shape_envelope(file_name, spec, envelope):
             if case["parameter_features"] != case["input_shape"][1]:
                 if case.get("violates") != "feature_count.equal":
                     raise AssertionError(f"{case_context} feature count mismatch")
+
+
+def _broadcast_output_shape(left, right):
+    result = []
+    max_rank = max(len(left), len(right))
+    for offset in range(max_rank):
+        left_index = len(left) - 1 - offset
+        right_index = len(right) - 1 - offset
+        left_dim = left[left_index] if left_index >= 0 else 1
+        right_dim = right[right_index] if right_index >= 0 else 1
+        if left_dim != right_dim and left_dim != 1 and right_dim != 1:
+            return None
+        result.insert(0, max(left_dim, right_dim))
+    return result
+
+
+def _validate_elementwise_broadcast_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} ElementwiseBroadcast ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "ElementwiseBroadcastContract",
+        f"{context} contract",
+    )
+    _require_equal(
+        spec["family"],
+        "FloatTensorTensorBufferBroadcast",
+        f"{context} family",
+    )
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    inputs = envelope["inputs"]
+    require_fields(inputs, ("self", "other"), f"{context} inputs")
+    bounds = envelope["bounds"]
+    for input_name in ("self", "other"):
+        input_spec = inputs[input_name]
+        _require_equal(
+            _single_value(input_spec["dtype"], f"{context} {input_name} dtype"),
+            bounds["dtype"],
+            f"{context} {input_name} dtype",
+        )
+        _require_equal(
+            input_spec["rank"],
+            bounds["rank"],
+            f"{context} {input_name} rank",
+        )
+
+    results = envelope.get("results", {})
+    require_fields(results, ("output",), f"{context} results")
+    _require_equal(
+        _single_value(results["output"]["dtype"], f"{context} output dtype"),
+        bounds["dtype"],
+        f"{context} output dtype",
+    )
+    _require_equal(
+        results["output"]["rank"],
+        bounds["rank"],
+        f"{context} output rank",
+    )
+
+    attributes = envelope["attributes"]
+    _require_equal(
+        attributes["op"]["values"],
+        bounds["ops"],
+        f"{context} ops",
+    )
+    _require_equal(
+        _single_value(attributes["alpha"], f"{context} alpha"),
+        bounds["alpha"],
+        f"{context} alpha",
+    )
+    _require_equal(
+        _single_value(attributes["inplace"], f"{context} inplace"),
+        False,
+        f"{context} inplace",
+    )
+    _require_equal(
+        _single_value(attributes["has_out"], f"{context} has_out"),
+        False,
+        f"{context} has_out",
+    )
+
+    relationships = [
+        relationship
+        for relationship in envelope["relationships"]
+        if relationship["type"] == "broadcast_compatible"
+    ]
+    if len(relationships) != 1:
+        raise AssertionError(f"{context} must have one broadcast_compatible relation")
+    relationship = relationships[0]
+    _require_equal(relationship["left"], "self", f"{context} broadcast left")
+    _require_equal(relationship["right"], "other", f"{context} broadcast right")
+    _require_equal(relationship["result"], "output", f"{context} broadcast result")
+    _require_equal(relationship["align"], "right", f"{context} broadcast align")
+    _require_equal(relationship["max_rank"], 4, f"{context} broadcast max_rank")
+
+    layout = envelope["layout"]
+    for field in (
+        "requires_vulkan",
+        "requires_buffer_storage",
+        "requires_buffer_compute",
+    ):
+        _require_equal(layout[field], bounds[field], f"{context} {field}")
+    _require_equal(
+        envelope["capability_requirements"]["requires_buffer_compute"],
+        bounds["requires_buffer_compute"],
+        f"{context} requires_buffer_compute",
+    )
+
+    for section in ("positive_cases", "negative_cases"):
+        for case in spec[section]:
+            case_context = f"{context} {section} {case['name']}"
+            if case["dtype"] != bounds["dtype"]:
+                if case.get("violates") != "dtype":
+                    raise AssertionError(f"{case_context} dtype mismatch")
+            if case["op"] not in bounds["ops"]:
+                if case.get("violates") != "op":
+                    raise AssertionError(f"{case_context} op mismatch")
+            output_shape = _broadcast_output_shape(
+                case["self_shape"],
+                case["other_shape"],
+            )
+            if case.get("violates") == "broadcast_compatible":
+                if output_shape is not None:
+                    raise AssertionError(
+                        f"{case_context} unexpectedly broadcast-compatible"
+                    )
+            else:
+                if output_shape is None:
+                    raise AssertionError(f"{case_context} is not broadcast-compatible")
+                _require_equal(
+                    case["output_shape"],
+                    output_shape,
+                    f"{case_context} output shape",
+                )
+            if max(len(case["self_shape"]), len(case["other_shape"])) > bounds["rank"]["max"]:
+                if case.get("violates") != "rank.max":
+                    raise AssertionError(f"{case_context} rank exceeds bounds")
 
 
 def validate_shape_envelope_spec(file_name, spec):
@@ -1653,6 +1899,60 @@ _BATCH_NORM_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.weight_has_value",
 )
 
+_ELEMENTWISE_BROADCAST_LEGAL_KEY_FIELDS = (
+    "self_shape",
+    "other_shape",
+    "output_shape",
+    "op",
+    "dtype",
+    "expected_route_label",
+    "expected_tensor_provenance_route",
+    "expected_cpu_fallback",
+    "expected_sync_readback",
+)
+
+_ELEMENTWISE_BROADCAST_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "self_shape",
+    "other_shape",
+    "output_shape",
+    "op",
+    "dtype",
+    "expected_native_route",
+    "expected_cpu_fallback",
+    "expected_sync_readback",
+    ("expected_error_regex", ""),
+)
+
+_ELEMENTWISE_BROADCAST_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.other.dtype",
+    "inputs.other.rank",
+    "inputs.other.dims.D0",
+    "inputs.other.dims.D1",
+    "inputs.other.dims.D2",
+    "inputs.other.dims.D3",
+    "inputs.self.dtype",
+    "inputs.self.rank",
+    "inputs.self.dims.D0",
+    "inputs.self.dims.D1",
+    "inputs.self.dims.D2",
+    "inputs.self.dims.D3",
+    "results.output.dtype",
+    "results.output.rank",
+    "results.output.dims.D0",
+    "results.output.dims.D1",
+    "results.output.dims.D2",
+    "results.output.dims.D3",
+    "attributes.alpha",
+    "attributes.has_out",
+    "attributes.inplace",
+    "attributes.op",
+    "relationships.broadcast_compatible.left",
+    "relationships.broadcast_compatible.right",
+    "relationships.broadcast_compatible.result",
+    "relationships.broadcast_compatible.max_rank",
+)
+
 
 SHAPE_ENVELOPE_ROLE_REGISTRY = {
     "batch_norm_inference_buffer_float_4d": {
@@ -1676,6 +1976,21 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         "legal_key_fields": _BATCH_NORM_LEGAL_KEY_FIELDS,
         "assignment_coverage_fields": _BATCH_NORM_ASSIGNMENT_COVERAGE_FIELDS,
         "adjacent_negative_key_fields": _BATCH_NORM_ADJACENT_NEGATIVE_KEY_FIELDS,
+    },
+    "elementwise_float_tensor_tensor_buffer_broadcast": {
+        "validate": _validate_elementwise_broadcast_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _ELEMENTWISE_BROADCAST_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _ELEMENTWISE_BROADCAST_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _ELEMENTWISE_BROADCAST_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
     },
     "multi_input_rank4_channel_cat": {
         "validate": _validate_channel_cat_shape_envelope,

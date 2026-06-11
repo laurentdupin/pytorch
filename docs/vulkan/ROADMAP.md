@@ -56,7 +56,10 @@ Current MVP status:
   `Batch1Heads4Factor4Sequence100To116Dim128`, plus
   `SafeViewReshapeContract` `ViewMaterializedDirectBuffer` and
   `ReshapeAliasDenseBufferDirect`, plus `BatchNormInferenceContract`
-  `BufferFloat4D` and `MaterializedBufferFloat4D`.
+  `BufferFloat4D` and `MaterializedBufferFloat4D`. A schema-only
+  `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast` fixture
+  records the first float tensor/tensor buffer-broadcast envelope without
+  adding production route admission.
 - `test/vulkan_contract_specs/contract_spec_utils.py` owns shared spec loading,
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,
@@ -79,11 +82,12 @@ Current MVP status:
   `_reshape_alias` direct-buffer fixture,
   `SafeViewReshapeContract` `ReshapeAliasDenseBufferDirect`, plus the first
   checked-in-case runtime fixtures for `BatchNormInferenceContract`
-  `BufferFloat4D` and `MaterializedBufferFloat4D`. The schema
-  captures symbolic dims, min/max, values, multiples, optional dims,
-  relationships, aggregate bounds, layout and capability requirements,
-  policies, positive cases, adjacent negatives, and fuzz hints for validation
-  and codegen.
+  `BufferFloat4D` and `MaterializedBufferFloat4D`, plus the schema-only
+  `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast` fixture.
+  The schema captures symbolic dims, min/max, values, multiples, optional
+  dims, generic `broadcast_compatible` relationships, aggregate bounds, layout
+  and capability requirements, policies, positive cases, adjacent negatives,
+  and fuzz hints for validation and codegen.
 - Deterministic legal-case and adjacent-negative generation is active for
   ShapeEnvelope-backed ChannelCat, EmbeddingLookup, and both SafeViewReshape
   direct-buffer fixtures. The MVP compares generated legal positives and

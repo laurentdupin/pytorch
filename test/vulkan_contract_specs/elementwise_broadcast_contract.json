@@ -1,0 +1,401 @@
+{
+  "schema_version": 1,
+  "source_status": "schema_only",
+  "contract_name": "ElementwiseBroadcastContract",
+  "family": "FloatTensorTensorBufferBroadcast",
+  "tuple_id": "float32_rank1_to_4_tensor_tensor_buffer_broadcast",
+  "writer_op": "aten::binary_op",
+  "route_label": "aten::binary_op.buffer_float",
+  "metadata": {
+    "evidence_id": "float_buffer_binary_broadcast_focused_tests",
+    "guard_id": "elementwise_broadcast_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "elementwise_buffer_kernel"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "elementwise_float_tensor_tensor_buffer_broadcast",
+    "inputs": {
+      "self": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "min": 1,
+          "max": 4
+        },
+        "dims": [
+          {
+            "symbol": "D0",
+            "field": "dim0",
+            "min": 1,
+            "max": 513,
+            "optional": true
+          },
+          {
+            "symbol": "D1",
+            "field": "dim1",
+            "min": 1,
+            "max": 257,
+            "optional": true
+          },
+          {
+            "symbol": "D2",
+            "field": "dim2",
+            "min": 1,
+            "max": 384,
+            "optional": true
+          },
+          {
+            "symbol": "D3",
+            "field": "dim3",
+            "min": 1,
+            "max": 384,
+            "optional": true
+          }
+        ]
+      },
+      "other": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "min": 1,
+          "max": 4
+        },
+        "dims": [
+          {
+            "symbol": "D0",
+            "field": "dim0",
+            "min": 1,
+            "max": 513,
+            "optional": true
+          },
+          {
+            "symbol": "D1",
+            "field": "dim1",
+            "min": 1,
+            "max": 257,
+            "optional": true
+          },
+          {
+            "symbol": "D2",
+            "field": "dim2",
+            "min": 1,
+            "max": 384,
+            "optional": true
+          },
+          {
+            "symbol": "D3",
+            "field": "dim3",
+            "min": 1,
+            "max": 384,
+            "optional": true
+          }
+        ]
+      }
+    },
+    "results": {
+      "output": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "min": 1,
+          "max": 4
+        },
+        "dims": [
+          {
+            "symbol": "D0",
+            "field": "dim0",
+            "min": 1,
+            "max": 513,
+            "optional": true
+          },
+          {
+            "symbol": "D1",
+            "field": "dim1",
+            "min": 1,
+            "max": 257,
+            "optional": true
+          },
+          {
+            "symbol": "D2",
+            "field": "dim2",
+            "min": 1,
+            "max": 384,
+            "optional": true
+          },
+          {
+            "symbol": "D3",
+            "field": "dim3",
+            "min": 1,
+            "max": 384,
+            "optional": true
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "op": {
+        "values": [
+          "add",
+          "mul"
+        ]
+      },
+      "alpha": {
+        "values": [
+          1
+        ]
+      },
+      "inplace": {
+        "values": [
+          false
+        ]
+      },
+      "has_out": {
+        "values": [
+          false
+        ]
+      }
+    },
+    "bounds": {
+      "dtype": "float32",
+      "rank": {
+        "min": 1,
+        "max": 4
+      },
+      "ops": [
+        "add",
+        "mul"
+      ],
+      "alpha": 1,
+      "requires_vulkan": true,
+      "requires_buffer_storage": true,
+      "requires_buffer_compute": true
+    },
+    "relationships": [
+      {
+        "type": "broadcast_compatible",
+        "left": "self",
+        "right": "other",
+        "result": "output",
+        "align": "right",
+        "max_rank": 4
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "requires_buffer_storage": true,
+      "requires_buffer_compute": true
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "float_buffer_binary_broadcast_focused_tests",
+      "guard_id": "elementwise_broadcast_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "elementwise_buffer_kernel"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "elementwise_buffer_kernel"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "broadcast_compatible",
+        "adjacent": "non_broadcastable",
+        "value": "mismatched_non_one_dim"
+      },
+      {
+        "violates": "rank.max",
+        "adjacent": "unsupported_value",
+        "value": 5
+      },
+      {
+        "violates": "dtype",
+        "adjacent": "unsupported_value",
+        "value": "int32"
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "D0",
+        "D1",
+        "D2",
+        "D3"
+      ],
+      "prefer_boundaries": true
+    }
+  },
+  "bounds": {
+    "dtype": "float32",
+    "rank": {
+      "min": 1,
+      "max": 4
+    },
+    "ops": [
+      "add",
+      "mul"
+    ],
+    "alpha": 1,
+    "requires_vulkan": true,
+    "requires_buffer_storage": true,
+    "requires_buffer_compute": true
+  },
+  "positive_cases": [
+    {
+      "name": "tail_vector_mul",
+      "self_shape": [
+        1,
+        17,
+        384
+      ],
+      "other_shape": [
+        384
+      ],
+      "output_shape": [
+        1,
+        17,
+        384
+      ],
+      "op": "mul",
+      "dtype": "float32",
+      "expected_route_label": "aten::binary_op.buffer_float",
+      "expected_tensor_provenance_route": "tensor_buffer",
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "rank4_add",
+      "self_shape": [
+        2,
+        3,
+        4,
+        8
+      ],
+      "other_shape": [
+        1,
+        3,
+        1,
+        8
+      ],
+      "output_shape": [
+        2,
+        3,
+        4,
+        8
+      ],
+      "op": "add",
+      "dtype": "float32",
+      "expected_route_label": "aten::binary_op.buffer_float",
+      "expected_tensor_provenance_route": "tensor_buffer",
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "same_shape_mul",
+      "self_shape": [
+        513,
+        257
+      ],
+      "other_shape": [
+        513,
+        257
+      ],
+      "output_shape": [
+        513,
+        257
+      ],
+      "op": "mul",
+      "dtype": "float32",
+      "expected_route_label": "aten::binary_op.buffer_float",
+      "expected_tensor_provenance_route": "tensor_buffer",
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "non_broadcastable_shape",
+      "self_shape": [
+        2,
+        3
+      ],
+      "other_shape": [
+        4,
+        3
+      ],
+      "output_shape": [],
+      "op": "add",
+      "dtype": "float32",
+      "violates": "broadcast_compatible",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false,
+      "expected_error_regex": "BroadcastShapeInvalid|not broadcastable"
+    },
+    {
+      "name": "rank5_input",
+      "self_shape": [
+        1,
+        1,
+        1,
+        1,
+        8
+      ],
+      "other_shape": [
+        8
+      ],
+      "output_shape": [
+        1,
+        1,
+        1,
+        1,
+        8
+      ],
+      "op": "mul",
+      "dtype": "float32",
+      "violates": "rank.max",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "int32_broadcast",
+      "self_shape": [
+        3
+      ],
+      "other_shape": [
+        1,
+        3
+      ],
+      "output_shape": [
+        1,
+        3
+      ],
+      "op": "add",
+      "dtype": "int32",
+      "violates": "dtype",
+      "expected_native_route": false,
+      "expected_cpu_fallback": true,
+      "expected_sync_readback": false
+    }
+  ]
+}

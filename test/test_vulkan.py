@@ -401,6 +401,9 @@ class TestVulkanGovernance(TestCase):
             ),
             "channel_cat_contract.json": "multi_input_rank4_channel_cat",
             "embedding_lookup_contract.json": "embedding_lookup_small_bounded",
+            "elementwise_broadcast_contract.json": (
+                "elementwise_float_tensor_tensor_buffer_broadcast"
+            ),
             "safe_view_reshape_alias_contract.json": (
                 "safe_reshape_alias_dense_buffer_direct"
             ),
@@ -432,7 +435,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 6 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 7 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:"
             "batch_norm_inference_buffer_float_4d",
@@ -449,6 +452,11 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "embedding_lookup_contract.json:embedding_lookup_small_bounded",
+            result.stdout,
+        )
+        self.assertIn(
+            "elementwise_broadcast_contract.json:"
+            "elementwise_float_tensor_tensor_buffer_broadcast",
             result.stdout,
         )
         self.assertIn(
@@ -481,10 +489,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 6 ShapeEnvelope adjacent-negative generators",
+            "validated 7 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=24", result.stdout)
+        self.assertIn("generated_cases=27", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:3",
@@ -492,6 +500,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("channel_cat_contract.json:7", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
+        self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
         self.assertIn("safe_view_reshape_alias_contract.json:4", result.stdout)
         self.assertIn("safe_view_reshape_contract.json:3", result.stdout)
 
@@ -515,10 +524,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 6 ShapeEnvelope legal-case generators",
+            "validated 7 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=18", result.stdout)
+        self.assertIn("generated_cases=21", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:1",
@@ -526,6 +535,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("channel_cat_contract.json:5", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
+        self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
         self.assertIn("safe_view_reshape_alias_contract.json:2", result.stdout)
         self.assertIn("safe_view_reshape_contract.json:2", result.stdout)
 
@@ -549,11 +559,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 6 ShapeEnvelope fuzz assignment generators",
+            "validated 7 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=12", result.stdout)
-        self.assertIn("adjacent_negative_assignments=24", result.stdout)
+        self.assertIn("legal_assignments=14", result.stdout)
+        self.assertIn("adjacent_negative_assignments=27", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:adjacent=3",
             result.stdout,
@@ -568,6 +578,10 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "embedding_lookup_contract.json:legal=2:adjacent=4",
+            result.stdout,
+        )
+        self.assertIn(
+            "elementwise_broadcast_contract.json:legal=2:adjacent=3",
             result.stdout,
         )
         self.assertIn(
@@ -599,14 +613,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 6 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 7 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=12", result.stdout)
-        self.assertIn("legal_paths=73", result.stdout)
-        self.assertIn("adjacent_negative_axes=24", result.stdout)
-        self.assertIn("runtime_legal_cases=18", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=24", result.stdout)
+        self.assertIn("legal_assignments=14", result.stdout)
+        self.assertIn("legal_paths=99", result.stdout)
+        self.assertIn("adjacent_negative_axes=27", result.stdout)
+        self.assertIn("runtime_legal_cases=21", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=27", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:status=covered:"
             "paths=21/21:adjacent_axes=3",
@@ -628,6 +642,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
+            "elementwise_broadcast_contract.json:legal=2:status=covered:"
+            "paths=26/26:adjacent_axes=3",
+            result.stdout,
+        )
+        self.assertIn(
             "safe_view_reshape_alias_contract.json:legal=2:status=covered:"
             "paths=7/7:adjacent_axes=4",
             result.stdout,
@@ -644,6 +663,7 @@ class TestVulkanGovernance(TestCase):
             "batch_norm_inference_materialized_contract.json": (1, 3),
             "channel_cat_contract.json": (5, 7),
             "embedding_lookup_contract.json": (4, 4),
+            "elementwise_broadcast_contract.json": (3, 3),
             "safe_view_reshape_alias_contract.json": (2, 4),
             "safe_view_reshape_contract.json": (2, 3),
         }
@@ -692,6 +712,7 @@ class TestVulkanGovernance(TestCase):
             {
                 "batch_norm_inference_buffer_float_4d",
                 "batch_norm_inference_materialized_buffer_float_4d",
+                "elementwise_float_tensor_tensor_buffer_broadcast",
                 "multi_input_rank4_channel_cat",
                 "embedding_lookup_small_bounded",
                 "safe_reshape_alias_dense_buffer_direct",
@@ -801,6 +822,8 @@ class TestVulkanGovernance(TestCase):
 
         self.assertNotEqual(source_text, "")
         for file_name, spec in _load_all_vulkan_contract_specs():
+            if spec.get("source_status") == "schema_only":
+                continue
             for field in ("contract_name", "family", "tuple_id"):
                 self.assertIn(
                     f'"{spec[field]}"',
@@ -1122,6 +1145,123 @@ class TestVulkanGovernance(TestCase):
                 case,
                 ("violates", "expected_native_route", "expected_cpu_fallback"),
                 "BatchNormInferenceContract materialized negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
+
+    def test_vulkan_elementwise_broadcast_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec("elementwise_broadcast_contract.json")
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["source_status"], "schema_only")
+        self.assertEqual(spec["contract_name"], "ElementwiseBroadcastContract")
+        self.assertEqual(spec["family"], "FloatTensorTensorBufferBroadcast")
+        self.assertEqual(
+            spec["tuple_id"],
+            "float32_rank1_to_4_tensor_tensor_buffer_broadcast",
+        )
+        self.assertEqual(spec["writer_op"], "aten::binary_op")
+        self.assertEqual(spec["route_label"], "aten::binary_op.buffer_float")
+
+        metadata = spec["metadata"]
+        _require_contract_spec_fields(
+            metadata,
+            (
+                "evidence_id",
+                "guard_id",
+                "fallback_policy",
+                "materialization_policy",
+            ),
+            "ElementwiseBroadcastContract metadata",
+        )
+        self.assertEqual(
+            metadata["evidence_id"],
+            "float_buffer_binary_broadcast_focused_tests",
+        )
+        self.assertEqual(metadata["guard_id"], "elementwise_broadcast_adjacent_guards")
+        self.assertEqual(metadata["fallback_policy"], "unsupported_shapes_do_not_match")
+        self.assertEqual(metadata["materialization_policy"], "elementwise_buffer_kernel")
+
+        bounds = spec["bounds"]
+        _require_contract_spec_fields(
+            bounds,
+            (
+                "dtype",
+                "rank",
+                "ops",
+                "alpha",
+                "requires_vulkan",
+                "requires_buffer_storage",
+                "requires_buffer_compute",
+            ),
+            "ElementwiseBroadcastContract bounds",
+        )
+        self.assertEqual(bounds["dtype"], "float32")
+        self.assertEqual(bounds["rank"], {"min": 1, "max": 4})
+        self.assertEqual(bounds["ops"], ["add", "mul"])
+        self.assertEqual(bounds["alpha"], 1)
+        self.assertTrue(bounds["requires_vulkan"])
+        self.assertTrue(bounds["requires_buffer_storage"])
+        self.assertTrue(bounds["requires_buffer_compute"])
+
+        relationships = spec["shape_envelope"]["relationships"]
+        broadcast = [
+            relationship
+            for relationship in relationships
+            if relationship["type"] == "broadcast_compatible"
+        ]
+        self.assertEqual(len(broadcast), 1)
+        self.assertEqual(
+            broadcast[0],
+            {
+                "type": "broadcast_compatible",
+                "left": "self",
+                "right": "other",
+                "result": "output",
+                "align": "right",
+                "max_rank": 4,
+            },
+        )
+
+        case_fields = (
+            "name",
+            "self_shape",
+            "other_shape",
+            "output_shape",
+            "op",
+            "dtype",
+        )
+        for section in ("positive_cases", "negative_cases"):
+            self.assertGreater(len(spec[section]), 0)
+            for case in spec[section]:
+                _require_contract_spec_fields(
+                    case,
+                    case_fields,
+                    f"ElementwiseBroadcastContract {section} case",
+                )
+        for case in spec["positive_cases"]:
+            _require_contract_spec_fields(
+                case,
+                (
+                    "expected_route_label",
+                    "expected_tensor_provenance_route",
+                    "expected_cpu_fallback",
+                    "expected_sync_readback",
+                ),
+                "ElementwiseBroadcastContract positive case",
+            )
+            self.assertEqual(case["expected_route_label"], spec["route_label"])
+            self.assertEqual(case["expected_tensor_provenance_route"], "tensor_buffer")
+            self.assertFalse(case["expected_cpu_fallback"])
+            self.assertFalse(case["expected_sync_readback"])
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                (
+                    "violates",
+                    "expected_native_route",
+                    "expected_cpu_fallback",
+                    "expected_sync_readback",
+                ),
+                "ElementwiseBroadcastContract negative case",
             )
             self.assertFalse(case["expected_native_route"])
 
@@ -7870,6 +8010,223 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self._assert_outputs_close(expected_mul, actual_mul, atol=1e-4, rtol=1e-4)
         self._assert_outputs_close(expected_add, actual_add, atol=1e-4, rtol=1e-4)
+
+    def test_elementwise_broadcast_contract_generated_float_buffer_spec(self):
+        spec = _load_vulkan_contract_spec("elementwise_broadcast_contract.json")
+        op_hit_log_name = contract_spec_utils.contract_log_name(
+            spec,
+            {"name": "generated"},
+            "op_hit_test.log",
+        )
+        value_trace_log_names = [
+            contract_spec_utils.contract_log_name(
+                spec,
+                case,
+                "value_trace.jsonl",
+            )
+            for _, case, _ in (
+                contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+            )
+        ]
+        log_paths = [os.path.join(REPO_ROOT, op_hit_log_name)]
+        log_paths.extend(os.path.join(REPO_ROOT, name) for name in value_trace_log_names)
+        for path in log_paths:
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import json
+                import os
+                import re
+                import sys
+                import torch
+                import torch.nn.functional as F
+                sys.path.insert(
+                    0,
+                    os.path.join(os.getcwd(), "test", "vulkan_contract_specs"),
+                )
+                import contract_spec_utils
+
+                spec_path = os.path.join(
+                    os.getcwd(),
+                    "test",
+                    "vulkan_contract_specs",
+                    "elementwise_broadcast_contract.json",
+                )
+                with open(spec_path, encoding="utf-8") as handle:
+                    spec = json.load(handle)
+
+                op_hit_log = os.environ["PYTORCH_VULKAN_OP_HIT_LOG"]
+                route_hit = "op=" + spec["route_label"]
+
+                def dtype_for_case(case):
+                    return {
+                        "float32": torch.float32,
+                        "int32": torch.int32,
+                    }[case["dtype"]]
+
+                def read_file(path):
+                    if not os.path.exists(path):
+                        return ""
+                    with open(path, encoding="utf-8") as handle:
+                        return handle.read()
+
+                def read_value_trace(log_path):
+                    if not os.path.exists(log_path):
+                        return []
+                    with open(log_path, encoding="utf-8") as log_file:
+                        return [
+                            json.loads(line)
+                            for line in log_file
+                            if line.strip()
+                        ]
+
+                def value_trace_provenance(log_path):
+                    trace_records = read_value_trace(log_path)
+                    return trace_records, "\\n".join(
+                        str(record.get("output_provenance", ""))
+                        for record in trace_records
+                    )
+
+                def apply_op(left, right, op):
+                    if op == "add":
+                        return left + right
+                    if op == "mul":
+                        return left * right
+                    raise AssertionError("unsupported test op " + op)
+
+                def make_float_buffer_operand(shape, seed):
+                    torch.manual_seed(seed)
+                    source = torch.randn(*shape, dtype=torch.float32)
+                    last_dim = shape[-1]
+                    weight = torch.randn(last_dim, last_dim, dtype=torch.float32)
+                    bias = torch.randn(last_dim, dtype=torch.float32)
+                    expected = F.linear(source, weight, bias)
+                    actual = F.linear(
+                        source.to("vulkan"),
+                        weight.to("vulkan"),
+                        bias.to("vulkan"),
+                    )
+                    return expected, actual
+
+                def make_direct_operand(shape, dtype, seed):
+                    torch.manual_seed(seed)
+                    if dtype == torch.float32:
+                        cpu = torch.randn(*shape, dtype=dtype)
+                    else:
+                        cpu = torch.randint(-8, 8, shape, dtype=dtype)
+                    return cpu, cpu.to("vulkan")
+
+                def run_case(case, expect_native_route):
+                    log_name = contract_spec_utils.contract_log_name(
+                        spec,
+                        case,
+                        "value_trace.jsonl",
+                    )
+                    log_path = os.path.join(os.getcwd(), log_name)
+                    for path in (op_hit_log, log_path):
+                        if os.path.exists(path):
+                            os.remove(path)
+                    os.environ["PYTORCH_VULKAN_VALIDATE_VALUES"] = "1"
+                    os.environ["PYTORCH_VULKAN_VALUE_TRACE_LOG"] = log_path
+                    os.environ["PYTORCH_VULKAN_VALUE_TRACE_SAMPLES"] = "1"
+
+                    dtype = dtype_for_case(case)
+                    expected_error = case.get("expected_error_regex")
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    if expect_native_route:
+                        self_cpu, self_vulkan = make_float_buffer_operand(
+                            case["self_shape"],
+                            7000 + len(case["name"]),
+                        )
+                    else:
+                        self_cpu, self_vulkan = make_direct_operand(
+                            case["self_shape"],
+                            dtype,
+                            7100 + len(case["name"]),
+                        )
+                    other_cpu, other_vulkan = make_direct_operand(
+                        case["other_shape"],
+                        dtype,
+                        7200 + len(case["name"]),
+                    )
+
+                    if expected_error is not None:
+                        try:
+                            apply_op(self_vulkan, other_vulkan, case["op"])
+                        except RuntimeError as error:
+                            assert re.search(expected_error, str(error)), (
+                                case,
+                                str(error),
+                            )
+                        else:
+                            raise AssertionError((case, "expected RuntimeError"))
+                        assert route_hit not in read_file(op_hit_log), (
+                            case,
+                            read_file(op_hit_log),
+                        )
+                        return
+
+                    expected = apply_op(self_cpu, other_cpu, case["op"])
+                    actual_vulkan = apply_op(self_vulkan, other_vulkan, case["op"])
+                    actual = actual_vulkan.cpu()
+                    torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+
+                    fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                    readback_count = torch.ops.vulkan_prepack.sync_readback_count()
+                    op_hit_text = read_file(op_hit_log)
+                    trace_records, provenance = value_trace_provenance(log_path)
+                    if expect_native_route:
+                        assert fallback_count == 0, (
+                            case,
+                            fallback_count,
+                            op_hit_text,
+                        )
+                        assert route_hit in op_hit_text, (case, op_hit_text)
+                        expected_route = (
+                            "route="
+                            + case["expected_tensor_provenance_route"]
+                        )
+                        assert expected_route in provenance, (
+                            case,
+                            provenance,
+                            trace_records,
+                        )
+                        if not case["expected_sync_readback"]:
+                            assert readback_count == 0, (
+                                case,
+                                readback_count,
+                                trace_records,
+                            )
+                    else:
+                        assert route_hit not in op_hit_text, (case, op_hit_text)
+                        if contract_spec_utils.expected_negative_flag(
+                            case,
+                            "expected_cpu_fallback",
+                        ):
+                            assert fallback_count == 1, (
+                                case,
+                                fallback_count,
+                                op_hit_text,
+                            )
+
+                for _, case, expect_native_route in (
+                    contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+                ):
+                    run_case(case, expect_native_route)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+                error_prefix=(
+                    "ElementwiseBroadcast generated contract spec failed."
+                ),
+            )
+        finally:
+            for path in log_paths:
+                if os.path.exists(path):
+                    os.remove(path)
 
     def test_float_buffer_view_inplace_binary_ops(self):
         torch.manual_seed(0)
