@@ -429,6 +429,39 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("channel_cat_contract.json:7", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
 
+    def test_vulkan_shape_envelope_runtime_iterator_uses_generated_negatives(self):
+        expected_generated_counts = {
+            "channel_cat_contract.json": 7,
+            "embedding_lookup_contract.json": 4,
+        }
+        for file_name, expected_generated_count in expected_generated_counts.items():
+            spec = _load_vulkan_contract_spec(file_name)
+            runtime_cases = list(
+                contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+            )
+            positive_cases = [
+                case
+                for section, case, _ in runtime_cases
+                if section == "positive_cases"
+            ]
+            generated_negative_cases = [
+                (case, expect_native_route)
+                for section, case, expect_native_route in runtime_cases
+                if section == "generated_negative_cases"
+            ]
+
+            self.assertEqual(len(positive_cases), len(spec["positive_cases"]))
+            self.assertEqual(
+                len(generated_negative_cases),
+                expected_generated_count,
+            )
+            self.assertTrue(
+                all(
+                    expect_native_route is False
+                    for _, expect_native_route in generated_negative_cases
+                )
+            )
+
     def test_vulkan_contract_spec_utility_cli_summary(self):
         result = subprocess.run(
             [
@@ -5502,7 +5535,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 case,
                 "value_trace.jsonl",
             )
-            for _, case, _ in contract_spec_utils.iter_contract_cases(spec)
+            for _, case, _ in (
+                contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+            )
         ]
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         case_log_paths = [os.path.join(repo_root, name) for name in case_log_names]
@@ -5627,7 +5662,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             assert readback_count > 0, (case, readback_count)
 
                 for _, case, expect_native_route in (
-                    contract_spec_utils.iter_contract_cases(spec)
+                    contract_spec_utils.iter_shape_envelope_contract_cases(spec)
                 ):
                     run_case(case, expect_native_route)
             """
@@ -5718,7 +5753,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             )
 
                 for _, case, expect_native_route in (
-                    contract_spec_utils.iter_contract_cases(spec)
+                    contract_spec_utils.iter_shape_envelope_contract_cases(spec)
                 ):
                     run_case(case, expect_native_route)
             """

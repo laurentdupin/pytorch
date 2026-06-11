@@ -951,6 +951,16 @@ def iter_contract_cases(spec):
                 yield section, case, expect_native_route
 
 
+def iter_shape_envelope_contract_cases(spec):
+    if "shape_envelope" not in spec:
+        yield from iter_contract_cases(spec)
+        return
+    for case in spec["positive_cases"]:
+        yield "positive_cases", case, True
+    for case in generated_shape_envelope_adjacent_negative_cases(spec):
+        yield "generated_negative_cases", case, case["expected_native_route"]
+
+
 def contract_case_id(spec, case):
     return f"{spec['contract_name']}_{spec['family']}_{case['name']}"
 

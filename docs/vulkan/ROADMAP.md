@@ -66,8 +66,10 @@ Current MVP status:
   fuzz hints for validation and codegen.
 - Deterministic adjacent-negative generation is active for those two
   ShapeEnvelope-backed fixtures. The MVP compares generated negatives against
-  checked-in runtime cases by violated axis, adjacent value, and expected
-  fallback/readback policy; runtime iteration still uses the checked-in cases.
+  checked-in cases by violated axis, adjacent value, and expected
+  fallback/readback policy, then the ChannelCat and EmbeddingLookup runtime
+  spec tests execute the generated adjacent negatives through shared iterator
+  plumbing. Checked-in negatives remain review/parity fixtures.
 - `ChannelCatContract` has the first generated C++ typed-row/helper artifact:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `ExecutionContractsChannelCatSpec.h` from the `ShapeEnvelope` v1 data in
