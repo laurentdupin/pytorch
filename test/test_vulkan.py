@@ -402,6 +402,33 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
 
+    def test_vulkan_shape_envelope_adjacent_negative_utility_cli(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "test",
+                    "vulkan_contract_specs",
+                    "contract_spec_utils.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--validate-adjacent-negatives",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertIn(
+            "validated 2 ShapeEnvelope adjacent-negative generators",
+            result.stdout,
+        )
+        self.assertIn("generated_cases=11", result.stdout)
+        self.assertIn("channel_cat_contract.json:7", result.stdout)
+        self.assertIn("embedding_lookup_contract.json:4", result.stdout)
+
     def test_vulkan_contract_spec_utility_cli_summary(self):
         result = subprocess.run(
             [

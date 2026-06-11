@@ -515,6 +515,289 @@ def validate_shape_envelope_spec(file_name, spec):
     return envelope
 
 
+def _shape_envelope_negative_axis_by_name(envelope):
+    axes = {}
+    for axis in envelope["negative_axes"]:
+        violates = axis["violates"]
+        if violates in axes:
+            raise AssertionError(f"duplicate ShapeEnvelope negative axis {violates}")
+        axes[violates] = axis
+    return axes
+
+
+def _channel_cat_base_shape(bounds):
+    return [
+        bounds["batch"],
+        max(bounds["channels"]["min"], bounds["channels"]["multiple_of"] * 4),
+        min(max(bounds["height"]["min"], 5), bounds["height"]["max"]),
+        min(max(bounds["width"]["min"], 7), bounds["width"]["max"]),
+    ]
+
+
+def _channel_cat_expected_negative_policy():
+    return {
+        "expected_native_route": False,
+        "expected_cpu_fallback": True,
+    }
+
+
+def _generated_channel_cat_adjacent_negative_cases(spec):
+    envelope = spec["shape_envelope"]
+    bounds = envelope["bounds"]
+    axes = _shape_envelope_negative_axis_by_name(envelope)
+    base_shape = _channel_cat_base_shape(bounds)
+    base_input_count = bounds["input_count"]["min"]
+    cases = []
+
+    def add_case(name, violates, input_shapes, dim=None):
+        case = {
+            "name": name,
+            "input_shapes": input_shapes,
+            "dim": bounds["dim"] if dim is None else dim,
+            "violates": violates,
+        }
+        case.update(_channel_cat_expected_negative_policy())
+        cases.append(case)
+
+    if "input_count" in axes:
+        value = axes["input_count"]["value"]
+        add_case(
+            "generated_input_count",
+            "input_count",
+            [list(base_shape) for _ in range(value)],
+        )
+    if "channels.multiple_of" in axes:
+        value = axes["channels.multiple_of"]["value"]
+        shape = list(base_shape)
+        shape[1] = value
+        add_case(
+            "generated_channels_multiple_of",
+            "channels.multiple_of",
+            [list(shape) for _ in range(base_input_count)],
+        )
+    if "channels.max_per_input" in axes:
+        value = axes["channels.max_per_input"]["value"]
+        shape = list(base_shape)
+        shape[1] = value
+        add_case(
+            "generated_channels_max_per_input",
+            "channels.max_per_input",
+            [list(shape) for _ in range(base_input_count)],
+        )
+    if "channels.max_total" in axes:
+        value = axes["channels.max_total"]["value"]
+        per_input = bounds["channels"]["max_per_input"]
+        input_count = value // per_input
+        if value % per_input != 0:
+            input_count += 1
+        shape = [
+            bounds["batch"],
+            per_input,
+            bounds["height"]["min"] + 1,
+            bounds["width"]["min"] + 2,
+        ]
+        add_case(
+            "generated_channels_max_total",
+            "channels.max_total",
+            [list(shape) for _ in range(input_count)],
+        )
+    if "height.max" in axes:
+        value = axes["height.max"]["value"]
+        shape = list(base_shape)
+        shape[2] = value
+        add_case(
+            "generated_height_max",
+            "height.max",
+            [list(shape) for _ in range(base_input_count)],
+        )
+    if "width.max" in axes:
+        value = axes["width.max"]["value"]
+        shape = list(base_shape)
+        shape[3] = value
+        add_case(
+            "generated_width_max",
+            "width.max",
+            [list(shape) for _ in range(base_input_count)],
+        )
+    if "dim" in axes:
+        value = axes["dim"]["value"]
+        add_case(
+            "generated_dim",
+            "dim",
+            [list(base_shape) for _ in range(base_input_count)],
+            dim=value,
+        )
+    return cases
+
+
+def _embedding_expected_negative_policy():
+    return {
+        "expected_native_route": False,
+        "expected_sync_readback": True,
+    }
+
+
+def _generated_embedding_lookup_adjacent_negative_cases(spec):
+    envelope = spec["shape_envelope"]
+    bounds = envelope["bounds"]
+    axes = _shape_envelope_negative_axis_by_name(envelope)
+    cases = []
+
+    def add_case(
+        name,
+        violates,
+        num_embeddings=None,
+        embedding_dim=None,
+        indices_shape=None,
+        indices_dtype=None,
+    ):
+        case = {
+            "name": name,
+            "num_embeddings": (
+                bounds["num_embeddings"]["max"]
+                if num_embeddings is None
+                else num_embeddings
+            ),
+            "embedding_dim": (
+                bounds["embedding_dim"]["max"]
+                if embedding_dim is None
+                else embedding_dim
+            ),
+            "indices_shape": [1, 8] if indices_shape is None else indices_shape,
+            "indices_dtype": (
+                bounds["indices_dtype"] if indices_dtype is None else indices_dtype
+            ),
+            "padding_idx": -1,
+            "violates": violates,
+        }
+        case.update(_embedding_expected_negative_policy())
+        cases.append(case)
+
+    if "num_indices" in axes:
+        value = axes["num_indices"]["value"]
+        add_case(
+            "generated_num_indices",
+            "num_indices",
+            indices_shape=[1, value],
+        )
+    if "embedding_dim" in axes:
+        value = axes["embedding_dim"]["value"]
+        add_case(
+            "generated_embedding_dim",
+            "embedding_dim",
+            embedding_dim=value,
+        )
+    if "num_embeddings" in axes:
+        value = axes["num_embeddings"]["value"]
+        add_case(
+            "generated_num_embeddings",
+            "num_embeddings",
+            num_embeddings=value,
+        )
+    if "indices_dtype" in axes:
+        value = axes["indices_dtype"]["value"]
+        add_case(
+            "generated_indices_dtype",
+            "indices_dtype",
+            indices_dtype=value,
+        )
+    return cases
+
+
+def generated_shape_envelope_adjacent_negative_cases(spec):
+    envelope = spec.get("shape_envelope")
+    if envelope is None:
+        return []
+    role = envelope["role"]
+    if role == "multi_input_rank4_channel_cat":
+        return _generated_channel_cat_adjacent_negative_cases(spec)
+    if role == "embedding_lookup_small_bounded":
+        return _generated_embedding_lookup_adjacent_negative_cases(spec)
+    raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
+
+
+def _product(values):
+    result = 1
+    for value in values:
+        result *= value
+    return result
+
+
+def _channel_cat_adjacent_negative_key(case):
+    violates = case["violates"]
+    if violates == "input_count":
+        value = len(case["input_shapes"])
+    elif violates in ("channels.multiple_of", "channels.max_per_input"):
+        value = case["input_shapes"][0][1]
+    elif violates == "channels.max_total":
+        value = sum(shape[1] for shape in case["input_shapes"])
+    elif violates == "height.max":
+        value = case["input_shapes"][0][2]
+    elif violates == "width.max":
+        value = case["input_shapes"][0][3]
+    elif violates == "dim":
+        value = case["dim"]
+    else:
+        raise AssertionError(f"unsupported ChannelCat negative axis {violates}")
+    return (
+        violates,
+        value,
+        case["expected_native_route"],
+        case.get("expected_cpu_fallback"),
+    )
+
+
+def _embedding_lookup_adjacent_negative_key(case):
+    violates = case["violates"]
+    if violates == "num_indices":
+        value = _product(case["indices_shape"])
+    elif violates == "embedding_dim":
+        value = case["embedding_dim"]
+    elif violates == "num_embeddings":
+        value = case["num_embeddings"]
+    elif violates == "indices_dtype":
+        value = case["indices_dtype"]
+    else:
+        raise AssertionError(f"unsupported EmbeddingLookup negative axis {violates}")
+    return (
+        violates,
+        value,
+        case["expected_native_route"],
+        case.get("expected_sync_readback"),
+    )
+
+
+def _adjacent_negative_key(spec, case):
+    role = spec["shape_envelope"]["role"]
+    if role == "multi_input_rank4_channel_cat":
+        return _channel_cat_adjacent_negative_key(case)
+    if role == "embedding_lookup_small_bounded":
+        return _embedding_lookup_adjacent_negative_key(case)
+    raise AssertionError(f"unsupported ShapeEnvelope role {role!r}")
+
+
+def validate_generated_shape_envelope_adjacent_negatives(file_name, spec):
+    if "shape_envelope" not in spec:
+        return []
+    generated_cases = generated_shape_envelope_adjacent_negative_cases(spec)
+    generated_keys = {
+        _adjacent_negative_key(spec, case)
+        for case in generated_cases
+    }
+    checked_in_keys = {
+        _adjacent_negative_key(spec, case)
+        for case in spec["negative_cases"]
+    }
+    if generated_keys != checked_in_keys:
+        missing = sorted(checked_in_keys - generated_keys)
+        extra = sorted(generated_keys - checked_in_keys)
+        raise AssertionError(
+            f"{file_name} generated adjacent negatives mismatch "
+            f"missing={missing} extra={extra}"
+        )
+    return generated_cases
+
+
 def contract_spec_dir(repo_root):
     return os.path.join(repo_root, "test", "vulkan_contract_specs")
 
@@ -580,6 +863,7 @@ def validate_contract_spec(file_name, spec):
     if len(case_names) != len(set(case_names)):
         raise AssertionError(f"{context} case names must be unique")
     validate_shape_envelope_spec(file_name, spec)
+    validate_generated_shape_envelope_adjacent_negatives(file_name, spec)
 
 
 def validate_all_contract_specs(repo_root):
@@ -637,6 +921,24 @@ def shape_envelope_summary(repo_root):
     return rows
 
 
+def shape_envelope_adjacent_negative_summary(repo_root):
+    rows = []
+    for file_name, spec in validate_all_contract_specs(repo_root):
+        if "shape_envelope" not in spec:
+            continue
+        generated_cases = generated_shape_envelope_adjacent_negative_cases(spec)
+        rows.append(
+            {
+                "file_name": file_name,
+                "contract_name": spec["contract_name"],
+                "family": spec["family"],
+                "role": spec["shape_envelope"]["role"],
+                "generated_negative_cases": len(generated_cases),
+            }
+        )
+    return rows
+
+
 def iter_contract_cases(spec):
     for section, expect_native_route in (
         ("positive_cases", True),
@@ -674,6 +976,7 @@ def _main():
     parser.add_argument("--summary", action="store_true")
     parser.add_argument("--validate", action="store_true")
     parser.add_argument("--validate-shape-envelope", action="store_true")
+    parser.add_argument("--validate-adjacent-negatives", action="store_true")
     args = parser.parse_args()
 
     rows = contract_spec_summary(args.repo_root)
@@ -695,6 +998,22 @@ def _main():
             f"{row['file_name']}:{row['role']}" for row in envelope_rows
         )
         print(f"validated {len(envelope_rows)} ShapeEnvelope v1 specs {roles}")
+    if args.validate_adjacent_negatives:
+        negative_rows = shape_envelope_adjacent_negative_summary(args.repo_root)
+        if not negative_rows:
+            raise AssertionError("no generated adjacent-negative cases found")
+        total_generated = sum(
+            row["generated_negative_cases"] for row in negative_rows
+        )
+        roles = ", ".join(
+            f"{row['file_name']}:{row['generated_negative_cases']}"
+            for row in negative_rows
+        )
+        print(
+            "validated "
+            f"{len(negative_rows)} ShapeEnvelope adjacent-negative generators "
+            f"generated_cases={total_generated} {roles}"
+        )
 
 
 if __name__ == "__main__":
