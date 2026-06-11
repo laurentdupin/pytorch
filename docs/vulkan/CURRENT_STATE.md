@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-11 at local HEAD
-`875d302dae788538065966c4cb3b83e260ae4942`.
+`126a850a944683e6ea7a5ed594eebcedad07178a`.
 
 ## Repo State Summary
 
@@ -157,8 +157,11 @@ These files are diagnostic inputs. Production code must not depend on
   `Batch1Heads4Factor4Sequence100To116Dim128` slice has a JSON contract spec
   with generated positive and adjacent negative runtime coverage; keep exact
   rows until broader legality is proven.
-- `BatchNormInferenceContract`: float32 4D inference batch norm, including the
-  materialized-buffer layout transition used by current OCR evidence.
+- `BatchNormInferenceContract`: float32 4D inference batch norm. The
+  `BufferFloat4D` slice has a JSON contract spec backed by `ShapeEnvelope` v1
+  and checked-in positive/adjacent-negative runtime cases. The
+  `MaterializedBufferFloat4D` layout-transition slice remains separate and is
+  not covered by the first fixture.
 - `SafeViewReshapeContract`: finite dense direct-buffer view and reshape-alias
   contract, now split into a family-specific source. Both direct-buffer slices
   now have JSON contract specs with ShapeEnvelope-generated legal and
@@ -182,9 +185,9 @@ These files are diagnostic inputs. Production code must not depend on
 - Contract spec governance discovers all `test/vulkan_contract_specs/*.json`,
   validates a shared schema, checks `contract_name`/`family`/`tuple_id` against
   live contract sources, validates any `ShapeEnvelope` v1 blocks present, and
-  keeps family-specific shape checks for EmbeddingLookup, ChannelCat,
-  KVCacheAppend, GQARepeat, SDPAScoreSoftmax, NoOverlapConvTranspose2D, and
-  SafeViewReshape.
+  keeps family-specific shape checks for BatchNormInference, EmbeddingLookup,
+  ChannelCat, KVCacheAppend, GQARepeat, SDPAScoreSoftmax,
+  NoOverlapConvTranspose2D, and SafeViewReshape.
   Shared helpers in `test/vulkan_contract_specs/contract_spec_utils.py` keep
   generated runtime tests from copying spec loading, case iteration, log
   naming, expected negative handling, and shape-envelope validation. A
@@ -196,8 +199,9 @@ These files are diagnostic inputs. Production code must not depend on
   dims, scalar attributes, and adjacent-negative axes, plus a generic coverage
   bridge that maps abstract assignment paths and adjacent-negative axes onto
   the current generated/checked-in runtime cases without executing additional
-  fuzz assignments. ChannelCat, EmbeddingLookup, and both SafeViewReshape
-  direct-buffer slices have
+  fuzz assignments. BatchNormInference `BufferFloat4D` uses generic checked-in
+  case plumbing under the ShapeEnvelope registry. ChannelCat, EmbeddingLookup,
+  and both SafeViewReshape direct-buffer slices have
   deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
   that must match the checked-in positive and negative cases by semantic key,
   violated axis, adjacent value, and fallback/readback policy. Their runtime

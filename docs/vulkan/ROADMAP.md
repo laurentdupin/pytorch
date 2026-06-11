@@ -55,7 +55,8 @@ Current MVP status:
   `DiffusionSquareScores`, plus `GQARepeatContract`
   `Batch1Heads4Factor4Sequence100To116Dim128`, plus
   `SafeViewReshapeContract` `ViewMaterializedDirectBuffer` and
-  `ReshapeAliasDenseBufferDirect`.
+  `ReshapeAliasDenseBufferDirect`, plus `BatchNormInferenceContract`
+  `BufferFloat4D`.
 - `test/vulkan_contract_specs/contract_spec_utils.py` owns shared spec loading,
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,
@@ -76,7 +77,9 @@ Current MVP status:
   `SmallBoundedLookup`, plus the first layout/materialization runtime fixture,
   `SafeViewReshapeContract` `ViewMaterializedDirectBuffer`, and the matching
   `_reshape_alias` direct-buffer fixture,
-  `SafeViewReshapeContract` `ReshapeAliasDenseBufferDirect`. The schema
+  `SafeViewReshapeContract` `ReshapeAliasDenseBufferDirect`, plus the first
+  checked-in-case runtime fixture for `BatchNormInferenceContract`
+  `BufferFloat4D`. The schema
   captures symbolic dims, min/max, values, multiples, optional dims,
   relationships, aggregate bounds, layout and capability requirements,
   policies, positive cases, adjacent negatives, and fuzz hints for validation

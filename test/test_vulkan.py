@@ -363,6 +363,9 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_shape_envelope_v1_specs_validate(self):
         expected_roles = {
+            "batch_norm_inference_contract.json": (
+                "batch_norm_inference_buffer_float_4d"
+            ),
             "channel_cat_contract.json": "multi_input_rank4_channel_cat",
             "embedding_lookup_contract.json": "embedding_lookup_small_bounded",
             "safe_view_reshape_alias_contract.json": (
@@ -396,7 +399,12 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 4 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 5 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn(
+            "batch_norm_inference_contract.json:"
+            "batch_norm_inference_buffer_float_4d",
+            result.stdout,
+        )
         self.assertIn(
             "channel_cat_contract.json:multi_input_rank4_channel_cat",
             result.stdout,
@@ -435,10 +443,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 4 ShapeEnvelope adjacent-negative generators",
+            "validated 5 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=18", result.stdout)
+        self.assertIn("generated_cases=21", result.stdout)
+        self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
         self.assertIn("channel_cat_contract.json:7", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("safe_view_reshape_alias_contract.json:4", result.stdout)
@@ -464,10 +473,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 4 ShapeEnvelope legal-case generators",
+            "validated 5 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=13", result.stdout)
+        self.assertIn("generated_cases=17", result.stdout)
+        self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn("channel_cat_contract.json:5", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("safe_view_reshape_alias_contract.json:2", result.stdout)
@@ -493,11 +503,15 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 4 ShapeEnvelope fuzz assignment generators",
+            "validated 5 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=8", result.stdout)
-        self.assertIn("adjacent_negative_assignments=18", result.stdout)
+        self.assertIn("legal_assignments=10", result.stdout)
+        self.assertIn("adjacent_negative_assignments=21", result.stdout)
+        self.assertIn(
+            "batch_norm_inference_contract.json:legal=2:adjacent=3",
+            result.stdout,
+        )
         self.assertIn(
             "channel_cat_contract.json:legal=2:adjacent=7",
             result.stdout,
@@ -535,14 +549,19 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 4 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 5 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=8", result.stdout)
-        self.assertIn("legal_paths=31", result.stdout)
-        self.assertIn("adjacent_negative_axes=18", result.stdout)
-        self.assertIn("runtime_legal_cases=13", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=18", result.stdout)
+        self.assertIn("legal_assignments=10", result.stdout)
+        self.assertIn("legal_paths=52", result.stdout)
+        self.assertIn("adjacent_negative_axes=21", result.stdout)
+        self.assertIn("runtime_legal_cases=17", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=21", result.stdout)
+        self.assertIn(
+            "batch_norm_inference_contract.json:legal=2:status=covered:"
+            "paths=21/21:adjacent_axes=3",
+            result.stdout,
+        )
         self.assertIn(
             "channel_cat_contract.json:legal=2:status=covered:paths=8/8:"
             "adjacent_axes=7",
@@ -566,6 +585,7 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_shape_envelope_runtime_iterator_uses_generated_cases(self):
         expected_generated_counts = {
+            "batch_norm_inference_contract.json": (4, 3),
             "channel_cat_contract.json": (5, 7),
             "embedding_lookup_contract.json": (4, 4),
             "safe_view_reshape_alias_contract.json": (2, 4),
@@ -614,6 +634,7 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(
             set(registry),
             {
+                "batch_norm_inference_buffer_float_4d",
                 "multi_input_rank4_channel_cat",
                 "embedding_lookup_small_bounded",
                 "safe_reshape_alias_dense_buffer_direct",
@@ -654,13 +675,17 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("_shape_envelope_boundary_values", source)
         self.assertIn("_shape_envelope_case_key", source)
         self.assertIn("shape_envelope_fuzz_assignment_coverage_summary", source)
+        self.assertIn("_checked_in_shape_envelope_legal_cases", source)
         self.assertNotIn("_generated_channel_cat_assignment", source)
         self.assertNotIn("_generated_embedding_lookup_assignment", source)
+        self.assertNotIn("_generated_batch_norm", source)
         self.assertNotIn("def _channel_cat_assignment_coverage", source)
         self.assertNotIn("def _embedding_lookup_assignment_coverage", source)
+        self.assertNotIn("def _batch_norm_assignment_coverage", source)
         self.assertNotIn("def _safe_view_reshape_assignment_coverage", source)
         self.assertNotIn("def _channel_cat_legal_key", source)
         self.assertNotIn("def _embedding_lookup_legal_key", source)
+        self.assertNotIn("def _batch_norm_legal_key", source)
         self.assertNotIn("def _safe_view_reshape_legal_key", source)
 
     def test_vulkan_contract_spec_utility_cli_summary(self):
@@ -819,6 +844,107 @@ class TestVulkanGovernance(TestCase):
             "embedding_lookup_small_bounded_in_bounds",
         ):
             self.assertIn(expected, generated_header)
+
+    def test_vulkan_batch_norm_inference_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec("batch_norm_inference_contract.json")
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["contract_name"], "BatchNormInferenceContract")
+        self.assertEqual(spec["family"], "BufferFloat4D")
+        self.assertEqual(spec["tuple_id"], "buffer_inference_4d_float")
+        self.assertEqual(spec["writer_op"], "aten::batch_norm")
+        self.assertEqual(
+            spec["route_label"],
+            "aten::batch_norm.buffer_inference_4d_float",
+        )
+
+        metadata = spec["metadata"]
+        _require_contract_spec_fields(
+            metadata,
+            (
+                "evidence_id",
+                "guard_id",
+                "fallback_policy",
+                "materialization_policy",
+            ),
+            "BatchNormInferenceContract metadata",
+        )
+        self.assertEqual(
+            metadata["evidence_id"],
+            "batch_norm_inference_focused_tests",
+        )
+        self.assertEqual(metadata["guard_id"], "batch_norm_inference_adjacent_guards")
+        self.assertEqual(metadata["fallback_policy"], "unsupported_shapes_do_not_match")
+        self.assertEqual(
+            metadata["materialization_policy"],
+            "batch_norm_inference_buffer_kernel",
+        )
+
+        bounds = spec["bounds"]
+        _require_contract_spec_fields(
+            bounds,
+            (
+                "input_dtype",
+                "parameter_dtype",
+                "input_rank",
+                "parameter_rank",
+                "input_channels",
+                "training",
+                "weight_optional",
+                "bias_optional",
+                "requires_vulkan",
+                "requires_contiguous",
+                "requires_buffer_storage",
+                "requires_buffer_compute",
+            ),
+            "BatchNormInferenceContract bounds",
+        )
+        self.assertEqual(bounds["input_dtype"], "float32")
+        self.assertEqual(bounds["parameter_dtype"], "float32")
+        self.assertEqual(bounds["input_rank"], 4)
+        self.assertEqual(bounds["parameter_rank"], 1)
+        self.assertEqual(bounds["input_channels"], {"min": 1})
+        self.assertFalse(bounds["training"])
+        self.assertTrue(bounds["weight_optional"])
+        self.assertTrue(bounds["bias_optional"])
+        self.assertTrue(bounds["requires_vulkan"])
+        self.assertTrue(bounds["requires_contiguous"])
+        self.assertTrue(bounds["requires_buffer_storage"])
+        self.assertTrue(bounds["requires_buffer_compute"])
+
+        case_fields = (
+            "name",
+            "input_shape",
+            "parameter_features",
+            "dtype",
+            "training",
+            "has_weight",
+            "has_bias",
+        )
+        for section in ("positive_cases", "negative_cases"):
+            self.assertGreater(len(spec[section]), 0)
+            for case in spec[section]:
+                _require_contract_spec_fields(
+                    case,
+                    case_fields,
+                    f"BatchNormInferenceContract {section} case",
+                )
+                self.assertEqual(case["dtype"], bounds["input_dtype"])
+
+        for case in spec["positive_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("expected_route_label", "expected_cpu_fallback"),
+                "BatchNormInferenceContract positive case",
+            )
+            self.assertEqual(case["expected_route_label"], spec["route_label"])
+            self.assertFalse(case["expected_cpu_fallback"])
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("violates", "expected_native_route", "expected_cpu_fallback"),
+                "BatchNormInferenceContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
 
     def test_sdpa_score_softmax_contract_metadata(self):
         source = self._repo_text(
@@ -8786,6 +8912,212 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 momentum=0.1,
                 eps=1e-5,
             )
+
+    def test_batch_norm_inference_contract_generated_buffer_float4d_spec(self):
+        spec = _load_vulkan_contract_spec("batch_norm_inference_contract.json")
+        case_log_names = [
+            contract_spec_utils.contract_log_name(
+                spec,
+                case,
+                "value_trace.jsonl",
+            )
+            for _, case, _ in (
+                contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+            )
+        ]
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        case_log_paths = [os.path.join(repo_root, name) for name in case_log_names]
+        for path in case_log_paths:
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import json
+                import os
+                import re
+                import sys
+                import torch
+                import torch.nn.functional as F
+                sys.path.insert(
+                    0,
+                    os.path.join(os.getcwd(), "test", "vulkan_contract_specs"),
+                )
+                import contract_spec_utils
+
+                spec_path = os.path.join(
+                    os.getcwd(),
+                    "test",
+                    "vulkan_contract_specs",
+                    "batch_norm_inference_contract.json",
+                )
+                with open(spec_path, encoding="utf-8") as handle:
+                    spec = json.load(handle)
+
+                route_name = spec["route_label"].removeprefix(
+                    spec["writer_op"] + "."
+                )
+                route_hit = "route=" + route_name
+
+                def dtype_for_case(case):
+                    return {
+                        "float32": torch.float32,
+                    }[case["dtype"]]
+
+                def maybe_to_vulkan(tensor, use_vulkan):
+                    return tensor.to("vulkan") if use_vulkan else tensor
+
+                def read_value_trace(log_path):
+                    if not os.path.exists(log_path):
+                        return []
+                    with open(log_path, encoding="utf-8") as log_file:
+                        return [
+                            json.loads(line)
+                            for line in log_file
+                            if line.strip()
+                        ]
+
+                def value_trace_provenance(log_path):
+                    trace_records = read_value_trace(log_path)
+                    return trace_records, "\\n".join(
+                        str(record.get("output_provenance", ""))
+                        for record in trace_records
+                    )
+
+                def run_batch_norm(case, tensors, use_vulkan):
+                    x, running_mean, running_var, weight, bias = tensors
+                    weight_arg = (
+                        maybe_to_vulkan(weight, use_vulkan)
+                        if weight is not None
+                        else None
+                    )
+                    bias_arg = (
+                        maybe_to_vulkan(bias, use_vulkan)
+                        if bias is not None
+                        else None
+                    )
+                    return F.batch_norm(
+                        maybe_to_vulkan(x, use_vulkan),
+                        maybe_to_vulkan(running_mean, use_vulkan),
+                        maybe_to_vulkan(running_var, use_vulkan),
+                        weight_arg,
+                        bias_arg,
+                        training=case["training"],
+                        momentum=0.1,
+                        eps=1e-5,
+                    )
+
+                def make_tensors(case):
+                    dtype = dtype_for_case(case)
+                    torch.manual_seed(6000 + len(case["name"]))
+                    x = torch.randn(*case["input_shape"], dtype=dtype)
+                    features = case["parameter_features"]
+                    running_mean = torch.randn(features, dtype=dtype)
+                    running_var = torch.rand(features, dtype=dtype) + 0.5
+                    weight = (
+                        torch.randn(features, dtype=dtype)
+                        if case["has_weight"]
+                        else None
+                    )
+                    bias = (
+                        torch.randn(features, dtype=dtype)
+                        if case["has_bias"]
+                        else None
+                    )
+                    return x, running_mean, running_var, weight, bias
+
+                def run_case(case, expect_native_route):
+                    log_name = contract_spec_utils.contract_log_name(
+                        spec,
+                        case,
+                        "value_trace.jsonl",
+                    )
+                    log_path = os.path.join(os.getcwd(), log_name)
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    os.environ["PYTORCH_VULKAN_VALIDATE_VALUES"] = "1"
+                    os.environ["PYTORCH_VULKAN_VALUE_TRACE_LOG"] = log_path
+                    os.environ["PYTORCH_VULKAN_VALUE_TRACE_SAMPLES"] = "1"
+
+                    tensors = make_tensors(case)
+                    expected_error = case.get("expected_error_regex")
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    if expected_error is not None:
+                        try:
+                            run_batch_norm(case, tensors, use_vulkan=True)
+                        except RuntimeError as error:
+                            assert re.search(expected_error, str(error)), (
+                                case,
+                                str(error),
+                            )
+                        else:
+                            raise AssertionError((case, "expected RuntimeError"))
+                        fallback_count = (
+                            torch.ops.vulkan_prepack.cpu_fallback_count()
+                        )
+                        trace_records, provenance = value_trace_provenance(log_path)
+                        assert route_hit not in provenance, (case, provenance)
+                        if case["expected_cpu_fallback"]:
+                            assert fallback_count == 1, (
+                                case,
+                                fallback_count,
+                                trace_records,
+                            )
+                        else:
+                            assert fallback_count == 0, (
+                                case,
+                                fallback_count,
+                                trace_records,
+                            )
+                        return
+
+                    expected = run_batch_norm(case, tensors, use_vulkan=False)
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = run_batch_norm(case, tensors, use_vulkan=True)
+                    torch.testing.assert_close(
+                        actual.cpu(),
+                        expected,
+                        atol=2e-4,
+                        rtol=2e-4,
+                    )
+
+                    fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                    trace_records, provenance = value_trace_provenance(log_path)
+                    if expect_native_route:
+                        assert fallback_count == 0, (
+                            case,
+                            fallback_count,
+                            trace_records,
+                        )
+                        expected_route_name = case[
+                            "expected_route_label"
+                        ].removeprefix(spec["writer_op"] + ".")
+                        expected_route = "route=" + expected_route_name
+                        expected_writer = "writer_op=" + spec["writer_op"]
+                        assert expected_writer in provenance, (case, provenance)
+                        assert expected_route in provenance, (case, provenance)
+                    else:
+                        assert route_hit not in provenance, (case, provenance)
+                        if case["expected_cpu_fallback"]:
+                            assert fallback_count == 1, (
+                                case,
+                                fallback_count,
+                                trace_records,
+                            )
+
+                for _, case, expect_native_route in (
+                    contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+                ):
+                    run_case(case, expect_native_route)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                error_prefix="BatchNorm generated contract spec failed.",
+            )
+        finally:
+            for path in case_log_paths:
+                if os.path.exists(path):
+                    os.remove(path)
 
     def test_permute_reshape_then_linear(self):
         torch.manual_seed(0)

@@ -98,6 +98,24 @@ condition and migration target.
 - Migration target: broader generated `GQARepeatContract` tables with positive
   and negative tests.
 
+### BatchNorm Inference Exact Envelopes
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  `aten/src/ATen/native/vulkan/ops/Batchnorm.cpp`
+- Status: temporary, contract-named
+- Reason: float32 4D inference batch norm is proven for current buffer and
+  materialized-buffer paths, but broader dtype/rank/layout/training behavior is
+  not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/batch_norm_inference_contract.json`
+  covers the `BufferFloat4D` slice with ShapeEnvelope-backed checked-in
+  positive and adjacent negative runtime cases. The
+  `MaterializedBufferFloat4D` slice remains separate and uncovered by this
+  first fixture.
+- Expiry: broader batch-norm inference parity plus adjacent negative coverage
+  are available for buffer and materialized-buffer families.
+- Migration target: broader generated `BatchNormInferenceContract` tables with
+  positive and negative tests.
+
 ### SDPA Execution Policy Exact Tuples
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

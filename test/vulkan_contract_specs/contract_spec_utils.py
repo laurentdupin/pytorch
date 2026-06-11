@@ -512,6 +512,14 @@ def _generated_shape_envelope_assignment_cases(spec):
     }
 
 
+def _checked_in_shape_envelope_legal_cases(spec):
+    return list(spec["positive_cases"])
+
+
+def _checked_in_shape_envelope_adjacent_negative_cases(spec):
+    return list(spec["negative_cases"])
+
+
 def _validate_shape_envelope_common(file_name, spec, envelope):
     context = f"{file_name} ShapeEnvelope v1"
     _require_mapping(envelope, context)
@@ -946,6 +954,101 @@ def _validate_safe_view_reshape_alias_shape_envelope(file_name, spec, envelope):
                 case["output_shape"][-1] % bounds["output_last_dim_multiple_of"] != 0
             ):
                 raise AssertionError(f"{case_context} output last dim is unaligned")
+
+
+def _validate_batch_norm_inference_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} BatchNormInference ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "BatchNormInferenceContract",
+        f"{context} contract",
+    )
+    _require_equal(spec["family"], "BufferFloat4D", f"{context} family")
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    inputs = envelope["inputs"]
+    require_fields(
+        inputs,
+        ("input", "running_mean", "running_var", "weight", "bias"),
+        f"{context} inputs",
+    )
+    bounds = envelope["bounds"]
+    for input_name in ("input", "running_mean", "running_var", "weight", "bias"):
+        input_spec = inputs[input_name]
+        expected_dtype = (
+            bounds["input_dtype"]
+            if input_name == "input"
+            else bounds["parameter_dtype"]
+        )
+        expected_rank = (
+            bounds["input_rank"]
+            if input_name == "input"
+            else bounds["parameter_rank"]
+        )
+        _require_equal(
+            _single_value(input_spec["dtype"], f"{context} {input_name} dtype"),
+            expected_dtype,
+            f"{context} {input_name} dtype",
+        )
+        _require_equal(
+            _single_value(input_spec["rank"], f"{context} {input_name} rank"),
+            expected_rank,
+            f"{context} {input_name} rank",
+        )
+
+    input_dims = _dims_by_symbol(inputs["input"], f"{context} input")
+    for symbol in ("N", "C", "H", "W"):
+        if symbol not in input_dims:
+            raise AssertionError(f"{context} missing input dim {symbol}")
+    for input_name in ("running_mean", "running_var", "weight", "bias"):
+        dims = _dims_by_symbol(inputs[input_name], f"{context} {input_name}")
+        if "C" not in dims:
+            raise AssertionError(f"{context} missing {input_name} dim C")
+
+    attributes = envelope["attributes"]
+    _require_equal(
+        _single_value(attributes["training"], f"{context} training"),
+        bounds["training"],
+        f"{context} training",
+    )
+    _require_equal(
+        sorted(attributes["weight_has_value"]["values"]),
+        [False, True],
+        f"{context} weight optional",
+    )
+    _require_equal(
+        sorted(attributes["bias_has_value"]["values"]),
+        [False, True],
+        f"{context} bias optional",
+    )
+
+    relationships = _relationship_types(envelope)
+    if "equal" not in relationships:
+        raise AssertionError(f"{context} missing feature-count relationship")
+    layout = envelope["layout"]
+    for field in (
+        "requires_vulkan",
+        "requires_contiguous",
+        "requires_buffer_storage",
+    ):
+        _require_equal(layout[field], bounds[field], f"{context} {field}")
+    _require_equal(
+        envelope["capability_requirements"]["requires_buffer_compute"],
+        bounds["requires_buffer_compute"],
+        f"{context} requires_buffer_compute",
+    )
+
+    for section in ("positive_cases", "negative_cases"):
+        for case in spec[section]:
+            case_context = f"{context} {section} {case['name']}"
+            if len(case["input_shape"]) != bounds["input_rank"]:
+                if case.get("violates") != "input_rank":
+                    raise AssertionError(f"{case_context} input rank mismatch")
+            if case["dtype"] != bounds["input_dtype"]:
+                raise AssertionError(f"{case_context} dtype mismatch")
+            if case["parameter_features"] != case["input_shape"][1]:
+                if case.get("violates") != "feature_count.equal":
+                    raise AssertionError(f"{case_context} feature count mismatch")
 
 
 def validate_shape_envelope_spec(file_name, spec):
@@ -1463,6 +1566,59 @@ def _product(values):
 
 
 SHAPE_ENVELOPE_ROLE_REGISTRY = {
+    "batch_norm_inference_buffer_float_4d": {
+        "validate": _validate_batch_norm_inference_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": (
+            "input_shape",
+            "parameter_features",
+            "dtype",
+            "training",
+            "has_weight",
+            "has_bias",
+            "expected_route_label",
+            "expected_cpu_fallback",
+        ),
+        "assignment_coverage_fields": (
+            "inputs.bias.dtype",
+            "inputs.bias.rank",
+            "inputs.bias.dims.C",
+            "inputs.input.dtype",
+            "inputs.input.rank",
+            "inputs.input.dims.N",
+            "inputs.input.dims.C",
+            "inputs.input.dims.H",
+            "inputs.input.dims.W",
+            "inputs.running_mean.dtype",
+            "inputs.running_mean.rank",
+            "inputs.running_mean.dims.C",
+            "inputs.running_var.dtype",
+            "inputs.running_var.rank",
+            "inputs.running_var.dims.C",
+            "inputs.weight.dtype",
+            "inputs.weight.rank",
+            "inputs.weight.dims.C",
+            "attributes.bias_has_value",
+            "attributes.training",
+            "attributes.weight_has_value",
+        ),
+        "adjacent_negative_key_fields": (
+            "violates",
+            "input_shape",
+            "parameter_features",
+            "dtype",
+            "training",
+            "has_weight",
+            "has_bias",
+            "expected_native_route",
+            "expected_cpu_fallback",
+            ("expected_error_regex", ""),
+        ),
+    },
     "multi_input_rank4_channel_cat": {
         "validate": _validate_channel_cat_shape_envelope,
         "assignment_cases": _generated_shape_envelope_assignment_cases,
