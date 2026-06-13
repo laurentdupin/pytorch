@@ -62,6 +62,9 @@ Use this checklist for Vulkan backend changes.
 
 - No unrelated Vulkan source edits.
 - No benchmark behavior changes unless the task explicitly requests them.
+- Benchmark-local distributed/import shims stay import-only and
+  single-process. Do not fake compiled `torch._C` distributed or DTensor APIs to
+  make a workload reach Vulkan telemetry.
 - No capability-profile row is treated as GPU emulation; RX 9070, RX 6700 XT,
   and GTX 1080 remain real-hardware validation rows.
 - No `.ci/docker` edits unless rebuilding Docker images is intentional.

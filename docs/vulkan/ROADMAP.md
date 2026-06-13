@@ -146,6 +146,10 @@ Choose the next task by trigger, not by a stale fixed family name:
   review without changing behavior.
 - Refresh the real-model matrix after a default backend behavior change or
   before claiming or raising a model gate.
+- Treat model rows that fail before useful Vulkan execution as environment
+  blockers, not backend regression budgets. Current Lotus telemetry requires a
+  real distributed/DTensor-capable source-tree build or compatible runtime; do
+  not fake compiled `torch._C` DTensor APIs in the benchmark harness.
 
 ## Phase 4: Region And Layout Contracts
 

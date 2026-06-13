@@ -163,18 +163,25 @@ any Python distributed exports such as `DeviceMesh`, and
 `distributed_c10d_status` as `real_distributed_c10d`,
 `distributed_import_shim`, or `missing_distributed_c10d`.
 
-With that shim, HY-MT reaches the first Vulkan operator blocker:
-`aten::isin.Tensor_Tensor_out` during generation special-token preparation.
-Gemma reaches model construction and then fails while moving the large embedding
-weights to Vulkan with `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
+Task179/Task181 telemetry uses this shim boundary as an import aid, not as a
+distributed runtime. HY-MT now reaches a 99-token prompt plus 16 generated
+tokens on RX 9070, but still reports high fallback/readback attribution. Gemma
+reaches model construction and then fails while moving the large embedding
+weights to Vulkan with `VK_ERROR_OUT_OF_DEVICE_MEMORY`. Lotus clears the
+benchmark-local `_c10d_functional.wait_tensor` import blocker, but still fails
+before useful Vulkan execution because the source-tree environment lacks the
+compiled DTensor C API `_DTensor_OpSchema_post_init` in `torch._C`. Do not add
+benchmark-local fakes for compiled `torch._C` DTensor APIs; useful Lotus
+telemetry now requires a real distributed/DTensor-capable source-tree build or a
+compatible runtime environment.
 
 PaddleOCR initializes through PaddleX's accepted CPU control path, then the
 harness patches PaddleX's Transformers predictor device hook so loaded
 Transformers-engine modules are moved to `vulkan`. The source PaddleOCR venv
 installs `torchvision` with `--no-deps` so it does not replace the source-tree
-PyTorch build. The current first PaddleOCR Vulkan backend blocker is
-`aten::convolution` routed to `KnownBadLargePointwiseConv` for
-`input=[1, 512, 7, 7]` and `weight=[512, 512, 1, 1]` on RX 9070.
+PyTorch build. Task179 completed the RX 9070 screenshot row with one known CPU
+fallback, one sync readback, and the expected remaining postprocess/prepack
+metadata attribution.
 
 Installed-wheel CPU venvs are still the executable model-framework coverage
 path. Source-tree venvs remain the Vulkan backend coverage path through
@@ -208,13 +215,14 @@ Debug tracebacks are omitted by default to keep JSON compact. Add
 
 The current source-tree PyTorch imports successfully, but Diffusers and
 Transformers package checks expect installed wheel metadata and distributed
-extension metadata. The harness applies a local Diffusers availability patch for
-Lotus runs after importing the source-tree PyTorch. On this environment Lotus,
-HY-MT, and Gemma still report installed-torch metadata blockers because
-Diffusers/Transformers import paths require `torch._C._distributed_c10d`. That
-is a benchmark environment blocker, not a Vulkan backend result. Use an
-installed local PyTorch wheel or a compatible benchmark virtual environment
-before treating those model rows as backend coverage.
+extension metadata. The harness applies local availability and import shims only
+for single-process benchmark imports. The remaining Lotus blocker is
+`missing_compiled_dtensor_c_api`: `torch._C` does not export
+`_DTensor_OpSchema_post_init` in this source-tree environment. That is a
+benchmark/runtime environment blocker, not a Vulkan backend result. Use a real
+distributed/DTensor-capable source-tree build, an installed local PyTorch wheel,
+or a compatible benchmark virtual environment before treating the Lotus row as
+backend coverage.
 
 PaddleOCR 3.5 uses the task-specific `agent_space/venvs/paddleocr` environment.
 The PaddleOCR Transformers backend also requires the `transformers` package in

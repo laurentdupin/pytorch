@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-13 at local HEAD
-`c7abc53e8374ef9d4d9a07637c572c615e09c4d2`.
+`818a1fa92b0a461c9d53b7ea161a92d071136af3`.
 
 ## Repo State Summary
 
@@ -85,6 +85,38 @@ The five-model corpus is:
 
 Do not infer production route names from this corpus.
 
+## Current Telemetry Checkpoint
+
+Task179 and Task181 artifacts are planner telemetry only; they do not raise a
+model gate and they do not imply model-specific production routes.
+
+- DAv2 RX 9070: stable. Task179 completed with `cpu_fallback=0`,
+  `sync_readback=169`, `tensor_cpu_readback=430`, `retire_drains=102`, and
+  `conv_prepack_upload=4`.
+- HY-MT RX 9070 99-token prompt with 16 generated tokens: stable but still
+  high in fallback/readback attribution. Task179 reported `cpu_fallback=423`,
+  `sync_readback=83`, `tensor_cpu_readback=5827`, and model-core tensor-op
+  fallback/readback `0/0`.
+- PaddleOCR RX 9070 screenshot: stable in the Task179 single row. It reported
+  `cpu_fallback=1`, `sync_readback=1`, `tensor_cpu_readback=1824`, and
+  `conv_prepack_upload=140`; the earlier first-attempt DeviceLost did not
+  reproduce in that run.
+- Gemma E2B: still blocked before useful route coverage by model-weight Vulkan
+  OOM while moving
+  `gemma4forconditionalgeneration.model.language_model.embed_tokens_per_layer.weight`.
+- Lotus: Task181 cleared the benchmark-local `_c10d_functional.wait_tensor`
+  import blocker, but Lotus still fails before useful Vulkan execution because
+  the source-tree environment lacks the compiled DTensor C API
+  `_DTensor_OpSchema_post_init` in `torch._C`. The Lotus counters remain zero
+  and the row must not contribute backend regression budgets.
+
+Benchmark-local distributed shims must stay import-only and single-process.
+`_c10d_functional.wait_tensor` may be an identity shim for telemetry imports;
+collective and DTensor op schema stubs must raise if executed. Do not add
+benchmark-local fakes for compiled `torch._C` DTensor APIs. Restoring Lotus
+telemetry now requires a real source-tree distributed/DTensor-capable build or
+a compatible runtime environment, not a Vulkan backend change.
+
 ## Existing Audit Artifacts
 
 - `agent_space/vulkan_contract_migration_plan.md`: policy lock and initial
@@ -99,6 +131,10 @@ Do not infer production route names from this corpus.
   `DiffusionSDPAContract` and `DiffusionCrossAttentionContract` evidence.
 - `agent_space/lotus_pointwise_projection_contract_draft.md`: finite diffusion
   projection evidence for `SmallSpatialPointwiseConvContract`.
+- `agent_space/task179_real_workload_status_telemetry.md`: telemetry checkpoint
+  for DAv2, Lotus, HY-MT, PaddleOCR, and Gemma on the current local corpus.
+- `agent_space/task181_lotus_shim_validation.md`: benchmark-local Lotus shim
+  validation and current `missing_compiled_dtensor_c_api` blocker.
 
 These files are diagnostic inputs. Production code must not depend on
 `agent_space`.
@@ -278,19 +314,14 @@ These files are diagnostic inputs. Production code must not depend on
   not replace the RX 9070/RX 6700 XT/GTX 1080 real-hardware rows.
 - Gemma E2B is a memory/dtype milestone, not a reason to add exact route
   exceptions.
-- PaddleOCR completes current matrix-sensitive RX 9070/RX 6700 XT/GTX 1080
-  smoke coverage in Task033/Task034-era artifacts with zero sync readback, but
-  that matrix is stale by commit relative to the profile/spec governance stack.
-  The intervening spec/profile work, InitialCache observability-label update,
-  NoOverlapConvTranspose2D, GQARepeat, and SDPAScoreSoftmax fixture coverage,
-  ChannelCat source split, and
-  NoOverlapConvTranspose2D, BatchNormInference, KVCacheAppend,
-  EmbeddingLookup, GQARepeat, SafeViewReshape, DiffusionSDPA, and
-  SDPAExecutionPolicy, SDPAScoreSoftmax, SmallMetadataPaddedConv2D,
-  SmallSpatialPointwiseConv, MaskedTinySDPA, and TransformerGQASDPA source
-  splits should not change accepted shapes or default no-profile model
-  routing, but rerun the real-model matrix after the next backend behavior
-  change or before claiming or raising a model gate.
+- Lotus is telemetry-unavailable in the current source-tree environment. Do
+  not fake compiled `torch._C` DTensor APIs in the benchmark harness to make it
+  run; use a compatible distributed/DTensor-capable build or runtime before
+  treating Lotus as backend evidence.
+- PaddleOCR completed the Task179 RX 9070 screenshot row with one known CPU
+  fallback and one sync readback, but that is still telemetry-only and not
+  cross-adapter gate-ready. Rerun the real-model matrix after the next backend
+  behavior change or before claiming or raising a model gate.
 
 ## Build Context
 
