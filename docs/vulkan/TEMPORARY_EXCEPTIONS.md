@@ -59,8 +59,9 @@ condition and migration target.
   behavior is not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/embedding_lookup_contract.json`
   covers the small-bounded lookup slice with generated positive and adjacent
-  negative runtime tests. Other embedding rows still need broader generated
-  coverage before the exception can expire.
+  negative runtime tests and generic ShapeEnvelope C++ metadata/helper output.
+  Other embedding rows still need broader generated coverage before the
+  exception can expire.
 - Expiry: broader embedding lookup parity plus adjacent negative coverage are
   available.
 - Migration target: generated `EmbeddingLookupContract` tables with positive

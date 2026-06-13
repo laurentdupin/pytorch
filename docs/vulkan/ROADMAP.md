@@ -103,11 +103,12 @@ Current MVP status:
   `ExecutionContractsChannelCatSpec.h` from the `ShapeEnvelope` v1 data in
   `channel_cat_contract.json`, with cross-input iteration and match result
   construction still handwritten.
-- `EmbeddingLookupContract` `SmallBoundedLookup` has the second generated C++
-  artifact: the same generator emits `ExecutionContractsEmbeddingLookupSpec.h`
-  from the `ShapeEnvelope` v1 data in `embedding_lookup_contract.json` for
-  metadata, route label, simple bounds, and matcher helper predicates. The
-  token-batch row remains handwritten until it gets its own fixture.
+- `EmbeddingLookupContract` `SmallBoundedLookup` now uses the generic
+  ShapeEnvelope C++ metadata/helper path: the generator emits
+  `ExecutionContractsEmbeddingLookupSpec.h` from `embedding_lookup_contract.json`
+  for metadata, route label, dtype/rank-list, range, boolean option bounds, and
+  matcher helper predicates. The token-batch row remains handwritten until it
+  gets its own fixture.
 - `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast` has the
   first generic ShapeEnvelope C++ metadata/helper artifact:
   `ExecutionContractsElementwiseBroadcastSpec.h` is emitted without adding a

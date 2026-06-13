@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-13 at local HEAD
-`61f7e319bbb837fb38c0afe07894469b1c619624`.
+`5d9bbba0e2b5e0a99796cb9ea8642e0116eedea9`.
 
 ## Repo State Summary
 
@@ -135,10 +135,10 @@ These files are diagnostic inputs. Production code must not depend on
 - `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
   lookup contract; the small-bounded lookup slice has a JSON contract spec with
   generated positive and adjacent negative runtime coverage. The
-  `SmallBoundedLookup` slice is backed by `ShapeEnvelope` v1 for generated C++
-  metadata, bounds, and matcher helper predicates while the token-batch row
-  remains handwritten. Keep remaining exact rows until broader legality is
-  proven.
+  `SmallBoundedLookup` slice now uses the generic ShapeEnvelope C++ generator
+  path for generated metadata, bounds, and matcher helper predicates while the
+  token-batch row remains handwritten. Keep remaining exact rows until broader
+  legality is proven.
 - `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
   cat patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
   contract spec with generated positive and adjacent negative runtime coverage
@@ -231,11 +231,11 @@ These files are diagnostic inputs. Production code must not depend on
   `channel_cat_contract.json`, including a typed row and helper predicates.
   Generation now consumes the fixture's `ShapeEnvelope` v1 metadata and bounds,
   and governance compares the output byte-for-byte with the checked-in header.
-- EmbeddingLookup `SmallBoundedLookup` has the second generated C++ contract
-  artifact. The same generator emits
-  `generated/ExecutionContractsEmbeddingLookupSpec.h` from
-  `embedding_lookup_contract.json` for metadata, route label, simple bounds,
-  and helper predicates from `ShapeEnvelope` v1; the matcher loop, result
+- EmbeddingLookup `SmallBoundedLookup` now consumes the generic ShapeEnvelope
+  C++ metadata/helper generator path. `tools/vulkan_contracts/gen_contract_spec_cpp.py`
+  emits `generated/ExecutionContractsEmbeddingLookupSpec.h` from
+  `embedding_lookup_contract.json` for metadata, route label, dtype/rank-list,
+  range, boolean option bounds, and helper predicates; the matcher loop, result
   construction, and token-batch family remain handwritten.
 - ElementwiseBroadcast `FloatTensorTensorBufferBroadcast` is the first
   consumer of generic ShapeEnvelope C++ metadata/helper generation v0:
