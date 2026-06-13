@@ -35,6 +35,74 @@ from benchmark_suite_common import (
 from bench_common import summarize_durations
 
 
+_BENCHMARK_C10D_FUNCTIONAL_SHIM_LIBRARIES: list[Any] = []
+_BENCHMARK_C10D_FUNCTIONAL_SCHEMA_SHIMS: set[str] = set()
+_BENCHMARK_DTENSOR_SHIM_LIBRARIES: list[Any] = []
+_BENCHMARK_DTENSOR_SCHEMA_SHIMS: set[str] = set()
+_BENCHMARK_C10D_FUNCTIONAL_IMPORT_SCHEMAS = (
+    ("all_reduce", "all_reduce(Tensor input, str reduce_op, Any group_name) -> Tensor"),
+    (
+        "all_reduce_",
+        "all_reduce_(Tensor(a!) input, str reduce_op, Any group_name) -> Tensor(a!)",
+    ),
+    (
+        "all_reduce_coalesced",
+        "all_reduce_coalesced(Tensor[] inputs, str reduce_op, Any group_name) -> Tensor[]",
+    ),
+    (
+        "all_reduce_coalesced_",
+        "all_reduce_coalesced_(Tensor[](a!) inputs, str reduce_op, Any group_name) -> Tensor[](a!)",
+    ),
+    (
+        "all_gather_into_tensor_out",
+        "all_gather_into_tensor_out(Tensor input, int group_size, Any group_name, *, Tensor(a!) out) -> Tensor(a!)",
+    ),
+    (
+        "all_gather_into_tensor",
+        "all_gather_into_tensor(Tensor input, int group_size, Any group_name) -> Tensor",
+    ),
+    (
+        "all_gather_into_tensor_coalesced",
+        "all_gather_into_tensor_coalesced(Tensor[] inputs, int group_size, Any group_name) -> Tensor[]",
+    ),
+    (
+        "reduce_scatter_tensor",
+        "reduce_scatter_tensor(Tensor input, str reduce_op, int group_size, Any group_name) -> Tensor",
+    ),
+    (
+        "reduce_scatter_tensor_out",
+        "reduce_scatter_tensor_out(Tensor input, str reduce_op, int group_size, Any group_name, *, Tensor(a!) out) -> Tensor(a!)",
+    ),
+    (
+        "reduce_scatter_tensor_coalesced",
+        "reduce_scatter_tensor_coalesced(Tensor[] inputs, str reduce_op, int group_size, Any group_name) -> Tensor[]",
+    ),
+    (
+        "all_to_all_single",
+        "all_to_all_single(Tensor input, SymInt[] output_split_sizes, SymInt[] input_split_sizes, Any group_name) -> Tensor",
+    ),
+    ("broadcast", "broadcast(Tensor input, int src, Any group_name) -> Tensor"),
+    (
+        "broadcast_",
+        "broadcast_(Tensor(a!) input, int src, Any group_name) -> Tensor(a!)",
+    ),
+    ("wait_tensor", "wait_tensor(Tensor tensor) -> Tensor"),
+    ("isend", "isend(Tensor tensor, int dst, int tag, str group_name) -> Tensor"),
+    ("irecv", "irecv(Tensor tensor, int src, int tag, str group_name) -> Tensor"),
+    (
+        "batch_p2p_ops",
+        "batch_p2p_ops(str[] op_list, int[] peer_list, int[] tag_list, Tensor[] tensors, str group_name) -> Tensor[]",
+    ),
+)
+
+_BENCHMARK_DTENSOR_IMPORT_SCHEMAS = (
+    (
+        "shard_dim_alltoall",
+        "shard_dim_alltoall(Tensor input, int gather_dim, int shard_dim, Any group_name) -> Tensor",
+    ),
+)
+
+
 DEFAULT_MODELS = {
     "torch_ops": "local_torch_conv_relu_smoke",
     "lotus": "jingheya/lotus-depth-d-v1-1",
@@ -83,6 +151,96 @@ def benchmark_distributed_import_status(torch: Any) -> str:
     return "missing_distributed_c10d"
 
 
+def install_benchmark_c10d_functional_import_shims(torch: Any) -> dict[str, Any]:
+    torch_ops = getattr(torch, "ops", None)
+    c10d_functional = getattr(torch_ops, "_c10d_functional", None)
+    if c10d_functional is None:
+        return {"wait_tensor": False, "schema_shims": []}
+
+    def _wait_tensor_identity(tensor: Any, *args: Any, **kwargs: Any) -> Any:
+        return tensor
+
+    def _unavailable_collective(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError(
+            "Benchmark distributed import shim does not implement "
+            "torch.distributed collectives."
+        )
+
+    missing_schemas: list[tuple[str, str]] = []
+    for op_name, schema in _BENCHMARK_C10D_FUNCTIONAL_IMPORT_SCHEMAS:
+        try:
+            op = getattr(c10d_functional, op_name)
+            default = getattr(op, "default", op)
+            if hasattr(default, "_schema"):
+                continue
+        except AttributeError:
+            pass
+        if op_name not in _BENCHMARK_C10D_FUNCTIONAL_SCHEMA_SHIMS:
+            missing_schemas.append((op_name, schema))
+    if missing_schemas:
+        from torch.library import Library
+
+        library = Library("_c10d_functional", "FRAGMENT")
+        for _, schema in missing_schemas:
+            library.define(schema)
+        for op_name, _ in missing_schemas:
+            library.impl(
+                op_name,
+                _wait_tensor_identity
+                if op_name == "wait_tensor"
+                else _unavailable_collective,
+                "CompositeExplicitAutograd",
+            )
+            _BENCHMARK_C10D_FUNCTIONAL_SCHEMA_SHIMS.add(op_name)
+        _BENCHMARK_C10D_FUNCTIONAL_SHIM_LIBRARIES.append(library)
+
+    schema_shims = sorted(_BENCHMARK_C10D_FUNCTIONAL_SCHEMA_SHIMS)
+    return {
+        "wait_tensor": "wait_tensor" in _BENCHMARK_C10D_FUNCTIONAL_SCHEMA_SHIMS,
+        "schema_shims": schema_shims,
+    }
+
+
+def install_benchmark_dtensor_import_shims(torch: Any) -> dict[str, Any]:
+    torch_ops = getattr(torch, "ops", None)
+    dtensor_ops = getattr(torch_ops, "_dtensor", None)
+    if dtensor_ops is None:
+        return {"schema_shims": []}
+
+    def _unavailable_dtensor_op(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError(
+            "Benchmark distributed import shim does not implement "
+            "DTensor collective ops."
+        )
+
+    missing_schemas: list[tuple[str, str]] = []
+    for op_name, schema in _BENCHMARK_DTENSOR_IMPORT_SCHEMAS:
+        try:
+            op = getattr(dtensor_ops, op_name)
+            default = getattr(op, "default", op)
+            if hasattr(default, "_schema"):
+                continue
+        except AttributeError:
+            pass
+        if op_name not in _BENCHMARK_DTENSOR_SCHEMA_SHIMS:
+            missing_schemas.append((op_name, schema))
+    if missing_schemas:
+        from torch.library import Library
+
+        library = Library("_dtensor", "FRAGMENT")
+        for _, schema in missing_schemas:
+            library.define(schema)
+        for op_name, _ in missing_schemas:
+            library.impl(
+                op_name,
+                _unavailable_dtensor_op,
+                "CompositeExplicitAutograd",
+            )
+            _BENCHMARK_DTENSOR_SCHEMA_SHIMS.add(op_name)
+        _BENCHMARK_DTENSOR_SHIM_LIBRARIES.append(library)
+    return {"schema_shims": sorted(_BENCHMARK_DTENSOR_SCHEMA_SHIMS)}
+
+
 def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
     torch_c = getattr(torch, "_C", None)
     torch_c10d = getattr(torch_c, "_distributed_c10d", None)
@@ -95,6 +253,7 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
     c10d_module_name = "torch._C._distributed_c10d"
     c10d_existing = sys.modules.get(c10d_module_name)
     c10d_installed = False
+    distributed_python_exports: list[str] = []
     if c10d_existing is None:
         c10d_module = types.ModuleType(c10d_module_name)
 
@@ -146,6 +305,21 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
                     "torch.distributed collectives."
                 )
 
+        from torch._opaque_base import OpaqueBase
+
+        class _UnavailableProcessGroup(OpaqueBase):
+            BackendType = _UnavailableDistributedObject.BackendType
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                raise RuntimeError(
+                    "Benchmark distributed import shim does not implement "
+                    "torch.distributed process groups."
+                )
+
+        _UnavailableProcessGroup.__module__ = "torch.distributed.distributed_c10d"
+        _UnavailableProcessGroup.__name__ = "ProcessGroup"
+        _UnavailableProcessGroup.__qualname__ = "ProcessGroup"
+
         class _UnavailableBackend:
             FAKE = "fake"
             GLOO = "gloo"
@@ -184,6 +358,7 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
         c10d_module._DEFAULT_PG_TIMEOUT = 1800
         c10d_module._DEFAULT_PG_NCCL_TIMEOUT = 1800
         c10d_module.Backend = _UnavailableBackend
+        c10d_module.ProcessGroup = _UnavailableProcessGroup
         c10d_module._DistributedBackendOptions = _UnavailableDistributedObject
         c10d_module._benchmark_distributed_import_shim = True
         sys.modules[c10d_module_name] = c10d_module
@@ -193,6 +368,7 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
         try:
             import torch.distributed as torch_distributed
 
+            torch_distributed.ProcessGroup = _UnavailableProcessGroup
             for attr_name in (
                 "FileStore",
                 "HashStore",
@@ -203,13 +379,78 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
                 "Work",
             ):
                 if not hasattr(torch_distributed, attr_name):
+                    attr_value = (
+                        _UnavailableProcessGroup
+                        if attr_name == "ProcessGroup"
+                        else _UnavailableDistributedObject
+                    )
                     setattr(
                         torch_distributed,
                         attr_name,
-                        _UnavailableDistributedObject,
+                        attr_value,
                     )
             if not hasattr(torch_distributed, "Backend"):
                 torch_distributed.Backend = _UnavailableBackend
+            device_mesh_module = importlib.import_module(
+                "torch.distributed.device_mesh"
+            )
+            if not hasattr(device_mesh_module, "ProcessGroup"):
+                device_mesh_module.ProcessGroup = _UnavailableProcessGroup
+                distributed_python_exports.append("device_mesh.ProcessGroup")
+            device_mesh_type = getattr(device_mesh_module, "DeviceMesh", None)
+            if not isinstance(device_mesh_type, type) or not issubclass(
+                device_mesh_type,
+                OpaqueBase,
+            ):
+                class _UnavailableDeviceMesh(OpaqueBase):
+                    def __init__(self, *args: Any, **kwargs: Any) -> None:
+                        raise RuntimeError(
+                            "Benchmark distributed import shim does not "
+                            "implement DeviceMesh."
+                        )
+
+                _UnavailableDeviceMesh.__module__ = "torch.distributed.device_mesh"
+                _UnavailableDeviceMesh.__name__ = "DeviceMesh"
+                _UnavailableDeviceMesh.__qualname__ = "DeviceMesh"
+                device_mesh_module.DeviceMesh = _UnavailableDeviceMesh
+                distributed_python_exports.append("device_mesh.DeviceMesh")
+            if not hasattr(device_mesh_module, "_mesh_resources"):
+                class _BenchmarkMeshResources:
+                    mesh_stack: list[Any] = []
+
+                    def get_current_mesh(self) -> Any:
+                        raise RuntimeError(
+                            "Benchmark distributed import shim does not "
+                            "provide an active DeviceMesh."
+                        )
+
+                    def get_root_mesh(self, device_mesh: Any) -> Any:
+                        return device_mesh
+
+                    @staticmethod
+                    def num_devices_per_host(device_type: str) -> int:
+                        return 1
+
+                    @staticmethod
+                    def num_hosts(device_type: str) -> int:
+                        return 1
+
+                    def _get_all_submeshes(
+                        self,
+                        device_mesh: Any,
+                        mesh_dim_name: str,
+                    ) -> list[Any]:
+                        return []
+
+                device_mesh_module._mesh_resources = _BenchmarkMeshResources()
+                distributed_python_exports.append("_mesh_resources")
+            if not hasattr(torch_distributed, "DeviceMesh"):
+                DeviceMesh = device_mesh_module.DeviceMesh
+                init_device_mesh = device_mesh_module.init_device_mesh
+
+                torch_distributed.DeviceMesh = DeviceMesh
+                torch_distributed.init_device_mesh = init_device_mesh
+                distributed_python_exports.extend(["DeviceMesh", "init_device_mesh"])
             distributed_c10d = importlib.import_module(
                 "torch.distributed.distributed_c10d"
             )
@@ -251,6 +492,8 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
                 fsdp_package._fully_shard = fsdp_fully_shard
         except Exception:
             pass
+    c10d_functional_shims = install_benchmark_c10d_functional_import_shims(torch)
+    dtensor_shims = install_benchmark_dtensor_import_shims(torch)
     module_name = "transformers.generation.continuous_batching"
     existing = sys.modules.get(module_name)
     if existing is not None:
@@ -261,6 +504,12 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
                 else "missing_distributed_c10d"
             ),
             "installed": c10d_installed,
+            "c10d_functional_wait_tensor_shim": c10d_functional_shims[
+                "wait_tensor"
+            ],
+            "c10d_functional_schema_shims": c10d_functional_shims["schema_shims"],
+            "dtensor_schema_shims": dtensor_shims["schema_shims"],
+            "distributed_python_exports": distributed_python_exports,
         }
 
     module = types.ModuleType(module_name)
@@ -331,12 +580,24 @@ def install_benchmark_distributed_import_shim(torch: Any) -> dict[str, Any]:
     return {
         "status": "distributed_import_shim",
         "installed": True,
-        "scope": "torch_c_distributed_c10d_and_transformers_continuous_batching_import_only",
+        "scope": (
+            "torch_c_distributed_c10d_c10d_functional_import_schema_"
+            "and_transformers_continuous_batching_import_only"
+        ),
+        "c10d_functional_wait_tensor_shim": c10d_functional_shims["wait_tensor"],
+        "c10d_functional_schema_shims": c10d_functional_shims["schema_shims"],
+        "dtensor_schema_shims": dtensor_shims["schema_shims"],
+        "distributed_python_exports": distributed_python_exports,
     }
 
 
 def prepare_benchmark_distributed_import(torch: Any) -> dict[str, Any]:
-    if hasattr(getattr(torch, "_C", None), "_distributed_c10d"):
+    torch_c10d = getattr(getattr(torch, "_C", None), "_distributed_c10d", None)
+    if torch_c10d is not None and not getattr(
+        torch_c10d,
+        "_benchmark_distributed_import_shim",
+        False,
+    ):
         return {"status": "real_distributed_c10d", "installed": False}
     return install_benchmark_distributed_import_shim(torch)
 

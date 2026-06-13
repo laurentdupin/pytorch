@@ -152,7 +152,14 @@ source-tree build has Python `torch.distributed` stubs but no
 that require that distributed extension even for single-process generation. The
 harness installs a benchmark-local import shim for those continuous-batching
 modules only. It does not implement real collectives and raises if continuous
-batching is actually requested. Each JSON row records
+batching is actually requested. When this shim is active, the harness also
+registers the missing `_c10d_functional` import schema surface if the source
+tree build lacks it. `_c10d_functional.wait_tensor` is a single-process
+identity shim, while collective schemas are metadata-only stubs that raise if
+executed. The same import-only rule applies to the narrow DTensor schema
+surface needed by these imports. Each JSON row records the shim fields
+explicitly, including
+any Python distributed exports such as `DeviceMesh`, and
 `distributed_c10d_status` as `real_distributed_c10d`,
 `distributed_import_shim`, or `missing_distributed_c10d`.
 
