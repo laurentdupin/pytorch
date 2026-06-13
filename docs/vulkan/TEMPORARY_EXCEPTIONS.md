@@ -129,7 +129,9 @@ condition and migration target.
   covers the `FloatTensorTensorBufferBroadcast` slice with ShapeEnvelope-backed
   checked-in positive and adjacent negative runtime cases. Positives keep the
   existing `aten::binary_op.buffer_float` route label and record contract
-  admission metadata in tensor provenance.
+  admission metadata in tensor provenance. The slice also has generated C++
+  metadata/simple-bound helper coverage in
+  `generated/ExecutionContractsElementwiseBroadcastSpec.h`.
 - Expiry: broader elementwise broadcast parity plus adjacent negative coverage
   are available for tensor/tensor, scalar, `out=`, inplace, and promotion
   families.

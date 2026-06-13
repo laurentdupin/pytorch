@@ -76,9 +76,11 @@ Current MVP status:
   adjacent-negative axes are represented by the current generated/checked-in
   runtime cases, and runtime case counts remain unchanged until a later task
   explicitly opts a family into extra checked-in cases.
-- `ShapeEnvelope` v1 now backs the two generated C++ source-of-truth fixtures,
-  `ChannelCatContract` `Rank4Dim1BufferView` and `EmbeddingLookupContract`
-  `SmallBoundedLookup`, plus the first layout/materialization runtime fixture,
+- `ShapeEnvelope` v1 now backs the generated C++ source-of-truth fixtures,
+  `ChannelCatContract` `Rank4Dim1BufferView`, `EmbeddingLookupContract`
+  `SmallBoundedLookup`, and `ElementwiseBroadcastContract`
+  `FloatTensorTensorBufferBroadcast`, plus the first layout/materialization
+  runtime fixture,
   `SafeViewReshapeContract` `ViewMaterializedDirectBuffer`, and the matching
   `_reshape_alias` direct-buffer fixture,
   `SafeViewReshapeContract` `ReshapeAliasDenseBufferDirect`, plus the first
@@ -106,6 +108,12 @@ Current MVP status:
   from the `ShapeEnvelope` v1 data in `embedding_lookup_contract.json` for
   metadata, route label, simple bounds, and matcher helper predicates. The
   token-batch row remains handwritten until it gets its own fixture.
+- `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast` has the
+  first generic ShapeEnvelope C++ metadata/helper artifact:
+  `ExecutionContractsElementwiseBroadcastSpec.h` is emitted without adding a
+  family-specific generator branch. It provides contract identity, metadata,
+  scalar/rank/layout/attribute bounds, and helper predicates for the existing
+  provenance canary only; the broadcast relation remains handwritten.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

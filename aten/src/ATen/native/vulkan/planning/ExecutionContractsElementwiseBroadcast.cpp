@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h>
 
 #include <algorithm>
 
@@ -28,17 +29,22 @@ constexpr ExecutionContractMetadata make_execution_contract_metadata(
       materialization_policy};
 }
 
-constexpr const char* kElementwiseBroadcastTupleId =
-    "float32_rank1_to_4_tensor_tensor_buffer_broadcast";
 constexpr ExecutionContractMetadata kElementwiseBroadcastMetadata =
     make_execution_contract_metadata(
-        "ElementwiseBroadcastContract",
-        "FloatTensorTensorBufferBroadcast",
-        kElementwiseBroadcastTupleId,
-        "float_buffer_binary_broadcast_focused_tests",
-        "elementwise_broadcast_adjacent_guards",
-        "unsupported_shapes_do_not_match",
-        "elementwise_buffer_kernel");
+        generated::kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec
+            .contract_name,
+        generated::kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec
+            .family_name,
+        generated::kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec
+            .tuple_id,
+        generated::kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec
+            .evidence_id,
+        generated::kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec
+            .guard_id,
+        generated::kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec
+            .fallback_policy,
+        generated::kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec
+            .materialization_policy);
 
 bool broadcast_compatible(IntArrayRef left, IntArrayRef right) {
   const int64_t max_rank =
@@ -63,7 +69,8 @@ const char* elementwise_broadcast_family_name(
     const ElementwiseBroadcastFamily family) {
   switch (family) {
     case ElementwiseBroadcastFamily::FloatTensorTensorBufferBroadcast:
-      return "FloatTensorTensorBufferBroadcast";
+      return generated::kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec
+          .family_name;
     case ElementwiseBroadcastFamily::None:
       return "ElementwiseBroadcastNone";
   }
@@ -86,17 +93,29 @@ ElementwiseBroadcastMatch match_elementwise_broadcast_contract(
     const bool has_output,
     const bool inplace) {
   ElementwiseBroadcastMatch result;
+  const auto& spec =
+      generated::kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec;
   if (
-      !buffer_route_selected || !self_is_vulkan || !other_is_vulkan ||
-      !self_supports_buffer_compute || !other_supports_buffer_compute ||
-      self_dtype != kFloat || other_dtype != kFloat || output_dtype != kFloat ||
-      self_sizes.empty() || other_sizes.empty() || self_sizes.size() > 4 ||
-      other_sizes.size() > 4 || !alpha_is_one || has_output || inplace) {
-    return result;
-  }
-  if (
-      op != ElementwiseBroadcastOp::Add &&
-      op != ElementwiseBroadcastOp::Mul) {
+      !generated::elementwise_float_tensor_tensor_buffer_broadcast_layout_matches(
+          spec,
+          self_is_vulkan,
+          other_is_vulkan,
+          self_supports_buffer_compute,
+          other_supports_buffer_compute,
+          buffer_route_selected) ||
+      !generated::elementwise_float_tensor_tensor_buffer_broadcast_dtype_matches(
+          spec, self_dtype, other_dtype, output_dtype) ||
+      !generated::elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds(
+          spec, static_cast<int64_t>(self_sizes.size())) ||
+      !generated::elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds(
+          spec, static_cast<int64_t>(other_sizes.size())) ||
+      !generated::elementwise_float_tensor_tensor_buffer_broadcast_attributes_match(
+          spec,
+          op == ElementwiseBroadcastOp::Add,
+          op == ElementwiseBroadcastOp::Mul,
+          alpha_is_one,
+          has_output,
+          inplace)) {
     return result;
   }
   if (!broadcast_compatible(self_sizes, other_sizes)) {
@@ -105,7 +124,7 @@ ElementwiseBroadcastMatch match_elementwise_broadcast_contract(
 
   result.matched = true;
   result.family = ElementwiseBroadcastFamily::FloatTensorTensorBufferBroadcast;
-  result.tuple_id = kElementwiseBroadcastTupleId;
+  result.tuple_id = spec.tuple_id;
   result.metadata = &kElementwiseBroadcastMetadata;
   return result;
 }

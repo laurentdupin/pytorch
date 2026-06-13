@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-13 at local HEAD
-`d762cedc1ff5ec29f1df6cf3a5bfbfa2b259492d`.
+`61f7e319bbb837fb38c0afe07894469b1c619624`.
 
 ## Repo State Summary
 
@@ -20,6 +20,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsChannelCatSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsDiffusionSDPA.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsElementwiseBroadcast.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsEmbeddingLookup.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsEmbeddingLookupSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsGQARepeat.cpp`
@@ -179,7 +180,10 @@ These files are diagnostic inputs. Production code must not depend on
   existing float32 tensor/tensor buffer-broadcast route. The
   `FloatTensorTensorBufferBroadcast` slice records the route shape in JSON and
   runtime tests, backed by a generic `ShapeEnvelope` `broadcast_compatible`
-  relationship. The matcher is queried only after the existing
+  relationship. Its contract identity, metadata, simple bounds, layout
+  requirements, and attribute helpers are emitted by the generic
+  ShapeEnvelope C++ generator v0 while right-aligned broadcast compatibility
+  remains handwritten. The matcher is queried only after the existing
   `aten::binary_op.buffer_float` route is selected, so it records contract
   admission metadata without changing route behavior.
 - DAv2 region/stack contracts: best current example of shape keys, capability
@@ -233,6 +237,15 @@ These files are diagnostic inputs. Production code must not depend on
   `embedding_lookup_contract.json` for metadata, route label, simple bounds,
   and helper predicates from `ShapeEnvelope` v1; the matcher loop, result
   construction, and token-batch family remain handwritten.
+- ElementwiseBroadcast `FloatTensorTensorBufferBroadcast` is the first
+  consumer of generic ShapeEnvelope C++ metadata/helper generation v0:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsElementwiseBroadcastSpec.h` from
+  `elementwise_broadcast_contract.json` for contract identity, metadata,
+  scalar/rank/layout/attribute bounds, and simple helper predicates. The
+  broadcast relationship and match result construction remain handwritten, and
+  the generated helpers are used only by the metadata/provenance canary after
+  the existing route is selected.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.
