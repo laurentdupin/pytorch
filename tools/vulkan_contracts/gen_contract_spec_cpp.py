@@ -6,33 +6,6 @@ import re
 import sys
 
 
-EXPECTED_CONTRACT_NAME = "ChannelCatContract"
-EXPECTED_FAMILY = "Rank4Dim1BufferView"
-EXPECTED_MATCHER = {
-    "tensor_info": "ChannelCatTensorInfo",
-    "reference_index": 0,
-    "per_input_same_as_reference": [
-        "dtype",
-        "rank",
-        "batch",
-        "height",
-        "width",
-    ],
-    "per_input_required_flags": [
-        "is_vulkan",
-        "is_contiguous",
-        "has_buffer_storage",
-        "supports_buffer_compute",
-    ],
-    "channel_axis": "channels",
-    "aggregate": {
-        "field": "channels",
-        "result_name": "total_channels",
-        "min": 1,
-        "max_from_bounds": "channels.max_total",
-        "multiple_of_from_bounds": "channels.multiple_of",
-    },
-}
 SCALAR_TYPE_BY_DTYPE = {
     "float32": "at::kFloat",
     "int64": "at::kLong",
@@ -92,104 +65,6 @@ def _validate_int(value, context):
     _require(isinstance(value, int), f"{context} must be integer")
 
 
-def _validate_channel_cat_spec(spec):
-    _require(
-        spec.get("contract_name") == EXPECTED_CONTRACT_NAME,
-        "expected ChannelCatContract spec",
-    )
-    _require(
-        spec.get("family") == EXPECTED_FAMILY,
-        "expected Rank4Dim1BufferView family",
-    )
-    _require_keys(
-        spec,
-        (
-            "tuple_id",
-            "writer_op",
-            "route_label",
-            "metadata",
-            "shape_envelope",
-            "bounds",
-            "matcher",
-        ),
-        "ChannelCatContract spec",
-    )
-    for key in ("tuple_id", "writer_op", "route_label"):
-        _require_non_empty_string(spec, key, "ChannelCatContract spec")
-
-    envelope = _shape_envelope(spec, "multi_input_rank4_channel_cat")
-    metadata = envelope["metadata"]
-    _require(isinstance(metadata, dict), "metadata must be an object")
-    _require_keys(
-        metadata,
-        (
-            "evidence_id",
-            "guard_id",
-            "fallback_policy",
-            "materialization_policy",
-        ),
-        "ChannelCatContract metadata",
-    )
-    for key in metadata:
-        _require_non_empty_string(metadata, key, "ChannelCatContract metadata")
-    _require(spec["metadata"] == metadata, "metadata must match shape_envelope")
-
-    bounds = envelope["bounds"]
-    _require(spec["bounds"] == bounds, "bounds must match shape_envelope")
-    _require(isinstance(bounds, dict), "spec bounds must be an object")
-    _require_keys(
-        bounds,
-        (
-            "dtype",
-            "rank",
-            "dim",
-            "input_count",
-            "batch",
-            "channels",
-            "height",
-            "width",
-            "requires_vulkan",
-            "requires_contiguous",
-            "requires_buffer_storage",
-            "requires_buffer_compute",
-        ),
-        "ChannelCatContract bounds",
-    )
-    _require(bounds["dtype"] in SCALAR_TYPE_BY_DTYPE, "unsupported dtype")
-    for key in ("rank", "dim", "batch"):
-        _validate_int(bounds[key], f"bounds.{key}")
-    for key in (
-        "requires_vulkan",
-        "requires_contiguous",
-        "requires_buffer_storage",
-        "requires_buffer_compute",
-    ):
-        _validate_bool(bounds[key], f"bounds.{key}")
-
-    channels = bounds["channels"]
-    _require(isinstance(channels, dict), "bounds.channels must be an object")
-    _require_keys(
-        channels,
-        ("min", "max_per_input", "multiple_of", "max_total"),
-        "ChannelCatContract channels",
-    )
-    for key in channels:
-        _validate_int(channels[key], f"bounds.channels.{key}")
-
-    for key in ("input_count", "height", "width"):
-        value = bounds[key]
-        _require(isinstance(value, dict), f"bounds.{key} must be an object")
-        _require_keys(value, ("min", "max"), f"ChannelCatContract {key}")
-        _validate_int(value["min"], f"bounds.{key}.min")
-        _validate_int(value["max"], f"bounds.{key}.max")
-
-    _require(spec["matcher"] == EXPECTED_MATCHER, "unexpected matcher schema")
-    _require(
-        "total_channels" in envelope["aggregate_bounds"],
-        "shape_envelope.aggregate_bounds.total_channels missing",
-    )
-
-
 def _validate_bound_pair(value, context):
     _require(isinstance(value, dict), f"{context} must be an object")
     _require_keys(value, ("min", "max"), context)
@@ -211,239 +86,6 @@ def _validate_contract_metadata(metadata, context):
     )
     for key in metadata:
         _require_non_empty_string(metadata, key, context)
-
-
-def _shape_envelope(spec, expected_role):
-    envelope = spec.get("shape_envelope")
-    _require(isinstance(envelope, dict), "shape_envelope must be an object")
-    _require(envelope.get("version") == 1, "shape_envelope.version must be 1")
-    _require(
-        envelope.get("role") == expected_role,
-        f"expected ShapeEnvelope role {expected_role}",
-    )
-    return envelope
-
-
-def generate_channel_cat_header(spec, source_name):
-    _validate_channel_cat_spec(spec)
-    envelope = _shape_envelope(spec, "multi_input_rank4_channel_cat")
-    metadata = envelope["metadata"]
-    bounds = envelope["bounds"]
-    channels = bounds["channels"]
-    aggregate = envelope["aggregate_bounds"]["total_channels"]
-
-    lines = [
-        "// Generated by tools/vulkan_contracts/gen_contract_spec_cpp.py",
-        f"// Source: {source_name}",
-        "// Do not edit by hand.",
-        "",
-        "#pragma once",
-        "",
-        "#include <ATen/core/ScalarType.h>",
-        "#include <cstdint>",
-        "",
-        "namespace at {",
-        "namespace native {",
-        "namespace vulkan {",
-        "namespace ops {",
-        "namespace utils {",
-        "namespace generated {",
-        "",
-        f"constexpr const char* kChannelCatContractName = {_cpp_string(spec['contract_name'])};",
-        (
-            "constexpr const char* kChannelCatRank4Dim1BufferViewFamilyName = "
-            f"{_cpp_string(spec['family'])};"
-        ),
-        (
-            "constexpr const char* kChannelCatRank4Dim1BufferViewTupleId = "
-            f"{_cpp_string(spec['tuple_id'])};"
-        ),
-        (
-            "constexpr const char* kChannelCatRank4Dim1BufferViewWriterOp = "
-            f"{_cpp_string(spec['writer_op'])};"
-        ),
-        (
-            "constexpr const char* kChannelCatRank4Dim1BufferViewRouteLabel = "
-            f"{_cpp_string(spec['route_label'])};"
-        ),
-        "",
-        (
-            "constexpr std::int64_t kChannelCatRank4Dim1MinInputs = "
-            f"{bounds['input_count']['min']};"
-        ),
-        (
-            "constexpr std::int64_t kChannelCatRank4Dim1MaxInputs = "
-            f"{bounds['input_count']['max']};"
-        ),
-        f"constexpr std::int64_t kChannelCatRank4Dim1Rank = {bounds['rank']};",
-        f"constexpr std::int64_t kChannelCatRank4Dim1Dim = {bounds['dim']};",
-        f"constexpr std::int64_t kChannelCatRank4Dim1Batch = {bounds['batch']};",
-        (
-            "constexpr std::int64_t kChannelCatRank4Dim1MinInputChannels = "
-            f"{channels['min']};"
-        ),
-        (
-            "constexpr std::int64_t kChannelCatRank4Dim1MaxInputChannels = "
-            f"{channels['max_per_input']};"
-        ),
-        (
-            "constexpr std::int64_t kChannelCatRank4Dim1ChannelMultiple = "
-            f"{channels['multiple_of']};"
-        ),
-        (
-            "constexpr std::int64_t kChannelCatRank4Dim1MinTotalChannels = "
-            f"{aggregate['min']};"
-        ),
-        (
-            "constexpr std::int64_t kChannelCatRank4Dim1MaxTotalChannels = "
-            f"{channels['max_total']};"
-        ),
-        (
-            "constexpr std::int64_t kChannelCatRank4Dim1MinHeight = "
-            f"{bounds['height']['min']};"
-        ),
-        (
-            "constexpr std::int64_t kChannelCatRank4Dim1MaxHeight = "
-            f"{bounds['height']['max']};"
-        ),
-        (
-            "constexpr std::int64_t kChannelCatRank4Dim1MinWidth = "
-            f"{bounds['width']['min']};"
-        ),
-        (
-            "constexpr std::int64_t kChannelCatRank4Dim1MaxWidth = "
-            f"{bounds['width']['max']};"
-        ),
-        (
-            "constexpr bool kChannelCatRank4Dim1RequiresVulkan = "
-            f"{_cpp_bool(bounds['requires_vulkan'])};"
-        ),
-        (
-            "constexpr bool kChannelCatRank4Dim1RequiresContiguous = "
-            f"{_cpp_bool(bounds['requires_contiguous'])};"
-        ),
-        (
-            "constexpr bool kChannelCatRank4Dim1RequiresBufferStorage = "
-            f"{_cpp_bool(bounds['requires_buffer_storage'])};"
-        ),
-        (
-            "constexpr bool kChannelCatRank4Dim1RequiresBufferCompute = "
-            f"{_cpp_bool(bounds['requires_buffer_compute'])};"
-        ),
-        "",
-        "struct ChannelCatRank4Dim1BufferViewSpec final {",
-        "  const char* contract_name;",
-        "  const char* family_name;",
-        "  const char* tuple_id;",
-        "  const char* writer_op;",
-        "  const char* route_label;",
-        "  const char* evidence_id;",
-        "  const char* guard_id;",
-        "  const char* fallback_policy;",
-        "  const char* materialization_policy;",
-        "  at::ScalarType dtype;",
-        "  std::int64_t rank;",
-        "  std::int64_t dim;",
-        "  std::int64_t min_inputs;",
-        "  std::int64_t max_inputs;",
-        "  std::int64_t batch;",
-        "  std::int64_t min_input_channels;",
-        "  std::int64_t max_input_channels;",
-        "  std::int64_t channel_multiple;",
-        "  std::int64_t min_total_channels;",
-        "  std::int64_t max_total_channels;",
-        "  std::int64_t min_height;",
-        "  std::int64_t max_height;",
-        "  std::int64_t min_width;",
-        "  std::int64_t max_width;",
-        "  bool requires_vulkan;",
-        "  bool requires_contiguous;",
-        "  bool requires_buffer_storage;",
-        "  bool requires_buffer_compute;",
-        "};",
-        "",
-        "constexpr ChannelCatRank4Dim1BufferViewSpec",
-        "    kChannelCatRank4Dim1BufferViewSpec = {",
-        "        kChannelCatContractName,",
-        "        kChannelCatRank4Dim1BufferViewFamilyName,",
-        "        kChannelCatRank4Dim1BufferViewTupleId,",
-        "        kChannelCatRank4Dim1BufferViewWriterOp,",
-        "        kChannelCatRank4Dim1BufferViewRouteLabel,",
-        f"        {_cpp_string(metadata['evidence_id'])},",
-        f"        {_cpp_string(metadata['guard_id'])},",
-        f"        {_cpp_string(metadata['fallback_policy'])},",
-        f"        {_cpp_string(metadata['materialization_policy'])},",
-        f"        {SCALAR_TYPE_BY_DTYPE[bounds['dtype']]},",
-        "        kChannelCatRank4Dim1Rank,",
-        "        kChannelCatRank4Dim1Dim,",
-        "        kChannelCatRank4Dim1MinInputs,",
-        "        kChannelCatRank4Dim1MaxInputs,",
-        "        kChannelCatRank4Dim1Batch,",
-        "        kChannelCatRank4Dim1MinInputChannels,",
-        "        kChannelCatRank4Dim1MaxInputChannels,",
-        "        kChannelCatRank4Dim1ChannelMultiple,",
-        "        kChannelCatRank4Dim1MinTotalChannels,",
-        "        kChannelCatRank4Dim1MaxTotalChannels,",
-        "        kChannelCatRank4Dim1MinHeight,",
-        "        kChannelCatRank4Dim1MaxHeight,",
-        "        kChannelCatRank4Dim1MinWidth,",
-        "        kChannelCatRank4Dim1MaxWidth,",
-        "        kChannelCatRank4Dim1RequiresVulkan,",
-        "        kChannelCatRank4Dim1RequiresContiguous,",
-        "        kChannelCatRank4Dim1RequiresBufferStorage,",
-        "        kChannelCatRank4Dim1RequiresBufferCompute};",
-        "",
-        "constexpr bool channel_cat_input_count_in_bounds(",
-        "    const ChannelCatRank4Dim1BufferViewSpec& spec,",
-        "    const std::int64_t input_count) {",
-        "  return input_count >= spec.min_inputs && input_count <= spec.max_inputs;",
-        "}",
-        "",
-        "inline bool channel_cat_reference_in_bounds(",
-        "    const ChannelCatRank4Dim1BufferViewSpec& spec,",
-        "    const ChannelCatTensorInfo& reference) {",
-        "  return (!spec.requires_vulkan || reference.is_vulkan) &&",
-        "      reference.dtype == spec.dtype && reference.rank == spec.rank &&",
-        "      reference.batch == spec.batch &&",
-        "      (!spec.requires_contiguous || reference.is_contiguous) &&",
-        "      reference.height >= spec.min_height &&",
-        "      reference.height <= spec.max_height &&",
-        "      reference.width >= spec.min_width && reference.width <= spec.max_width;",
-        "}",
-        "",
-        "inline bool channel_cat_input_in_bounds(",
-        "    const ChannelCatRank4Dim1BufferViewSpec& spec,",
-        "    const ChannelCatTensorInfo& reference,",
-        "    const ChannelCatTensorInfo& tensor) {",
-        "  return (!spec.requires_vulkan || tensor.is_vulkan) &&",
-        "      tensor.dtype == reference.dtype && tensor.rank == reference.rank &&",
-        "      tensor.batch == reference.batch &&",
-        "      tensor.height == reference.height && tensor.width == reference.width &&",
-        "      (!spec.requires_contiguous || tensor.is_contiguous) &&",
-        "      (!spec.requires_buffer_storage || tensor.has_buffer_storage) &&",
-        "      (!spec.requires_buffer_compute || tensor.supports_buffer_compute) &&",
-        "      tensor.channels >= spec.min_input_channels &&",
-        "      tensor.channels <= spec.max_input_channels &&",
-        "      tensor.channels % spec.channel_multiple == 0;",
-        "}",
-        "",
-        "constexpr bool channel_cat_total_channels_in_bounds(",
-        "    const ChannelCatRank4Dim1BufferViewSpec& spec,",
-        "    const std::int64_t total_channels) {",
-        "  return total_channels >= spec.min_total_channels &&",
-        "      total_channels <= spec.max_total_channels &&",
-        "      total_channels % spec.channel_multiple == 0;",
-        "}",
-        "",
-        "} // namespace generated",
-        "} // namespace utils",
-        "} // namespace ops",
-        "} // namespace vulkan",
-        "} // namespace native",
-        "} // namespace at",
-        "",
-    ]
-    return "\n".join(lines)
 
 
 def _validate_generic_shape_envelope_spec(spec):
@@ -572,6 +214,464 @@ def _simple_bounds_shape_envelope_fields(bounds):
 
 def _singular_field_name(field):
     return field[:-1] if field.endswith("s") else field
+
+
+def _bound_path_value(bounds, path):
+    value = bounds
+    for part in path.split("."):
+        _require(isinstance(value, dict) and part in value, f"bounds path {path} invalid")
+        value = value[part]
+    return value
+
+
+def _variadic_tensor_list_input(spec):
+    envelope = spec.get("shape_envelope")
+    if not isinstance(envelope, dict):
+        return None
+    inputs = envelope.get("inputs")
+    if not isinstance(inputs, dict):
+        return None
+    candidates = [
+        (name, input_spec)
+        for name, input_spec in inputs.items()
+        if isinstance(input_spec, dict)
+        and input_spec.get("kind") == "variadic_tensor_list"
+    ]
+    if len(candidates) != 1:
+        return None
+    return candidates[0]
+
+
+def _required_flag_field(flag):
+    for prefix in ("is_", "has_", "supports_"):
+        if flag.startswith(prefix):
+            return flag.removeprefix(prefix)
+    return flag
+
+
+def _required_flag_bound_key(flag):
+    return f"requires_{_required_flag_field(flag)}"
+
+
+def _validate_generic_variadic_tensor_list_shape_envelope_spec(spec):
+    variadic = _variadic_tensor_list_input(spec)
+    if variadic is None:
+        return None
+    input_name, input_spec = variadic
+    _require_keys(
+        spec,
+        (
+            "contract_name",
+            "family",
+            "tuple_id",
+            "writer_op",
+            "route_label",
+            "metadata",
+            "shape_envelope",
+            "bounds",
+            "matcher",
+        ),
+        "ShapeEnvelope variadic tensor-list contract spec",
+    )
+    for key in ("contract_name", "family", "tuple_id", "writer_op", "route_label"):
+        _require_non_empty_string(
+            spec, key, "ShapeEnvelope variadic tensor-list contract spec"
+        )
+
+    envelope = spec["shape_envelope"]
+    _require(envelope.get("version") == 1, "shape_envelope.version must be 1")
+    _require_non_empty_string(envelope, "role", "shape_envelope")
+    metadata = envelope.get("metadata")
+    _validate_contract_metadata(metadata, "ShapeEnvelope metadata")
+    _require(spec["metadata"] == metadata, "metadata must match shape_envelope")
+
+    bounds = envelope.get("bounds")
+    _require(spec["bounds"] == bounds, "bounds must match shape_envelope")
+    _require(isinstance(bounds, dict), "ShapeEnvelope bounds must be an object")
+
+    matcher = spec["matcher"]
+    _require(isinstance(matcher, dict), "matcher must be an object")
+    _require_keys(
+        matcher,
+        (
+            "tensor_info",
+            "reference_index",
+            "per_input_same_as_reference",
+            "per_input_required_flags",
+            "channel_axis",
+            "aggregate",
+        ),
+        "ShapeEnvelope variadic tensor-list matcher",
+    )
+    _require_non_empty_string(matcher, "tensor_info", "matcher")
+    _validate_int(matcher["reference_index"], "matcher.reference_index")
+    for key in ("per_input_same_as_reference", "per_input_required_flags"):
+        _require(
+            isinstance(matcher[key], list) and matcher[key],
+            f"matcher.{key} must be a non-empty list",
+        )
+        for index, value in enumerate(matcher[key]):
+            _require(isinstance(value, str) and value, f"matcher.{key}[{index}] invalid")
+    _require_non_empty_string(matcher, "channel_axis", "matcher")
+
+    aggregate_matcher = matcher["aggregate"]
+    _require(isinstance(aggregate_matcher, dict), "matcher.aggregate invalid")
+    _require_keys(
+        aggregate_matcher,
+        ("field", "result_name", "min", "max_from_bounds", "multiple_of_from_bounds"),
+        "matcher.aggregate",
+    )
+    _require(
+        aggregate_matcher["field"] == matcher["channel_axis"],
+        "matcher.aggregate.field must match matcher.channel_axis",
+    )
+    _validate_int(aggregate_matcher["min"], "matcher.aggregate.min")
+
+    count = input_spec.get("count")
+    _validate_bound_pair(count, f"shape_envelope.inputs.{input_name}.count")
+    _require(bounds.get("input_count") == count, "bounds.input_count must match count")
+    _require(bounds["dtype"] in SCALAR_TYPE_BY_DTYPE, "unsupported dtype")
+    dtype_values = input_spec.get("dtype", {}).get("values")
+    _require(dtype_values == [bounds["dtype"]], "input dtype must match bounds")
+    rank_values = input_spec.get("rank", {}).get("values")
+    _require(rank_values == [bounds["rank"]], "input rank must match bounds")
+    for key in ("rank", "dim"):
+        _validate_int(bounds[key], f"bounds.{key}")
+    attr_dim = envelope.get("attributes", {}).get("dim", {}).get("values")
+    _require(attr_dim == [bounds["dim"]], "attribute dim must match bounds")
+
+    dims = input_spec.get("dims")
+    _require(isinstance(dims, list) and dims, "variadic input dims invalid")
+    dims_by_field = {}
+    for dim in dims:
+        _require(isinstance(dim, dict), "variadic input dim invalid")
+        _require_non_empty_string(dim, "field", "variadic input dim")
+        dims_by_field[dim["field"]] = dim
+    channel_field = matcher["channel_axis"]
+    _require(channel_field in dims_by_field, "matcher.channel_axis missing from dims")
+
+    fixed_fields = [
+        dim["field"]
+        for dim in dims
+        if dim["field"] != channel_field and "values" in dim
+    ]
+    range_fields = [
+        dim["field"]
+        for dim in dims
+        if dim["field"] != channel_field and "min" in dim and "max" in dim
+    ]
+    _require(len(fixed_fields) == 1, "expected one fixed non-channel dim")
+    _require(len(range_fields) == 2, "expected two ranged non-channel dims")
+    fixed_field = fixed_fields[0]
+    fixed_dim = dims_by_field[fixed_field]
+    _require(
+        fixed_dim.get("values") == [bounds[fixed_field]],
+        f"bounds.{fixed_field} must match shape_envelope dim values",
+    )
+    for field in range_fields:
+        _validate_bound_pair(bounds[field], f"bounds.{field}")
+        _require(
+            bounds[field]["min"] == dims_by_field[field]["min"]
+            and bounds[field]["max"] == dims_by_field[field]["max"],
+            f"bounds.{field} must match shape_envelope dim bounds",
+        )
+
+    channel_dim = dims_by_field[channel_field]
+    channels = bounds[channel_field]
+    _require(isinstance(channels, dict), f"bounds.{channel_field} must be an object")
+    _require_keys(
+        channels,
+        ("min", "max_per_input", "multiple_of", "max_total"),
+        f"bounds.{channel_field}",
+    )
+    _require(
+        channels["min"] == channel_dim["min"]
+        and channels["max_per_input"] == channel_dim["max"]
+        and channels["multiple_of"] == channel_dim["multiple_of"],
+        f"bounds.{channel_field} must match shape_envelope channel dim",
+    )
+    for key in channels:
+        _validate_int(channels[key], f"bounds.{channel_field}.{key}")
+
+    aggregate_bounds = envelope.get("aggregate_bounds", {})
+    result_name = aggregate_matcher["result_name"]
+    aggregate = aggregate_bounds.get(result_name)
+    _require(isinstance(aggregate, dict), f"aggregate_bounds.{result_name} invalid")
+    _require_keys(
+        aggregate,
+        ("input", "field", "min", "max", "multiple_of"),
+        f"aggregate_bounds.{result_name}",
+    )
+    _require(
+        aggregate["input"] == input_name and aggregate["field"] == channel_field,
+        f"aggregate_bounds.{result_name} input/field mismatch",
+    )
+    _require(
+        aggregate["min"] == aggregate_matcher["min"],
+        "aggregate min must match matcher.aggregate.min",
+    )
+    _require(
+        aggregate["max"] == _bound_path_value(bounds, aggregate_matcher["max_from_bounds"]),
+        "aggregate max must match matcher.aggregate.max_from_bounds",
+    )
+    _require(
+        aggregate["multiple_of"]
+        == _bound_path_value(bounds, aggregate_matcher["multiple_of_from_bounds"]),
+        "aggregate multiple_of must match matcher.aggregate.multiple_of_from_bounds",
+    )
+
+    for key in matcher["per_input_required_flags"]:
+        bound_key = _required_flag_bound_key(key)
+        _require(bound_key in bounds, f"bounds.{bound_key} missing")
+        _validate_bool(bounds[bound_key], f"bounds.{bound_key}")
+    return {
+        "metadata": metadata,
+        "bounds": bounds,
+        "matcher": matcher,
+        "channel_field": channel_field,
+        "fixed_field": fixed_field,
+        "range_fields": range_fields,
+        "aggregate": aggregate,
+    }
+
+
+def generate_generic_variadic_tensor_list_shape_envelope_header(spec, source_name):
+    validated = _validate_generic_variadic_tensor_list_shape_envelope_spec(spec)
+    _require(validated is not None, "expected variadic tensor-list ShapeEnvelope")
+    metadata = validated["metadata"]
+    bounds = validated["bounds"]
+    matcher = validated["matcher"]
+    channel_field = validated["channel_field"]
+    fixed_field = validated["fixed_field"]
+    range_fields = validated["range_fields"]
+    aggregate = validated["aggregate"]
+    channels = bounds[channel_field]
+
+    contract_prefix = _cpp_identifier_fragment(
+        spec["contract_name"].removesuffix("Contract")
+    )
+    row_prefix = contract_prefix + _cpp_identifier_fragment(spec["family"])
+    bounds_prefix = f"{contract_prefix}Rank{bounds['rank']}Dim{bounds['dim']}"
+    func_prefix = _cpp_lower_identifier(spec["contract_name"].removesuffix("Contract"))
+    singular_channel = _singular_field_name(channel_field)
+    singular_channel_title = _cpp_identifier_fragment(singular_channel)
+    channel_title = _cpp_identifier_fragment(channel_field)
+    fixed_field_title = _cpp_identifier_fragment(fixed_field)
+    range_titles = {field: _cpp_identifier_fragment(field) for field in range_fields}
+
+    lines = [
+        "// Generated by tools/vulkan_contracts/gen_contract_spec_cpp.py",
+        f"// Source: {source_name}",
+        "// Do not edit by hand.",
+        "",
+        "#pragma once",
+        "",
+        "#include <ATen/core/ScalarType.h>",
+        "#include <cstdint>",
+        "",
+        "namespace at {",
+        "namespace native {",
+        "namespace vulkan {",
+        "namespace ops {",
+        "namespace utils {",
+        "namespace generated {",
+        "",
+        f"constexpr const char* k{contract_prefix}ContractName = {_cpp_string(spec['contract_name'])};",
+        (
+            f"constexpr const char* k{row_prefix}FamilyName = "
+            f"{_cpp_string(spec['family'])};"
+        ),
+        (
+            f"constexpr const char* k{row_prefix}TupleId = "
+            f"{_cpp_string(spec['tuple_id'])};"
+        ),
+        (
+            f"constexpr const char* k{row_prefix}WriterOp = "
+            f"{_cpp_string(spec['writer_op'])};"
+        ),
+        (
+            f"constexpr const char* k{row_prefix}RouteLabel = "
+            f"{_cpp_string(spec['route_label'])};"
+        ),
+        "",
+        (
+            f"constexpr std::int64_t k{bounds_prefix}MinInputs = "
+            f"{bounds['input_count']['min']};"
+        ),
+        (
+            f"constexpr std::int64_t k{bounds_prefix}MaxInputs = "
+            f"{bounds['input_count']['max']};"
+        ),
+        f"constexpr std::int64_t k{bounds_prefix}Rank = {bounds['rank']};",
+        f"constexpr std::int64_t k{bounds_prefix}Dim = {bounds['dim']};",
+        f"constexpr std::int64_t k{bounds_prefix}{fixed_field_title} = {bounds[fixed_field]};",
+        (
+            f"constexpr std::int64_t k{bounds_prefix}MinInput{channel_title} = "
+            f"{channels['min']};"
+        ),
+        (
+            f"constexpr std::int64_t k{bounds_prefix}MaxInput{channel_title} = "
+            f"{channels['max_per_input']};"
+        ),
+        (
+            f"constexpr std::int64_t k{bounds_prefix}{singular_channel_title}Multiple = "
+            f"{channels['multiple_of']};"
+        ),
+        (
+            f"constexpr std::int64_t k{bounds_prefix}MinTotal{channel_title} = "
+            f"{aggregate['min']};"
+        ),
+        (
+            f"constexpr std::int64_t k{bounds_prefix}MaxTotal{channel_title} = "
+            f"{channels['max_total']};"
+        ),
+    ]
+    for field in range_fields:
+        title = range_titles[field]
+        lines.extend(
+            [
+                (
+                    f"constexpr std::int64_t k{bounds_prefix}Min{title} = "
+                    f"{bounds[field]['min']};"
+                ),
+                (
+                    f"constexpr std::int64_t k{bounds_prefix}Max{title} = "
+                    f"{bounds[field]['max']};"
+                ),
+            ]
+        )
+    for flag in matcher["per_input_required_flags"]:
+        bound_key = _required_flag_bound_key(flag)
+        lines.append(
+            f"constexpr bool k{bounds_prefix}Requires{_cpp_identifier_fragment(_required_flag_field(flag))} = "
+            f"{_cpp_bool(bounds[bound_key])};"
+        )
+
+    lines.extend(
+        [
+            "",
+            f"struct {row_prefix}Spec final {{",
+            "  const char* contract_name;",
+            "  const char* family_name;",
+            "  const char* tuple_id;",
+            "  const char* writer_op;",
+            "  const char* route_label;",
+            "  const char* evidence_id;",
+            "  const char* guard_id;",
+            "  const char* fallback_policy;",
+            "  const char* materialization_policy;",
+            "  at::ScalarType dtype;",
+            "  std::int64_t rank;",
+            "  std::int64_t dim;",
+            "  std::int64_t min_inputs;",
+            "  std::int64_t max_inputs;",
+            f"  std::int64_t {fixed_field};",
+            f"  std::int64_t min_input_{channel_field};",
+            f"  std::int64_t max_input_{channel_field};",
+            f"  std::int64_t {singular_channel}_multiple;",
+            f"  std::int64_t min_total_{channel_field};",
+            f"  std::int64_t max_total_{channel_field};",
+        ]
+    )
+    for field in range_fields:
+        lines.append(f"  std::int64_t min_{field};")
+        lines.append(f"  std::int64_t max_{field};")
+    for flag in matcher["per_input_required_flags"]:
+        lines.append(f"  bool {_required_flag_bound_key(flag)};")
+
+    lines.extend(
+        [
+            "};",
+            "",
+            f"constexpr {row_prefix}Spec",
+            f"    k{row_prefix}Spec = {{",
+            f"        k{contract_prefix}ContractName,",
+            f"        k{row_prefix}FamilyName,",
+            f"        k{row_prefix}TupleId,",
+            f"        k{row_prefix}WriterOp,",
+            f"        k{row_prefix}RouteLabel,",
+            f"        {_cpp_string(metadata['evidence_id'])},",
+            f"        {_cpp_string(metadata['guard_id'])},",
+            f"        {_cpp_string(metadata['fallback_policy'])},",
+            f"        {_cpp_string(metadata['materialization_policy'])},",
+            f"        {SCALAR_TYPE_BY_DTYPE[bounds['dtype']]},",
+            f"        k{bounds_prefix}Rank,",
+            f"        k{bounds_prefix}Dim,",
+            f"        k{bounds_prefix}MinInputs,",
+            f"        k{bounds_prefix}MaxInputs,",
+            f"        k{bounds_prefix}{fixed_field_title},",
+            f"        k{bounds_prefix}MinInput{channel_title},",
+            f"        k{bounds_prefix}MaxInput{channel_title},",
+            f"        k{bounds_prefix}{singular_channel_title}Multiple,",
+            f"        k{bounds_prefix}MinTotal{channel_title},",
+            f"        k{bounds_prefix}MaxTotal{channel_title},",
+        ]
+    )
+    for field in range_fields:
+        title = range_titles[field]
+        lines.append(f"        k{bounds_prefix}Min{title},")
+        lines.append(f"        k{bounds_prefix}Max{title},")
+    for index, flag in enumerate(matcher["per_input_required_flags"]):
+        suffix = _cpp_identifier_fragment(_required_flag_field(flag))
+        terminator = "};" if index == len(matcher["per_input_required_flags"]) - 1 else ","
+        lines.append(f"        k{bounds_prefix}Requires{suffix}{terminator}")
+
+    tensor_info = matcher["tensor_info"]
+    lines.extend(
+        [
+            "",
+            f"constexpr bool {func_prefix}_input_count_in_bounds(",
+            f"    const {row_prefix}Spec& spec,",
+            "    const std::int64_t input_count) {",
+            "  return input_count >= spec.min_inputs && input_count <= spec.max_inputs;",
+            "}",
+            "",
+            f"inline bool {func_prefix}_reference_in_bounds(",
+            f"    const {row_prefix}Spec& spec,",
+            f"    const {tensor_info}& reference) {{",
+            "  return (!spec.requires_vulkan || reference.is_vulkan) &&",
+            "      reference.dtype == spec.dtype && reference.rank == spec.rank &&",
+            f"      reference.{fixed_field} == spec.{fixed_field} &&",
+            "      (!spec.requires_contiguous || reference.is_contiguous) &&",
+            f"      reference.{range_fields[0]} >= spec.min_{range_fields[0]} &&",
+            f"      reference.{range_fields[0]} <= spec.max_{range_fields[0]} &&",
+            f"      reference.{range_fields[1]} >= spec.min_{range_fields[1]} && reference.{range_fields[1]} <= spec.max_{range_fields[1]};",
+            "}",
+            "",
+            f"inline bool {func_prefix}_input_in_bounds(",
+            f"    const {row_prefix}Spec& spec,",
+            f"    const {tensor_info}& reference,",
+            f"    const {tensor_info}& tensor) {{",
+            "  return (!spec.requires_vulkan || tensor.is_vulkan) &&",
+            "      tensor.dtype == reference.dtype && tensor.rank == reference.rank &&",
+            f"      tensor.{fixed_field} == reference.{fixed_field} &&",
+            f"      tensor.{range_fields[0]} == reference.{range_fields[0]} && tensor.{range_fields[1]} == reference.{range_fields[1]} &&",
+            "      (!spec.requires_contiguous || tensor.is_contiguous) &&",
+            "      (!spec.requires_buffer_storage || tensor.has_buffer_storage) &&",
+            "      (!spec.requires_buffer_compute || tensor.supports_buffer_compute) &&",
+            f"      tensor.{channel_field} >= spec.min_input_{channel_field} &&",
+            f"      tensor.{channel_field} <= spec.max_input_{channel_field} &&",
+            f"      tensor.{channel_field} % spec.{singular_channel}_multiple == 0;",
+            "}",
+            "",
+            f"constexpr bool {func_prefix}_total_{channel_field}_in_bounds(",
+            f"    const {row_prefix}Spec& spec,",
+            f"    const std::int64_t total_{channel_field}) {{",
+            f"  return total_{channel_field} >= spec.min_total_{channel_field} &&",
+            f"      total_{channel_field} <= spec.max_total_{channel_field} &&",
+            f"      total_{channel_field} % spec.{singular_channel}_multiple == 0;",
+            "}",
+            "",
+            "} // namespace generated",
+            "} // namespace utils",
+            "} // namespace ops",
+            "} // namespace vulkan",
+            "} // namespace native",
+            "} // namespace at",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _validate_generic_simple_bounds_shape_envelope_spec(spec):
@@ -846,6 +946,10 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
 
 def generate_generic_shape_envelope_header(spec, source_name):
     bounds = spec.get("shape_envelope", {}).get("bounds", {})
+    if _variadic_tensor_list_input(spec) is not None:
+        return generate_generic_variadic_tensor_list_shape_envelope_header(
+            spec, source_name
+        )
     if _simple_bounds_shape_envelope_fields(bounds) is not None:
         return generate_generic_simple_bounds_shape_envelope_header(
             spec, source_name
@@ -1029,9 +1133,6 @@ def generate_generic_shape_envelope_header(spec, source_name):
 
 
 def generate_header(spec, source_name):
-    key = (spec.get("contract_name"), spec.get("family"))
-    if key == (EXPECTED_CONTRACT_NAME, EXPECTED_FAMILY):
-        return generate_channel_cat_header(spec, source_name)
     if "shape_envelope" in spec:
         return generate_generic_shape_envelope_header(spec, source_name)
     raise RuntimeError(

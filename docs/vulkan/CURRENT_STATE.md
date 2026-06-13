@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-13 at local HEAD
-`5d9bbba0e2b5e0a99796cb9ea8642e0116eedea9`.
+`c7abc53e8374ef9d4d9a07637c572c615e09c4d2`.
 
 ## Repo State Summary
 
@@ -145,8 +145,9 @@ These files are diagnostic inputs. Production code must not depend on
   and a `ShapeEnvelope` v1 source for symbolic dims, relationships, aggregate
   bounds, layout/capability requirements, and policies. Its contract identity,
   route label, metadata, simple bounds, typed spec row, and scalar/per-input
-  helper predicates are emitted into a generated C++ header while the
-  cross-input loop and match result construction remain handwritten.
+  helper predicates are emitted by the generic ShapeEnvelope C++ generator into
+  a generated C++ header while the cross-input loop and match result
+  construction remain handwritten.
 - `KVCacheAppendContract`: bounded Transformer sequence append and initial
   empty-cache cat rows. Both `SequenceAppend` and `InitialCache` slices have
   JSON contract specs with generated positive and adjacent negative runtime
@@ -229,8 +230,10 @@ These files are diagnostic inputs. Production code must not depend on
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` regenerates
   `generated/ExecutionContractsChannelCatSpec.h` from
   `channel_cat_contract.json`, including a typed row and helper predicates.
-  Generation now consumes the fixture's `ShapeEnvelope` v1 metadata and bounds,
-  and governance compares the output byte-for-byte with the checked-in header.
+  Generation now consumes the fixture's `ShapeEnvelope` v1 metadata, variadic
+  tensor-list input, aggregate channel bounds, and matcher hints through the
+  generic ShapeEnvelope generator path; governance compares the output
+  byte-for-byte with the checked-in header.
 - EmbeddingLookup `SmallBoundedLookup` now consumes the generic ShapeEnvelope
   C++ metadata/helper generator path. `tools/vulkan_contracts/gen_contract_spec_cpp.py`
   emits `generated/ExecutionContractsEmbeddingLookupSpec.h` from

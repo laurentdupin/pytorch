@@ -101,8 +101,9 @@ Current MVP status:
 - `ChannelCatContract` has the first generated C++ typed-row/helper artifact:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `ExecutionContractsChannelCatSpec.h` from the `ShapeEnvelope` v1 data in
-  `channel_cat_contract.json`, with cross-input iteration and match result
-  construction still handwritten.
+  `channel_cat_contract.json` through the generic variadic tensor-list
+  generator path, with cross-input iteration and match result construction
+  still handwritten.
 - `EmbeddingLookupContract` `SmallBoundedLookup` now uses the generic
   ShapeEnvelope C++ metadata/helper path: the generator emits
   `ExecutionContractsEmbeddingLookupSpec.h` from `embedding_lookup_contract.json`

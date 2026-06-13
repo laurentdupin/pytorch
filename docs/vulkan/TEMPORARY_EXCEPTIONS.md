@@ -76,8 +76,9 @@ condition and migration target.
   rank-3 patterns, but broader axis/layout behavior is not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/channel_cat_contract.json`
   covers the rank-4 dim-1 channel-cat buffer slice with generated positive and
-  adjacent negative runtime tests. Other cat-axis rows still need fixtures or
-  documented follow-up before this exception can expire.
+  adjacent negative runtime tests and generic ShapeEnvelope C++ metadata/helper
+  output. Other cat-axis rows still need fixtures or documented follow-up
+  before this exception can expire.
 - Expiry: broader cat-axis parity plus adjacent negative coverage are
   available.
 - Migration target: generated `CatAxisContract` and `ChannelCatContract`
