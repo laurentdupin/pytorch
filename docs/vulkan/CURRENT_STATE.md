@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-13 at local HEAD
-`818a1fa92b0a461c9d53b7ea161a92d071136af3`.
+`23d96a132e53f1847a14872e38d5ab10458e558a`.
 
 ## Repo State Summary
 
@@ -16,6 +16,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsBatchNormInference.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsChannelCat.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsChannelCatSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsDiffusionSDPA.cpp`
@@ -200,9 +201,12 @@ These files are diagnostic inputs. Production code must not depend on
 - `BatchNormInferenceContract`: float32 4D inference batch norm. The
   `BufferFloat4D` and `MaterializedBufferFloat4D` slices both have JSON
   contract specs backed by `ShapeEnvelope` v1 with checked-in
-  positive/adjacent-negative runtime cases. Tensor provenance and value traces
-  report the admitted contract name, family, tuple id, and materialization
-  policy for BatchNorm canaries without changing the visible execution route.
+  positive/adjacent-negative runtime cases. The direct `BufferFloat4D` slice
+  now uses the generic ShapeEnvelope C++ generator path for generated metadata,
+  simple bounds, and helper predicates while the materialized-buffer slice
+  remains handwritten. Tensor provenance and value traces report the admitted
+  contract name, family, tuple id, and materialization policy for BatchNorm
+  canaries without changing the visible execution route.
 - `SafeViewReshapeContract`: finite dense direct-buffer view and reshape-alias
   contract, now split into a family-specific source. Both direct-buffer slices
   now have JSON contract specs with ShapeEnvelope-generated legal and
@@ -285,6 +289,14 @@ These files are diagnostic inputs. Production code must not depend on
   broadcast relationship and match result construction remain handwritten, and
   the generated helpers are used only by the metadata/provenance canary after
   the existing route is selected.
+- BatchNormInference `BufferFloat4D` now consumes the same generic
+  ShapeEnvelope simple-bounds generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsBatchNormInferenceSpec.h` from
+  `batch_norm_inference_contract.json` for contract identity, metadata,
+  dtype/rank/layout/training bounds, and simple helper predicates. The
+  feature-count relationship, parameter checks, direct match result, and
+  materialized-buffer family remain handwritten.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.

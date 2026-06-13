@@ -179,6 +179,7 @@ def _simple_bounds_shape_envelope_fields(bounds):
     int_fields = []
     list_int_fields = []
     range_fields = []
+    min_range_fields = []
     bool_fields = []
     unsupported = []
     for key, value in bounds.items():
@@ -197,17 +198,24 @@ def _simple_bounds_shape_envelope_fields(bounds):
             and isinstance(value["max"], int)
         ):
             range_fields.append(key)
+        elif (
+            isinstance(value, dict)
+            and set(value) == {"min"}
+            and isinstance(value["min"], int)
+        ):
+            min_range_fields.append(key)
         else:
             unsupported.append(key)
     if unsupported:
         return None
-    if not dtype_fields or not range_fields:
+    if not dtype_fields or (not range_fields and not min_range_fields):
         return None
     return {
         "dtype": dtype_fields,
         "int": int_fields,
         "list_int": list_int_fields,
         "range": range_fields,
+        "min_range": min_range_fields,
         "bool": bool_fields,
     }
 
@@ -720,6 +728,8 @@ def _validate_generic_simple_bounds_shape_envelope_spec(spec):
             _validate_int(value, f"bounds.{key}[{index}]")
     for key in fields["range"]:
         _validate_bound_pair(bounds[key], f"bounds.{key}")
+    for key in fields["min_range"]:
+        _validate_int(bounds[key]["min"], f"bounds.{key}.min")
     for key in fields["bool"]:
         _validate_bool(bounds[key], f"bounds.{key}")
         attributes = envelope.get("attributes", {})
@@ -820,6 +830,17 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
         constant_lines.append(
             f"constexpr std::int64_t k{row_prefix}Max{suffix} = "
             f"{bounds[key]['max']};"
+        )
+
+    for key in fields["min_range"]:
+        suffix = _cpp_identifier_fragment(key)
+        field_struct_lines.append(f"  std::int64_t min_{key};")
+        initializer_lines.append(f"        k{row_prefix}Min{suffix},")
+        range_params.append((f"const std::int64_t {key}", key))
+        range_checks.append(f"{key} >= spec.min_{key}")
+        constant_lines.append(
+            f"constexpr std::int64_t k{row_prefix}Min{suffix} = "
+            f"{bounds[key]['min']};"
         )
 
     for key in fields["bool"]:

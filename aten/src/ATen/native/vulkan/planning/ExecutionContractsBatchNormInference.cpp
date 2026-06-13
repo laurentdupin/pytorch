@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceSpec.h>
 
 namespace at {
 namespace native {
@@ -28,22 +29,18 @@ constexpr ExecutionContractMetadata make_execution_contract_metadata(
 
 constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
     "unsupported_shapes_do_not_match";
-constexpr const char* kMaterializationBatchNormInferenceBuffer =
-    "batch_norm_inference_buffer_kernel";
 constexpr const char* kMaterializationBatchNormInferenceMaterializedBuffer =
     "materialize_to_buffer_then_batch_norm_inference_buffer_kernel";
 
-constexpr const char* kBatchNormInferenceBufferFloat4DTupleId =
-    "buffer_inference_4d_float";
 constexpr ExecutionContractMetadata kBatchNormInferenceBufferFloat4DMetadata =
     make_execution_contract_metadata(
-        "BatchNormInferenceContract",
-        "BufferFloat4D",
-        kBatchNormInferenceBufferFloat4DTupleId,
-        "batch_norm_inference_focused_tests",
-        "batch_norm_inference_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationBatchNormInferenceBuffer);
+        generated::kBatchNormInferenceBufferFloat4DSpec.contract_name,
+        generated::kBatchNormInferenceBufferFloat4DSpec.family_name,
+        generated::kBatchNormInferenceBufferFloat4DSpec.tuple_id,
+        generated::kBatchNormInferenceBufferFloat4DSpec.evidence_id,
+        generated::kBatchNormInferenceBufferFloat4DSpec.guard_id,
+        generated::kBatchNormInferenceBufferFloat4DSpec.fallback_policy,
+        generated::kBatchNormInferenceBufferFloat4DSpec.materialization_policy);
 constexpr const char* kBatchNormInferenceMaterializedBufferFloat4DTupleId =
     "materialized_buffer_inference_4d_float";
 constexpr ExecutionContractMetadata
@@ -130,10 +127,27 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
     const BatchNormInferenceTensorInfo& running_var,
     const bool training) {
   BatchNormInferenceMatch result;
+  const auto& buffer_spec =
+      generated::kBatchNormInferenceBufferFloat4DSpec;
   if (
-      training || !input.has_value || !input.defined || !input.is_vulkan ||
-      input.dtype != kFloat || input.dim != 4 || !input.is_contiguous ||
-      !input.supports_buffer_compute) {
+      !generated::batch_norm_inference_buffer_float_4_d_options_match(
+          buffer_spec,
+          input.dtype,
+          buffer_spec.parameter_dtype,
+          input.dim,
+          buffer_spec.parameter_rank,
+          training,
+          buffer_spec.weight_optional,
+          buffer_spec.bias_optional,
+          buffer_spec.requires_vulkan,
+          buffer_spec.requires_contiguous,
+          buffer_spec.requires_buffer_storage,
+          buffer_spec.requires_buffer_compute) ||
+      !input.has_value || !input.defined ||
+      (buffer_spec.requires_vulkan && !input.is_vulkan) ||
+      (buffer_spec.requires_contiguous && !input.is_contiguous) ||
+      (buffer_spec.requires_buffer_compute &&
+       !input.supports_buffer_compute)) {
     return result;
   }
 
@@ -149,7 +163,7 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
   if (buffer_match) {
     result.matched = true;
     result.family = BatchNormInferenceFamily::BufferFloat4D;
-    result.tuple_id = kBatchNormInferenceBufferFloat4DTupleId;
+    result.tuple_id = buffer_spec.tuple_id;
     result.metadata = &kBatchNormInferenceBufferFloat4DMetadata;
     return result;
   }
