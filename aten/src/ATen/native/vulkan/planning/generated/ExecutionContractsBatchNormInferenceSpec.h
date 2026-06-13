@@ -14,7 +14,7 @@ namespace ops {
 namespace utils {
 namespace generated {
 
-constexpr const char* kBatchNormInferenceContractName = "BatchNormInferenceContract";
+constexpr const char* kBatchNormInferenceBufferFloat4DContractName = "BatchNormInferenceContract";
 constexpr const char* kBatchNormInferenceBufferFloat4DFamilyName = "BufferFloat4D";
 constexpr const char* kBatchNormInferenceBufferFloat4DTupleId = "buffer_inference_4d_float";
 constexpr const char* kBatchNormInferenceBufferFloat4DWriterOp = "aten::batch_norm";
@@ -59,7 +59,7 @@ struct BatchNormInferenceBufferFloat4DSpec final {
 
 constexpr BatchNormInferenceBufferFloat4DSpec
     kBatchNormInferenceBufferFloat4DSpec = {
-        kBatchNormInferenceContractName,
+        kBatchNormInferenceBufferFloat4DContractName,
         kBatchNormInferenceBufferFloat4DFamilyName,
         kBatchNormInferenceBufferFloat4DTupleId,
         kBatchNormInferenceBufferFloat4DWriterOp,

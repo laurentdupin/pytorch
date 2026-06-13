@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceMaterializedSpec.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceSpec.h>
 
 namespace at {
@@ -27,11 +28,6 @@ constexpr ExecutionContractMetadata make_execution_contract_metadata(
       materialization_policy};
 }
 
-constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
-    "unsupported_shapes_do_not_match";
-constexpr const char* kMaterializationBatchNormInferenceMaterializedBuffer =
-    "materialize_to_buffer_then_batch_norm_inference_buffer_kernel";
-
 constexpr ExecutionContractMetadata kBatchNormInferenceBufferFloat4DMetadata =
     make_execution_contract_metadata(
         generated::kBatchNormInferenceBufferFloat4DSpec.contract_name,
@@ -41,18 +37,23 @@ constexpr ExecutionContractMetadata kBatchNormInferenceBufferFloat4DMetadata =
         generated::kBatchNormInferenceBufferFloat4DSpec.guard_id,
         generated::kBatchNormInferenceBufferFloat4DSpec.fallback_policy,
         generated::kBatchNormInferenceBufferFloat4DSpec.materialization_policy);
-constexpr const char* kBatchNormInferenceMaterializedBufferFloat4DTupleId =
-    "materialized_buffer_inference_4d_float";
 constexpr ExecutionContractMetadata
     kBatchNormInferenceMaterializedBufferFloat4DMetadata =
         make_execution_contract_metadata(
-            "BatchNormInferenceContract",
-            "MaterializedBufferFloat4D",
-            kBatchNormInferenceMaterializedBufferFloat4DTupleId,
-            "batch_norm_inference_materialized_buffer_focused_tests",
-            "batch_norm_inference_adjacent_guards",
-            kFallbackUnsupportedShapesDoNotMatch,
-            kMaterializationBatchNormInferenceMaterializedBuffer);
+            generated::kBatchNormInferenceMaterializedBufferFloat4DSpec
+                .contract_name,
+            generated::kBatchNormInferenceMaterializedBufferFloat4DSpec
+                .family_name,
+            generated::kBatchNormInferenceMaterializedBufferFloat4DSpec
+                .tuple_id,
+            generated::kBatchNormInferenceMaterializedBufferFloat4DSpec
+                .evidence_id,
+            generated::kBatchNormInferenceMaterializedBufferFloat4DSpec
+                .guard_id,
+            generated::kBatchNormInferenceMaterializedBufferFloat4DSpec
+                .fallback_policy,
+            generated::kBatchNormInferenceMaterializedBufferFloat4DSpec
+                .materialization_policy);
 
 bool batch_norm_float_1d_matches(
     const BatchNormInferenceTensorInfo& tensor,
@@ -129,6 +130,8 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
   BatchNormInferenceMatch result;
   const auto& buffer_spec =
       generated::kBatchNormInferenceBufferFloat4DSpec;
+  const auto& materialized_spec =
+      generated::kBatchNormInferenceMaterializedBufferFloat4DSpec;
   if (
       !generated::batch_norm_inference_buffer_float_4_d_options_match(
           buffer_spec,
@@ -169,6 +172,20 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
   }
 
   if (
+      !generated::batch_norm_inference_materialized_buffer_float_4_d_options_match(
+          materialized_spec,
+          input.dtype,
+          materialized_spec.parameter_dtype,
+          input.dim,
+          materialized_spec.parameter_rank,
+          training,
+          materialized_spec.weight_optional,
+          materialized_spec.bias_optional,
+          materialized_spec.requires_vulkan,
+          materialized_spec.requires_contiguous,
+          materialized_spec.requires_buffer_storage,
+          materialized_spec.requires_buffer_compute,
+          materialized_spec.requires_materialization) ||
       !batch_norm_float_1d_materializable_matches(
           running_mean, num_features) ||
       !batch_norm_float_1d_materializable_matches(running_var, num_features) ||
@@ -185,9 +202,9 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
 
   result.matched = true;
   result.family = BatchNormInferenceFamily::MaterializedBufferFloat4D;
-  result.tuple_id = kBatchNormInferenceMaterializedBufferFloat4DTupleId;
+  result.tuple_id = materialized_spec.tuple_id;
   result.metadata = &kBatchNormInferenceMaterializedBufferFloat4DMetadata;
-  result.requires_materialization = true;
+  result.requires_materialization = materialized_spec.requires_materialization;
   return result;
 }
 

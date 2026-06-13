@@ -115,8 +115,11 @@ condition and migration target.
   `generated/ExecutionContractsBatchNormInferenceSpec.h`.
   `test/vulkan_contract_specs/batch_norm_inference_materialized_contract.json`
   covers the `MaterializedBufferFloat4D` layout-transition slice with
-  checked-in positive and adjacent negative runtime cases. Its matcher remains
-  handwritten until the materialized slice gets a scoped generated-helper pass.
+  checked-in positive and adjacent negative runtime cases plus generic
+  ShapeEnvelope C++ metadata/simple-bound helper output in
+  `generated/ExecutionContractsBatchNormInferenceMaterializedSpec.h`.
+  Feature-count equality, parameter checks, and match-result assembly remain
+  handwritten.
 - Expiry: broader batch-norm inference parity plus adjacent negative coverage
   are available for buffer and materialized-buffer families.
 - Migration target: broader generated `BatchNormInferenceContract` tables with

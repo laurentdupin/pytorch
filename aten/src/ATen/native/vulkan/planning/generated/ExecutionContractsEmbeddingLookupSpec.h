@@ -14,7 +14,7 @@ namespace ops {
 namespace utils {
 namespace generated {
 
-constexpr const char* kEmbeddingLookupContractName = "EmbeddingLookupContract";
+constexpr const char* kEmbeddingLookupSmallBoundedLookupContractName = "EmbeddingLookupContract";
 constexpr const char* kEmbeddingLookupSmallBoundedLookupFamilyName = "SmallBoundedLookup";
 constexpr const char* kEmbeddingLookupSmallBoundedLookupTupleId = "small_bounded_vocab4096_dim256_indices128";
 constexpr const char* kEmbeddingLookupSmallBoundedLookupWriterOp = "aten::embedding";
@@ -63,7 +63,7 @@ struct EmbeddingLookupSmallBoundedLookupSpec final {
 
 constexpr EmbeddingLookupSmallBoundedLookupSpec
     kEmbeddingLookupSmallBoundedLookupSpec = {
-        kEmbeddingLookupContractName,
+        kEmbeddingLookupSmallBoundedLookupContractName,
         kEmbeddingLookupSmallBoundedLookupFamilyName,
         kEmbeddingLookupSmallBoundedLookupTupleId,
         kEmbeddingLookupSmallBoundedLookupWriterOp,

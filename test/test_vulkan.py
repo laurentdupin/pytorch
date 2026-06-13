@@ -1034,9 +1034,72 @@ class TestVulkanGovernance(TestCase):
         )
         for expected in (
             "BatchNormInferenceBufferFloat4DSpec",
+            "kBatchNormInferenceBufferFloat4DContractName",
             "kBatchNormInferenceBufferFloat4DMinInputChannels",
             "batch_norm_inference_buffer_float_4_d_options_match",
             "batch_norm_inference_buffer_float_4_d_in_bounds",
+        ):
+            self.assertIn(expected, generated_header)
+
+    def test_vulkan_batch_norm_inference_materialized_generated_header_matches_spec(
+        self,
+    ):
+        generated_header_path = os.path.join(
+            REPO_ROOT,
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "generated",
+            "ExecutionContractsBatchNormInferenceMaterializedSpec.h",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "tools",
+                    "vulkan_contracts",
+                    "gen_contract_spec_cpp.py",
+                ),
+                "--spec",
+                os.path.join(
+                    "test",
+                    "vulkan_contract_specs",
+                    "batch_norm_inference_materialized_contract.json",
+                ),
+                "--stdout",
+            ],
+            check=True,
+            cwd=REPO_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        with open(generated_header_path, "rb") as handle:
+            expected = handle.read()
+        self.assertEqual(result.stdout, expected)
+
+    def test_vulkan_batch_norm_inference_materialized_generated_header_has_helpers(
+        self,
+    ):
+        generated_header = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "generated",
+            "ExecutionContractsBatchNormInferenceMaterializedSpec.h",
+        )
+        for expected in (
+            "BatchNormInferenceMaterializedBufferFloat4DSpec",
+            "kBatchNormInferenceMaterializedBufferFloat4DContractName",
+            "kBatchNormInferenceMaterializedBufferFloat4DRequiresMaterialization",
+            "batch_norm_inference_materialized_buffer_float_4_d_options_match",
+            "batch_norm_inference_materialized_buffer_float_4_d_in_bounds",
         ):
             self.assertIn(expected, generated_header)
 
