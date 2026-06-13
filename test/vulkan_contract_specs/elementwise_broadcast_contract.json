@@ -1,6 +1,5 @@
 {
   "schema_version": 1,
-  "source_status": "schema_only",
   "contract_name": "ElementwiseBroadcastContract",
   "family": "FloatTensorTensorBufferBroadcast",
   "tuple_id": "float32_rank1_to_4_tensor_tensor_buffer_broadcast",

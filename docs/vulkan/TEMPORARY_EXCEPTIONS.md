@@ -117,6 +117,25 @@ condition and migration target.
 - Migration target: broader generated `BatchNormInferenceContract` tables with
   positive and negative tests.
 
+### Elementwise Broadcast Exact Envelope
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  `aten/src/ATen/native/vulkan/ops/BinaryOp.cpp`
+- Status: temporary, contract-named
+- Reason: the float32 tensor/tensor buffer-broadcast route is proven for a
+  narrow canary envelope, but broader binary-op, dtype-promotion, `out=`,
+  inplace, and scalar behavior is not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/elementwise_broadcast_contract.json`
+  covers the `FloatTensorTensorBufferBroadcast` slice with ShapeEnvelope-backed
+  checked-in positive and adjacent negative runtime cases. Positives keep the
+  existing `aten::binary_op.buffer_float` route label and record contract
+  admission metadata in tensor provenance.
+- Expiry: broader elementwise broadcast parity plus adjacent negative coverage
+  are available for tensor/tensor, scalar, `out=`, inplace, and promotion
+  families.
+- Migration target: broader generated `ElementwiseBroadcastContract` tables
+  with positive and negative tests.
+
 ### SDPA Execution Policy Exact Tuples
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

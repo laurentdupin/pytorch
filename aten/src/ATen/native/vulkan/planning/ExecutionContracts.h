@@ -354,6 +354,24 @@ struct SafeViewReshapeMatch final {
   const ExecutionContractMetadata* metadata{nullptr};
 };
 
+enum class ElementwiseBroadcastOp : uint8_t {
+  Unsupported = 0u,
+  Add,
+  Mul,
+};
+
+enum class ElementwiseBroadcastFamily : uint8_t {
+  None = 0u,
+  FloatTensorTensorBufferBroadcast,
+};
+
+struct ElementwiseBroadcastMatch final {
+  bool matched{false};
+  ElementwiseBroadcastFamily family{ElementwiseBroadcastFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+};
+
 bool has_complete_execution_contract_metadata(
     const ExecutionContractMetadata* metadata);
 
@@ -667,6 +685,41 @@ bool matches_safe_view_reshape_materialized_direct_buffer_contract(
     IntArrayRef output_sizes,
     IntArrayRef output_strides,
     int64_t storage_offset);
+
+const char* elementwise_broadcast_family_name(
+    ElementwiseBroadcastFamily family);
+
+ElementwiseBroadcastMatch match_elementwise_broadcast_contract(
+    IntArrayRef self_sizes,
+    IntArrayRef other_sizes,
+    ScalarType self_dtype,
+    ScalarType other_dtype,
+    ScalarType output_dtype,
+    bool self_is_vulkan,
+    bool other_is_vulkan,
+    bool self_supports_buffer_compute,
+    bool other_supports_buffer_compute,
+    bool buffer_route_selected,
+    ElementwiseBroadcastOp op,
+    bool alpha_is_one,
+    bool has_output,
+    bool inplace);
+
+bool matches_elementwise_broadcast_contract(
+    IntArrayRef self_sizes,
+    IntArrayRef other_sizes,
+    ScalarType self_dtype,
+    ScalarType other_dtype,
+    ScalarType output_dtype,
+    bool self_is_vulkan,
+    bool other_is_vulkan,
+    bool self_supports_buffer_compute,
+    bool other_supports_buffer_compute,
+    bool buffer_route_selected,
+    ElementwiseBroadcastOp op,
+    bool alpha_is_one,
+    bool has_output,
+    bool inplace);
 
 } // namespace utils
 } // namespace ops

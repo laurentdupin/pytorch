@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-11 at local HEAD
-`5b418b7f82aca6112074e6db05939d75c6c8f561`.
+Last refreshed: 2026-06-13 at local HEAD
+`d762cedc1ff5ec29f1df6cf3a5bfbfa2b259492d`.
 
 ## Repo State Summary
 
@@ -19,6 +19,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsChannelCat.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsChannelCatSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsDiffusionSDPA.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsElementwiseBroadcast.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsEmbeddingLookup.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsEmbeddingLookupSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsGQARepeat.cpp`
@@ -41,8 +42,9 @@ is built. `BatchNormInferenceContract`, `ChannelCatContract`,
 `EmbeddingLookupContract`, `GQARepeatContract`, `KVCacheAppendContract`,
 `LinearGeluBridgeContract`, `NoOverlapConvTranspose2DContract`, and
 `SafeViewReshapeContract`, `SmallMetadataPaddedConv2DContract`,
-`SmallSpatialPointwiseConvContract`, `MaskedTinySDPAContract`, and
-`TransformerGQASDPAContract`, `DiffusionSDPAContract`,
+`SmallSpatialPointwiseConvContract`, `MaskedTinySDPAContract`,
+`ElementwiseBroadcastContract`, and `TransformerGQASDPAContract`,
+`DiffusionSDPAContract`,
 `DiffusionCrossAttentionContract`, `SDPAExecutionPolicyContract`, and
 `SDPAScoreSoftmaxContract` are split into family-specific sources. The former
 score-softmax allowlist is now a named, metadata-backed finite contract for
@@ -173,11 +175,13 @@ These files are diagnostic inputs. Production code must not depend on
 - `LinearGeluBridgeContract`: pure legality for the deferred linear/GELU
   bridge; registry, alias, and materialization side effects stay outside the
   contract.
-- `ElementwiseBroadcastContract`: schema-only first fixture for the
-  `FloatTensorTensorBufferBroadcast` slice. It records the existing float32
-  tensor/tensor buffer broadcast route shape in JSON and runtime tests, backed
-  by a generic `ShapeEnvelope` `broadcast_compatible` relationship. It is not
-  a production matcher or new route admission surface yet.
+- `ElementwiseBroadcastContract`: production metadata/provenance canary for the
+  existing float32 tensor/tensor buffer-broadcast route. The
+  `FloatTensorTensorBufferBroadcast` slice records the route shape in JSON and
+  runtime tests, backed by a generic `ShapeEnvelope` `broadcast_compatible`
+  relationship. The matcher is queried only after the existing
+  `aten::binary_op.buffer_float` route is selected, so it records contract
+  admission metadata without changing route behavior.
 - DAv2 region/stack contracts: best current example of shape keys, capability
   keys, planned regions, binding validation, and replay-readiness diagnostics.
 
@@ -207,7 +211,7 @@ These files are diagnostic inputs. Production code must not depend on
   assignment paths and adjacent-negative axes onto the current
   generated/checked-in runtime cases without executing additional fuzz
   assignments. BatchNormInference `BufferFloat4D`,
-  `MaterializedBufferFloat4D`, and schema-only ElementwiseBroadcast
+  `MaterializedBufferFloat4D`, and ElementwiseBroadcast
   `FloatTensorTensorBufferBroadcast` use generic checked-in case plumbing under
   the ShapeEnvelope registry. ChannelCat, EmbeddingLookup, and both
   SafeViewReshape direct-buffer slices have
@@ -235,9 +239,10 @@ These files are diagnostic inputs. Production code must not depend on
 - Tensor provenance/value-trace diagnostics can carry optional admitted
   contract metadata (`contract_name`, `contract_family`, `contract_tuple_id`,
   and `contract_materialization_policy`) for producers that pass an existing
-  contract match. BatchNorm is the first canary so direct buffer and
-  materialized-buffer admission can be distinguished while the executed buffer
-  kernel route label remains stable.
+  contract match. BatchNorm canaries distinguish direct buffer and
+  materialized-buffer admission while the executed buffer kernel route label
+  remains stable. ElementwiseBroadcast uses the same provenance path after the
+  existing `aten::binary_op.buffer_float` route has already been selected.
 - Capability-profile governance checks ensure the required profile IDs are in
   the manifest, the normalized feature/limit keys are present, docs state the
   non-emulation semantics, and runtime-policy tests verify optional ML features

@@ -1151,7 +1151,7 @@ class TestVulkanGovernance(TestCase):
     def test_vulkan_elementwise_broadcast_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("elementwise_broadcast_contract.json")
         self.assertEqual(spec["schema_version"], 1)
-        self.assertEqual(spec["source_status"], "schema_only")
+        self.assertNotIn("source_status", spec)
         self.assertEqual(spec["contract_name"], "ElementwiseBroadcastContract")
         self.assertEqual(spec["family"], "FloatTensorTensorBufferBroadcast")
         self.assertEqual(
@@ -8193,6 +8193,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             provenance,
                             trace_records,
                         )
+                        for expected in (
+                            "contract_name=" + spec["contract_name"],
+                            "contract_family=" + spec["family"],
+                            "contract_tuple_id=" + spec["tuple_id"],
+                            "contract_materialization_policy="
+                            + spec["metadata"]["materialization_policy"],
+                        ):
+                            assert expected in provenance, (
+                                case,
+                                expected,
+                                provenance,
+                                trace_records,
+                            )
                         if not case["expected_sync_readback"]:
                             assert readback_count == 0, (
                                 case,

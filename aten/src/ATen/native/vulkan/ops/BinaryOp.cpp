@@ -32,6 +32,7 @@
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
 #include <algorithm>
 #include <cmath>
@@ -75,6 +76,35 @@ const char* binary_op_kind_name(const BinaryOpKind op_kind) {
       return "pow";
   }
   return "unknown";
+}
+
+utils::ElementwiseBroadcastOp elementwise_broadcast_op(
+    const BinaryOpKind op_kind) {
+  switch (op_kind) {
+    case BinaryOpKind::Add:
+      return utils::ElementwiseBroadcastOp::Add;
+    case BinaryOpKind::Mul:
+      return utils::ElementwiseBroadcastOp::Mul;
+    case BinaryOpKind::Sub:
+    case BinaryOpKind::Div:
+    case BinaryOpKind::FloorDivide:
+    case BinaryOpKind::Pow:
+      return utils::ElementwiseBroadcastOp::Unsupported;
+  }
+  return utils::ElementwiseBroadcastOp::Unsupported;
+}
+
+TensorContractProvenance make_tensor_contract_provenance(
+    const utils::ExecutionContractMetadata* metadata) {
+  TensorContractProvenance provenance;
+  if (metadata == nullptr) {
+    return provenance;
+  }
+  provenance.contract_name = metadata->contract_name;
+  provenance.contract_family = metadata->family_name;
+  provenance.contract_tuple_id = metadata->tuple_id;
+  provenance.contract_materialization_policy = metadata->materialization_policy;
+  return provenance;
 }
 
 std::string format_binary_sizes(IntArrayRef sizes) {
@@ -1926,8 +1956,30 @@ static Tensor binary_op_tensor_buffer_impl(
       params.buffer());
 
   Tensor output = output_arg != nullptr ? output_tensor : convert(v_output);
+  const utils::ElementwiseBroadcastMatch contract_match =
+      utils::match_elementwise_broadcast_contract(
+          self.sizes(),
+          other.sizes(),
+          self.scalar_type(),
+          other.scalar_type(),
+          output.scalar_type(),
+          self.is_vulkan(),
+          other.is_vulkan(),
+          utils::supports_buffer_elementwise_compute(v_self),
+          utils::supports_buffer_elementwise_compute(v_other),
+          true,
+          elementwise_broadcast_op(op_kind),
+          block.alpha == 1.0f,
+          output_arg != nullptr,
+          false);
+  const TensorContractProvenance contract_provenance =
+      make_tensor_contract_provenance(contract_match.metadata);
   return record_tensor_write_and_return(
-      output, "aten::binary_op", "tensor_buffer", {self, other});
+      output,
+      "aten::binary_op",
+      "tensor_buffer",
+      {self, other},
+      contract_match.matched ? &contract_provenance : nullptr);
 }
 
 static Tensor binary_op_tensor_buffer(

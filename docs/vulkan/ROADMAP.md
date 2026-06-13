@@ -56,10 +56,11 @@ Current MVP status:
   `Batch1Heads4Factor4Sequence100To116Dim128`, plus
   `SafeViewReshapeContract` `ViewMaterializedDirectBuffer` and
   `ReshapeAliasDenseBufferDirect`, plus `BatchNormInferenceContract`
-  `BufferFloat4D` and `MaterializedBufferFloat4D`. A schema-only
-  `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast` fixture
-  records the first float tensor/tensor buffer-broadcast envelope without
-  adding production route admission.
+  `BufferFloat4D` and `MaterializedBufferFloat4D`.
+  `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast` records
+  the first float tensor/tensor buffer-broadcast envelope and has a production
+  metadata/provenance canary that runs after the existing buffer route is
+  selected.
 - `test/vulkan_contract_specs/contract_spec_utils.py` owns shared spec loading,
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,
@@ -82,8 +83,8 @@ Current MVP status:
   `_reshape_alias` direct-buffer fixture,
   `SafeViewReshapeContract` `ReshapeAliasDenseBufferDirect`, plus the first
   checked-in-case runtime fixtures for `BatchNormInferenceContract`
-  `BufferFloat4D` and `MaterializedBufferFloat4D`, plus the schema-only
-  `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast` fixture.
+  `BufferFloat4D` and `MaterializedBufferFloat4D`, plus
+  `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast`.
   The schema captures symbolic dims, min/max, values, multiples, optional
   dims, generic `broadcast_compatible` relationships, aggregate bounds, layout
   and capability requirements, policies, positive cases, adjacent negatives,
@@ -106,10 +107,12 @@ Current MVP status:
   metadata, route label, simple bounds, and matcher helper predicates. The
   token-batch row remains handwritten until it gets its own fixture.
 - Tensor provenance/value traces can carry optional contract-admission
-  metadata for producers that pass an existing match. The first canary is
-  `BatchNormInferenceContract`, where direct `BufferFloat4D` admission and
-  materialized `MaterializedBufferFloat4D` admission can be distinguished
-  without changing the executed `buffer_inference_4d_float` route label.
+  metadata for producers that pass an existing match. BatchNorm canaries
+  distinguish direct `BufferFloat4D` admission and materialized
+  `MaterializedBufferFloat4D` admission without changing the executed
+  `buffer_inference_4d_float` route label. ElementwiseBroadcast uses the same
+  provenance path after the existing `aten::binary_op.buffer_float` route has
+  already been selected.
 
 ## Phase 3: Migrate Next Contract Family
 
