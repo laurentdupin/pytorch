@@ -56,6 +56,16 @@
       ]
     },
     {
+      "spec_file": "transformer_gqa_sdpa_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsTransformerGQASDPASpec.h",
+      "markers": [
+        "TransformerGQASDPASparseAttentionRowsSpec",
+        "TransformerGQASDPAAttentionRowsRow",
+        "kTransformerGQASDPAAttentionRowsRowCount",
+        "transformer_gqasdpa_attention_rows_find"
+      ]
+    },
+    {
       "spec_file": "elementwise_broadcast_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h",
       "markers": [

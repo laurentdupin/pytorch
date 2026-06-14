@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`e0df9868991d970512a0833273f434662d2e8daa`.
+`112dac5b1e99ce3d0a080789c5265ad393eed6a3`.
 
 ## Repo State Summary
 
@@ -49,12 +49,16 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsTransformerGQASDPA.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsTransformerGQASDPASpec.h`
 
 The table owns finite tuples/envelopes with `ExecutionContractMetadata` for
 contract name, family, tuple id, evidence id, guard id, fallback policy, and
 materialization policy. Some rows are still exact and temporary; they are
 allowed only as guarded contract rows while generated parity/negative coverage
-is built. `BatchNormInferenceContract`, `ChannelCatContract`,
+is built. Every current live contract name has JSON spec, ShapeEnvelope, and
+generated C++ helper coverage; remaining exact-row policy debt is tracked as
+temporary exceptions rather than as untracked live-contract debt.
+`BatchNormInferenceContract`, `ChannelCatContract`,
 `EmbeddingLookupContract`, `GQARepeatContract`, `KVCacheAppendContract`,
 `LinearGeluBridgeContract`, `NoOverlapConvTranspose2DContract`, and
 `SafeViewReshapeContract`, `SmallMetadataPaddedConv2DContract`,
@@ -185,7 +189,14 @@ These files are diagnostic inputs. Production code must not depend on
   assembly remain handwritten. Keep adjacent guards.
 - `TransformerGQASDPAContract`: bounded Transformer causal/prefill and decode
   GQA SDPA legality with model-neutral naming, now split into a
-  family-specific source.
+  family-specific source. The `SparseAttentionRows` slice has a JSON contract
+  spec backed by `ShapeEnvelope` v1 with checked-in positive/adjacent-negative
+  runtime cases plus generic ShapeEnvelope C++ sparse-rowset helper output in
+  `generated/ExecutionContractsTransformerGQASDPASpec.h`. The generated
+  helper provides contract identity, per-row metadata, and exact lookup by
+  contract family plus causal/GQA flags while scale tolerance, route-policy
+  hard-fail ordering, sequence inequalities, SDPA execution, and match-result
+  assembly remain handwritten.
 - `MaskedTinySDPAContract`: tiny additive-mask SDPA tuple, now split into a
   family-specific source. The `AdditiveFloatMask` slice has a JSON contract
   spec backed by `ShapeEnvelope` v1 with checked-in positive/adjacent-negative
@@ -316,7 +327,7 @@ These files are diagnostic inputs. Production code must not depend on
   live contract sources, validates any `ShapeEnvelope` v1 blocks present, and
   keeps family-specific shape checks for BatchNormInference, EmbeddingLookup,
   ChannelCat, KVCacheAppend, LinearGeluBridge, GQARepeat, MaskedTinySDPA,
-  DiffusionSDPA, SDPAScoreSoftmax,
+  DiffusionSDPA, TransformerGQASDPA, SDPAScoreSoftmax,
   NoOverlapConvTranspose2D, SmallMetadataPaddedConv2D, and SafeViewReshape.
   `test/vulkan_contract_specs/generated_cpp_manifest.json` declares which
   ShapeEnvelope specs have checked-in generated C++ helper headers; governance
@@ -341,7 +352,8 @@ These files are diagnostic inputs. Production code must not depend on
   including row identity uniqueness, lookup-key uniqueness, tuple-label
   uniqueness, independent cross-product census, and forbidden-cross-product
   negative metadata. `SmallSpatialPointwiseConvContract` and
-  `DiffusionSDPAContract` are the current real sparse-rowset consumers.
+  `DiffusionSDPAContract`, `SDPAExecutionPolicyContract`, and
+  `TransformerGQASDPAContract` are the current real sparse-rowset consumers.
   A generic coverage bridge maps abstract assignment paths and
   adjacent-negative axes onto the current generated/checked-in runtime cases
   without executing additional fuzz assignments. BatchNormInference `BufferFloat4D`,
@@ -353,7 +365,8 @@ These files are diagnostic inputs. Production code must not depend on
   NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer`, SDPAScoreSoftmax
   `DiffusionSquareScores`, SmallMetadataPaddedConv2D
   `MaterializedBufferInput2x2`, and LinearGeluBridge
-  `BackboneMlpHidden384To1536` use generic checked-in case plumbing under the
+  `BackboneMlpHidden384To1536`, and TransformerGQASDPA
+  `SparseAttentionRows` use generic checked-in case plumbing under the
   ShapeEnvelope registry.
   ChannelCat, EmbeddingLookup, and both
   SafeViewReshape direct-buffer slices have
@@ -451,6 +464,16 @@ These files are diagnostic inputs. Production code must not depend on
   policy strings. Diffusion contract admission, optional scale tolerance,
   score pre-materialization, materialized math path, post-softmax clone
   behavior, and broader SDPA policy remain handwritten so route behavior is
+  unchanged.
+- TransformerGQASDPA `SparseAttentionRows` consumes the generic ShapeEnvelope
+  sparse-rowset generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsTransformerGQASDPASpec.h` from
+  `transformer_gqa_sdpa_contract.json` for contract identity, per-row
+  metadata, the four correlated causal/prefill/decode GQA rows, and exact
+  lookup by contract family plus causal/GQA flags. Optional scale tolerance,
+  route-policy hard-fail ordering, sequence equality/inequality checks, SDPA
+  execution, and match-result assembly remain handwritten so route behavior is
   unchanged.
 - NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` consumes the generic
   ShapeEnvelope simple-bounds generator path:

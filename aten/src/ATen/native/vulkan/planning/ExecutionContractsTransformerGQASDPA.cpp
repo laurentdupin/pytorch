@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsTransformerGQASDPASpec.h>
 
 #include <cmath>
 
@@ -10,75 +11,53 @@ namespace utils {
 
 namespace {
 
-constexpr ExecutionContractMetadata make_execution_contract_metadata(
-    const char* contract_name,
-    const char* family_name,
-    const char* tuple_id,
-    const char* evidence_id,
-    const char* guard_id,
-    const char* fallback_policy,
-    const char* materialization_policy) {
-  return ExecutionContractMetadata{
-      contract_name,
-      family_name,
-      tuple_id,
-      evidence_id,
-      guard_id,
-      fallback_policy,
-      materialization_policy};
-}
-
-constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
-    "unsupported_shapes_do_not_match";
-constexpr const char* kMaterializationDelegatedToSDPAExecutionPolicy =
-    "delegated_to_sdpa_execution_policy";
 constexpr double kTransformerHeadDim128Scale = 0.08838834764831845;
 
-constexpr const char* kTransformerGQASDPACausalGQATupleId =
-    "causal_gqa_head128_len_le_128";
-constexpr const char* kTransformerGQASDPACausalMHATupleId =
-    "causal_mha_head128_len_le_128";
-constexpr const char* kTransformerGQASDPADecodeGQATupleId =
-    "decode_gqa_head128_source_100_116";
-constexpr const char* kTransformerGQASDPASmallNonCausalGQATupleId =
-    "small_non_causal_gqa_head128";
-constexpr ExecutionContractMetadata kTransformerGQASDPACausalGQAMetadata =
-    make_execution_contract_metadata(
-        "TransformerGQASDPAContract",
-        "CausalPrefill",
-        kTransformerGQASDPACausalGQATupleId,
-        "transformer_gqa_sdpa_focused_tests",
-        "transformer_gqa_sdpa_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationDelegatedToSDPAExecutionPolicy);
-constexpr ExecutionContractMetadata kTransformerGQASDPACausalMHAMetadata =
-    make_execution_contract_metadata(
-        "TransformerGQASDPAContract",
-        "CausalPrefill",
-        kTransformerGQASDPACausalMHATupleId,
-        "transformer_gqa_sdpa_focused_tests",
-        "transformer_gqa_sdpa_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationDelegatedToSDPAExecutionPolicy);
-constexpr ExecutionContractMetadata kTransformerGQASDPADecodeGQAMetadata =
-    make_execution_contract_metadata(
-        "TransformerGQASDPAContract",
-        "DecodeGQA",
-        kTransformerGQASDPADecodeGQATupleId,
-        "transformer_gqa_sdpa_focused_tests",
-        "transformer_gqa_sdpa_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationDelegatedToSDPAExecutionPolicy);
-constexpr ExecutionContractMetadata
-    kTransformerGQASDPASmallNonCausalGQAMetadata =
-        make_execution_contract_metadata(
-            "TransformerGQASDPAContract",
-            "SmallNonCausalGQA",
-            kTransformerGQASDPASmallNonCausalGQATupleId,
-            "transformer_gqa_sdpa_focused_tests",
-            "transformer_gqa_sdpa_adjacent_guards",
-            kFallbackUnsupportedShapesDoNotMatch,
-            kMaterializationDelegatedToSDPAExecutionPolicy);
+const char* transformer_gqa_sdpa_contract_family_name(
+    const TransformerGQASDPAFamily family) {
+  switch (family) {
+    case TransformerGQASDPAFamily::CausalPrefill:
+      return "CausalPrefill";
+    case TransformerGQASDPAFamily::SmallNonCausalGQA:
+      return "SmallNonCausalGQA";
+    case TransformerGQASDPAFamily::DecodeGQA:
+      return "DecodeGQA";
+    case TransformerGQASDPAFamily::None:
+      return "";
+  }
+  return "";
+}
+
+bool transformer_gqa_sdpa_row_matches(
+    const generated::TransformerGQASDPAAttentionRowsRow& row,
+    const IntArrayRef query_sizes,
+    const IntArrayRef key_sizes) {
+  return query_sizes[1] == row.query_heads &&
+      key_sizes[1] == row.key_value_heads &&
+      query_sizes[2] >= row.query_sequence_min &&
+      query_sizes[2] <= row.query_sequence_max &&
+      key_sizes[2] >= row.key_value_sequence_min &&
+      key_sizes[2] <= row.key_value_sequence_max &&
+      query_sizes[3] == row.head_dim && key_sizes[3] == row.head_dim &&
+      (!row.requires_equal_sequence || query_sizes[2] == key_sizes[2]);
+}
+
+bool apply_transformer_gqa_sdpa_row(
+    TransformerGQASDPAMatch& result,
+    const TransformerGQASDPAFamily family,
+    const generated::TransformerGQASDPAAttentionRowsRow* const row,
+    const IntArrayRef query_sizes,
+    const IntArrayRef key_sizes) {
+  if (row == nullptr ||
+      !transformer_gqa_sdpa_row_matches(*row, query_sizes, key_sizes)) {
+    return false;
+  }
+  result.matched = true;
+  result.family = family;
+  result.tuple_id = row->tuple_id;
+  result.metadata = &row->metadata;
+  return true;
+}
 
 } // namespace
 
@@ -146,42 +125,30 @@ TransformerGQASDPAMatch match_transformer_gqa_sdpa_contract(
       key_sizes[1] != value_sizes[1]) {
     return result;
   }
-  if (enable_gqa) {
-    if (key_sizes[1] != 4) {
-      return result;
-    }
-  } else if (key_sizes[1] != 16) {
-    return result;
-  }
 
   if (is_causal) {
-    if (query_sizes[2] != key_sizes[2] || key_sizes[2] > 128) {
+    const auto family = TransformerGQASDPAFamily::CausalPrefill;
+    const auto* const row = generated::transformer_gqasdpa_attention_rows_find(
+        transformer_gqa_sdpa_contract_family_name(family), is_causal, enable_gqa);
+    if (apply_transformer_gqa_sdpa_row(result, family, row, query_sizes, key_sizes)) {
       return result;
     }
-    result.matched = true;
-    result.family = TransformerGQASDPAFamily::CausalPrefill;
-    result.tuple_id = enable_gqa ? kTransformerGQASDPACausalGQATupleId
-                                 : kTransformerGQASDPACausalMHATupleId;
-    result.metadata = enable_gqa ? &kTransformerGQASDPACausalGQAMetadata
-                                 : &kTransformerGQASDPACausalMHAMetadata;
     return result;
   }
 
-  if (
-      enable_gqa && query_sizes[2] == 1 && key_sizes[2] >= 100 &&
-      key_sizes[2] <= 116) {
-    result.matched = true;
-    result.family = TransformerGQASDPAFamily::DecodeGQA;
-    result.tuple_id = kTransformerGQASDPADecodeGQATupleId;
-    result.metadata = &kTransformerGQASDPADecodeGQAMetadata;
-    return result;
+  {
+    const auto family = TransformerGQASDPAFamily::DecodeGQA;
+    const auto* const row = generated::transformer_gqasdpa_attention_rows_find(
+        transformer_gqa_sdpa_contract_family_name(family), is_causal, enable_gqa);
+    if (apply_transformer_gqa_sdpa_row(result, family, row, query_sizes, key_sizes)) {
+      return result;
+    }
   }
 
-  if (query_sizes[2] <= 14 && key_sizes[2] <= 64) {
-    result.matched = true;
-    result.family = TransformerGQASDPAFamily::SmallNonCausalGQA;
-    result.tuple_id = kTransformerGQASDPASmallNonCausalGQATupleId;
-    result.metadata = &kTransformerGQASDPASmallNonCausalGQAMetadata;
+  const auto family = TransformerGQASDPAFamily::SmallNonCausalGQA;
+  const auto* const row = generated::transformer_gqasdpa_attention_rows_find(
+      transformer_gqa_sdpa_contract_family_name(family), is_causal, enable_gqa);
+  if (apply_transformer_gqa_sdpa_row(result, family, row, query_sizes, key_sizes)) {
     return result;
   }
   return result;

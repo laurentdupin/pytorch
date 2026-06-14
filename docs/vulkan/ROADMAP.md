@@ -56,6 +56,7 @@ Current MVP status:
   `Batch1Heads4Factor4Sequence100To116Dim128`, plus
   `MaskedTinySDPAContract` `AdditiveFloatMask`, plus
   `DiffusionSDPAContract` `SparseAttentionRows`, plus
+  `TransformerGQASDPAContract` `SparseAttentionRows`, plus
   `SafeViewReshapeContract` `ViewMaterializedDirectBuffer` and
   `ReshapeAliasDenseBufferDirect`, plus `BatchNormInferenceContract`
   `BufferFloat4D` and `MaterializedBufferFloat4D`.
@@ -97,7 +98,8 @@ Current MVP status:
   `KVCacheAppendContract` `SequenceAppend` and `InitialCache`, plus
   `SmallMetadataPaddedConv2DContract` `MaterializedBufferInput2x2`, plus
   `SmallSpatialPointwiseConvContract` `SparseProjectionRows`, plus
-  `LinearGeluBridgeContract` `BackboneMlpHidden384To1536`.
+  `LinearGeluBridgeContract` `BackboneMlpHidden384To1536`, plus
+  `TransformerGQASDPAContract` `SparseAttentionRows`.
   The schema captures symbolic dims, min/max, values, multiples, optional
   dims, generic `broadcast_compatible` relationships, generic
   `sparse_rowsets` for correlated finite rows, aggregate bounds, layout and
@@ -201,6 +203,14 @@ Current MVP status:
   admission, scale tolerance, score pre-materialization, materialized math
   path, post-softmax clone behavior, and broader SDPA policy remain
   handwritten.
+- `TransformerGQASDPAContract` `SparseAttentionRows` now uses the generic
+  ShapeEnvelope C++ sparse-rowset generator path:
+  `ExecutionContractsTransformerGQASDPASpec.h` provides contract identity,
+  per-row metadata, the four correlated causal/prefill/decode GQA rows, and
+  exact lookup by contract family plus causal/GQA flags for the existing
+  matcher. Scale tolerance, route-policy hard-fail ordering, sequence
+  equality/inequality checks, SDPA execution, materialization policy, and
+  broader SDPA policy remain handwritten.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

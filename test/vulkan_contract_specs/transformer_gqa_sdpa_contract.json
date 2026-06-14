@@ -1,0 +1,873 @@
+{
+  "schema_version": 1,
+  "contract_name": "TransformerGQASDPAContract",
+  "family": "SparseAttentionRows",
+  "tuple_id": "transformer_gqa_sdpa_sparse_attention_rows",
+  "writer_op": "aten::scaled_dot_product_attention",
+  "route_label": "SelectedTransformerGQASDPA",
+  "metadata": {
+    "evidence_id": "transformer_gqa_sdpa_focused_tests",
+    "guard_id": "transformer_gqa_sdpa_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "delegated_to_sdpa_execution_policy"
+  },
+  "bounds": {
+    "query_dtype": "float32",
+    "key_dtype": "float32",
+    "value_dtype": "float32",
+    "query_rank": 4,
+    "key_rank": 4,
+    "value_rank": 4,
+    "batch": 1,
+    "query_heads": 16,
+    "key_value_heads": [
+      4,
+      16
+    ],
+    "query_sequence": {
+      "min": 1,
+      "max": 128
+    },
+    "key_value_sequence": {
+      "min": 1,
+      "max": 128
+    },
+    "head_dim": 128,
+    "has_attn_mask": false,
+    "dropout_zero": true,
+    "is_causal": [
+      false,
+      true
+    ],
+    "enable_gqa": [
+      false,
+      true
+    ],
+    "scale_policy": "absent_or_head_dim128_equivalent",
+    "requires_vulkan": true,
+    "requires_buffer_storage": true,
+    "requires_buffer_compute": true
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "transformer_gqa_sdpa_sparse_attention_rows",
+    "inputs": {
+      "query": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "HQ",
+            "field": "query_heads",
+            "values": [
+              16
+            ]
+          },
+          {
+            "symbol": "TQ",
+            "field": "query_sequence",
+            "min": 1,
+            "max": 128
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              128
+            ]
+          }
+        ]
+      },
+      "key": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "HKV",
+            "field": "key_value_heads",
+            "values": [
+              4,
+              16
+            ]
+          },
+          {
+            "symbol": "TKV",
+            "field": "key_value_sequence",
+            "min": 1,
+            "max": 128
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              128
+            ]
+          }
+        ]
+      },
+      "value": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "HKV",
+            "field": "key_value_heads",
+            "values": [
+              4,
+              16
+            ]
+          },
+          {
+            "symbol": "TKV",
+            "field": "key_value_sequence",
+            "min": 1,
+            "max": 128
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              128
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "has_attn_mask": {
+        "values": [
+          false
+        ]
+      },
+      "dropout_zero": {
+        "values": [
+          true
+        ]
+      },
+      "is_causal": {
+        "values": [
+          false,
+          true
+        ]
+      },
+      "enable_gqa": {
+        "values": [
+          false,
+          true
+        ]
+      },
+      "scale_policy": {
+        "values": [
+          "absent_or_head_dim128_equivalent"
+        ]
+      }
+    },
+    "bounds": {
+      "query_dtype": "float32",
+      "key_dtype": "float32",
+      "value_dtype": "float32",
+      "query_rank": 4,
+      "key_rank": 4,
+      "value_rank": 4,
+      "batch": 1,
+      "query_heads": 16,
+      "key_value_heads": [
+        4,
+        16
+      ],
+      "query_sequence": {
+        "min": 1,
+        "max": 128
+      },
+      "key_value_sequence": {
+        "min": 1,
+        "max": 128
+      },
+      "head_dim": 128,
+      "has_attn_mask": false,
+      "dropout_zero": true,
+      "is_causal": [
+        false,
+        true
+      ],
+      "enable_gqa": [
+        false,
+        true
+      ],
+      "scale_policy": "absent_or_head_dim128_equivalent",
+      "requires_vulkan": true,
+      "requires_buffer_storage": true,
+      "requires_buffer_compute": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "qkv_batch",
+        "fields": [
+          "query.N",
+          "key.N",
+          "value.N"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "key_value_heads",
+        "fields": [
+          "key.HKV",
+          "value.HKV"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "key_value_sequence",
+        "fields": [
+          "key.TKV",
+          "value.TKV"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "qkv_head_dim",
+        "fields": [
+          "query.D",
+          "key.D",
+          "value.D"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "query_storage": "buffer",
+      "key_storage": "buffer",
+      "value_storage": "buffer",
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "transformer_gqa_sdpa_focused_tests",
+      "guard_id": "transformer_gqa_sdpa_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "delegated_to_sdpa_execution_policy"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "delegated_to_sdpa_execution_policy"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "attention_rows.equal_sequence",
+        "adjacent": "wrong_value"
+      },
+      {
+        "violates": "attention_rows.causal_sequence",
+        "adjacent": "wrong_value",
+        "value": 129
+      },
+      {
+        "violates": "attention_rows.decode_source_sequence",
+        "adjacent": "wrong_value",
+        "value": 117
+      },
+      {
+        "violates": "attention_rows.small_query_sequence",
+        "adjacent": "wrong_value",
+        "value": 15
+      },
+      {
+        "violates": "attention_rows.small_source_sequence",
+        "adjacent": "wrong_value",
+        "value": 65
+      },
+      {
+        "violates": "key_value_heads",
+        "adjacent": "wrong_value",
+        "value": 8
+      },
+      {
+        "violates": "scale_policy",
+        "adjacent": "wrong_value",
+        "value": "mismatched_scale"
+      },
+      {
+        "violates": "dropout_zero",
+        "adjacent": "wrong_value",
+        "value": false
+      }
+    ],
+    "fuzz_hints": {
+      "sparse_rowset": "attention_rows",
+      "prefer_sparse_rows": true,
+      "symbolic_dims": [
+        "HQ",
+        "HKV",
+        "TQ",
+        "TKV",
+        "D"
+      ]
+    },
+    "sparse_rowsets": [
+      {
+        "name": "attention_rows",
+        "fields": [
+          "family",
+          "query_heads",
+          "key_value_heads",
+          "query_sequence_min",
+          "query_sequence_max",
+          "key_value_sequence_min",
+          "key_value_sequence_max",
+          "head_dim",
+          "is_causal",
+          "enable_gqa",
+          "requires_equal_sequence",
+          "tuple_id"
+        ],
+        "identity_fields": [
+          "family",
+          "query_heads",
+          "key_value_heads",
+          "query_sequence_min",
+          "query_sequence_max",
+          "key_value_sequence_min",
+          "key_value_sequence_max",
+          "head_dim",
+          "is_causal",
+          "enable_gqa",
+          "requires_equal_sequence"
+        ],
+        "lookup_fields": [
+          "family",
+          "is_causal",
+          "enable_gqa"
+        ],
+        "label_field": "tuple_id",
+        "rows": [
+          {
+            "family": "CausalPrefill",
+            "query_heads": 16,
+            "key_value_heads": 16,
+            "query_sequence_min": 1,
+            "query_sequence_max": 128,
+            "key_value_sequence_min": 1,
+            "key_value_sequence_max": 128,
+            "head_dim": 128,
+            "is_causal": true,
+            "enable_gqa": false,
+            "requires_equal_sequence": true,
+            "tuple_id": "causal_mha_head128_len_le_128"
+          },
+          {
+            "family": "CausalPrefill",
+            "query_heads": 16,
+            "key_value_heads": 4,
+            "query_sequence_min": 1,
+            "query_sequence_max": 128,
+            "key_value_sequence_min": 1,
+            "key_value_sequence_max": 128,
+            "head_dim": 128,
+            "is_causal": true,
+            "enable_gqa": true,
+            "requires_equal_sequence": true,
+            "tuple_id": "causal_gqa_head128_len_le_128"
+          },
+          {
+            "family": "DecodeGQA",
+            "query_heads": 16,
+            "key_value_heads": 4,
+            "query_sequence_min": 1,
+            "query_sequence_max": 1,
+            "key_value_sequence_min": 100,
+            "key_value_sequence_max": 116,
+            "head_dim": 128,
+            "is_causal": false,
+            "enable_gqa": true,
+            "requires_equal_sequence": false,
+            "tuple_id": "decode_gqa_head128_source_100_116"
+          },
+          {
+            "family": "SmallNonCausalGQA",
+            "query_heads": 16,
+            "key_value_heads": 4,
+            "query_sequence_min": 1,
+            "query_sequence_max": 14,
+            "key_value_sequence_min": 1,
+            "key_value_sequence_max": 64,
+            "head_dim": 128,
+            "is_causal": false,
+            "enable_gqa": true,
+            "requires_equal_sequence": false,
+            "tuple_id": "small_non_causal_gqa_head128"
+          }
+        ],
+        "negative_axes": [
+          {
+            "violates": "attention_rows.small_query_sequence",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "SmallNonCausalGQA",
+              "query_heads": 16,
+              "key_value_heads": 4,
+              "query_sequence_min": 15,
+              "query_sequence_max": 15,
+              "key_value_sequence_min": 15,
+              "key_value_sequence_max": 15,
+              "head_dim": 128,
+              "is_causal": false,
+              "enable_gqa": true,
+              "requires_equal_sequence": false
+            }
+          },
+          {
+            "violates": "attention_rows.decode_source_sequence",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "DecodeGQA",
+              "query_heads": 16,
+              "key_value_heads": 4,
+              "query_sequence_min": 1,
+              "query_sequence_max": 1,
+              "key_value_sequence_min": 117,
+              "key_value_sequence_max": 117,
+              "head_dim": 128,
+              "is_causal": false,
+              "enable_gqa": true,
+              "requires_equal_sequence": false
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "positive_cases": [
+    {
+      "name": "causal_mha_len7",
+      "query_shape": [
+        1,
+        16,
+        7,
+        128
+      ],
+      "key_shape": [
+        1,
+        16,
+        7,
+        128
+      ],
+      "value_shape": [
+        1,
+        16,
+        7,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": true,
+      "scale": null,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedTransformerGQASDPACausalPrefill",
+      "expected_contract_family": "CausalPrefill",
+      "expected_contract_tuple_id": "causal_mha_head128_len_le_128",
+      "expected_cpu_fallback": true
+    },
+    {
+      "name": "causal_gqa_len14_explicit_scale",
+      "query_shape": [
+        1,
+        16,
+        14,
+        128
+      ],
+      "key_shape": [
+        1,
+        4,
+        14,
+        128
+      ],
+      "value_shape": [
+        1,
+        4,
+        14,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": true,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "expected_route_label": "SelectedTransformerGQASDPACausalPrefill",
+      "expected_contract_family": "CausalPrefill",
+      "expected_contract_tuple_id": "causal_gqa_head128_len_le_128",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "decode_gqa_source100",
+      "query_shape": [
+        1,
+        16,
+        1,
+        128
+      ],
+      "key_shape": [
+        1,
+        4,
+        100,
+        128
+      ],
+      "value_shape": [
+        1,
+        4,
+        100,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "expected_route_label": "SelectedTransformerGQASDPADecodeGQA",
+      "expected_contract_family": "DecodeGQA",
+      "expected_contract_tuple_id": "decode_gqa_head128_source_100_116",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "small_non_causal_gqa_query1_source32",
+      "query_shape": [
+        1,
+        16,
+        1,
+        128
+      ],
+      "key_shape": [
+        1,
+        4,
+        32,
+        128
+      ],
+      "value_shape": [
+        1,
+        4,
+        32,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "expected_route_label": "SelectedTransformerGQASDPASmallNonCausalGQA",
+      "expected_contract_family": "SmallNonCausalGQA",
+      "expected_contract_tuple_id": "small_non_causal_gqa_head128",
+      "expected_cpu_fallback": true
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "causal_mha_sequence_mismatch",
+      "query_shape": [
+        1,
+        16,
+        7,
+        128
+      ],
+      "key_shape": [
+        1,
+        16,
+        8,
+        128
+      ],
+      "value_shape": [
+        1,
+        16,
+        8,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": true,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "attention_rows.equal_sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "causal_mha_sequence129",
+      "query_shape": [
+        1,
+        16,
+        129,
+        128
+      ],
+      "key_shape": [
+        1,
+        16,
+        129,
+        128
+      ],
+      "value_shape": [
+        1,
+        16,
+        129,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": true,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "attention_rows.causal_sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "decode_gqa_source117",
+      "query_shape": [
+        1,
+        16,
+        1,
+        128
+      ],
+      "key_shape": [
+        1,
+        4,
+        117,
+        128
+      ],
+      "value_shape": [
+        1,
+        4,
+        117,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "violates": "attention_rows.decode_source_sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "small_non_causal_query15",
+      "query_shape": [
+        1,
+        16,
+        15,
+        128
+      ],
+      "key_shape": [
+        1,
+        4,
+        15,
+        128
+      ],
+      "value_shape": [
+        1,
+        4,
+        15,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "violates": "attention_rows.small_query_sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "small_non_causal_source65",
+      "query_shape": [
+        1,
+        16,
+        14,
+        128
+      ],
+      "key_shape": [
+        1,
+        4,
+        65,
+        128
+      ],
+      "value_shape": [
+        1,
+        4,
+        65,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "violates": "attention_rows.small_source_sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "decode_gqa_wrong_key_value_heads",
+      "query_shape": [
+        1,
+        16,
+        1,
+        128
+      ],
+      "key_shape": [
+        1,
+        8,
+        100,
+        128
+      ],
+      "value_shape": [
+        1,
+        8,
+        100,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "violates": "key_value_heads",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "causal_gqa_mismatched_scale",
+      "query_shape": [
+        1,
+        16,
+        7,
+        128
+      ],
+      "key_shape": [
+        1,
+        4,
+        7,
+        128
+      ],
+      "value_shape": [
+        1,
+        4,
+        7,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": true,
+      "scale": 1.0,
+      "enable_gqa": true,
+      "violates": "scale_policy",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "causal_gqa_dropout_nonzero",
+      "query_shape": [
+        1,
+        16,
+        7,
+        128
+      ],
+      "key_shape": [
+        1,
+        4,
+        7,
+        128
+      ],
+      "value_shape": [
+        1,
+        4,
+        7,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.1,
+      "is_causal": true,
+      "scale": null,
+      "enable_gqa": true,
+      "violates": "dropout_zero",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    }
+  ]
+}

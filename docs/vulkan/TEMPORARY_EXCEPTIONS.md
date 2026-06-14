@@ -156,6 +156,30 @@ condition and migration target.
 - Migration target: broader generated `ElementwiseBroadcastContract` tables
   with positive and negative tests.
 
+### Transformer GQA SDPA Exact Tuples
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`,
+  `aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp`, and
+  `aten/src/ATen/native/vulkan/ops/Softmax.cpp`
+- Status: temporary, contract-named
+- Reason: bounded Transformer causal/prefill and decode GQA SDPA rows are
+  proven for the current envelope, but broader Transformer attention shapes,
+  masks, scale policy, and direct decode GQA behavior are not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/transformer_gqa_sdpa_contract.json`
+  covers the `SparseAttentionRows` slice with ShapeEnvelope-backed checked-in
+  positive and adjacent negative runtime cases plus generic ShapeEnvelope C++
+  sparse-rowset helper output in
+  `generated/ExecutionContractsTransformerGQASDPASpec.h`. The generated helper
+  owns the four correlated causal MHA, causal GQA, decode GQA, and small
+  non-causal GQA rows, per-row metadata, and exact lookup by contract family
+  plus causal/GQA flags. Optional scale tolerance, route-policy hard-fail
+  ordering, sequence equality/inequality checks, SDPA execution,
+  materialization policy, and match-result assembly remain handwritten.
+- Expiry: broader Transformer SDPA/GQA parity plus adjacent negative coverage
+  are available without direct decode GQA broadening.
+- Migration target: broader generated `TransformerGQASDPAContract` tables with
+  positive, adjacent negative, and materialization-policy coverage.
+
 ### SDPA Execution Policy Exact Tuples
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
