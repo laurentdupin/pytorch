@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`dd83c1a35ee3dbd6aee5fd12dcb38e06662eb92a`.
+`6a5d4eac00fcb31096577f4c3481d9797f35ea76`.
 
 ## Repo State Summary
 
@@ -31,6 +31,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsMaskedTinySDPA.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSafeViewReshape.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAScoreSoftmax.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp`
@@ -213,8 +214,13 @@ These files are diagnostic inputs. Production code must not depend on
   now have JSON contract specs with ShapeEnvelope-generated legal and
   adjacent-negative runtime coverage: `ViewMaterializedDirectBuffer` for the
   materialized `aten::view` path and `ReshapeAliasDenseBufferDirect` for the
-  materialized `aten::_reshape_alias` path. Keep broader view/layout,
-  storage-offset, and provenance rules documented separately.
+  materialized `aten::_reshape_alias` path. The regular view slice now consumes
+  a generated ShapeEnvelope C++ shape/layout simple-bounds header for contract
+  identity, metadata, rank bounds, storage-offset, and output last-dim multiple
+  helpers while product equality, contiguous-stride checking, and match result
+  assembly remain handwritten. The reshape-alias slice remains handwritten
+  pending a separate scope. Keep broader view/layout, storage-offset, and
+  provenance rules documented separately.
 - `LinearGeluBridgeContract`: pure legality for the deferred linear/GELU
   bridge; registry, alias, and materialization side effects stay outside the
   contract.
@@ -300,6 +306,14 @@ These files are diagnostic inputs. Production code must not depend on
   predicates. The simple-bounds generator emits row-qualified contract-name
   constants so sibling generated rows can be included in the same translation
   unit without duplicate symbols.
+- SafeViewReshape `ViewMaterializedDirectBuffer` is the first consumer of the
+  generic ShapeEnvelope shape/layout simple-bounds generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsSafeViewReshapeSpec.h` from
+  `safe_view_reshape_contract.json` for contract identity, metadata, rank
+  ranges, storage offset, output stride policy, Vulkan requirement, product
+  equality policy, and output last-dim multiple helpers. Contiguous-stride and
+  product-of-sizes checks remain handwritten so route behavior is unchanged.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.

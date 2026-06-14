@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeSpec.h>
 
 #include <c10/util/Exception.h>
 #include <c10/util/strides.h>
@@ -36,23 +37,26 @@ constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
     "unsupported_shapes_do_not_match";
 constexpr const char* kMaterializationReshapeAliasDirectBuffer =
     "reshape_alias_materialized_direct_buffer";
-constexpr const char* kMaterializationViewDirectBuffer =
-    "view_materialized_direct_buffer";
 
 constexpr const char* kSafeViewReshapeAliasDenseBufferDirectTupleId =
-    "materialized_direct_buffer_reshape";
-constexpr const char* kSafeViewReshapeViewMaterializedDirectBufferTupleId =
     "materialized_direct_buffer_reshape";
 constexpr ExecutionContractMetadata
     kSafeViewReshapeViewMaterializedDirectBufferMetadata =
         make_execution_contract_metadata(
-            "SafeViewReshapeContract",
-            "ViewMaterializedDirectBuffer",
-            kSafeViewReshapeViewMaterializedDirectBufferTupleId,
-            "view_direct_buffer_focused_tests",
-            "view_direct_buffer_adjacent_guards",
-            kFallbackUnsupportedShapesDoNotMatch,
-            kMaterializationViewDirectBuffer);
+            generated::kSafeViewReshapeViewMaterializedDirectBufferSpec
+                .contract_name,
+            generated::kSafeViewReshapeViewMaterializedDirectBufferSpec
+                .family_name,
+            generated::kSafeViewReshapeViewMaterializedDirectBufferSpec
+                .tuple_id,
+            generated::kSafeViewReshapeViewMaterializedDirectBufferSpec
+                .evidence_id,
+            generated::kSafeViewReshapeViewMaterializedDirectBufferSpec
+                .guard_id,
+            generated::kSafeViewReshapeViewMaterializedDirectBufferSpec
+                .fallback_policy,
+            generated::kSafeViewReshapeViewMaterializedDirectBufferSpec
+                .materialization_policy);
 constexpr ExecutionContractMetadata
     kSafeViewReshapeAliasDenseBufferDirectMetadata =
         make_execution_contract_metadata(
@@ -124,9 +128,15 @@ match_safe_view_reshape_materialized_direct_buffer_contract(
     const IntArrayRef output_strides,
     const int64_t storage_offset) {
   SafeViewReshapeMatch result;
+  const auto& spec =
+      generated::kSafeViewReshapeViewMaterializedDirectBufferSpec;
   if (
-      input_sizes.size() > 4 || output_sizes.size() > 5 ||
-      storage_offset != 0 ||
+      !generated::safe_view_materialized_direct_buffer_input_rank_in_bounds(
+          spec, static_cast<int64_t>(input_sizes.size())) ||
+      !generated::safe_view_materialized_direct_buffer_output_rank_in_bounds(
+          spec, static_cast<int64_t>(output_sizes.size())) ||
+      !generated::safe_view_materialized_direct_buffer_storage_offset_matches(
+          spec, storage_offset) ||
       !is_contiguous_stride(output_sizes, output_strides)) {
     return result;
   }
@@ -135,13 +145,16 @@ match_safe_view_reshape_materialized_direct_buffer_contract(
     return result;
   }
 
-  if (!output_sizes.empty() && output_sizes.back() % 4 != 0) {
+  if (!generated::safe_view_materialized_direct_buffer_output_last_dim_multiple_matches(
+          spec,
+          !output_sizes.empty(),
+          output_sizes.empty() ? 0 : output_sizes.back())) {
     return result;
   }
 
   result.matched = true;
   result.family = SafeViewReshapeFamily::ViewMaterializedDirectBuffer;
-  result.tuple_id = kSafeViewReshapeViewMaterializedDirectBufferTupleId;
+  result.tuple_id = spec.tuple_id;
   result.metadata = &kSafeViewReshapeViewMaterializedDirectBufferMetadata;
   return result;
 }

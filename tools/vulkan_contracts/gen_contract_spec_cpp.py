@@ -220,6 +220,44 @@ def _simple_bounds_shape_envelope_fields(bounds):
     }
 
 
+def _shape_layout_simple_bounds_shape_envelope_fields(bounds):
+    int_fields = []
+    multiple_of_fields = []
+    range_fields = []
+    bool_fields = []
+    string_fields = []
+    unsupported = []
+    for key, value in bounds.items():
+        if isinstance(value, bool):
+            bool_fields.append(key)
+        elif isinstance(value, int) and key.endswith("_multiple_of"):
+            multiple_of_fields.append(key)
+        elif isinstance(value, int):
+            int_fields.append(key)
+        elif (
+            isinstance(value, dict)
+            and set(value) == {"min", "max"}
+            and isinstance(value["min"], int)
+            and isinstance(value["max"], int)
+        ):
+            range_fields.append(key)
+        elif isinstance(value, str):
+            string_fields.append(key)
+        else:
+            unsupported.append(key)
+    if unsupported:
+        return None
+    if not (int_fields or multiple_of_fields or range_fields):
+        return None
+    return {
+        "int": int_fields,
+        "multiple_of": multiple_of_fields,
+        "range": range_fields,
+        "bool": bool_fields,
+        "string": string_fields,
+    }
+
+
 def _singular_field_name(field):
     return field[:-1] if field.endswith("s") else field
 
@@ -965,6 +1003,249 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
     return "\n".join(lines)
 
 
+def _validate_generic_shape_layout_simple_bounds_shape_envelope_spec(spec):
+    _require_keys(
+        spec,
+        (
+            "contract_name",
+            "family",
+            "tuple_id",
+            "writer_op",
+            "route_label",
+            "metadata",
+            "shape_envelope",
+            "bounds",
+        ),
+        "ShapeEnvelope shape/layout simple-bounds contract spec",
+    )
+    for key in ("contract_name", "family", "tuple_id", "writer_op", "route_label"):
+        _require_non_empty_string(
+            spec, key, "ShapeEnvelope shape/layout simple-bounds contract spec"
+        )
+
+    envelope = spec["shape_envelope"]
+    _require(isinstance(envelope, dict), "shape_envelope must be an object")
+    _require(envelope.get("version") == 1, "shape_envelope.version must be 1")
+    _require_non_empty_string(envelope, "role", "shape_envelope")
+
+    metadata = envelope.get("metadata")
+    _validate_contract_metadata(metadata, "ShapeEnvelope metadata")
+    _require(spec["metadata"] == metadata, "metadata must match shape_envelope")
+
+    bounds = envelope.get("bounds")
+    _require(spec["bounds"] == bounds, "bounds must match shape_envelope")
+    _require(isinstance(bounds, dict), "ShapeEnvelope bounds must be an object")
+    fields = _shape_layout_simple_bounds_shape_envelope_fields(bounds)
+    _require(fields is not None, "unsupported shape/layout ShapeEnvelope bounds")
+
+    for key in fields["int"]:
+        _validate_int(bounds[key], f"bounds.{key}")
+    for key in fields["multiple_of"]:
+        _validate_int(bounds[key], f"bounds.{key}")
+        _require(bounds[key] > 0, f"bounds.{key} must be positive")
+    for key in fields["range"]:
+        _validate_bound_pair(bounds[key], f"bounds.{key}")
+    for key in fields["bool"]:
+        _validate_bool(bounds[key], f"bounds.{key}")
+    for key in fields["string"]:
+        _require_non_empty_string(bounds, key, "ShapeEnvelope bounds")
+    return fields
+
+
+def generate_generic_shape_layout_simple_bounds_shape_envelope_header(
+    spec, source_name
+):
+    fields = _validate_generic_shape_layout_simple_bounds_shape_envelope_spec(spec)
+    envelope = spec["shape_envelope"]
+    metadata = envelope["metadata"]
+    bounds = envelope["bounds"]
+    contract_prefix = _cpp_identifier_fragment(
+        spec["contract_name"].removesuffix("Contract")
+    )
+    row_prefix = contract_prefix + _cpp_identifier_fragment(spec["family"])
+    role_func_prefix = _cpp_lower_identifier(envelope["role"])
+
+    field_struct_lines = []
+    initializer_lines = []
+    constant_lines = []
+    helper_lines = []
+
+    for key in fields["range"]:
+        suffix = _cpp_identifier_fragment(key)
+        field_struct_lines.append(f"  std::int64_t min_{key};")
+        field_struct_lines.append(f"  std::int64_t max_{key};")
+        initializer_lines.append(f"        k{row_prefix}Min{suffix},")
+        initializer_lines.append(f"        k{row_prefix}Max{suffix},")
+        constant_lines.append(
+            f"constexpr std::int64_t k{row_prefix}Min{suffix} = "
+            f"{bounds[key]['min']};"
+        )
+        constant_lines.append(
+            f"constexpr std::int64_t k{row_prefix}Max{suffix} = "
+            f"{bounds[key]['max']};"
+        )
+        helper_lines.extend(
+            [
+                f"constexpr bool {role_func_prefix}_{key}_in_bounds(",
+                f"    const {row_prefix}Spec& spec,",
+                f"    const std::int64_t {key}) {{",
+                f"  return {key} >= spec.min_{key} && {key} <= spec.max_{key};",
+                "}",
+                "",
+            ]
+        )
+
+    for key in fields["int"]:
+        suffix = _cpp_identifier_fragment(key)
+        field_struct_lines.append(f"  std::int64_t {key};")
+        initializer_lines.append(f"        k{row_prefix}{suffix},")
+        constant_lines.append(
+            f"constexpr std::int64_t k{row_prefix}{suffix} = {bounds[key]};"
+        )
+        helper_lines.extend(
+            [
+                f"constexpr bool {role_func_prefix}_{key}_matches(",
+                f"    const {row_prefix}Spec& spec,",
+                f"    const std::int64_t {key}) {{",
+                f"  return {key} == spec.{key};",
+                "}",
+                "",
+            ]
+        )
+
+    for key in fields["multiple_of"]:
+        suffix = _cpp_identifier_fragment(key)
+        value_name = key.removesuffix("_multiple_of")
+        field_struct_lines.append(f"  std::int64_t {key};")
+        initializer_lines.append(f"        k{row_prefix}{suffix},")
+        constant_lines.append(
+            f"constexpr std::int64_t k{row_prefix}{suffix} = {bounds[key]};"
+        )
+        helper_lines.extend(
+            [
+                f"constexpr bool {role_func_prefix}_{value_name}_multiple_matches(",
+                f"    const {row_prefix}Spec& spec,",
+                f"    const bool has_{value_name},",
+                f"    const std::int64_t {value_name}) {{",
+                f"  return !has_{value_name} || {value_name} % spec.{key} == 0;",
+                "}",
+                "",
+            ]
+        )
+
+    bool_check_lines = []
+    bool_signature_lines = []
+    for key in fields["bool"]:
+        suffix = _cpp_identifier_fragment(key)
+        field_struct_lines.append(f"  bool {key};")
+        initializer_lines.append(f"        k{row_prefix}{suffix},")
+        constant_lines.append(
+            f"constexpr bool k{row_prefix}{suffix} = {_cpp_bool(bounds[key])};"
+        )
+        bool_signature_lines.append(f"    const bool {key},")
+        bool_check_lines.append(f"{key} == spec.{key}")
+    if bool_signature_lines:
+        bool_signature_lines[-1] = bool_signature_lines[-1].rstrip(",") + ") {"
+        helper_lines.extend(
+            [
+                f"constexpr bool {role_func_prefix}_policies_match(",
+                f"    const {row_prefix}Spec& spec,",
+            ]
+        )
+        helper_lines.extend(bool_signature_lines)
+        helper_lines.extend(
+            [
+                f"  return {' && '.join(bool_check_lines)};",
+                "}",
+                "",
+            ]
+        )
+
+    for key in fields["string"]:
+        suffix = _cpp_identifier_fragment(key)
+        field_struct_lines.append(f"  const char* {key};")
+        initializer_lines.append(f"        k{row_prefix}{suffix},")
+        constant_lines.append(
+            f"constexpr const char* k{row_prefix}{suffix} = "
+            f"{_cpp_string(bounds[key])};"
+        )
+
+    initializer_lines[-1] = initializer_lines[-1].rstrip(",") + "};"
+
+    lines = [
+        "// Generated by tools/vulkan_contracts/gen_contract_spec_cpp.py",
+        f"// Source: {source_name}",
+        "// Do not edit by hand.",
+        "",
+        "#pragma once",
+        "",
+        "#include <cstdint>",
+        "",
+        "namespace at {",
+        "namespace native {",
+        "namespace vulkan {",
+        "namespace ops {",
+        "namespace utils {",
+        "namespace generated {",
+        "",
+        f"constexpr const char* k{row_prefix}ContractName = {_cpp_string(spec['contract_name'])};",
+        f"constexpr const char* k{row_prefix}FamilyName = {_cpp_string(spec['family'])};",
+        f"constexpr const char* k{row_prefix}TupleId = {_cpp_string(spec['tuple_id'])};",
+        f"constexpr const char* k{row_prefix}WriterOp = {_cpp_string(spec['writer_op'])};",
+        f"constexpr const char* k{row_prefix}RouteLabel = {_cpp_string(spec['route_label'])};",
+        "",
+    ]
+    lines.extend(constant_lines)
+    lines.extend(
+        [
+            "",
+            f"struct {row_prefix}Spec final {{",
+            "  const char* contract_name;",
+            "  const char* family_name;",
+            "  const char* tuple_id;",
+            "  const char* writer_op;",
+            "  const char* route_label;",
+            "  const char* evidence_id;",
+            "  const char* guard_id;",
+            "  const char* fallback_policy;",
+            "  const char* materialization_policy;",
+        ]
+    )
+    lines.extend(field_struct_lines)
+    lines.extend(
+        [
+            "};",
+            "",
+            f"constexpr {row_prefix}Spec",
+            f"    k{row_prefix}Spec = {{",
+            f"        k{row_prefix}ContractName,",
+            f"        k{row_prefix}FamilyName,",
+            f"        k{row_prefix}TupleId,",
+            f"        k{row_prefix}WriterOp,",
+            f"        k{row_prefix}RouteLabel,",
+            f"        {_cpp_string(metadata['evidence_id'])},",
+            f"        {_cpp_string(metadata['guard_id'])},",
+            f"        {_cpp_string(metadata['fallback_policy'])},",
+            f"        {_cpp_string(metadata['materialization_policy'])},",
+        ]
+    )
+    lines.extend(initializer_lines)
+    lines.extend([""])
+    lines.extend(helper_lines)
+    lines.extend(
+        [
+            "} // namespace generated",
+            "} // namespace utils",
+            "} // namespace ops",
+            "} // namespace vulkan",
+            "} // namespace native",
+            "} // namespace at",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def generate_generic_shape_envelope_header(spec, source_name):
     bounds = spec.get("shape_envelope", {}).get("bounds", {})
     if _variadic_tensor_list_input(spec) is not None:
@@ -973,6 +1254,10 @@ def generate_generic_shape_envelope_header(spec, source_name):
         )
     if _simple_bounds_shape_envelope_fields(bounds) is not None:
         return generate_generic_simple_bounds_shape_envelope_header(
+            spec, source_name
+        )
+    if _shape_layout_simple_bounds_shape_envelope_fields(bounds) is not None:
+        return generate_generic_shape_layout_simple_bounds_shape_envelope_header(
             spec, source_name
         )
 
