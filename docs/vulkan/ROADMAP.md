@@ -54,6 +54,7 @@ Current MVP status:
   `Kernel2Stride2FloatBuffer` and `SDPAScoreSoftmaxContract`
   `DiffusionSquareScores`, plus `GQARepeatContract`
   `Batch1Heads4Factor4Sequence100To116Dim128`, plus
+  `MaskedTinySDPAContract` `AdditiveFloatMask`, plus
   `SafeViewReshapeContract` `ViewMaterializedDirectBuffer` and
   `ReshapeAliasDenseBufferDirect`, plus `BatchNormInferenceContract`
   `BufferFloat4D` and `MaterializedBufferFloat4D`.
@@ -88,6 +89,7 @@ Current MVP status:
   `BufferFloat4D` and `MaterializedBufferFloat4D`, plus
   `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast`, plus
   `GQARepeatContract` `Batch1Heads4Factor4Sequence100To116Dim128`, plus
+  `MaskedTinySDPAContract` `AdditiveFloatMask`, plus
   `SDPAScoreSoftmaxContract` `DiffusionSquareScores`, plus
   `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer`, plus
   `KVCacheAppendContract` `SequenceAppend` and `InitialCache`, plus
@@ -174,6 +176,13 @@ Current MVP status:
   square-score, and fallback/materialization policy constants for the existing
   matcher. Softmax route ordering, guard fallback labeling, and broader SDPA
   policy remain handwritten.
+- `MaskedTinySDPAContract` `AdditiveFloatMask` now uses the generic
+  ShapeEnvelope C++ simple-bounds generator path:
+  `ExecutionContractsMaskedTinySDPASpec.h` provides contract identity,
+  metadata, exact query/key/value/mask dtype, rank, shape, scalar options, and
+  fallback/materialization policy constants for the existing matcher. Route
+  hard-fail ordering, scale tolerance, SDPA execution, and broader SDPA policy
+  remain handwritten.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

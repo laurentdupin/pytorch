@@ -101,6 +101,17 @@
       ]
     },
     {
+      "spec_file": "masked_tiny_sdpa_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsMaskedTinySDPASpec.h",
+      "markers": [
+        "MaskedTinySDPAAdditiveFloatMaskSpec",
+        "kMaskedTinySDPAAdditiveFloatMaskContractName",
+        "kMaskedTinySDPAAdditiveFloatMaskQuerySequence",
+        "masked_tiny_sdpa_additive_float_mask_options_match",
+        "masked_tiny_sdpa_additive_float_mask_in_bounds"
+      ]
+    },
+    {
       "spec_file": "no_overlap_conv_transpose2d_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h",
       "markers": [

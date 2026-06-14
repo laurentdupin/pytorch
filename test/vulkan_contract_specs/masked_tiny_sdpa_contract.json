@@ -1,0 +1,718 @@
+{
+  "schema_version": 1,
+  "contract_name": "MaskedTinySDPAContract",
+  "family": "AdditiveFloatMask",
+  "tuple_id": "qkv_1x16x2x64_mask_1x1x2x2",
+  "writer_op": "aten::scaled_dot_product_attention",
+  "route_label": "SelectedMaskedTinySDPAAdditiveFloatMask",
+  "metadata": {
+    "evidence_id": "masked_tiny_sdpa_focused_tests",
+    "guard_id": "masked_tiny_sdpa_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "none"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "masked_tiny_sdpa_additive_float_mask",
+    "inputs": {
+      "query": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "HQ",
+            "field": "query_heads",
+            "values": [
+              16
+            ]
+          },
+          {
+            "symbol": "TQ",
+            "field": "query_sequence",
+            "values": [
+              2
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64
+            ]
+          }
+        ]
+      },
+      "key": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "HK",
+            "field": "key_heads",
+            "values": [
+              16
+            ]
+          },
+          {
+            "symbol": "TK",
+            "field": "key_sequence",
+            "values": [
+              2
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64
+            ]
+          }
+        ]
+      },
+      "value": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "HV",
+            "field": "value_heads",
+            "values": [
+              16
+            ]
+          },
+          {
+            "symbol": "TV",
+            "field": "value_sequence",
+            "values": [
+              2
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64
+            ]
+          }
+        ]
+      },
+      "attn_mask": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "MN",
+            "field": "mask_batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "MH",
+            "field": "mask_heads",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "MTQ",
+            "field": "mask_query_sequence",
+            "values": [
+              2
+            ]
+          },
+          {
+            "symbol": "MTK",
+            "field": "mask_key_sequence",
+            "values": [
+              2
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "has_attn_mask": {
+        "values": [
+          true
+        ]
+      },
+      "dropout_zero": {
+        "values": [
+          true
+        ]
+      },
+      "is_causal": {
+        "values": [
+          false
+        ]
+      },
+      "enable_gqa": {
+        "values": [
+          false
+        ]
+      },
+      "scale_equivalent_head_dim64": {
+        "values": [
+          true
+        ]
+      }
+    },
+    "bounds": {
+      "query_dtype": "float32",
+      "key_dtype": "float32",
+      "value_dtype": "float32",
+      "attn_mask_dtype": "float32",
+      "query_rank": 4,
+      "key_rank": 4,
+      "value_rank": 4,
+      "attn_mask_rank": 4,
+      "batch": 1,
+      "query_heads": 16,
+      "key_heads": 16,
+      "value_heads": 16,
+      "query_sequence": 2,
+      "key_sequence": 2,
+      "value_sequence": 2,
+      "head_dim": 64,
+      "mask_batch": 1,
+      "mask_heads": 1,
+      "mask_query_sequence": 2,
+      "mask_key_sequence": 2,
+      "has_attn_mask": true,
+      "dropout_zero": true,
+      "is_causal": false,
+      "enable_gqa": false,
+      "scale_equivalent_head_dim64": true,
+      "requires_vulkan": true,
+      "requires_buffer_storage": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "qkv_batch",
+        "fields": [
+          "query.N",
+          "key.N",
+          "value.N"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "qkv_head_dim",
+        "fields": [
+          "query.D",
+          "key.D",
+          "value.D"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "query_storage": "buffer",
+      "key_storage": "buffer",
+      "value_storage": "buffer",
+      "attn_mask_storage": "buffer",
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {},
+    "metadata": {
+      "evidence_id": "masked_tiny_sdpa_focused_tests",
+      "guard_id": "masked_tiny_sdpa_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "none"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "none"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "query_sequence",
+        "adjacent": "wrong_value",
+        "value": 3
+      },
+      {
+        "violates": "mask_key_sequence",
+        "adjacent": "wrong_value",
+        "value": 3
+      },
+      {
+        "violates": "attn_mask_dtype",
+        "adjacent": "wrong_value",
+        "value": "bool"
+      },
+      {
+        "violates": "dropout_zero",
+        "adjacent": "wrong_value",
+        "value": false
+      },
+      {
+        "violates": "is_causal",
+        "adjacent": "wrong_value",
+        "value": true
+      },
+      {
+        "violates": "enable_gqa",
+        "adjacent": "wrong_value",
+        "value": true
+      },
+      {
+        "violates": "scale_equivalent_head_dim64",
+        "adjacent": "wrong_value",
+        "value": false
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "N",
+        "HQ",
+        "HK",
+        "HV",
+        "TQ",
+        "TK",
+        "TV",
+        "D",
+        "MN",
+        "MH",
+        "MTQ",
+        "MTK"
+      ],
+      "prefer_boundaries": true
+    }
+  },
+  "bounds": {
+    "query_dtype": "float32",
+    "key_dtype": "float32",
+    "value_dtype": "float32",
+    "attn_mask_dtype": "float32",
+    "query_rank": 4,
+    "key_rank": 4,
+    "value_rank": 4,
+    "attn_mask_rank": 4,
+    "batch": 1,
+    "query_heads": 16,
+    "key_heads": 16,
+    "value_heads": 16,
+    "query_sequence": 2,
+    "key_sequence": 2,
+    "value_sequence": 2,
+    "head_dim": 64,
+    "mask_batch": 1,
+    "mask_heads": 1,
+    "mask_query_sequence": 2,
+    "mask_key_sequence": 2,
+    "has_attn_mask": true,
+    "dropout_zero": true,
+    "is_causal": false,
+    "enable_gqa": false,
+    "scale_equivalent_head_dim64": true,
+    "requires_vulkan": true,
+    "requires_buffer_storage": true
+  },
+  "positive_cases": [
+    {
+      "name": "explicit_scale_head_dim64",
+      "query_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "key_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "attn_mask_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "dtype": "float32",
+      "attn_mask_dtype": "float32",
+      "has_attn_mask": true,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.125,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedMaskedTinySDPAAdditiveFloatMask",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "implicit_scale_head_dim64",
+      "query_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "key_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "attn_mask_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "dtype": "float32",
+      "attn_mask_dtype": "float32",
+      "has_attn_mask": true,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedMaskedTinySDPAAdditiveFloatMask",
+      "expected_cpu_fallback": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "query_sequence_3",
+      "query_shape": [
+        1,
+        16,
+        3,
+        64
+      ],
+      "key_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "attn_mask_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "dtype": "float32",
+      "attn_mask_dtype": "float32",
+      "has_attn_mask": true,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.125,
+      "enable_gqa": false,
+      "violates": "query_sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "mask_key_sequence_3",
+      "query_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "key_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "attn_mask_shape": [
+        1,
+        1,
+        2,
+        3
+      ],
+      "dtype": "float32",
+      "attn_mask_dtype": "float32",
+      "has_attn_mask": true,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.125,
+      "enable_gqa": false,
+      "violates": "mask_key_sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "bool_mask",
+      "query_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "key_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "attn_mask_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "dtype": "float32",
+      "attn_mask_dtype": "bool",
+      "has_attn_mask": true,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.125,
+      "enable_gqa": false,
+      "violates": "attn_mask_dtype",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "dropout_nonzero",
+      "query_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "key_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "attn_mask_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "dtype": "float32",
+      "attn_mask_dtype": "float32",
+      "has_attn_mask": true,
+      "dropout_p": 0.1,
+      "is_causal": false,
+      "scale": 0.125,
+      "enable_gqa": false,
+      "violates": "dropout_zero",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "causal_true",
+      "query_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "key_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "attn_mask_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "dtype": "float32",
+      "attn_mask_dtype": "float32",
+      "has_attn_mask": true,
+      "dropout_p": 0.0,
+      "is_causal": true,
+      "scale": 0.125,
+      "enable_gqa": false,
+      "violates": "is_causal",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "enable_gqa_true",
+      "query_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "key_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "attn_mask_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "dtype": "float32",
+      "attn_mask_dtype": "float32",
+      "has_attn_mask": true,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.125,
+      "enable_gqa": true,
+      "violates": "enable_gqa",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "scale_wrong",
+      "query_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "key_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        16,
+        2,
+        64
+      ],
+      "attn_mask_shape": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "dtype": "float32",
+      "attn_mask_dtype": "float32",
+      "has_attn_mask": true,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.25,
+      "enable_gqa": false,
+      "violates": "scale_equivalent_head_dim64",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    }
+  ]
+}

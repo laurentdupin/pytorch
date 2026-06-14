@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`680551a5d16c44af226879deb5df9ccafa7b543d`.
+`3a8b16904c320be0d0874e72962d05f2d39aaf78`.
 
 ## Repo State Summary
 
@@ -33,6 +33,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsLinearGeluBridge.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsLinearGeluBridgeSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsMaskedTinySDPA.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsMaskedTinySDPASpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSafeViewReshape.cpp`
@@ -184,8 +185,15 @@ These files are diagnostic inputs. Production code must not depend on
   GQA SDPA legality with model-neutral naming, now split into a
   family-specific source.
 - `MaskedTinySDPAContract`: tiny additive-mask SDPA tuple, now split into a
-  family-specific source; keep the exact tuple until broader mask-family
-  behavior is proven.
+  family-specific source. The `AdditiveFloatMask` slice has a JSON contract
+  spec backed by `ShapeEnvelope` v1 with checked-in positive/adjacent-negative
+  runtime cases plus generic ShapeEnvelope C++ simple-bound helper output in
+  `generated/ExecutionContractsMaskedTinySDPASpec.h`. The generated helper
+  provides contract identity, metadata, exact query/key/value/mask dtype, rank,
+  shape, and scalar option predicates while route-policy hard-fail ordering,
+  scale-tolerance comparison, SDPA execution, and match-result assembly remain
+  handwritten. Keep the exact tuple until broader mask-family behavior is
+  proven.
 - `DiffusionSDPAContract` and `DiffusionCrossAttentionContract`: finite
   explicit tuple contracts, now split into a family-specific source; keep exact
   rows until broader materialization behavior is proven.
@@ -298,7 +306,8 @@ These files are diagnostic inputs. Production code must not depend on
   validates a shared schema, checks `contract_name`/`family`/`tuple_id` against
   live contract sources, validates any `ShapeEnvelope` v1 blocks present, and
   keeps family-specific shape checks for BatchNormInference, EmbeddingLookup,
-  ChannelCat, KVCacheAppend, LinearGeluBridge, GQARepeat, SDPAScoreSoftmax,
+  ChannelCat, KVCacheAppend, LinearGeluBridge, GQARepeat, MaskedTinySDPA,
+  SDPAScoreSoftmax,
   NoOverlapConvTranspose2D, SmallMetadataPaddedConv2D, and SafeViewReshape.
   `test/vulkan_contract_specs/generated_cpp_manifest.json` declares which
   ShapeEnvelope specs have checked-in generated C++ helper headers; governance
@@ -330,8 +339,9 @@ These files are diagnostic inputs. Production code must not depend on
   `MaterializedBufferFloat4D`, ElementwiseBroadcast
   `FloatTensorTensorBufferBroadcast`, GQARepeat
   `Batch1Heads4Factor4Sequence100To116Dim128`, KVCacheAppend `SequenceAppend`
-  and `InitialCache`, NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer`,
-  SDPAScoreSoftmax `DiffusionSquareScores`, SmallMetadataPaddedConv2D
+  and `InitialCache`, MaskedTinySDPA `AdditiveFloatMask`,
+  NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer`, SDPAScoreSoftmax
+  `DiffusionSquareScores`, SmallMetadataPaddedConv2D
   `MaterializedBufferInput2x2`, and LinearGeluBridge
   `BackboneMlpHidden384To1536` use generic checked-in case plumbing under the
   ShapeEnvelope registry.
@@ -404,6 +414,14 @@ These files are diagnostic inputs. Production code must not depend on
   `can_run_buffer_softmax` policy, guard op-hit logging for
   `aten::_softmax.buffer_lastdim_known_bad_texture_fallback`, and
   match-result assembly remain handwritten so route behavior is unchanged.
+- MaskedTinySDPA `AdditiveFloatMask` consumes the generic ShapeEnvelope
+  simple-bounds generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsMaskedTinySDPASpec.h` from
+  `masked_tiny_sdpa_contract.json` for contract identity, metadata, exact
+  query/key/value/mask dtype, rank, shape, and scalar option predicates. Route
+  hard-fail ordering, scale tolerance, SDPA execution, and match-result
+  assembly remain handwritten so route behavior is unchanged.
 - NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` consumes the generic
   ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

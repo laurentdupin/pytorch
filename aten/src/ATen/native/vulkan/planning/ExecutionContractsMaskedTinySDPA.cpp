@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsMaskedTinySDPASpec.h>
 
 #include <cmath>
 
@@ -28,22 +29,21 @@ constexpr ExecutionContractMetadata make_execution_contract_metadata(
       materialization_policy};
 }
 
-constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
-    "unsupported_shapes_do_not_match";
-constexpr const char* kMaterializationNone = "none";
 constexpr double kHeadDim64Scale = 0.125;
 
-constexpr const char* kMaskedTinySDPAAdditiveFloatMaskTupleId =
-    "qkv_1x16x2x64_mask_1x1x2x2";
 constexpr ExecutionContractMetadata kMaskedTinySDPAAdditiveFloatMaskMetadata =
     make_execution_contract_metadata(
-        "MaskedTinySDPAContract",
-        "AdditiveFloatMask",
-        kMaskedTinySDPAAdditiveFloatMaskTupleId,
-        "masked_tiny_sdpa_focused_tests",
-        "masked_tiny_sdpa_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationNone);
+        generated::kMaskedTinySDPAAdditiveFloatMaskSpec.contract_name,
+        generated::kMaskedTinySDPAAdditiveFloatMaskSpec.family_name,
+        generated::kMaskedTinySDPAAdditiveFloatMaskSpec.tuple_id,
+        generated::kMaskedTinySDPAAdditiveFloatMaskSpec.evidence_id,
+        generated::kMaskedTinySDPAAdditiveFloatMaskSpec.guard_id,
+        generated::kMaskedTinySDPAAdditiveFloatMaskSpec.fallback_policy,
+        generated::kMaskedTinySDPAAdditiveFloatMaskSpec.materialization_policy);
+
+int64_t dim_or_sentinel(const IntArrayRef sizes, const size_t dim) {
+  return sizes.size() > dim ? sizes[dim] : -1;
+}
 
 } // namespace
 
@@ -73,29 +73,58 @@ MaskedTinySDPAMatch match_masked_tiny_sdpa_contract(
     const std::optional<double> scale,
     const bool enable_gqa) {
   MaskedTinySDPAMatch result;
+  const auto& spec = generated::kMaskedTinySDPAAdditiveFloatMaskSpec;
+  const bool scale_equivalent_head_dim64 =
+      !scale.has_value() ||
+      !(std::abs(*scale - kHeadDim64Scale) > 1.0e-6);
+  const int64_t qkv_batch =
+      dim_or_sentinel(query_sizes, 0) == spec.batch &&
+          dim_or_sentinel(key_sizes, 0) == spec.batch &&
+          dim_or_sentinel(value_sizes, 0) == spec.batch
+      ? spec.batch
+      : -1;
+  const int64_t qkv_head_dim =
+      dim_or_sentinel(query_sizes, 3) == spec.head_dim &&
+          dim_or_sentinel(key_sizes, 3) == spec.head_dim &&
+          dim_or_sentinel(value_sizes, 3) == spec.head_dim
+      ? spec.head_dim
+      : -1;
   if (
-      !has_attn_mask || dropout_p != 0.0 || is_causal || enable_gqa ||
-      query_dtype != kFloat || key_dtype != kFloat || value_dtype != kFloat ||
-      attn_mask_dtype != kFloat || query_sizes.size() != 4 ||
-      key_sizes.size() != 4 || value_sizes.size() != 4 ||
-      attn_mask_sizes.size() != 4) {
+      !generated::masked_tiny_sdpa_additive_float_mask_options_match(
+          spec,
+          query_dtype,
+          key_dtype,
+          value_dtype,
+          attn_mask_dtype,
+          static_cast<int64_t>(query_sizes.size()),
+          static_cast<int64_t>(key_sizes.size()),
+          static_cast<int64_t>(value_sizes.size()),
+          static_cast<int64_t>(attn_mask_sizes.size()),
+          qkv_batch,
+          dim_or_sentinel(query_sizes, 1),
+          dim_or_sentinel(key_sizes, 1),
+          dim_or_sentinel(value_sizes, 1),
+          dim_or_sentinel(query_sizes, 2),
+          dim_or_sentinel(key_sizes, 2),
+          dim_or_sentinel(value_sizes, 2),
+          qkv_head_dim,
+          dim_or_sentinel(attn_mask_sizes, 0),
+          dim_or_sentinel(attn_mask_sizes, 1),
+          dim_or_sentinel(attn_mask_sizes, 2),
+          dim_or_sentinel(attn_mask_sizes, 3),
+          has_attn_mask,
+          dropout_p == 0.0,
+          is_causal,
+          enable_gqa,
+          scale_equivalent_head_dim64,
+          true,
+          true)) {
     return result;
   }
-  if (scale.has_value() && std::abs(*scale - kHeadDim64Scale) > 1.0e-6) {
-    return result;
-  }
-  if (
-      query_sizes[0] == 1 && key_sizes[0] == 1 && value_sizes[0] == 1 &&
-      query_sizes[1] == 16 && key_sizes[1] == 16 && value_sizes[1] == 16 &&
-      query_sizes[2] == 2 && key_sizes[2] == 2 && value_sizes[2] == 2 &&
-      query_sizes[3] == 64 && key_sizes[3] == 64 && value_sizes[3] == 64 &&
-      attn_mask_sizes[0] == 1 && attn_mask_sizes[1] == 1 &&
-      attn_mask_sizes[2] == 2 && attn_mask_sizes[3] == 2) {
-    result.matched = true;
-    result.family = MaskedTinySDPAFamily::AdditiveFloatMask;
-    result.tuple_id = kMaskedTinySDPAAdditiveFloatMaskTupleId;
-    result.metadata = &kMaskedTinySDPAAdditiveFloatMaskMetadata;
-  }
+  result.matched = true;
+  result.family = MaskedTinySDPAFamily::AdditiveFloatMask;
+  result.tuple_id = spec.tuple_id;
+  result.metadata = &kMaskedTinySDPAAdditiveFloatMaskMetadata;
   return result;
 }
 

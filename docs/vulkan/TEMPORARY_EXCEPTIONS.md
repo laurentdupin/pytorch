@@ -321,6 +321,13 @@ condition and migration target.
 - Status: temporary, contract-named
 - Reason: a tiny additive-mask shape is proven, but mask-family behavior is not
   broad enough to merge into diffusion SDPA.
+- Generated spec coverage: `test/vulkan_contract_specs/masked_tiny_sdpa_contract.json`
+  covers the `AdditiveFloatMask` slice with ShapeEnvelope-backed checked-in
+  positive and adjacent negative runtime cases plus generic ShapeEnvelope C++
+  simple-bound helper output in
+  `generated/ExecutionContractsMaskedTinySDPASpec.h`. Route hard-fail
+  ordering, scale tolerance, SDPA execution, and match-result assembly remain
+  handwritten.
 - Expiry: mask-family parity and negative tests are available.
 - Migration target: `MaskedTinySDPAContract` or a reviewed mask field in an
   SDPA contract.

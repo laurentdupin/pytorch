@@ -2190,6 +2190,239 @@ def _validate_sdpa_score_softmax_shape_envelope(file_name, spec, envelope):
                 raise AssertionError(f"{case_context} dtype mismatch")
 
 
+def _validate_masked_tiny_sdpa_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} MaskedTinySDPA ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "MaskedTinySDPAContract",
+        f"{context} contract",
+    )
+    _require_equal(spec["family"], "AdditiveFloatMask", f"{context} family")
+    _require_equal(
+        spec["tuple_id"],
+        "qkv_1x16x2x64_mask_1x1x2x2",
+        f"{context} tuple",
+    )
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    bounds = envelope["bounds"]
+    expected_bounds = {
+        "query_dtype": "float32",
+        "key_dtype": "float32",
+        "value_dtype": "float32",
+        "attn_mask_dtype": "float32",
+        "query_rank": 4,
+        "key_rank": 4,
+        "value_rank": 4,
+        "attn_mask_rank": 4,
+        "batch": 1,
+        "query_heads": 16,
+        "key_heads": 16,
+        "value_heads": 16,
+        "query_sequence": 2,
+        "key_sequence": 2,
+        "value_sequence": 2,
+        "head_dim": 64,
+        "mask_batch": 1,
+        "mask_heads": 1,
+        "mask_query_sequence": 2,
+        "mask_key_sequence": 2,
+        "has_attn_mask": True,
+        "dropout_zero": True,
+        "is_causal": False,
+        "enable_gqa": False,
+        "scale_equivalent_head_dim64": True,
+        "requires_vulkan": True,
+        "requires_buffer_storage": True,
+    }
+    for key, expected in expected_bounds.items():
+        _require_equal(bounds[key], expected, f"{context} {key}")
+
+    inputs = envelope["inputs"]
+    require_fields(inputs, ("query", "key", "value", "attn_mask"), f"{context} inputs")
+    tensor_expectations = {
+        "query": (
+            "query_dtype",
+            "query_rank",
+            ("N", "HQ", "TQ", "D"),
+            (
+                bounds["batch"],
+                bounds["query_heads"],
+                bounds["query_sequence"],
+                bounds["head_dim"],
+            ),
+        ),
+        "key": (
+            "key_dtype",
+            "key_rank",
+            ("N", "HK", "TK", "D"),
+            (
+                bounds["batch"],
+                bounds["key_heads"],
+                bounds["key_sequence"],
+                bounds["head_dim"],
+            ),
+        ),
+        "value": (
+            "value_dtype",
+            "value_rank",
+            ("N", "HV", "TV", "D"),
+            (
+                bounds["batch"],
+                bounds["value_heads"],
+                bounds["value_sequence"],
+                bounds["head_dim"],
+            ),
+        ),
+        "attn_mask": (
+            "attn_mask_dtype",
+            "attn_mask_rank",
+            ("MN", "MH", "MTQ", "MTK"),
+            (
+                bounds["mask_batch"],
+                bounds["mask_heads"],
+                bounds["mask_query_sequence"],
+                bounds["mask_key_sequence"],
+            ),
+        ),
+    }
+    for input_name, expectation in tensor_expectations.items():
+        dtype_key, rank_key, symbols, expected_dims = expectation
+        input_spec = inputs[input_name]
+        _require_equal(
+            _single_value(input_spec["dtype"], f"{context} {input_name} dtype"),
+            bounds[dtype_key],
+            f"{context} {input_name} dtype",
+        )
+        _require_equal(
+            _single_value(input_spec["rank"], f"{context} {input_name} rank"),
+            bounds[rank_key],
+            f"{context} {input_name} rank",
+        )
+        dims = _dims_by_symbol(input_spec, f"{context} {input_name}")
+        for symbol, expected_dim in zip(symbols, expected_dims):
+            _require_equal(
+                dims[symbol].get("values"),
+                [expected_dim],
+                f"{context} {input_name}.{symbol}",
+            )
+
+    attributes = envelope["attributes"]
+    for key in (
+        "has_attn_mask",
+        "dropout_zero",
+        "is_causal",
+        "enable_gqa",
+        "scale_equivalent_head_dim64",
+    ):
+        _require_equal(
+            _single_value(attributes[key], f"{context} {key}"),
+            bounds[key],
+            f"{context} {key}",
+        )
+
+    layout = envelope["layout"]
+    _require_equal(
+        layout["requires_vulkan"],
+        bounds["requires_vulkan"],
+        f"{context} requires_vulkan",
+    )
+    for key in (
+        "query_storage",
+        "key_storage",
+        "value_storage",
+        "attn_mask_storage",
+        "output_storage",
+    ):
+        _require_equal(layout[key], "buffer", f"{context} {key}")
+
+    def require_shape(case, shape_name, expected, allowed_violation=()):
+        shape = case[shape_name]
+        if len(shape) != 4:
+            raise AssertionError(f"{context} {case['name']} {shape_name} rank mismatch")
+        for index, expected_dim in enumerate(expected):
+            if shape[index] != expected_dim and case.get("violates") not in allowed_violation:
+                raise AssertionError(
+                    f"{context} {case['name']} {shape_name}[{index}] mismatch"
+                )
+
+    for section in ("positive_cases", "negative_cases"):
+        for case in spec[section]:
+            require_shape(
+                case,
+                "query_shape",
+                (
+                    bounds["batch"],
+                    bounds["query_heads"],
+                    bounds["query_sequence"],
+                    bounds["head_dim"],
+                ),
+                ("query_sequence",),
+            )
+            require_shape(
+                case,
+                "key_shape",
+                (
+                    bounds["batch"],
+                    bounds["key_heads"],
+                    bounds["key_sequence"],
+                    bounds["head_dim"],
+                ),
+            )
+            require_shape(
+                case,
+                "value_shape",
+                (
+                    bounds["batch"],
+                    bounds["value_heads"],
+                    bounds["value_sequence"],
+                    bounds["head_dim"],
+                ),
+            )
+            require_shape(
+                case,
+                "attn_mask_shape",
+                (
+                    bounds["mask_batch"],
+                    bounds["mask_heads"],
+                    bounds["mask_query_sequence"],
+                    bounds["mask_key_sequence"],
+                ),
+                ("mask_key_sequence",),
+            )
+            if case["dtype"] != bounds["query_dtype"]:
+                raise AssertionError(f"{context} {case['name']} dtype mismatch")
+            if (
+                case["attn_mask_dtype"] != bounds["attn_mask_dtype"]
+                and case.get("violates") != "attn_mask_dtype"
+            ):
+                raise AssertionError(f"{context} {case['name']} mask dtype mismatch")
+            if case["has_attn_mask"] != bounds["has_attn_mask"]:
+                raise AssertionError(f"{context} {case['name']} mask flag mismatch")
+            if (
+                (case["dropout_p"] == 0.0) != bounds["dropout_zero"]
+                and case.get("violates") != "dropout_zero"
+            ):
+                raise AssertionError(f"{context} {case['name']} dropout mismatch")
+            if (
+                case["is_causal"] != bounds["is_causal"]
+                and case.get("violates") != "is_causal"
+            ):
+                raise AssertionError(f"{context} {case['name']} causal mismatch")
+            if (
+                case["enable_gqa"] != bounds["enable_gqa"]
+                and case.get("violates") != "enable_gqa"
+            ):
+                raise AssertionError(f"{context} {case['name']} enable_gqa mismatch")
+            scale = case["scale"]
+            if (
+                scale is not None
+                and abs(scale - 0.125) > 1.0e-6
+                and case.get("violates") != "scale_equivalent_head_dim64"
+            ):
+                raise AssertionError(f"{context} {case['name']} scale mismatch")
+
+
 def _small_spatial_pointwise_conv_rowset(envelope, context):
     rowsets = envelope.get("sparse_rowsets", [])
     if len(rowsets) != 1:
@@ -3582,6 +3815,72 @@ _SDPA_SCORE_SOFTMAX_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.square_scores",
 )
 
+_MASKED_TINY_SDPA_LEGAL_KEY_FIELDS = (
+    "query_shape",
+    "key_shape",
+    "value_shape",
+    "attn_mask_shape",
+    "dtype",
+    "attn_mask_dtype",
+    "has_attn_mask",
+    "dropout_p",
+    "is_causal",
+    "scale",
+    "enable_gqa",
+    "expected_route_label",
+    "expected_cpu_fallback",
+)
+
+_MASKED_TINY_SDPA_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "query_shape",
+    "key_shape",
+    "value_shape",
+    "attn_mask_shape",
+    "dtype",
+    "attn_mask_dtype",
+    "has_attn_mask",
+    "dropout_p",
+    "is_causal",
+    "scale",
+    "enable_gqa",
+    "expected_native_route",
+    "expected_runtime_error",
+    "expected_cpu_fallback",
+)
+
+_MASKED_TINY_SDPA_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.query.dtype",
+    "inputs.query.rank",
+    "inputs.query.dims.N",
+    "inputs.query.dims.HQ",
+    "inputs.query.dims.TQ",
+    "inputs.query.dims.D",
+    "inputs.key.dtype",
+    "inputs.key.rank",
+    "inputs.key.dims.N",
+    "inputs.key.dims.HK",
+    "inputs.key.dims.TK",
+    "inputs.key.dims.D",
+    "inputs.value.dtype",
+    "inputs.value.rank",
+    "inputs.value.dims.N",
+    "inputs.value.dims.HV",
+    "inputs.value.dims.TV",
+    "inputs.value.dims.D",
+    "inputs.attn_mask.dtype",
+    "inputs.attn_mask.rank",
+    "inputs.attn_mask.dims.MN",
+    "inputs.attn_mask.dims.MH",
+    "inputs.attn_mask.dims.MTQ",
+    "inputs.attn_mask.dims.MTK",
+    "attributes.has_attn_mask",
+    "attributes.dropout_zero",
+    "attributes.is_causal",
+    "attributes.enable_gqa",
+    "attributes.scale_equivalent_head_dim64",
+)
+
 _SMALL_SPATIAL_POINTWISE_CONV_LEGAL_KEY_FIELDS = (
     "input_shape",
     "out_channels",
@@ -3828,6 +4127,21 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         ),
         "adjacent_negative_key_fields": (
             _SDPA_SCORE_SOFTMAX_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
+    },
+    "masked_tiny_sdpa_additive_float_mask": {
+        "validate": _validate_masked_tiny_sdpa_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _MASKED_TINY_SDPA_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _MASKED_TINY_SDPA_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _MASKED_TINY_SDPA_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
     },
     "kv_cache_append_sequence_append": {

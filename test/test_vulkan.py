@@ -412,6 +412,9 @@ class TestVulkanGovernance(TestCase):
             "linear_gelu_bridge_contract.json": (
                 "linear_gelu_bridge_backbone_mlp_hidden384_to1536"
             ),
+            "masked_tiny_sdpa_contract.json": (
+                "masked_tiny_sdpa_additive_float_mask"
+            ),
             "no_overlap_conv_transpose2d_contract.json": (
                 "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer"
             ),
@@ -455,7 +458,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 15 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 16 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:"
             "batch_norm_inference_buffer_float_4d",
@@ -495,6 +498,11 @@ class TestVulkanGovernance(TestCase):
         self.assertIn(
             "linear_gelu_bridge_contract.json:"
             "linear_gelu_bridge_backbone_mlp_hidden384_to1536",
+            result.stdout,
+        )
+        self.assertIn(
+            "masked_tiny_sdpa_contract.json:"
+            "masked_tiny_sdpa_additive_float_mask",
             result.stdout,
         )
         self.assertIn(
@@ -547,10 +555,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 15 ShapeEnvelope adjacent-negative generators",
+            "validated 16 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=73", result.stdout)
+        self.assertIn("generated_cases=80", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:3",
@@ -563,6 +571,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("kv_cache_append_contract.json:5", result.stdout)
         self.assertIn("kv_cache_append_initial_contract.json:5", result.stdout)
         self.assertIn("linear_gelu_bridge_contract.json:11", result.stdout)
+        self.assertIn("masked_tiny_sdpa_contract.json:7", result.stdout)
         self.assertIn(
             "no_overlap_conv_transpose2d_contract.json:5",
             result.stdout,
@@ -593,10 +602,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 15 ShapeEnvelope legal-case generators",
+            "validated 16 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=79", result.stdout)
+        self.assertIn("generated_cases=81", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:1",
@@ -609,6 +618,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("kv_cache_append_contract.json:3", result.stdout)
         self.assertIn("kv_cache_append_initial_contract.json:3", result.stdout)
         self.assertIn("linear_gelu_bridge_contract.json:2", result.stdout)
+        self.assertIn("masked_tiny_sdpa_contract.json:2", result.stdout)
         self.assertIn(
             "no_overlap_conv_transpose2d_contract.json:3",
             result.stdout,
@@ -639,11 +649,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 15 ShapeEnvelope fuzz assignment generators",
+            "validated 16 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=30", result.stdout)
-        self.assertIn("adjacent_negative_assignments=72", result.stdout)
+        self.assertIn("legal_assignments=32", result.stdout)
+        self.assertIn("adjacent_negative_assignments=79", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:adjacent=3",
             result.stdout,
@@ -678,6 +688,10 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "linear_gelu_bridge_contract.json:legal=2:adjacent=11",
+            result.stdout,
+        )
+        self.assertIn(
+            "masked_tiny_sdpa_contract.json:legal=2:adjacent=7",
             result.stdout,
         )
         self.assertIn(
@@ -725,14 +739,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 15 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 16 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=30", result.stdout)
-        self.assertIn("legal_paths=236", result.stdout)
-        self.assertIn("adjacent_negative_axes=72", result.stdout)
-        self.assertIn("runtime_legal_cases=79", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=73", result.stdout)
+        self.assertIn("legal_assignments=32", result.stdout)
+        self.assertIn("legal_paths=265", result.stdout)
+        self.assertIn("adjacent_negative_axes=79", result.stdout)
+        self.assertIn("runtime_legal_cases=81", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=80", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:status=covered:"
             "paths=21/21:adjacent_axes=3",
@@ -779,6 +793,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
+            "masked_tiny_sdpa_contract.json:legal=2:status=covered:"
+            "paths=29/29:adjacent_axes=7",
+            result.stdout,
+        )
+        self.assertIn(
             "no_overlap_conv_transpose2d_contract.json:legal=2:"
             "status=covered:paths=27/27:adjacent_axes=5",
             result.stdout,
@@ -820,6 +839,7 @@ class TestVulkanGovernance(TestCase):
             "kv_cache_append_contract.json": (3, 5),
             "kv_cache_append_initial_contract.json": (3, 5),
             "linear_gelu_bridge_contract.json": (2, 11),
+            "masked_tiny_sdpa_contract.json": (2, 7),
             "no_overlap_conv_transpose2d_contract.json": (3, 5),
             "safe_view_reshape_alias_contract.json": (2, 4),
             "safe_view_reshape_contract.json": (2, 3),
@@ -877,6 +897,7 @@ class TestVulkanGovernance(TestCase):
                 "kv_cache_append_initial_cache",
                 "kv_cache_append_sequence_append",
                 "linear_gelu_bridge_backbone_mlp_hidden384_to1536",
+                "masked_tiny_sdpa_additive_float_mask",
                 "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer",
                 "small_metadata_padded_conv2d_materialized_buffer_input_2x2",
                 "small_spatial_pointwise_conv_sparse_projection_rows",
@@ -1158,7 +1179,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 15)
+        self.assertEqual(len(rows), 16)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
 
     def test_vulkan_generated_cpp_manifest_cli(self):
@@ -1181,7 +1202,7 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 15 generated ShapeEnvelope C++ helper headers",
+            "validated 16 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
@@ -1202,17 +1223,18 @@ class TestVulkanGovernance(TestCase):
             "ExecutionContractsLinearGeluBridgeSpec.h",
             result.stdout,
         )
+        self.assertIn("ExecutionContractsMaskedTinySDPASpec.h", result.stdout)
         self.assertIn("ExecutionContractsSDPAScoreSoftmaxSpec.h", result.stdout)
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
-        self.assertEqual(summary["specs"], 15)
-        self.assertEqual(summary["generated_shape_envelope"], 15)
+        self.assertEqual(summary["specs"], 16)
+        self.assertEqual(summary["generated_shape_envelope"], 16)
         self.assertEqual(summary["json_spec_without_shape_envelope"], 0)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
         self.assertEqual(summary["schema_only_spec"], 0)
-        self.assertEqual(summary["live_contract_without_json_spec"], 4)
-        self.assertEqual(summary["exact_row_debt"], 4)
+        self.assertEqual(summary["live_contract_without_json_spec"], 3)
+        self.assertEqual(summary["exact_row_debt"], 3)
 
         census = contract_spec_utils.contract_coverage_census(REPO_ROOT)
         spec_rows = {
@@ -1247,6 +1269,13 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(
             spec_rows["sdpa_score_softmax_contract.json"]["category"],
             "generated_shape_envelope",
+        )
+        self.assertEqual(
+            spec_rows["masked_tiny_sdpa_contract.json"]["category"],
+            "generated_shape_envelope",
+        )
+        self.assertFalse(
+            spec_rows["masked_tiny_sdpa_contract.json"]["exact_row_debt"]
         )
         self.assertFalse(
             spec_rows["sdpa_score_softmax_contract.json"]["exact_row_debt"]
@@ -1285,11 +1314,11 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated contract coverage census specs=15", result.stdout)
-        self.assertIn("generated_shape_envelope=15", result.stdout)
+        self.assertIn("validated contract coverage census specs=16", result.stdout)
+        self.assertIn("generated_shape_envelope=16", result.stdout)
         self.assertIn("json_spec_without_shape_envelope=0", result.stdout)
-        self.assertIn("live_contract_without_json_spec=4", result.stdout)
-        self.assertIn("exact_row_debt=4", result.stdout)
+        self.assertIn("live_contract_without_json_spec=3", result.stdout)
+        self.assertIn("exact_row_debt=3", result.stdout)
         self.assertIn("contract=GQARepeatContract", result.stdout)
         self.assertIn(
             'temporary_exception="GQA Repeat Exact Tuples"',
@@ -1298,6 +1327,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("small_metadata_padded_conv2d_contract.json", result.stdout)
         self.assertIn("small_spatial_pointwise_conv_contract.json", result.stdout)
         self.assertIn("linear_gelu_bridge_contract.json", result.stdout)
+        self.assertIn("masked_tiny_sdpa_contract.json", result.stdout)
 
     def test_vulkan_linear_gelu_bridge_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("linear_gelu_bridge_contract.json")
@@ -1871,6 +1901,174 @@ class TestVulkanGovernance(TestCase):
                 case["expected_guard_route_label"],
                 "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
             )
+            self.assertFalse(case["expected_cpu_fallback"])
+
+    def test_masked_tiny_sdpa_contract_metadata(self):
+        source = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "ExecutionContractsMaskedTinySDPA.cpp",
+        )
+        source += self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "generated",
+            "ExecutionContractsMaskedTinySDPASpec.h",
+        )
+        for expected in (
+            '"MaskedTinySDPAContract"',
+            '"AdditiveFloatMask"',
+            '"qkv_1x16x2x64_mask_1x1x2x2"',
+            '"masked_tiny_sdpa_focused_tests"',
+            '"masked_tiny_sdpa_adjacent_guards"',
+            '"unsupported_shapes_do_not_match"',
+            '"none"',
+            "masked_tiny_sdpa_additive_float_mask_options_match",
+            "result.family = MaskedTinySDPAFamily::AdditiveFloatMask",
+            "result.metadata = &kMaskedTinySDPAAdditiveFloatMaskMetadata",
+        ):
+            self.assertIn(expected, source)
+
+    def test_vulkan_masked_tiny_sdpa_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec("masked_tiny_sdpa_contract.json")
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["contract_name"], "MaskedTinySDPAContract")
+        self.assertEqual(spec["family"], "AdditiveFloatMask")
+        self.assertEqual(spec["tuple_id"], "qkv_1x16x2x64_mask_1x1x2x2")
+        self.assertEqual(spec["writer_op"], "aten::scaled_dot_product_attention")
+        self.assertEqual(
+            spec["route_label"],
+            "SelectedMaskedTinySDPAAdditiveFloatMask",
+        )
+
+        metadata = spec["metadata"]
+        _require_contract_spec_fields(
+            metadata,
+            (
+                "evidence_id",
+                "guard_id",
+                "fallback_policy",
+                "materialization_policy",
+            ),
+            "MaskedTinySDPAContract metadata",
+        )
+        self.assertEqual(metadata["evidence_id"], "masked_tiny_sdpa_focused_tests")
+        self.assertEqual(metadata["guard_id"], "masked_tiny_sdpa_adjacent_guards")
+        self.assertEqual(metadata["fallback_policy"], "unsupported_shapes_do_not_match")
+        self.assertEqual(metadata["materialization_policy"], "none")
+
+        bounds = spec["bounds"]
+        _require_contract_spec_fields(
+            bounds,
+            (
+                "query_dtype",
+                "key_dtype",
+                "value_dtype",
+                "attn_mask_dtype",
+                "query_rank",
+                "key_rank",
+                "value_rank",
+                "attn_mask_rank",
+                "batch",
+                "query_heads",
+                "key_heads",
+                "value_heads",
+                "query_sequence",
+                "key_sequence",
+                "value_sequence",
+                "head_dim",
+                "mask_batch",
+                "mask_heads",
+                "mask_query_sequence",
+                "mask_key_sequence",
+                "has_attn_mask",
+                "dropout_zero",
+                "is_causal",
+                "enable_gqa",
+                "scale_equivalent_head_dim64",
+                "requires_vulkan",
+                "requires_buffer_storage",
+            ),
+            "MaskedTinySDPAContract bounds",
+        )
+        self.assertEqual(bounds["query_dtype"], "float32")
+        self.assertEqual(bounds["key_dtype"], "float32")
+        self.assertEqual(bounds["value_dtype"], "float32")
+        self.assertEqual(bounds["attn_mask_dtype"], "float32")
+        self.assertEqual(bounds["query_rank"], 4)
+        self.assertEqual(bounds["attn_mask_rank"], 4)
+        self.assertEqual(bounds["batch"], 1)
+        self.assertEqual(bounds["query_heads"], 16)
+        self.assertEqual(bounds["key_heads"], 16)
+        self.assertEqual(bounds["value_heads"], 16)
+        self.assertEqual(bounds["query_sequence"], 2)
+        self.assertEqual(bounds["key_sequence"], 2)
+        self.assertEqual(bounds["value_sequence"], 2)
+        self.assertEqual(bounds["head_dim"], 64)
+        self.assertEqual(bounds["mask_batch"], 1)
+        self.assertEqual(bounds["mask_heads"], 1)
+        self.assertEqual(bounds["mask_query_sequence"], 2)
+        self.assertEqual(bounds["mask_key_sequence"], 2)
+        self.assertTrue(bounds["has_attn_mask"])
+        self.assertTrue(bounds["dropout_zero"])
+        self.assertFalse(bounds["is_causal"])
+        self.assertFalse(bounds["enable_gqa"])
+        self.assertTrue(bounds["scale_equivalent_head_dim64"])
+        self.assertTrue(bounds["requires_vulkan"])
+        self.assertTrue(bounds["requires_buffer_storage"])
+
+        case_fields = (
+            "name",
+            "query_shape",
+            "key_shape",
+            "value_shape",
+            "attn_mask_shape",
+            "dtype",
+            "attn_mask_dtype",
+            "has_attn_mask",
+            "dropout_p",
+            "is_causal",
+            "scale",
+            "enable_gqa",
+        )
+        for section in ("positive_cases", "negative_cases"):
+            self.assertGreater(len(spec[section]), 0)
+            for case in spec[section]:
+                _require_contract_spec_fields(
+                    case,
+                    case_fields,
+                    f"MaskedTinySDPAContract {section} case",
+                )
+
+        for case in spec["positive_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("expected_route_label", "expected_cpu_fallback"),
+                "MaskedTinySDPAContract positive case",
+            )
+            self.assertEqual(case["expected_route_label"], spec["route_label"])
+            self.assertFalse(case["expected_cpu_fallback"])
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                (
+                    "violates",
+                    "expected_native_route",
+                    "expected_runtime_error",
+                    "expected_cpu_fallback",
+                ),
+                "MaskedTinySDPAContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
+            self.assertEqual(case["expected_runtime_error"], "KnownBadSdpaMaskOrCausal")
             self.assertFalse(case["expected_cpu_fallback"])
 
     def test_vulkan_gqa_repeat_contract_spec_shape(self):
@@ -13193,6 +13391,88 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         enable_gqa=True,
                     ).cpu()
                     self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+
+    def test_masked_tiny_sdpa_contract_generated_spec(self):
+        spec = _load_vulkan_contract_spec("masked_tiny_sdpa_contract.json")
+
+        def dtype_for_name(dtype_name):
+            return {
+                "bool": torch.bool,
+                "float32": torch.float32,
+            }[dtype_name]
+
+        def make_tensors(case):
+            dtype = dtype_for_name(case["dtype"])
+            query = torch.randn(*case["query_shape"], dtype=dtype)
+            key = torch.randn(*case["key_shape"], dtype=dtype)
+            value = torch.randn(*case["value_shape"], dtype=dtype)
+            mask_dtype = dtype_for_name(case["attn_mask_dtype"])
+            mask = torch.zeros(*case["attn_mask_shape"], dtype=mask_dtype)
+            if mask_dtype is torch.float32 and case["attn_mask_shape"] == [1, 1, 2, 2]:
+                mask[0, 0, 0, 1] = torch.finfo(torch.float32).min
+            return query, key, value, mask
+
+        for _, case, expect_native_route in (
+            contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+        ):
+            with self.subTest(case=case["name"]):
+                torch.manual_seed(7100 + len(case["name"]))
+                query, key, value, mask = make_tensors(case)
+                query_vulkan = query.to("vulkan")
+                key_vulkan = key.to("vulkan")
+                value_vulkan = value.to("vulkan")
+                mask_vulkan = mask.to("vulkan") if case["has_attn_mask"] else None
+
+                with torch.inference_mode():
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    if "expected_runtime_error" in case:
+                        with self.assertRaisesRegex(
+                            RuntimeError,
+                            case["expected_runtime_error"],
+                        ):
+                            F.scaled_dot_product_attention(
+                                query_vulkan,
+                                key_vulkan,
+                                value_vulkan,
+                                attn_mask=mask_vulkan,
+                                dropout_p=case["dropout_p"],
+                                is_causal=case["is_causal"],
+                                scale=case["scale"],
+                                enable_gqa=case["enable_gqa"],
+                            )
+                    else:
+                        expected = F.scaled_dot_product_attention(
+                            query,
+                            key,
+                            value,
+                            attn_mask=mask,
+                            dropout_p=case["dropout_p"],
+                            is_causal=case["is_causal"],
+                            scale=case["scale"],
+                            enable_gqa=case["enable_gqa"],
+                        )
+                        actual = F.scaled_dot_product_attention(
+                            query_vulkan,
+                            key_vulkan,
+                            value_vulkan,
+                            attn_mask=mask_vulkan,
+                            dropout_p=case["dropout_p"],
+                            is_causal=case["is_causal"],
+                            scale=case["scale"],
+                            enable_gqa=case["enable_gqa"],
+                        ).cpu()
+                        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+
+                fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                if expect_native_route:
+                    self.assertFalse(case["expected_cpu_fallback"])
+                    self.assertEqual(fallback_count, 0)
+                else:
+                    self.assertFalse(case["expected_native_route"])
+                    self.assertEqual(
+                        fallback_count,
+                        1 if case["expected_cpu_fallback"] else 0,
+                    )
 
     def test_scaled_dot_product_attention_tiny_float_mask_matches_cpu(self):
         torch.manual_seed(0)
