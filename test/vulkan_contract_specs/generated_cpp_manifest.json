@@ -125,6 +125,17 @@
         "kSmallSpatialPointwiseConvProjectionRowsRowCount",
         "small_spatial_pointwise_conv_projection_rows_find"
       ]
+    },
+    {
+      "spec_file": "small_metadata_padded_conv2d_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSmallMetadataPaddedConv2DSpec.h",
+      "markers": [
+        "SmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec",
+        "kSmallMetadataPaddedConv2DMaterializedBufferInput2x2ContractName",
+        "kSmallMetadataPaddedConv2DMaterializedBufferInput2x2InputHeight",
+        "small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_options_match",
+        "small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_in_bounds"
+      ]
     }
   ]
 }

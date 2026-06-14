@@ -89,6 +89,7 @@ Current MVP status:
   `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast`, plus
   `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer`, plus
   `KVCacheAppendContract` `SequenceAppend` and `InitialCache`, plus
+  `SmallMetadataPaddedConv2DContract` `MaterializedBufferInput2x2`, plus
   `SmallSpatialPointwiseConvContract` `SparseProjectionRows`.
   The schema captures symbolic dims, min/max, values, multiples, optional
   dims, generic `broadcast_compatible` relationships, generic
@@ -126,6 +127,13 @@ Current MVP status:
   identity, metadata, dtype/rank/options/layout bounds, and helper predicates
   for the existing matcher. Packed-channel equality, output-shape arithmetic,
   prepack resource behavior, and match-result construction remain handwritten.
+- `SmallMetadataPaddedConv2DContract` `MaterializedBufferInput2x2` now uses
+  the generic ShapeEnvelope C++ simple-bounds generator path:
+  `ExecutionContractsSmallMetadataPaddedConv2DSpec.h` provides contract
+  identity, metadata, exact input/weight/options bounds, and helper predicates
+  for the existing matcher. Tensor-info extraction, materialization dispatch,
+  op-hit logging, fallback visibility, and match-result construction remain
+  handwritten.
 - `SmallSpatialPointwiseConvContract` `SparseProjectionRows` now uses the
   generic ShapeEnvelope C++ sparse-rowset generator path:
   `ExecutionContractsSmallSpatialPointwiseConvSpec.h` provides contract

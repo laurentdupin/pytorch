@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`433ab7611c4042eac56077f50be74dabe02b92c6`.
+`b4d725337599a1bdd54d0034cb05ed22b5d2f3c0`.
 
 ## Repo State Summary
 
@@ -39,6 +39,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAScoreSoftmax.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSmallMetadataPaddedConv2DSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsTransformerGQASDPA.cpp`
@@ -167,8 +168,15 @@ These files are diagnostic inputs. Production code must not depend on
   shape arithmetic, prepack resource behavior, and match-result assembly remain
   handwritten; preserve unsupported-case fallback outside that envelope.
 - `SmallMetadataPaddedConv2DContract`: one proven padded low-channel
-  buffer-input materialization tuple, now split into a family-specific source;
-  keep adjacent guards.
+  buffer-input materialization tuple, now split into a family-specific source.
+  The `MaterializedBufferInput2x2` slice has a JSON contract spec backed by
+  `ShapeEnvelope` v1 with checked-in positive/adjacent-negative runtime cases
+  and generic ShapeEnvelope C++ exact simple-bound helper output. The generated
+  helper provides contract identity, metadata, exact input/weight/options
+  predicates, and materialization policy constants while tensor-info
+  extraction, input materialization, op-hit logging, fallback to
+  `aten::convolution.buffer_float_skip.small_metadata_input`, and match-result
+  assembly remain handwritten. Keep adjacent guards.
 - `TransformerGQASDPAContract`: bounded Transformer causal/prefill and decode
   GQA SDPA legality with model-neutral naming, now split into a
   family-specific source.
@@ -269,7 +277,7 @@ These files are diagnostic inputs. Production code must not depend on
   live contract sources, validates any `ShapeEnvelope` v1 blocks present, and
   keeps family-specific shape checks for BatchNormInference, EmbeddingLookup,
   ChannelCat, KVCacheAppend, GQARepeat, SDPAScoreSoftmax,
-  NoOverlapConvTranspose2D, and SafeViewReshape.
+  NoOverlapConvTranspose2D, SmallMetadataPaddedConv2D, and SafeViewReshape.
   `test/vulkan_contract_specs/generated_cpp_manifest.json` declares which
   ShapeEnvelope specs have checked-in generated C++ helper headers; governance
   validates that the manifest covers every current ShapeEnvelope spec, each
@@ -299,8 +307,9 @@ These files are diagnostic inputs. Production code must not depend on
   without executing additional fuzz assignments. BatchNormInference `BufferFloat4D`,
   `MaterializedBufferFloat4D`, ElementwiseBroadcast
   `FloatTensorTensorBufferBroadcast`, KVCacheAppend `SequenceAppend` and
-  `InitialCache`, and NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` use
-  generic checked-in case plumbing under the ShapeEnvelope registry.
+  `InitialCache`, NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer`, and
+  SmallMetadataPaddedConv2D `MaterializedBufferInput2x2` use generic
+  checked-in case plumbing under the ShapeEnvelope registry.
   ChannelCat, EmbeddingLookup, and both
   SafeViewReshape direct-buffer slices have
   deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
@@ -359,6 +368,15 @@ These files are diagnostic inputs. Production code must not depend on
   dtype/rank/options/layout bounds, and helper predicates. Packed-channel
   equality, output-shape arithmetic, prepack resource behavior, and match
   result construction remain handwritten so route behavior is unchanged.
+- SmallMetadataPaddedConv2D `MaterializedBufferInput2x2` consumes the generic
+  ShapeEnvelope simple-bounds generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsSmallMetadataPaddedConv2DSpec.h` from
+  `small_metadata_padded_conv2d_contract.json` for contract identity,
+  metadata, exact input/weight/options bounds, and helper predicates. Tensor
+  info extraction, materialization dispatch, op-hit logging, fallback
+  visibility, and match result construction remain handwritten so route
+  behavior is unchanged.
 - SmallSpatialPointwiseConv `SparseProjectionRows` consumes the generic
   ShapeEnvelope sparse-rowset generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

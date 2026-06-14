@@ -1541,6 +1541,238 @@ def _validate_no_overlap_conv_transpose2d_shape_envelope(file_name, spec, envelo
                 raise AssertionError(f"{case_context} output padding mismatch")
 
 
+def _validate_small_metadata_padded_conv2d_shape_envelope(
+    file_name,
+    spec,
+    envelope,
+):
+    context = f"{file_name} SmallMetadataPaddedConv2D ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "SmallMetadataPaddedConv2DContract",
+        f"{context} contract",
+    )
+    _require_equal(
+        spec["family"],
+        "MaterializedBufferInput2x2",
+        f"{context} family",
+    )
+    _require_equal(
+        spec["tuple_id"],
+        "input_1x16x721x1281_weight_32x16x2x2_stride1",
+        f"{context} tuple",
+    )
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    bounds = envelope["bounds"]
+    for key, expected in (
+        ("input_dtype", "float32"),
+        ("weight_dtype", "float32"),
+        ("input_rank", 4),
+        ("weight_rank", 4),
+        ("batch", 1),
+        ("groups", 1),
+        ("kernel_h", 2),
+        ("kernel_w", 2),
+        ("stride_h", 1),
+        ("stride_w", 1),
+        ("padding_h", 0),
+        ("padding_w", 0),
+        ("dilation_h", 1),
+        ("dilation_w", 1),
+        ("input_channels", 16),
+        ("input_height", 721),
+        ("input_width", 1281),
+        ("output_channels", 32),
+    ):
+        _require_equal(bounds[key], expected, f"{context} {key}")
+    for key, expected in (
+        ("transposed", False),
+        ("options_quantized", False),
+        ("output_padding_is_zero", True),
+        ("requires_vulkan", True),
+        ("input_has_buffer_storage", True),
+        ("input_is_width_packed", True),
+        ("input_has_direct_buffer_layout", False),
+        ("input_supports_buffer_compute", True),
+        ("weight_defined", True),
+    ):
+        _require_equal(bounds[key], expected, f"{context} {key}")
+
+    inputs = envelope["inputs"]
+    require_fields(inputs, ("input", "weight"), f"{context} inputs")
+    input_spec = inputs["input"]
+    weight_spec = inputs["weight"]
+    _require_equal(
+        _single_value(input_spec["dtype"], f"{context} input dtype"),
+        bounds["input_dtype"],
+        f"{context} input dtype",
+    )
+    _require_equal(
+        _single_value(weight_spec["dtype"], f"{context} weight dtype"),
+        bounds["weight_dtype"],
+        f"{context} weight dtype",
+    )
+    _require_equal(
+        _single_value(input_spec["rank"], f"{context} input rank"),
+        bounds["input_rank"],
+        f"{context} input rank",
+    )
+    _require_equal(
+        _single_value(weight_spec["rank"], f"{context} weight rank"),
+        bounds["weight_rank"],
+        f"{context} weight rank",
+    )
+
+    input_dims = _dims_by_symbol(input_spec, f"{context} input")
+    weight_dims = _dims_by_symbol(weight_spec, f"{context} weight")
+    for symbol, bound_key in (
+        ("N", "batch"),
+        ("CI", "input_channels"),
+        ("H", "input_height"),
+        ("W", "input_width"),
+    ):
+        expected = bounds[bound_key]
+        _require_equal(
+            _single_value(input_dims[symbol], f"{context} input {symbol}"),
+            expected,
+            f"{context} input {symbol}",
+        )
+    for symbol, bound_key in (
+        ("CO", "output_channels"),
+        ("CI", "input_channels"),
+        ("KH", "kernel_h"),
+        ("KW", "kernel_w"),
+    ):
+        expected = bounds[bound_key]
+        _require_equal(
+            _single_value(weight_dims[symbol], f"{context} weight {symbol}"),
+            expected,
+            f"{context} weight {symbol}",
+        )
+
+    attributes = envelope["attributes"]
+    for attribute_name in (
+        "transposed",
+        "options_quantized",
+        "groups",
+        "kernel_h",
+        "kernel_w",
+        "stride_h",
+        "stride_w",
+        "padding_h",
+        "padding_w",
+        "dilation_h",
+        "dilation_w",
+        "output_padding_is_zero",
+        "input_is_width_packed",
+        "input_has_direct_buffer_layout",
+        "requires_input_materialization",
+    ):
+        expected = (
+            True
+            if attribute_name == "requires_input_materialization"
+            else bounds[attribute_name]
+        )
+        _require_equal(
+            _single_value(attributes[attribute_name], f"{context} {attribute_name}"),
+            expected,
+            f"{context} {attribute_name}",
+        )
+
+    relationships = _relationship_types(envelope)
+    if "equal" not in relationships:
+        raise AssertionError(f"{context} missing input/weight channel relationship")
+    layout = envelope["layout"]
+    _require_equal(
+        layout["requires_vulkan"],
+        bounds["requires_vulkan"],
+        f"{context} requires_vulkan",
+    )
+    _require_equal(layout["input_storage"], "buffer", f"{context} input storage")
+    _require_equal(
+        layout["input_layout"],
+        "width_packed_small_metadata",
+        f"{context} input layout",
+    )
+    _require_equal(
+        layout["input_has_direct_buffer_layout"],
+        bounds["input_has_direct_buffer_layout"],
+        f"{context} direct buffer layout",
+    )
+    _require_equal(layout["weight_storage"], "vulkan_tensor", f"{context} weight")
+    _require_equal(
+        layout["execution_storage"],
+        "materialized_buffer",
+        f"{context} execution storage",
+    )
+    _require_equal(
+        layout["requires_input_materialization"],
+        True,
+        f"{context} materialization",
+    )
+    _require_equal(
+        envelope["capability_requirements"]["input_supports_buffer_compute"],
+        bounds["input_supports_buffer_compute"],
+        f"{context} input supports buffer compute",
+    )
+
+    def require_pair(case, field, height_key, width_key, allowed_violation):
+        if case.get("violates") == allowed_violation:
+            return
+        expected = [bounds[height_key], bounds[width_key]]
+        if case[field] != expected:
+            raise AssertionError(
+                f"{context} {case['name']} {field} mismatch: "
+                f"{case[field]} != {expected}"
+            )
+
+    for section in ("positive_cases", "negative_cases"):
+        for case in spec[section]:
+            case_context = f"{context} {section} {case['name']}"
+            if len(case["input_shape"]) != bounds["input_rank"]:
+                raise AssertionError(f"{case_context} input rank mismatch")
+            if case["input_shape"][0] != bounds["batch"]:
+                raise AssertionError(f"{case_context} batch mismatch")
+            if (
+                case.get("violates") != "input_channels"
+                and case["input_shape"][1] != bounds["input_channels"]
+            ):
+                raise AssertionError(f"{case_context} input channels mismatch")
+            if (
+                case.get("violates") != "input_height"
+                and case["input_shape"][2] != bounds["input_height"]
+            ):
+                raise AssertionError(f"{case_context} input height mismatch")
+            if (
+                case.get("violates") != "input_width"
+                and case["input_shape"][3] != bounds["input_width"]
+            ):
+                raise AssertionError(f"{case_context} input width mismatch")
+            if (
+                case.get("violates") != "output_channels"
+                and case["out_channels"] != bounds["output_channels"]
+            ):
+                raise AssertionError(f"{case_context} output channels mismatch")
+            if case["dtype"] != bounds["input_dtype"]:
+                if case.get("violates") != "dtype":
+                    raise AssertionError(f"{case_context} dtype mismatch")
+            if case["groups"] != bounds["groups"]:
+                raise AssertionError(f"{case_context} groups mismatch")
+            require_pair(case, "kernel_size", "kernel_h", "kernel_w", "kernel")
+            require_pair(case, "stride", "stride_h", "stride_w", "stride")
+            require_pair(case, "padding", "padding_h", "padding_w", "padding")
+            require_pair(case, "dilation", "dilation_h", "dilation_w", "dilation")
+            if case["output_padding"] != [0, 0]:
+                raise AssertionError(f"{case_context} output padding mismatch")
+            if (
+                case["input_has_direct_buffer_layout"]
+                != bounds["input_has_direct_buffer_layout"]
+                and case.get("violates") != "input_has_direct_buffer_layout"
+            ):
+                raise AssertionError(f"{case_context} direct layout mismatch")
+
+
 def _small_spatial_pointwise_conv_rowset(envelope, context):
     rowsets = envelope.get("sparse_rowsets", [])
     if len(rowsets) != 1:
@@ -2744,6 +2976,72 @@ _NO_OVERLAP_CONV_TRANSPOSE2D_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.bias_is_float",
 )
 
+_SMALL_METADATA_PADDED_CONV2D_LEGAL_KEY_FIELDS = (
+    "input_shape",
+    "out_channels",
+    "kernel_size",
+    "stride",
+    "padding",
+    "dilation",
+    "groups",
+    "output_padding",
+    "dtype",
+    "input_is_width_packed",
+    "input_has_direct_buffer_layout",
+    "expected_route_label",
+    "expected_post_materialization_route_label",
+    "expected_cpu_fallback",
+    "expected_sync_readback",
+)
+
+_SMALL_METADATA_PADDED_CONV2D_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "input_shape",
+    "out_channels",
+    "kernel_size",
+    "stride",
+    "padding",
+    "dilation",
+    "groups",
+    "output_padding",
+    "dtype",
+    "input_is_width_packed",
+    "input_has_direct_buffer_layout",
+    "expected_native_route",
+    "expected_guard_route_label",
+    "expected_cpu_fallback",
+)
+
+_SMALL_METADATA_PADDED_CONV2D_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.input.dtype",
+    "inputs.input.rank",
+    "inputs.input.dims.N",
+    "inputs.input.dims.CI",
+    "inputs.input.dims.H",
+    "inputs.input.dims.W",
+    "inputs.weight.dtype",
+    "inputs.weight.rank",
+    "inputs.weight.dims.CO",
+    "inputs.weight.dims.CI",
+    "inputs.weight.dims.KH",
+    "inputs.weight.dims.KW",
+    "attributes.transposed",
+    "attributes.options_quantized",
+    "attributes.groups",
+    "attributes.kernel_h",
+    "attributes.kernel_w",
+    "attributes.stride_h",
+    "attributes.stride_w",
+    "attributes.padding_h",
+    "attributes.padding_w",
+    "attributes.dilation_h",
+    "attributes.dilation_w",
+    "attributes.output_padding_is_zero",
+    "attributes.input_is_width_packed",
+    "attributes.input_has_direct_buffer_layout",
+    "attributes.requires_input_materialization",
+)
+
 _SMALL_SPATIAL_POINTWISE_CONV_LEGAL_KEY_FIELDS = (
     "input_shape",
     "out_channels",
@@ -2934,6 +3232,21 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         ),
         "adjacent_negative_key_fields": (
             _SMALL_SPATIAL_POINTWISE_CONV_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
+    },
+    "small_metadata_padded_conv2d_materialized_buffer_input_2x2": {
+        "validate": _validate_small_metadata_padded_conv2d_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _SMALL_METADATA_PADDED_CONV2D_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _SMALL_METADATA_PADDED_CONV2D_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _SMALL_METADATA_PADDED_CONV2D_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
     },
     "kv_cache_append_sequence_append": {

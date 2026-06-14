@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsSmallMetadataPaddedConv2DSpec.h>
 
 namespace at {
 namespace native {
@@ -26,29 +27,23 @@ constexpr ExecutionContractMetadata make_execution_contract_metadata(
       materialization_policy};
 }
 
-constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
-    "unsupported_shapes_do_not_match";
-constexpr const char* kMaterializationSmallMetadataPaddedConv2DInput =
-    "materialize_small_metadata_input_then_conv2d_buffer_float";
-
-constexpr int64_t kSmallMetadataPaddedConv2DBatch = 1;
-constexpr int64_t kSmallMetadataPaddedConv2DInputChannels = 16;
-constexpr int64_t kSmallMetadataPaddedConv2DInputHeight = 721;
-constexpr int64_t kSmallMetadataPaddedConv2DInputWidth = 1281;
-constexpr int64_t kSmallMetadataPaddedConv2DOutputChannels = 32;
-constexpr int64_t kSmallMetadataPaddedConv2DKernel = 2;
-constexpr const char* kSmallMetadataPaddedConv2DTupleId =
-    "input_1x16x721x1281_weight_32x16x2x2_stride1";
 constexpr ExecutionContractMetadata
     kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Metadata =
         make_execution_contract_metadata(
-            "SmallMetadataPaddedConv2DContract",
-            "MaterializedBufferInput2x2",
-            kSmallMetadataPaddedConv2DTupleId,
-            "task028_paddleocr_conv2d_pressure_classification",
-            "small_metadata_padded_conv2d_adjacent_guards",
-            kFallbackUnsupportedShapesDoNotMatch,
-            kMaterializationSmallMetadataPaddedConv2DInput);
+            generated::kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec
+                .contract_name,
+            generated::kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec
+                .family_name,
+            generated::kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec
+                .tuple_id,
+            generated::kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec
+                .evidence_id,
+            generated::kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec
+                .guard_id,
+            generated::kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec
+                .fallback_policy,
+            generated::kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec
+                .materialization_policy);
 
 } // namespace
 
@@ -68,31 +63,48 @@ SmallMetadataPaddedConv2DMatch match_small_metadata_padded_conv2d_contract(
     const SmallMetadataPaddedConv2DWeightInfo& weight,
     const SmallMetadataPaddedConv2DOptions& options) {
   SmallMetadataPaddedConv2DMatch result;
+  const auto& spec =
+      generated::kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec;
   if (
-      options.transposed || options.quantized || options.groups != 1 ||
-      options.stride_h != 1 || options.stride_w != 1 ||
-      options.padding_h != 0 || options.padding_w != 0 ||
-      options.dilation_h != 1 || options.dilation_w != 1 ||
-      !options.output_padding_is_zero || !input.is_vulkan ||
-      input.dtype != kFloat || input.rank != 4 ||
-      input.batch != kSmallMetadataPaddedConv2DBatch ||
-      input.channels != kSmallMetadataPaddedConv2DInputChannels ||
-      input.height != kSmallMetadataPaddedConv2DInputHeight ||
-      input.width != kSmallMetadataPaddedConv2DInputWidth ||
-      !input.has_buffer_storage || !input.is_width_packed ||
-      input.has_direct_buffer_layout || !input.supports_buffer_compute ||
-      !weight.defined || weight.dtype != kFloat || weight.rank != 4 ||
-      weight.output_channels != kSmallMetadataPaddedConv2DOutputChannels ||
-      weight.input_channels != kSmallMetadataPaddedConv2DInputChannels ||
-      weight.kernel_h != kSmallMetadataPaddedConv2DKernel ||
-      weight.kernel_w != kSmallMetadataPaddedConv2DKernel) {
+      !generated::small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_options_match(
+          spec,
+          input.dtype,
+          weight.dtype,
+          input.rank,
+          weight.rank,
+          input.batch,
+          input.channels,
+          input.height,
+          input.width,
+          weight.output_channels,
+          options.groups,
+          weight.kernel_h,
+          weight.kernel_w,
+          options.stride_h,
+          options.stride_w,
+          options.padding_h,
+          options.padding_w,
+          options.dilation_h,
+          options.dilation_w,
+          options.transposed,
+          options.quantized,
+          options.output_padding_is_zero,
+          input.is_vulkan,
+          input.has_buffer_storage,
+          input.is_width_packed,
+          input.has_direct_buffer_layout,
+          input.supports_buffer_compute,
+          weight.defined) ||
+      !generated::small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_in_bounds(
+          spec) ||
+      weight.input_channels != input.channels) {
     return result;
   }
 
   result.matched = true;
   result.family =
       SmallMetadataPaddedConv2DFamily::MaterializedBufferInput2x2;
-  result.tuple_id = kSmallMetadataPaddedConv2DTupleId;
+  result.tuple_id = spec.tuple_id;
   result.metadata =
       &kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Metadata;
   result.requires_input_materialization = true;

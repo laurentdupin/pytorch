@@ -413,6 +413,9 @@ class TestVulkanGovernance(TestCase):
                 "safe_reshape_alias_dense_buffer_direct"
             ),
             "safe_view_reshape_contract.json": "safe_view_materialized_direct_buffer",
+            "small_metadata_padded_conv2d_contract.json": (
+                "small_metadata_padded_conv2d_materialized_buffer_input_2x2"
+            ),
             "small_spatial_pointwise_conv_contract.json": (
                 "small_spatial_pointwise_conv_sparse_projection_rows"
             ),
@@ -443,7 +446,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 11 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 12 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:"
             "batch_norm_inference_buffer_float_4d",
@@ -490,6 +493,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
+            "small_metadata_padded_conv2d_contract.json:"
+            "small_metadata_padded_conv2d_materialized_buffer_input_2x2",
+            result.stdout,
+        )
+        self.assertIn(
             "small_spatial_pointwise_conv_contract.json:"
             "small_spatial_pointwise_conv_sparse_projection_rows",
             result.stdout,
@@ -515,10 +523,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 11 ShapeEnvelope adjacent-negative generators",
+            "validated 12 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=50", result.stdout)
+        self.assertIn("generated_cases=57", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:3",
@@ -535,6 +543,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("safe_view_reshape_alias_contract.json:4", result.stdout)
         self.assertIn("safe_view_reshape_contract.json:3", result.stdout)
+        self.assertIn("small_metadata_padded_conv2d_contract.json:7", result.stdout)
         self.assertIn("small_spatial_pointwise_conv_contract.json:8", result.stdout)
 
     def test_vulkan_shape_envelope_legal_case_utility_cli(self):
@@ -557,10 +566,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 11 ShapeEnvelope legal-case generators",
+            "validated 12 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=69", result.stdout)
+        self.assertIn("generated_cases=70", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:1",
@@ -577,6 +586,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("safe_view_reshape_alias_contract.json:2", result.stdout)
         self.assertIn("safe_view_reshape_contract.json:2", result.stdout)
+        self.assertIn("small_metadata_padded_conv2d_contract.json:1", result.stdout)
         self.assertIn("small_spatial_pointwise_conv_contract.json:39", result.stdout)
 
     def test_vulkan_shape_envelope_fuzz_assignment_utility_cli(self):
@@ -599,11 +609,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 11 ShapeEnvelope fuzz assignment generators",
+            "validated 12 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=22", result.stdout)
-        self.assertIn("adjacent_negative_assignments=49", result.stdout)
+        self.assertIn("legal_assignments=24", result.stdout)
+        self.assertIn("adjacent_negative_assignments=56", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:adjacent=3",
             result.stdout,
@@ -645,6 +655,10 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
+            "small_metadata_padded_conv2d_contract.json:legal=2:adjacent=7",
+            result.stdout,
+        )
+        self.assertIn(
             "small_spatial_pointwise_conv_contract.json:legal=2:adjacent=7",
             result.stdout,
         )
@@ -669,14 +683,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 11 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 12 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=22", result.stdout)
-        self.assertIn("legal_paths=170", result.stdout)
-        self.assertIn("adjacent_negative_axes=49", result.stdout)
-        self.assertIn("runtime_legal_cases=69", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=50", result.stdout)
+        self.assertIn("legal_assignments=24", result.stdout)
+        self.assertIn("legal_paths=197", result.stdout)
+        self.assertIn("adjacent_negative_axes=56", result.stdout)
+        self.assertIn("runtime_legal_cases=70", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=57", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:status=covered:"
             "paths=21/21:adjacent_axes=3",
@@ -728,6 +742,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
+            "small_metadata_padded_conv2d_contract.json:legal=2:"
+            "status=covered:paths=27/27:adjacent_axes=7",
+            result.stdout,
+        )
+        self.assertIn(
             "small_spatial_pointwise_conv_contract.json:legal=2:"
             "status=covered:paths=22/22:adjacent_axes=7",
             result.stdout,
@@ -745,6 +764,7 @@ class TestVulkanGovernance(TestCase):
             "no_overlap_conv_transpose2d_contract.json": (3, 5),
             "safe_view_reshape_alias_contract.json": (2, 4),
             "safe_view_reshape_contract.json": (2, 3),
+            "small_metadata_padded_conv2d_contract.json": (1, 7),
             "small_spatial_pointwise_conv_contract.json": (39, 8),
         }
         for file_name, expected_counts in expected_generated_counts.items():
@@ -796,6 +816,7 @@ class TestVulkanGovernance(TestCase):
                 "kv_cache_append_initial_cache",
                 "kv_cache_append_sequence_append",
                 "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer",
+                "small_metadata_padded_conv2d_materialized_buffer_input_2x2",
                 "small_spatial_pointwise_conv_sparse_projection_rows",
                 "multi_input_rank4_channel_cat",
                 "embedding_lookup_small_bounded",
@@ -1074,7 +1095,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 11)
+        self.assertEqual(len(rows), 12)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
 
     def test_vulkan_generated_cpp_manifest_cli(self):
@@ -1097,7 +1118,7 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 11 generated ShapeEnvelope C++ helper headers",
+            "validated 12 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
@@ -1109,16 +1130,20 @@ class TestVulkanGovernance(TestCase):
             "ExecutionContractsSmallSpatialPointwiseConvSpec.h",
             result.stdout,
         )
+        self.assertIn(
+            "ExecutionContractsSmallMetadataPaddedConv2DSpec.h",
+            result.stdout,
+        )
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
-        self.assertEqual(summary["specs"], 13)
-        self.assertEqual(summary["generated_shape_envelope"], 11)
+        self.assertEqual(summary["specs"], 14)
+        self.assertEqual(summary["generated_shape_envelope"], 12)
         self.assertEqual(summary["json_spec_without_shape_envelope"], 2)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
         self.assertEqual(summary["schema_only_spec"], 0)
-        self.assertEqual(summary["live_contract_without_json_spec"], 6)
-        self.assertEqual(summary["exact_row_debt"], 8)
+        self.assertEqual(summary["live_contract_without_json_spec"], 5)
+        self.assertEqual(summary["exact_row_debt"], 7)
 
         census = contract_spec_utils.contract_coverage_census(REPO_ROOT)
         spec_rows = {
@@ -1136,6 +1161,10 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertEqual(
             spec_rows["small_spatial_pointwise_conv_contract.json"]["category"],
+            "generated_shape_envelope",
+        )
+        self.assertEqual(
+            spec_rows["small_metadata_padded_conv2d_contract.json"]["category"],
             "generated_shape_envelope",
         )
         for file_name in (
@@ -1182,16 +1211,17 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated contract coverage census specs=13", result.stdout)
-        self.assertIn("generated_shape_envelope=11", result.stdout)
+        self.assertIn("validated contract coverage census specs=14", result.stdout)
+        self.assertIn("generated_shape_envelope=12", result.stdout)
         self.assertIn("json_spec_without_shape_envelope=2", result.stdout)
-        self.assertIn("live_contract_without_json_spec=6", result.stdout)
-        self.assertIn("exact_row_debt=8", result.stdout)
+        self.assertIn("live_contract_without_json_spec=5", result.stdout)
+        self.assertIn("exact_row_debt=7", result.stdout)
         self.assertIn("contract=GQARepeatContract", result.stdout)
         self.assertIn(
             'temporary_exception="GQA Repeat Exact Tuples"',
             result.stdout,
         )
+        self.assertIn("small_metadata_padded_conv2d_contract.json", result.stdout)
         self.assertIn("small_spatial_pointwise_conv_contract.json", result.stdout)
 
     def test_vulkan_batch_norm_inference_contract_spec_shape(self):
@@ -1939,6 +1969,127 @@ class TestVulkanGovernance(TestCase):
             )
             self.assertFalse(case["expected_native_route"])
             self.assertTrue(case["expected_cpu_fallback"])
+
+    def test_vulkan_small_metadata_padded_conv2d_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec(
+            "small_metadata_padded_conv2d_contract.json"
+        )
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["contract_name"], "SmallMetadataPaddedConv2DContract")
+        self.assertEqual(spec["family"], "MaterializedBufferInput2x2")
+        self.assertEqual(
+            spec["tuple_id"],
+            "input_1x16x721x1281_weight_32x16x2x2_stride1",
+        )
+        self.assertEqual(spec["writer_op"], "aten::convolution")
+        self.assertEqual(
+            spec["route_label"],
+            "aten::convolution.small_metadata_padded_conv2d.materialize_input",
+        )
+
+        metadata = spec["metadata"]
+        _require_contract_spec_fields(
+            metadata,
+            (
+                "evidence_id",
+                "guard_id",
+                "fallback_policy",
+                "materialization_policy",
+            ),
+            "SmallMetadataPaddedConv2DContract metadata",
+        )
+        self.assertEqual(
+            metadata["evidence_id"],
+            "task028_paddleocr_conv2d_pressure_classification",
+        )
+        self.assertEqual(
+            metadata["guard_id"],
+            "small_metadata_padded_conv2d_adjacent_guards",
+        )
+        self.assertEqual(metadata["fallback_policy"], "unsupported_shapes_do_not_match")
+        self.assertEqual(
+            metadata["materialization_policy"],
+            "materialize_small_metadata_input_then_conv2d_buffer_float",
+        )
+
+        bounds = spec["bounds"]
+        for key, expected in (
+            ("input_dtype", "float32"),
+            ("weight_dtype", "float32"),
+            ("input_rank", 4),
+            ("weight_rank", 4),
+            ("batch", 1),
+            ("input_channels", 16),
+            ("input_height", 721),
+            ("input_width", 1281),
+            ("output_channels", 32),
+            ("groups", 1),
+            ("kernel_h", 2),
+            ("kernel_w", 2),
+            ("stride_h", 1),
+            ("stride_w", 1),
+            ("padding_h", 0),
+            ("padding_w", 0),
+            ("dilation_h", 1),
+            ("dilation_w", 1),
+        ):
+            self.assertEqual(bounds[key], expected)
+        self.assertFalse(bounds["transposed"])
+        self.assertFalse(bounds["options_quantized"])
+        self.assertTrue(bounds["output_padding_is_zero"])
+        self.assertTrue(bounds["requires_vulkan"])
+        self.assertTrue(bounds["input_has_buffer_storage"])
+        self.assertTrue(bounds["input_is_width_packed"])
+        self.assertFalse(bounds["input_has_direct_buffer_layout"])
+        self.assertTrue(bounds["input_supports_buffer_compute"])
+        self.assertTrue(bounds["weight_defined"])
+
+        layout = spec["shape_envelope"]["layout"]
+        self.assertEqual(layout["input_layout"], "width_packed_small_metadata")
+        self.assertEqual(layout["execution_storage"], "materialized_buffer")
+        self.assertTrue(layout["requires_input_materialization"])
+
+        for case in spec["positive_cases"]:
+            _require_contract_spec_fields(
+                case,
+                (
+                    "input_shape",
+                    "out_channels",
+                    "kernel_size",
+                    "expected_route_label",
+                    "expected_post_materialization_route_label",
+                    "expected_cpu_fallback",
+                    "expected_sync_readback",
+                ),
+                "SmallMetadataPaddedConv2DContract positive case",
+            )
+            self.assertEqual(case["input_shape"], [1, 16, 721, 1281])
+            self.assertEqual(case["out_channels"], 32)
+            self.assertEqual(case["kernel_size"], [2, 2])
+            self.assertEqual(case["expected_route_label"], spec["route_label"])
+            self.assertEqual(
+                case["expected_post_materialization_route_label"],
+                "aten::convolution.buffer_float",
+            )
+            self.assertFalse(case["expected_cpu_fallback"])
+            self.assertFalse(case["expected_sync_readback"])
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                (
+                    "violates",
+                    "expected_native_route",
+                    "expected_guard_route_label",
+                    "expected_cpu_fallback",
+                ),
+                "SmallMetadataPaddedConv2DContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
+            self.assertEqual(
+                case["expected_guard_route_label"],
+                "aten::convolution.buffer_float_skip.small_metadata_input",
+            )
+            self.assertFalse(case["expected_cpu_fallback"])
 
     def test_vulkan_small_spatial_pointwise_conv_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec(

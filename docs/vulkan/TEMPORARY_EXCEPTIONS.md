@@ -214,6 +214,14 @@ condition and migration target.
 - Reason: the padded low-channel buffer materialization is proven for one
   finite 2x2 conv2d tuple, but broader small-metadata padded conv behavior is
   not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/small_metadata_padded_conv2d_contract.json`
+  covers the `MaterializedBufferInput2x2` slice with ShapeEnvelope-backed
+  checked-in positive and adjacent negative runtime cases plus generic
+  ShapeEnvelope C++ exact simple-bound helper output in
+  `generated/ExecutionContractsSmallMetadataPaddedConv2DSpec.h`. Tensor-info
+  extraction, input materialization, op-hit logging, fallback to
+  `aten::convolution.buffer_float_skip.small_metadata_input`, and match-result
+  assembly remain handwritten.
 - Expiry: broader padded-conv layout parity plus adjacent negative coverage are
   available.
 - Migration target: generated `SmallMetadataPaddedConv2DContract` or
