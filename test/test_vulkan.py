@@ -831,400 +831,44 @@ class TestVulkanGovernance(TestCase):
                     f"{file_name} {field} is not present in contract sources",
                 )
 
-    def test_vulkan_channel_cat_generated_header_matches_spec(self):
-        generated_header_path = os.path.join(
-            REPO_ROOT,
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsChannelCatSpec.h",
+    def test_vulkan_generated_cpp_manifest_matches_headers(self):
+        rows = contract_spec_utils.generated_cpp_manifest_summary(REPO_ROOT)
+        shape_envelope_specs = {
+            row["file_name"]
+            for row in contract_spec_utils.shape_envelope_summary(REPO_ROOT)
+        }
+        self.assertEqual(
+            {row["spec_file"] for row in rows},
+            shape_envelope_specs,
         )
+        self.assertEqual(len(rows), 7)
+        self.assertTrue(all(row["marker_count"] > 0 for row in rows))
+
+    def test_vulkan_generated_cpp_manifest_cli(self):
         result = subprocess.run(
             [
                 sys.executable,
                 os.path.join(
                     REPO_ROOT,
-                    "tools",
-                    "vulkan_contracts",
-                    "gen_contract_spec_cpp.py",
-                ),
-                "--spec",
-                os.path.join(
                     "test",
                     "vulkan_contract_specs",
-                    "channel_cat_contract.json",
+                    "contract_spec_utils.py",
                 ),
-                "--stdout",
+                "--repo-root",
+                REPO_ROOT,
+                "--validate-generated-cpp-manifest",
             ],
             check=True,
-            cwd=REPO_ROOT,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            text=True,
         )
-        with open(generated_header_path, "rb") as handle:
-            expected = handle.read()
-        self.assertEqual(result.stdout, expected)
-
-    def test_vulkan_embedding_lookup_generated_header_matches_spec(self):
-        generated_header_path = os.path.join(
-            REPO_ROOT,
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsEmbeddingLookupSpec.h",
+        self.assertIn(
+            "validated 7 generated ShapeEnvelope C++ helper headers",
+            result.stdout,
         )
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(
-                    REPO_ROOT,
-                    "tools",
-                    "vulkan_contracts",
-                    "gen_contract_spec_cpp.py",
-                ),
-                "--spec",
-                os.path.join(
-                    "test",
-                    "vulkan_contract_specs",
-                    "embedding_lookup_contract.json",
-                ),
-                "--stdout",
-            ],
-            check=True,
-            cwd=REPO_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        with open(generated_header_path, "rb") as handle:
-            expected = handle.read()
-        self.assertEqual(result.stdout, expected)
-
-    def test_vulkan_embedding_lookup_generated_header_has_matcher_helpers(self):
-        generated_header = self._repo_text(
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsEmbeddingLookupSpec.h",
-        )
-        for expected in (
-            "embedding_lookup_index_rank_in_bounds",
-            "embedding_lookup_small_bounded_options_match",
-            "embedding_lookup_small_bounded_in_bounds",
-        ):
-            self.assertIn(expected, generated_header)
-
-    def test_vulkan_elementwise_broadcast_generated_header_matches_spec(self):
-        generated_header_path = os.path.join(
-            REPO_ROOT,
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsElementwiseBroadcastSpec.h",
-        )
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(
-                    REPO_ROOT,
-                    "tools",
-                    "vulkan_contracts",
-                    "gen_contract_spec_cpp.py",
-                ),
-                "--spec",
-                os.path.join(
-                    "test",
-                    "vulkan_contract_specs",
-                    "elementwise_broadcast_contract.json",
-                ),
-                "--stdout",
-            ],
-            check=True,
-            cwd=REPO_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        with open(generated_header_path, "rb") as handle:
-            expected = handle.read()
-        self.assertEqual(result.stdout, expected)
-
-    def test_vulkan_elementwise_broadcast_generated_header_has_shape_helpers(self):
-        generated_header = self._repo_text(
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsElementwiseBroadcastSpec.h",
-        )
-        for expected in (
-            "ElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec",
-            "elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds",
-            "elementwise_float_tensor_tensor_buffer_broadcast_dtype_matches",
-            "elementwise_float_tensor_tensor_buffer_broadcast_layout_matches",
-            "elementwise_float_tensor_tensor_buffer_broadcast_attributes_match",
-        ):
-            self.assertIn(expected, generated_header)
-
-    def test_vulkan_batch_norm_inference_generated_header_matches_spec(self):
-        generated_header_path = os.path.join(
-            REPO_ROOT,
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsBatchNormInferenceSpec.h",
-        )
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(
-                    REPO_ROOT,
-                    "tools",
-                    "vulkan_contracts",
-                    "gen_contract_spec_cpp.py",
-                ),
-                "--spec",
-                os.path.join(
-                    "test",
-                    "vulkan_contract_specs",
-                    "batch_norm_inference_contract.json",
-                ),
-                "--stdout",
-            ],
-            check=True,
-            cwd=REPO_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        with open(generated_header_path, "rb") as handle:
-            expected = handle.read()
-        self.assertEqual(result.stdout, expected)
-
-    def test_vulkan_batch_norm_inference_generated_header_has_shape_helpers(self):
-        generated_header = self._repo_text(
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsBatchNormInferenceSpec.h",
-        )
-        for expected in (
-            "BatchNormInferenceBufferFloat4DSpec",
-            "kBatchNormInferenceBufferFloat4DContractName",
-            "kBatchNormInferenceBufferFloat4DMinInputChannels",
-            "batch_norm_inference_buffer_float_4_d_options_match",
-            "batch_norm_inference_buffer_float_4_d_in_bounds",
-        ):
-            self.assertIn(expected, generated_header)
-
-    def test_vulkan_batch_norm_inference_materialized_generated_header_matches_spec(
-        self,
-    ):
-        generated_header_path = os.path.join(
-            REPO_ROOT,
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsBatchNormInferenceMaterializedSpec.h",
-        )
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(
-                    REPO_ROOT,
-                    "tools",
-                    "vulkan_contracts",
-                    "gen_contract_spec_cpp.py",
-                ),
-                "--spec",
-                os.path.join(
-                    "test",
-                    "vulkan_contract_specs",
-                    "batch_norm_inference_materialized_contract.json",
-                ),
-                "--stdout",
-            ],
-            check=True,
-            cwd=REPO_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        with open(generated_header_path, "rb") as handle:
-            expected = handle.read()
-        self.assertEqual(result.stdout, expected)
-
-    def test_vulkan_batch_norm_inference_materialized_generated_header_has_helpers(
-        self,
-    ):
-        generated_header = self._repo_text(
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsBatchNormInferenceMaterializedSpec.h",
-        )
-        for expected in (
-            "BatchNormInferenceMaterializedBufferFloat4DSpec",
-            "kBatchNormInferenceMaterializedBufferFloat4DContractName",
-            "kBatchNormInferenceMaterializedBufferFloat4DRequiresMaterialization",
-            "batch_norm_inference_materialized_buffer_float_4_d_options_match",
-            "batch_norm_inference_materialized_buffer_float_4_d_in_bounds",
-        ):
-            self.assertIn(expected, generated_header)
-
-    def test_vulkan_safe_view_reshape_generated_header_matches_spec(self):
-        generated_header_path = os.path.join(
-            REPO_ROOT,
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsSafeViewReshapeSpec.h",
-        )
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(
-                    REPO_ROOT,
-                    "tools",
-                    "vulkan_contracts",
-                    "gen_contract_spec_cpp.py",
-                ),
-                "--spec",
-                os.path.join(
-                    "test",
-                    "vulkan_contract_specs",
-                    "safe_view_reshape_contract.json",
-                ),
-                "--stdout",
-            ],
-            check=True,
-            cwd=REPO_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        with open(generated_header_path, "rb") as handle:
-            expected = handle.read()
-        self.assertEqual(result.stdout, expected)
-
-    def test_vulkan_safe_view_reshape_generated_header_has_shape_helpers(self):
-        generated_header = self._repo_text(
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsSafeViewReshapeSpec.h",
-        )
-        for expected in (
-            "SafeViewReshapeViewMaterializedDirectBufferSpec",
-            "kSafeViewReshapeViewMaterializedDirectBufferMinInputRank",
-            "kSafeViewReshapeViewMaterializedDirectBufferOutputStride",
-            "safe_view_materialized_direct_buffer_input_rank_in_bounds",
-            "safe_view_materialized_direct_buffer_output_rank_in_bounds",
-            "safe_view_materialized_direct_buffer_storage_offset_matches",
-            "safe_view_materialized_direct_buffer_output_last_dim_multiple_matches",
-        ):
-            self.assertIn(expected, generated_header)
-
-    def test_vulkan_safe_view_reshape_alias_generated_header_matches_spec(self):
-        generated_header_path = os.path.join(
-            REPO_ROOT,
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsSafeViewReshapeAliasSpec.h",
-        )
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(
-                    REPO_ROOT,
-                    "tools",
-                    "vulkan_contracts",
-                    "gen_contract_spec_cpp.py",
-                ),
-                "--spec",
-                os.path.join(
-                    "test",
-                    "vulkan_contract_specs",
-                    "safe_view_reshape_alias_contract.json",
-                ),
-                "--stdout",
-            ],
-            check=True,
-            cwd=REPO_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        with open(generated_header_path, "rb") as handle:
-            expected = handle.read()
-        self.assertEqual(result.stdout, expected)
-
-    def test_vulkan_safe_view_reshape_alias_generated_header_has_shape_helpers(
-        self,
-    ):
-        generated_header = self._repo_text(
-            "aten",
-            "src",
-            "ATen",
-            "native",
-            "vulkan",
-            "planning",
-            "generated",
-            "ExecutionContractsSafeViewReshapeAliasSpec.h",
-        )
-        for expected in (
-            "SafeViewReshapeReshapeAliasDenseBufferDirectSpec",
-            "kSafeViewReshapeReshapeAliasDenseBufferDirectMinInputRank",
-            "kSafeViewReshapeReshapeAliasDenseBufferDirectInputStride",
-            "kSafeViewReshapeReshapeAliasDenseBufferDirectOutputStride",
-            "safe_reshape_alias_dense_buffer_direct_input_rank_in_bounds",
-            "safe_reshape_alias_dense_buffer_direct_output_rank_in_bounds",
-            "safe_reshape_alias_dense_buffer_direct_storage_offset_matches",
-            "safe_reshape_alias_dense_buffer_direct_output_last_dim_multiple_matches",
-        ):
-            self.assertIn(expected, generated_header)
+        self.assertIn("markers=", result.stdout)
+        self.assertIn("ExecutionContractsSafeViewReshapeAliasSpec.h", result.stdout)
 
     def test_vulkan_batch_norm_inference_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("batch_norm_inference_contract.json")

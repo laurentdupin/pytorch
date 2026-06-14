@@ -29,6 +29,10 @@ Use this checklist for Vulkan backend changes.
   records symbolic dims, bounds, relationships, aggregate bounds,
   layout/capability requirements, policies, positives, adjacent negatives, and
   fuzz hints without changing route legality.
+- ShapeEnvelope specs with generated C++ helper headers are listed in
+  `test/vulkan_contract_specs/generated_cpp_manifest.json`, and manifest
+  validation covers header presence, byte-for-byte regeneration, helper
+  markers, and full ShapeEnvelope coverage.
 
 ## Fallback And Readback
 

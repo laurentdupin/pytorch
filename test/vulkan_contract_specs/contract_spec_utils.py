@@ -2,7 +2,11 @@ import argparse
 import glob
 import json
 import os
+import subprocess
+import sys
 
+
+GENERATED_CPP_MANIFEST_FILE = "generated_cpp_manifest.json"
 
 CONTRACT_SPEC_REQUIRED_FIELDS = (
     "schema_version",
@@ -2266,7 +2270,11 @@ def contract_spec_dir(repo_root):
 
 
 def contract_spec_paths(repo_root):
-    return sorted(glob.glob(os.path.join(contract_spec_dir(repo_root), "*.json")))
+    return sorted(
+        path
+        for path in glob.glob(os.path.join(contract_spec_dir(repo_root), "*.json"))
+        if os.path.basename(path) != GENERATED_CPP_MANIFEST_FILE
+    )
 
 
 def load_contract_spec(repo_root, file_name):
@@ -2383,6 +2391,165 @@ def shape_envelope_summary(repo_root):
             }
         )
     return rows
+
+
+def _repo_relative_path(repo_root, relative_path, context):
+    if os.path.isabs(relative_path):
+        raise AssertionError(f"{context} must be repository-relative")
+    path_parts = relative_path.replace("\\", "/").split("/")
+    if any(part in ("", ".", "..") for part in path_parts):
+        raise AssertionError(f"{context} has invalid path components")
+    return os.path.join(repo_root, *path_parts)
+
+
+def generated_cpp_manifest_path(repo_root):
+    return os.path.join(contract_spec_dir(repo_root), GENERATED_CPP_MANIFEST_FILE)
+
+
+def load_generated_cpp_manifest(repo_root):
+    with open(generated_cpp_manifest_path(repo_root), encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _validate_generated_cpp_manifest_entry(entry, index):
+    context = f"{GENERATED_CPP_MANIFEST_FILE} entries[{index}]"
+    _require_mapping(entry, context)
+    require_fields(entry, ("spec_file", "header", "markers"), context)
+    for field in ("spec_file", "header"):
+        _require_non_empty_string(entry, field, context)
+    _require_list(entry["markers"], f"{context}.markers")
+    for marker_index, marker in enumerate(entry["markers"]):
+        if not isinstance(marker, str) or marker == "":
+            raise AssertionError(
+                f"{context}.markers[{marker_index}] must be a non-empty string"
+            )
+
+
+def generated_cpp_manifest_entries(repo_root):
+    manifest = load_generated_cpp_manifest(repo_root)
+    require_fields(manifest, ("schema_version", "entries"), GENERATED_CPP_MANIFEST_FILE)
+    if manifest["schema_version"] != 1:
+        raise AssertionError(f"{GENERATED_CPP_MANIFEST_FILE} schema_version must be 1")
+    _require_list(manifest["entries"], f"{GENERATED_CPP_MANIFEST_FILE}.entries")
+    seen_specs = set()
+    seen_headers = set()
+    for index, entry in enumerate(manifest["entries"]):
+        _validate_generated_cpp_manifest_entry(entry, index)
+        if entry["spec_file"] in seen_specs:
+            raise AssertionError(
+                f"{GENERATED_CPP_MANIFEST_FILE} duplicate spec_file "
+                f"{entry['spec_file']!r}"
+            )
+        if entry["header"] in seen_headers:
+            raise AssertionError(
+                f"{GENERATED_CPP_MANIFEST_FILE} duplicate header "
+                f"{entry['header']!r}"
+            )
+        seen_specs.add(entry["spec_file"])
+        seen_headers.add(entry["header"])
+    return manifest["entries"]
+
+
+def validate_generated_cpp_manifest(repo_root):
+    specs = dict(validate_all_contract_specs(repo_root))
+    shape_envelope_specs = {
+        file_name
+        for file_name, spec in specs.items()
+        if "shape_envelope" in spec
+    }
+    entries = generated_cpp_manifest_entries(repo_root)
+    manifest_specs = {entry["spec_file"] for entry in entries}
+    if manifest_specs != shape_envelope_specs:
+        raise AssertionError(
+            f"{GENERATED_CPP_MANIFEST_FILE} ShapeEnvelope coverage mismatch "
+            f"missing={sorted(shape_envelope_specs - manifest_specs)} "
+            f"extra={sorted(manifest_specs - shape_envelope_specs)}"
+        )
+
+    generator_path = os.path.join(
+        repo_root,
+        "tools",
+        "vulkan_contracts",
+        "gen_contract_spec_cpp.py",
+    )
+    rows = []
+    for entry in entries:
+        spec_file = entry["spec_file"]
+        spec = specs.get(spec_file)
+        if spec is None:
+            raise AssertionError(
+                f"{GENERATED_CPP_MANIFEST_FILE} unknown spec_file {spec_file!r}"
+            )
+        if "shape_envelope" not in spec:
+            raise AssertionError(
+                f"{GENERATED_CPP_MANIFEST_FILE} {spec_file} lacks ShapeEnvelope"
+            )
+
+        header_path = _repo_relative_path(
+            repo_root,
+            entry["header"],
+            f"{GENERATED_CPP_MANIFEST_FILE} {spec_file} header",
+        )
+        if not os.path.isfile(header_path):
+            raise AssertionError(
+                f"{GENERATED_CPP_MANIFEST_FILE} missing header {entry['header']}"
+            )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                generator_path,
+                "--spec",
+                os.path.join("test", "vulkan_contract_specs", spec_file),
+                "--stdout",
+            ],
+            check=False,
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            raise AssertionError(
+                f"{GENERATED_CPP_MANIFEST_FILE} generator failed for "
+                f"{spec_file}: {stderr}"
+            )
+
+        with open(header_path, "rb") as handle:
+            expected = handle.read()
+        if result.stdout != expected:
+            raise AssertionError(
+                f"{GENERATED_CPP_MANIFEST_FILE} generated header drift for "
+                f"{entry['header']}"
+            )
+
+        header_text = expected.decode("utf-8")
+        missing_markers = [
+            marker
+            for marker in entry["markers"]
+            if marker not in header_text
+        ]
+        if missing_markers:
+            raise AssertionError(
+                f"{GENERATED_CPP_MANIFEST_FILE} {entry['header']} missing "
+                f"markers: {missing_markers}"
+            )
+
+        rows.append(
+            {
+                "spec_file": spec_file,
+                "contract_name": spec["contract_name"],
+                "family": spec["family"],
+                "shape_envelope_role": spec["shape_envelope"]["role"],
+                "header": entry["header"],
+                "marker_count": len(entry["markers"]),
+            }
+        )
+    return rows
+
+
+def generated_cpp_manifest_summary(repo_root):
+    return validate_generated_cpp_manifest(repo_root)
 
 
 def shape_envelope_adjacent_negative_summary(repo_root):
@@ -2616,6 +2783,7 @@ def _main():
     parser.add_argument("--validate-adjacent-negatives", action="store_true")
     parser.add_argument("--validate-fuzz-assignments", action="store_true")
     parser.add_argument("--validate-fuzz-assignment-coverage", action="store_true")
+    parser.add_argument("--validate-generated-cpp-manifest", action="store_true")
     args = parser.parse_args()
 
     rows = contract_spec_summary(args.repo_root)
@@ -2723,6 +2891,21 @@ def _main():
             f"adjacent_negative_axes={total_adjacent_axes} "
             f"runtime_legal_cases={total_runtime_legal} "
             f"runtime_adjacent_negative_cases={total_runtime_adjacent} {roles}"
+        )
+    if args.validate_generated_cpp_manifest:
+        generated_rows = generated_cpp_manifest_summary(args.repo_root)
+        if not generated_rows:
+            raise AssertionError("no generated C++ manifest entries found")
+        total_markers = sum(row["marker_count"] for row in generated_rows)
+        entries = ", ".join(
+            f"{row['spec_file']}:{os.path.basename(row['header'])}:"
+            f"markers={row['marker_count']}"
+            for row in generated_rows
+        )
+        print(
+            "validated "
+            f"{len(generated_rows)} generated ShapeEnvelope C++ helper headers "
+            f"markers={total_markers} {entries}"
         )
 
 

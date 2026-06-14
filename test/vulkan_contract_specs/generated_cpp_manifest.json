@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "spec_file": "batch_norm_inference_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceSpec.h",
+      "markers": [
+        "BatchNormInferenceBufferFloat4DSpec",
+        "kBatchNormInferenceBufferFloat4DContractName",
+        "kBatchNormInferenceBufferFloat4DMinInputChannels",
+        "batch_norm_inference_buffer_float_4_d_options_match",
+        "batch_norm_inference_buffer_float_4_d_in_bounds"
+      ]
+    },
+    {
+      "spec_file": "batch_norm_inference_materialized_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceMaterializedSpec.h",
+      "markers": [
+        "BatchNormInferenceMaterializedBufferFloat4DSpec",
+        "kBatchNormInferenceMaterializedBufferFloat4DContractName",
+        "kBatchNormInferenceMaterializedBufferFloat4DRequiresMaterialization",
+        "batch_norm_inference_materialized_buffer_float_4_d_options_match",
+        "batch_norm_inference_materialized_buffer_float_4_d_in_bounds"
+      ]
+    },
+    {
+      "spec_file": "channel_cat_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsChannelCatSpec.h",
+      "markers": [
+        "ChannelCatRank4Dim1BufferViewSpec",
+        "kChannelCatRank4Dim1BufferViewTupleId",
+        "channel_cat_input_count_in_bounds",
+        "channel_cat_reference_in_bounds",
+        "channel_cat_input_in_bounds",
+        "channel_cat_total_channels_in_bounds"
+      ]
+    },
+    {
+      "spec_file": "elementwise_broadcast_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h",
+      "markers": [
+        "ElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec",
+        "elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds",
+        "elementwise_float_tensor_tensor_buffer_broadcast_dtype_matches",
+        "elementwise_float_tensor_tensor_buffer_broadcast_layout_matches",
+        "elementwise_float_tensor_tensor_buffer_broadcast_attributes_match"
+      ]
+    },
+    {
+      "spec_file": "embedding_lookup_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsEmbeddingLookupSpec.h",
+      "markers": [
+        "EmbeddingLookupSmallBoundedLookupSpec",
+        "embedding_lookup_index_rank_in_bounds",
+        "embedding_lookup_small_bounded_options_match",
+        "embedding_lookup_small_bounded_in_bounds"
+      ]
+    },
+    {
+      "spec_file": "safe_view_reshape_alias_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeAliasSpec.h",
+      "markers": [
+        "SafeViewReshapeReshapeAliasDenseBufferDirectSpec",
+        "kSafeViewReshapeReshapeAliasDenseBufferDirectMinInputRank",
+        "kSafeViewReshapeReshapeAliasDenseBufferDirectInputStride",
+        "kSafeViewReshapeReshapeAliasDenseBufferDirectOutputStride",
+        "safe_reshape_alias_dense_buffer_direct_input_rank_in_bounds",
+        "safe_reshape_alias_dense_buffer_direct_output_rank_in_bounds",
+        "safe_reshape_alias_dense_buffer_direct_storage_offset_matches",
+        "safe_reshape_alias_dense_buffer_direct_output_last_dim_multiple_matches"
+      ]
+    },
+    {
+      "spec_file": "safe_view_reshape_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeSpec.h",
+      "markers": [
+        "SafeViewReshapeViewMaterializedDirectBufferSpec",
+        "kSafeViewReshapeViewMaterializedDirectBufferMinInputRank",
+        "kSafeViewReshapeViewMaterializedDirectBufferOutputStride",
+        "safe_view_materialized_direct_buffer_input_rank_in_bounds",
+        "safe_view_materialized_direct_buffer_output_rank_in_bounds",
+        "safe_view_materialized_direct_buffer_storage_offset_matches",
+        "safe_view_materialized_direct_buffer_output_last_dim_multiple_matches"
+      ]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`255fd81984a099638cd9d6a688e5a8c1c826b069`.
+`6772d9135e99ec9f4eb86e40674fc8fe24dac910`.
 
 ## Repo State Summary
 
@@ -250,6 +250,11 @@ These files are diagnostic inputs. Production code must not depend on
   keeps family-specific shape checks for BatchNormInference, EmbeddingLookup,
   ChannelCat, KVCacheAppend, GQARepeat, SDPAScoreSoftmax,
   NoOverlapConvTranspose2D, and SafeViewReshape.
+  `test/vulkan_contract_specs/generated_cpp_manifest.json` declares which
+  ShapeEnvelope specs have checked-in generated C++ helper headers; governance
+  validates that the manifest covers every current ShapeEnvelope spec, each
+  header exists, each header regenerates byte-for-byte from its spec, and each
+  header contains the expected helper markers.
   Shared helpers in `test/vulkan_contract_specs/contract_spec_utils.py` keep
   generated runtime tests from copying spec loading, case iteration, log
   naming, expected negative handling, and shape-envelope validation. A
