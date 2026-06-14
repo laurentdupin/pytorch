@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsSDPAExecutionPolicySpec.h>
 
-#include <cstring>
+#include <string_view>
 
 namespace at {
 namespace native {
@@ -10,147 +11,38 @@ namespace utils {
 
 namespace {
 
-constexpr ExecutionContractMetadata make_execution_contract_metadata(
-    const char* contract_name,
-    const char* family_name,
-    const char* tuple_id,
-    const char* evidence_id,
-    const char* guard_id,
-    const char* fallback_policy,
-    const char* materialization_policy) {
-  return ExecutionContractMetadata{
-      contract_name,
-      family_name,
-      tuple_id,
-      evidence_id,
-      guard_id,
-      fallback_policy,
-      materialization_policy};
+constexpr int64_t kTransformerDecodeGQAMinSourceSequence = 100;
+constexpr int64_t kTransformerDecodeGQAMaxSourceSequence = 116;
+
+const char* sdpa_execution_policy_contract_family_name(
+    const SDPAExecutionPolicyFamily family,
+    const char* const fallback_name) {
+  switch (family) {
+    case SDPAExecutionPolicyFamily::DiffusionMaterializedSquare:
+      return "DiffusionMaterializedSquare";
+    case SDPAExecutionPolicyFamily::DiffusionCloneOnlySquare:
+      return "DiffusionCloneOnlySquare";
+    case SDPAExecutionPolicyFamily::TransformerDecodeGQACloneOnly:
+      return "TransformerDecodeGQACloneOnly";
+    case SDPAExecutionPolicyFamily::None:
+      return fallback_name;
+  }
+  return fallback_name;
 }
 
-constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
-    "unsupported_shapes_do_not_match";
-constexpr const char* kMaterializationScorePreMaterializeAndPostSoftmaxClone =
-    "score_pre_materialization_and_post_softmax_clone";
-constexpr const char* kMaterializationMaterializedMathAndPostSoftmaxClone =
-    "materialized_math_path_and_post_softmax_clone";
-constexpr const char* kMaterializationPostSoftmaxClone =
-    "post_softmax_clone";
-
-constexpr const char* kSDPAExecutionTransformerDecodeGQACloneOnlyTupleId =
-    "transformer_decode_gqa_clone_only_head128_source100_to_116";
-constexpr const char* kSDPAExecutionSquareHeads1Sequence640Dim512TupleId =
-    "square_heads1_sequence640_dim512";
-constexpr const char* kSDPAExecutionSquareHeads5Sequence640Dim64TupleId =
-    "square_heads5_sequence640_dim64";
-constexpr const char* kSDPAExecutionSquareHeads1Sequence504Dim512TupleId =
-    "square_heads1_sequence504_dim512";
-constexpr const char* kSDPAExecutionSquareHeads5Sequence504Dim64TupleId =
-    "square_heads5_sequence504_dim64";
-constexpr const char* kSDPAExecutionSquareHeads10Sequence126Dim64TupleId =
-    "square_heads10_sequence126_dim64";
-constexpr ExecutionContractMetadata
-    kSDPAExecutionSquareHeads1Sequence640Dim512Metadata =
-        make_execution_contract_metadata(
-            "SDPAExecutionPolicyContract",
-            "DiffusionMaterializedSquare",
-            kSDPAExecutionSquareHeads1Sequence640Dim512TupleId,
-            "sdpa_execution_policy_focused_tests",
-            "sdpa_execution_policy_adjacent_guards",
-            kFallbackUnsupportedShapesDoNotMatch,
-            kMaterializationScorePreMaterializeAndPostSoftmaxClone);
-constexpr ExecutionContractMetadata
-    kSDPAExecutionSquareHeads5Sequence640Dim64Metadata =
-        make_execution_contract_metadata(
-            "SDPAExecutionPolicyContract",
-            "DiffusionMaterializedSquare",
-            kSDPAExecutionSquareHeads5Sequence640Dim64TupleId,
-            "sdpa_execution_policy_focused_tests",
-            "sdpa_execution_policy_adjacent_guards",
-            kFallbackUnsupportedShapesDoNotMatch,
-            kMaterializationScorePreMaterializeAndPostSoftmaxClone);
-constexpr ExecutionContractMetadata
-    kSDPAExecutionSquareHeads1Sequence504Dim512Metadata =
-        make_execution_contract_metadata(
-            "SDPAExecutionPolicyContract",
-            "DiffusionMaterializedSquare",
-            kSDPAExecutionSquareHeads1Sequence504Dim512TupleId,
-            "sdpa_execution_policy_focused_tests",
-            "sdpa_execution_policy_adjacent_guards",
-            kFallbackUnsupportedShapesDoNotMatch,
-            kMaterializationScorePreMaterializeAndPostSoftmaxClone);
-constexpr ExecutionContractMetadata
-    kSDPAExecutionSquareHeads5Sequence504Dim64Metadata =
-        make_execution_contract_metadata(
-            "SDPAExecutionPolicyContract",
-            "DiffusionMaterializedSquare",
-            kSDPAExecutionSquareHeads5Sequence504Dim64TupleId,
-            "sdpa_execution_policy_focused_tests",
-            "sdpa_execution_policy_adjacent_guards",
-            kFallbackUnsupportedShapesDoNotMatch,
-            kMaterializationScorePreMaterializeAndPostSoftmaxClone);
-constexpr ExecutionContractMetadata
-    kSDPAExecutionSquareHeads10Sequence126Dim64Metadata =
-        make_execution_contract_metadata(
-            "SDPAExecutionPolicyContract",
-            "DiffusionCloneOnlySquare",
-            kSDPAExecutionSquareHeads10Sequence126Dim64TupleId,
-            "sdpa_execution_policy_focused_tests",
-            "sdpa_execution_policy_adjacent_guards",
-            kFallbackUnsupportedShapesDoNotMatch,
-            kMaterializationMaterializedMathAndPostSoftmaxClone);
-constexpr ExecutionContractMetadata
-    kSDPAExecutionTransformerDecodeGQACloneOnlyMetadata =
-        make_execution_contract_metadata(
-            "SDPAExecutionPolicyContract",
-            "TransformerDecodeGQACloneOnly",
-            kSDPAExecutionTransformerDecodeGQACloneOnlyTupleId,
-            "sdpa_execution_policy_focused_tests",
-            "sdpa_execution_policy_adjacent_guards",
-            kFallbackUnsupportedShapesDoNotMatch,
-            kMaterializationPostSoftmaxClone);
-
-const ExecutionContractMetadata* sdpa_execution_policy_metadata(
+void apply_sdpa_execution_policy_row(
+    SDPAExecutionPolicyMatch& result,
     const SDPAExecutionPolicyFamily family,
-    const char* tuple_id) {
-  if (tuple_id == nullptr) {
-    return nullptr;
-  }
-  if (family == SDPAExecutionPolicyFamily::DiffusionMaterializedSquare) {
-    if (std::strcmp(
-            tuple_id,
-            kSDPAExecutionSquareHeads1Sequence640Dim512TupleId) == 0) {
-      return &kSDPAExecutionSquareHeads1Sequence640Dim512Metadata;
-    }
-    if (std::strcmp(
-            tuple_id, kSDPAExecutionSquareHeads5Sequence640Dim64TupleId) ==
-        0) {
-      return &kSDPAExecutionSquareHeads5Sequence640Dim64Metadata;
-    }
-    if (std::strcmp(
-            tuple_id,
-            kSDPAExecutionSquareHeads1Sequence504Dim512TupleId) == 0) {
-      return &kSDPAExecutionSquareHeads1Sequence504Dim512Metadata;
-    }
-    if (std::strcmp(
-            tuple_id, kSDPAExecutionSquareHeads5Sequence504Dim64TupleId) ==
-        0) {
-      return &kSDPAExecutionSquareHeads5Sequence504Dim64Metadata;
-    }
-  }
-  if (
-      family == SDPAExecutionPolicyFamily::DiffusionCloneOnlySquare &&
-      std::strcmp(
-          tuple_id, kSDPAExecutionSquareHeads10Sequence126Dim64TupleId) == 0) {
-    return &kSDPAExecutionSquareHeads10Sequence126Dim64Metadata;
-  }
-  if (
-      family == SDPAExecutionPolicyFamily::TransformerDecodeGQACloneOnly &&
-      std::strcmp(
-          tuple_id, kSDPAExecutionTransformerDecodeGQACloneOnlyTupleId) == 0) {
-    return &kSDPAExecutionTransformerDecodeGQACloneOnlyMetadata;
-  }
-  return nullptr;
+    const generated::SDPAExecutionPolicyPolicyRowsRow& row) {
+  result.matched = true;
+  result.family = family;
+  result.tuple_id = row.tuple_id;
+  result.metadata = &row.metadata;
+  result.requires_materialized_math_path =
+      row.requires_materialized_math_path;
+  result.requires_score_pre_materialization =
+      row.requires_score_pre_materialization;
+  result.requires_post_softmax_clone = row.requires_post_softmax_clone;
 }
 
 } // namespace
@@ -214,38 +106,74 @@ SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
           query_sizes[1] == 1 &&
           (query_sizes[2] == 504 || query_sizes[2] == 640) &&
           query_sizes[3] == 512) {
-        result.matched = true;
-        result.family = SDPAExecutionPolicyFamily::DiffusionMaterializedSquare;
-        result.tuple_id = diffusion_match.tuple_id;
-        result.metadata =
-            sdpa_execution_policy_metadata(result.family, result.tuple_id);
-        result.requires_score_pre_materialization = true;
-        result.requires_post_softmax_clone = true;
+        const SDPAExecutionPolicyFamily family =
+            SDPAExecutionPolicyFamily::DiffusionMaterializedSquare;
+        const auto* const row =
+            generated::sdpa_execution_policy_policy_rows_find(
+                sdpa_execution_policy_contract_family_name(family, ""),
+                query_sizes[1],
+                key_sizes[1],
+                query_sizes[2],
+                query_sizes[2],
+                key_sizes[2],
+                key_sizes[2],
+                query_sizes[3],
+                enable_gqa);
+        if (
+            row == nullptr ||
+            std::string_view(row->tuple_id) != diffusion_match.tuple_id) {
+          return result;
+        }
+        apply_sdpa_execution_policy_row(result, family, *row);
         return result;
       }
       if (
           query_sizes[1] == 5 &&
           (query_sizes[2] == 504 || query_sizes[2] == 640) &&
           query_sizes[3] == 64) {
-        result.matched = true;
-        result.family = SDPAExecutionPolicyFamily::DiffusionMaterializedSquare;
-        result.tuple_id = diffusion_match.tuple_id;
-        result.metadata =
-            sdpa_execution_policy_metadata(result.family, result.tuple_id);
-        result.requires_score_pre_materialization = true;
-        result.requires_post_softmax_clone = true;
+        const SDPAExecutionPolicyFamily family =
+            SDPAExecutionPolicyFamily::DiffusionMaterializedSquare;
+        const auto* const row =
+            generated::sdpa_execution_policy_policy_rows_find(
+                sdpa_execution_policy_contract_family_name(family, ""),
+                query_sizes[1],
+                key_sizes[1],
+                query_sizes[2],
+                query_sizes[2],
+                key_sizes[2],
+                key_sizes[2],
+                query_sizes[3],
+                enable_gqa);
+        if (
+            row == nullptr ||
+            std::string_view(row->tuple_id) != diffusion_match.tuple_id) {
+          return result;
+        }
+        apply_sdpa_execution_policy_row(result, family, *row);
         return result;
       }
       if (
           query_sizes[1] == 10 && query_sizes[2] == 126 &&
           query_sizes[3] == 64) {
-        result.matched = true;
-        result.family = SDPAExecutionPolicyFamily::DiffusionCloneOnlySquare;
-        result.tuple_id = diffusion_match.tuple_id;
-        result.metadata =
-            sdpa_execution_policy_metadata(result.family, result.tuple_id);
-        result.requires_materialized_math_path = true;
-        result.requires_post_softmax_clone = true;
+        const SDPAExecutionPolicyFamily family =
+            SDPAExecutionPolicyFamily::DiffusionCloneOnlySquare;
+        const auto* const row =
+            generated::sdpa_execution_policy_policy_rows_find(
+                sdpa_execution_policy_contract_family_name(family, ""),
+                query_sizes[1],
+                key_sizes[1],
+                query_sizes[2],
+                query_sizes[2],
+                key_sizes[2],
+                key_sizes[2],
+                query_sizes[3],
+                enable_gqa);
+        if (
+            row == nullptr ||
+            std::string_view(row->tuple_id) != diffusion_match.tuple_id) {
+          return result;
+        }
+        apply_sdpa_execution_policy_row(result, family, *row);
         return result;
       }
     }
@@ -254,14 +182,26 @@ SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
   if (
       !is_causal && enable_gqa && query_sizes[1] == 16 &&
       key_sizes[1] == 16 && value_sizes[1] == 16 &&
-      query_sizes[2] == 1 && key_sizes[2] >= 100 &&
-      key_sizes[2] <= 116 && query_sizes[3] == 128) {
-    result.matched = true;
-    result.family = SDPAExecutionPolicyFamily::TransformerDecodeGQACloneOnly;
-    result.tuple_id = kSDPAExecutionTransformerDecodeGQACloneOnlyTupleId;
-    result.metadata =
-        sdpa_execution_policy_metadata(result.family, result.tuple_id);
-    result.requires_post_softmax_clone = true;
+      query_sizes[2] == 1 &&
+      key_sizes[2] >= kTransformerDecodeGQAMinSourceSequence &&
+      key_sizes[2] <= kTransformerDecodeGQAMaxSourceSequence &&
+      query_sizes[3] == 128) {
+    const SDPAExecutionPolicyFamily family =
+        SDPAExecutionPolicyFamily::TransformerDecodeGQACloneOnly;
+    const auto* const row = generated::sdpa_execution_policy_policy_rows_find(
+        sdpa_execution_policy_contract_family_name(family, ""),
+        query_sizes[1],
+        key_sizes[1],
+        query_sizes[2],
+        query_sizes[2],
+        kTransformerDecodeGQAMinSourceSequence,
+        kTransformerDecodeGQAMaxSourceSequence,
+        query_sizes[3],
+        enable_gqa);
+    if (row == nullptr) {
+      return result;
+    }
+    apply_sdpa_execution_policy_row(result, family, *row);
     return result;
   }
 

@@ -1,0 +1,1025 @@
+{
+  "schema_version": 1,
+  "contract_name": "SDPAExecutionPolicyContract",
+  "family": "SparsePolicyRows",
+  "tuple_id": "sdpa_execution_policy_sparse_policy_rows",
+  "writer_op": "aten::scaled_dot_product_attention",
+  "route_label": "SelectedSDPAExecutionPolicy",
+  "metadata": {
+    "evidence_id": "sdpa_execution_policy_focused_tests",
+    "guard_id": "sdpa_execution_policy_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "per_policy_row_materialization"
+  },
+  "bounds": {
+    "query_dtype": "float32",
+    "key_dtype": "float32",
+    "value_dtype": "float32",
+    "query_rank": 4,
+    "key_rank": 4,
+    "value_rank": 4,
+    "batch": 1,
+    "query_heads": [
+      1,
+      5,
+      10,
+      16
+    ],
+    "key_value_heads": [
+      1,
+      5,
+      10,
+      16
+    ],
+    "query_sequence": [
+      1,
+      126,
+      504,
+      640
+    ],
+    "key_value_sequence": {
+      "min": 100,
+      "max": 640
+    },
+    "head_dim": [
+      64,
+      128,
+      512
+    ],
+    "has_attn_mask": false,
+    "dropout_zero": true,
+    "is_causal": false,
+    "enable_gqa": [
+      false,
+      true
+    ],
+    "scale_policy": "delegated_to_dependent_contracts",
+    "requires_vulkan": true,
+    "requires_buffer_storage": true,
+    "requires_buffer_compute": true
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "sdpa_execution_policy_sparse_rows",
+    "inputs": {
+      "query": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "HQ",
+            "field": "query_heads",
+            "values": [
+              1,
+              5,
+              10,
+              16
+            ]
+          },
+          {
+            "symbol": "TQ",
+            "field": "query_sequence",
+            "values": [
+              1,
+              126,
+              504,
+              640
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64,
+              128,
+              512
+            ]
+          }
+        ]
+      },
+      "key": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "HKV",
+            "field": "key_value_heads",
+            "values": [
+              1,
+              5,
+              10,
+              16
+            ]
+          },
+          {
+            "symbol": "TKV",
+            "field": "key_value_sequence",
+            "min": 100,
+            "max": 640
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64,
+              128,
+              512
+            ]
+          }
+        ]
+      },
+      "value": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "HKV",
+            "field": "key_value_heads",
+            "values": [
+              1,
+              5,
+              10,
+              16
+            ]
+          },
+          {
+            "symbol": "TKV",
+            "field": "key_value_sequence",
+            "min": 100,
+            "max": 640
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64,
+              128,
+              512
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "has_attn_mask": {
+        "values": [
+          false
+        ]
+      },
+      "dropout_zero": {
+        "values": [
+          true
+        ]
+      },
+      "is_causal": {
+        "values": [
+          false
+        ]
+      },
+      "enable_gqa": {
+        "values": [
+          false,
+          true
+        ]
+      },
+      "scale_policy": {
+        "values": [
+          "delegated_to_dependent_contracts"
+        ]
+      }
+    },
+    "bounds": {
+      "query_dtype": "float32",
+      "key_dtype": "float32",
+      "value_dtype": "float32",
+      "query_rank": 4,
+      "key_rank": 4,
+      "value_rank": 4,
+      "batch": 1,
+      "query_heads": [
+        1,
+        5,
+        10,
+        16
+      ],
+      "key_value_heads": [
+        1,
+        5,
+        10,
+        16
+      ],
+      "query_sequence": [
+        1,
+        126,
+        504,
+        640
+      ],
+      "key_value_sequence": {
+        "min": 100,
+        "max": 640
+      },
+      "head_dim": [
+        64,
+        128,
+        512
+      ],
+      "has_attn_mask": false,
+      "dropout_zero": true,
+      "is_causal": false,
+      "enable_gqa": [
+        false,
+        true
+      ],
+      "scale_policy": "delegated_to_dependent_contracts",
+      "requires_vulkan": true,
+      "requires_buffer_storage": true,
+      "requires_buffer_compute": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "qkv_batch",
+        "fields": [
+          "query.N",
+          "key.N",
+          "value.N"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "key_value_heads",
+        "fields": [
+          "key.HKV",
+          "value.HKV"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "key_value_sequence",
+        "fields": [
+          "key.TKV",
+          "value.TKV"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "qkv_head_dim",
+        "fields": [
+          "query.D",
+          "key.D",
+          "value.D"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "query_storage": "buffer",
+      "key_storage": "buffer",
+      "value_storage": "buffer",
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "sdpa_execution_policy_focused_tests",
+      "guard_id": "sdpa_execution_policy_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "per_policy_row_materialization"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "per_policy_row_materialization"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "policy_rows.forbidden_cross_product",
+        "adjacent": "forbidden_cross_product"
+      },
+      {
+        "violates": "policy_rows.diffusion_materialized_sequence",
+        "adjacent": "wrong_value",
+        "value": 641
+      },
+      {
+        "violates": "policy_rows.diffusion_clone_sequence",
+        "adjacent": "wrong_value",
+        "value": 127
+      },
+      {
+        "violates": "policy_rows.transformer_source_sequence",
+        "adjacent": "wrong_value",
+        "value": 117
+      },
+      {
+        "violates": "scale_policy",
+        "adjacent": "wrong_value",
+        "value": "mismatched_scale"
+      },
+      {
+        "violates": "is_causal",
+        "adjacent": "wrong_value",
+        "value": true
+      }
+    ],
+    "fuzz_hints": {
+      "sparse_rowset": "policy_rows",
+      "prefer_sparse_rows": true,
+      "symbolic_dims": [
+        "HQ",
+        "HKV",
+        "TQ",
+        "TKV",
+        "D"
+      ]
+    },
+    "sparse_rowsets": [
+      {
+        "name": "policy_rows",
+        "fields": [
+          "family",
+          "query_heads",
+          "key_value_heads",
+          "query_sequence_min",
+          "query_sequence_max",
+          "key_value_sequence_min",
+          "key_value_sequence_max",
+          "head_dim",
+          "enable_gqa",
+          "requires_materialized_math_path",
+          "requires_score_pre_materialization",
+          "requires_post_softmax_clone",
+          "materialization_policy",
+          "tuple_id"
+        ],
+        "identity_fields": [
+          "family",
+          "query_heads",
+          "key_value_heads",
+          "query_sequence_min",
+          "query_sequence_max",
+          "key_value_sequence_min",
+          "key_value_sequence_max",
+          "head_dim",
+          "enable_gqa"
+        ],
+        "lookup_fields": [
+          "family",
+          "query_heads",
+          "key_value_heads",
+          "query_sequence_min",
+          "query_sequence_max",
+          "key_value_sequence_min",
+          "key_value_sequence_max",
+          "head_dim",
+          "enable_gqa"
+        ],
+        "label_field": "tuple_id",
+        "rows": [
+          {
+            "family": "DiffusionMaterializedSquare",
+            "query_heads": 1,
+            "key_value_heads": 1,
+            "query_sequence_min": 640,
+            "query_sequence_max": 640,
+            "key_value_sequence_min": 640,
+            "key_value_sequence_max": 640,
+            "head_dim": 512,
+            "enable_gqa": false,
+            "requires_materialized_math_path": false,
+            "requires_score_pre_materialization": true,
+            "requires_post_softmax_clone": true,
+            "materialization_policy": "score_pre_materialization_and_post_softmax_clone",
+            "tuple_id": "square_heads1_sequence640_dim512"
+          },
+          {
+            "family": "DiffusionMaterializedSquare",
+            "query_heads": 5,
+            "key_value_heads": 5,
+            "query_sequence_min": 640,
+            "query_sequence_max": 640,
+            "key_value_sequence_min": 640,
+            "key_value_sequence_max": 640,
+            "head_dim": 64,
+            "enable_gqa": false,
+            "requires_materialized_math_path": false,
+            "requires_score_pre_materialization": true,
+            "requires_post_softmax_clone": true,
+            "materialization_policy": "score_pre_materialization_and_post_softmax_clone",
+            "tuple_id": "square_heads5_sequence640_dim64"
+          },
+          {
+            "family": "DiffusionMaterializedSquare",
+            "query_heads": 1,
+            "key_value_heads": 1,
+            "query_sequence_min": 504,
+            "query_sequence_max": 504,
+            "key_value_sequence_min": 504,
+            "key_value_sequence_max": 504,
+            "head_dim": 512,
+            "enable_gqa": false,
+            "requires_materialized_math_path": false,
+            "requires_score_pre_materialization": true,
+            "requires_post_softmax_clone": true,
+            "materialization_policy": "score_pre_materialization_and_post_softmax_clone",
+            "tuple_id": "square_heads1_sequence504_dim512"
+          },
+          {
+            "family": "DiffusionMaterializedSquare",
+            "query_heads": 5,
+            "key_value_heads": 5,
+            "query_sequence_min": 504,
+            "query_sequence_max": 504,
+            "key_value_sequence_min": 504,
+            "key_value_sequence_max": 504,
+            "head_dim": 64,
+            "enable_gqa": false,
+            "requires_materialized_math_path": false,
+            "requires_score_pre_materialization": true,
+            "requires_post_softmax_clone": true,
+            "materialization_policy": "score_pre_materialization_and_post_softmax_clone",
+            "tuple_id": "square_heads5_sequence504_dim64"
+          },
+          {
+            "family": "DiffusionCloneOnlySquare",
+            "query_heads": 10,
+            "key_value_heads": 10,
+            "query_sequence_min": 126,
+            "query_sequence_max": 126,
+            "key_value_sequence_min": 126,
+            "key_value_sequence_max": 126,
+            "head_dim": 64,
+            "enable_gqa": false,
+            "requires_materialized_math_path": true,
+            "requires_score_pre_materialization": false,
+            "requires_post_softmax_clone": true,
+            "materialization_policy": "materialized_math_path_and_post_softmax_clone",
+            "tuple_id": "square_heads10_sequence126_dim64"
+          },
+          {
+            "family": "TransformerDecodeGQACloneOnly",
+            "query_heads": 16,
+            "key_value_heads": 16,
+            "query_sequence_min": 1,
+            "query_sequence_max": 1,
+            "key_value_sequence_min": 100,
+            "key_value_sequence_max": 116,
+            "head_dim": 128,
+            "enable_gqa": true,
+            "requires_materialized_math_path": false,
+            "requires_score_pre_materialization": false,
+            "requires_post_softmax_clone": true,
+            "materialization_policy": "post_softmax_clone",
+            "tuple_id": "transformer_decode_gqa_clone_only_head128_source100_to_116"
+          }
+        ],
+        "negative_axes": [
+          {
+            "violates": "policy_rows.forbidden_cross_product",
+            "kind": "forbidden_cross_product",
+            "fields": {
+              "family": "DiffusionMaterializedSquare",
+              "query_heads": 1,
+              "key_value_heads": 1,
+              "query_sequence_min": 504,
+              "query_sequence_max": 504,
+              "key_value_sequence_min": 504,
+              "key_value_sequence_max": 504,
+              "head_dim": 64,
+              "enable_gqa": false
+            }
+          },
+          {
+            "violates": "policy_rows.transformer_source_sequence",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "TransformerDecodeGQACloneOnly",
+              "query_heads": 16,
+              "key_value_heads": 16,
+              "query_sequence_min": 1,
+              "query_sequence_max": 1,
+              "key_value_sequence_min": 117,
+              "key_value_sequence_max": 117,
+              "head_dim": 128,
+              "enable_gqa": true
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "positive_cases": [
+    {
+      "name": "diffusion_square_heads1_sequence640_dim512",
+      "query_shape": [
+        1,
+        1,
+        640,
+        512
+      ],
+      "key_shape": [
+        1,
+        1,
+        640,
+        512
+      ],
+      "value_shape": [
+        1,
+        1,
+        640,
+        512
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "policy_query_sequence_range": [
+        640,
+        640
+      ],
+      "policy_key_value_sequence_range": [
+        640,
+        640
+      ],
+      "expected_contract_family": "DiffusionMaterializedSquare",
+      "expected_contract_tuple_id": "square_heads1_sequence640_dim512",
+      "expected_requires_materialized_math_path": false,
+      "expected_requires_score_pre_materialization": true,
+      "expected_requires_post_softmax_clone": true,
+      "expected_materialization_policy": "score_pre_materialization_and_post_softmax_clone",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_square_heads5_sequence640_dim64",
+      "query_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "key_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "value_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "policy_query_sequence_range": [
+        640,
+        640
+      ],
+      "policy_key_value_sequence_range": [
+        640,
+        640
+      ],
+      "expected_contract_family": "DiffusionMaterializedSquare",
+      "expected_contract_tuple_id": "square_heads5_sequence640_dim64",
+      "expected_requires_materialized_math_path": false,
+      "expected_requires_score_pre_materialization": true,
+      "expected_requires_post_softmax_clone": true,
+      "expected_materialization_policy": "score_pre_materialization_and_post_softmax_clone",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_square_heads1_sequence504_dim512",
+      "query_shape": [
+        1,
+        1,
+        504,
+        512
+      ],
+      "key_shape": [
+        1,
+        1,
+        504,
+        512
+      ],
+      "value_shape": [
+        1,
+        1,
+        504,
+        512
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "policy_query_sequence_range": [
+        504,
+        504
+      ],
+      "policy_key_value_sequence_range": [
+        504,
+        504
+      ],
+      "expected_contract_family": "DiffusionMaterializedSquare",
+      "expected_contract_tuple_id": "square_heads1_sequence504_dim512",
+      "expected_requires_materialized_math_path": false,
+      "expected_requires_score_pre_materialization": true,
+      "expected_requires_post_softmax_clone": true,
+      "expected_materialization_policy": "score_pre_materialization_and_post_softmax_clone",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_square_heads5_sequence504_dim64",
+      "query_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "key_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "value_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "policy_query_sequence_range": [
+        504,
+        504
+      ],
+      "policy_key_value_sequence_range": [
+        504,
+        504
+      ],
+      "expected_contract_family": "DiffusionMaterializedSquare",
+      "expected_contract_tuple_id": "square_heads5_sequence504_dim64",
+      "expected_requires_materialized_math_path": false,
+      "expected_requires_score_pre_materialization": true,
+      "expected_requires_post_softmax_clone": true,
+      "expected_materialization_policy": "score_pre_materialization_and_post_softmax_clone",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_square_heads10_sequence126_dim64",
+      "query_shape": [
+        1,
+        10,
+        126,
+        64
+      ],
+      "key_shape": [
+        1,
+        10,
+        126,
+        64
+      ],
+      "value_shape": [
+        1,
+        10,
+        126,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "policy_query_sequence_range": [
+        126,
+        126
+      ],
+      "policy_key_value_sequence_range": [
+        126,
+        126
+      ],
+      "expected_contract_family": "DiffusionCloneOnlySquare",
+      "expected_contract_tuple_id": "square_heads10_sequence126_dim64",
+      "expected_requires_materialized_math_path": true,
+      "expected_requires_score_pre_materialization": false,
+      "expected_requires_post_softmax_clone": true,
+      "expected_materialization_policy": "materialized_math_path_and_post_softmax_clone",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "transformer_decode_gqa_source100_to116_dim128",
+      "query_shape": [
+        1,
+        16,
+        1,
+        128
+      ],
+      "key_shape": [
+        1,
+        16,
+        100,
+        128
+      ],
+      "value_shape": [
+        1,
+        16,
+        100,
+        128
+      ],
+      "runtime_query_shape": [
+        1,
+        16,
+        1,
+        128
+      ],
+      "runtime_key_shape": [
+        1,
+        4,
+        100,
+        128
+      ],
+      "runtime_value_shape": [
+        1,
+        4,
+        100,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "policy_query_sequence_range": [
+        1,
+        1
+      ],
+      "policy_key_value_sequence_range": [
+        100,
+        116
+      ],
+      "expected_contract_family": "TransformerDecodeGQACloneOnly",
+      "expected_contract_tuple_id": "transformer_decode_gqa_clone_only_head128_source100_to_116",
+      "expected_requires_materialized_math_path": false,
+      "expected_requires_score_pre_materialization": false,
+      "expected_requires_post_softmax_clone": true,
+      "expected_materialization_policy": "post_softmax_clone",
+      "expected_cpu_fallback": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "diffusion_materialized_forbidden_dim64",
+      "query_shape": [
+        1,
+        1,
+        504,
+        64
+      ],
+      "key_shape": [
+        1,
+        1,
+        504,
+        64
+      ],
+      "value_shape": [
+        1,
+        1,
+        504,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "policy_rows.forbidden_cross_product",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadDiffusion4dSdpa",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_materialized_sequence641",
+      "query_shape": [
+        1,
+        1,
+        641,
+        512
+      ],
+      "key_shape": [
+        1,
+        1,
+        641,
+        512
+      ],
+      "value_shape": [
+        1,
+        1,
+        641,
+        512
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "policy_rows.diffusion_materialized_sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadDiffusion4dSdpa",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_clone_sequence127",
+      "query_shape": [
+        1,
+        10,
+        127,
+        64
+      ],
+      "key_shape": [
+        1,
+        10,
+        127,
+        64
+      ],
+      "value_shape": [
+        1,
+        10,
+        127,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "policy_rows.diffusion_clone_sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadDiffusion4dSdpa",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "transformer_decode_source117",
+      "query_shape": [
+        1,
+        16,
+        1,
+        128
+      ],
+      "key_shape": [
+        1,
+        16,
+        117,
+        128
+      ],
+      "value_shape": [
+        1,
+        16,
+        117,
+        128
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.0883883,
+      "enable_gqa": true,
+      "violates": "policy_rows.transformer_source_sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_mismatched_scale",
+      "query_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "key_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "value_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "violates": "scale_policy",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadDiffusion4dSdpa",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_causal_true",
+      "query_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "key_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "value_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": true,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "is_causal",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    }
+  ]
+}

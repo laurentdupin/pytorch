@@ -2668,6 +2668,269 @@ def _validate_diffusion_sdpa_shape_envelope(file_name, spec, envelope):
                 raise AssertionError(f"{case_context} unexpectedly matches rowset")
 
 
+def _sdpa_execution_policy_rowset(envelope, context):
+    rowsets = envelope.get("sparse_rowsets", [])
+    if len(rowsets) != 1:
+        raise AssertionError(f"{context} must have one sparse rowset")
+    rowset = rowsets[0]
+    _require_equal(rowset["name"], "policy_rows", f"{context} rowset name")
+    expected_fields = [
+        "family",
+        "query_heads",
+        "key_value_heads",
+        "query_sequence_min",
+        "query_sequence_max",
+        "key_value_sequence_min",
+        "key_value_sequence_max",
+        "head_dim",
+        "enable_gqa",
+        "requires_materialized_math_path",
+        "requires_score_pre_materialization",
+        "requires_post_softmax_clone",
+        "materialization_policy",
+        "tuple_id",
+    ]
+    _require_equal(rowset["fields"], expected_fields, f"{context} rowset fields")
+    expected_identity_fields = [
+        "family",
+        "query_heads",
+        "key_value_heads",
+        "query_sequence_min",
+        "query_sequence_max",
+        "key_value_sequence_min",
+        "key_value_sequence_max",
+        "head_dim",
+        "enable_gqa",
+    ]
+    _require_equal(
+        rowset["identity_fields"],
+        expected_identity_fields,
+        f"{context} rowset identity fields",
+    )
+    _require_equal(
+        rowset["lookup_fields"],
+        expected_identity_fields,
+        f"{context} rowset lookup fields",
+    )
+    _require_equal(rowset["label_field"], "tuple_id", f"{context} rowset label")
+    return rowset
+
+
+def _sdpa_execution_policy_row_key_from_case(case):
+    query_sequence_range = case["policy_query_sequence_range"]
+    key_value_sequence_range = case["policy_key_value_sequence_range"]
+    return (
+        case["expected_contract_family"],
+        case["query_shape"][1],
+        case["key_shape"][1],
+        query_sequence_range[0],
+        query_sequence_range[1],
+        key_value_sequence_range[0],
+        key_value_sequence_range[1],
+        case["query_shape"][3],
+        case["enable_gqa"],
+    )
+
+
+def _sdpa_execution_policy_row_key(row):
+    return (
+        row["family"],
+        row["query_heads"],
+        row["key_value_heads"],
+        row["query_sequence_min"],
+        row["query_sequence_max"],
+        row["key_value_sequence_min"],
+        row["key_value_sequence_max"],
+        row["head_dim"],
+        row["enable_gqa"],
+    )
+
+
+def _validate_sdpa_execution_policy_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} SDPAExecutionPolicy ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "SDPAExecutionPolicyContract",
+        f"{context} contract",
+    )
+    _require_equal(spec["family"], "SparsePolicyRows", f"{context} family")
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    bounds = envelope["bounds"]
+    for key, expected in (
+        ("query_dtype", "float32"),
+        ("key_dtype", "float32"),
+        ("value_dtype", "float32"),
+        ("query_rank", 4),
+        ("key_rank", 4),
+        ("value_rank", 4),
+        ("batch", 1),
+        ("has_attn_mask", False),
+        ("dropout_zero", True),
+        ("is_causal", False),
+        ("scale_policy", "delegated_to_dependent_contracts"),
+    ):
+        _require_equal(bounds[key], expected, f"{context} {key}")
+    _require_equal(bounds["query_heads"], [1, 5, 10, 16], f"{context} q heads")
+    _require_equal(bounds["key_value_heads"], [1, 5, 10, 16], f"{context} kv heads")
+    _require_equal(
+        bounds["query_sequence"],
+        [1, 126, 504, 640],
+        f"{context} query sequence",
+    )
+    _require_equal(
+        bounds["key_value_sequence"],
+        {"min": 100, "max": 640},
+        f"{context} key/value sequence",
+    )
+    _require_equal(bounds["head_dim"], [64, 128, 512], f"{context} head dim")
+    _require_equal(bounds["enable_gqa"], [False, True], f"{context} enable_gqa")
+    for key in ("requires_vulkan", "requires_buffer_storage", "requires_buffer_compute"):
+        _require_equal(bounds[key], True, f"{context} {key}")
+
+    rowset = _sdpa_execution_policy_rowset(envelope, context)
+    rows = rowset["rows"]
+    if len(rows) != 6:
+        raise AssertionError(f"{context} expected 6 sparse rows")
+    family_counts = {}
+    row_keys = set()
+    tuple_ids = set()
+    rows_by_key = {}
+    lookup_keys = set()
+    for row in rows:
+        family_counts[row["family"]] = family_counts.get(row["family"], 0) + 1
+        row_key = _sdpa_execution_policy_row_key(row)
+        row_keys.add(row_key)
+        rows_by_key[row_key] = row
+        lookup_keys.add(row_key)
+        tuple_ids.add(row["tuple_id"])
+    _require_equal(
+        family_counts,
+        {
+            "DiffusionMaterializedSquare": 4,
+            "DiffusionCloneOnlySquare": 1,
+            "TransformerDecodeGQACloneOnly": 1,
+        },
+        f"{context} family counts",
+    )
+    _require_equal(len(tuple_ids), 6, f"{context} tuple ids")
+    _require_equal(len(lookup_keys), 6, f"{context} lookup keys")
+
+    positive_keys = {
+        _sdpa_execution_policy_row_key_from_case(case)
+        for case in spec["positive_cases"]
+    }
+    if positive_keys != row_keys:
+        missing = sorted(row_keys - positive_keys)
+        extra = sorted(positive_keys - row_keys)
+        raise AssertionError(
+            f"{context} positives do not match sparse rowset "
+            f"missing={missing} extra={extra}"
+        )
+
+    def require_qkv_case(case, case_context, allow_violations=()):
+        for shape_name in ("query_shape", "key_shape", "value_shape"):
+            shape = case[shape_name]
+            if len(shape) != 4:
+                raise AssertionError(f"{case_context} {shape_name} rank mismatch")
+            _require_equal(shape[0], bounds["batch"], f"{case_context} batch")
+            _require_equal(
+                shape[3],
+                case["query_shape"][3],
+                f"{case_context} head dim",
+            )
+        _require_equal(
+            case["key_shape"][1],
+            case["value_shape"][1],
+            f"{case_context} key/value heads",
+        )
+        _require_equal(
+            case["key_shape"][2],
+            case["value_shape"][2],
+            f"{case_context} key/value sequence",
+        )
+        if case["dtype"] != bounds["query_dtype"]:
+            raise AssertionError(f"{case_context} dtype mismatch")
+        if (
+            case["has_attn_mask"] != bounds["has_attn_mask"]
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} attention mask mismatch")
+        if (
+            (case["dropout_p"] == 0.0) != bounds["dropout_zero"]
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} dropout mismatch")
+        if (
+            case["is_causal"] != bounds["is_causal"]
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} causal mismatch")
+
+    for case in spec["positive_cases"]:
+        case_context = f"{context} positive {case['name']}"
+        require_qkv_case(case, case_context)
+        row = rows_by_key[_sdpa_execution_policy_row_key_from_case(case)]
+        _require_equal(
+            case["expected_contract_tuple_id"],
+            row["tuple_id"],
+            f"{case_context} tuple id",
+        )
+        for key in (
+            "requires_materialized_math_path",
+            "requires_score_pre_materialization",
+            "requires_post_softmax_clone",
+        ):
+            _require_equal(
+                case[f"expected_{key}"],
+                row[key],
+                f"{case_context} {key}",
+            )
+        _require_equal(
+            case["expected_materialization_policy"],
+            row["materialization_policy"],
+            f"{case_context} materialization policy",
+        )
+        _require_equal(case["expected_cpu_fallback"], False, f"{case_context} fallback")
+
+    for case in spec["negative_cases"]:
+        case_context = f"{context} negative {case['name']}"
+        require_qkv_case(
+            case,
+            case_context,
+            allow_violations=(
+                "policy_rows.forbidden_cross_product",
+                "policy_rows.diffusion_materialized_sequence",
+                "policy_rows.diffusion_clone_sequence",
+                "policy_rows.transformer_source_sequence",
+                "scale_policy",
+                "is_causal",
+            ),
+        )
+        if case["violates"].startswith("policy_rows."):
+            key = (
+                "TransformerDecodeGQACloneOnly"
+                if case["enable_gqa"]
+                else (
+                    "DiffusionCloneOnlySquare"
+                    if case["query_shape"][1] == 10
+                    else "DiffusionMaterializedSquare"
+                ),
+                case["query_shape"][1],
+                case["key_shape"][1],
+                case["query_shape"][2],
+                case["query_shape"][2],
+                case["key_shape"][2],
+                case["key_shape"][2],
+                case["query_shape"][3],
+                case["enable_gqa"],
+            )
+            if key in lookup_keys:
+                raise AssertionError(f"{case_context} unexpectedly matches rowset")
+        _require_equal(case["expected_native_route"], False, f"{case_context} native")
+        _require_equal(case["expected_cpu_fallback"], False, f"{case_context} fallback")
+
+
 def _validate_small_spatial_pointwise_conv_shape_envelope(
     file_name,
     spec,
@@ -4159,6 +4422,69 @@ _DIFFUSION_SDPA_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.scale_policy",
 )
 
+_SDPA_EXECUTION_POLICY_LEGAL_KEY_FIELDS = (
+    "query_shape",
+    "key_shape",
+    "value_shape",
+    "dtype",
+    "has_attn_mask",
+    "dropout_p",
+    "is_causal",
+    "scale",
+    "enable_gqa",
+    "policy_query_sequence_range",
+    "policy_key_value_sequence_range",
+    "expected_contract_family",
+    "expected_contract_tuple_id",
+    "expected_requires_materialized_math_path",
+    "expected_requires_score_pre_materialization",
+    "expected_requires_post_softmax_clone",
+    "expected_materialization_policy",
+    "expected_cpu_fallback",
+)
+
+_SDPA_EXECUTION_POLICY_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "query_shape",
+    "key_shape",
+    "value_shape",
+    "dtype",
+    "has_attn_mask",
+    "dropout_p",
+    "is_causal",
+    "scale",
+    "enable_gqa",
+    "expected_native_route",
+    ("expected_runtime_error", ""),
+    "expected_cpu_fallback",
+)
+
+_SDPA_EXECUTION_POLICY_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.query.dtype",
+    "inputs.query.rank",
+    "inputs.query.dims.N",
+    "inputs.query.dims.HQ",
+    "inputs.query.dims.TQ",
+    "inputs.query.dims.D",
+    "inputs.key.dtype",
+    "inputs.key.rank",
+    "inputs.key.dims.N",
+    "inputs.key.dims.HKV",
+    "inputs.key.dims.TKV",
+    "inputs.key.dims.D",
+    "inputs.value.dtype",
+    "inputs.value.rank",
+    "inputs.value.dims.N",
+    "inputs.value.dims.HKV",
+    "inputs.value.dims.TKV",
+    "inputs.value.dims.D",
+    "attributes.has_attn_mask",
+    "attributes.dropout_zero",
+    "attributes.is_causal",
+    "attributes.enable_gqa",
+    "attributes.scale_policy",
+)
+
 _SMALL_SPATIAL_POINTWISE_CONV_LEGAL_KEY_FIELDS = (
     "input_shape",
     "out_channels",
@@ -4433,6 +4759,21 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         "assignment_coverage_fields": _DIFFUSION_SDPA_ASSIGNMENT_COVERAGE_FIELDS,
         "adjacent_negative_key_fields": (
             _DIFFUSION_SDPA_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
+    },
+    "sdpa_execution_policy_sparse_rows": {
+        "validate": _validate_sdpa_execution_policy_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _SDPA_EXECUTION_POLICY_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _SDPA_EXECUTION_POLICY_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _SDPA_EXECUTION_POLICY_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
     },
     "kv_cache_append_sequence_append": {

@@ -46,6 +46,16 @@
       ]
     },
     {
+      "spec_file": "sdpa_execution_policy_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSDPAExecutionPolicySpec.h",
+      "markers": [
+        "SDPAExecutionPolicySparsePolicyRowsSpec",
+        "SDPAExecutionPolicyPolicyRowsRow",
+        "kSDPAExecutionPolicyPolicyRowsRowCount",
+        "sdpa_execution_policy_policy_rows_find"
+      ]
+    },
+    {
       "spec_file": "elementwise_broadcast_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h",
       "markers": [

@@ -164,10 +164,18 @@ condition and migration target.
 - Reason: materialization, repeat, and post-softmax clone decisions are proven
   for finite SDPA execution envelopes, but broader layout-transition behavior is
   not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/sdpa_execution_policy_contract.json`
+  covers the `SparsePolicyRows` slice with ShapeEnvelope-backed checked-in
+  positive and adjacent negative runtime cases plus generic ShapeEnvelope C++
+  sparse-rowset helper output in
+  `generated/ExecutionContractsSDPAExecutionPolicySpec.h`. Diffusion contract
+  admission, scale tolerance, score pre-materialization, materialized math
+  path, post-softmax clone behavior, and match-result assembly remain
+  handwritten.
 - Expiry: broader SDPA execution/layout parity plus adjacent negative coverage
   are available.
-- Migration target: generated `SDPAExecutionPolicyContract` tables with
-  positive and negative tests.
+- Migration target: broader generated `SDPAExecutionPolicyContract` tables
+  with positive and negative tests.
 
 ### SDPA Score Softmax Exact Envelope
 

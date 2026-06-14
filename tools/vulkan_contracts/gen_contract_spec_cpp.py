@@ -1462,6 +1462,11 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
     row_initializers = []
     for row in rows:
         values = [f"        {_cpp_row_value(row[field])}," for field in fields]
+        materialization_policy = (
+            _cpp_row_value(row["materialization_policy"])
+            if "materialization_policy" in row
+            else f"k{spec_prefix}MaterializationPolicy"
+        )
         values.append(
             "        ExecutionContractMetadata{"
             f"k{spec_prefix}ContractName, "
@@ -1470,7 +1475,7 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
             f"k{spec_prefix}EvidenceId, "
             f"k{spec_prefix}GuardId, "
             f"k{spec_prefix}FallbackPolicy, "
-            f"k{spec_prefix}MaterializationPolicy}}"
+            f"{materialization_policy}}}"
         )
         row_initializers.extend(["    {", *values, "    },"])
     row_initializers[-1] = row_initializers[-1].rstrip(",")
@@ -1478,9 +1483,9 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
     lookup_params = []
     lookup_checks = []
     for field in lookup_fields:
-        lookup_params.append(
-            f"    const {_cpp_type_for_row_field(field_types[field])} {field},"
-        )
+        field_type = _cpp_type_for_row_field(field_types[field])
+        param_type = field_type if field_type == "const char*" else f"const {field_type}"
+        lookup_params.append(f"    {param_type} {field},")
         lookup_checks.append(_cpp_row_field_compare(field, field_types[field]))
     lookup_params[-1] = lookup_params[-1].rstrip(",") + ") {"
     lookup_condition = " &&\n        ".join(lookup_checks)

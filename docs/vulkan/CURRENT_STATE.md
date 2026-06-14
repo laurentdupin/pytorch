@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`b9e2eae16beb260ebf0970fd88878402c6880ab9`.
+`e0df9868991d970512a0833273f434662d2e8daa`.
 
 ## Repo State Summary
 
@@ -41,6 +41,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeAliasSpec.h`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSDPAExecutionPolicySpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAScoreSoftmax.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSDPAScoreSoftmaxSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp`
@@ -200,8 +201,15 @@ These files are diagnostic inputs. Production code must not depend on
   rows until broader materialization behavior is proven.
 - `SDPAExecutionPolicyContract`: finite execution materialization, softmax
   score, post-softmax clone, and repeat policy contract, now split into a
-  family-specific source; keep exact rows until broader layout-transition
-  behavior is proven.
+  family-specific source. The `SparsePolicyRows` slice has a JSON contract
+  spec backed by `ShapeEnvelope` v1 with checked-in positive/adjacent-negative
+  runtime cases plus generic ShapeEnvelope C++ sparse-rowset helper output in
+  `generated/ExecutionContractsSDPAExecutionPolicySpec.h`. The generated
+  helper provides contract identity, per-row metadata, exact policy-row lookup,
+  and materialization policy flags while calls to `DiffusionSDPAContract`,
+  route hard-fail ordering, score materialization, post-softmax clone behavior,
+  and match-result assembly remain handwritten. Keep exact rows until broader
+  layout-transition behavior is proven.
 - `SDPAScoreSoftmaxContract`: finite float rank-3 square score-softmax
   contract for heads `{1, 5}` and sequence `{504, 640}`. The
   `DiffusionSquareScores` slice has a JSON contract spec backed by
@@ -433,6 +441,17 @@ These files are diagnostic inputs. Production code must not depend on
   query-sequence, key/value sequence, and head dim. Route-policy hard-fail
   ordering, scale tolerance, SDPA execution, materialization policy, and
   match-result assembly remain handwritten so route behavior is unchanged.
+- SDPAExecutionPolicy `SparsePolicyRows` consumes the generic ShapeEnvelope
+  sparse-rowset generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsSDPAExecutionPolicySpec.h` from
+  `sdpa_execution_policy_contract.json` for contract identity, per-row
+  metadata, the six correlated execution-policy rows, exact lookup by family,
+  heads, sequence bounds, head dim, and GQA flag, and per-row materialization
+  policy strings. Diffusion contract admission, optional scale tolerance,
+  score pre-materialization, materialized math path, post-softmax clone
+  behavior, and broader SDPA policy remain handwritten so route behavior is
+  unchanged.
 - NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` consumes the generic
   ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

@@ -401,6 +401,7 @@ class TestVulkanGovernance(TestCase):
             ),
             "channel_cat_contract.json": "multi_input_rank4_channel_cat",
             "diffusion_sdpa_contract.json": "diffusion_sdpa_sparse_attention_rows",
+            "sdpa_execution_policy_contract.json": "sdpa_execution_policy_sparse_rows",
             "embedding_lookup_contract.json": "embedding_lookup_small_bounded",
             "elementwise_broadcast_contract.json": (
                 "elementwise_float_tensor_tensor_buffer_broadcast"
@@ -459,7 +460,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 17 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 18 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:"
             "batch_norm_inference_buffer_float_4d",
@@ -476,6 +477,10 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "diffusion_sdpa_contract.json:diffusion_sdpa_sparse_attention_rows",
+            result.stdout,
+        )
+        self.assertIn(
+            "sdpa_execution_policy_contract.json:sdpa_execution_policy_sparse_rows",
             result.stdout,
         )
         self.assertIn(
@@ -560,10 +565,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 17 ShapeEnvelope adjacent-negative generators",
+            "validated 18 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=86", result.stdout)
+        self.assertIn("generated_cases=92", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:3",
@@ -571,6 +576,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("channel_cat_contract.json:7", result.stdout)
         self.assertIn("diffusion_sdpa_contract.json:6", result.stdout)
+        self.assertIn("sdpa_execution_policy_contract.json:6", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
         self.assertIn("gqa_repeat_contract.json:2", result.stdout)
@@ -608,10 +614,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 17 ShapeEnvelope legal-case generators",
+            "validated 18 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=92", result.stdout)
+        self.assertIn("generated_cases=98", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:1",
@@ -619,6 +625,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("channel_cat_contract.json:5", result.stdout)
         self.assertIn("diffusion_sdpa_contract.json:11", result.stdout)
+        self.assertIn("sdpa_execution_policy_contract.json:6", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
         self.assertIn("gqa_repeat_contract.json:3", result.stdout)
@@ -656,11 +663,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 17 ShapeEnvelope fuzz assignment generators",
+            "validated 18 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=34", result.stdout)
-        self.assertIn("adjacent_negative_assignments=85", result.stdout)
+        self.assertIn("legal_assignments=36", result.stdout)
+        self.assertIn("adjacent_negative_assignments=91", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:adjacent=3",
             result.stdout,
@@ -675,6 +682,10 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "diffusion_sdpa_contract.json:legal=2:adjacent=6",
+            result.stdout,
+        )
+        self.assertIn(
+            "sdpa_execution_policy_contract.json:legal=2:adjacent=6",
             result.stdout,
         )
         self.assertIn(
@@ -750,14 +761,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 17 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 18 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=34", result.stdout)
-        self.assertIn("legal_paths=288", result.stdout)
-        self.assertIn("adjacent_negative_axes=85", result.stdout)
-        self.assertIn("runtime_legal_cases=92", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=86", result.stdout)
+        self.assertIn("legal_assignments=36", result.stdout)
+        self.assertIn("legal_paths=311", result.stdout)
+        self.assertIn("adjacent_negative_axes=91", result.stdout)
+        self.assertIn("runtime_legal_cases=98", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=92", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:status=covered:"
             "paths=21/21:adjacent_axes=3",
@@ -776,6 +787,11 @@ class TestVulkanGovernance(TestCase):
         self.assertIn(
             "diffusion_sdpa_contract.json:legal=2:status=covered:paths=23/23:"
             "adjacent_axes=6",
+            result.stdout,
+        )
+        self.assertIn(
+            "sdpa_execution_policy_contract.json:legal=2:status=covered:"
+            "paths=23/23:adjacent_axes=6",
             result.stdout,
         )
         self.assertIn(
@@ -850,6 +866,7 @@ class TestVulkanGovernance(TestCase):
             "batch_norm_inference_materialized_contract.json": (1, 3),
             "channel_cat_contract.json": (5, 7),
             "diffusion_sdpa_contract.json": (11, 6),
+            "sdpa_execution_policy_contract.json": (6, 6),
             "embedding_lookup_contract.json": (4, 4),
             "elementwise_broadcast_contract.json": (3, 3),
             "gqa_repeat_contract.json": (3, 2),
@@ -910,6 +927,7 @@ class TestVulkanGovernance(TestCase):
                 "batch_norm_inference_buffer_float_4d",
                 "batch_norm_inference_materialized_buffer_float_4d",
                 "diffusion_sdpa_sparse_attention_rows",
+                "sdpa_execution_policy_sparse_rows",
                 "elementwise_float_tensor_tensor_buffer_broadcast",
                 "gqa_repeat_batch1_heads4_factor4_sequence100_to116_dim128",
                 "kv_cache_append_initial_cache",
@@ -1114,11 +1132,15 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 2 ShapeEnvelope sparse rowsets", result.stdout)
-        self.assertIn("rows=50", result.stdout)
-        self.assertIn("sparse_gap=119770", result.stdout)
+        self.assertIn("validated 3 ShapeEnvelope sparse rowsets", result.stdout)
+        self.assertIn("rows=56", result.stdout)
+        self.assertIn("sparse_gap=193492", result.stdout)
         self.assertIn(
             "diffusion_sdpa_contract.json:attention_rows:rows=11",
+            result.stdout,
+        )
+        self.assertIn(
+            "sdpa_execution_policy_contract.json:policy_rows:rows=6",
             result.stdout,
         )
         self.assertIn(
@@ -1201,7 +1223,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 17)
+        self.assertEqual(len(rows), 18)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
 
     def test_vulkan_generated_cpp_manifest_cli(self):
@@ -1224,11 +1246,12 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 17 generated ShapeEnvelope C++ helper headers",
+            "validated 18 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
         self.assertIn("ExecutionContractsDiffusionSDPASpec.h", result.stdout)
+        self.assertIn("ExecutionContractsSDPAExecutionPolicySpec.h", result.stdout)
         self.assertIn("ExecutionContractsGQARepeatSpec.h", result.stdout)
         self.assertIn("ExecutionContractsKVCacheAppendInitialSpec.h", result.stdout)
         self.assertIn("ExecutionContractsKVCacheAppendSpec.h", result.stdout)
@@ -1251,13 +1274,13 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
-        self.assertEqual(summary["specs"], 17)
-        self.assertEqual(summary["generated_shape_envelope"], 17)
+        self.assertEqual(summary["specs"], 18)
+        self.assertEqual(summary["generated_shape_envelope"], 18)
         self.assertEqual(summary["json_spec_without_shape_envelope"], 0)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
         self.assertEqual(summary["schema_only_spec"], 0)
-        self.assertEqual(summary["live_contract_without_json_spec"], 2)
-        self.assertEqual(summary["exact_row_debt"], 2)
+        self.assertEqual(summary["live_contract_without_json_spec"], 1)
+        self.assertEqual(summary["exact_row_debt"], 1)
 
         census = contract_spec_utils.contract_coverage_census(REPO_ROOT)
         spec_rows = {
@@ -1270,6 +1293,10 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertEqual(
             spec_rows["diffusion_sdpa_contract.json"]["category"],
+            "generated_shape_envelope",
+        )
+        self.assertEqual(
+            spec_rows["sdpa_execution_policy_contract.json"]["category"],
             "generated_shape_envelope",
         )
         self.assertEqual(
@@ -1310,20 +1337,20 @@ class TestVulkanGovernance(TestCase):
         self.assertFalse(
             spec_rows["diffusion_sdpa_contract.json"]["exact_row_debt"]
         )
+        self.assertFalse(
+            spec_rows["sdpa_execution_policy_contract.json"]["exact_row_debt"]
+        )
 
         live_contracts = {
             row["contract_name"]: row
             for row in census["live_contract_rows"]
         }
-        for contract_name in (
-            "SDPAExecutionPolicyContract",
-            "TransformerGQASDPAContract",
-        ):
-            self.assertIn(contract_name, live_contracts)
-            self.assertEqual(
-                live_contracts[contract_name]["category"],
-                "live_contract_without_json_spec",
-            )
+        self.assertIn("TransformerGQASDPAContract", live_contracts)
+        self.assertEqual(
+            live_contracts["TransformerGQASDPAContract"]["category"],
+            "live_contract_without_json_spec",
+        )
+        self.assertNotIn("SDPAExecutionPolicyContract", live_contracts)
 
         result = subprocess.run(
             [
@@ -1344,11 +1371,11 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated contract coverage census specs=17", result.stdout)
-        self.assertIn("generated_shape_envelope=17", result.stdout)
+        self.assertIn("validated contract coverage census specs=18", result.stdout)
+        self.assertIn("generated_shape_envelope=18", result.stdout)
         self.assertIn("json_spec_without_shape_envelope=0", result.stdout)
-        self.assertIn("live_contract_without_json_spec=2", result.stdout)
-        self.assertIn("exact_row_debt=2", result.stdout)
+        self.assertIn("live_contract_without_json_spec=1", result.stdout)
+        self.assertIn("exact_row_debt=1", result.stdout)
         self.assertIn("contract=GQARepeatContract", result.stdout)
         self.assertIn(
             'temporary_exception="GQA Repeat Exact Tuples"',
@@ -1359,6 +1386,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("linear_gelu_bridge_contract.json", result.stdout)
         self.assertIn("masked_tiny_sdpa_contract.json", result.stdout)
         self.assertIn("diffusion_sdpa_contract.json", result.stdout)
+        self.assertIn("sdpa_execution_policy_contract.json", result.stdout)
 
     def test_vulkan_linear_gelu_bridge_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("linear_gelu_bridge_contract.json")
@@ -2259,6 +2287,145 @@ class TestVulkanGovernance(TestCase):
                     "expected_cpu_fallback",
                 ),
                 "DiffusionSDPAContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
+            self.assertFalse(case["expected_cpu_fallback"])
+
+    def test_vulkan_sdpa_execution_policy_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec("sdpa_execution_policy_contract.json")
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["contract_name"], "SDPAExecutionPolicyContract")
+        self.assertEqual(spec["family"], "SparsePolicyRows")
+        self.assertEqual(
+            spec["tuple_id"],
+            "sdpa_execution_policy_sparse_policy_rows",
+        )
+        self.assertEqual(spec["writer_op"], "aten::scaled_dot_product_attention")
+        self.assertEqual(spec["route_label"], "SelectedSDPAExecutionPolicy")
+
+        metadata = spec["metadata"]
+        _require_contract_spec_fields(
+            metadata,
+            (
+                "evidence_id",
+                "guard_id",
+                "fallback_policy",
+                "materialization_policy",
+            ),
+            "SDPAExecutionPolicyContract metadata",
+        )
+        self.assertEqual(metadata["evidence_id"], "sdpa_execution_policy_focused_tests")
+        self.assertEqual(metadata["guard_id"], "sdpa_execution_policy_adjacent_guards")
+        self.assertEqual(metadata["fallback_policy"], "unsupported_shapes_do_not_match")
+        self.assertEqual(
+            metadata["materialization_policy"],
+            "per_policy_row_materialization",
+        )
+
+        rowset = spec["shape_envelope"]["sparse_rowsets"][0]
+        self.assertEqual(rowset["name"], "policy_rows")
+        self.assertEqual(len(rowset["rows"]), 6)
+        family_counts = {}
+        tuple_ids = set()
+        materialization_policies = set()
+        for row in rowset["rows"]:
+            family_counts[row["family"]] = family_counts.get(row["family"], 0) + 1
+            tuple_ids.add(row["tuple_id"])
+            materialization_policies.add(row["materialization_policy"])
+        self.assertEqual(
+            family_counts,
+            {
+                "DiffusionMaterializedSquare": 4,
+                "DiffusionCloneOnlySquare": 1,
+                "TransformerDecodeGQACloneOnly": 1,
+            },
+        )
+        self.assertEqual(len(tuple_ids), 6)
+        self.assertEqual(
+            materialization_policies,
+            {
+                "score_pre_materialization_and_post_softmax_clone",
+                "materialized_math_path_and_post_softmax_clone",
+                "post_softmax_clone",
+            },
+        )
+
+        row_keys = {
+            (
+                row["family"],
+                row["query_heads"],
+                row["key_value_heads"],
+                row["query_sequence_min"],
+                row["query_sequence_max"],
+                row["key_value_sequence_min"],
+                row["key_value_sequence_max"],
+                row["head_dim"],
+                row["enable_gqa"],
+            )
+            for row in rowset["rows"]
+        }
+        positive_keys = {
+            (
+                case["expected_contract_family"],
+                case["query_shape"][1],
+                case["key_shape"][1],
+                case["policy_query_sequence_range"][0],
+                case["policy_query_sequence_range"][1],
+                case["policy_key_value_sequence_range"][0],
+                case["policy_key_value_sequence_range"][1],
+                case["query_shape"][3],
+                case["enable_gqa"],
+            )
+            for case in spec["positive_cases"]
+        }
+        self.assertEqual(positive_keys, row_keys)
+
+        case_fields = (
+            "name",
+            "query_shape",
+            "key_shape",
+            "value_shape",
+            "dtype",
+            "has_attn_mask",
+            "dropout_p",
+            "is_causal",
+            "scale",
+            "enable_gqa",
+        )
+        for section in ("positive_cases", "negative_cases"):
+            self.assertGreater(len(spec[section]), 0)
+            for case in spec[section]:
+                _require_contract_spec_fields(
+                    case,
+                    case_fields,
+                    f"SDPAExecutionPolicyContract {section} case",
+                )
+                self.assertEqual(len(case["query_shape"]), 4)
+                self.assertEqual(len(case["key_shape"]), 4)
+                self.assertEqual(len(case["value_shape"]), 4)
+
+        for case in spec["positive_cases"]:
+            _require_contract_spec_fields(
+                case,
+                (
+                    "policy_query_sequence_range",
+                    "policy_key_value_sequence_range",
+                    "expected_contract_family",
+                    "expected_contract_tuple_id",
+                    "expected_requires_materialized_math_path",
+                    "expected_requires_score_pre_materialization",
+                    "expected_requires_post_softmax_clone",
+                    "expected_materialization_policy",
+                    "expected_cpu_fallback",
+                ),
+                "SDPAExecutionPolicyContract positive case",
+            )
+            self.assertFalse(case["expected_cpu_fallback"])
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("violates", "expected_native_route", "expected_cpu_fallback"),
+                "SDPAExecutionPolicyContract negative case",
             )
             self.assertFalse(case["expected_native_route"])
             self.assertFalse(case["expected_cpu_fallback"])
@@ -13686,6 +13853,88 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         ):
             with self.subTest(case=case["name"]):
                 torch.manual_seed(7300 + len(case["name"]))
+                query, key, value = make_tensors(case)
+                query_vulkan = query.to("vulkan")
+                key_vulkan = key.to("vulkan")
+                value_vulkan = value.to("vulkan")
+
+                with torch.inference_mode():
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    if "expected_runtime_error" in case:
+                        with self.assertRaisesRegex(
+                            RuntimeError,
+                            case["expected_runtime_error"],
+                        ):
+                            F.scaled_dot_product_attention(
+                                query_vulkan,
+                                key_vulkan,
+                                value_vulkan,
+                                dropout_p=case["dropout_p"],
+                                is_causal=case["is_causal"],
+                                scale=case["scale"],
+                                enable_gqa=case["enable_gqa"],
+                            )
+                    else:
+                        expected = F.scaled_dot_product_attention(
+                            query,
+                            key,
+                            value,
+                            dropout_p=case["dropout_p"],
+                            is_causal=case["is_causal"],
+                            scale=case["scale"],
+                            enable_gqa=case["enable_gqa"],
+                        )
+                        actual = F.scaled_dot_product_attention(
+                            query_vulkan,
+                            key_vulkan,
+                            value_vulkan,
+                            dropout_p=case["dropout_p"],
+                            is_causal=case["is_causal"],
+                            scale=case["scale"],
+                            enable_gqa=case["enable_gqa"],
+                        ).cpu()
+                        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+
+                fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                if expect_native_route:
+                    self.assertFalse(case["expected_cpu_fallback"])
+                    self.assertEqual(fallback_count, 0)
+                else:
+                    self.assertFalse(case["expected_native_route"])
+                    self.assertEqual(
+                        fallback_count,
+                        1 if case["expected_cpu_fallback"] else 0,
+                    )
+
+    def test_sdpa_execution_policy_contract_generated_spec(self):
+        spec = _load_vulkan_contract_spec("sdpa_execution_policy_contract.json")
+
+        def dtype_for_case(case):
+            return {
+                "float32": torch.float32,
+            }[case["dtype"]]
+
+        def make_tensors(case):
+            dtype = dtype_for_case(case)
+            query = torch.randn(
+                *case.get("runtime_query_shape", case["query_shape"]),
+                dtype=dtype,
+            )
+            key = torch.randn(
+                *case.get("runtime_key_shape", case["key_shape"]),
+                dtype=dtype,
+            )
+            value = torch.randn(
+                *case.get("runtime_value_shape", case["value_shape"]),
+                dtype=dtype,
+            )
+            return query, key, value
+
+        for _, case, expect_native_route in (
+            contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+        ):
+            with self.subTest(case=case["name"]):
+                torch.manual_seed(7400 + len(case["name"]))
                 query, key, value = make_tensors(case)
                 query_vulkan = query.to("vulkan")
                 key_vulkan = key.to("vulkan")
