@@ -1,4 +1,6 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsKVCacheAppendInitialSpec.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsKVCacheAppendSpec.h>
 
 namespace at {
 namespace native {
@@ -26,58 +28,30 @@ constexpr ExecutionContractMetadata make_execution_contract_metadata(
       materialization_policy};
 }
 
-constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
-    "unsupported_shapes_do_not_match";
-constexpr const char* kMaterializationKVCacheAppendBuffer =
-    "kv_cache_append_buffer_kernel";
-
-constexpr int64_t kKVCacheAppendBatch = 1;
-constexpr int64_t kKVCacheAppendHeads = 4;
-constexpr int64_t kKVCacheAppendMinSequence = 99;
-constexpr int64_t kKVCacheAppendMaxSequence = 116;
-constexpr int64_t kKVCacheAppendMaxSourceSequence = 115;
-constexpr int64_t kKVCacheAppendTokenSequence = 1;
-constexpr int64_t kKVCacheAppendHeadDim = 128;
-constexpr const char* kKVCacheAppendInitialTupleId =
-    "initial_empty_s99_to_s116_heads4_dim128";
-constexpr const char* kKVCacheAppendSequenceTupleId =
-    "sequence_append_s99_to_s115_token1_heads4_dim128";
 constexpr ExecutionContractMetadata kKVCacheAppendInitialMetadata =
     make_execution_contract_metadata(
-        "KVCacheAppendContract",
-        "InitialCache",
-        kKVCacheAppendInitialTupleId,
-        "kv_cache_append_focused_tests",
-        "kv_cache_append_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationKVCacheAppendBuffer);
+        generated::kKVCacheAppendInitialCacheSpec.contract_name,
+        generated::kKVCacheAppendInitialCacheSpec.family_name,
+        generated::kKVCacheAppendInitialCacheSpec.tuple_id,
+        generated::kKVCacheAppendInitialCacheSpec.evidence_id,
+        generated::kKVCacheAppendInitialCacheSpec.guard_id,
+        generated::kKVCacheAppendInitialCacheSpec.fallback_policy,
+        generated::kKVCacheAppendInitialCacheSpec.materialization_policy);
 constexpr ExecutionContractMetadata kKVCacheAppendSequenceMetadata =
     make_execution_contract_metadata(
-        "KVCacheAppendContract",
-        "SequenceAppend",
-        kKVCacheAppendSequenceTupleId,
-        "kv_cache_append_focused_tests",
-        "kv_cache_append_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationKVCacheAppendBuffer);
+        generated::kKVCacheAppendSequenceAppendSpec.contract_name,
+        generated::kKVCacheAppendSequenceAppendSpec.family_name,
+        generated::kKVCacheAppendSequenceAppendSpec.tuple_id,
+        generated::kKVCacheAppendSequenceAppendSpec.evidence_id,
+        generated::kKVCacheAppendSequenceAppendSpec.guard_id,
+        generated::kKVCacheAppendSequenceAppendSpec.fallback_policy,
+        generated::kKVCacheAppendSequenceAppendSpec.materialization_policy);
 
-bool matches_kv_cache_state_shape(const IntArrayRef sizes) {
-  return sizes.size() == 4 && sizes[0] == kKVCacheAppendBatch &&
-      sizes[1] == kKVCacheAppendHeads &&
-      sizes[2] >= kKVCacheAppendMinSequence &&
-      sizes[2] <= kKVCacheAppendMaxSequence &&
-      sizes[3] == kKVCacheAppendHeadDim;
-}
-
-bool matches_kv_cache_token_shape(const IntArrayRef sizes) {
-  return sizes.size() == 4 && sizes[0] == kKVCacheAppendBatch &&
-      sizes[1] == kKVCacheAppendHeads &&
-      sizes[2] == kKVCacheAppendTokenSequence &&
-      sizes[3] == kKVCacheAppendHeadDim;
-}
-
-bool matches_empty_initial_cache_shape(const IntArrayRef sizes) {
-  return sizes.size() == 1 && sizes[0] == 0;
+int64_t size_at_or(const IntArrayRef sizes, const int64_t index) {
+  if (index < 0 || index >= static_cast<int64_t>(sizes.size())) {
+    return -1;
+  }
+  return sizes[index];
 }
 
 } // namespace
@@ -97,9 +71,9 @@ const char* kv_cache_append_family_name(const KVCacheAppendFamily family) {
 const char* kv_cache_append_op_hit_label(const KVCacheAppendFamily family) {
   switch (family) {
     case KVCacheAppendFamily::InitialCache:
-      return "aten::cat.kv_cache_initial_dim2_buffer";
+      return generated::kKVCacheAppendInitialCacheSpec.route_label;
     case KVCacheAppendFamily::SequenceAppend:
-      return "aten::cat.kv_cache_append_dim2_buffer";
+      return generated::kKVCacheAppendSequenceAppendSpec.route_label;
     case KVCacheAppendFamily::None:
       return "aten::cat.kv_cache_append.none";
   }
@@ -115,27 +89,56 @@ KVCacheAppendMatch match_kv_cache_append_contract(
     const bool right_is_vulkan,
     const int64_t dim) {
   KVCacheAppendMatch result;
-  if (!left_is_vulkan || !right_is_vulkan || dim != 2) {
-    return result;
-  }
+  const auto& initial_spec = generated::kKVCacheAppendInitialCacheSpec;
+  const auto& sequence_spec = generated::kKVCacheAppendSequenceAppendSpec;
+  const int64_t left_rank = static_cast<int64_t>(left_sizes.size());
+  const int64_t right_rank = static_cast<int64_t>(right_sizes.size());
   if (
-      matches_empty_initial_cache_shape(left_sizes) &&
-      right_dtype == kFloat && matches_kv_cache_state_shape(right_sizes)) {
+      generated::kv_cache_append_initial_cache_options_match(
+          initial_spec,
+          right_dtype,
+          left_rank,
+          right_rank,
+          size_at_or(left_sizes, 0),
+          dim,
+          size_at_or(right_sizes, 0),
+          size_at_or(right_sizes, 1),
+          size_at_or(right_sizes, 3),
+          left_is_vulkan,
+          right_is_vulkan) &&
+      size_at_or(right_sizes, 2) >= initial_spec.min_sequence &&
+      generated::kv_cache_append_initial_cache_in_bounds(
+          initial_spec, size_at_or(right_sizes, 2))) {
     result.matched = true;
     result.family = KVCacheAppendFamily::InitialCache;
-    result.tuple_id = kKVCacheAppendInitialTupleId;
+    result.tuple_id = initial_spec.tuple_id;
     result.metadata = &kKVCacheAppendInitialMetadata;
     result.sequence_length = right_sizes[2];
     return result;
   }
   if (
-      left_dtype == kFloat && right_dtype == kFloat &&
-      matches_kv_cache_state_shape(left_sizes) &&
-      matches_kv_cache_token_shape(right_sizes) &&
-      left_sizes[2] <= kKVCacheAppendMaxSourceSequence) {
+      generated::kv_cache_append_sequence_append_options_match(
+          sequence_spec,
+          left_dtype,
+          right_dtype,
+          left_rank,
+          right_rank,
+          dim,
+          size_at_or(left_sizes, 0),
+          size_at_or(left_sizes, 1),
+          size_at_or(right_sizes, 2),
+          size_at_or(left_sizes, 3),
+          left_is_vulkan,
+          right_is_vulkan) &&
+      size_at_or(left_sizes, 2) >= sequence_spec.min_source_sequence &&
+      generated::kv_cache_append_sequence_append_in_bounds(
+          sequence_spec, size_at_or(left_sizes, 2)) &&
+      size_at_or(right_sizes, 0) == size_at_or(left_sizes, 0) &&
+      size_at_or(right_sizes, 1) == size_at_or(left_sizes, 1) &&
+      size_at_or(right_sizes, 3) == size_at_or(left_sizes, 3)) {
     result.matched = true;
     result.family = KVCacheAppendFamily::SequenceAppend;
-    result.tuple_id = kKVCacheAppendSequenceTupleId;
+    result.tuple_id = sequence_spec.tuple_id;
     result.metadata = &kKVCacheAppendSequenceMetadata;
     result.sequence_length = left_sizes[2];
     return result;

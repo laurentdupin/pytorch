@@ -87,7 +87,8 @@ Current MVP status:
   checked-in-case runtime fixtures for `BatchNormInferenceContract`
   `BufferFloat4D` and `MaterializedBufferFloat4D`, plus
   `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast`, plus
-  `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer`.
+  `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer`, plus
+  `KVCacheAppendContract` `SequenceAppend` and `InitialCache`.
   The schema captures symbolic dims, min/max, values, multiples, optional
   dims, generic `broadcast_compatible` relationships, aggregate bounds, layout
   and capability requirements, policies, positive cases, adjacent negatives,
@@ -123,6 +124,14 @@ Current MVP status:
   identity, metadata, dtype/rank/options/layout bounds, and helper predicates
   for the existing matcher. Packed-channel equality, output-shape arithmetic,
   prepack resource behavior, and match-result construction remain handwritten.
+- `KVCacheAppendContract` `SequenceAppend` and `InitialCache` now use the
+  generic ShapeEnvelope C++ simple-bounds generator path:
+  `ExecutionContractsKVCacheAppendSpec.h` and
+  `ExecutionContractsKVCacheAppendInitialSpec.h` provide contract identity,
+  metadata, route labels, dtype/rank/scalar/range bounds, and helper
+  predicates for the existing matcher. Initial-empty handling, sequence lower
+  bounds, cross-input equality, and match-result construction remain
+  handwritten.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

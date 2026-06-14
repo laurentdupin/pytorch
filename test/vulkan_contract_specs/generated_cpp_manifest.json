@@ -57,6 +57,28 @@
       ]
     },
     {
+      "spec_file": "kv_cache_append_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsKVCacheAppendSpec.h",
+      "markers": [
+        "KVCacheAppendSequenceAppendSpec",
+        "kKVCacheAppendSequenceAppendContractName",
+        "kKVCacheAppendSequenceAppendMinSourceSequence",
+        "kv_cache_append_sequence_append_options_match",
+        "kv_cache_append_sequence_append_in_bounds"
+      ]
+    },
+    {
+      "spec_file": "kv_cache_append_initial_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsKVCacheAppendInitialSpec.h",
+      "markers": [
+        "KVCacheAppendInitialCacheSpec",
+        "kKVCacheAppendInitialCacheContractName",
+        "kKVCacheAppendInitialCacheMinSequence",
+        "kv_cache_append_initial_cache_options_match",
+        "kv_cache_append_initial_cache_in_bounds"
+      ]
+    },
+    {
       "spec_file": "no_overlap_conv_transpose2d_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h",
       "markers": [

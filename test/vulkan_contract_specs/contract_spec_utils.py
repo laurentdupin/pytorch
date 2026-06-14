@@ -1351,6 +1351,246 @@ def _validate_no_overlap_conv_transpose2d_shape_envelope(file_name, spec, envelo
                 raise AssertionError(f"{case_context} output padding mismatch")
 
 
+def _validate_kv_cache_append_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} KVCacheAppend ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "KVCacheAppendContract",
+        f"{context} contract",
+    )
+    family = spec["family"]
+    if family not in ("SequenceAppend", "InitialCache"):
+        raise AssertionError(f"{context} unsupported family {family!r}")
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+    bounds = envelope["bounds"]
+    attributes = envelope["attributes"]
+    _require_equal(
+        _single_value(attributes["dim"], f"{context} dim"),
+        bounds["dim"],
+        f"{context} dim",
+    )
+
+    if family == "SequenceAppend":
+        inputs = envelope["inputs"]
+        require_fields(inputs, ("cache", "token"), f"{context} inputs")
+        cache = inputs["cache"]
+        token = inputs["token"]
+        _require_equal(
+            _single_value(cache["dtype"], f"{context} cache dtype"),
+            bounds["cache_dtype"],
+            f"{context} cache dtype",
+        )
+        _require_equal(
+            _single_value(token["dtype"], f"{context} token dtype"),
+            bounds["token_dtype"],
+            f"{context} token dtype",
+        )
+        _require_equal(
+            _single_value(cache["rank"], f"{context} cache rank"),
+            bounds["cache_rank"],
+            f"{context} cache rank",
+        )
+        _require_equal(
+            _single_value(token["rank"], f"{context} token rank"),
+            bounds["token_rank"],
+            f"{context} token rank",
+        )
+        cache_dims = _dims_by_symbol(cache, f"{context} cache")
+        token_dims = _dims_by_symbol(token, f"{context} token")
+        _require_equal(
+            _single_value(cache_dims["N"], f"{context} cache batch"),
+            bounds["batch"],
+            f"{context} cache batch",
+        )
+        _require_equal(
+            _single_value(token_dims["N"], f"{context} token batch"),
+            bounds["batch"],
+            f"{context} token batch",
+        )
+        _require_equal(
+            _single_value(cache_dims["H"], f"{context} cache heads"),
+            bounds["heads"],
+            f"{context} cache heads",
+        )
+        _require_equal(
+            _single_value(token_dims["H"], f"{context} token heads"),
+            bounds["heads"],
+            f"{context} token heads",
+        )
+        _require_equal(
+            cache_dims["S"]["min"],
+            bounds["source_sequence"]["min"],
+            f"{context} source min",
+        )
+        _require_equal(
+            cache_dims["S"]["max"],
+            bounds["source_sequence"]["max"],
+            f"{context} source max",
+        )
+        _require_equal(
+            _single_value(token_dims["T"], f"{context} token sequence"),
+            bounds["token_sequence"],
+            f"{context} token sequence",
+        )
+        _require_equal(
+            _single_value(cache_dims["D"], f"{context} cache head_dim"),
+            bounds["head_dim"],
+            f"{context} cache head_dim",
+        )
+        _require_equal(
+            _single_value(token_dims["D"], f"{context} token head_dim"),
+            bounds["head_dim"],
+            f"{context} token head_dim",
+        )
+        if "equal" not in _relationship_types(envelope):
+            raise AssertionError(f"{context} missing equality relationships")
+        _require_equal(
+            envelope["layout"]["cache_requires_vulkan"],
+            bounds["cache_requires_vulkan"],
+            f"{context} cache_requires_vulkan",
+        )
+        _require_equal(
+            envelope["layout"]["token_requires_vulkan"],
+            bounds["token_requires_vulkan"],
+            f"{context} token_requires_vulkan",
+        )
+
+        for section in ("positive_cases", "negative_cases"):
+            for case in spec[section]:
+                case_context = f"{context} {section} {case['name']}"
+                if len(case["cache_shape"]) != bounds["cache_rank"]:
+                    raise AssertionError(f"{case_context} cache rank mismatch")
+                if len(case["token_shape"]) != bounds["token_rank"]:
+                    raise AssertionError(f"{case_context} token rank mismatch")
+                if case["dim"] != bounds["dim"]:
+                    raise AssertionError(f"{case_context} dim mismatch")
+                if case["dtype"] != bounds["cache_dtype"]:
+                    raise AssertionError(f"{case_context} dtype mismatch")
+                if case.get("violates") not in (
+                    "source_sequence.min",
+                    "source_sequence.max",
+                ):
+                    source_sequence = case["cache_shape"][2]
+                    if not (
+                        bounds["source_sequence"]["min"]
+                        <= source_sequence
+                        <= bounds["source_sequence"]["max"]
+                    ):
+                        raise AssertionError(
+                            f"{case_context} source sequence mismatch"
+                        )
+                if (
+                    case.get("violates") != "token_sequence" and
+                    case["token_shape"][2] != bounds["token_sequence"]
+                ):
+                    raise AssertionError(f"{case_context} token sequence mismatch")
+                if (
+                    case.get("violates") != "heads" and
+                    (
+                        case["cache_shape"][1] != bounds["heads"] or
+                        case["token_shape"][1] != bounds["heads"]
+                    )
+                ):
+                    raise AssertionError(f"{case_context} heads mismatch")
+                if (
+                    case.get("violates") != "head_dim" and
+                    (
+                        case["cache_shape"][3] != bounds["head_dim"] or
+                        case["token_shape"][3] != bounds["head_dim"]
+                    )
+                ):
+                    raise AssertionError(f"{case_context} head dim mismatch")
+        return
+
+    inputs = envelope["inputs"]
+    require_fields(inputs, ("empty", "value"), f"{context} inputs")
+    empty = inputs["empty"]
+    value = inputs["value"]
+    _require_equal(
+        _single_value(empty["rank"], f"{context} empty rank"),
+        bounds["empty_rank"],
+        f"{context} empty rank",
+    )
+    _require_equal(
+        _single_value(value["dtype"], f"{context} value dtype"),
+        bounds["value_dtype"],
+        f"{context} value dtype",
+    )
+    _require_equal(
+        _single_value(value["rank"], f"{context} value rank"),
+        bounds["value_rank"],
+        f"{context} value rank",
+    )
+    empty_dims = _dims_by_symbol(empty, f"{context} empty")
+    value_dims = _dims_by_symbol(value, f"{context} value")
+    _require_equal(
+        _single_value(empty_dims["E"], f"{context} empty dim0"),
+        bounds["empty_dim0"],
+        f"{context} empty dim0",
+    )
+    _require_equal(
+        _single_value(value_dims["N"], f"{context} value batch"),
+        bounds["batch"],
+        f"{context} value batch",
+    )
+    _require_equal(
+        _single_value(value_dims["H"], f"{context} value heads"),
+        bounds["heads"],
+        f"{context} value heads",
+    )
+    _require_equal(
+        value_dims["S"]["min"],
+        bounds["sequence"]["min"],
+        f"{context} sequence min",
+    )
+    _require_equal(
+        value_dims["S"]["max"],
+        bounds["sequence"]["max"],
+        f"{context} sequence max",
+    )
+    _require_equal(
+        _single_value(value_dims["D"], f"{context} value head_dim"),
+        bounds["head_dim"],
+        f"{context} value head_dim",
+    )
+    _require_equal(
+        envelope["layout"]["empty_requires_vulkan"],
+        bounds["empty_requires_vulkan"],
+        f"{context} empty_requires_vulkan",
+    )
+    _require_equal(
+        envelope["layout"]["value_requires_vulkan"],
+        bounds["value_requires_vulkan"],
+        f"{context} value_requires_vulkan",
+    )
+
+    for section in ("positive_cases", "negative_cases"):
+        for case in spec[section]:
+            case_context = f"{context} {section} {case['name']}"
+            if case.get("violates") != "empty_shape" and case["empty_shape"] != [0]:
+                raise AssertionError(f"{case_context} empty shape mismatch")
+            if len(case["value_shape"]) != bounds["value_rank"]:
+                raise AssertionError(f"{case_context} value rank mismatch")
+            if case["dim"] != bounds["dim"]:
+                raise AssertionError(f"{case_context} dim mismatch")
+            if case["dtype"] != bounds["value_dtype"]:
+                raise AssertionError(f"{case_context} dtype mismatch")
+            if case.get("violates") not in ("sequence.min", "sequence.max"):
+                sequence = case["value_shape"][2]
+                if not (bounds["sequence"]["min"] <= sequence <= bounds["sequence"]["max"]):
+                    raise AssertionError(f"{case_context} sequence mismatch")
+            if (
+                case.get("violates") != "heads" and
+                case["value_shape"][1] != bounds["heads"]
+            ):
+                raise AssertionError(f"{case_context} heads mismatch")
+            if (
+                case.get("violates") != "head_dim" and
+                case["value_shape"][3] != bounds["head_dim"]
+            ):
+                raise AssertionError(f"{case_context} head dim mismatch")
+
+
 def _broadcast_output_shape(left, right):
     result = []
     max_rank = max(len(left), len(right))
@@ -2169,6 +2409,74 @@ _NO_OVERLAP_CONV_TRANSPOSE2D_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.bias_is_float",
 )
 
+_KV_CACHE_APPEND_SEQUENCE_LEGAL_KEY_FIELDS = (
+    "cache_shape",
+    "token_shape",
+    "dim",
+    "dtype",
+    "expected_route_label",
+    "expected_cpu_fallback",
+)
+
+_KV_CACHE_APPEND_SEQUENCE_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "cache_shape",
+    "token_shape",
+    "dim",
+    "dtype",
+    "force_buffer_view",
+    "expected_native_route",
+    "expected_cpu_fallback",
+)
+
+_KV_CACHE_APPEND_SEQUENCE_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.cache.dtype",
+    "inputs.cache.rank",
+    "inputs.cache.dims.N",
+    "inputs.cache.dims.H",
+    "inputs.cache.dims.S",
+    "inputs.cache.dims.D",
+    "inputs.token.dtype",
+    "inputs.token.rank",
+    "inputs.token.dims.N",
+    "inputs.token.dims.H",
+    "inputs.token.dims.T",
+    "inputs.token.dims.D",
+    "attributes.dim",
+)
+
+_KV_CACHE_APPEND_INITIAL_LEGAL_KEY_FIELDS = (
+    "empty_shape",
+    "value_shape",
+    "dim",
+    "dtype",
+    "expected_route_label",
+    "expected_cpu_fallback",
+)
+
+_KV_CACHE_APPEND_INITIAL_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "empty_shape",
+    "value_shape",
+    "dim",
+    "dtype",
+    "force_buffer_view",
+    "expected_native_route",
+    "expected_cpu_fallback",
+)
+
+_KV_CACHE_APPEND_INITIAL_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.empty.rank",
+    "inputs.empty.dims.E",
+    "inputs.value.dtype",
+    "inputs.value.rank",
+    "inputs.value.dims.N",
+    "inputs.value.dims.H",
+    "inputs.value.dims.S",
+    "inputs.value.dims.D",
+    "attributes.dim",
+)
+
 
 SHAPE_ENVELOPE_ROLE_REGISTRY = {
     "batch_norm_inference_buffer_float_4d": {
@@ -2221,6 +2529,36 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         ),
         "adjacent_negative_key_fields": (
             _NO_OVERLAP_CONV_TRANSPOSE2D_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
+    },
+    "kv_cache_append_sequence_append": {
+        "validate": _validate_kv_cache_append_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _KV_CACHE_APPEND_SEQUENCE_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _KV_CACHE_APPEND_SEQUENCE_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _KV_CACHE_APPEND_SEQUENCE_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
+    },
+    "kv_cache_append_initial_cache": {
+        "validate": _validate_kv_cache_append_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _KV_CACHE_APPEND_INITIAL_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _KV_CACHE_APPEND_INITIAL_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _KV_CACHE_APPEND_INITIAL_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
     },
     "multi_input_rank4_channel_cat": {

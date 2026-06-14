@@ -5,19 +5,224 @@
   "tuple_id": "sequence_append_s99_to_s115_token1_heads4_dim128",
   "writer_op": "aten::cat",
   "route_label": "aten::cat.kv_cache_append_dim2_buffer",
+  "metadata": {
+    "evidence_id": "kv_cache_append_focused_tests",
+    "guard_id": "kv_cache_append_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "kv_cache_append_buffer_kernel"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "kv_cache_append_sequence_append",
+    "inputs": {
+      "cache": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "H",
+            "field": "heads",
+            "values": [
+              4
+            ]
+          },
+          {
+            "symbol": "S",
+            "field": "source_sequence",
+            "min": 99,
+            "max": 115
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              128
+            ]
+          }
+        ]
+      },
+      "token": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "H",
+            "field": "heads",
+            "values": [
+              4
+            ]
+          },
+          {
+            "symbol": "T",
+            "field": "token_sequence",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              128
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "dim": {
+        "values": [
+          2
+        ]
+      }
+    },
+    "bounds": {
+      "cache_dtype": "float32",
+      "token_dtype": "float32",
+      "cache_rank": 4,
+      "token_rank": 4,
+      "dim": 2,
+      "batch": 1,
+      "heads": 4,
+      "token_sequence": 1,
+      "head_dim": 128,
+      "source_sequence": {
+        "min": 99,
+        "max": 115
+      },
+      "cache_requires_vulkan": true,
+      "token_requires_vulkan": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "batch",
+        "fields": [
+          "cache.N",
+          "token.N"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "heads",
+        "fields": [
+          "cache.H",
+          "token.H"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "head_dim",
+        "fields": [
+          "cache.D",
+          "token.D"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "cache_requires_vulkan": true,
+      "token_requires_vulkan": true,
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {},
+    "metadata": {
+      "evidence_id": "kv_cache_append_focused_tests",
+      "guard_id": "kv_cache_append_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "kv_cache_append_buffer_kernel"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "kv_cache_append_buffer_kernel"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "source_sequence.min",
+        "adjacent": "below_min",
+        "value": 98
+      },
+      {
+        "violates": "source_sequence.max",
+        "adjacent": "above_max",
+        "value": 116
+      },
+      {
+        "violates": "token_sequence",
+        "adjacent": "wrong_value",
+        "value": 2
+      },
+      {
+        "violates": "heads",
+        "adjacent": "wrong_value",
+        "value": 5
+      },
+      {
+        "violates": "head_dim",
+        "adjacent": "wrong_value",
+        "value": 64
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "S"
+      ],
+      "prefer_boundaries": true
+    }
+  },
   "bounds": {
-    "dtype": "float32",
-    "rank": 4,
+    "cache_dtype": "float32",
+    "token_dtype": "float32",
+    "cache_rank": 4,
+    "token_rank": 4,
     "dim": 2,
     "batch": 1,
     "heads": 4,
+    "token_sequence": 1,
+    "head_dim": 128,
     "source_sequence": {
       "min": 99,
       "max": 115
     },
-    "token_sequence": 1,
-    "head_dim": 128,
-    "requires_vulkan": true
+    "cache_requires_vulkan": true,
+    "token_requires_vulkan": true
   },
   "positive_cases": [
     {

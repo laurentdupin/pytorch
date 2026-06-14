@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`616de7d307e2016058c08a556065183e07154853`.
+`7d10cec4fde84856d19eb0d63544900db940b4bc`.
 
 ## Repo State Summary
 
@@ -27,6 +27,8 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsEmbeddingLookupSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsGQARepeat.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsKVCacheAppend.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsKVCacheAppendInitialSpec.h`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsKVCacheAppendSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsLinearGeluBridge.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsMaskedTinySDPA.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp`
@@ -194,10 +196,15 @@ These files are diagnostic inputs. Production code must not depend on
   construction remain handwritten.
 - `KVCacheAppendContract`: bounded Transformer sequence append and initial
   empty-cache cat rows. Both `SequenceAppend` and `InitialCache` slices have
-  JSON contract specs with generated positive and adjacent negative runtime
-  coverage. InitialCache positives now log the contract-owned
-  `aten::cat.kv_cache_initial_dim2_buffer` op-hit label while unrelated
-  direct-buffer cat paths keep their generic labels.
+  JSON contract specs backed by `ShapeEnvelope` v1 with checked-in positive
+  and adjacent negative runtime cases plus generic ShapeEnvelope C++
+  metadata/simple-bound helper output. The generated helpers provide contract
+  identity, route labels, metadata, dtype/rank/scalar/range bounds, and helper
+  predicates while initial-empty handling, sequence lower bounds, cross-input
+  equality, and match-result assembly remain handwritten. InitialCache
+  positives log the contract-owned `aten::cat.kv_cache_initial_dim2_buffer`
+  op-hit label while unrelated direct-buffer cat paths keep their generic
+  labels.
 - `UNetChannelConcatContract`: mostly generic already; keep model provenance in
   tests/docs.
 - `GQARepeatContract`: finite bounded K/V head repeat contract, now split into
@@ -273,9 +280,10 @@ These files are diagnostic inputs. Production code must not depend on
   generated/checked-in runtime cases without executing additional fuzz
   assignments. BatchNormInference `BufferFloat4D`,
   `MaterializedBufferFloat4D`, ElementwiseBroadcast
-  `FloatTensorTensorBufferBroadcast`, and NoOverlapConvTranspose2D
-  `Kernel2Stride2FloatBuffer` use generic checked-in case plumbing under the
-  ShapeEnvelope registry. ChannelCat, EmbeddingLookup, and both
+  `FloatTensorTensorBufferBroadcast`, KVCacheAppend `SequenceAppend` and
+  `InitialCache`, and NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` use
+  generic checked-in case plumbing under the ShapeEnvelope registry.
+  ChannelCat, EmbeddingLookup, and both
   SafeViewReshape direct-buffer slices have
   deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
   that must match the checked-in positive and negative cases by semantic key,
@@ -316,6 +324,15 @@ These files are diagnostic inputs. Production code must not depend on
   predicates. The simple-bounds generator emits row-qualified contract-name
   constants so sibling generated rows can be included in the same translation
   unit without duplicate symbols.
+- KVCacheAppend `SequenceAppend` and `InitialCache` consume the generic
+  ShapeEnvelope simple-bounds generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsKVCacheAppendSpec.h` and
+  `generated/ExecutionContractsKVCacheAppendInitialSpec.h` from the sequence
+  and initial-cache JSON specs for contract identity, metadata, route labels,
+  dtype/rank/scalar/range bounds, and helper predicates. Initial-empty
+  handling, sequence lower bounds, cross-input equality, and match-result
+  construction remain handwritten so route behavior is unchanged.
 - NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` consumes the generic
   ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

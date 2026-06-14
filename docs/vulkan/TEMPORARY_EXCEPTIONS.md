@@ -41,8 +41,13 @@ condition and migration target.
 - Generated spec coverage: `test/vulkan_contract_specs/kv_cache_append_contract.json`
   covers the `SequenceAppend` slice and
   `test/vulkan_contract_specs/kv_cache_append_initial_contract.json` covers the
-  `InitialCache` slice with generated positive and adjacent negative runtime
-  tests. InitialCache positives log
+  `InitialCache` slice with ShapeEnvelope-backed checked-in positive and
+  adjacent negative runtime cases plus generic ShapeEnvelope C++
+  metadata/simple-bound helper output in
+  `generated/ExecutionContractsKVCacheAppendSpec.h` and
+  `generated/ExecutionContractsKVCacheAppendInitialSpec.h`. Initial-empty
+  handling, sequence lower bounds, cross-input equality, and match-result
+  assembly remain handwritten. InitialCache positives log
   `aten::cat.kv_cache_initial_dim2_buffer`.
 - Expiry: broader KV-cache append and cat-axis parity plus adjacent negative
   coverage are available.

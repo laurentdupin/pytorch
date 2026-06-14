@@ -5,19 +5,171 @@
   "tuple_id": "initial_empty_s99_to_s116_heads4_dim128",
   "writer_op": "aten::cat",
   "route_label": "aten::cat.kv_cache_initial_dim2_buffer",
+  "metadata": {
+    "evidence_id": "kv_cache_append_focused_tests",
+    "guard_id": "kv_cache_append_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "kv_cache_append_buffer_kernel"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "kv_cache_append_initial_cache",
+    "inputs": {
+      "empty": {
+        "kind": "tensor",
+        "rank": {
+          "values": [
+            1
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "E",
+            "field": "empty_dim0",
+            "values": [
+              0
+            ]
+          }
+        ]
+      },
+      "value": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "H",
+            "field": "heads",
+            "values": [
+              4
+            ]
+          },
+          {
+            "symbol": "S",
+            "field": "sequence",
+            "min": 99,
+            "max": 116
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              128
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "dim": {
+        "values": [
+          2
+        ]
+      }
+    },
+    "bounds": {
+      "value_dtype": "float32",
+      "empty_rank": 1,
+      "value_rank": 4,
+      "empty_dim0": 0,
+      "dim": 2,
+      "batch": 1,
+      "heads": 4,
+      "head_dim": 128,
+      "sequence": {
+        "min": 99,
+        "max": 116
+      },
+      "empty_requires_vulkan": true,
+      "value_requires_vulkan": true
+    },
+    "relationships": [],
+    "aggregate_bounds": {},
+    "layout": {
+      "empty_requires_vulkan": true,
+      "value_requires_vulkan": true,
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {},
+    "metadata": {
+      "evidence_id": "kv_cache_append_focused_tests",
+      "guard_id": "kv_cache_append_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "kv_cache_append_buffer_kernel"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "kv_cache_append_buffer_kernel"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "sequence.min",
+        "adjacent": "below_min",
+        "value": 98
+      },
+      {
+        "violates": "sequence.max",
+        "adjacent": "above_max",
+        "value": 117
+      },
+      {
+        "violates": "heads",
+        "adjacent": "wrong_value",
+        "value": 5
+      },
+      {
+        "violates": "head_dim",
+        "adjacent": "wrong_value",
+        "value": 64
+      },
+      {
+        "violates": "empty_shape",
+        "adjacent": "wrong_rank",
+        "value": 4
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "S"
+      ],
+      "prefer_boundaries": true
+    }
+  },
   "bounds": {
-    "dtype": "float32",
-    "empty_shape": [0],
-    "rank": 4,
+    "value_dtype": "float32",
+    "empty_rank": 1,
+    "value_rank": 4,
+    "empty_dim0": 0,
     "dim": 2,
     "batch": 1,
     "heads": 4,
+    "head_dim": 128,
     "sequence": {
       "min": 99,
       "max": 116
     },
-    "head_dim": 128,
-    "requires_vulkan": true
+    "empty_requires_vulkan": true,
+    "value_requires_vulkan": true
   },
   "positive_cases": [
     {
