@@ -266,6 +266,10 @@ These files are diagnostic inputs. Production code must not depend on
   validates that the manifest covers every current ShapeEnvelope spec, each
   header exists, each header regenerates byte-for-byte from its spec, and each
   header contains the expected helper markers.
+  `contract_spec_utils.py --contract-coverage-census` summarizes the current
+  source-of-truth coverage by JSON spec row, ShapeEnvelope coverage, generated
+  helper coverage, live contract names without JSON specs, and temporary
+  exception linkage so new migrations do not mirror exact rows blindly.
   Shared helpers in `test/vulkan_contract_specs/contract_spec_utils.py` keep
   generated runtime tests from copying spec loading, case iteration, log
   naming, expected negative handling, and shape-envelope validation. A

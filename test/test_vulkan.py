@@ -936,6 +936,87 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("ExecutionContractsNoOverlapConvTranspose2DSpec.h", result.stdout)
         self.assertIn("ExecutionContractsSafeViewReshapeAliasSpec.h", result.stdout)
 
+    def test_vulkan_contract_coverage_census_cli(self):
+        summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
+        self.assertEqual(summary["specs"], 12)
+        self.assertEqual(summary["generated_shape_envelope"], 10)
+        self.assertEqual(summary["json_spec_without_shape_envelope"], 2)
+        self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
+        self.assertEqual(summary["schema_only_spec"], 0)
+        self.assertEqual(summary["live_contract_without_json_spec"], 7)
+        self.assertEqual(summary["exact_row_debt"], 9)
+
+        census = contract_spec_utils.contract_coverage_census(REPO_ROOT)
+        spec_rows = {
+            row["file_name"]: row
+            for row in census["spec_rows"]
+        }
+        self.assertEqual(
+            spec_rows["channel_cat_contract.json"]["category"],
+            "generated_shape_envelope",
+        )
+        self.assertEqual(
+            spec_rows["kv_cache_append_contract.json"]["generated_cpp_header"],
+            "aten/src/ATen/native/vulkan/planning/generated/"
+            "ExecutionContractsKVCacheAppendSpec.h",
+        )
+        for file_name in (
+            "gqa_repeat_contract.json",
+            "sdpa_score_softmax_contract.json",
+        ):
+            self.assertEqual(
+                spec_rows[file_name]["category"],
+                "json_spec_without_shape_envelope",
+            )
+            self.assertTrue(spec_rows[file_name]["exact_row_debt"])
+
+        live_contracts = {
+            row["contract_name"]: row
+            for row in census["live_contract_rows"]
+        }
+        for contract_name in (
+            "LinearGeluBridgeContract",
+            "SDPAExecutionPolicyContract",
+            "SmallSpatialPointwiseConvContract",
+            "TransformerGQASDPAContract",
+        ):
+            self.assertIn(contract_name, live_contracts)
+            self.assertEqual(
+                live_contracts[contract_name]["category"],
+                "live_contract_without_json_spec",
+            )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "test",
+                    "vulkan_contract_specs",
+                    "contract_spec_utils.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--contract-coverage-census",
+                "--validate-contract-coverage-census",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertIn("validated contract coverage census specs=12", result.stdout)
+        self.assertIn("generated_shape_envelope=10", result.stdout)
+        self.assertIn("json_spec_without_shape_envelope=2", result.stdout)
+        self.assertIn("live_contract_without_json_spec=7", result.stdout)
+        self.assertIn("exact_row_debt=9", result.stdout)
+        self.assertIn("contract=GQARepeatContract", result.stdout)
+        self.assertIn(
+            'temporary_exception="GQA Repeat Exact Tuples"',
+            result.stdout,
+        )
+        self.assertIn("contract=SmallSpatialPointwiseConvContract", result.stdout)
+
     def test_vulkan_batch_norm_inference_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("batch_norm_inference_contract.json")
         self.assertEqual(spec["schema_version"], 1)

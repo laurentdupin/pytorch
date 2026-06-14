@@ -2,11 +2,15 @@ import argparse
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 
 
 GENERATED_CPP_MANIFEST_FILE = "generated_cpp_manifest.json"
+TEMPORARY_EXCEPTIONS_FILE = os.path.join("docs", "vulkan", "TEMPORARY_EXCEPTIONS.md")
+GENERIC_EXACT_TUPLE_EXCEPTION = "Exact Tuple Rows In Contract Tables"
+CONTRACT_NAME_LITERAL_RE = re.compile(r"\"([A-Za-z0-9]+Contract)\"")
 
 CONTRACT_SPEC_REQUIRED_FIELDS = (
     "schema_version",
@@ -3117,6 +3121,299 @@ def generated_cpp_manifest_summary(repo_root):
     return validate_generated_cpp_manifest(repo_root)
 
 
+def _contract_source_paths(repo_root):
+    patterns = (
+        os.path.join(
+            repo_root,
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "ExecutionContracts*.cpp",
+        ),
+        os.path.join(
+            repo_root,
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "generated",
+            "ExecutionContracts*Spec.h",
+        ),
+    )
+    paths = []
+    for pattern in patterns:
+        paths.extend(glob.glob(pattern))
+    return sorted(paths)
+
+
+def _repo_relative_display(repo_root, path):
+    return os.path.relpath(path, repo_root).replace(os.sep, "/")
+
+
+def execution_contract_source_summary(repo_root):
+    contracts = {}
+    for path in _contract_source_paths(repo_root):
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+        for contract_name in sorted(set(CONTRACT_NAME_LITERAL_RE.findall(text))):
+            contracts.setdefault(contract_name, set()).add(
+                _repo_relative_display(repo_root, path)
+            )
+    return [
+        {
+            "contract_name": contract_name,
+            "source_files": tuple(sorted(source_files)),
+        }
+        for contract_name, source_files in sorted(contracts.items())
+    ]
+
+
+def _active_temporary_exception_sections(repo_root):
+    path = os.path.join(repo_root, TEMPORARY_EXCEPTIONS_FILE)
+    with open(path, encoding="utf-8") as handle:
+        doc = handle.read()
+    if "## Active Exceptions" not in doc:
+        return []
+    active = doc.split("## Active Exceptions", 1)[1]
+    active = active.split("## Rules For New Exceptions", 1)[0]
+    return [
+        {
+            "title": match.group(1),
+            "body": match.group(2),
+        }
+        for match in re.finditer(r"^### (.+?)\n(.*?)(?=^### |\Z)", active, re.S | re.M)
+    ]
+
+
+def _temporary_exception_tokens(file_name, spec, contract_name):
+    tokens = {contract_name}
+    if file_name:
+        tokens.add(file_name)
+        tokens.add(os.path.splitext(file_name)[0])
+    if spec is not None:
+        for field in ("contract_name", "family", "tuple_id", "route_label"):
+            tokens.add(spec[field])
+        envelope = spec.get("shape_envelope")
+        if envelope is not None:
+            tokens.add(envelope["role"])
+    return tuple(sorted(token for token in tokens if token))
+
+
+def _temporary_exception_link(sections, tokens, allow_generic):
+    generic_section = None
+    for section in sections:
+        haystack = f"{section['title']}\n{section['body']}"
+        if section["title"] == GENERIC_EXACT_TUPLE_EXCEPTION:
+            generic_section = section
+            continue
+        if any(token in haystack for token in tokens):
+            return section["title"], "specific"
+    if allow_generic and generic_section is not None:
+        return generic_section["title"], "generic"
+    return "", "none"
+
+
+def _coverage_category(spec, has_generated_cpp):
+    if spec.get("source_status") == "schema_only":
+        return "schema_only_spec"
+    if "shape_envelope" in spec and has_generated_cpp:
+        return "generated_shape_envelope"
+    if "shape_envelope" in spec:
+        return "shape_envelope_without_generated_header"
+    return "json_spec_without_shape_envelope"
+
+
+def _coverage_category_is_debt(category):
+    return category in {
+        "json_spec_without_shape_envelope",
+        "shape_envelope_without_generated_header",
+        "live_contract_without_json_spec",
+    }
+
+
+def contract_coverage_census(repo_root):
+    specs = validate_all_contract_specs(repo_root)
+    generated_by_spec = {
+        entry["spec_file"]: entry
+        for entry in generated_cpp_manifest_entries(repo_root)
+    }
+    source_rows = execution_contract_source_summary(repo_root)
+    sources_by_contract = {
+        row["contract_name"]: row["source_files"]
+        for row in source_rows
+    }
+    exception_sections = _active_temporary_exception_sections(repo_root)
+
+    spec_rows = []
+    for file_name, spec in specs:
+        generated_entry = generated_by_spec.get(file_name)
+        generated_header = ""
+        has_generated_cpp = False
+        if generated_entry is not None:
+            generated_header = generated_entry["header"]
+            has_generated_cpp = os.path.isfile(
+                _repo_relative_path(
+                    repo_root,
+                    generated_header,
+                    f"{GENERATED_CPP_MANIFEST_FILE} {file_name} header",
+                )
+            )
+        category = _coverage_category(spec, has_generated_cpp)
+        temporary_exception, temporary_exception_scope = _temporary_exception_link(
+            exception_sections,
+            _temporary_exception_tokens(file_name, spec, spec["contract_name"]),
+            allow_generic=True,
+        )
+        spec_rows.append(
+            {
+                "row_kind": "spec",
+                "category": category,
+                "file_name": file_name,
+                "contract_name": spec["contract_name"],
+                "family": spec["family"],
+                "tuple_id": spec["tuple_id"],
+                "shape_envelope_role": spec.get("shape_envelope", {}).get("role", ""),
+                "generated_cpp_header": generated_header if has_generated_cpp else "",
+                "source_files": sources_by_contract.get(spec["contract_name"], ()),
+                "temporary_exception": temporary_exception,
+                "temporary_exception_scope": temporary_exception_scope,
+                "exact_row_debt": _coverage_category_is_debt(category),
+            }
+        )
+
+    spec_contracts = {spec["contract_name"] for _, spec in specs}
+    live_contract_rows = []
+    for source_row in source_rows:
+        contract_name = source_row["contract_name"]
+        if contract_name in spec_contracts:
+            continue
+        temporary_exception, temporary_exception_scope = _temporary_exception_link(
+            exception_sections,
+            _temporary_exception_tokens("", None, contract_name),
+            allow_generic=True,
+        )
+        live_contract_rows.append(
+            {
+                "row_kind": "live_contract",
+                "category": "live_contract_without_json_spec",
+                "file_name": "",
+                "contract_name": contract_name,
+                "family": "",
+                "tuple_id": "",
+                "shape_envelope_role": "",
+                "generated_cpp_header": "",
+                "source_files": source_row["source_files"],
+                "temporary_exception": temporary_exception,
+                "temporary_exception_scope": temporary_exception_scope,
+                "exact_row_debt": True,
+            }
+        )
+
+    return {
+        "spec_rows": spec_rows,
+        "live_contract_rows": live_contract_rows,
+    }
+
+
+def _contract_coverage_all_rows(census):
+    return census["spec_rows"] + census["live_contract_rows"]
+
+
+def contract_coverage_census_summary(repo_root):
+    census = contract_coverage_census(repo_root)
+    rows = _contract_coverage_all_rows(census)
+    categories = {
+        "generated_shape_envelope": 0,
+        "shape_envelope_without_generated_header": 0,
+        "json_spec_without_shape_envelope": 0,
+        "schema_only_spec": 0,
+        "live_contract_without_json_spec": 0,
+    }
+    for row in rows:
+        categories[row["category"]] += 1
+    return {
+        "specs": len(census["spec_rows"]),
+        "live_contract_without_json_spec": categories[
+            "live_contract_without_json_spec"
+        ],
+        "generated_shape_envelope": categories["generated_shape_envelope"],
+        "shape_envelope_without_generated_header": categories[
+            "shape_envelope_without_generated_header"
+        ],
+        "json_spec_without_shape_envelope": categories[
+            "json_spec_without_shape_envelope"
+        ],
+        "schema_only_spec": categories["schema_only_spec"],
+        "temporary_exception_specific": sum(
+            row["temporary_exception_scope"] == "specific" for row in rows
+        ),
+        "temporary_exception_generic": sum(
+            row["temporary_exception_scope"] == "generic" for row in rows
+        ),
+        "temporary_exception_missing": sum(
+            row["temporary_exception_scope"] == "none" for row in rows
+        ),
+        "exact_row_debt": sum(row["exact_row_debt"] for row in rows),
+    }
+
+
+def format_contract_coverage_census_summary(summary):
+    return (
+        "contract coverage census "
+        f"specs={summary['specs']} "
+        f"generated_shape_envelope={summary['generated_shape_envelope']} "
+        "shape_envelope_without_generated_header="
+        f"{summary['shape_envelope_without_generated_header']} "
+        f"json_spec_without_shape_envelope="
+        f"{summary['json_spec_without_shape_envelope']} "
+        f"schema_only_spec={summary['schema_only_spec']} "
+        f"live_contract_without_json_spec="
+        f"{summary['live_contract_without_json_spec']} "
+        f"temporary_exception_specific="
+        f"{summary['temporary_exception_specific']} "
+        f"temporary_exception_generic={summary['temporary_exception_generic']} "
+        f"temporary_exception_missing={summary['temporary_exception_missing']} "
+        f"exact_row_debt={summary['exact_row_debt']}"
+    )
+
+
+def _format_optional_field(name, value):
+    if not value:
+        return ""
+    return f"{name}={json.dumps(value)}"
+
+
+def format_contract_coverage_census_row(row):
+    fields = [
+        f"{row['row_kind']}:{row['category']}",
+        f"contract={row['contract_name']}",
+    ]
+    for name in (
+        "file_name",
+        "family",
+        "tuple_id",
+        "shape_envelope_role",
+        "generated_cpp_header",
+    ):
+        formatted = _format_optional_field(name, row[name])
+        if formatted:
+            fields.append(formatted)
+    if row["source_files"]:
+        fields.append(f"sources={json.dumps(list(row['source_files']))}")
+    if row["temporary_exception"]:
+        fields.append(
+            f"temporary_exception={json.dumps(row['temporary_exception'])}"
+        )
+    fields.append(f"temporary_exception_scope={row['temporary_exception_scope']}")
+    fields.append(f"exact_row_debt={'yes' if row['exact_row_debt'] else 'no'}")
+    return " ".join(fields)
+
+
 def shape_envelope_adjacent_negative_summary(repo_root):
     rows = []
     for file_name, spec in validate_all_contract_specs(repo_root):
@@ -3349,6 +3646,8 @@ def _main():
     parser.add_argument("--validate-fuzz-assignments", action="store_true")
     parser.add_argument("--validate-fuzz-assignment-coverage", action="store_true")
     parser.add_argument("--validate-generated-cpp-manifest", action="store_true")
+    parser.add_argument("--contract-coverage-census", action="store_true")
+    parser.add_argument("--validate-contract-coverage-census", action="store_true")
     args = parser.parse_args()
 
     rows = contract_spec_summary(args.repo_root)
@@ -3472,6 +3771,14 @@ def _main():
             f"{len(generated_rows)} generated ShapeEnvelope C++ helper headers "
             f"markers={total_markers} {entries}"
         )
+    if args.contract_coverage_census or args.validate_contract_coverage_census:
+        census = contract_coverage_census(args.repo_root)
+        summary = contract_coverage_census_summary(args.repo_root)
+        prefix = "validated " if args.validate_contract_coverage_census else ""
+        print(prefix + format_contract_coverage_census_summary(summary))
+        if args.contract_coverage_census:
+            for row in _contract_coverage_all_rows(census):
+                print(format_contract_coverage_census_row(row))
 
 
 if __name__ == "__main__":

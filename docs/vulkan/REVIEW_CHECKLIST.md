@@ -33,6 +33,10 @@ Use this checklist for Vulkan backend changes.
   `test/vulkan_contract_specs/generated_cpp_manifest.json`, and manifest
   validation covers header presence, byte-for-byte regeneration, helper
   markers, and full ShapeEnvelope coverage.
+- Before adding or mirroring exact rows, consult
+  `test/vulkan_contract_specs/contract_spec_utils.py --contract-coverage-census`
+  so the change is framed against existing ShapeEnvelope/generated-helper
+  coverage, live contracts without JSON specs, and temporary-exception linkage.
 
 ## Fallback And Readback
 
