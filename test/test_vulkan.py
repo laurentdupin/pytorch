@@ -404,6 +404,9 @@ class TestVulkanGovernance(TestCase):
             "elementwise_broadcast_contract.json": (
                 "elementwise_float_tensor_tensor_buffer_broadcast"
             ),
+            "gqa_repeat_contract.json": (
+                "gqa_repeat_batch1_heads4_factor4_sequence100_to116_dim128"
+            ),
             "kv_cache_append_contract.json": "kv_cache_append_sequence_append",
             "kv_cache_append_initial_contract.json": "kv_cache_append_initial_cache",
             "linear_gelu_bridge_contract.json": (
@@ -449,7 +452,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 13 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 14 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:"
             "batch_norm_inference_buffer_float_4d",
@@ -471,6 +474,11 @@ class TestVulkanGovernance(TestCase):
         self.assertIn(
             "elementwise_broadcast_contract.json:"
             "elementwise_float_tensor_tensor_buffer_broadcast",
+            result.stdout,
+        )
+        self.assertIn(
+            "gqa_repeat_contract.json:"
+            "gqa_repeat_batch1_heads4_factor4_sequence100_to116_dim128",
             result.stdout,
         )
         self.assertIn(
@@ -531,10 +539,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 13 ShapeEnvelope adjacent-negative generators",
+            "validated 14 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=68", result.stdout)
+        self.assertIn("generated_cases=70", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:3",
@@ -543,6 +551,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("channel_cat_contract.json:7", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
+        self.assertIn("gqa_repeat_contract.json:2", result.stdout)
         self.assertIn("kv_cache_append_contract.json:5", result.stdout)
         self.assertIn("kv_cache_append_initial_contract.json:5", result.stdout)
         self.assertIn("linear_gelu_bridge_contract.json:11", result.stdout)
@@ -575,10 +584,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 13 ShapeEnvelope legal-case generators",
+            "validated 14 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=72", result.stdout)
+        self.assertIn("generated_cases=75", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:1",
@@ -587,6 +596,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("channel_cat_contract.json:5", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
+        self.assertIn("gqa_repeat_contract.json:3", result.stdout)
         self.assertIn("kv_cache_append_contract.json:3", result.stdout)
         self.assertIn("kv_cache_append_initial_contract.json:3", result.stdout)
         self.assertIn("linear_gelu_bridge_contract.json:2", result.stdout)
@@ -619,11 +629,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 13 ShapeEnvelope fuzz assignment generators",
+            "validated 14 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=26", result.stdout)
-        self.assertIn("adjacent_negative_assignments=67", result.stdout)
+        self.assertIn("legal_assignments=28", result.stdout)
+        self.assertIn("adjacent_negative_assignments=69", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:adjacent=3",
             result.stdout,
@@ -642,6 +652,10 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "elementwise_broadcast_contract.json:legal=2:adjacent=3",
+            result.stdout,
+        )
+        self.assertIn(
+            "gqa_repeat_contract.json:legal=2:adjacent=2",
             result.stdout,
         )
         self.assertIn(
@@ -697,14 +711,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 13 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 14 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=26", result.stdout)
-        self.assertIn("legal_paths=218", result.stdout)
-        self.assertIn("adjacent_negative_axes=67", result.stdout)
-        self.assertIn("runtime_legal_cases=72", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=68", result.stdout)
+        self.assertIn("legal_assignments=28", result.stdout)
+        self.assertIn("legal_paths=228", result.stdout)
+        self.assertIn("adjacent_negative_axes=69", result.stdout)
+        self.assertIn("runtime_legal_cases=75", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=70", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:status=covered:"
             "paths=21/21:adjacent_axes=3",
@@ -728,6 +742,11 @@ class TestVulkanGovernance(TestCase):
         self.assertIn(
             "elementwise_broadcast_contract.json:legal=2:status=covered:"
             "paths=26/26:adjacent_axes=3",
+            result.stdout,
+        )
+        self.assertIn(
+            "gqa_repeat_contract.json:legal=2:status=covered:"
+            "paths=10/10:adjacent_axes=2",
             result.stdout,
         )
         self.assertIn(
@@ -778,6 +797,7 @@ class TestVulkanGovernance(TestCase):
             "channel_cat_contract.json": (5, 7),
             "embedding_lookup_contract.json": (4, 4),
             "elementwise_broadcast_contract.json": (3, 3),
+            "gqa_repeat_contract.json": (3, 2),
             "kv_cache_append_contract.json": (3, 5),
             "kv_cache_append_initial_contract.json": (3, 5),
             "linear_gelu_bridge_contract.json": (2, 11),
@@ -833,6 +853,7 @@ class TestVulkanGovernance(TestCase):
                 "batch_norm_inference_buffer_float_4d",
                 "batch_norm_inference_materialized_buffer_float_4d",
                 "elementwise_float_tensor_tensor_buffer_broadcast",
+                "gqa_repeat_batch1_heads4_factor4_sequence100_to116_dim128",
                 "kv_cache_append_initial_cache",
                 "kv_cache_append_sequence_append",
                 "linear_gelu_bridge_backbone_mlp_hidden384_to1536",
@@ -1116,7 +1137,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 13)
+        self.assertEqual(len(rows), 14)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
 
     def test_vulkan_generated_cpp_manifest_cli(self):
@@ -1139,10 +1160,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 13 generated ShapeEnvelope C++ helper headers",
+            "validated 14 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
+        self.assertIn("ExecutionContractsGQARepeatSpec.h", result.stdout)
         self.assertIn("ExecutionContractsKVCacheAppendInitialSpec.h", result.stdout)
         self.assertIn("ExecutionContractsKVCacheAppendSpec.h", result.stdout)
         self.assertIn("ExecutionContractsNoOverlapConvTranspose2DSpec.h", result.stdout)
@@ -1163,12 +1185,12 @@ class TestVulkanGovernance(TestCase):
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
         self.assertEqual(summary["specs"], 15)
-        self.assertEqual(summary["generated_shape_envelope"], 13)
-        self.assertEqual(summary["json_spec_without_shape_envelope"], 2)
+        self.assertEqual(summary["generated_shape_envelope"], 14)
+        self.assertEqual(summary["json_spec_without_shape_envelope"], 1)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
         self.assertEqual(summary["schema_only_spec"], 0)
         self.assertEqual(summary["live_contract_without_json_spec"], 4)
-        self.assertEqual(summary["exact_row_debt"], 6)
+        self.assertEqual(summary["exact_row_debt"], 5)
 
         census = contract_spec_utils.contract_coverage_census(REPO_ROOT)
         spec_rows = {
@@ -1196,15 +1218,17 @@ class TestVulkanGovernance(TestCase):
             spec_rows["linear_gelu_bridge_contract.json"]["category"],
             "generated_shape_envelope",
         )
-        for file_name in (
-            "gqa_repeat_contract.json",
-            "sdpa_score_softmax_contract.json",
-        ):
-            self.assertEqual(
-                spec_rows[file_name]["category"],
-                "json_spec_without_shape_envelope",
-            )
-            self.assertTrue(spec_rows[file_name]["exact_row_debt"])
+        self.assertEqual(
+            spec_rows["gqa_repeat_contract.json"]["category"],
+            "generated_shape_envelope",
+        )
+        self.assertEqual(
+            spec_rows["sdpa_score_softmax_contract.json"]["category"],
+            "json_spec_without_shape_envelope",
+        )
+        self.assertTrue(
+            spec_rows["sdpa_score_softmax_contract.json"]["exact_row_debt"]
+        )
 
         live_contracts = {
             row["contract_name"]: row
@@ -1240,10 +1264,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn("validated contract coverage census specs=15", result.stdout)
-        self.assertIn("generated_shape_envelope=13", result.stdout)
-        self.assertIn("json_spec_without_shape_envelope=2", result.stdout)
+        self.assertIn("generated_shape_envelope=14", result.stdout)
+        self.assertIn("json_spec_without_shape_envelope=1", result.stdout)
         self.assertIn("live_contract_without_json_spec=4", result.stdout)
-        self.assertIn("exact_row_debt=6", result.stdout)
+        self.assertIn("exact_row_debt=5", result.stdout)
         self.assertIn("contract=GQARepeatContract", result.stdout)
         self.assertIn(
             'temporary_exception="GQA Repeat Exact Tuples"',

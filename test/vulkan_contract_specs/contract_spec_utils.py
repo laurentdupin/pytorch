@@ -1970,6 +1970,130 @@ def _validate_linear_gelu_bridge_shape_envelope(file_name, spec, envelope):
                     raise AssertionError(f"{case_context} {key} mismatch")
 
 
+def _validate_gqa_repeat_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} GQARepeat ShapeEnvelope"
+    _require_equal(spec["contract_name"], "GQARepeatContract", f"{context} contract")
+    _require_equal(
+        spec["family"],
+        "Batch1Heads4Factor4Sequence100To116Dim128",
+        f"{context} family",
+    )
+    _require_equal(
+        spec["tuple_id"],
+        "gqa_repeat_batch1_heads4_factor4_sequence100_to_116_dim128",
+        f"{context} tuple",
+    )
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    bounds = envelope["bounds"]
+    for key, expected in (
+        ("dtype", "float32"),
+        ("rank", 4),
+        ("batch", 1),
+        ("source_heads", 4),
+        ("target_heads", 16),
+        ("repeat_factor", 4),
+        ("target_sequence", 1),
+        ("head_dim", 128),
+        ("requires_vulkan", True),
+        ("requires_buffer_storage", True),
+        ("enable_gqa", True),
+    ):
+        _require_equal(bounds[key], expected, f"{context} {key}")
+    _require_equal(
+        bounds["source_sequence"],
+        {"min": 100, "max": 116},
+        f"{context} source sequence",
+    )
+
+    inputs = envelope["inputs"]
+    require_fields(inputs, ("source",), f"{context} inputs")
+    source = inputs["source"]
+    _require_equal(
+        _single_value(source["dtype"], f"{context} source dtype"),
+        bounds["dtype"],
+        f"{context} source dtype",
+    )
+    _require_equal(
+        _single_value(source["rank"], f"{context} source rank"),
+        bounds["rank"],
+        f"{context} source rank",
+    )
+    dims = _dims_by_symbol(source, f"{context} source")
+    _require_equal(dims["N"].get("values"), [bounds["batch"]], f"{context} N")
+    _require_equal(
+        dims["H"].get("values"),
+        [bounds["source_heads"]],
+        f"{context} H",
+    )
+    _require_equal(
+        dims["S"]["min"],
+        bounds["source_sequence"]["min"],
+        f"{context} S min",
+    )
+    _require_equal(
+        dims["S"]["max"],
+        bounds["source_sequence"]["max"],
+        f"{context} S max",
+    )
+    _require_equal(dims["D"].get("values"), [bounds["head_dim"]], f"{context} D")
+
+    attributes = envelope["attributes"]
+    for key in ("target_heads", "repeat_factor", "target_sequence", "enable_gqa"):
+        _require_equal(
+            _single_value(attributes[key], f"{context} {key}"),
+            bounds[key],
+            f"{context} {key}",
+        )
+
+    layout = envelope["layout"]
+    _require_equal(
+        layout["requires_vulkan"],
+        bounds["requires_vulkan"],
+        f"{context} requires_vulkan",
+    )
+    _require_equal(layout["source_storage"], "buffer", f"{context} source storage")
+    _require_equal(layout["output_storage"], "buffer", f"{context} output storage")
+
+    for section in ("positive_cases", "negative_cases"):
+        for case in spec[section]:
+            case_context = f"{context} {section} {case['name']}"
+            for shape_name in ("key_shape", "value_shape"):
+                shape = case[shape_name]
+                if len(shape) != bounds["rank"]:
+                    raise AssertionError(f"{case_context} {shape_name} rank mismatch")
+                if shape[0] != bounds["batch"]:
+                    raise AssertionError(f"{case_context} {shape_name} batch mismatch")
+                if shape[1] != bounds["source_heads"]:
+                    raise AssertionError(f"{case_context} {shape_name} heads mismatch")
+                if (
+                    shape[2] < bounds["source_sequence"]["min"]
+                    and case.get("violates") != "source_sequence.min"
+                ):
+                    raise AssertionError(
+                        f"{case_context} {shape_name} sequence below min"
+                    )
+                if (
+                    shape[2] > bounds["source_sequence"]["max"]
+                    and case.get("violates") != "source_sequence.max"
+                ):
+                    raise AssertionError(
+                        f"{case_context} {shape_name} sequence above max"
+                    )
+                if shape[3] != bounds["head_dim"]:
+                    raise AssertionError(
+                        f"{case_context} {shape_name} head dim mismatch"
+                    )
+            if case["query_shape"][1] != bounds["target_heads"]:
+                raise AssertionError(f"{case_context} query heads mismatch")
+            if case["query_shape"][2] != bounds["target_sequence"]:
+                raise AssertionError(f"{case_context} query sequence mismatch")
+            if case["enable_gqa"] != bounds["enable_gqa"]:
+                raise AssertionError(f"{case_context} enable_gqa mismatch")
+            if case["dtype"] != bounds["dtype"]:
+                raise AssertionError(f"{case_context} dtype mismatch")
+
+
 def _small_spatial_pointwise_conv_rowset(envelope, context):
     rowsets = envelope.get("sparse_rowsets", [])
     if len(rowsets) != 1:
@@ -3293,6 +3417,46 @@ _LINEAR_GELU_BRIDGE_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.may_consume_gelu_tanh",
 )
 
+_GQA_REPEAT_LEGAL_KEY_FIELDS = (
+    "query_shape",
+    "key_shape",
+    "value_shape",
+    "dropout_p",
+    "is_causal",
+    "scale",
+    "enable_gqa",
+    "dtype",
+    "expected_route_label",
+    "expected_cpu_fallback",
+)
+
+_GQA_REPEAT_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "query_shape",
+    "key_shape",
+    "value_shape",
+    "dropout_p",
+    "is_causal",
+    "scale",
+    "enable_gqa",
+    "dtype",
+    "expected_native_route",
+    "expected_runtime_error",
+)
+
+_GQA_REPEAT_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.source.dtype",
+    "inputs.source.rank",
+    "inputs.source.dims.N",
+    "inputs.source.dims.H",
+    "inputs.source.dims.S",
+    "inputs.source.dims.D",
+    "attributes.target_heads",
+    "attributes.repeat_factor",
+    "attributes.target_sequence",
+    "attributes.enable_gqa",
+)
+
 _SMALL_SPATIAL_POINTWISE_CONV_LEGAL_KEY_FIELDS = (
     "input_shape",
     "out_channels",
@@ -3514,6 +3678,17 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         "adjacent_negative_key_fields": (
             _LINEAR_GELU_BRIDGE_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
+    },
+    "gqa_repeat_batch1_heads4_factor4_sequence100_to116_dim128": {
+        "validate": _validate_gqa_repeat_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _GQA_REPEAT_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": _GQA_REPEAT_ASSIGNMENT_COVERAGE_FIELDS,
+        "adjacent_negative_key_fields": _GQA_REPEAT_ADJACENT_NEGATIVE_KEY_FIELDS,
     },
     "kv_cache_append_sequence_append": {
         "validate": _validate_kv_cache_append_shape_envelope,

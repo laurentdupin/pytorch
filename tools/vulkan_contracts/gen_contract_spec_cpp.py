@@ -185,7 +185,7 @@ def _simple_bounds_shape_envelope_fields(bounds):
     for key, value in bounds.items():
         if isinstance(value, bool):
             bool_fields.append(key)
-        elif isinstance(value, str) and key.endswith("_dtype"):
+        elif isinstance(value, str) and (key == "dtype" or key.endswith("_dtype")):
             dtype_fields.append(key)
         elif isinstance(value, int):
             int_fields.append(key)

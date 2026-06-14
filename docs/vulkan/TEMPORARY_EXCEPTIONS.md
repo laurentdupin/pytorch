@@ -98,8 +98,13 @@ condition and migration target.
   current Transformer decode envelope, but broader GQA materialization behavior
   is not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/gqa_repeat_contract.json`
-  covers the `Batch1Heads4Factor4Sequence100To116Dim128` slice with generated
-  positive and adjacent negative runtime tests.
+  covers the `Batch1Heads4Factor4Sequence100To116Dim128` slice with
+  ShapeEnvelope-backed checked-in positive and adjacent negative runtime cases
+  plus generic ShapeEnvelope C++ simple-bound helper output in
+  `generated/ExecutionContractsGQARepeatSpec.h`. Vulkan tensor/storage
+  extraction, SDPA admission, materialization allocation and dispatch, op-hit
+  labels, sequence lower-bound preservation, and match-result assembly remain
+  handwritten.
 - Expiry: broader GQA repeat parity plus adjacent negative coverage are
   available.
 - Migration target: broader generated `GQARepeatContract` tables with positive

@@ -57,6 +57,17 @@
       ]
     },
     {
+      "spec_file": "gqa_repeat_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsGQARepeatSpec.h",
+      "markers": [
+        "GQARepeatBatch1Heads4Factor4Sequence100To116Dim128Spec",
+        "kGQARepeatBatch1Heads4Factor4Sequence100To116Dim128ContractName",
+        "kGQARepeatBatch1Heads4Factor4Sequence100To116Dim128MinSourceSequence",
+        "gqa_repeat_batch_1_heads_4_factor_4_sequence_100_to_116_dim_128_options_match",
+        "gqa_repeat_batch_1_heads_4_factor_4_sequence_100_to_116_dim_128_in_bounds"
+      ]
+    },
+    {
       "spec_file": "kv_cache_append_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsKVCacheAppendSpec.h",
       "markers": [

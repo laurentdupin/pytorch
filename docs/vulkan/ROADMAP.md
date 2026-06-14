@@ -87,6 +87,7 @@ Current MVP status:
   checked-in-case runtime fixtures for `BatchNormInferenceContract`
   `BufferFloat4D` and `MaterializedBufferFloat4D`, plus
   `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast`, plus
+  `GQARepeatContract` `Batch1Heads4Factor4Sequence100To116Dim128`, plus
   `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer`, plus
   `KVCacheAppendContract` `SequenceAppend` and `InitialCache`, plus
   `SmallMetadataPaddedConv2DContract` `MaterializedBufferInput2x2`, plus
@@ -158,6 +159,13 @@ Current MVP status:
   predicates for the existing matcher. Initial-empty handling, sequence lower
   bounds, cross-input equality, and match-result construction remain
   handwritten.
+- `GQARepeatContract` `Batch1Heads4Factor4Sequence100To116Dim128` now uses the
+  generic ShapeEnvelope C++ simple-bounds generator path:
+  `ExecutionContractsGQARepeatSpec.h` provides contract identity, metadata,
+  dtype/rank/source tensor bounds, repeat-factor constants, and
+  target-head/target-sequence metadata for the existing matcher. SDPA
+  admission, materialization allocation and dispatch, op-hit labels, sequence
+  lower-bound preservation, and match-result construction remain handwritten.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

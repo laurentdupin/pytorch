@@ -5,6 +5,140 @@
   "tuple_id": "gqa_repeat_batch1_heads4_factor4_sequence100_to_116_dim128",
   "writer_op": "aten::scaled_dot_product_attention",
   "route_label": "aten::scaled_dot_product_attention.bounded_gqa_repeat_materialize",
+  "metadata": {
+    "evidence_id": "gqa_repeat_focused_tests",
+    "guard_id": "gqa_repeat_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "gqa_repeat_buffer_materialization"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "gqa_repeat_batch1_heads4_factor4_sequence100_to116_dim128",
+    "inputs": {
+      "source": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "H",
+            "field": "source_heads",
+            "values": [
+              4
+            ]
+          },
+          {
+            "symbol": "S",
+            "field": "source_sequence",
+            "min": 100,
+            "max": 116
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              128
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "target_heads": {
+        "values": [
+          16
+        ]
+      },
+      "repeat_factor": {
+        "values": [
+          4
+        ]
+      },
+      "target_sequence": {
+        "values": [
+          1
+        ]
+      },
+      "enable_gqa": {
+        "values": [
+          true
+        ]
+      }
+    },
+    "bounds": {
+      "dtype": "float32",
+      "rank": 4,
+      "batch": 1,
+      "source_heads": 4,
+      "target_heads": 16,
+      "repeat_factor": 4,
+      "target_sequence": 1,
+      "source_sequence": {
+        "min": 100,
+        "max": 116
+      },
+      "head_dim": 128,
+      "requires_vulkan": true,
+      "requires_buffer_storage": true,
+      "enable_gqa": true
+    },
+    "relationships": [],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "source_storage": "buffer",
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {},
+    "metadata": {
+      "evidence_id": "gqa_repeat_focused_tests",
+      "guard_id": "gqa_repeat_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "gqa_repeat_buffer_materialization"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "gqa_repeat_buffer_materialization"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "source_sequence.min",
+        "adjacent": "below_min",
+        "value": 99
+      },
+      {
+        "violates": "source_sequence.max",
+        "adjacent": "above_max",
+        "value": 117
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "S"
+      ],
+      "prefer_boundaries": true
+    }
+  },
   "bounds": {
     "dtype": "float32",
     "rank": 4,

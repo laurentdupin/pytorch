@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`02f0c298f002c90d5fc22601d4aa51ab4d73a832`.
+`2732b41bbf7e0f9dce2428166e3148b834ed0bb5`.
 
 ## Repo State Summary
 
@@ -26,6 +26,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsEmbeddingLookup.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsEmbeddingLookupSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsGQARepeat.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsGQARepeatSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsKVCacheAppend.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsKVCacheAppendInitialSpec.h`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsKVCacheAppendSpec.h`
@@ -228,8 +229,14 @@ These files are diagnostic inputs. Production code must not depend on
 - `GQARepeatContract`: finite bounded K/V head repeat contract, now split into
   a family-specific source. The
   `Batch1Heads4Factor4Sequence100To116Dim128` slice has a JSON contract spec
-  with generated positive and adjacent negative runtime coverage; keep exact
-  rows until broader legality is proven.
+  backed by `ShapeEnvelope` v1 with checked-in positive/adjacent-negative
+  runtime cases plus generic ShapeEnvelope C++ simple-bound helper output in
+  `generated/ExecutionContractsGQARepeatSpec.h`. The generated helper provides
+  contract identity, metadata, dtype/rank/source tensor bounds, repeat-factor
+  policy constants, and target-head/target-sequence metadata while Vulkan
+  tensor/storage extraction, SDPA admission, materialization allocation/kernel
+  dispatch, op-hit labels, and match-result assembly remain handwritten. Keep
+  exact rows until broader legality is proven.
 - `BatchNormInferenceContract`: float32 4D inference batch norm. The
   `BufferFloat4D` and `MaterializedBufferFloat4D` slices both have JSON
   contract specs backed by `ShapeEnvelope` v1 with checked-in
@@ -314,8 +321,9 @@ These files are diagnostic inputs. Production code must not depend on
   adjacent-negative axes onto the current generated/checked-in runtime cases
   without executing additional fuzz assignments. BatchNormInference `BufferFloat4D`,
   `MaterializedBufferFloat4D`, ElementwiseBroadcast
-  `FloatTensorTensorBufferBroadcast`, KVCacheAppend `SequenceAppend` and
-  `InitialCache`, NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer`, and
+  `FloatTensorTensorBufferBroadcast`, GQARepeat
+  `Batch1Heads4Factor4Sequence100To116Dim128`, KVCacheAppend `SequenceAppend`
+  and `InitialCache`, NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer`,
   SmallMetadataPaddedConv2D `MaterializedBufferInput2x2`, and
   LinearGeluBridge `BackboneMlpHidden384To1536` use generic checked-in case
   plumbing under the ShapeEnvelope registry.
@@ -369,6 +377,15 @@ These files are diagnostic inputs. Production code must not depend on
   dtype/rank/scalar/range bounds, and helper predicates. Initial-empty
   handling, sequence lower bounds, cross-input equality, and match-result
   construction remain handwritten so route behavior is unchanged.
+- GQARepeat `Batch1Heads4Factor4Sequence100To116Dim128` consumes the generic
+  ShapeEnvelope simple-bounds generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsGQARepeatSpec.h` from
+  `gqa_repeat_contract.json` for contract identity, metadata, dtype/rank/source
+  tensor bounds, repeat-factor constants, and target-head/target-sequence
+  metadata. SDPA admission, materialization allocation and dispatch, op-hit
+  labels, sequence lower-bound preservation, and match-result assembly remain
+  handwritten so route behavior is unchanged.
 - NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` consumes the generic
   ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
