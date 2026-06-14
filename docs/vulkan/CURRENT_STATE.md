@@ -279,10 +279,14 @@ These files are diagnostic inputs. Production code must not depend on
   has deterministic boundary/fuzz assignment generation for common
   ShapeEnvelope v1 concepts: value sets, min/max bounds, multiples, optional
   dims, scalar attributes, `broadcast_compatible` relationships, and
-  adjacent-negative axes, plus a generic coverage bridge that maps abstract
-  assignment paths and adjacent-negative axes onto the current
-  generated/checked-in runtime cases without executing additional fuzz
-  assignments. BatchNormInference `BufferFloat4D`,
+  adjacent-negative axes. It also validates an optional generic
+  `sparse_rowsets` ShapeEnvelope concept for future correlated finite-row
+  contracts, including row identity uniqueness, tuple-label uniqueness,
+  independent cross-product census, and forbidden-cross-product negative
+  metadata, without adding a `SmallSpatialPointwiseConvContract` fixture yet.
+  A generic coverage bridge maps abstract assignment paths and
+  adjacent-negative axes onto the current generated/checked-in runtime cases
+  without executing additional fuzz assignments. BatchNormInference `BufferFloat4D`,
   `MaterializedBufferFloat4D`, ElementwiseBroadcast
   `FloatTensorTensorBufferBroadcast`, KVCacheAppend `SequenceAppend` and
   `InitialCache`, and NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` use

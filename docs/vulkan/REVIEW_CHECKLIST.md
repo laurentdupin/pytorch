@@ -29,6 +29,8 @@ Use this checklist for Vulkan backend changes.
   records symbolic dims, bounds, relationships, aggregate bounds,
   layout/capability requirements, policies, positives, adjacent negatives, and
   fuzz hints without changing route legality.
+- Correlated finite tables use generic `ShapeEnvelope` `sparse_rowsets` instead
+  of independent value sets that would admit unproven cross-products.
 - ShapeEnvelope specs with generated C++ helper headers are listed in
   `test/vulkan_contract_specs/generated_cpp_manifest.json`, and manifest
   validation covers header presence, byte-for-byte regeneration, helper

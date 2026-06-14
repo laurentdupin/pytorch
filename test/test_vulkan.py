@@ -829,6 +829,147 @@ class TestVulkanGovernance(TestCase):
         self.assertNotIn("def _batch_norm_legal_key", source)
         self.assertNotIn("def _safe_view_reshape_legal_key", source)
 
+    def _sparse_rowset_canary_spec(self):
+        return {
+            "contract_name": "SparseRowsetCanaryContract",
+            "family": "SparseProjectionRows",
+            "shape_envelope": {
+                "role": "sparse_rowset_canary",
+                "sparse_rowsets": [
+                    {
+                        "name": "projection_rows",
+                        "fields": [
+                            "family",
+                            "input_c",
+                            "input_h",
+                            "input_w",
+                            "output_c",
+                            "tuple_id",
+                        ],
+                        "identity_fields": [
+                            "family",
+                            "input_c",
+                            "input_h",
+                            "input_w",
+                            "output_c",
+                        ],
+                        "label_field": "tuple_id",
+                        "rows": [
+                            {
+                                "family": "ProjectionA",
+                                "input_c": 384,
+                                "input_h": 15,
+                                "input_w": 10,
+                                "output_c": 192,
+                                "tuple_id": "projection_a_384_15x10_192",
+                            },
+                            {
+                                "family": "ProjectionA",
+                                "input_c": 384,
+                                "input_h": 15,
+                                "input_w": 10,
+                                "output_c": 384,
+                                "tuple_id": "projection_a_384_15x10_384",
+                            },
+                            {
+                                "family": "ProjectionA",
+                                "input_c": 384,
+                                "input_h": 20,
+                                "input_w": 13,
+                                "output_c": 192,
+                                "tuple_id": "projection_a_384_20x13_192",
+                            },
+                            {
+                                "family": "ProjectionB",
+                                "input_c": 512,
+                                "input_h": 7,
+                                "input_w": 7,
+                                "output_c": 512,
+                                "tuple_id": "projection_b_512_7x7_512",
+                            },
+                        ],
+                        "negative_axes": [
+                            {
+                                "violates": "projection_rows.forbidden_cross_product",
+                                "kind": "forbidden_cross_product",
+                                "fields": {
+                                    "family": "ProjectionA",
+                                    "input_c": 384,
+                                    "input_h": 15,
+                                    "input_w": 10,
+                                    "output_c": 512,
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+
+    def test_vulkan_shape_envelope_sparse_rowset_canary(self):
+        spec = self._sparse_rowset_canary_spec()
+        rows = contract_spec_utils.validate_shape_envelope_sparse_rowsets(
+            "sparse_rowset_canary.json",
+            spec,
+        )
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["rowset_name"], "projection_rows")
+        self.assertEqual(row["row_count"], 4)
+        self.assertEqual(row["independent_identity_cross_product"], 108)
+        self.assertEqual(row["sparse_cross_product_gap"], 104)
+        self.assertEqual(row["negative_axes"], 1)
+        self.assertEqual(row["label_field"], "tuple_id")
+
+        duplicate_identity = json.loads(json.dumps(spec))
+        duplicate_identity["shape_envelope"]["sparse_rowsets"][0]["rows"].append(
+            {
+                "family": "ProjectionA",
+                "input_c": 384,
+                "input_h": 15,
+                "input_w": 10,
+                "output_c": 192,
+                "tuple_id": "projection_a_duplicate_identity",
+            }
+        )
+        with self.assertRaisesRegex(AssertionError, "duplicate identity"):
+            contract_spec_utils.validate_shape_envelope_sparse_rowsets(
+                "sparse_rowset_canary.json",
+                duplicate_identity,
+            )
+
+        duplicate_label = json.loads(json.dumps(spec))
+        duplicate_label["shape_envelope"]["sparse_rowsets"][0]["rows"][1][
+            "tuple_id"
+        ] = "projection_a_384_15x10_192"
+        with self.assertRaisesRegex(AssertionError, "duplicate label"):
+            contract_spec_utils.validate_shape_envelope_sparse_rowsets(
+                "sparse_rowset_canary.json",
+                duplicate_label,
+            )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "test",
+                    "vulkan_contract_specs",
+                    "contract_spec_utils.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--validate-sparse-rowsets",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertIn("validated 0 ShapeEnvelope sparse rowsets", result.stdout)
+        self.assertIn("rows=0", result.stdout)
+        self.assertIn("sparse_gap=0", result.stdout)
+
     def test_vulkan_contract_spec_utility_cli_summary(self):
         result = subprocess.run(
             [

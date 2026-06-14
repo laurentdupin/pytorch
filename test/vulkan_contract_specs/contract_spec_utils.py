@@ -62,6 +62,19 @@ SHAPE_ENVELOPE_POLICY_FIELDS = (
     "copy",
 )
 
+SPARSE_ROWSET_REQUIRED_FIELDS = (
+    "name",
+    "fields",
+    "identity_fields",
+    "rows",
+)
+
+SPARSE_ROWSET_NEGATIVE_KINDS = (
+    "field_value_outside_rowset",
+    "forbidden_cross_product",
+    "adjacent_field",
+)
+
 
 def _require_non_empty_string(mapping, field, context):
     value = mapping[field]
@@ -308,6 +321,152 @@ def _negative_axis_names(envelope):
             _validate_scalar(axis["value"], f"{context}.value")
         names.add(axis["violates"])
     return names
+
+
+def _validate_sparse_rowset_negative_axes(negative_axes, field_names, context):
+    _require_list(negative_axes, context, allow_empty=True)
+    field_names = set(field_names)
+    for index, axis in enumerate(negative_axes):
+        axis_context = f"{context}[{index}]"
+        _require_mapping(axis, axis_context)
+        require_fields(axis, ("violates", "kind"), axis_context)
+        _require_non_empty_string(axis, "violates", axis_context)
+        _require_non_empty_string(axis, "kind", axis_context)
+        if axis["kind"] not in SPARSE_ROWSET_NEGATIVE_KINDS:
+            raise AssertionError(
+                f"{axis_context}.kind has unsupported value {axis['kind']!r}"
+            )
+        for mapping_field in ("fields", "row"):
+            if mapping_field not in axis:
+                continue
+            _require_mapping(axis[mapping_field], f"{axis_context}.{mapping_field}")
+            unknown_fields = sorted(set(axis[mapping_field]) - field_names)
+            if unknown_fields:
+                raise AssertionError(
+                    f"{axis_context}.{mapping_field} has unknown fields "
+                    f"{unknown_fields}"
+                )
+            for field, value in axis[mapping_field].items():
+                _validate_scalar(value, f"{axis_context}.{mapping_field}.{field}")
+
+
+def _sparse_rowset_field_values(rowset, field):
+    return _dedupe_preserving_order(row[field] for row in rowset["rows"])
+
+
+def _sparse_rowset_independent_cross_product(rowset):
+    result = 1
+    for field in rowset["identity_fields"]:
+        result *= len(_sparse_rowset_field_values(rowset, field))
+    return result
+
+
+def _validate_sparse_rowset(rowset, context):
+    _require_mapping(rowset, context)
+    require_fields(rowset, SPARSE_ROWSET_REQUIRED_FIELDS, context)
+    _require_non_empty_string(rowset, "name", context)
+    _require_list(rowset["fields"], f"{context}.fields")
+    _require_list(rowset["identity_fields"], f"{context}.identity_fields")
+    fields = rowset["fields"]
+    identity_fields = rowset["identity_fields"]
+    for index, field in enumerate(fields):
+        _require_non_empty_string({"field": field}, "field", f"{context}.fields[{index}]")
+    if len(fields) != len(set(fields)):
+        raise AssertionError(f"{context}.fields must be unique")
+    field_names = set(fields)
+    for index, field in enumerate(identity_fields):
+        _require_non_empty_string(
+            {"field": field},
+            "field",
+            f"{context}.identity_fields[{index}]",
+        )
+        if field not in field_names:
+            raise AssertionError(
+                f"{context}.identity_fields[{index}] unknown field {field!r}"
+            )
+    if len(identity_fields) != len(set(identity_fields)):
+        raise AssertionError(f"{context}.identity_fields must be unique")
+    label_field = rowset.get("label_field")
+    if label_field is not None:
+        _require_non_empty_string(rowset, "label_field", context)
+        if label_field not in field_names:
+            raise AssertionError(f"{context}.label_field unknown field {label_field!r}")
+
+    _require_list(rowset["rows"], f"{context}.rows")
+    seen_identity_keys = {}
+    seen_labels = {}
+    for index, row in enumerate(rowset["rows"]):
+        row_context = f"{context}.rows[{index}]"
+        _require_mapping(row, row_context)
+        missing_fields = sorted(field_names - set(row))
+        extra_fields = sorted(set(row) - field_names)
+        if missing_fields or extra_fields:
+            raise AssertionError(
+                f"{row_context} field mismatch missing={missing_fields} "
+                f"extra={extra_fields}"
+            )
+        for field in fields:
+            _validate_scalar(row[field], f"{row_context}.{field}")
+        identity_key = tuple(_canonical_case_value(row[field]) for field in identity_fields)
+        if identity_key in seen_identity_keys:
+            raise AssertionError(
+                f"{row_context} duplicate identity with row "
+                f"{seen_identity_keys[identity_key]}"
+            )
+        seen_identity_keys[identity_key] = index
+        if label_field is not None:
+            label = _canonical_case_value(row[label_field])
+            if label in seen_labels:
+                raise AssertionError(
+                    f"{row_context} duplicate label {label!r} with row "
+                    f"{seen_labels[label]}"
+                )
+            seen_labels[label] = index
+
+    _validate_sparse_rowset_negative_axes(
+        rowset.get("negative_axes", []),
+        fields,
+        f"{context}.negative_axes",
+    )
+    independent_cross_product = _sparse_rowset_independent_cross_product(rowset)
+    return {
+        "rowset_name": rowset["name"],
+        "fields": tuple(fields),
+        "identity_fields": tuple(identity_fields),
+        "label_field": label_field or "",
+        "row_count": len(rowset["rows"]),
+        "independent_identity_cross_product": independent_cross_product,
+        "sparse_cross_product_gap": independent_cross_product - len(rowset["rows"]),
+        "negative_axes": len(rowset.get("negative_axes", [])),
+    }
+
+
+def validate_shape_envelope_sparse_rowsets(file_name, spec):
+    envelope = spec.get("shape_envelope")
+    if envelope is None:
+        return []
+    rowsets = envelope.get("sparse_rowsets", [])
+    _require_list(
+        rowsets,
+        f"{file_name} ShapeEnvelope v1 sparse_rowsets",
+        allow_empty=True,
+    )
+    rows = []
+    for index, rowset in enumerate(rowsets):
+        row = _validate_sparse_rowset(
+            rowset,
+            f"{file_name} ShapeEnvelope v1 sparse_rowsets[{index}]",
+        )
+        row.update(
+            {
+                "file_name": file_name,
+                "contract_name": spec.get("contract_name", ""),
+                "family": spec.get("family", ""),
+                "role": envelope.get("role", ""),
+            }
+        )
+        rows.append(row)
+    return rows
 
 
 def _relationship_types(envelope):
@@ -655,6 +814,7 @@ def _validate_shape_envelope_common(file_name, spec, envelope):
         envelope["capability_requirements"],
         context,
     )
+    validate_shape_envelope_sparse_rowsets(file_name, spec)
     _validate_contract_metadata(envelope["metadata"], f"{context} metadata")
 
     policies = envelope["policies"]
@@ -2962,6 +3122,13 @@ def shape_envelope_summary(repo_root):
     return rows
 
 
+def shape_envelope_sparse_rowset_summary(repo_root):
+    rows = []
+    for file_name, spec in validate_all_contract_specs(repo_root):
+        rows.extend(validate_shape_envelope_sparse_rowsets(file_name, spec))
+    return rows
+
+
 def _repo_relative_path(repo_root, relative_path, context):
     if os.path.isabs(relative_path):
         raise AssertionError(f"{context} must be repository-relative")
@@ -3641,6 +3808,7 @@ def _main():
     parser.add_argument("--summary", action="store_true")
     parser.add_argument("--validate", action="store_true")
     parser.add_argument("--validate-shape-envelope", action="store_true")
+    parser.add_argument("--validate-sparse-rowsets", action="store_true")
     parser.add_argument("--validate-legal-cases", action="store_true")
     parser.add_argument("--validate-adjacent-negatives", action="store_true")
     parser.add_argument("--validate-fuzz-assignments", action="store_true")
@@ -3669,6 +3837,26 @@ def _main():
             f"{row['file_name']}:{row['role']}" for row in envelope_rows
         )
         print(f"validated {len(envelope_rows)} ShapeEnvelope v1 specs {roles}")
+    if args.validate_sparse_rowsets:
+        sparse_rows = shape_envelope_sparse_rowset_summary(args.repo_root)
+        total_rows = sum(row["row_count"] for row in sparse_rows)
+        total_independent = sum(
+            row["independent_identity_cross_product"] for row in sparse_rows
+        )
+        total_sparse_gap = sum(row["sparse_cross_product_gap"] for row in sparse_rows)
+        rowsets = ", ".join(
+            f"{row['file_name']}:{row['rowset_name']}:rows={row['row_count']}:"
+            f"cross_product={row['independent_identity_cross_product']}:"
+            f"gap={row['sparse_cross_product_gap']}"
+            for row in sparse_rows
+        )
+        rowset_details = f" {rowsets}" if rowsets else ""
+        print(
+            "validated "
+            f"{len(sparse_rows)} ShapeEnvelope sparse rowsets "
+            f"rows={total_rows} independent_cross_product={total_independent} "
+            f"sparse_gap={total_sparse_gap}{rowset_details}"
+        )
     if args.validate_legal_cases:
         legal_rows = shape_envelope_legal_case_summary(args.repo_root)
         if not legal_rows:
