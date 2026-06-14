@@ -2448,6 +2448,226 @@ def _small_spatial_pointwise_conv_rowset(envelope, context):
     return rowset
 
 
+def _diffusion_sdpa_rowset(envelope, context):
+    rowsets = envelope.get("sparse_rowsets", [])
+    if len(rowsets) != 1:
+        raise AssertionError(f"{context} must have one sparse rowset")
+    rowset = rowsets[0]
+    _require_equal(rowset["name"], "attention_rows", f"{context} rowset name")
+    _require_equal(
+        rowset["fields"],
+        [
+            "family",
+            "heads",
+            "query_sequence",
+            "key_value_sequence",
+            "head_dim",
+            "tuple_id",
+        ],
+        f"{context} rowset fields",
+    )
+    _require_equal(
+        rowset["identity_fields"],
+        [
+            "family",
+            "heads",
+            "query_sequence",
+            "key_value_sequence",
+            "head_dim",
+        ],
+        f"{context} rowset identity fields",
+    )
+    _require_equal(
+        rowset["lookup_fields"],
+        ["heads", "query_sequence", "key_value_sequence", "head_dim"],
+        f"{context} rowset lookup fields",
+    )
+    _require_equal(rowset["label_field"], "tuple_id", f"{context} rowset label")
+    return rowset
+
+
+def _diffusion_sdpa_expected_scale(head_dim):
+    return 0.04419417382415922 if head_dim == 512 else 0.125
+
+
+def _validate_diffusion_sdpa_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} DiffusionSDPA ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "DiffusionSDPAContract",
+        f"{context} contract",
+    )
+    _require_equal(spec["family"], "SparseAttentionRows", f"{context} family")
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    bounds = envelope["bounds"]
+    for key, expected in (
+        ("query_dtype", "float32"),
+        ("key_dtype", "float32"),
+        ("value_dtype", "float32"),
+        ("query_rank", 4),
+        ("key_rank", 4),
+        ("value_rank", 4),
+        ("batch", 1),
+        ("has_attn_mask", False),
+        ("dropout_zero", True),
+        ("is_causal", False),
+        ("enable_gqa", False),
+        ("scale_policy", "absent_or_head_dim_equivalent"),
+    ):
+        _require_equal(bounds[key], expected, f"{context} {key}")
+    for key in ("requires_vulkan", "requires_buffer_storage", "requires_buffer_compute"):
+        _require_equal(bounds[key], True, f"{context} {key}")
+
+    rowset = _diffusion_sdpa_rowset(envelope, context)
+    rows = rowset["rows"]
+    if len(rows) != 11:
+        raise AssertionError(f"{context} expected 11 sparse rows")
+    family_counts = {}
+    row_keys = set()
+    lookup_keys = set()
+    tuple_ids = set()
+    for row in rows:
+        family_counts[row["family"]] = family_counts.get(row["family"], 0) + 1
+        row_keys.add(
+            (
+                row["family"],
+                row["heads"],
+                row["query_sequence"],
+                row["key_value_sequence"],
+                row["head_dim"],
+            )
+        )
+        lookup_keys.add(
+            (
+                row["heads"],
+                row["query_sequence"],
+                row["key_value_sequence"],
+                row["head_dim"],
+            )
+        )
+        tuple_ids.add(row["tuple_id"])
+    _require_equal(
+        family_counts,
+        {
+            "SquareSelfAttention": 7,
+            "CrossAttention": 4,
+        },
+        f"{context} family counts",
+    )
+    _require_equal(len(tuple_ids), 11, f"{context} tuple ids")
+    _require_equal(len(lookup_keys), 11, f"{context} lookup keys")
+
+    positive_keys = {
+        (
+            case["expected_contract_family"],
+            case["query_shape"][1],
+            case["query_shape"][2],
+            case["key_shape"][2],
+            case["query_shape"][3],
+        )
+        for case in spec["positive_cases"]
+    }
+    if positive_keys != row_keys:
+        missing = sorted(row_keys - positive_keys)
+        extra = sorted(positive_keys - row_keys)
+        raise AssertionError(
+            f"{context} positives do not match sparse rowset "
+            f"missing={missing} extra={extra}"
+        )
+
+    def require_qkv_case(case, case_context, allow_violations=()):
+        for shape_name in ("query_shape", "key_shape", "value_shape"):
+            shape = case[shape_name]
+            if len(shape) != 4:
+                raise AssertionError(f"{case_context} {shape_name} rank mismatch")
+            _require_equal(shape[0], bounds["batch"], f"{case_context} batch")
+            _require_equal(
+                shape[1],
+                case["query_shape"][1],
+                f"{case_context} heads",
+            )
+            if shape_name != "query_shape":
+                _require_equal(
+                    shape[2],
+                    case["key_shape"][2],
+                    f"{case_context} key/value sequence",
+                )
+            _require_equal(
+                shape[3],
+                case["query_shape"][3],
+                f"{case_context} head dim",
+            )
+        if case["dtype"] != bounds["query_dtype"]:
+            raise AssertionError(f"{case_context} dtype mismatch")
+        if (
+            case["has_attn_mask"] != bounds["has_attn_mask"]
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} attention mask mismatch")
+        if (
+            (case["dropout_p"] == 0.0) != bounds["dropout_zero"]
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} dropout mismatch")
+        if (
+            case["is_causal"] != bounds["is_causal"]
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} causal mismatch")
+        if (
+            case["enable_gqa"] != bounds["enable_gqa"]
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} enable_gqa mismatch")
+        scale = case["scale"]
+        if (
+            scale is not None
+            and abs(scale - _diffusion_sdpa_expected_scale(case["query_shape"][3]))
+            > 1.0e-6
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} scale mismatch")
+
+    for case in spec["positive_cases"]:
+        case_context = f"{context} positive {case['name']}"
+        require_qkv_case(case, case_context)
+        expected_label = (
+            "SelectedDiffusionSDPACrossAttention"
+            if case["expected_contract_family"] == "CrossAttention"
+            else "SelectedDiffusionSDPASquareSelfAttention"
+        )
+        _require_equal(
+            case["expected_route_label"],
+            expected_label,
+            f"{case_context} route label",
+        )
+        _require_equal(case["expected_cpu_fallback"], False, f"{case_context} fallback")
+
+    for case in spec["negative_cases"]:
+        case_context = f"{context} negative {case['name']}"
+        require_qkv_case(
+            case,
+            case_context,
+            allow_violations=(
+                "has_attn_mask",
+                "dropout_zero",
+                "is_causal",
+                "enable_gqa",
+                "scale_policy",
+            ),
+        )
+        if case["violates"].startswith("attention_rows."):
+            key = (
+                case["query_shape"][1],
+                case["query_shape"][2],
+                case["key_shape"][2],
+                case["query_shape"][3],
+            )
+            if key in lookup_keys:
+                raise AssertionError(f"{case_context} unexpectedly matches rowset")
+
+
 def _validate_small_spatial_pointwise_conv_shape_envelope(
     file_name,
     spec,
@@ -3881,6 +4101,64 @@ _MASKED_TINY_SDPA_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.scale_equivalent_head_dim64",
 )
 
+_DIFFUSION_SDPA_LEGAL_KEY_FIELDS = (
+    "query_shape",
+    "key_shape",
+    "value_shape",
+    "dtype",
+    "has_attn_mask",
+    "dropout_p",
+    "is_causal",
+    "scale",
+    "enable_gqa",
+    "expected_route_label",
+    "expected_contract_family",
+    "expected_contract_tuple_id",
+    "expected_cpu_fallback",
+)
+
+_DIFFUSION_SDPA_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "query_shape",
+    "key_shape",
+    "value_shape",
+    "dtype",
+    "has_attn_mask",
+    "dropout_p",
+    "is_causal",
+    "scale",
+    "enable_gqa",
+    "expected_native_route",
+    "expected_runtime_error",
+    "expected_cpu_fallback",
+)
+
+_DIFFUSION_SDPA_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.query.dtype",
+    "inputs.query.rank",
+    "inputs.query.dims.N",
+    "inputs.query.dims.H",
+    "inputs.query.dims.TQ",
+    "inputs.query.dims.D",
+    "inputs.key.dtype",
+    "inputs.key.rank",
+    "inputs.key.dims.N",
+    "inputs.key.dims.H",
+    "inputs.key.dims.TKV",
+    "inputs.key.dims.D",
+    "inputs.value.dtype",
+    "inputs.value.rank",
+    "inputs.value.dims.N",
+    "inputs.value.dims.H",
+    "inputs.value.dims.TKV",
+    "inputs.value.dims.D",
+    "attributes.has_attn_mask",
+    "attributes.dropout_zero",
+    "attributes.is_causal",
+    "attributes.enable_gqa",
+    "attributes.scale_policy",
+)
+
 _SMALL_SPATIAL_POINTWISE_CONV_LEGAL_KEY_FIELDS = (
     "input_shape",
     "out_channels",
@@ -4142,6 +4420,19 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         ),
         "adjacent_negative_key_fields": (
             _MASKED_TINY_SDPA_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
+    },
+    "diffusion_sdpa_sparse_attention_rows": {
+        "validate": _validate_diffusion_sdpa_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _DIFFUSION_SDPA_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": _DIFFUSION_SDPA_ASSIGNMENT_COVERAGE_FIELDS,
+        "adjacent_negative_key_fields": (
+            _DIFFUSION_SDPA_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
     },
     "kv_cache_append_sequence_append": {

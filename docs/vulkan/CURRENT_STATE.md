@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`3a8b16904c320be0d0874e72962d05f2d39aaf78`.
+`b9e2eae16beb260ebf0970fd88878402c6880ab9`.
 
 ## Repo State Summary
 
@@ -21,6 +21,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsChannelCat.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsChannelCatSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsDiffusionSDPA.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsDiffusionSDPASpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsElementwiseBroadcast.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsEmbeddingLookup.cpp`
@@ -307,7 +308,7 @@ These files are diagnostic inputs. Production code must not depend on
   live contract sources, validates any `ShapeEnvelope` v1 blocks present, and
   keeps family-specific shape checks for BatchNormInference, EmbeddingLookup,
   ChannelCat, KVCacheAppend, LinearGeluBridge, GQARepeat, MaskedTinySDPA,
-  SDPAScoreSoftmax,
+  DiffusionSDPA, SDPAScoreSoftmax,
   NoOverlapConvTranspose2D, SmallMetadataPaddedConv2D, and SafeViewReshape.
   `test/vulkan_contract_specs/generated_cpp_manifest.json` declares which
   ShapeEnvelope specs have checked-in generated C++ helper headers; governance
@@ -331,15 +332,16 @@ These files are diagnostic inputs. Production code must not depend on
   `sparse_rowsets` ShapeEnvelope concept for correlated finite-row contracts,
   including row identity uniqueness, lookup-key uniqueness, tuple-label
   uniqueness, independent cross-product census, and forbidden-cross-product
-  negative metadata. `SmallSpatialPointwiseConvContract` is the first real
-  sparse-rowset consumer.
+  negative metadata. `SmallSpatialPointwiseConvContract` and
+  `DiffusionSDPAContract` are the current real sparse-rowset consumers.
   A generic coverage bridge maps abstract assignment paths and
   adjacent-negative axes onto the current generated/checked-in runtime cases
   without executing additional fuzz assignments. BatchNormInference `BufferFloat4D`,
   `MaterializedBufferFloat4D`, ElementwiseBroadcast
   `FloatTensorTensorBufferBroadcast`, GQARepeat
   `Batch1Heads4Factor4Sequence100To116Dim128`, KVCacheAppend `SequenceAppend`
-  and `InitialCache`, MaskedTinySDPA `AdditiveFloatMask`,
+  and `InitialCache`, MaskedTinySDPA `AdditiveFloatMask`, DiffusionSDPA
+  `SparseAttentionRows`,
   NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer`, SDPAScoreSoftmax
   `DiffusionSquareScores`, SmallMetadataPaddedConv2D
   `MaterializedBufferInput2x2`, and LinearGeluBridge
@@ -422,6 +424,15 @@ These files are diagnostic inputs. Production code must not depend on
   query/key/value/mask dtype, rank, shape, and scalar option predicates. Route
   hard-fail ordering, scale tolerance, SDPA execution, and match-result
   assembly remain handwritten so route behavior is unchanged.
+- DiffusionSDPA `SparseAttentionRows` consumes the generic ShapeEnvelope
+  sparse-rowset generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsDiffusionSDPASpec.h` from
+  `diffusion_sdpa_contract.json` for contract identity, per-row metadata, the
+  11 correlated square/cross-attention rows, and exact lookup by heads,
+  query-sequence, key/value sequence, and head dim. Route-policy hard-fail
+  ordering, scale tolerance, SDPA execution, materialization policy, and
+  match-result assembly remain handwritten so route behavior is unchanged.
 - NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` consumes the generic
   ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

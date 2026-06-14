@@ -55,6 +55,7 @@ Current MVP status:
   `DiffusionSquareScores`, plus `GQARepeatContract`
   `Batch1Heads4Factor4Sequence100To116Dim128`, plus
   `MaskedTinySDPAContract` `AdditiveFloatMask`, plus
+  `DiffusionSDPAContract` `SparseAttentionRows`, plus
   `SafeViewReshapeContract` `ViewMaterializedDirectBuffer` and
   `ReshapeAliasDenseBufferDirect`, plus `BatchNormInferenceContract`
   `BufferFloat4D` and `MaterializedBufferFloat4D`.
@@ -90,6 +91,7 @@ Current MVP status:
   `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast`, plus
   `GQARepeatContract` `Batch1Heads4Factor4Sequence100To116Dim128`, plus
   `MaskedTinySDPAContract` `AdditiveFloatMask`, plus
+  `DiffusionSDPAContract` `SparseAttentionRows`, plus
   `SDPAScoreSoftmaxContract` `DiffusionSquareScores`, plus
   `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer`, plus
   `KVCacheAppendContract` `SequenceAppend` and `InitialCache`, plus
@@ -183,6 +185,13 @@ Current MVP status:
   fallback/materialization policy constants for the existing matcher. Route
   hard-fail ordering, scale tolerance, SDPA execution, and broader SDPA policy
   remain handwritten.
+- `DiffusionSDPAContract` `SparseAttentionRows` now uses the generic
+  ShapeEnvelope C++ sparse-rowset generator path:
+  `ExecutionContractsDiffusionSDPASpec.h` provides contract identity, per-row
+  metadata, the 11 correlated square/cross-attention rows, and exact lookup by
+  heads, query sequence, key/value sequence, and head dim for the existing
+  matcher. Route-policy hard-fail ordering, scale tolerance, SDPA execution,
+  materialization policy, and broader SDPA policy remain handwritten.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

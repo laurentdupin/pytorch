@@ -310,10 +310,20 @@ condition and migration target.
 - Status: temporary, contract-named
 - Reason: materialization requirements differ by tuple, so enabling by formula
   is not justified yet.
+- Generated spec coverage: `test/vulkan_contract_specs/diffusion_sdpa_contract.json`
+  covers the `SparseAttentionRows` slice with ShapeEnvelope-backed checked-in
+  positive and adjacent negative runtime cases plus generic ShapeEnvelope
+  sparse-rowset helper output in
+  `generated/ExecutionContractsDiffusionSDPASpec.h`. The generated helper owns
+  the 11 correlated square and cross-attention rows, per-row metadata, and exact
+  `(heads, query_sequence, key_value_sequence, head_dim)` lookup. Route-policy
+  hard-fail ordering, scale tolerance, SDPA execution, materialization policy,
+  and match-result assembly remain handwritten.
 - Expiry: broader parity and materialization census covers adjacent diffusion
   self-attention and cross-attention shapes.
-- Migration target: `DiffusionSDPAContract` and
-  `DiffusionCrossAttentionContract`.
+- Migration target: broader generated `DiffusionSDPAContract` and
+  `DiffusionCrossAttentionContract` tables with positive, adjacent negative,
+  and materialization-policy coverage.
 
 ### Tiny Mask SDPA Tuple
 

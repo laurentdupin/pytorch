@@ -36,6 +36,16 @@
       ]
     },
     {
+      "spec_file": "diffusion_sdpa_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsDiffusionSDPASpec.h",
+      "markers": [
+        "DiffusionSDPASparseAttentionRowsSpec",
+        "DiffusionSDPAAttentionRowsRow",
+        "kDiffusionSDPAAttentionRowsRowCount",
+        "diffusion_sdpa_attention_rows_find"
+      ]
+    },
+    {
       "spec_file": "elementwise_broadcast_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h",
       "markers": [

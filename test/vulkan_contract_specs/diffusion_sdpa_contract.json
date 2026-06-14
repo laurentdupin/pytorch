@@ -1,0 +1,1071 @@
+{
+  "schema_version": 1,
+  "contract_name": "DiffusionSDPAContract",
+  "family": "SparseAttentionRows",
+  "tuple_id": "diffusion_sdpa_sparse_attention_rows",
+  "writer_op": "aten::scaled_dot_product_attention",
+  "route_label": "SelectedDiffusionSDPA",
+  "metadata": {
+    "evidence_id": "diffusion_sdpa_focused_tests",
+    "guard_id": "diffusion_sdpa_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "delegated_to_sdpa_execution_policy"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "diffusion_sdpa_sparse_attention_rows",
+    "inputs": {
+      "query": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "H",
+            "field": "heads",
+            "values": [
+              1,
+              5,
+              10,
+              20
+            ]
+          },
+          {
+            "symbol": "TQ",
+            "field": "query_sequence",
+            "values": [
+              12,
+              35,
+              126,
+              504,
+              640
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64,
+              512
+            ]
+          }
+        ]
+      },
+      "key": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "H",
+            "field": "heads",
+            "values": [
+              1,
+              5,
+              10,
+              20
+            ]
+          },
+          {
+            "symbol": "TKV",
+            "field": "key_value_sequence",
+            "values": [
+              2,
+              12,
+              35,
+              126,
+              504,
+              640
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64,
+              512
+            ]
+          }
+        ]
+      },
+      "value": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "H",
+            "field": "heads",
+            "values": [
+              1,
+              5,
+              10,
+              20
+            ]
+          },
+          {
+            "symbol": "TKV",
+            "field": "key_value_sequence",
+            "values": [
+              2,
+              12,
+              35,
+              126,
+              504,
+              640
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64,
+              512
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "has_attn_mask": {
+        "values": [
+          false
+        ]
+      },
+      "dropout_zero": {
+        "values": [
+          true
+        ]
+      },
+      "is_causal": {
+        "values": [
+          false
+        ]
+      },
+      "enable_gqa": {
+        "values": [
+          false
+        ]
+      },
+      "scale_policy": {
+        "values": [
+          "absent_or_head_dim_equivalent"
+        ]
+      }
+    },
+    "bounds": {
+      "query_dtype": "float32",
+      "key_dtype": "float32",
+      "value_dtype": "float32",
+      "query_rank": 4,
+      "key_rank": 4,
+      "value_rank": 4,
+      "batch": 1,
+      "heads": [
+        1,
+        5,
+        10,
+        20
+      ],
+      "query_sequence": [
+        12,
+        35,
+        126,
+        504,
+        640
+      ],
+      "key_value_sequence": [
+        2,
+        12,
+        35,
+        126,
+        504,
+        640
+      ],
+      "head_dim": [
+        64,
+        512
+      ],
+      "has_attn_mask": false,
+      "dropout_zero": true,
+      "is_causal": false,
+      "enable_gqa": false,
+      "scale_policy": "absent_or_head_dim_equivalent",
+      "requires_vulkan": true,
+      "requires_buffer_storage": true,
+      "requires_buffer_compute": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "qkv_batch",
+        "fields": [
+          "query.N",
+          "key.N",
+          "value.N"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "qkv_heads",
+        "fields": [
+          "query.H",
+          "key.H",
+          "value.H"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "key_value_sequence",
+        "fields": [
+          "key.TKV",
+          "value.TKV"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "qkv_head_dim",
+        "fields": [
+          "query.D",
+          "key.D",
+          "value.D"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "query_storage": "buffer",
+      "key_storage": "buffer",
+      "value_storage": "buffer",
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "diffusion_sdpa_focused_tests",
+      "guard_id": "diffusion_sdpa_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "delegated_to_sdpa_execution_policy"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "delegated_to_sdpa_execution_policy"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "attention_rows.forbidden_cross_product",
+        "adjacent": "forbidden_cross_product"
+      },
+      {
+        "violates": "attention_rows.query_sequence",
+        "adjacent": "wrong_value"
+      },
+      {
+        "violates": "attention_rows.key_value_sequence",
+        "adjacent": "wrong_value"
+      },
+      {
+        "violates": "scale_policy",
+        "adjacent": "wrong_value",
+        "value": "mismatched_scale"
+      },
+      {
+        "violates": "is_causal",
+        "adjacent": "wrong_value",
+        "value": true
+      },
+      {
+        "violates": "dropout_zero",
+        "adjacent": "wrong_value",
+        "value": false
+      }
+    ],
+    "fuzz_hints": {
+      "sparse_rowset": "attention_rows",
+      "prefer_sparse_rows": true,
+      "symbolic_dims": [
+        "H",
+        "TQ",
+        "TKV",
+        "D"
+      ]
+    },
+    "sparse_rowsets": [
+      {
+        "name": "attention_rows",
+        "fields": [
+          "family",
+          "heads",
+          "query_sequence",
+          "key_value_sequence",
+          "head_dim",
+          "tuple_id"
+        ],
+        "identity_fields": [
+          "family",
+          "heads",
+          "query_sequence",
+          "key_value_sequence",
+          "head_dim"
+        ],
+        "lookup_fields": [
+          "heads",
+          "query_sequence",
+          "key_value_sequence",
+          "head_dim"
+        ],
+        "label_field": "tuple_id",
+        "rows": [
+          {
+            "family": "SquareSelfAttention",
+            "heads": 1,
+            "query_sequence": 640,
+            "key_value_sequence": 640,
+            "head_dim": 512,
+            "tuple_id": "square_heads1_sequence640_dim512"
+          },
+          {
+            "family": "SquareSelfAttention",
+            "heads": 5,
+            "query_sequence": 640,
+            "key_value_sequence": 640,
+            "head_dim": 64,
+            "tuple_id": "square_heads5_sequence640_dim64"
+          },
+          {
+            "family": "SquareSelfAttention",
+            "heads": 1,
+            "query_sequence": 504,
+            "key_value_sequence": 504,
+            "head_dim": 512,
+            "tuple_id": "square_heads1_sequence504_dim512"
+          },
+          {
+            "family": "SquareSelfAttention",
+            "heads": 5,
+            "query_sequence": 504,
+            "key_value_sequence": 504,
+            "head_dim": 64,
+            "tuple_id": "square_heads5_sequence504_dim64"
+          },
+          {
+            "family": "SquareSelfAttention",
+            "heads": 10,
+            "query_sequence": 126,
+            "key_value_sequence": 126,
+            "head_dim": 64,
+            "tuple_id": "square_heads10_sequence126_dim64"
+          },
+          {
+            "family": "SquareSelfAttention",
+            "heads": 20,
+            "query_sequence": 35,
+            "key_value_sequence": 35,
+            "head_dim": 64,
+            "tuple_id": "square_heads20_sequence35_dim64"
+          },
+          {
+            "family": "SquareSelfAttention",
+            "heads": 20,
+            "query_sequence": 12,
+            "key_value_sequence": 12,
+            "head_dim": 64,
+            "tuple_id": "square_heads20_sequence12_dim64"
+          },
+          {
+            "family": "CrossAttention",
+            "heads": 5,
+            "query_sequence": 504,
+            "key_value_sequence": 2,
+            "head_dim": 64,
+            "tuple_id": "cross_heads5_query504_kv2_dim64"
+          },
+          {
+            "family": "CrossAttention",
+            "heads": 10,
+            "query_sequence": 126,
+            "key_value_sequence": 2,
+            "head_dim": 64,
+            "tuple_id": "cross_heads10_query126_kv2_dim64"
+          },
+          {
+            "family": "CrossAttention",
+            "heads": 20,
+            "query_sequence": 35,
+            "key_value_sequence": 2,
+            "head_dim": 64,
+            "tuple_id": "cross_heads20_query35_kv2_dim64"
+          },
+          {
+            "family": "CrossAttention",
+            "heads": 20,
+            "query_sequence": 12,
+            "key_value_sequence": 2,
+            "head_dim": 64,
+            "tuple_id": "cross_heads20_query12_kv2_dim64"
+          }
+        ],
+        "negative_axes": [
+          {
+            "violates": "attention_rows.forbidden_cross_product",
+            "kind": "forbidden_cross_product",
+            "fields": {
+              "family": "SquareSelfAttention",
+              "heads": 1,
+              "query_sequence": 640,
+              "key_value_sequence": 640,
+              "head_dim": 64
+            }
+          },
+          {
+            "violates": "attention_rows.query_sequence",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "SquareSelfAttention",
+              "heads": 1,
+              "query_sequence": 641,
+              "key_value_sequence": 641,
+              "head_dim": 512
+            }
+          },
+          {
+            "violates": "attention_rows.key_value_sequence",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "CrossAttention",
+              "heads": 5,
+              "query_sequence": 504,
+              "key_value_sequence": 3,
+              "head_dim": 64
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "bounds": {
+    "query_dtype": "float32",
+    "key_dtype": "float32",
+    "value_dtype": "float32",
+    "query_rank": 4,
+    "key_rank": 4,
+    "value_rank": 4,
+    "batch": 1,
+    "heads": [
+      1,
+      5,
+      10,
+      20
+    ],
+    "query_sequence": [
+      12,
+      35,
+      126,
+      504,
+      640
+    ],
+    "key_value_sequence": [
+      2,
+      12,
+      35,
+      126,
+      504,
+      640
+    ],
+    "head_dim": [
+      64,
+      512
+    ],
+    "has_attn_mask": false,
+    "dropout_zero": true,
+    "is_causal": false,
+    "enable_gqa": false,
+    "scale_policy": "absent_or_head_dim_equivalent",
+    "requires_vulkan": true,
+    "requires_buffer_storage": true,
+    "requires_buffer_compute": true
+  },
+  "positive_cases": [
+    {
+      "name": "square_heads1_sequence640_dim512",
+      "query_shape": [
+        1,
+        1,
+        640,
+        512
+      ],
+      "key_shape": [
+        1,
+        1,
+        640,
+        512
+      ],
+      "value_shape": [
+        1,
+        1,
+        640,
+        512
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.04419417382415922,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedDiffusionSDPASquareSelfAttention",
+      "expected_contract_family": "SquareSelfAttention",
+      "expected_contract_tuple_id": "square_heads1_sequence640_dim512",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "square_heads5_sequence640_dim64",
+      "query_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "key_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "value_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedDiffusionSDPASquareSelfAttention",
+      "expected_contract_family": "SquareSelfAttention",
+      "expected_contract_tuple_id": "square_heads5_sequence640_dim64",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "square_heads1_sequence504_dim512",
+      "query_shape": [
+        1,
+        1,
+        504,
+        512
+      ],
+      "key_shape": [
+        1,
+        1,
+        504,
+        512
+      ],
+      "value_shape": [
+        1,
+        1,
+        504,
+        512
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedDiffusionSDPASquareSelfAttention",
+      "expected_contract_family": "SquareSelfAttention",
+      "expected_contract_tuple_id": "square_heads1_sequence504_dim512",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "square_heads5_sequence504_dim64",
+      "query_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "key_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "value_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.125,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedDiffusionSDPASquareSelfAttention",
+      "expected_contract_family": "SquareSelfAttention",
+      "expected_contract_tuple_id": "square_heads5_sequence504_dim64",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "square_heads10_sequence126_dim64",
+      "query_shape": [
+        1,
+        10,
+        126,
+        64
+      ],
+      "key_shape": [
+        1,
+        10,
+        126,
+        64
+      ],
+      "value_shape": [
+        1,
+        10,
+        126,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedDiffusionSDPASquareSelfAttention",
+      "expected_contract_family": "SquareSelfAttention",
+      "expected_contract_tuple_id": "square_heads10_sequence126_dim64",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "square_heads20_sequence35_dim64",
+      "query_shape": [
+        1,
+        20,
+        35,
+        64
+      ],
+      "key_shape": [
+        1,
+        20,
+        35,
+        64
+      ],
+      "value_shape": [
+        1,
+        20,
+        35,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedDiffusionSDPASquareSelfAttention",
+      "expected_contract_family": "SquareSelfAttention",
+      "expected_contract_tuple_id": "square_heads20_sequence35_dim64",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "square_heads20_sequence12_dim64",
+      "query_shape": [
+        1,
+        20,
+        12,
+        64
+      ],
+      "key_shape": [
+        1,
+        20,
+        12,
+        64
+      ],
+      "value_shape": [
+        1,
+        20,
+        12,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.125,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedDiffusionSDPASquareSelfAttention",
+      "expected_contract_family": "SquareSelfAttention",
+      "expected_contract_tuple_id": "square_heads20_sequence12_dim64",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "cross_heads5_query504_kv2_dim64",
+      "query_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "key_shape": [
+        1,
+        5,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        5,
+        2,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedDiffusionSDPACrossAttention",
+      "expected_contract_family": "CrossAttention",
+      "expected_contract_tuple_id": "cross_heads5_query504_kv2_dim64",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "cross_heads10_query126_kv2_dim64",
+      "query_shape": [
+        1,
+        10,
+        126,
+        64
+      ],
+      "key_shape": [
+        1,
+        10,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        10,
+        2,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.125,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedDiffusionSDPACrossAttention",
+      "expected_contract_family": "CrossAttention",
+      "expected_contract_tuple_id": "cross_heads10_query126_kv2_dim64",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "cross_heads20_query35_kv2_dim64",
+      "query_shape": [
+        1,
+        20,
+        35,
+        64
+      ],
+      "key_shape": [
+        1,
+        20,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        20,
+        2,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedDiffusionSDPACrossAttention",
+      "expected_contract_family": "CrossAttention",
+      "expected_contract_tuple_id": "cross_heads20_query35_kv2_dim64",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "cross_heads20_query12_kv2_dim64",
+      "query_shape": [
+        1,
+        20,
+        12,
+        64
+      ],
+      "key_shape": [
+        1,
+        20,
+        2,
+        64
+      ],
+      "value_shape": [
+        1,
+        20,
+        2,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.125,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedDiffusionSDPACrossAttention",
+      "expected_contract_family": "CrossAttention",
+      "expected_contract_tuple_id": "cross_heads20_query12_kv2_dim64",
+      "expected_cpu_fallback": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "square_forbidden_cross_product_head_dim",
+      "query_shape": [
+        1,
+        1,
+        640,
+        64
+      ],
+      "key_shape": [
+        1,
+        1,
+        640,
+        64
+      ],
+      "value_shape": [
+        1,
+        1,
+        640,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "attention_rows.forbidden_cross_product",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_runtime_error": "KnownBadDiffusion4dSdpa"
+    },
+    {
+      "name": "square_query_sequence_adjacent",
+      "query_shape": [
+        1,
+        1,
+        641,
+        512
+      ],
+      "key_shape": [
+        1,
+        1,
+        641,
+        512
+      ],
+      "value_shape": [
+        1,
+        1,
+        641,
+        512
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "attention_rows.query_sequence",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_runtime_error": "KnownBadDiffusion4dSdpa"
+    },
+    {
+      "name": "cross_key_value_sequence_adjacent",
+      "query_shape": [
+        1,
+        5,
+        504,
+        64
+      ],
+      "key_shape": [
+        1,
+        5,
+        3,
+        64
+      ],
+      "value_shape": [
+        1,
+        5,
+        3,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "attention_rows.key_value_sequence",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_runtime_error": "KnownBadDiffusion4dSdpa"
+    },
+    {
+      "name": "explicit_scale_mismatch",
+      "query_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "key_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "value_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.25,
+      "enable_gqa": false,
+      "violates": "scale_policy",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_runtime_error": "KnownBadSdpaExplicitScale"
+    },
+    {
+      "name": "causal_true",
+      "query_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "key_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "value_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": true,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "is_causal",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal"
+    },
+    {
+      "name": "dropout_nonzero",
+      "query_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "key_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "value_shape": [
+        1,
+        5,
+        640,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.1,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "dropout_zero",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_runtime_error": "UnsupportedDType"
+    }
+  ]
+}
