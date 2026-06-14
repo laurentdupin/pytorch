@@ -88,11 +88,13 @@ Current MVP status:
   `BufferFloat4D` and `MaterializedBufferFloat4D`, plus
   `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast`, plus
   `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer`, plus
-  `KVCacheAppendContract` `SequenceAppend` and `InitialCache`.
+  `KVCacheAppendContract` `SequenceAppend` and `InitialCache`, plus
+  `SmallSpatialPointwiseConvContract` `SparseProjectionRows`.
   The schema captures symbolic dims, min/max, values, multiples, optional
-  dims, generic `broadcast_compatible` relationships, aggregate bounds, layout
-  and capability requirements, policies, positive cases, adjacent negatives,
-  and fuzz hints for validation and codegen.
+  dims, generic `broadcast_compatible` relationships, generic
+  `sparse_rowsets` for correlated finite rows, aggregate bounds, layout and
+  capability requirements, policies, positive cases, adjacent negatives, and
+  fuzz hints for validation and codegen.
 - Deterministic legal-case and adjacent-negative generation is active for
   ShapeEnvelope-backed ChannelCat, EmbeddingLookup, and both SafeViewReshape
   direct-buffer fixtures. The MVP compares generated legal positives and
@@ -124,6 +126,13 @@ Current MVP status:
   identity, metadata, dtype/rank/options/layout bounds, and helper predicates
   for the existing matcher. Packed-channel equality, output-shape arithmetic,
   prepack resource behavior, and match-result construction remain handwritten.
+- `SmallSpatialPointwiseConvContract` `SparseProjectionRows` now uses the
+  generic ShapeEnvelope C++ sparse-rowset generator path:
+  `ExecutionContractsSmallSpatialPointwiseConvSpec.h` provides contract
+  identity, per-row metadata, the 39 correlated projection rows, and exact
+  lookup helpers for the existing matcher. Route-policy hard-fail rescue,
+  shader-family decisions, family op-hit labels, and match-result construction
+  remain handwritten.
 - `KVCacheAppendContract` `SequenceAppend` and `InitialCache` now use the
   generic ShapeEnvelope C++ simple-bounds generator path:
   `ExecutionContractsKVCacheAppendSpec.h` and

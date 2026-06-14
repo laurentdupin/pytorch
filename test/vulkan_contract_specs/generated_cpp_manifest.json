@@ -115,6 +115,16 @@
         "safe_view_materialized_direct_buffer_storage_offset_matches",
         "safe_view_materialized_direct_buffer_output_last_dim_multiple_matches"
       ]
+    },
+    {
+      "spec_file": "small_spatial_pointwise_conv_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h",
+      "markers": [
+        "SmallSpatialPointwiseConvSparseProjectionRowsSpec",
+        "SmallSpatialPointwiseConvProjectionRowsRow",
+        "kSmallSpatialPointwiseConvProjectionRowsRowCount",
+        "small_spatial_pointwise_conv_projection_rows_find"
+      ]
     }
   ]
 }

@@ -219,6 +219,28 @@ condition and migration target.
 - Migration target: generated `SmallMetadataPaddedConv2DContract` or
   `LayoutTransitionContract` tables with positive and negative tests.
 
+### Small Spatial Pointwise Conv Exact Rows
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  `aten/src/ATen/native/vulkan/ops/Convolution.cpp`
+- Status: temporary, contract-named
+- Reason: finite 1x1 pointwise projection rows are proven for current
+  depth-vision, OCR, and diffusion projection envelopes, but broader pointwise
+  shape/layout behavior is not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/small_spatial_pointwise_conv_contract.json`
+  covers the `SparseProjectionRows` slice with ShapeEnvelope-backed checked-in
+  positive and adjacent negative runtime cases plus generic ShapeEnvelope
+  sparse-rowset helper output in
+  `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`. The generated
+  helper owns the 39 correlated projection rows, per-row metadata, and exact
+  `(input_c, input_h, input_w, output_c)` lookup. Route-policy hard-fail
+  rescue, shader-family decisions, family op-hit labels, and match-result
+  assembly remain handwritten.
+- Expiry: broader pointwise conv parity plus adjacent negative coverage are
+  available across layout, storage, and output-channel families.
+- Migration target: generated `SmallSpatialPointwiseConvContract` or broader
+  pointwise `KernelFamilyContract` tables with positive and negative tests.
+
 ### No-Overlap ConvTranspose2D Exact Envelope
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

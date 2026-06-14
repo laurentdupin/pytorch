@@ -374,6 +374,21 @@ def _validate_sparse_rowset(rowset, context):
     if len(fields) != len(set(fields)):
         raise AssertionError(f"{context}.fields must be unique")
     field_names = set(fields)
+    lookup_fields = rowset.get("lookup_fields", identity_fields)
+    _require_list(lookup_fields, f"{context}.lookup_fields")
+    for index, field in enumerate(lookup_fields):
+        _require_non_empty_string(
+            {"field": field},
+            "field",
+            f"{context}.lookup_fields[{index}]",
+        )
+        if field not in field_names:
+            raise AssertionError(
+                f"{context}.lookup_fields[{index}] unknown field {field!r}"
+            )
+    if len(lookup_fields) != len(set(lookup_fields)):
+        raise AssertionError(f"{context}.lookup_fields must be unique")
+
     for index, field in enumerate(identity_fields):
         _require_non_empty_string(
             {"field": field},
@@ -423,6 +438,16 @@ def _validate_sparse_rowset(rowset, context):
                 )
             seen_labels[label] = index
 
+    seen_lookup_keys = {}
+    for index, row in enumerate(rowset["rows"]):
+        lookup_key = tuple(_canonical_case_value(row[field]) for field in lookup_fields)
+        if lookup_key in seen_lookup_keys:
+            raise AssertionError(
+                f"{context}.rows[{index}] duplicate lookup with row "
+                f"{seen_lookup_keys[lookup_key]}"
+            )
+        seen_lookup_keys[lookup_key] = index
+
     _validate_sparse_rowset_negative_axes(
         rowset.get("negative_axes", []),
         fields,
@@ -433,6 +458,7 @@ def _validate_sparse_rowset(rowset, context):
         "rowset_name": rowset["name"],
         "fields": tuple(fields),
         "identity_fields": tuple(identity_fields),
+        "lookup_fields": tuple(lookup_fields),
         "label_field": label_field or "",
         "row_count": len(rowset["rows"]),
         "independent_identity_cross_product": independent_cross_product,
@@ -1515,6 +1541,151 @@ def _validate_no_overlap_conv_transpose2d_shape_envelope(file_name, spec, envelo
                 raise AssertionError(f"{case_context} output padding mismatch")
 
 
+def _small_spatial_pointwise_conv_rowset(envelope, context):
+    rowsets = envelope.get("sparse_rowsets", [])
+    if len(rowsets) != 1:
+        raise AssertionError(f"{context} must have one sparse rowset")
+    rowset = rowsets[0]
+    _require_equal(rowset["name"], "projection_rows", f"{context} rowset name")
+    _require_equal(
+        rowset["fields"],
+        ["family", "input_c", "input_h", "input_w", "output_c", "tuple_id"],
+        f"{context} rowset fields",
+    )
+    _require_equal(
+        rowset["identity_fields"],
+        ["family", "input_c", "input_h", "input_w", "output_c"],
+        f"{context} rowset identity fields",
+    )
+    _require_equal(
+        rowset["lookup_fields"],
+        ["input_c", "input_h", "input_w", "output_c"],
+        f"{context} rowset lookup fields",
+    )
+    _require_equal(rowset["label_field"], "tuple_id", f"{context} rowset label")
+    return rowset
+
+
+def _validate_small_spatial_pointwise_conv_shape_envelope(
+    file_name,
+    spec,
+    envelope,
+):
+    context = f"{file_name} SmallSpatialPointwiseConv ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "SmallSpatialPointwiseConvContract",
+        f"{context} contract",
+    )
+    _require_equal(spec["family"], "SparseProjectionRows", f"{context} family")
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    bounds = envelope["bounds"]
+    for key, expected in (
+        ("dtype", "float32"),
+        ("input_rank", 4),
+        ("weight_rank", 4),
+        ("batch", 1),
+        ("groups", 1),
+        ("kernel_h", 1),
+        ("kernel_w", 1),
+        ("stride_h", 1),
+        ("stride_w", 1),
+        ("padding_h", 0),
+        ("padding_w", 0),
+        ("dilation_h", 1),
+        ("dilation_w", 1),
+    ):
+        _require_equal(bounds[key], expected, f"{context} {key}")
+    for key in ("requires_vulkan", "requires_buffer_storage", "requires_buffer_compute"):
+        _require_equal(bounds[key], True, f"{context} {key}")
+
+    rowset = _small_spatial_pointwise_conv_rowset(envelope, context)
+    rows = rowset["rows"]
+    if len(rows) != 39:
+        raise AssertionError(f"{context} expected 39 sparse rows")
+    family_counts = {}
+    row_keys = set()
+    tuple_ids = set()
+    lookup_keys = set()
+    for row in rows:
+        family_counts[row["family"]] = family_counts.get(row["family"], 0) + 1
+        row_keys.add(
+            (
+                row["family"],
+                row["input_c"],
+                row["input_h"],
+                row["input_w"],
+                row["output_c"],
+            )
+        )
+        lookup_keys.add(
+            (
+                row["input_c"],
+                row["input_h"],
+                row["input_w"],
+                row["output_c"],
+            )
+        )
+        tuple_ids.add(row["tuple_id"])
+    _require_equal(
+        family_counts,
+        {
+            "DepthVisionProjection": 10,
+            "OCRProjection": 13,
+            "DiffusionProjection": 16,
+        },
+        f"{context} family counts",
+    )
+    _require_equal(len(tuple_ids), 39, f"{context} tuple ids")
+    _require_equal(len(lookup_keys), 39, f"{context} lookup keys")
+
+    positive_keys = {
+        (
+            case["expected_contract_family"],
+            case["input_shape"][1],
+            case["input_shape"][2],
+            case["input_shape"][3],
+            case["out_channels"],
+        )
+        for case in spec["positive_cases"]
+    }
+    if positive_keys != row_keys:
+        missing = sorted(row_keys - positive_keys)
+        extra = sorted(positive_keys - row_keys)
+        raise AssertionError(
+            f"{context} positives do not match sparse rowset "
+            f"missing={missing} extra={extra}"
+        )
+
+    for case in spec["positive_cases"]:
+        case_context = f"{context} positive {case['name']}"
+        _require_equal(case["dtype"], bounds["dtype"], f"{case_context} dtype")
+        _require_equal(case["kernel_size"], [1, 1], f"{case_context} kernel")
+        _require_equal(case["stride"], [1, 1], f"{case_context} stride")
+        _require_equal(case["padding"], [0, 0], f"{case_context} padding")
+        _require_equal(case["dilation"], [1, 1], f"{case_context} dilation")
+        _require_equal(case["groups"], 1, f"{case_context} groups")
+        _require_equal(
+            case["expected_route_label"],
+            "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+            f"{case_context} route label",
+        )
+        _require_equal(case["expected_cpu_fallback"], False, f"{case_context} fallback")
+
+    for case in spec["negative_cases"]:
+        case_context = f"{context} negative {case['name']}"
+        if case["violates"].startswith("projection_rows."):
+            key = (
+                case["input_shape"][1],
+                case["input_shape"][2],
+                case["input_shape"][3],
+                case["out_channels"],
+            )
+            if key in lookup_keys:
+                raise AssertionError(f"{case_context} unexpectedly matches rowset")
+
+
 def _validate_kv_cache_append_shape_envelope(file_name, spec, envelope):
     context = f"{file_name} KVCacheAppend ShapeEnvelope"
     _require_equal(
@@ -2573,6 +2744,61 @@ _NO_OVERLAP_CONV_TRANSPOSE2D_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.bias_is_float",
 )
 
+_SMALL_SPATIAL_POINTWISE_CONV_LEGAL_KEY_FIELDS = (
+    "input_shape",
+    "out_channels",
+    "kernel_size",
+    "stride",
+    "padding",
+    "dilation",
+    "groups",
+    "dtype",
+    "expected_route_label",
+    "expected_contract_family",
+    "expected_contract_tuple_id",
+    "expected_cpu_fallback",
+)
+
+_SMALL_SPATIAL_POINTWISE_CONV_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "input_shape",
+    "out_channels",
+    "kernel_size",
+    "stride",
+    "padding",
+    "dilation",
+    "groups",
+    "dtype",
+    "expected_native_route",
+    ("expected_error_regex", ""),
+    ("expected_cpu_fallback", False),
+)
+
+_SMALL_SPATIAL_POINTWISE_CONV_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.input.dtype",
+    "inputs.input.rank",
+    "inputs.input.dims.N",
+    "inputs.input.dims.CI",
+    "inputs.input.dims.H",
+    "inputs.input.dims.W",
+    "inputs.weight.dtype",
+    "inputs.weight.rank",
+    "inputs.weight.dims.CO",
+    "inputs.weight.dims.CI",
+    "inputs.weight.dims.KH",
+    "inputs.weight.dims.KW",
+    "attributes.groups",
+    "attributes.kernel_h",
+    "attributes.kernel_w",
+    "attributes.stride_h",
+    "attributes.stride_w",
+    "attributes.padding_h",
+    "attributes.padding_w",
+    "attributes.dilation_h",
+    "attributes.dilation_w",
+    "attributes.execution_storage",
+)
+
 _KV_CACHE_APPEND_SEQUENCE_LEGAL_KEY_FIELDS = (
     "cache_shape",
     "token_shape",
@@ -2693,6 +2919,21 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         ),
         "adjacent_negative_key_fields": (
             _NO_OVERLAP_CONV_TRANSPOSE2D_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
+    },
+    "small_spatial_pointwise_conv_sparse_projection_rows": {
+        "validate": _validate_small_spatial_pointwise_conv_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _SMALL_SPATIAL_POINTWISE_CONV_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _SMALL_SPATIAL_POINTWISE_CONV_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _SMALL_SPATIAL_POINTWISE_CONV_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
     },
     "kv_cache_append_sequence_append": {

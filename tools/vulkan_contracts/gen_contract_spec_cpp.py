@@ -1246,8 +1246,338 @@ def generate_generic_shape_layout_simple_bounds_shape_envelope_header(
     return "\n".join(lines)
 
 
+def _sparse_rowsets(spec):
+    envelope = spec.get("shape_envelope")
+    if not isinstance(envelope, dict):
+        return []
+    rowsets = envelope.get("sparse_rowsets", [])
+    if rowsets is None:
+        return []
+    return rowsets
+
+
+def _validate_sparse_row_value(value, context):
+    _require(
+        isinstance(value, (str, int, bool)) and not (isinstance(value, str) and value == ""),
+        f"{context} must be a non-empty string, integer, or boolean",
+    )
+
+
+def _sparse_row_field_types(rows, fields, context):
+    field_types = {}
+    for field in fields:
+        current_type = None
+        for row_index, row in enumerate(rows):
+            value = row[field]
+            value_type = bool if isinstance(value, bool) else type(value)
+            if value_type not in (str, int, bool):
+                raise RuntimeError(
+                    f"{context}.rows[{row_index}].{field} has unsupported type"
+                )
+            if current_type is None:
+                current_type = value_type
+            _require(
+                value_type is current_type,
+                f"{context}.{field} must use one scalar type across all rows",
+            )
+        field_types[field] = current_type
+    return field_types
+
+
+def _cpp_type_for_row_field(field_type):
+    if field_type is str:
+        return "const char*"
+    if field_type is bool:
+        return "bool"
+    if field_type is int:
+        return "std::int64_t"
+    raise RuntimeError(f"unsupported sparse row field type {field_type!r}")
+
+
+def _cpp_row_value(value):
+    if isinstance(value, str):
+        return _cpp_string(value)
+    if isinstance(value, bool):
+        return _cpp_bool(value)
+    if isinstance(value, int):
+        return str(value)
+    raise RuntimeError(f"unsupported sparse row value {value!r}")
+
+
+def _cpp_row_field_compare(field, field_type):
+    if field_type is str:
+        return f"std::string_view(row.{field}) == {field}"
+    return f"row.{field} == {field}"
+
+
+def _validate_generic_sparse_rowset_shape_envelope_spec(spec):
+    rowsets = _sparse_rowsets(spec)
+    if not rowsets:
+        return None
+    _require_keys(
+        spec,
+        (
+            "contract_name",
+            "family",
+            "tuple_id",
+            "writer_op",
+            "route_label",
+            "metadata",
+            "shape_envelope",
+            "bounds",
+        ),
+        "ShapeEnvelope sparse-rowset contract spec",
+    )
+    for key in ("contract_name", "family", "tuple_id", "writer_op", "route_label"):
+        _require_non_empty_string(spec, key, "ShapeEnvelope sparse-rowset contract spec")
+
+    envelope = spec["shape_envelope"]
+    _require(envelope.get("version") == 1, "shape_envelope.version must be 1")
+    _require_non_empty_string(envelope, "role", "shape_envelope")
+    metadata = envelope.get("metadata")
+    _validate_contract_metadata(metadata, "ShapeEnvelope metadata")
+    _require(spec["metadata"] == metadata, "metadata must match shape_envelope")
+
+    bounds = envelope.get("bounds")
+    _require(spec["bounds"] == bounds, "bounds must match shape_envelope")
+    _require(isinstance(bounds, dict), "ShapeEnvelope bounds must be an object")
+
+    _require(len(rowsets) == 1, "sparse-rowset generator v0 supports one rowset")
+    rowset = rowsets[0]
+    _require(isinstance(rowset, dict), "sparse_rowsets[0] must be an object")
+    _require_keys(
+        rowset,
+        ("name", "fields", "identity_fields", "lookup_fields", "label_field", "rows"),
+        "sparse_rowsets[0]",
+    )
+    _require_non_empty_string(rowset, "name", "sparse_rowsets[0]")
+    for key in ("fields", "identity_fields", "lookup_fields", "rows"):
+        _require(isinstance(rowset[key], list) and rowset[key], f"sparse_rowsets[0].{key} invalid")
+    fields = rowset["fields"]
+    identity_fields = rowset["identity_fields"]
+    lookup_fields = rowset["lookup_fields"]
+    for key, values in (
+        ("fields", fields),
+        ("identity_fields", identity_fields),
+        ("lookup_fields", lookup_fields),
+    ):
+        for index, value in enumerate(values):
+            _require(
+                isinstance(value, str) and value,
+                f"sparse_rowsets[0].{key}[{index}] invalid",
+            )
+        _require(
+            len(values) == len(set(values)),
+            f"sparse_rowsets[0].{key} must be unique",
+        )
+    field_names = set(fields)
+    for key, values in (("identity_fields", identity_fields), ("lookup_fields", lookup_fields)):
+        unknown = sorted(set(values) - field_names)
+        _require(not unknown, f"sparse_rowsets[0].{key} unknown fields {unknown}")
+    label_field = rowset["label_field"]
+    _require(
+        isinstance(label_field, str) and label_field in field_names,
+        "sparse_rowsets[0].label_field invalid",
+    )
+
+    rows = rowset["rows"]
+    identity_keys = set()
+    lookup_keys = set()
+    labels = set()
+    for row_index, row in enumerate(rows):
+        _require(isinstance(row, dict), f"sparse_rowsets[0].rows[{row_index}] invalid")
+        missing = sorted(field_names - set(row))
+        extra = sorted(set(row) - field_names)
+        _require(
+            not missing and not extra,
+            f"sparse_rowsets[0].rows[{row_index}] field mismatch "
+            f"missing={missing} extra={extra}",
+        )
+        for field in fields:
+            _validate_sparse_row_value(row[field], f"sparse_rowsets[0].rows[{row_index}].{field}")
+        identity_key = tuple(row[field] for field in identity_fields)
+        lookup_key = tuple(row[field] for field in lookup_fields)
+        label = row[label_field]
+        _require(
+            identity_key not in identity_keys,
+            f"sparse_rowsets[0].rows[{row_index}] duplicate identity",
+        )
+        _require(
+            lookup_key not in lookup_keys,
+            f"sparse_rowsets[0].rows[{row_index}] duplicate lookup",
+        )
+        _require(
+            label not in labels,
+            f"sparse_rowsets[0].rows[{row_index}] duplicate label",
+        )
+        identity_keys.add(identity_key)
+        lookup_keys.add(lookup_key)
+        labels.add(label)
+
+    return {
+        "metadata": metadata,
+        "bounds": bounds,
+        "rowset": rowset,
+        "field_types": _sparse_row_field_types(rows, fields, "sparse_rowsets[0]"),
+    }
+
+
+def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
+    validated = _validate_generic_sparse_rowset_shape_envelope_spec(spec)
+    _require(validated is not None, "expected sparse-rowset ShapeEnvelope")
+    metadata = validated["metadata"]
+    rowset = validated["rowset"]
+    field_types = validated["field_types"]
+    rows = rowset["rows"]
+    fields = rowset["fields"]
+    lookup_fields = rowset["lookup_fields"]
+    label_field = rowset["label_field"]
+
+    contract_prefix = _cpp_identifier_fragment(
+        spec["contract_name"].removesuffix("Contract")
+    )
+    spec_prefix = contract_prefix + _cpp_identifier_fragment(spec["family"])
+    rowset_prefix = contract_prefix + _cpp_identifier_fragment(rowset["name"])
+    func_prefix = _cpp_lower_identifier(spec["contract_name"].removesuffix("Contract"))
+    rowset_func = _cpp_lower_identifier(rowset["name"])
+
+    row_field_lines = [
+        f"  {_cpp_type_for_row_field(field_types[field])} {field};"
+        for field in fields
+    ]
+    row_field_lines.append("  ExecutionContractMetadata metadata;")
+
+    row_initializers = []
+    for row in rows:
+        values = [f"        {_cpp_row_value(row[field])}," for field in fields]
+        values.append(
+            "        ExecutionContractMetadata{"
+            f"k{spec_prefix}ContractName, "
+            f"{_cpp_row_value(row['family'])}, "
+            f"{_cpp_row_value(row[label_field])}, "
+            f"k{spec_prefix}EvidenceId, "
+            f"k{spec_prefix}GuardId, "
+            f"k{spec_prefix}FallbackPolicy, "
+            f"k{spec_prefix}MaterializationPolicy}}"
+        )
+        row_initializers.extend(["    {", *values, "    },"])
+    row_initializers[-1] = row_initializers[-1].rstrip(",")
+
+    lookup_params = []
+    lookup_checks = []
+    for field in lookup_fields:
+        lookup_params.append(
+            f"    const {_cpp_type_for_row_field(field_types[field])} {field},"
+        )
+        lookup_checks.append(_cpp_row_field_compare(field, field_types[field]))
+    lookup_params[-1] = lookup_params[-1].rstrip(",") + ") {"
+    lookup_condition = " &&\n        ".join(lookup_checks)
+
+    lines = [
+        "// Generated by tools/vulkan_contracts/gen_contract_spec_cpp.py",
+        f"// Source: {source_name}",
+        "// Do not edit by hand.",
+        "",
+        "#pragma once",
+        "",
+        "#include <ATen/native/vulkan/planning/ExecutionContracts.h>",
+        "#include <cstdint>",
+        "#include <string_view>",
+        "",
+        "namespace at {",
+        "namespace native {",
+        "namespace vulkan {",
+        "namespace ops {",
+        "namespace utils {",
+        "namespace generated {",
+        "",
+        f"constexpr const char* k{spec_prefix}ContractName = {_cpp_string(spec['contract_name'])};",
+        f"constexpr const char* k{spec_prefix}FamilyName = {_cpp_string(spec['family'])};",
+        f"constexpr const char* k{spec_prefix}TupleId = {_cpp_string(spec['tuple_id'])};",
+        f"constexpr const char* k{spec_prefix}WriterOp = {_cpp_string(spec['writer_op'])};",
+        f"constexpr const char* k{spec_prefix}RouteLabel = {_cpp_string(spec['route_label'])};",
+        f"constexpr const char* k{spec_prefix}EvidenceId = {_cpp_string(metadata['evidence_id'])};",
+        f"constexpr const char* k{spec_prefix}GuardId = {_cpp_string(metadata['guard_id'])};",
+        f"constexpr const char* k{spec_prefix}FallbackPolicy = {_cpp_string(metadata['fallback_policy'])};",
+        (
+            f"constexpr const char* k{spec_prefix}MaterializationPolicy = "
+            f"{_cpp_string(metadata['materialization_policy'])};"
+        ),
+        f"constexpr std::int64_t k{rowset_prefix}RowCount = {len(rows)};",
+        "",
+        f"struct {rowset_prefix}Row final {{",
+    ]
+    lines.extend(row_field_lines)
+    lines.extend(
+        [
+            "};",
+            "",
+            f"struct {spec_prefix}Spec final {{",
+            "  const char* contract_name;",
+            "  const char* family_name;",
+            "  const char* tuple_id;",
+            "  const char* writer_op;",
+            "  const char* route_label;",
+            "  const char* evidence_id;",
+            "  const char* guard_id;",
+            "  const char* fallback_policy;",
+            "  const char* materialization_policy;",
+            "  std::int64_t row_count;",
+            "};",
+            "",
+            f"constexpr {spec_prefix}Spec",
+            f"    k{spec_prefix}Spec = {{",
+            f"        k{spec_prefix}ContractName,",
+            f"        k{spec_prefix}FamilyName,",
+            f"        k{spec_prefix}TupleId,",
+            f"        k{spec_prefix}WriterOp,",
+            f"        k{spec_prefix}RouteLabel,",
+            f"        k{spec_prefix}EvidenceId,",
+            f"        k{spec_prefix}GuardId,",
+            f"        k{spec_prefix}FallbackPolicy,",
+            f"        k{spec_prefix}MaterializationPolicy,",
+            f"        k{rowset_prefix}RowCount}};",
+            "",
+            f"constexpr {rowset_prefix}Row k{rowset_prefix}Rows[] = {{",
+        ]
+    )
+    lines.extend(row_initializers)
+    lines.extend(
+        [
+            "};",
+            "",
+            f"inline const {rowset_prefix}Row* {func_prefix}_{rowset_func}_find(",
+        ]
+    )
+    lines.extend(lookup_params)
+    lines.extend(
+        [
+            f"  for (const {rowset_prefix}Row& row : k{rowset_prefix}Rows) {{",
+            f"    if ({lookup_condition}) {{",
+            "      return &row;",
+            "    }",
+            "  }",
+            "  return nullptr;",
+            "}",
+            "",
+            "} // namespace generated",
+            "} // namespace utils",
+            "} // namespace ops",
+            "} // namespace vulkan",
+            "} // namespace native",
+            "} // namespace at",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def generate_generic_shape_envelope_header(spec, source_name):
     bounds = spec.get("shape_envelope", {}).get("bounds", {})
+    if _sparse_rowsets(spec):
+        return generate_generic_sparse_rowset_shape_envelope_header(
+            spec, source_name
+        )
     if _variadic_tensor_list_input(spec) is not None:
         return generate_generic_variadic_tensor_list_shape_envelope_header(
             spec, source_name

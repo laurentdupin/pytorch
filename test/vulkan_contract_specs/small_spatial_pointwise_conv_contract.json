@@ -1,0 +1,2145 @@
+{
+  "schema_version": 1,
+  "contract_name": "SmallSpatialPointwiseConvContract",
+  "family": "SparseProjectionRows",
+  "tuple_id": "small_spatial_pointwise_conv_sparse_projection_rows",
+  "writer_op": "aten::convolution",
+  "route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+  "metadata": {
+    "evidence_id": "small_spatial_pointwise_conv_focused_tests",
+    "guard_id": "small_spatial_pointwise_conv_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "native_buffer_kernel"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "small_spatial_pointwise_conv_sparse_projection_rows",
+    "inputs": {
+      "input": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "CI",
+            "field": "input_c",
+            "min": 1
+          },
+          {
+            "symbol": "H",
+            "field": "input_h",
+            "min": 1
+          },
+          {
+            "symbol": "W",
+            "field": "input_w",
+            "min": 1
+          }
+        ]
+      },
+      "weight": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "CO",
+            "field": "output_c",
+            "min": 1
+          },
+          {
+            "symbol": "CI",
+            "field": "input_c",
+            "min": 1
+          },
+          {
+            "symbol": "KH",
+            "field": "kernel_h",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "KW",
+            "field": "kernel_w",
+            "values": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "groups": {
+        "values": [
+          1
+        ]
+      },
+      "kernel_h": {
+        "values": [
+          1
+        ]
+      },
+      "kernel_w": {
+        "values": [
+          1
+        ]
+      },
+      "stride_h": {
+        "values": [
+          1
+        ]
+      },
+      "stride_w": {
+        "values": [
+          1
+        ]
+      },
+      "padding_h": {
+        "values": [
+          0
+        ]
+      },
+      "padding_w": {
+        "values": [
+          0
+        ]
+      },
+      "dilation_h": {
+        "values": [
+          1
+        ]
+      },
+      "dilation_w": {
+        "values": [
+          1
+        ]
+      },
+      "execution_storage": {
+        "values": [
+          "buffer_direct"
+        ]
+      }
+    },
+    "bounds": {
+      "dtype": "float32",
+      "input_rank": 4,
+      "weight_rank": 4,
+      "batch": 1,
+      "groups": 1,
+      "kernel_h": 1,
+      "kernel_w": 1,
+      "stride_h": 1,
+      "stride_w": 1,
+      "padding_h": 0,
+      "padding_w": 0,
+      "dilation_h": 1,
+      "dilation_w": 1,
+      "requires_vulkan": true,
+      "requires_buffer_storage": true,
+      "requires_buffer_compute": true,
+      "execution_storage": "buffer_direct"
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "input_weight_channels",
+        "fields": [
+          "input.CI",
+          "weight.CI"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "input_storage": "buffer",
+      "weight_storage": "buffer",
+      "execution_storage": "buffer_direct",
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "small_spatial_pointwise_conv_focused_tests",
+      "guard_id": "small_spatial_pointwise_conv_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "native_buffer_kernel"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "native_buffer_kernel"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "projection_rows.forbidden_cross_product",
+        "adjacent": "forbidden_cross_product"
+      },
+      {
+        "violates": "projection_rows.input_w",
+        "adjacent": "wrong_value"
+      },
+      {
+        "violates": "projection_rows.output_c",
+        "adjacent": "wrong_value"
+      },
+      {
+        "violates": "dtype",
+        "adjacent": "wrong_value",
+        "value": "float64"
+      },
+      {
+        "violates": "input_rank",
+        "adjacent": "wrong_value",
+        "value": 3
+      },
+      {
+        "violates": "kernel",
+        "adjacent": "wrong_value",
+        "value": 3
+      },
+      {
+        "violates": "groups",
+        "adjacent": "wrong_value",
+        "value": 2
+      }
+    ],
+    "fuzz_hints": {
+      "sparse_rowset": "projection_rows",
+      "prefer_sparse_rows": true,
+      "symbolic_dims": [
+        "CI",
+        "H",
+        "W",
+        "CO"
+      ]
+    },
+    "sparse_rowsets": [
+      {
+        "name": "projection_rows",
+        "fields": [
+          "family",
+          "input_c",
+          "input_h",
+          "input_w",
+          "output_c",
+          "tuple_id"
+        ],
+        "identity_fields": [
+          "family",
+          "input_c",
+          "input_h",
+          "input_w",
+          "output_c"
+        ],
+        "lookup_fields": [
+          "input_c",
+          "input_h",
+          "input_w",
+          "output_c"
+        ],
+        "label_field": "tuple_id",
+        "rows": [
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 15,
+            "input_w": 10,
+            "output_c": 192,
+            "tuple_id": "depth_projection_384_15x10_192"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 15,
+            "input_w": 10,
+            "output_c": 384,
+            "tuple_id": "depth_projection_384_15x10_384"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 20,
+            "input_w": 13,
+            "output_c": 192,
+            "tuple_id": "depth_projection_384_20x13_192"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 20,
+            "input_w": 13,
+            "output_c": 384,
+            "tuple_id": "depth_projection_384_20x13_384"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 30,
+            "input_w": 20,
+            "output_c": 192,
+            "tuple_id": "depth_projection_384_30x20_192"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 30,
+            "input_w": 20,
+            "output_c": 384,
+            "tuple_id": "depth_projection_384_30x20_384"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 37,
+            "input_w": 57,
+            "output_c": 192,
+            "tuple_id": "depth_projection_384_37x57_192"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 37,
+            "input_w": 57,
+            "output_c": 384,
+            "tuple_id": "depth_projection_384_37x57_384"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 45,
+            "input_w": 30,
+            "output_c": 192,
+            "tuple_id": "depth_projection_384_45x30_192"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 45,
+            "input_w": 30,
+            "output_c": 384,
+            "tuple_id": "depth_projection_384_45x30_384"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 384,
+            "input_h": 7,
+            "input_w": 7,
+            "output_c": 384,
+            "tuple_id": "ocr_projection_384_7x7_384"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 512,
+            "input_h": 7,
+            "input_w": 7,
+            "output_c": 512,
+            "tuple_id": "ocr_projection_512_7x7_512"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 512,
+            "input_h": 14,
+            "input_w": 14,
+            "output_c": 192,
+            "tuple_id": "ocr_projection_512_14x14_192"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 512,
+            "input_h": 14,
+            "input_w": 14,
+            "output_c": 1024,
+            "tuple_id": "ocr_projection_512_14x14_1024"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 512,
+            "input_h": 1,
+            "input_w": 1,
+            "output_c": 1280,
+            "tuple_id": "ocr_projection_512_1x1_1280"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 1024,
+            "input_h": 7,
+            "input_w": 7,
+            "output_c": 384,
+            "tuple_id": "ocr_projection_1024_7x7_384"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 1024,
+            "input_h": 7,
+            "input_w": 7,
+            "output_c": 2048,
+            "tuple_id": "ocr_projection_1024_7x7_2048"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 1024,
+            "input_h": 14,
+            "input_w": 14,
+            "output_c": 192,
+            "tuple_id": "ocr_projection_1024_14x14_192"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 1024,
+            "input_h": 14,
+            "input_w": 14,
+            "output_c": 256,
+            "tuple_id": "ocr_projection_1024_14x14_256"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 1664,
+            "input_h": 14,
+            "input_w": 14,
+            "output_c": 512,
+            "tuple_id": "ocr_projection_1664_14x14_512"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 2048,
+            "input_h": 7,
+            "input_w": 7,
+            "output_c": 256,
+            "tuple_id": "ocr_projection_2048_7x7_256"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 2176,
+            "input_h": 14,
+            "input_w": 14,
+            "output_c": 512,
+            "tuple_id": "ocr_projection_2176_14x14_512"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 3328,
+            "input_h": 7,
+            "input_w": 7,
+            "output_c": 1024,
+            "tuple_id": "ocr_projection_3328_7x7_1024"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 128,
+            "input_h": 72,
+            "input_w": 112,
+            "output_c": 256,
+            "tuple_id": "diffusion_projection_128_72x112_256"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 256,
+            "input_h": 36,
+            "input_w": 56,
+            "output_c": 512,
+            "tuple_id": "diffusion_projection_256_36x56_512"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 8,
+            "input_h": 18,
+            "input_w": 28,
+            "output_c": 8,
+            "tuple_id": "diffusion_projection_8_18x28_8"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 320,
+            "input_h": 9,
+            "input_w": 14,
+            "output_c": 640,
+            "tuple_id": "diffusion_projection_320_9x14_640"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 640,
+            "input_h": 5,
+            "input_w": 7,
+            "output_c": 1280,
+            "tuple_id": "diffusion_projection_640_5x7_1280"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 2560,
+            "input_h": 3,
+            "input_w": 4,
+            "output_c": 1280,
+            "tuple_id": "diffusion_projection_2560_3x4_1280"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 2560,
+            "input_h": 5,
+            "input_w": 7,
+            "output_c": 1280,
+            "tuple_id": "diffusion_projection_2560_5x7_1280"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 1920,
+            "input_h": 5,
+            "input_w": 7,
+            "output_c": 1280,
+            "tuple_id": "diffusion_projection_1920_5x7_1280"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 1920,
+            "input_h": 9,
+            "input_w": 14,
+            "output_c": 640,
+            "tuple_id": "diffusion_projection_1920_9x14_640"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 1280,
+            "input_h": 9,
+            "input_w": 14,
+            "output_c": 640,
+            "tuple_id": "diffusion_projection_1280_9x14_640"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 960,
+            "input_h": 9,
+            "input_w": 14,
+            "output_c": 640,
+            "tuple_id": "diffusion_projection_960_9x14_640"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 960,
+            "input_h": 18,
+            "input_w": 28,
+            "output_c": 320,
+            "tuple_id": "diffusion_projection_960_18x28_320"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 640,
+            "input_h": 18,
+            "input_w": 28,
+            "output_c": 320,
+            "tuple_id": "diffusion_projection_640_18x28_320"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 4,
+            "input_h": 18,
+            "input_w": 28,
+            "output_c": 4,
+            "tuple_id": "diffusion_projection_4_18x28_4"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 512,
+            "input_h": 72,
+            "input_w": 112,
+            "output_c": 256,
+            "tuple_id": "diffusion_projection_512_72x112_256"
+          },
+          {
+            "family": "DiffusionProjection",
+            "input_c": 256,
+            "input_h": 144,
+            "input_w": 224,
+            "output_c": 128,
+            "tuple_id": "diffusion_projection_256_144x224_128"
+          }
+        ],
+        "negative_axes": [
+          {
+            "violates": "projection_rows.forbidden_cross_product",
+            "kind": "forbidden_cross_product",
+            "fields": {
+              "family": "OCRProjection",
+              "input_c": 512,
+              "input_h": 7,
+              "input_w": 7,
+              "output_c": 2048
+            }
+          },
+          {
+            "violates": "projection_rows.input_w",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "DiffusionProjection",
+              "input_c": 512,
+              "input_h": 72,
+              "input_w": 113,
+              "output_c": 256
+            }
+          },
+          {
+            "violates": "projection_rows.output_c",
+            "kind": "field_value_outside_rowset",
+            "fields": {
+              "family": "DepthVisionProjection",
+              "input_c": 384,
+              "input_h": 15,
+              "input_w": 10,
+              "output_c": 256
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "bounds": {
+    "dtype": "float32",
+    "input_rank": 4,
+    "weight_rank": 4,
+    "batch": 1,
+    "groups": 1,
+    "kernel_h": 1,
+    "kernel_w": 1,
+    "stride_h": 1,
+    "stride_w": 1,
+    "padding_h": 0,
+    "padding_w": 0,
+    "dilation_h": 1,
+    "dilation_w": 1,
+    "requires_vulkan": true,
+    "requires_buffer_storage": true,
+    "requires_buffer_compute": true,
+    "execution_storage": "buffer_direct"
+  },
+  "positive_cases": [
+    {
+      "name": "depth_projection_384_15x10_192",
+      "input_shape": [
+        1,
+        384,
+        15,
+        10
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_15x10_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_15x10_384",
+      "input_shape": [
+        1,
+        384,
+        15,
+        10
+      ],
+      "out_channels": 384,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_15x10_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_20x13_192",
+      "input_shape": [
+        1,
+        384,
+        20,
+        13
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_20x13_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_20x13_384",
+      "input_shape": [
+        1,
+        384,
+        20,
+        13
+      ],
+      "out_channels": 384,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_20x13_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_30x20_192",
+      "input_shape": [
+        1,
+        384,
+        30,
+        20
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_30x20_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_30x20_384",
+      "input_shape": [
+        1,
+        384,
+        30,
+        20
+      ],
+      "out_channels": 384,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_30x20_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_37x57_192",
+      "input_shape": [
+        1,
+        384,
+        37,
+        57
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_37x57_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_37x57_384",
+      "input_shape": [
+        1,
+        384,
+        37,
+        57
+      ],
+      "out_channels": 384,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_37x57_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_45x30_192",
+      "input_shape": [
+        1,
+        384,
+        45,
+        30
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_45x30_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_45x30_384",
+      "input_shape": [
+        1,
+        384,
+        45,
+        30
+      ],
+      "out_channels": 384,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_45x30_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_384_7x7_384",
+      "input_shape": [
+        1,
+        384,
+        7,
+        7
+      ],
+      "out_channels": 384,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_384_7x7_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_512_7x7_512",
+      "input_shape": [
+        1,
+        512,
+        7,
+        7
+      ],
+      "out_channels": 512,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_512_7x7_512",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_512_14x14_192",
+      "input_shape": [
+        1,
+        512,
+        14,
+        14
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_512_14x14_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_512_14x14_1024",
+      "input_shape": [
+        1,
+        512,
+        14,
+        14
+      ],
+      "out_channels": 1024,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_512_14x14_1024",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_512_1x1_1280",
+      "input_shape": [
+        1,
+        512,
+        1,
+        1
+      ],
+      "out_channels": 1280,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_512_1x1_1280",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_1024_7x7_384",
+      "input_shape": [
+        1,
+        1024,
+        7,
+        7
+      ],
+      "out_channels": 384,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_1024_7x7_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_1024_7x7_2048",
+      "input_shape": [
+        1,
+        1024,
+        7,
+        7
+      ],
+      "out_channels": 2048,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_1024_7x7_2048",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_1024_14x14_192",
+      "input_shape": [
+        1,
+        1024,
+        14,
+        14
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_1024_14x14_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_1024_14x14_256",
+      "input_shape": [
+        1,
+        1024,
+        14,
+        14
+      ],
+      "out_channels": 256,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_1024_14x14_256",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_1664_14x14_512",
+      "input_shape": [
+        1,
+        1664,
+        14,
+        14
+      ],
+      "out_channels": 512,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_1664_14x14_512",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_2048_7x7_256",
+      "input_shape": [
+        1,
+        2048,
+        7,
+        7
+      ],
+      "out_channels": 256,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_2048_7x7_256",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_2176_14x14_512",
+      "input_shape": [
+        1,
+        2176,
+        14,
+        14
+      ],
+      "out_channels": 512,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_2176_14x14_512",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_3328_7x7_1024",
+      "input_shape": [
+        1,
+        3328,
+        7,
+        7
+      ],
+      "out_channels": 1024,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_3328_7x7_1024",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_128_72x112_256",
+      "input_shape": [
+        1,
+        128,
+        72,
+        112
+      ],
+      "out_channels": 256,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_128_72x112_256",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_256_36x56_512",
+      "input_shape": [
+        1,
+        256,
+        36,
+        56
+      ],
+      "out_channels": 512,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_256_36x56_512",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_8_18x28_8",
+      "input_shape": [
+        1,
+        8,
+        18,
+        28
+      ],
+      "out_channels": 8,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_8_18x28_8",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_320_9x14_640",
+      "input_shape": [
+        1,
+        320,
+        9,
+        14
+      ],
+      "out_channels": 640,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_320_9x14_640",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_640_5x7_1280",
+      "input_shape": [
+        1,
+        640,
+        5,
+        7
+      ],
+      "out_channels": 1280,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_640_5x7_1280",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_2560_3x4_1280",
+      "input_shape": [
+        1,
+        2560,
+        3,
+        4
+      ],
+      "out_channels": 1280,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_2560_3x4_1280",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_2560_5x7_1280",
+      "input_shape": [
+        1,
+        2560,
+        5,
+        7
+      ],
+      "out_channels": 1280,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_2560_5x7_1280",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_1920_5x7_1280",
+      "input_shape": [
+        1,
+        1920,
+        5,
+        7
+      ],
+      "out_channels": 1280,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_1920_5x7_1280",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_1920_9x14_640",
+      "input_shape": [
+        1,
+        1920,
+        9,
+        14
+      ],
+      "out_channels": 640,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_1920_9x14_640",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_1280_9x14_640",
+      "input_shape": [
+        1,
+        1280,
+        9,
+        14
+      ],
+      "out_channels": 640,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_1280_9x14_640",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_960_9x14_640",
+      "input_shape": [
+        1,
+        960,
+        9,
+        14
+      ],
+      "out_channels": 640,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_960_9x14_640",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_960_18x28_320",
+      "input_shape": [
+        1,
+        960,
+        18,
+        28
+      ],
+      "out_channels": 320,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_960_18x28_320",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_640_18x28_320",
+      "input_shape": [
+        1,
+        640,
+        18,
+        28
+      ],
+      "out_channels": 320,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_640_18x28_320",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_4_18x28_4",
+      "input_shape": [
+        1,
+        4,
+        18,
+        28
+      ],
+      "out_channels": 4,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_4_18x28_4",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_512_72x112_256",
+      "input_shape": [
+        1,
+        512,
+        72,
+        112
+      ],
+      "out_channels": 256,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_512_72x112_256",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "diffusion_projection_256_144x224_128",
+      "input_shape": [
+        1,
+        256,
+        144,
+        224
+      ],
+      "out_channels": 128,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DiffusionProjection",
+      "expected_contract_tuple_id": "diffusion_projection_256_144x224_128",
+      "expected_cpu_fallback": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "ocr_forbidden_cross_product_output_channel",
+      "input_shape": [
+        1,
+        512,
+        7,
+        7
+      ],
+      "out_channels": 2048,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "projection_rows.forbidden_cross_product",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "name": "diffusion_forbidden_cross_product_output_channel",
+      "input_shape": [
+        1,
+        640,
+        5,
+        7
+      ],
+      "out_channels": 320,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "projection_rows.forbidden_cross_product",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "name": "input_width_adjacent",
+      "input_shape": [
+        1,
+        512,
+        72,
+        113
+      ],
+      "out_channels": 256,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "projection_rows.input_w",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "name": "output_channel_adjacent",
+      "input_shape": [
+        1,
+        384,
+        15,
+        10
+      ],
+      "out_channels": 256,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "projection_rows.output_c",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "name": "dtype_float64",
+      "input_shape": [
+        1,
+        384,
+        15,
+        10
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float64",
+      "violates": "dtype",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "input_rank3",
+      "input_shape": [
+        384,
+        15,
+        10
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "input_rank",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "kernel3",
+      "input_shape": [
+        1,
+        384,
+        15,
+        10
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        3,
+        3
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "kernel",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "groups2",
+      "input_shape": [
+        1,
+        384,
+        15,
+        10
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 2,
+      "dtype": "float32",
+      "violates": "groups",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false
+    }
+  ]
+}

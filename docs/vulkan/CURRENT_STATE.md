@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`7d10cec4fde84856d19eb0d63544900db940b4bc`.
+`433ab7611c4042eac56077f50be74dabe02b92c6`.
 
 ## Repo State Summary
 
@@ -40,6 +40,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAScoreSoftmax.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsTransformerGQASDPA.cpp`
 
 The table owns finite tuples/envelopes with `ExecutionContractMetadata` for
@@ -149,7 +150,15 @@ These files are diagnostic inputs. Production code must not depend on
 ## Current Contract Groups
 
 - `SmallSpatialPointwiseConvContract`: finite projection rows, now split into
-  a family-specific source; keep exact rows until broader legality is proven.
+  a family-specific source. The `SparseProjectionRows` slice has a JSON
+  contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 39
+  current projection rows, checked-in positive/adjacent-negative runtime
+  cases, and generic ShapeEnvelope C++ sparse-rowset helper output. The
+  generated helper provides contract identity, per-row metadata, and exact
+  `(input_c, input_h, input_w, output_c)` lookup while route-policy hard-fail
+  rescue, shader-family decisions, family op-hit labels, and match-result
+  assembly remain handwritten. Keep exact rows until broader legality is
+  proven.
 - `NoOverlapConvTranspose2DContract`: bounded float-buffer 2x2 stride-2
   no-overlap transposed-conv envelope. The `Kernel2Stride2FloatBuffer` slice
   has a JSON contract spec backed by `ShapeEnvelope` v1 with checked-in
@@ -280,10 +289,11 @@ These files are diagnostic inputs. Production code must not depend on
   ShapeEnvelope v1 concepts: value sets, min/max bounds, multiples, optional
   dims, scalar attributes, `broadcast_compatible` relationships, and
   adjacent-negative axes. It also validates an optional generic
-  `sparse_rowsets` ShapeEnvelope concept for future correlated finite-row
-  contracts, including row identity uniqueness, tuple-label uniqueness,
-  independent cross-product census, and forbidden-cross-product negative
-  metadata, without adding a `SmallSpatialPointwiseConvContract` fixture yet.
+  `sparse_rowsets` ShapeEnvelope concept for correlated finite-row contracts,
+  including row identity uniqueness, lookup-key uniqueness, tuple-label
+  uniqueness, independent cross-product census, and forbidden-cross-product
+  negative metadata. `SmallSpatialPointwiseConvContract` is the first real
+  sparse-rowset consumer.
   A generic coverage bridge maps abstract assignment paths and
   adjacent-negative axes onto the current generated/checked-in runtime cases
   without executing additional fuzz assignments. BatchNormInference `BufferFloat4D`,
@@ -349,6 +359,15 @@ These files are diagnostic inputs. Production code must not depend on
   dtype/rank/options/layout bounds, and helper predicates. Packed-channel
   equality, output-shape arithmetic, prepack resource behavior, and match
   result construction remain handwritten so route behavior is unchanged.
+- SmallSpatialPointwiseConv `SparseProjectionRows` consumes the generic
+  ShapeEnvelope sparse-rowset generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h` from
+  `small_spatial_pointwise_conv_contract.json` for contract identity,
+  per-row metadata, the 39 correlated projection rows, and exact lookup by
+  input/output channel and spatial shape. Route-policy hard-fail rescue,
+  shader-family decisions, family op-hit labels, and match result construction
+  remain handwritten so route behavior is unchanged.
 - SafeViewReshape `ViewMaterializedDirectBuffer` and
   `ReshapeAliasDenseBufferDirect` consume the generic ShapeEnvelope
   shape/layout simple-bounds generator path:
