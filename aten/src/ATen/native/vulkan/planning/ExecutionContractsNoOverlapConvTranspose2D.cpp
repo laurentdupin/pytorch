@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h>
 
 namespace at {
 namespace native {
@@ -26,27 +27,23 @@ constexpr ExecutionContractMetadata make_execution_contract_metadata(
       materialization_policy};
 }
 
-constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
-    "unsupported_shapes_do_not_match";
-constexpr const char* kMaterializationConvTransposeNoOverlapBuffer =
-    "conv_transpose2d_no_overlap_buffer_kernel";
-
-constexpr int64_t kNoOverlapConvTranspose2DBatch = 1;
-constexpr int64_t kNoOverlapConvTranspose2DMinInputChannels = 64;
-constexpr int64_t kNoOverlapConvTranspose2DKernel = 2;
-constexpr int64_t kNoOverlapConvTranspose2DStride = 2;
-constexpr const char* kNoOverlapConvTranspose2DTupleId =
-    "batch1_cin_ge64_kernel2_stride2_float_buffer";
 constexpr ExecutionContractMetadata
     kNoOverlapConvTranspose2DKernel2Stride2FloatBufferMetadata =
         make_execution_contract_metadata(
-            "NoOverlapConvTranspose2DContract",
-            "Kernel2Stride2FloatBuffer",
-            kNoOverlapConvTranspose2DTupleId,
-            "conv_transpose2d_no_overlap_2x2_stride2_buffer_float",
-            "conv_transpose2d_no_overlap_adjacent_guards",
-            kFallbackUnsupportedShapesDoNotMatch,
-            kMaterializationConvTransposeNoOverlapBuffer);
+            generated::kNoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec
+                .contract_name,
+            generated::kNoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec
+                .family_name,
+            generated::kNoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec
+                .tuple_id,
+            generated::kNoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec
+                .evidence_id,
+            generated::kNoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec
+                .guard_id,
+            generated::kNoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec
+                .fallback_policy,
+            generated::kNoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec
+                .materialization_policy);
 
 } // namespace
 
@@ -66,31 +63,46 @@ NoOverlapConvTranspose2DMatch match_no_overlap_conv_transpose2d_contract(
     const NoOverlapConvTranspose2DPackedInfo& packed,
     const NoOverlapConvTranspose2DOptions& options) {
   NoOverlapConvTranspose2DMatch result;
+  const auto& spec =
+      generated::kNoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec;
   if (
-      !options.transposed || options.quantized || options.groups != 1 ||
-      options.stride_h != kNoOverlapConvTranspose2DStride ||
-      options.stride_w != kNoOverlapConvTranspose2DStride ||
-      options.padding_h != 0 || options.padding_w != 0 ||
-      options.dilation_h != 1 || options.dilation_w != 1 ||
-      !options.output_padding_is_zero || !input.is_vulkan ||
-      input.dtype != kFloat || input.rank != 4 ||
-      input.batch != kNoOverlapConvTranspose2DBatch ||
-      input.channels < kNoOverlapConvTranspose2DMinInputChannels ||
-      !input.has_buffer_storage || !input.supports_buffer_compute ||
-      !packed.defined || !packed.execution_is_buffer_direct ||
-      packed.quantized || packed.weight_dtype != kFloat ||
-      packed.weight_rank != 4 ||
-      packed.input_channels != input.channels ||
-      packed.kernel_h != kNoOverlapConvTranspose2DKernel ||
-      packed.kernel_w != kNoOverlapConvTranspose2DKernel ||
-      !packed.weight_has_buffer_storage || !packed.bias_has_buffer_storage ||
-      !packed.bias_is_float) {
+      !generated::no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_options_match(
+          spec,
+          input.dtype,
+          packed.weight_dtype,
+          input.rank,
+          packed.weight_rank,
+          input.batch,
+          options.groups,
+          packed.kernel_h,
+          packed.kernel_w,
+          options.stride_h,
+          options.stride_w,
+          options.padding_h,
+          options.padding_w,
+          options.dilation_h,
+          options.dilation_w,
+          options.transposed,
+          options.quantized,
+          packed.quantized,
+          options.output_padding_is_zero,
+          input.is_vulkan,
+          input.has_buffer_storage,
+          input.supports_buffer_compute,
+          packed.defined,
+          packed.execution_is_buffer_direct,
+          packed.weight_has_buffer_storage,
+          packed.bias_has_buffer_storage,
+          packed.bias_is_float) ||
+      !generated::no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_in_bounds(
+          spec, input.channels) ||
+      packed.input_channels != input.channels) {
     return result;
   }
 
   result.matched = true;
   result.family = NoOverlapConvTranspose2DFamily::Kernel2Stride2FloatBuffer;
-  result.tuple_id = kNoOverlapConvTranspose2DTupleId;
+  result.tuple_id = spec.tuple_id;
   result.metadata = &kNoOverlapConvTranspose2DKernel2Stride2FloatBufferMetadata;
   return result;
 }

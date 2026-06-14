@@ -57,6 +57,17 @@
       ]
     },
     {
+      "spec_file": "no_overlap_conv_transpose2d_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h",
+      "markers": [
+        "NoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec",
+        "kNoOverlapConvTranspose2DKernel2Stride2FloatBufferContractName",
+        "kNoOverlapConvTranspose2DKernel2Stride2FloatBufferMinInputChannels",
+        "no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_options_match",
+        "no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_in_bounds"
+      ]
+    },
+    {
       "spec_file": "safe_view_reshape_alias_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeAliasSpec.h",
       "markers": [

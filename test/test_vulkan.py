@@ -404,6 +404,9 @@ class TestVulkanGovernance(TestCase):
             "elementwise_broadcast_contract.json": (
                 "elementwise_float_tensor_tensor_buffer_broadcast"
             ),
+            "no_overlap_conv_transpose2d_contract.json": (
+                "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer"
+            ),
             "safe_view_reshape_alias_contract.json": (
                 "safe_reshape_alias_dense_buffer_direct"
             ),
@@ -435,7 +438,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 7 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 8 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:"
             "batch_norm_inference_buffer_float_4d",
@@ -457,6 +460,11 @@ class TestVulkanGovernance(TestCase):
         self.assertIn(
             "elementwise_broadcast_contract.json:"
             "elementwise_float_tensor_tensor_buffer_broadcast",
+            result.stdout,
+        )
+        self.assertIn(
+            "no_overlap_conv_transpose2d_contract.json:"
+            "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer",
             result.stdout,
         )
         self.assertIn(
@@ -489,10 +497,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 7 ShapeEnvelope adjacent-negative generators",
+            "validated 8 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=27", result.stdout)
+        self.assertIn("generated_cases=32", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:3",
@@ -501,6 +509,10 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("channel_cat_contract.json:7", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
+        self.assertIn(
+            "no_overlap_conv_transpose2d_contract.json:5",
+            result.stdout,
+        )
         self.assertIn("safe_view_reshape_alias_contract.json:4", result.stdout)
         self.assertIn("safe_view_reshape_contract.json:3", result.stdout)
 
@@ -524,10 +536,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 7 ShapeEnvelope legal-case generators",
+            "validated 8 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=21", result.stdout)
+        self.assertIn("generated_cases=24", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:1",
@@ -536,6 +548,10 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("channel_cat_contract.json:5", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
+        self.assertIn(
+            "no_overlap_conv_transpose2d_contract.json:3",
+            result.stdout,
+        )
         self.assertIn("safe_view_reshape_alias_contract.json:2", result.stdout)
         self.assertIn("safe_view_reshape_contract.json:2", result.stdout)
 
@@ -559,11 +575,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 7 ShapeEnvelope fuzz assignment generators",
+            "validated 8 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=14", result.stdout)
-        self.assertIn("adjacent_negative_assignments=27", result.stdout)
+        self.assertIn("legal_assignments=16", result.stdout)
+        self.assertIn("adjacent_negative_assignments=32", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:adjacent=3",
             result.stdout,
@@ -582,6 +598,10 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "elementwise_broadcast_contract.json:legal=2:adjacent=3",
+            result.stdout,
+        )
+        self.assertIn(
+            "no_overlap_conv_transpose2d_contract.json:legal=2:adjacent=5",
             result.stdout,
         )
         self.assertIn(
@@ -613,14 +633,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 7 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 8 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=14", result.stdout)
-        self.assertIn("legal_paths=99", result.stdout)
-        self.assertIn("adjacent_negative_axes=27", result.stdout)
-        self.assertIn("runtime_legal_cases=21", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=27", result.stdout)
+        self.assertIn("legal_assignments=16", result.stdout)
+        self.assertIn("legal_paths=126", result.stdout)
+        self.assertIn("adjacent_negative_axes=32", result.stdout)
+        self.assertIn("runtime_legal_cases=24", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=32", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:status=covered:"
             "paths=21/21:adjacent_axes=3",
@@ -647,6 +667,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
+            "no_overlap_conv_transpose2d_contract.json:legal=2:"
+            "status=covered:paths=27/27:adjacent_axes=5",
+            result.stdout,
+        )
+        self.assertIn(
             "safe_view_reshape_alias_contract.json:legal=2:status=covered:"
             "paths=7/7:adjacent_axes=4",
             result.stdout,
@@ -664,6 +689,7 @@ class TestVulkanGovernance(TestCase):
             "channel_cat_contract.json": (5, 7),
             "embedding_lookup_contract.json": (4, 4),
             "elementwise_broadcast_contract.json": (3, 3),
+            "no_overlap_conv_transpose2d_contract.json": (3, 5),
             "safe_view_reshape_alias_contract.json": (2, 4),
             "safe_view_reshape_contract.json": (2, 3),
         }
@@ -713,6 +739,7 @@ class TestVulkanGovernance(TestCase):
                 "batch_norm_inference_buffer_float_4d",
                 "batch_norm_inference_materialized_buffer_float_4d",
                 "elementwise_float_tensor_tensor_buffer_broadcast",
+                "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer",
                 "multi_input_rank4_channel_cat",
                 "embedding_lookup_small_bounded",
                 "safe_reshape_alias_dense_buffer_direct",
@@ -841,7 +868,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 7)
+        self.assertEqual(len(rows), 8)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
 
     def test_vulkan_generated_cpp_manifest_cli(self):
@@ -864,10 +891,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 7 generated ShapeEnvelope C++ helper headers",
+            "validated 8 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
+        self.assertIn("ExecutionContractsNoOverlapConvTranspose2DSpec.h", result.stdout)
         self.assertIn("ExecutionContractsSafeViewReshapeAliasSpec.h", result.stdout)
 
     def test_vulkan_batch_norm_inference_contract_spec_shape(self):
@@ -1782,37 +1810,63 @@ class TestVulkanGovernance(TestCase):
         _require_contract_spec_fields(
             bounds,
             (
-                "dtype",
-                "rank",
+                "input_dtype",
+                "weight_dtype",
+                "input_rank",
+                "weight_rank",
                 "batch",
                 "input_channels",
-                "kernel",
-                "stride",
-                "padding",
-                "dilation",
                 "groups",
-                "output_padding",
+                "kernel_h",
+                "kernel_w",
+                "stride_h",
+                "stride_w",
+                "padding_h",
+                "padding_w",
+                "dilation_h",
+                "dilation_w",
+                "transposed",
+                "options_quantized",
+                "packed_quantized",
+                "output_padding_is_zero",
                 "requires_vulkan",
-                "requires_buffer_storage",
-                "requires_packed_weight",
-                "requires_float_bias",
+                "input_has_buffer_storage",
+                "input_supports_buffer_compute",
+                "packed_defined",
+                "execution_is_buffer_direct",
+                "weight_has_buffer_storage",
+                "bias_has_buffer_storage",
+                "bias_is_float",
             ),
             "NoOverlapConvTranspose2DContract bounds",
         )
-        self.assertEqual(bounds["dtype"], "float32")
-        self.assertEqual(bounds["rank"], 4)
+        self.assertEqual(bounds["input_dtype"], "float32")
+        self.assertEqual(bounds["weight_dtype"], "float32")
+        self.assertEqual(bounds["input_rank"], 4)
+        self.assertEqual(bounds["weight_rank"], 4)
         self.assertEqual(bounds["batch"], 1)
         self.assertEqual(bounds["input_channels"], {"min": 64})
-        self.assertEqual(bounds["kernel"], [2, 2])
-        self.assertEqual(bounds["stride"], [2, 2])
-        self.assertEqual(bounds["padding"], [0, 0])
-        self.assertEqual(bounds["dilation"], [1, 1])
         self.assertEqual(bounds["groups"], 1)
-        self.assertEqual(bounds["output_padding"], [0, 0])
+        self.assertEqual(bounds["kernel_h"], 2)
+        self.assertEqual(bounds["kernel_w"], 2)
+        self.assertEqual(bounds["stride_h"], 2)
+        self.assertEqual(bounds["stride_w"], 2)
+        self.assertEqual(bounds["padding_h"], 0)
+        self.assertEqual(bounds["padding_w"], 0)
+        self.assertEqual(bounds["dilation_h"], 1)
+        self.assertEqual(bounds["dilation_w"], 1)
+        self.assertTrue(bounds["transposed"])
+        self.assertFalse(bounds["options_quantized"])
+        self.assertFalse(bounds["packed_quantized"])
+        self.assertTrue(bounds["output_padding_is_zero"])
         self.assertTrue(bounds["requires_vulkan"])
-        self.assertTrue(bounds["requires_buffer_storage"])
-        self.assertTrue(bounds["requires_packed_weight"])
-        self.assertTrue(bounds["requires_float_bias"])
+        self.assertTrue(bounds["input_has_buffer_storage"])
+        self.assertTrue(bounds["input_supports_buffer_compute"])
+        self.assertTrue(bounds["packed_defined"])
+        self.assertTrue(bounds["execution_is_buffer_direct"])
+        self.assertTrue(bounds["weight_has_buffer_storage"])
+        self.assertTrue(bounds["bias_has_buffer_storage"])
+        self.assertTrue(bounds["bias_is_float"])
 
         case_fields = (
             "name",
@@ -1835,9 +1889,9 @@ class TestVulkanGovernance(TestCase):
                     case_fields,
                     f"NoOverlapConvTranspose2DContract {section} case",
                 )
-                self.assertEqual(len(case["input_shape"]), bounds["rank"])
+                self.assertEqual(len(case["input_shape"]), bounds["input_rank"])
                 self.assertEqual(case["input_shape"][0], bounds["batch"])
-                self.assertEqual(case["dtype"], bounds["dtype"])
+                self.assertEqual(case["dtype"], bounds["input_dtype"])
 
         for case in spec["positive_cases"]:
             _require_contract_spec_fields(
@@ -6869,7 +6923,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         assert route_hit not in op_hit_text, (case, op_hit_text)
 
                 for _, case, expect_native_route in (
-                    contract_spec_utils.iter_contract_cases(spec)
+                    contract_spec_utils.iter_shape_envelope_contract_cases(spec)
                 ):
                     run_case(case, expect_native_route)
             """

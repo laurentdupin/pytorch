@@ -86,7 +86,8 @@ Current MVP status:
   `SafeViewReshapeContract` `ReshapeAliasDenseBufferDirect`, plus the first
   checked-in-case runtime fixtures for `BatchNormInferenceContract`
   `BufferFloat4D` and `MaterializedBufferFloat4D`, plus
-  `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast`.
+  `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast`, plus
+  `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer`.
   The schema captures symbolic dims, min/max, values, multiples, optional
   dims, generic `broadcast_compatible` relationships, aggregate bounds, layout
   and capability requirements, policies, positive cases, adjacent negatives,
@@ -116,6 +117,12 @@ Current MVP status:
   family-specific generator branch. It provides contract identity, metadata,
   scalar/rank/layout/attribute bounds, and helper predicates for the existing
   provenance canary only; the broadcast relation remains handwritten.
+- `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer` now uses the
+  generic ShapeEnvelope C++ simple-bounds generator path:
+  `ExecutionContractsNoOverlapConvTranspose2DSpec.h` provides contract
+  identity, metadata, dtype/rank/options/layout bounds, and helper predicates
+  for the existing matcher. Packed-channel equality, output-shape arithmetic,
+  prepack resource behavior, and match-result construction remain handwritten.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

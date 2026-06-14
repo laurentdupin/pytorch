@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`6772d9135e99ec9f4eb86e40674fc8fe24dac910`.
+`616de7d307e2016058c08a556065183e07154853`.
 
 ## Repo State Summary
 
@@ -30,6 +30,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsLinearGeluBridge.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsMaskedTinySDPA.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSafeViewReshape.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeAliasSpec.h`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeSpec.h`
@@ -149,8 +150,11 @@ These files are diagnostic inputs. Production code must not depend on
   a family-specific source; keep exact rows until broader legality is proven.
 - `NoOverlapConvTranspose2DContract`: bounded float-buffer 2x2 stride-2
   no-overlap transposed-conv envelope. The `Kernel2Stride2FloatBuffer` slice
-  has a JSON contract spec with generated positive and adjacent negative
-  runtime coverage; preserve unsupported-case fallback outside that envelope.
+  has a JSON contract spec backed by `ShapeEnvelope` v1 with checked-in
+  positive/adjacent-negative runtime cases and generic ShapeEnvelope C++
+  metadata/simple-bound helper output. Packed input-channel equality, output
+  shape arithmetic, prepack resource behavior, and match-result assembly remain
+  handwritten; preserve unsupported-case fallback outside that envelope.
 - `SmallMetadataPaddedConv2DContract`: one proven padded low-channel
   buffer-input materialization tuple, now split into a family-specific source;
   keep adjacent guards.
@@ -268,9 +272,10 @@ These files are diagnostic inputs. Production code must not depend on
   assignment paths and adjacent-negative axes onto the current
   generated/checked-in runtime cases without executing additional fuzz
   assignments. BatchNormInference `BufferFloat4D`,
-  `MaterializedBufferFloat4D`, and ElementwiseBroadcast
-  `FloatTensorTensorBufferBroadcast` use generic checked-in case plumbing under
-  the ShapeEnvelope registry. ChannelCat, EmbeddingLookup, and both
+  `MaterializedBufferFloat4D`, ElementwiseBroadcast
+  `FloatTensorTensorBufferBroadcast`, and NoOverlapConvTranspose2D
+  `Kernel2Stride2FloatBuffer` use generic checked-in case plumbing under the
+  ShapeEnvelope registry. ChannelCat, EmbeddingLookup, and both
   SafeViewReshape direct-buffer slices have
   deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
   that must match the checked-in positive and negative cases by semantic key,
@@ -311,6 +316,14 @@ These files are diagnostic inputs. Production code must not depend on
   predicates. The simple-bounds generator emits row-qualified contract-name
   constants so sibling generated rows can be included in the same translation
   unit without duplicate symbols.
+- NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` consumes the generic
+  ShapeEnvelope simple-bounds generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h` from
+  `no_overlap_conv_transpose2d_contract.json` for contract identity, metadata,
+  dtype/rank/options/layout bounds, and helper predicates. Packed-channel
+  equality, output-shape arithmetic, prepack resource behavior, and match
+  result construction remain handwritten so route behavior is unchanged.
 - SafeViewReshape `ViewMaterializedDirectBuffer` and
   `ReshapeAliasDenseBufferDirect` consume the generic ShapeEnvelope
   shape/layout simple-bounds generator path:

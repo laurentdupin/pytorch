@@ -5,35 +5,351 @@
   "tuple_id": "batch1_cin_ge64_kernel2_stride2_float_buffer",
   "writer_op": "aten::convolution",
   "route_label": "aten::convolution.buffer_float_transpose_nonoverlap",
+  "metadata": {
+    "evidence_id": "conv_transpose2d_no_overlap_2x2_stride2_buffer_float",
+    "guard_id": "conv_transpose2d_no_overlap_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "conv_transpose2d_no_overlap_buffer_kernel"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer",
+    "inputs": {
+      "input": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "N",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "CI",
+            "field": "input_channels",
+            "min": 64
+          },
+          {
+            "symbol": "H",
+            "field": "input_height",
+            "min": 1
+          },
+          {
+            "symbol": "W",
+            "field": "input_width",
+            "min": 1
+          }
+        ]
+      },
+      "weight": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "CI",
+            "field": "input_channels",
+            "min": 64
+          },
+          {
+            "symbol": "CO",
+            "field": "output_channels",
+            "min": 1
+          },
+          {
+            "symbol": "KH",
+            "field": "kernel_h",
+            "values": [
+              2
+            ]
+          },
+          {
+            "symbol": "KW",
+            "field": "kernel_w",
+            "values": [
+              2
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "transposed": {
+        "values": [
+          true
+        ]
+      },
+      "options_quantized": {
+        "values": [
+          false
+        ]
+      },
+      "groups": {
+        "values": [
+          1
+        ]
+      },
+      "kernel_h": {
+        "values": [
+          2
+        ]
+      },
+      "kernel_w": {
+        "values": [
+          2
+        ]
+      },
+      "stride_h": {
+        "values": [
+          2
+        ]
+      },
+      "stride_w": {
+        "values": [
+          2
+        ]
+      },
+      "padding_h": {
+        "values": [
+          0
+        ]
+      },
+      "padding_w": {
+        "values": [
+          0
+        ]
+      },
+      "dilation_h": {
+        "values": [
+          1
+        ]
+      },
+      "dilation_w": {
+        "values": [
+          1
+        ]
+      },
+      "output_padding_is_zero": {
+        "values": [
+          true
+        ]
+      },
+      "packed_quantized": {
+        "values": [
+          false
+        ]
+      },
+      "execution_is_buffer_direct": {
+        "values": [
+          true
+        ]
+      },
+      "bias_is_float": {
+        "values": [
+          true
+        ]
+      }
+    },
+    "bounds": {
+      "input_dtype": "float32",
+      "weight_dtype": "float32",
+      "input_rank": 4,
+      "weight_rank": 4,
+      "batch": 1,
+      "input_channels": {
+        "min": 64
+      },
+      "groups": 1,
+      "kernel_h": 2,
+      "kernel_w": 2,
+      "stride_h": 2,
+      "stride_w": 2,
+      "padding_h": 0,
+      "padding_w": 0,
+      "dilation_h": 1,
+      "dilation_w": 1,
+      "transposed": true,
+      "options_quantized": false,
+      "packed_quantized": false,
+      "output_padding_is_zero": true,
+      "requires_vulkan": true,
+      "input_has_buffer_storage": true,
+      "input_supports_buffer_compute": true,
+      "packed_defined": true,
+      "execution_is_buffer_direct": true,
+      "weight_has_buffer_storage": true,
+      "bias_has_buffer_storage": true,
+      "bias_is_float": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "input_weight_channels",
+        "fields": [
+          "input.CI",
+          "weight.CI"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "input_storage": "buffer",
+      "weight_storage": "buffer",
+      "bias_storage": "buffer",
+      "execution_storage": "buffer_direct",
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {
+      "input_supports_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "conv_transpose2d_no_overlap_2x2_stride2_buffer_float",
+      "guard_id": "conv_transpose2d_no_overlap_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "conv_transpose2d_no_overlap_buffer_kernel"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "conv_transpose2d_no_overlap_buffer_kernel"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "kernel",
+        "adjacent": "wrong_value",
+        "value": 3
+      },
+      {
+        "violates": "stride",
+        "adjacent": "wrong_value",
+        "value": 1
+      },
+      {
+        "violates": "padding",
+        "adjacent": "wrong_value",
+        "value": 1
+      },
+      {
+        "violates": "input_channels.min",
+        "adjacent": "below_min",
+        "value": 63
+      },
+      {
+        "violates": "output_padding",
+        "adjacent": "wrong_value",
+        "value": 1
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "CI",
+        "CO",
+        "H",
+        "W"
+      ],
+      "prefer_boundaries": true,
+      "paddleocr_cases": [
+        {
+          "input_channels": 64,
+          "output_channels": 64,
+          "height": 360,
+          "width": 640
+        },
+        {
+          "input_channels": 64,
+          "output_channels": 1,
+          "height": 720,
+          "width": 1280
+        }
+      ]
+    }
+  },
   "bounds": {
-    "dtype": "float32",
-    "rank": 4,
+    "input_dtype": "float32",
+    "weight_dtype": "float32",
+    "input_rank": 4,
+    "weight_rank": 4,
     "batch": 1,
     "input_channels": {
       "min": 64
     },
-    "kernel": [2, 2],
-    "stride": [2, 2],
-    "padding": [0, 0],
-    "dilation": [1, 1],
     "groups": 1,
-    "output_padding": [0, 0],
+    "kernel_h": 2,
+    "kernel_w": 2,
+    "stride_h": 2,
+    "stride_w": 2,
+    "padding_h": 0,
+    "padding_w": 0,
+    "dilation_h": 1,
+    "dilation_w": 1,
+    "transposed": true,
+    "options_quantized": false,
+    "packed_quantized": false,
+    "output_padding_is_zero": true,
     "requires_vulkan": true,
-    "requires_buffer_storage": true,
-    "requires_packed_weight": true,
-    "requires_float_bias": true
+    "input_has_buffer_storage": true,
+    "input_supports_buffer_compute": true,
+    "packed_defined": true,
+    "execution_is_buffer_direct": true,
+    "weight_has_buffer_storage": true,
+    "bias_has_buffer_storage": true,
+    "bias_is_float": true
   },
   "positive_cases": [
     {
       "name": "min_channels_out64",
-      "input_shape": [1, 64, 8, 10],
+      "input_shape": [
+        1,
+        64,
+        8,
+        10
+      ],
       "out_channels": 64,
-      "kernel_size": [2, 2],
-      "stride": [2, 2],
-      "padding": [0, 0],
-      "dilation": [1, 1],
+      "kernel_size": [
+        2,
+        2
+      ],
+      "stride": [
+        2,
+        2
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
       "groups": 1,
-      "output_padding": [0, 0],
+      "output_padding": [
+        0,
+        0
+      ],
       "bias": true,
       "dtype": "float32",
       "expected_route_label": "aten::convolution.buffer_float_transpose_nonoverlap",
@@ -41,14 +357,34 @@
     },
     {
       "name": "min_channels_out1",
-      "input_shape": [1, 64, 8, 10],
+      "input_shape": [
+        1,
+        64,
+        8,
+        10
+      ],
       "out_channels": 1,
-      "kernel_size": [2, 2],
-      "stride": [2, 2],
-      "padding": [0, 0],
-      "dilation": [1, 1],
+      "kernel_size": [
+        2,
+        2
+      ],
+      "stride": [
+        2,
+        2
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
       "groups": 1,
-      "output_padding": [0, 0],
+      "output_padding": [
+        0,
+        0
+      ],
       "bias": true,
       "dtype": "float32",
       "expected_route_label": "aten::convolution.buffer_float_transpose_nonoverlap",
@@ -56,14 +392,34 @@
     },
     {
       "name": "larger_channels_out96",
-      "input_shape": [1, 96, 5, 7],
+      "input_shape": [
+        1,
+        96,
+        5,
+        7
+      ],
       "out_channels": 96,
-      "kernel_size": [2, 2],
-      "stride": [2, 2],
-      "padding": [0, 0],
-      "dilation": [1, 1],
+      "kernel_size": [
+        2,
+        2
+      ],
+      "stride": [
+        2,
+        2
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
       "groups": 1,
-      "output_padding": [0, 0],
+      "output_padding": [
+        0,
+        0
+      ],
       "bias": false,
       "dtype": "float32",
       "expected_route_label": "aten::convolution.buffer_float_transpose_nonoverlap",
@@ -73,14 +429,34 @@
   "negative_cases": [
     {
       "name": "kernel_3",
-      "input_shape": [1, 64, 5, 7],
+      "input_shape": [
+        1,
+        64,
+        5,
+        7
+      ],
       "out_channels": 4,
-      "kernel_size": [3, 3],
-      "stride": [2, 2],
-      "padding": [0, 0],
-      "dilation": [1, 1],
+      "kernel_size": [
+        3,
+        3
+      ],
+      "stride": [
+        2,
+        2
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
       "groups": 1,
-      "output_padding": [0, 0],
+      "output_padding": [
+        0,
+        0
+      ],
       "bias": true,
       "dtype": "float32",
       "violates": "kernel",
@@ -88,14 +464,34 @@
     },
     {
       "name": "stride_1",
-      "input_shape": [1, 64, 5, 7],
+      "input_shape": [
+        1,
+        64,
+        5,
+        7
+      ],
       "out_channels": 4,
-      "kernel_size": [2, 2],
-      "stride": [1, 1],
-      "padding": [0, 0],
-      "dilation": [1, 1],
+      "kernel_size": [
+        2,
+        2
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
       "groups": 1,
-      "output_padding": [0, 0],
+      "output_padding": [
+        0,
+        0
+      ],
       "bias": true,
       "dtype": "float32",
       "violates": "stride",
@@ -103,14 +499,34 @@
     },
     {
       "name": "padding_1",
-      "input_shape": [1, 64, 5, 7],
+      "input_shape": [
+        1,
+        64,
+        5,
+        7
+      ],
       "out_channels": 4,
-      "kernel_size": [2, 2],
-      "stride": [2, 2],
-      "padding": [1, 1],
-      "dilation": [1, 1],
+      "kernel_size": [
+        2,
+        2
+      ],
+      "stride": [
+        2,
+        2
+      ],
+      "padding": [
+        1,
+        1
+      ],
+      "dilation": [
+        1,
+        1
+      ],
       "groups": 1,
-      "output_padding": [0, 0],
+      "output_padding": [
+        0,
+        0
+      ],
       "bias": true,
       "dtype": "float32",
       "violates": "padding",
@@ -118,14 +534,34 @@
     },
     {
       "name": "input_channels_63",
-      "input_shape": [1, 63, 5, 7],
+      "input_shape": [
+        1,
+        63,
+        5,
+        7
+      ],
       "out_channels": 4,
-      "kernel_size": [2, 2],
-      "stride": [2, 2],
-      "padding": [0, 0],
-      "dilation": [1, 1],
+      "kernel_size": [
+        2,
+        2
+      ],
+      "stride": [
+        2,
+        2
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
       "groups": 1,
-      "output_padding": [0, 0],
+      "output_padding": [
+        0,
+        0
+      ],
       "bias": true,
       "dtype": "float32",
       "violates": "input_channels.min",
@@ -133,14 +569,34 @@
     },
     {
       "name": "output_padding_1",
-      "input_shape": [1, 64, 5, 7],
+      "input_shape": [
+        1,
+        64,
+        5,
+        7
+      ],
       "out_channels": 4,
-      "kernel_size": [2, 2],
-      "stride": [2, 2],
-      "padding": [0, 0],
-      "dilation": [1, 1],
+      "kernel_size": [
+        2,
+        2
+      ],
+      "stride": [
+        2,
+        2
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
       "groups": 1,
-      "output_padding": [1, 1],
+      "output_padding": [
+        1,
+        1
+      ],
       "bias": true,
       "dtype": "float32",
       "violates": "output_padding",

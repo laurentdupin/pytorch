@@ -223,8 +223,12 @@ condition and migration target.
   proven for bounded current topologies, but broader transposed-conv
   shape/options behavior is not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/no_overlap_conv_transpose2d_contract.json`
-  covers the `Kernel2Stride2FloatBuffer` slice with generated positive and
-  adjacent negative runtime tests.
+  covers the `Kernel2Stride2FloatBuffer` slice with ShapeEnvelope-backed
+  checked-in positive and adjacent negative runtime cases plus generic
+  ShapeEnvelope C++ metadata/simple-bound helper output in
+  `generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h`. Packed-channel
+  equality, output-shape arithmetic, prepack resource behavior, and
+  match-result assembly remain handwritten.
 - Expiry: broader conv-transpose parity plus adjacent negative coverage are
   available.
 - Migration target: generated `NoOverlapConvTranspose2DContract` tables with
