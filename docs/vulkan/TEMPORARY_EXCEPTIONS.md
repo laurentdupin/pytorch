@@ -191,7 +191,11 @@ condition and migration target.
   identity, metadata, shape/layout bounds, and helper predicates.
   `test/vulkan_contract_specs/safe_view_reshape_alias_contract.json` covers the
   `ReshapeAliasDenseBufferDirect` slice with generated legal and
-  adjacent-negative runtime tests; its C++ matcher remains handwritten.
+  adjacent-negative runtime tests, plus
+  `generated/ExecutionContractsSafeViewReshapeAliasSpec.h` for generated
+  contract identity, metadata, shape/layout bounds, and helper predicates.
+  Dense-stride checks, product equality, and match-result assembly remain
+  handwritten for both slices.
 - Expiry: broader view/reshape parity plus adjacent negative coverage are
   available.
 - Migration target: generated `SafeViewReshapeContract` tables with positive
