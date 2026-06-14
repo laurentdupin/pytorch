@@ -5,10 +5,153 @@
   "tuple_id": "heads1_or5_sequence504_or640_float_rank3_square",
   "writer_op": "aten::_softmax",
   "route_label": "aten::_softmax.buffer_lastdim",
+  "metadata": {
+    "evidence_id": "sdpa_score_softmax_focused_tests",
+    "guard_id": "sdpa_score_softmax_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_hard_fail_or_do_not_match",
+    "materialization_policy": "none"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "sdpa_score_softmax_diffusion_square_scores",
+    "inputs": {
+      "scores": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "H",
+            "field": "heads",
+            "values": [
+              1,
+              5
+            ]
+          },
+          {
+            "symbol": "S",
+            "field": "sequence",
+            "values": [
+              504,
+              640
+            ]
+          },
+          {
+            "symbol": "S2",
+            "field": "sequence",
+            "values": [
+              504,
+              640
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "dim": {
+        "values": [
+          -1
+        ]
+      },
+      "normalized_dim": {
+        "values": [
+          2
+        ]
+      },
+      "square_scores": {
+        "values": [
+          true
+        ]
+      }
+    },
+    "bounds": {
+      "dtype": "float32",
+      "rank": 3,
+      "dim": -1,
+      "normalized_dim": 2,
+      "heads": [
+        1,
+        5
+      ],
+      "sequence": [
+        504,
+        640
+      ],
+      "square_scores": true,
+      "requires_vulkan": true,
+      "requires_buffer_storage": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "square_scores",
+        "fields": [
+          "scores.S",
+          "scores.S2"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "scores_storage": "buffer",
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {},
+    "metadata": {
+      "evidence_id": "sdpa_score_softmax_focused_tests",
+      "guard_id": "sdpa_score_softmax_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_hard_fail_or_do_not_match",
+      "materialization_policy": "none"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_hard_fail_or_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "none"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "heads",
+        "adjacent": "wrong_value",
+        "value": 2
+      },
+      {
+        "violates": "sequence",
+        "adjacent": "wrong_value",
+        "value": 641
+      },
+      {
+        "violates": "square_scores",
+        "adjacent": "wrong_value",
+        "value": false
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "H",
+        "S",
+        "S2"
+      ],
+      "prefer_boundaries": true
+    }
+  },
   "bounds": {
     "dtype": "float32",
     "rank": 3,
     "dim": -1,
+    "normalized_dim": 2,
     "heads": [1, 5],
     "sequence": [504, 640],
     "square_scores": true,

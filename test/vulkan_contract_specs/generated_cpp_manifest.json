@@ -139,6 +139,17 @@
       ]
     },
     {
+      "spec_file": "sdpa_score_softmax_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSDPAScoreSoftmaxSpec.h",
+      "markers": [
+        "SDPAScoreSoftmaxDiffusionSquareScoresSpec",
+        "kSDPAScoreSoftmaxDiffusionSquareScoresContractName",
+        "sdpa_score_softmax_head_in_bounds",
+        "sdpa_score_softmax_sequence_in_bounds",
+        "sdpa_score_softmax_diffusion_square_scores_options_match"
+      ]
+    },
+    {
       "spec_file": "small_spatial_pointwise_conv_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h",
       "markers": [

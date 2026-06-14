@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`2732b41bbf7e0f9dce2428166e3148b834ed0bb5`.
+`680551a5d16c44af226879deb5df9ccafa7b543d`.
 
 ## Repo State Summary
 
@@ -40,6 +40,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAScoreSoftmax.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSDPAScoreSoftmaxSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSmallMetadataPaddedConv2DSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp`
@@ -194,9 +195,15 @@ These files are diagnostic inputs. Production code must not depend on
   behavior is proven.
 - `SDPAScoreSoftmaxContract`: finite float rank-3 square score-softmax
   contract for heads `{1, 5}` and sequence `{504, 640}`. The
-  `DiffusionSquareScores` slice has a JSON contract spec with generated
-  positive and adjacent negative runtime coverage; keep the temporary exception
-  until broader score-softmax/layout behavior is proven.
+  `DiffusionSquareScores` slice has a JSON contract spec backed by
+  `ShapeEnvelope` v1 with checked-in positive/adjacent-negative runtime cases
+  plus generic ShapeEnvelope C++ simple-bound helper output in
+  `generated/ExecutionContractsSDPAScoreSoftmaxSpec.h`. The generated helper
+  provides contract identity, metadata, dtype/rank/last-dim, heads, sequence,
+  and square-score predicates while softmax route ordering, guard fallback
+  labels, buffer softmax policy, and match-result assembly remain handwritten.
+  Keep the temporary exception until broader score-softmax/layout behavior is
+  proven.
 - `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
   lookup contract; the small-bounded lookup slice has a JSON contract spec with
   generated positive and adjacent negative runtime coverage. The
@@ -324,9 +331,10 @@ These files are diagnostic inputs. Production code must not depend on
   `FloatTensorTensorBufferBroadcast`, GQARepeat
   `Batch1Heads4Factor4Sequence100To116Dim128`, KVCacheAppend `SequenceAppend`
   and `InitialCache`, NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer`,
-  SmallMetadataPaddedConv2D `MaterializedBufferInput2x2`, and
-  LinearGeluBridge `BackboneMlpHidden384To1536` use generic checked-in case
-  plumbing under the ShapeEnvelope registry.
+  SDPAScoreSoftmax `DiffusionSquareScores`, SmallMetadataPaddedConv2D
+  `MaterializedBufferInput2x2`, and LinearGeluBridge
+  `BackboneMlpHidden384To1536` use generic checked-in case plumbing under the
+  ShapeEnvelope registry.
   ChannelCat, EmbeddingLookup, and both
   SafeViewReshape direct-buffer slices have
   deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
@@ -386,6 +394,16 @@ These files are diagnostic inputs. Production code must not depend on
   metadata. SDPA admission, materialization allocation and dispatch, op-hit
   labels, sequence lower-bound preservation, and match-result assembly remain
   handwritten so route behavior is unchanged.
+- SDPAScoreSoftmax `DiffusionSquareScores` consumes the generic ShapeEnvelope
+  simple-bounds generator path:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsSDPAScoreSoftmaxSpec.h` from
+  `sdpa_score_softmax_contract.json` for contract identity, metadata,
+  dtype/rank/last-dim, heads value-set, sequence value-set, square-score, and
+  fallback/materialization policy constants. Softmax route ordering,
+  `can_run_buffer_softmax` policy, guard op-hit logging for
+  `aten::_softmax.buffer_lastdim_known_bad_texture_fallback`, and
+  match-result assembly remain handwritten so route behavior is unchanged.
 - NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` consumes the generic
   ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

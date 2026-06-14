@@ -179,8 +179,13 @@ condition and migration target.
   buffer softmax eligibility, but broader score-softmax/layout behavior is not
   proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/sdpa_score_softmax_contract.json`
-  covers the `DiffusionSquareScores` slice with generated positive and
-  adjacent negative runtime tests.
+  covers the `DiffusionSquareScores` slice with ShapeEnvelope-backed
+  checked-in positive and adjacent negative runtime cases plus generic
+  ShapeEnvelope C++ simple-bound helper output in
+  `generated/ExecutionContractsSDPAScoreSoftmaxSpec.h`. Softmax route
+  ordering, `can_run_buffer_softmax` policy, guard op-hit logging for
+  `aten::_softmax.buffer_lastdim_known_bad_texture_fallback`, fallback
+  visibility, and match-result assembly remain handwritten.
 - Expiry: broader SDPA score-softmax/layout parity plus adjacent negative
   coverage is available.
 - Migration target: broader generated `SDPAScoreSoftmaxContract` tables with

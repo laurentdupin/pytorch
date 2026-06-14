@@ -419,6 +419,9 @@ class TestVulkanGovernance(TestCase):
                 "safe_reshape_alias_dense_buffer_direct"
             ),
             "safe_view_reshape_contract.json": "safe_view_materialized_direct_buffer",
+            "sdpa_score_softmax_contract.json": (
+                "sdpa_score_softmax_diffusion_square_scores"
+            ),
             "small_metadata_padded_conv2d_contract.json": (
                 "small_metadata_padded_conv2d_materialized_buffer_input_2x2"
             ),
@@ -452,7 +455,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 14 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 15 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:"
             "batch_norm_inference_buffer_float_4d",
@@ -509,6 +512,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
+            "sdpa_score_softmax_contract.json:"
+            "sdpa_score_softmax_diffusion_square_scores",
+            result.stdout,
+        )
+        self.assertIn(
             "small_metadata_padded_conv2d_contract.json:"
             "small_metadata_padded_conv2d_materialized_buffer_input_2x2",
             result.stdout,
@@ -539,10 +547,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 14 ShapeEnvelope adjacent-negative generators",
+            "validated 15 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=70", result.stdout)
+        self.assertIn("generated_cases=73", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:3",
@@ -561,6 +569,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("safe_view_reshape_alias_contract.json:4", result.stdout)
         self.assertIn("safe_view_reshape_contract.json:3", result.stdout)
+        self.assertIn("sdpa_score_softmax_contract.json:3", result.stdout)
         self.assertIn("small_metadata_padded_conv2d_contract.json:7", result.stdout)
         self.assertIn("small_spatial_pointwise_conv_contract.json:8", result.stdout)
 
@@ -584,10 +593,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 14 ShapeEnvelope legal-case generators",
+            "validated 15 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=75", result.stdout)
+        self.assertIn("generated_cases=79", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:1",
@@ -606,6 +615,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("safe_view_reshape_alias_contract.json:2", result.stdout)
         self.assertIn("safe_view_reshape_contract.json:2", result.stdout)
+        self.assertIn("sdpa_score_softmax_contract.json:4", result.stdout)
         self.assertIn("small_metadata_padded_conv2d_contract.json:1", result.stdout)
         self.assertIn("small_spatial_pointwise_conv_contract.json:39", result.stdout)
 
@@ -629,11 +639,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 14 ShapeEnvelope fuzz assignment generators",
+            "validated 15 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=28", result.stdout)
-        self.assertIn("adjacent_negative_assignments=69", result.stdout)
+        self.assertIn("legal_assignments=30", result.stdout)
+        self.assertIn("adjacent_negative_assignments=72", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:adjacent=3",
             result.stdout,
@@ -683,6 +693,10 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
+            "sdpa_score_softmax_contract.json:legal=2:adjacent=3",
+            result.stdout,
+        )
+        self.assertIn(
             "small_metadata_padded_conv2d_contract.json:legal=2:adjacent=7",
             result.stdout,
         )
@@ -711,14 +725,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 14 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 15 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=28", result.stdout)
-        self.assertIn("legal_paths=228", result.stdout)
-        self.assertIn("adjacent_negative_axes=69", result.stdout)
-        self.assertIn("runtime_legal_cases=75", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=70", result.stdout)
+        self.assertIn("legal_assignments=30", result.stdout)
+        self.assertIn("legal_paths=236", result.stdout)
+        self.assertIn("adjacent_negative_axes=72", result.stdout)
+        self.assertIn("runtime_legal_cases=79", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=73", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:status=covered:"
             "paths=21/21:adjacent_axes=3",
@@ -780,6 +794,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
+            "sdpa_score_softmax_contract.json:legal=2:status=covered:"
+            "paths=8/8:adjacent_axes=3",
+            result.stdout,
+        )
+        self.assertIn(
             "small_metadata_padded_conv2d_contract.json:legal=2:"
             "status=covered:paths=27/27:adjacent_axes=7",
             result.stdout,
@@ -804,6 +823,7 @@ class TestVulkanGovernance(TestCase):
             "no_overlap_conv_transpose2d_contract.json": (3, 5),
             "safe_view_reshape_alias_contract.json": (2, 4),
             "safe_view_reshape_contract.json": (2, 3),
+            "sdpa_score_softmax_contract.json": (4, 3),
             "small_metadata_padded_conv2d_contract.json": (1, 7),
             "small_spatial_pointwise_conv_contract.json": (39, 8),
         }
@@ -864,6 +884,7 @@ class TestVulkanGovernance(TestCase):
                 "embedding_lookup_small_bounded",
                 "safe_reshape_alias_dense_buffer_direct",
                 "safe_view_materialized_direct_buffer",
+                "sdpa_score_softmax_diffusion_square_scores",
             },
         )
         for adapter in registry.values():
@@ -1137,7 +1158,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 14)
+        self.assertEqual(len(rows), 15)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
 
     def test_vulkan_generated_cpp_manifest_cli(self):
@@ -1160,7 +1181,7 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 14 generated ShapeEnvelope C++ helper headers",
+            "validated 15 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
@@ -1181,16 +1202,17 @@ class TestVulkanGovernance(TestCase):
             "ExecutionContractsLinearGeluBridgeSpec.h",
             result.stdout,
         )
+        self.assertIn("ExecutionContractsSDPAScoreSoftmaxSpec.h", result.stdout)
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
         self.assertEqual(summary["specs"], 15)
-        self.assertEqual(summary["generated_shape_envelope"], 14)
-        self.assertEqual(summary["json_spec_without_shape_envelope"], 1)
+        self.assertEqual(summary["generated_shape_envelope"], 15)
+        self.assertEqual(summary["json_spec_without_shape_envelope"], 0)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
         self.assertEqual(summary["schema_only_spec"], 0)
         self.assertEqual(summary["live_contract_without_json_spec"], 4)
-        self.assertEqual(summary["exact_row_debt"], 5)
+        self.assertEqual(summary["exact_row_debt"], 4)
 
         census = contract_spec_utils.contract_coverage_census(REPO_ROOT)
         spec_rows = {
@@ -1224,9 +1246,9 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertEqual(
             spec_rows["sdpa_score_softmax_contract.json"]["category"],
-            "json_spec_without_shape_envelope",
+            "generated_shape_envelope",
         )
-        self.assertTrue(
+        self.assertFalse(
             spec_rows["sdpa_score_softmax_contract.json"]["exact_row_debt"]
         )
 
@@ -1264,10 +1286,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn("validated contract coverage census specs=15", result.stdout)
-        self.assertIn("generated_shape_envelope=14", result.stdout)
-        self.assertIn("json_spec_without_shape_envelope=1", result.stdout)
+        self.assertIn("generated_shape_envelope=15", result.stdout)
+        self.assertIn("json_spec_without_shape_envelope=0", result.stdout)
         self.assertIn("live_contract_without_json_spec=4", result.stdout)
-        self.assertIn("exact_row_debt=5", result.stdout)
+        self.assertIn("exact_row_debt=4", result.stdout)
         self.assertIn("contract=GQARepeatContract", result.stdout)
         self.assertIn(
             'temporary_exception="GQA Repeat Exact Tuples"',
@@ -1732,6 +1754,16 @@ class TestVulkanGovernance(TestCase):
             "planning",
             "ExecutionContractsSDPAScoreSoftmax.cpp",
         )
+        source += self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "generated",
+            "ExecutionContractsSDPAScoreSoftmaxSpec.h",
+        )
         for expected in (
             '"SDPAScoreSoftmaxContract"',
             '"DiffusionSquareScores"',
@@ -1757,6 +1789,25 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(spec["writer_op"], "aten::_softmax")
         self.assertEqual(spec["route_label"], "aten::_softmax.buffer_lastdim")
 
+        metadata = spec["metadata"]
+        _require_contract_spec_fields(
+            metadata,
+            (
+                "evidence_id",
+                "guard_id",
+                "fallback_policy",
+                "materialization_policy",
+            ),
+            "SDPAScoreSoftmaxContract metadata",
+        )
+        self.assertEqual(metadata["evidence_id"], "sdpa_score_softmax_focused_tests")
+        self.assertEqual(metadata["guard_id"], "sdpa_score_softmax_adjacent_guards")
+        self.assertEqual(
+            metadata["fallback_policy"],
+            "unsupported_shapes_hard_fail_or_do_not_match",
+        )
+        self.assertEqual(metadata["materialization_policy"], "none")
+
         bounds = spec["bounds"]
         _require_contract_spec_fields(
             bounds,
@@ -1764,6 +1815,7 @@ class TestVulkanGovernance(TestCase):
                 "dtype",
                 "rank",
                 "dim",
+                "normalized_dim",
                 "heads",
                 "sequence",
                 "square_scores",
@@ -1775,6 +1827,7 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(bounds["dtype"], "float32")
         self.assertEqual(bounds["rank"], 3)
         self.assertEqual(bounds["dim"], -1)
+        self.assertEqual(bounds["normalized_dim"], 2)
         self.assertEqual(bounds["heads"], [1, 5])
         self.assertEqual(bounds["sequence"], [504, 640])
         self.assertTrue(bounds["square_scores"])

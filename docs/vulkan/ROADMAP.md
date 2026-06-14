@@ -88,6 +88,7 @@ Current MVP status:
   `BufferFloat4D` and `MaterializedBufferFloat4D`, plus
   `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast`, plus
   `GQARepeatContract` `Batch1Heads4Factor4Sequence100To116Dim128`, plus
+  `SDPAScoreSoftmaxContract` `DiffusionSquareScores`, plus
   `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer`, plus
   `KVCacheAppendContract` `SequenceAppend` and `InitialCache`, plus
   `SmallMetadataPaddedConv2DContract` `MaterializedBufferInput2x2`, plus
@@ -166,6 +167,13 @@ Current MVP status:
   target-head/target-sequence metadata for the existing matcher. SDPA
   admission, materialization allocation and dispatch, op-hit labels, sequence
   lower-bound preservation, and match-result construction remain handwritten.
+- `SDPAScoreSoftmaxContract` `DiffusionSquareScores` now uses the generic
+  ShapeEnvelope C++ simple-bounds generator path:
+  `ExecutionContractsSDPAScoreSoftmaxSpec.h` provides contract identity,
+  metadata, dtype/rank/last-dim, heads value-set, sequence value-set,
+  square-score, and fallback/materialization policy constants for the existing
+  matcher. Softmax route ordering, guard fallback labeling, and broader SDPA
+  policy remain handwritten.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

@@ -2094,6 +2094,102 @@ def _validate_gqa_repeat_shape_envelope(file_name, spec, envelope):
                 raise AssertionError(f"{case_context} dtype mismatch")
 
 
+def _validate_sdpa_score_softmax_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} SDPAScoreSoftmax ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "SDPAScoreSoftmaxContract",
+        f"{context} contract",
+    )
+    _require_equal(spec["family"], "DiffusionSquareScores", f"{context} family")
+    _require_equal(
+        spec["tuple_id"],
+        "heads1_or5_sequence504_or640_float_rank3_square",
+        f"{context} tuple",
+    )
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    bounds = envelope["bounds"]
+    for key, expected in (
+        ("dtype", "float32"),
+        ("rank", 3),
+        ("dim", -1),
+        ("normalized_dim", 2),
+        ("heads", [1, 5]),
+        ("sequence", [504, 640]),
+        ("square_scores", True),
+        ("requires_vulkan", True),
+        ("requires_buffer_storage", True),
+    ):
+        _require_equal(bounds[key], expected, f"{context} {key}")
+
+    inputs = envelope["inputs"]
+    require_fields(inputs, ("scores",), f"{context} inputs")
+    scores = inputs["scores"]
+    _require_equal(
+        _single_value(scores["dtype"], f"{context} scores dtype"),
+        bounds["dtype"],
+        f"{context} scores dtype",
+    )
+    _require_equal(
+        _single_value(scores["rank"], f"{context} scores rank"),
+        bounds["rank"],
+        f"{context} scores rank",
+    )
+    dims = _dims_by_symbol(scores, f"{context} scores")
+    _require_equal(dims["H"].get("values"), bounds["heads"], f"{context} H")
+    _require_equal(dims["S"].get("values"), bounds["sequence"], f"{context} S")
+    _require_equal(dims["S2"].get("values"), bounds["sequence"], f"{context} S2")
+
+    attributes = envelope["attributes"]
+    for key in ("dim", "normalized_dim", "square_scores"):
+        _require_equal(
+            _single_value(attributes[key], f"{context} {key}"),
+            bounds[key],
+            f"{context} {key}",
+        )
+
+    relationships = _relationship_types(envelope)
+    if "equal" not in relationships:
+        raise AssertionError(f"{context} missing square-score relationship")
+    layout = envelope["layout"]
+    _require_equal(
+        layout["requires_vulkan"],
+        bounds["requires_vulkan"],
+        f"{context} requires_vulkan",
+    )
+    _require_equal(layout["scores_storage"], "buffer", f"{context} scores storage")
+    _require_equal(layout["output_storage"], "buffer", f"{context} output storage")
+
+    for section in ("positive_cases", "negative_cases"):
+        for case in spec[section]:
+            case_context = f"{context} {section} {case['name']}"
+            shape = case["shape"]
+            if len(shape) != bounds["rank"]:
+                raise AssertionError(f"{case_context} rank mismatch")
+            if shape[0] not in bounds["heads"] and case.get("violates") != "heads":
+                raise AssertionError(f"{case_context} heads mismatch")
+            if (
+                shape[1] not in bounds["sequence"]
+                and case.get("violates") != "sequence"
+            ):
+                raise AssertionError(f"{case_context} sequence mismatch")
+            if (
+                shape[2] not in bounds["sequence"]
+                and case.get("violates") not in ("sequence", "square_scores")
+            ):
+                raise AssertionError(f"{case_context} last sequence mismatch")
+            if (
+                shape[1] != shape[2]
+                and case.get("violates") != "square_scores"
+            ):
+                raise AssertionError(f"{case_context} square mismatch")
+            if case["dim"] != bounds["dim"]:
+                raise AssertionError(f"{case_context} dim mismatch")
+            if case["dtype"] != bounds["dtype"]:
+                raise AssertionError(f"{case_context} dtype mismatch")
+
+
 def _small_spatial_pointwise_conv_rowset(envelope, context):
     rowsets = envelope.get("sparse_rowsets", [])
     if len(rowsets) != 1:
@@ -3457,6 +3553,35 @@ _GQA_REPEAT_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.enable_gqa",
 )
 
+_SDPA_SCORE_SOFTMAX_LEGAL_KEY_FIELDS = (
+    "shape",
+    "dim",
+    "dtype",
+    "expected_route_label",
+    "expected_cpu_fallback",
+)
+
+_SDPA_SCORE_SOFTMAX_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "shape",
+    "dim",
+    "dtype",
+    "expected_native_route",
+    "expected_guard_route_label",
+    "expected_cpu_fallback",
+)
+
+_SDPA_SCORE_SOFTMAX_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.scores.dtype",
+    "inputs.scores.rank",
+    "inputs.scores.dims.H",
+    "inputs.scores.dims.S",
+    "inputs.scores.dims.S2",
+    "attributes.dim",
+    "attributes.normalized_dim",
+    "attributes.square_scores",
+)
+
 _SMALL_SPATIAL_POINTWISE_CONV_LEGAL_KEY_FIELDS = (
     "input_shape",
     "out_channels",
@@ -3689,6 +3814,21 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         "legal_key_fields": _GQA_REPEAT_LEGAL_KEY_FIELDS,
         "assignment_coverage_fields": _GQA_REPEAT_ASSIGNMENT_COVERAGE_FIELDS,
         "adjacent_negative_key_fields": _GQA_REPEAT_ADJACENT_NEGATIVE_KEY_FIELDS,
+    },
+    "sdpa_score_softmax_diffusion_square_scores": {
+        "validate": _validate_sdpa_score_softmax_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _SDPA_SCORE_SOFTMAX_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _SDPA_SCORE_SOFTMAX_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _SDPA_SCORE_SOFTMAX_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
     },
     "kv_cache_append_sequence_append": {
         "validate": _validate_kv_cache_append_shape_envelope,
