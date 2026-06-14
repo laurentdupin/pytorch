@@ -79,6 +79,17 @@
       ]
     },
     {
+      "spec_file": "linear_gelu_bridge_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsLinearGeluBridgeSpec.h",
+      "markers": [
+        "LinearGeluBridgeBackboneMlpHidden384To1536Spec",
+        "kLinearGeluBridgeBackboneMlpHidden384To1536ContractName",
+        "kLinearGeluBridgeBackboneMlpHidden384To1536MinFlattenedRows",
+        "linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_options_match",
+        "linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_in_bounds"
+      ]
+    },
+    {
       "spec_file": "no_overlap_conv_transpose2d_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h",
       "markers": [

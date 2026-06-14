@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-14 at local HEAD
-`b4d725337599a1bdd54d0034cb05ed22b5d2f3c0`.
+`02f0c298f002c90d5fc22601d4aa51ab4d73a832`.
 
 ## Repo State Summary
 
@@ -30,6 +30,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsKVCacheAppendInitialSpec.h`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsKVCacheAppendSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsLinearGeluBridge.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsLinearGeluBridgeSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsMaskedTinySDPA.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h`
@@ -250,8 +251,15 @@ These files are diagnostic inputs. Production code must not depend on
   match result assembly remain handwritten. Keep broader view/layout,
   storage-offset, and provenance rules documented separately.
 - `LinearGeluBridgeContract`: pure legality for the deferred linear/GELU
-  bridge; registry, alias, and materialization side effects stay outside the
-  contract.
+  bridge. The `BackboneMlpHidden384To1536` slice now has a JSON contract spec
+  backed by `ShapeEnvelope` v1 with checked-in positive/adjacent-negative
+  runtime cases and generic ShapeEnvelope C++ simple-bound helper output. The
+  generated helper provides contract identity, metadata, rank/shape/packed
+  weight/options predicates, minimum flattened rows, and result-policy
+  constants while tensor-info extraction, rank-3 equality, deferred candidate
+  registry ownership, alias retargeting, materialization on non-GELU
+  consumers, fused-GELU execution, op-hit labels, and match-result assembly
+  remain handwritten.
 - `ElementwiseBroadcastContract`: production metadata/provenance canary for the
   existing float32 tensor/tensor buffer-broadcast route. The
   `FloatTensorTensorBufferBroadcast` slice records the route shape in JSON and
@@ -276,7 +284,7 @@ These files are diagnostic inputs. Production code must not depend on
   validates a shared schema, checks `contract_name`/`family`/`tuple_id` against
   live contract sources, validates any `ShapeEnvelope` v1 blocks present, and
   keeps family-specific shape checks for BatchNormInference, EmbeddingLookup,
-  ChannelCat, KVCacheAppend, GQARepeat, SDPAScoreSoftmax,
+  ChannelCat, KVCacheAppend, LinearGeluBridge, GQARepeat, SDPAScoreSoftmax,
   NoOverlapConvTranspose2D, SmallMetadataPaddedConv2D, and SafeViewReshape.
   `test/vulkan_contract_specs/generated_cpp_manifest.json` declares which
   ShapeEnvelope specs have checked-in generated C++ helper headers; governance
@@ -308,8 +316,9 @@ These files are diagnostic inputs. Production code must not depend on
   `MaterializedBufferFloat4D`, ElementwiseBroadcast
   `FloatTensorTensorBufferBroadcast`, KVCacheAppend `SequenceAppend` and
   `InitialCache`, NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer`, and
-  SmallMetadataPaddedConv2D `MaterializedBufferInput2x2` use generic
-  checked-in case plumbing under the ShapeEnvelope registry.
+  SmallMetadataPaddedConv2D `MaterializedBufferInput2x2`, and
+  LinearGeluBridge `BackboneMlpHidden384To1536` use generic checked-in case
+  plumbing under the ShapeEnvelope registry.
   ChannelCat, EmbeddingLookup, and both
   SafeViewReshape direct-buffer slices have
   deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
@@ -377,6 +386,16 @@ These files are diagnostic inputs. Production code must not depend on
   info extraction, materialization dispatch, op-hit logging, fallback
   visibility, and match result construction remain handwritten so route
   behavior is unchanged.
+- LinearGeluBridge `BackboneMlpHidden384To1536` consumes the generic
+  ShapeEnvelope simple-bounds generator path without a dtype-specific
+  requirement:
+  `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
+  `generated/ExecutionContractsLinearGeluBridgeSpec.h` from
+  `linear_gelu_bridge_contract.json` for contract identity, metadata,
+  rank/shape/packed-weight/options bounds, and result-policy constants.
+  Deferred registry lifetime, alias retargeting, materialization on non-GELU
+  consumers, fused-GELU execution, op-hit labels, rank-3 equality, and match
+  result construction remain handwritten so route behavior is unchanged.
 - SmallSpatialPointwiseConv `SparseProjectionRows` consumes the generic
   ShapeEnvelope sparse-rowset generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

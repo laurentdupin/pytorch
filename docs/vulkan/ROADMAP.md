@@ -90,7 +90,8 @@ Current MVP status:
   `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer`, plus
   `KVCacheAppendContract` `SequenceAppend` and `InitialCache`, plus
   `SmallMetadataPaddedConv2DContract` `MaterializedBufferInput2x2`, plus
-  `SmallSpatialPointwiseConvContract` `SparseProjectionRows`.
+  `SmallSpatialPointwiseConvContract` `SparseProjectionRows`, plus
+  `LinearGeluBridgeContract` `BackboneMlpHidden384To1536`.
   The schema captures symbolic dims, min/max, values, multiples, optional
   dims, generic `broadcast_compatible` relationships, generic
   `sparse_rowsets` for correlated finite rows, aggregate bounds, layout and
@@ -134,6 +135,14 @@ Current MVP status:
   for the existing matcher. Tensor-info extraction, materialization dispatch,
   op-hit logging, fallback visibility, and match-result construction remain
   handwritten.
+- `LinearGeluBridgeContract` `BackboneMlpHidden384To1536` now uses the generic
+  ShapeEnvelope C++ simple-bounds generator path:
+  `ExecutionContractsLinearGeluBridgeSpec.h` provides contract identity,
+  metadata, rank/shape/packed-weight/options bounds, minimum flattened rows,
+  and result-policy constants for the existing matcher. Deferred registry
+  ownership, alias retargeting, materialization on non-GELU consumers,
+  fused-GELU execution, op-hit labels, rank-3 equality, and match-result
+  construction remain handwritten.
 - `SmallSpatialPointwiseConvContract` `SparseProjectionRows` now uses the
   generic ShapeEnvelope C++ sparse-rowset generator path:
   `ExecutionContractsSmallSpatialPointwiseConvSpec.h` provides contract

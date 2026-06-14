@@ -1,0 +1,608 @@
+{
+  "schema_version": 1,
+  "contract_name": "LinearGeluBridgeContract",
+  "family": "BackboneMlpHidden384To1536",
+  "tuple_id": "backbone_mlp_hidden384_to1536_rows_ge512",
+  "writer_op": "aten::linear",
+  "route_label": "aten::linear_gelu_bridge.defer",
+  "metadata": {
+    "evidence_id": "linear_gelu_bridge_focused_tests",
+    "guard_id": "linear_gelu_bridge_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "defer_linear_until_gelu_or_materialize_plain_linear"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "linear_gelu_bridge_backbone_mlp_hidden384_to1536",
+    "inputs": {
+      "input": {
+        "kind": "tensor",
+        "rank": {
+          "values": [
+            2,
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "B",
+            "field": "input_batch",
+            "values": [
+              1
+            ],
+            "optional": true
+          },
+          {
+            "symbol": "R",
+            "field": "input_rows",
+            "min": 512
+          },
+          {
+            "symbol": "F",
+            "field": "input_features",
+            "values": [
+              384
+            ]
+          }
+        ]
+      },
+      "flattened_input": {
+        "kind": "tensor_view",
+        "rank": {
+          "values": [
+            2
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "FR",
+            "field": "flattened_rows",
+            "min": 512
+          },
+          {
+            "symbol": "F",
+            "field": "flattened_features",
+            "values": [
+              384
+            ]
+          }
+        ]
+      },
+      "packed_weight": {
+        "kind": "packed_tensor",
+        "rank": {
+          "values": [
+            2
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "F",
+            "field": "weight_height",
+            "values": [
+              384
+            ]
+          },
+          {
+            "symbol": "O",
+            "field": "weight_width",
+            "values": [
+              1536
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "rank3_batch": {
+        "values": [
+          1
+        ]
+      },
+      "bias_defined": {
+        "values": [
+          true
+        ]
+      },
+      "can_run_float_buffer_linear": {
+        "values": [
+          true
+        ]
+      },
+      "inference_mode_enabled": {
+        "values": [
+          false
+        ]
+      },
+      "has_output": {
+        "values": [
+          false
+        ]
+      },
+      "post_op_is_none": {
+        "values": [
+          true
+        ]
+      },
+      "alpha_is_one": {
+        "values": [
+          true
+        ]
+      },
+      "beta_is_one": {
+        "values": [
+          true
+        ]
+      },
+      "may_defer": {
+        "values": [
+          true
+        ]
+      },
+      "may_consume_gelu_none": {
+        "values": [
+          true
+        ]
+      },
+      "may_consume_gelu_tanh": {
+        "values": [
+          true
+        ]
+      }
+    },
+    "bounds": {
+      "input_rank": [
+        2,
+        3
+      ],
+      "flattened_rank": 2,
+      "flattened_rows": {
+        "min": 512
+      },
+      "flattened_features": 384,
+      "weight_height": 384,
+      "weight_width": 1536,
+      "rank3_batch": 1,
+      "bias_defined": true,
+      "can_run_float_buffer_linear": true,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "may_defer": true,
+      "may_consume_gelu_none": true,
+      "may_consume_gelu_tanh": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "flattened_input_features",
+        "fields": [
+          "input.F",
+          "flattened_input.F"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "rank3_flattened_rows",
+        "fields": [
+          "input.R",
+          "flattened_input.FR"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "packed_weight_input_features",
+        "fields": [
+          "flattened_input.F",
+          "packed_weight.F"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "input_storage": "buffer",
+      "packed_weight_storage": "buffer",
+      "bias_storage": "buffer",
+      "execution_storage": "deferred_placeholder",
+      "output_storage": "buffer",
+      "deferred_registry_side_effects": "handwritten"
+    },
+    "capability_requirements": {
+      "can_run_float_buffer_linear": true
+    },
+    "metadata": {
+      "evidence_id": "linear_gelu_bridge_focused_tests",
+      "guard_id": "linear_gelu_bridge_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "defer_linear_until_gelu_or_materialize_plain_linear"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "defer_linear_until_gelu_or_materialize_plain_linear"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "flattened_rows.min",
+        "adjacent": "below_min",
+        "value": 511
+      },
+      {
+        "violates": "flattened_features",
+        "adjacent": "wrong_value",
+        "value": 385
+      },
+      {
+        "violates": "weight_width",
+        "adjacent": "wrong_value",
+        "value": 1024
+      },
+      {
+        "violates": "bias_defined",
+        "adjacent": "wrong_value",
+        "value": false
+      },
+      {
+        "violates": "inference_mode_enabled",
+        "adjacent": "wrong_value",
+        "value": true
+      },
+      {
+        "violates": "input_rank",
+        "adjacent": "wrong_value",
+        "value": 4
+      },
+      {
+        "violates": "rank3_batch",
+        "adjacent": "wrong_value",
+        "value": 2
+      },
+      {
+        "violates": "has_output",
+        "adjacent": "wrong_value",
+        "value": true
+      },
+      {
+        "violates": "post_op_is_none",
+        "adjacent": "wrong_value",
+        "value": false
+      },
+      {
+        "violates": "alpha_is_one",
+        "adjacent": "wrong_value",
+        "value": false
+      },
+      {
+        "violates": "beta_is_one",
+        "adjacent": "wrong_value",
+        "value": false
+      }
+    ],
+    "fuzz_hints": {
+      "symbolic_dims": [
+        "B",
+        "R",
+        "F",
+        "O"
+      ],
+      "prefer_boundaries": true,
+      "deferred_registry_side_effects": "handwritten"
+    }
+  },
+  "bounds": {
+    "input_rank": [
+      2,
+      3
+    ],
+    "flattened_rank": 2,
+    "flattened_rows": {
+      "min": 512
+    },
+    "flattened_features": 384,
+    "weight_height": 384,
+    "weight_width": 1536,
+    "rank3_batch": 1,
+    "bias_defined": true,
+    "can_run_float_buffer_linear": true,
+    "inference_mode_enabled": false,
+    "has_output": false,
+    "post_op_is_none": true,
+    "alpha_is_one": true,
+    "beta_is_one": true,
+    "may_defer": true,
+    "may_consume_gelu_none": true,
+    "may_consume_gelu_tanh": true
+  },
+  "positive_cases": [
+    {
+      "name": "rank3_rows601_tanh",
+      "input_shape": [
+        1,
+        601,
+        384
+      ],
+      "weight_shape": [
+        1536,
+        384
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "gelu_approximate": "tanh",
+      "expected_defer": true,
+      "expected_hit": true,
+      "expected_materialize": false
+    },
+    {
+      "name": "rank2_rows601_none",
+      "input_shape": [
+        601,
+        384
+      ],
+      "weight_shape": [
+        1536,
+        384
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "gelu_approximate": "none",
+      "expected_defer": true,
+      "expected_hit": true,
+      "expected_materialize": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "rows_below_512",
+      "input_shape": [
+        1,
+        511,
+        384
+      ],
+      "weight_shape": [
+        1536,
+        384
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "gelu_approximate": "tanh",
+      "violates": "flattened_rows.min",
+      "expected_native_route": false
+    },
+    {
+      "name": "features_not_384",
+      "input_shape": [
+        1,
+        512,
+        385
+      ],
+      "weight_shape": [
+        1536,
+        385
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "gelu_approximate": "tanh",
+      "violates": "flattened_features",
+      "expected_native_route": false
+    },
+    {
+      "name": "output_not_1536",
+      "input_shape": [
+        1,
+        512,
+        384
+      ],
+      "weight_shape": [
+        1024,
+        384
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "gelu_approximate": "tanh",
+      "violates": "weight_width",
+      "expected_native_route": false
+    },
+    {
+      "name": "missing_bias",
+      "input_shape": [
+        1,
+        512,
+        384
+      ],
+      "weight_shape": [
+        1536,
+        384
+      ],
+      "bias_defined": false,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "gelu_approximate": "tanh",
+      "violates": "bias_defined",
+      "expected_native_route": false
+    },
+    {
+      "name": "inference_mode",
+      "input_shape": [
+        1,
+        512,
+        384
+      ],
+      "weight_shape": [
+        1536,
+        384
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": true,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "gelu_approximate": "tanh",
+      "violates": "inference_mode_enabled",
+      "expected_native_route": false
+    },
+    {
+      "name": "input_rank_4",
+      "input_shape": [
+        1,
+        1,
+        512,
+        384
+      ],
+      "weight_shape": [
+        1536,
+        384
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "gelu_approximate": "tanh",
+      "violates": "input_rank",
+      "expected_native_route": false,
+      "runtime_supported": false
+    },
+    {
+      "name": "rank3_batch_2",
+      "input_shape": [
+        2,
+        512,
+        384
+      ],
+      "weight_shape": [
+        1536,
+        384
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "gelu_approximate": "tanh",
+      "violates": "rank3_batch",
+      "expected_native_route": false,
+      "runtime_supported": false
+    },
+    {
+      "name": "has_output",
+      "input_shape": [
+        1,
+        512,
+        384
+      ],
+      "weight_shape": [
+        1536,
+        384
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": false,
+      "has_output": true,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "gelu_approximate": "tanh",
+      "violates": "has_output",
+      "expected_native_route": false,
+      "runtime_supported": false
+    },
+    {
+      "name": "post_op_not_none",
+      "input_shape": [
+        1,
+        512,
+        384
+      ],
+      "weight_shape": [
+        1536,
+        384
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": false,
+      "alpha_is_one": true,
+      "beta_is_one": true,
+      "gelu_approximate": "tanh",
+      "violates": "post_op_is_none",
+      "expected_native_route": false,
+      "runtime_supported": false
+    },
+    {
+      "name": "alpha_not_one",
+      "input_shape": [
+        1,
+        512,
+        384
+      ],
+      "weight_shape": [
+        1536,
+        384
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": false,
+      "beta_is_one": true,
+      "gelu_approximate": "tanh",
+      "violates": "alpha_is_one",
+      "expected_native_route": false,
+      "runtime_supported": false
+    },
+    {
+      "name": "beta_not_one",
+      "input_shape": [
+        1,
+        512,
+        384
+      ],
+      "weight_shape": [
+        1536,
+        384
+      ],
+      "bias_defined": true,
+      "inference_mode_enabled": false,
+      "has_output": false,
+      "post_op_is_none": true,
+      "alpha_is_one": true,
+      "beta_is_one": false,
+      "gelu_approximate": "tanh",
+      "violates": "beta_is_one",
+      "expected_native_route": false,
+      "runtime_supported": false
+    }
+  ]
+}

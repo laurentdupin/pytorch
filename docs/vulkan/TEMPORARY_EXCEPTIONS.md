@@ -206,6 +206,30 @@ condition and migration target.
 - Migration target: generated `SafeViewReshapeContract` tables with positive
   and negative tests.
 
+### Linear GELU Bridge Exact Envelope
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
+  `aten/src/ATen/native/vulkan/ops/Mm.cpp`
+- Status: temporary, contract-named
+- Reason: the deferred linear/GELU bridge is proven for the current
+  `BackboneMlpHidden384To1536` legality envelope, but broader hidden sizes,
+  output sizes, rank behavior, `out=`, alpha/beta, post-op, inference-mode,
+  and GELU-consumption behavior are not proven yet.
+- Generated spec coverage: `test/vulkan_contract_specs/linear_gelu_bridge_contract.json`
+  covers the `BackboneMlpHidden384To1536` slice with ShapeEnvelope-backed
+  checked-in positive and adjacent negative runtime cases plus generic
+  ShapeEnvelope C++ simple-bound helper output in
+  `generated/ExecutionContractsLinearGeluBridgeSpec.h`. Tensor-info
+  extraction, rank-3 equality, deferred candidate registry ownership, alias
+  retargeting, materialization on non-GELU consumers, fused-GELU execution,
+  op-hit labels, and match-result assembly remain handwritten.
+- Expiry: broader linear/GELU bridge parity plus adjacent negative coverage
+  are available across hidden/output sizes, rank behavior, option handling, and
+  GELU approximation consumption.
+- Migration target: generated `LinearGeluBridgeContract` tables with positive
+  and negative tests plus a reviewed side-effect boundary for deferred
+  registry and materialization behavior.
+
 ### Small Metadata Padded Conv2D Exact Tuple
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

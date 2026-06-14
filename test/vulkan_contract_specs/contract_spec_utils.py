@@ -1773,6 +1773,203 @@ def _validate_small_metadata_padded_conv2d_shape_envelope(
                 raise AssertionError(f"{case_context} direct layout mismatch")
 
 
+def _validate_linear_gelu_bridge_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} LinearGeluBridge ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "LinearGeluBridgeContract",
+        f"{context} contract",
+    )
+    _require_equal(
+        spec["family"],
+        "BackboneMlpHidden384To1536",
+        f"{context} family",
+    )
+    _require_equal(
+        spec["tuple_id"],
+        "backbone_mlp_hidden384_to1536_rows_ge512",
+        f"{context} tuple",
+    )
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    bounds = envelope["bounds"]
+    for key, expected in (
+        ("input_rank", [2, 3]),
+        ("flattened_rank", 2),
+        ("flattened_features", 384),
+        ("weight_height", 384),
+        ("weight_width", 1536),
+        ("rank3_batch", 1),
+    ):
+        _require_equal(bounds[key], expected, f"{context} {key}")
+    _require_equal(bounds["flattened_rows"]["min"], 512, f"{context} rows min")
+    for key, expected in (
+        ("bias_defined", True),
+        ("can_run_float_buffer_linear", True),
+        ("inference_mode_enabled", False),
+        ("has_output", False),
+        ("post_op_is_none", True),
+        ("alpha_is_one", True),
+        ("beta_is_one", True),
+        ("may_defer", True),
+        ("may_consume_gelu_none", True),
+        ("may_consume_gelu_tanh", True),
+    ):
+        _require_equal(bounds[key], expected, f"{context} {key}")
+
+    inputs = envelope["inputs"]
+    require_fields(
+        inputs,
+        ("input", "flattened_input", "packed_weight"),
+        f"{context} inputs",
+    )
+    input_spec = inputs["input"]
+    flattened = inputs["flattened_input"]
+    packed_weight = inputs["packed_weight"]
+    _require_equal(input_spec["rank"]["values"], bounds["input_rank"], f"{context} rank")
+    _require_equal(
+        _single_value(flattened["rank"], f"{context} flattened rank"),
+        bounds["flattened_rank"],
+        f"{context} flattened rank",
+    )
+    _require_equal(
+        _single_value(packed_weight["rank"], f"{context} packed rank"),
+        2,
+        f"{context} packed rank",
+    )
+
+    input_dims = _dims_by_symbol(input_spec, f"{context} input")
+    flattened_dims = _dims_by_symbol(flattened, f"{context} flattened")
+    packed_dims = _dims_by_symbol(packed_weight, f"{context} packed")
+    _require_equal(
+        input_dims["B"]["values"],
+        [bounds["rank3_batch"]],
+        f"{context} rank3 batch",
+    )
+    _require_equal(input_dims["B"].get("optional"), True, f"{context} optional B")
+    _require_equal(
+        input_dims["R"]["min"],
+        bounds["flattened_rows"]["min"],
+        f"{context} input rows",
+    )
+    _require_equal(
+        _single_value(input_dims["F"], f"{context} input features"),
+        bounds["flattened_features"],
+        f"{context} input features",
+    )
+    _require_equal(
+        flattened_dims["FR"]["min"],
+        bounds["flattened_rows"]["min"],
+        f"{context} flattened rows",
+    )
+    _require_equal(
+        _single_value(flattened_dims["F"], f"{context} flattened features"),
+        bounds["flattened_features"],
+        f"{context} flattened features",
+    )
+    _require_equal(
+        _single_value(packed_dims["F"], f"{context} packed input features"),
+        bounds["weight_height"],
+        f"{context} packed input features",
+    )
+    _require_equal(
+        _single_value(packed_dims["O"], f"{context} packed output features"),
+        bounds["weight_width"],
+        f"{context} packed output features",
+    )
+
+    attributes = envelope["attributes"]
+    for attribute_name in (
+        "rank3_batch",
+        "bias_defined",
+        "can_run_float_buffer_linear",
+        "inference_mode_enabled",
+        "has_output",
+        "post_op_is_none",
+        "alpha_is_one",
+        "beta_is_one",
+        "may_defer",
+        "may_consume_gelu_none",
+        "may_consume_gelu_tanh",
+    ):
+        _require_equal(
+            _single_value(attributes[attribute_name], f"{context} {attribute_name}"),
+            bounds[attribute_name],
+            f"{context} {attribute_name}",
+        )
+
+    relationships = _relationship_types(envelope)
+    if "equal" not in relationships or len(envelope["relationships"]) != 3:
+        raise AssertionError(f"{context} expected three equal relationships")
+    layout = envelope["layout"]
+    _require_equal(layout["requires_vulkan"], True, f"{context} requires_vulkan")
+    _require_equal(layout["input_storage"], "buffer", f"{context} input storage")
+    _require_equal(
+        layout["packed_weight_storage"],
+        "buffer",
+        f"{context} packed weight storage",
+    )
+    _require_equal(layout["bias_storage"], "buffer", f"{context} bias storage")
+    _require_equal(
+        layout["execution_storage"],
+        "deferred_placeholder",
+        f"{context} execution storage",
+    )
+    _require_equal(
+        envelope["capability_requirements"]["can_run_float_buffer_linear"],
+        bounds["can_run_float_buffer_linear"],
+        f"{context} can run float buffer linear",
+    )
+
+    def flattened_rows(shape):
+        return _product(shape[:-1])
+
+    for section in ("positive_cases", "negative_cases"):
+        for case in spec[section]:
+            case_context = f"{context} {section} {case['name']}"
+            if (
+                len(case["input_shape"]) not in bounds["input_rank"]
+                and case.get("violates") != "input_rank"
+            ):
+                raise AssertionError(f"{case_context} input rank mismatch")
+            if (
+                flattened_rows(case["input_shape"]) < bounds["flattened_rows"]["min"]
+                and case.get("violates") != "flattened_rows.min"
+            ):
+                raise AssertionError(f"{case_context} flattened rows below min")
+            if (
+                case["input_shape"][-1] != bounds["flattened_features"]
+                and case.get("violates") != "flattened_features"
+            ):
+                raise AssertionError(f"{case_context} input feature mismatch")
+            if (
+                case["weight_shape"][1] != bounds["weight_height"]
+                and case.get("violates") != "flattened_features"
+            ):
+                raise AssertionError(f"{case_context} weight height mismatch")
+            if (
+                case["weight_shape"][0] != bounds["weight_width"]
+                and case.get("violates") != "weight_width"
+            ):
+                raise AssertionError(f"{case_context} weight width mismatch")
+            if (
+                len(case["input_shape"]) == 3
+                and case["input_shape"][0] != bounds["rank3_batch"]
+                and case.get("violates") != "rank3_batch"
+            ):
+                raise AssertionError(f"{case_context} rank3 batch mismatch")
+            for key in (
+                "bias_defined",
+                "inference_mode_enabled",
+                "has_output",
+                "post_op_is_none",
+                "alpha_is_one",
+                "beta_is_one",
+            ):
+                if case[key] != bounds[key] and case.get("violates") != key:
+                    raise AssertionError(f"{case_context} {key} mismatch")
+
+
 def _small_spatial_pointwise_conv_rowset(envelope, context):
     rowsets = envelope.get("sparse_rowsets", [])
     if len(rowsets) != 1:
@@ -3042,6 +3239,60 @@ _SMALL_METADATA_PADDED_CONV2D_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.requires_input_materialization",
 )
 
+_LINEAR_GELU_BRIDGE_LEGAL_KEY_FIELDS = (
+    "input_shape",
+    "weight_shape",
+    "bias_defined",
+    "inference_mode_enabled",
+    "has_output",
+    "post_op_is_none",
+    "alpha_is_one",
+    "beta_is_one",
+    "gelu_approximate",
+    "expected_defer",
+    "expected_hit",
+    "expected_materialize",
+)
+
+_LINEAR_GELU_BRIDGE_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "input_shape",
+    "weight_shape",
+    "bias_defined",
+    "inference_mode_enabled",
+    "has_output",
+    "post_op_is_none",
+    "alpha_is_one",
+    "beta_is_one",
+    "gelu_approximate",
+    "expected_native_route",
+    ("runtime_supported", True),
+)
+
+_LINEAR_GELU_BRIDGE_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.flattened_input.rank",
+    "inputs.flattened_input.dims.FR",
+    "inputs.flattened_input.dims.F",
+    "inputs.input.rank",
+    "inputs.input.dims.B",
+    "inputs.input.dims.R",
+    "inputs.input.dims.F",
+    "inputs.packed_weight.rank",
+    "inputs.packed_weight.dims.F",
+    "inputs.packed_weight.dims.O",
+    "attributes.rank3_batch",
+    "attributes.bias_defined",
+    "attributes.can_run_float_buffer_linear",
+    "attributes.inference_mode_enabled",
+    "attributes.has_output",
+    "attributes.post_op_is_none",
+    "attributes.alpha_is_one",
+    "attributes.beta_is_one",
+    "attributes.may_defer",
+    "attributes.may_consume_gelu_none",
+    "attributes.may_consume_gelu_tanh",
+)
+
 _SMALL_SPATIAL_POINTWISE_CONV_LEGAL_KEY_FIELDS = (
     "input_shape",
     "out_channels",
@@ -3247,6 +3498,21 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         ),
         "adjacent_negative_key_fields": (
             _SMALL_METADATA_PADDED_CONV2D_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
+    },
+    "linear_gelu_bridge_backbone_mlp_hidden384_to1536": {
+        "validate": _validate_linear_gelu_bridge_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _LINEAR_GELU_BRIDGE_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _LINEAR_GELU_BRIDGE_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _LINEAR_GELU_BRIDGE_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
     },
     "kv_cache_append_sequence_append": {

@@ -406,6 +406,9 @@ class TestVulkanGovernance(TestCase):
             ),
             "kv_cache_append_contract.json": "kv_cache_append_sequence_append",
             "kv_cache_append_initial_contract.json": "kv_cache_append_initial_cache",
+            "linear_gelu_bridge_contract.json": (
+                "linear_gelu_bridge_backbone_mlp_hidden384_to1536"
+            ),
             "no_overlap_conv_transpose2d_contract.json": (
                 "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer"
             ),
@@ -446,7 +449,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 12 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 13 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:"
             "batch_norm_inference_buffer_float_4d",
@@ -476,6 +479,11 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "kv_cache_append_initial_contract.json:kv_cache_append_initial_cache",
+            result.stdout,
+        )
+        self.assertIn(
+            "linear_gelu_bridge_contract.json:"
+            "linear_gelu_bridge_backbone_mlp_hidden384_to1536",
             result.stdout,
         )
         self.assertIn(
@@ -523,10 +531,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 12 ShapeEnvelope adjacent-negative generators",
+            "validated 13 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=57", result.stdout)
+        self.assertIn("generated_cases=68", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:3",
@@ -537,6 +545,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
         self.assertIn("kv_cache_append_contract.json:5", result.stdout)
         self.assertIn("kv_cache_append_initial_contract.json:5", result.stdout)
+        self.assertIn("linear_gelu_bridge_contract.json:11", result.stdout)
         self.assertIn(
             "no_overlap_conv_transpose2d_contract.json:5",
             result.stdout,
@@ -566,10 +575,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 12 ShapeEnvelope legal-case generators",
+            "validated 13 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=70", result.stdout)
+        self.assertIn("generated_cases=72", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:1",
@@ -580,6 +589,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
         self.assertIn("kv_cache_append_contract.json:3", result.stdout)
         self.assertIn("kv_cache_append_initial_contract.json:3", result.stdout)
+        self.assertIn("linear_gelu_bridge_contract.json:2", result.stdout)
         self.assertIn(
             "no_overlap_conv_transpose2d_contract.json:3",
             result.stdout,
@@ -609,11 +619,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 12 ShapeEnvelope fuzz assignment generators",
+            "validated 13 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=24", result.stdout)
-        self.assertIn("adjacent_negative_assignments=56", result.stdout)
+        self.assertIn("legal_assignments=26", result.stdout)
+        self.assertIn("adjacent_negative_assignments=67", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:adjacent=3",
             result.stdout,
@@ -640,6 +650,10 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "kv_cache_append_initial_contract.json:legal=2:adjacent=5",
+            result.stdout,
+        )
+        self.assertIn(
+            "linear_gelu_bridge_contract.json:legal=2:adjacent=11",
             result.stdout,
         )
         self.assertIn(
@@ -683,14 +697,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 12 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 13 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=24", result.stdout)
-        self.assertIn("legal_paths=197", result.stdout)
-        self.assertIn("adjacent_negative_axes=56", result.stdout)
-        self.assertIn("runtime_legal_cases=70", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=57", result.stdout)
+        self.assertIn("legal_assignments=26", result.stdout)
+        self.assertIn("legal_paths=218", result.stdout)
+        self.assertIn("adjacent_negative_axes=67", result.stdout)
+        self.assertIn("runtime_legal_cases=72", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=68", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:status=covered:"
             "paths=21/21:adjacent_axes=3",
@@ -724,6 +738,11 @@ class TestVulkanGovernance(TestCase):
         self.assertIn(
             "kv_cache_append_initial_contract.json:legal=2:status=covered:"
             "paths=9/9:adjacent_axes=5",
+            result.stdout,
+        )
+        self.assertIn(
+            "linear_gelu_bridge_contract.json:legal=2:status=covered:"
+            "paths=21/21:adjacent_axes=11",
             result.stdout,
         )
         self.assertIn(
@@ -761,6 +780,7 @@ class TestVulkanGovernance(TestCase):
             "elementwise_broadcast_contract.json": (3, 3),
             "kv_cache_append_contract.json": (3, 5),
             "kv_cache_append_initial_contract.json": (3, 5),
+            "linear_gelu_bridge_contract.json": (2, 11),
             "no_overlap_conv_transpose2d_contract.json": (3, 5),
             "safe_view_reshape_alias_contract.json": (2, 4),
             "safe_view_reshape_contract.json": (2, 3),
@@ -815,6 +835,7 @@ class TestVulkanGovernance(TestCase):
                 "elementwise_float_tensor_tensor_buffer_broadcast",
                 "kv_cache_append_initial_cache",
                 "kv_cache_append_sequence_append",
+                "linear_gelu_bridge_backbone_mlp_hidden384_to1536",
                 "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer",
                 "small_metadata_padded_conv2d_materialized_buffer_input_2x2",
                 "small_spatial_pointwise_conv_sparse_projection_rows",
@@ -1095,7 +1116,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 12)
+        self.assertEqual(len(rows), 13)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
 
     def test_vulkan_generated_cpp_manifest_cli(self):
@@ -1118,7 +1139,7 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 12 generated ShapeEnvelope C++ helper headers",
+            "validated 13 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
@@ -1134,16 +1155,20 @@ class TestVulkanGovernance(TestCase):
             "ExecutionContractsSmallMetadataPaddedConv2DSpec.h",
             result.stdout,
         )
+        self.assertIn(
+            "ExecutionContractsLinearGeluBridgeSpec.h",
+            result.stdout,
+        )
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
-        self.assertEqual(summary["specs"], 14)
-        self.assertEqual(summary["generated_shape_envelope"], 12)
+        self.assertEqual(summary["specs"], 15)
+        self.assertEqual(summary["generated_shape_envelope"], 13)
         self.assertEqual(summary["json_spec_without_shape_envelope"], 2)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
         self.assertEqual(summary["schema_only_spec"], 0)
-        self.assertEqual(summary["live_contract_without_json_spec"], 5)
-        self.assertEqual(summary["exact_row_debt"], 7)
+        self.assertEqual(summary["live_contract_without_json_spec"], 4)
+        self.assertEqual(summary["exact_row_debt"], 6)
 
         census = contract_spec_utils.contract_coverage_census(REPO_ROOT)
         spec_rows = {
@@ -1167,6 +1192,10 @@ class TestVulkanGovernance(TestCase):
             spec_rows["small_metadata_padded_conv2d_contract.json"]["category"],
             "generated_shape_envelope",
         )
+        self.assertEqual(
+            spec_rows["linear_gelu_bridge_contract.json"]["category"],
+            "generated_shape_envelope",
+        )
         for file_name in (
             "gqa_repeat_contract.json",
             "sdpa_score_softmax_contract.json",
@@ -1182,7 +1211,6 @@ class TestVulkanGovernance(TestCase):
             for row in census["live_contract_rows"]
         }
         for contract_name in (
-            "LinearGeluBridgeContract",
             "SDPAExecutionPolicyContract",
             "TransformerGQASDPAContract",
         ):
@@ -1211,11 +1239,11 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated contract coverage census specs=14", result.stdout)
-        self.assertIn("generated_shape_envelope=12", result.stdout)
+        self.assertIn("validated contract coverage census specs=15", result.stdout)
+        self.assertIn("generated_shape_envelope=13", result.stdout)
         self.assertIn("json_spec_without_shape_envelope=2", result.stdout)
-        self.assertIn("live_contract_without_json_spec=5", result.stdout)
-        self.assertIn("exact_row_debt=7", result.stdout)
+        self.assertIn("live_contract_without_json_spec=4", result.stdout)
+        self.assertIn("exact_row_debt=6", result.stdout)
         self.assertIn("contract=GQARepeatContract", result.stdout)
         self.assertIn(
             'temporary_exception="GQA Repeat Exact Tuples"',
@@ -1223,6 +1251,112 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("small_metadata_padded_conv2d_contract.json", result.stdout)
         self.assertIn("small_spatial_pointwise_conv_contract.json", result.stdout)
+        self.assertIn("linear_gelu_bridge_contract.json", result.stdout)
+
+    def test_vulkan_linear_gelu_bridge_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec("linear_gelu_bridge_contract.json")
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(spec["contract_name"], "LinearGeluBridgeContract")
+        self.assertEqual(spec["family"], "BackboneMlpHidden384To1536")
+        self.assertEqual(
+            spec["tuple_id"],
+            "backbone_mlp_hidden384_to1536_rows_ge512",
+        )
+        self.assertEqual(spec["writer_op"], "aten::linear")
+        self.assertEqual(spec["route_label"], "aten::linear_gelu_bridge.defer")
+
+        metadata = spec["metadata"]
+        _require_contract_spec_fields(
+            metadata,
+            (
+                "evidence_id",
+                "guard_id",
+                "fallback_policy",
+                "materialization_policy",
+            ),
+            "LinearGeluBridgeContract metadata",
+        )
+        self.assertEqual(metadata["evidence_id"], "linear_gelu_bridge_focused_tests")
+        self.assertEqual(metadata["guard_id"], "linear_gelu_bridge_adjacent_guards")
+        self.assertEqual(metadata["fallback_policy"], "unsupported_shapes_do_not_match")
+        self.assertEqual(
+            metadata["materialization_policy"],
+            "defer_linear_until_gelu_or_materialize_plain_linear",
+        )
+
+        bounds = spec["bounds"]
+        _require_contract_spec_fields(
+            bounds,
+            (
+                "input_rank",
+                "flattened_rank",
+                "flattened_rows",
+                "flattened_features",
+                "weight_height",
+                "weight_width",
+                "rank3_batch",
+                "bias_defined",
+                "can_run_float_buffer_linear",
+                "inference_mode_enabled",
+                "has_output",
+                "post_op_is_none",
+                "alpha_is_one",
+                "beta_is_one",
+                "may_defer",
+                "may_consume_gelu_none",
+                "may_consume_gelu_tanh",
+            ),
+            "LinearGeluBridgeContract bounds",
+        )
+        self.assertEqual(bounds["input_rank"], [2, 3])
+        self.assertEqual(bounds["flattened_rank"], 2)
+        self.assertEqual(bounds["flattened_rows"], {"min": 512})
+        self.assertEqual(bounds["flattened_features"], 384)
+        self.assertEqual(bounds["weight_height"], 384)
+        self.assertEqual(bounds["weight_width"], 1536)
+        self.assertEqual(bounds["rank3_batch"], 1)
+        self.assertTrue(bounds["bias_defined"])
+        self.assertTrue(bounds["can_run_float_buffer_linear"])
+        self.assertFalse(bounds["inference_mode_enabled"])
+        self.assertFalse(bounds["has_output"])
+        self.assertTrue(bounds["post_op_is_none"])
+        self.assertTrue(bounds["alpha_is_one"])
+        self.assertTrue(bounds["beta_is_one"])
+        self.assertTrue(bounds["may_defer"])
+        self.assertTrue(bounds["may_consume_gelu_none"])
+        self.assertTrue(bounds["may_consume_gelu_tanh"])
+
+        self.assertEqual(
+            spec["shape_envelope"]["layout"]["deferred_registry_side_effects"],
+            "handwritten",
+        )
+        self.assertEqual(len(spec["positive_cases"]), 2)
+        self.assertEqual(len(spec["negative_cases"]), 11)
+        for case in spec["positive_cases"]:
+            _require_contract_spec_fields(
+                case,
+                (
+                    "input_shape",
+                    "weight_shape",
+                    "bias_defined",
+                    "inference_mode_enabled",
+                    "gelu_approximate",
+                    "expected_defer",
+                    "expected_hit",
+                    "expected_materialize",
+                ),
+                "LinearGeluBridgeContract positive case",
+            )
+            self.assertTrue(case["expected_defer"])
+            self.assertTrue(case["expected_hit"])
+            self.assertFalse(case["expected_materialize"])
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                ("violates", "expected_native_route"),
+                "LinearGeluBridgeContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
 
     def test_vulkan_batch_norm_inference_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("batch_norm_inference_contract.json")
@@ -21060,6 +21194,170 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 )
         finally:
             for path in (materialize_log_path, op_hit_log_path):
+                if os.path.exists(path):
+                    os.remove(path)
+
+    def test_linear_gelu_bridge_contract_generated_spec(self):
+        spec = _load_vulkan_contract_spec("linear_gelu_bridge_contract.json")
+        runtime_cases = [
+            case
+            for _, case, _ in contract_spec_utils.iter_shape_envelope_contract_cases(
+                spec
+            )
+            if case.get("runtime_supported", True)
+        ]
+        case_log_names = [
+            contract_spec_utils.contract_log_name(
+                spec,
+                case,
+                "op_hit_test.log",
+            )
+            for case in runtime_cases
+        ]
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        case_log_paths = [os.path.join(repo_root, name) for name in case_log_names]
+        for path in case_log_paths:
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import json
+                import os
+                import re
+                import sys
+                import torch
+                import torch.nn.functional as F
+                sys.path.insert(
+                    0,
+                    os.path.join(os.getcwd(), "test", "vulkan_contract_specs"),
+                )
+                import contract_spec_utils
+
+                spec_path = os.path.join(
+                    os.getcwd(),
+                    "test",
+                    "vulkan_contract_specs",
+                    "linear_gelu_bridge_contract.json",
+                )
+                with open(spec_path, encoding="utf-8") as handle:
+                    spec = json.load(handle)
+
+                def read_text(path):
+                    if not os.path.exists(path):
+                        return ""
+                    with open(path, encoding="utf-8") as log_file:
+                        return log_file.read()
+
+                def to_vulkan_tensors(tensors):
+                    x, weight, bias = tensors
+                    return (
+                        x.to("vulkan"),
+                        weight.to("vulkan"),
+                        bias.to("vulkan") if bias is not None else None,
+                    )
+
+                def run_linear_gelu(case, tensors):
+                    x, weight, bias = tensors
+                    return F.gelu(
+                        F.linear(x, weight, bias),
+                        approximate=case["gelu_approximate"],
+                    )
+
+                def run_with_mode(case, tensors):
+                    context = (
+                        torch.inference_mode()
+                        if case["inference_mode_enabled"]
+                        else torch.no_grad()
+                    )
+                    with context:
+                        return run_linear_gelu(case, tensors)
+
+                def make_tensors(case):
+                    torch.manual_seed(7000 + len(case["name"]))
+                    x = torch.randn(*case["input_shape"], dtype=torch.float32) * 0.1
+                    weight = (
+                        torch.randn(*case["weight_shape"], dtype=torch.float32) * 0.1
+                    )
+                    bias = None
+                    if case["bias_defined"]:
+                        bias = (
+                            torch.randn(
+                                case["weight_shape"][0],
+                                dtype=torch.float32,
+                            )
+                            * 0.1
+                        )
+                        bias.requires_grad_()
+                    return x, weight, bias
+
+                def run_case(case, expect_native_route):
+                    if not case.get("runtime_supported", True):
+                        return
+                    log_name = contract_spec_utils.contract_log_name(
+                        spec,
+                        case,
+                        "op_hit_test.log",
+                    )
+                    log_path = os.path.join(os.getcwd(), log_name)
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+
+                    tensors = make_tensors(case)
+                    expected = run_with_mode(case, tensors)
+                    vulkan_tensors = to_vulkan_tensors(tensors)
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = run_with_mode(case, vulkan_tensors)
+                    torch.testing.assert_close(
+                        actual.cpu(),
+                        expected,
+                        atol=3e-4,
+                        rtol=3e-3,
+                    )
+
+                    op_hit_text = read_text(log_path)
+                    if expect_native_route:
+                        assert "op=aten::linear_gelu_bridge.defer" in op_hit_text, (
+                            case,
+                            op_hit_text,
+                        )
+                        assert "op=aten::linear_gelu_bridge.hit" in op_hit_text, (
+                            case,
+                            op_hit_text,
+                        )
+                        assert (
+                            "op=aten::linear_gelu_bridge.materialize"
+                            not in op_hit_text
+                        ), (case, op_hit_text)
+                        assert re.search(
+                            r"op=aten::linear\\.buffer_float"
+                            r"(?:_tiled)?_bias(?:_vec2)?_gelu",
+                            op_hit_text,
+                        ), (case, op_hit_text)
+                    else:
+                        for bridge_op in (
+                            "op=aten::linear_gelu_bridge.defer",
+                            "op=aten::linear_gelu_bridge.hit",
+                            "op=aten::linear_gelu_bridge.materialize",
+                        ):
+                            assert bridge_op not in op_hit_text, (
+                                case,
+                                bridge_op,
+                                op_hit_text,
+                            )
+
+                for _, case, expect_native_route in (
+                    contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+                ):
+                    run_case(case, expect_native_route)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                error_prefix="LinearGeluBridge generated contract spec failed.",
+            )
+        finally:
+            for path in case_log_paths:
                 if os.path.exists(path):
                     os.remove(path)
 

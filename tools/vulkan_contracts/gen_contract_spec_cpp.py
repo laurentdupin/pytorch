@@ -208,8 +208,6 @@ def _simple_bounds_shape_envelope_fields(bounds):
             unsupported.append(key)
     if unsupported:
         return None
-    if not dtype_fields:
-        return None
     if not (
         int_fields
         or list_int_fields

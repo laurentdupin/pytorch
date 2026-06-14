@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsLinearGeluBridgeSpec.h>
 
 namespace at {
 namespace native {
@@ -26,26 +27,18 @@ constexpr ExecutionContractMetadata make_execution_contract_metadata(
       materialization_policy};
 }
 
-constexpr const char* kFallbackUnsupportedShapesDoNotMatch =
-    "unsupported_shapes_do_not_match";
-constexpr const char* kMaterializationLinearGeluBridgeDeferred =
-    "defer_linear_until_gelu_or_materialize_plain_linear";
-
-constexpr int64_t kLinearGeluBridgeMinRows = 512;
-constexpr int64_t kLinearGeluBridgeHiddenFeatures = 384;
-constexpr int64_t kLinearGeluBridgeOutputFeatures = 1536;
-constexpr int64_t kLinearGeluBridgeRank3Batch = 1;
-constexpr const char* kLinearGeluBridgeBackboneMlpTupleId =
-    "backbone_mlp_hidden384_to1536_rows_ge512";
 constexpr ExecutionContractMetadata kLinearGeluBridgeBackboneMlpMetadata =
     make_execution_contract_metadata(
-        "LinearGeluBridgeContract",
-        "BackboneMlpHidden384To1536",
-        kLinearGeluBridgeBackboneMlpTupleId,
-        "linear_gelu_bridge_focused_tests",
-        "linear_gelu_bridge_adjacent_guards",
-        kFallbackUnsupportedShapesDoNotMatch,
-        kMaterializationLinearGeluBridgeDeferred);
+        generated::kLinearGeluBridgeBackboneMlpHidden384To1536Spec
+            .contract_name,
+        generated::kLinearGeluBridgeBackboneMlpHidden384To1536Spec.family_name,
+        generated::kLinearGeluBridgeBackboneMlpHidden384To1536Spec.tuple_id,
+        generated::kLinearGeluBridgeBackboneMlpHidden384To1536Spec.evidence_id,
+        generated::kLinearGeluBridgeBackboneMlpHidden384To1536Spec.guard_id,
+        generated::kLinearGeluBridgeBackboneMlpHidden384To1536Spec
+            .fallback_policy,
+        generated::kLinearGeluBridgeBackboneMlpHidden384To1536Spec
+            .materialization_policy);
 
 } // namespace
 
@@ -65,23 +58,38 @@ LinearGeluBridgeMatch match_linear_gelu_bridge_contract(
     const LinearGeluBridgePackedInfo& packed,
     const LinearGeluBridgeOptions& options) {
   LinearGeluBridgeMatch result;
+  const auto& spec =
+      generated::kLinearGeluBridgeBackboneMlpHidden384To1536Spec;
+  const int64_t rank3_batch =
+      tensor.input_rank == 3 ? tensor.input_batch : spec.rank3_batch;
   if (
-      options.inference_mode_enabled || options.has_output ||
-      !options.post_op_is_none || !options.alpha_is_one ||
-      !options.beta_is_one || !packed.bias_defined ||
-      !packed.can_run_float_buffer_linear ||
-      (tensor.input_rank != 2 && tensor.input_rank != 3) ||
-      tensor.flattened_rank != 2 ||
-      tensor.flattened_rows < kLinearGeluBridgeMinRows ||
-      tensor.flattened_features != kLinearGeluBridgeHiddenFeatures ||
-      packed.weight_height != kLinearGeluBridgeHiddenFeatures ||
-      packed.weight_width != kLinearGeluBridgeOutputFeatures) {
+      !generated::linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_options_match(
+          spec,
+          tensor.flattened_rank,
+          tensor.flattened_features,
+          packed.weight_height,
+          packed.weight_width,
+          rank3_batch,
+          tensor.input_rank,
+          packed.bias_defined,
+          packed.can_run_float_buffer_linear,
+          options.inference_mode_enabled,
+          options.has_output,
+          options.post_op_is_none,
+          options.alpha_is_one,
+          options.beta_is_one,
+          spec.may_defer,
+          spec.may_consume_gelu_none,
+          spec.may_consume_gelu_tanh) ||
+      !generated::linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_in_bounds(
+          spec,
+          tensor.flattened_rows)) {
     return result;
   }
 
   if (
       tensor.input_rank == 3 &&
-      (tensor.input_batch != kLinearGeluBridgeRank3Batch ||
+      (tensor.input_batch != spec.rank3_batch ||
        tensor.input_rows != tensor.flattened_rows ||
        tensor.input_features != tensor.flattened_features)) {
     return result;
@@ -89,11 +97,11 @@ LinearGeluBridgeMatch match_linear_gelu_bridge_contract(
 
   result.matched = true;
   result.family = LinearGeluBridgeFamily::BackboneMlpHidden384To1536;
-  result.tuple_id = kLinearGeluBridgeBackboneMlpTupleId;
+  result.tuple_id = spec.tuple_id;
   result.metadata = &kLinearGeluBridgeBackboneMlpMetadata;
-  result.may_defer = true;
-  result.may_consume_gelu_none = true;
-  result.may_consume_gelu_tanh = true;
+  result.may_defer = spec.may_defer;
+  result.may_consume_gelu_none = spec.may_consume_gelu_none;
+  result.may_consume_gelu_tanh = spec.may_consume_gelu_tanh;
   return result;
 }
 
