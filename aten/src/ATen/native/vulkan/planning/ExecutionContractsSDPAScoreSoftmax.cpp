@@ -53,7 +53,9 @@ SDPAScoreSoftmaxMatch match_sdpa_buffer_softmax_score_contract(
   const int64_t heads = input_sizes.size() > 0 ? input_sizes[0] : -1;
   const int64_t sequence = input_sizes.size() > 1 ? input_sizes[1] : -1;
   const bool square_scores =
-      input_sizes.size() > 2 && input_sizes[1] == input_sizes[2];
+      input_sizes.size() > 2 &&
+      generated::sdpa_score_softmax_diffusion_square_scores_square_scores_equal(
+          input_sizes[1], input_sizes[2]);
   if (
       !generated::sdpa_score_softmax_diffusion_square_scores_options_match(
           spec,

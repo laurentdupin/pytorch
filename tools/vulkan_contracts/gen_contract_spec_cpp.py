@@ -333,6 +333,7 @@ SCALAR_EQUAL_HELPER_SCOPES = {
     "batch",
     "heads",
     "head_dim",
+    "square_scores",
 }
 
 MULTI_FIELD_EQUAL_HELPER_SCOPES = {
@@ -394,10 +395,13 @@ def _scalar_equal_relationships(envelope, context):
         )
         left = _symbol_field_for_input(envelope, fields[0], relationship_context)
         right = _symbol_field_for_input(envelope, fields[1], relationship_context)
-        _require(
-            left[1] == right[1],
-            f"{relationship_context}.fields must reference the same symbol",
-        )
+        if left[1] != right[1]:
+            _require(
+                scope == "square_scores"
+                and left[0] == right[0]
+                and left[2] == right[2],
+                f"{relationship_context}.fields must reference the same symbol",
+            )
         _require(scope not in seen_scopes, f"{relationship_context}.scope duplicated")
         seen_scopes.add(scope)
         matches.append(
@@ -490,8 +494,11 @@ def _scalar_equal_parameter_name(input_name, field_name, used_names):
         candidate = field_name
     else:
         candidate = f"{input_name}_{field_name}"
-    if candidate in used_names:
-        candidate = f"{input_name}_{candidate}"
+    base_candidate = candidate
+    suffix = 2
+    while candidate in used_names:
+        candidate = f"{base_candidate}_{suffix}"
+        suffix += 1
     _require(
         candidate not in used_names,
         f"duplicate scalar equal parameter {candidate}",

@@ -201,6 +201,7 @@
         "kSDPAScoreSoftmaxDiffusionSquareScoresContractName",
         "sdpa_score_softmax_head_in_bounds",
         "sdpa_score_softmax_sequence_in_bounds",
+        "sdpa_score_softmax_diffusion_square_scores_square_scores_equal",
         "sdpa_score_softmax_diffusion_square_scores_options_match"
       ]
     },

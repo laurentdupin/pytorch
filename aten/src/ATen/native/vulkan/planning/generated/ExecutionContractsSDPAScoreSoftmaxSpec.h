@@ -92,6 +92,12 @@ constexpr bool sdpa_score_softmax_sequence_in_bounds(
       sequence == spec.sequence_2;
 }
 
+constexpr bool sdpa_score_softmax_diffusion_square_scores_square_scores_equal(
+    const std::int64_t scores_sequence,
+    const std::int64_t scores_sequence_2) {
+  return scores_sequence == scores_sequence_2;
+}
+
 constexpr bool sdpa_score_softmax_diffusion_square_scores_options_match(
     const SDPAScoreSoftmaxDiffusionSquareScoresSpec& spec,
     const at::ScalarType dtype,
