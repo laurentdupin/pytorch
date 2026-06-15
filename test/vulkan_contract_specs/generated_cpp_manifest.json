@@ -76,7 +76,8 @@
         "elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds",
         "elementwise_float_tensor_tensor_buffer_broadcast_dtype_matches",
         "elementwise_float_tensor_tensor_buffer_broadcast_layout_matches",
-        "elementwise_float_tensor_tensor_buffer_broadcast_attributes_match"
+        "elementwise_float_tensor_tensor_buffer_broadcast_attributes_match",
+        "elementwise_float_tensor_tensor_buffer_broadcast_broadcast_compatible"
       ]
     },
     {

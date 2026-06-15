@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <ATen/ArrayRef.h>
 #include <ATen/core/ScalarType.h>
 #include <cstdint>
 
@@ -34,6 +35,7 @@ constexpr bool kElementwiseBroadcastFloatTensorTensorBufferBroadcastRequiresBuff
 constexpr bool kElementwiseBroadcastFloatTensorTensorBufferBroadcastRequiresBufferCompute = true;
 constexpr const char* kElementwiseBroadcastFloatTensorTensorBufferBroadcastOpAdd = "add";
 constexpr const char* kElementwiseBroadcastFloatTensorTensorBufferBroadcastOpMul = "mul";
+constexpr std::int64_t kElementwiseBroadcastFloatTensorTensorBufferBroadcastBroadcastCompatibleMaxRank = 4;
 
 struct ElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec final {
   const char* contract_name;
@@ -56,6 +58,7 @@ struct ElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec final {
   bool requires_buffer_compute;
   const char* op_0;
   const char* op_1;
+  std::int64_t broadcast_compatible_max_rank;
 };
 
 constexpr ElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec = {
@@ -79,6 +82,7 @@ constexpr ElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec kElementwiseB
         kElementwiseBroadcastFloatTensorTensorBufferBroadcastRequiresBufferCompute,
         kElementwiseBroadcastFloatTensorTensorBufferBroadcastOpAdd,
         kElementwiseBroadcastFloatTensorTensorBufferBroadcastOpMul,
+        kElementwiseBroadcastFloatTensorTensorBufferBroadcastBroadcastCompatibleMaxRank,
 };
 
 constexpr bool elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds(
@@ -119,6 +123,29 @@ constexpr bool elementwise_float_tensor_tensor_buffer_broadcast_attributes_match
     const bool inplace) {
   return (op_add || op_mul) && alpha_is_one == spec.alpha_is_one &&
       has_output == spec.has_output && inplace == spec.inplace;
+}
+
+inline bool elementwise_float_tensor_tensor_buffer_broadcast_broadcast_compatible(
+    const ElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec& spec,
+    const IntArrayRef left_sizes,
+    const IntArrayRef right_sizes) {
+  const std::int64_t left_rank = static_cast<std::int64_t>(left_sizes.size());
+  const std::int64_t right_rank = static_cast<std::int64_t>(right_sizes.size());
+  if (left_rank > spec.broadcast_compatible_max_rank ||
+      right_rank > spec.broadcast_compatible_max_rank) {
+    return false;
+  }
+  const std::int64_t max_rank = left_rank > right_rank ? left_rank : right_rank;
+  for (std::int64_t axis = 0; axis < max_rank; ++axis) {
+    const std::int64_t left_axis = left_rank - 1 - axis;
+    const std::int64_t right_axis = right_rank - 1 - axis;
+    const std::int64_t left_dim = left_axis >= 0 ? left_sizes[left_axis] : 1;
+    const std::int64_t right_dim = right_axis >= 0 ? right_sizes[right_axis] : 1;
+    if (left_dim != right_dim && left_dim != 1 && right_dim != 1) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace generated

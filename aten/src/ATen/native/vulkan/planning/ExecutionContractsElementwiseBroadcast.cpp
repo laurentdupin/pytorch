@@ -1,8 +1,6 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h>
 
-#include <algorithm>
-
 namespace at {
 namespace native {
 namespace vulkan {
@@ -45,23 +43,6 @@ constexpr ExecutionContractMetadata kElementwiseBroadcastMetadata =
             .fallback_policy,
         generated::kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec
             .materialization_policy);
-
-bool broadcast_compatible(IntArrayRef left, IntArrayRef right) {
-  const int64_t max_rank =
-      std::max<int64_t>(
-          static_cast<int64_t>(left.size()),
-          static_cast<int64_t>(right.size()));
-  for (int64_t axis = 0; axis < max_rank; ++axis) {
-    const int64_t left_axis = static_cast<int64_t>(left.size()) - 1 - axis;
-    const int64_t right_axis = static_cast<int64_t>(right.size()) - 1 - axis;
-    const int64_t left_dim = left_axis >= 0 ? left[left_axis] : 1;
-    const int64_t right_dim = right_axis >= 0 ? right[right_axis] : 1;
-    if (left_dim != right_dim && left_dim != 1 && right_dim != 1) {
-      return false;
-    }
-  }
-  return true;
-}
 
 } // namespace
 
@@ -118,7 +99,11 @@ ElementwiseBroadcastMatch match_elementwise_broadcast_contract(
           inplace)) {
     return result;
   }
-  if (!broadcast_compatible(self_sizes, other_sizes)) {
+  const bool broadcast_compatible =
+      generated::
+          elementwise_float_tensor_tensor_buffer_broadcast_broadcast_compatible(
+              spec, self_sizes, other_sizes);
+  if (!broadcast_compatible) {
     return result;
   }
 

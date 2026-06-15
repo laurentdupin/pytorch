@@ -174,6 +174,38 @@ def _validate_generic_shape_envelope_spec(spec):
         _require(layout.get(key) == bounds[key], f"layout.{key} must match bounds")
 
 
+def _broadcast_compatible_relationships(envelope, context):
+    relationships = envelope.get("relationships", [])
+    _require(isinstance(relationships, list), f"{context}.relationships invalid")
+    matches = []
+    for index, relationship in enumerate(relationships):
+        if relationship.get("type") != "broadcast_compatible":
+            continue
+        relationship_context = f"{context}.relationships[{index}]"
+        _require_keys(
+            relationship,
+            ("left", "right", "result", "align", "max_rank"),
+            relationship_context,
+        )
+        for key in ("left", "right", "result", "align"):
+            _require_non_empty_string(relationship, key, relationship_context)
+        _require(
+            relationship["align"] == "right",
+            f"{relationship_context}.align must be right",
+        )
+        _validate_int(relationship["max_rank"], f"{relationship_context}.max_rank")
+        _require(
+            relationship["max_rank"] > 0,
+            f"{relationship_context}.max_rank must be positive",
+        )
+        matches.append(relationship)
+    _require(
+        len(matches) <= 1,
+        f"{context} supports at most one broadcast_compatible relationship",
+    )
+    return matches
+
+
 def _simple_bounds_shape_envelope_fields(bounds):
     dtype_fields = []
     int_fields = []
@@ -798,6 +830,9 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
         spec["contract_name"].removesuffix("Contract")
     )
     role_func_prefix = _cpp_lower_identifier(envelope["role"])
+    broadcast_relationships = _broadcast_compatible_relationships(
+        envelope, "ShapeEnvelope simple-bounds"
+    )
 
     field_struct_lines = []
     initializer_lines = []
@@ -897,6 +932,52 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
             f"constexpr bool k{row_prefix}{suffix} = {_cpp_bool(bounds[key])};"
         )
 
+    relationship_helpers = []
+    for relationship in broadcast_relationships:
+        suffix = "BroadcastCompatible"
+        field_struct_lines.append("  std::int64_t broadcast_compatible_max_rank;")
+        initializer_lines.append(f"        k{row_prefix}{suffix}MaxRank,")
+        constant_lines.append(
+            f"constexpr std::int64_t k{row_prefix}{suffix}MaxRank = "
+            f"{relationship['max_rank']};"
+        )
+        relationship_helpers.extend(
+            [
+                f"inline bool {role_func_prefix}_broadcast_compatible(",
+                f"    const {row_prefix}Spec& spec,",
+                "    const IntArrayRef left_sizes,",
+                "    const IntArrayRef right_sizes) {",
+                (
+                    "  const std::int64_t left_rank = "
+                    "static_cast<std::int64_t>(left_sizes.size());"
+                ),
+                (
+                    "  const std::int64_t right_rank = "
+                    "static_cast<std::int64_t>(right_sizes.size());"
+                ),
+                "  if (left_rank > spec.broadcast_compatible_max_rank ||",
+                "      right_rank > spec.broadcast_compatible_max_rank) {",
+                "    return false;",
+                "  }",
+                (
+                    "  const std::int64_t max_rank = "
+                    "left_rank > right_rank ? left_rank : right_rank;"
+                ),
+                "  for (std::int64_t axis = 0; axis < max_rank; ++axis) {",
+                "    const std::int64_t left_axis = left_rank - 1 - axis;",
+                "    const std::int64_t right_axis = right_rank - 1 - axis;",
+                "    const std::int64_t left_dim = left_axis >= 0 ? left_sizes[left_axis] : 1;",
+                "    const std::int64_t right_dim = right_axis >= 0 ? right_sizes[right_axis] : 1;",
+                "    if (left_dim != right_dim && left_dim != 1 && right_dim != 1) {",
+                "      return false;",
+                "    }",
+                "  }",
+                "  return true;",
+                "}",
+                "",
+            ]
+        )
+
     initializer_lines[-1] = initializer_lines[-1].rstrip(",") + "};"
     option_signature = []
     for param, _ in option_params:
@@ -923,6 +1004,11 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
         "",
         "#pragma once",
         "",
+    ]
+    if relationship_helpers:
+        lines.append("#include <ATen/ArrayRef.h>")
+    lines.extend(
+        [
         "#include <ATen/core/ScalarType.h>",
         "#include <cstdint>",
         "",
@@ -939,7 +1025,8 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
         f"constexpr const char* k{row_prefix}WriterOp = {_cpp_string(spec['writer_op'])};",
         f"constexpr const char* k{row_prefix}RouteLabel = {_cpp_string(spec['route_label'])};",
         "",
-    ]
+        ]
+    )
     lines.extend(constant_lines)
     lines.extend(
         [
@@ -981,6 +1068,7 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
         ]
     )
     lines.extend(list_rank_helpers)
+    lines.extend(relationship_helpers)
     lines.extend(
         [
             f"constexpr bool {role_func_prefix}_options_match(",
@@ -1802,6 +1890,9 @@ def generate_generic_shape_envelope_header(spec, source_name):
     prefix = _cpp_identifier_fragment(spec["contract_name"].removesuffix("Contract"))
     prefix += _cpp_identifier_fragment(spec["family"])
     func_prefix = _cpp_lower_identifier(envelope["role"])
+    broadcast_relationships = _broadcast_compatible_relationships(
+        envelope, "ShapeEnvelope"
+    )
 
     op_values = bounds["ops"]
     op_constants = []
@@ -1815,6 +1906,58 @@ def generate_generic_shape_envelope_header(spec, source_name):
         op_fields.append(f"  const char* op_{index};")
         op_initializers.append(f"        k{prefix}Op{op_suffix},")
 
+    relationship_constants = []
+    relationship_fields = []
+    relationship_initializers = []
+    relationship_helpers = []
+    for relationship in broadcast_relationships:
+        relationship_constants.append(
+            f"constexpr std::int64_t k{prefix}BroadcastCompatibleMaxRank = "
+            f"{relationship['max_rank']};"
+        )
+        relationship_fields.append(
+            "  std::int64_t broadcast_compatible_max_rank;"
+        )
+        relationship_initializers.append(
+            f"        k{prefix}BroadcastCompatibleMaxRank,"
+        )
+        relationship_helpers.extend(
+            [
+                f"inline bool {func_prefix}_broadcast_compatible(",
+                f"    const {prefix}Spec& spec,",
+                "    const IntArrayRef left_sizes,",
+                "    const IntArrayRef right_sizes) {",
+                (
+                    "  const std::int64_t left_rank = "
+                    "static_cast<std::int64_t>(left_sizes.size());"
+                ),
+                (
+                    "  const std::int64_t right_rank = "
+                    "static_cast<std::int64_t>(right_sizes.size());"
+                ),
+                "  if (left_rank > spec.broadcast_compatible_max_rank ||",
+                "      right_rank > spec.broadcast_compatible_max_rank) {",
+                "    return false;",
+                "  }",
+                (
+                    "  const std::int64_t max_rank = "
+                    "left_rank > right_rank ? left_rank : right_rank;"
+                ),
+                "  for (std::int64_t axis = 0; axis < max_rank; ++axis) {",
+                "    const std::int64_t left_axis = left_rank - 1 - axis;",
+                "    const std::int64_t right_axis = right_rank - 1 - axis;",
+                "    const std::int64_t left_dim = left_axis >= 0 ? left_sizes[left_axis] : 1;",
+                "    const std::int64_t right_dim = right_axis >= 0 ? right_sizes[right_axis] : 1;",
+                "    if (left_dim != right_dim && left_dim != 1 && right_dim != 1) {",
+                "      return false;",
+                "    }",
+                "  }",
+                "  return true;",
+                "}",
+                "",
+            ]
+        )
+
     lines = [
         "// Generated by tools/vulkan_contracts/gen_contract_spec_cpp.py",
         f"// Source: {source_name}",
@@ -1822,6 +1965,7 @@ def generate_generic_shape_envelope_header(spec, source_name):
         "",
         "#pragma once",
         "",
+        "#include <ATen/ArrayRef.h>",
         "#include <ATen/core/ScalarType.h>",
         "#include <cstdint>",
         "",
@@ -1864,6 +2008,7 @@ def generate_generic_shape_envelope_header(spec, source_name):
         ),
     ]
     lines.extend(op_constants)
+    lines.extend(relationship_constants)
     lines.extend(
         [
             "",
@@ -1889,6 +2034,7 @@ def generate_generic_shape_envelope_header(spec, source_name):
         ]
     )
     lines.extend(op_fields)
+    lines.extend(relationship_fields)
     lines.extend(
         [
             "};",
@@ -1915,6 +2061,7 @@ def generate_generic_shape_envelope_header(spec, source_name):
         ]
     )
     lines.extend(op_initializers)
+    lines.extend(relationship_initializers)
     lines.extend(
         [
             "};",
@@ -1959,6 +2106,11 @@ def generate_generic_shape_envelope_header(spec, source_name):
             "      has_output == spec.has_output && inplace == spec.inplace;",
             "}",
             "",
+        ]
+    )
+    lines.extend(relationship_helpers)
+    lines.extend(
+        [
             "} // namespace generated",
             "} // namespace utils",
             "} // namespace ops",

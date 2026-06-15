@@ -309,11 +309,11 @@ These files are diagnostic inputs. Production code must not depend on
   `FloatTensorTensorBufferBroadcast` slice records the route shape in JSON and
   runtime tests, backed by a generic `ShapeEnvelope` `broadcast_compatible`
   relationship. Its contract identity, metadata, simple bounds, layout
-  requirements, and attribute helpers are emitted by the generic
-  ShapeEnvelope C++ generator v0 while right-aligned broadcast compatibility
-  remains handwritten. The matcher is queried only after the existing
-  `aten::binary_op.buffer_float` route is selected, so it records contract
-  admission metadata without changing route behavior.
+  requirements, attribute helpers, and right-aligned broadcast compatibility
+  helper are emitted by the generic ShapeEnvelope C++ generator v0. The matcher
+  is queried only after the existing `aten::binary_op.buffer_float` route is
+  selected, so it records contract admission metadata without changing route
+  behavior.
 - DAv2 region/stack contracts: best current example of shape keys, capability
   keys, planned regions, binding validation, and replay-readiness diagnostics.
 
