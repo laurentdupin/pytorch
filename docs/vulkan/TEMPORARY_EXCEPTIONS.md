@@ -349,10 +349,11 @@ condition and migration target.
   positive and adjacent negative runtime cases plus generic ShapeEnvelope
   sparse-rowset helper output in
   `generated/ExecutionContractsDiffusionSDPASpec.h`. The generated helper owns
-  the 11 correlated square and cross-attention rows, per-row metadata, and exact
-  `(heads, query_sequence, key_value_sequence, head_dim)` lookup. Route-policy
-  hard-fail ordering, scale tolerance, SDPA execution, materialization policy,
-  and match-result assembly remain handwritten.
+  the 11 correlated square and cross-attention rows, per-row metadata, exact
+  `(heads, query_sequence, key_value_sequence, head_dim)` lookup, and row-match
+  equality for those fields. Route-policy hard-fail ordering, scale tolerance,
+  SDPA execution, materialization policy, and match-result assembly remain
+  handwritten.
 - Expiry: broader parity and materialization census covers adjacent diffusion
   self-attention and cross-attention shapes.
 - Migration target: broader generated `DiffusionSDPAContract` and

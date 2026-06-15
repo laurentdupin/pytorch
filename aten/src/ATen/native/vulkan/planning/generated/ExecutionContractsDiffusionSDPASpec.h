@@ -164,6 +164,18 @@ constexpr DiffusionSDPAAttentionRowsRow kDiffusionSDPAAttentionRowsRows[] = {
     }
 };
 
+inline bool diffusion_sdpa_attention_rows_row_matches(
+    const DiffusionSDPAAttentionRowsRow& row,
+    const std::int64_t heads,
+    const std::int64_t query_sequence,
+    const std::int64_t key_value_sequence,
+    const std::int64_t head_dim) {
+  return row.heads == heads &&
+      row.query_sequence == query_sequence &&
+      row.key_value_sequence == key_value_sequence &&
+      row.head_dim == head_dim;
+}
+
 inline const DiffusionSDPAAttentionRowsRow* diffusion_sdpa_attention_rows_find(
     const std::int64_t heads,
     const std::int64_t query_sequence,

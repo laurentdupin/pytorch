@@ -2237,6 +2237,33 @@ class TestVulkanGovernance(TestCase):
         for row in rowset["rows"]:
             family_counts[row["family"]] = family_counts.get(row["family"], 0) + 1
         self.assertEqual(
+            rowset["row_match"],
+            {
+                "arguments": [
+                    {
+                        "name": "heads",
+                        "field": "heads",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "query_sequence",
+                        "field": "query_sequence",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "key_value_sequence",
+                        "field": "key_value_sequence",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "head_dim",
+                        "field": "head_dim",
+                        "type": "int64",
+                    },
+                ],
+            },
+        )
+        self.assertEqual(
             family_counts,
             {
                 "SquareSelfAttention": 7,

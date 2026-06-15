@@ -27,6 +27,20 @@ DiffusionSDPAFamily diffusion_sdpa_family_from_name(
   return DiffusionSDPAFamily::None;
 }
 
+const generated::DiffusionSDPAAttentionRowsRow* find_diffusion_sdpa_row(
+    const int64_t heads,
+    const int64_t query_sequence,
+    const int64_t key_value_sequence,
+    const int64_t head_dim) {
+  for (const auto& row : generated::kDiffusionSDPAAttentionRowsRows) {
+    if (generated::diffusion_sdpa_attention_rows_row_matches(
+            row, heads, query_sequence, key_value_sequence, head_dim)) {
+      return &row;
+    }
+  }
+  return nullptr;
+}
+
 } // namespace
 
 const char* diffusion_sdpa_route_label(const DiffusionSDPAFamily family) {
@@ -73,7 +87,7 @@ DiffusionSDPAMatch match_diffusion_sdpa_contract(
   const int64_t query_sequence = query_sizes[2];
   const int64_t key_value_sequence = key_sizes[2];
   const int64_t head_dim = query_sizes[3];
-  const auto* const row = generated::diffusion_sdpa_attention_rows_find(
+  const auto* const row = find_diffusion_sdpa_row(
       heads, query_sequence, key_value_sequence, head_dim);
   if (row != nullptr) {
     if (scale.has_value()) {

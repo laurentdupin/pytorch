@@ -42,6 +42,7 @@
         "DiffusionSDPASparseAttentionRowsSpec",
         "DiffusionSDPAAttentionRowsRow",
         "kDiffusionSDPAAttentionRowsRowCount",
+        "diffusion_sdpa_attention_rows_row_matches",
         "diffusion_sdpa_attention_rows_find"
       ]
     },

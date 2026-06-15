@@ -452,10 +452,11 @@ These files are diagnostic inputs. Production code must not depend on
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `generated/ExecutionContractsDiffusionSDPASpec.h` from
   `diffusion_sdpa_contract.json` for contract identity, per-row metadata, the
-  11 correlated square/cross-attention rows, and exact lookup by heads,
-  query-sequence, key/value sequence, and head dim. Route-policy hard-fail
-  ordering, scale tolerance, SDPA execution, materialization policy, and
-  match-result assembly remain handwritten so route behavior is unchanged.
+  11 correlated square/cross-attention rows, and exact lookup and row-match
+  equality by heads, query-sequence, key/value sequence, and head dim.
+  Route-policy hard-fail ordering, scale tolerance, SDPA execution,
+  materialization policy, and match-result assembly remain handwritten so route
+  behavior is unchanged.
 - SDPAExecutionPolicy `SparsePolicyRows` consumes the generic ShapeEnvelope
   sparse-rowset generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
