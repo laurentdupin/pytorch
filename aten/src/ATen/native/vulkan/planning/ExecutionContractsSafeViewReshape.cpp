@@ -219,21 +219,81 @@ SafeViewReshapeMatch match_safe_view_reshape_contract(
   SafeViewReshapeMatch result;
   const auto& spec =
       generated::kSafeViewReshapeReshapeAliasDenseBufferDirectSpec;
-  if (
-      !input_is_float || !input_has_buffer_storage ||
-      !generated::safe_reshape_alias_dense_buffer_direct_input_rank_in_bounds(
-          spec, static_cast<int64_t>(input_sizes.size())) ||
-      !generated::safe_reshape_alias_dense_buffer_direct_output_rank_in_bounds(
-          spec, static_cast<int64_t>(output_sizes.size())) ||
-      !generated::safe_reshape_alias_dense_buffer_direct_storage_offset_matches(
-          spec, storage_offset) ||
-      !is_non_overlapping_dense_stride(input_sizes, input_logical_strides) ||
-      !is_non_overlapping_dense_stride(output_sizes, output_strides)) {
+  if (!input_is_float) {
+    log_contract_reject(
+        &kSafeViewReshapeAliasDenseBufferDirectMetadata,
+        ContractAdmissionPhase::GeneratedBounds,
+        "input_is_float",
+        "alias_input_dtype_mismatch",
+        "handwritten");
+    return result;
+  }
+  if (!input_has_buffer_storage) {
+    log_contract_reject(
+        &kSafeViewReshapeAliasDenseBufferDirectMetadata,
+        ContractAdmissionPhase::GeneratedOptions,
+        "input_has_buffer_storage",
+        "alias_input_storage_mismatch",
+        "handwritten");
+    return result;
+  }
+  if (!generated::safe_reshape_alias_dense_buffer_direct_input_rank_in_bounds(
+          spec, static_cast<int64_t>(input_sizes.size()))) {
+    log_contract_reject(
+        &kSafeViewReshapeAliasDenseBufferDirectMetadata,
+        ContractAdmissionPhase::GeneratedBounds,
+        "safe_reshape_alias_dense_buffer_direct_input_rank_in_bounds",
+        "alias_input_rank_out_of_bounds",
+        "generated");
+    return result;
+  }
+  if (!generated::safe_reshape_alias_dense_buffer_direct_output_rank_in_bounds(
+          spec, static_cast<int64_t>(output_sizes.size()))) {
+    log_contract_reject(
+        &kSafeViewReshapeAliasDenseBufferDirectMetadata,
+        ContractAdmissionPhase::GeneratedBounds,
+        "safe_reshape_alias_dense_buffer_direct_output_rank_in_bounds",
+        "alias_output_rank_out_of_bounds",
+        "generated");
+    return result;
+  }
+  if (!generated::safe_reshape_alias_dense_buffer_direct_storage_offset_matches(
+          spec, storage_offset)) {
+    log_contract_reject(
+        &kSafeViewReshapeAliasDenseBufferDirectMetadata,
+        ContractAdmissionPhase::GeneratedOptions,
+        "safe_reshape_alias_dense_buffer_direct_storage_offset_matches",
+        "alias_storage_offset_mismatch",
+        "generated");
+    return result;
+  }
+  if (!is_non_overlapping_dense_stride(input_sizes, input_logical_strides)) {
+    log_contract_reject(
+        &kSafeViewReshapeAliasDenseBufferDirectMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "is_non_overlapping_dense_stride",
+        "alias_input_stride_not_dense",
+        "handwritten");
+    return result;
+  }
+  if (!is_non_overlapping_dense_stride(output_sizes, output_strides)) {
+    log_contract_reject(
+        &kSafeViewReshapeAliasDenseBufferDirectMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "is_non_overlapping_dense_stride",
+        "alias_output_stride_not_dense",
+        "handwritten");
     return result;
   }
 
   if (!generated::safe_reshape_alias_dense_buffer_direct_product_equal(
           spec, input_sizes, output_sizes)) {
+    log_contract_reject(
+        &kSafeViewReshapeAliasDenseBufferDirectMetadata,
+        ContractAdmissionPhase::GeneratedRelationship,
+        "safe_reshape_alias_dense_buffer_direct_product_equal",
+        "alias_product_mismatch",
+        "generated");
     return result;
   }
 
@@ -241,6 +301,12 @@ SafeViewReshapeMatch match_safe_view_reshape_contract(
           spec,
           !output_sizes.empty(),
           output_sizes.empty() ? 0 : output_sizes.back())) {
+    log_contract_reject(
+        &kSafeViewReshapeAliasDenseBufferDirectMetadata,
+        ContractAdmissionPhase::GeneratedBounds,
+        "safe_reshape_alias_dense_buffer_direct_output_last_dim_multiple_matches",
+        "alias_output_last_dim_multiple_mismatch",
+        "generated");
     return result;
   }
 
@@ -248,6 +314,8 @@ SafeViewReshapeMatch match_safe_view_reshape_contract(
   result.family = SafeViewReshapeFamily::ReshapeAliasDenseBufferDirect;
   result.tuple_id = spec.tuple_id;
   result.metadata = &kSafeViewReshapeAliasDenseBufferDirectMetadata;
+  log_contract_accept(
+      result.metadata, "match_safe_view_reshape_contract");
   return result;
 }
 

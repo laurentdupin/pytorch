@@ -245,15 +245,16 @@ Rules for expansion:
 
 BatchNormInference was the first completed expansion after the
 ElementwiseBroadcast MVP, and SafeViewReshape direct
-`ViewMaterializedDirectBuffer` is now the first layout/view slice wired to the
-same surface. The governance helper
+`ViewMaterializedDirectBuffer` plus `_reshape_alias`
+`ReshapeAliasDenseBufferDirect` are now the first layout/view slices wired to
+the same surface. The governance helper
 `contract_spec_utils.py --admission-diagnostics-census` now records the current
-diagnostic coverage as three wired contracts, four wired spec rows, and three
+diagnostic coverage as three wired contracts, five wired spec rows, and three
 source files, and validates JSONL payload fields plus accept/reject hook
 presence. Suggested next expansion order, if the simple slices hold:
-SafeViewReshape `_reshape_alias`, then SDPA/attention contracts. Do not treat
-this order as a mandate to add diagnostics to every contract immediately; it
-is guidance for future diagnostic tasks.
+SDPA/attention contracts. Do not treat this order as a mandate to add
+diagnostics to every contract immediately; it is guidance for future diagnostic
+tasks.
 
 ## Phase 3: Migrate Next Contract Family
 

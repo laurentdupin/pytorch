@@ -65,6 +65,16 @@ ADMISSION_DIAGNOSTICS_DECLARED_ROWS = (
             "ExecutionContractsSafeViewReshape.cpp"
         ),
     },
+    {
+        "contract_name": "SafeViewReshapeContract",
+        "family": "ReshapeAliasDenseBufferDirect",
+        "tuple_id": "materialized_direct_buffer_reshape",
+        "spec_file": "safe_view_reshape_alias_contract.json",
+        "source_file": (
+            "aten/src/ATen/native/vulkan/planning/"
+            "ExecutionContractsSafeViewReshape.cpp"
+        ),
+    },
 )
 
 CONTRACT_SPEC_REQUIRED_FIELDS = (
