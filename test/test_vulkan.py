@@ -11365,6 +11365,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
     def _run_batch_norm_inference_contract_generated_spec(self, spec_file_name):
         spec = _load_vulkan_contract_spec(spec_file_name)
+        admission_log_name = contract_spec_utils.contract_log_name(
+            spec,
+            {"name": "generated"},
+            "contract_admission.jsonl",
+        )
         case_log_names = [
             contract_spec_utils.contract_log_name(
                 spec,
@@ -11376,7 +11381,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
         ]
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        case_log_paths = [os.path.join(repo_root, name) for name in case_log_names]
+        case_log_paths = [
+            os.path.join(repo_root, admission_log_name),
+        ]
+        case_log_paths.extend(os.path.join(repo_root, name) for name in case_log_names)
         for path in case_log_paths:
             if os.path.exists(path):
                 os.remove(path)
@@ -11408,6 +11416,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     spec["writer_op"] + "."
                 )
                 route_hit = "route=" + route_name
+                admission_log = os.environ[
+                    "PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG"
+                ]
 
                 def dtype_for_case(case):
                     return {
@@ -11439,6 +11450,162 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             for line in log_file
                             if line.strip()
                         ]
+
+                def read_admission_log():
+                    if not os.path.exists(admission_log):
+                        return []
+                    with open(admission_log, encoding="utf-8") as log_file:
+                        return [
+                            json.loads(line)
+                            for line in log_file
+                            if line.strip()
+                        ]
+
+                def buffer_record(**overrides):
+                    record = {
+                        "contract_name": "BatchNormInferenceContract",
+                        "family_name": "BufferFloat4D",
+                        "tuple_id": "buffer_inference_4d_float",
+                    }
+                    record.update(overrides)
+                    return record
+
+                def materialized_record(**overrides):
+                    record = {
+                        "contract_name": "BatchNormInferenceContract",
+                        "family_name": "MaterializedBufferFloat4D",
+                        "tuple_id": "materialized_buffer_inference_4d_float",
+                    }
+                    record.update(overrides)
+                    return record
+
+                def accept_record(family):
+                    base = materialized_record if family == "materialized" else buffer_record
+                    return base(
+                        outcome="accept",
+                        phase="admitted",
+                        predicate="match_batch_norm_inference_contract",
+                        reason_code="matched",
+                        source="handwritten",
+                    )
+
+                def expected_admission_records(case, expect_native_route):
+                    if case["training"]:
+                        return []
+                    if case.get("materialized_input", False):
+                        if expect_native_route:
+                            return [
+                                buffer_record(
+                                    outcome="reject",
+                                    phase="materialization_policy",
+                                    predicate=(
+                                        "batch_norm_buffer_input_has_buffer_storage"
+                                    ),
+                                    reason_code="buffer_input_storage_mismatch",
+                                    source="handwritten",
+                                ),
+                                accept_record("materialized"),
+                                accept_record("buffer"),
+                            ]
+                        if case["violates"] == "input_rank":
+                            return [
+                                buffer_record(
+                                    outcome="reject",
+                                    phase="generated_options",
+                                    predicate=(
+                                        "batch_norm_inference_buffer_float_4_d_"
+                                        "options_match"
+                                    ),
+                                    reason_code="buffer_options_mismatch",
+                                    source="generated",
+                                )
+                            ]
+                        if case["violates"] == "feature_count.equal":
+                            return [
+                                buffer_record(
+                                    outcome="reject",
+                                    phase="materialization_policy",
+                                    predicate=(
+                                        "batch_norm_buffer_input_has_buffer_storage"
+                                    ),
+                                    reason_code="buffer_input_storage_mismatch",
+                                    source="handwritten",
+                                ),
+                                materialized_record(
+                                    outcome="reject",
+                                    phase="generated_relationship",
+                                    predicate=(
+                                        "batch_norm_inference_materialized_"
+                                        "buffer_float_4_d_feature_count_equal"
+                                    ),
+                                    reason_code=(
+                                        "materialized_feature_count_mismatch"
+                                    ),
+                                    source="generated",
+                                ),
+                            ]
+                    else:
+                        if expect_native_route:
+                            return [accept_record("buffer")]
+                        if case["violates"] == "input_rank":
+                            return [
+                                buffer_record(
+                                    outcome="reject",
+                                    phase="generated_options",
+                                    predicate=(
+                                        "batch_norm_inference_buffer_float_4_d_"
+                                        "options_match"
+                                    ),
+                                    reason_code="buffer_options_mismatch",
+                                    source="generated",
+                                )
+                            ]
+                        if case["violates"] == "feature_count.equal":
+                            return [
+                                buffer_record(
+                                    outcome="reject",
+                                    phase="generated_relationship",
+                                    predicate=(
+                                        "batch_norm_inference_buffer_float_4_d_"
+                                        "feature_count_equal"
+                                    ),
+                                    reason_code="buffer_feature_count_mismatch",
+                                    source="generated",
+                                ),
+                                materialized_record(
+                                    outcome="reject",
+                                    phase="generated_relationship",
+                                    predicate=(
+                                        "batch_norm_inference_materialized_"
+                                        "buffer_float_4_d_feature_count_equal"
+                                    ),
+                                    reason_code=(
+                                        "materialized_feature_count_mismatch"
+                                    ),
+                                    source="generated",
+                                ),
+                            ]
+                    raise AssertionError(("unhandled admission case", case))
+
+                def assert_admission_records(case, expected_records):
+                    records = read_admission_log()
+                    assert len(records) == len(expected_records), (
+                        case,
+                        expected_records,
+                        records,
+                    )
+                    for record, expected in zip(records, expected_records):
+                        assert record.get("event") == "vulkan_contract_admission", (
+                            case,
+                            record,
+                        )
+                        for key, value in expected.items():
+                            assert record.get(key) == value, (
+                                case,
+                                key,
+                                value,
+                                record,
+                            )
 
                 def value_trace_provenance(log_path):
                     trace_records = read_value_trace(log_path)
@@ -11498,6 +11665,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     log_path = os.path.join(os.getcwd(), log_name)
                     if os.path.exists(log_path):
                         os.remove(log_path)
+                    if os.path.exists(admission_log):
+                        os.remove(admission_log)
                     os.environ["PYTORCH_VULKAN_VALIDATE_VALUES"] = "1"
                     os.environ["PYTORCH_VULKAN_VALUE_TRACE_LOG"] = log_path
                     os.environ["PYTORCH_VULKAN_VALUE_TRACE_SAMPLES"] = "1"
@@ -11520,6 +11689,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         )
                         trace_records, provenance = value_trace_provenance(log_path)
                         assert route_hit not in provenance, (case, provenance)
+                        assert_admission_records(
+                            case,
+                            expected_admission_records(
+                                case,
+                                expect_native_route,
+                            ),
+                        )
                         if case["expected_cpu_fallback"]:
                             assert fallback_count == 1, (
                                 case,
@@ -11536,6 +11712,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                     expected = run_batch_norm(case, tensors, use_vulkan=False)
                     torch.ops.vulkan_prepack.reset_fallback_counters()
+                    if os.path.exists(admission_log):
+                        os.remove(admission_log)
                     actual = run_batch_norm(case, tensors, use_vulkan=True)
                     torch.testing.assert_close(
                         actual.cpu(),
@@ -11546,6 +11724,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                     fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
                     trace_records, provenance = value_trace_provenance(log_path)
+                    assert_admission_records(
+                        case,
+                        expected_admission_records(
+                            case,
+                            expect_native_route,
+                        ),
+                    )
                     if expect_native_route:
                         assert fallback_count == 0, (
                             case,
@@ -11609,6 +11794,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             """.replace("__BATCH_NORM_SPEC_FILE__", spec_file_name)
             self._run_repo_python_subprocess(
                 script,
+                extra_env={
+                    "PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG": admission_log_name,
+                },
                 error_prefix=(
                     f"BatchNorm generated contract spec failed for {spec_file_name}."
                 ),

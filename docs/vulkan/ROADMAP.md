@@ -224,9 +224,9 @@ Current MVP status:
 - `PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG` is the first env-gated admission
   diagnostic surface for candidate accept/reject decisions. It emits JSONL
   `vulkan_contract_admission` records with contract metadata, outcome, phase,
-  predicate, reason code, and source. The current MVP is wired only to
-  `ElementwiseBroadcastContract`; it is intentionally separate from op-hit logs
-  and tensor provenance/value traces.
+  predicate, reason code, and source. The current MVP is wired to
+  `ElementwiseBroadcastContract` and `BatchNormInferenceContract`; it is
+  intentionally separate from op-hit logs and tensor provenance/value traces.
 
 ## Phase 2.5: Admission Diagnostics
 
@@ -243,10 +243,11 @@ Rules for expansion:
   match results, and accepted shape envelopes.
 - Add focused accept/reject coverage when wiring a new contract family.
 
-Suggested expansion order, if the simple slices hold: BatchNormInference first,
-then SafeViewReshape, then SDPA/attention contracts. Do not treat this order as
-a mandate to add diagnostics to every contract immediately; it is guidance for
-future diagnostic tasks after the ElementwiseBroadcast MVP.
+BatchNormInference is the first completed expansion after the
+ElementwiseBroadcast MVP. Suggested next expansion order, if the simple slices
+hold: SafeViewReshape, then SDPA/attention contracts. Do not treat this order
+as a mandate to add diagnostics to every contract immediately; it is guidance
+for future diagnostic tasks.
 
 ## Phase 3: Migrate Next Contract Family
 

@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/ExecutionContractDiagnostics.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceMaterializedSpec.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceSpec.h>
 
@@ -123,8 +124,7 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
       generated::kBatchNormInferenceBufferFloat4DSpec;
   const auto& materialized_spec =
       generated::kBatchNormInferenceMaterializedBufferFloat4DSpec;
-  if (
-      !generated::batch_norm_inference_buffer_float_4_d_options_match(
+  if (!generated::batch_norm_inference_buffer_float_4_d_options_match(
           buffer_spec,
           input.dtype,
           buffer_spec.parameter_dtype,
@@ -136,12 +136,49 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
           buffer_spec.requires_vulkan,
           buffer_spec.requires_contiguous,
           buffer_spec.requires_buffer_storage,
-          buffer_spec.requires_buffer_compute) ||
-      !input.has_value || !input.defined ||
-      (buffer_spec.requires_vulkan && !input.is_vulkan) ||
-      (buffer_spec.requires_contiguous && !input.is_contiguous) ||
-      (buffer_spec.requires_buffer_compute &&
-       !input.supports_buffer_compute)) {
+          buffer_spec.requires_buffer_compute)) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::GeneratedOptions,
+        "batch_norm_inference_buffer_float_4_d_options_match",
+        "buffer_options_mismatch",
+        "generated");
+    return result;
+  }
+  if (!input.has_value || !input.defined) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::HandwrittenPolicy,
+        "batch_norm_input_defined",
+        "input_missing_or_undefined",
+        "handwritten");
+    return result;
+  }
+  if (buffer_spec.requires_vulkan && !input.is_vulkan) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::HandwrittenPolicy,
+        "batch_norm_input_is_vulkan",
+        "input_not_vulkan",
+        "handwritten");
+    return result;
+  }
+  if (buffer_spec.requires_contiguous && !input.is_contiguous) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::HandwrittenPolicy,
+        "batch_norm_input_is_contiguous",
+        "input_not_contiguous",
+        "handwritten");
+    return result;
+  }
+  if (buffer_spec.requires_buffer_compute && !input.supports_buffer_compute) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_input_supports_buffer_compute",
+        "input_buffer_compute_unsupported",
+        "handwritten");
     return result;
   }
 
@@ -155,19 +192,71 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
           weight.numel,
           bias.has_value,
           bias.numel);
-  const bool buffer_match =
-      input.has_buffer_storage && buffer_feature_count_equal &&
-      batch_norm_float_1d_buffer_matches(running_mean) &&
-      batch_norm_float_1d_buffer_matches(running_var) &&
-      batch_norm_optional_float_1d_matches(weight) &&
-      batch_norm_optional_float_1d_matches(bias) &&
-      batch_norm_effective_affine_has_buffer_storage(weight, running_mean) &&
-      batch_norm_effective_affine_has_buffer_storage(bias, running_mean);
-  if (buffer_match) {
+  if (!input.has_buffer_storage) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_buffer_input_has_buffer_storage",
+        "buffer_input_storage_mismatch",
+        "handwritten");
+  } else if (!buffer_feature_count_equal) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::GeneratedRelationship,
+        "batch_norm_inference_buffer_float_4_d_feature_count_equal",
+        "buffer_feature_count_mismatch",
+        "generated");
+  } else if (!batch_norm_float_1d_buffer_matches(running_mean)) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_float_1d_buffer_matches",
+        "running_mean_buffer_mismatch",
+        "handwritten");
+  } else if (!batch_norm_float_1d_buffer_matches(running_var)) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_float_1d_buffer_matches",
+        "running_var_buffer_mismatch",
+        "handwritten");
+  } else if (!batch_norm_optional_float_1d_matches(weight)) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::HandwrittenPolicy,
+        "batch_norm_optional_float_1d_matches",
+        "weight_optional_mismatch",
+        "handwritten");
+  } else if (!batch_norm_optional_float_1d_matches(bias)) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::HandwrittenPolicy,
+        "batch_norm_optional_float_1d_matches",
+        "bias_optional_mismatch",
+        "handwritten");
+  } else if (!batch_norm_effective_affine_has_buffer_storage(
+                 weight, running_mean)) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_effective_affine_has_buffer_storage",
+        "weight_effective_affine_storage_mismatch",
+        "handwritten");
+  } else if (!batch_norm_effective_affine_has_buffer_storage(
+                 bias, running_mean)) {
+    log_contract_reject(
+        &kBatchNormInferenceBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_effective_affine_has_buffer_storage",
+        "bias_effective_affine_storage_mismatch",
+        "handwritten");
+  } else {
     result.matched = true;
     result.family = BatchNormInferenceFamily::BufferFloat4D;
     result.tuple_id = buffer_spec.tuple_id;
     result.metadata = &kBatchNormInferenceBufferFloat4DMetadata;
+    log_contract_accept(
+        result.metadata, "match_batch_norm_inference_contract");
     return result;
   }
 
@@ -180,8 +269,8 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
           weight.numel,
           bias.has_value,
           bias.numel);
-  if (
-      !generated::batch_norm_inference_materialized_buffer_float_4_d_options_match(
+  if (!generated::
+          batch_norm_inference_materialized_buffer_float_4_d_options_match(
           materialized_spec,
           input.dtype,
           materialized_spec.parameter_dtype,
@@ -194,16 +283,78 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
           materialized_spec.requires_contiguous,
           materialized_spec.requires_buffer_storage,
           materialized_spec.requires_buffer_compute,
-          materialized_spec.requires_materialization) ||
-      !materialized_feature_count_equal ||
-      !batch_norm_float_1d_materializable_matches(running_mean) ||
-      !batch_norm_float_1d_materializable_matches(running_var) ||
-      !batch_norm_optional_float_1d_materializable_matches(weight) ||
-      !batch_norm_optional_float_1d_materializable_matches(bias) ||
-      !batch_norm_effective_affine_supports_buffer_compute(
-          weight, running_mean) ||
-      !batch_norm_effective_affine_supports_buffer_compute(
+          materialized_spec.requires_materialization)) {
+    log_contract_reject(
+        &kBatchNormInferenceMaterializedBufferFloat4DMetadata,
+        ContractAdmissionPhase::GeneratedOptions,
+        "batch_norm_inference_materialized_buffer_float_4_d_options_match",
+        "materialized_options_mismatch",
+        "generated");
+    return result;
+  }
+  if (!materialized_feature_count_equal) {
+    log_contract_reject(
+        &kBatchNormInferenceMaterializedBufferFloat4DMetadata,
+        ContractAdmissionPhase::GeneratedRelationship,
+        "batch_norm_inference_materialized_buffer_float_4_d_feature_count_equal",
+        "materialized_feature_count_mismatch",
+        "generated");
+    return result;
+  }
+  if (!batch_norm_float_1d_materializable_matches(running_mean)) {
+    log_contract_reject(
+        &kBatchNormInferenceMaterializedBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_float_1d_materializable_matches",
+        "running_mean_materializable_mismatch",
+        "handwritten");
+    return result;
+  }
+  if (!batch_norm_float_1d_materializable_matches(running_var)) {
+    log_contract_reject(
+        &kBatchNormInferenceMaterializedBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_float_1d_materializable_matches",
+        "running_var_materializable_mismatch",
+        "handwritten");
+    return result;
+  }
+  if (!batch_norm_optional_float_1d_materializable_matches(weight)) {
+    log_contract_reject(
+        &kBatchNormInferenceMaterializedBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_optional_float_1d_materializable_matches",
+        "weight_optional_materializable_mismatch",
+        "handwritten");
+    return result;
+  }
+  if (!batch_norm_optional_float_1d_materializable_matches(bias)) {
+    log_contract_reject(
+        &kBatchNormInferenceMaterializedBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_optional_float_1d_materializable_matches",
+        "bias_optional_materializable_mismatch",
+        "handwritten");
+    return result;
+  }
+  if (!batch_norm_effective_affine_supports_buffer_compute(
+          weight, running_mean)) {
+    log_contract_reject(
+        &kBatchNormInferenceMaterializedBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_effective_affine_supports_buffer_compute",
+        "weight_effective_affine_compute_mismatch",
+        "handwritten");
+    return result;
+  }
+  if (!batch_norm_effective_affine_supports_buffer_compute(
           bias, running_mean)) {
+    log_contract_reject(
+        &kBatchNormInferenceMaterializedBufferFloat4DMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "batch_norm_effective_affine_supports_buffer_compute",
+        "bias_effective_affine_compute_mismatch",
+        "handwritten");
     return result;
   }
 
@@ -212,6 +363,8 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
   result.tuple_id = materialized_spec.tuple_id;
   result.metadata = &kBatchNormInferenceMaterializedBufferFloat4DMetadata;
   result.requires_materialization = materialized_spec.requires_materialization;
+  log_contract_accept(
+      result.metadata, "match_batch_norm_inference_contract");
   return result;
 }
 

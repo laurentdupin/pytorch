@@ -81,13 +81,17 @@ emits JSONL `vulkan_contract_admission` events with stable contract metadata,
 is separate from `PYTORCH_VULKAN_OP_HIT_LOG` and from tensor provenance/value
 traces: tensor provenance records metadata for accepted output producers,
 while admission diagnostics record candidate accept/reject decisions and the
-first predicate failure seen by a wired matcher. The current MVP is wired only
-to `ElementwiseBroadcastContract`; do not infer that every contract emits
-admission diagnostics yet. The current ElementwiseBroadcast phases are
-`generated_options`, `generated_bounds`, `generated_relationship`, and
-`admitted`; the current reason codes are `layout_mismatch`, `dtype_mismatch`,
-`self_rank_out_of_bounds`, `other_rank_out_of_bounds`, `attribute_mismatch`,
-`broadcast_incompatible`, and `matched`.
+first predicate failure seen by a wired matcher. The current MVP is wired to
+`ElementwiseBroadcastContract` and `BatchNormInferenceContract`; do not infer
+that every contract emits admission diagnostics yet. The current
+ElementwiseBroadcast phases are `generated_options`, `generated_bounds`,
+`generated_relationship`, and `admitted`; the current reason codes are
+`layout_mismatch`, `dtype_mismatch`, `self_rank_out_of_bounds`,
+`other_rank_out_of_bounds`, `attribute_mismatch`, `broadcast_incompatible`,
+and `matched`. BatchNorm adds direct and materialized row diagnostics with
+`generated_options`, `generated_relationship`, `handwritten_policy`,
+`materialization_policy`, and `admitted` phases for options, feature-count,
+optional-parameter, storage/materialization, and accept decisions.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
@@ -301,7 +305,12 @@ These files are diagnostic inputs. Production code must not depend on
   Parameter checks, provenance, storage/materialization policy, and match
   result assembly remain handwritten. Tensor provenance and value traces report
   the admitted contract name, family, tuple id, and materialization policy for
-  BatchNorm canaries without changing the visible execution route.
+  BatchNorm canaries without changing the visible execution route. When
+  `PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG` is set, direct and materialized
+  candidate rows also emit first-failure or accepted admission JSONL events.
+  Materialized positives intentionally log the direct-buffer storage reject,
+  the materialized accept, and the post-materialization direct-buffer
+  revalidation accept.
 - `SafeViewReshapeContract`: finite dense direct-buffer view and reshape-alias
   contract, now split into a family-specific source. Both direct-buffer slices
   now have JSON contract specs with ShapeEnvelope-generated legal and
@@ -427,6 +436,10 @@ These files are diagnostic inputs. Production code must not depend on
   emits one JSONL event for an accepted candidate or the first generated
   predicate rejection. The MVP payload intentionally excludes raw shapes,
   tensor ids, storage ids, and tensor values.
+- BatchNormInference is the second admission-diagnostics consumer. Direct
+  `BufferFloat4D` and materialized `MaterializedBufferFloat4D` rows use the
+  same JSONL surface and preserve the existing pre-admission `training=True`
+  rejection in `Batchnorm.cpp`.
 - BatchNormInference `BufferFloat4D` and `MaterializedBufferFloat4D` now
   consume the same generic ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
