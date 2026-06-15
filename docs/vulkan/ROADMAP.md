@@ -221,6 +221,32 @@ Current MVP status:
   `buffer_inference_4d_float` route label. ElementwiseBroadcast uses the same
   provenance path after the existing `aten::binary_op.buffer_float` route has
   already been selected.
+- `PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG` is the first env-gated admission
+  diagnostic surface for candidate accept/reject decisions. It emits JSONL
+  `vulkan_contract_admission` records with contract metadata, outcome, phase,
+  predicate, reason code, and source. The current MVP is wired only to
+  `ElementwiseBroadcastContract`; it is intentionally separate from op-hit logs
+  and tensor provenance/value traces.
+
+## Phase 2.5: Admission Diagnostics
+
+Goal: make contract admission decisions debuggable without changing route
+behavior or expanding accepted shapes.
+
+Rules for expansion:
+
+- Keep diagnostics opt-in through `PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG`.
+- Emit stable, low-volume JSONL records for candidate accept/reject decisions.
+- Keep payloads free of raw shapes, tensor ids, storage ids, and tensor values
+  unless a later diagnostic task explicitly scopes that expansion.
+- Preserve route labels, fallback/readback behavior, materialization policy,
+  match results, and accepted shape envelopes.
+- Add focused accept/reject coverage when wiring a new contract family.
+
+Suggested expansion order, if the simple slices hold: BatchNormInference first,
+then SafeViewReshape, then SDPA/attention contracts. Do not treat this order as
+a mandate to add diagnostics to every contract immediately; it is guidance for
+future diagnostic tasks after the ElementwiseBroadcast MVP.
 
 ## Phase 3: Migrate Next Contract Family
 

@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-14 at local HEAD
-`112dac5b1e99ce3d0a080789c5265ad393eed6a3`.
+Last refreshed: 2026-06-15 at local HEAD
+`fe4faa1f57ca75263eaf3d38ed9e2541a118e3f9`.
 
 ## Repo State Summary
 
@@ -15,6 +15,8 @@ API; implementation is now split across:
 
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.cpp`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractDiagnostics.h`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractDiagnostics.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsBatchNormInference.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceMaterializedSpec.h`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceSpec.h`
@@ -71,6 +73,21 @@ score-softmax allowlist is now a named, metadata-backed finite contract for
 float rank-3 square score tensors with heads `{1, 5}` and sequence
 `{504, 640}`. `ExecutionContracts.cpp` now owns the shared metadata
 completeness helper rather than an SDPA-specific route-policy bucket.
+
+`ExecutionContractDiagnostics.h/.cpp` define the first opt-in contract
+admission diagnostic surface. `PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG=<path>`
+emits JSONL `vulkan_contract_admission` events with stable contract metadata,
+`outcome`, `phase`, `predicate`, `reason_code`, and `source` fields. This log
+is separate from `PYTORCH_VULKAN_OP_HIT_LOG` and from tensor provenance/value
+traces: tensor provenance records metadata for accepted output producers,
+while admission diagnostics record candidate accept/reject decisions and the
+first predicate failure seen by a wired matcher. The current MVP is wired only
+to `ElementwiseBroadcastContract`; do not infer that every contract emits
+admission diagnostics yet. The current ElementwiseBroadcast phases are
+`generated_options`, `generated_bounds`, `generated_relationship`, and
+`admitted`; the current reason codes are `layout_mismatch`, `dtype_mismatch`,
+`self_rank_out_of_bounds`, `other_rank_out_of_bounds`, `attribute_mismatch`,
+`broadcast_incompatible`, and `matched`.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
@@ -405,6 +422,11 @@ These files are diagnostic inputs. Production code must not depend on
   broadcast relationship and match result construction remain handwritten, and
   the generated helpers are used only by the metadata/provenance canary after
   the existing route is selected.
+- ElementwiseBroadcast is also the first consumer of env-gated admission
+  diagnostics. When `PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG` is set, the matcher
+  emits one JSONL event for an accepted candidate or the first generated
+  predicate rejection. The MVP payload intentionally excludes raw shapes,
+  tensor ids, storage ids, and tensor values.
 - BatchNormInference `BufferFloat4D` and `MaterializedBufferFloat4D` now
   consume the same generic ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

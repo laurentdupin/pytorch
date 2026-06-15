@@ -68,6 +68,31 @@ Use this checklist for Vulkan backend changes.
 - Temporary feature flags have expiry and migration target; permanent flags are
   not used to carry incomplete behavior.
 
+## Admission Diagnostics
+
+- New contract-admission diagnostics are opt-in through
+  `PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG`; they do not write broad logs on
+  successful execution when the env var is unset.
+- Admission diagnostics stay separate from `PYTORCH_VULKAN_OP_HIT_LOG` and
+  tensor provenance/value traces. Op-hit logs describe executed routes; tensor
+  provenance describes accepted output metadata; admission diagnostics describe
+  candidate accept/reject decisions.
+- Wiring a new contract family to admission diagnostics must not change route
+  ordering, accepted shapes, route labels, fallback/readback behavior,
+  materialization policy, match-result assembly, or shader execution.
+- The MVP payload uses stable metadata and reason taxonomy only:
+  `event`, `contract_name`, `family_name`, `tuple_id`, `outcome`, `phase`,
+  `predicate`, `reason_code`, and `source`. Do not add raw shapes, tensor ids,
+  storage ids, allocation ids, or tensor values without a scoped diagnostic
+  task and review.
+- Emit at most one stable first-failure event per candidate matcher attempt,
+  plus one accepted event for matched candidates. Reason codes should name the
+  failed contract predicate, not the model or benchmark that exposed it.
+- Each newly wired contract family includes focused enabled-log coverage for
+  at least one accept and one reachable reject case. Existing contracts are not
+  retroactively blocked merely because they do not emit admission diagnostics
+  yet.
+
 ## Scope Control
 
 - No unrelated Vulkan source edits.
