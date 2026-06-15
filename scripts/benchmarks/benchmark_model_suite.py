@@ -33,6 +33,7 @@ from benchmark_suite_common import (
     write_records,
 )
 from bench_common import summarize_durations
+from vulkan_model_probe import create_vulkan_model_probe
 
 
 _BENCHMARK_C10D_FUNCTIONAL_SHIM_LIBRARIES: list[Any] = []
@@ -2655,6 +2656,22 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         return record
 
 
+def model_suite_probe_out_path(
+    args: argparse.Namespace,
+    task: str,
+    backend: str,
+) -> Path:
+    raw = Path(args.vulkan_model_probe_out).resolve() if args.vulkan_model_probe_out else None
+    if raw is not None:
+        if raw.suffix == ".jsonl" and len(args.tasks) == 1 and len(args.backends) == 1:
+            return raw
+        if raw.suffix:
+            return raw.with_name(f"{raw.stem}_{task}_{backend}.probe.jsonl")
+        return raw / f"{task}_{backend}.probe.jsonl"
+    out = Path(args.out).resolve()
+    return out.with_name(f"{out.stem}_{task}_{backend}.probe.jsonl")
+
+
 def run_task(args: argparse.Namespace, task: str, backend: str) -> BenchmarkRecord:
     try:
         torch = import_torch()
@@ -2681,32 +2698,57 @@ def run_task(args: argparse.Namespace, task: str, backend: str) -> BenchmarkReco
         _, device_info = torch_device_for_backend(torch, backend, args.device_index)
     except Exception as exc:
         device_info = {"type": backend, "probe_error": repr(exc)}
-    if task == "torch_ops":
-        record = run_torch_ops(args, backend)
-    elif task == "lotus":
-        record = run_lotus(args, backend)
-    elif task == "hy_mt":
-        record = run_text_generation(
-            args,
-            backend,
-            task="translation",
-            model_name="hy_mt",
-            model_id=args.hy_mt_model_id,
-            prompt=args.translation_prompt,
-        )
-    elif task == "gemma":
-        record = run_text_generation(
-            args,
-            backend,
-            task="llm_generation",
-            model_name="gemma",
-            model_id=args.gemma_model_id,
-            prompt=args.gemma_prompt,
-        )
-    elif task == "paddleocr":
-        record = run_paddleocr(args, backend)
-    else:
+    def execute_task() -> BenchmarkRecord:
+        if task == "torch_ops":
+            return run_torch_ops(args, backend)
+        if task == "lotus":
+            return run_lotus(args, backend)
+        if task == "hy_mt":
+            return run_text_generation(
+                args,
+                backend,
+                task="translation",
+                model_name="hy_mt",
+                model_id=args.hy_mt_model_id,
+                prompt=args.translation_prompt,
+            )
+        if task == "gemma":
+            return run_text_generation(
+                args,
+                backend,
+                task="llm_generation",
+                model_name="gemma",
+                model_id=args.gemma_model_id,
+                prompt=args.gemma_prompt,
+            )
+        if task == "paddleocr":
+            return run_paddleocr(args, backend)
         raise ValueError(f"Unknown task: {task}")
+
+    if backend == "vulkan" and args.vulkan_model_probe != "off":
+        probe = create_vulkan_model_probe(
+            torch,
+            mode=args.vulkan_model_probe,
+            out_path=model_suite_probe_out_path(args, task, backend),
+            policy_path=args.vulkan_model_probe_policy,
+            max_records=args.vulkan_model_probe_max_records,
+            model={
+                "task": task,
+                "model_name": task,
+                "backend": backend,
+                "device": "vulkan",
+            },
+        )
+        with probe:
+            record = execute_task()
+        record.counters["vulkan_model_probe"] = probe.summary()
+        record.output_sanity["vulkan_model_probe_performance_valid"] = False
+        record.output_sanity["vulkan_model_probe_note"] = (
+            "probe mode adds dispatch/logging overhead; do not use timings from "
+            "this run as performance data"
+        )
+    else:
+        record = execute_task()
     if not record.device:
         record.device = device_info
     if backend == "vulkan" and "vulkan_debug" not in record.counters:
@@ -2775,6 +2817,26 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Attribute HY-MT Vulkan CPU fallback/readback deltas by dispatched op "
             "and Python call site."
+        ),
+    )
+    parser.add_argument(
+        "--vulkan-model-probe",
+        choices=["off", "record", "continue_cpu_to_vulkan_safe"],
+        default="off",
+        help=(
+            "Opt-in generic Vulkan model probe mode. Probe runs are diagnostics "
+            "only and do not produce valid performance timings."
+        ),
+    )
+    parser.add_argument("--vulkan-model-probe-policy")
+    parser.add_argument("--vulkan-model-probe-out")
+    parser.add_argument("--vulkan-model-probe-max-records", type=int)
+    parser.add_argument(
+        "--vulkan-model-probe-disable-owner-programs",
+        action="store_true",
+        help=(
+            "Generic probe option for tasks that expose benchmark owner/region "
+            "program hooks. Current tasks ignore it unless they have such a hook."
         ),
     )
     parser.add_argument(

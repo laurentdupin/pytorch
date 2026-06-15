@@ -26,6 +26,7 @@ from depth_anything_common import (
     resolve_depth_anything_repo,
     resolve_runtime_device,
 )
+from vulkan_model_probe import create_vulkan_model_probe
 
 
 OUTPUT_MODE_DEVICE_RESIDENT = "device_resident"
@@ -617,6 +618,27 @@ def run() -> None:
         "--out",
         help="Path to write JSON results. Defaults to the first available comparison directory.",
     )
+    parser.add_argument(
+        "--vulkan-model-probe",
+        choices=["off", "record", "continue_cpu_to_vulkan_safe"],
+        default="off",
+        help=(
+            "Opt-in generic Vulkan model probe mode. Probe runs are diagnostics "
+            "only and do not produce valid performance timings."
+        ),
+    )
+    parser.add_argument("--vulkan-model-probe-policy")
+    parser.add_argument("--vulkan-model-probe-out")
+    parser.add_argument("--vulkan-model-probe-max-records", type=int)
+    parser.add_argument(
+        "--vulkan-model-probe-disable-owner-programs",
+        action="store_true",
+        help=(
+            "Generic probe option: skip benchmark owner/region programs so "
+            "TorchDispatch can observe underlying ATen ops. Normal runtime and "
+            "probe runs without this flag keep owner programs enabled."
+        ),
+    )
     args = parser.parse_args()
 
     repo_path = resolve_depth_anything_repo(args.repo)
@@ -667,9 +689,20 @@ def run() -> None:
         model = model.eval()
         if str(device) != "cpu":
             model = model.to(device)
-    if device_kind == "vulkan":
+    probe_enabled = device_kind == "vulkan" and args.vulkan_model_probe != "off"
+    disable_owner_programs = (
+        probe_enabled and args.vulkan_model_probe_disable_owner_programs
+    )
+    if device_kind == "vulkan" and not disable_owner_programs:
         with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP):
             vulkan_block_owner = install_vulkan_dav2_block_owner(torch, model)
+    elif device_kind == "vulkan":
+        vulkan_block_owner = {
+            "enabled": False,
+            "limit": 0,
+            "installed": 0,
+            "disabled_by_vulkan_model_probe_owner_program_option": True,
+        }
     else:
         vulkan_block_owner = {"enabled": False, "limit": 0, "installed": 0}
     if device_kind == "vulkan":
@@ -686,6 +719,30 @@ def run() -> None:
             raw_image,
             args.input_size,
             device,
+        )
+    probe = None
+    probe_summary: dict[str, Any] | None = None
+    if probe_enabled:
+        probe_out = (
+            Path(args.vulkan_model_probe_out).resolve()
+            if args.vulkan_model_probe_out
+            else Path(args.out or "agent_space/depth_anything_probe.json")
+            .resolve()
+            .with_suffix(".probe.jsonl")
+        )
+        probe = create_vulkan_model_probe(
+            torch,
+            mode=args.vulkan_model_probe,
+            out_path=probe_out,
+            policy_path=args.vulkan_model_probe_policy,
+            max_records=args.vulkan_model_probe_max_records,
+            model={
+                "task": "depth_anything_v2",
+                "model_name": args.encoder,
+                "model_id": args.encoder,
+                "backend": args.device,
+                "device": str(device),
+            },
         )
     if device_kind == "vulkan":
         prewarm_vulkan_dav2_patch_and_positional_setup(torch, model, image_tensor)
@@ -714,67 +771,11 @@ def run() -> None:
         else "full_output_copy"
     )
 
-    with inference_context(torch, device_kind):
-        for _ in range(args.warmup):
-            _ = infer_image_on_device(
-                model,
-                raw_image,
-                args.input_size,
-                device,
-                torch,
-                F,
-                device_kind,
-                OUTPUT_MODE_READBACK,
-            )
-            depth = compute_depth_on_device(
-                model,
-                image_tensor,
-                (height, width),
-                F,
-                torch,
-            )
-            _ = consume_depth_output(
-                depth,
-                torch,
-                device_kind,
-                device,
-                OUTPUT_MODE_DEVICE_RESIDENT,
-            )
-            depth = compute_depth_on_device(
-                model,
-                image_tensor,
-                (height, width),
-                F,
-                torch,
-            )
-            _ = consume_depth_output(
-                depth,
-                torch,
-                device_kind,
-                device,
-                OUTPUT_MODE_READBACK,
-            )
-            if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
-                _ = infer_image_on_device(
-                    model,
-                    raw_image,
-                    args.input_size,
-                    device,
-                    torch,
-                    F,
-                    device_kind,
-                    legacy_forward_output_mode,
-                )
-
-    end_to_end_with_readback_durations: list[float] = []
-    legacy_end_to_end_durations: list[float] = []
-    forward_device_resident_durations: list[float] = []
-    forward_with_readback_durations: list[float] = []
-
-    with inference_context(torch, device_kind):
-        for _ in range(args.repeats):
-            start = time.perf_counter()
-            with vulkan_timed_region(torch):
+    if probe_enabled and probe is not None:
+        probe.__enter__()
+    try:
+        with inference_context(torch, device_kind):
+            for _ in range(args.warmup):
                 _ = infer_image_on_device(
                     model,
                     raw_image,
@@ -785,27 +786,6 @@ def run() -> None:
                     device_kind,
                     OUTPUT_MODE_READBACK,
                 )
-            end_to_end_with_readback_durations.append(time.perf_counter() - start)
-
-        if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
-            for _ in range(args.repeats):
-                start = time.perf_counter()
-                with vulkan_timed_region(torch):
-                    _ = infer_image_on_device(
-                        model,
-                        raw_image,
-                        args.input_size,
-                        device,
-                        torch,
-                        F,
-                        device_kind,
-                        legacy_forward_output_mode,
-                    )
-                legacy_end_to_end_durations.append(time.perf_counter() - start)
-
-        for _ in range(args.repeats):
-            start = time.perf_counter()
-            with vulkan_timed_region(torch):
                 depth = compute_depth_on_device(
                     model,
                     image_tensor,
@@ -820,11 +800,6 @@ def run() -> None:
                     device,
                     OUTPUT_MODE_DEVICE_RESIDENT,
                 )
-            forward_device_resident_durations.append(time.perf_counter() - start)
-
-        for _ in range(args.repeats):
-            start = time.perf_counter()
-            with vulkan_timed_region(torch):
                 depth = compute_depth_on_device(
                     model,
                     image_tensor,
@@ -839,30 +814,96 @@ def run() -> None:
                     device,
                     OUTPUT_MODE_READBACK,
                 )
-            forward_with_readback_durations.append(time.perf_counter() - start)
+                if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
+                    _ = infer_image_on_device(
+                        model,
+                        raw_image,
+                        args.input_size,
+                        device,
+                        torch,
+                        F,
+                        device_kind,
+                        legacy_forward_output_mode,
+                    )
 
-    corpus_with_readback_durations: list[float] = []
-    legacy_corpus_durations: list[float] = []
-    with inference_context(torch, device_kind):
-        for corpus_image_path in image_paths:
-            corpus_image = cv2.imread(str(corpus_image_path))
-            if corpus_image is None:
-                raise RuntimeError(f"Failed to load corpus image: {corpus_image_path}")
-            start = time.perf_counter()
-            with vulkan_timed_region(torch):
-                _ = infer_image_on_device(
-                    model,
-                    corpus_image,
-                    args.input_size,
-                    device,
-                    torch,
-                    F,
-                    device_kind,
-                    OUTPUT_MODE_READBACK,
-                )
-            corpus_with_readback_durations.append(time.perf_counter() - start)
+        end_to_end_with_readback_durations: list[float] = []
+        legacy_end_to_end_durations: list[float] = []
+        forward_device_resident_durations: list[float] = []
+        forward_with_readback_durations: list[float] = []
 
-        if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
+        with inference_context(torch, device_kind):
+            for _ in range(args.repeats):
+                start = time.perf_counter()
+                with vulkan_timed_region(torch):
+                    _ = infer_image_on_device(
+                        model,
+                        raw_image,
+                        args.input_size,
+                        device,
+                        torch,
+                        F,
+                        device_kind,
+                        OUTPUT_MODE_READBACK,
+                    )
+                end_to_end_with_readback_durations.append(time.perf_counter() - start)
+
+            if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
+                for _ in range(args.repeats):
+                    start = time.perf_counter()
+                    with vulkan_timed_region(torch):
+                        _ = infer_image_on_device(
+                            model,
+                            raw_image,
+                            args.input_size,
+                            device,
+                            torch,
+                            F,
+                            device_kind,
+                            legacy_forward_output_mode,
+                        )
+                    legacy_end_to_end_durations.append(time.perf_counter() - start)
+
+            for _ in range(args.repeats):
+                start = time.perf_counter()
+                with vulkan_timed_region(torch):
+                    depth = compute_depth_on_device(
+                        model,
+                        image_tensor,
+                        (height, width),
+                        F,
+                        torch,
+                    )
+                    _ = consume_depth_output(
+                        depth,
+                        torch,
+                        device_kind,
+                        device,
+                        OUTPUT_MODE_DEVICE_RESIDENT,
+                    )
+                forward_device_resident_durations.append(time.perf_counter() - start)
+
+            for _ in range(args.repeats):
+                start = time.perf_counter()
+                with vulkan_timed_region(torch):
+                    depth = compute_depth_on_device(
+                        model,
+                        image_tensor,
+                        (height, width),
+                        F,
+                        torch,
+                    )
+                    _ = consume_depth_output(
+                        depth,
+                        torch,
+                        device_kind,
+                        device,
+                        OUTPUT_MODE_READBACK,
+                    )
+                forward_with_readback_durations.append(time.perf_counter() - start)
+
+        corpus_with_readback_durations: list[float] = []
+        legacy_corpus_durations: list[float] = []
+        with inference_context(torch, device_kind):
             for corpus_image_path in image_paths:
                 corpus_image = cv2.imread(str(corpus_image_path))
                 if corpus_image is None:
@@ -877,9 +918,32 @@ def run() -> None:
                         torch,
                         F,
                         device_kind,
-                        legacy_forward_output_mode,
+                        OUTPUT_MODE_READBACK,
                     )
-                legacy_corpus_durations.append(time.perf_counter() - start)
+                corpus_with_readback_durations.append(time.perf_counter() - start)
+
+            if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
+                for corpus_image_path in image_paths:
+                    corpus_image = cv2.imread(str(corpus_image_path))
+                    if corpus_image is None:
+                        raise RuntimeError(f"Failed to load corpus image: {corpus_image_path}")
+                    start = time.perf_counter()
+                    with vulkan_timed_region(torch):
+                        _ = infer_image_on_device(
+                            model,
+                            corpus_image,
+                            args.input_size,
+                            device,
+                            torch,
+                            F,
+                            device_kind,
+                            legacy_forward_output_mode,
+                        )
+                    legacy_corpus_durations.append(time.perf_counter() - start)
+    finally:
+        if probe_enabled and probe is not None:
+            probe.__exit__(*sys.exc_info())
+            probe_summary = probe.summary()
 
     if legacy_forward_output_mode == OUTPUT_MODE_READBACK:
         legacy_end_to_end_durations = list(end_to_end_with_readback_durations)
@@ -914,10 +978,18 @@ def run() -> None:
             getattr(torch, "is_vulkan_available", lambda: False)()
         ),
         "skip_output_copy": bool(args.skip_output_copy),
+        "vulkan_model_probe_disable_owner_programs": bool(disable_owner_programs),
         "vulkan_dav2_block_owner": vulkan_block_owner,
         "vulkan_debug_counters": snapshot_vulkan_debug_counters(
             torch,
             device_kind,
+        ),
+        "vulkan_model_probe": probe_summary,
+        "performance_valid": not bool(probe_summary),
+        "probe_timing_note": (
+            "probe run uses CPU substitution/taint diagnostics; timing fields are not valid"
+            if probe_summary
+            else None
         ),
         "timing_mode": legacy_forward_output_mode,
         "timing_sync_mode": legacy_sync_mode,
