@@ -218,10 +218,11 @@ These files are diagnostic inputs. Production code must not depend on
   runtime cases plus generic ShapeEnvelope C++ sparse-rowset helper output in
   `generated/ExecutionContractsSDPAExecutionPolicySpec.h`. The generated
   helper provides contract identity, per-row metadata, exact policy-row lookup,
-  and materialization policy flags while calls to `DiffusionSDPAContract`,
-  route hard-fail ordering, score materialization, post-softmax clone behavior,
-  and match-result assembly remain handwritten. Keep exact rows until broader
-  layout-transition behavior is proven.
+  row-match bounds, and materialization policy flags while calls to
+  `DiffusionSDPAContract`, tuple-id cross-checks, route hard-fail ordering,
+  score materialization, post-softmax clone behavior, and match-result assembly
+  remain handwritten. Keep exact rows until broader layout-transition behavior
+  is proven.
 - `SDPAScoreSoftmaxContract`: finite float rank-3 square score-softmax
   contract for heads `{1, 5}` and sequence `{504, 640}`. The
   `DiffusionSquareScores` slice has a JSON contract spec backed by
@@ -460,12 +461,12 @@ These files are diagnostic inputs. Production code must not depend on
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `generated/ExecutionContractsSDPAExecutionPolicySpec.h` from
   `sdpa_execution_policy_contract.json` for contract identity, per-row
-  metadata, the six correlated execution-policy rows, exact lookup by family,
-  heads, sequence bounds, head dim, and GQA flag, and per-row materialization
-  policy strings. Diffusion contract admission, optional scale tolerance,
-  score pre-materialization, materialized math path, post-softmax clone
-  behavior, and broader SDPA policy remain handwritten so route behavior is
-  unchanged.
+  metadata, the six correlated execution-policy rows, exact lookup and
+  row-match bounds by family, heads, sequence bounds, head dim, and GQA flag,
+  and per-row materialization policy strings. Diffusion contract admission,
+  tuple-id cross-checks, optional scale tolerance, score pre-materialization,
+  materialized math path, post-softmax clone behavior, and broader SDPA policy
+  remain handwritten so route behavior is unchanged.
 - TransformerGQASDPA `SparseAttentionRows` consumes the generic ShapeEnvelope
   sparse-rowset generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

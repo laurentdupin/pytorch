@@ -2569,6 +2569,50 @@ class TestVulkanGovernance(TestCase):
             tuple_ids.add(row["tuple_id"])
             materialization_policies.add(row["materialization_policy"])
         self.assertEqual(
+            rowset["row_match"],
+            {
+                "arguments": [
+                    {
+                        "name": "family",
+                        "field": "family",
+                        "type": "string",
+                    },
+                    {
+                        "name": "query_heads",
+                        "field": "query_heads",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "key_value_heads",
+                        "field": "key_value_heads",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "query_sequence",
+                        "min_field": "query_sequence_min",
+                        "max_field": "query_sequence_max",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "key_value_sequence",
+                        "min_field": "key_value_sequence_min",
+                        "max_field": "key_value_sequence_max",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "head_dim",
+                        "field": "head_dim",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "enable_gqa",
+                        "field": "enable_gqa",
+                        "type": "bool",
+                    },
+                ],
+            },
+        )
+        self.assertEqual(
             family_counts,
             {
                 "DiffusionMaterializedSquare": 4,

@@ -52,6 +52,7 @@
         "SDPAExecutionPolicySparsePolicyRowsSpec",
         "SDPAExecutionPolicyPolicyRowsRow",
         "kSDPAExecutionPolicyPolicyRowsRowCount",
+        "sdpa_execution_policy_policy_rows_row_matches",
         "sdpa_execution_policy_policy_rows_find"
       ]
     },

@@ -11,9 +11,6 @@ namespace utils {
 
 namespace {
 
-constexpr int64_t kTransformerDecodeGQAMinSourceSequence = 100;
-constexpr int64_t kTransformerDecodeGQAMaxSourceSequence = 116;
-
 const char* sdpa_execution_policy_contract_family_name(
     const SDPAExecutionPolicyFamily family,
     const char* const fallback_name) {
@@ -28,6 +25,30 @@ const char* sdpa_execution_policy_contract_family_name(
       return fallback_name;
   }
   return fallback_name;
+}
+
+const generated::SDPAExecutionPolicyPolicyRowsRow*
+find_sdpa_execution_policy_row(
+    const SDPAExecutionPolicyFamily family,
+    const IntArrayRef query_sizes,
+    const IntArrayRef key_sizes,
+    const bool enable_gqa) {
+  const char* const family_name =
+      sdpa_execution_policy_contract_family_name(family, "");
+  for (const auto& row : generated::kSDPAExecutionPolicyPolicyRowsRows) {
+    if (generated::sdpa_execution_policy_policy_rows_row_matches(
+            row,
+            family_name,
+            query_sizes[1],
+            key_sizes[1],
+            query_sizes[2],
+            key_sizes[2],
+            query_sizes[3],
+            enable_gqa)) {
+      return &row;
+    }
+  }
+  return nullptr;
 }
 
 void apply_sdpa_execution_policy_row(
@@ -102,102 +123,41 @@ SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
     if (
         diffusion_match.matched &&
         diffusion_match.family == DiffusionSDPAFamily::SquareSelfAttention) {
-      if (
-          query_sizes[1] == 1 &&
-          (query_sizes[2] == 504 || query_sizes[2] == 640) &&
-          query_sizes[3] == 512) {
-        const SDPAExecutionPolicyFamily family =
+      {
+        constexpr auto family =
             SDPAExecutionPolicyFamily::DiffusionMaterializedSquare;
-        const auto* const row =
-            generated::sdpa_execution_policy_policy_rows_find(
-                sdpa_execution_policy_contract_family_name(family, ""),
-                query_sizes[1],
-                key_sizes[1],
-                query_sizes[2],
-                query_sizes[2],
-                key_sizes[2],
-                key_sizes[2],
-                query_sizes[3],
-                enable_gqa);
-        if (
-            row == nullptr ||
-            std::string_view(row->tuple_id) != diffusion_match.tuple_id) {
+        const auto* const row = find_sdpa_execution_policy_row(
+            family, query_sizes, key_sizes, enable_gqa);
+        if (row != nullptr) {
+          if (std::string_view(row->tuple_id) != diffusion_match.tuple_id) {
+            return result;
+          }
+          apply_sdpa_execution_policy_row(result, family, *row);
           return result;
         }
-        apply_sdpa_execution_policy_row(result, family, *row);
-        return result;
       }
-      if (
-          query_sizes[1] == 5 &&
-          (query_sizes[2] == 504 || query_sizes[2] == 640) &&
-          query_sizes[3] == 64) {
-        const SDPAExecutionPolicyFamily family =
-            SDPAExecutionPolicyFamily::DiffusionMaterializedSquare;
-        const auto* const row =
-            generated::sdpa_execution_policy_policy_rows_find(
-                sdpa_execution_policy_contract_family_name(family, ""),
-                query_sizes[1],
-                key_sizes[1],
-                query_sizes[2],
-                query_sizes[2],
-                key_sizes[2],
-                key_sizes[2],
-                query_sizes[3],
-                enable_gqa);
-        if (
-            row == nullptr ||
-            std::string_view(row->tuple_id) != diffusion_match.tuple_id) {
-          return result;
-        }
-        apply_sdpa_execution_policy_row(result, family, *row);
-        return result;
-      }
-      if (
-          query_sizes[1] == 10 && query_sizes[2] == 126 &&
-          query_sizes[3] == 64) {
-        const SDPAExecutionPolicyFamily family =
+      {
+        constexpr auto family =
             SDPAExecutionPolicyFamily::DiffusionCloneOnlySquare;
-        const auto* const row =
-            generated::sdpa_execution_policy_policy_rows_find(
-                sdpa_execution_policy_contract_family_name(family, ""),
-                query_sizes[1],
-                key_sizes[1],
-                query_sizes[2],
-                query_sizes[2],
-                key_sizes[2],
-                key_sizes[2],
-                query_sizes[3],
-                enable_gqa);
-        if (
-            row == nullptr ||
-            std::string_view(row->tuple_id) != diffusion_match.tuple_id) {
+        const auto* const row = find_sdpa_execution_policy_row(
+            family, query_sizes, key_sizes, enable_gqa);
+        if (row != nullptr) {
+          if (std::string_view(row->tuple_id) != diffusion_match.tuple_id) {
+            return result;
+          }
+          apply_sdpa_execution_policy_row(result, family, *row);
           return result;
         }
-        apply_sdpa_execution_policy_row(result, family, *row);
-        return result;
       }
     }
   }
 
   if (
-      !is_causal && enable_gqa && query_sizes[1] == 16 &&
-      key_sizes[1] == 16 && value_sizes[1] == 16 &&
-      query_sizes[2] == 1 &&
-      key_sizes[2] >= kTransformerDecodeGQAMinSourceSequence &&
-      key_sizes[2] <= kTransformerDecodeGQAMaxSourceSequence &&
-      query_sizes[3] == 128) {
+      !is_causal && enable_gqa && value_sizes[1] == 16) {
     const SDPAExecutionPolicyFamily family =
         SDPAExecutionPolicyFamily::TransformerDecodeGQACloneOnly;
-    const auto* const row = generated::sdpa_execution_policy_policy_rows_find(
-        sdpa_execution_policy_contract_family_name(family, ""),
-        query_sizes[1],
-        key_sizes[1],
-        query_sizes[2],
-        query_sizes[2],
-        kTransformerDecodeGQAMinSourceSequence,
-        kTransformerDecodeGQAMaxSourceSequence,
-        query_sizes[3],
-        enable_gqa);
+    const auto* const row = find_sdpa_execution_policy_row(
+        family, query_sizes, key_sizes, enable_gqa);
     if (row == nullptr) {
       return result;
     }

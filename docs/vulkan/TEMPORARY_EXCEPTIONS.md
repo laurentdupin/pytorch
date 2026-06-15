@@ -193,10 +193,11 @@ condition and migration target.
   covers the `SparsePolicyRows` slice with ShapeEnvelope-backed checked-in
   positive and adjacent negative runtime cases plus generic ShapeEnvelope C++
   sparse-rowset helper output in
-  `generated/ExecutionContractsSDPAExecutionPolicySpec.h`. Diffusion contract
-  admission, scale tolerance, score pre-materialization, materialized math
-  path, post-softmax clone behavior, and match-result assembly remain
-  handwritten.
+  `generated/ExecutionContractsSDPAExecutionPolicySpec.h`. The generated
+  helper owns row-match bounds for the correlated policy rows while diffusion
+  contract admission, tuple-id cross-checks, scale tolerance, score
+  pre-materialization, materialized math path, post-softmax clone behavior, and
+  match-result assembly remain handwritten.
 - Expiry: broader SDPA execution/layout parity plus adjacent negative coverage
   are available.
 - Migration target: broader generated `SDPAExecutionPolicyContract` tables

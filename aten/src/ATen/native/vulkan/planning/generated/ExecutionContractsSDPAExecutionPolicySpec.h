@@ -175,6 +175,24 @@ constexpr SDPAExecutionPolicyPolicyRowsRow kSDPAExecutionPolicyPolicyRowsRows[] 
     }
 };
 
+inline bool sdpa_execution_policy_policy_rows_row_matches(
+    const SDPAExecutionPolicyPolicyRowsRow& row,
+    const char* family,
+    const std::int64_t query_heads,
+    const std::int64_t key_value_heads,
+    const std::int64_t query_sequence,
+    const std::int64_t key_value_sequence,
+    const std::int64_t head_dim,
+    const bool enable_gqa) {
+  return std::string_view(row.family) == family &&
+      row.query_heads == query_heads &&
+      row.key_value_heads == key_value_heads &&
+      (query_sequence >= row.query_sequence_min && query_sequence <= row.query_sequence_max) &&
+      (key_value_sequence >= row.key_value_sequence_min && key_value_sequence <= row.key_value_sequence_max) &&
+      row.head_dim == head_dim &&
+      row.enable_gqa == enable_gqa;
+}
+
 inline const SDPAExecutionPolicyPolicyRowsRow* sdpa_execution_policy_policy_rows_find(
     const char* family,
     const std::int64_t query_heads,

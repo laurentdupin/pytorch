@@ -197,12 +197,12 @@ Current MVP status:
 - `SDPAExecutionPolicyContract` `SparsePolicyRows` now uses the generic
   ShapeEnvelope C++ sparse-rowset generator path:
   `ExecutionContractsSDPAExecutionPolicySpec.h` provides contract identity,
-  per-row metadata, the six correlated execution-policy rows, exact lookup by
-  family, heads, sequence bounds, head dim, and GQA flag, and per-row
-  materialization policy strings for the existing matcher. Diffusion contract
-  admission, scale tolerance, score pre-materialization, materialized math
-  path, post-softmax clone behavior, and broader SDPA policy remain
-  handwritten.
+  per-row metadata, the six correlated execution-policy rows, exact lookup and
+  row-match bounds by family, heads, sequence bounds, head dim, and GQA flag,
+  and per-row materialization policy strings for the existing matcher.
+  Diffusion contract admission, tuple-id cross-checks, scale tolerance, score
+  pre-materialization, materialized math path, post-softmax clone behavior, and
+  broader SDPA policy remain handwritten.
 - `TransformerGQASDPAContract` `SparseAttentionRows` now uses the generic
   ShapeEnvelope C++ sparse-rowset generator path:
   `ExecutionContractsTransformerGQASDPASpec.h` provides contract identity,
