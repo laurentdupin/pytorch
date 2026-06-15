@@ -148,7 +148,8 @@
       "op": {
         "values": [
           "add",
-          "mul"
+          "mul",
+          "sub"
         ]
       },
       "alpha": {
@@ -175,7 +176,8 @@
       },
       "ops": [
         "add",
-        "mul"
+        "mul",
+        "sub"
       ],
       "alpha": 1,
       "requires_vulkan": true,
@@ -251,7 +253,8 @@
     },
     "ops": [
       "add",
-      "mul"
+      "mul",
+      "sub"
     ],
     "alpha": 1,
     "requires_vulkan": true,
@@ -302,6 +305,26 @@
         8
       ],
       "op": "add",
+      "dtype": "float32",
+      "expected_route_label": "aten::binary_op.buffer_float",
+      "expected_tensor_provenance_route": "tensor_buffer",
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "rank2_sub_tail_broadcast",
+      "self_shape": [
+        5,
+        384
+      ],
+      "other_shape": [
+        384
+      ],
+      "output_shape": [
+        5,
+        384
+      ],
+      "op": "sub",
       "dtype": "float32",
       "expected_route_label": "aten::binary_op.buffer_float",
       "expected_tensor_provenance_route": "tensor_buffer",

@@ -35,6 +35,7 @@ constexpr bool kElementwiseBroadcastFloatTensorTensorBufferBroadcastRequiresBuff
 constexpr bool kElementwiseBroadcastFloatTensorTensorBufferBroadcastRequiresBufferCompute = true;
 constexpr const char* kElementwiseBroadcastFloatTensorTensorBufferBroadcastOpAdd = "add";
 constexpr const char* kElementwiseBroadcastFloatTensorTensorBufferBroadcastOpMul = "mul";
+constexpr const char* kElementwiseBroadcastFloatTensorTensorBufferBroadcastOpSub = "sub";
 constexpr std::int64_t kElementwiseBroadcastFloatTensorTensorBufferBroadcastBroadcastCompatibleMaxRank = 4;
 
 struct ElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec final {
@@ -58,6 +59,7 @@ struct ElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec final {
   bool requires_buffer_compute;
   const char* op_0;
   const char* op_1;
+  const char* op_2;
   std::int64_t broadcast_compatible_max_rank;
 };
 
@@ -82,6 +84,7 @@ constexpr ElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec kElementwiseB
         kElementwiseBroadcastFloatTensorTensorBufferBroadcastRequiresBufferCompute,
         kElementwiseBroadcastFloatTensorTensorBufferBroadcastOpAdd,
         kElementwiseBroadcastFloatTensorTensorBufferBroadcastOpMul,
+        kElementwiseBroadcastFloatTensorTensorBufferBroadcastOpSub,
         kElementwiseBroadcastFloatTensorTensorBufferBroadcastBroadcastCompatibleMaxRank,
 };
 
@@ -118,10 +121,11 @@ constexpr bool elementwise_float_tensor_tensor_buffer_broadcast_attributes_match
     const ElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec& spec,
     const bool op_add,
     const bool op_mul,
+    const bool op_sub,
     const bool alpha_is_one,
     const bool has_output,
     const bool inplace) {
-  return (op_add || op_mul) && alpha_is_one == spec.alpha_is_one &&
+  return (op_add || op_mul || op_sub) && alpha_is_one == spec.alpha_is_one &&
       has_output == spec.has_output && inplace == spec.inplace;
 }
 

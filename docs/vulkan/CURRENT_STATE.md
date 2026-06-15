@@ -346,13 +346,14 @@ These files are diagnostic inputs. Production code must not depend on
 - `ElementwiseBroadcastContract`: production metadata/provenance canary for the
   existing float32 tensor/tensor buffer-broadcast route. The
   `FloatTensorTensorBufferBroadcast` slice records the route shape in JSON and
-  runtime tests, backed by a generic `ShapeEnvelope` `broadcast_compatible`
-  relationship. Its contract identity, metadata, simple bounds, layout
-  requirements, attribute helpers, and right-aligned broadcast compatibility
-  helper are emitted by the generic ShapeEnvelope C++ generator v0. The matcher
-  is queried only after the existing `aten::binary_op.buffer_float` route is
-  selected, so it records contract admission metadata without changing route
-  behavior.
+  runtime tests for `add`, `mul`, and `sub`, backed by a generic
+  `ShapeEnvelope` `broadcast_compatible` relationship. Its contract identity,
+  metadata, simple bounds, layout requirements, attribute helpers, and
+  right-aligned broadcast compatibility helper are emitted by the generic
+  ShapeEnvelope C++ generator v0. The matcher is queried only after the
+  existing `aten::binary_op.buffer_float` route is selected, so it records
+  contract admission metadata without adding a new route or broadening dtype,
+  rank, layout, scalar, `out=`, or inplace behavior.
 - DAv2 region/stack contracts: best current example of shape keys, capability
   keys, planned regions, binding validation, and replay-readiness diagnostics.
 
@@ -437,7 +438,8 @@ These files are diagnostic inputs. Production code must not depend on
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `generated/ExecutionContractsElementwiseBroadcastSpec.h` from
   `elementwise_broadcast_contract.json` for contract identity, metadata,
-  scalar/rank/layout/attribute bounds, and simple helper predicates. The
+  `add`/`mul`/`sub` op-axis, scalar/rank/layout/attribute bounds, and simple
+  helper predicates. The
   broadcast relationship and match result construction remain handwritten, and
   the generated helpers are used only by the metadata/provenance canary after
   the existing route is selected.

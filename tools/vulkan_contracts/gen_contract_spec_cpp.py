@@ -2400,6 +2400,7 @@ def generate_generic_shape_envelope_header(spec, source_name):
     op_constants = []
     op_fields = []
     op_initializers = []
+    op_match_params = []
     for index, op in enumerate(op_values):
         op_suffix = _cpp_identifier_fragment(op)
         op_constants.append(
@@ -2407,6 +2408,11 @@ def generate_generic_shape_envelope_header(spec, source_name):
         )
         op_fields.append(f"  const char* op_{index};")
         op_initializers.append(f"        k{prefix}Op{op_suffix},")
+        op_match_params.append(f"op_{_cpp_lower_identifier(op)}")
+    op_match_param_lines = [
+        f"    const bool {param}," for param in op_match_params
+    ]
+    op_match_condition = " || ".join(op_match_params)
 
     relationship_constants = []
     relationship_fields = []
@@ -2599,12 +2605,15 @@ def generate_generic_shape_envelope_header(spec, source_name):
             "",
             f"constexpr bool {func_prefix}_attributes_match(",
             f"    const {prefix}Spec& spec,",
-            "    const bool op_add,",
-            "    const bool op_mul,",
+        ]
+    )
+    lines.extend(op_match_param_lines)
+    lines.extend(
+        [
             "    const bool alpha_is_one,",
             "    const bool has_output,",
             "    const bool inplace) {",
-            "  return (op_add || op_mul) && alpha_is_one == spec.alpha_is_one &&",
+            f"  return ({op_match_condition}) && alpha_is_one == spec.alpha_is_one &&",
             "      has_output == spec.has_output && inplace == spec.inplace;",
             "}",
             "",

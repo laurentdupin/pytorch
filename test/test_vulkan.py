@@ -626,7 +626,7 @@ class TestVulkanGovernance(TestCase):
             "validated 19 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=102", result.stdout)
+        self.assertIn("generated_cases=103", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:1",
@@ -636,7 +636,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("diffusion_sdpa_contract.json:11", result.stdout)
         self.assertIn("sdpa_execution_policy_contract.json:6", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
-        self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
+        self.assertIn("elementwise_broadcast_contract.json:4", result.stdout)
         self.assertIn("gqa_repeat_contract.json:3", result.stdout)
         self.assertIn("kv_cache_append_contract.json:3", result.stdout)
         self.assertIn("kv_cache_append_initial_contract.json:3", result.stdout)
@@ -781,7 +781,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("legal_assignments=38", result.stdout)
         self.assertIn("legal_paths=334", result.stdout)
         self.assertIn("adjacent_negative_axes=99", result.stdout)
-        self.assertIn("runtime_legal_cases=102", result.stdout)
+        self.assertIn("runtime_legal_cases=103", result.stdout)
         self.assertIn("runtime_adjacent_negative_cases=100", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:status=covered:"
@@ -887,7 +887,7 @@ class TestVulkanGovernance(TestCase):
             "diffusion_sdpa_contract.json": (11, 6),
             "sdpa_execution_policy_contract.json": (6, 6),
             "embedding_lookup_contract.json": (4, 4),
-            "elementwise_broadcast_contract.json": (3, 3),
+            "elementwise_broadcast_contract.json": (4, 3),
             "gqa_repeat_contract.json": (3, 2),
             "kv_cache_append_contract.json": (3, 5),
             "kv_cache_append_initial_contract.json": (3, 5),
@@ -1862,7 +1862,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertEqual(bounds["dtype"], "float32")
         self.assertEqual(bounds["rank"], {"min": 1, "max": 4})
-        self.assertEqual(bounds["ops"], ["add", "mul"])
+        self.assertEqual(bounds["ops"], ["add", "mul", "sub"])
         self.assertEqual(bounds["alpha"], 1)
         self.assertTrue(bounds["requires_vulkan"])
         self.assertTrue(bounds["requires_buffer_storage"])
@@ -10149,6 +10149,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         return left + right
                     if op == "mul":
                         return left * right
+                    if op == "sub":
+                        return left - right
+                    if op == "div":
+                        return left / right
                     raise AssertionError("unsupported test op " + op)
 
                 def make_float_buffer_operand(shape, seed):
@@ -10289,7 +10293,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             )
 
                 def run_attribute_reject_case():
-                    case = {"name": "unsupported_sub_attribute_mismatch"}
+                    case = {"name": "unsupported_div_attribute_mismatch"}
                     for path in (op_hit_log, admission_log):
                         if os.path.exists(path):
                             os.remove(path)
@@ -10305,8 +10309,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     )
                     if os.path.exists(admission_log):
                         os.remove(admission_log)
-                    expected = self_cpu - other_cpu
-                    actual = (self_vulkan - other_vulkan).cpu()
+                    expected = self_cpu / other_cpu
+                    actual = (self_vulkan / other_vulkan).cpu()
                     torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
                     assert_admission_event(case, {
                         "outcome": "reject",

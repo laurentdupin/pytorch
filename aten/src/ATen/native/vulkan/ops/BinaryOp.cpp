@@ -86,6 +86,7 @@ utils::ElementwiseBroadcastOp elementwise_broadcast_op(
     case BinaryOpKind::Mul:
       return utils::ElementwiseBroadcastOp::Mul;
     case BinaryOpKind::Sub:
+      return utils::ElementwiseBroadcastOp::Sub;
     case BinaryOpKind::Div:
     case BinaryOpKind::FloorDivide:
     case BinaryOpKind::Pow:

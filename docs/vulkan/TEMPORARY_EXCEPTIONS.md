@@ -144,14 +144,15 @@ condition and migration target.
   `aten/src/ATen/native/vulkan/ops/BinaryOp.cpp`
 - Status: temporary, contract-named
 - Reason: the float32 tensor/tensor buffer-broadcast route is proven for a
-  narrow canary envelope, but broader binary-op, dtype-promotion, `out=`,
-  inplace, and scalar behavior is not proven yet.
+  narrow `add`/`mul`/`sub` canary envelope, but broader binary-op,
+  dtype-promotion, `out=`, inplace, and scalar behavior is not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/elementwise_broadcast_contract.json`
   covers the `FloatTensorTensorBufferBroadcast` slice with ShapeEnvelope-backed
-  checked-in positive and adjacent negative runtime cases. Positives keep the
-  existing `aten::binary_op.buffer_float` route label and record contract
-  admission metadata in tensor provenance. The slice also has generated C++
-  metadata, simple-bound, and `broadcast_compatible` helper coverage in
+  checked-in positive and adjacent negative runtime cases, including the
+  bounded `sub` op-axis slice. Positives keep the existing
+  `aten::binary_op.buffer_float` route label and record contract admission
+  metadata in tensor provenance. The slice also has generated C++ metadata,
+  simple-bound, op-attribute, and `broadcast_compatible` helper coverage in
   `generated/ExecutionContractsElementwiseBroadcastSpec.h`.
 - Expiry: broader elementwise broadcast parity plus adjacent negative coverage
   are available for tensor/tensor, scalar, `out=`, inplace, and promotion

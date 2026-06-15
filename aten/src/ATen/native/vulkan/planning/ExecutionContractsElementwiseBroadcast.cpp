@@ -127,6 +127,7 @@ ElementwiseBroadcastMatch match_elementwise_broadcast_contract(
               spec,
               op == ElementwiseBroadcastOp::Add,
               op == ElementwiseBroadcastOp::Mul,
+              op == ElementwiseBroadcastOp::Sub,
               alpha_is_one,
               has_output,
               inplace)) {

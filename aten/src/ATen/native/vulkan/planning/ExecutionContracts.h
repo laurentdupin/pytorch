@@ -358,6 +358,7 @@ enum class ElementwiseBroadcastOp : uint8_t {
   Unsupported = 0u,
   Add,
   Mul,
+  Sub,
 };
 
 enum class ElementwiseBroadcastFamily : uint8_t {

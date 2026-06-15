@@ -128,8 +128,9 @@ Current MVP status:
   first generic ShapeEnvelope C++ metadata/helper artifact:
   `ExecutionContractsElementwiseBroadcastSpec.h` is emitted without adding a
   family-specific generator branch. It provides contract identity, metadata,
-  scalar/rank/layout/attribute bounds, and the generated right-aligned
-  `broadcast_compatible` helper for the existing provenance canary only.
+  scalar/rank/layout/attribute bounds, the bounded `add`/`mul`/`sub` op-axis,
+  and the generated right-aligned `broadcast_compatible` helper for the
+  existing provenance canary only.
 - `NoOverlapConvTranspose2DContract` `Kernel2Stride2FloatBuffer` now uses the
   generic ShapeEnvelope C++ simple-bounds generator path:
   `ExecutionContractsNoOverlapConvTranspose2DSpec.h` provides contract
