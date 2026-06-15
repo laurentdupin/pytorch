@@ -206,6 +206,68 @@ def _broadcast_compatible_relationships(envelope, context):
     return matches
 
 
+def _product_equal_relationship(envelope, context):
+    relationships = envelope.get("relationships", [])
+    _require(isinstance(relationships, list), f"{context}.relationships invalid")
+    product_by_result = {}
+    equals = []
+    for index, relationship in enumerate(relationships):
+        relationship_type = relationship.get("type")
+        if relationship_type == "product":
+            relationship_context = f"{context}.relationships[{index}]"
+            _require_keys(
+                relationship,
+                ("input", "dims", "result"),
+                relationship_context,
+            )
+            for key in ("input", "result"):
+                _require_non_empty_string(relationship, key, relationship_context)
+            _require(
+                relationship["dims"] == "all",
+                f"{relationship_context}.dims must be all",
+            )
+            result = relationship["result"]
+            _require(
+                result not in product_by_result,
+                f"{relationship_context}.result duplicated",
+            )
+            product_by_result[result] = relationship
+        elif relationship_type == "equal":
+            relationship_context = f"{context}.relationships[{index}]"
+            _require_keys(relationship, ("scope", "fields"), relationship_context)
+            _require(
+                relationship["scope"] == "derived",
+                f"{relationship_context}.scope must be derived",
+            )
+            fields = relationship["fields"]
+            _require(
+                isinstance(fields, list) and len(fields) == 2,
+                f"{relationship_context}.fields must contain two fields",
+            )
+            for field_index, field in enumerate(fields):
+                _require(
+                    isinstance(field, str) and field != "",
+                    f"{relationship_context}.fields[{field_index}] invalid",
+                )
+            equals.append(relationship)
+
+    matches = []
+    for relationship in equals:
+        fields = relationship["fields"]
+        if all(field in product_by_result for field in fields):
+            matches.append(
+                {
+                    "left_input": product_by_result[fields[0]]["input"],
+                    "right_input": product_by_result[fields[1]]["input"],
+                }
+            )
+    _require(
+        len(matches) <= 1,
+        f"{context} supports at most one product/equal relationship",
+    )
+    return matches[0] if matches else None
+
+
 def _simple_bounds_shape_envelope_fields(bounds):
     dtype_fields = []
     int_fields = []
@@ -1164,6 +1226,9 @@ def generate_generic_shape_layout_simple_bounds_shape_envelope_header(
     )
     row_prefix = contract_prefix + _cpp_identifier_fragment(spec["family"])
     role_func_prefix = _cpp_lower_identifier(envelope["role"])
+    product_equal_relationship = _product_equal_relationship(
+        envelope, "ShapeEnvelope shape/layout simple-bounds"
+    )
 
     field_struct_lines = []
     initializer_lines = []
@@ -1270,6 +1335,34 @@ def generate_generic_shape_layout_simple_bounds_shape_envelope_header(
             f"{_cpp_string(bounds[key])};"
         )
 
+    if product_equal_relationship:
+        left_name = _cpp_lower_identifier(product_equal_relationship["left_input"])
+        right_name = _cpp_lower_identifier(product_equal_relationship["right_input"])
+        helper_lines.extend(
+            [
+                f"inline bool {role_func_prefix}_product_equal(",
+                f"    const {row_prefix}Spec& spec,",
+                f"    const IntArrayRef {left_name}_sizes,",
+                f"    const IntArrayRef {right_name}_sizes) {{",
+                f"  if (!spec.product_equal) {{",
+                "    return true;",
+                "  }",
+                "  auto product_of_sizes = [](const IntArrayRef sizes) {",
+                "    std::int64_t product = 1;",
+                "    for (const std::int64_t size : sizes) {",
+                "      product *= size;",
+                "    }",
+                "    return product;",
+                "  };",
+                (
+                    f"  return product_of_sizes({left_name}_sizes) == "
+                    f"product_of_sizes({right_name}_sizes);"
+                ),
+                "}",
+                "",
+            ]
+        )
+
     initializer_lines[-1] = initializer_lines[-1].rstrip(",") + "};"
 
     lines = [
@@ -1279,6 +1372,11 @@ def generate_generic_shape_layout_simple_bounds_shape_envelope_header(
         "",
         "#pragma once",
         "",
+    ]
+    if product_equal_relationship:
+        lines.append("#include <ATen/ArrayRef.h>")
+    lines.extend(
+        [
         "#include <cstdint>",
         "",
         "namespace at {",
@@ -1294,7 +1392,8 @@ def generate_generic_shape_layout_simple_bounds_shape_envelope_header(
         f"constexpr const char* k{row_prefix}WriterOp = {_cpp_string(spec['writer_op'])};",
         f"constexpr const char* k{row_prefix}RouteLabel = {_cpp_string(spec['route_label'])};",
         "",
-    ]
+        ]
+    )
     lines.extend(constant_lines)
     lines.extend(
         [

@@ -291,8 +291,9 @@ These files are diagnostic inputs. Production code must not depend on
   materialized `aten::_reshape_alias` path. Both slices now consume generated
   ShapeEnvelope C++ shape/layout simple-bounds headers for contract identity,
   metadata, rank bounds, storage-offset, output last-dim multiple, and policy
-  constants while product equality, dense/contiguous-stride checking, and
-  match result assembly remain handwritten. Keep broader view/layout,
+  constants plus generated product-equality helpers while
+  dense/contiguous-stride checking and match result assembly remain
+  handwritten. Keep broader view/layout,
   storage-offset, and provenance rules documented separately.
 - `LinearGeluBridgeContract`: pure legality for the deferred linear/GELU
   bridge. The `BackboneMlpHidden384To1536` slice now has a JSON contract spec
@@ -522,9 +523,9 @@ These files are diagnostic inputs. Production code must not depend on
   `generated/ExecutionContractsSafeViewReshapeAliasSpec.h` from the regular
   view and reshape-alias JSON specs for contract identity, metadata, rank
   ranges, storage offset, stride/storage policy constants, Vulkan
-  requirement, product equality policy, and output last-dim multiple helpers.
-  Contiguous/dense-stride and product-of-sizes checks remain handwritten so
-  route behavior is unchanged.
+  requirement, product equality policy, product-equality helpers, and output
+  last-dim multiple helpers. Contiguous/dense-stride checks remain handwritten
+  so route behavior is unchanged.
 - Submit-origin counter tests use a named Python helper instead of raw numeric
   indices. The helper is intentionally test-local; no C++ diagnostic API change
   was made for this guardrail refresh.

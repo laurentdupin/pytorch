@@ -243,8 +243,8 @@ condition and migration target.
   adjacent-negative runtime tests, plus
   `generated/ExecutionContractsSafeViewReshapeAliasSpec.h` for generated
   contract identity, metadata, shape/layout bounds, and helper predicates.
-  Dense-stride checks, product equality, and match-result assembly remain
-  handwritten for both slices.
+  Product-equality helpers are generated; dense-stride checks and match-result
+  assembly remain handwritten for both slices.
 - Expiry: broader view/reshape parity plus adjacent negative coverage are
   available.
 - Migration target: generated `SafeViewReshapeContract` tables with positive

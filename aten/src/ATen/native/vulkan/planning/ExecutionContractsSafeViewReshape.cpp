@@ -99,14 +99,6 @@ bool is_non_overlapping_dense_stride(
   return true;
 }
 
-int64_t product_of_sizes(const IntArrayRef sizes) {
-  int64_t product = 1;
-  for (const int64_t size : sizes) {
-    product *= size;
-  }
-  return product;
-}
-
 } // namespace
 
 const char* safe_view_reshape_family_name(
@@ -142,7 +134,8 @@ match_safe_view_reshape_materialized_direct_buffer_contract(
     return result;
   }
 
-  if (product_of_sizes(input_sizes) != product_of_sizes(output_sizes)) {
+  if (!generated::safe_view_materialized_direct_buffer_product_equal(
+          spec, input_sizes, output_sizes)) {
     return result;
   }
 
@@ -194,7 +187,8 @@ SafeViewReshapeMatch match_safe_view_reshape_contract(
     return result;
   }
 
-  if (product_of_sizes(input_sizes) != product_of_sizes(output_sizes)) {
+  if (!generated::safe_reshape_alias_dense_buffer_direct_product_equal(
+          spec, input_sizes, output_sizes)) {
     return result;
   }
 

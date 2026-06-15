@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <ATen/ArrayRef.h>
 #include <cstdint>
 
 namespace at {
@@ -110,6 +111,23 @@ constexpr bool safe_reshape_alias_dense_buffer_direct_policies_match(
     const bool product_equal,
     const bool requires_vulkan) {
   return product_equal == spec.product_equal && requires_vulkan == spec.requires_vulkan;
+}
+
+inline bool safe_reshape_alias_dense_buffer_direct_product_equal(
+    const SafeViewReshapeReshapeAliasDenseBufferDirectSpec& spec,
+    const IntArrayRef input_sizes,
+    const IntArrayRef output_sizes) {
+  if (!spec.product_equal) {
+    return true;
+  }
+  auto product_of_sizes = [](const IntArrayRef sizes) {
+    std::int64_t product = 1;
+    for (const std::int64_t size : sizes) {
+      product *= size;
+    }
+    return product;
+  };
+  return product_of_sizes(input_sizes) == product_of_sizes(output_sizes);
 }
 
 } // namespace generated

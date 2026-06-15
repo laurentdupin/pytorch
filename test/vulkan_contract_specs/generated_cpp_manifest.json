@@ -167,7 +167,8 @@
         "safe_reshape_alias_dense_buffer_direct_input_rank_in_bounds",
         "safe_reshape_alias_dense_buffer_direct_output_rank_in_bounds",
         "safe_reshape_alias_dense_buffer_direct_storage_offset_matches",
-        "safe_reshape_alias_dense_buffer_direct_output_last_dim_multiple_matches"
+        "safe_reshape_alias_dense_buffer_direct_output_last_dim_multiple_matches",
+        "safe_reshape_alias_dense_buffer_direct_product_equal"
       ]
     },
     {
@@ -180,7 +181,8 @@
         "safe_view_materialized_direct_buffer_input_rank_in_bounds",
         "safe_view_materialized_direct_buffer_output_rank_in_bounds",
         "safe_view_materialized_direct_buffer_storage_offset_matches",
-        "safe_view_materialized_direct_buffer_output_last_dim_multiple_matches"
+        "safe_view_materialized_direct_buffer_output_last_dim_multiple_matches",
+        "safe_view_materialized_direct_buffer_product_equal"
       ]
     },
     {
