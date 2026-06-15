@@ -303,6 +303,31 @@ def _product_value_relationships(envelope, context):
     return matches
 
 
+def _sum_output_relationship(envelope, input_name, dim_name, result_name, context):
+    relationships = envelope.get("relationships", [])
+    _require(isinstance(relationships, list), f"{context}.relationships invalid")
+    matches = []
+    for index, relationship in enumerate(relationships):
+        if relationship.get("type") != "sum_output":
+            continue
+        relationship_context = f"{context}.relationships[{index}]"
+        _require_keys(
+            relationship,
+            ("input", "dim", "result"),
+            relationship_context,
+        )
+        for key in ("input", "dim", "result"):
+            _require_non_empty_string(relationship, key, relationship_context)
+        if (
+            relationship["input"] == input_name
+            and relationship["dim"] == dim_name
+            and relationship["result"] == result_name
+        ):
+            matches.append(relationship)
+    _require(len(matches) == 1, f"{context} sum_output relationship missing")
+    return matches[0]
+
+
 def _simple_bounds_shape_envelope_fields(bounds):
     dtype_fields = []
     int_fields = []
@@ -558,6 +583,7 @@ def _validate_generic_variadic_tensor_list_shape_envelope_spec(spec):
         )
 
     channel_dim = dims_by_field[channel_field]
+    channel_dim_symbol = channel_dim.get("symbol", channel_field)
     channels = bounds[channel_field]
     _require(isinstance(channels, dict), f"bounds.{channel_field} must be an object")
     _require_keys(
@@ -576,6 +602,13 @@ def _validate_generic_variadic_tensor_list_shape_envelope_spec(spec):
 
     aggregate_bounds = envelope.get("aggregate_bounds", {})
     result_name = aggregate_matcher["result_name"]
+    _sum_output_relationship(
+        envelope,
+        input_name,
+        channel_dim_symbol,
+        result_name,
+        "ShapeEnvelope variadic tensor-list",
+    )
     aggregate = aggregate_bounds.get(result_name)
     _require(isinstance(aggregate, dict), f"aggregate_bounds.{result_name} invalid")
     _require_keys(
@@ -647,6 +680,7 @@ def generate_generic_variadic_tensor_list_shape_envelope_header(spec, source_nam
         "",
         "#pragma once",
         "",
+        "#include <ATen/ArrayRef.h>",
         "#include <ATen/core/ScalarType.h>",
         "#include <cstdint>",
         "",
@@ -798,6 +832,10 @@ def generate_generic_variadic_tensor_list_shape_envelope_header(spec, source_nam
         lines.append(f"        k{bounds_prefix}Requires{suffix}{terminator}")
 
     tensor_info = matcher["tensor_info"]
+    aggregate_result = matcher["aggregate"]["result_name"]
+    aggregate_sum_helper = (
+        f"{func_prefix}_{_cpp_lower_identifier(aggregate_result)}_sum"
+    )
     lines.extend(
         [
             "",
@@ -833,6 +871,17 @@ def generate_generic_variadic_tensor_list_shape_envelope_header(spec, source_nam
             f"      tensor.{channel_field} >= spec.min_input_{channel_field} &&",
             f"      tensor.{channel_field} <= spec.max_input_{channel_field} &&",
             f"      tensor.{channel_field} % spec.{singular_channel}_multiple == 0;",
+            "}",
+            "",
+            f"inline std::int64_t {aggregate_sum_helper}(",
+            f"    const {row_prefix}Spec& spec,",
+            f"    const ArrayRef<{tensor_info}> tensors) {{",
+            "  static_cast<void>(spec);",
+            f"  std::int64_t {aggregate_result} = 0;",
+            f"  for (const {tensor_info}& tensor : tensors) {{",
+            f"    {aggregate_result} += tensor.{aggregate['field']};",
+            "  }",
+            f"  return {aggregate_result};",
             "}",
             "",
             f"constexpr bool {func_prefix}_total_{channel_field}_in_bounds(",

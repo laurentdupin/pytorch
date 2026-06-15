@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <ATen/ArrayRef.h>
 #include <ATen/core/ScalarType.h>
 #include <cstdint>
 
@@ -133,6 +134,17 @@ inline bool channel_cat_input_in_bounds(
       tensor.channels >= spec.min_input_channels &&
       tensor.channels <= spec.max_input_channels &&
       tensor.channels % spec.channel_multiple == 0;
+}
+
+inline std::int64_t channel_cat_total_channels_sum(
+    const ChannelCatRank4Dim1BufferViewSpec& spec,
+    const ArrayRef<ChannelCatTensorInfo> tensors) {
+  static_cast<void>(spec);
+  std::int64_t total_channels = 0;
+  for (const ChannelCatTensorInfo& tensor : tensors) {
+    total_channels += tensor.channels;
+  }
+  return total_channels;
 }
 
 constexpr bool channel_cat_total_channels_in_bounds(

@@ -76,14 +76,14 @@ ChannelCatMatch match_channel_cat_contract(
     return result;
   }
 
-  int64_t total_channels = 0;
   for (const ChannelCatTensorInfo& tensor : tensors) {
     if (!generated::channel_cat_input_in_bounds(spec, reference, tensor)) {
       return result;
     }
-    total_channels += tensor.channels;
   }
 
+  const int64_t total_channels =
+      generated::channel_cat_total_channels_sum(spec, tensors);
   if (!generated::channel_cat_total_channels_in_bounds(spec, total_channels)) {
     return result;
   }

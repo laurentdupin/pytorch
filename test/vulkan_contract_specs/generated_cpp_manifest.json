@@ -32,6 +32,7 @@
         "channel_cat_input_count_in_bounds",
         "channel_cat_reference_in_bounds",
         "channel_cat_input_in_bounds",
+        "channel_cat_total_channels_sum",
         "channel_cat_total_channels_in_bounds"
       ]
     },
