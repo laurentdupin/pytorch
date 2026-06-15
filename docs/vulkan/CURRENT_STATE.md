@@ -256,12 +256,12 @@ These files are diagnostic inputs. Production code must not depend on
   JSON contract specs backed by `ShapeEnvelope` v1 with checked-in positive
   and adjacent negative runtime cases plus generic ShapeEnvelope C++
   metadata/simple-bound helper output. The generated helpers provide contract
-  identity, route labels, metadata, dtype/rank/scalar/range bounds, and helper
-  predicates while initial-empty handling, sequence lower bounds, cross-input
-  equality, and match-result assembly remain handwritten. InitialCache
-  positives log the contract-owned `aten::cat.kv_cache_initial_dim2_buffer`
-  op-hit label while unrelated direct-buffer cat paths keep their generic
-  labels.
+  identity, route labels, metadata, dtype/rank/scalar/range bounds, helper
+  predicates, and SequenceAppend batch/heads/head-dim equality while
+  initial-empty handling, sequence lower bounds, InitialCache cross-input
+  handling, and match-result assembly remain handwritten. InitialCache positives
+  log the contract-owned `aten::cat.kv_cache_initial_dim2_buffer` op-hit label
+  while unrelated direct-buffer cat paths keep their generic labels.
 - `UNetChannelConcatContract`: mostly generic already; keep model provenance in
   tests/docs.
 - `GQARepeatContract`: finite bounded K/V head repeat contract, now split into
@@ -420,9 +420,10 @@ These files are diagnostic inputs. Production code must not depend on
   `generated/ExecutionContractsKVCacheAppendSpec.h` and
   `generated/ExecutionContractsKVCacheAppendInitialSpec.h` from the sequence
   and initial-cache JSON specs for contract identity, metadata, route labels,
-  dtype/rank/scalar/range bounds, and helper predicates. Initial-empty
-  handling, sequence lower bounds, cross-input equality, and match-result
-  construction remain handwritten so route behavior is unchanged.
+  dtype/rank/scalar/range bounds, helper predicates, and SequenceAppend
+  batch/heads/head-dim equality. Initial-empty handling, sequence lower bounds,
+  InitialCache cross-input handling, and match-result construction remain
+  handwritten so route behavior is unchanged.
 - GQARepeat `Batch1Heads4Factor4Sequence100To116Dim128` consumes the generic
   ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

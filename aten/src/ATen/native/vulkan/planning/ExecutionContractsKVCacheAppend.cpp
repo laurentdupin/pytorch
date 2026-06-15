@@ -133,9 +133,12 @@ KVCacheAppendMatch match_kv_cache_append_contract(
       size_at_or(left_sizes, 2) >= sequence_spec.min_source_sequence &&
       generated::kv_cache_append_sequence_append_in_bounds(
           sequence_spec, size_at_or(left_sizes, 2)) &&
-      size_at_or(right_sizes, 0) == size_at_or(left_sizes, 0) &&
-      size_at_or(right_sizes, 1) == size_at_or(left_sizes, 1) &&
-      size_at_or(right_sizes, 3) == size_at_or(left_sizes, 3)) {
+      generated::kv_cache_append_sequence_append_batch_equal(
+          size_at_or(left_sizes, 0), size_at_or(right_sizes, 0)) &&
+      generated::kv_cache_append_sequence_append_heads_equal(
+          size_at_or(left_sizes, 1), size_at_or(right_sizes, 1)) &&
+      generated::kv_cache_append_sequence_append_head_dim_equal(
+          size_at_or(left_sizes, 3), size_at_or(right_sizes, 3))) {
     result.matched = true;
     result.family = KVCacheAppendFamily::SequenceAppend;
     result.tuple_id = sequence_spec.tuple_id;

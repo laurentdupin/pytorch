@@ -84,6 +84,24 @@ constexpr KVCacheAppendSequenceAppendSpec
         kKVCacheAppendSequenceAppendCacheRequiresVulkan,
         kKVCacheAppendSequenceAppendTokenRequiresVulkan};
 
+constexpr bool kv_cache_append_sequence_append_batch_equal(
+    const std::int64_t cache_batch,
+    const std::int64_t token_batch) {
+  return cache_batch == token_batch;
+}
+
+constexpr bool kv_cache_append_sequence_append_heads_equal(
+    const std::int64_t cache_heads,
+    const std::int64_t token_heads) {
+  return cache_heads == token_heads;
+}
+
+constexpr bool kv_cache_append_sequence_append_head_dim_equal(
+    const std::int64_t cache_head_dim,
+    const std::int64_t token_head_dim) {
+  return cache_head_dim == token_head_dim;
+}
+
 constexpr bool kv_cache_append_sequence_append_options_match(
     const KVCacheAppendSequenceAppendSpec& spec,
     const at::ScalarType cache_dtype,

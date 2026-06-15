@@ -110,6 +110,9 @@
         "KVCacheAppendSequenceAppendSpec",
         "kKVCacheAppendSequenceAppendContractName",
         "kKVCacheAppendSequenceAppendMinSourceSequence",
+        "kv_cache_append_sequence_append_batch_equal",
+        "kv_cache_append_sequence_append_heads_equal",
+        "kv_cache_append_sequence_append_head_dim_equal",
         "kv_cache_append_sequence_append_options_match",
         "kv_cache_append_sequence_append_in_bounds"
       ]

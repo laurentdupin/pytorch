@@ -163,10 +163,10 @@ Current MVP status:
   generic ShapeEnvelope C++ simple-bounds generator path:
   `ExecutionContractsKVCacheAppendSpec.h` and
   `ExecutionContractsKVCacheAppendInitialSpec.h` provide contract identity,
-  metadata, route labels, dtype/rank/scalar/range bounds, and helper
-  predicates for the existing matcher. Initial-empty handling, sequence lower
-  bounds, cross-input equality, and match-result construction remain
-  handwritten.
+  metadata, route labels, dtype/rank/scalar/range bounds, helper predicates,
+  and SequenceAppend batch/heads/head-dim equality for the existing matcher.
+  Initial-empty handling, sequence lower bounds, InitialCache cross-input
+  handling, and match-result construction remain handwritten.
 - `GQARepeatContract` `Batch1Heads4Factor4Sequence100To116Dim128` now uses the
   generic ShapeEnvelope C++ simple-bounds generator path:
   `ExecutionContractsGQARepeatSpec.h` provides contract identity, metadata,

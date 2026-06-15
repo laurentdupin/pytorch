@@ -328,6 +328,14 @@ def _sum_output_relationship(envelope, input_name, dim_name, result_name, contex
     return matches[0]
 
 
+SCALAR_EQUAL_HELPER_SCOPES = {
+    "input_weight_channels",
+    "batch",
+    "heads",
+    "head_dim",
+}
+
+
 def _symbol_field_for_input(envelope, field_path, context):
     parts = field_path.split(".")
     _require(len(parts) == 2, f"{context} field path {field_path!r} invalid")
@@ -355,7 +363,8 @@ def _scalar_equal_relationships(envelope, context):
     for index, relationship in enumerate(relationships):
         if relationship.get("type") != "equal":
             continue
-        if relationship.get("scope") != "input_weight_channels":
+        scope = relationship.get("scope")
+        if scope not in SCALAR_EQUAL_HELPER_SCOPES:
             continue
         relationship_context = f"{context}.relationships[{index}]"
         _require_keys(relationship, ("scope", "fields"), relationship_context)
@@ -370,7 +379,6 @@ def _scalar_equal_relationships(envelope, context):
             left[1] == right[1],
             f"{relationship_context}.fields must reference the same symbol",
         )
-        scope = relationship["scope"]
         _require(scope not in seen_scopes, f"{relationship_context}.scope duplicated")
         seen_scopes.add(scope)
         matches.append(
