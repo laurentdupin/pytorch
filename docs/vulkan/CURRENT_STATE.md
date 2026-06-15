@@ -238,9 +238,9 @@ These files are diagnostic inputs. Production code must not depend on
   lookup contract; the small-bounded lookup slice has a JSON contract spec with
   generated positive and adjacent negative runtime coverage. The
   `SmallBoundedLookup` slice now uses the generic ShapeEnvelope C++ generator
-  path for generated metadata, bounds, and matcher helper predicates while the
-  token-batch row remains handwritten. Keep remaining exact rows until broader
-  legality is proven.
+  path for generated metadata, bounds, matcher helper predicates, and the
+  derived indices product helper while the token-batch row remains
+  handwritten. Keep remaining exact rows until broader legality is proven.
 - `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
   cat patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
   contract spec with generated positive and adjacent negative runtime coverage
@@ -391,8 +391,9 @@ These files are diagnostic inputs. Production code must not depend on
   C++ metadata/helper generator path. `tools/vulkan_contracts/gen_contract_spec_cpp.py`
   emits `generated/ExecutionContractsEmbeddingLookupSpec.h` from
   `embedding_lookup_contract.json` for metadata, route label, dtype/rank-list,
-  range, boolean option bounds, and helper predicates; the matcher loop, result
-  construction, and token-batch family remain handwritten.
+  range, boolean option bounds, the derived indices product helper, and helper
+  predicates; result construction, output-shape handling, and the token-batch
+  family remain handwritten.
 - ElementwiseBroadcast `FloatTensorTensorBufferBroadcast` is the first
   consumer of generic ShapeEnvelope C++ metadata/helper generation v0:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

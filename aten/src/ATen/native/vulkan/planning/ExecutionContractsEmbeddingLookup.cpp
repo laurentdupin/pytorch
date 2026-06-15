@@ -58,14 +58,6 @@ constexpr ExecutionContractMetadata kEmbeddingLookupSmallBoundedMetadata =
         generated::kEmbeddingLookupSmallBoundedLookupSpec.fallback_policy,
         generated::kEmbeddingLookupSmallBoundedLookupSpec.materialization_policy);
 
-int64_t product_of_sizes(const IntArrayRef sizes) {
-  int64_t product = 1;
-  for (const int64_t size : sizes) {
-    product *= size;
-  }
-  return product;
-}
-
 } // namespace
 
 const char* embedding_lookup_family_name(const EmbeddingLookupFamily family) {
@@ -114,8 +106,10 @@ EmbeddingLookupMatch match_embedding_lookup_contract(
 
   const int64_t num_embeddings = weight_sizes[0];
   const int64_t embedding_dim = weight_sizes[1];
-  const int64_t num_indices = product_of_sizes(indices_sizes);
   const auto& small_spec = generated::kEmbeddingLookupSmallBoundedLookupSpec;
+  const int64_t num_indices =
+      generated::embedding_lookup_small_bounded_indices_num_indices(
+          small_spec, indices_sizes);
   const int64_t weight_rank = static_cast<int64_t>(weight_sizes.size());
   const int64_t index_rank = static_cast<int64_t>(indices_sizes.size());
   result.num_embeddings = num_embeddings;

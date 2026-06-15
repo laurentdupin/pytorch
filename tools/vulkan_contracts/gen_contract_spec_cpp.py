@@ -268,6 +268,41 @@ def _product_equal_relationship(envelope, context):
     return matches[0] if matches else None
 
 
+def _product_value_relationships(envelope, context):
+    relationships = envelope.get("relationships", [])
+    _require(isinstance(relationships, list), f"{context}.relationships invalid")
+    matches = []
+    seen_results = set()
+    for index, relationship in enumerate(relationships):
+        if relationship.get("type") != "product":
+            continue
+        relationship_context = f"{context}.relationships[{index}]"
+        _require_keys(
+            relationship,
+            ("input", "dims", "result"),
+            relationship_context,
+        )
+        for key in ("input", "result"):
+            _require_non_empty_string(relationship, key, relationship_context)
+        _require(
+            relationship["dims"] == "all",
+            f"{relationship_context}.dims must be all",
+        )
+        result = relationship["result"]
+        _require(
+            result not in seen_results,
+            f"{relationship_context}.result duplicated",
+        )
+        seen_results.add(result)
+        matches.append(
+            {
+                "input": relationship["input"],
+                "result": result,
+            }
+        )
+    return matches
+
+
 def _simple_bounds_shape_envelope_fields(bounds):
     dtype_fields = []
     int_fields = []
@@ -895,6 +930,9 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
     broadcast_relationships = _broadcast_compatible_relationships(
         envelope, "ShapeEnvelope simple-bounds"
     )
+    product_value_relationships = _product_value_relationships(
+        envelope, "ShapeEnvelope simple-bounds"
+    )
 
     field_struct_lines = []
     initializer_lines = []
@@ -1040,6 +1078,26 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
             ]
         )
 
+    product_helpers = []
+    for relationship in product_value_relationships:
+        input_name = _cpp_lower_identifier(relationship["input"])
+        result_name = _cpp_lower_identifier(relationship["result"])
+        product_helpers.extend(
+            [
+                f"inline std::int64_t {role_func_prefix}_{input_name}_{result_name}(",
+                f"    const {row_prefix}Spec& spec,",
+                f"    const IntArrayRef {input_name}_sizes) {{",
+                "  static_cast<void>(spec);",
+                "  std::int64_t product = 1;",
+                f"  for (const std::int64_t size : {input_name}_sizes) {{",
+                "    product *= size;",
+                "  }",
+                "  return product;",
+                "}",
+                "",
+            ]
+        )
+
     initializer_lines[-1] = initializer_lines[-1].rstrip(",") + "};"
     option_signature = []
     for param, _ in option_params:
@@ -1067,7 +1125,7 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
         "#pragma once",
         "",
     ]
-    if relationship_helpers:
+    if relationship_helpers or product_helpers:
         lines.append("#include <ATen/ArrayRef.h>")
     lines.extend(
         [
@@ -1131,6 +1189,7 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
     )
     lines.extend(list_rank_helpers)
     lines.extend(relationship_helpers)
+    lines.extend(product_helpers)
     lines.extend(
         [
             f"constexpr bool {role_func_prefix}_options_match(",

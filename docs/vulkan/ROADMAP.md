@@ -121,9 +121,9 @@ Current MVP status:
 - `EmbeddingLookupContract` `SmallBoundedLookup` now uses the generic
   ShapeEnvelope C++ metadata/helper path: the generator emits
   `ExecutionContractsEmbeddingLookupSpec.h` from `embedding_lookup_contract.json`
-  for metadata, route label, dtype/rank-list, range, boolean option bounds, and
-  matcher helper predicates. The token-batch row remains handwritten until it
-  gets its own fixture.
+  for metadata, route label, dtype/rank-list, range, boolean option bounds, the
+  derived indices product helper, and matcher helper predicates. The
+  token-batch row remains handwritten until it gets its own fixture.
 - `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast` has the
   first generic ShapeEnvelope C++ metadata/helper artifact:
   `ExecutionContractsElementwiseBroadcastSpec.h` is emitted without adding a

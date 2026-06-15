@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <ATen/ArrayRef.h>
 #include <ATen/core/ScalarType.h>
 #include <cstdint>
 
@@ -92,6 +93,17 @@ constexpr bool embedding_lookup_index_rank_in_bounds(
     const std::int64_t index_rank) {
   return index_rank == spec.index_rank_1 ||
       index_rank == spec.index_rank_2;
+}
+
+inline std::int64_t embedding_lookup_small_bounded_indices_num_indices(
+    const EmbeddingLookupSmallBoundedLookupSpec& spec,
+    const IntArrayRef indices_sizes) {
+  static_cast<void>(spec);
+  std::int64_t product = 1;
+  for (const std::int64_t size : indices_sizes) {
+    product *= size;
+  }
+  return product;
 }
 
 constexpr bool embedding_lookup_small_bounded_options_match(
