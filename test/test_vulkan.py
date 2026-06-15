@@ -9676,6 +9676,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             {"name": "generated"},
             "op_hit_test.log",
         )
+        admission_log_name = contract_spec_utils.contract_log_name(
+            spec,
+            {"name": "generated"},
+            "contract_admission.jsonl",
+        )
         value_trace_log_names = [
             contract_spec_utils.contract_log_name(
                 spec,
@@ -9686,7 +9691,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 contract_spec_utils.iter_shape_envelope_contract_cases(spec)
             )
         ]
-        log_paths = [os.path.join(REPO_ROOT, op_hit_log_name)]
+        log_paths = [
+            os.path.join(REPO_ROOT, op_hit_log_name),
+            os.path.join(REPO_ROOT, admission_log_name),
+        ]
         log_paths.extend(os.path.join(REPO_ROOT, name) for name in value_trace_log_names)
         for path in log_paths:
             if os.path.exists(path):
@@ -9716,6 +9724,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     spec = json.load(handle)
 
                 op_hit_log = os.environ["PYTORCH_VULKAN_OP_HIT_LOG"]
+                admission_log = os.environ[
+                    "PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG"
+                ]
                 route_hit = "op=" + spec["route_label"]
 
                 def dtype_for_case(case):
@@ -9739,6 +9750,44 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             for line in log_file
                             if line.strip()
                         ]
+
+                def read_admission_log():
+                    if not os.path.exists(admission_log):
+                        return []
+                    with open(admission_log, encoding="utf-8") as log_file:
+                        return [
+                            json.loads(line)
+                            for line in log_file
+                            if line.strip()
+                        ]
+
+                def assert_admission_event(case, expected):
+                    records = read_admission_log()
+                    assert len(records) == 1, (case, records)
+                    record = records[0]
+                    assert record.get("event") == "vulkan_contract_admission", (
+                        case,
+                        record,
+                    )
+                    for key in ("contract_name", "family_name", "tuple_id"):
+                        expected_value = {
+                            "contract_name": spec["contract_name"],
+                            "family_name": spec["family"],
+                            "tuple_id": spec["tuple_id"],
+                        }[key]
+                        assert record.get(key) == expected_value, (
+                            case,
+                            key,
+                            expected_value,
+                            record,
+                        )
+                    for key, value in expected.items():
+                        assert record.get(key) == value, (
+                            case,
+                            key,
+                            value,
+                            record,
+                        )
 
                 def value_trace_provenance(log_path):
                     trace_records = read_value_trace(log_path)
@@ -9783,7 +9832,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         "value_trace.jsonl",
                     )
                     log_path = os.path.join(os.getcwd(), log_name)
-                    for path in (op_hit_log, log_path):
+                    for path in (op_hit_log, log_path, admission_log):
                         if os.path.exists(path):
                             os.remove(path)
                     os.environ["PYTORCH_VULKAN_VALIDATE_VALUES"] = "1"
@@ -9809,6 +9858,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         dtype,
                         7200 + len(case["name"]),
                     )
+                    if os.path.exists(admission_log):
+                        os.remove(admission_log)
 
                     if expected_error is not None:
                         try:
@@ -9864,6 +9915,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                                 provenance,
                                 trace_records,
                             )
+                        assert_admission_event(case, {
+                            "outcome": "accept",
+                            "phase": "admitted",
+                            "predicate": "match_elementwise_broadcast_contract",
+                            "reason_code": "matched",
+                            "source": "handwritten",
+                        })
                         if not case["expected_sync_readback"]:
                             assert readback_count == 0, (
                                 case,
@@ -9882,14 +9940,49 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                                 op_hit_text,
                             )
 
+                def run_attribute_reject_case():
+                    case = {"name": "unsupported_sub_attribute_mismatch"}
+                    for path in (op_hit_log, admission_log):
+                        if os.path.exists(path):
+                            os.remove(path)
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    self_cpu, self_vulkan = make_float_buffer_operand(
+                        [2, 3],
+                        7300,
+                    )
+                    other_cpu, other_vulkan = make_direct_operand(
+                        [3],
+                        torch.float32,
+                        7301,
+                    )
+                    if os.path.exists(admission_log):
+                        os.remove(admission_log)
+                    expected = self_cpu - other_cpu
+                    actual = (self_vulkan - other_vulkan).cpu()
+                    torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+                    assert_admission_event(case, {
+                        "outcome": "reject",
+                        "phase": "generated_options",
+                        "predicate": (
+                            "elementwise_float_tensor_tensor_buffer_broadcast_"
+                            "attributes_match"
+                        ),
+                        "reason_code": "attribute_mismatch",
+                        "source": "generated",
+                    })
+
                 for _, case, expect_native_route in (
                     contract_spec_utils.iter_shape_envelope_contract_cases(spec)
                 ):
                     run_case(case, expect_native_route)
+                run_attribute_reject_case()
             """
             self._run_repo_python_subprocess(
                 script,
-                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+                extra_env={
+                    "PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name,
+                    "PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG": admission_log_name,
+                },
                 error_prefix=(
                     "ElementwiseBroadcast generated contract spec failed."
                 ),

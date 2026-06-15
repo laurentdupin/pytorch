@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/ExecutionContractDiagnostics.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h>
 
 namespace at {
@@ -76,27 +77,65 @@ ElementwiseBroadcastMatch match_elementwise_broadcast_contract(
   ElementwiseBroadcastMatch result;
   const auto& spec =
       generated::kElementwiseBroadcastFloatTensorTensorBufferBroadcastSpec;
-  if (
-      !generated::elementwise_float_tensor_tensor_buffer_broadcast_layout_matches(
+  if (!generated::elementwise_float_tensor_tensor_buffer_broadcast_layout_matches(
           spec,
           self_is_vulkan,
           other_is_vulkan,
           self_supports_buffer_compute,
           other_supports_buffer_compute,
-          buffer_route_selected) ||
-      !generated::elementwise_float_tensor_tensor_buffer_broadcast_dtype_matches(
-          spec, self_dtype, other_dtype, output_dtype) ||
-      !generated::elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds(
-          spec, static_cast<int64_t>(self_sizes.size())) ||
-      !generated::elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds(
-          spec, static_cast<int64_t>(other_sizes.size())) ||
-      !generated::elementwise_float_tensor_tensor_buffer_broadcast_attributes_match(
-          spec,
-          op == ElementwiseBroadcastOp::Add,
-          op == ElementwiseBroadcastOp::Mul,
-          alpha_is_one,
-          has_output,
-          inplace)) {
+          buffer_route_selected)) {
+    log_contract_reject(
+        &kElementwiseBroadcastMetadata,
+        ContractAdmissionPhase::GeneratedOptions,
+        "elementwise_float_tensor_tensor_buffer_broadcast_layout_matches",
+        "layout_mismatch",
+        "generated");
+    return result;
+  }
+  if (!generated::elementwise_float_tensor_tensor_buffer_broadcast_dtype_matches(
+          spec, self_dtype, other_dtype, output_dtype)) {
+    log_contract_reject(
+        &kElementwiseBroadcastMetadata,
+        ContractAdmissionPhase::GeneratedOptions,
+        "elementwise_float_tensor_tensor_buffer_broadcast_dtype_matches",
+        "dtype_mismatch",
+        "generated");
+    return result;
+  }
+  if (!generated::elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds(
+          spec, static_cast<int64_t>(self_sizes.size()))) {
+    log_contract_reject(
+        &kElementwiseBroadcastMetadata,
+        ContractAdmissionPhase::GeneratedBounds,
+        "elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds",
+        "self_rank_out_of_bounds",
+        "generated");
+    return result;
+  }
+  if (!generated::elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds(
+          spec, static_cast<int64_t>(other_sizes.size()))) {
+    log_contract_reject(
+        &kElementwiseBroadcastMetadata,
+        ContractAdmissionPhase::GeneratedBounds,
+        "elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds",
+        "other_rank_out_of_bounds",
+        "generated");
+    return result;
+  }
+  if (!generated::
+          elementwise_float_tensor_tensor_buffer_broadcast_attributes_match(
+              spec,
+              op == ElementwiseBroadcastOp::Add,
+              op == ElementwiseBroadcastOp::Mul,
+              alpha_is_one,
+              has_output,
+              inplace)) {
+    log_contract_reject(
+        &kElementwiseBroadcastMetadata,
+        ContractAdmissionPhase::GeneratedOptions,
+        "elementwise_float_tensor_tensor_buffer_broadcast_attributes_match",
+        "attribute_mismatch",
+        "generated");
     return result;
   }
   const bool broadcast_compatible =
@@ -104,6 +143,12 @@ ElementwiseBroadcastMatch match_elementwise_broadcast_contract(
           elementwise_float_tensor_tensor_buffer_broadcast_broadcast_compatible(
               spec, self_sizes, other_sizes);
   if (!broadcast_compatible) {
+    log_contract_reject(
+        &kElementwiseBroadcastMetadata,
+        ContractAdmissionPhase::GeneratedRelationship,
+        "elementwise_float_tensor_tensor_buffer_broadcast_broadcast_compatible",
+        "broadcast_incompatible",
+        "generated");
     return result;
   }
 
@@ -111,6 +156,8 @@ ElementwiseBroadcastMatch match_elementwise_broadcast_contract(
   result.family = ElementwiseBroadcastFamily::FloatTensorTensorBufferBroadcast;
   result.tuple_id = spec.tuple_id;
   result.metadata = &kElementwiseBroadcastMetadata;
+  log_contract_accept(
+      result.metadata, "match_elementwise_broadcast_contract");
   return result;
 }
 
