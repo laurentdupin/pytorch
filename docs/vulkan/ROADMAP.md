@@ -243,15 +243,17 @@ Rules for expansion:
   match results, and accepted shape envelopes.
 - Add focused accept/reject coverage when wiring a new contract family.
 
-BatchNormInference is the first completed expansion after the
-ElementwiseBroadcast MVP. The governance helper
+BatchNormInference was the first completed expansion after the
+ElementwiseBroadcast MVP, and SafeViewReshape direct
+`ViewMaterializedDirectBuffer` is now the first layout/view slice wired to the
+same surface. The governance helper
 `contract_spec_utils.py --admission-diagnostics-census` now records the current
-diagnostic coverage as two wired contracts, three wired spec rows, and two
+diagnostic coverage as three wired contracts, four wired spec rows, and three
 source files, and validates JSONL payload fields plus accept/reject hook
 presence. Suggested next expansion order, if the simple slices hold:
-SafeViewReshape, then SDPA/attention contracts. Do not treat this order as a
-mandate to add diagnostics to every contract immediately; it is guidance for
-future diagnostic tasks.
+SafeViewReshape `_reshape_alias`, then SDPA/attention contracts. Do not treat
+this order as a mandate to add diagnostics to every contract immediately; it
+is guidance for future diagnostic tasks.
 
 ## Phase 3: Migrate Next Contract Family
 

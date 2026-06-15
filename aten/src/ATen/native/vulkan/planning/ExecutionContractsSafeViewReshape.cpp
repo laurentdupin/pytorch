@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/ExecutionContractDiagnostics.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeAliasSpec.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeSpec.h>
 
@@ -123,19 +124,54 @@ match_safe_view_reshape_materialized_direct_buffer_contract(
   SafeViewReshapeMatch result;
   const auto& spec =
       generated::kSafeViewReshapeViewMaterializedDirectBufferSpec;
-  if (
-      !generated::safe_view_materialized_direct_buffer_input_rank_in_bounds(
-          spec, static_cast<int64_t>(input_sizes.size())) ||
-      !generated::safe_view_materialized_direct_buffer_output_rank_in_bounds(
-          spec, static_cast<int64_t>(output_sizes.size())) ||
-      !generated::safe_view_materialized_direct_buffer_storage_offset_matches(
-          spec, storage_offset) ||
-      !is_contiguous_stride(output_sizes, output_strides)) {
+  if (!generated::safe_view_materialized_direct_buffer_input_rank_in_bounds(
+          spec, static_cast<int64_t>(input_sizes.size()))) {
+    log_contract_reject(
+        &kSafeViewReshapeViewMaterializedDirectBufferMetadata,
+        ContractAdmissionPhase::GeneratedBounds,
+        "safe_view_materialized_direct_buffer_input_rank_in_bounds",
+        "view_input_rank_out_of_bounds",
+        "generated");
+    return result;
+  }
+  if (!generated::safe_view_materialized_direct_buffer_output_rank_in_bounds(
+          spec, static_cast<int64_t>(output_sizes.size()))) {
+    log_contract_reject(
+        &kSafeViewReshapeViewMaterializedDirectBufferMetadata,
+        ContractAdmissionPhase::GeneratedBounds,
+        "safe_view_materialized_direct_buffer_output_rank_in_bounds",
+        "view_output_rank_out_of_bounds",
+        "generated");
+    return result;
+  }
+  if (!generated::safe_view_materialized_direct_buffer_storage_offset_matches(
+          spec, storage_offset)) {
+    log_contract_reject(
+        &kSafeViewReshapeViewMaterializedDirectBufferMetadata,
+        ContractAdmissionPhase::GeneratedOptions,
+        "safe_view_materialized_direct_buffer_storage_offset_matches",
+        "view_storage_offset_mismatch",
+        "generated");
+    return result;
+  }
+  if (!is_contiguous_stride(output_sizes, output_strides)) {
+    log_contract_reject(
+        &kSafeViewReshapeViewMaterializedDirectBufferMetadata,
+        ContractAdmissionPhase::MaterializationPolicy,
+        "is_contiguous_stride",
+        "view_output_stride_not_contiguous",
+        "handwritten");
     return result;
   }
 
   if (!generated::safe_view_materialized_direct_buffer_product_equal(
           spec, input_sizes, output_sizes)) {
+    log_contract_reject(
+        &kSafeViewReshapeViewMaterializedDirectBufferMetadata,
+        ContractAdmissionPhase::GeneratedRelationship,
+        "safe_view_materialized_direct_buffer_product_equal",
+        "view_product_mismatch",
+        "generated");
     return result;
   }
 
@@ -143,6 +179,12 @@ match_safe_view_reshape_materialized_direct_buffer_contract(
           spec,
           !output_sizes.empty(),
           output_sizes.empty() ? 0 : output_sizes.back())) {
+    log_contract_reject(
+        &kSafeViewReshapeViewMaterializedDirectBufferMetadata,
+        ContractAdmissionPhase::GeneratedBounds,
+        "safe_view_materialized_direct_buffer_output_last_dim_multiple_matches",
+        "view_output_last_dim_multiple_mismatch",
+        "generated");
     return result;
   }
 
@@ -150,6 +192,9 @@ match_safe_view_reshape_materialized_direct_buffer_contract(
   result.family = SafeViewReshapeFamily::ViewMaterializedDirectBuffer;
   result.tuple_id = spec.tuple_id;
   result.metadata = &kSafeViewReshapeViewMaterializedDirectBufferMetadata;
+  log_contract_accept(
+      result.metadata,
+      "match_safe_view_reshape_materialized_direct_buffer_contract");
   return result;
 }
 

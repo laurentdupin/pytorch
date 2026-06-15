@@ -82,10 +82,12 @@ is separate from `PYTORCH_VULKAN_OP_HIT_LOG` and from tensor provenance/value
 traces: tensor provenance records metadata for accepted output producers,
 while admission diagnostics record candidate accept/reject decisions and the
 first predicate failure seen by a wired matcher. The current MVP is wired to
-`ElementwiseBroadcastContract` and `BatchNormInferenceContract`; do not infer
-that every contract emits admission diagnostics yet.
-`contract_spec_utils.py --admission-diagnostics-census` records this as two
-wired contracts, three wired spec rows, and two source files while validating
+`ElementwiseBroadcastContract`, `BatchNormInferenceContract`, and the direct
+`SafeViewReshapeContract` `ViewMaterializedDirectBuffer` row; do not infer
+that every contract emits admission diagnostics yet. `_reshape_alias`
+SafeViewReshape diagnostics are not wired yet.
+`contract_spec_utils.py --admission-diagnostics-census` records this as three
+wired contracts, four wired spec rows, and three source files while validating
 the JSONL payload fields and accept/reject hook presence. The current
 ElementwiseBroadcast phases are `generated_options`, `generated_bounds`,
 `generated_relationship`, and `admitted`; the current reason codes are
@@ -95,6 +97,9 @@ and `matched`. BatchNorm adds direct and materialized row diagnostics with
 `generated_options`, `generated_relationship`, `handwritten_policy`,
 `materialization_policy`, and `admitted` phases for options, feature-count,
 optional-parameter, storage/materialization, and accept decisions.
+SafeViewReshape direct-view diagnostics add generated rank/storage/product and
+last-dim rejects plus the handwritten output-stride/materialized-view policy
+reject.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor

@@ -1415,10 +1415,10 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_contract_admission_diagnostics_census_cli(self):
         summary = contract_spec_utils.admission_diagnostics_census_summary(REPO_ROOT)
-        self.assertEqual(summary["wired_contracts"], 2)
-        self.assertEqual(summary["wired_spec_rows"], 3)
-        self.assertEqual(summary["wired_sources"], 2)
-        self.assertEqual(summary["unwired_contracts"], 14)
+        self.assertEqual(summary["wired_contracts"], 3)
+        self.assertEqual(summary["wired_spec_rows"], 4)
+        self.assertEqual(summary["wired_sources"], 3)
+        self.assertEqual(summary["unwired_contracts"], 13)
         self.assertEqual(summary["payload_fields"], 9)
 
         census = contract_spec_utils.admission_diagnostics_census(REPO_ROOT)
@@ -1444,6 +1444,11 @@ class TestVulkanGovernance(TestCase):
                     "MaterializedBufferFloat4D",
                     "materialized_buffer_inference_4d_float",
                 ),
+                (
+                    "SafeViewReshapeContract",
+                    "ViewMaterializedDirectBuffer",
+                    "materialized_direct_buffer_reshape",
+                ),
             },
         )
 
@@ -1467,13 +1472,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated admission diagnostics census wired_contracts=2 "
-            "wired_spec_rows=3 wired_sources=2 unwired_contracts=14 "
+            "validated admission diagnostics census wired_contracts=3 "
+            "wired_spec_rows=4 wired_sources=3 unwired_contracts=13 "
             "payload_fields=9",
             result.stdout,
         )
         self.assertIn("ElementwiseBroadcastContract", result.stdout)
         self.assertIn("BatchNormInferenceContract", result.stdout)
+        self.assertIn("SafeViewReshapeContract", result.stdout)
 
     def test_vulkan_linear_gelu_bridge_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("linear_gelu_bridge_contract.json")
@@ -8139,10 +8145,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             {"name": "generated"},
             "op_hit_test.log",
         )
+        admission_log_name = contract_spec_utils.contract_log_name(
+            spec,
+            {"name": "generated"},
+            "contract_admission.jsonl",
+        )
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
-        if os.path.exists(op_hit_log_path):
-            os.remove(op_hit_log_path)
+        log_paths = [
+            os.path.join(repo_root, op_hit_log_name),
+            os.path.join(repo_root, admission_log_name),
+        ]
+        for path in log_paths:
+            if os.path.exists(path):
+                os.remove(path)
 
         try:
             script = """
@@ -8167,6 +8182,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                 op_hit = "op=" + spec["route_label"]
                 op_hit_log = os.environ["PYTORCH_VULKAN_OP_HIT_LOG"]
+                admission_log = os.environ[
+                    "PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG"
+                ]
 
                 def read_op_hit_log():
                     if not os.path.exists(op_hit_log):
@@ -8174,9 +8192,108 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     with open(op_hit_log, encoding="utf-8") as log_file:
                         return log_file.read()
 
+                def read_admission_log():
+                    if not os.path.exists(admission_log):
+                        return []
+                    with open(admission_log, encoding="utf-8") as log_file:
+                        return [
+                            json.loads(line)
+                            for line in log_file
+                            if line.strip()
+                        ]
+
+                def assert_admission_event(case, expected):
+                    records = read_admission_log()
+                    assert len(records) == 1, (case, records)
+                    record = records[0]
+                    assert record.get("event") == "vulkan_contract_admission", (
+                        case,
+                        record,
+                    )
+                    for key in ("contract_name", "family_name", "tuple_id"):
+                        expected_value = {
+                            "contract_name": spec["contract_name"],
+                            "family_name": spec["family"],
+                            "tuple_id": spec["tuple_id"],
+                        }[key]
+                        assert record.get(key) == expected_value, (
+                            case,
+                            key,
+                            expected_value,
+                            record,
+                        )
+                    for key, value in expected.items():
+                        assert record.get(key) == value, (
+                            case,
+                            key,
+                            value,
+                            record,
+                        )
+
+                def expected_reject_record(case):
+                    expected_by_violation = {
+                        "input_rank.max": {
+                            "outcome": "reject",
+                            "phase": "generated_bounds",
+                            "predicate": (
+                                "safe_view_materialized_direct_buffer_"
+                                "input_rank_in_bounds"
+                            ),
+                            "reason_code": "view_input_rank_out_of_bounds",
+                            "source": "generated",
+                        },
+                        "output_rank.max": {
+                            "outcome": "reject",
+                            "phase": "generated_bounds",
+                            "predicate": (
+                                "safe_view_materialized_direct_buffer_"
+                                "output_rank_in_bounds"
+                            ),
+                            "reason_code": "view_output_rank_out_of_bounds",
+                            "source": "generated",
+                        },
+                        "output_last_dim_multiple_of": {
+                            "outcome": "reject",
+                            "phase": "generated_bounds",
+                            "predicate": (
+                                "safe_view_materialized_direct_buffer_"
+                                "output_last_dim_multiple_matches"
+                            ),
+                            "reason_code": (
+                                "view_output_last_dim_multiple_mismatch"
+                            ),
+                            "source": "generated",
+                        },
+                    }
+                    return expected_by_violation[case["violates"]]
+
+                def run_disabled_log_smoke():
+                    if os.path.exists(admission_log):
+                        os.remove(admission_log)
+                    original = os.environ.pop(
+                        "PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG",
+                        None,
+                    )
+                    try:
+                        x = torch.randn(1, 320, 9, 14, dtype=torch.float32)
+                        actual = x.to("vulkan").view(1, 32, 1260).cpu()
+                        torch.testing.assert_close(
+                            actual,
+                            x.view(1, 32, 1260),
+                            atol=1e-4,
+                            rtol=1e-4,
+                        )
+                        assert not os.path.exists(admission_log), admission_log
+                    finally:
+                        if original is not None:
+                            os.environ[
+                                "PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG"
+                            ] = original
+
                 def run_case(case, expect_native_route):
-                    if os.path.exists(op_hit_log):
-                        os.remove(op_hit_log)
+                    for path in (op_hit_log, admission_log):
+                        if os.path.exists(path):
+                            os.remove(path)
                     torch.manual_seed(5000 + len(case["name"]))
                     x_cpu = torch.randn(*case["input_shape"], dtype=torch.float32)
                     expected = x_cpu.view(*case["output_shape"])
@@ -8192,6 +8309,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             case,
                             read_op_hit_log(),
                         )
+                        records = read_admission_log()
+                        if records:
+                            assert_admission_event(
+                                case,
+                                expected_reject_record(case),
+                            )
                         return
 
                     torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
@@ -8202,9 +8325,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             op_hit_text,
                         )
                         assert op_hit in op_hit_text, (case, op_hit_text)
+                        assert_admission_event(case, {
+                            "outcome": "accept",
+                            "phase": "admitted",
+                            "predicate": (
+                                "match_safe_view_reshape_"
+                                "materialized_direct_buffer_contract"
+                            ),
+                            "reason_code": "matched",
+                            "source": "handwritten",
+                        })
                     else:
                         assert op_hit not in op_hit_text, (case, op_hit_text)
+                        records = read_admission_log()
+                        if records:
+                            assert_admission_event(
+                                case,
+                                expected_reject_record(case),
+                            )
 
+                run_disabled_log_smoke()
                 for _, case, expect_native_route in (
                     contract_spec_utils.iter_shape_envelope_contract_cases(spec)
                 ):
@@ -8213,11 +8353,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self._run_repo_python_subprocess(
                 script,
                 error_prefix="Safe view reshape generated contract spec failed.",
-                extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
+                extra_env={
+                    "PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name,
+                    "PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG": admission_log_name,
+                },
             )
         finally:
-            if os.path.exists(op_hit_log_path):
-                os.remove(op_hit_log_path)
+            for path in log_paths:
+                if os.path.exists(path):
+                    os.remove(path)
 
     def test_safe_view_reshape_alias_contract_generated_dense_buffer_direct_spec(self):
         spec = _load_vulkan_contract_spec("safe_view_reshape_alias_contract.json")
