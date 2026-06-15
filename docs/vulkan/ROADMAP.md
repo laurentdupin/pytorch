@@ -244,10 +244,14 @@ Rules for expansion:
 - Add focused accept/reject coverage when wiring a new contract family.
 
 BatchNormInference is the first completed expansion after the
-ElementwiseBroadcast MVP. Suggested next expansion order, if the simple slices
-hold: SafeViewReshape, then SDPA/attention contracts. Do not treat this order
-as a mandate to add diagnostics to every contract immediately; it is guidance
-for future diagnostic tasks.
+ElementwiseBroadcast MVP. The governance helper
+`contract_spec_utils.py --admission-diagnostics-census` now records the current
+diagnostic coverage as two wired contracts, three wired spec rows, and two
+source files, and validates JSONL payload fields plus accept/reject hook
+presence. Suggested next expansion order, if the simple slices hold:
+SafeViewReshape, then SDPA/attention contracts. Do not treat this order as a
+mandate to add diagnostics to every contract immediately; it is guidance for
+future diagnostic tasks.
 
 ## Phase 3: Migrate Next Contract Family
 

@@ -1413,6 +1413,68 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("sdpa_execution_policy_contract.json", result.stdout)
         self.assertIn("transformer_gqa_sdpa_contract.json", result.stdout)
 
+    def test_vulkan_contract_admission_diagnostics_census_cli(self):
+        summary = contract_spec_utils.admission_diagnostics_census_summary(REPO_ROOT)
+        self.assertEqual(summary["wired_contracts"], 2)
+        self.assertEqual(summary["wired_spec_rows"], 3)
+        self.assertEqual(summary["wired_sources"], 2)
+        self.assertEqual(summary["unwired_contracts"], 14)
+        self.assertEqual(summary["payload_fields"], 9)
+
+        census = contract_spec_utils.admission_diagnostics_census(REPO_ROOT)
+        rows = {
+            (row["contract_name"], row["family"], row["tuple_id"])
+            for row in census["rows"]
+        }
+        self.assertEqual(
+            rows,
+            {
+                (
+                    "ElementwiseBroadcastContract",
+                    "FloatTensorTensorBufferBroadcast",
+                    "float32_rank1_to_4_tensor_tensor_buffer_broadcast",
+                ),
+                (
+                    "BatchNormInferenceContract",
+                    "BufferFloat4D",
+                    "buffer_inference_4d_float",
+                ),
+                (
+                    "BatchNormInferenceContract",
+                    "MaterializedBufferFloat4D",
+                    "materialized_buffer_inference_4d_float",
+                ),
+            },
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "test",
+                    "vulkan_contract_specs",
+                    "contract_spec_utils.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--admission-diagnostics-census",
+                "--validate-admission-diagnostics-census",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertIn(
+            "validated admission diagnostics census wired_contracts=2 "
+            "wired_spec_rows=3 wired_sources=2 unwired_contracts=14 "
+            "payload_fields=9",
+            result.stdout,
+        )
+        self.assertIn("ElementwiseBroadcastContract", result.stdout)
+        self.assertIn("BatchNormInferenceContract", result.stdout)
+
     def test_vulkan_linear_gelu_bridge_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("linear_gelu_bridge_contract.json")
         self.assertEqual(spec["schema_version"], 1)

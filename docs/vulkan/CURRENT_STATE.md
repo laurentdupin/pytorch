@@ -83,7 +83,10 @@ traces: tensor provenance records metadata for accepted output producers,
 while admission diagnostics record candidate accept/reject decisions and the
 first predicate failure seen by a wired matcher. The current MVP is wired to
 `ElementwiseBroadcastContract` and `BatchNormInferenceContract`; do not infer
-that every contract emits admission diagnostics yet. The current
+that every contract emits admission diagnostics yet.
+`contract_spec_utils.py --admission-diagnostics-census` records this as two
+wired contracts, three wired spec rows, and two source files while validating
+the JSONL payload fields and accept/reject hook presence. The current
 ElementwiseBroadcast phases are `generated_options`, `generated_bounds`,
 `generated_relationship`, and `admitted`; the current reason codes are
 `layout_mismatch`, `dtype_mismatch`, `self_rank_out_of_bounds`,

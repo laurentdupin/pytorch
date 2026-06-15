@@ -12,6 +12,51 @@ TEMPORARY_EXCEPTIONS_FILE = os.path.join("docs", "vulkan", "TEMPORARY_EXCEPTIONS
 GENERIC_EXACT_TUPLE_EXCEPTION = "Exact Tuple Rows In Contract Tables"
 CONTRACT_NAME_LITERAL_RE = re.compile(r"\"([A-Za-z0-9]+Contract)\"")
 
+ADMISSION_DIAGNOSTICS_PAYLOAD_FIELDS = (
+    "event",
+    "contract_name",
+    "family_name",
+    "tuple_id",
+    "outcome",
+    "phase",
+    "predicate",
+    "reason_code",
+    "source",
+)
+
+ADMISSION_DIAGNOSTICS_DECLARED_ROWS = (
+    {
+        "contract_name": "ElementwiseBroadcastContract",
+        "family": "FloatTensorTensorBufferBroadcast",
+        "tuple_id": "float32_rank1_to_4_tensor_tensor_buffer_broadcast",
+        "spec_file": "elementwise_broadcast_contract.json",
+        "source_file": (
+            "aten/src/ATen/native/vulkan/planning/"
+            "ExecutionContractsElementwiseBroadcast.cpp"
+        ),
+    },
+    {
+        "contract_name": "BatchNormInferenceContract",
+        "family": "BufferFloat4D",
+        "tuple_id": "buffer_inference_4d_float",
+        "spec_file": "batch_norm_inference_contract.json",
+        "source_file": (
+            "aten/src/ATen/native/vulkan/planning/"
+            "ExecutionContractsBatchNormInference.cpp"
+        ),
+    },
+    {
+        "contract_name": "BatchNormInferenceContract",
+        "family": "MaterializedBufferFloat4D",
+        "tuple_id": "materialized_buffer_inference_4d_float",
+        "spec_file": "batch_norm_inference_materialized_contract.json",
+        "source_file": (
+            "aten/src/ATen/native/vulkan/planning/"
+            "ExecutionContractsBatchNormInference.cpp"
+        ),
+    },
+)
+
 CONTRACT_SPEC_REQUIRED_FIELDS = (
     "schema_version",
     "contract_name",
@@ -5869,6 +5914,148 @@ def execution_contract_source_summary(repo_root):
     ]
 
 
+def _admission_diagnostics_payload_source_path(repo_root):
+    return os.path.join(
+        repo_root,
+        "aten",
+        "src",
+        "ATen",
+        "native",
+        "vulkan",
+        "planning",
+        "ExecutionContractDiagnostics.cpp",
+    )
+
+
+def _admission_diagnostics_logged_source_counts(repo_root):
+    counts = {}
+    for path in _contract_source_paths(repo_root):
+        if path.endswith("Spec.h"):
+            continue
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+        accept_count = text.count("log_contract_accept(")
+        reject_count = text.count("log_contract_reject(")
+        if accept_count or reject_count:
+            counts[_repo_relative_display(repo_root, path)] = {
+                "accept_count": accept_count,
+                "reject_count": reject_count,
+            }
+    return counts
+
+
+def _validate_admission_diagnostics_payload_fields(repo_root):
+    path = _admission_diagnostics_payload_source_path(repo_root)
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    missing = [
+        field
+        for field in ADMISSION_DIAGNOSTICS_PAYLOAD_FIELDS
+        if f'"{field}"' not in text
+    ]
+    if missing:
+        raise AssertionError(
+            "ExecutionContractDiagnostics.cpp missing payload fields: "
+            + ", ".join(missing)
+        )
+
+
+def admission_diagnostics_census(repo_root):
+    specs = {
+        file_name: spec
+        for file_name, spec in validate_all_contract_specs(repo_root)
+    }
+    source_counts = _admission_diagnostics_logged_source_counts(repo_root)
+    declared_sources = {
+        row["source_file"] for row in ADMISSION_DIAGNOSTICS_DECLARED_ROWS
+    }
+    actual_sources = set(source_counts)
+    if actual_sources != declared_sources:
+        raise AssertionError(
+            "admission diagnostics source mismatch: "
+            f"declared={sorted(declared_sources)} actual={sorted(actual_sources)}"
+        )
+
+    rows = []
+    for declared in ADMISSION_DIAGNOSTICS_DECLARED_ROWS:
+        spec = specs.get(declared["spec_file"])
+        if spec is None:
+            raise AssertionError(
+                f"{declared['spec_file']} missing for admission diagnostics census"
+            )
+        for field in ("contract_name", "family", "tuple_id"):
+            if spec[field] != declared[field]:
+                raise AssertionError(
+                    f"{declared['spec_file']} {field} mismatch: "
+                    f"declared={declared[field]} spec={spec[field]}"
+                )
+        source_count = source_counts[declared["source_file"]]
+        if source_count["accept_count"] <= 0:
+            raise AssertionError(
+                f"{declared['source_file']} has no log_contract_accept calls"
+            )
+        if source_count["reject_count"] <= 0:
+            raise AssertionError(
+                f"{declared['source_file']} has no log_contract_reject calls"
+            )
+        rows.append(
+            {
+                **declared,
+                "accept_count": source_count["accept_count"],
+                "reject_count": source_count["reject_count"],
+            }
+        )
+
+    _validate_admission_diagnostics_payload_fields(repo_root)
+    live_contracts = {
+        row["contract_name"] for row in execution_contract_source_summary(repo_root)
+    }
+    wired_contracts = {row["contract_name"] for row in rows}
+    return {
+        "rows": rows,
+        "wired_contracts": tuple(sorted(wired_contracts)),
+        "wired_sources": tuple(sorted(declared_sources)),
+        "unwired_contracts": tuple(sorted(live_contracts - wired_contracts)),
+        "payload_fields": ADMISSION_DIAGNOSTICS_PAYLOAD_FIELDS,
+    }
+
+
+def admission_diagnostics_census_summary(repo_root):
+    census = admission_diagnostics_census(repo_root)
+    return {
+        "wired_contracts": len(census["wired_contracts"]),
+        "wired_spec_rows": len(census["rows"]),
+        "wired_sources": len(census["wired_sources"]),
+        "unwired_contracts": len(census["unwired_contracts"]),
+        "payload_fields": len(census["payload_fields"]),
+    }
+
+
+def format_admission_diagnostics_census_summary(summary):
+    return (
+        "admission diagnostics census "
+        f"wired_contracts={summary['wired_contracts']} "
+        f"wired_spec_rows={summary['wired_spec_rows']} "
+        f"wired_sources={summary['wired_sources']} "
+        f"unwired_contracts={summary['unwired_contracts']} "
+        f"payload_fields={summary['payload_fields']}"
+    )
+
+
+def format_admission_diagnostics_census_row(row):
+    return " ".join(
+        (
+            f"contract={row['contract_name']}",
+            f"family={row['family']}",
+            f"tuple_id={row['tuple_id']}",
+            f"spec_file={row['spec_file']}",
+            f"source_file={row['source_file']}",
+            f"accept_count={row['accept_count']}",
+            f"reject_count={row['reject_count']}",
+        )
+    )
+
+
 def _active_temporary_exception_sections(repo_root):
     path = os.path.join(repo_root, TEMPORARY_EXCEPTIONS_FILE)
     with open(path, encoding="utf-8") as handle:
@@ -6345,6 +6532,11 @@ def _main():
     parser.add_argument("--validate-generated-cpp-manifest", action="store_true")
     parser.add_argument("--contract-coverage-census", action="store_true")
     parser.add_argument("--validate-contract-coverage-census", action="store_true")
+    parser.add_argument("--admission-diagnostics-census", action="store_true")
+    parser.add_argument(
+        "--validate-admission-diagnostics-census",
+        action="store_true",
+    )
     args = parser.parse_args()
 
     rows = contract_spec_summary(args.repo_root)
@@ -6496,6 +6688,21 @@ def _main():
         if args.contract_coverage_census:
             for row in _contract_coverage_all_rows(census):
                 print(format_contract_coverage_census_row(row))
+    if (
+        args.admission_diagnostics_census
+        or args.validate_admission_diagnostics_census
+    ):
+        census = admission_diagnostics_census(args.repo_root)
+        summary = admission_diagnostics_census_summary(args.repo_root)
+        prefix = (
+            "validated "
+            if args.validate_admission_diagnostics_census
+            else ""
+        )
+        print(prefix + format_admission_diagnostics_census_summary(summary))
+        if args.admission_diagnostics_census:
+            for row in census["rows"]:
+                print(format_admission_diagnostics_census_row(row))
 
 
 if __name__ == "__main__":
