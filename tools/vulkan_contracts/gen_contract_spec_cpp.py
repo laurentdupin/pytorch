@@ -1322,6 +1322,171 @@ def _cpp_row_field_compare(field, field_type):
     return f"row.{field} == {field}"
 
 
+ROW_MATCH_ARGUMENT_TYPES = {
+    "bool": bool,
+    "int64": int,
+    "string": str,
+}
+
+
+def _cpp_type_for_row_match_argument(argument_type):
+    if argument_type == "bool":
+        return "bool"
+    if argument_type == "int64":
+        return "std::int64_t"
+    if argument_type == "string":
+        return "const char*"
+    raise RuntimeError(f"unsupported row_match argument type {argument_type!r}")
+
+
+def _validate_sparse_row_match(row_match, rowset, field_types, context):
+    if row_match is None:
+        return None
+    _require(isinstance(row_match, dict), f"{context} must be an object")
+    _require_keys(row_match, ("arguments",), context)
+    arguments = row_match["arguments"]
+    _require(isinstance(arguments, list) and arguments, f"{context}.arguments invalid")
+
+    argument_names = set()
+    argument_types = {}
+    field_names = set(rowset["fields"])
+    for index, argument in enumerate(arguments):
+        argument_context = f"{context}.arguments[{index}]"
+        _require(isinstance(argument, dict), f"{argument_context} must be an object")
+        _require_keys(argument, ("name", "type"), argument_context)
+        _require_non_empty_string(argument, "name", argument_context)
+        name = argument["name"]
+        _require(name not in argument_names, f"{argument_context}.name duplicate")
+        argument_names.add(name)
+
+        argument_type = argument["type"]
+        _require(
+            argument_type in ROW_MATCH_ARGUMENT_TYPES,
+            f"{argument_context}.type unsupported",
+        )
+        argument_types[name] = argument_type
+
+        has_field = "field" in argument
+        has_range = "min_field" in argument or "max_field" in argument
+        _require(
+            has_field != has_range,
+            f"{argument_context} must use either field or min_field/max_field",
+        )
+        expected_type = ROW_MATCH_ARGUMENT_TYPES[argument_type]
+        if has_field:
+            _require_non_empty_string(argument, "field", argument_context)
+            field = argument["field"]
+            _require(field in field_names, f"{argument_context}.field unknown")
+            _require(
+                field_types[field] is expected_type,
+                f"{argument_context}.field type mismatch",
+            )
+            continue
+
+        _require_keys(argument, ("min_field", "max_field"), argument_context)
+        _require(
+            argument_type == "int64",
+            f"{argument_context} range arguments must be int64",
+        )
+        for key in ("min_field", "max_field"):
+            _require_non_empty_string(argument, key, argument_context)
+            field = argument[key]
+            _require(field in field_names, f"{argument_context}.{key} unknown")
+            _require(
+                field_types[field] is int,
+                f"{argument_context}.{key} must reference integer row fields",
+            )
+
+    conditional_equal = row_match.get("conditional_equal", [])
+    _require(
+        isinstance(conditional_equal, list),
+        f"{context}.conditional_equal must be a list",
+    )
+    for index, relationship in enumerate(conditional_equal):
+        relationship_context = f"{context}.conditional_equal[{index}]"
+        _require(
+            isinstance(relationship, dict),
+            f"{relationship_context} must be an object",
+        )
+        _require_keys(
+            relationship,
+            ("flag_field", "left", "right"),
+            relationship_context,
+        )
+        for key in ("flag_field", "left", "right"):
+            _require_non_empty_string(relationship, key, relationship_context)
+        flag_field = relationship["flag_field"]
+        _require(flag_field in field_names, f"{relationship_context}.flag_field unknown")
+        _require(
+            field_types[flag_field] is bool,
+            f"{relationship_context}.flag_field must reference a boolean row field",
+        )
+        left = relationship["left"]
+        right = relationship["right"]
+        _require(left in argument_names, f"{relationship_context}.left unknown")
+        _require(right in argument_names, f"{relationship_context}.right unknown")
+        _require(
+            argument_types[left] == argument_types[right],
+            f"{relationship_context} argument type mismatch",
+        )
+        _require(
+            argument_types[left] != "string",
+            f"{relationship_context} string equality is not supported",
+        )
+    return row_match
+
+
+def _cpp_row_match_argument_condition(argument):
+    name = argument["name"]
+    if "field" in argument:
+        field = argument["field"]
+        if argument["type"] == "string":
+            return f"std::string_view(row.{field}) == {name}"
+        return f"row.{field} == {name}"
+    return (
+        f"({name} >= row.{argument['min_field']} && "
+        f"{name} <= row.{argument['max_field']})"
+    )
+
+
+def _sparse_row_match_helper_lines(rowset_prefix, func_prefix, rowset_func, row_match):
+    if row_match is None:
+        return []
+
+    signature_params = [f"    const {rowset_prefix}Row& row"]
+    for argument in row_match["arguments"]:
+        cpp_type = _cpp_type_for_row_match_argument(argument["type"])
+        param_type = cpp_type if cpp_type == "const char*" else f"const {cpp_type}"
+        signature_params.append(f"    {param_type} {argument['name']}")
+
+    lines = [
+        f"inline bool {func_prefix}_{rowset_func}_row_matches(",
+    ]
+    for index, parameter in enumerate(signature_params):
+        suffix = "," if index + 1 < len(signature_params) else ") {"
+        lines.append(parameter + suffix)
+
+    conditions = [
+        _cpp_row_match_argument_condition(argument)
+        for argument in row_match["arguments"]
+    ]
+    for relationship in row_match.get("conditional_equal", []):
+        conditions.append(
+            f"(!row.{relationship['flag_field']} || "
+            f"{relationship['left']} == {relationship['right']})"
+        )
+
+    for index, condition in enumerate(conditions):
+        if index == 0:
+            prefix = "  return "
+        else:
+            prefix = "      "
+        suffix = " &&" if index + 1 < len(conditions) else ";"
+        lines.append(prefix + condition + suffix)
+    lines.extend(["}", ""])
+    return lines
+
+
 def _validate_generic_sparse_rowset_shape_envelope_spec(spec):
     rowsets = _sparse_rowsets(spec)
     if not rowsets:
@@ -1426,11 +1591,20 @@ def _validate_generic_sparse_rowset_shape_envelope_spec(spec):
         lookup_keys.add(lookup_key)
         labels.add(label)
 
+    field_types = _sparse_row_field_types(rows, fields, "sparse_rowsets[0]")
+    row_match = _validate_sparse_row_match(
+        rowset.get("row_match"),
+        rowset,
+        field_types,
+        "sparse_rowsets[0].row_match",
+    )
+
     return {
         "metadata": metadata,
         "bounds": bounds,
         "rowset": rowset,
-        "field_types": _sparse_row_field_types(rows, fields, "sparse_rowsets[0]"),
+        "field_types": field_types,
+        "row_match": row_match,
     }
 
 
@@ -1440,6 +1614,7 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
     metadata = validated["metadata"]
     rowset = validated["rowset"]
     field_types = validated["field_types"]
+    row_match = validated["row_match"]
     rows = rowset["rows"]
     fields = rowset["fields"]
     lookup_fields = rowset["lookup_fields"]
@@ -1489,6 +1664,12 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
         lookup_checks.append(_cpp_row_field_compare(field, field_types[field]))
     lookup_params[-1] = lookup_params[-1].rstrip(",") + ") {"
     lookup_condition = " &&\n        ".join(lookup_checks)
+    row_match_lines = _sparse_row_match_helper_lines(
+        rowset_prefix,
+        func_prefix,
+        rowset_func,
+        row_match,
+    )
 
     lines = [
         "// Generated by tools/vulkan_contracts/gen_contract_spec_cpp.py",
@@ -1563,6 +1744,11 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
         [
             "};",
             "",
+        ]
+    )
+    lines.extend(row_match_lines)
+    lines.extend(
+        [
             f"inline const {rowset_prefix}Row* {func_prefix}_{rowset_func}_find(",
         ]
     )

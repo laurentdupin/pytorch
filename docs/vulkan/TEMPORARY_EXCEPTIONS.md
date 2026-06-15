@@ -171,10 +171,11 @@ condition and migration target.
   sparse-rowset helper output in
   `generated/ExecutionContractsTransformerGQASDPASpec.h`. The generated helper
   owns the four correlated causal MHA, causal GQA, decode GQA, and small
-  non-causal GQA rows, per-row metadata, and exact lookup by contract family
-  plus causal/GQA flags. Optional scale tolerance, route-policy hard-fail
-  ordering, sequence equality/inequality checks, SDPA execution,
-  materialization policy, and match-result assembly remain handwritten.
+  non-causal GQA rows, per-row metadata, exact lookup by contract family plus
+  causal/GQA flags, and row-match bounds/conditional equal-sequence checks.
+  Optional scale tolerance, route-policy hard-fail ordering, tensor
+  extraction/early dtype-rank guards, SDPA execution, materialization policy,
+  and match-result assembly remain handwritten.
 - Expiry: broader Transformer SDPA/GQA parity plus adjacent negative coverage
   are available without direct decode GQA broadening.
 - Migration target: broader generated `TransformerGQASDPAContract` tables with

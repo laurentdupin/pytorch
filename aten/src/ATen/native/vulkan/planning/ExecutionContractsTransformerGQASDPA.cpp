@@ -28,28 +28,24 @@ const char* transformer_gqa_sdpa_contract_family_name(
   return "";
 }
 
-bool transformer_gqa_sdpa_row_matches(
-    const generated::TransformerGQASDPAAttentionRowsRow& row,
-    const IntArrayRef query_sizes,
-    const IntArrayRef key_sizes) {
-  return query_sizes[1] == row.query_heads &&
-      key_sizes[1] == row.key_value_heads &&
-      query_sizes[2] >= row.query_sequence_min &&
-      query_sizes[2] <= row.query_sequence_max &&
-      key_sizes[2] >= row.key_value_sequence_min &&
-      key_sizes[2] <= row.key_value_sequence_max &&
-      query_sizes[3] == row.head_dim && key_sizes[3] == row.head_dim &&
-      (!row.requires_equal_sequence || query_sizes[2] == key_sizes[2]);
-}
-
 bool apply_transformer_gqa_sdpa_row(
     TransformerGQASDPAMatch& result,
     const TransformerGQASDPAFamily family,
     const generated::TransformerGQASDPAAttentionRowsRow* const row,
     const IntArrayRef query_sizes,
-    const IntArrayRef key_sizes) {
+    const IntArrayRef key_sizes,
+    const bool is_causal,
+    const bool enable_gqa) {
   if (row == nullptr ||
-      !transformer_gqa_sdpa_row_matches(*row, query_sizes, key_sizes)) {
+      !generated::transformer_gqasdpa_attention_rows_row_matches(
+          *row,
+          query_sizes[1],
+          key_sizes[1],
+          query_sizes[2],
+          key_sizes[2],
+          query_sizes[3],
+          is_causal,
+          enable_gqa)) {
     return false;
   }
   result.matched = true;
@@ -130,7 +126,8 @@ TransformerGQASDPAMatch match_transformer_gqa_sdpa_contract(
     const auto family = TransformerGQASDPAFamily::CausalPrefill;
     const auto* const row = generated::transformer_gqasdpa_attention_rows_find(
         transformer_gqa_sdpa_contract_family_name(family), is_causal, enable_gqa);
-    if (apply_transformer_gqa_sdpa_row(result, family, row, query_sizes, key_sizes)) {
+    if (apply_transformer_gqa_sdpa_row(
+            result, family, row, query_sizes, key_sizes, is_causal, enable_gqa)) {
       return result;
     }
     return result;
@@ -140,7 +137,8 @@ TransformerGQASDPAMatch match_transformer_gqa_sdpa_contract(
     const auto family = TransformerGQASDPAFamily::DecodeGQA;
     const auto* const row = generated::transformer_gqasdpa_attention_rows_find(
         transformer_gqa_sdpa_contract_family_name(family), is_causal, enable_gqa);
-    if (apply_transformer_gqa_sdpa_row(result, family, row, query_sizes, key_sizes)) {
+    if (apply_transformer_gqa_sdpa_row(
+            result, family, row, query_sizes, key_sizes, is_causal, enable_gqa)) {
       return result;
     }
   }
@@ -148,7 +146,8 @@ TransformerGQASDPAMatch match_transformer_gqa_sdpa_contract(
   const auto family = TransformerGQASDPAFamily::SmallNonCausalGQA;
   const auto* const row = generated::transformer_gqasdpa_attention_rows_find(
       transformer_gqa_sdpa_contract_family_name(family), is_causal, enable_gqa);
-  if (apply_transformer_gqa_sdpa_row(result, family, row, query_sizes, key_sizes)) {
+  if (apply_transformer_gqa_sdpa_row(
+          result, family, row, query_sizes, key_sizes, is_causal, enable_gqa)) {
     return result;
   }
   return result;

@@ -131,6 +131,25 @@ constexpr TransformerGQASDPAAttentionRowsRow kTransformerGQASDPAAttentionRowsRow
     }
 };
 
+inline bool transformer_gqasdpa_attention_rows_row_matches(
+    const TransformerGQASDPAAttentionRowsRow& row,
+    const std::int64_t query_heads,
+    const std::int64_t key_value_heads,
+    const std::int64_t query_sequence,
+    const std::int64_t key_value_sequence,
+    const std::int64_t head_dim,
+    const bool is_causal,
+    const bool enable_gqa) {
+  return row.query_heads == query_heads &&
+      row.key_value_heads == key_value_heads &&
+      (query_sequence >= row.query_sequence_min && query_sequence <= row.query_sequence_max) &&
+      (key_value_sequence >= row.key_value_sequence_min && key_value_sequence <= row.key_value_sequence_max) &&
+      row.head_dim == head_dim &&
+      row.is_causal == is_causal &&
+      row.enable_gqa == enable_gqa &&
+      (!row.requires_equal_sequence || query_sequence == key_value_sequence);
+}
+
 inline const TransformerGQASDPAAttentionRowsRow* transformer_gqasdpa_attention_rows_find(
     const char* family,
     const bool is_causal,

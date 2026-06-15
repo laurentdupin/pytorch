@@ -193,10 +193,11 @@ These files are diagnostic inputs. Production code must not depend on
   spec backed by `ShapeEnvelope` v1 with checked-in positive/adjacent-negative
   runtime cases plus generic ShapeEnvelope C++ sparse-rowset helper output in
   `generated/ExecutionContractsTransformerGQASDPASpec.h`. The generated
-  helper provides contract identity, per-row metadata, and exact lookup by
-  contract family plus causal/GQA flags while scale tolerance, route-policy
-  hard-fail ordering, sequence inequalities, SDPA execution, and match-result
-  assembly remain handwritten.
+  helper provides contract identity, per-row metadata, exact lookup by contract
+  family plus causal/GQA flags, and row-match bounds/conditional equal-sequence
+  checks while scale tolerance, route-policy hard-fail ordering, tensor
+  extraction/early dtype-rank guards, SDPA execution, and match-result assembly
+  remain handwritten.
 - `MaskedTinySDPAContract`: tiny additive-mask SDPA tuple, now split into a
   family-specific source. The `AdditiveFloatMask` slice has a JSON contract
   spec backed by `ShapeEnvelope` v1 with checked-in positive/adjacent-negative
@@ -470,11 +471,11 @@ These files are diagnostic inputs. Production code must not depend on
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `generated/ExecutionContractsTransformerGQASDPASpec.h` from
   `transformer_gqa_sdpa_contract.json` for contract identity, per-row
-  metadata, the four correlated causal/prefill/decode GQA rows, and exact
-  lookup by contract family plus causal/GQA flags. Optional scale tolerance,
-  route-policy hard-fail ordering, sequence equality/inequality checks, SDPA
-  execution, and match-result assembly remain handwritten so route behavior is
-  unchanged.
+  metadata, the four correlated causal/prefill/decode GQA rows, exact lookup by
+  contract family plus causal/GQA flags, and row-match bounds/conditional
+  equal-sequence checks. Optional scale tolerance, route-policy hard-fail
+  ordering, tensor extraction/early dtype-rank guards, SDPA execution, and
+  match-result assembly remain handwritten so route behavior is unchanged.
 - NoOverlapConvTranspose2D `Kernel2Stride2FloatBuffer` consumes the generic
   ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

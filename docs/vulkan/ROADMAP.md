@@ -206,11 +206,12 @@ Current MVP status:
 - `TransformerGQASDPAContract` `SparseAttentionRows` now uses the generic
   ShapeEnvelope C++ sparse-rowset generator path:
   `ExecutionContractsTransformerGQASDPASpec.h` provides contract identity,
-  per-row metadata, the four correlated causal/prefill/decode GQA rows, and
-  exact lookup by contract family plus causal/GQA flags for the existing
-  matcher. Scale tolerance, route-policy hard-fail ordering, sequence
-  equality/inequality checks, SDPA execution, materialization policy, and
-  broader SDPA policy remain handwritten.
+  per-row metadata, the four correlated causal/prefill/decode GQA rows, exact
+  lookup by contract family plus causal/GQA flags, and row-match
+  bounds/conditional equal-sequence checks for the existing matcher. Scale
+  tolerance, route-policy hard-fail ordering, tensor extraction/early dtype-rank
+  guards, SDPA execution, materialization policy, and broader SDPA policy remain
+  handwritten.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

@@ -2408,6 +2408,57 @@ class TestVulkanGovernance(TestCase):
             family_counts[row["family"]] = family_counts.get(row["family"], 0) + 1
             tuple_ids.add(row["tuple_id"])
         self.assertEqual(
+            rowset["row_match"],
+            {
+                "arguments": [
+                    {
+                        "name": "query_heads",
+                        "field": "query_heads",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "key_value_heads",
+                        "field": "key_value_heads",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "query_sequence",
+                        "min_field": "query_sequence_min",
+                        "max_field": "query_sequence_max",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "key_value_sequence",
+                        "min_field": "key_value_sequence_min",
+                        "max_field": "key_value_sequence_max",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "head_dim",
+                        "field": "head_dim",
+                        "type": "int64",
+                    },
+                    {
+                        "name": "is_causal",
+                        "field": "is_causal",
+                        "type": "bool",
+                    },
+                    {
+                        "name": "enable_gqa",
+                        "field": "enable_gqa",
+                        "type": "bool",
+                    },
+                ],
+                "conditional_equal": [
+                    {
+                        "flag_field": "requires_equal_sequence",
+                        "left": "query_sequence",
+                        "right": "key_value_sequence",
+                    },
+                ],
+            },
+        )
+        self.assertEqual(
             family_counts,
             {
                 "CausalPrefill": 2,

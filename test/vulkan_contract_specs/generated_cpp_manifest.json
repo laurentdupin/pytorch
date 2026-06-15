@@ -62,6 +62,7 @@
         "TransformerGQASDPASparseAttentionRowsSpec",
         "TransformerGQASDPAAttentionRowsRow",
         "kTransformerGQASDPAAttentionRowsRowCount",
+        "transformer_gqasdpa_attention_rows_row_matches",
         "transformer_gqasdpa_attention_rows_find"
       ]
     },

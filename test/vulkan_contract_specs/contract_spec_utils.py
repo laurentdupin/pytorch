@@ -350,6 +350,122 @@ def _validate_sparse_rowset_negative_axes(negative_axes, field_names, context):
                 _validate_scalar(value, f"{axis_context}.{mapping_field}.{field}")
 
 
+_ROW_MATCH_ARGUMENT_TYPES = {
+    "bool": bool,
+    "int64": int,
+    "string": str,
+}
+
+
+def _sparse_scalar_type(value):
+    if isinstance(value, bool):
+        return bool
+    return type(value)
+
+
+def _sparse_rowset_field_types(rowset, context):
+    field_types = {}
+    for field in rowset["fields"]:
+        current_type = None
+        for row_index, row in enumerate(rowset["rows"]):
+            value_type = _sparse_scalar_type(row[field])
+            if value_type not in (bool, int, str):
+                raise AssertionError(
+                    f"{context}.rows[{row_index}].{field} has unsupported type"
+                )
+            if current_type is None:
+                current_type = value_type
+            if value_type is not current_type:
+                raise AssertionError(f"{context}.{field} type mismatch")
+        field_types[field] = current_type
+    return field_types
+
+
+def _validate_sparse_row_match(row_match, field_types, context):
+    if row_match is None:
+        return
+    _require_mapping(row_match, context)
+    require_fields(row_match, ("arguments",), context)
+    arguments = row_match["arguments"]
+    _require_list(arguments, f"{context}.arguments")
+
+    argument_names = set()
+    argument_types = {}
+    for index, argument in enumerate(arguments):
+        argument_context = f"{context}.arguments[{index}]"
+        _require_mapping(argument, argument_context)
+        require_fields(argument, ("name", "type"), argument_context)
+        _require_non_empty_string(argument, "name", argument_context)
+        name = argument["name"]
+        if name in argument_names:
+            raise AssertionError(f"{argument_context}.name duplicate")
+        argument_names.add(name)
+
+        argument_type = argument["type"]
+        if argument_type not in _ROW_MATCH_ARGUMENT_TYPES:
+            raise AssertionError(f"{argument_context}.type unsupported")
+        argument_types[name] = argument_type
+
+        has_field = "field" in argument
+        has_range = "min_field" in argument or "max_field" in argument
+        if has_field == has_range:
+            raise AssertionError(
+                f"{argument_context} must use either field or min_field/max_field"
+            )
+        expected_type = _ROW_MATCH_ARGUMENT_TYPES[argument_type]
+        if has_field:
+            _require_non_empty_string(argument, "field", argument_context)
+            field = argument["field"]
+            if field not in field_types:
+                raise AssertionError(f"{argument_context}.field unknown")
+            if field_types[field] is not expected_type:
+                raise AssertionError(f"{argument_context}.field type mismatch")
+            continue
+
+        require_fields(argument, ("min_field", "max_field"), argument_context)
+        if argument_type != "int64":
+            raise AssertionError(f"{argument_context} range arguments must be int64")
+        for key in ("min_field", "max_field"):
+            _require_non_empty_string(argument, key, argument_context)
+            field = argument[key]
+            if field not in field_types:
+                raise AssertionError(f"{argument_context}.{key} unknown")
+            if field_types[field] is not int:
+                raise AssertionError(
+                    f"{argument_context}.{key} must reference integer row fields"
+                )
+
+    conditional_equal = row_match.get("conditional_equal", [])
+    _require_list(conditional_equal, f"{context}.conditional_equal", allow_empty=True)
+    for index, relationship in enumerate(conditional_equal):
+        relationship_context = f"{context}.conditional_equal[{index}]"
+        _require_mapping(relationship, relationship_context)
+        require_fields(
+            relationship,
+            ("flag_field", "left", "right"),
+            relationship_context,
+        )
+        for key in ("flag_field", "left", "right"):
+            _require_non_empty_string(relationship, key, relationship_context)
+        flag_field = relationship["flag_field"]
+        if flag_field not in field_types:
+            raise AssertionError(f"{relationship_context}.flag_field unknown")
+        if field_types[flag_field] is not bool:
+            raise AssertionError(
+                f"{relationship_context}.flag_field must reference a boolean row field"
+            )
+        left = relationship["left"]
+        right = relationship["right"]
+        if left not in argument_names:
+            raise AssertionError(f"{relationship_context}.left unknown")
+        if right not in argument_names:
+            raise AssertionError(f"{relationship_context}.right unknown")
+        if argument_types[left] != argument_types[right]:
+            raise AssertionError(f"{relationship_context} argument type mismatch")
+        if argument_types[left] == "string":
+            raise AssertionError(f"{relationship_context} string equality unsupported")
+
+
 def _sparse_rowset_field_values(rowset, field):
     return _dedupe_preserving_order(row[field] for row in rowset["rows"])
 
@@ -447,6 +563,13 @@ def _validate_sparse_rowset(rowset, context):
                 f"{seen_lookup_keys[lookup_key]}"
             )
         seen_lookup_keys[lookup_key] = index
+
+    field_types = _sparse_rowset_field_types(rowset, context)
+    _validate_sparse_row_match(
+        rowset.get("row_match"),
+        field_types,
+        f"{context}.row_match",
+    )
 
     _validate_sparse_rowset_negative_axes(
         rowset.get("negative_axes", []),
