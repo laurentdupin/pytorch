@@ -416,6 +416,12 @@ constexpr SmallSpatialPointwiseConvProjectionRowsRow kSmallSpatialPointwiseConvP
     }
 };
 
+constexpr bool small_spatial_pointwise_conv_sparse_projection_rows_input_weight_channels_equal(
+    const std::int64_t input_c,
+    const std::int64_t weight_input_c) {
+  return input_c == weight_input_c;
+}
+
 inline const SmallSpatialPointwiseConvProjectionRowsRow* small_spatial_pointwise_conv_projection_rows_find(
     const std::int64_t input_c,
     const std::int64_t input_h,

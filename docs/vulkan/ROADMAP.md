@@ -134,15 +134,16 @@ Current MVP status:
   generic ShapeEnvelope C++ simple-bounds generator path:
   `ExecutionContractsNoOverlapConvTranspose2DSpec.h` provides contract
   identity, metadata, dtype/rank/options/layout bounds, and helper predicates
-  for the existing matcher. Packed-channel equality, output-shape arithmetic,
-  prepack resource behavior, and match-result construction remain handwritten.
+  for the existing matcher, including input/weight channel equality.
+  Output-shape arithmetic, prepack resource behavior, and match-result
+  construction remain handwritten.
 - `SmallMetadataPaddedConv2DContract` `MaterializedBufferInput2x2` now uses
   the generic ShapeEnvelope C++ simple-bounds generator path:
   `ExecutionContractsSmallMetadataPaddedConv2DSpec.h` provides contract
   identity, metadata, exact input/weight/options bounds, and helper predicates
-  for the existing matcher. Tensor-info extraction, materialization dispatch,
-  op-hit logging, fallback visibility, and match-result construction remain
-  handwritten.
+  for the existing matcher, including input/weight channel equality.
+  Tensor-info extraction, materialization dispatch, op-hit logging, fallback
+  visibility, and match-result construction remain handwritten.
 - `LinearGeluBridgeContract` `BackboneMlpHidden384To1536` now uses the generic
   ShapeEnvelope C++ simple-bounds generator path:
   `ExecutionContractsLinearGeluBridgeSpec.h` provides contract identity,
@@ -154,10 +155,10 @@ Current MVP status:
 - `SmallSpatialPointwiseConvContract` `SparseProjectionRows` now uses the
   generic ShapeEnvelope C++ sparse-rowset generator path:
   `ExecutionContractsSmallSpatialPointwiseConvSpec.h` provides contract
-  identity, per-row metadata, the 39 correlated projection rows, and exact
-  lookup helpers for the existing matcher. Route-policy hard-fail rescue,
-  shader-family decisions, family op-hit labels, and match-result construction
-  remain handwritten.
+  identity, per-row metadata, input/weight channel equality, the 39 correlated
+  projection rows, and exact lookup helpers for the existing matcher.
+  Route-policy hard-fail rescue, shader-family decisions, family op-hit
+  labels, and match-result construction remain handwritten.
 - `KVCacheAppendContract` `SequenceAppend` and `InitialCache` now use the
   generic ShapeEnvelope C++ simple-bounds generator path:
   `ExecutionContractsKVCacheAppendSpec.h` and

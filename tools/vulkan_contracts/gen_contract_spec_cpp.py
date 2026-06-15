@@ -328,6 +328,108 @@ def _sum_output_relationship(envelope, input_name, dim_name, result_name, contex
     return matches[0]
 
 
+def _symbol_field_for_input(envelope, field_path, context):
+    parts = field_path.split(".")
+    _require(len(parts) == 2, f"{context} field path {field_path!r} invalid")
+    input_name, symbol = parts
+    inputs = envelope.get("inputs", {})
+    _require(isinstance(inputs, dict), f"{context}.inputs invalid")
+    input_spec = inputs.get(input_name)
+    _require(isinstance(input_spec, dict), f"{context}.{input_name} missing")
+    dims = input_spec.get("dims")
+    _require(isinstance(dims, list), f"{context}.{input_name}.dims invalid")
+    for dim in dims:
+        if dim.get("symbol") == symbol:
+            _require_non_empty_string(
+                dim, "field", f"{context}.{input_name}.{symbol}"
+            )
+            return input_name, symbol, dim["field"]
+    raise RuntimeError(f"{context} field path {field_path!r} does not map to a dim")
+
+
+def _scalar_equal_relationships(envelope, context):
+    relationships = envelope.get("relationships", [])
+    _require(isinstance(relationships, list), f"{context}.relationships invalid")
+    matches = []
+    seen_scopes = set()
+    for index, relationship in enumerate(relationships):
+        if relationship.get("type") != "equal":
+            continue
+        if relationship.get("scope") != "input_weight_channels":
+            continue
+        relationship_context = f"{context}.relationships[{index}]"
+        _require_keys(relationship, ("scope", "fields"), relationship_context)
+        fields = relationship["fields"]
+        _require(
+            isinstance(fields, list) and len(fields) == 2,
+            f"{relationship_context}.fields must contain two fields",
+        )
+        left = _symbol_field_for_input(envelope, fields[0], relationship_context)
+        right = _symbol_field_for_input(envelope, fields[1], relationship_context)
+        _require(
+            left[1] == right[1],
+            f"{relationship_context}.fields must reference the same symbol",
+        )
+        scope = relationship["scope"]
+        _require(scope not in seen_scopes, f"{relationship_context}.scope duplicated")
+        seen_scopes.add(scope)
+        matches.append(
+            {
+                "scope": scope,
+                "left_input": left[0],
+                "left_field": left[2],
+                "right_input": right[0],
+                "right_field": right[2],
+            }
+        )
+    return matches
+
+
+def _scalar_equal_parameter_name(input_name, field_name, used_names):
+    if input_name == "input" and field_name not in used_names:
+        candidate = field_name
+    else:
+        candidate = f"{input_name}_{field_name}"
+    if candidate in used_names:
+        candidate = f"{input_name}_{candidate}"
+    _require(
+        candidate not in used_names,
+        f"duplicate scalar equal parameter {candidate}",
+    )
+    used_names.add(candidate)
+    return candidate
+
+
+def _scalar_equal_helper_lines(role_func_prefix, relationships):
+    helper_lines = []
+    for relationship in relationships:
+        used_names = set()
+        left_name = _scalar_equal_parameter_name(
+            _cpp_lower_identifier(relationship["left_input"]),
+            _cpp_lower_identifier(relationship["left_field"]),
+            used_names,
+        )
+        right_name = _scalar_equal_parameter_name(
+            _cpp_lower_identifier(relationship["right_input"]),
+            _cpp_lower_identifier(relationship["right_field"]),
+            used_names,
+        )
+        helper_name = (
+            f"{role_func_prefix}_{_cpp_lower_identifier(relationship['scope'])}_equal"
+        )
+        helper_lines.extend(
+            [
+                f"constexpr bool {helper_name}(",
+                f"    const std::int64_t {left_name},",
+                f"    const std::int64_t {right_name}) {{",
+                f"  return {left_name} == {right_name};",
+                "}",
+                "",
+            ]
+        )
+    return helper_lines
+
+
 def _simple_bounds_shape_envelope_fields(bounds):
     dtype_fields = []
     int_fields = []
@@ -982,6 +1084,9 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
     product_value_relationships = _product_value_relationships(
         envelope, "ShapeEnvelope simple-bounds"
     )
+    scalar_equal_relationships = _scalar_equal_relationships(
+        envelope, "ShapeEnvelope simple-bounds"
+    )
 
     field_struct_lines = []
     initializer_lines = []
@@ -1147,6 +1252,10 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
             ]
         )
 
+    scalar_equal_helpers = _scalar_equal_helper_lines(
+        role_func_prefix, scalar_equal_relationships
+    )
+
     initializer_lines[-1] = initializer_lines[-1].rstrip(",") + "};"
     option_signature = []
     for param, _ in option_params:
@@ -1239,6 +1348,7 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
     lines.extend(list_rank_helpers)
     lines.extend(relationship_helpers)
     lines.extend(product_helpers)
+    lines.extend(scalar_equal_helpers)
     lines.extend(
         [
             f"constexpr bool {role_func_prefix}_options_match(",
@@ -1906,6 +2016,7 @@ def _validate_generic_sparse_rowset_shape_envelope_spec(spec):
 def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
     validated = _validate_generic_sparse_rowset_shape_envelope_spec(spec)
     _require(validated is not None, "expected sparse-rowset ShapeEnvelope")
+    envelope = spec["shape_envelope"]
     metadata = validated["metadata"]
     rowset = validated["rowset"]
     field_types = validated["field_types"]
@@ -1921,7 +2032,11 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
     spec_prefix = contract_prefix + _cpp_identifier_fragment(spec["family"])
     rowset_prefix = contract_prefix + _cpp_identifier_fragment(rowset["name"])
     func_prefix = _cpp_lower_identifier(spec["contract_name"].removesuffix("Contract"))
+    role_func_prefix = _cpp_lower_identifier(envelope["role"])
     rowset_func = _cpp_lower_identifier(rowset["name"])
+    scalar_equal_relationships = _scalar_equal_relationships(
+        envelope, "ShapeEnvelope sparse-rowset"
+    )
 
     row_field_lines = [
         f"  {_cpp_type_for_row_field(field_types[field])} {field};"
@@ -1964,6 +2079,9 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
         func_prefix,
         rowset_func,
         row_match,
+    )
+    scalar_equal_helpers = _scalar_equal_helper_lines(
+        role_func_prefix, scalar_equal_relationships
     )
 
     lines = [
@@ -2041,6 +2159,7 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
             "",
         ]
     )
+    lines.extend(scalar_equal_helpers)
     lines.extend(row_match_lines)
     lines.extend(
         [

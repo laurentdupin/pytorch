@@ -287,8 +287,9 @@ condition and migration target.
   covers the `MaterializedBufferInput2x2` slice with ShapeEnvelope-backed
   checked-in positive and adjacent negative runtime cases plus generic
   ShapeEnvelope C++ exact simple-bound helper output in
-  `generated/ExecutionContractsSmallMetadataPaddedConv2DSpec.h`. Tensor-info
-  extraction, input materialization, op-hit logging, fallback to
+  `generated/ExecutionContractsSmallMetadataPaddedConv2DSpec.h`, including
+  input/weight channel equality. Tensor-info extraction, input materialization,
+  op-hit logging, fallback to
   `aten::convolution.buffer_float_skip.small_metadata_input`, and match-result
   assembly remain handwritten.
 - Expiry: broader padded-conv layout parity plus adjacent negative coverage are
@@ -309,10 +310,10 @@ condition and migration target.
   positive and adjacent negative runtime cases plus generic ShapeEnvelope
   sparse-rowset helper output in
   `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`. The generated
-  helper owns the 39 correlated projection rows, per-row metadata, and exact
-  `(input_c, input_h, input_w, output_c)` lookup. Route-policy hard-fail
-  rescue, shader-family decisions, family op-hit labels, and match-result
-  assembly remain handwritten.
+  helper owns the 39 correlated projection rows, per-row metadata,
+  input/weight channel equality, and exact `(input_c, input_h, input_w,
+  output_c)` lookup. Route-policy hard-fail rescue, shader-family decisions,
+  family op-hit labels, and match-result assembly remain handwritten.
 - Expiry: broader pointwise conv parity plus adjacent negative coverage are
   available across layout, storage, and output-channel families.
 - Migration target: generated `SmallSpatialPointwiseConvContract` or broader
@@ -330,9 +331,9 @@ condition and migration target.
   covers the `Kernel2Stride2FloatBuffer` slice with ShapeEnvelope-backed
   checked-in positive and adjacent negative runtime cases plus generic
   ShapeEnvelope C++ metadata/simple-bound helper output in
-  `generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h`. Packed-channel
-  equality, output-shape arithmetic, prepack resource behavior, and
-  match-result assembly remain handwritten.
+  `generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h`, including
+  input/weight channel equality. Output-shape arithmetic, prepack resource
+  behavior, and match-result assembly remain handwritten.
 - Expiry: broader conv-transpose parity plus adjacent negative coverage are
   available.
 - Migration target: generated `NoOverlapConvTranspose2DContract` tables with

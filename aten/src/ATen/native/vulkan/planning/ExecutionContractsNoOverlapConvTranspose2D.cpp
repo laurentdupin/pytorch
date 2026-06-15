@@ -96,7 +96,8 @@ NoOverlapConvTranspose2DMatch match_no_overlap_conv_transpose2d_contract(
           packed.bias_is_float) ||
       !generated::no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_in_bounds(
           spec, input.channels) ||
-      packed.input_channels != input.channels) {
+      !generated::no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_input_weight_channels_equal(
+          input.channels, packed.input_channels)) {
     return result;
   }
 

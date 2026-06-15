@@ -85,7 +85,9 @@ SmallSpatialPointwiseConvMatch match_small_spatial_pointwise_conv_contract(
   if (
       dtype != kFloat || input_sizes.size() != 4 || weight_sizes.size() != 4 ||
       stride.size() != 2 || padding.size() != 2 || dilation.size() != 2 ||
-      groups != 1 || input_sizes[0] != 1 || input_sizes[1] != weight_sizes[1] ||
+      groups != 1 || input_sizes[0] != 1 ||
+      !generated::small_spatial_pointwise_conv_sparse_projection_rows_input_weight_channels_equal(
+          input_sizes[1], weight_sizes[1]) ||
       weight_sizes[2] != 1 || weight_sizes[3] != 1 || stride[0] != 1 ||
       stride[1] != 1 || padding[0] != 0 || padding[1] != 0 ||
       dilation[0] != 1 || dilation[1] != 1) {

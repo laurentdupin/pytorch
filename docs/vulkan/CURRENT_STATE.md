@@ -165,18 +165,19 @@ These files are diagnostic inputs. Production code must not depend on
   contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 39
   current projection rows, checked-in positive/adjacent-negative runtime
   cases, and generic ShapeEnvelope C++ sparse-rowset helper output. The
-  generated helper provides contract identity, per-row metadata, and exact
-  `(input_c, input_h, input_w, output_c)` lookup while route-policy hard-fail
-  rescue, shader-family decisions, family op-hit labels, and match-result
-  assembly remain handwritten. Keep exact rows until broader legality is
-  proven.
+  generated helper provides contract identity, per-row metadata, input/weight
+  channel equality, and exact `(input_c, input_h, input_w, output_c)` lookup
+  while route-policy hard-fail rescue, shader-family decisions, family op-hit
+  labels, and match-result assembly remain handwritten. Keep exact rows until
+  broader legality is proven.
 - `NoOverlapConvTranspose2DContract`: bounded float-buffer 2x2 stride-2
   no-overlap transposed-conv envelope. The `Kernel2Stride2FloatBuffer` slice
   has a JSON contract spec backed by `ShapeEnvelope` v1 with checked-in
   positive/adjacent-negative runtime cases and generic ShapeEnvelope C++
-  metadata/simple-bound helper output. Packed input-channel equality, output
-  shape arithmetic, prepack resource behavior, and match-result assembly remain
-  handwritten; preserve unsupported-case fallback outside that envelope.
+  metadata/simple-bound helper output. Input/weight channel equality is
+  generated; output shape arithmetic, prepack resource behavior, and
+  match-result assembly remain handwritten. Preserve unsupported-case fallback
+  outside that envelope.
 - `SmallMetadataPaddedConv2DContract`: one proven padded low-channel
   buffer-input materialization tuple, now split into a family-specific source.
   The `MaterializedBufferInput2x2` slice has a JSON contract spec backed by
@@ -485,18 +486,18 @@ These files are diagnostic inputs. Production code must not depend on
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h` from
   `no_overlap_conv_transpose2d_contract.json` for contract identity, metadata,
-  dtype/rank/options/layout bounds, and helper predicates. Packed-channel
-  equality, output-shape arithmetic, prepack resource behavior, and match
+  dtype/rank/options/layout bounds, input/weight channel equality, and helper
+  predicates. Output-shape arithmetic, prepack resource behavior, and match
   result construction remain handwritten so route behavior is unchanged.
 - SmallMetadataPaddedConv2D `MaterializedBufferInput2x2` consumes the generic
   ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `generated/ExecutionContractsSmallMetadataPaddedConv2DSpec.h` from
   `small_metadata_padded_conv2d_contract.json` for contract identity,
-  metadata, exact input/weight/options bounds, and helper predicates. Tensor
-  info extraction, materialization dispatch, op-hit logging, fallback
-  visibility, and match result construction remain handwritten so route
-  behavior is unchanged.
+  metadata, exact input/weight/options bounds, input/weight channel equality,
+  and helper predicates. Tensor info extraction, materialization dispatch,
+  op-hit logging, fallback visibility, and match result construction remain
+  handwritten so route behavior is unchanged.
 - LinearGeluBridge `BackboneMlpHidden384To1536` consumes the generic
   ShapeEnvelope simple-bounds generator path without a dtype-specific
   requirement:
@@ -512,10 +513,11 @@ These files are diagnostic inputs. Production code must not depend on
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h` from
   `small_spatial_pointwise_conv_contract.json` for contract identity,
-  per-row metadata, the 39 correlated projection rows, and exact lookup by
-  input/output channel and spatial shape. Route-policy hard-fail rescue,
-  shader-family decisions, family op-hit labels, and match result construction
-  remain handwritten so route behavior is unchanged.
+  per-row metadata, input/weight channel equality, the 39 correlated
+  projection rows, and exact lookup by input/output channel and spatial shape.
+  Route-policy hard-fail rescue, shader-family decisions, family op-hit
+  labels, and match result construction remain handwritten so route behavior
+  is unchanged.
 - SafeViewReshape `ViewMaterializedDirectBuffer` and
   `ReshapeAliasDenseBufferDirect` consume the generic ShapeEnvelope
   shape/layout simple-bounds generator path:

@@ -154,6 +154,7 @@
         "NoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec",
         "kNoOverlapConvTranspose2DKernel2Stride2FloatBufferContractName",
         "kNoOverlapConvTranspose2DKernel2Stride2FloatBufferMinInputChannels",
+        "no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_input_weight_channels_equal",
         "no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_options_match",
         "no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_in_bounds"
       ]
@@ -205,6 +206,7 @@
         "SmallSpatialPointwiseConvSparseProjectionRowsSpec",
         "SmallSpatialPointwiseConvProjectionRowsRow",
         "kSmallSpatialPointwiseConvProjectionRowsRowCount",
+        "small_spatial_pointwise_conv_sparse_projection_rows_input_weight_channels_equal",
         "small_spatial_pointwise_conv_projection_rows_find"
       ]
     },
@@ -215,6 +217,7 @@
         "SmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec",
         "kSmallMetadataPaddedConv2DMaterializedBufferInput2x2ContractName",
         "kSmallMetadataPaddedConv2DMaterializedBufferInput2x2InputHeight",
+        "small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_input_weight_channels_equal",
         "small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_options_match",
         "small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_in_bounds"
       ]

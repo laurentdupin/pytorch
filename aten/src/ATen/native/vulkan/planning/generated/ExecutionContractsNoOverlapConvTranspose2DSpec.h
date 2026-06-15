@@ -126,6 +126,12 @@ constexpr NoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec
         kNoOverlapConvTranspose2DKernel2Stride2FloatBufferBiasHasBufferStorage,
         kNoOverlapConvTranspose2DKernel2Stride2FloatBufferBiasIsFloat};
 
+constexpr bool no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_input_weight_channels_equal(
+    const std::int64_t input_channels,
+    const std::int64_t weight_input_channels) {
+  return input_channels == weight_input_channels;
+}
+
 constexpr bool no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_options_match(
     const NoOverlapConvTranspose2DKernel2Stride2FloatBufferSpec& spec,
     const at::ScalarType input_dtype,

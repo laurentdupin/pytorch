@@ -126,6 +126,12 @@ constexpr SmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec
         kSmallMetadataPaddedConv2DMaterializedBufferInput2x2InputSupportsBufferCompute,
         kSmallMetadataPaddedConv2DMaterializedBufferInput2x2WeightDefined};
 
+constexpr bool small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_input_weight_channels_equal(
+    const std::int64_t input_channels,
+    const std::int64_t weight_input_channels) {
+  return input_channels == weight_input_channels;
+}
+
 constexpr bool small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_options_match(
     const SmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec& spec,
     const at::ScalarType input_dtype,

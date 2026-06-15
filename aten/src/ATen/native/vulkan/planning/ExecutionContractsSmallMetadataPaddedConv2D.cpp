@@ -97,7 +97,8 @@ SmallMetadataPaddedConv2DMatch match_small_metadata_padded_conv2d_contract(
           weight.defined) ||
       !generated::small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_in_bounds(
           spec) ||
-      weight.input_channels != input.channels) {
+      !generated::small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_input_weight_channels_equal(
+          input.channels, weight.input_channels)) {
     return result;
   }
 
