@@ -81,6 +81,20 @@ constexpr BatchNormInferenceBufferFloat4DSpec
         kBatchNormInferenceBufferFloat4DRequiresBufferStorage,
         kBatchNormInferenceBufferFloat4DRequiresBufferCompute};
 
+constexpr bool batch_norm_inference_buffer_float_4_d_feature_count_equal(
+    const std::int64_t input_channels,
+    const std::int64_t running_mean_channels,
+    const std::int64_t running_var_channels,
+    const bool weight_has_value,
+    const std::int64_t weight_channels,
+    const bool bias_has_value,
+    const std::int64_t bias_channels) {
+  return input_channels == running_mean_channels &&
+      input_channels == running_var_channels &&
+      (!weight_has_value || input_channels == weight_channels) &&
+      (!bias_has_value || input_channels == bias_channels);
+}
+
 constexpr bool batch_norm_inference_buffer_float_4_d_options_match(
     const BatchNormInferenceBufferFloat4DSpec& spec,
     const at::ScalarType input_dtype,

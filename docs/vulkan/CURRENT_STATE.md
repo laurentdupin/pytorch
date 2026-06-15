@@ -280,7 +280,8 @@ These files are diagnostic inputs. Production code must not depend on
   contract specs backed by `ShapeEnvelope` v1 with checked-in
   positive/adjacent-negative runtime cases. Both slices now use the generic
   ShapeEnvelope C++ generator path for generated metadata, simple bounds, and
-  helper predicates while feature-count equality, parameter checks, and match
+  helper predicates, including optional-aware feature-count equality.
+  Parameter checks, provenance, storage/materialization policy, and match
   result assembly remain handwritten. Tensor provenance and value traces report
   the admitted contract name, family, tuple id, and materialization policy for
   BatchNorm canaries without changing the visible execution route.
@@ -411,9 +412,10 @@ These files are diagnostic inputs. Production code must not depend on
   `generated/ExecutionContractsBatchNormInferenceMaterializedSpec.h` from the
   direct and materialized BatchNorm JSON specs for contract identity, metadata,
   dtype/rank/layout/training bounds, materialization policy, and simple helper
-  predicates. The simple-bounds generator emits row-qualified contract-name
-  constants so sibling generated rows can be included in the same translation
-  unit without duplicate symbols.
+  predicates, including optional-aware feature-count equality. The
+  simple-bounds generator emits row-qualified contract-name constants so
+  sibling generated rows can be included in the same translation unit without
+  duplicate symbols.
 - KVCacheAppend `SequenceAppend` and `InitialCache` consume the generic
   ShapeEnvelope simple-bounds generator path:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

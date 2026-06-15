@@ -55,40 +55,31 @@ constexpr ExecutionContractMetadata
             generated::kBatchNormInferenceMaterializedBufferFloat4DSpec
                 .materialization_policy);
 
-bool batch_norm_float_1d_matches(
-    const BatchNormInferenceTensorInfo& tensor,
-    const int64_t num_features) {
+bool batch_norm_float_1d_matches(const BatchNormInferenceTensorInfo& tensor) {
   return tensor.has_value && tensor.defined && tensor.is_vulkan &&
-      tensor.dtype == kFloat && tensor.dim == 1 &&
-      tensor.numel == num_features && tensor.is_contiguous;
+      tensor.dtype == kFloat && tensor.dim == 1 && tensor.is_contiguous;
 }
 
 bool batch_norm_float_1d_buffer_matches(
-    const BatchNormInferenceTensorInfo& tensor,
-    const int64_t num_features) {
-  return batch_norm_float_1d_matches(tensor, num_features) &&
-      tensor.has_buffer_storage;
+    const BatchNormInferenceTensorInfo& tensor) {
+  return batch_norm_float_1d_matches(tensor) && tensor.has_buffer_storage;
 }
 
 bool batch_norm_float_1d_materializable_matches(
-    const BatchNormInferenceTensorInfo& tensor,
-    const int64_t num_features) {
-  return batch_norm_float_1d_matches(tensor, num_features) &&
+    const BatchNormInferenceTensorInfo& tensor) {
+  return batch_norm_float_1d_matches(tensor) &&
       tensor.supports_buffer_compute;
 }
 
 bool batch_norm_optional_float_1d_matches(
-    const BatchNormInferenceTensorInfo& tensor,
-    const int64_t num_features) {
-  return !tensor.has_value ||
-      batch_norm_float_1d_matches(tensor, num_features);
+    const BatchNormInferenceTensorInfo& tensor) {
+  return !tensor.has_value || batch_norm_float_1d_matches(tensor);
 }
 
 bool batch_norm_optional_float_1d_materializable_matches(
-    const BatchNormInferenceTensorInfo& tensor,
-    const int64_t num_features) {
+    const BatchNormInferenceTensorInfo& tensor) {
   return !tensor.has_value ||
-      batch_norm_float_1d_materializable_matches(tensor, num_features);
+      batch_norm_float_1d_materializable_matches(tensor);
 }
 
 bool batch_norm_effective_affine_has_buffer_storage(
@@ -155,12 +146,21 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
   }
 
   const int64_t num_features = input.channels;
+  const bool buffer_feature_count_equal =
+      generated::batch_norm_inference_buffer_float_4_d_feature_count_equal(
+          num_features,
+          running_mean.numel,
+          running_var.numel,
+          weight.has_value,
+          weight.numel,
+          bias.has_value,
+          bias.numel);
   const bool buffer_match =
-      input.has_buffer_storage &&
-      batch_norm_float_1d_buffer_matches(running_mean, num_features) &&
-      batch_norm_float_1d_buffer_matches(running_var, num_features) &&
-      batch_norm_optional_float_1d_matches(weight, num_features) &&
-      batch_norm_optional_float_1d_matches(bias, num_features) &&
+      input.has_buffer_storage && buffer_feature_count_equal &&
+      batch_norm_float_1d_buffer_matches(running_mean) &&
+      batch_norm_float_1d_buffer_matches(running_var) &&
+      batch_norm_optional_float_1d_matches(weight) &&
+      batch_norm_optional_float_1d_matches(bias) &&
       batch_norm_effective_affine_has_buffer_storage(weight, running_mean) &&
       batch_norm_effective_affine_has_buffer_storage(bias, running_mean);
   if (buffer_match) {
@@ -171,6 +171,15 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
     return result;
   }
 
+  const bool materialized_feature_count_equal =
+      generated::batch_norm_inference_materialized_buffer_float_4_d_feature_count_equal(
+          num_features,
+          running_mean.numel,
+          running_var.numel,
+          weight.has_value,
+          weight.numel,
+          bias.has_value,
+          bias.numel);
   if (
       !generated::batch_norm_inference_materialized_buffer_float_4_d_options_match(
           materialized_spec,
@@ -186,13 +195,11 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
           materialized_spec.requires_buffer_storage,
           materialized_spec.requires_buffer_compute,
           materialized_spec.requires_materialization) ||
-      !batch_norm_float_1d_materializable_matches(
-          running_mean, num_features) ||
-      !batch_norm_float_1d_materializable_matches(running_var, num_features) ||
-      !batch_norm_optional_float_1d_materializable_matches(
-          weight, num_features) ||
-      !batch_norm_optional_float_1d_materializable_matches(
-          bias, num_features) ||
+      !materialized_feature_count_equal ||
+      !batch_norm_float_1d_materializable_matches(running_mean) ||
+      !batch_norm_float_1d_materializable_matches(running_var) ||
+      !batch_norm_optional_float_1d_materializable_matches(weight) ||
+      !batch_norm_optional_float_1d_materializable_matches(bias) ||
       !batch_norm_effective_affine_supports_buffer_compute(
           weight, running_mean) ||
       !batch_norm_effective_affine_supports_buffer_compute(

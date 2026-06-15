@@ -9,7 +9,8 @@
         "kBatchNormInferenceBufferFloat4DContractName",
         "kBatchNormInferenceBufferFloat4DMinInputChannels",
         "batch_norm_inference_buffer_float_4_d_options_match",
-        "batch_norm_inference_buffer_float_4_d_in_bounds"
+        "batch_norm_inference_buffer_float_4_d_in_bounds",
+        "batch_norm_inference_buffer_float_4_d_feature_count_equal"
       ]
     },
     {
@@ -20,7 +21,8 @@
         "kBatchNormInferenceMaterializedBufferFloat4DContractName",
         "kBatchNormInferenceMaterializedBufferFloat4DRequiresMaterialization",
         "batch_norm_inference_materialized_buffer_float_4_d_options_match",
-        "batch_norm_inference_materialized_buffer_float_4_d_in_bounds"
+        "batch_norm_inference_materialized_buffer_float_4_d_in_bounds",
+        "batch_norm_inference_materialized_buffer_float_4_d_feature_count_equal"
       ]
     },
     {

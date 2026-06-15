@@ -335,8 +335,12 @@ SCALAR_EQUAL_HELPER_SCOPES = {
     "head_dim",
 }
 
+MULTI_FIELD_EQUAL_HELPER_SCOPES = {
+    "feature_count",
+}
 
-def _symbol_field_for_input(envelope, field_path, context):
+
+def _symbol_field_for_input_details(envelope, field_path, context):
     parts = field_path.split(".")
     _require(len(parts) == 2, f"{context} field path {field_path!r} invalid")
     input_name, symbol = parts
@@ -351,8 +355,23 @@ def _symbol_field_for_input(envelope, field_path, context):
             _require_non_empty_string(
                 dim, "field", f"{context}.{input_name}.{symbol}"
             )
-            return input_name, symbol, dim["field"]
+            kind = input_spec.get("kind")
+            _require(
+                isinstance(kind, str) and kind != "",
+                f"{context}.{input_name}.kind invalid",
+            )
+            return {
+                "input": input_name,
+                "symbol": symbol,
+                "field": dim["field"],
+                "kind": kind,
+            }
     raise RuntimeError(f"{context} field path {field_path!r} does not map to a dim")
+
+
+def _symbol_field_for_input(envelope, field_path, context):
+    details = _symbol_field_for_input_details(envelope, field_path, context)
+    return details["input"], details["symbol"], details["field"]
 
 
 def _scalar_equal_relationships(envelope, context):
@@ -388,6 +407,79 @@ def _scalar_equal_relationships(envelope, context):
                 "left_field": left[2],
                 "right_input": right[0],
                 "right_field": right[2],
+            }
+        )
+    return matches
+
+
+def _multi_field_equal_relationships(envelope, context):
+    relationships = envelope.get("relationships", [])
+    _require(isinstance(relationships, list), f"{context}.relationships invalid")
+    attributes = envelope.get("attributes", {})
+    _require(isinstance(attributes, dict), f"{context}.attributes invalid")
+    matches = []
+    seen_scopes = set()
+    for index, relationship in enumerate(relationships):
+        if relationship.get("type") != "equal":
+            continue
+        scope = relationship.get("scope")
+        if scope not in MULTI_FIELD_EQUAL_HELPER_SCOPES:
+            continue
+        relationship_context = f"{context}.relationships[{index}]"
+        _require_keys(relationship, ("scope", "fields"), relationship_context)
+        fields = relationship["fields"]
+        _require(
+            isinstance(fields, list) and len(fields) >= 2,
+            f"{relationship_context}.fields must contain at least two fields",
+        )
+        participants = []
+        for field_index, field in enumerate(fields):
+            details = _symbol_field_for_input_details(
+                envelope, field, relationship_context
+            )
+            _require(
+                details["kind"] in ("tensor", "optional_tensor"),
+                f"{relationship_context}.fields[{field_index}] kind unsupported",
+            )
+            optional = details["kind"] == "optional_tensor"
+            if optional:
+                attribute_name = f"{details['input']}_has_value"
+                attribute = attributes.get(attribute_name)
+                _require(
+                    isinstance(attribute, dict),
+                    f"{relationship_context}.{attribute_name} attribute missing",
+                )
+                values = attribute.get("values")
+                _require(
+                    isinstance(values, list)
+                    and values
+                    and all(isinstance(value, bool) for value in values),
+                    f"{relationship_context}.{attribute_name}.values invalid",
+                )
+            participants.append(
+                {
+                    "input": details["input"],
+                    "symbol": details["symbol"],
+                    "field": details["field"],
+                    "optional": optional,
+                }
+            )
+        symbol = participants[0]["symbol"]
+        _require(
+            not participants[0]["optional"],
+            f"{relationship_context}.fields[0] must be a required reference",
+        )
+        for field_index, participant in enumerate(participants[1:], start=1):
+            _require(
+                participant["symbol"] == symbol,
+                f"{relationship_context}.fields[{field_index}] must reference {symbol}",
+            )
+        _require(scope not in seen_scopes, f"{relationship_context}.scope duplicated")
+        seen_scopes.add(scope)
+        matches.append(
+            {
+                "scope": scope,
+                "participants": participants,
             }
         )
     return matches
@@ -431,6 +523,68 @@ def _scalar_equal_helper_lines(role_func_prefix, relationships):
                 f"    const std::int64_t {left_name},",
                 f"    const std::int64_t {right_name}) {{",
                 f"  return {left_name} == {right_name};",
+                "}",
+                "",
+            ]
+        )
+    return helper_lines
+
+
+def _multi_field_equal_parameter_name(participant, used_names):
+    candidate = (
+        f"{_cpp_lower_identifier(participant['input'])}_"
+        f"{_cpp_lower_identifier(participant['field'])}"
+    )
+    _require(
+        candidate not in used_names,
+        f"duplicate multi-field equal parameter {candidate}",
+    )
+    used_names.add(candidate)
+    return candidate
+
+
+def _multi_field_equal_helper_lines(role_func_prefix, relationships):
+    helper_lines = []
+    for relationship in relationships:
+        used_names = set()
+        parameters = []
+        value_names = []
+        for participant in relationship["participants"]:
+            value_name = _multi_field_equal_parameter_name(participant, used_names)
+            if participant["optional"]:
+                has_value_name = (
+                    f"{_cpp_lower_identifier(participant['input'])}_has_value"
+                )
+                _require(
+                    has_value_name not in used_names,
+                    f"duplicate multi-field equal parameter {has_value_name}",
+                )
+                used_names.add(has_value_name)
+                parameters.append(f"    const bool {has_value_name},")
+                parameters.append(f"    const std::int64_t {value_name},")
+                value_names.append((value_name, has_value_name))
+            else:
+                parameters.append(f"    const std::int64_t {value_name},")
+                value_names.append((value_name, None))
+        parameters[-1] = parameters[-1].rstrip(",") + ") {"
+        reference_name = value_names[0][0]
+        conditions = []
+        for value_name, has_value_name in value_names[1:]:
+            if has_value_name is None:
+                conditions.append(f"{reference_name} == {value_name}")
+            else:
+                conditions.append(
+                    f"(!{has_value_name} || {reference_name} == {value_name})"
+                )
+        helper_name = (
+            f"{role_func_prefix}_{_cpp_lower_identifier(relationship['scope'])}_equal"
+        )
+        body = " &&\n      ".join(conditions) if conditions else "true"
+        helper_lines.append(f"constexpr bool {helper_name}(")
+        helper_lines.extend(parameters)
+        helper_lines.append(f"  return {body};")
+        helper_lines.extend(
+            [
                 "}",
                 "",
             ]
@@ -1095,6 +1249,9 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
     scalar_equal_relationships = _scalar_equal_relationships(
         envelope, "ShapeEnvelope simple-bounds"
     )
+    multi_field_equal_relationships = _multi_field_equal_relationships(
+        envelope, "ShapeEnvelope simple-bounds"
+    )
 
     field_struct_lines = []
     initializer_lines = []
@@ -1263,6 +1420,9 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
     scalar_equal_helpers = _scalar_equal_helper_lines(
         role_func_prefix, scalar_equal_relationships
     )
+    multi_field_equal_helpers = _multi_field_equal_helper_lines(
+        role_func_prefix, multi_field_equal_relationships
+    )
 
     initializer_lines[-1] = initializer_lines[-1].rstrip(",") + "};"
     option_signature = []
@@ -1357,6 +1517,7 @@ def generate_generic_simple_bounds_shape_envelope_header(spec, source_name):
     lines.extend(relationship_helpers)
     lines.extend(product_helpers)
     lines.extend(scalar_equal_helpers)
+    lines.extend(multi_field_equal_helpers)
     lines.extend(
         [
             f"constexpr bool {role_func_prefix}_options_match(",

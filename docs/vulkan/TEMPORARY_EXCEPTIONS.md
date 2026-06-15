@@ -130,7 +130,8 @@ condition and migration target.
   checked-in positive and adjacent negative runtime cases plus generic
   ShapeEnvelope C++ metadata/simple-bound helper output in
   `generated/ExecutionContractsBatchNormInferenceMaterializedSpec.h`.
-  Feature-count equality, parameter checks, and match-result assembly remain
+  Optional-aware feature-count equality is generated while parameter checks,
+  provenance, storage/materialization policy, and match-result assembly remain
   handwritten.
 - Expiry: broader batch-norm inference parity plus adjacent negative coverage
   are available for buffer and materialized-buffer families.
