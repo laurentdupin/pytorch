@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsSDPAScoreSoftmaxSpec.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsVisionSelfAttentionSDPASpec.h>
 
 namespace at {
 namespace native {
@@ -41,6 +42,17 @@ constexpr ExecutionContractMetadata
             generated::kSDPAScoreSoftmaxDiffusionSquareScoresSpec
                 .materialization_policy);
 
+constexpr ExecutionContractMetadata
+    kSDPAScoreSoftmaxVisionSelfAttentionScoresMetadata =
+        make_execution_contract_metadata(
+            "SDPAScoreSoftmaxContract",
+            "VisionSelfAttentionScores",
+            "vision_self_attention_rank3_score_rows",
+            "dav2_vision_sdpa_prob_materialization_task296",
+            "vision_self_attention_sdpa_adjacent_guards",
+            "unsupported_shapes_hard_fail_or_do_not_match",
+            "fresh_buffer_probability_materialization_before_value_bmm");
+
 } // namespace
 
 SDPAScoreSoftmaxMatch match_sdpa_buffer_softmax_score_contract(
@@ -56,8 +68,7 @@ SDPAScoreSoftmaxMatch match_sdpa_buffer_softmax_score_contract(
       input_sizes.size() > 2 &&
       generated::sdpa_score_softmax_diffusion_square_scores_square_scores_equal(
           input_sizes[1], input_sizes[2]);
-  if (
-      !generated::sdpa_score_softmax_diffusion_square_scores_options_match(
+  if (generated::sdpa_score_softmax_diffusion_square_scores_options_match(
           spec,
           input_dtype,
           rank,
@@ -68,12 +79,31 @@ SDPAScoreSoftmaxMatch match_sdpa_buffer_softmax_score_contract(
           square_scores,
           spec.requires_vulkan,
           spec.requires_buffer_storage)) {
+    result.matched = true;
+    result.family = SDPAScoreSoftmaxFamily::DiffusionSquareScores;
+    result.tuple_id = spec.tuple_id;
+    result.metadata = &kSDPAScoreSoftmaxDiffusionSquareScoresMetadata;
     return result;
   }
-  result.matched = true;
-  result.family = SDPAScoreSoftmaxFamily::DiffusionSquareScores;
-  result.tuple_id = spec.tuple_id;
-  result.metadata = &kSDPAScoreSoftmaxDiffusionSquareScoresMetadata;
+
+  if (input_sizes.size() == 3 && input_dtype == kFloat && dim == 2 &&
+      input_sizes[1] == input_sizes[2]) {
+    const auto* const row =
+        generated::vision_self_attention_sdpa_attention_rows_find(
+            "Rank3Head64Scale1",
+            input_sizes[0],
+            input_sizes[1],
+            input_sizes[2],
+            64);
+    if (row != nullptr) {
+      result.matched = true;
+      result.family = SDPAScoreSoftmaxFamily::VisionSelfAttentionScores;
+      result.tuple_id = row->tuple_id;
+      result.metadata = &kSDPAScoreSoftmaxVisionSelfAttentionScoresMetadata;
+      return result;
+    }
+  }
+
   return result;
 }
 

@@ -271,8 +271,12 @@ These files are diagnostic inputs. Production code must not depend on
   Proof showed direct Vulkan softmax probabilities into value BMM are wrong
   for this family, while explicit post-softmax clone/materialization passes;
   `SDPAExecutionPolicyContract` therefore keeps the materialized math path and
-  post-softmax clone decision for matched rows. `KnownBadGenericSdpa` remains
-  active outside this finite rowset.
+  post-softmax clone decision for matched rows. The score-softmax materialized
+  probability edge now uses `SDPAScoreSoftmaxContract`
+  `VisionSelfAttentionScores`, which derives its six score rows `[BH,T,T]`
+  from this generated rowset and writes probabilities into a fresh direct
+  buffer before value BMM. `KnownBadGenericSdpa` remains active outside this
+  finite rowset.
 - `MaskedTinySDPAContract`: tiny additive-mask SDPA tuple, now split into a
   family-specific source. The `AdditiveFloatMask` slice has a JSON contract
   spec backed by `ShapeEnvelope` v1 with checked-in positive/adjacent-negative
@@ -299,16 +303,19 @@ These files are diagnostic inputs. Production code must not depend on
   remain handwritten. Keep exact rows until broader layout-transition behavior
   is proven.
 - `SDPAScoreSoftmaxContract`: finite float rank-3 square score-softmax
-  contract for heads `{1, 5}` and sequence `{504, 640}`. The
-  `DiffusionSquareScores` slice has a JSON contract spec backed by
-  `ShapeEnvelope` v1 with checked-in positive/adjacent-negative runtime cases
-  plus generic ShapeEnvelope C++ simple-bound helper output in
-  `generated/ExecutionContractsSDPAScoreSoftmaxSpec.h`. The generated helper
-  provides contract identity, metadata, dtype/rank/last-dim, heads, sequence,
-  and square-score predicates while softmax route ordering, guard fallback
-  labels, buffer softmax policy, and match-result assembly remain handwritten.
-  Keep the temporary exception until broader score-softmax/layout behavior is
-  proven.
+  contract. The `DiffusionSquareScores` slice covers heads `{1, 5}` and
+  sequence `{504, 640}` with a JSON contract spec backed by `ShapeEnvelope` v1,
+  checked-in positive/adjacent-negative runtime cases, and generic
+  ShapeEnvelope C++ simple-bound helper output in
+  `generated/ExecutionContractsSDPAScoreSoftmaxSpec.h`. The
+  `VisionSelfAttentionScores` slice is a bounded production materialization
+  edge for the six existing VisionSelfAttention score rows `[BH,T,T]` where
+  `BH in {6,12,16}` and `T in {151,261}`; it consumes the generated
+  `VisionSelfAttentionSDPAContract` rowset as source of truth and keeps direct
+  softmax-probability-to-value-BMM disabled. Softmax route ordering, guard
+  fallback labels, buffer softmax policy, and match-result assembly remain
+  handwritten. Keep the temporary exception until broader score-softmax/layout
+  behavior is proven.
 - `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
   lookup contract; the small-bounded lookup slice has a JSON contract spec with
   generated positive and adjacent negative runtime coverage. The

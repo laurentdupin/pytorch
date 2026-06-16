@@ -206,7 +206,11 @@ condition and migration target.
   helper owns row metadata and row-match bounds. Scale tolerance,
   route-policy hard-fail ordering, tensor extraction/early dtype-rank guards,
   materialized math-path selection, post-softmax clone behavior, and
-  match-result assembly remain handwritten.
+  match-result assembly remain handwritten. The score-softmax probability
+  materialization edge is bounded to the same generated rowset via
+  `SDPAScoreSoftmaxContract` `VisionSelfAttentionScores`; it writes
+  probabilities into a fresh direct buffer and does not enable the previously
+  failing direct softmax-probability-to-value-BMM path.
 - Expiry: broader vision self-attention SDPA parity and adjacent negative
   coverage are available across head-batch, sequence, scale, mask/causal, and
   probability materialization behavior without regressing existing SDPA rows.
@@ -276,10 +280,13 @@ condition and migration target.
   covers the `DiffusionSquareScores` slice with ShapeEnvelope-backed
   checked-in positive and adjacent negative runtime cases plus generic
   ShapeEnvelope C++ simple-bound helper output in
-  `generated/ExecutionContractsSDPAScoreSoftmaxSpec.h`. Softmax route
-  ordering, `can_run_buffer_softmax` policy, guard op-hit logging for
-  `aten::_softmax.buffer_lastdim_known_bad_texture_fallback`, fallback
-  visibility, and match-result assembly remain handwritten.
+  `generated/ExecutionContractsSDPAScoreSoftmaxSpec.h`. The
+  `VisionSelfAttentionScores` slice is production-wired but reuses
+  `generated/ExecutionContractsVisionSelfAttentionSDPASpec.h` as its row
+  source of truth until a dedicated multi-family score-softmax fixture is
+  justified. Softmax route ordering, `can_run_buffer_softmax` policy, guard
+  op-hit logging for `aten::_softmax.buffer_lastdim_known_bad_texture_fallback`,
+  fallback visibility, and match-result assembly remain handwritten.
 - Expiry: broader SDPA score-softmax/layout parity plus adjacent negative
   coverage is available.
 - Migration target: broader generated `SDPAScoreSoftmaxContract` tables with

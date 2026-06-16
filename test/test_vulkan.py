@@ -2039,13 +2039,20 @@ class TestVulkanGovernance(TestCase):
         for expected in (
             '"SDPAScoreSoftmaxContract"',
             '"DiffusionSquareScores"',
+            '"VisionSelfAttentionScores"',
             '"heads1_or5_sequence504_or640_float_rank3_square"',
+            '"vision_self_attention_rank3_score_rows"',
             '"sdpa_score_softmax_focused_tests"',
+            '"dav2_vision_sdpa_prob_materialization_task296"',
             '"sdpa_score_softmax_adjacent_guards"',
+            '"vision_self_attention_sdpa_adjacent_guards"',
             '"unsupported_shapes_hard_fail_or_do_not_match"',
             '"none"',
+            '"fresh_buffer_probability_materialization_before_value_bmm"',
             "result.family = SDPAScoreSoftmaxFamily::DiffusionSquareScores",
+            "result.family = SDPAScoreSoftmaxFamily::VisionSelfAttentionScores",
             "result.metadata = &kSDPAScoreSoftmaxDiffusionSquareScoresMetadata",
+            "result.metadata = &kSDPAScoreSoftmaxVisionSelfAttentionScoresMetadata",
         ):
             self.assertIn(expected, source)
 
@@ -15221,6 +15228,157 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = previous_route_log
             if os.path.exists(route_log_path):
                 os.remove(route_log_path)
+
+    def test_softmax_vision_self_attention_score_shapes_use_buffer(self):
+        log_name = "softmax_vision_self_attention_score_shapes_op_hit_test.log"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        positives = (
+            (6, 151, 151),
+            (6, 261, 261),
+            (12, 151, 151),
+            (12, 261, 261),
+            (16, 151, 151),
+            (16, 261, 261),
+        )
+        negatives = (
+            (5, 151, 151),
+            (6, 152, 152),
+            (6, 151, 152),
+        )
+
+        def read_op_hits():
+            if not os.path.exists(log_path):
+                return []
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                return [
+                    line.split("op=", 1)[1].split()[0]
+                    for line in log_file
+                    if "op=" in line
+                ]
+
+        try:
+            os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+            for shape in positives:
+                with self.subTest(shape=shape):
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    torch.manual_seed(8100 + shape[0] + shape[1])
+                    scores = torch.randn(*shape)
+                    expected = scores.softmax(-1)
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = scores.to("vulkan").softmax(-1).cpu()
+
+                    self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                    self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                    op_hits = read_op_hits()
+                    self.assertIn("aten::_softmax.buffer_lastdim", op_hits)
+                    self.assertNotIn(
+                        "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
+                        op_hits,
+                    )
+
+            for shape in negatives:
+                with self.subTest(shape=shape):
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    torch.manual_seed(8200 + shape[0] + shape[1])
+                    scores = torch.randn(*shape)
+                    expected = scores.softmax(-1)
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = scores.to("vulkan").softmax(-1).cpu()
+
+                    self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                    self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                    op_hits = read_op_hits()
+                    self.assertIn(
+                        "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
+                        op_hits,
+                    )
+                    self.assertNotIn("aten::_softmax.buffer_lastdim", op_hits)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_vision_self_attention_sdpa_uses_gpu_score_materialization(self):
+        spec = _load_vulkan_contract_spec("vision_self_attention_sdpa_contract.json")
+        log_name = "vision_self_attention_sdpa_score_materialization_op_hit_test.log"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+
+        def read_op_hits():
+            if not os.path.exists(log_path):
+                return []
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                return [
+                    line.split("op=", 1)[1].split()[0]
+                    for line in log_file
+                    if "op=" in line
+                ]
+
+        try:
+            os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+            for _, case, expect_native_route in (
+                contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+            ):
+                if not expect_native_route:
+                    continue
+                with self.subTest(case=case["name"]):
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    torch.manual_seed(8300 + len(case["name"]))
+                    query = torch.randn(*case["query_shape"])
+                    key = torch.randn(*case["key_shape"])
+                    value = torch.randn(*case["value_shape"])
+
+                    expected = F.scaled_dot_product_attention(
+                        query,
+                        key,
+                        value,
+                        dropout_p=case["dropout_p"],
+                        is_causal=case["is_causal"],
+                        scale=case["scale"],
+                        enable_gqa=case["enable_gqa"],
+                    )
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            dropout_p=case["dropout_p"],
+                            is_causal=case["is_causal"],
+                            scale=case["scale"],
+                            enable_gqa=case["enable_gqa"],
+                        ).cpu()
+
+                    self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                    self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                    op_hits = read_op_hits()
+                    self.assertIn("aten::_softmax.buffer_lastdim", op_hits)
+                    self.assertNotIn(
+                        "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
+                        op_hits,
+                    )
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(log_path):
+                os.remove(log_path)
 
     def test_scaled_dot_product_attention_hymt_decode_gqa_shape_guard(self):
         torch.manual_seed(0)

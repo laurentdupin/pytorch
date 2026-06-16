@@ -15,6 +15,7 @@
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/planning/CompiledSession.h>
 #include <ATen/native/vulkan/planning/ExecutableRegions.h>
+#include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
 #include <ATen/native/vulkan/planning/InferenceGraphs.h>
@@ -3280,10 +3281,20 @@ Tensor run_attention_with_workspace_fallback(
   if (
       probs_input.dim() == 3 &&
       probs_input.size(probs_input.dim() - 1) >= 64) {
-    utils::log_vulkan_op_hit(
-        "aten::vision_backbone_attention.softmax_texture_materialize");
-    probs_output_tensor.copy_(at::softmax(probs_input, -1));
-    probs = probs_output_tensor;
+    if (utils::matches_sdpa_buffer_softmax_score_contract(
+            probs_input.sizes(),
+            probs_input.scalar_type(),
+            probs_input.dim() - 1)) {
+      utils::log_vulkan_op_hit(
+          "aten::vision_backbone_attention.softmax_buffer_materialize");
+      probs =
+          softmax_buffer_lastdim_out_vulkan(probs_input, probs_output_tensor);
+    } else {
+      utils::log_vulkan_op_hit(
+          "aten::vision_backbone_attention.softmax_texture_materialize");
+      probs_output_tensor.copy_(at::softmax(probs_input, -1));
+      probs = probs_output_tensor;
+    }
   } else {
     probs =
         softmax_buffer_lastdim_out_vulkan(probs_input, probs_output_tensor);

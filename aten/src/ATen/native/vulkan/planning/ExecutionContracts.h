@@ -215,6 +215,7 @@ struct SDPAExecutionPolicyMatch final {
 enum class SDPAScoreSoftmaxFamily : uint8_t {
   None = 0u,
   DiffusionSquareScores,
+  VisionSelfAttentionScores,
 };
 
 struct SDPAScoreSoftmaxMatch final {
