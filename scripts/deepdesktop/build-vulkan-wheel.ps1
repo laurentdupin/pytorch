@@ -1,6 +1,7 @@
 param(
     [string]$PythonExe = "",
     [string]$VulkanSdk = "",
+    [string]$LibuvRoot = "",
     [string]$OutDir = "dist-vulkan",
     [string]$VenvDir = "",
     [string]$CMakeGenerator = "",
@@ -299,6 +300,37 @@ function Resolve-VulkanSdkPath {
     throw "Unable to resolve a Vulkan SDK directory containing Bin\glslc.exe. Pass -VulkanSdk explicitly."
 }
 
+function Resolve-LibuvRoot {
+    param(
+        [string]$Requested,
+        [string]$RepoRoot
+    )
+
+    $inputs = @()
+    if ($Requested) {
+        $inputs += $Requested
+    }
+    if ($env:libuv_ROOT) {
+        $inputs += $env:libuv_ROOT
+    }
+    $inputs += (Join-Path $RepoRoot "agent_space\libuv_install")
+
+    foreach ($inputPath in $inputs) {
+        if (-not $inputPath -or -not (Test-Path -LiteralPath $inputPath)) {
+            continue
+        }
+
+        $resolved = (Resolve-Path -LiteralPath $inputPath).Path
+        $uvLib = Join-Path $resolved "lib\uv.lib"
+        $uvHeader = Join-Path $resolved "include\uv.h"
+        if ((Test-Path -LiteralPath $uvLib) -and (Test-Path -LiteralPath $uvHeader)) {
+            return $resolved
+        }
+    }
+
+    throw "Unable to resolve a libuv install. Pass -LibuvRoot explicitly."
+}
+
 function Resolve-VsDevCmd {
     $vsWhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
     if (-not (Test-Path -LiteralPath $vsWhere)) {
@@ -458,6 +490,7 @@ $buildPython = Ensure-BuildPython -BasePythonPath $basePythonPath -RepoRoot $rep
 $pythonPath = $buildPython.BuildPythonPath
 $toolsDir = $buildPython.ToolsDir
 $vulkanSdkPath = Resolve-VulkanSdkPath -Requested $VulkanSdk
+$libuvRootPath = Resolve-LibuvRoot -Requested $LibuvRoot -RepoRoot $repoRoot
 $vsDevCmd = Resolve-VsDevCmd
 $cmakeGenerator = Resolve-CMakeGenerator -Requested $CMakeGenerator -RepoRoot $repoRoot -CleanBuild:$Clean
 $cmakeRefresh = Resolve-CMakeRefresh -RepoRoot $repoRoot -RequestedPythonPath $pythonPath -CleanBuild:$Clean
@@ -524,6 +557,7 @@ $cmdLines = @(
     "cd /d `"$repoRoot`"",
     "set `"VULKAN_SDK=$vulkanSdkPath`"",
     "set `"VK_SDK_PATH=$vulkanSdkPath`"",
+    "set `"libuv_ROOT=$libuvRootPath`"",
     "set `"Path=$pathPrefix;%Path%`"",
     "set `"CMAKE_GENERATOR=$cmakeGenerator`"",
     "set `"CMAKE_BUILD_TYPE=Release`"",
@@ -535,9 +569,14 @@ $cmdLines = @(
     "set `"USE_VULKAN_RELAXED_PRECISION=$relaxedPrecisionFlag`"",
     "set `"USE_CUDA=0`"",
     "set `"USE_ROCM=0`"",
-    "set `"USE_DISTRIBUTED=0`"",
-    "set `"USE_GLOO=0`"",
+    "set `"USE_DISTRIBUTED=1`"",
+    "set `"USE_GLOO=1`"",
+    "set `"USE_C10D_GLOO=1`"",
+    "set `"USE_LIBUV=1`"",
     "set `"USE_MPI=0`"",
+    "set `"USE_C10D_MPI=0`"",
+    "set `"USE_NCCL=0`"",
+    "set `"USE_C10D_NCCL=0`"",
     "set `"USE_TENSORPIPE=0`"",
     "set `"USE_XPU=0`"",
     "set `"BUILD_TEST=0`"",
@@ -579,6 +618,7 @@ try {
         Write-Host "Build venv    : disabled"
     }
     Write-Host "Vulkan SDK    : $vulkanSdkPath"
+    Write-Host "libuv root    : $libuvRootPath"
     Write-Host "glslc         : $glslcPath"
     Write-Host "Generator     : $cmakeGenerator"
     Write-Host "CMake refresh : $($cmakeRefresh.Reason)"

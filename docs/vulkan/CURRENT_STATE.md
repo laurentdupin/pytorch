@@ -135,6 +135,18 @@ The five-model corpus is:
 
 Do not infer production route names from this corpus.
 
+## Windows Vulkan Build Defaults
+
+The repo-owned Windows Vulkan helpers now default source-tree and wheel builds
+to real distributed/c10d/Gloo support for model-framework import paths:
+`USE_DISTRIBUTED=ON`, `USE_GLOO=ON`, `USE_C10D_GLOO=ON`, and `USE_LIBUV=ON`
+with `libuv_ROOT` resolved from an explicit argument, the environment, or
+`agent_space\libuv_install`. MPI, NCCL, c10d MPI/NCCL, and TensorPipe remain
+off for this Windows-local configuration. Existing build products still need a
+reconfigure and rebuild before `torch._C._distributed_c10d` appears in the
+runtime; changing helper defaults does not repair an already-built
+`torch/lib`.
+
 ## Current Telemetry Checkpoint
 
 Task179 and Task181 artifacts are planner telemetry only; they do not raise a

@@ -178,11 +178,17 @@ cmake -S $repoRoot -B (Join-Path $repoRoot "build") `
     -DUSE_OPENMP=OFF `
     -DUSE_XPU=OFF `
     -DUSE_MPI=OFF `
+    -DUSE_NCCL=OFF `
     -DUSE_VULKAN=ON `
     -DUSE_VULKAN_API=ON `
     -DUSE_DISTRIBUTED=ON `
     -DUSE_GLOO=ON `
+    -DUSE_C10D_GLOO=ON `
+    -DUSE_C10D_MPI=OFF `
+    -DUSE_C10D_NCCL=OFF `
+    -DUSE_LIBUV=ON `
     -DUSE_TENSORPIPE=OFF `
+    -Dlibuv_ROOT="$libuvRootPath" `
     -DBUILD_TEST=ON
 
 exit $LASTEXITCODE

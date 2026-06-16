@@ -146,19 +146,21 @@ Lotus custom-pipeline adapter.
 The suite now attempts model-framework Vulkan mapping instead of returning early
 for Transformers and PaddleOCR rows. HY-MT and Gemma load through the source-tree
 PyTorch interpreter so the requested device is `torch.device("vulkan")`; the
-source-tree build has Python `torch.distributed` stubs but no
-`torch._C._distributed_c10d` extension (`USE_GLOO=OFF`, `USE_MPI=OFF`,
-`USE_NCCL=OFF`). Transformers 5.9 imports continuous-batching generation helpers
-that require that distributed extension even for single-process generation. The
+Windows Vulkan source-tree helpers now default to distributed/c10d/Gloo support
+with libuv (`USE_DISTRIBUTED=ON`, `USE_GLOO=ON`, `USE_C10D_GLOO=ON`,
+`USE_LIBUV=ON`, while MPI/NCCL/TensorPipe remain off). Older or stale local
+builds may still lack `torch._C._distributed_c10d` until reconfigured and
+rebuilt. Transformers 5.9 imports continuous-batching generation helpers that
+require that distributed extension even for single-process generation. The
 harness installs a benchmark-local import shim for those continuous-batching
-modules only. It does not implement real collectives and raises if continuous
-batching is actually requested. When this shim is active, the harness also
-registers the missing `_c10d_functional` import schema surface if the source
-tree build lacks it. `_c10d_functional.wait_tensor` is a single-process
-identity shim, while collective schemas are metadata-only stubs that raise if
-executed. The same import-only rule applies to the narrow DTensor schema
-surface needed by these imports. Each JSON row records the shim fields
-explicitly, including
+modules only when the source-tree runtime still lacks the compiled extension.
+It does not implement real collectives and raises if continuous batching is
+actually requested. When this shim is active, the harness also registers the
+missing `_c10d_functional` import schema surface if the source tree build lacks
+it. `_c10d_functional.wait_tensor` is a single-process identity shim, while
+collective schemas are metadata-only stubs that raise if executed. The same
+import-only rule applies to the narrow DTensor schema surface needed by these
+imports. Each JSON row records the shim fields explicitly, including
 any Python distributed exports such as `DeviceMesh`, and
 `distributed_c10d_status` as `real_distributed_c10d`,
 `distributed_import_shim`, or `missing_distributed_c10d`.

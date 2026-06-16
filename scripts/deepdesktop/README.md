@@ -120,6 +120,10 @@ Useful flags:
 
 - `-VenvDir PATH`
   Override the default build venv location.
+- `-LibuvRoot PATH`
+  Override the default libuv install used by Windows distributed/c10d/Gloo.
+  If omitted, the script checks `libuv_ROOT` and then
+  `agent_space\libuv_install`.
 - `-Clean`
   Delete `build/` and the chosen output directory first.
 - `-CleanVenv`
@@ -146,14 +150,30 @@ What the script sets for the build:
 - `USE_VULKAN=1`
 - `USE_CUDA=0`
 - `USE_ROCM=0`
-- `USE_DISTRIBUTED=0`
+- `USE_DISTRIBUTED=1`
+- `USE_GLOO=1`
+- `USE_C10D_GLOO=1`
+- `USE_LIBUV=1`
+- `libuv_ROOT=<resolved libuv root>`
+- `USE_MPI=0`
+- `USE_C10D_MPI=0`
+- `USE_NCCL=0`
+- `USE_C10D_NCCL=0`
+- `USE_TENSORPIPE=0`
 - `BUILD_TEST=0`
 - `BUILD_BINARY=0`
-- `CMAKE_GENERATOR=Ninja`
+- `CMAKE_GENERATOR=<existing build generator or Visual Studio 17 2022>`
 
 The script reuses an existing build venv if it already contains the required
 build packages. It does not reinstall just because the internal state file is
 missing.
+
+The lower-level Windows source-tree configure helper,
+`windows/configure-vulkan-msvc.ps1`, uses the same distributed defaults for
+Vulkan development builds and keeps Visual Studio/MSBuild as the preferred
+Windows build path. Reconfigure and rebuild after changing these flags; an
+existing wheel or `torch/lib` runtime built without `torch._C._distributed_c10d`
+will not gain c10d/Gloo support until rebuilt.
 
 ## Linux/macOS Wheel Build
 
