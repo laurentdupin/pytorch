@@ -181,11 +181,25 @@ struct DiffusionSDPAMatch final {
   const ExecutionContractMetadata* metadata{nullptr};
 };
 
+enum class VisionSelfAttentionSDPAFamily : uint8_t {
+  None = 0u,
+  Rank3Head64Scale1,
+};
+
+struct VisionSelfAttentionSDPAMatch final {
+  bool matched{false};
+  VisionSelfAttentionSDPAFamily family{
+      VisionSelfAttentionSDPAFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+};
+
 enum class SDPAExecutionPolicyFamily : uint8_t {
   None = 0u,
   DiffusionMaterializedSquare,
   DiffusionCloneOnlySquare,
   TransformerDecodeGQACloneOnly,
+  VisionSelfAttentionCloneOnly,
 };
 
 struct SDPAExecutionPolicyMatch final {
@@ -509,6 +523,35 @@ DiffusionSDPAMatch match_diffusion_sdpa_contract(
     bool enable_gqa);
 
 bool matches_diffusion_sdpa_contract(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa);
+
+const char* vision_self_attention_sdpa_route_label(
+    VisionSelfAttentionSDPAFamily family);
+
+VisionSelfAttentionSDPAMatch match_vision_self_attention_sdpa_contract(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa);
+
+bool matches_vision_self_attention_sdpa_contract(
     IntArrayRef query_sizes,
     IntArrayRef key_sizes,
     IntArrayRef value_sizes,

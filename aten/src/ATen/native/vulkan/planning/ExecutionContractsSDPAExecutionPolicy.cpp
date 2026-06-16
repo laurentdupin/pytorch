@@ -21,6 +21,8 @@ const char* sdpa_execution_policy_contract_family_name(
       return "DiffusionCloneOnlySquare";
     case SDPAExecutionPolicyFamily::TransformerDecodeGQACloneOnly:
       return "TransformerDecodeGQACloneOnly";
+    case SDPAExecutionPolicyFamily::VisionSelfAttentionCloneOnly:
+      return "VisionSelfAttentionCloneOnly";
     case SDPAExecutionPolicyFamily::None:
       return fallback_name;
   }
@@ -77,6 +79,8 @@ const char* sdpa_execution_policy_family_name(
       return "SDPAExecutionDiffusionCloneOnlySquare";
     case SDPAExecutionPolicyFamily::TransformerDecodeGQACloneOnly:
       return "SDPAExecutionTransformerDecodeGQACloneOnly";
+    case SDPAExecutionPolicyFamily::VisionSelfAttentionCloneOnly:
+      return "SDPAExecutionVisionSelfAttentionCloneOnly";
     case SDPAExecutionPolicyFamily::None:
       return "SDPAExecutionNone";
   }
@@ -99,8 +103,40 @@ SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
   if (
       has_attn_mask || dropout_p != 0.0 ||
       query_dtype != kFloat || key_dtype != kFloat || value_dtype != kFloat ||
-      query_sizes.size() != 4 || key_sizes.size() != 4 ||
-      value_sizes.size() != 4 || query_sizes[0] != 1 ||
+      query_sizes.size() != key_sizes.size() ||
+      query_sizes.size() != value_sizes.size()) {
+    return result;
+  }
+
+  if (query_sizes.size() == 3) {
+    const VisionSelfAttentionSDPAMatch vision_match =
+        match_vision_self_attention_sdpa_contract(
+            query_sizes,
+            key_sizes,
+            value_sizes,
+            query_dtype,
+            key_dtype,
+            value_dtype,
+            has_attn_mask,
+            dropout_p,
+            is_causal,
+            scale,
+            enable_gqa);
+    if (!vision_match.matched) {
+      return result;
+    }
+    result.matched = true;
+    result.family = SDPAExecutionPolicyFamily::VisionSelfAttentionCloneOnly;
+    result.tuple_id = vision_match.tuple_id;
+    result.metadata = vision_match.metadata;
+    result.requires_materialized_math_path = true;
+    result.requires_score_pre_materialization = false;
+    result.requires_post_softmax_clone = true;
+    return result;
+  }
+
+  if (
+      query_sizes.size() != 4 || query_sizes[0] != 1 ||
       key_sizes[0] != 1 || value_sizes[0] != 1 ||
       key_sizes[2] != value_sizes[2] || query_sizes[3] != key_sizes[3] ||
       query_sizes[3] != value_sizes[3]) {

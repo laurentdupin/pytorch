@@ -3492,6 +3492,204 @@ def _validate_transformer_gqa_sdpa_shape_envelope(file_name, spec, envelope):
         _require_equal(case["expected_cpu_fallback"], False, f"{case_context} fallback")
 
 
+def _vision_self_attention_sdpa_rowset(envelope, context):
+    rowsets = envelope.get("sparse_rowsets", [])
+    if len(rowsets) != 1:
+        raise AssertionError(f"{context} must have one sparse rowset")
+    rowset = rowsets[0]
+    _require_equal(rowset["name"], "attention_rows", f"{context} rowset name")
+    expected_fields = [
+        "family",
+        "batch_heads",
+        "query_sequence",
+        "key_value_sequence",
+        "head_dim",
+        "tuple_id",
+    ]
+    _require_equal(rowset["fields"], expected_fields, f"{context} rowset fields")
+    _require_equal(
+        rowset["identity_fields"],
+        expected_fields[:-1],
+        f"{context} rowset identity fields",
+    )
+    _require_equal(
+        rowset["lookup_fields"],
+        expected_fields[:-1],
+        f"{context} rowset lookup fields",
+    )
+    _require_equal(rowset["label_field"], "tuple_id", f"{context} rowset label")
+    return rowset
+
+
+def _vision_self_attention_sdpa_row_key(row):
+    return (
+        row["family"],
+        row["batch_heads"],
+        row["query_sequence"],
+        row["key_value_sequence"],
+        row["head_dim"],
+    )
+
+
+def _vision_self_attention_sdpa_row_key_from_case(case):
+    return (
+        case["expected_contract_family"],
+        case["query_shape"][0],
+        case["query_shape"][1],
+        case["key_shape"][1],
+        case["query_shape"][2],
+    )
+
+
+def _validate_vision_self_attention_sdpa_shape_envelope(file_name, spec, envelope):
+    context = f"{file_name} VisionSelfAttentionSDPA ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "VisionSelfAttentionSDPAContract",
+        f"{context} contract",
+    )
+    _require_equal(spec["family"], "SparseAttentionRows", f"{context} family")
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    bounds = envelope["bounds"]
+    for key, expected in (
+        ("query_dtype", "float32"),
+        ("key_dtype", "float32"),
+        ("value_dtype", "float32"),
+        ("query_rank", 3),
+        ("key_rank", 3),
+        ("value_rank", 3),
+        ("head_dim", 64),
+        ("has_attn_mask", False),
+        ("dropout_zero", True),
+        ("is_causal", False),
+        ("enable_gqa", False),
+        ("scale_policy", "explicit_scale_1"),
+    ):
+        _require_equal(bounds[key], expected, f"{context} {key}")
+    _require_equal(bounds["batch_heads"], [6, 12, 16], f"{context} batch_heads")
+    _require_equal(bounds["query_sequence"], [151, 261], f"{context} query_sequence")
+    _require_equal(
+        bounds["key_value_sequence"],
+        [151, 261],
+        f"{context} key_value_sequence",
+    )
+    for key in ("requires_vulkan", "requires_buffer_storage", "requires_buffer_compute"):
+        _require_equal(bounds[key], True, f"{context} {key}")
+
+    rowset = _vision_self_attention_sdpa_rowset(envelope, context)
+    rows = rowset["rows"]
+    if len(rows) != 6:
+        raise AssertionError(f"{context} expected 6 sparse rows")
+    row_keys = {_vision_self_attention_sdpa_row_key(row) for row in rows}
+    tuple_ids = {row["tuple_id"] for row in rows}
+    _require_equal(len(tuple_ids), 6, f"{context} tuple ids")
+    family_counts = {}
+    for row in rows:
+        family_counts[row["family"]] = family_counts.get(row["family"], 0) + 1
+    _require_equal(
+        family_counts,
+        {"Rank3Head64Scale1": 6},
+        f"{context} family counts",
+    )
+
+    positive_keys = {
+        _vision_self_attention_sdpa_row_key_from_case(case)
+        for case in spec["positive_cases"]
+    }
+    if positive_keys != row_keys:
+        missing = sorted(row_keys - positive_keys)
+        extra = sorted(positive_keys - row_keys)
+        raise AssertionError(
+            f"{context} positives do not match sparse rowset "
+            f"missing={missing} extra={extra}"
+        )
+
+    def require_qkv_case(case, case_context, allow_violations=()):
+        for shape_name in ("query_shape", "key_shape", "value_shape"):
+            shape = case[shape_name]
+            if len(shape) != 3:
+                raise AssertionError(f"{case_context} {shape_name} rank mismatch")
+            if (
+                shape[0] != case["query_shape"][0]
+                and case.get("violates") not in allow_violations
+            ):
+                raise AssertionError(f"{case_context} batch-head mismatch")
+            if (
+                shape[2] != case["query_shape"][2]
+                and case.get("violates") not in allow_violations
+            ):
+                raise AssertionError(f"{case_context} head-dim mismatch")
+        _require_equal(
+            case["key_shape"][1],
+            case["value_shape"][1],
+            f"{case_context} key/value sequence",
+        )
+        if case["dtype"] != bounds["query_dtype"]:
+            raise AssertionError(f"{case_context} dtype mismatch")
+        if (
+            case["has_attn_mask"] != bounds["has_attn_mask"]
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} attention mask mismatch")
+        if (
+            (case["dropout_p"] == 0.0) != bounds["dropout_zero"]
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} dropout mismatch")
+        if (
+            case["is_causal"] != bounds["is_causal"]
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} causal mismatch")
+        if (
+            case["enable_gqa"] != bounds["enable_gqa"]
+            and case.get("violates") not in allow_violations
+        ):
+            raise AssertionError(f"{case_context} enable_gqa mismatch")
+        scale = case["scale"]
+        if scale != 1.0 and case.get("violates") not in allow_violations:
+            raise AssertionError(f"{case_context} scale mismatch")
+
+    for case in spec["positive_cases"]:
+        case_context = f"{context} positive {case['name']}"
+        require_qkv_case(case, case_context)
+        _require_equal(
+            case["expected_route_label"],
+            "SelectedVisionSelfAttentionSDPA",
+            f"{case_context} route label",
+        )
+        _require_equal(case["expected_cpu_fallback"], False, f"{case_context} fallback")
+
+    for case in spec["negative_cases"]:
+        case_context = f"{context} negative {case['name']}"
+        require_qkv_case(
+            case,
+            case_context,
+            allow_violations=(
+                "attention_rows.batch_heads",
+                "attention_rows.sequence",
+                "attention_rows.head_dim",
+                "attention_rows.equal_sequence",
+                "scale_policy",
+                "is_causal",
+                "dropout_zero",
+            ),
+        )
+        if case["violates"].startswith("attention_rows."):
+            key = (
+                "Rank3Head64Scale1",
+                case["query_shape"][0],
+                case["query_shape"][1],
+                case["key_shape"][1],
+                case["query_shape"][2],
+            )
+            if key in row_keys:
+                raise AssertionError(f"{case_context} unexpectedly matches rowset")
+        _require_equal(case["expected_native_route"], False, f"{case_context} native")
+        _require_equal(case["expected_cpu_fallback"], False, f"{case_context} fallback")
+
+
 def _validate_small_spatial_pointwise_conv_shape_envelope(
     file_name,
     spec,
@@ -5308,6 +5506,35 @@ _TRANSFORMER_GQA_SDPA_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.scale_policy",
 )
 
+_VISION_SELF_ATTENTION_SDPA_LEGAL_KEY_FIELDS = _TRANSFORMER_GQA_SDPA_LEGAL_KEY_FIELDS
+
+_VISION_SELF_ATTENTION_SDPA_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    _TRANSFORMER_GQA_SDPA_ADJACENT_NEGATIVE_KEY_FIELDS
+)
+
+_VISION_SELF_ATTENTION_SDPA_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.query.dtype",
+    "inputs.query.rank",
+    "inputs.query.dims.BH",
+    "inputs.query.dims.TQ",
+    "inputs.query.dims.D",
+    "inputs.key.dtype",
+    "inputs.key.rank",
+    "inputs.key.dims.BH",
+    "inputs.key.dims.TKV",
+    "inputs.key.dims.D",
+    "inputs.value.dtype",
+    "inputs.value.rank",
+    "inputs.value.dims.BH",
+    "inputs.value.dims.TKV",
+    "inputs.value.dims.D",
+    "attributes.has_attn_mask",
+    "attributes.dropout_zero",
+    "attributes.is_causal",
+    "attributes.enable_gqa",
+    "attributes.scale_policy",
+)
+
 _SMALL_SPATIAL_POINTWISE_CONV_LEGAL_KEY_FIELDS = (
     "input_shape",
     "out_channels",
@@ -5703,6 +5930,21 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         ),
         "adjacent_negative_key_fields": (
             _TRANSFORMER_GQA_SDPA_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
+    },
+    "vision_self_attention_sdpa_sparse_attention_rows": {
+        "validate": _validate_vision_self_attention_sdpa_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _VISION_SELF_ATTENTION_SDPA_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _VISION_SELF_ATTENTION_SDPA_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _VISION_SELF_ATTENTION_SDPA_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
     },
     "kv_cache_append_sequence_append": {

@@ -1,0 +1,857 @@
+{
+  "schema_version": 1,
+  "contract_name": "VisionSelfAttentionSDPAContract",
+  "family": "SparseAttentionRows",
+  "tuple_id": "vision_self_attention_rank3_head64_scale1_rows",
+  "writer_op": "aten::scaled_dot_product_attention",
+  "route_label": "SelectedVisionSelfAttentionSDPA",
+  "metadata": {
+    "evidence_id": "dav2_vision_sdpa_stage_proof_task291",
+    "guard_id": "vision_self_attention_sdpa_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "materialized_math_path_and_post_softmax_clone"
+  },
+  "bounds": {
+    "query_dtype": "float32",
+    "key_dtype": "float32",
+    "value_dtype": "float32",
+    "query_rank": 3,
+    "key_rank": 3,
+    "value_rank": 3,
+    "batch_heads": [
+      6,
+      12,
+      16
+    ],
+    "query_sequence": [
+      151,
+      261
+    ],
+    "key_value_sequence": [
+      151,
+      261
+    ],
+    "head_dim": 64,
+    "has_attn_mask": false,
+    "dropout_zero": true,
+    "is_causal": false,
+    "enable_gqa": false,
+    "scale_policy": "explicit_scale_1",
+    "requires_vulkan": true,
+    "requires_buffer_storage": true,
+    "requires_buffer_compute": true
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "vision_self_attention_sdpa_sparse_attention_rows",
+    "inputs": {
+      "query": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "BH",
+            "field": "batch_heads",
+            "values": [
+              6,
+              12,
+              16
+            ]
+          },
+          {
+            "symbol": "TQ",
+            "field": "query_sequence",
+            "values": [
+              151,
+              261
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64
+            ]
+          }
+        ]
+      },
+      "key": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "BH",
+            "field": "batch_heads",
+            "values": [
+              6,
+              12,
+              16
+            ]
+          },
+          {
+            "symbol": "TKV",
+            "field": "key_value_sequence",
+            "values": [
+              151,
+              261
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64
+            ]
+          }
+        ]
+      },
+      "value": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "BH",
+            "field": "batch_heads",
+            "values": [
+              6,
+              12,
+              16
+            ]
+          },
+          {
+            "symbol": "TKV",
+            "field": "key_value_sequence",
+            "values": [
+              151,
+              261
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "head_dim",
+            "values": [
+              64
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "has_attn_mask": {
+        "values": [
+          false
+        ]
+      },
+      "dropout_zero": {
+        "values": [
+          true
+        ]
+      },
+      "is_causal": {
+        "values": [
+          false
+        ]
+      },
+      "enable_gqa": {
+        "values": [
+          false
+        ]
+      },
+      "scale_policy": {
+        "values": [
+          "explicit_scale_1"
+        ]
+      }
+    },
+    "bounds": {
+      "query_dtype": "float32",
+      "key_dtype": "float32",
+      "value_dtype": "float32",
+      "query_rank": 3,
+      "key_rank": 3,
+      "value_rank": 3,
+      "batch_heads": [
+        6,
+        12,
+        16
+      ],
+      "query_sequence": [
+        151,
+        261
+      ],
+      "key_value_sequence": [
+        151,
+        261
+      ],
+      "head_dim": 64,
+      "has_attn_mask": false,
+      "dropout_zero": true,
+      "is_causal": false,
+      "enable_gqa": false,
+      "scale_policy": "explicit_scale_1",
+      "requires_vulkan": true,
+      "requires_buffer_storage": true,
+      "requires_buffer_compute": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "qkv_batch_heads",
+        "fields": [
+          "query.BH",
+          "key.BH",
+          "value.BH"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "qkv_sequence",
+        "fields": [
+          "query.TQ",
+          "key.TKV",
+          "value.TKV"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "qkv_head_dim",
+        "fields": [
+          "query.D",
+          "key.D",
+          "value.D"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "query_storage": "buffer",
+      "key_storage": "buffer",
+      "value_storage": "buffer",
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "dav2_vision_sdpa_stage_proof_task291",
+      "guard_id": "vision_self_attention_sdpa_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "materialized_math_path_and_post_softmax_clone"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "materialized_math_path_and_post_softmax_clone"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "attention_rows.batch_heads",
+        "adjacent": "wrong_value",
+        "value": 8
+      },
+      {
+        "violates": "attention_rows.sequence",
+        "adjacent": "wrong_value",
+        "value": 152
+      },
+      {
+        "violates": "attention_rows.head_dim",
+        "adjacent": "wrong_value",
+        "value": 65
+      },
+      {
+        "violates": "attention_rows.equal_sequence",
+        "adjacent": "wrong_value"
+      },
+      {
+        "violates": "scale_policy",
+        "adjacent": "wrong_value",
+        "value": "absent"
+      },
+      {
+        "violates": "scale_policy",
+        "adjacent": "wrong_value",
+        "value": "mismatched_scale"
+      },
+      {
+        "violates": "is_causal",
+        "adjacent": "wrong_value",
+        "value": true
+      },
+      {
+        "violates": "dropout_zero",
+        "adjacent": "wrong_value",
+        "value": false
+      }
+    ],
+    "fuzz_hints": {
+      "sparse_rowset": "attention_rows",
+      "prefer_sparse_rows": true,
+      "symbolic_dims": [
+        "BH",
+        "TQ",
+        "TKV",
+        "D"
+      ]
+    },
+    "sparse_rowsets": [
+      {
+        "name": "attention_rows",
+        "fields": [
+          "family",
+          "batch_heads",
+          "query_sequence",
+          "key_value_sequence",
+          "head_dim",
+          "tuple_id"
+        ],
+        "identity_fields": [
+          "family",
+          "batch_heads",
+          "query_sequence",
+          "key_value_sequence",
+          "head_dim"
+        ],
+        "lookup_fields": [
+          "family",
+          "batch_heads",
+          "query_sequence",
+          "key_value_sequence",
+          "head_dim"
+        ],
+        "label_field": "tuple_id",
+        "rows": [
+          {
+            "family": "Rank3Head64Scale1",
+            "batch_heads": 6,
+            "query_sequence": 151,
+            "key_value_sequence": 151,
+            "head_dim": 64,
+            "tuple_id": "rank3_bh6_sequence151_dim64_scale1"
+          },
+          {
+            "family": "Rank3Head64Scale1",
+            "batch_heads": 6,
+            "query_sequence": 261,
+            "key_value_sequence": 261,
+            "head_dim": 64,
+            "tuple_id": "rank3_bh6_sequence261_dim64_scale1"
+          },
+          {
+            "family": "Rank3Head64Scale1",
+            "batch_heads": 12,
+            "query_sequence": 151,
+            "key_value_sequence": 151,
+            "head_dim": 64,
+            "tuple_id": "rank3_bh12_sequence151_dim64_scale1"
+          },
+          {
+            "family": "Rank3Head64Scale1",
+            "batch_heads": 12,
+            "query_sequence": 261,
+            "key_value_sequence": 261,
+            "head_dim": 64,
+            "tuple_id": "rank3_bh12_sequence261_dim64_scale1"
+          },
+          {
+            "family": "Rank3Head64Scale1",
+            "batch_heads": 16,
+            "query_sequence": 151,
+            "key_value_sequence": 151,
+            "head_dim": 64,
+            "tuple_id": "rank3_bh16_sequence151_dim64_scale1"
+          },
+          {
+            "family": "Rank3Head64Scale1",
+            "batch_heads": 16,
+            "query_sequence": 261,
+            "key_value_sequence": 261,
+            "head_dim": 64,
+            "tuple_id": "rank3_bh16_sequence261_dim64_scale1"
+          }
+        ],
+        "negative_axes": [
+          {
+            "violates": "attention_rows.batch_heads",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "Rank3Head64Scale1",
+              "batch_heads": 8,
+              "query_sequence": 151,
+              "key_value_sequence": 151,
+              "head_dim": 64
+            }
+          },
+          {
+            "violates": "attention_rows.sequence",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "Rank3Head64Scale1",
+              "batch_heads": 6,
+              "query_sequence": 152,
+              "key_value_sequence": 152,
+              "head_dim": 64
+            }
+          }
+        ],
+        "row_match": {
+          "arguments": [
+            {
+              "name": "family",
+              "field": "family",
+              "type": "string"
+            },
+            {
+              "name": "batch_heads",
+              "field": "batch_heads",
+              "type": "int64"
+            },
+            {
+              "name": "query_sequence",
+              "field": "query_sequence",
+              "type": "int64"
+            },
+            {
+              "name": "key_value_sequence",
+              "field": "key_value_sequence",
+              "type": "int64"
+            },
+            {
+              "name": "head_dim",
+              "field": "head_dim",
+              "type": "int64"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "positive_cases": [
+    {
+      "name": "bh6_sequence151",
+      "query_shape": [
+        6,
+        151,
+        64
+      ],
+      "key_shape": [
+        6,
+        151,
+        64
+      ],
+      "value_shape": [
+        6,
+        151,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedVisionSelfAttentionSDPA",
+      "expected_contract_family": "Rank3Head64Scale1",
+      "expected_contract_tuple_id": "rank3_bh6_sequence151_dim64_scale1",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "bh6_sequence261",
+      "query_shape": [
+        6,
+        261,
+        64
+      ],
+      "key_shape": [
+        6,
+        261,
+        64
+      ],
+      "value_shape": [
+        6,
+        261,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedVisionSelfAttentionSDPA",
+      "expected_contract_family": "Rank3Head64Scale1",
+      "expected_contract_tuple_id": "rank3_bh6_sequence261_dim64_scale1",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "bh12_sequence151",
+      "query_shape": [
+        12,
+        151,
+        64
+      ],
+      "key_shape": [
+        12,
+        151,
+        64
+      ],
+      "value_shape": [
+        12,
+        151,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedVisionSelfAttentionSDPA",
+      "expected_contract_family": "Rank3Head64Scale1",
+      "expected_contract_tuple_id": "rank3_bh12_sequence151_dim64_scale1",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "bh12_sequence261",
+      "query_shape": [
+        12,
+        261,
+        64
+      ],
+      "key_shape": [
+        12,
+        261,
+        64
+      ],
+      "value_shape": [
+        12,
+        261,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedVisionSelfAttentionSDPA",
+      "expected_contract_family": "Rank3Head64Scale1",
+      "expected_contract_tuple_id": "rank3_bh12_sequence261_dim64_scale1",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "bh16_sequence151",
+      "query_shape": [
+        16,
+        151,
+        64
+      ],
+      "key_shape": [
+        16,
+        151,
+        64
+      ],
+      "value_shape": [
+        16,
+        151,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedVisionSelfAttentionSDPA",
+      "expected_contract_family": "Rank3Head64Scale1",
+      "expected_contract_tuple_id": "rank3_bh16_sequence151_dim64_scale1",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "bh16_sequence261",
+      "query_shape": [
+        16,
+        261,
+        64
+      ],
+      "key_shape": [
+        16,
+        261,
+        64
+      ],
+      "value_shape": [
+        16,
+        261,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "expected_route_label": "SelectedVisionSelfAttentionSDPA",
+      "expected_contract_family": "Rank3Head64Scale1",
+      "expected_contract_tuple_id": "rank3_bh16_sequence261_dim64_scale1",
+      "expected_cpu_fallback": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "batch_heads8",
+      "query_shape": [
+        8,
+        151,
+        64
+      ],
+      "key_shape": [
+        8,
+        151,
+        64
+      ],
+      "value_shape": [
+        8,
+        151,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "violates": "attention_rows.batch_heads",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadGenericSdpa",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "sequence152",
+      "query_shape": [
+        6,
+        152,
+        64
+      ],
+      "key_shape": [
+        6,
+        152,
+        64
+      ],
+      "value_shape": [
+        6,
+        152,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "violates": "attention_rows.sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadGenericSdpa",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "head_dim65",
+      "query_shape": [
+        6,
+        151,
+        65
+      ],
+      "key_shape": [
+        6,
+        151,
+        65
+      ],
+      "value_shape": [
+        6,
+        151,
+        65
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "violates": "attention_rows.head_dim",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadGenericSdpa",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "sequence_mismatch",
+      "query_shape": [
+        6,
+        151,
+        64
+      ],
+      "key_shape": [
+        6,
+        261,
+        64
+      ],
+      "value_shape": [
+        6,
+        261,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "violates": "attention_rows.equal_sequence",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadGenericSdpa",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "absent_scale",
+      "query_shape": [
+        6,
+        151,
+        64
+      ],
+      "key_shape": [
+        6,
+        151,
+        64
+      ],
+      "value_shape": [
+        6,
+        151,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": null,
+      "enable_gqa": false,
+      "violates": "scale_policy",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadGenericSdpa",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "mismatched_scale",
+      "query_shape": [
+        6,
+        151,
+        64
+      ],
+      "key_shape": [
+        6,
+        151,
+        64
+      ],
+      "value_shape": [
+        6,
+        151,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.125,
+      "enable_gqa": false,
+      "violates": "scale_policy",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaExplicitScale",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "causal_true",
+      "query_shape": [
+        6,
+        151,
+        64
+      ],
+      "key_shape": [
+        6,
+        151,
+        64
+      ],
+      "value_shape": [
+        6,
+        151,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": true,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "violates": "is_causal",
+      "expected_native_route": false,
+      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "dropout_nonzero",
+      "query_shape": [
+        6,
+        151,
+        64
+      ],
+      "key_shape": [
+        6,
+        151,
+        64
+      ],
+      "value_shape": [
+        6,
+        151,
+        64
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.1,
+      "is_causal": false,
+      "scale": 1.0,
+      "enable_gqa": false,
+      "violates": "dropout_zero",
+      "expected_native_route": false,
+      "expected_runtime_error": "UnsupportedDType",
+      "expected_cpu_fallback": false
+    }
+  ]
+}

@@ -57,6 +57,7 @@ Current MVP status:
   `MaskedTinySDPAContract` `AdditiveFloatMask`, plus
   `DiffusionSDPAContract` `SparseAttentionRows`, plus
   `TransformerGQASDPAContract` `SparseAttentionRows`, plus
+  `VisionSelfAttentionSDPAContract` `SparseAttentionRows`, plus
   `SafeViewReshapeContract` `ViewMaterializedDirectBuffer` and
   `ReshapeAliasDenseBufferDirect`, plus `BatchNormInferenceContract`
   `BufferFloat4D` and `MaterializedBufferFloat4D`.
@@ -99,7 +100,8 @@ Current MVP status:
   `SmallMetadataPaddedConv2DContract` `MaterializedBufferInput2x2`, plus
   `SmallSpatialPointwiseConvContract` `SparseProjectionRows`, plus
   `LinearGeluBridgeContract` `BackboneMlpHidden384To1536`, plus
-  `TransformerGQASDPAContract` `SparseAttentionRows`, plus the proof-only
+  `TransformerGQASDPAContract` `SparseAttentionRows`, plus
+  `VisionSelfAttentionSDPAContract` `SparseAttentionRows`, plus the proof-only
   `AttentionProbabilityMaterializationContract`
   `DecomposedAttentionProbabilityToValueBmm` layout-transition edge.
   The schema captures symbolic dims, min/max, values, multiples, optional
@@ -220,6 +222,16 @@ Current MVP status:
   bounds/conditional equal-sequence checks for the existing matcher. Scale
   tolerance, route-policy hard-fail ordering, tensor extraction/early dtype-rank
   guards, SDPA execution, materialization policy, and broader SDPA policy remain
+  handwritten.
+- `VisionSelfAttentionSDPAContract` `SparseAttentionRows` now uses the generic
+  ShapeEnvelope C++ sparse-rowset generator path:
+  `ExecutionContractsVisionSelfAttentionSDPASpec.h` provides contract
+  identity, per-row metadata, and exact row-match bounds for six proven rank-3
+  float vision self-attention rows with head dim 64, `BH in {6,12,16}`,
+  `T in {151,261}`, no mask, non-causal, dropout 0, GQA off, and explicit
+  scale 1.0. Proof requires the materialized math path with post-softmax clone;
+  route-policy hard-fail ordering, scale tolerance, tensor extraction, SDPA
+  execution, materialization policy, and broader SDPA policy remain
   handwritten.
 - `AttentionProbabilityMaterializationContract`
   `DecomposedAttentionProbabilityToValueBmm` now has proof-only

@@ -332,6 +332,21 @@ VulkanRouteDecision select_sdpa_route(
           scale,
           enable_gqa);
   const bool allow_diffusion_sdpa = diffusion_sdpa_match.matched;
+  const VisionSelfAttentionSDPAMatch vision_self_attention_sdpa_match =
+      match_vision_self_attention_sdpa_contract(
+          query.sizes(),
+          key.sizes(),
+          value.sizes(),
+          query.scalar_type(),
+          key.scalar_type(),
+          value.scalar_type(),
+          has_attn_mask,
+          dropout_p,
+          is_causal,
+          scale,
+          enable_gqa);
+  const bool allow_vision_self_attention_sdpa =
+      vision_self_attention_sdpa_match.matched;
 
   if (
       (has_attn_mask || is_causal || enable_gqa) &&
@@ -371,6 +386,7 @@ VulkanRouteDecision select_sdpa_route(
       !allow_transformer_gqa_sdpa &&
       !allow_masked_tiny_sdpa &&
       !allow_diffusion_sdpa &&
+      !allow_vision_self_attention_sdpa &&
       (query.dim() == 3 || query.dim() == 4)) {
     const int64_t target_len = query.size(query.dim() - 2);
     const int64_t source_len = key.size(key.dim() - 2);
@@ -408,6 +424,10 @@ VulkanRouteDecision select_sdpa_route(
     decision.kernel_family = "diffusion_sdpa";
     decision.telemetry_label =
         diffusion_sdpa_route_label(diffusion_sdpa_match.family);
+  } else if (allow_vision_self_attention_sdpa) {
+    decision.kernel_family = "vision_self_attention_sdpa";
+    decision.telemetry_label = vision_self_attention_sdpa_route_label(
+        vision_self_attention_sdpa_match.family);
   } else {
     decision.kernel_family = "sdpa";
     decision.telemetry_label = "SelectedSdpa";

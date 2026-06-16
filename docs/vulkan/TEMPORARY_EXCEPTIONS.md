@@ -185,6 +185,35 @@ condition and migration target.
 - Migration target: broader generated `TransformerGQASDPAContract` tables with
   positive, adjacent negative, and materialization-policy coverage.
 
+### Vision Self-Attention SDPA Exact Rows
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`,
+  `aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp`, and
+  `aten/src/ATen/native/vulkan/ops/Softmax.cpp`
+- Status: temporary, contract-named
+- Reason: six low-resolution rank-3 float vision self-attention rows
+  `[BH,T,64]` are proven with `BH in {6,12,16}`, `T in {151,261}`, q/k/v equal
+  shape, no mask, non-causal, dropout 0, GQA off, and explicit scale 1.0.
+  Broader vision SDPA sequence/head layouts, implicit-scale policy, masks,
+  causal attention, and direct softmax-to-value-BMM behavior are not proven
+  yet.
+- Generated spec coverage:
+  `test/vulkan_contract_specs/vision_self_attention_sdpa_contract.json` covers
+  the `SparseAttentionRows` slice with ShapeEnvelope sparse-rowset rows,
+  checked-in positive and adjacent negative runtime cases, and generic
+  ShapeEnvelope C++ metadata/row helpers in
+  `generated/ExecutionContractsVisionSelfAttentionSDPASpec.h`. The generated
+  helper owns row metadata and row-match bounds. Scale tolerance,
+  route-policy hard-fail ordering, tensor extraction/early dtype-rank guards,
+  materialized math-path selection, post-softmax clone behavior, and
+  match-result assembly remain handwritten.
+- Expiry: broader vision self-attention SDPA parity and adjacent negative
+  coverage are available across head-batch, sequence, scale, mask/causal, and
+  probability materialization behavior without regressing existing SDPA rows.
+- Migration target: broader generated `VisionSelfAttentionSDPAContract` tables
+  and/or a reviewed attention probability materialization policy that can
+  replace the exact rowset with a parameterized, zero-fallback policy.
+
 ### SDPA Execution Policy Exact Tuples
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

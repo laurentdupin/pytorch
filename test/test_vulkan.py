@@ -440,6 +440,9 @@ class TestVulkanGovernance(TestCase):
             "transformer_gqa_sdpa_contract.json": (
                 "transformer_gqa_sdpa_sparse_attention_rows"
             ),
+            "vision_self_attention_sdpa_contract.json": (
+                "vision_self_attention_sdpa_sparse_attention_rows"
+            ),
         }
         envelope_rows = contract_spec_utils.shape_envelope_summary(REPO_ROOT)
         roles_by_file = {
@@ -467,7 +470,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 20 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 21 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:"
             "attention_probability_materialization_"
@@ -562,6 +565,11 @@ class TestVulkanGovernance(TestCase):
             "transformer_gqa_sdpa_sparse_attention_rows",
             result.stdout,
         )
+        self.assertIn(
+            "vision_self_attention_sdpa_contract.json:"
+            "vision_self_attention_sdpa_sparse_attention_rows",
+            result.stdout,
+        )
 
     def test_vulkan_shape_envelope_adjacent_negative_utility_cli(self):
         result = subprocess.run(
@@ -583,10 +591,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 20 ShapeEnvelope adjacent-negative generators",
+            "validated 21 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=119", result.stdout)
+        self.assertIn("generated_cases=127", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:12",
             result.stdout,
@@ -616,6 +624,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("small_metadata_padded_conv2d_contract.json:7", result.stdout)
         self.assertIn("small_spatial_pointwise_conv_contract.json:15", result.stdout)
         self.assertIn("transformer_gqa_sdpa_contract.json:8", result.stdout)
+        self.assertIn("vision_self_attention_sdpa_contract.json:8", result.stdout)
 
     def test_vulkan_shape_envelope_legal_case_utility_cli(self):
         result = subprocess.run(
@@ -637,10 +646,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 20 ShapeEnvelope legal-case generators",
+            "validated 21 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=221", result.stdout)
+        self.assertIn("generated_cases=227", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:10",
             result.stdout,
@@ -670,6 +679,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("small_metadata_padded_conv2d_contract.json:1", result.stdout)
         self.assertIn("small_spatial_pointwise_conv_contract.json:147", result.stdout)
         self.assertIn("transformer_gqa_sdpa_contract.json:4", result.stdout)
+        self.assertIn("vision_self_attention_sdpa_contract.json:6", result.stdout)
 
     def test_vulkan_shape_envelope_fuzz_assignment_utility_cli(self):
         result = subprocess.run(
@@ -691,11 +701,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 20 ShapeEnvelope fuzz assignment generators",
+            "validated 21 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=40", result.stdout)
-        self.assertIn("adjacent_negative_assignments=118", result.stdout)
+        self.assertIn("legal_assignments=42", result.stdout)
+        self.assertIn("adjacent_negative_assignments=126", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "adjacent=12",
@@ -777,6 +787,10 @@ class TestVulkanGovernance(TestCase):
             "transformer_gqa_sdpa_contract.json:legal=2:adjacent=8",
             result.stdout,
         )
+        self.assertIn(
+            "vision_self_attention_sdpa_contract.json:legal=2:adjacent=8",
+            result.stdout,
+        )
 
     def test_vulkan_shape_envelope_fuzz_assignment_coverage_cli(self):
         result = subprocess.run(
@@ -798,14 +812,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 20 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 21 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=40", result.stdout)
-        self.assertIn("legal_paths=351", result.stdout)
-        self.assertIn("adjacent_negative_axes=118", result.stdout)
-        self.assertIn("runtime_legal_cases=221", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=119", result.stdout)
+        self.assertIn("legal_assignments=42", result.stdout)
+        self.assertIn("legal_paths=371", result.stdout)
+        self.assertIn("adjacent_negative_axes=125", result.stdout)
+        self.assertIn("runtime_legal_cases=227", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=127", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "status=covered:paths=17/17:adjacent_axes=12",
@@ -906,6 +920,11 @@ class TestVulkanGovernance(TestCase):
             "paths=23/23:adjacent_axes=8",
             result.stdout,
         )
+        self.assertIn(
+            "vision_self_attention_sdpa_contract.json:legal=2:status=covered:"
+            "paths=20/20:adjacent_axes=7",
+            result.stdout,
+        )
 
     def test_vulkan_shape_envelope_runtime_iterator_uses_generated_cases(self):
         expected_generated_counts = {
@@ -929,6 +948,7 @@ class TestVulkanGovernance(TestCase):
             "small_metadata_padded_conv2d_contract.json": (1, 7),
             "small_spatial_pointwise_conv_contract.json": (147, 15),
             "transformer_gqa_sdpa_contract.json": (4, 8),
+            "vision_self_attention_sdpa_contract.json": (6, 8),
         }
         for file_name, expected_counts in expected_generated_counts.items():
             expected_legal_count, expected_negative_count = expected_counts
@@ -989,6 +1009,7 @@ class TestVulkanGovernance(TestCase):
                 "small_metadata_padded_conv2d_materialized_buffer_input_2x2",
                 "small_spatial_pointwise_conv_sparse_projection_rows",
                 "transformer_gqa_sdpa_sparse_attention_rows",
+                "vision_self_attention_sdpa_sparse_attention_rows",
                 "multi_input_rank4_channel_cat",
                 "embedding_lookup_small_bounded",
                 "safe_reshape_alias_dense_buffer_direct",
@@ -1184,9 +1205,9 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 5 ShapeEnvelope sparse rowsets", result.stdout)
-        self.assertIn("rows=70", result.stdout)
-        self.assertIn("sparse_gap=194842", result.stdout)
+        self.assertIn("validated 6 ShapeEnvelope sparse rowsets", result.stdout)
+        self.assertIn("rows=76", result.stdout)
+        self.assertIn("sparse_gap=194848", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:"
             "probability_rows:rows=10",
@@ -1206,6 +1227,10 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "transformer_gqa_sdpa_contract.json:attention_rows:rows=4",
+            result.stdout,
+        )
+        self.assertIn(
+            "vision_self_attention_sdpa_contract.json:attention_rows:rows=6",
             result.stdout,
         )
 
@@ -1284,7 +1309,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 20)
+        self.assertEqual(len(rows), 21)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
 
     def test_vulkan_generated_cpp_manifest_cli(self):
@@ -1307,7 +1332,7 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 20 generated ShapeEnvelope C++ helper headers",
+            "validated 21 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
@@ -1337,11 +1362,12 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("ExecutionContractsMaskedTinySDPASpec.h", result.stdout)
         self.assertIn("ExecutionContractsSDPAScoreSoftmaxSpec.h", result.stdout)
         self.assertIn("ExecutionContractsTransformerGQASDPASpec.h", result.stdout)
+        self.assertIn("ExecutionContractsVisionSelfAttentionSDPASpec.h", result.stdout)
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
-        self.assertEqual(summary["specs"], 20)
-        self.assertEqual(summary["generated_shape_envelope"], 20)
+        self.assertEqual(summary["specs"], 21)
+        self.assertEqual(summary["generated_shape_envelope"], 21)
         self.assertEqual(summary["json_spec_without_shape_envelope"], 0)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
         self.assertEqual(summary["schema_only_spec"], 0)
@@ -1419,6 +1445,13 @@ class TestVulkanGovernance(TestCase):
         self.assertFalse(
             spec_rows["transformer_gqa_sdpa_contract.json"]["exact_row_debt"]
         )
+        self.assertEqual(
+            spec_rows["vision_self_attention_sdpa_contract.json"]["category"],
+            "generated_shape_envelope",
+        )
+        self.assertFalse(
+            spec_rows["vision_self_attention_sdpa_contract.json"]["exact_row_debt"]
+        )
 
         live_contracts = {
             row["contract_name"]: row
@@ -1426,6 +1459,7 @@ class TestVulkanGovernance(TestCase):
         }
         self.assertNotIn("TransformerGQASDPAContract", live_contracts)
         self.assertNotIn("SDPAExecutionPolicyContract", live_contracts)
+        self.assertNotIn("VisionSelfAttentionSDPAContract", live_contracts)
 
         result = subprocess.run(
             [
@@ -1446,8 +1480,8 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated contract coverage census specs=20", result.stdout)
-        self.assertIn("generated_shape_envelope=20", result.stdout)
+        self.assertIn("validated contract coverage census specs=21", result.stdout)
+        self.assertIn("generated_shape_envelope=21", result.stdout)
         self.assertIn("json_spec_without_shape_envelope=0", result.stdout)
         self.assertIn("live_contract_without_json_spec=0", result.stdout)
         self.assertIn("exact_row_debt=0", result.stdout)
@@ -1458,6 +1492,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("diffusion_sdpa_contract.json", result.stdout)
         self.assertIn("sdpa_execution_policy_contract.json", result.stdout)
         self.assertIn("transformer_gqa_sdpa_contract.json", result.stdout)
+        self.assertIn("vision_self_attention_sdpa_contract.json", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json",
             result.stdout,
@@ -1468,7 +1503,7 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(summary["wired_contracts"], 3)
         self.assertEqual(summary["wired_spec_rows"], 5)
         self.assertEqual(summary["wired_sources"], 3)
-        self.assertEqual(summary["unwired_contracts"], 14)
+        self.assertEqual(summary["unwired_contracts"], 15)
         self.assertEqual(summary["payload_fields"], 9)
 
         census = contract_spec_utils.admission_diagnostics_census(REPO_ROOT)
@@ -1528,7 +1563,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "validated admission diagnostics census wired_contracts=3 "
-            "wired_spec_rows=5 wired_sources=3 unwired_contracts=14 "
+            "wired_spec_rows=5 wired_sources=3 unwired_contracts=15 "
             "payload_fields=9",
             result.stdout,
         )
@@ -15083,6 +15118,109 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
             if os.path.exists(op_hit_log_path):
                 os.remove(op_hit_log_path)
+
+    def test_vision_self_attention_sdpa_contract_generated_spec(self):
+        spec = _load_vulkan_contract_spec("vision_self_attention_sdpa_contract.json")
+        route_log_name = contract_spec_utils.contract_log_name(
+            spec,
+            {"name": "generated"},
+            "route_test.log",
+        )
+        route_log_path = os.path.join(REPO_ROOT, route_log_name)
+        if os.path.exists(route_log_path):
+            os.remove(route_log_path)
+
+        previous_route_log = os.environ.get("PYTORCH_VULKAN_ROUTE_LOG")
+
+        def read_route_log():
+            if not os.path.exists(route_log_path):
+                return ""
+            with open(route_log_path, "r", encoding="utf-8") as log_file:
+                return log_file.read()
+
+        def dtype_for_case(case):
+            return {
+                "float32": torch.float32,
+            }[case["dtype"]]
+
+        def make_tensors(case):
+            dtype = dtype_for_case(case)
+            return (
+                torch.randn(*case["query_shape"], dtype=dtype),
+                torch.randn(*case["key_shape"], dtype=dtype),
+                torch.randn(*case["value_shape"], dtype=dtype),
+            )
+
+        try:
+            os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = route_log_path
+            for _, case, expect_native_route in (
+                contract_spec_utils.iter_shape_envelope_contract_cases(spec)
+            ):
+                with self.subTest(case=case["name"]):
+                    if os.path.exists(route_log_path):
+                        os.remove(route_log_path)
+                    torch.manual_seed(7600 + len(case["name"]))
+                    query, key, value = make_tensors(case)
+                    query_vulkan = query.to("vulkan")
+                    key_vulkan = key.to("vulkan")
+                    value_vulkan = value.to("vulkan")
+
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        if "expected_runtime_error" in case:
+                            with self.assertRaisesRegex(
+                                RuntimeError,
+                                case["expected_runtime_error"],
+                            ):
+                                F.scaled_dot_product_attention(
+                                    query_vulkan,
+                                    key_vulkan,
+                                    value_vulkan,
+                                    dropout_p=case["dropout_p"],
+                                    is_causal=case["is_causal"],
+                                    scale=case["scale"],
+                                    enable_gqa=case["enable_gqa"],
+                                )
+                        else:
+                            expected = F.scaled_dot_product_attention(
+                                query,
+                                key,
+                                value,
+                                dropout_p=case["dropout_p"],
+                                is_causal=case["is_causal"],
+                                scale=case["scale"],
+                                enable_gqa=case["enable_gqa"],
+                            )
+                            actual = F.scaled_dot_product_attention(
+                                query_vulkan,
+                                key_vulkan,
+                                value_vulkan,
+                                dropout_p=case["dropout_p"],
+                                is_causal=case["is_causal"],
+                                scale=case["scale"],
+                                enable_gqa=case["enable_gqa"],
+                            ).cpu()
+                            self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+
+                    fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                    route_log = read_route_log()
+                    if expect_native_route:
+                        self.assertEqual(fallback_count, 0)
+                        self.assertIn(case["expected_route_label"], route_log)
+                    else:
+                        self.assertNotIn(spec["route_label"], route_log)
+                        if "expected_cpu_fallback" in case:
+                            self.assertEqual(
+                                fallback_count,
+                                1 if case["expected_cpu_fallback"] else 0,
+                            )
+        finally:
+            if previous_route_log is None:
+                os.environ.pop("PYTORCH_VULKAN_ROUTE_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = previous_route_log
+            if os.path.exists(route_log_path):
+                os.remove(route_log_path)
 
     def test_scaled_dot_product_attention_hymt_decode_gqa_shape_guard(self):
         torch.manual_seed(0)

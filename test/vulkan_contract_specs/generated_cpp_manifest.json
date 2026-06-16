@@ -83,6 +83,17 @@
       ]
     },
     {
+      "spec_file": "vision_self_attention_sdpa_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsVisionSelfAttentionSDPASpec.h",
+      "markers": [
+        "VisionSelfAttentionSDPASparseAttentionRowsSpec",
+        "VisionSelfAttentionSDPAAttentionRowsRow",
+        "kVisionSelfAttentionSDPAAttentionRowsRowCount",
+        "vision_self_attention_sdpa_attention_rows_row_matches",
+        "vision_self_attention_sdpa_attention_rows_find"
+      ]
+    },
+    {
       "spec_file": "elementwise_broadcast_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h",
       "markers": [
