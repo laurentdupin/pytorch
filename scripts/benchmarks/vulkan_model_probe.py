@@ -208,6 +208,21 @@ class VulkanModelProbe:
         except Exception:
             return []
 
+    def _without_probe_reentry(self) -> Any:
+        disable = getattr(getattr(self.torch, "_C", None), "_DisableTorchDispatch", None)
+        if disable is None:
+            return contextlib.nullcontext()
+        return disable()
+
+    def _execute_without_probe_reentry(
+        self,
+        func: Any,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> Any:
+        with self._without_probe_reentry():
+            return func(*args, **kwargs)
+
     def _snapshot_counters(self) -> dict[str, Any]:
         return {
             "cpu_fallback_count": self._counter_value("cpu_fallback_count"),
@@ -278,8 +293,16 @@ class VulkanModelProbe:
         if input_taints:
             self.tainted_input_ops += 1
         policy = self._policy_for_op(op, args, kwargs, has_vulkan, input_taints)
+        preexecute_guard = self._preexecute_cpu_continuation_guard(
+            op,
+            args,
+            kwargs,
+            has_vulkan,
+        )
+        if preexecute_guard is not None:
+            policy = preexecute_guard
         if policy["action"] == "record_only":
-            result = func(*args, **kwargs)
+            result = self._execute_without_probe_reentry(func, args, kwargs)
             if should_record:
                 self._record_op(
                     op,
@@ -328,7 +351,7 @@ class VulkanModelProbe:
             return result
 
         try:
-            result = func(*args, **kwargs)
+            result = self._execute_without_probe_reentry(func, args, kwargs)
         except Exception as exc:
             if self._can_continue_after_exception(exc):
                 policy = dict(policy)
@@ -466,6 +489,58 @@ class VulkanModelProbe:
             "has_vulkan_input": has_vulkan,
         }
 
+    def _preexecute_cpu_continuation_guard(
+        self,
+        op: dict[str, Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        has_vulkan: bool,
+    ) -> dict[str, Any] | None:
+        if not has_vulkan or self.config.mode not in {
+            "record",
+            "continue_cpu_to_vulkan_safe",
+        }:
+            return None
+        if not self._is_attention_score_softmax(op, args, kwargs):
+            return None
+        return {
+            "mode": self.config.mode,
+            "action": "cpu_substitute_then_rewrap_vulkan",
+            "policy_rule_id": "probe_guard_attention_score_softmax",
+            "known_bad_reason": "attention_score_softmax_preexecute_cpu_continuation",
+            "preexecute_guard": True,
+            "guarded_op": op["name"],
+        }
+
+    def _is_attention_score_softmax(
+        self,
+        op: dict[str, Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> bool:
+        if op["name"] not in {"aten::_softmax", "aten::softmax.int"}:
+            return False
+        tensors = flatten_tensors(self.torch, args[:1])
+        if not tensors:
+            return False
+        tensor = tensors[0]
+        if not is_vulkan_tensor(self.torch, tensor):
+            return False
+        rank = int(tensor.dim())
+        if rank < 3:
+            return False
+        dim = kwargs.get("dim")
+        if dim is None and len(args) > 1:
+            dim = args[1]
+        try:
+            dim = int(dim)
+        except Exception:
+            return False
+        if dim < 0:
+            dim += rank
+        shape = [int(value) for value in tensor.shape]
+        return dim == rank - 1 and shape[-1] > 1 and shape[-1] == shape[-2]
+
     def _can_continue_after_exception(self, exc: Exception) -> bool:
         if self.config.mode != "continue_cpu_to_vulkan_safe":
             return False
@@ -496,9 +571,14 @@ class VulkanModelProbe:
         *,
         rewrap: bool,
     ) -> tuple[Any, bool]:
-        cpu_args = map_tensors(self.torch, args, lambda tensor: tensor_to_cpu(tensor))
-        cpu_kwargs = map_tensors(self.torch, kwargs, lambda tensor: tensor_to_cpu(tensor))
-        cpu_result = func(*cpu_args, **cpu_kwargs)
+        with self._without_probe_reentry():
+            cpu_args = map_tensors(self.torch, args, lambda tensor: tensor_to_cpu(tensor))
+            cpu_kwargs = map_tensors(
+                self.torch,
+                kwargs,
+                lambda tensor: tensor_to_cpu(tensor),
+            )
+            cpu_result = func(*cpu_args, **cpu_kwargs)
         if not rewrap:
             return cpu_result, False
         rewrapped_any = False
@@ -514,7 +594,8 @@ class VulkanModelProbe:
                 return tensor
             return tensor
 
-        return map_tensors(self.torch, cpu_result, rewrap_tensor), rewrapped_any
+        with self._without_probe_reentry():
+            return map_tensors(self.torch, cpu_result, rewrap_tensor), rewrapped_any
 
     def _input_taints(self, tensors: list[Any]) -> list[dict[str, Any]]:
         taints: list[dict[str, Any]] = []
