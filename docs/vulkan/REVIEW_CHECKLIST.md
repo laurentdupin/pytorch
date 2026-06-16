@@ -65,6 +65,9 @@ Use this checklist for Vulkan backend changes.
   is a review guardrail, not proof that broader shapes are legal.
 - Materialization and layout transition behavior is part of the contract, not a
   hidden side effect.
+- Producer-consumer materialization-edge specs distinguish direct-safe evidence
+  from materialization-required rows and do not become blanket softmax/BMM,
+  view/alias, or other broad layout-transition rules without proof.
 - Temporary feature flags have expiry and migration target; permanent flags are
   not used to carry incomplete behavior.
 

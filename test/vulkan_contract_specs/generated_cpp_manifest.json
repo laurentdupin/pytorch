@@ -2,6 +2,17 @@
   "schema_version": 1,
   "entries": [
     {
+      "spec_file": "attention_probability_materialization_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsAttentionProbabilityMaterializationSpec.h",
+      "markers": [
+        "AttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmSpec",
+        "AttentionProbabilityMaterializationProbabilityRowsRow",
+        "kAttentionProbabilityMaterializationProbabilityRowsRowCount",
+        "attention_probability_materialization_probability_rows_row_matches",
+        "attention_probability_materialization_probability_rows_find"
+      ]
+    },
+    {
       "spec_file": "batch_norm_inference_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceSpec.h",
       "markers": [

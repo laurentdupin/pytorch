@@ -4027,6 +4027,172 @@ def _validate_elementwise_broadcast_shape_envelope(file_name, spec, envelope):
                     raise AssertionError(f"{case_context} rank exceeds bounds")
 
 
+def _validate_attention_probability_materialization_shape_envelope(
+    file_name,
+    spec,
+    envelope,
+):
+    context = f"{file_name} AttentionProbabilityMaterialization ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "AttentionProbabilityMaterializationContract",
+        f"{context} contract",
+    )
+    _require_equal(
+        spec["family"],
+        "DecomposedAttentionProbabilityToValueBmm",
+        f"{context} family",
+    )
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    bounds = envelope["bounds"]
+    inputs = envelope["inputs"]
+    require_fields(inputs, ("probability", "value"), f"{context} inputs")
+    results = envelope.get("results", {})
+    require_fields(results, ("output",), f"{context} results")
+
+    probability = inputs["probability"]
+    value = inputs["value"]
+    output = results["output"]
+    for input_name, tensor in (("probability", probability), ("value", value)):
+        _require_equal(
+            _single_value(tensor["dtype"], f"{context} {input_name} dtype"),
+            bounds[f"{input_name}_dtype"],
+            f"{context} {input_name} dtype",
+        )
+        _require_equal(
+            _single_value(tensor["rank"], f"{context} {input_name} rank"),
+            bounds[f"{input_name}_rank"],
+            f"{context} {input_name} rank",
+        )
+    _require_equal(
+        _single_value(output["rank"], f"{context} output rank"),
+        bounds["output_rank"],
+        f"{context} output rank",
+    )
+
+    probability_dims = _dims_by_symbol(probability, context)
+    value_dims = _dims_by_symbol(value, context)
+    output_dims = _dims_by_symbol(output, context)
+    for symbol, bound_name in (
+        ("BH", "batch_heads"),
+        ("T", "query_sequence"),
+        ("S", "key_value_sequence"),
+    ):
+        _require_equal(
+            probability_dims[symbol]["values"],
+            bounds[bound_name],
+            f"{context} probability {symbol}",
+        )
+    for symbol, bound_name in (
+        ("BH", "batch_heads"),
+        ("S", "key_value_sequence"),
+        ("D", "value_dim"),
+    ):
+        _require_equal(
+            value_dims[symbol]["values"],
+            bounds[bound_name],
+            f"{context} value {symbol}",
+        )
+    for symbol, bound_name in (
+        ("BH", "batch_heads"),
+        ("T", "query_sequence"),
+        ("D", "value_dim"),
+    ):
+        _require_equal(
+            output_dims[symbol]["values"],
+            bounds[bound_name],
+            f"{context} output {symbol}",
+        )
+
+    relationships = {
+        relationship["scope"]
+        for relationship in envelope["relationships"]
+        if relationship["type"] == "equal"
+    }
+    for scope in (
+        "probability_value_batch_heads",
+        "probability_value_sequence",
+        "output_query_sequence",
+        "output_value_dim",
+    ):
+        if scope not in relationships:
+            raise AssertionError(f"{context} missing {scope} relationship")
+
+    rowsets = envelope["sparse_rowsets"]
+    _require_equal(len(rowsets), 1, f"{context} rowset count")
+    rowset = rowsets[0]
+    _require_equal(rowset["name"], "probability_rows", f"{context} rowset")
+    rows_by_tuple = {row["tuple_id"]: row for row in rowset["rows"]}
+    _require_equal(
+        len(rows_by_tuple),
+        len(spec["positive_cases"]),
+        f"{context} row count",
+    )
+    materialization_required = [
+        row
+        for row in rowset["rows"]
+        if row["family"] == "MaterializationRequiredProbabilityValueBmm"
+    ]
+    _require_equal(
+        len(materialization_required),
+        1,
+        f"{context} materialization-required rows",
+    )
+
+    for case in spec["positive_cases"]:
+        case_context = f"{context} positive {case['name']}"
+        tuple_id = case["expected_contract_tuple_id"]
+        if tuple_id not in rows_by_tuple:
+            raise AssertionError(f"{case_context} missing row")
+        row = rows_by_tuple[tuple_id]
+        probability_shape = case["probability_shape"]
+        value_shape = case["value_shape"]
+        output_shape = case["output_shape"]
+        _require_equal(row["batch_heads"], probability_shape[0], case_context)
+        _require_equal(row["query_sequence"], probability_shape[1], case_context)
+        _require_equal(row["key_value_sequence"], probability_shape[2], case_context)
+        _require_equal(row["batch_heads"], value_shape[0], case_context)
+        _require_equal(row["key_value_sequence"], value_shape[1], case_context)
+        _require_equal(row["value_dim"], value_shape[2], case_context)
+        _require_equal(
+            output_shape,
+            [probability_shape[0], probability_shape[1], value_shape[2]],
+            f"{case_context} output shape",
+        )
+        _require_equal(
+            case["expected_contract_family"],
+            row["family"],
+            f"{case_context} row family",
+        )
+        _require_equal(
+            case["materialization_policy"],
+            row["materialization_policy"],
+            f"{case_context} materialization policy",
+        )
+        _require_equal(
+            case["has_additive_bias"],
+            row["has_additive_bias"],
+            f"{case_context} additive bias",
+        )
+        _require_equal(
+            case["q_shape"],
+            [probability_shape[0], probability_shape[1], value_shape[2]],
+            f"{case_context} q shape",
+        )
+        _require_equal(
+            case["kt_shape"],
+            [probability_shape[0], value_shape[2], probability_shape[2]],
+            f"{case_context} kt shape",
+        )
+        if not case["expected_direct_consumer_safe"]:
+            _require_equal(
+                row["family"],
+                "MaterializationRequiredProbabilityValueBmm",
+                f"{case_context} required materialization family",
+            )
+
+
 def validate_shape_envelope_spec(file_name, spec):
     envelope = spec.get("shape_envelope")
     if envelope is None:
@@ -5298,8 +5464,65 @@ _KV_CACHE_APPEND_INITIAL_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.dim",
 )
 
+_ATTENTION_PROBABILITY_MATERIALIZATION_LEGAL_KEY_FIELDS = (
+    "probability_shape",
+    "value_shape",
+    "materialization_policy",
+    "expected_direct_consumer_safe",
+    "expected_materialized_clone_pass",
+)
+
+_ATTENTION_PROBABILITY_MATERIALIZATION_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "probability_shape",
+    "value_shape",
+    "dtype",
+    "producer_op",
+    "consumer_op",
+    "softmax_dim",
+    "probability_device",
+    "value_device",
+    "materialization_device",
+    "expected_native_route",
+)
+
+_ATTENTION_PROBABILITY_MATERIALIZATION_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.probability.dtype",
+    "inputs.probability.rank",
+    "inputs.probability.dims.BH",
+    "inputs.probability.dims.T",
+    "inputs.probability.dims.S",
+    "inputs.value.dtype",
+    "inputs.value.rank",
+    "inputs.value.dims.BH",
+    "inputs.value.dims.S",
+    "inputs.value.dims.D",
+    "results.output.rank",
+    "results.output.dims.BH",
+    "results.output.dims.T",
+    "results.output.dims.D",
+    "attributes.consumer_op",
+    "attributes.producer_op",
+    "attributes.softmax_dim",
+)
+
 
 SHAPE_ENVELOPE_ROLE_REGISTRY = {
+    "attention_probability_materialization_decomposed_attention_probability_to_value_bmm": {
+        "validate": _validate_attention_probability_materialization_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _ATTENTION_PROBABILITY_MATERIALIZATION_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _ATTENTION_PROBABILITY_MATERIALIZATION_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _ATTENTION_PROBABILITY_MATERIALIZATION_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
+    },
     "batch_norm_inference_buffer_float_4d": {
         "validate": _validate_batch_norm_inference_shape_envelope,
         "assignment_cases": _generated_shape_envelope_assignment_cases,

@@ -393,6 +393,10 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_shape_envelope_v1_specs_validate(self):
         expected_roles = {
+            "attention_probability_materialization_contract.json": (
+                "attention_probability_materialization_"
+                "decomposed_attention_probability_to_value_bmm"
+            ),
             "batch_norm_inference_contract.json": (
                 "batch_norm_inference_buffer_float_4d"
             ),
@@ -463,7 +467,13 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 19 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 20 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn(
+            "attention_probability_materialization_contract.json:"
+            "attention_probability_materialization_"
+            "decomposed_attention_probability_to_value_bmm",
+            result.stdout,
+        )
         self.assertIn(
             "batch_norm_inference_contract.json:"
             "batch_norm_inference_buffer_float_4d",
@@ -573,10 +583,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 19 ShapeEnvelope adjacent-negative generators",
+            "validated 20 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=107", result.stdout)
+        self.assertIn("generated_cases=119", result.stdout)
+        self.assertIn(
+            "attention_probability_materialization_contract.json:12",
+            result.stdout,
+        )
         self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:3",
@@ -623,10 +637,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 19 ShapeEnvelope legal-case generators",
+            "validated 20 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=211", result.stdout)
+        self.assertIn("generated_cases=221", result.stdout)
+        self.assertIn(
+            "attention_probability_materialization_contract.json:10",
+            result.stdout,
+        )
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:1",
@@ -673,11 +691,16 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 19 ShapeEnvelope fuzz assignment generators",
+            "validated 20 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=38", result.stdout)
-        self.assertIn("adjacent_negative_assignments=106", result.stdout)
+        self.assertIn("legal_assignments=40", result.stdout)
+        self.assertIn("adjacent_negative_assignments=118", result.stdout)
+        self.assertIn(
+            "attention_probability_materialization_contract.json:legal=2:"
+            "adjacent=12",
+            result.stdout,
+        )
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:adjacent=3",
             result.stdout,
@@ -775,14 +798,19 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 19 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 20 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=38", result.stdout)
-        self.assertIn("legal_paths=334", result.stdout)
-        self.assertIn("adjacent_negative_axes=106", result.stdout)
-        self.assertIn("runtime_legal_cases=211", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=107", result.stdout)
+        self.assertIn("legal_assignments=40", result.stdout)
+        self.assertIn("legal_paths=351", result.stdout)
+        self.assertIn("adjacent_negative_axes=118", result.stdout)
+        self.assertIn("runtime_legal_cases=221", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=119", result.stdout)
+        self.assertIn(
+            "attention_probability_materialization_contract.json:legal=2:"
+            "status=covered:paths=17/17:adjacent_axes=12",
+            result.stdout,
+        )
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:status=covered:"
             "paths=21/21:adjacent_axes=3",
@@ -881,6 +909,7 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_shape_envelope_runtime_iterator_uses_generated_cases(self):
         expected_generated_counts = {
+            "attention_probability_materialization_contract.json": (10, 12),
             "batch_norm_inference_contract.json": (4, 3),
             "batch_norm_inference_materialized_contract.json": (1, 3),
             "channel_cat_contract.json": (5, 7),
@@ -944,6 +973,8 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(
             set(registry),
             {
+                "attention_probability_materialization_"
+                "decomposed_attention_probability_to_value_bmm",
                 "batch_norm_inference_buffer_float_4d",
                 "batch_norm_inference_materialized_buffer_float_4d",
                 "diffusion_sdpa_sparse_attention_rows",
@@ -1153,9 +1184,14 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 4 ShapeEnvelope sparse rowsets", result.stdout)
-        self.assertIn("rows=60", result.stdout)
-        self.assertIn("sparse_gap=194352", result.stdout)
+        self.assertIn("validated 5 ShapeEnvelope sparse rowsets", result.stdout)
+        self.assertIn("rows=70", result.stdout)
+        self.assertIn("sparse_gap=194842", result.stdout)
+        self.assertIn(
+            "attention_probability_materialization_contract.json:"
+            "probability_rows:rows=10",
+            result.stdout,
+        )
         self.assertIn(
             "diffusion_sdpa_contract.json:attention_rows:rows=11",
             result.stdout,
@@ -1248,7 +1284,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 19)
+        self.assertEqual(len(rows), 20)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
 
     def test_vulkan_generated_cpp_manifest_cli(self):
@@ -1271,10 +1307,14 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 19 generated ShapeEnvelope C++ helper headers",
+            "validated 20 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
+        self.assertIn(
+            "ExecutionContractsAttentionProbabilityMaterializationSpec.h",
+            result.stdout,
+        )
         self.assertIn("ExecutionContractsDiffusionSDPASpec.h", result.stdout)
         self.assertIn("ExecutionContractsSDPAExecutionPolicySpec.h", result.stdout)
         self.assertIn("ExecutionContractsGQARepeatSpec.h", result.stdout)
@@ -1300,8 +1340,8 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
-        self.assertEqual(summary["specs"], 19)
-        self.assertEqual(summary["generated_shape_envelope"], 19)
+        self.assertEqual(summary["specs"], 20)
+        self.assertEqual(summary["generated_shape_envelope"], 20)
         self.assertEqual(summary["json_spec_without_shape_envelope"], 0)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
         self.assertEqual(summary["schema_only_spec"], 0)
@@ -1313,6 +1353,12 @@ class TestVulkanGovernance(TestCase):
             row["file_name"]: row
             for row in census["spec_rows"]
         }
+        self.assertEqual(
+            spec_rows["attention_probability_materialization_contract.json"][
+                "category"
+            ],
+            "generated_shape_envelope",
+        )
         self.assertEqual(
             spec_rows["channel_cat_contract.json"]["category"],
             "generated_shape_envelope",
@@ -1400,8 +1446,8 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated contract coverage census specs=19", result.stdout)
-        self.assertIn("generated_shape_envelope=19", result.stdout)
+        self.assertIn("validated contract coverage census specs=20", result.stdout)
+        self.assertIn("generated_shape_envelope=20", result.stdout)
         self.assertIn("json_spec_without_shape_envelope=0", result.stdout)
         self.assertIn("live_contract_without_json_spec=0", result.stdout)
         self.assertIn("exact_row_debt=0", result.stdout)
@@ -1412,13 +1458,17 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("diffusion_sdpa_contract.json", result.stdout)
         self.assertIn("sdpa_execution_policy_contract.json", result.stdout)
         self.assertIn("transformer_gqa_sdpa_contract.json", result.stdout)
+        self.assertIn(
+            "attention_probability_materialization_contract.json",
+            result.stdout,
+        )
 
     def test_vulkan_contract_admission_diagnostics_census_cli(self):
         summary = contract_spec_utils.admission_diagnostics_census_summary(REPO_ROOT)
         self.assertEqual(summary["wired_contracts"], 3)
         self.assertEqual(summary["wired_spec_rows"], 5)
         self.assertEqual(summary["wired_sources"], 3)
-        self.assertEqual(summary["unwired_contracts"], 13)
+        self.assertEqual(summary["unwired_contracts"], 14)
         self.assertEqual(summary["payload_fields"], 9)
 
         census = contract_spec_utils.admission_diagnostics_census(REPO_ROOT)
@@ -1478,7 +1528,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "validated admission diagnostics census wired_contracts=3 "
-            "wired_spec_rows=5 wired_sources=3 unwired_contracts=13 "
+            "wired_spec_rows=5 wired_sources=3 unwired_contracts=14 "
             "payload_fields=9",
             result.stdout,
         )
@@ -3657,6 +3707,124 @@ class TestVulkanGovernance(TestCase):
                 case,
                 ("violates", "expected_native_route"),
                 "NoOverlapConvTranspose2DContract negative case",
+            )
+            self.assertFalse(case["expected_native_route"])
+
+    def test_vulkan_attention_probability_materialization_contract_spec_shape(self):
+        spec = _load_vulkan_contract_spec(
+            "attention_probability_materialization_contract.json"
+        )
+        self.assertEqual(spec["schema_version"], 1)
+        self.assertEqual(
+            spec["contract_name"],
+            "AttentionProbabilityMaterializationContract",
+        )
+        self.assertEqual(
+            spec["family"],
+            "DecomposedAttentionProbabilityToValueBmm",
+        )
+        self.assertEqual(
+            spec["tuple_id"],
+            "observed_rank3_float_probability_value_bmm_rows",
+        )
+        self.assertEqual(spec["writer_op"], "aten::_softmax")
+        self.assertEqual(
+            spec["route_label"],
+            "proof::attention_probability_materialization",
+        )
+
+        bounds = spec["bounds"]
+        _require_contract_spec_fields(
+            bounds,
+            (
+                "probability_dtype",
+                "value_dtype",
+                "probability_rank",
+                "value_rank",
+                "output_rank",
+                "batch_heads",
+                "query_sequence",
+                "key_value_sequence",
+                "value_dim",
+                "producer_op",
+                "consumer_op",
+                "softmax_dim",
+                "requires_vulkan",
+                "requires_strided_layout",
+            ),
+            "AttentionProbabilityMaterializationContract bounds",
+        )
+        self.assertEqual(bounds["probability_dtype"], "float32")
+        self.assertEqual(bounds["value_dtype"], "float32")
+        self.assertEqual(bounds["probability_rank"], 3)
+        self.assertEqual(bounds["value_rank"], 3)
+        self.assertEqual(bounds["output_rank"], 3)
+        self.assertEqual(bounds["producer_op"], "aten::_softmax")
+        self.assertEqual(bounds["consumer_op"], "aten::bmm")
+        self.assertEqual(bounds["softmax_dim"], -1)
+        self.assertTrue(bounds["requires_vulkan"])
+        self.assertTrue(bounds["requires_strided_layout"])
+
+        positive_cases = spec["positive_cases"]
+        self.assertEqual(len(positive_cases), 10)
+        materialization_required = [
+            case
+            for case in positive_cases
+            if not case["expected_direct_consumer_safe"]
+        ]
+        self.assertEqual(len(materialization_required), 1)
+        self.assertEqual(
+            materialization_required[0]["probability_shape"],
+            [10, 126, 126],
+        )
+        self.assertEqual(
+            materialization_required[0]["materialization_policy"],
+            "vulkan_clone_probability_before_value_bmm",
+        )
+
+        for case in positive_cases:
+            _require_contract_spec_fields(
+                case,
+                (
+                    "probability_shape",
+                    "value_shape",
+                    "output_shape",
+                    "q_shape",
+                    "kt_shape",
+                    "q_scale",
+                    "dtype",
+                    "producer_op",
+                    "consumer_op",
+                    "softmax_dim",
+                    "has_additive_bias",
+                    "materialization_policy",
+                    "expected_materialized_clone_pass",
+                    "expected_cpu_fallback",
+                    "expected_sync_readback",
+                ),
+                "AttentionProbabilityMaterializationContract positive case",
+            )
+            self.assertEqual(case["dtype"], "float32")
+            self.assertEqual(case["producer_op"], "aten::_softmax")
+            self.assertEqual(case["consumer_op"], "aten::bmm")
+            self.assertEqual(case["softmax_dim"], -1)
+            self.assertTrue(case["expected_materialized_clone_pass"])
+            self.assertFalse(case["expected_cpu_fallback"])
+            self.assertFalse(case["expected_sync_readback"])
+
+        for case in spec["negative_cases"]:
+            _require_contract_spec_fields(
+                case,
+                (
+                    "violates",
+                    "expected_native_route",
+                    "probability_shape",
+                    "value_shape",
+                    "producer_op",
+                    "consumer_op",
+                    "softmax_dim",
+                ),
+                "AttentionProbabilityMaterializationContract negative case",
             )
             self.assertFalse(case["expected_native_route"])
 
@@ -15165,6 +15333,81 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     self.assertEqual(
                         fallback_count,
                         1 if case["expected_cpu_fallback"] else 0,
+                    )
+
+    def test_attention_probability_materialization_contract_generated_spec(self):
+        spec = _load_vulkan_contract_spec(
+            "attention_probability_materialization_contract.json"
+        )
+
+        def make_tensors(case):
+            dtype = {
+                "float32": torch.float32,
+            }[case["dtype"]]
+            q = torch.randn(*case["q_shape"], dtype=dtype)
+            kt = torch.randn(*case["kt_shape"], dtype=dtype)
+            value = torch.randn(*case["value_shape"], dtype=dtype)
+            additive_bias = None
+            if case["has_additive_bias"]:
+                additive_bias = 0.01 * torch.randn(
+                    *case["probability_shape"],
+                    dtype=dtype,
+                )
+            return q, kt, value, additive_bias
+
+        def cpu_reference(case, q, kt, value, additive_bias):
+            scores = torch.bmm(q * case["q_scale"], kt)
+            if additive_bias is not None:
+                scores = scores + additive_bias
+            probabilities = F.softmax(scores, dim=case["softmax_dim"])
+            return probabilities, torch.bmm(probabilities, value)
+
+        for _, case, _ in contract_spec_utils.iter_shape_envelope_contract_cases(
+            spec
+        ):
+            if not case.get("expected_materialized_clone_pass", False):
+                continue
+            with self.subTest(case=case["name"]):
+                torch.manual_seed(8800 + len(case["name"]))
+                q, kt, value, additive_bias = make_tensors(case)
+                expected_probabilities, expected = cpu_reference(
+                    case,
+                    q,
+                    kt,
+                    value,
+                    additive_bias,
+                )
+
+                with torch.inference_mode():
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    scores = torch.bmm(
+                        (q * case["q_scale"]).to("vulkan"),
+                        kt.to("vulkan"),
+                    )
+                    if additive_bias is not None:
+                        scores = scores + additive_bias.to("vulkan")
+                    probabilities = F.softmax(scores, dim=case["softmax_dim"])
+                    value_vulkan = value.to("vulkan")
+                    direct = torch.bmm(probabilities, value_vulkan).cpu()
+                    materialized = probabilities.clone()
+                    actual = torch.bmm(materialized, value_vulkan).cpu()
+                    cpu_uploaded = torch.bmm(
+                        expected_probabilities.to("vulkan"),
+                        value_vulkan,
+                    ).cpu()
+
+                self.assertEqual(actual, expected, rtol=1e-3, atol=1e-3)
+                self.assertEqual(cpu_uploaded, expected, rtol=1e-3, atol=1e-3)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+                direct_max_abs = torch.max(torch.abs(direct - expected)).item()
+                if case["expected_direct_consumer_safe"]:
+                    self.assertEqual(direct, expected, rtol=1e-3, atol=1e-3)
+                else:
+                    self.assertGreater(
+                        direct_max_abs,
+                        case["expected_direct_min_max_abs"],
                     )
 
     def test_sdpa_execution_policy_contract_generated_spec(self):

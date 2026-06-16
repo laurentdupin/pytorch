@@ -99,7 +99,9 @@ Current MVP status:
   `SmallMetadataPaddedConv2DContract` `MaterializedBufferInput2x2`, plus
   `SmallSpatialPointwiseConvContract` `SparseProjectionRows`, plus
   `LinearGeluBridgeContract` `BackboneMlpHidden384To1536`, plus
-  `TransformerGQASDPAContract` `SparseAttentionRows`.
+  `TransformerGQASDPAContract` `SparseAttentionRows`, plus the proof-only
+  `AttentionProbabilityMaterializationContract`
+  `DecomposedAttentionProbabilityToValueBmm` layout-transition edge.
   The schema captures symbolic dims, min/max, values, multiples, optional
   dims, generic `broadcast_compatible` relationships, generic
   `sparse_rowsets` for correlated finite rows, aggregate bounds, layout and
@@ -219,6 +221,14 @@ Current MVP status:
   tolerance, route-policy hard-fail ordering, tensor extraction/early dtype-rank
   guards, SDPA execution, materialization policy, and broader SDPA policy remain
   handwritten.
+- `AttentionProbabilityMaterializationContract`
+  `DecomposedAttentionProbabilityToValueBmm` now has proof-only
+  ShapeEnvelope sparse-rowset coverage and generated C++ metadata/row helpers
+  in `ExecutionContractsAttentionProbabilityMaterializationSpec.h`. It records
+  ten Lotus decomposed-attention probability/value-BMM rows, distinguishes nine
+  direct-safe rows from the one `[10,126,126]` row requiring Vulkan
+  clone/materialization in proof, and deliberately does not change production
+  softmax or BMM dispatch.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

@@ -207,6 +207,33 @@ condition and migration target.
 - Migration target: broader generated `SDPAExecutionPolicyContract` tables
   with positive and negative tests.
 
+### Attention Probability Materialization Proof Rows
+
+- Location: `test/vulkan_contract_specs/attention_probability_materialization_contract.json`
+  and
+  `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsAttentionProbabilityMaterializationSpec.h`
+- Status: proof-only, not production admission
+- Reason: Lotus decomposed-attention proof found ten rank-3 float
+  softmax-probability/value-BMM rows. Nine are direct-safe evidence, while the
+  `[10,126,126]` probability row requires explicit Vulkan clone/materialization
+  before value BMM in proof. The rowset prevents this evidence from becoming a
+  blanket softmax-to-BMM rule or a Lotus-named route.
+- Generated spec coverage:
+  `test/vulkan_contract_specs/attention_probability_materialization_contract.json`
+  covers the `DecomposedAttentionProbabilityToValueBmm` layout-transition edge
+  with ShapeEnvelope sparse-rowset rows, positive proof cases, adjacent
+  negatives, and generated C++ metadata/row helpers. Runtime proof coverage
+  verifies cloned/materialized probabilities pass for the observed rows and
+  captures the current direct-consumer failure for the materialization-required
+  row.
+- Expiry: a reviewed production `LayoutTransitionContract` materialization
+  policy consumes the generated row metadata for required rows, or broader
+  proof invalidates/removes the rowset.
+- Migration target: production `AttentionProbabilityMaterializationContract`
+  or region-level attention probability materialization policy with zero CPU
+  fallback/readback and explicit direct-safe versus materialization-required
+  row semantics.
+
 ### SDPA Score Softmax Exact Envelope
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`,

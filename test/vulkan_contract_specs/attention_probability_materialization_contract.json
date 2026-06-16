@@ -1,0 +1,1257 @@
+{
+  "schema_version": 1,
+  "contract_name": "AttentionProbabilityMaterializationContract",
+  "family": "DecomposedAttentionProbabilityToValueBmm",
+  "tuple_id": "observed_rank3_float_probability_value_bmm_rows",
+  "writer_op": "aten::_softmax",
+  "route_label": "proof::attention_probability_materialization",
+  "metadata": {
+    "evidence_id": "task283_task284_lotus_decomposed_attention_probe_and_stage_proof",
+    "guard_id": "attention_probability_materialization_adjacent_guards",
+    "fallback_policy": "unsupported_edges_do_not_match",
+    "materialization_policy": "row_policy_vulkan_clone_required_or_direct_safe_recorded"
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "attention_probability_materialization_decomposed_attention_probability_to_value_bmm",
+    "inputs": {
+      "probability": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "BH",
+            "field": "batch_heads",
+            "values": [
+              1,
+              5,
+              10,
+              16,
+              20
+            ]
+          },
+          {
+            "symbol": "T",
+            "field": "query_sequence",
+            "values": [
+              2,
+              12,
+              35,
+              126,
+              504
+            ]
+          },
+          {
+            "symbol": "S",
+            "field": "key_value_sequence",
+            "values": [
+              2,
+              12,
+              35,
+              126,
+              504
+            ]
+          }
+        ]
+      },
+      "value": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "BH",
+            "field": "batch_heads",
+            "values": [
+              1,
+              5,
+              10,
+              16,
+              20
+            ]
+          },
+          {
+            "symbol": "S",
+            "field": "key_value_sequence",
+            "values": [
+              2,
+              12,
+              35,
+              126,
+              504
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "value_dim",
+            "values": [
+              64,
+              512
+            ]
+          }
+        ]
+      }
+    },
+    "results": {
+      "output": {
+        "kind": "tensor",
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "BH",
+            "field": "batch_heads",
+            "values": [
+              1,
+              5,
+              10,
+              16,
+              20
+            ]
+          },
+          {
+            "symbol": "T",
+            "field": "query_sequence",
+            "values": [
+              2,
+              12,
+              35,
+              126,
+              504
+            ]
+          },
+          {
+            "symbol": "D",
+            "field": "value_dim",
+            "values": [
+              64,
+              512
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "producer_op": {
+        "values": [
+          "aten::_softmax"
+        ]
+      },
+      "consumer_op": {
+        "values": [
+          "aten::bmm"
+        ]
+      },
+      "softmax_dim": {
+        "values": [
+          -1
+        ]
+      }
+    },
+    "bounds": {
+      "probability_dtype": "float32",
+      "value_dtype": "float32",
+      "probability_rank": 3,
+      "value_rank": 3,
+      "output_rank": 3,
+      "batch_heads": [
+        1,
+        5,
+        10,
+        16,
+        20
+      ],
+      "query_sequence": [
+        2,
+        12,
+        35,
+        126,
+        504
+      ],
+      "key_value_sequence": [
+        2,
+        12,
+        35,
+        126,
+        504
+      ],
+      "value_dim": [
+        64,
+        512
+      ],
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "requires_vulkan": true,
+      "requires_strided_layout": true,
+      "requires_probability_storage_offset_zero": true,
+      "requires_value_storage_offset_zero": true
+    },
+    "relationships": [
+      {
+        "type": "equal",
+        "scope": "probability_value_batch_heads",
+        "fields": [
+          "probability.BH",
+          "value.BH",
+          "output.BH"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "probability_value_sequence",
+        "fields": [
+          "probability.S",
+          "value.S"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "output_query_sequence",
+        "fields": [
+          "probability.T",
+          "output.T"
+        ]
+      },
+      {
+        "type": "equal",
+        "scope": "output_value_dim",
+        "fields": [
+          "value.D",
+          "output.D"
+        ]
+      }
+    ],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "probability_layout": "strided",
+      "value_layout": "strided",
+      "materialization_device": "vulkan"
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "task283_task284_lotus_decomposed_attention_probe_and_stage_proof",
+      "guard_id": "attention_probability_materialization_adjacent_guards",
+      "fallback_policy": "unsupported_edges_do_not_match",
+      "materialization_policy": "row_policy_vulkan_clone_required_or_direct_safe_recorded"
+    },
+    "policies": {
+      "fallback": "unsupported_edges_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "dtype",
+        "adjacent": "unsupported_value",
+        "value": "float16"
+      },
+      {
+        "violates": "rank",
+        "adjacent": "unsupported_value",
+        "value": 4
+      },
+      {
+        "violates": "layout",
+        "adjacent": "unsupported_value",
+        "value": "cpu"
+      },
+      {
+        "violates": "probability_rows.forbidden_cross_product",
+        "adjacent": "forbidden_cross_product"
+      },
+      {
+        "violates": "probability_rows.query_sequence",
+        "adjacent": "wrong_value",
+        "value": 127
+      },
+      {
+        "violates": "probability_rows.key_value_sequence",
+        "adjacent": "wrong_value",
+        "value": 127
+      },
+      {
+        "violates": "batch_heads_equal",
+        "adjacent": "mismatch",
+        "value": 11
+      },
+      {
+        "violates": "sequence_equal",
+        "adjacent": "mismatch",
+        "value": 125
+      },
+      {
+        "violates": "consumer_op",
+        "adjacent": "unsupported_value",
+        "value": "aten::matmul"
+      },
+      {
+        "violates": "producer_op",
+        "adjacent": "unsupported_value",
+        "value": "aten::softmax"
+      },
+      {
+        "violates": "softmax_dim",
+        "adjacent": "unsupported_value",
+        "value": 1
+      },
+      {
+        "violates": "materialization_budget",
+        "adjacent": "unsupported_value",
+        "value": "cpu_readback"
+      }
+    ],
+    "fuzz_hints": {
+      "sparse_rowset": "probability_rows",
+      "prefer_sparse_rows": true,
+      "symbolic_dims": [
+        "BH",
+        "T",
+        "S",
+        "D"
+      ]
+    },
+    "sparse_rowsets": [
+      {
+        "name": "probability_rows",
+        "fields": [
+          "family",
+          "batch_heads",
+          "query_sequence",
+          "key_value_sequence",
+          "value_dim",
+          "has_additive_bias",
+          "materialization_policy",
+          "tuple_id"
+        ],
+        "identity_fields": [
+          "batch_heads",
+          "query_sequence",
+          "key_value_sequence",
+          "value_dim",
+          "has_additive_bias"
+        ],
+        "lookup_fields": [
+          "batch_heads",
+          "query_sequence",
+          "key_value_sequence",
+          "value_dim",
+          "has_additive_bias"
+        ],
+        "label_field": "tuple_id",
+        "rows": [
+          {
+            "family": "DirectSafeProbabilityValueBmm",
+            "batch_heads": 1,
+            "query_sequence": 504,
+            "key_value_sequence": 504,
+            "value_dim": 512,
+            "has_additive_bias": false,
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_bh1_t504_s504_d512"
+          },
+          {
+            "family": "DirectSafeProbabilityValueBmm",
+            "batch_heads": 5,
+            "query_sequence": 504,
+            "key_value_sequence": 2,
+            "value_dim": 64,
+            "has_additive_bias": false,
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_bh5_t504_s2_d64"
+          },
+          {
+            "family": "DirectSafeProbabilityValueBmm",
+            "batch_heads": 5,
+            "query_sequence": 504,
+            "key_value_sequence": 504,
+            "value_dim": 64,
+            "has_additive_bias": false,
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_bh5_t504_s504_d64"
+          },
+          {
+            "family": "DirectSafeProbabilityValueBmm",
+            "batch_heads": 10,
+            "query_sequence": 126,
+            "key_value_sequence": 2,
+            "value_dim": 64,
+            "has_additive_bias": false,
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_bh10_t126_s2_d64"
+          },
+          {
+            "family": "MaterializationRequiredProbabilityValueBmm",
+            "batch_heads": 10,
+            "query_sequence": 126,
+            "key_value_sequence": 126,
+            "value_dim": 64,
+            "has_additive_bias": false,
+            "materialization_policy": "vulkan_clone_probability_before_value_bmm",
+            "tuple_id": "materialize_bh10_t126_s126_d64"
+          },
+          {
+            "family": "DirectSafeProbabilityValueBmm",
+            "batch_heads": 16,
+            "query_sequence": 2,
+            "key_value_sequence": 2,
+            "value_dim": 64,
+            "has_additive_bias": true,
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_bh16_t2_s2_d64_bias"
+          },
+          {
+            "family": "DirectSafeProbabilityValueBmm",
+            "batch_heads": 20,
+            "query_sequence": 12,
+            "key_value_sequence": 2,
+            "value_dim": 64,
+            "has_additive_bias": false,
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_bh20_t12_s2_d64"
+          },
+          {
+            "family": "DirectSafeProbabilityValueBmm",
+            "batch_heads": 20,
+            "query_sequence": 12,
+            "key_value_sequence": 12,
+            "value_dim": 64,
+            "has_additive_bias": false,
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_bh20_t12_s12_d64"
+          },
+          {
+            "family": "DirectSafeProbabilityValueBmm",
+            "batch_heads": 20,
+            "query_sequence": 35,
+            "key_value_sequence": 2,
+            "value_dim": 64,
+            "has_additive_bias": false,
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_bh20_t35_s2_d64"
+          },
+          {
+            "family": "DirectSafeProbabilityValueBmm",
+            "batch_heads": 20,
+            "query_sequence": 35,
+            "key_value_sequence": 35,
+            "value_dim": 64,
+            "has_additive_bias": false,
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_bh20_t35_s35_d64"
+          }
+        ],
+        "negative_axes": [
+          {
+            "violates": "probability_rows.forbidden_cross_product",
+            "kind": "forbidden_cross_product",
+            "fields": {
+              "batch_heads": 5,
+              "query_sequence": 126,
+              "key_value_sequence": 126,
+              "value_dim": 64,
+              "has_additive_bias": false
+            }
+          },
+          {
+            "violates": "probability_rows.query_sequence",
+            "kind": "adjacent_field",
+            "fields": {
+              "batch_heads": 10,
+              "query_sequence": 127,
+              "key_value_sequence": 126,
+              "value_dim": 64,
+              "has_additive_bias": false
+            }
+          },
+          {
+            "violates": "probability_rows.key_value_sequence",
+            "kind": "adjacent_field",
+            "fields": {
+              "batch_heads": 10,
+              "query_sequence": 126,
+              "key_value_sequence": 127,
+              "value_dim": 64,
+              "has_additive_bias": false
+            }
+          }
+        ],
+        "row_match": {
+          "arguments": [
+            {
+              "name": "batch_heads",
+              "field": "batch_heads",
+              "type": "int64"
+            },
+            {
+              "name": "query_sequence",
+              "field": "query_sequence",
+              "type": "int64"
+            },
+            {
+              "name": "key_value_sequence",
+              "field": "key_value_sequence",
+              "type": "int64"
+            },
+            {
+              "name": "value_dim",
+              "field": "value_dim",
+              "type": "int64"
+            },
+            {
+              "name": "has_additive_bias",
+              "field": "has_additive_bias",
+              "type": "bool"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "bounds": {
+    "probability_dtype": "float32",
+    "value_dtype": "float32",
+    "probability_rank": 3,
+    "value_rank": 3,
+    "output_rank": 3,
+    "batch_heads": [
+      1,
+      5,
+      10,
+      16,
+      20
+    ],
+    "query_sequence": [
+      2,
+      12,
+      35,
+      126,
+      504
+    ],
+    "key_value_sequence": [
+      2,
+      12,
+      35,
+      126,
+      504
+    ],
+    "value_dim": [
+      64,
+      512
+    ],
+    "producer_op": "aten::_softmax",
+    "consumer_op": "aten::bmm",
+    "softmax_dim": -1,
+    "requires_vulkan": true,
+    "requires_strided_layout": true,
+    "requires_probability_storage_offset_zero": true,
+    "requires_value_storage_offset_zero": true
+  },
+  "positive_cases": [
+    {
+      "name": "direct_safe_bh1_t504_s504_d512",
+      "probability_shape": [
+        1,
+        504,
+        504
+      ],
+      "value_shape": [
+        1,
+        504,
+        512
+      ],
+      "output_shape": [
+        1,
+        504,
+        512
+      ],
+      "q_shape": [
+        1,
+        504,
+        512
+      ],
+      "kt_shape": [
+        1,
+        512,
+        504
+      ],
+      "q_scale": 0.044194173824159216,
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "has_additive_bias": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_bh1_t504_s504_d512",
+      "expected_direct_consumer_safe": true,
+      "expected_materialized_clone_pass": true,
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "direct_safe_bh5_t504_s2_d64",
+      "probability_shape": [
+        5,
+        504,
+        2
+      ],
+      "value_shape": [
+        5,
+        2,
+        64
+      ],
+      "output_shape": [
+        5,
+        504,
+        64
+      ],
+      "q_shape": [
+        5,
+        504,
+        64
+      ],
+      "kt_shape": [
+        5,
+        64,
+        2
+      ],
+      "q_scale": 0.125,
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "has_additive_bias": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_bh5_t504_s2_d64",
+      "expected_direct_consumer_safe": true,
+      "expected_materialized_clone_pass": true,
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "direct_safe_bh5_t504_s504_d64",
+      "probability_shape": [
+        5,
+        504,
+        504
+      ],
+      "value_shape": [
+        5,
+        504,
+        64
+      ],
+      "output_shape": [
+        5,
+        504,
+        64
+      ],
+      "q_shape": [
+        5,
+        504,
+        64
+      ],
+      "kt_shape": [
+        5,
+        64,
+        504
+      ],
+      "q_scale": 0.125,
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "has_additive_bias": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_bh5_t504_s504_d64",
+      "expected_direct_consumer_safe": true,
+      "expected_materialized_clone_pass": true,
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "direct_safe_bh10_t126_s2_d64",
+      "probability_shape": [
+        10,
+        126,
+        2
+      ],
+      "value_shape": [
+        10,
+        2,
+        64
+      ],
+      "output_shape": [
+        10,
+        126,
+        64
+      ],
+      "q_shape": [
+        10,
+        126,
+        64
+      ],
+      "kt_shape": [
+        10,
+        64,
+        2
+      ],
+      "q_scale": 0.125,
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "has_additive_bias": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_bh10_t126_s2_d64",
+      "expected_direct_consumer_safe": true,
+      "expected_materialized_clone_pass": true,
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "materialize_bh10_t126_s126_d64",
+      "probability_shape": [
+        10,
+        126,
+        126
+      ],
+      "value_shape": [
+        10,
+        126,
+        64
+      ],
+      "output_shape": [
+        10,
+        126,
+        64
+      ],
+      "q_shape": [
+        10,
+        126,
+        64
+      ],
+      "kt_shape": [
+        10,
+        64,
+        126
+      ],
+      "q_scale": 0.125,
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "has_additive_bias": false,
+      "materialization_policy": "vulkan_clone_probability_before_value_bmm",
+      "expected_contract_family": "MaterializationRequiredProbabilityValueBmm",
+      "expected_contract_tuple_id": "materialize_bh10_t126_s126_d64",
+      "expected_direct_consumer_safe": false,
+      "expected_direct_min_max_abs": 0.01,
+      "expected_materialized_clone_pass": true,
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "direct_safe_bh16_t2_s2_d64_bias",
+      "probability_shape": [
+        16,
+        2,
+        2
+      ],
+      "value_shape": [
+        16,
+        2,
+        64
+      ],
+      "output_shape": [
+        16,
+        2,
+        64
+      ],
+      "q_shape": [
+        16,
+        2,
+        64
+      ],
+      "kt_shape": [
+        16,
+        64,
+        2
+      ],
+      "q_scale": 0.125,
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "has_additive_bias": true,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_bh16_t2_s2_d64_bias",
+      "expected_direct_consumer_safe": true,
+      "expected_materialized_clone_pass": true,
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "direct_safe_bh20_t12_s2_d64",
+      "probability_shape": [
+        20,
+        12,
+        2
+      ],
+      "value_shape": [
+        20,
+        2,
+        64
+      ],
+      "output_shape": [
+        20,
+        12,
+        64
+      ],
+      "q_shape": [
+        20,
+        12,
+        64
+      ],
+      "kt_shape": [
+        20,
+        64,
+        2
+      ],
+      "q_scale": 0.125,
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "has_additive_bias": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_bh20_t12_s2_d64",
+      "expected_direct_consumer_safe": true,
+      "expected_materialized_clone_pass": true,
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "direct_safe_bh20_t12_s12_d64",
+      "probability_shape": [
+        20,
+        12,
+        12
+      ],
+      "value_shape": [
+        20,
+        12,
+        64
+      ],
+      "output_shape": [
+        20,
+        12,
+        64
+      ],
+      "q_shape": [
+        20,
+        12,
+        64
+      ],
+      "kt_shape": [
+        20,
+        64,
+        12
+      ],
+      "q_scale": 0.125,
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "has_additive_bias": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_bh20_t12_s12_d64",
+      "expected_direct_consumer_safe": true,
+      "expected_materialized_clone_pass": true,
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "direct_safe_bh20_t35_s2_d64",
+      "probability_shape": [
+        20,
+        35,
+        2
+      ],
+      "value_shape": [
+        20,
+        2,
+        64
+      ],
+      "output_shape": [
+        20,
+        35,
+        64
+      ],
+      "q_shape": [
+        20,
+        35,
+        64
+      ],
+      "kt_shape": [
+        20,
+        64,
+        2
+      ],
+      "q_scale": 0.125,
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "has_additive_bias": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_bh20_t35_s2_d64",
+      "expected_direct_consumer_safe": true,
+      "expected_materialized_clone_pass": true,
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    },
+    {
+      "name": "direct_safe_bh20_t35_s35_d64",
+      "probability_shape": [
+        20,
+        35,
+        35
+      ],
+      "value_shape": [
+        20,
+        35,
+        64
+      ],
+      "output_shape": [
+        20,
+        35,
+        64
+      ],
+      "q_shape": [
+        20,
+        35,
+        64
+      ],
+      "kt_shape": [
+        20,
+        64,
+        35
+      ],
+      "q_scale": 0.125,
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "has_additive_bias": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_bh20_t35_s35_d64",
+      "expected_direct_consumer_safe": true,
+      "expected_materialized_clone_pass": true,
+      "expected_cpu_fallback": false,
+      "expected_sync_readback": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "dtype_float16",
+      "probability_shape": [
+        10,
+        126,
+        126
+      ],
+      "value_shape": [
+        10,
+        126,
+        64
+      ],
+      "dtype": "float16",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "probability_device": "vulkan",
+      "value_device": "vulkan",
+      "materialization_device": "vulkan",
+      "violates": "dtype",
+      "expected_native_route": false
+    },
+    {
+      "name": "probability_rank_4",
+      "probability_shape": [
+        1,
+        10,
+        126,
+        126
+      ],
+      "value_shape": [
+        10,
+        126,
+        64
+      ],
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "probability_device": "vulkan",
+      "value_device": "vulkan",
+      "materialization_device": "vulkan",
+      "violates": "rank",
+      "expected_native_route": false
+    },
+    {
+      "name": "cpu_probability_layout",
+      "probability_shape": [
+        10,
+        126,
+        126
+      ],
+      "value_shape": [
+        10,
+        126,
+        64
+      ],
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "probability_device": "cpu",
+      "value_device": "vulkan",
+      "materialization_device": "vulkan",
+      "violates": "layout",
+      "expected_native_route": false
+    },
+    {
+      "name": "forbidden_cross_product",
+      "probability_shape": [
+        5,
+        126,
+        126
+      ],
+      "value_shape": [
+        5,
+        126,
+        64
+      ],
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "probability_device": "vulkan",
+      "value_device": "vulkan",
+      "materialization_device": "vulkan",
+      "violates": "probability_rows.forbidden_cross_product",
+      "expected_native_route": false
+    },
+    {
+      "name": "query_sequence_adjacent",
+      "probability_shape": [
+        10,
+        127,
+        126
+      ],
+      "value_shape": [
+        10,
+        126,
+        64
+      ],
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "probability_device": "vulkan",
+      "value_device": "vulkan",
+      "materialization_device": "vulkan",
+      "violates": "probability_rows.query_sequence",
+      "expected_native_route": false
+    },
+    {
+      "name": "key_value_sequence_adjacent",
+      "probability_shape": [
+        10,
+        126,
+        127
+      ],
+      "value_shape": [
+        10,
+        127,
+        64
+      ],
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "probability_device": "vulkan",
+      "value_device": "vulkan",
+      "materialization_device": "vulkan",
+      "violates": "probability_rows.key_value_sequence",
+      "expected_native_route": false
+    },
+    {
+      "name": "batch_heads_mismatch",
+      "probability_shape": [
+        10,
+        126,
+        126
+      ],
+      "value_shape": [
+        11,
+        126,
+        64
+      ],
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "probability_device": "vulkan",
+      "value_device": "vulkan",
+      "materialization_device": "vulkan",
+      "violates": "batch_heads_equal",
+      "expected_native_route": false
+    },
+    {
+      "name": "sequence_mismatch",
+      "probability_shape": [
+        10,
+        126,
+        126
+      ],
+      "value_shape": [
+        10,
+        125,
+        64
+      ],
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "probability_device": "vulkan",
+      "value_device": "vulkan",
+      "materialization_device": "vulkan",
+      "violates": "sequence_equal",
+      "expected_native_route": false
+    },
+    {
+      "name": "consumer_not_bmm",
+      "probability_shape": [
+        10,
+        126,
+        126
+      ],
+      "value_shape": [
+        10,
+        126,
+        64
+      ],
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::matmul",
+      "softmax_dim": -1,
+      "probability_device": "vulkan",
+      "value_device": "vulkan",
+      "materialization_device": "vulkan",
+      "violates": "consumer_op",
+      "expected_native_route": false
+    },
+    {
+      "name": "producer_not_attention_softmax",
+      "probability_shape": [
+        10,
+        126,
+        126
+      ],
+      "value_shape": [
+        10,
+        126,
+        64
+      ],
+      "dtype": "float32",
+      "producer_op": "aten::softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "probability_device": "vulkan",
+      "value_device": "vulkan",
+      "materialization_device": "vulkan",
+      "violates": "producer_op",
+      "expected_native_route": false
+    },
+    {
+      "name": "softmax_dim_not_last",
+      "probability_shape": [
+        10,
+        126,
+        126
+      ],
+      "value_shape": [
+        10,
+        126,
+        64
+      ],
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": 1,
+      "probability_device": "vulkan",
+      "value_device": "vulkan",
+      "materialization_device": "vulkan",
+      "violates": "softmax_dim",
+      "expected_native_route": false
+    },
+    {
+      "name": "cpu_readback_materialization_budget",
+      "probability_shape": [
+        10,
+        126,
+        126
+      ],
+      "value_shape": [
+        10,
+        126,
+        64
+      ],
+      "dtype": "float32",
+      "producer_op": "aten::_softmax",
+      "consumer_op": "aten::bmm",
+      "softmax_dim": -1,
+      "probability_device": "vulkan",
+      "value_device": "vulkan",
+      "materialization_device": "cpu",
+      "violates": "materialization_budget",
+      "expected_native_route": false
+    }
+  ]
+}

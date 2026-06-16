@@ -17,6 +17,7 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContracts.cpp`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractDiagnostics.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractDiagnostics.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsAttentionProbabilityMaterializationSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsBatchNormInference.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceMaterializedSpec.h`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceSpec.h`
@@ -73,6 +74,18 @@ score-softmax allowlist is now a named, metadata-backed finite contract for
 float rank-3 square score tensors with heads `{1, 5}` and sequence
 `{504, 640}`. `ExecutionContracts.cpp` now owns the shared metadata
 completeness helper rather than an SDPA-specific route-policy bucket.
+
+`AttentionProbabilityMaterializationContract` is currently proof/spec-only,
+not a production admission path. The ShapeEnvelope sparse-rowset fixture
+`test/vulkan_contract_specs/attention_probability_materialization_contract.json`
+records the Lotus decomposed-attention softmax-probability to value-BMM edge
+for ten observed rank-3 float rows. Nine rows are direct-safe evidence; the
+`[10,126,126]` probability row is marked
+`vulkan_clone_probability_before_value_bmm` because proof showed direct
+softmax-output consumption can be wrong while cloned/materialized and
+CPU-uploaded probabilities pass. The generated helper header is deterministic
+metadata/row coverage only; no production materialization policy consumes it
+yet.
 
 `ExecutionContractDiagnostics.h/.cpp` define the first opt-in contract
 admission diagnostic surface. `PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG=<path>`
