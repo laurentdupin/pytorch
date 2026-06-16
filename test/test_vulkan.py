@@ -17852,6 +17852,16 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for row in batch
             )
         )
+        self.assertTrue(
+            any(
+                "role=stack_attention_output" in row
+                and "decision=accepted" in row
+                and "reason=accepted" in row
+                and "last_use_proof=1" in row
+                and "internal_non_escaping=1" in row
+                for row in batch
+            )
+        )
         self.assertFalse(
             any(
                 "decision=accepted" in row

@@ -377,8 +377,12 @@ const char* stack_temp_retire_batch_reject_reason(
   if (provenance.aliases_runtime_input || provenance.aliases_runtime_output) {
     return "runtime_alias";
   }
-  if (provenance.producer_role != VulkanRetiredResourceRole::StackFc1GeluOutput) {
-    return "not_target_role";
+  switch (provenance.producer_role) {
+    case VulkanRetiredResourceRole::StackFc1GeluOutput:
+    case VulkanRetiredResourceRole::StackAttentionOutput:
+      break;
+    default:
+      return "not_target_role";
   }
   if (!provenance.has_last_use_proof) {
     return "missing_proof";
