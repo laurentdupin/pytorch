@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-15 at local HEAD
-`fe4faa1f57ca75263eaf3d38ed9e2541a118e3f9`.
+Last refreshed: 2026-06-16 at local HEAD
+`56651bd4bc114cecf361bf5f698b8d977a6560ea`.
 
 ## Repo State Summary
 
@@ -194,13 +194,17 @@ These files are diagnostic inputs. Production code must not depend on
 - `SmallSpatialPointwiseConvContract`: finite projection rows, now split into
   a family-specific source. The `SparseProjectionRows` slice has a JSON
   contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 39
-  current projection rows, checked-in positive/adjacent-negative runtime
-  cases, and generic ShapeEnvelope C++ sparse-rowset helper output. The
-  generated helper provides contract identity, per-row metadata, input/weight
-  channel equality, and exact `(input_c, input_h, input_w, output_c)` lookup
-  while route-policy hard-fail rescue, shader-family decisions, family op-hit
-  labels, and match-result assembly remain handwritten. Keep exact rows until
-  broader legality is proven.
+  current projection rows plus a generated factorized depth-vision projection
+  group for the cross-adapter proven 108-shape set. That group is the product
+  of 18 approved `(input_c, output_c)` channel pairs and six approved
+  `(input_h, input_w)` spatial pairs, with 48 original corpus shapes and 60
+  proven factorized extrapolations; the expansion ratio is 2.25x and stays
+  below the 3x promotion cap. The generated helper provides contract identity,
+  per-row metadata, input/weight channel equality, exact sparse-row lookup, and
+  factorized correlation-group matching while route-policy hard-fail rescue,
+  shader-family decisions, family op-hit labels, and match-result assembly
+  remain handwritten. Naive min/max H/W bounds, independent H/W cross-products,
+  and the 648/1296 channel/spatial cross-products remain explicitly forbidden.
 - `NoOverlapConvTranspose2DContract`: bounded float-buffer 2x2 stride-2
   no-overlap transposed-conv envelope. The `Kernel2Stride2FloatBuffer` slice
   has a JSON contract spec backed by `ShapeEnvelope` v1 with checked-in
@@ -564,10 +568,13 @@ These files are diagnostic inputs. Production code must not depend on
   `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h` from
   `small_spatial_pointwise_conv_contract.json` for contract identity,
   per-row metadata, input/weight channel equality, the 39 correlated
-  projection rows, and exact lookup by input/output channel and spatial shape.
+  projection rows, exact lookup by input/output channel and spatial shape, and
+  the generated 108-shape factorized depth-vision projection helper. That
+  helper is constrained to approved channel-pair and spatial-pair correlation
+  groups; broader min/max and independent cross-products remain guarded.
   Route-policy hard-fail rescue, shader-family decisions, family op-hit
-  labels, and match result construction remain handwritten so route behavior
-  is unchanged.
+  labels, and match result construction remain handwritten outside the bounded
+  admission extension.
 - SafeViewReshape `ViewMaterializedDirectBuffer` and
   `ReshapeAliasDenseBufferDirect` consume the generic ShapeEnvelope
   shape/layout simple-bounds generator path:

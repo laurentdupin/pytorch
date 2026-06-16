@@ -300,14 +300,14 @@ condition and migration target.
 - Migration target: generated `SmallMetadataPaddedConv2DContract` or
   `LayoutTransitionContract` tables with positive and negative tests.
 
-### Small Spatial Pointwise Conv Exact Rows
+### Small Spatial Pointwise Conv Bounded Rows
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
   `aten/src/ATen/native/vulkan/ops/Convolution.cpp`
 - Status: temporary, contract-named
-- Reason: finite 1x1 pointwise projection rows are proven for current
-  depth-vision, OCR, and diffusion projection envelopes, but broader pointwise
-  shape/layout behavior is not proven yet.
+- Reason: finite 1x1 pointwise projection rows and one bounded factorized
+  depth-vision projection group are proven for current projection envelopes,
+  but broader pointwise shape/layout behavior is not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/small_spatial_pointwise_conv_contract.json`
   covers the `SparseProjectionRows` slice with ShapeEnvelope-backed checked-in
   positive and adjacent negative runtime cases plus generic ShapeEnvelope
@@ -315,10 +315,17 @@ condition and migration target.
   `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`. The generated
   helper owns the 39 correlated projection rows, per-row metadata,
   input/weight channel equality, and exact `(input_c, input_h, input_w,
-  output_c)` lookup. Route-policy hard-fail rescue, shader-family decisions,
-  family op-hit labels, and match-result assembly remain handwritten.
+  output_c)` lookup. It also owns the cross-adapter proven 108-shape
+  factorized depth-vision projection group: 18 approved channel pairs crossed
+  with six approved spatial pairs, including 48 original corpus shapes and 60
+  proven extrapolations. Naive min/max envelopes, independent H/W
+  cross-products, and wider 648/1296 channel/spatial cross-products remain
+  rejected by `KnownBadLargePointwiseConv`. Route-policy hard-fail rescue,
+  shader-family decisions, family op-hit labels, and match-result assembly
+  remain handwritten.
 - Expiry: broader pointwise conv parity plus adjacent negative coverage are
-  available across layout, storage, and output-channel families.
+  available across layout, storage, channel-pair, spatial-pair, and
+  output-channel families.
 - Migration target: generated `SmallSpatialPointwiseConvContract` or broader
   pointwise `KernelFamilyContract` tables with positive and negative tests.
 

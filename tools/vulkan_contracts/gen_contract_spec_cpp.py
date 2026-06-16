@@ -1849,6 +1849,16 @@ def _sparse_rowsets(spec):
     return rowsets
 
 
+def _factorized_groups(spec):
+    envelope = spec.get("shape_envelope")
+    if not isinstance(envelope, dict):
+        return []
+    groups = envelope.get("factorized_groups", [])
+    if groups is None:
+        return []
+    return groups
+
+
 def _validate_sparse_row_value(value, context):
     _require(
         isinstance(value, (str, int, bool)) and not (isinstance(value, str) and value == ""),
@@ -2017,6 +2027,92 @@ def _validate_sparse_row_match(row_match, rowset, field_types, context):
     return row_match
 
 
+def _validate_factorized_projection_groups(groups, context):
+    _require(isinstance(groups, list), f"{context} must be a list")
+    validated = []
+    names = set()
+    for group_index, group in enumerate(groups):
+        group_context = f"{context}[{group_index}]"
+        _require(isinstance(group, dict), f"{group_context} must be an object")
+        _require_keys(
+            group,
+            (
+                "name",
+                "family",
+                "tuple_id",
+                "metadata",
+                "channel_pairs",
+                "spatial_pairs",
+                "cardinality",
+                "validated_corpus_count",
+                "extrapolated_shape_count",
+                "expansion_ratio",
+            ),
+            group_context,
+        )
+        _require_non_empty_string(group, "name", group_context)
+        _require(group["name"] not in names, f"{group_context}.name duplicate")
+        names.add(group["name"])
+        for key in ("family", "tuple_id"):
+            _require_non_empty_string(group, key, group_context)
+        _validate_contract_metadata(group["metadata"], f"{group_context}.metadata")
+
+        channel_pairs = group["channel_pairs"]
+        spatial_pairs = group["spatial_pairs"]
+        _require(
+            isinstance(channel_pairs, list) and channel_pairs,
+            f"{group_context}.channel_pairs invalid",
+        )
+        _require(
+            isinstance(spatial_pairs, list) and spatial_pairs,
+            f"{group_context}.spatial_pairs invalid",
+        )
+        channel_keys = set()
+        for index, pair in enumerate(channel_pairs):
+            pair_context = f"{group_context}.channel_pairs[{index}]"
+            _require(isinstance(pair, dict), f"{pair_context} must be an object")
+            _require_keys(pair, ("input_c", "output_c", "proof_class"), pair_context)
+            for key in ("input_c", "output_c"):
+                _validate_sparse_row_value(pair[key], f"{pair_context}.{key}")
+                _require(isinstance(pair[key], int), f"{pair_context}.{key} must be int")
+            _require_non_empty_string(pair, "proof_class", pair_context)
+            key = (pair["input_c"], pair["output_c"])
+            _require(key not in channel_keys, f"{pair_context} duplicate")
+            channel_keys.add(key)
+
+        spatial_keys = set()
+        for index, pair in enumerate(spatial_pairs):
+            pair_context = f"{group_context}.spatial_pairs[{index}]"
+            _require(isinstance(pair, dict), f"{pair_context} must be an object")
+            _require_keys(pair, ("input_h", "input_w"), pair_context)
+            for key in ("input_h", "input_w"):
+                _validate_sparse_row_value(pair[key], f"{pair_context}.{key}")
+                _require(isinstance(pair[key], int), f"{pair_context}.{key} must be int")
+            key = (pair["input_h"], pair["input_w"])
+            _require(key not in spatial_keys, f"{pair_context} duplicate")
+            spatial_keys.add(key)
+
+        cardinality = group["cardinality"]
+        _require(isinstance(cardinality, int), f"{group_context}.cardinality invalid")
+        _require(
+            cardinality == len(channel_pairs) * len(spatial_pairs),
+            f"{group_context}.cardinality mismatch",
+        )
+        for key in ("validated_corpus_count", "extrapolated_shape_count"):
+            _require(isinstance(group[key], int), f"{group_context}.{key} invalid")
+        _require(
+            group["validated_corpus_count"] + group["extrapolated_shape_count"]
+            == cardinality,
+            f"{group_context} proof counts must sum to cardinality",
+        )
+        _require(
+            isinstance(group["expansion_ratio"], (int, float)),
+            f"{group_context}.expansion_ratio invalid",
+        )
+        validated.append(group)
+    return validated
+
+
 def _cpp_row_match_argument_condition(argument):
     name = argument["name"]
     if "field" in argument:
@@ -2065,6 +2161,144 @@ def _sparse_row_match_helper_lines(rowset_prefix, func_prefix, rowset_func, row_
         suffix = " &&" if index + 1 < len(conditions) else ";"
         lines.append(prefix + condition + suffix)
     lines.extend(["}", ""])
+    return lines
+
+
+def _factorized_group_helper_lines(contract_prefix, spec_prefix, func_prefix, groups):
+    lines = []
+    for group in groups:
+        group_prefix = contract_prefix + _cpp_identifier_fragment(group["name"])
+        group_func = func_prefix + "_" + _cpp_lower_identifier(group["name"])
+        metadata = group["metadata"]
+        channel_pairs = group["channel_pairs"]
+        spatial_pairs = group["spatial_pairs"]
+
+        lines.extend(
+            [
+                f"constexpr const char* k{group_prefix}FamilyName = {_cpp_string(group['family'])};",
+                f"constexpr const char* k{group_prefix}TupleId = {_cpp_string(group['tuple_id'])};",
+                f"constexpr const char* k{group_prefix}EvidenceId = {_cpp_string(metadata['evidence_id'])};",
+                f"constexpr const char* k{group_prefix}GuardId = {_cpp_string(metadata['guard_id'])};",
+                f"constexpr const char* k{group_prefix}FallbackPolicy = {_cpp_string(metadata['fallback_policy'])};",
+                (
+                    f"constexpr const char* k{group_prefix}MaterializationPolicy = "
+                    f"{_cpp_string(metadata['materialization_policy'])};"
+                ),
+                (
+                    f"constexpr std::int64_t k{group_prefix}Cardinality = "
+                    f"{group['cardinality']};"
+                ),
+                (
+                    f"constexpr std::int64_t k{group_prefix}ValidatedCorpusCount = "
+                    f"{group['validated_corpus_count']};"
+                ),
+                (
+                    f"constexpr std::int64_t k{group_prefix}ExtrapolatedShapeCount = "
+                    f"{group['extrapolated_shape_count']};"
+                ),
+                (
+                    f"constexpr double k{group_prefix}ExpansionRatio = "
+                    f"{group['expansion_ratio']};"
+                ),
+                "",
+                f"struct {group_prefix}ChannelPair final {{",
+                "  std::int64_t input_c;",
+                "  std::int64_t output_c;",
+                "  const char* proof_class;",
+                "};",
+                "",
+                f"struct {group_prefix}SpatialPair final {{",
+                "  std::int64_t input_h;",
+                "  std::int64_t input_w;",
+                "};",
+                "",
+                (
+                    f"constexpr ExecutionContractMetadata "
+                    f"k{group_prefix}Metadata = {{"
+                    f"k{spec_prefix}ContractName, "
+                    f"k{group_prefix}FamilyName, "
+                    f"k{group_prefix}TupleId, "
+                    f"k{group_prefix}EvidenceId, "
+                    f"k{group_prefix}GuardId, "
+                    f"k{group_prefix}FallbackPolicy, "
+                    f"k{group_prefix}MaterializationPolicy}};"
+                ),
+                "",
+                f"constexpr {group_prefix}ChannelPair k{group_prefix}ChannelPairs[] = {{",
+            ]
+        )
+        for index, pair in enumerate(channel_pairs):
+            suffix = "," if index + 1 < len(channel_pairs) else ""
+            lines.append(
+                "    {"
+                f"{pair['input_c']}, {pair['output_c']}, "
+                f"{_cpp_string(pair['proof_class'])}}}"
+                f"{suffix}"
+            )
+        lines.extend(
+            [
+                "};",
+                "",
+                f"constexpr {group_prefix}SpatialPair k{group_prefix}SpatialPairs[] = {{",
+            ]
+        )
+        for index, pair in enumerate(spatial_pairs):
+            suffix = "," if index + 1 < len(spatial_pairs) else ""
+            lines.append(
+                f"    {{{pair['input_h']}, {pair['input_w']}}}{suffix}"
+            )
+        lines.extend(
+            [
+                "};",
+                "",
+                f"inline bool {group_func}_channel_pair_matches(",
+                "    const std::int64_t input_c,",
+                "    const std::int64_t output_c) {",
+                f"  for (const auto& pair : k{group_prefix}ChannelPairs) {{",
+                "    if (pair.input_c == input_c && pair.output_c == output_c) {",
+                "      return true;",
+                "    }",
+                "  }",
+                "  return false;",
+                "}",
+                "",
+                f"inline bool {group_func}_spatial_pair_matches(",
+                "    const std::int64_t input_h,",
+                "    const std::int64_t input_w) {",
+                f"  for (const auto& pair : k{group_prefix}SpatialPairs) {{",
+                "    if (pair.input_h == input_h && pair.input_w == input_w) {",
+                "      return true;",
+                "    }",
+                "  }",
+                "  return false;",
+                "}",
+                "",
+                f"inline bool {group_func}_matches(",
+                "    const std::int64_t input_c,",
+                "    const std::int64_t input_h,",
+                "    const std::int64_t input_w,",
+                "    const std::int64_t output_c) {",
+                f"  return {group_func}_channel_pair_matches(input_c, output_c) &&",
+                f"      {group_func}_spatial_pair_matches(input_h, input_w);",
+                "}",
+                "",
+                f"inline const char* {group_func}_family_name() {{",
+                f"  return k{group_prefix}FamilyName;",
+                "}",
+                "",
+                f"inline const char* {group_func}_tuple_id() {{",
+                f"  return k{group_prefix}TupleId;",
+                "}",
+                "",
+                (
+                    f"inline const ExecutionContractMetadata* "
+                    f"{group_func}_metadata() {{"
+                ),
+                f"  return &k{group_prefix}Metadata;",
+                "}",
+                "",
+            ]
+        )
     return lines
 
 
@@ -2179,6 +2413,10 @@ def _validate_generic_sparse_rowset_shape_envelope_spec(spec):
         field_types,
         "sparse_rowsets[0].row_match",
     )
+    factorized_groups = _validate_factorized_projection_groups(
+        _factorized_groups(spec),
+        "shape_envelope.factorized_groups",
+    )
 
     return {
         "metadata": metadata,
@@ -2186,6 +2424,7 @@ def _validate_generic_sparse_rowset_shape_envelope_spec(spec):
         "rowset": rowset,
         "field_types": field_types,
         "row_match": row_match,
+        "factorized_groups": factorized_groups,
     }
 
 
@@ -2197,6 +2436,7 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
     rowset = validated["rowset"]
     field_types = validated["field_types"]
     row_match = validated["row_match"]
+    factorized_groups = validated["factorized_groups"]
     rows = rowset["rows"]
     fields = rowset["fields"]
     lookup_fields = rowset["lookup_fields"]
@@ -2255,6 +2495,12 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
         func_prefix,
         rowset_func,
         row_match,
+    )
+    factorized_group_lines = _factorized_group_helper_lines(
+        contract_prefix,
+        spec_prefix,
+        func_prefix,
+        factorized_groups,
     )
     scalar_equal_helpers = _scalar_equal_helper_lines(
         role_func_prefix, scalar_equal_relationships
@@ -2336,6 +2582,7 @@ def generate_generic_sparse_rowset_shape_envelope_header(spec, source_name):
         ]
     )
     lines.extend(scalar_equal_helpers)
+    lines.extend(factorized_group_lines)
     lines.extend(row_match_lines)
     lines.extend(
         [

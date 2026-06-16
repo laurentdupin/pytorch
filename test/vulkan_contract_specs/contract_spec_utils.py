@@ -2636,6 +2636,127 @@ def _small_spatial_pointwise_conv_rowset(envelope, context):
     return rowset
 
 
+def _small_spatial_pointwise_conv_factorized_groups(envelope, context):
+    groups = envelope.get("factorized_groups", [])
+    _require_list(groups, f"{context} factorized groups")
+    group_names = set()
+    for group_index, group in enumerate(groups):
+        group_context = f"{context} factorized_groups[{group_index}]"
+        require_fields(
+            group,
+            (
+                "name",
+                "family",
+                "tuple_id",
+                "metadata",
+                "channel_pairs",
+                "spatial_pairs",
+                "cardinality",
+                "validated_corpus_count",
+                "extrapolated_shape_count",
+                "expansion_ratio",
+            ),
+            group_context,
+        )
+        _require_non_empty_string(group, "name", group_context)
+        if group["name"] in group_names:
+            raise AssertionError(f"{group_context} duplicate name")
+        group_names.add(group["name"])
+        _require_equal(
+            group["family"],
+            "DepthVisionProjection",
+            f"{group_context} family",
+        )
+        _require_equal(
+            group["tuple_id"],
+            "depth_vision_factorized_projection_108",
+            f"{group_context} tuple id",
+        )
+        _validate_contract_metadata(group["metadata"], f"{group_context} metadata")
+
+        channel_pairs = group["channel_pairs"]
+        spatial_pairs = group["spatial_pairs"]
+        _require_list(channel_pairs, f"{group_context} channel pairs")
+        _require_list(spatial_pairs, f"{group_context} spatial pairs")
+        if len(channel_pairs) != 18:
+            raise AssertionError(f"{group_context} expected 18 channel pairs")
+        if len(spatial_pairs) != 6:
+            raise AssertionError(f"{group_context} expected 6 spatial pairs")
+
+        channel_keys = set()
+        observed_pairs = 0
+        extrapolated_pairs = 0
+        for pair_index, pair in enumerate(channel_pairs):
+            pair_context = f"{group_context} channel_pairs[{pair_index}]"
+            require_fields(
+                pair,
+                ("input_c", "output_c", "proof_class"),
+                pair_context,
+            )
+            key = (pair["input_c"], pair["output_c"])
+            if key in channel_keys:
+                raise AssertionError(f"{pair_context} duplicate pair")
+            channel_keys.add(key)
+            if pair["proof_class"] == "observed_pair":
+                observed_pairs += 1
+            elif pair["proof_class"] == "factorized_extrapolation":
+                extrapolated_pairs += 1
+            else:
+                raise AssertionError(
+                    f"{pair_context} unsupported proof_class {pair['proof_class']!r}"
+                )
+
+        spatial_keys = set()
+        for pair_index, pair in enumerate(spatial_pairs):
+            pair_context = f"{group_context} spatial_pairs[{pair_index}]"
+            require_fields(pair, ("input_h", "input_w"), pair_context)
+            key = (pair["input_h"], pair["input_w"])
+            if key in spatial_keys:
+                raise AssertionError(f"{pair_context} duplicate pair")
+            spatial_keys.add(key)
+
+        _require_equal(
+            group["cardinality"],
+            len(channel_pairs) * len(spatial_pairs),
+            f"{group_context} cardinality",
+        )
+        _require_equal(group["cardinality"], 108, f"{group_context} cardinality")
+        _require_equal(observed_pairs, 8, f"{group_context} observed pairs")
+        _require_equal(extrapolated_pairs, 10, f"{group_context} extrapolated pairs")
+        _require_equal(
+            group["validated_corpus_count"],
+            48,
+            f"{group_context} validated corpus count",
+        )
+        _require_equal(
+            group["extrapolated_shape_count"],
+            60,
+            f"{group_context} extrapolated shape count",
+        )
+        _require_equal(
+            group["expansion_ratio"],
+            2.25,
+            f"{group_context} expansion ratio",
+        )
+    return groups
+
+
+def _small_spatial_pointwise_conv_factorized_keys(groups):
+    keys = set()
+    for group in groups:
+        for channel_pair in group["channel_pairs"]:
+            for spatial_pair in group["spatial_pairs"]:
+                keys.add(
+                    (
+                        channel_pair["input_c"],
+                        spatial_pair["input_h"],
+                        spatial_pair["input_w"],
+                        channel_pair["output_c"],
+                    )
+                )
+    return keys
+
+
 def _diffusion_sdpa_rowset(envelope, context):
     rowsets = envelope.get("sparse_rowsets", [])
     if len(rowsets) != 1:
@@ -3406,6 +3527,10 @@ def _validate_small_spatial_pointwise_conv_shape_envelope(
         _require_equal(bounds[key], True, f"{context} {key}")
 
     rowset = _small_spatial_pointwise_conv_rowset(envelope, context)
+    factorized_groups = _small_spatial_pointwise_conv_factorized_groups(
+        envelope,
+        context,
+    )
     rows = rowset["rows"]
     if len(rows) != 39:
         raise AssertionError(f"{context} expected 39 sparse rows")
@@ -3444,6 +3569,17 @@ def _validate_small_spatial_pointwise_conv_shape_envelope(
     )
     _require_equal(len(tuple_ids), 39, f"{context} tuple ids")
     _require_equal(len(lookup_keys), 39, f"{context} lookup keys")
+
+    factorized_keys = _small_spatial_pointwise_conv_factorized_keys(
+        factorized_groups,
+    )
+    _require_equal(len(factorized_keys), 108, f"{context} factorized keys")
+    overlap = row_keys & {
+        ("DepthVisionProjection", input_c, input_h, input_w, output_c)
+        for input_c, input_h, input_w, output_c in factorized_keys
+    }
+    if overlap:
+        raise AssertionError(f"{context} factorized keys overlap sparse rows")
 
     positive_keys = {
         (
@@ -3489,6 +3625,29 @@ def _validate_small_spatial_pointwise_conv_shape_envelope(
             )
             if key in lookup_keys:
                 raise AssertionError(f"{case_context} unexpectedly matches rowset")
+        elif case["violates"].startswith("factorized_projection."):
+            key = (
+                case["input_shape"][1],
+                case["input_shape"][2],
+                case["input_shape"][3],
+                case["out_channels"],
+            )
+            if key in factorized_keys:
+                raise AssertionError(
+                    f"{case_context} unexpectedly matches factorized group"
+                )
+
+    generated_factorized_cases = [
+        case
+        for case in _generated_small_spatial_pointwise_conv_legal_cases(spec)
+        if case.get("expected_contract_tuple_id")
+        == "depth_vision_factorized_projection_108"
+    ]
+    _require_equal(
+        len(generated_factorized_cases),
+        108,
+        f"{context} generated factorized positives",
+    )
 
 
 def _validate_kv_cache_append_shape_envelope(file_name, spec, envelope):
@@ -5038,6 +5197,39 @@ _SMALL_SPATIAL_POINTWISE_CONV_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.execution_storage",
 )
 
+def _generated_small_spatial_pointwise_conv_legal_cases(spec):
+    cases = list(spec["positive_cases"])
+    for group in spec["shape_envelope"].get("factorized_groups", []):
+        for channel_pair in group["channel_pairs"]:
+            for spatial_pair in group["spatial_pairs"]:
+                input_c = channel_pair["input_c"]
+                output_c = channel_pair["output_c"]
+                input_h = spatial_pair["input_h"]
+                input_w = spatial_pair["input_w"]
+                cases.append(
+                    {
+                        "name": (
+                            f"{group['name']}_{input_c}_"
+                            f"{input_h}x{input_w}_{output_c}"
+                        ),
+                        "input_shape": [1, input_c, input_h, input_w],
+                        "out_channels": output_c,
+                        "kernel_size": [1, 1],
+                        "stride": [1, 1],
+                        "padding": [0, 0],
+                        "dilation": [1, 1],
+                        "groups": 1,
+                        "dtype": "float32",
+                        "expected_route_label": spec["route_label"],
+                        "expected_contract_family": group["family"],
+                        "expected_contract_tuple_id": group["tuple_id"],
+                        "expected_cpu_fallback": False,
+                        "proof_class": channel_pair["proof_class"],
+                    }
+                )
+    return cases
+
+
 _KV_CACHE_APPEND_SEQUENCE_LEGAL_KEY_FIELDS = (
     "cache_shape",
     "token_shape",
@@ -5163,7 +5355,8 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
     "small_spatial_pointwise_conv_sparse_projection_rows": {
         "validate": _validate_small_spatial_pointwise_conv_shape_envelope,
         "assignment_cases": _generated_shape_envelope_assignment_cases,
-        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "legal_cases": _generated_small_spatial_pointwise_conv_legal_cases,
+        "legal_cases_may_extend_checked_in": True,
         "adjacent_negative_cases": (
             _checked_in_shape_envelope_adjacent_negative_cases
         ),
@@ -5556,7 +5749,12 @@ def validate_generated_shape_envelope_legal_cases(file_name, spec):
         _legal_case_key(spec, case)
         for case in spec["positive_cases"]
     }
-    if generated_keys != checked_in_keys:
+    adapter = _shape_envelope_role_adapter(spec["shape_envelope"]["role"])
+    if adapter.get("legal_cases_may_extend_checked_in", False):
+        mismatch = not checked_in_keys <= generated_keys
+    else:
+        mismatch = generated_keys != checked_in_keys
+    if mismatch:
         missing = sorted(checked_in_keys - generated_keys)
         extra = sorted(generated_keys - checked_in_keys)
         raise AssertionError(

@@ -422,6 +422,103 @@ constexpr bool small_spatial_pointwise_conv_sparse_projection_rows_input_weight_
   return input_c == weight_input_c;
 }
 
+constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionFamilyName = "DepthVisionProjection";
+constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionTupleId = "depth_vision_factorized_projection_108";
+constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionEvidenceId = "task272_cross_adapter_factorized_108_proof";
+constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionGuardId = "small_spatial_pointwise_factorized_adjacent_guards";
+constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionFallbackPolicy = "unsupported_shapes_do_not_match";
+constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionMaterializationPolicy = "native_buffer_kernel";
+constexpr std::int64_t kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionCardinality = 108;
+constexpr std::int64_t kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionValidatedCorpusCount = 48;
+constexpr std::int64_t kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionExtrapolatedShapeCount = 60;
+constexpr double kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionExpansionRatio = 2.25;
+
+struct SmallSpatialPointwiseConvDepthVisionFactorizedProjectionChannelPair final {
+  std::int64_t input_c;
+  std::int64_t output_c;
+  const char* proof_class;
+};
+
+struct SmallSpatialPointwiseConvDepthVisionFactorizedProjectionSpatialPair final {
+  std::int64_t input_h;
+  std::int64_t input_w;
+};
+
+constexpr ExecutionContractMetadata kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionMetadata = {kSmallSpatialPointwiseConvSparseProjectionRowsContractName, kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionFamilyName, kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionTupleId, kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionEvidenceId, kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionGuardId, kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionFallbackPolicy, kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionMaterializationPolicy};
+
+constexpr SmallSpatialPointwiseConvDepthVisionFactorizedProjectionChannelPair kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionChannelPairs[] = {
+    {384, 192, "observed_pair"},
+    {384, 256, "factorized_extrapolation"},
+    {384, 384, "observed_pair"},
+    {384, 512, "factorized_extrapolation"},
+    {384, 768, "factorized_extrapolation"},
+    {384, 1024, "factorized_extrapolation"},
+    {768, 192, "observed_pair"},
+    {768, 256, "factorized_extrapolation"},
+    {768, 384, "observed_pair"},
+    {768, 512, "factorized_extrapolation"},
+    {768, 768, "observed_pair"},
+    {768, 1024, "factorized_extrapolation"},
+    {1024, 192, "factorized_extrapolation"},
+    {1024, 256, "observed_pair"},
+    {1024, 384, "factorized_extrapolation"},
+    {1024, 512, "observed_pair"},
+    {1024, 768, "factorized_extrapolation"},
+    {1024, 1024, "observed_pair"}
+};
+
+constexpr SmallSpatialPointwiseConvDepthVisionFactorizedProjectionSpatialPair kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionSpatialPairs[] = {
+    {10, 15},
+    {13, 20},
+    {20, 31},
+    {30, 46},
+    {40, 61},
+    {50, 77}
+};
+
+inline bool small_spatial_pointwise_conv_depth_vision_factorized_projection_channel_pair_matches(
+    const std::int64_t input_c,
+    const std::int64_t output_c) {
+  for (const auto& pair : kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionChannelPairs) {
+    if (pair.input_c == input_c && pair.output_c == output_c) {
+      return true;
+    }
+  }
+  return false;
+}
+
+inline bool small_spatial_pointwise_conv_depth_vision_factorized_projection_spatial_pair_matches(
+    const std::int64_t input_h,
+    const std::int64_t input_w) {
+  for (const auto& pair : kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionSpatialPairs) {
+    if (pair.input_h == input_h && pair.input_w == input_w) {
+      return true;
+    }
+  }
+  return false;
+}
+
+inline bool small_spatial_pointwise_conv_depth_vision_factorized_projection_matches(
+    const std::int64_t input_c,
+    const std::int64_t input_h,
+    const std::int64_t input_w,
+    const std::int64_t output_c) {
+  return small_spatial_pointwise_conv_depth_vision_factorized_projection_channel_pair_matches(input_c, output_c) &&
+      small_spatial_pointwise_conv_depth_vision_factorized_projection_spatial_pair_matches(input_h, input_w);
+}
+
+inline const char* small_spatial_pointwise_conv_depth_vision_factorized_projection_family_name() {
+  return kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionFamilyName;
+}
+
+inline const char* small_spatial_pointwise_conv_depth_vision_factorized_projection_tuple_id() {
+  return kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionTupleId;
+}
+
+inline const ExecutionContractMetadata* small_spatial_pointwise_conv_depth_vision_factorized_projection_metadata() {
+  return &kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionMetadata;
+}
+
 inline const SmallSpatialPointwiseConvProjectionRowsRow* small_spatial_pointwise_conv_projection_rows_find(
     const std::int64_t input_c,
     const std::int64_t input_h,

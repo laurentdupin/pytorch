@@ -231,6 +231,38 @@
         "violates": "groups",
         "adjacent": "wrong_value",
         "value": 2
+      },
+      {
+        "violates": "stride",
+        "adjacent": "wrong_value",
+        "value": 2
+      },
+      {
+        "violates": "padding",
+        "adjacent": "wrong_value",
+        "value": 1
+      },
+      {
+        "violates": "dilation",
+        "adjacent": "wrong_value",
+        "value": 2
+      },
+      {
+        "violates": "execution_storage",
+        "adjacent": "wrong_value",
+        "value": "texture"
+      },
+      {
+        "violates": "factorized_projection.channel_pair",
+        "adjacent": "wrong_value"
+      },
+      {
+        "violates": "factorized_projection.spatial_pair",
+        "adjacent": "wrong_value"
+      },
+      {
+        "violates": "factorized_projection.over_budget_spatial",
+        "adjacent": "above_max"
       }
     ],
     "fuzz_hints": {
@@ -243,6 +275,142 @@
         "CO"
       ]
     },
+    "factorized_groups": [
+      {
+        "name": "depth_vision_factorized_projection",
+        "family": "DepthVisionProjection",
+        "tuple_id": "depth_vision_factorized_projection_108",
+        "metadata": {
+          "evidence_id": "task272_cross_adapter_factorized_108_proof",
+          "guard_id": "small_spatial_pointwise_factorized_adjacent_guards",
+          "fallback_policy": "unsupported_shapes_do_not_match",
+          "materialization_policy": "native_buffer_kernel"
+        },
+        "channel_pairs": [
+          {
+            "input_c": 384,
+            "output_c": 192,
+            "proof_class": "observed_pair"
+          },
+          {
+            "input_c": 384,
+            "output_c": 256,
+            "proof_class": "factorized_extrapolation"
+          },
+          {
+            "input_c": 384,
+            "output_c": 384,
+            "proof_class": "observed_pair"
+          },
+          {
+            "input_c": 384,
+            "output_c": 512,
+            "proof_class": "factorized_extrapolation"
+          },
+          {
+            "input_c": 384,
+            "output_c": 768,
+            "proof_class": "factorized_extrapolation"
+          },
+          {
+            "input_c": 384,
+            "output_c": 1024,
+            "proof_class": "factorized_extrapolation"
+          },
+          {
+            "input_c": 768,
+            "output_c": 192,
+            "proof_class": "observed_pair"
+          },
+          {
+            "input_c": 768,
+            "output_c": 256,
+            "proof_class": "factorized_extrapolation"
+          },
+          {
+            "input_c": 768,
+            "output_c": 384,
+            "proof_class": "observed_pair"
+          },
+          {
+            "input_c": 768,
+            "output_c": 512,
+            "proof_class": "factorized_extrapolation"
+          },
+          {
+            "input_c": 768,
+            "output_c": 768,
+            "proof_class": "observed_pair"
+          },
+          {
+            "input_c": 768,
+            "output_c": 1024,
+            "proof_class": "factorized_extrapolation"
+          },
+          {
+            "input_c": 1024,
+            "output_c": 192,
+            "proof_class": "factorized_extrapolation"
+          },
+          {
+            "input_c": 1024,
+            "output_c": 256,
+            "proof_class": "observed_pair"
+          },
+          {
+            "input_c": 1024,
+            "output_c": 384,
+            "proof_class": "factorized_extrapolation"
+          },
+          {
+            "input_c": 1024,
+            "output_c": 512,
+            "proof_class": "observed_pair"
+          },
+          {
+            "input_c": 1024,
+            "output_c": 768,
+            "proof_class": "factorized_extrapolation"
+          },
+          {
+            "input_c": 1024,
+            "output_c": 1024,
+            "proof_class": "observed_pair"
+          }
+        ],
+        "spatial_pairs": [
+          {
+            "input_h": 10,
+            "input_w": 15
+          },
+          {
+            "input_h": 13,
+            "input_w": 20
+          },
+          {
+            "input_h": 20,
+            "input_w": 31
+          },
+          {
+            "input_h": 30,
+            "input_w": 46
+          },
+          {
+            "input_h": 40,
+            "input_w": 61
+          },
+          {
+            "input_h": 50,
+            "input_w": 77
+          }
+        ],
+        "cardinality": 108,
+        "validated_corpus_count": 48,
+        "extrapolated_shape_count": 60,
+        "expansion_ratio": 2.25,
+        "expansion_policy": "Factorize only observed Cin values, observed Cout values, and observed spatial pairs. Do not admit independent H/W values or min/max ranges. The 108-shape candidate is 2.25x the 48-shape validated corpus, below the 3x expansion cap."
+      }
+    ],
     "sparse_rowsets": [
       {
         "name": "projection_rows",
@@ -2140,6 +2308,227 @@
       "violates": "groups",
       "expected_native_route": false,
       "expected_cpu_fallback": false
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "name": "factorized_channel_pair_outside_approved_group",
+      "input_shape": [
+        1,
+        384,
+        10,
+        15
+      ],
+      "out_channels": 640,
+      "violates": "factorized_projection.channel_pair",
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "name": "factorized_spatial_pair_outside_approved_group",
+      "input_shape": [
+        1,
+        384,
+        11,
+        15
+      ],
+      "out_channels": 192,
+      "violates": "factorized_projection.spatial_pair",
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "name": "factorized_over_budget_spatial_pair",
+      "input_shape": [
+        1,
+        1024,
+        60,
+        93
+      ],
+      "out_channels": 1024,
+      "violates": "factorized_projection.over_budget_spatial",
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        2,
+        2
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "name": "stride2_factorized_projection",
+      "input_shape": [
+        1,
+        384,
+        10,
+        15
+      ],
+      "out_channels": 192,
+      "violates": "stride"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        1,
+        1
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "name": "padding1_factorized_projection",
+      "input_shape": [
+        1,
+        384,
+        10,
+        15
+      ],
+      "out_channels": 192,
+      "violates": "padding"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        2,
+        2
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "name": "dilation2_factorized_projection",
+      "input_shape": [
+        1,
+        384,
+        10,
+        15
+      ],
+      "out_channels": 192,
+      "violates": "dilation"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "name": "texture_storage_factorized_projection",
+      "input_shape": [
+        1,
+        384,
+        10,
+        15
+      ],
+      "out_channels": 192,
+      "execution_storage": "texture",
+      "violates": "execution_storage"
     }
   ]
 }

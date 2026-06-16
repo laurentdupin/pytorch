@@ -157,9 +157,13 @@ Current MVP status:
   generic ShapeEnvelope C++ sparse-rowset generator path:
   `ExecutionContractsSmallSpatialPointwiseConvSpec.h` provides contract
   identity, per-row metadata, input/weight channel equality, the 39 correlated
-  projection rows, and exact lookup helpers for the existing matcher.
-  Route-policy hard-fail rescue, shader-family decisions, family op-hit
-  labels, and match-result construction remain handwritten.
+  projection rows, exact lookup helpers, and the generated factorized
+  depth-vision projection helper for the 108 cross-adapter proven shapes. The
+  factorized helper admits only the approved channel-pair group crossed with
+  the approved spatial-pair group; min/max envelopes and wider independent
+  channel/spatial cross-products remain out of scope. Route-policy hard-fail
+  rescue, shader-family decisions, family op-hit labels, and match-result
+  construction remain handwritten.
 - `KVCacheAppendContract` `SequenceAppend` and `InitialCache` now use the
   generic ShapeEnvelope C++ simple-bounds generator path:
   `ExecutionContractsKVCacheAppendSpec.h` and

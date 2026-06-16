@@ -576,7 +576,7 @@ class TestVulkanGovernance(TestCase):
             "validated 19 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=100", result.stdout)
+        self.assertIn("generated_cases=107", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:3",
@@ -600,7 +600,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("safe_view_reshape_contract.json:3", result.stdout)
         self.assertIn("sdpa_score_softmax_contract.json:3", result.stdout)
         self.assertIn("small_metadata_padded_conv2d_contract.json:7", result.stdout)
-        self.assertIn("small_spatial_pointwise_conv_contract.json:8", result.stdout)
+        self.assertIn("small_spatial_pointwise_conv_contract.json:15", result.stdout)
         self.assertIn("transformer_gqa_sdpa_contract.json:8", result.stdout)
 
     def test_vulkan_shape_envelope_legal_case_utility_cli(self):
@@ -626,7 +626,7 @@ class TestVulkanGovernance(TestCase):
             "validated 19 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=103", result.stdout)
+        self.assertIn("generated_cases=211", result.stdout)
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
         self.assertIn(
             "batch_norm_inference_materialized_contract.json:1",
@@ -650,7 +650,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("safe_view_reshape_contract.json:2", result.stdout)
         self.assertIn("sdpa_score_softmax_contract.json:4", result.stdout)
         self.assertIn("small_metadata_padded_conv2d_contract.json:1", result.stdout)
-        self.assertIn("small_spatial_pointwise_conv_contract.json:39", result.stdout)
+        self.assertIn("small_spatial_pointwise_conv_contract.json:147", result.stdout)
         self.assertIn("transformer_gqa_sdpa_contract.json:4", result.stdout)
 
     def test_vulkan_shape_envelope_fuzz_assignment_utility_cli(self):
@@ -677,7 +677,7 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn("legal_assignments=38", result.stdout)
-        self.assertIn("adjacent_negative_assignments=99", result.stdout)
+        self.assertIn("adjacent_negative_assignments=106", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:adjacent=3",
             result.stdout,
@@ -747,7 +747,7 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
-            "small_spatial_pointwise_conv_contract.json:legal=2:adjacent=7",
+            "small_spatial_pointwise_conv_contract.json:legal=2:adjacent=14",
             result.stdout,
         )
         self.assertIn(
@@ -780,9 +780,9 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("legal_assignments=38", result.stdout)
         self.assertIn("legal_paths=334", result.stdout)
-        self.assertIn("adjacent_negative_axes=99", result.stdout)
-        self.assertIn("runtime_legal_cases=103", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=100", result.stdout)
+        self.assertIn("adjacent_negative_axes=106", result.stdout)
+        self.assertIn("runtime_legal_cases=211", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=107", result.stdout)
         self.assertIn(
             "batch_norm_inference_contract.json:legal=2:status=covered:"
             "paths=21/21:adjacent_axes=3",
@@ -870,7 +870,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "small_spatial_pointwise_conv_contract.json:legal=2:"
-            "status=covered:paths=22/22:adjacent_axes=7",
+            "status=covered:paths=22/22:adjacent_axes=14",
             result.stdout,
         )
         self.assertIn(
@@ -898,7 +898,7 @@ class TestVulkanGovernance(TestCase):
             "safe_view_reshape_contract.json": (2, 3),
             "sdpa_score_softmax_contract.json": (4, 3),
             "small_metadata_padded_conv2d_contract.json": (1, 7),
-            "small_spatial_pointwise_conv_contract.json": (39, 8),
+            "small_spatial_pointwise_conv_contract.json": (147, 15),
             "transformer_gqa_sdpa_contract.json": (4, 8),
         }
         for file_name, expected_counts in expected_generated_counts.items():
@@ -3339,6 +3339,25 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(len(lookup_keys), 39)
         self.assertEqual(len(tuple_ids), 39)
         self.assertNotIn((512, 7, 7, 2048), lookup_keys)
+
+        factorized_groups = spec["shape_envelope"]["factorized_groups"]
+        self.assertEqual(len(factorized_groups), 1)
+        factorized_group = factorized_groups[0]
+        self.assertEqual(
+            factorized_group["name"],
+            "depth_vision_factorized_projection",
+        )
+        self.assertEqual(factorized_group["family"], "DepthVisionProjection")
+        self.assertEqual(
+            factorized_group["tuple_id"],
+            "depth_vision_factorized_projection_108",
+        )
+        self.assertEqual(len(factorized_group["channel_pairs"]), 18)
+        self.assertEqual(len(factorized_group["spatial_pairs"]), 6)
+        self.assertEqual(factorized_group["cardinality"], 108)
+        self.assertEqual(factorized_group["validated_corpus_count"], 48)
+        self.assertEqual(factorized_group["extrapolated_shape_count"], 60)
+        self.assertEqual(factorized_group["expansion_ratio"], 2.25)
 
         for case in spec["positive_cases"]:
             _require_contract_spec_fields(
@@ -12914,6 +12933,96 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         atol=1e-4,
                         rtol=1e-4)
 
+    def test_large_pointwise_conv2d_factorized_depth_vision_matches_cpu(self):
+        torch.manual_seed(2730)
+        channel_pairs = (
+            (384, 192),
+            (384, 256),
+            (384, 384),
+            (384, 512),
+            (384, 768),
+            (384, 1024),
+            (768, 192),
+            (768, 256),
+            (768, 384),
+            (768, 512),
+            (768, 768),
+            (768, 1024),
+            (1024, 192),
+            (1024, 256),
+            (1024, 384),
+            (1024, 512),
+            (1024, 768),
+            (1024, 1024),
+        )
+        spatial_pairs = (
+            (10, 15),
+            (13, 20),
+            (20, 31),
+            (30, 46),
+            (40, 61),
+            (50, 77),
+        )
+        log_name = "large_pointwise_factorized_depth_vision_op_hit_test.log"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+        try:
+            for input_channels, out_channels in channel_pairs:
+                for height, width in spatial_pairs:
+                    with self.subTest(
+                            input_channels=input_channels,
+                            out_channels=out_channels,
+                            height=height,
+                            width=width):
+                        if os.path.exists(log_path):
+                            os.remove(log_path)
+                        x_cpu = torch.randn(
+                            1,
+                            input_channels,
+                            height,
+                            width) * 0.1
+                        x_vulkan = x_cpu.to("vulkan")
+                        module_cpu = torch.nn.Conv2d(
+                            input_channels,
+                            out_channels,
+                            kernel_size=1,
+                            bias=True).eval()
+                        module_vulkan = torch.nn.Conv2d(
+                            input_channels,
+                            out_channels,
+                            kernel_size=1,
+                            bias=True).eval()
+                        module_vulkan.load_state_dict(module_cpu.state_dict())
+                        module_vulkan = module_vulkan.to("vulkan")
+
+                        with torch.inference_mode():
+                            expected = module_cpu(x_cpu)
+                            torch.ops.vulkan_prepack.reset_fallback_counters()
+                            actual = module_vulkan(x_vulkan).cpu()
+
+                        self._assert_outputs_close(
+                            expected,
+                            actual,
+                            atol=1e-4,
+                            rtol=1e-4)
+                        self.assertEqual(
+                            torch.ops.vulkan_prepack.cpu_fallback_count(),
+                            0)
+                        with open(log_path, "r", encoding="utf-8") as log_file:
+                            op_hits = log_file.read()
+                        self.assertIn(
+                            "aten::convolution.buffer_float_1x1_skip."
+                            "small_spatial_pointwise.depth_vision_projection",
+                            op_hits)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_large_pointwise_conv2d_unaligned_width_hard_fails(self):
         log_name = "large_pointwise_conv2d_unaligned_width_hard_fail.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -12983,6 +13092,101 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 RuntimeError,
                 "KnownBadLargePointwiseConv"):
                 module_vulkan(x_vulkan)
+
+    def test_large_pointwise_conv2d_factorized_depth_vision_adjacent_guards(self):
+        torch.manual_seed(2731)
+        contract_hit = (
+            "aten::convolution.buffer_float_1x1_skip."
+            "small_spatial_pointwise.depth_vision_projection"
+        )
+        log_name = "large_pointwise_factorized_depth_vision_negative_op_hit.log"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+
+        def run_case(
+            shape,
+            out_channels,
+            *,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            dilation=1,
+            groups=1,
+        ):
+            if os.path.exists(log_path):
+                os.remove(log_path)
+            x_cpu = torch.randn(*shape) * 0.1
+            x_vulkan = x_cpu.to("vulkan")
+            module_cpu = torch.nn.Conv2d(
+                shape[1],
+                out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                bias=True).eval()
+            module_vulkan = torch.nn.Conv2d(
+                shape[1],
+                out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                bias=True).eval()
+            module_vulkan.load_state_dict(module_cpu.state_dict())
+            module_vulkan = module_vulkan.to("vulkan")
+
+            with torch.inference_mode():
+                expected = module_cpu(x_cpu)
+                actual = module_vulkan(x_vulkan).cpu()
+            self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+            if os.path.exists(log_path):
+                with open(log_path, "r", encoding="utf-8") as log_file:
+                    self.assertNotIn(contract_hit, log_file.read())
+
+        try:
+            for kwargs in (
+                {"kernel_size": 3},
+                {"stride": 2},
+                {"padding": 1},
+                {"dilation": 2},
+                {"groups": 2, "out_channels": 384},
+            ):
+                out_channels = kwargs.pop("out_channels", 192)
+                with self.subTest(kwargs=kwargs, out_channels=out_channels):
+                    run_case(
+                        (1, 384, 10, 15),
+                        out_channels,
+                        **kwargs)
+
+            for shape, out_channels in (
+                ((1, 384, 10, 15), 640),
+                ((1, 384, 11, 15), 192),
+                ((1, 1024, 60, 93), 1024),
+            ):
+                with self.subTest(shape=shape, out_channels=out_channels):
+                    x_cpu = torch.randn(*shape)
+                    x_vulkan = x_cpu.to("vulkan")
+                    module_vulkan = torch.nn.Conv2d(
+                        shape[1],
+                        out_channels,
+                        kernel_size=1,
+                        bias=True).eval().to("vulkan")
+                    with torch.inference_mode():
+                        with self.assertRaisesRegex(
+                            RuntimeError,
+                            "KnownBadLargePointwiseConv"):
+                            module_vulkan(x_vulkan)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(log_path):
+                os.remove(log_path)
 
     def test_large_pointwise_conv2d_paddleocr_small_spatial_matches_cpu(self):
         torch.manual_seed(0)

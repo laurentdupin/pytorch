@@ -94,6 +94,21 @@ SmallSpatialPointwiseConvMatch match_small_spatial_pointwise_conv_contract(
     return result;
   }
 
+  if (generated::small_spatial_pointwise_conv_depth_vision_factorized_projection_matches(
+          input_sizes[1], input_sizes[2], input_sizes[3], weight_sizes[0])) {
+    result.matched = true;
+    const char* const family_name =
+        generated::
+            small_spatial_pointwise_conv_depth_vision_factorized_projection_family_name();
+    result.family = small_spatial_pointwise_conv_family_from_name(
+        family_name);
+    result.tuple_id = generated::
+        small_spatial_pointwise_conv_depth_vision_factorized_projection_tuple_id();
+    result.metadata = generated::
+        small_spatial_pointwise_conv_depth_vision_factorized_projection_metadata();
+    return result;
+  }
+
   const auto* const row =
       generated::small_spatial_pointwise_conv_projection_rows_find(
           input_sizes[1], input_sizes[2], input_sizes[3], weight_sizes[0]);
