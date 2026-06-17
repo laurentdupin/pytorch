@@ -133,7 +133,7 @@ constexpr VulkanEnvFlagSpec kAllowedVulkanEnvFlags[] = {
      "manual diagnostics"},
     {"PYTORCH_VULKAN_TRANSITION_LOG",
      VulkanEnvFlagKind::Logging,
-     "diagnose layout transition decisions",
+     "diagnose transition and materialization decisions",
      "manual diagnostics"},
     {"PYTORCH_VULKAN_VALIDATE_TENSOR_STATE",
      VulkanEnvFlagKind::CorrectnessDiagnostic,

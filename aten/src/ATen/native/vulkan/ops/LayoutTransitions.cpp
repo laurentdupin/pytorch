@@ -4,9 +4,7 @@
 #include <ATen/native/vulkan/ops/Convert.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
-#include <cstdlib>
-#include <fstream>
-#include <mutex>
+#include <ATen/native/vulkan/planning/TransitionPlanner.h>
 #include <sstream>
 
 namespace at {
@@ -15,29 +13,6 @@ namespace vulkan {
 namespace ops {
 
 namespace {
-
-std::string transition_log_path() {
-  const char* env = std::getenv("PYTORCH_VULKAN_TRANSITION_LOG");
-  return env ? std::string(env) : std::string();
-}
-
-bool transition_logging_enabled() {
-  return !transition_log_path().empty();
-}
-
-std::mutex& transition_log_mutex() {
-  static std::mutex mutex;
-  return mutex;
-}
-
-void append_transition_log_line(const std::string& line) {
-  if (!transition_logging_enabled()) {
-    return;
-  }
-  std::lock_guard<std::mutex> lock(transition_log_mutex());
-  std::ofstream out(transition_log_path(), std::ios::app);
-  out << line << '\n';
-}
 
 void validate_created_view(
     const Tensor& view,
@@ -48,6 +23,55 @@ void validate_created_view(
   TORCH_CHECK(validation.ok, validation.message);
   assert_valid_tensor_state_debug(
       view, VulkanTensorUse::Read, op_name, route_name);
+}
+
+utils::TransitionReason transition_reason_for_materialize_reason(
+    const VulkanMaterializeReason reason) {
+  switch (reason) {
+    case VulkanMaterializeReason::KernelRequiresDirectBuffer:
+    case VulkanMaterializeReason::KernelRequiresTexture:
+      return utils::TransitionReason::RequiredConsumerLayout;
+    case VulkanMaterializeReason::RawCopyRequiresContiguous:
+    case VulkanMaterializeReason::MetadataViewUnsupported:
+      return utils::TransitionReason::RequiredContiguousMaterialization;
+    case VulkanMaterializeReason::ReplayOutputEscaped:
+      return utils::TransitionReason::RequiredCorrectnessMaterialization;
+    case VulkanMaterializeReason::Readback:
+      return utils::TransitionReason::RequiredFinalReadback;
+    case VulkanMaterializeReason::Upload:
+      return utils::TransitionReason::RequiredHostUpload;
+    case VulkanMaterializeReason::DTypeCast:
+      return utils::TransitionReason::RequiredDTypeCast;
+    case VulkanMaterializeReason::MetadataViewCreated:
+    case VulkanMaterializeReason::TypedMetadataViewCreated:
+      return utils::TransitionReason::MetadataViewOnly;
+    case VulkanMaterializeReason::Unknown:
+      return utils::TransitionReason::UnknownTransitionReason;
+  }
+  return utils::TransitionReason::UnknownTransitionReason;
+}
+
+utils::TransitionKind transition_kind_for_materialize_reason(
+    const VulkanMaterializeReason reason) {
+  switch (reason) {
+    case VulkanMaterializeReason::MetadataViewCreated:
+    case VulkanMaterializeReason::TypedMetadataViewCreated:
+      return utils::TransitionKind::MetadataView;
+    case VulkanMaterializeReason::Readback:
+    case VulkanMaterializeReason::Upload:
+      return utils::TransitionKind::HostTransfer;
+    case VulkanMaterializeReason::ReplayOutputEscaped:
+      return utils::TransitionKind::SemanticMaterialization;
+    case VulkanMaterializeReason::KernelRequiresDirectBuffer:
+    case VulkanMaterializeReason::KernelRequiresTexture:
+    case VulkanMaterializeReason::RawCopyRequiresContiguous:
+    case VulkanMaterializeReason::MetadataViewUnsupported:
+    case VulkanMaterializeReason::DTypeCast:
+      return utils::TransitionKind::LayoutMaterialization;
+    case VulkanMaterializeReason::Unknown:
+      return utils::TransitionKind::Unknown;
+  }
+  return utils::TransitionKind::Unknown;
 }
 
 } // namespace
@@ -86,18 +110,35 @@ void log_layout_transition(
     const VulkanMaterializeReason reason,
     const Tensor& src,
     const Tensor& dst) {
-  if (!transition_logging_enabled()) {
+  if (!utils::transition_logging_enabled()) {
     return;
   }
-  std::ostringstream stream;
-  stream << "vulkan_transition";
-  if (op_name && op_name[0] != '\0') {
-    stream << " op=" << op_name;
-  }
-  stream << " reason=" << vulkan_materialize_reason_name(reason)
-         << " src={" << describe_tensor_state(src) << "}"
-         << " dst={" << describe_tensor_state(dst) << "}";
-  append_transition_log_line(stream.str());
+  const bool host_transfer = reason == VulkanMaterializeReason::Upload ||
+      reason == VulkanMaterializeReason::Readback;
+  const bool metadata_view =
+      reason == VulkanMaterializeReason::MetadataViewCreated ||
+      reason == VulkanMaterializeReason::TypedMetadataViewCreated;
+  const std::string src_state = describe_tensor_state(src);
+  const std::string dst_state = describe_tensor_state(dst);
+  const int64_t bytes = dst.is_vulkan() ? convert(dst).gpu_nbytes() : -1;
+  utils::log_vulkan_transition(utils::VulkanTransitionRequest{
+      "layout_transition",
+      transition_reason_for_materialize_reason(reason),
+      transition_kind_for_materialize_reason(reason),
+      bytes,
+      host_transfer,
+      !metadata_view,
+      host_transfer,
+      !metadata_view || host_transfer,
+      op_name ? op_name : "unknown",
+      vulkan_materialize_reason_name(reason),
+      nullptr,
+      nullptr,
+      {},
+      {src_state.c_str(), nullptr, nullptr, nullptr},
+      {},
+      {dst_state.c_str(), nullptr, nullptr, nullptr},
+  });
 }
 
 bool is_raw_buffer_readback_legal(const vTensor& src) {

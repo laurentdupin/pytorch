@@ -1,5 +1,6 @@
 #include <ATen/ATen.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
+#include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Copy.h>
@@ -10,6 +11,7 @@
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
+#include <ATen/native/vulkan/planning/TransitionPlanner.h>
 #include <ATen/vulkan/Context.h>
 #include <c10/util/irange.h>
 #include <algorithm>
@@ -109,6 +111,8 @@ void pack_logical_tensor_to_buffer_mapping_dispatch(
     const bool clear_destination);
 
 std::string format_sizes(const std::vector<int64_t>& sizes);
+const char* storage_type_name(api::StorageType storage_type);
+bool buffer_allocation_is_host_visible(const vTensor& tensor);
 
 const std::string& copy_sync_log_path() {
   static const std::string path = []() {
@@ -227,6 +231,74 @@ const char* buffer_copy_reason_name(const VulkanBufferCopyReason reason) {
   return "unknown";
 }
 
+utils::TransitionReason transition_reason_for_buffer_copy(
+    const VulkanBufferCopyReason reason) {
+  switch (reason) {
+    case VulkanBufferCopyReason::ExplicitCopy:
+      return utils::TransitionReason::RequiredCorrectnessMaterialization;
+    case VulkanBufferCopyReason::TensorToContiguous:
+      return utils::TransitionReason::RequiredContiguousMaterialization;
+    case VulkanBufferCopyReason::ViewMaterialization:
+    case VulkanBufferCopyReason::ReshapeMaterialization:
+    case VulkanBufferCopyReason::PermuteMaterialization:
+    case VulkanBufferCopyReason::TransposeMaterialization:
+    case VulkanBufferCopyReason::LayoutConversion:
+    case VulkanBufferCopyReason::DirectBufferConversion:
+    case VulkanBufferCopyReason::PackedLayoutConversion:
+      return utils::TransitionReason::RequiredLayoutRepack;
+    case VulkanBufferCopyReason::StorageOffsetNormalization:
+      return utils::TransitionReason::UnsupportedStorageOffsetForConsumer;
+    case VulkanBufferCopyReason::StrideNormalization:
+      return utils::TransitionReason::UnsupportedStrideForConsumer;
+    case VulkanBufferCopyReason::AttentionInputMaterialization:
+    case VulkanBufferCopyReason::AttentionOutputMaterialization:
+    case VulkanBufferCopyReason::LinearInputMaterialization:
+    case VulkanBufferCopyReason::LinearOutputMaterialization:
+    case VulkanBufferCopyReason::ConvInputMaterialization:
+    case VulkanBufferCopyReason::ConvOutputMaterialization:
+    case VulkanBufferCopyReason::DecoderFeatureMaterialization:
+    case VulkanBufferCopyReason::BackboneTokenMaterialization:
+      return utils::TransitionReason::RequiredConsumerLayout;
+    case VulkanBufferCopyReason::ReadbackPreparation:
+      return utils::TransitionReason::RequiredFinalReadback;
+    case VulkanBufferCopyReason::Unknown:
+      return utils::TransitionReason::UnknownTransitionReason;
+  }
+  return utils::TransitionReason::UnknownTransitionReason;
+}
+
+utils::TransitionKind transition_kind_for_buffer_copy(
+    const VulkanBufferCopyReason reason) {
+  switch (reason) {
+    case VulkanBufferCopyReason::ExplicitCopy:
+      return utils::TransitionKind::DeviceCopy;
+    case VulkanBufferCopyReason::TensorToContiguous:
+    case VulkanBufferCopyReason::ViewMaterialization:
+    case VulkanBufferCopyReason::ReshapeMaterialization:
+    case VulkanBufferCopyReason::PermuteMaterialization:
+    case VulkanBufferCopyReason::TransposeMaterialization:
+    case VulkanBufferCopyReason::LayoutConversion:
+    case VulkanBufferCopyReason::DirectBufferConversion:
+    case VulkanBufferCopyReason::PackedLayoutConversion:
+    case VulkanBufferCopyReason::StorageOffsetNormalization:
+    case VulkanBufferCopyReason::StrideNormalization:
+    case VulkanBufferCopyReason::AttentionInputMaterialization:
+    case VulkanBufferCopyReason::AttentionOutputMaterialization:
+    case VulkanBufferCopyReason::LinearInputMaterialization:
+    case VulkanBufferCopyReason::LinearOutputMaterialization:
+    case VulkanBufferCopyReason::ConvInputMaterialization:
+    case VulkanBufferCopyReason::ConvOutputMaterialization:
+    case VulkanBufferCopyReason::DecoderFeatureMaterialization:
+    case VulkanBufferCopyReason::BackboneTokenMaterialization:
+      return utils::TransitionKind::LayoutMaterialization;
+    case VulkanBufferCopyReason::ReadbackPreparation:
+      return utils::TransitionKind::HostTransfer;
+    case VulkanBufferCopyReason::Unknown:
+      return utils::TransitionKind::Unknown;
+  }
+  return utils::TransitionKind::Unknown;
+}
+
 const char* scalar_type_name(const ScalarType dtype) {
   switch (dtype) {
     case ScalarType::Float:
@@ -250,6 +322,147 @@ const char* scalar_type_name(const ScalarType dtype) {
     default:
       return "other";
   }
+}
+
+const char* memory_layout_name(const api::GPUMemoryLayout memory_layout) {
+  switch (memory_layout) {
+    case api::GPUMemoryLayout::TENSOR_WIDTH_PACKED:
+      return "TENSOR_WIDTH_PACKED";
+    case api::GPUMemoryLayout::TENSOR_HEIGHT_PACKED:
+      return "TENSOR_HEIGHT_PACKED";
+    case api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED:
+      return "TENSOR_CHANNELS_PACKED";
+  }
+  return "UNKNOWN_MEMORY_LAYOUT";
+}
+
+std::string physical_layout_desc(const vTensor& tensor) {
+  std::ostringstream stream;
+  stream << "storage=" << storage_type_name(tensor.storage_type())
+         << ",memory_layout=" << memory_layout_name(tensor.gpu_memory_layout())
+         << ",execution_layout=" << api::to_string(tensor.execution_layout())
+         << ",direct_buffer=" << (tensor.has_direct_buffer_layout() ? 1 : 0)
+         << ",storage_offset=" << tensor.storage_offset();
+  return stream.str();
+}
+
+utils::TransitionReason readback_transition_reason_for_phase() {
+  switch (api::current_submit_phase()) {
+    case api::VulkanSubmitPhase::Readback:
+      return utils::TransitionReason::RequiredFinalReadback;
+    case api::VulkanSubmitPhase::TestHarness:
+      return utils::TransitionReason::RequiredDebugReadback;
+    default:
+      return utils::TransitionReason::UnexpectedIntermediateReadback;
+  }
+}
+
+void log_buffer_copy_transition(const VulkanBufferCopyDecision& decision) {
+  if (!utils::transition_logging_enabled()) {
+    return;
+  }
+  const std::string src_sizes = format_sizes(decision.src_sizes);
+  const std::string dst_sizes = format_sizes(decision.dst_sizes);
+  const std::string src_strides = format_sizes(decision.src_strides);
+  const std::string dst_strides = format_sizes(decision.dst_strides);
+  const std::string src_layout = decision.src_direct_buffer
+      ? "direct_buffer"
+      : "buffer_view_or_packed";
+  const std::string dst_layout = decision.dst_direct_buffer
+      ? "direct_buffer"
+      : "buffer_view_or_packed";
+  utils::log_vulkan_transition(utils::VulkanTransitionRequest{
+      api::submit_phase_name(api::current_submit_phase()),
+      transition_reason_for_buffer_copy(decision.reason),
+      transition_kind_for_buffer_copy(decision.reason),
+      decision.bytes,
+      false,
+      true,
+      false,
+      true,
+      decision.producer_label.c_str(),
+      decision.consumer_label.c_str(),
+      decision.producer_role.c_str(),
+      decision.consumer_role.c_str(),
+      {scalar_type_name(decision.dtype), src_sizes.c_str(), src_strides.c_str()},
+      {src_layout.c_str(), "BUFFER", nullptr, nullptr},
+      {scalar_type_name(decision.dtype), dst_sizes.c_str(), dst_strides.c_str()},
+      {dst_layout.c_str(), "BUFFER", nullptr, nullptr},
+  });
+}
+
+void log_host_upload_transition(const Tensor& src, const vTensor& dst) {
+  if (!utils::transition_logging_enabled()) {
+    return;
+  }
+  const std::vector<int64_t> src_sizes(src.sizes().begin(), src.sizes().end());
+  const std::vector<int64_t> src_strides(
+      src.strides().begin(), src.strides().end());
+  const std::string src_sizes_desc = format_sizes(src_sizes);
+  const std::string src_strides_desc = format_sizes(src_strides);
+  const std::string dst_sizes = format_sizes(dst.sizes());
+  const std::string dst_strides = format_sizes(dst.logical_strides());
+  const std::string dst_layout = physical_layout_desc(dst);
+  const bool direct_host_visible = dst.storage_type() == api::StorageType::BUFFER &&
+      buffer_allocation_is_host_visible(dst);
+  utils::log_vulkan_transition(utils::VulkanTransitionRequest{
+      api::submit_phase_name(api::current_submit_phase()),
+      utils::TransitionReason::RequiredHostUpload,
+      utils::TransitionKind::HostTransfer,
+      static_cast<int64_t>(dst.gpu_nbytes()),
+      true,
+      true,
+      !direct_host_visible,
+      !direct_host_visible,
+      "cpu_tensor",
+      "vulkan_tensor",
+      nullptr,
+      nullptr,
+      {scalar_type_name(src.scalar_type()),
+       src_sizes_desc.c_str(),
+       src_strides_desc.c_str()},
+      {"cpu", "CPU", nullptr, nullptr},
+      {scalar_type_name(convert_dtype(dst.dtype())),
+       dst_sizes.c_str(),
+       dst_strides.c_str()},
+      {dst_layout.c_str(), storage_type_name(dst.storage_type()), nullptr, nullptr},
+  });
+}
+
+void log_readback_transition(const vTensor& src, const Tensor& dst) {
+  if (!utils::transition_logging_enabled()) {
+    return;
+  }
+  const std::vector<int64_t> dst_sizes(dst.sizes().begin(), dst.sizes().end());
+  const std::vector<int64_t> dst_strides(
+      dst.strides().begin(), dst.strides().end());
+  const std::string src_sizes = format_sizes(src.sizes());
+  const std::string src_strides = format_sizes(src.logical_strides());
+  const std::string src_layout = physical_layout_desc(src);
+  const std::string dst_sizes_desc = format_sizes(dst_sizes);
+  const std::string dst_strides_desc = format_sizes(dst_strides);
+  utils::log_vulkan_transition(utils::VulkanTransitionRequest{
+      api::submit_phase_name(api::current_submit_phase()),
+      readback_transition_reason_for_phase(),
+      utils::TransitionKind::HostTransfer,
+      static_cast<int64_t>(src.gpu_nbytes()),
+      true,
+      true,
+      true,
+      true,
+      "vulkan_tensor",
+      "cpu_tensor",
+      nullptr,
+      nullptr,
+      {scalar_type_name(convert_dtype(src.dtype())),
+       src_sizes.c_str(),
+       src_strides.c_str()},
+      {src_layout.c_str(), storage_type_name(src.storage_type()), nullptr, nullptr},
+      {scalar_type_name(dst.scalar_type()),
+       dst_sizes_desc.c_str(),
+       dst_strides_desc.c_str()},
+      {"cpu", "CPU", nullptr, nullptr},
+  });
 }
 
 bool has_token(const std::string& text, const char* token) {
@@ -645,6 +858,7 @@ void note_buffer_copy_decision(const VulkanBufferCopyDecision& decision) {
   buffer_copy_aggregate_profiler().record(decision);
   clone_requirement_profiler().record(decision);
   append_buffer_copy_log(decision);
+  log_buffer_copy_transition(decision);
 }
 
 std::string readback_buffer_label(const char* suffix) {
@@ -1687,6 +1901,7 @@ void pack_cpu_to_vulkan(
     vTensor& dst,
     const api::VulkanSubmitOrigin fenced_submit_origin) {
   api::Context* const context = dst.context();
+  log_host_upload_transition(src, dst);
 
   if (dst.storage_type() == api::StorageType::BUFFER) {
     if (buffer_allocation_is_host_visible(dst)) {
@@ -1848,6 +2063,7 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
       !src.is_quantized(),
       "Copy of vulkan quantized tensors to cpu is currently disabled!");
   api::Context* const context = src.context();
+  log_readback_transition(src, dst);
 
   if (src.storage_type() == api::StorageType::BUFFER) {
     const bool raw_buffer_readback_legal = is_raw_buffer_readback_legal(src);

@@ -6459,6 +6459,84 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_transition_log_classifies_copy_host_transfer_and_unknown_reason(self):
+        log_name = "vulkan_transition_contract_jsonl_test.jsonl"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import json
+                import os
+                import torch
+
+                log_path = os.path.join(os.getcwd(), "vulkan_transition_contract_jsonl_test.jsonl")
+                if os.path.exists(log_path):
+                    os.remove(log_path)
+                os.environ["PYTORCH_VULKAN_TRANSITION_LOG"] = log_path
+
+                torch.manual_seed(0)
+                torch.ops.vulkan_prepack.log_unknown_transition_for_test()
+                x = torch.randn(2, 3, dtype=torch.float32)
+                vx = x.to("vulkan")
+                copied = vx.clone()
+                torch.ops.vulkan_prepack.set_submit_phase(13)
+                try:
+                    actual = copied.cpu()
+                finally:
+                    torch.ops.vulkan_prepack.reset_submit_phase()
+                torch.testing.assert_close(actual, x)
+
+                with open(log_path, encoding="utf-8") as log_file:
+                    records = [
+                        json.loads(line)
+                        for line in log_file
+                        if line.strip()
+                    ]
+                print(json.dumps(records, sort_keys=True))
+            """
+
+            _, result = self._run_repo_python_subprocess(
+                script,
+                timeout=120,
+                error_prefix="Vulkan transition JSONL subprocess failed.",
+            )
+            records = json.loads(result.stdout.strip().splitlines()[-1])
+            self.assertGreaterEqual(len(records), 4)
+            self.assertTrue(
+                all(record.get("event") == "vulkan_transition" for record in records)
+            )
+            reasons = {record.get("reason") for record in records}
+            self.assertIn("unknown_transition_reason", reasons)
+            self.assertIn("required_host_upload", reasons)
+            self.assertIn("required_final_readback", reasons)
+            self.assertTrue(
+                any(
+                    record.get("physical_copy")
+                    and not record.get("host_transfer")
+                    for record in records
+                )
+            )
+            self.assertTrue(
+                any(
+                    record.get("reason") == "required_host_upload"
+                    and record.get("host_transfer")
+                    for record in records
+                )
+            )
+            self.assertTrue(
+                any(
+                    record.get("reason") == "required_final_readback"
+                    and record.get("phase") == "readback"
+                    and record.get("sync_required")
+                    for record in records
+                )
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_repeated_linear_transpose_view_reuses_packed_weight(self):
         log_name = "vulkan_linear_transpose_view_packed_weight_cache_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

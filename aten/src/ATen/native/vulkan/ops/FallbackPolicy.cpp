@@ -3,6 +3,7 @@
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
+#include <ATen/native/vulkan/planning/TransitionPlanner.h>
 
 #include <c10/util/Exception.h>
 #include <c10/util/irange.h>
@@ -189,6 +190,46 @@ bool has_vulkan_tensor(ArrayRef<Tensor> tensors) {
   return false;
 }
 
+int64_t fallback_tensor_bytes(ArrayRef<Tensor> tensors) {
+  int64_t bytes = 0;
+  bool found = false;
+  for (const Tensor& tensor : tensors) {
+    if (tensor.defined() && tensor.is_vulkan()) {
+      bytes += static_cast<int64_t>(tensor.nbytes());
+      found = true;
+    }
+  }
+  return found ? bytes : -1;
+}
+
+void log_fallback_transition(
+    const char* op_name,
+    const char* reason,
+    ArrayRef<Tensor> tensors,
+    const VulkanCpuFallbackKind kind) {
+  if (!utils::transition_logging_enabled()) {
+    return;
+  }
+  utils::log_vulkan_transition(utils::VulkanTransitionRequest{
+      phase_name(fallback_phase_tls()),
+      utils::TransitionReason::FallbackMaterialization,
+      utils::TransitionKind::Fallback,
+      fallback_tensor_bytes(tensors),
+      kind == VulkanCpuFallbackKind::SyncReadback,
+      kind == VulkanCpuFallbackKind::SyncReadback,
+      kind == VulkanCpuFallbackKind::SyncReadback,
+      kind == VulkanCpuFallbackKind::SyncReadback,
+      op_name ? op_name : "unknown",
+      reason ? reason : fallback_kind_name(kind),
+      nullptr,
+      nullptr,
+      {},
+      {},
+      {},
+      {},
+  });
+}
+
 } // namespace
 
 uint64_t vulkan_cpu_fallback_count() {
@@ -304,6 +345,7 @@ void report_vulkan_cpu_fallback(
     fallback_phase_counter(timed_fallback_phase_counters(), fallback_phase_tls())
         .fetch_add(1, std::memory_order_relaxed);
   }
+  log_fallback_transition(op_name, reason, tensors, kind);
 
   const std::string detail = fallback_detail(kind, tensors);
   const std::string message = api::format_vulkan_failure(

@@ -27,6 +27,7 @@
 #include <ATen/native/vulkan/ops/Zero.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
+#include <ATen/native/vulkan/planning/TransitionPlanner.h>
 #include <torch/custom_class.h>
 #include <torch/library.h>
 
@@ -488,6 +489,27 @@ void set_submit_phase_runtime(const int64_t phase) {
       "Invalid Vulkan submit phase: ",
       phase);
   api::set_submit_phase(static_cast<api::VulkanSubmitPhase>(phase));
+}
+
+void log_unknown_transition_for_test_runtime() {
+  utils::log_vulkan_transition(utils::VulkanTransitionRequest{
+      api::submit_phase_name(api::current_submit_phase()),
+      utils::TransitionReason::UnknownTransitionReason,
+      utils::TransitionKind::Unknown,
+      -1,
+      false,
+      false,
+      false,
+      false,
+      "vulkan_prepack::log_unknown_transition_for_test",
+      "test",
+      nullptr,
+      nullptr,
+      {},
+      {},
+      {},
+      {},
+  });
 }
 
 void reset_fallback_counters_runtime() {
@@ -1687,6 +1709,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_submit_phase() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::log_unknown_transition_for_test() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_allocation_aggregate_snapshot() -> str[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_stack_allocation_aggregate() -> ()"));
@@ -2006,6 +2030,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_submit_phase"),
       TORCH_FN(api::reset_submit_phase));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::log_unknown_transition_for_test"),
+      TORCH_FN(log_unknown_transition_for_test_runtime));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::stack_allocation_aggregate_snapshot"),

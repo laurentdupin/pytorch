@@ -130,6 +130,17 @@ reject. SafeViewReshape reshape-alias diagnostics add generated rank/storage
 offset/product and last-dim rejects plus handwritten dtype, storage, and dense
 stride policy rejects.
 
+`TransitionContracts.h/.cpp` and `TransitionPlanner.h/.cpp` introduce a
+behavior-neutral transition-contract skeleton for producer/consumer edges after
+kernel admission. `PYTORCH_VULKAN_TRANSITION_LOG=<path>` now emits JSONL
+`vulkan_transition` events for classified observations such as device-device
+copies, host uploads, readbacks, fallback materialization, layout
+materialization, and metadata-view creation. The initial taxonomy lives in
+`docs/vulkan/TRANSITION_CONTRACTS.md`; unknown reasons are intentionally
+visible/countable while follow-up tasks add precise producer/consumer proof.
+This skeleton does not remove copies, defer submits, alter fallback/readback
+policy, or broaden accepted shapes.
+
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
 CPU readbacks classified separately and applies the tiny-old-path pending
