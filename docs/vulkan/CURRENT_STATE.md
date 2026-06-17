@@ -51,6 +51,8 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSmallMetadataPaddedConv2DSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`
+- `aten/src/ATen/native/vulkan/planning/ExecutionContractsTokenPrefixCatAdd.cpp`
+- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsTokenPrefixCatAddSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsTransformerGQASDPA.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsTransformerGQASDPASpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsVisionSelfAttentionSDPA.cpp`
@@ -71,11 +73,21 @@ temporary exceptions rather than as untracked live-contract debt.
 `ElementwiseBroadcastContract`, and `TransformerGQASDPAContract`,
 `VisionSelfAttentionSDPAContract`, `DiffusionSDPAContract`,
 `DiffusionCrossAttentionContract`, `SDPAExecutionPolicyContract`, and
-`SDPAScoreSoftmaxContract` are split into family-specific sources. The former
+`SDPAScoreSoftmaxContract`, and `TokenPrefixCatAddContract` are split into
+family-specific sources. The former
 score-softmax allowlist is now a named, metadata-backed finite contract for
 float rank-3 square score tensors with heads `{1, 5}` and sequence
 `{504, 640}`. `ExecutionContracts.cpp` now owns the shared metadata
 completeness helper rather than an SDPA-specific route-policy bucket.
+
+`TokenPrefixCatAddContract` covers the bounded rank-3 prefix-token concat plus
+position-add envelope observed in DAv2 token preparation:
+`prefix=[1,1,C]`, `tokens=[1,N,C]`, `pos/out=[1,N+1,C]`,
+`C in {384,768,1024}`, and
+`N in {150,260,600,620,1350,1380,2400,2440,3750,3850}`. The generic
+`vulkan_prepack::token_prefix_cat_add` route writes a real contiguous Vulkan
+output; the benchmark owner path may call it only when this exact bounded
+pattern is present.
 
 `AttentionProbabilityMaterializationContract` is currently proof/spec-only,
 not a production admission path. The ShapeEnvelope sparse-rowset fixture

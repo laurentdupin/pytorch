@@ -14,6 +14,7 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/planning/CompiledSession.h>
+#include <ATen/native/vulkan/planning/Execution.h>
 #include <ATen/native/vulkan/planning/ExecutableRegions.h>
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
@@ -4381,6 +4382,63 @@ Tensor feature_map_to_tokens_fallback(const Tensor& input_arg) {
         {input_arg});
   }
   return output;
+}
+
+std::vector<int64_t> contiguous_strides_for_sizes(IntArrayRef sizes) {
+  std::vector<int64_t> strides(sizes.size(), 1);
+  for (int64_t dim = static_cast<int64_t>(sizes.size()) - 2; dim >= 0; --dim) {
+    strides[dim] = strides[dim + 1] * std::max<int64_t>(sizes[dim + 1], 1);
+  }
+  return strides;
+}
+
+Tensor prepare_token_prefix_cat_add_input(
+    const Tensor& tensor,
+    const char* input_name) {
+  TORCH_CHECK(
+      tensor.is_vulkan(),
+      "vulkan_prepack::token_prefix_cat_add expected Vulkan ",
+      input_name);
+  Tensor prepared = utils::prepare_vulkan_execution_tensor(
+      tensor, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  const vTensor& v_prepared = convert(prepared);
+  TORCH_CHECK(
+      v_prepared.storage_type() == api::StorageType::BUFFER &&
+          utils::supports_buffer_elementwise_compute(v_prepared),
+      "vulkan_prepack::token_prefix_cat_add expected buffer-compute ",
+      input_name);
+  return prepared;
+}
+
+Tensor make_token_prefix_cat_add_dim1_view(
+    const Tensor& base,
+    IntArrayRef sizes,
+    int64_t token_offset) {
+  const vTensor& v_base = convert(base);
+  TORCH_CHECK(
+      v_base.gpu_strides().size() >= 2,
+      "vulkan_prepack::token_prefix_cat_add expected rank-3 buffer strides");
+  const int64_t storage_offset =
+      v_base.storage_offset() + token_offset * v_base.gpu_strides().at(1);
+  return make_buffer_metadata_view_checked(
+      base,
+      sizes,
+      contiguous_strides_for_sizes(sizes),
+      v_base.gpu_strides(),
+      storage_offset,
+      "vulkan_prepack::token_prefix_cat_add");
+}
+
+TensorContractProvenance token_prefix_cat_add_contract_provenance(
+    const utils::ExecutionContractMetadata* metadata) {
+  TensorContractProvenance provenance;
+  if (metadata != nullptr) {
+    provenance.contract_name = metadata->contract_name;
+    provenance.contract_family = metadata->family_name;
+    provenance.contract_tuple_id = metadata->tuple_id;
+    provenance.contract_materialization_policy = metadata->materialization_policy;
+  }
+  return provenance;
 }
 
 Tensor run_vision_backbone_block_program(
@@ -10935,6 +10993,59 @@ Tensor feature_map_to_tokens(const Tensor& input_arg) {
 
   utils::log_vulkan_op_hit("aten::feature_map_to_tokens.fallback");
   return feature_map_to_tokens_fallback(input_arg);
+}
+
+Tensor token_prefix_cat_add(
+    const Tensor& prefix_arg,
+    const Tensor& tokens_arg,
+    const Tensor& pos_arg) {
+  const utils::TokenPrefixCatAddMatch match =
+      utils::match_token_prefix_cat_add_contract(
+          prefix_arg.sizes(),
+          tokens_arg.sizes(),
+          pos_arg.sizes(),
+          prefix_arg.scalar_type(),
+          tokens_arg.scalar_type(),
+          pos_arg.scalar_type(),
+          prefix_arg.is_vulkan(),
+          tokens_arg.is_vulkan(),
+          pos_arg.is_vulkan(),
+          1,
+          false,
+          false);
+  TORCH_CHECK(
+      match.matched,
+      "vulkan_prepack::token_prefix_cat_add inputs are outside "
+      "TokenPrefixCatAddContract");
+
+  Tensor prefix =
+      prepare_token_prefix_cat_add_input(prefix_arg, "prefix tensor");
+  Tensor tokens =
+      prepare_token_prefix_cat_add_input(tokens_arg, "token tensor");
+  Tensor pos = prepare_token_prefix_cat_add_input(pos_arg, "position tensor");
+  Tensor output = utils::create_buffer_tensor(
+      pos.sizes(), pos.scalar_type(), /*persistent=*/false);
+
+  Tensor prefix_output =
+      make_token_prefix_cat_add_dim1_view(output, prefix.sizes(), 0);
+  Tensor prefix_pos =
+      make_token_prefix_cat_add_dim1_view(pos, prefix.sizes(), 0);
+  (void)add_buffer_out_vulkan(prefix, prefix_pos, prefix_output);
+
+  Tensor token_output =
+      make_token_prefix_cat_add_dim1_view(output, tokens.sizes(), 1);
+  Tensor token_pos = make_token_prefix_cat_add_dim1_view(pos, tokens.sizes(), 1);
+  (void)add_buffer_out_vulkan(tokens, token_pos, token_output);
+
+  utils::log_vulkan_op_hit("vulkan_prepack::token_prefix_cat_add");
+  const TensorContractProvenance provenance =
+      token_prefix_cat_add_contract_provenance(match.metadata);
+  return record_tensor_write_and_return(
+      output,
+      "vulkan_prepack::token_prefix_cat_add",
+      "fused_prefix1_dim1_buffer",
+      {prefix, tokens, pos},
+      &provenance);
 }
 
 } // namespace ops

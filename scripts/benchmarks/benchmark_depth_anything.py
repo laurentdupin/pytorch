@@ -50,6 +50,10 @@ SUBMIT_PHASE_READBACK = 13
 SUBMIT_PHASE_EXPLICIT_SYNCHRONIZE = 14
 
 _TORCHVISION_COMPAT_LIBS: list[Any] = []
+TOKEN_PREFIX_CAT_ADD_TOKEN_COUNTS = frozenset(
+    (150, 260, 600, 620, 1350, 1380, 2400, 2440, 3750, 3850)
+)
+TOKEN_PREFIX_CAT_ADD_FEATURE_DIMS = frozenset((384, 768, 1024))
 
 
 def ensure_torchvision_runtime_compat(torch_module: Any) -> None:
@@ -211,6 +215,100 @@ def vulkan_dav2_block_owner_forward(self: Any, x_or_x_list: Any) -> Any:
     return self._vulkan_dav2_block_owner(x_or_x_list)
 
 
+def try_prepare_tokens_with_fused_prefix_cat_add(
+    torch_module: Any,
+    pretrained: Any,
+    x: Any,
+) -> Any | None:
+    ops = getattr(getattr(torch_module, "ops", None), "vulkan_prepack", None)
+    fused = getattr(ops, "token_prefix_cat_add", None) if ops is not None else None
+    if fused is None:
+        return None
+
+    patch_embed = getattr(pretrained, "patch_embed", None)
+    cls_token = getattr(pretrained, "cls_token", None)
+    interpolate_pos_encoding = getattr(
+        pretrained,
+        "interpolate_pos_encoding",
+        None,
+    )
+    register_tokens = getattr(pretrained, "register_tokens", None)
+    if (
+        patch_embed is None
+        or cls_token is None
+        or interpolate_pos_encoding is None
+        or register_tokens is not None
+    ):
+        return None
+    if not isinstance(x, torch_module.Tensor):
+        return None
+    if getattr(x.device, "type", None) != "vulkan" or x.dtype != torch_module.float32:
+        return None
+    if x.dim() != 4 or int(x.shape[0]) != 1:
+        return None
+
+    patch_size = getattr(patch_embed, "patch_size", None)
+    if isinstance(patch_size, int):
+        patch_h = patch_w = int(patch_size)
+    elif isinstance(patch_size, (tuple, list)) and len(patch_size) == 2:
+        patch_h = int(patch_size[0])
+        patch_w = int(patch_size[1])
+    else:
+        return None
+    if patch_h <= 0 or patch_w <= 0:
+        return None
+
+    height = int(x.shape[-2])
+    width = int(x.shape[-1])
+    if height % patch_h != 0 or width % patch_w != 0:
+        return None
+    expected_tokens = (height // patch_h) * (width // patch_w)
+    if expected_tokens not in TOKEN_PREFIX_CAT_ADD_TOKEN_COUNTS:
+        return None
+
+    tokens = patch_embed(x)
+    if (
+        not isinstance(tokens, torch_module.Tensor)
+        or getattr(tokens.device, "type", None) != "vulkan"
+        or tokens.dtype != torch_module.float32
+        or tokens.dim() != 3
+        or int(tokens.shape[0]) != 1
+    ):
+        return None
+    token_count = int(tokens.shape[1])
+    feature_dim = int(tokens.shape[2])
+    if (
+        token_count != expected_tokens
+        or token_count not in TOKEN_PREFIX_CAT_ADD_TOKEN_COUNTS
+        or feature_dim not in TOKEN_PREFIX_CAT_ADD_FEATURE_DIMS
+    ):
+        return None
+    if (
+        not isinstance(cls_token, torch_module.Tensor)
+        or getattr(cls_token.device, "type", None) != "vulkan"
+        or cls_token.dtype != torch_module.float32
+        or tuple(int(s) for s in cls_token.shape) != (1, 1, feature_dim)
+    ):
+        return None
+
+    pos_probe = torch_module.empty(
+        (1, token_count + 1, feature_dim),
+        dtype=tokens.dtype,
+        device=tokens.device,
+    )
+    pos = interpolate_pos_encoding(pos_probe, width, height)
+    if (
+        not isinstance(pos, torch_module.Tensor)
+        or getattr(pos.device, "type", None) != "vulkan"
+        or pos.dtype != torch_module.float32
+        or tuple(int(s) for s in pos.shape)
+        != (1, token_count + 1, feature_dim)
+    ):
+        return None
+
+    return fused(cls_token, tokens, pos)
+
+
 class VulkanDAv2BackboneStackOwner:
     def __init__(
         self,
@@ -250,7 +348,16 @@ class VulkanDAv2BackboneStackOwner:
         if getattr(x.device, "type", None) != "vulkan":
             return self.original_not_chunked(x, n)
 
-        x = self.pretrained.prepare_tokens_with_masks(x)
+        fused_tokens = try_prepare_tokens_with_fused_prefix_cat_add(
+            self.torch,
+            self.pretrained,
+            x,
+        )
+        x = (
+            fused_tokens
+            if fused_tokens is not None
+            else self.pretrained.prepare_tokens_with_masks(x)
+        )
         total_block_len = len(self.blocks)
         if isinstance(n, int):
             capture_indices = list(range(total_block_len - n, total_block_len))

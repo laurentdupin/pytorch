@@ -91,6 +91,27 @@ condition and migration target.
 - Migration target: generated `CatAxisContract` and `ChannelCatContract`
   tables with positive and negative tests.
 
+### Token Prefix Cat/Add Exact Rowset
+
+- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`,
+  `aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp`, and
+  `scripts/benchmarks/benchmark_depth_anything.py`
+- Status: temporary, contract-named
+- Reason: the fused prefix-token concat plus position-add route is proven for
+  the observed rank-3 float token-preparation envelope, but arbitrary cat+add
+  fusion and split-token consumer regions are not proven.
+- Generated spec coverage:
+  `test/vulkan_contract_specs/token_prefix_cat_add_contract.json` covers
+  `prefix=[1,1,C]`, `tokens=[1,N,C]`, `pos/out=[1,N+1,C]`,
+  `C in {384,768,1024}`, and
+  `N in {150,260,600,620,1350,1380,2400,2440,3750,3850}` with generated C++
+  sparse-rowset helper output in
+  `generated/ExecutionContractsTokenPrefixCatAddSpec.h`.
+- Expiry: broader token-prefix concat/add and downstream region-fusion parity
+  plus adjacent negative coverage are available.
+- Migration target: generated `TokenPrefixCatAddContract` or token-preparation
+  `RegionContract` tables with positive and negative tests.
+
 ### GQA Repeat Exact Tuples
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

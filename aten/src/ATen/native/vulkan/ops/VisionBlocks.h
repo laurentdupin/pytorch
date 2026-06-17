@@ -887,6 +887,11 @@ Tensor tokens_to_feature_map(
 
 Tensor feature_map_to_tokens(const Tensor& input);
 
+Tensor token_prefix_cat_add(
+    const Tensor& prefix,
+    const Tensor& tokens,
+    const Tensor& pos);
+
 } // namespace ops
 } // namespace vulkan
 } // namespace native

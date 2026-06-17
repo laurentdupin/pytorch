@@ -1,0 +1,1543 @@
+{
+  "schema_version": 1,
+  "contract_name": "TokenPrefixCatAddContract",
+  "family": "Prefix1TokenCountSetFeatureSetAdd",
+  "tuple_id": "prefix1_token_count_set_c384_768_1024_float32_dim1",
+  "writer_op": "vulkan_prepack::token_prefix_cat_add",
+  "route_label": "vulkan_prepack::token_prefix_cat_add",
+  "metadata": {
+    "evidence_id": "task319_token_prefix_cat_add_observed_envelope_proof",
+    "guard_id": "token_prefix_cat_add_observed_envelope_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "fused_cat_add_real_contiguous_output"
+  },
+  "bounds": {
+    "dtype": "float32",
+    "rank": 3,
+    "batch": 1,
+    "prefix_length": 1,
+    "concat_dim": 1,
+    "token_counts": [
+      150,
+      260,
+      600,
+      620,
+      1350,
+      1380,
+      2400,
+      2440,
+      3750,
+      3850
+    ],
+    "feature_dims": [
+      384,
+      768,
+      1024
+    ],
+    "requires_vulkan": true,
+    "requires_buffer_storage": true,
+    "requires_buffer_compute": true
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "token_prefix_cat_add_prefix1_observed_token_set",
+    "inputs": {
+      "prefix": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "B",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "P",
+            "field": "prefix_length",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "C",
+            "field": "feature_dim",
+            "values": [
+              384,
+              768,
+              1024
+            ]
+          }
+        ]
+      },
+      "tokens": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "B",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "N",
+            "field": "tokens",
+            "values": [
+              150,
+              260,
+              600,
+              620,
+              1350,
+              1380,
+              2400,
+              2440,
+              3750,
+              3850
+            ]
+          },
+          {
+            "symbol": "C",
+            "field": "feature_dim",
+            "values": [
+              384,
+              768,
+              1024
+            ]
+          }
+        ]
+      },
+      "pos": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "B",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "T",
+            "field": "total_tokens",
+            "values": [
+              151,
+              261,
+              601,
+              621,
+              1351,
+              1381,
+              2401,
+              2441,
+              3751,
+              3851
+            ]
+          },
+          {
+            "symbol": "C",
+            "field": "feature_dim",
+            "values": [
+              384,
+              768,
+              1024
+            ]
+          }
+        ]
+      }
+    },
+    "results": {
+      "output": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "B",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "T",
+            "field": "total_tokens",
+            "values": [
+              151,
+              261,
+              601,
+              621,
+              1351,
+              1381,
+              2401,
+              2441,
+              3751,
+              3851
+            ]
+          },
+          {
+            "symbol": "C",
+            "field": "feature_dim",
+            "values": [
+              384,
+              768,
+              1024
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "concat_dim": {
+        "values": [
+          1
+        ]
+      },
+      "inplace": {
+        "values": [
+          false
+        ]
+      },
+      "alias_output": {
+        "values": [
+          false
+        ]
+      }
+    },
+    "bounds": {
+      "dtype": "float32",
+      "rank": 3,
+      "batch": 1,
+      "prefix_length": 1,
+      "concat_dim": 1,
+      "token_counts": [
+        150,
+        260,
+        600,
+        620,
+        1350,
+        1380,
+        2400,
+        2440,
+        3750,
+        3850
+      ],
+      "feature_dims": [
+        384,
+        768,
+        1024
+      ],
+      "requires_vulkan": true,
+      "requires_buffer_storage": true,
+      "requires_buffer_compute": true
+    },
+    "relationships": [],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "prefix_storage": "buffer",
+      "tokens_storage": "buffer",
+      "pos_storage": "buffer",
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "task319_token_prefix_cat_add_observed_envelope_proof",
+      "guard_id": "token_prefix_cat_add_observed_envelope_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "fused_cat_add_real_contiguous_output"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "fused_cat_add_real_contiguous_output"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "prefix.length",
+        "adjacent": "wrong_value",
+        "value": 2
+      },
+      {
+        "violates": "token_rows.feature_dim",
+        "adjacent": "wrong_value",
+        "value": 512
+      },
+      {
+        "violates": "token_rows.tokens",
+        "adjacent": "wrong_value",
+        "value": 149
+      },
+      {
+        "violates": "pos.total_tokens",
+        "adjacent": "wrong_value",
+        "value": 152
+      },
+      {
+        "violates": "rank",
+        "adjacent": "wrong_value",
+        "value": 4
+      },
+      {
+        "violates": "dtype",
+        "adjacent": "wrong_value",
+        "value": "float16"
+      }
+    ],
+    "fuzz_hints": {
+      "sparse_rowset": "token_rows",
+      "prefer_sparse_rows": true,
+      "symbolic_dims": [
+        "B",
+        "P",
+        "N",
+        "T",
+        "C"
+      ]
+    },
+    "sparse_rowsets": [
+      {
+        "name": "token_rows",
+        "fields": [
+          "family",
+          "tokens",
+          "feature_dim",
+          "total_tokens",
+          "tuple_id"
+        ],
+        "identity_fields": [
+          "family",
+          "tokens",
+          "feature_dim",
+          "total_tokens"
+        ],
+        "lookup_fields": [
+          "family",
+          "tokens",
+          "feature_dim",
+          "total_tokens"
+        ],
+        "label_field": "tuple_id",
+        "rows": [
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 150,
+            "feature_dim": 384,
+            "total_tokens": 151,
+            "tuple_id": "prefix1_tokens150_c384"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 150,
+            "feature_dim": 768,
+            "total_tokens": 151,
+            "tuple_id": "prefix1_tokens150_c768"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 150,
+            "feature_dim": 1024,
+            "total_tokens": 151,
+            "tuple_id": "prefix1_tokens150_c1024"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 260,
+            "feature_dim": 384,
+            "total_tokens": 261,
+            "tuple_id": "prefix1_tokens260_c384"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 260,
+            "feature_dim": 768,
+            "total_tokens": 261,
+            "tuple_id": "prefix1_tokens260_c768"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 260,
+            "feature_dim": 1024,
+            "total_tokens": 261,
+            "tuple_id": "prefix1_tokens260_c1024"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 600,
+            "feature_dim": 384,
+            "total_tokens": 601,
+            "tuple_id": "prefix1_tokens600_c384"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 600,
+            "feature_dim": 768,
+            "total_tokens": 601,
+            "tuple_id": "prefix1_tokens600_c768"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 600,
+            "feature_dim": 1024,
+            "total_tokens": 601,
+            "tuple_id": "prefix1_tokens600_c1024"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 620,
+            "feature_dim": 384,
+            "total_tokens": 621,
+            "tuple_id": "prefix1_tokens620_c384"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 620,
+            "feature_dim": 768,
+            "total_tokens": 621,
+            "tuple_id": "prefix1_tokens620_c768"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 620,
+            "feature_dim": 1024,
+            "total_tokens": 621,
+            "tuple_id": "prefix1_tokens620_c1024"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 1350,
+            "feature_dim": 384,
+            "total_tokens": 1351,
+            "tuple_id": "prefix1_tokens1350_c384"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 1350,
+            "feature_dim": 768,
+            "total_tokens": 1351,
+            "tuple_id": "prefix1_tokens1350_c768"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 1350,
+            "feature_dim": 1024,
+            "total_tokens": 1351,
+            "tuple_id": "prefix1_tokens1350_c1024"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 1380,
+            "feature_dim": 384,
+            "total_tokens": 1381,
+            "tuple_id": "prefix1_tokens1380_c384"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 1380,
+            "feature_dim": 768,
+            "total_tokens": 1381,
+            "tuple_id": "prefix1_tokens1380_c768"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 1380,
+            "feature_dim": 1024,
+            "total_tokens": 1381,
+            "tuple_id": "prefix1_tokens1380_c1024"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 2400,
+            "feature_dim": 384,
+            "total_tokens": 2401,
+            "tuple_id": "prefix1_tokens2400_c384"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 2400,
+            "feature_dim": 768,
+            "total_tokens": 2401,
+            "tuple_id": "prefix1_tokens2400_c768"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 2400,
+            "feature_dim": 1024,
+            "total_tokens": 2401,
+            "tuple_id": "prefix1_tokens2400_c1024"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 2440,
+            "feature_dim": 384,
+            "total_tokens": 2441,
+            "tuple_id": "prefix1_tokens2440_c384"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 2440,
+            "feature_dim": 768,
+            "total_tokens": 2441,
+            "tuple_id": "prefix1_tokens2440_c768"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 2440,
+            "feature_dim": 1024,
+            "total_tokens": 2441,
+            "tuple_id": "prefix1_tokens2440_c1024"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 3750,
+            "feature_dim": 384,
+            "total_tokens": 3751,
+            "tuple_id": "prefix1_tokens3750_c384"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 3750,
+            "feature_dim": 768,
+            "total_tokens": 3751,
+            "tuple_id": "prefix1_tokens3750_c768"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 3750,
+            "feature_dim": 1024,
+            "total_tokens": 3751,
+            "tuple_id": "prefix1_tokens3750_c1024"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 3850,
+            "feature_dim": 384,
+            "total_tokens": 3851,
+            "tuple_id": "prefix1_tokens3850_c384"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 3850,
+            "feature_dim": 768,
+            "total_tokens": 3851,
+            "tuple_id": "prefix1_tokens3850_c768"
+          },
+          {
+            "family": "Prefix1TokenCountSetFeatureSetAdd",
+            "tokens": 3850,
+            "feature_dim": 1024,
+            "total_tokens": 3851,
+            "tuple_id": "prefix1_tokens3850_c1024"
+          }
+        ],
+        "negative_axes": [
+          {
+            "violates": "token_rows.tokens",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "Prefix1TokenCountSetFeatureSetAdd",
+              "tokens": 149,
+              "feature_dim": 384,
+              "total_tokens": 150
+            }
+          },
+          {
+            "violates": "token_rows.feature_dim",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "Prefix1TokenCountSetFeatureSetAdd",
+              "tokens": 150,
+              "feature_dim": 512,
+              "total_tokens": 151
+            }
+          },
+          {
+            "violates": "token_rows.total_tokens",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "Prefix1TokenCountSetFeatureSetAdd",
+              "tokens": 150,
+              "feature_dim": 384,
+              "total_tokens": 152
+            }
+          }
+        ],
+        "row_match": {
+          "arguments": [
+            {
+              "name": "family",
+              "field": "family",
+              "type": "string"
+            },
+            {
+              "name": "tokens",
+              "field": "tokens",
+              "type": "int64"
+            },
+            {
+              "name": "feature_dim",
+              "field": "feature_dim",
+              "type": "int64"
+            },
+            {
+              "name": "total_tokens",
+              "field": "total_tokens",
+              "type": "int64"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "positive_cases": [
+    {
+      "name": "prefix1_tokens150_c384",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        150,
+        384
+      ],
+      "pos_shape": [
+        1,
+        151,
+        384
+      ],
+      "output_shape": [
+        1,
+        151,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens150_c768",
+      "prefix_shape": [
+        1,
+        1,
+        768
+      ],
+      "tokens_shape": [
+        1,
+        150,
+        768
+      ],
+      "pos_shape": [
+        1,
+        151,
+        768
+      ],
+      "output_shape": [
+        1,
+        151,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens150_c1024",
+      "prefix_shape": [
+        1,
+        1,
+        1024
+      ],
+      "tokens_shape": [
+        1,
+        150,
+        1024
+      ],
+      "pos_shape": [
+        1,
+        151,
+        1024
+      ],
+      "output_shape": [
+        1,
+        151,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens260_c384",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        260,
+        384
+      ],
+      "pos_shape": [
+        1,
+        261,
+        384
+      ],
+      "output_shape": [
+        1,
+        261,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens260_c768",
+      "prefix_shape": [
+        1,
+        1,
+        768
+      ],
+      "tokens_shape": [
+        1,
+        260,
+        768
+      ],
+      "pos_shape": [
+        1,
+        261,
+        768
+      ],
+      "output_shape": [
+        1,
+        261,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens260_c1024",
+      "prefix_shape": [
+        1,
+        1,
+        1024
+      ],
+      "tokens_shape": [
+        1,
+        260,
+        1024
+      ],
+      "pos_shape": [
+        1,
+        261,
+        1024
+      ],
+      "output_shape": [
+        1,
+        261,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens600_c384",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        600,
+        384
+      ],
+      "pos_shape": [
+        1,
+        601,
+        384
+      ],
+      "output_shape": [
+        1,
+        601,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens600_c768",
+      "prefix_shape": [
+        1,
+        1,
+        768
+      ],
+      "tokens_shape": [
+        1,
+        600,
+        768
+      ],
+      "pos_shape": [
+        1,
+        601,
+        768
+      ],
+      "output_shape": [
+        1,
+        601,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens600_c1024",
+      "prefix_shape": [
+        1,
+        1,
+        1024
+      ],
+      "tokens_shape": [
+        1,
+        600,
+        1024
+      ],
+      "pos_shape": [
+        1,
+        601,
+        1024
+      ],
+      "output_shape": [
+        1,
+        601,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens620_c384",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        620,
+        384
+      ],
+      "pos_shape": [
+        1,
+        621,
+        384
+      ],
+      "output_shape": [
+        1,
+        621,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens620_c768",
+      "prefix_shape": [
+        1,
+        1,
+        768
+      ],
+      "tokens_shape": [
+        1,
+        620,
+        768
+      ],
+      "pos_shape": [
+        1,
+        621,
+        768
+      ],
+      "output_shape": [
+        1,
+        621,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens620_c1024",
+      "prefix_shape": [
+        1,
+        1,
+        1024
+      ],
+      "tokens_shape": [
+        1,
+        620,
+        1024
+      ],
+      "pos_shape": [
+        1,
+        621,
+        1024
+      ],
+      "output_shape": [
+        1,
+        621,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens1350_c384",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        1350,
+        384
+      ],
+      "pos_shape": [
+        1,
+        1351,
+        384
+      ],
+      "output_shape": [
+        1,
+        1351,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens1350_c768",
+      "prefix_shape": [
+        1,
+        1,
+        768
+      ],
+      "tokens_shape": [
+        1,
+        1350,
+        768
+      ],
+      "pos_shape": [
+        1,
+        1351,
+        768
+      ],
+      "output_shape": [
+        1,
+        1351,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens1350_c1024",
+      "prefix_shape": [
+        1,
+        1,
+        1024
+      ],
+      "tokens_shape": [
+        1,
+        1350,
+        1024
+      ],
+      "pos_shape": [
+        1,
+        1351,
+        1024
+      ],
+      "output_shape": [
+        1,
+        1351,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens1380_c384",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        1380,
+        384
+      ],
+      "pos_shape": [
+        1,
+        1381,
+        384
+      ],
+      "output_shape": [
+        1,
+        1381,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens1380_c768",
+      "prefix_shape": [
+        1,
+        1,
+        768
+      ],
+      "tokens_shape": [
+        1,
+        1380,
+        768
+      ],
+      "pos_shape": [
+        1,
+        1381,
+        768
+      ],
+      "output_shape": [
+        1,
+        1381,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens1380_c1024",
+      "prefix_shape": [
+        1,
+        1,
+        1024
+      ],
+      "tokens_shape": [
+        1,
+        1380,
+        1024
+      ],
+      "pos_shape": [
+        1,
+        1381,
+        1024
+      ],
+      "output_shape": [
+        1,
+        1381,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens2400_c384",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        2400,
+        384
+      ],
+      "pos_shape": [
+        1,
+        2401,
+        384
+      ],
+      "output_shape": [
+        1,
+        2401,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens2400_c768",
+      "prefix_shape": [
+        1,
+        1,
+        768
+      ],
+      "tokens_shape": [
+        1,
+        2400,
+        768
+      ],
+      "pos_shape": [
+        1,
+        2401,
+        768
+      ],
+      "output_shape": [
+        1,
+        2401,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens2400_c1024",
+      "prefix_shape": [
+        1,
+        1,
+        1024
+      ],
+      "tokens_shape": [
+        1,
+        2400,
+        1024
+      ],
+      "pos_shape": [
+        1,
+        2401,
+        1024
+      ],
+      "output_shape": [
+        1,
+        2401,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens2440_c384",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        2440,
+        384
+      ],
+      "pos_shape": [
+        1,
+        2441,
+        384
+      ],
+      "output_shape": [
+        1,
+        2441,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens2440_c768",
+      "prefix_shape": [
+        1,
+        1,
+        768
+      ],
+      "tokens_shape": [
+        1,
+        2440,
+        768
+      ],
+      "pos_shape": [
+        1,
+        2441,
+        768
+      ],
+      "output_shape": [
+        1,
+        2441,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens2440_c1024",
+      "prefix_shape": [
+        1,
+        1,
+        1024
+      ],
+      "tokens_shape": [
+        1,
+        2440,
+        1024
+      ],
+      "pos_shape": [
+        1,
+        2441,
+        1024
+      ],
+      "output_shape": [
+        1,
+        2441,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens3750_c384",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        3750,
+        384
+      ],
+      "pos_shape": [
+        1,
+        3751,
+        384
+      ],
+      "output_shape": [
+        1,
+        3751,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens3750_c768",
+      "prefix_shape": [
+        1,
+        1,
+        768
+      ],
+      "tokens_shape": [
+        1,
+        3750,
+        768
+      ],
+      "pos_shape": [
+        1,
+        3751,
+        768
+      ],
+      "output_shape": [
+        1,
+        3751,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens3750_c1024",
+      "prefix_shape": [
+        1,
+        1,
+        1024
+      ],
+      "tokens_shape": [
+        1,
+        3750,
+        1024
+      ],
+      "pos_shape": [
+        1,
+        3751,
+        1024
+      ],
+      "output_shape": [
+        1,
+        3751,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens3850_c384",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        3850,
+        384
+      ],
+      "pos_shape": [
+        1,
+        3851,
+        384
+      ],
+      "output_shape": [
+        1,
+        3851,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens3850_c768",
+      "prefix_shape": [
+        1,
+        1,
+        768
+      ],
+      "tokens_shape": [
+        1,
+        3850,
+        768
+      ],
+      "pos_shape": [
+        1,
+        3851,
+        768
+      ],
+      "output_shape": [
+        1,
+        3851,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    },
+    {
+      "name": "prefix1_tokens3850_c1024",
+      "prefix_shape": [
+        1,
+        1,
+        1024
+      ],
+      "tokens_shape": [
+        1,
+        3850,
+        1024
+      ],
+      "pos_shape": [
+        1,
+        3851,
+        1024
+      ],
+      "output_shape": [
+        1,
+        3851,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::token_prefix_cat_add",
+      "expected_native_route": true
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "prefix_length_not_one",
+      "prefix_shape": [
+        1,
+        2,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        150,
+        384
+      ],
+      "pos_shape": [
+        1,
+        151,
+        384
+      ],
+      "violates": "prefix.length",
+      "expected_native_route": false
+    },
+    {
+      "name": "unsupported_feature_dim",
+      "prefix_shape": [
+        1,
+        1,
+        512
+      ],
+      "tokens_shape": [
+        1,
+        150,
+        512
+      ],
+      "pos_shape": [
+        1,
+        151,
+        512
+      ],
+      "violates": "token_rows.feature_dim",
+      "expected_native_route": false
+    },
+    {
+      "name": "unsupported_token_count",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        149,
+        384
+      ],
+      "pos_shape": [
+        1,
+        150,
+        384
+      ],
+      "violates": "token_rows.tokens",
+      "expected_native_route": false
+    },
+    {
+      "name": "pos_shape_mismatch",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        150,
+        384
+      ],
+      "pos_shape": [
+        1,
+        152,
+        384
+      ],
+      "violates": "pos.total_tokens",
+      "expected_native_route": false
+    },
+    {
+      "name": "wrong_rank",
+      "prefix_shape": [
+        1,
+        1,
+        384,
+        1
+      ],
+      "tokens_shape": [
+        1,
+        150,
+        384,
+        1
+      ],
+      "pos_shape": [
+        1,
+        151,
+        384,
+        1
+      ],
+      "violates": "rank",
+      "expected_native_route": false
+    },
+    {
+      "name": "wrong_dtype",
+      "prefix_shape": [
+        1,
+        1,
+        384
+      ],
+      "tokens_shape": [
+        1,
+        150,
+        384
+      ],
+      "pos_shape": [
+        1,
+        151,
+        384
+      ],
+      "dtype": "float16",
+      "violates": "dtype",
+      "expected_native_route": false
+    }
+  ]
+}

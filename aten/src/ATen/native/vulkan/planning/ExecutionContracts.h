@@ -273,6 +273,21 @@ struct ChannelCatMatch final {
   int64_t total_channels{0};
 };
 
+enum class TokenPrefixCatAddFamily : uint8_t {
+  None = 0u,
+  Prefix1TokenCountSetFeatureSetAdd,
+};
+
+struct TokenPrefixCatAddMatch final {
+  bool matched{false};
+  TokenPrefixCatAddFamily family{TokenPrefixCatAddFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+  int64_t token_count{0};
+  int64_t feature_dim{0};
+  int64_t total_tokens{0};
+};
+
 enum class EmbeddingLookupFamily : uint8_t {
   None = 0u,
   SmallBoundedLookup,
@@ -638,6 +653,36 @@ ChannelCatMatch match_channel_cat_contract(
 bool matches_channel_cat_contract(
     ArrayRef<ChannelCatTensorInfo> tensors,
     int64_t dim);
+
+const char* token_prefix_cat_add_family_name(TokenPrefixCatAddFamily family);
+
+TokenPrefixCatAddMatch match_token_prefix_cat_add_contract(
+    IntArrayRef prefix_sizes,
+    IntArrayRef token_sizes,
+    IntArrayRef pos_sizes,
+    ScalarType prefix_dtype,
+    ScalarType token_dtype,
+    ScalarType pos_dtype,
+    bool prefix_is_vulkan,
+    bool tokens_is_vulkan,
+    bool pos_is_vulkan,
+    int64_t dim,
+    bool inplace,
+    bool alias_output);
+
+bool matches_token_prefix_cat_add_contract(
+    IntArrayRef prefix_sizes,
+    IntArrayRef token_sizes,
+    IntArrayRef pos_sizes,
+    ScalarType prefix_dtype,
+    ScalarType token_dtype,
+    ScalarType pos_dtype,
+    bool prefix_is_vulkan,
+    bool tokens_is_vulkan,
+    bool pos_is_vulkan,
+    int64_t dim,
+    bool inplace,
+    bool alias_output);
 
 const char* embedding_lookup_family_name(EmbeddingLookupFamily family);
 

@@ -131,6 +131,7 @@ list(APPEND native_vulkan_cpp
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsSDPAScoreSoftmax.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsTokenPrefixCatAdd.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsTransformerGQASDPA.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsVisionSelfAttentionSDPA.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ModelLanePolicy.cpp"

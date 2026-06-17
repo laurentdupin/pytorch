@@ -83,6 +83,17 @@
       ]
     },
     {
+      "spec_file": "token_prefix_cat_add_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsTokenPrefixCatAddSpec.h",
+      "markers": [
+        "TokenPrefixCatAddPrefix1TokenCountSetFeatureSetAddSpec",
+        "TokenPrefixCatAddTokenRowsRow",
+        "kTokenPrefixCatAddTokenRowsRowCount",
+        "token_prefix_cat_add_token_rows_row_matches",
+        "token_prefix_cat_add_token_rows_find"
+      ]
+    },
+    {
       "spec_file": "vision_self_attention_sdpa_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsVisionSelfAttentionSDPASpec.h",
       "markers": [
