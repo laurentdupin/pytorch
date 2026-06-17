@@ -675,8 +675,10 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
 def validate_transition_contract_classification() -> None:
     reason_bucket_contracts = load_transition_reason_bucket_contracts()
     required = {
+        "fallback_materialization": "FallbackMaterializationContract",
         "required_final_readback": "FinalReadbackContract",
         "required_host_upload": "HostUploadTransitionContract",
+        "required_layout_repack": "LayoutRepackTransitionContract",
         "unexpected_intermediate_readback": "IntermediateReadbackTransitionContract",
         "required_contiguous_materialization": "SafeContiguousMaterializationContract",
         "metadata_view_only": "MetadataViewTransitionContract",
@@ -784,6 +786,22 @@ def validate_transition_contract_classification() -> None:
                 "producer_contract": "unknown",
                 "consumer_contract": "unknown",
             },
+            {
+                "event": "vulkan_transition",
+                "phase": "owner_context_create",
+                "reason": "fallback_materialization",
+                "kind": "fallback",
+                "outcome": "classified",
+                "bytes": 4096,
+                "host_transfer": True,
+                "physical_copy": True,
+                "sync_required": True,
+                "queue_submit_required": True,
+                "producer_schema": "vulkan_prepack::vision_context",
+                "consumer_schema": "unpack_qkv_weight_readback",
+                "producer_contract": "unknown",
+                "consumer_contract": "unknown",
+            },
         ]
         with transition_log.open("w", encoding="utf-8") as f:
             for event in events:
@@ -798,9 +816,11 @@ def validate_transition_contract_classification() -> None:
     if missing_artifacts:
         raise AssertionError(f"unexpected missing artifacts: {missing_artifacts}")
     expected_counts = {
+        "FallbackMaterializationContract": 1,
         "FinalReadbackContract": 1,
         "HostUploadTransitionContract": 1,
         "IntermediateReadbackTransitionContract": 1,
+        "LayoutRepackTransitionContract": 1,
         "MetadataViewTransitionContract": 1,
         "SafeContiguousMaterializationContract": 1,
     }
@@ -824,8 +844,8 @@ def validate_transition_contract_classification() -> None:
     for contract_name in expected_counts:
         if contract_name in missing_buckets:
             raise AssertionError(f"{contract_name} unexpectedly reported missing")
-    if "LayoutRepackTransitionContract" not in missing_buckets:
-        raise AssertionError("uncovered layout repack bucket should remain missing")
+    if missing_buckets:
+        raise AssertionError(f"unexpected missing buckets: {missing_buckets}")
     print(
         "validated transition contract classification "
         f"reason_buckets={json.dumps(required, sort_keys=True)}"

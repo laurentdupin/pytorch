@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "source_status": "schema_only",
+  "contract_name": "FallbackMaterializationContract",
+  "family": "VisibleFallbackMaterialization",
+  "tuple_id": "fallback_materialization_transition_reason_bucket",
+  "writer_op": "vulkan_transition_log",
+  "route_label": "transition::fallback_materialization",
+  "metadata": {
+    "evidence_id": "five_model_transition_reason_logs",
+    "guard_id": "transition_reason_fallback_materialization",
+    "fallback_policy": "classification_only_no_backend_admission",
+    "materialization_policy": "fallback_materialization_observed"
+  },
+  "transition_contract": {
+    "contract_type": "LayoutTransitionContract",
+    "producer_schema": "vulkan_prepack_or_fallback_source",
+    "consumer_schema": "cpu_materialization_or_readback_consumer",
+    "reason": "fallback_materialization",
+    "kind": "fallback",
+    "outcome": "classified",
+    "physical_copy": true,
+    "host_transfer": true,
+    "sync_required": true,
+    "queue_submit_required": true,
+    "collector_reason_bucket": true,
+    "copy_budget": {
+      "cpu_fallback": "counted",
+      "sync_readback": "counted",
+      "host_transfer": "counted"
+    }
+  },
+  "bounds": {
+    "producer_schema": [
+      "vulkan_prepack::vision_context",
+      "vulkan_prepack::conv2d_context",
+      "vulkan_tensor"
+    ],
+    "consumer_schema": [
+      "cpu_tensor",
+      "vulkan_weight_cpu_materialization",
+      "unpack_norm1_weight_readback",
+      "unpack_norm1_bias_readback",
+      "unpack_qkv_weight_readback",
+      "unpack_qkv_bias_readback",
+      "unpack_proj_weight_readback",
+      "unpack_proj_bias_readback",
+      "unpack_ls1_gamma_readback",
+      "unpack_norm2_weight_readback",
+      "unpack_norm2_bias_readback",
+      "unpack_fc1_weight_readback",
+      "unpack_fc1_bias_readback",
+      "unpack_fc2_weight_readback",
+      "unpack_fc2_bias_readback",
+      "unpack_ls2_gamma_readback"
+    ],
+    "reason": "fallback_materialization",
+    "kind": "fallback",
+    "outcome": "classified",
+    "host_transfer": true,
+    "physical_copy": true,
+    "sync_required": true,
+    "queue_submit_required": true,
+    "source_layout": "vulkan_or_unknown",
+    "destination_layout": "cpu_or_host_materialized"
+  },
+  "positive_cases": [
+    {
+      "name": "vision_context_unpack_readback",
+      "producer_schema": "vulkan_prepack::vision_context",
+      "consumer_schema": "unpack_qkv_weight_readback",
+      "reason": "fallback_materialization",
+      "kind": "fallback",
+      "host_transfer": true,
+      "physical_copy": true,
+      "sync_required": true,
+      "queue_submit_required": true,
+      "expected_contract_name": "FallbackMaterializationContract",
+      "expected_backend_behavior_change": false
+    },
+    {
+      "name": "conv_weight_cpu_materialization",
+      "producer_schema": "vulkan_prepack::conv2d_context",
+      "consumer_schema": "vulkan_weight_cpu_materialization",
+      "reason": "fallback_materialization",
+      "kind": "fallback",
+      "host_transfer": true,
+      "physical_copy": true,
+      "sync_required": true,
+      "queue_submit_required": true,
+      "expected_contract_name": "FallbackMaterializationContract",
+      "expected_backend_behavior_change": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "device_copy_not_fallback",
+      "producer_schema": "vulkan_prepack::vision_context",
+      "consumer_schema": "unpack_qkv_weight_readback",
+      "reason": "fallback_materialization",
+      "kind": "device_copy",
+      "host_transfer": false,
+      "physical_copy": true,
+      "violates": "kind",
+      "expected_native_route": false
+    },
+    {
+      "name": "wrong_reason",
+      "producer_schema": "vulkan_prepack::vision_context",
+      "consumer_schema": "unpack_qkv_weight_readback",
+      "reason": "required_host_upload",
+      "kind": "fallback",
+      "host_transfer": true,
+      "physical_copy": true,
+      "violates": "reason",
+      "expected_native_route": false
+    }
+  ]
+}

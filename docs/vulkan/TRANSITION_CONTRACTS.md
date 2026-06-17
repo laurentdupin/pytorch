@@ -95,9 +95,10 @@ DecomposedAttentionProbabilityToValueBmm` to matching events so future work can
 measure and review this edge as a named transition contract.
 
 `HostUploadTransitionContract`, `MetadataViewTransitionContract`,
-`FinalReadbackContract`, `IntermediateReadbackTransitionContract`, and
-`SafeContiguousMaterializationContract` are classification-only reason-bucket
-specs for existing transition logs. They live in
+`FinalReadbackContract`, `IntermediateReadbackTransitionContract`,
+`SafeContiguousMaterializationContract`, `FallbackMaterializationContract`, and
+`LayoutRepackTransitionContract` are classification-only reason-bucket specs
+for existing transition logs. They live in
 `test/vulkan_contract_specs/*_transition_contract.json`, have
 `source_status = schema_only`, and do not admit backend routes or change copy,
 submit, fallback, materialization, or readback behavior.
@@ -129,6 +130,17 @@ readbacks and are not eliminated or reclassified as acceptable route behavior.
 `materialize_to_contiguous_buffer` into `buffer_to_buffer`. These are
 device-side physical copies with no host transfer or sync readback; the spec is
 only a collector bucket for existing safe contiguous materialization evidence.
+
+`FallbackMaterializationContract` covers `fallback_materialization` /
+`fallback` events such as visible owner-context unpack readbacks and conv
+prepack weight CPU materialization. These events remain counted fallback
+materialization, host transfers, and sync readbacks; the spec only gives the
+collector a source-of-truth bucket for reporting them.
+
+`LayoutRepackTransitionContract` covers `required_layout_repack` /
+`layout_materialization` events such as `aten::cat -> buffer_to_buffer`
+device-side repacks. These events remain physical device copies with no host
+transfer or sync readback; the spec does not remove or redirect the repack.
 
 ## Rollout
 

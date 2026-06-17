@@ -393,6 +393,11 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_transition_reason_bucket_specs_validate_collector_mapping(self):
         expected_specs = {
+            "fallback_materialization_transition_contract.json": (
+                "FallbackMaterializationContract",
+                "fallback_materialization",
+                "fallback",
+            ),
             "final_readback_transition_contract.json": (
                 "FinalReadbackContract",
                 "required_final_readback",
@@ -407,6 +412,11 @@ class TestVulkanGovernance(TestCase):
                 "IntermediateReadbackTransitionContract",
                 "unexpected_intermediate_readback",
                 "host_transfer",
+            ),
+            "layout_repack_transition_contract.json": (
+                "LayoutRepackTransitionContract",
+                "required_layout_repack",
+                "layout_materialization",
             ),
             "metadata_view_transition_contract.json": (
                 "MetadataViewTransitionContract",
@@ -1460,11 +1470,11 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
-        self.assertEqual(summary["specs"], 22)
+        self.assertEqual(summary["specs"], 29)
         self.assertEqual(summary["generated_shape_envelope"], 22)
         self.assertEqual(summary["json_spec_without_shape_envelope"], 0)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
-        self.assertEqual(summary["schema_only_spec"], 0)
+        self.assertEqual(summary["schema_only_spec"], 7)
         self.assertEqual(summary["live_contract_without_json_spec"], 0)
         self.assertEqual(summary["exact_row_debt"], 0)
 
@@ -1574,8 +1584,9 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated contract coverage census specs=22", result.stdout)
+        self.assertIn("validated contract coverage census specs=29", result.stdout)
         self.assertIn("generated_shape_envelope=22", result.stdout)
+        self.assertIn("schema_only_spec=7", result.stdout)
         self.assertIn("json_spec_without_shape_envelope=0", result.stdout)
         self.assertIn("live_contract_without_json_spec=0", result.stdout)
         self.assertIn("exact_row_debt=0", result.stdout)

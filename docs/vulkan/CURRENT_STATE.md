@@ -146,21 +146,22 @@ visible/countable while follow-up tasks add precise producer/consumer proof.
 contract attached to real events. This skeleton does not remove copies, defer
 submits, alter fallback/readback policy, or broaden accepted shapes.
 `HostUploadTransitionContract`, `MetadataViewTransitionContract`,
-`FinalReadbackContract`, `IntermediateReadbackTransitionContract`, and
-`SafeContiguousMaterializationContract` now provide schema-only
-source-of-truth buckets for existing `required_host_upload`,
-`metadata_view_only`, `required_final_readback`,
-`unexpected_intermediate_readback`, and
-`required_contiguous_materialization` transition-log evidence. The five-model
+`FinalReadbackContract`, `IntermediateReadbackTransitionContract`,
+`SafeContiguousMaterializationContract`, `FallbackMaterializationContract`, and
+`LayoutRepackTransitionContract` now provide schema-only source-of-truth
+buckets for existing transition-log evidence. The covered reasons are
+`required_host_upload`, `metadata_view_only`, `required_final_readback`,
+`unexpected_intermediate_readback`, `required_contiguous_materialization`,
+`fallback_materialization`, and `required_layout_repack`. The five-model
 validation collector loads these checked-in specs before reporting missing
 transition contract buckets, so matching upload, metadata-view, final
-readback, intermediate readback, and safe contiguous materialization events are
-counted without requiring producer/consumer contract fields in old logs. These
-specs are classification-only and do not change uploads, metadata-view
-creation, copies, submit policy, fallback, readback, materialization, or route
-legality. The remaining observed transition reason buckets without
-source-of-truth specs are `FallbackMaterializationContract` and
-`LayoutRepackTransitionContract`.
+readback, intermediate readback, safe contiguous materialization, fallback
+materialization, and layout-repack events are counted without requiring
+producer/consumer contract fields in old logs. These specs are
+classification-only and do not change uploads, metadata-view creation, copies,
+submit policy, fallback, readback, materialization, layout repack, or route
+legality. The current DAv2 transition-reason census has no observed
+transition reason bucket left without a source-of-truth spec.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
