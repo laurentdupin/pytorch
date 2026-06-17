@@ -464,6 +464,18 @@ struct VulkanStackSubresourceLifetimeDryRunCounters final {
   std::atomic<uint64_t> rejected_over_block_budget{0u};
   std::atomic<uint64_t> rejected_over_scope_budget{0u};
   std::atomic<uint64_t> rejected_large_backing{0u};
+  std::atomic<uint64_t> attention_buffer_generation_range_missing_stack_proof_count{
+      0u};
+  std::atomic<uint64_t> attention_raw_generation_range_missing_stack_proof_count{
+      0u};
+  std::atomic<uint64_t> attention_provenance_missing_last_use_count{0u};
+  std::atomic<uint64_t> attention_unknown_subresource_count{0u};
+  std::atomic<uint64_t> attention_buffer_generation_range_missing_stack_proof_bytes{
+      0u};
+  std::atomic<uint64_t> attention_raw_generation_range_missing_stack_proof_bytes{
+      0u};
+  std::atomic<uint64_t> attention_provenance_missing_last_use_bytes{0u};
+  std::atomic<uint64_t> attention_unknown_subresource_bytes{0u};
 };
 
 class VulkanSubmitPhaseScope final {
