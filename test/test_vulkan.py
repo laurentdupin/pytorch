@@ -13565,6 +13565,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             (40, 61),
             (50, 77),
         )
+        as_linear_hit = "aten::convolution.buffer_float_1x1_as_linear"
         log_name = "large_pointwise_factorized_depth_vision_op_hit_test.log"
         log_path = os.path.join(REPO_ROOT, log_name)
         previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
@@ -13617,6 +13618,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             "aten::convolution.buffer_float_1x1_skip."
                             "small_spatial_pointwise.depth_vision_projection",
                             op_hits)
+                        if width % 4 == 0:
+                            self.assertIn(as_linear_hit, op_hits)
+                        else:
+                            self.assertNotIn(as_linear_hit, op_hits)
         finally:
             if previous_op_hit_log is None:
                 os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
