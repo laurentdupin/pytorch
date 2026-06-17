@@ -30,6 +30,7 @@ from benchmark_suite_common import (
     reset_vulkan_debug_counters,
     snapshot_vulkan_debug_counters,
     torch_device_for_backend,
+    VulkanCounterPhaseTracker,
     write_records,
 )
 from bench_common import summarize_durations
@@ -1590,6 +1591,11 @@ def run_torch_ops(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
 
     try:
         torch.manual_seed(20260522)
+        phase_tracker = (
+            VulkanCounterPhaseTracker(torch, backend)
+            if backend == "vulkan"
+            else None
+        )
         x_cpu = torch.randn(1, 3, 16, 16, dtype=torch.float32)
         weight_cpu = torch.randn(4, 3, 3, 3, dtype=torch.float32)
         bias_cpu = torch.randn(4, dtype=torch.float32)
@@ -1627,8 +1633,12 @@ def run_torch_ops(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
                     padding=1,
                 ).relu()
 
+            if phase_tracker is not None:
+                phase_tracker.mark("setup")
             for _ in range(args.warmup):
                 run_device()
+            if phase_tracker is not None:
+                phase_tracker.mark("warmup")
             timing, output = measure_repeated(
                 "device_resident_forward",
                 args.repeats,
@@ -1637,6 +1647,8 @@ def run_torch_ops(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
                 backend=backend,
                 device=device,
             )
+            if phase_tracker is not None:
+                phase_tracker.mark("timed_forward")
 
         output_cpu = output.cpu() if hasattr(output, "cpu") else output
         diff = (output_cpu - reference).abs()
@@ -1659,6 +1671,8 @@ def run_torch_ops(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         }
         record.timings = {"device_resident_forward": timing}
         record.counters = {"vulkan_debug": snapshot_vulkan_debug_counters(torch, backend)}
+        if phase_tracker is not None:
+            record.counters["vulkan_phase_counters"] = phase_tracker.summary()
         record.output_sanity = {
             "output_shape": list(output_cpu.shape),
             "finite": bool(torch.isfinite(output_cpu).all().item()),
@@ -1744,6 +1758,11 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             lotus_pipeline_class = DiffusionPipeline
 
         device, device_info = torch_device_for_backend(torch, backend, args.device_index)
+        phase_tracker = (
+            VulkanCounterPhaseTracker(torch, backend)
+            if backend == "vulkan"
+            else None
+        )
         setup_start = time.perf_counter()
         pipe = lotus_pipeline_class.from_pretrained(
             model_id,
@@ -1761,6 +1780,8 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         else:
             image = make_test_image(args.image_size)
             image_metadata = {"image_size": args.image_size, "generated": True}
+        if phase_tracker is not None:
+            phase_tracker.mark("setup")
 
         def forward() -> Any:
             if lotus_repo is None:
@@ -1785,6 +1806,8 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
 
         for _ in range(args.warmup):
             forward()
+        if phase_tracker is not None:
+            phase_tracker.mark("warmup")
         timing, output = measure_repeated(
             "device_resident_forward",
             args.repeats,
@@ -1793,6 +1816,8 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             backend=backend,
             device=device,
         )
+        if phase_tracker is not None:
+            phase_tracker.mark("timed_forward")
         record = BenchmarkRecord(
             task=task,
             model_name=model_name,
@@ -1810,6 +1835,8 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         }
         record.timings = {"setup_s": setup_s, "device_resident_forward": timing}
         record.counters = {"vulkan_debug": snapshot_vulkan_debug_counters(torch, backend)}
+        if phase_tracker is not None:
+            record.counters["vulkan_phase_counters"] = phase_tracker.summary()
         lotus_depth_sanity: dict[str, Any] = {}
         if (
             lotus_repo is not None
@@ -1970,12 +1997,20 @@ def run_text_generation(
         prompt_attempts = []
         selected: dict[str, Any] | None = None
         last_output = None
+        selected_phase_counters: dict[str, Any] | None = None
         for prompt_index, prompt_candidate in enumerate(prompt_candidates):
             if backend == "vulkan":
                 reset_vulkan_debug_counters(torch, backend)
+            phase_tracker = (
+                VulkanCounterPhaseTracker(torch, backend)
+                if backend == "vulkan"
+                else None
+            )
             if linear_diag:
                 reset_linear_forward_diagnostics_state(linear_diag)
             inputs = tokenizer(prompt_candidate, return_tensors="pt").to(device)
+            if phase_tracker is not None:
+                phase_tracker.mark("prompt_setup")
 
             def generate() -> Any:
                 return model.generate(
@@ -1995,6 +2030,8 @@ def run_text_generation(
                 with attribution if attribution is not None else contextlib.nullcontext():
                     for _ in range(args.warmup):
                         generate()
+                    if phase_tracker is not None:
+                        phase_tracker.mark("warmup")
                     timing, output = measure_repeated(
                         "device_resident_generate",
                         args.repeats,
@@ -2003,6 +2040,8 @@ def run_text_generation(
                         backend=backend,
                         device=device,
                     )
+                    if phase_tracker is not None:
+                        phase_tracker.mark("timed_forward")
                 attempt_attribution = (
                     attribution.summary(top_n=32) if attribution is not None else None
                 )
@@ -2030,6 +2069,9 @@ def run_text_generation(
                 "attempt": attempt,
                 "fallback_attribution": attempt_attribution,
             }
+            selected_phase_counters = (
+                phase_tracker.summary() if phase_tracker is not None else None
+            )
             last_output = output
             if generated_tokens >= args.min_generated_tokens:
                 break
@@ -2074,6 +2116,8 @@ def run_text_generation(
         }
         record.timings = {"setup_s": setup_s, "device_resident_generate": timing}
         record.counters = {"vulkan_debug": snapshot_vulkan_debug_counters(torch, backend)}
+        if selected_phase_counters is not None:
+            record.counters["vulkan_phase_counters"] = selected_phase_counters
         record.output_sanity = {
             "generated_tokens": generated_tokens,
             "decode_step_2_reached": decode_step_2_reached,
@@ -2572,6 +2616,11 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             postprocess_metadata_calls, postprocess_metadata_patch = (
                 install_paddleocr_postprocess_cpu_metadata_patch(torch, backend)
             )
+        phase_tracker = (
+            VulkanCounterPhaseTracker(torch, backend)
+            if backend == "vulkan"
+            else None
+        )
         setup_start = time.perf_counter()
         try:
             ocr = PaddleOCR(engine="transformers", **device_kwargs)
@@ -2583,18 +2632,24 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
             backend,
         )
         setup_s = time.perf_counter() - setup_start
+        if phase_tracker is not None:
+            phase_tracker.mark("setup")
 
         def run_ocr() -> Any:
             return ocr.predict(str(image_path))
 
         for _ in range(args.warmup):
             run_ocr()
+        if phase_tracker is not None:
+            phase_tracker.mark("warmup")
         durations: list[float] = []
         output: Any = None
         for _ in range(args.repeats):
             start = time.perf_counter()
             output = run_ocr()
             durations.append(time.perf_counter() - start)
+        if phase_tracker is not None:
+            phase_tracker.mark("timed_forward")
         timing = summarize_durations("end_to_end_pipeline", durations)
         record = BenchmarkRecord(
             task=task,
@@ -2613,6 +2668,8 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         }
         record.timings = {"setup_s": setup_s, "end_to_end": timing}
         record.counters = {"vulkan_debug": snapshot_vulkan_debug_counters(torch, backend)}
+        if phase_tracker is not None:
+            record.counters["vulkan_phase_counters"] = phase_tracker.summary()
         record.output_sanity = {
             "output_type": type(output).__name__,
             "output_items": len(output) if hasattr(output, "__len__") else None,

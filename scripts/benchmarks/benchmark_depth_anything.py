@@ -26,6 +26,7 @@ from depth_anything_common import (
     resolve_depth_anything_repo,
     resolve_runtime_device,
 )
+from benchmark_suite_common import VulkanCounterPhaseTracker
 from vulkan_model_probe import create_vulkan_model_probe
 
 
@@ -678,6 +679,11 @@ def run() -> None:
         )
         if reset_fallback is not None:
             reset_fallback()
+    vulkan_phase_tracker = (
+        VulkanCounterPhaseTracker(torch, device_kind)
+        if device_kind == "vulkan"
+        else None
+    )
 
     with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP), vulkan_fallback_phase(
         torch,
@@ -762,6 +768,8 @@ def run() -> None:
                 model,
                 corpus_tensor,
             )
+    if vulkan_phase_tracker is not None:
+        vulkan_phase_tracker.mark("setup")
     legacy_forward_output_mode = (
         OUTPUT_MODE_DEVICE_RESIDENT if args.skip_output_copy else OUTPUT_MODE_READBACK
     )
@@ -825,6 +833,8 @@ def run() -> None:
                         device_kind,
                         legacy_forward_output_mode,
                     )
+        if vulkan_phase_tracker is not None:
+            vulkan_phase_tracker.mark("warmup")
 
         end_to_end_with_readback_durations: list[float] = []
         legacy_end_to_end_durations: list[float] = []
@@ -900,6 +910,8 @@ def run() -> None:
                         OUTPUT_MODE_READBACK,
                     )
                 forward_with_readback_durations.append(time.perf_counter() - start)
+        if vulkan_phase_tracker is not None:
+            vulkan_phase_tracker.mark("timed_forward")
 
         corpus_with_readback_durations: list[float] = []
         legacy_corpus_durations: list[float] = []
@@ -940,6 +952,8 @@ def run() -> None:
                             legacy_forward_output_mode,
                         )
                     legacy_corpus_durations.append(time.perf_counter() - start)
+        if vulkan_phase_tracker is not None:
+            vulkan_phase_tracker.mark("timed_corpus")
     finally:
         if probe_enabled and probe is not None:
             probe.__exit__(*sys.exc_info())
@@ -983,6 +997,11 @@ def run() -> None:
         "vulkan_debug_counters": snapshot_vulkan_debug_counters(
             torch,
             device_kind,
+        ),
+        "vulkan_phase_counters": (
+            vulkan_phase_tracker.summary()
+            if vulkan_phase_tracker is not None
+            else None
         ),
         "vulkan_model_probe": probe_summary,
         "performance_valid": not bool(probe_summary),

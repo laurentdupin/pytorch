@@ -6,6 +6,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import time
@@ -79,10 +80,24 @@ VULKAN_COUNTER_NAMES = (
     "stack_replay_counters",
     "attention_plan_counters",
     "linear_plan_counters",
+    "linear_aggregate_snapshot",
     "linear_pack_residency_snapshot",
     "vulkan_memory_residency_snapshot",
     "packed_weight_residency_snapshot",
+    "conv_plan_counters",
+    "pointwise_conv_route_counters",
+    "conv_aggregate_snapshot",
+    "buffer_copy_counters",
+    "buffer_copy_aggregate_snapshot",
+    "clone_requirement_snapshot",
+    "vision_owner_counters",
+    "vision_owner_context_counters",
+    "vision_owner_mlp_counters",
+    "vision_stack_owner_counters",
+    "zero_counters",
 )
+
+AGGREGATE_METRIC_RE = re.compile(r"\b(count|bytes|queue_submit|blocking_wait|poll_only)=(\d+)")
 
 
 def module_available(name: str) -> bool:
@@ -152,6 +167,114 @@ def snapshot_vulkan_debug_counters(torch_module: Any, backend: str) -> dict[str,
         except Exception as exc:
             counters[f"{name}_error"] = repr(exc)
     return counters
+
+
+def _counter_delta(before: Any, after: Any) -> Any:
+    if isinstance(before, bool) or isinstance(after, bool):
+        return None
+    if isinstance(before, (int, float)) and isinstance(after, (int, float)):
+        return after - before
+    if (
+        isinstance(before, list)
+        and isinstance(after, list)
+        and len(before) == len(after)
+        and all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in before)
+        and all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in after)
+    ):
+        return [after_item - before_item for before_item, after_item in zip(before, after)]
+    if isinstance(before, dict) and isinstance(after, dict):
+        result: dict[str, Any] = {}
+        for key in sorted(before.keys() & after.keys()):
+            value = _counter_delta(before[key], after[key])
+            if value is not None:
+                result[key] = value
+        return result if result else None
+    return None
+
+
+def _aggregate_metrics_by_key(rows: Any) -> dict[str, dict[str, int]]:
+    if not isinstance(rows, list) or not all(isinstance(row, str) for row in rows):
+        return {}
+    metrics_by_key: dict[str, dict[str, int]] = {}
+    for row in rows:
+        metrics = {name: int(value) for name, value in AGGREGATE_METRIC_RE.findall(row)}
+        if not metrics:
+            continue
+        key = AGGREGATE_METRIC_RE.sub("", row)
+        key = " ".join(key.split())
+        metrics_by_key[key] = metrics
+    return metrics_by_key
+
+
+def _aggregate_delta(before: Any, after: Any) -> list[str]:
+    before_rows = _aggregate_metrics_by_key(before)
+    after_rows = _aggregate_metrics_by_key(after)
+    if not after_rows:
+        return []
+    out: list[str] = []
+    for key in sorted(after_rows):
+        metrics = after_rows[key]
+        previous = before_rows.get(key, {})
+        deltas = {
+            name: value - int(previous.get(name, 0))
+            for name, value in metrics.items()
+        }
+        if not any(value != 0 for value in deltas.values()):
+            continue
+        fields = " ".join(f"{name}={value}" for name, value in sorted(deltas.items()))
+        out.append(f"{key} {fields}".strip())
+    return out
+
+
+def diff_vulkan_debug_counters(
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> dict[str, Any]:
+    diff: dict[str, Any] = {}
+    for key in sorted(before.keys() & after.keys()):
+        value = _counter_delta(before[key], after[key])
+        if value is not None:
+            diff[key] = value
+            continue
+        aggregate = _aggregate_delta(before[key], after[key])
+        if aggregate:
+            diff[f"{key}_delta"] = aggregate
+    return diff
+
+
+class VulkanCounterPhaseTracker:
+    def __init__(self, torch_module: Any, backend: str) -> None:
+        self.torch_module = torch_module
+        self.backend = backend
+        self._initial = snapshot_vulkan_debug_counters(torch_module, backend)
+        self._previous = self._initial
+        self._phases: list[dict[str, Any]] = []
+
+    def mark(self, name: str) -> dict[str, Any]:
+        current = snapshot_vulkan_debug_counters(self.torch_module, self.backend)
+        phase = {
+            "name": name,
+            "start": self._previous,
+            "end": current,
+            "delta": diff_vulkan_debug_counters(self._previous, current),
+        }
+        self._phases.append(phase)
+        self._previous = current
+        return phase
+
+    def summary(self) -> dict[str, Any]:
+        current = snapshot_vulkan_debug_counters(self.torch_module, self.backend)
+        return {
+            "schema_version": 1,
+            "backend": self.backend,
+            "phases": self._phases,
+            "total": {
+                "name": "total_since_tracker_start",
+                "start": self._initial,
+                "end": current,
+                "delta": diff_vulkan_debug_counters(self._initial, current),
+            },
+        }
 
 
 def reset_vulkan_debug_counters(torch_module: Any, backend: str) -> None:
