@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "source_status": "schema_only",
+  "contract_name": "HostUploadTransitionContract",
+  "family": "CpuTensorToVulkanTensorUpload",
+  "tuple_id": "required_host_upload_transition_reason_bucket",
+  "writer_op": "vulkan_transition_log",
+  "route_label": "transition::required_host_upload",
+  "metadata": {
+    "evidence_id": "five_model_transition_reason_logs",
+    "guard_id": "transition_reason_required_host_upload",
+    "fallback_policy": "classification_only_no_backend_admission",
+    "materialization_policy": "host_to_vulkan_upload_observed"
+  },
+  "transition_contract": {
+    "contract_type": "LayoutTransitionContract",
+    "producer_schema": "cpu_tensor",
+    "consumer_schema": "vulkan_tensor",
+    "reason": "required_host_upload",
+    "kind": "host_transfer",
+    "outcome": "classified",
+    "physical_copy": true,
+    "host_transfer": true,
+    "sync_required": "depends_on_host_visible_destination",
+    "queue_submit_required": "depends_on_host_visible_destination",
+    "collector_reason_bucket": true,
+    "copy_budget": {
+      "cpu_fallback": 0,
+      "sync_readback": 0,
+      "host_transfer": "counted"
+    }
+  },
+  "bounds": {
+    "producer_schema": "cpu_tensor",
+    "consumer_schema": "vulkan_tensor",
+    "reason": "required_host_upload",
+    "kind": "host_transfer",
+    "outcome": "classified",
+    "host_transfer": true,
+    "physical_copy": true,
+    "sync_required": "depends_on_host_visible_destination",
+    "queue_submit_required": "depends_on_host_visible_destination",
+    "source_layout": "cpu",
+    "destination_layout": "vulkan",
+    "destination_storage": [
+      "BUFFER",
+      "TEXTURE_3D"
+    ]
+  },
+  "positive_cases": [
+    {
+      "name": "buffer_upload_requires_queue_submit",
+      "producer_schema": "cpu_tensor",
+      "consumer_schema": "vulkan_tensor",
+      "reason": "required_host_upload",
+      "kind": "host_transfer",
+      "host_transfer": true,
+      "physical_copy": true,
+      "sync_required": true,
+      "queue_submit_required": true,
+      "source_layout": "cpu",
+      "destination_storage": "BUFFER",
+      "expected_contract_name": "HostUploadTransitionContract",
+      "expected_backend_behavior_change": false
+    },
+    {
+      "name": "host_visible_buffer_upload",
+      "producer_schema": "cpu_tensor",
+      "consumer_schema": "vulkan_tensor",
+      "reason": "required_host_upload",
+      "kind": "host_transfer",
+      "host_transfer": true,
+      "physical_copy": true,
+      "sync_required": false,
+      "queue_submit_required": false,
+      "source_layout": "cpu",
+      "destination_storage": "BUFFER",
+      "expected_contract_name": "HostUploadTransitionContract",
+      "expected_backend_behavior_change": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "not_host_transfer",
+      "producer_schema": "cpu_tensor",
+      "consumer_schema": "vulkan_tensor",
+      "reason": "required_host_upload",
+      "kind": "device_copy",
+      "host_transfer": false,
+      "physical_copy": true,
+      "violates": "host_transfer",
+      "expected_native_route": false
+    },
+    {
+      "name": "wrong_reason",
+      "producer_schema": "cpu_tensor",
+      "consumer_schema": "vulkan_tensor",
+      "reason": "required_layout_repack",
+      "kind": "host_transfer",
+      "host_transfer": true,
+      "physical_copy": true,
+      "violates": "reason",
+      "expected_native_route": false
+    }
+  ]
+}

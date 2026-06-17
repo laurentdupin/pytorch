@@ -104,6 +104,20 @@ CONTRACT_METADATA_FIELDS = (
     "materialization_policy",
 )
 
+TRANSITION_CONTRACT_REQUIRED_FIELDS = (
+    "contract_type",
+    "producer_schema",
+    "consumer_schema",
+    "reason",
+    "kind",
+    "outcome",
+    "physical_copy",
+    "host_transfer",
+    "sync_required",
+    "queue_submit_required",
+    "copy_budget",
+)
+
 SHAPE_ENVELOPE_REQUIRED_FIELDS = (
     "version",
     "role",
@@ -228,6 +242,57 @@ def _validate_contract_metadata(metadata, context):
     require_fields(metadata, CONTRACT_METADATA_FIELDS, context)
     for field in CONTRACT_METADATA_FIELDS:
         _require_non_empty_string(metadata, field, context)
+
+
+def _validate_transition_contract_spec(transition_contract, context):
+    _require_mapping(transition_contract, f"{context} transition_contract")
+    require_fields(
+        transition_contract,
+        TRANSITION_CONTRACT_REQUIRED_FIELDS,
+        f"{context} transition_contract",
+    )
+    _require_equal(
+        transition_contract["contract_type"],
+        "LayoutTransitionContract",
+        f"{context} transition contract type",
+    )
+    for field in (
+        "producer_schema",
+        "consumer_schema",
+        "reason",
+        "kind",
+        "outcome",
+    ):
+        _require_non_empty_string(
+            transition_contract,
+            field,
+            f"{context} transition_contract",
+        )
+    for field in (
+        "physical_copy",
+        "host_transfer",
+        "sync_required",
+        "queue_submit_required",
+    ):
+        value = transition_contract[field]
+        if isinstance(value, bool):
+            continue
+        if not isinstance(value, str) or value == "":
+            raise AssertionError(
+                f"{context} transition_contract.{field} must be boolean "
+                "or a non-empty string policy"
+            )
+    if "collector_reason_bucket" in transition_contract:
+        _require_bool(
+            transition_contract["collector_reason_bucket"],
+            f"{context} transition_contract.collector_reason_bucket",
+        )
+    _require_mapping(
+        transition_contract["copy_budget"],
+        f"{context} transition_contract.copy_budget",
+    )
+    for key, value in transition_contract["copy_budget"].items():
+        _validate_scalar(value, f"{context} transition_contract.copy_budget.{key}")
 
 
 def _validate_shape_envelope_inputs(inputs, context):
@@ -6531,6 +6596,11 @@ def validate_contract_spec(file_name, spec):
 
     if not isinstance(spec["bounds"], dict) or not spec["bounds"]:
         raise AssertionError(f"{context} bounds must be a non-empty object")
+
+    if "metadata" in spec:
+        _validate_contract_metadata(spec["metadata"], f"{context} metadata")
+    if "transition_contract" in spec:
+        _validate_transition_contract_spec(spec["transition_contract"], context)
 
     case_names = []
     for section in ("positive_cases", "negative_cases"):

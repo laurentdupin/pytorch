@@ -94,6 +94,24 @@ AttentionProbabilityMaterializationContract` and `consumer_contract =
 DecomposedAttentionProbabilityToValueBmm` to matching events so future work can
 measure and review this edge as a named transition contract.
 
+`HostUploadTransitionContract` and `MetadataViewTransitionContract` are
+classification-only reason-bucket specs for existing transition logs. They live
+in `test/vulkan_contract_specs/host_upload_transition_contract.json` and
+`test/vulkan_contract_specs/metadata_view_transition_contract.json`, have
+`source_status = schema_only`, and do not admit backend routes or change copy,
+submit, fallback, or readback behavior.
+
+`HostUploadTransitionContract` covers `required_host_upload` /
+`host_transfer` events from CPU tensors into Vulkan tensors. These events are
+physical host transfers and remain counted as uploads; the spec only gives the
+collector a source-of-truth bucket for reporting them.
+
+`MetadataViewTransitionContract` covers `metadata_view_only` /
+`metadata_view` events such as `MetadataViewCreated` and
+`TypedMetadataViewCreated`. These events must remain metadata-only:
+`physical_copy=false`, `host_transfer=false`, `sync_required=false`, and
+`queue_submit_required=false`.
+
 ## Rollout
 
 The first wired sites classify existing copy and materialization observations:

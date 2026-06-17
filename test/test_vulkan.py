@@ -391,6 +391,64 @@ class TestVulkanGovernance(TestCase):
         specs = _validate_all_vulkan_contract_specs()
         self.assertGreater(len(specs), 0)
 
+    def test_vulkan_transition_reason_bucket_specs_validate_collector_mapping(self):
+        expected_specs = {
+            "host_upload_transition_contract.json": (
+                "HostUploadTransitionContract",
+                "required_host_upload",
+                "host_transfer",
+            ),
+            "metadata_view_transition_contract.json": (
+                "MetadataViewTransitionContract",
+                "metadata_view_only",
+                "metadata_view",
+            ),
+        }
+        for file_name, (contract_name, reason, kind) in expected_specs.items():
+            spec = _load_vulkan_contract_spec(file_name)
+            self.assertEqual(spec["source_status"], "schema_only")
+            self.assertEqual(spec["contract_name"], contract_name)
+            transition_contract = spec["transition_contract"]
+            self.assertEqual(
+                transition_contract["contract_type"],
+                "LayoutTransitionContract",
+            )
+            self.assertEqual(transition_contract["reason"], reason)
+            self.assertEqual(transition_contract["kind"], kind)
+            self.assertTrue(transition_contract["collector_reason_bucket"])
+            for case in spec["positive_cases"]:
+                self.assertEqual(case["reason"], reason)
+                self.assertEqual(case["kind"], kind)
+                self.assertEqual(case["expected_contract_name"], contract_name)
+                self.assertFalse(case["expected_backend_behavior_change"])
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "scripts",
+                    "benchmarks",
+                    "five_model_contract_validation_collector.py",
+                ),
+                "--validate-transition-contract-classification",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            msg=f"stdout={result.stdout}\nstderr={result.stderr}",
+        )
+        self.assertIn(
+            "validated transition contract classification",
+            result.stdout,
+        )
+
     def test_vulkan_shape_envelope_v1_specs_validate(self):
         expected_roles = {
             "attention_probability_materialization_contract.json": (

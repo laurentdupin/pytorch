@@ -145,6 +145,14 @@ visible/countable while follow-up tasks add precise producer/consumer proof.
 `AttentionProbabilityMaterializationContract` is the first named transition
 contract attached to real events. This skeleton does not remove copies, defer
 submits, alter fallback/readback policy, or broaden accepted shapes.
+`HostUploadTransitionContract` and `MetadataViewTransitionContract` now provide
+schema-only source-of-truth buckets for existing `required_host_upload` and
+`metadata_view_only` transition-log evidence. The five-model validation
+collector loads these checked-in specs before reporting missing transition
+contract buckets, so matching host-upload and metadata-view events are counted
+without requiring producer/consumer contract fields in old logs. These specs
+are classification-only and do not change uploads, metadata-view creation,
+copies, submit policy, fallback, readback, or route legality.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor

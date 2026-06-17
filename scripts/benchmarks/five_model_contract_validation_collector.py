@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import tempfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+CONTRACT_SPEC_DIR = REPO_ROOT / "test" / "vulkan_contract_specs"
+GENERATED_CPP_MANIFEST_FILE = "generated_cpp_manifest.json"
 
 ROUTE_CONTRACTS = {
     "token_prefix_cat_add": "TokenPrefixCatAddContract",
@@ -42,6 +45,43 @@ def write_json(path: Path, payload: Any) -> None:
     with path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
         f.write("\n")
+
+
+def load_transition_reason_bucket_contracts(
+    spec_dir: Path = CONTRACT_SPEC_DIR,
+) -> dict[str, str]:
+    contracts: dict[str, str] = {}
+    if not spec_dir.exists():
+        return contracts
+    for path in sorted(spec_dir.glob("*.json")):
+        if path.name == GENERATED_CPP_MANIFEST_FILE:
+            continue
+        spec = load_json(path)
+        transition_contract = spec.get("transition_contract")
+        if not isinstance(transition_contract, dict):
+            continue
+        if not transition_contract.get("collector_reason_bucket"):
+            continue
+        if transition_contract.get("contract_type") != "LayoutTransitionContract":
+            raise ValueError(f"{path.name} is not a LayoutTransitionContract")
+        reason = transition_contract.get("reason")
+        contract_name = spec.get("contract_name")
+        if not reason or not contract_name:
+            raise ValueError(f"{path.name} missing transition reason or contract_name")
+        expected_contract = CONTRACT_MISSING_BUCKETS.get(reason)
+        if expected_contract is not None and expected_contract != contract_name:
+            raise ValueError(
+                f"{path.name} maps {reason} to {contract_name}, "
+                f"expected {expected_contract}"
+            )
+        previous = contracts.get(reason)
+        if previous is not None and previous != contract_name:
+            raise ValueError(
+                f"duplicate transition reason bucket {reason}: "
+                f"{previous} and {contract_name}"
+            )
+        contracts[reason] = contract_name
+    return contracts
 
 
 def repo_path(value: str | None) -> Path | None:
@@ -165,6 +205,7 @@ def phase_counters_from_result(
 def summarize_transitions(
     transition_jsonl: Path | None,
     missing_artifacts: list[dict[str, str]],
+    reason_bucket_contracts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if transition_jsonl is None or not transition_jsonl.exists():
         missing_artifacts.append(
@@ -188,6 +229,7 @@ def summarize_transitions(
             "top_events": [],
         }
 
+    reason_bucket_contracts = reason_bucket_contracts or {}
     aggregates: dict[tuple[Any, ...], dict[str, Any]] = {}
     by_contract: Counter[str] = Counter()
     unknown_transition_reasons = 0
@@ -213,10 +255,16 @@ def summarize_transitions(
             ):
                 if event.get(field) in {None, "", "unknown"}:
                     unknown_producer_consumer[field] += 1
+            explicit_contract_counted = False
             for field in ("producer_contract", "consumer_contract"):
                 contract = event.get(field)
                 if contract and contract != "unknown" and contract.endswith("Contract"):
                     by_contract[contract] += 1
+                    explicit_contract_counted = True
+            if not explicit_contract_counted:
+                reason_contract = reason_bucket_contracts.get(reason)
+                if reason_contract:
+                    by_contract[reason_contract] += 1
             key = (
                 event.get("phase") or "unknown",
                 reason,
@@ -362,7 +410,10 @@ def find_matrix_row(matrix: dict[str, Any] | None, match: dict[str, Any]) -> dic
     return None
 
 
-def build_row(row_cfg: dict[str, Any]) -> dict[str, Any]:
+def build_row(
+    row_cfg: dict[str, Any],
+    reason_bucket_contracts: dict[str, str] | None = None,
+) -> dict[str, Any]:
     missing_artifacts: list[dict[str, str]] = []
     result_path = repo_path(row_cfg.get("result_json"))
     result = load_json(result_path) if result_path and result_path.exists() else None
@@ -399,7 +450,11 @@ def build_row(row_cfg: dict[str, Any]) -> dict[str, Any]:
         )
 
     phases = phase_counters_from_result(result, matrix_row)
-    transitions = summarize_transitions(repo_path(row_cfg.get("transition_jsonl")), missing_artifacts)
+    transitions = summarize_transitions(
+        repo_path(row_cfg.get("transition_jsonl")),
+        missing_artifacts,
+        reason_bucket_contracts,
+    )
     region_lifetime = summarize_region_lifetime(
         repo_path(row_cfg.get("region_lifetime_summary")),
         missing_artifacts,
@@ -479,7 +534,11 @@ def build_row(row_cfg: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def aggregate_rows(
+    rows: list[dict[str, Any]],
+    reason_bucket_contracts: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    reason_bucket_contracts = reason_bucket_contracts or {}
     rows_ok = sum(1 for row in rows if row["status"] == "ok")
     transition_unknown = sum(row["unknowns"]["unknown_transition_reasons"] for row in rows)
     transition_contracts = Counter()
@@ -497,6 +556,7 @@ def aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
             CONTRACT_MISSING_BUCKETS[reason]
             for reason in observed_reasons
             if reason in CONTRACT_MISSING_BUCKETS
+            and reason not in reason_bucket_contracts
         }
     )
     recommendations = []
@@ -612,25 +672,144 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def validate_transition_contract_classification() -> None:
+    reason_bucket_contracts = load_transition_reason_bucket_contracts()
+    required = {
+        "required_host_upload": "HostUploadTransitionContract",
+        "metadata_view_only": "MetadataViewTransitionContract",
+    }
+    for reason, contract_name in required.items():
+        if reason_bucket_contracts.get(reason) != contract_name:
+            raise AssertionError(f"{reason} is not covered by {contract_name}")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        transition_log = Path(tmp_dir) / "transition.jsonl"
+        events = [
+            {
+                "event": "vulkan_transition",
+                "phase": "model_setup",
+                "reason": "required_host_upload",
+                "kind": "host_transfer",
+                "outcome": "classified",
+                "bytes": 4096,
+                "host_transfer": True,
+                "physical_copy": True,
+                "sync_required": True,
+                "queue_submit_required": True,
+                "producer_schema": "cpu_tensor",
+                "consumer_schema": "vulkan_tensor",
+                "producer_contract": "unknown",
+                "consumer_contract": "unknown",
+            },
+            {
+                "event": "vulkan_transition",
+                "phase": "layout_transition",
+                "reason": "metadata_view_only",
+                "kind": "metadata_view",
+                "outcome": "classified",
+                "bytes": 4096,
+                "host_transfer": False,
+                "physical_copy": False,
+                "sync_required": False,
+                "queue_submit_required": False,
+                "producer_schema": "aten::view",
+                "consumer_schema": "MetadataViewCreated",
+                "producer_contract": "unknown",
+                "consumer_contract": "unknown",
+            },
+            {
+                "event": "vulkan_transition",
+                "phase": "readback",
+                "reason": "required_final_readback",
+                "kind": "host_transfer",
+                "outcome": "classified",
+                "bytes": 4096,
+                "host_transfer": True,
+                "physical_copy": True,
+                "sync_required": True,
+                "queue_submit_required": True,
+                "producer_schema": "vulkan_tensor",
+                "consumer_schema": "cpu_tensor",
+                "producer_contract": "unknown",
+                "consumer_contract": "unknown",
+            },
+        ]
+        with transition_log.open("w", encoding="utf-8") as f:
+            for event in events:
+                f.write(json.dumps(event, sort_keys=True) + "\n")
+
+        missing_artifacts: list[dict[str, str]] = []
+        transitions = summarize_transitions(
+            transition_log,
+            missing_artifacts,
+            reason_bucket_contracts,
+        )
+    if missing_artifacts:
+        raise AssertionError(f"unexpected missing artifacts: {missing_artifacts}")
+    expected_counts = {
+        "HostUploadTransitionContract": 1,
+        "MetadataViewTransitionContract": 1,
+    }
+    for contract_name, expected_count in expected_counts.items():
+        actual_count = transitions["events_by_contract"].get(contract_name)
+        if actual_count != expected_count:
+            raise AssertionError(
+                f"{contract_name} count mismatch: {actual_count} != {expected_count}"
+            )
+
+    row = {
+        "status": "ok",
+        "environment": {"missing_artifacts": []},
+        "transitions": transitions,
+        "op_contracts": {"by_contract": {}},
+        "unknowns": {"unknown_transition_reasons": 0},
+        "budgets": {"cpu_fallback": {"status": "pass"}},
+    }
+    aggregate = aggregate_rows([row], reason_bucket_contracts)
+    missing_buckets = aggregate["coverage"]["missing_contract_buckets"]
+    for contract_name in expected_counts:
+        if contract_name in missing_buckets:
+            raise AssertionError(f"{contract_name} unexpectedly reported missing")
+    if "FinalReadbackContract" not in missing_buckets:
+        raise AssertionError("uncovered final readback bucket should remain missing")
+    print(
+        "validated transition contract classification "
+        f"reason_buckets={json.dumps(required, sort_keys=True)}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Normalize Vulkan benchmark outputs into the five-model contract validation schema."
     )
-    parser.add_argument("--config", required=True, help="Collector config JSON.")
+    parser.add_argument("--config", help="Collector config JSON.")
     parser.add_argument("--schema", default="agent_space/five_model_contract_validation_schema.json")
-    parser.add_argument("--output-json", required=True)
+    parser.add_argument("--output-json")
     parser.add_argument("--output-md")
     parser.add_argument("--rows", nargs="*", help="Optional row ids to include.")
+    parser.add_argument(
+        "--validate-transition-contract-classification",
+        action="store_true",
+        help="Validate reason-bucket transition contract classification.",
+    )
     args = parser.parse_args()
+
+    if args.validate_transition_contract_classification:
+        validate_transition_contract_classification()
+        return
+
+    if not args.config or not args.output_json:
+        parser.error("--config and --output-json are required unless validating")
 
     config_path = repo_path(args.config)
     config = load_json(config_path)
+    reason_bucket_contracts = load_transition_reason_bucket_contracts()
     selected = set(args.rows or [])
     rows = []
     for row_cfg in config.get("rows", []):
         if selected and row_cfg["row_id"] not in selected:
             continue
-        rows.append(build_row(row_cfg))
+        rows.append(build_row(row_cfg, reason_bucket_contracts))
     if not rows:
         raise ValueError("no rows selected")
 
@@ -645,7 +824,7 @@ def main() -> None:
             "tool_versions": {"collector_config": rel_path(config_path)},
         },
         "rows": rows,
-        "aggregate": aggregate_rows(rows),
+        "aggregate": aggregate_rows(rows, reason_bucket_contracts),
     }
     validate_artifact_shape(artifact)
     write_json(repo_path(args.output_json), artifact)

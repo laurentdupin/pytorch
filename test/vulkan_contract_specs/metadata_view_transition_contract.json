@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "source_status": "schema_only",
+  "contract_name": "MetadataViewTransitionContract",
+  "family": "VulkanTensorMetadataView",
+  "tuple_id": "metadata_view_only_transition_reason_bucket",
+  "writer_op": "vulkan_transition_log",
+  "route_label": "transition::metadata_view_only",
+  "metadata": {
+    "evidence_id": "five_model_transition_reason_logs",
+    "guard_id": "transition_reason_metadata_view_only",
+    "fallback_policy": "classification_only_no_backend_admission",
+    "materialization_policy": "metadata_only_no_physical_copy"
+  },
+  "transition_contract": {
+    "contract_type": "LayoutTransitionContract",
+    "producer_schema": "layout_transition_callsite",
+    "consumer_schema": "MetadataViewCreated",
+    "alternate_consumer_schema": "TypedMetadataViewCreated",
+    "reason": "metadata_view_only",
+    "kind": "metadata_view",
+    "outcome": "classified",
+    "physical_copy": false,
+    "host_transfer": false,
+    "sync_required": false,
+    "queue_submit_required": false,
+    "collector_reason_bucket": true,
+    "copy_budget": {
+      "cpu_fallback": 0,
+      "sync_readback": 0,
+      "host_transfer": 0
+    }
+  },
+  "bounds": {
+    "consumer_schema": [
+      "MetadataViewCreated",
+      "TypedMetadataViewCreated"
+    ],
+    "reason": "metadata_view_only",
+    "kind": "metadata_view",
+    "outcome": "classified",
+    "host_transfer": false,
+    "physical_copy": false,
+    "sync_required": false,
+    "queue_submit_required": false,
+    "source_layout": "vulkan_tensor_state",
+    "destination_layout": "vulkan_tensor_state"
+  },
+  "positive_cases": [
+    {
+      "name": "metadata_view_created",
+      "producer_schema": "aten::view",
+      "consumer_schema": "MetadataViewCreated",
+      "reason": "metadata_view_only",
+      "kind": "metadata_view",
+      "host_transfer": false,
+      "physical_copy": false,
+      "sync_required": false,
+      "queue_submit_required": false,
+      "expected_contract_name": "MetadataViewTransitionContract",
+      "expected_backend_behavior_change": false
+    },
+    {
+      "name": "typed_metadata_view_created",
+      "producer_schema": "aten::_reshape_alias",
+      "consumer_schema": "TypedMetadataViewCreated",
+      "reason": "metadata_view_only",
+      "kind": "metadata_view",
+      "host_transfer": false,
+      "physical_copy": false,
+      "sync_required": false,
+      "queue_submit_required": false,
+      "expected_contract_name": "MetadataViewTransitionContract",
+      "expected_backend_behavior_change": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "physical_copy_not_metadata_view",
+      "producer_schema": "aten::view",
+      "consumer_schema": "MetadataViewCreated",
+      "reason": "metadata_view_only",
+      "kind": "metadata_view",
+      "host_transfer": false,
+      "physical_copy": true,
+      "violates": "physical_copy",
+      "expected_native_route": false
+    },
+    {
+      "name": "wrong_reason",
+      "producer_schema": "aten::view",
+      "consumer_schema": "MetadataViewCreated",
+      "reason": "required_contiguous_materialization",
+      "kind": "metadata_view",
+      "host_transfer": false,
+      "physical_copy": false,
+      "violates": "reason",
+      "expected_native_route": false
+    }
+  ]
+}
