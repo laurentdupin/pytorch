@@ -35,6 +35,49 @@ SUBMIT_ORIGIN_COUNTER_INDEX = {
     "conv_prepack_upload_submits": 13,
 }
 
+CONV_PLAN_COUNTER_FIELDS = [
+    "total",
+    "pointwise_1x1_hit",
+    "pointwise_1x1_as_linear_hit",
+    "known_bad_large_pointwise",
+    "cpu_fallback",
+    "reject_layout",
+    "reject_dtype",
+]
+
+POINTWISE_CONV_ROUTE_COUNTER_FIELDS = [
+    "total_1x1",
+    "specialized_1x1_hit",
+    "generic_1x1_hit",
+    "reject_not_direct_buffer",
+    "reject_input_not_buffer",
+    "reject_input_not_direct_buffer",
+    "reject_output_not_direct_buffer",
+    "reject_storage_offset",
+    "reject_dtype",
+    "reject_groups",
+    "reject_stride_padding_dilation",
+    "reject_weight_layout",
+    "reject_bias",
+    "reject_shape",
+]
+
+LINEAR_PLAN_COUNTER_FIELDS = [
+    "total",
+    "coop_hit",
+    "coop_tail_m_hit",
+    "reject_m_tail",
+    "reject_k_tail",
+    "reject_n_tail",
+    "reject_layout",
+    "reject_dtype",
+    "reject_capability",
+    "fallback_plain_bf16",
+    "fallback_float",
+]
+
+PLAN_NOT_AVAILABLE = "not_available"
+
 CONTRACT_MISSING_BUCKETS = {
     "required_final_readback": "FinalReadbackContract",
     "required_host_upload": "HostUploadTransitionContract",
@@ -157,6 +200,32 @@ def int_value(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def parse_int_list(value: Any) -> list[int] | str:
+    if not isinstance(value, str):
+        return PLAN_NOT_AVAILABLE
+    text = value.strip()
+    if not (text.startswith("[") and text.endswith("]")):
+        return PLAN_NOT_AVAILABLE
+    inner = text[1:-1].strip()
+    if not inner:
+        return []
+    result: list[int] = []
+    for part in inner.split(","):
+        try:
+            result.append(int(part))
+        except ValueError:
+            return PLAN_NOT_AVAILABLE
+    return result
+
+
+def named_counter_snapshot(values: list[Any], names: list[str]) -> dict[str, int]:
+    return {
+        name: int_value(values[index])
+        for index, name in enumerate(names)
+        if index < len(values)
+    }
 
 
 def list_counter_field(delta: dict[str, Any], name: str) -> list[Any]:
@@ -602,6 +671,314 @@ def summarize_model_suite_evidence(
     }
 
 
+def row_counter_context(phases: dict[str, Any]) -> dict[str, Any]:
+    total = phases.get("total") or {}
+    timed = phases.get("timed_forward") or {}
+    source = timed if timed else total
+    return {
+        "source_phase": "timed_forward" if timed else "total",
+        "cpu_fallback_count": int(source.get("cpu_fallback_count") or 0),
+        "sync_readback_count": int(source.get("sync_readback_count") or 0),
+        "tensor_cpu_readback_submits": int(source.get("tensor_cpu_readback_submits") or 0),
+        "buffer_copy_count": int(source.get("buffer_copy_count") or 0),
+        "buffer_copy_bytes": int(source.get("buffer_copy_bytes") or 0),
+        "total_queue_submits": int(source.get("total_queue_submits") or 0),
+        "retire_drains": int(source.get("retire_drains") or 0),
+        "conv_prepack_upload_submits": int(source.get("conv_prepack_upload_submits") or 0),
+    }
+
+
+def int_field(fields: dict[str, str], name: str) -> int | str:
+    if name not in fields:
+        return PLAN_NOT_AVAILABLE
+    return int_value(fields[name])
+
+
+def bool_field(fields: dict[str, str], name: str) -> bool | str:
+    value = int_field(fields, name)
+    if value == PLAN_NOT_AVAILABLE:
+        return PLAN_NOT_AVAILABLE
+    return bool(value)
+
+
+def infer_conv_candidate_contract(fields: dict[str, str]) -> str:
+    role = fields.get("role") or ""
+    if "depth_vision_projection" in role or role == "small_spatial_pointwise_conv":
+        return "SmallSpatialPointwiseConvContract"
+    if fields.get("pointwise") == "1":
+        return "SmallSpatialPointwiseConvContract"
+    return PLAN_NOT_AVAILABLE
+
+
+def infer_linear_candidate_contract(fields: dict[str, str]) -> str:
+    role = fields.get("role") or ""
+    if fields.get("post_op") == "1" or "gelu" in role:
+        return "LinearGeluBridgeContract"
+    return PLAN_NOT_AVAILABLE
+
+
+def conv_plan_key(fields: dict[str, str]) -> str:
+    return (
+        "conv2d"
+        f"|selected={fields.get('selected', PLAN_NOT_AVAILABLE)}"
+        f"|kernel={fields.get('kernel', PLAN_NOT_AVAILABLE)}"
+        f"|role={fields.get('role', PLAN_NOT_AVAILABLE)}"
+        f"|input={fields.get('input', PLAN_NOT_AVAILABLE)}"
+        f"|weight={fields.get('weight', PLAN_NOT_AVAILABLE)}"
+        f"|out={fields.get('output_channels', PLAN_NOT_AVAILABLE)}"
+        f"|stride={fields.get('stride', PLAN_NOT_AVAILABLE)}"
+        f"|padding={fields.get('padding', PLAN_NOT_AVAILABLE)}"
+        f"|dilation={fields.get('dilation', PLAN_NOT_AVAILABLE)}"
+        f"|groups={fields.get('groups', PLAN_NOT_AVAILABLE)}"
+        f"|bias={fields.get('bias', PLAN_NOT_AVAILABLE)}"
+    )
+
+
+def linear_plan_key(fields: dict[str, str]) -> str:
+    return (
+        "linear"
+        f"|kernel={fields.get('kernel', PLAN_NOT_AVAILABLE)}"
+        f"|submit={fields.get('submit_kernel', PLAN_NOT_AVAILABLE)}"
+        f"|role={fields.get('role', PLAN_NOT_AVAILABLE)}"
+        f"|m={fields.get('m', PLAN_NOT_AVAILABLE)}"
+        f"|k={fields.get('k', PLAN_NOT_AVAILABLE)}"
+        f"|n={fields.get('n', PLAN_NOT_AVAILABLE)}"
+        f"|bias={fields.get('bias', PLAN_NOT_AVAILABLE)}"
+        f"|post_op={fields.get('post_op', PLAN_NOT_AVAILABLE)}"
+        f"|packed={fields.get('weight_packed', PLAN_NOT_AVAILABLE)}"
+    )
+
+
+def common_plan_availability() -> dict[str, str]:
+    return {
+        "program_cache": PLAN_NOT_AVAILABLE,
+        "pipeline_cache": PLAN_NOT_AVAILABLE,
+        "descriptor_plan_cache": PLAN_NOT_AVAILABLE,
+        "scratch_allocation_reuse": PLAN_NOT_AVAILABLE,
+    }
+
+
+def normalize_conv_plan_evidence(
+    row_id: str,
+    model: dict[str, Any],
+    row: str,
+    plan_counters: dict[str, int],
+    pointwise_counters: dict[str, int],
+    row_counters: dict[str, Any],
+) -> dict[str, Any]:
+    fields = key_value_fields(row)
+    count = int_field(fields, "count")
+    input_bytes = int_field(fields, "input_bytes")
+    output_bytes = int_field(fields, "output_bytes")
+    weight_bytes = int_field(fields, "weight_bytes")
+    byte_values = [
+        value for value in (input_bytes, output_bytes, weight_bytes) if isinstance(value, int)
+    ]
+    return {
+        "schema_version": 0,
+        "source_row": row_id,
+        "source_model": model,
+        "source_kind": "conv_aggregate_snapshot",
+        "op_family": "conv2d",
+        "contract_name": PLAN_NOT_AVAILABLE,
+        "candidate_contract_family": infer_conv_candidate_contract(fields),
+        "plan_key": conv_plan_key(fields),
+        "selected_route": fields.get("selected") or PLAN_NOT_AVAILABLE,
+        "plan_label": fields.get("kernel") or PLAN_NOT_AVAILABLE,
+        "route_label": fields.get("role") or PLAN_NOT_AVAILABLE,
+        "reject_reason": fields.get("reject") or PLAN_NOT_AVAILABLE,
+        "shapes": {
+            "input": parse_int_list(fields.get("input")),
+            "weight": parse_int_list(fields.get("weight")),
+            "output_channels": int_field(fields, "output_channels"),
+        },
+        "attrs": {
+            "stride": parse_int_list(fields.get("stride")),
+            "padding": parse_int_list(fields.get("padding")),
+            "dilation": parse_int_list(fields.get("dilation")),
+            "groups": int_field(fields, "groups"),
+            "bias": bool_field(fields, "bias"),
+            "pointwise": bool_field(fields, "pointwise"),
+            "depthwise": bool_field(fields, "depthwise"),
+            "sliding_window": bool_field(fields, "sliding_window"),
+        },
+        "layout": {
+            "input_direct": bool_field(fields, "input_direct"),
+            "output_direct": bool_field(fields, "output_direct"),
+            "weight_packed": bool_field(fields, "weight_packed"),
+        },
+        "evidence_counters": {
+            "dispatch_count": count,
+            "input_bytes": input_bytes,
+            "output_bytes": output_bytes,
+            "weight_bytes": weight_bytes,
+            "total_observed_bytes": sum(byte_values) if byte_values else PLAN_NOT_AVAILABLE,
+            "row_counter_context": row_counters,
+            "conv_plan_counters": plan_counters,
+            "pointwise_conv_route_counters": pointwise_counters,
+        },
+        "prepack_upload": {
+            "weight_packed": bool_field(fields, "weight_packed"),
+            "conv_prepack_upload_submits": row_counters.get("conv_prepack_upload_submits", 0),
+        },
+        "cache_counters": common_plan_availability(),
+    }
+
+
+def normalize_linear_plan_evidence(
+    row_id: str,
+    model: dict[str, Any],
+    row: str,
+    plan_counters: dict[str, int],
+    row_counters: dict[str, Any],
+) -> dict[str, Any]:
+    fields = key_value_fields(row)
+    count = int_field(fields, "count")
+    input_bytes = int_field(fields, "input_bytes")
+    output_bytes = int_field(fields, "output_bytes")
+    weight_bytes = int_field(fields, "weight_bytes")
+    byte_values = [
+        value for value in (input_bytes, output_bytes, weight_bytes) if isinstance(value, int)
+    ]
+    return {
+        "schema_version": 0,
+        "source_row": row_id,
+        "source_model": model,
+        "source_kind": "linear_aggregate_snapshot",
+        "op_family": "linear",
+        "contract_name": PLAN_NOT_AVAILABLE,
+        "candidate_contract_family": infer_linear_candidate_contract(fields),
+        "plan_key": linear_plan_key(fields),
+        "selected_route": fields.get("submit_kernel") or PLAN_NOT_AVAILABLE,
+        "plan_label": fields.get("kernel") or PLAN_NOT_AVAILABLE,
+        "route_label": fields.get("role") or PLAN_NOT_AVAILABLE,
+        "reject_reason": PLAN_NOT_AVAILABLE,
+        "shapes": {
+            "m": int_field(fields, "m"),
+            "k": int_field(fields, "k"),
+            "n": int_field(fields, "n"),
+        },
+        "attrs": {
+            "bias": bool_field(fields, "bias"),
+            "post_op": int_field(fields, "post_op"),
+            "input_dtype": int_field(fields, "input_dtype"),
+            "weight_dtype": int_field(fields, "weight_dtype"),
+            "bias_dtype": int_field(fields, "bias_dtype"),
+            "output_dtype": int_field(fields, "output_dtype"),
+        },
+        "layout": {
+            "input_direct": bool_field(fields, "input_direct"),
+            "output_direct": bool_field(fields, "output_direct"),
+            "weight_packed": bool_field(fields, "weight_packed"),
+            "input_offset": int_field(fields, "input_offset"),
+            "weight_offset": int_field(fields, "weight_offset"),
+            "output_offset": int_field(fields, "output_offset"),
+        },
+        "evidence_counters": {
+            "dispatch_count": count,
+            "input_bytes": input_bytes,
+            "output_bytes": output_bytes,
+            "weight_bytes": weight_bytes,
+            "total_observed_bytes": sum(byte_values) if byte_values else PLAN_NOT_AVAILABLE,
+            "row_counter_context": row_counters,
+            "linear_plan_counters": plan_counters,
+        },
+        "prepack_upload": {
+            "weight_packed": bool_field(fields, "weight_packed"),
+            "linear_prepack_upload_submits": PLAN_NOT_AVAILABLE,
+        },
+        "cache_counters": common_plan_availability(),
+    }
+
+
+def summarize_execution_plan_evidence(
+    result: dict[str, Any] | None,
+    row_id: str,
+    model: dict[str, Any],
+    phases: dict[str, Any],
+) -> dict[str, Any]:
+    total_delta = phase_delta_by_name(result, "total")
+    row_counters = row_counter_context(phases)
+    conv_plan_counters = named_counter_snapshot(
+        list_counter_field(total_delta, "conv_plan_counters"),
+        CONV_PLAN_COUNTER_FIELDS,
+    )
+    pointwise_counters = named_counter_snapshot(
+        list_counter_field(total_delta, "pointwise_conv_route_counters"),
+        POINTWISE_CONV_ROUTE_COUNTER_FIELDS,
+    )
+    linear_plan_counters = named_counter_snapshot(
+        list_counter_field(total_delta, "linear_plan_counters"),
+        LINEAR_PLAN_COUNTER_FIELDS,
+    )
+    conv_rows = [
+        normalize_conv_plan_evidence(
+            row_id,
+            model,
+            str(row),
+            conv_plan_counters,
+            pointwise_counters,
+            row_counters,
+        )
+        for row in list_counter_field(total_delta, "conv_aggregate_snapshot")
+    ]
+    linear_rows = [
+        normalize_linear_plan_evidence(
+            row_id,
+            model,
+            str(row),
+            linear_plan_counters,
+            row_counters,
+        )
+        for row in list_counter_field(total_delta, "linear_aggregate_snapshot")
+    ]
+    pointwise_summary: dict[str, Any] = {}
+    if any(pointwise_counters.values()):
+        pointwise_summary = {
+            "schema_version": 0,
+            "source_row": row_id,
+            "source_model": model,
+            "source_kind": "pointwise_conv_route_counters",
+            "op_family": "pointwise_conv",
+            "contract_name": "SmallSpatialPointwiseConvContract",
+            "plan_key": "pointwise_conv_route_counters",
+            "selected_route": "counter_snapshot",
+            "evidence_counters": {
+                "pointwise_conv_route_counters": pointwise_counters,
+                "conv_plan_counters": conv_plan_counters,
+                "row_counter_context": row_counters,
+            },
+            "cache_counters": common_plan_availability(),
+        }
+    all_rows = conv_rows + linear_rows
+    top_rows = sorted(
+        all_rows,
+        key=lambda item: (
+            -int_value(item["evidence_counters"].get("dispatch_count")),
+            -int_value(item["evidence_counters"].get("total_observed_bytes")),
+            item["plan_key"],
+        ),
+    )[:20]
+    return {
+        "schema_version": 0,
+        "scope": "collector_only_existing_counter_snapshots",
+        "behavior_change": False,
+        "summary": {
+            "conv_plan_rows": len(conv_rows),
+            "linear_plan_rows": len(linear_rows),
+            "pointwise_counter_rows": 1 if pointwise_summary else 0,
+            "top_plan_rows": len(top_rows),
+        },
+        "plan_counters": {
+            "conv": conv_plan_counters,
+            "pointwise_conv": pointwise_counters,
+            "linear": linear_plan_counters,
+        },
+        "pointwise_summary": pointwise_summary,
+        "top_plan_rows": top_rows,
+    }
+
+
 def embedded_region_lifetime_summary(result: dict[str, Any] | None) -> dict[str, Any] | None:
     total_delta = phase_delta_by_name(result, "total")
     if not total_delta:
@@ -788,12 +1165,6 @@ def build_row(
         missing_artifacts,
         result,
     )
-    model_suite_evidence = summarize_model_suite_evidence(
-        result,
-        row_cfg,
-        result_path,
-        missing_artifacts,
-    )
     op_contracts = route_contract_summary(matrix_row)
     status = status_from_result(
         matrix_row or result,
@@ -818,6 +1189,18 @@ def build_row(
         model.setdefault("input_path", matrix_row.get("input"))
         model.setdefault("variant", matrix_row.get("model"))
         model.setdefault("resolution_or_shape", matrix_row.get("resolution"))
+    model_suite_evidence = summarize_model_suite_evidence(
+        result,
+        row_cfg,
+        result_path,
+        missing_artifacts,
+    )
+    execution_plan_evidence = summarize_execution_plan_evidence(
+        result,
+        row_cfg["row_id"],
+        model,
+        phases,
+    )
 
     blockers = []
     if status != "ok":
@@ -859,6 +1242,7 @@ def build_row(
             "missing_artifacts": missing_artifacts,
             "device_info": (result or {}).get("device_info") or {},
             "model_suite_evidence": model_suite_evidence,
+            "execution_plan_evidence": execution_plan_evidence,
         },
         "timings": timing_summary(result, matrix_row),
         "phase_counters": phases,
@@ -939,6 +1323,7 @@ def aggregate_rows(
                 1 for row in rows if row["budgets"]["cpu_fallback"]["status"] == "fail"
             )
         },
+        "execution_plan_evidence": aggregate_execution_plan_evidence(rows),
         "recommendations": recommendations,
     }
 
@@ -963,6 +1348,69 @@ def validate_artifact_shape(artifact: dict[str, Any]) -> None:
                 raise ValueError(f"{row.get('row_id', '<unknown>')} missing {key}")
 
 
+def aggregate_execution_plan_evidence(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    source_family_rows = Counter()
+    family_rows = Counter()
+    family_dispatches = Counter()
+    plan_clusters: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        evidence = row["environment"].get("execution_plan_evidence") or {}
+        summary = evidence.get("summary") or {}
+        source_family_rows["conv2d"] += int(summary.get("conv_plan_rows") or 0)
+        source_family_rows["linear"] += int(summary.get("linear_plan_rows") or 0)
+        source_family_rows["pointwise_conv"] += int(
+            summary.get("pointwise_counter_rows") or 0
+        )
+        for item in evidence.get("top_plan_rows") or []:
+            family = item.get("op_family") or "unknown"
+            dispatch_count = int_value(
+                (item.get("evidence_counters") or {}).get("dispatch_count")
+            )
+            bytes_count = int_value(
+                (item.get("evidence_counters") or {}).get("total_observed_bytes")
+            )
+            family_rows[family] += 1
+            family_dispatches[family] += dispatch_count
+            key = item.get("plan_key") or "unknown"
+            cluster = plan_clusters.setdefault(
+                key,
+                {
+                    "plan_key": key,
+                    "op_family": family,
+                    "selected_route": item.get("selected_route") or PLAN_NOT_AVAILABLE,
+                    "plan_label": item.get("plan_label") or PLAN_NOT_AVAILABLE,
+                    "route_label": item.get("route_label") or PLAN_NOT_AVAILABLE,
+                    "contract_name": item.get("contract_name") or PLAN_NOT_AVAILABLE,
+                    "candidate_contract_family": item.get("candidate_contract_family")
+                    or PLAN_NOT_AVAILABLE,
+                    "rows": [],
+                    "dispatch_count": 0,
+                    "total_observed_bytes": 0,
+                },
+            )
+            cluster["dispatch_count"] += dispatch_count
+            cluster["total_observed_bytes"] += bytes_count
+            cluster["rows"].append(row["row_id"])
+    top_clusters = sorted(
+        plan_clusters.values(),
+        key=lambda item: (
+            -int_value(item.get("dispatch_count")),
+            -int_value(item.get("total_observed_bytes")),
+            item.get("plan_key") or "",
+        ),
+    )[:20]
+    for cluster in top_clusters:
+        cluster["rows"] = sorted(set(cluster["rows"]))
+    return {
+        "schema_version": 0,
+        "behavior_change": False,
+        "source_plan_rows_by_family": dict(sorted(source_family_rows.items())),
+        "top_plan_rows_by_family": dict(sorted(family_rows.items())),
+        "dispatches_by_family": dict(sorted(family_dispatches.items())),
+        "top_plan_key_clusters": top_clusters,
+    }
+
+
 def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
     lines = [
         "# Five-Model Contract Validation Demo",
@@ -976,8 +1424,8 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
         "## Rows",
         "",
         "| row | status | timing valid | op contracts | transition contracts | "
-        "model-suite evidence | lifetime evidence | unknown transition reasons | missing artifacts |",
-        "|---|---|---:|---|---|---|---|---:|---:|",
+        "model-suite evidence | execution plans | lifetime evidence | unknown transition reasons | missing artifacts |",
+        "|---|---|---:|---|---|---|---|---|---:|---:|",
     ]
     for row in artifact["rows"]:
         op_contracts = ", ".join(
@@ -996,6 +1444,16 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
                 sidecars=(evidence.get("sidecars") or {}).get("present_count", 0),
             )
         )
+        plan_evidence = row["environment"].get("execution_plan_evidence") or {}
+        plan_summary = (
+            "conv:{conv} linear:{linear} pointwise:{pointwise}".format(
+                conv=(plan_evidence.get("summary") or {}).get("conv_plan_rows", 0),
+                linear=(plan_evidence.get("summary") or {}).get("linear_plan_rows", 0),
+                pointwise=(plan_evidence.get("summary") or {}).get(
+                    "pointwise_counter_rows", 0
+                ),
+            )
+        )
         lifetime_summary = (
             "dry:{dry} blockers:{blockers} retired:{retired}".format(
                 dry=row["region_lifetime"].get(
@@ -1006,18 +1464,50 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
             )
         )
         lines.append(
-            "| `{}` | `{}` | {} | {} | {} | {} | {} | {} | {} |".format(
+            "| `{}` | `{}` | {} | {} | {} | {} | {} | {} | {} | {} |".format(
                 row["row_id"],
                 row["status"],
                 "yes" if row["timing_valid"] else "no",
                 op_contracts,
                 transition_contracts,
                 suite_summary,
+                plan_summary,
                 lifetime_summary,
                 row["unknowns"]["unknown_transition_reasons"],
                 len(row["environment"].get("missing_artifacts") or []),
             )
         )
+    lines.extend(
+        [
+            "",
+            "## Top Execution Plan Evidence",
+            "",
+            "| family | dispatches | bytes | selected route | plan label | candidate contract | rows |",
+            "|---|---:|---:|---|---|---|---|",
+        ]
+    )
+    top_plans = (
+        (artifact["aggregate"].get("execution_plan_evidence") or {}).get(
+            "top_plan_key_clusters"
+        )
+        or []
+    )
+    if top_plans:
+        for plan in top_plans[:10]:
+            rows = ", ".join(f"`{row}`" for row in plan.get("rows") or [])
+            lines.append(
+                "| {} | {} | {} | `{}` | `{}` | `{}` | {} |".format(
+                    plan.get("op_family") or "unknown",
+                    plan.get("dispatch_count") or 0,
+                    plan.get("total_observed_bytes") or 0,
+                    plan.get("selected_route") or PLAN_NOT_AVAILABLE,
+                    plan.get("plan_label") or PLAN_NOT_AVAILABLE,
+                    plan.get("candidate_contract_family") or PLAN_NOT_AVAILABLE,
+                    rows or "-",
+                )
+            )
+    else:
+        lines.append("| - | 0 | 0 | - | - | - | - |")
     lines.extend(
         [
             "",
@@ -1354,6 +1844,96 @@ def validate_model_suite_ingestion() -> None:
     print("validated model-suite collector ingestion")
 
 
+def validate_execution_plan_evidence() -> None:
+    delta = {
+        "cpu_fallback_count": 0,
+        "sync_readback_count": 0,
+        "buffer_copy_counters": [2, 2048, 1, 1, 0],
+        "submit_origin_counters": [7, 1, 0, 0, 0, 0, 3, 0, 1, 0, 0, 0, 0, 2],
+        "retire_drain_counters": [1, 1, 0, 0, 0, 0],
+        "conv_plan_counters": [4, 2, 0, 0, 0, 0, 0],
+        "pointwise_conv_route_counters": [2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        "linear_plan_counters": [5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5],
+        "conv_aggregate_snapshot": [
+            (
+                "conv_aggregate selected=FloatBufferConv reject=None "
+                "kernel=conv2d_buffer_float role=other_pointwise_1x1 "
+                "input=[1,16,8,8] output_channels=32 weight=[32,16,1,1] "
+                "stride=[1,1] padding=[0,0] dilation=[1,1] groups=1 "
+                "input_direct=1 output_direct=1 weight_packed=1 bias=1 "
+                "pointwise=1 depthwise=0 sliding_window=0 input_bytes=4096 "
+                "output_bytes=8192 weight_bytes=2048 count=2"
+            )
+        ],
+        "linear_aggregate_snapshot": [
+            (
+                "linear_aggregate role=fc1_gelu kernel=mm_buffer_float_gelu "
+                "submit_kernel=aten::linear.buffer_float_bias_gelu label=test.fc1 "
+                "m=64 k=16 n=64 input_dtype=6 weight_dtype=6 bias_dtype=6 "
+                "output_dtype=6 post_op=1 bias=1 input_direct=1 output_direct=1 "
+                "weight_packed=1 input_offset=0 weight_offset=0 output_offset=0 "
+                "input_bytes=4096 weight_bytes=4096 output_bytes=16384 count=5"
+            )
+        ],
+    }
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        result_path = Path(tmp_dir) / "result.json"
+        write_json(
+            result_path,
+            {
+                "records": [
+                    {
+                        "status": "ok",
+                        "task": "plan_evidence_self_test",
+                        "model_name": "example",
+                        "model_id": "example_model",
+                        "backend": "vulkan",
+                        "device": "vulkan:0",
+                        "device_index": 0,
+                        "timings": {"timed_forward": {"mean_s": 1.0}},
+                        "counters": {
+                            "vulkan_phase_counters": {
+                                "phases": [{"name": "timed_forward", "delta": delta}],
+                                "total": {"name": "total", "delta": delta},
+                            }
+                        },
+                    }
+                ]
+            },
+        )
+        row = build_row({"row_id": "plan_self_test", "result_json": str(result_path)}, {})
+        aggregate = aggregate_rows([row], {})
+
+    evidence = row["environment"]["execution_plan_evidence"]
+    if evidence["summary"]["conv_plan_rows"] != 1:
+        raise AssertionError("conv execution plan evidence was not normalized")
+    if evidence["summary"]["linear_plan_rows"] != 1:
+        raise AssertionError("linear execution plan evidence was not normalized")
+    if evidence["summary"]["pointwise_counter_rows"] != 1:
+        raise AssertionError("pointwise route counter evidence was not normalized")
+    conv_rows = [
+        item for item in evidence["top_plan_rows"] if item["op_family"] == "conv2d"
+    ]
+    if not conv_rows:
+        raise AssertionError("conv evidence row missing")
+    conv_row = conv_rows[0]
+    if conv_row["shapes"]["input"] != [1, 16, 8, 8]:
+        raise AssertionError("conv input shape was not parsed")
+    if conv_row["evidence_counters"]["conv_plan_counters"]["pointwise_1x1_hit"] != 2:
+        raise AssertionError("conv plan counters were not named")
+    linear_rows = [
+        item for item in evidence["top_plan_rows"] if item["op_family"] == "linear"
+    ]
+    if not linear_rows:
+        raise AssertionError("linear evidence row missing")
+    if linear_rows[0]["candidate_contract_family"] != "LinearGeluBridgeContract":
+        raise AssertionError("linear candidate contract family was not inferred")
+    aggregate_plans = aggregate["execution_plan_evidence"]["top_plan_key_clusters"]
+    if not aggregate_plans:
+        raise AssertionError("aggregate plan-key clusters were not emitted")
+    print("validated execution plan evidence")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Normalize Vulkan benchmark outputs into the five-model contract validation schema."
@@ -1373,6 +1953,11 @@ def main() -> None:
         action="store_true",
         help="Validate benchmark_model_suite wrapper and sidecar ingestion.",
     )
+    parser.add_argument(
+        "--validate-execution-plan-evidence",
+        action="store_true",
+        help="Validate normalized conv/linear/pointwise execution plan evidence.",
+    )
     args = parser.parse_args()
 
     if args.validate_transition_contract_classification:
@@ -1380,6 +1965,9 @@ def main() -> None:
         return
     if args.validate_model_suite_ingestion:
         validate_model_suite_ingestion()
+        return
+    if args.validate_execution_plan_evidence:
+        validate_execution_plan_evidence()
         return
 
     if not args.config or not args.output_json:

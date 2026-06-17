@@ -502,6 +502,34 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
 
+    def test_vulkan_five_model_collector_emits_execution_plan_evidence(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "scripts",
+                    "benchmarks",
+                    "five_model_contract_validation_collector.py",
+                ),
+                "--validate-execution-plan-evidence",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            msg=f"stdout={result.stdout}\nstderr={result.stderr}",
+        )
+        self.assertIn(
+            "validated execution plan evidence",
+            result.stdout,
+        )
+
     def test_vulkan_shape_envelope_v1_specs_validate(self):
         expected_roles = {
             "attention_probability_materialization_contract.json": (

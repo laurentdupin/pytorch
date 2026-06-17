@@ -163,6 +163,16 @@ submit policy, fallback, readback, materialization, layout repack, or route
 legality. The current DAv2 transition-reason census has no observed
 transition reason bucket left without a source-of-truth spec.
 
+The five-model validation collector now also emits
+`execution_plan_evidence` v0 for existing conv, pointwise-conv, and linear
+model-suite counter snapshots. This normalizes observed plan-key-like fields
+such as selected route/kernel labels, shapes, convolution attrs, linear
+dimensions, direct-buffer/packed-weight flags, prepack/upload submit counters,
+copy/readback/submit/retire context, and current plan/route counter arrays.
+The evidence is reporting-only: it is not a plan cache, not an optimizer, and
+does not change route selection, shader selection, fallback/readback behavior,
+or accepted shapes.
+
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor
 CPU readbacks classified separately and applies the tiny-old-path pending
