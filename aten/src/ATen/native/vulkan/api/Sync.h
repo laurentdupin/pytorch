@@ -410,6 +410,42 @@ struct VulkanStackRetireDrainBlockerCounters final {
   std::atomic<uint64_t> skipped_no_pending_command_work{0u};
 };
 
+constexpr uint64_t kStackSubresourceLifetimeDryRunBlockBudgetBytes =
+    4u * 1024u * 1024u;
+constexpr uint64_t kStackSubresourceLifetimeDryRunScopeBudgetBytes =
+    32u * 1024u * 1024u;
+
+struct VulkanStackSubresourceLifetimeDryRunCounters final {
+  std::atomic<uint64_t> total_groups{0u};
+  std::atomic<uint64_t> queue_submit_groups{0u};
+  std::atomic<uint64_t> groups_with_old_path_pending{0u};
+  std::atomic<uint64_t> all_safe_group_eligible{0u};
+  std::atomic<uint64_t> would_remove_submit_drains{0u};
+  std::atomic<uint64_t> actual_removed_submit_drains{0u};
+  std::atomic<uint64_t> peak_extra_live_bytes_estimate{0u};
+  std::atomic<uint64_t> skipped_no_old_path_pending{0u};
+  std::atomic<uint64_t> proven_stack_activation_count{0u};
+  std::atomic<uint64_t> missing_stack_activation_proof_count{0u};
+  std::atomic<uint64_t> attention_subresource_count{0u};
+  std::atomic<uint64_t> layernorm_stat_buffer_count{0u};
+  std::atomic<uint64_t> metadata_uniform_count{0u};
+  std::atomic<uint64_t> raw_no_provenance_count{0u};
+  std::atomic<uint64_t> host_visible_or_requested_output_count{0u};
+  std::atomic<uint64_t> allocator_or_scratch_backing_count{0u};
+  std::atomic<uint64_t> proven_stack_activation_bytes{0u};
+  std::atomic<uint64_t> missing_stack_activation_proof_bytes{0u};
+  std::atomic<uint64_t> attention_subresource_bytes{0u};
+  std::atomic<uint64_t> layernorm_stat_buffer_bytes{0u};
+  std::atomic<uint64_t> metadata_uniform_bytes{0u};
+  std::atomic<uint64_t> raw_no_provenance_bytes{0u};
+  std::atomic<uint64_t> host_visible_or_requested_output_bytes{0u};
+  std::atomic<uint64_t> allocator_or_scratch_backing_bytes{0u};
+  std::atomic<uint64_t> rejected_unsafe_resource_class{0u};
+  std::atomic<uint64_t> rejected_over_block_budget{0u};
+  std::atomic<uint64_t> rejected_over_scope_budget{0u};
+  std::atomic<uint64_t> rejected_large_backing{0u};
+};
+
 class VulkanSubmitPhaseScope final {
  public:
   explicit VulkanSubmitPhaseScope(VulkanSubmitPhase phase);
@@ -464,6 +500,13 @@ stack_retire_drain_blocker_counters();
 TORCH_API std::vector<int64_t> stack_retire_drain_blocker_counters_snapshot();
 TORCH_API std::vector<std::string> stack_retire_drain_blocker_snapshot();
 TORCH_API void reset_stack_retire_drain_blocker_counters();
+TORCH_API VulkanStackSubresourceLifetimeDryRunCounters&
+stack_subresource_lifetime_dry_run_counters();
+TORCH_API std::vector<int64_t>
+stack_subresource_lifetime_dry_run_counters_snapshot();
+TORCH_API std::vector<std::string>
+stack_subresource_lifetime_dry_run_snapshot();
+TORCH_API void reset_stack_subresource_lifetime_dry_run_counters();
 TORCH_API std::vector<std::string> stack_scratch_arena_lifetime_snapshot();
 TORCH_API void reset_stack_scratch_arena_lifetime_snapshot();
 TORCH_API const char* submit_origin_name(VulkanSubmitOrigin origin);
@@ -539,6 +582,41 @@ TORCH_API void note_stack_retire_drain_copresent_group(
     uint64_t qkv_hypothetical_count,
     bool qkv_would_remove_drain,
     bool skipped_no_old_path_pending,
+    const std::string& signature,
+    const std::string& blockers);
+TORCH_API const char* stack_subresource_lifetime_dry_run_resource_class(
+    VulkanRetiredResourceKind kind,
+    VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance,
+    bool qkv_would_batch);
+TORCH_API bool stack_subresource_lifetime_dry_run_resource_is_safe(
+    const char* resource_class);
+TORCH_API bool stack_subresource_lifetime_dry_run_is_large_backing(
+    VulkanRetiredResourceRole role,
+    uint64_t bytes,
+    const VulkanStackRetireProvenance& provenance);
+TORCH_API void note_stack_subresource_lifetime_dry_run_resource(
+    VulkanRetiredResourceKind kind,
+    VulkanRetiredResourceRole role,
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    uint64_t bytes,
+    const char* resource_class,
+    bool safe_candidate,
+    bool large_backing,
+    const VulkanStackRetireProvenance& provenance);
+TORCH_API void note_stack_subresource_lifetime_dry_run_group(
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    bool queue_submit,
+    uint64_t old_path_pending_count,
+    uint64_t old_path_pending_bytes,
+    uint64_t safe_candidate_count,
+    uint64_t safe_candidate_bytes,
+    bool all_safe_group_eligible,
+    bool would_remove_submit_drain,
+    bool actual_removed_submit_drain,
+    const std::string& budget_reject,
     const std::string& signature,
     const std::string& blockers);
 TORCH_API VulkanSubmitPhase current_submit_phase();

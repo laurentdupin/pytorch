@@ -1056,10 +1056,22 @@ void Context::submit_pending_work_and_poll_retire(
   std::set<std::string> copresent_blockers;
   const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
   const VulkanSubmitPhase phase = current_submit_phase();
+  const bool record_subresource_lifetime_dry_run =
+      phase == VulkanSubmitPhase::StackOwner &&
+      callsite == VulkanRetireCallSite::StackOwnerNorm2;
+  uint64_t dry_run_safe_candidate_count = 0u;
+  uint64_t dry_run_safe_candidate_bytes = 0u;
+  bool dry_run_has_large_backing = false;
+  std::map<std::string, std::pair<uint64_t, uint64_t>>
+      dry_run_resource_classes;
+  std::set<std::string> dry_run_blockers;
   const auto inspect_pending_resource =
       [&](const auto& pending) {
         const bool qkv_would_batch =
             is_qkv_stack_temp_retire_batch_candidate(pending.stack_provenance);
+        const VulkanRetireCallSite effective_callsite =
+            pending.callsite == VulkanRetireCallSite::Unknown ? callsite
+                                                              : pending.callsite;
         const char* const blocker_reason =
             stack_retire_drain_blocker_reason(
                 pending.kind,
@@ -1117,11 +1129,47 @@ void Context::submit_pending_work_and_poll_retire(
             pending.kind,
             pending.role,
             pending.phase,
-            pending.callsite == VulkanRetireCallSite::Unknown ? callsite
-                                                              : pending.callsite,
+            effective_callsite,
             pending.bytes,
             qkv_would_batch,
             pending.stack_provenance);
+        if (record_subresource_lifetime_dry_run) {
+          const char* const resource_class =
+              stack_subresource_lifetime_dry_run_resource_class(
+                  pending.kind,
+                  pending.role,
+                  pending.stack_provenance,
+                  qkv_would_batch);
+          const bool safe_candidate =
+              stack_subresource_lifetime_dry_run_resource_is_safe(
+                  resource_class);
+          const bool large_backing =
+              stack_subresource_lifetime_dry_run_is_large_backing(
+                  pending.role, pending.bytes, pending.stack_provenance);
+          auto& class_value = dry_run_resource_classes[resource_class];
+          class_value.first += 1u;
+          class_value.second += pending.bytes;
+          if (safe_candidate && !large_backing) {
+            dry_run_safe_candidate_count++;
+            dry_run_safe_candidate_bytes += pending.bytes;
+          } else {
+            dry_run_blockers.insert(resource_class);
+          }
+          if (large_backing) {
+            dry_run_has_large_backing = true;
+            dry_run_blockers.insert("large_backing_excluded");
+          }
+          note_stack_subresource_lifetime_dry_run_resource(
+              pending.kind,
+              pending.role,
+              pending.phase,
+              effective_callsite,
+              pending.bytes,
+              resource_class,
+              safe_candidate,
+              large_backing,
+              pending.stack_provenance);
+        }
       };
   {
     std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
@@ -1209,6 +1257,60 @@ void Context::submit_pending_work_and_poll_retire(
       skipped_no_old_path_pending,
       copresent_signature.str(),
       blocker_signature.str());
+  if (record_subresource_lifetime_dry_run) {
+    std::ostringstream dry_run_signature;
+    for (const auto& entry : dry_run_resource_classes) {
+      if (dry_run_signature.tellp() > 0) {
+        dry_run_signature << ",";
+      }
+      dry_run_signature << entry.first << "#" << entry.second.first << "#"
+                        << entry.second.second;
+    }
+    std::ostringstream dry_run_blocker_signature;
+    for (const auto& blocker : dry_run_blockers) {
+      if (dry_run_blocker_signature.tellp() > 0) {
+        dry_run_blocker_signature << ",";
+      }
+      dry_run_blocker_signature << blocker;
+    }
+    std::string budget_reject = "none";
+    const bool all_safe_without_budget =
+        pending_resource_count > 0u &&
+        pending_resource_count == dry_run_safe_candidate_count &&
+        !dry_run_has_large_backing;
+    if (pending_resource_count == 0u) {
+      budget_reject = "no_old_path_pending";
+    } else if (dry_run_has_large_backing) {
+      budget_reject = "large_backing_excluded";
+    } else if (!all_safe_without_budget) {
+      budget_reject = "unsafe_resource_class";
+    } else if (
+        dry_run_safe_candidate_bytes >
+        kStackSubresourceLifetimeDryRunBlockBudgetBytes) {
+      budget_reject = "over_block_budget";
+    } else if (
+        dry_run_safe_candidate_bytes >
+        kStackSubresourceLifetimeDryRunScopeBudgetBytes) {
+      budget_reject = "over_scope_budget";
+    }
+    const bool all_safe_group_eligible = budget_reject == "none";
+    const bool would_remove_submit_drain =
+        all_safe_group_eligible && submitted_for_retire_drain;
+    note_stack_subresource_lifetime_dry_run_group(
+        phase,
+        callsite,
+        submitted_for_retire_drain,
+        pending_resource_count,
+        pending_bytes,
+        dry_run_safe_candidate_count,
+        dry_run_safe_candidate_bytes,
+        all_safe_group_eligible,
+        would_remove_submit_drain,
+        /*actual_removed_submit_drain=*/false,
+        budget_reject,
+        dry_run_signature.str(),
+        dry_run_blocker_signature.str());
+  }
   if (!had_pending_work) {
     std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
     for (const PendingRetireBuffer& pending : pending_retire_buffers_) {

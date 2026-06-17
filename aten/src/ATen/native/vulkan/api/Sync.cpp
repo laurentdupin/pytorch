@@ -255,6 +255,21 @@ struct StackScratchArenaLifetimeValue final {
   uint64_t poll_only_count = 0u;
 };
 
+constexpr const char* kDryRunProvenStackActivation =
+    "proven_stack_activation";
+constexpr const char* kDryRunMissingStackActivationProof =
+    "missing_stack_activation_proof";
+constexpr const char* kDryRunAttentionSubresource =
+    "attention_subresource";
+constexpr const char* kDryRunLayerNormStatBuffer =
+    "layernorm_stat_buffer";
+constexpr const char* kDryRunMetadataUniform = "metadata_uniform";
+constexpr const char* kDryRunRawNoProvenance = "raw_no_provenance";
+constexpr const char* kDryRunHostVisibleOrRequestedOutput =
+    "host_visible_or_requested_output";
+constexpr const char* kDryRunAllocatorOrScratchBacking =
+    "allocator_or_scratch_backing";
+
 bool stack_shapes_match(
     const std::vector<int64_t>& lhs,
     const std::vector<int64_t>& rhs) {
@@ -353,6 +368,12 @@ stack_internal_temp_retire_batch_counters() {
 VulkanStackRetireDrainBlockerCounters&
 stack_retire_drain_blocker_counters() {
   static VulkanStackRetireDrainBlockerCounters counters;
+  return counters;
+}
+
+VulkanStackSubresourceLifetimeDryRunCounters&
+stack_subresource_lifetime_dry_run_counters() {
+  static VulkanStackSubresourceLifetimeDryRunCounters counters;
   return counters;
 }
 
@@ -455,6 +476,103 @@ std::map<std::string, StackTempLifetimeSafetyValue>&
 stack_retire_drain_blockers() {
   static std::map<std::string, StackTempLifetimeSafetyValue> blockers;
   return blockers;
+}
+
+std::mutex& stack_subresource_lifetime_dry_run_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::map<std::string, StackTempLifetimeSafetyValue>&
+stack_subresource_lifetime_dry_run_rows() {
+  static std::map<std::string, StackTempLifetimeSafetyValue> rows;
+  return rows;
+}
+
+void update_peak_atomic(std::atomic<uint64_t>& value, const uint64_t candidate) {
+  uint64_t current = value.load(std::memory_order_relaxed);
+  while (
+      candidate > current &&
+      !value.compare_exchange_weak(
+          current, candidate, std::memory_order_relaxed)) {
+  }
+}
+
+bool is_metadata_or_uniform_resource(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role) {
+  switch (role) {
+    case VulkanRetiredResourceRole::NativeLayerNormUniform:
+    case VulkanRetiredResourceRole::NativeLayerNormMetadata:
+    case VulkanRetiredResourceRole::AttentionMetadata:
+    case VulkanRetiredResourceRole::LinearMetadata:
+    case VulkanRetiredResourceRole::ConvMetadata:
+    case VulkanRetiredResourceRole::ResidualAddMetadata:
+      return true;
+    default:
+      break;
+  }
+  return kind == VulkanRetiredResourceKind::UniformBuffer ||
+      kind == VulkanRetiredResourceKind::MetadataBuffer;
+}
+
+bool is_layernorm_stat_resource(
+    const VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance) {
+  if (
+      role != VulkanRetiredResourceRole::StackNorm1Output &&
+      role != VulkanRetiredResourceRole::StackNorm2Output) {
+    return false;
+  }
+  return provenance.shape.size() == 2u && provenance.shape.back() == 1;
+}
+
+void note_dry_run_resource_class(
+    VulkanStackSubresourceLifetimeDryRunCounters& counters,
+    const char* const resource_class,
+    const uint64_t bytes) {
+  const std::string key(resource_class);
+  if (key == kDryRunProvenStackActivation) {
+    counters.proven_stack_activation_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.proven_stack_activation_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  } else if (key == kDryRunMissingStackActivationProof) {
+    counters.missing_stack_activation_proof_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.missing_stack_activation_proof_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  } else if (key == kDryRunAttentionSubresource) {
+    counters.attention_subresource_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.attention_subresource_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  } else if (key == kDryRunLayerNormStatBuffer) {
+    counters.layernorm_stat_buffer_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.layernorm_stat_buffer_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  } else if (key == kDryRunMetadataUniform) {
+    counters.metadata_uniform_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.metadata_uniform_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  } else if (key == kDryRunRawNoProvenance) {
+    counters.raw_no_provenance_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.raw_no_provenance_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  } else if (key == kDryRunHostVisibleOrRequestedOutput) {
+    counters.host_visible_or_requested_output_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.host_visible_or_requested_output_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  } else if (key == kDryRunAllocatorOrScratchBacking) {
+    counters.allocator_or_scratch_backing_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.allocator_or_scratch_backing_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  }
 }
 
 bool has_proven_internal_stack_temp_lifetime(
@@ -836,6 +954,46 @@ void reset_stack_retire_drain_blocker_counters() {
       0u, std::memory_order_relaxed);
   std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
   stack_retire_drain_blockers().clear();
+}
+
+void reset_stack_subresource_lifetime_dry_run_counters() {
+  auto& counters = stack_subresource_lifetime_dry_run_counters();
+  counters.total_groups.store(0u, std::memory_order_relaxed);
+  counters.queue_submit_groups.store(0u, std::memory_order_relaxed);
+  counters.groups_with_old_path_pending.store(0u, std::memory_order_relaxed);
+  counters.all_safe_group_eligible.store(0u, std::memory_order_relaxed);
+  counters.would_remove_submit_drains.store(0u, std::memory_order_relaxed);
+  counters.actual_removed_submit_drains.store(0u, std::memory_order_relaxed);
+  counters.peak_extra_live_bytes_estimate.store(0u, std::memory_order_relaxed);
+  counters.skipped_no_old_path_pending.store(0u, std::memory_order_relaxed);
+  counters.proven_stack_activation_count.store(0u, std::memory_order_relaxed);
+  counters.missing_stack_activation_proof_count.store(
+      0u, std::memory_order_relaxed);
+  counters.attention_subresource_count.store(0u, std::memory_order_relaxed);
+  counters.layernorm_stat_buffer_count.store(0u, std::memory_order_relaxed);
+  counters.metadata_uniform_count.store(0u, std::memory_order_relaxed);
+  counters.raw_no_provenance_count.store(0u, std::memory_order_relaxed);
+  counters.host_visible_or_requested_output_count.store(
+      0u, std::memory_order_relaxed);
+  counters.allocator_or_scratch_backing_count.store(
+      0u, std::memory_order_relaxed);
+  counters.proven_stack_activation_bytes.store(0u, std::memory_order_relaxed);
+  counters.missing_stack_activation_proof_bytes.store(
+      0u, std::memory_order_relaxed);
+  counters.attention_subresource_bytes.store(0u, std::memory_order_relaxed);
+  counters.layernorm_stat_buffer_bytes.store(0u, std::memory_order_relaxed);
+  counters.metadata_uniform_bytes.store(0u, std::memory_order_relaxed);
+  counters.raw_no_provenance_bytes.store(0u, std::memory_order_relaxed);
+  counters.host_visible_or_requested_output_bytes.store(
+      0u, std::memory_order_relaxed);
+  counters.allocator_or_scratch_backing_bytes.store(
+      0u, std::memory_order_relaxed);
+  counters.rejected_unsafe_resource_class.store(0u, std::memory_order_relaxed);
+  counters.rejected_over_block_budget.store(0u, std::memory_order_relaxed);
+  counters.rejected_over_scope_budget.store(0u, std::memory_order_relaxed);
+  counters.rejected_large_backing.store(0u, std::memory_order_relaxed);
+  std::lock_guard<std::mutex> lock(stack_subresource_lifetime_dry_run_mutex());
+  stack_subresource_lifetime_dry_run_rows().clear();
 }
 
 void note_vulkan_queue_submit(VulkanSubmitOrigin origin) {
@@ -1637,6 +1795,105 @@ std::vector<std::string> stack_retire_drain_blocker_snapshot() {
   return rows;
 }
 
+std::vector<int64_t> stack_subresource_lifetime_dry_run_counters_snapshot() {
+  const auto& counters = stack_subresource_lifetime_dry_run_counters();
+  return {
+      static_cast<int64_t>(
+          counters.total_groups.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.queue_submit_groups.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.groups_with_old_path_pending.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.all_safe_group_eligible.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.would_remove_submit_drains.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.actual_removed_submit_drains.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.peak_extra_live_bytes_estimate.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.skipped_no_old_path_pending.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.proven_stack_activation_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.missing_stack_activation_proof_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.attention_subresource_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.layernorm_stat_buffer_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.metadata_uniform_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.raw_no_provenance_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.host_visible_or_requested_output_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.allocator_or_scratch_backing_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.proven_stack_activation_bytes.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.missing_stack_activation_proof_bytes.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.attention_subresource_bytes.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.layernorm_stat_buffer_bytes.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.metadata_uniform_bytes.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.raw_no_provenance_bytes.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.host_visible_or_requested_output_bytes.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.allocator_or_scratch_backing_bytes.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_unsafe_resource_class.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_over_block_budget.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_over_scope_budget.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.rejected_large_backing.load(std::memory_order_relaxed)),
+  };
+}
+
+std::vector<std::string> stack_subresource_lifetime_dry_run_snapshot() {
+  std::vector<std::string> rows;
+  std::lock_guard<std::mutex> lock(stack_subresource_lifetime_dry_run_mutex());
+  for (const auto& entry : stack_subresource_lifetime_dry_run_rows()) {
+    std::ostringstream stream;
+    stream << "stack_subresource_lifetime_dry_run " << entry.first
+           << " count=" << entry.second.count
+           << " bytes=" << entry.second.bytes
+           << " queue_submit=" << entry.second.queue_submit_count
+           << " blocking_wait=" << entry.second.blocking_wait_count
+           << " poll_only=" << entry.second.poll_only_count;
+    rows.emplace_back(stream.str());
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
 void note_vulkan_retire_drain(
     VulkanRetireDrainReason reason,
     VulkanRetireCallSite callsite,
@@ -1991,6 +2248,213 @@ void note_stack_retire_drain_copresent_group(
       << " signature=" << signature;
   std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
   auto& value = stack_retire_drain_blockers()[key.str()];
+  value.count += 1u;
+  value.bytes += old_path_pending_bytes;
+  if (queue_submit) {
+    value.queue_submit_count += 1u;
+  } else {
+    value.poll_only_count += 1u;
+  }
+}
+
+const char* stack_subresource_lifetime_dry_run_resource_class(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance,
+    const bool qkv_would_batch) {
+  if (
+      role == VulkanRetiredResourceRole::StackRequestedOutput ||
+      role == VulkanRetiredResourceRole::StackFinalOutput ||
+      provenance.requested_intermediate || provenance.escapes_stack ||
+      provenance.final_output || provenance.aliases_runtime_input ||
+      provenance.aliases_runtime_output) {
+    return kDryRunHostVisibleOrRequestedOutput;
+  }
+  if (is_metadata_or_uniform_resource(kind, role)) {
+    return kDryRunMetadataUniform;
+  }
+  if (is_layernorm_stat_resource(role, provenance)) {
+    return kDryRunLayerNormStatBuffer;
+  }
+  if (
+      provenance.defined &&
+      provenance.source ==
+          VulkanStackRetireProvenanceSource::
+              ProgramScratchArenaBackingStorage) {
+    return kDryRunAllocatorOrScratchBacking;
+  }
+  switch (role) {
+    case VulkanRetiredResourceRole::StackQView:
+    case VulkanRetiredResourceRole::StackKView:
+    case VulkanRetiredResourceRole::StackVView:
+    case VulkanRetiredResourceRole::StackAttentionOutput:
+      return has_proven_internal_stack_temp_lifetime(provenance)
+          ? kDryRunProvenStackActivation
+          : kDryRunAttentionSubresource;
+    default:
+      break;
+  }
+  if (qkv_would_batch || has_proven_internal_stack_temp_lifetime(provenance)) {
+    return kDryRunProvenStackActivation;
+  }
+  if (!provenance.defined) {
+    return kDryRunRawNoProvenance;
+  }
+  if (is_stack_temp_role(role)) {
+    return kDryRunMissingStackActivationProof;
+  }
+  return kDryRunRawNoProvenance;
+}
+
+bool stack_subresource_lifetime_dry_run_resource_is_safe(
+    const char* const resource_class) {
+  const std::string key(resource_class);
+  return key == kDryRunProvenStackActivation ||
+      key == kDryRunMetadataUniform;
+}
+
+bool stack_subresource_lifetime_dry_run_is_large_backing(
+    const VulkanRetiredResourceRole role,
+    const uint64_t bytes,
+    const VulkanStackRetireProvenance& provenance) {
+  if (
+      provenance.defined &&
+      provenance.source ==
+          VulkanStackRetireProvenanceSource::
+              ProgramScratchArenaBackingStorage) {
+    return true;
+  }
+  return (
+      role == VulkanRetiredResourceRole::StackQkvOutput ||
+      role == VulkanRetiredResourceRole::StackProjOutput) &&
+      bytes > kStackSubresourceLifetimeDryRunBlockBudgetBytes;
+}
+
+void note_stack_subresource_lifetime_dry_run_resource(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const uint64_t bytes,
+    const char* const resource_class,
+    const bool safe_candidate,
+    const bool large_backing,
+    const VulkanStackRetireProvenance& provenance) {
+  auto& counters = stack_subresource_lifetime_dry_run_counters();
+  note_dry_run_resource_class(counters, resource_class, bytes);
+
+  std::ostringstream key;
+  key << "resource=1 class=" << resource_class
+      << " safe_candidate=" << (safe_candidate ? 1 : 0)
+      << " large_backing=" << (large_backing ? 1 : 0)
+      << " kind=" << retired_resource_kind_name(kind)
+      << " role=" << retired_resource_role_name(role)
+      << " phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " stack_phase=" << vision_stack_phase_name(provenance.phase)
+      << " block=" << provenance.block_index
+      << " lifetime=" << stack_tensor_lifetime_name(provenance.lifetime)
+      << " shape=" << format_sizes(provenance.shape)
+      << " dtype=" << provenance.dtype
+      << " stack_provenance=" << (provenance.defined ? 1 : 0)
+      << " last_use_proof=" << (provenance.has_last_use_proof ? 1 : 0)
+      << " expected_consumer_phase="
+      << vision_stack_phase_name(provenance.expected_consumer_phase)
+      << " expected_consumer_block="
+      << provenance.expected_consumer_block_index
+      << " final_consumer_before_stack_submit="
+      << (provenance.final_consumer_before_stack_submit ? 1 : 0)
+      << " internal_non_escaping="
+      << (provenance.internal_non_escaping ? 1 : 0)
+      << " requested_intermediate="
+      << (provenance.requested_intermediate ? 1 : 0)
+      << " final_output=" << (provenance.final_output ? 1 : 0)
+      << " alias_or_view=" << (provenance.alias_or_view ? 1 : 0)
+      << " provenance_source="
+      << stack_retire_provenance_source_name(provenance.source)
+      << " provenance_loss_reason="
+      << stack_provenance_loss_reason(role, provenance);
+  std::lock_guard<std::mutex> lock(stack_subresource_lifetime_dry_run_mutex());
+  auto& value = stack_subresource_lifetime_dry_run_rows()[key.str()];
+  value.count += 1u;
+  value.bytes += bytes;
+}
+
+void note_stack_subresource_lifetime_dry_run_group(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const bool queue_submit,
+    const uint64_t old_path_pending_count,
+    const uint64_t old_path_pending_bytes,
+    const uint64_t safe_candidate_count,
+    const uint64_t safe_candidate_bytes,
+    const bool all_safe_group_eligible,
+    const bool would_remove_submit_drain,
+    const bool actual_removed_submit_drain,
+    const std::string& budget_reject,
+    const std::string& signature,
+    const std::string& blockers) {
+  auto& counters = stack_subresource_lifetime_dry_run_counters();
+  counters.total_groups.fetch_add(1u, std::memory_order_relaxed);
+  if (queue_submit) {
+    counters.queue_submit_groups.fetch_add(1u, std::memory_order_relaxed);
+  }
+  if (old_path_pending_count > 0u) {
+    counters.groups_with_old_path_pending.fetch_add(
+        1u, std::memory_order_relaxed);
+  } else {
+    counters.skipped_no_old_path_pending.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (all_safe_group_eligible) {
+    counters.all_safe_group_eligible.fetch_add(1u, std::memory_order_relaxed);
+  }
+  if (would_remove_submit_drain) {
+    counters.would_remove_submit_drains.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (actual_removed_submit_drain) {
+    counters.actual_removed_submit_drains.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  update_peak_atomic(
+      counters.peak_extra_live_bytes_estimate, safe_candidate_bytes);
+
+  if (budget_reject == "unsafe_resource_class") {
+    counters.rejected_unsafe_resource_class.fetch_add(
+        1u, std::memory_order_relaxed);
+  } else if (budget_reject == "over_block_budget") {
+    counters.rejected_over_block_budget.fetch_add(
+        1u, std::memory_order_relaxed);
+  } else if (budget_reject == "over_scope_budget") {
+    counters.rejected_over_scope_budget.fetch_add(
+        1u, std::memory_order_relaxed);
+  } else if (budget_reject == "large_backing_excluded") {
+    counters.rejected_large_backing.fetch_add(1u, std::memory_order_relaxed);
+  }
+
+  std::ostringstream key;
+  key << "group=1 phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " queue_submit=" << (queue_submit ? 1 : 0)
+      << " old_path_pending=" << old_path_pending_count
+      << " safe_candidate_count=" << safe_candidate_count
+      << " safe_candidate_bytes=" << safe_candidate_bytes
+      << " all_safe_group_eligible=" << (all_safe_group_eligible ? 1 : 0)
+      << " would_remove_submit_drain="
+      << (would_remove_submit_drain ? 1 : 0)
+      << " actual_removed_submit_drain="
+      << (actual_removed_submit_drain ? 1 : 0)
+      << " peak_extra_live_bytes_estimate=" << safe_candidate_bytes
+      << " block_budget_bytes="
+      << kStackSubresourceLifetimeDryRunBlockBudgetBytes
+      << " scope_budget_bytes="
+      << kStackSubresourceLifetimeDryRunScopeBudgetBytes
+      << " budget_reject=" << budget_reject
+      << " blockers=" << blockers
+      << " signature=" << signature;
+  std::lock_guard<std::mutex> lock(stack_subresource_lifetime_dry_run_mutex());
+  auto& value = stack_subresource_lifetime_dry_run_rows()[key.str()];
   value.count += 1u;
   value.bytes += old_path_pending_bytes;
   if (queue_submit) {

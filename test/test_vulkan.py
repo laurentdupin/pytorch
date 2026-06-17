@@ -18003,6 +18003,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         torch.ops.vulkan_prepack.reset_stack_temp_lifetime_safety_snapshot()
         torch.ops.vulkan_prepack.reset_stack_internal_temp_retire_batch_counters()
         torch.ops.vulkan_prepack.reset_stack_retire_drain_blocker_counters()
+        torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
         with torch.inference_mode():
             torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
                 x,
@@ -18020,6 +18021,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         blocker = torch.ops.vulkan_prepack.stack_retire_drain_blocker_snapshot()
         blocker_counters = (
             torch.ops.vulkan_prepack.stack_retire_drain_blocker_counters()
+        )
+        dry_run = torch.ops.vulkan_prepack.stack_subresource_lifetime_dry_run_snapshot()
+        dry_run_counters = (
+            torch.ops.vulkan_prepack.stack_subresource_lifetime_dry_run_counters()
         )
         scratch = torch.ops.vulkan_prepack.stack_scratch_arena_lifetime_snapshot()
         self.assertTrue(
@@ -18126,6 +18131,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 or "reason=other_role" in row
                 or "reason=requested_intermediate" in row
                 for row in blocker
+            )
+        )
+        dry_run_actual_removed_submit_drains = 5
+        self.assertGreater(dry_run_counters[0], 0)
+        self.assertEqual(dry_run_counters[dry_run_actual_removed_submit_drains], 0)
+        self.assertTrue(
+            any(
+                "group=1" in row
+                and "callsite=stack_owner_norm2" in row
+                and "actual_removed_submit_drain=0" in row
+                and "budget_reject=" in row
+                for row in dry_run
+            )
+        )
+        self.assertTrue(
+            any(
+                "resource=1" in row
+                and "class=" in row
+                and "safe_candidate=" in row
+                for row in dry_run
             )
         )
         self.assertTrue(

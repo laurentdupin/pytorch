@@ -470,6 +470,14 @@ std::vector<std::string> stack_retire_drain_blocker_snapshot_runtime() {
   return api::stack_retire_drain_blocker_snapshot();
 }
 
+std::vector<int64_t> stack_subresource_lifetime_dry_run_counters_runtime() {
+  return api::stack_subresource_lifetime_dry_run_counters_snapshot();
+}
+
+std::vector<std::string> stack_subresource_lifetime_dry_run_snapshot_runtime() {
+  return api::stack_subresource_lifetime_dry_run_snapshot();
+}
+
 std::vector<std::string> stack_scratch_arena_lifetime_snapshot_runtime() {
   return api::stack_scratch_arena_lifetime_snapshot();
 }
@@ -494,6 +502,7 @@ void reset_fallback_counters_runtime() {
   api::reset_stack_temp_lifetime_safety_snapshot();
   api::reset_stack_internal_temp_retire_batch_counters();
   api::reset_stack_retire_drain_blocker_counters();
+  api::reset_stack_subresource_lifetime_dry_run_counters();
   api::reset_stack_scratch_arena_lifetime_snapshot();
   api::reset_submit_phase();
   api::reset_stack_allocation_aggregate();
@@ -1664,6 +1673,12 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_stack_retire_drain_blocker_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_subresource_lifetime_dry_run_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_subresource_lifetime_dry_run_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_subresource_lifetime_dry_run_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_scratch_arena_lifetime_snapshot() -> str[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_stack_scratch_arena_lifetime_snapshot() -> ()"));
@@ -1965,6 +1980,18 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::reset_stack_retire_drain_blocker_counters"),
       TORCH_FN(api::reset_stack_retire_drain_blocker_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::stack_subresource_lifetime_dry_run_counters"),
+      TORCH_FN(stack_subresource_lifetime_dry_run_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::stack_subresource_lifetime_dry_run_snapshot"),
+      TORCH_FN(stack_subresource_lifetime_dry_run_snapshot_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_stack_subresource_lifetime_dry_run_counters"),
+      TORCH_FN(api::reset_stack_subresource_lifetime_dry_run_counters));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::stack_scratch_arena_lifetime_snapshot"),

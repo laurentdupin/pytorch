@@ -61,6 +61,8 @@ VULKAN_COUNTER_NAMES = (
     "stack_internal_temp_retire_batch_snapshot",
     "stack_retire_drain_blocker_counters",
     "stack_retire_drain_blocker_snapshot",
+    "stack_subresource_lifetime_dry_run_counters",
+    "stack_subresource_lifetime_dry_run_snapshot",
     "stack_scratch_arena_lifetime_snapshot",
     "stack_allocation_aggregate_snapshot",
     "stack_dispatch_aggregate_snapshot",
