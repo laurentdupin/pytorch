@@ -15271,12 +15271,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     expected = scores.softmax(-1)
                     with torch.inference_mode():
                         torch.ops.vulkan_prepack.reset_fallback_counters()
+                        torch.ops.vulkan_prepack.reset_buffer_copy_counters()
                         actual = scores.to("vulkan").softmax(-1).cpu()
 
                     self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
                     self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                    copy_counters = list(
+                        torch.ops.vulkan_prepack.buffer_copy_counters()
+                    )
+                    self.assertEqual(copy_counters[0], 0, copy_counters)
                     op_hits = read_op_hits()
                     self.assertIn("aten::_softmax.buffer_lastdim", op_hits)
+                    self.assertIn(
+                        "aten::_softmax."
+                        "buffer_lastdim_vision_score_padded_input",
+                        op_hits,
+                    )
                     self.assertNotIn(
                         "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
                         op_hits,
@@ -15354,6 +15364,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     )
                     with torch.inference_mode():
                         torch.ops.vulkan_prepack.reset_fallback_counters()
+                        torch.ops.vulkan_prepack.reset_buffer_copy_counters()
                         actual = F.scaled_dot_product_attention(
                             query.to("vulkan"),
                             key.to("vulkan"),
@@ -15366,8 +15377,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                     self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
                     self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                    copy_counters = list(
+                        torch.ops.vulkan_prepack.buffer_copy_counters()
+                    )
+                    self.assertEqual(copy_counters[0], 1, copy_counters)
                     op_hits = read_op_hits()
                     self.assertIn("aten::_softmax.buffer_lastdim", op_hits)
+                    self.assertIn(
+                        "aten::_softmax."
+                        "buffer_lastdim_vision_score_padded_input",
+                        op_hits,
+                    )
                     self.assertNotIn(
                         "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
                         op_hits,

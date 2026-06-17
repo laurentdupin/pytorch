@@ -1612,16 +1612,46 @@ Tensor ensure_softmax_buffer_output_tensor(
   return output;
 }
 
+bool can_use_vision_score_softmax_padded_buffer_input(
+    const Tensor& input,
+    const int64_t dim) {
+  const utils::SDPAScoreSoftmaxMatch score_contract =
+      utils::match_sdpa_buffer_softmax_score_contract(
+          input.sizes(), input.scalar_type(), dim);
+  if (
+      !score_contract.matched ||
+      score_contract.family !=
+          utils::SDPAScoreSoftmaxFamily::VisionSelfAttentionScores) {
+    return false;
+  }
+
+  const vTensor& v_input = convert(input);
+  return v_input.storage_type() == api::StorageType::BUFFER &&
+      v_input.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      utils::supports_buffer_reduction_compute(v_input);
+}
+
+Tensor prepare_softmax_buffer_lastdim_input(const Tensor& input) {
+  const int64_t dim = input.dim() - 1;
+  if (can_use_vision_score_softmax_padded_buffer_input(input, dim)) {
+    utils::log_vulkan_op_hit(
+        "aten::_softmax.buffer_lastdim_vision_score_padded_input");
+    return utils::mark_tensor_execution(
+        input, utils::resolve_buffer_execution_layout(convert(input)));
+  }
+
+  const auto plan = utils::build_vulkan_execution_plan(
+      input, utils::VulkanExecutionPlanKind::ReductionDimInput);
+  return utils::prepare_vulkan_direct_buffer_execution_tensor(input, plan);
+}
+
 Tensor softmax_buffer_lastdim_impl(const Tensor& input, Tensor* output_opt) {
   api::AllocationScope allocation_scope("softmax.buffer_lastdim");
   utils::log_vulkan_op_hit("aten::_softmax.buffer_lastdim");
   utils::validate_replay_tensor_not_stale(
       input, "aten::_softmax.buffer_lastdim");
 
-  const auto plan = utils::build_vulkan_execution_plan(
-      input, utils::VulkanExecutionPlanKind::ReductionDimInput);
-  Tensor resolved_input =
-      utils::prepare_vulkan_direct_buffer_execution_tensor(input, plan);
+  Tensor resolved_input = prepare_softmax_buffer_lastdim_input(input);
 
   api::Context* const context = api::context();
   vTensor& v_input = convert(resolved_input);
