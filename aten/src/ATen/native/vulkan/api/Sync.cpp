@@ -269,6 +269,10 @@ constexpr const char* kDryRunLayerNormInternalStatBuffer =
     "layernorm_internal_stat_buffer";
 constexpr const char* kDryRunMetadataUniform = "metadata_uniform";
 constexpr const char* kDryRunRawNoProvenance = "raw_no_provenance";
+constexpr const char* kDryRunStackInternalRawMissingGeneration =
+    "stack_internal_raw_missing_generation";
+constexpr const char* kDryRunTrulyUnknownRawResource =
+    "truly_unknown_raw_resource";
 constexpr const char* kDryRunHostVisibleOrRequestedOutput =
     "host_visible_or_requested_output";
 constexpr const char* kDryRunAllocatorOrScratchBacking =
@@ -627,6 +631,16 @@ void note_dry_run_resource_class(
     counters.raw_no_provenance_count.fetch_add(
         1u, std::memory_order_relaxed);
     counters.raw_no_provenance_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  } else if (key == kDryRunStackInternalRawMissingGeneration) {
+    counters.stack_internal_raw_missing_generation_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.stack_internal_raw_missing_generation_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  } else if (key == kDryRunTrulyUnknownRawResource) {
+    counters.truly_unknown_raw_resource_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.truly_unknown_raw_resource_bytes.fetch_add(
         bytes, std::memory_order_relaxed);
   } else if (key == kDryRunHostVisibleOrRequestedOutput) {
     counters.host_visible_or_requested_output_count.fetch_add(
@@ -1043,6 +1057,10 @@ void reset_stack_subresource_lifetime_dry_run_counters() {
       0u, std::memory_order_relaxed);
   counters.metadata_uniform_count.store(0u, std::memory_order_relaxed);
   counters.raw_no_provenance_count.store(0u, std::memory_order_relaxed);
+  counters.stack_internal_raw_missing_generation_count.store(
+      0u, std::memory_order_relaxed);
+  counters.truly_unknown_raw_resource_count.store(
+      0u, std::memory_order_relaxed);
   counters.host_visible_or_requested_output_count.store(
       0u, std::memory_order_relaxed);
   counters.allocator_or_scratch_backing_count.store(
@@ -1058,6 +1076,10 @@ void reset_stack_subresource_lifetime_dry_run_counters() {
       0u, std::memory_order_relaxed);
   counters.metadata_uniform_bytes.store(0u, std::memory_order_relaxed);
   counters.raw_no_provenance_bytes.store(0u, std::memory_order_relaxed);
+  counters.stack_internal_raw_missing_generation_bytes.store(
+      0u, std::memory_order_relaxed);
+  counters.truly_unknown_raw_resource_bytes.store(
+      0u, std::memory_order_relaxed);
   counters.host_visible_or_requested_output_bytes.store(
       0u, std::memory_order_relaxed);
   counters.allocator_or_scratch_backing_bytes.store(
@@ -1916,6 +1938,12 @@ std::vector<int64_t> stack_subresource_lifetime_dry_run_counters_snapshot() {
       static_cast<int64_t>(
           counters.raw_no_provenance_count.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
+          counters.stack_internal_raw_missing_generation_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.truly_unknown_raw_resource_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
           counters.host_visible_or_requested_output_count.load(
               std::memory_order_relaxed)),
       static_cast<int64_t>(
@@ -1943,6 +1971,12 @@ std::vector<int64_t> stack_subresource_lifetime_dry_run_counters_snapshot() {
           counters.metadata_uniform_bytes.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.raw_no_provenance_bytes.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.stack_internal_raw_missing_generation_bytes.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.truly_unknown_raw_resource_bytes.load(
+              std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.host_visible_or_requested_output_bytes.load(
               std::memory_order_relaxed)),
@@ -2390,6 +2424,15 @@ const char* stack_subresource_lifetime_dry_run_resource_class(
     return kDryRunProvenStackActivation;
   }
   if (!provenance.defined) {
+    if (
+        is_stack_temp_role(role) && kind == VulkanRetiredResourceKind::Unknown) {
+      return kDryRunStackInternalRawMissingGeneration;
+    }
+    if (
+        role == VulkanRetiredResourceRole::Unknown &&
+        kind == VulkanRetiredResourceKind::Unknown) {
+      return kDryRunTrulyUnknownRawResource;
+    }
     return kDryRunRawNoProvenance;
   }
   if (is_stack_temp_role(role)) {

@@ -432,6 +432,8 @@ struct VulkanStackSubresourceLifetimeDryRunCounters final {
   std::atomic<uint64_t> layernorm_internal_stat_buffer_count{0u};
   std::atomic<uint64_t> metadata_uniform_count{0u};
   std::atomic<uint64_t> raw_no_provenance_count{0u};
+  std::atomic<uint64_t> stack_internal_raw_missing_generation_count{0u};
+  std::atomic<uint64_t> truly_unknown_raw_resource_count{0u};
   std::atomic<uint64_t> host_visible_or_requested_output_count{0u};
   std::atomic<uint64_t> allocator_or_scratch_backing_count{0u};
   std::atomic<uint64_t> proven_stack_activation_bytes{0u};
@@ -442,6 +444,8 @@ struct VulkanStackSubresourceLifetimeDryRunCounters final {
   std::atomic<uint64_t> layernorm_internal_stat_buffer_bytes{0u};
   std::atomic<uint64_t> metadata_uniform_bytes{0u};
   std::atomic<uint64_t> raw_no_provenance_bytes{0u};
+  std::atomic<uint64_t> stack_internal_raw_missing_generation_bytes{0u};
+  std::atomic<uint64_t> truly_unknown_raw_resource_bytes{0u};
   std::atomic<uint64_t> host_visible_or_requested_output_bytes{0u};
   std::atomic<uint64_t> allocator_or_scratch_backing_bytes{0u};
   std::atomic<uint64_t> rejected_unsafe_resource_class{0u};
