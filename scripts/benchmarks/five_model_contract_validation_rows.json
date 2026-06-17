@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "description": "Recommended five-model Vulkan contract validation rows.",
+  "mode": "normal_no_probe",
+  "adapter": {
+    "backend": "vulkan",
+    "preferred_device": "RX 9070"
+  },
+  "rows": [
+    {
+      "row_id": "dav2_vits_140",
+      "model": {
+        "model_id": "dav2",
+        "variant": "vits",
+        "input_id": "lotus_depth_demo19_140",
+        "resolution_or_shape": 140
+      },
+      "matrix_json": "agent_space/dav2_post_token_prefix_contract_matrix.json",
+      "matrix_match": {
+        "model": "vits",
+        "resolution": 140
+      },
+      "result_json": "agent_space/attention_probability_transition_contract_vits140_smoke/result.json",
+      "transition_jsonl": "agent_space/attention_probability_transition_contract_vits140_smoke/transition.jsonl"
+    },
+    {
+      "row_id": "dav2_vits_280",
+      "model": {
+        "model_id": "dav2",
+        "variant": "vits",
+        "input_id": "lotus_depth_demo19_280",
+        "resolution_or_shape": 280
+      },
+      "matrix_json": "agent_space/dav2_post_token_prefix_contract_matrix.json",
+      "matrix_match": {
+        "model": "vits",
+        "resolution": 280
+      },
+      "result_json": "agent_space/dav2_post_token_prefix_contract_raw/vits_280/result.json",
+      "transition_jsonl": "agent_space/dav2_transition_reason_raw/vits_280/transition.jsonl"
+    },
+    {
+      "row_id": "dav2_vitl_700",
+      "model": {
+        "model_id": "dav2",
+        "variant": "vitl",
+        "input_id": "lotus_depth_demo19_700",
+        "resolution_or_shape": 700
+      },
+      "matrix_json": "agent_space/dav2_post_token_prefix_contract_matrix.json",
+      "matrix_match": {
+        "model": "vitl",
+        "resolution": 700
+      },
+      "result_json": "agent_space/dav2_post_token_prefix_contract_raw/vitl_700/result.json",
+      "transition_jsonl": "agent_space/dav2_transition_reason_raw/vitl_700/transition.jsonl"
+    },
+    {
+      "row_id": "lotus_smoke_runtime",
+      "status": "skip",
+      "model": {
+        "model_id": "lotus",
+        "variant": "local_lotus_depth_d_v1_1",
+        "input_id": "generated_224_smoke",
+        "resolution_or_shape": 224,
+        "python_executable": "agent_space/venvs/diffusers/Scripts/python.exe"
+      },
+      "result_json": "agent_space/five_model_contract_validation_raw/lotus_smoke_runtime/result.json",
+      "transition_jsonl": "agent_space/five_model_contract_validation_raw/lotus_smoke_runtime/transition.jsonl",
+      "blocker_kind": "env_failure",
+      "blocker_message": "row is a recommended future validation row; no fresh artifact supplied to collector"
+    },
+    {
+      "row_id": "hy_mt_short_decode",
+      "status": "skip",
+      "model": {
+        "model_id": "hy_mt",
+        "variant": "short_decode",
+        "input_id": "short_translation_prompt",
+        "resolution_or_shape": {
+          "max_new_tokens": 2,
+          "min_generated_tokens": 2
+        },
+        "python_executable": "agent_space/venvs/transformers/Scripts/python.exe"
+      },
+      "result_json": "agent_space/five_model_contract_validation_raw/hy_mt_short_decode/result.json",
+      "transition_jsonl": "agent_space/five_model_contract_validation_raw/hy_mt_short_decode/transition.jsonl",
+      "blocker_kind": "env_failure",
+      "blocker_message": "row is a recommended future validation row; no fresh artifact supplied to collector"
+    },
+    {
+      "row_id": "paddleocr_screenshot",
+      "status": "skip",
+      "model": {
+        "model_id": "paddleocr",
+        "variant": "real_screenshot",
+        "input_id": "cached_1920x1080_screenshot",
+        "resolution_or_shape": [
+          1080,
+          1920
+        ],
+        "python_executable": "agent_space/venvs/paddleocr/Scripts/python.exe"
+      },
+      "result_json": "agent_space/five_model_contract_validation_raw/paddleocr_screenshot/result.json",
+      "transition_jsonl": "agent_space/five_model_contract_validation_raw/paddleocr_screenshot/transition.jsonl",
+      "blocker_kind": "env_failure",
+      "blocker_message": "row is a recommended future validation row; no fresh artifact supplied to collector"
+    },
+    {
+      "row_id": "gemma_e2b_memory_sentinel",
+      "status": "skip",
+      "model": {
+        "model_id": "gemma_e2b",
+        "variant": "float32_memory_sentinel",
+        "input_id": "max_new_tokens_1",
+        "resolution_or_shape": {
+          "max_new_tokens": 1
+        },
+        "python_executable": "agent_space/venvs/transformers/Scripts/python.exe"
+      },
+      "result_json": "agent_space/five_model_contract_validation_raw/gemma_e2b_memory_sentinel/result.json",
+      "transition_jsonl": "agent_space/five_model_contract_validation_raw/gemma_e2b_memory_sentinel/transition.jsonl",
+      "blocker_kind": "oom",
+      "blocker_message": "expected future memory sentinel row; no fresh artifact supplied to collector"
+    }
+  ]
+}
