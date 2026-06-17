@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "source_status": "schema_only",
+  "contract_name": "FinalReadbackContract",
+  "family": "VulkanTensorFinalCpuObservation",
+  "tuple_id": "required_final_readback_transition_reason_bucket",
+  "writer_op": "vulkan_transition_log",
+  "route_label": "transition::required_final_readback",
+  "metadata": {
+    "evidence_id": "five_model_transition_reason_logs",
+    "guard_id": "transition_reason_required_final_readback",
+    "fallback_policy": "classification_only_no_backend_admission",
+    "materialization_policy": "final_vulkan_to_cpu_readback_observed"
+  },
+  "transition_contract": {
+    "contract_type": "LayoutTransitionContract",
+    "producer_schema": "vulkan_tensor",
+    "consumer_schema": "cpu_tensor",
+    "reason": "required_final_readback",
+    "kind": "host_transfer",
+    "outcome": "classified",
+    "physical_copy": true,
+    "host_transfer": true,
+    "sync_required": true,
+    "queue_submit_required": true,
+    "collector_reason_bucket": true,
+    "copy_budget": {
+      "cpu_fallback": 0,
+      "sync_readback": "counted",
+      "host_transfer": "counted"
+    }
+  },
+  "bounds": {
+    "producer_schema": "vulkan_tensor",
+    "consumer_schema": "cpu_tensor",
+    "reason": "required_final_readback",
+    "kind": "host_transfer",
+    "outcome": "classified",
+    "host_transfer": true,
+    "physical_copy": true,
+    "sync_required": true,
+    "queue_submit_required": true,
+    "source_layout": "vulkan",
+    "destination_layout": "cpu"
+  },
+  "positive_cases": [
+    {
+      "name": "final_user_observation_readback",
+      "producer_schema": "vulkan_tensor",
+      "consumer_schema": "cpu_tensor",
+      "reason": "required_final_readback",
+      "kind": "host_transfer",
+      "host_transfer": true,
+      "physical_copy": true,
+      "sync_required": true,
+      "queue_submit_required": true,
+      "expected_contract_name": "FinalReadbackContract",
+      "expected_backend_behavior_change": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "not_host_transfer",
+      "producer_schema": "vulkan_tensor",
+      "consumer_schema": "cpu_tensor",
+      "reason": "required_final_readback",
+      "kind": "device_copy",
+      "host_transfer": false,
+      "physical_copy": true,
+      "violates": "host_transfer",
+      "expected_native_route": false
+    },
+    {
+      "name": "wrong_reason",
+      "producer_schema": "vulkan_tensor",
+      "consumer_schema": "cpu_tensor",
+      "reason": "unexpected_intermediate_readback",
+      "kind": "host_transfer",
+      "host_transfer": true,
+      "physical_copy": true,
+      "violates": "reason",
+      "expected_native_route": false
+    }
+  ]
+}

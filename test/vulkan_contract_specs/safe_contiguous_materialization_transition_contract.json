@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "source_status": "schema_only",
+  "contract_name": "SafeContiguousMaterializationContract",
+  "family": "VulkanTensorSafeContiguousMaterialization",
+  "tuple_id": "required_contiguous_materialization_transition_reason_bucket",
+  "writer_op": "vulkan_transition_log",
+  "route_label": "transition::required_contiguous_materialization",
+  "metadata": {
+    "evidence_id": "five_model_transition_reason_logs",
+    "guard_id": "transition_reason_required_contiguous_materialization",
+    "fallback_policy": "classification_only_no_backend_admission",
+    "materialization_policy": "device_contiguous_materialization_observed"
+  },
+  "transition_contract": {
+    "contract_type": "LayoutTransitionContract",
+    "producer_schema": "materialize_to_contiguous_buffer",
+    "consumer_schema": "buffer_to_buffer",
+    "reason": "required_contiguous_materialization",
+    "kind": "layout_materialization",
+    "outcome": "classified",
+    "physical_copy": true,
+    "host_transfer": false,
+    "sync_required": false,
+    "queue_submit_required": true,
+    "collector_reason_bucket": true,
+    "copy_budget": {
+      "cpu_fallback": 0,
+      "sync_readback": 0,
+      "host_transfer": 0
+    }
+  },
+  "bounds": {
+    "producer_schema": "materialize_to_contiguous_buffer",
+    "consumer_schema": "buffer_to_buffer",
+    "reason": "required_contiguous_materialization",
+    "kind": "layout_materialization",
+    "outcome": "classified",
+    "host_transfer": false,
+    "physical_copy": true,
+    "sync_required": false,
+    "queue_submit_required": true,
+    "source_layout": "vulkan",
+    "destination_layout": "vulkan_contiguous_buffer"
+  },
+  "positive_cases": [
+    {
+      "name": "device_contiguous_buffer_materialization",
+      "producer_schema": "materialize_to_contiguous_buffer",
+      "consumer_schema": "buffer_to_buffer",
+      "reason": "required_contiguous_materialization",
+      "kind": "layout_materialization",
+      "host_transfer": false,
+      "physical_copy": true,
+      "sync_required": false,
+      "queue_submit_required": true,
+      "expected_contract_name": "SafeContiguousMaterializationContract",
+      "expected_backend_behavior_change": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "host_transfer_not_safe_contiguous",
+      "producer_schema": "materialize_to_contiguous_buffer",
+      "consumer_schema": "cpu_tensor",
+      "reason": "required_contiguous_materialization",
+      "kind": "host_transfer",
+      "host_transfer": true,
+      "physical_copy": true,
+      "violates": "host_transfer",
+      "expected_native_route": false
+    },
+    {
+      "name": "wrong_reason",
+      "producer_schema": "materialize_to_contiguous_buffer",
+      "consumer_schema": "buffer_to_buffer",
+      "reason": "required_layout_repack",
+      "kind": "layout_materialization",
+      "host_transfer": false,
+      "physical_copy": true,
+      "violates": "reason",
+      "expected_native_route": false
+    }
+  ]
+}

@@ -393,15 +393,30 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_transition_reason_bucket_specs_validate_collector_mapping(self):
         expected_specs = {
+            "final_readback_transition_contract.json": (
+                "FinalReadbackContract",
+                "required_final_readback",
+                "host_transfer",
+            ),
             "host_upload_transition_contract.json": (
                 "HostUploadTransitionContract",
                 "required_host_upload",
+                "host_transfer",
+            ),
+            "intermediate_readback_transition_contract.json": (
+                "IntermediateReadbackTransitionContract",
+                "unexpected_intermediate_readback",
                 "host_transfer",
             ),
             "metadata_view_transition_contract.json": (
                 "MetadataViewTransitionContract",
                 "metadata_view_only",
                 "metadata_view",
+            ),
+            "safe_contiguous_materialization_transition_contract.json": (
+                "SafeContiguousMaterializationContract",
+                "required_contiguous_materialization",
+                "layout_materialization",
             ),
         }
         for file_name, (contract_name, reason, kind) in expected_specs.items():

@@ -675,7 +675,10 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
 def validate_transition_contract_classification() -> None:
     reason_bucket_contracts = load_transition_reason_bucket_contracts()
     required = {
+        "required_final_readback": "FinalReadbackContract",
         "required_host_upload": "HostUploadTransitionContract",
+        "unexpected_intermediate_readback": "IntermediateReadbackTransitionContract",
+        "required_contiguous_materialization": "SafeContiguousMaterializationContract",
         "metadata_view_only": "MetadataViewTransitionContract",
     }
     for reason, contract_name in required.items():
@@ -733,6 +736,54 @@ def validate_transition_contract_classification() -> None:
                 "producer_contract": "unknown",
                 "consumer_contract": "unknown",
             },
+            {
+                "event": "vulkan_transition",
+                "phase": "model_setup",
+                "reason": "unexpected_intermediate_readback",
+                "kind": "host_transfer",
+                "outcome": "classified",
+                "bytes": 4096,
+                "host_transfer": True,
+                "physical_copy": True,
+                "sync_required": True,
+                "queue_submit_required": True,
+                "producer_schema": "vulkan_tensor",
+                "consumer_schema": "cpu_tensor",
+                "producer_contract": "unknown",
+                "consumer_contract": "unknown",
+            },
+            {
+                "event": "vulkan_transition",
+                "phase": "model_setup",
+                "reason": "required_contiguous_materialization",
+                "kind": "layout_materialization",
+                "outcome": "classified",
+                "bytes": 4096,
+                "host_transfer": False,
+                "physical_copy": True,
+                "sync_required": False,
+                "queue_submit_required": True,
+                "producer_schema": "materialize_to_contiguous_buffer",
+                "consumer_schema": "buffer_to_buffer",
+                "producer_contract": "unknown",
+                "consumer_contract": "unknown",
+            },
+            {
+                "event": "vulkan_transition",
+                "phase": "layout_transition",
+                "reason": "required_layout_repack",
+                "kind": "layout_materialization",
+                "outcome": "classified",
+                "bytes": 4096,
+                "host_transfer": False,
+                "physical_copy": True,
+                "sync_required": False,
+                "queue_submit_required": True,
+                "producer_schema": "vulkan_tensor",
+                "consumer_schema": "vulkan_tensor",
+                "producer_contract": "unknown",
+                "consumer_contract": "unknown",
+            },
         ]
         with transition_log.open("w", encoding="utf-8") as f:
             for event in events:
@@ -747,8 +798,11 @@ def validate_transition_contract_classification() -> None:
     if missing_artifacts:
         raise AssertionError(f"unexpected missing artifacts: {missing_artifacts}")
     expected_counts = {
+        "FinalReadbackContract": 1,
         "HostUploadTransitionContract": 1,
+        "IntermediateReadbackTransitionContract": 1,
         "MetadataViewTransitionContract": 1,
+        "SafeContiguousMaterializationContract": 1,
     }
     for contract_name, expected_count in expected_counts.items():
         actual_count = transitions["events_by_contract"].get(contract_name)
@@ -770,8 +824,8 @@ def validate_transition_contract_classification() -> None:
     for contract_name in expected_counts:
         if contract_name in missing_buckets:
             raise AssertionError(f"{contract_name} unexpectedly reported missing")
-    if "FinalReadbackContract" not in missing_buckets:
-        raise AssertionError("uncovered final readback bucket should remain missing")
+    if "LayoutRepackTransitionContract" not in missing_buckets:
+        raise AssertionError("uncovered layout repack bucket should remain missing")
     print(
         "validated transition contract classification "
         f"reason_buckets={json.dumps(required, sort_keys=True)}"

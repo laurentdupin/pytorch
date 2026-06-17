@@ -94,12 +94,13 @@ AttentionProbabilityMaterializationContract` and `consumer_contract =
 DecomposedAttentionProbabilityToValueBmm` to matching events so future work can
 measure and review this edge as a named transition contract.
 
-`HostUploadTransitionContract` and `MetadataViewTransitionContract` are
-classification-only reason-bucket specs for existing transition logs. They live
-in `test/vulkan_contract_specs/host_upload_transition_contract.json` and
-`test/vulkan_contract_specs/metadata_view_transition_contract.json`, have
+`HostUploadTransitionContract`, `MetadataViewTransitionContract`,
+`FinalReadbackContract`, `IntermediateReadbackTransitionContract`, and
+`SafeContiguousMaterializationContract` are classification-only reason-bucket
+specs for existing transition logs. They live in
+`test/vulkan_contract_specs/*_transition_contract.json`, have
 `source_status = schema_only`, and do not admit backend routes or change copy,
-submit, fallback, or readback behavior.
+submit, fallback, materialization, or readback behavior.
 
 `HostUploadTransitionContract` covers `required_host_upload` /
 `host_transfer` events from CPU tensors into Vulkan tensors. These events are
@@ -111,6 +112,23 @@ collector a source-of-truth bucket for reporting them.
 `TypedMetadataViewCreated`. These events must remain metadata-only:
 `physical_copy=false`, `host_transfer=false`, `sync_required=false`, and
 `queue_submit_required=false`.
+
+`FinalReadbackContract` covers `required_final_readback` / `host_transfer`
+events from Vulkan tensors to CPU tensors for final user-visible observation.
+These events remain synchronous readbacks and host transfers; the spec only
+prevents matching events from being reported as missing transition-contract
+buckets.
+
+`IntermediateReadbackTransitionContract` covers
+`unexpected_intermediate_readback` / `host_transfer` events from Vulkan tensors
+to CPU tensors before final output observation. These events remain visible
+readbacks and are not eliminated or reclassified as acceptable route behavior.
+
+`SafeContiguousMaterializationContract` covers
+`required_contiguous_materialization` / `layout_materialization` events from
+`materialize_to_contiguous_buffer` into `buffer_to_buffer`. These are
+device-side physical copies with no host transfer or sync readback; the spec is
+only a collector bucket for existing safe contiguous materialization evidence.
 
 ## Rollout
 

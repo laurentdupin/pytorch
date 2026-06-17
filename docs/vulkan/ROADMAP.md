@@ -246,6 +246,13 @@ Current MVP status:
   `[10,126,126]` proof row and the six existing low-resolution
   VisionSelfAttention rows. This deliberately does not remove the clone or
   change production softmax/BMM dispatch.
+- `HostUploadTransitionContract`, `MetadataViewTransitionContract`,
+  `FinalReadbackContract`, `IntermediateReadbackTransitionContract`, and
+  `SafeContiguousMaterializationContract` are schema-only transition
+  reason-bucket specs for existing transition-log evidence. The five-model
+  validation collector uses them as source-of-truth mappings for matching
+  reason logs only; they do not admit backend routes or change upload,
+  metadata-view, copy, materialization, fallback, or readback behavior.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized
