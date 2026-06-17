@@ -269,6 +269,12 @@ constexpr const char*
 constexpr const char*
     kDryRunAttentionRawGenerationRangeMissingStackProof =
         "attention_raw_generation_range_missing_stack_proof";
+constexpr const char*
+    kDryRunAttentionScoreProbabilityRangeMissingAliasEscapeProof =
+        "attention_score_probability_range_missing_alias_escape_proof";
+constexpr const char*
+    kDryRunAttentionRawAuxiliaryRangeMissingAliasEscapeProof =
+        "attention_raw_auxiliary_range_missing_alias_escape_proof";
 constexpr const char* kDryRunAttentionProvenanceMissingLastUse =
     "attention_provenance_missing_last_use";
 constexpr const char* kDryRunAttentionUnknownSubresource =
@@ -619,11 +625,67 @@ const char* classify_unproven_attention_subresource(
     return kDryRunAttentionProvenanceMissingLastUse;
   }
   if (allocation_proof.has_generation && allocation_proof.has_byte_range) {
+    if (
+        kind == VulkanRetiredResourceKind::Buffer &&
+        allocation_proof.byte_range > 4096u) {
+      return kDryRunAttentionScoreProbabilityRangeMissingAliasEscapeProof;
+    }
+    if (kind == VulkanRetiredResourceKind::Unknown) {
+      return kDryRunAttentionRawAuxiliaryRangeMissingAliasEscapeProof;
+    }
     return kind == VulkanRetiredResourceKind::Buffer
         ? kDryRunAttentionBufferGenerationRangeMissingStackProof
         : kDryRunAttentionRawGenerationRangeMissingStackProof;
   }
   return kDryRunAttentionUnknownSubresource;
+}
+
+bool is_attention_score_probability_range_class(
+    const char* const resource_class) {
+  const std::string key(resource_class);
+  return key == kDryRunAttentionScoreProbabilitySubresource ||
+      key == kDryRunAttentionScoreProbabilityRangeMissingAliasEscapeProof;
+}
+
+bool is_attention_raw_auxiliary_range_class(const char* const resource_class) {
+  return std::string(resource_class) ==
+      kDryRunAttentionRawAuxiliaryRangeMissingAliasEscapeProof;
+}
+
+const char* attention_substep_for_dry_run(
+    const VulkanRetiredResourceKind kind,
+    const char* const resource_class) {
+  if (is_attention_score_probability_range_class(resource_class)) {
+    return "score_probability_buffer";
+  }
+  if (is_attention_raw_auxiliary_range_class(resource_class)) {
+    return "raw_auxiliary";
+  }
+  if (kind == VulkanRetiredResourceKind::Buffer) {
+    return "buffer_generation_range";
+  }
+  return "unknown_attention_subresource";
+}
+
+const char* attention_producer_for_dry_run(const char* const resource_class) {
+  if (is_attention_score_probability_range_class(resource_class)) {
+    return "qk_score_or_softmax_probability";
+  }
+  if (is_attention_raw_auxiliary_range_class(resource_class)) {
+    return "attention_dispatch_auxiliary";
+  }
+  return "unknown_attention_producer";
+}
+
+const char* attention_last_consumer_for_dry_run(
+    const char* const resource_class) {
+  if (is_attention_score_probability_range_class(resource_class)) {
+    return "softmax_or_value_bmm";
+  }
+  if (is_attention_raw_auxiliary_range_class(resource_class)) {
+    return "attention_dispatch";
+  }
+  return "unknown_attention_consumer";
 }
 
 void note_dry_run_resource_class(
@@ -661,6 +723,19 @@ void note_dry_run_resource_class(
         1u, std::memory_order_relaxed);
     counters.attention_raw_generation_range_missing_stack_proof_bytes.fetch_add(
         bytes, std::memory_order_relaxed);
+  } else if (
+      key ==
+      kDryRunAttentionScoreProbabilityRangeMissingAliasEscapeProof) {
+    counters.attention_score_probability_range_missing_alias_escape_proof_count
+        .fetch_add(1u, std::memory_order_relaxed);
+    counters.attention_score_probability_range_missing_alias_escape_proof_bytes
+        .fetch_add(bytes, std::memory_order_relaxed);
+  } else if (
+      key == kDryRunAttentionRawAuxiliaryRangeMissingAliasEscapeProof) {
+    counters.attention_raw_auxiliary_range_missing_alias_escape_proof_count
+        .fetch_add(1u, std::memory_order_relaxed);
+    counters.attention_raw_auxiliary_range_missing_alias_escape_proof_bytes
+        .fetch_add(bytes, std::memory_order_relaxed);
   } else if (key == kDryRunAttentionProvenanceMissingLastUse) {
     counters.attention_provenance_missing_last_use_count.fetch_add(
         1u, std::memory_order_relaxed);
@@ -1171,6 +1246,14 @@ void reset_stack_subresource_lifetime_dry_run_counters() {
   counters.attention_provenance_missing_last_use_bytes.store(
       0u, std::memory_order_relaxed);
   counters.attention_unknown_subresource_bytes.store(
+      0u, std::memory_order_relaxed);
+  counters.attention_score_probability_range_missing_alias_escape_proof_count
+      .store(0u, std::memory_order_relaxed);
+  counters.attention_raw_auxiliary_range_missing_alias_escape_proof_count.store(
+      0u, std::memory_order_relaxed);
+  counters.attention_score_probability_range_missing_alias_escape_proof_bytes
+      .store(0u, std::memory_order_relaxed);
+  counters.attention_raw_auxiliary_range_missing_alias_escape_proof_bytes.store(
       0u, std::memory_order_relaxed);
   std::lock_guard<std::mutex> lock(stack_subresource_lifetime_dry_run_mutex());
   stack_subresource_lifetime_dry_run_rows().clear();
@@ -2108,6 +2191,20 @@ std::vector<int64_t> stack_subresource_lifetime_dry_run_counters_snapshot() {
       static_cast<int64_t>(
           counters.attention_unknown_subresource_bytes.load(
               std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters
+              .attention_score_probability_range_missing_alias_escape_proof_count
+              .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.attention_raw_auxiliary_range_missing_alias_escape_proof_count
+              .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters
+              .attention_score_probability_range_missing_alias_escape_proof_bytes
+              .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.attention_raw_auxiliary_range_missing_alias_escape_proof_bytes
+              .load(std::memory_order_relaxed)),
   };
 }
 
@@ -2631,6 +2728,22 @@ void note_stack_subresource_lifetime_dry_run_resource(
       << (provenance.requested_intermediate ? 1 : 0)
       << " final_output=" << (provenance.final_output ? 1 : 0)
       << " alias_or_view=" << (provenance.alias_or_view ? 1 : 0)
+      << " diagnostic_stack_scope=" << (inside_vision_stack_phase() ? 1 : 0)
+      << " diagnostic_stack_phase="
+      << vision_stack_phase_name(current_vision_stack_phase())
+      << " diagnostic_stack_block=" << current_vision_stack_block_index()
+      << " attention_substep="
+      << attention_substep_for_dry_run(kind, resource_class)
+      << " attention_producer="
+      << attention_producer_for_dry_run(resource_class)
+      << " attention_last_consumer="
+      << attention_last_consumer_for_dry_run(resource_class)
+      << " attention_host_visibility_proof="
+      << (provenance.defined ? "stack_provenance" : "missing")
+      << " attention_alias_escape_proof="
+      << (provenance.defined ? "stack_provenance" : "missing")
+      << " attention_last_use_proof="
+      << (provenance.has_last_use_proof ? "present" : "missing")
       << " provenance_source="
       << stack_retire_provenance_source_name(provenance.source)
       << " provenance_loss_reason="
