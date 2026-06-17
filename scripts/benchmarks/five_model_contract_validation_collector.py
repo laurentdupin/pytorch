@@ -22,6 +22,19 @@ ROUTE_CONTRACTS = {
     "softmax_buffer_lastdim": "SDPAScoreSoftmaxContract",
 }
 
+SUBMIT_ORIGIN_COUNTER_INDEX = {
+    "total_queue_submits": 0,
+    "normal_cmd_submit_frequency_submits": 1,
+    "stack_planned_recording_submits": 2,
+    "pre_stack_flush_submits": 3,
+    "post_stack_flush_submits": 4,
+    "explicit_synchronize_submits": 5,
+    "tensor_cpu_readback_submits": 6,
+    "fallback_readback_submits": 7,
+    "retire_queue_drain_submits": 8,
+    "conv_prepack_upload_submits": 13,
+}
+
 CONTRACT_MISSING_BUCKETS = {
     "required_final_readback": "FinalReadbackContract",
     "required_host_upload": "HostUploadTransitionContract",
@@ -129,11 +142,123 @@ def first_present(*values: Any) -> Any:
     return None
 
 
+def key_value_fields(row: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for item in row.split():
+        if "=" not in item:
+            continue
+        key, value = item.split("=", 1)
+        fields[key] = value
+    return fields
+
+
+def int_value(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def list_counter_field(delta: dict[str, Any], name: str) -> list[Any]:
+    value = delta.get(name)
+    if value is None:
+        value = delta.get(f"{name}_delta")
+    return value if isinstance(value, list) else []
+
+
+def phase_counter_delta(phase: Any) -> dict[str, Any]:
+    if not isinstance(phase, dict):
+        return {}
+    delta = phase.get("delta")
+    return delta if isinstance(delta, dict) else phase
+
+
+def phase_counter_blob(result: dict[str, Any] | None) -> dict[str, Any]:
+    if not result:
+        return {}
+    direct = result.get("vulkan_phase_counters")
+    if isinstance(direct, dict):
+        return direct
+    counters = result.get("counters")
+    if isinstance(counters, dict) and isinstance(counters.get("vulkan_phase_counters"), dict):
+        return counters["vulkan_phase_counters"]
+    return {}
+
+
+def phase_delta_by_name(result: dict[str, Any] | None, phase_name: str) -> dict[str, Any]:
+    blob = phase_counter_blob(result)
+    if phase_name == "total" and blob.get("total"):
+        return phase_counter_delta(blob["total"])
+    for phase in blob.get("phases") or []:
+        if isinstance(phase, dict) and phase.get("name") == phase_name:
+            return phase_counter_delta(phase)
+    return {}
+
+
+def normalize_model_suite_status(status: str | None, failure: Any) -> str:
+    if status == "ok":
+        return "ok"
+    failure_text = json.dumps(failure or {}, sort_keys=True).lower()
+    if "out_of_device_memory" in failure_text or "oom" in failure_text:
+        return "oom"
+    if "dtensor" in failure_text or "importerror" in failure_text:
+        return "env_blocked"
+    if status == "failure":
+        return "fail"
+    if status == "skip":
+        return "skip"
+    return status or "skip"
+
+
+def unwrap_model_suite_result(raw: Any, source_path: Path | None = None) -> Any:
+    if not isinstance(raw, dict) or not isinstance(raw.get("records"), list):
+        return raw
+    records = [record for record in raw["records"] if isinstance(record, dict)]
+    if not records:
+        return raw
+    record = records[0]
+    environment = dict(raw.get("environment") or {})
+    environment.update(record.get("environment") or {})
+    counters = record.get("counters") or {}
+    output_sanity = record.get("output_sanity") or {}
+    failure = record.get("failure") or {}
+    status = normalize_model_suite_status(record.get("status"), failure)
+    result = {
+        "schema_version": raw.get("schema_version"),
+        "source": "benchmark_model_suite_record",
+        "raw_result_json": rel_path(source_path),
+        "python_executable": environment.get("python") or environment.get("python_executable"),
+        "torch_version": environment.get("torch_version"),
+        "status": status,
+        "performance_valid": status == "ok" and bool(record.get("timings")),
+        "task": record.get("task"),
+        "model_name": record.get("model_name"),
+        "model_id": record.get("model_id"),
+        "backend": record.get("backend"),
+        "dtype": record.get("dtype"),
+        "input": record.get("input"),
+        "device_info": {
+            "device": record.get("device"),
+            "device_index": record.get("device_index"),
+            "backend": record.get("backend"),
+        },
+        "timings": record.get("timings") or {},
+        "failure": failure,
+        "output_sanity": output_sanity,
+        "environment": environment,
+        "vulkan_phase_counters": counters.get("vulkan_phase_counters") or {},
+        "vulkan_debug_counters": counters.get("vulkan_debug") or {},
+    }
+    return result
+
+
 def timing_summary(result: dict[str, Any] | None, matrix_row: dict[str, Any] | None) -> dict[str, Any]:
     if matrix_row and isinstance(matrix_row.get("timing"), dict):
         return matrix_row["timing"]
     if not result:
         return {}
+    if isinstance(result.get("timings"), dict):
+        return result["timings"]
     return {
         "device_resident": result.get("single_image_forward_device_resident"),
         "end_to_end": result.get("single_image_end_to_end"),
@@ -149,6 +274,12 @@ def normalize_counter_delta(delta: dict[str, Any]) -> dict[str, Any]:
 
     buffer_copy = delta.get("buffer_copy_counters") or []
     submit_origin = delta.get("submit_origin_counters") or []
+    named_submit_origins = Counter()
+    for row in list_counter_field(delta, "submit_origin_phase_counters"):
+        fields = key_value_fields(str(row))
+        origin = fields.get("origin")
+        if origin:
+            named_submit_origins[origin] += int_value(fields.get("count"))
     retire = delta.get("retire_drain_counters") or []
     normalized = {
         "cpu_fallback_count": int(delta.get("cpu_fallback_count") or 0),
@@ -164,13 +295,25 @@ def normalize_counter_delta(delta: dict[str, Any]) -> dict[str, Any]:
                 "buffer_copy_view_materialization": int(buffer_copy[4]),
             }
         )
-    if len(submit_origin) >= 7:
-        normalized.update(
-            {
-                "total_queue_submits": int(submit_origin[0]),
-                "tensor_cpu_readback_submits": int(submit_origin[2]),
-            }
-        )
+    for name, index in SUBMIT_ORIGIN_COUNTER_INDEX.items():
+        if len(submit_origin) > index:
+            normalized[name] = int(submit_origin[index])
+    if named_submit_origins:
+        origin_to_field = {
+            "normal_cmd_submit_frequency": "normal_cmd_submit_frequency_submits",
+            "stack_planned_recording_submit": "stack_planned_recording_submits",
+            "pre_stack_flush": "pre_stack_flush_submits",
+            "post_stack_flush": "post_stack_flush_submits",
+            "explicit_synchronize": "explicit_synchronize_submits",
+            "tensor_cpu_readback": "tensor_cpu_readback_submits",
+            "fallback_readback": "fallback_readback_submits",
+            "retire_queue_drain": "retire_queue_drain_submits",
+            "conv_prepack_upload": "conv_prepack_upload_submits",
+        }
+        for origin, field in origin_to_field.items():
+            if origin in named_submit_origins:
+                normalized[field] = int(named_submit_origins[origin])
+        normalized["submit_origin_named_counts"] = dict(sorted(named_submit_origins.items()))
     if len(retire) >= 6:
         normalized.update(
             {
@@ -192,13 +335,13 @@ def phase_counters_from_result(
         return {name: dict(values) for name, values in matrix_row["phases"].items()}
 
     phases: dict[str, Any] = {}
-    phase_blob = (result or {}).get("vulkan_phase_counters") or {}
+    phase_blob = phase_counter_blob(result)
     for phase in phase_blob.get("phases") or []:
         name = phase.get("name")
         if name:
-            phases[name] = normalize_counter_delta(phase.get("delta") or {})
+            phases[name] = normalize_counter_delta(phase_counter_delta(phase))
     if phase_blob.get("total"):
-        phases["total"] = normalize_counter_delta(phase_blob["total"])
+        phases["total"] = normalize_counter_delta(phase_counter_delta(phase_blob["total"]))
     return phases
 
 
@@ -313,10 +456,191 @@ def summarize_transitions(
     }
 
 
+def sample_rows(rows: list[Any], limit: int = 3) -> list[Any]:
+    return rows[:limit]
+
+
+def summarize_sidecar_jsonl(path: Path) -> dict[str, Any]:
+    records = 0
+    candidate_contracts: Counter[str] = Counter()
+    outcomes: Counter[str] = Counter()
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            records += 1
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            contract = (
+                event.get("contract_name")
+                or event.get("candidate_contract")
+                or event.get("candidate_contract_family")
+            )
+            if contract:
+                candidate_contracts[str(contract)] += 1
+            outcome = event.get("outcome") or event.get("status") or event.get("classification")
+            if outcome:
+                outcomes[str(outcome)] += 1
+    return {
+        "path": rel_path(path),
+        "records": records,
+        "candidate_contracts": dict(sorted(candidate_contracts.items())),
+        "outcomes": dict(sorted(outcomes.items())),
+    }
+
+
+def discover_sidecar(path: Path | None, suffix: str) -> Path | None:
+    if path is None:
+        return None
+    directory = path.parent
+    for candidate in sorted(directory.glob(f"*{suffix}")):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def summarize_probe_sidecars(
+    row_cfg: dict[str, Any],
+    result_path: Path | None,
+    missing_artifacts: list[dict[str, str]],
+) -> dict[str, Any]:
+    sidecar_specs = {
+        "probe_jsonl": (".probe.jsonl", "jsonl"),
+        "admission_jsonl": (".admission.jsonl", "jsonl"),
+        "probe_summary_json": (".probe_summary.json", "json"),
+        "op_hit_log": (".op_hits.log", "log"),
+    }
+    sidecars: dict[str, Any] = {}
+    for name, (suffix, kind) in sidecar_specs.items():
+        configured = row_cfg.get(name)
+        path = repo_path(configured) if configured else discover_sidecar(result_path, suffix)
+        if configured and (path is None or not path.exists()):
+            missing_artifacts.append(
+                {
+                    "kind": "missing_artifact",
+                    "name": name,
+                    "path": rel_path(path) or "",
+                    "impact": f"{name} evidence is unavailable for this row",
+                }
+            )
+            continue
+        if path is None or not path.exists():
+            continue
+        if kind == "jsonl":
+            sidecars[name] = summarize_sidecar_jsonl(path)
+        elif kind == "json":
+            data = load_json(path)
+            sidecars[name] = {
+                "path": rel_path(path),
+                "top_level_keys": sorted(data.keys()) if isinstance(data, dict) else [],
+            }
+        else:
+            with path.open("r", encoding="utf-8", errors="replace") as f:
+                line_count = sum(1 for line in f if line.strip())
+            sidecars[name] = {"path": rel_path(path), "lines": line_count}
+    sidecars["present_count"] = sum(1 for key in sidecars if key != "present_count")
+    return sidecars
+
+
+def summarize_model_suite_evidence(
+    result: dict[str, Any] | None,
+    row_cfg: dict[str, Any],
+    result_path: Path | None,
+    missing_artifacts: list[dict[str, str]],
+) -> dict[str, Any]:
+    total_delta = phase_delta_by_name(result, "total")
+    output_sanity = (result or {}).get("output_sanity") or {}
+    kernel = {
+        "conv_aggregate_rows": len(list_counter_field(total_delta, "conv_aggregate_snapshot")),
+        "conv_aggregate_sample": sample_rows(
+            list_counter_field(total_delta, "conv_aggregate_snapshot")
+        ),
+        "linear_aggregate_rows": len(list_counter_field(total_delta, "linear_aggregate_snapshot")),
+        "linear_aggregate_sample": sample_rows(
+            list_counter_field(total_delta, "linear_aggregate_snapshot")
+        ),
+        "clone_requirement_rows": len(list_counter_field(total_delta, "clone_requirement_snapshot")),
+        "clone_requirement_sample": sample_rows(
+            list_counter_field(total_delta, "clone_requirement_snapshot")
+        ),
+        "conv_plan_counters": list_counter_field(total_delta, "conv_plan_counters"),
+        "linear_plan_counters": list_counter_field(total_delta, "linear_plan_counters"),
+        "pointwise_conv_route_counters": list_counter_field(
+            total_delta, "pointwise_conv_route_counters"
+        ),
+        "attention_plan_counters": list_counter_field(total_delta, "attention_plan_counters"),
+    }
+    submit_origin_named_counts = normalize_counter_delta(total_delta).get(
+        "submit_origin_named_counts", {}
+    )
+    diagnostics: dict[str, Any] = {}
+    if isinstance(output_sanity.get("fallback_readback_attribution"), dict):
+        attribution = output_sanity["fallback_readback_attribution"]
+        diagnostics["fallback_readback_attribution"] = {
+            "categories": sorted((attribution.get("categories") or {}).keys()),
+            "total_dispatches": attribution.get("total_dispatches"),
+            "vulkan_dispatches": attribution.get("vulkan_dispatches"),
+        }
+    if isinstance(output_sanity.get("grid_sample_calls"), list):
+        diagnostics["grid_sample_calls"] = len(output_sanity["grid_sample_calls"])
+    if isinstance(output_sanity.get("paddleocr_postprocess_cpu_metadata_tensors"), list):
+        diagnostics["paddleocr_postprocess_cpu_metadata_tensors"] = len(
+            output_sanity["paddleocr_postprocess_cpu_metadata_tensors"]
+        )
+
+    return {
+        "source": (result or {}).get("source") or "result_json",
+        "torch_version": (result or {}).get("torch_version")
+        or ((result or {}).get("environment") or {}).get("torch_version"),
+        "kernel": kernel,
+        "submit_origin_named_counts": submit_origin_named_counts,
+        "sidecars": summarize_probe_sidecars(row_cfg, result_path, missing_artifacts),
+        "diagnostics": diagnostics,
+    }
+
+
+def embedded_region_lifetime_summary(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    total_delta = phase_delta_by_name(result, "total")
+    if not total_delta:
+        return None
+    dry_run_rows = list_counter_field(total_delta, "stack_subresource_lifetime_dry_run_snapshot")
+    retire_blocker_rows = list_counter_field(total_delta, "stack_retire_drain_blocker_snapshot")
+    retired_resource_rows = list_counter_field(total_delta, "retired_resource_aggregate_snapshot")
+    dry_run_counters = list_counter_field(
+        total_delta, "stack_subresource_lifetime_dry_run_counters"
+    )
+    if not (dry_run_rows or retire_blocker_rows or retired_resource_rows or dry_run_counters):
+        return None
+    return {
+        "dry_run_enabled": bool(dry_run_rows or any(int_value(value) for value in dry_run_counters)),
+        "all_safe_group_eligible": 0,
+        "would_remove_submit_drains": 0,
+        "actual_removed_submit_drains": 0,
+        "blockers_by_class": {},
+        "blocker_bytes_by_class": {},
+        "peak_extra_live_bytes_estimate": 0,
+        "embedded_region_lifetime_available": True,
+        "stack_subresource_lifetime_dry_run_rows": len(dry_run_rows),
+        "stack_subresource_lifetime_dry_run_sample": sample_rows(dry_run_rows),
+        "stack_retire_drain_blocker_rows": len(retire_blocker_rows),
+        "stack_retire_drain_blocker_sample": sample_rows(retire_blocker_rows),
+        "retired_resource_aggregate_rows": len(retired_resource_rows),
+        "retired_resource_aggregate_sample": sample_rows(retired_resource_rows),
+    }
+
+
 def summarize_region_lifetime(
     dry_run_summary: Path | None,
     missing_artifacts: list[dict[str, str]],
+    result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    embedded = embedded_region_lifetime_summary(result)
+    if dry_run_summary is None and embedded is not None:
+        return embedded
+
     if dry_run_summary is None or not dry_run_summary.exists():
         missing_artifacts.append(
             {
@@ -416,7 +740,11 @@ def build_row(
 ) -> dict[str, Any]:
     missing_artifacts: list[dict[str, str]] = []
     result_path = repo_path(row_cfg.get("result_json"))
-    result = load_json(result_path) if result_path and result_path.exists() else None
+    result = (
+        unwrap_model_suite_result(load_json(result_path), result_path)
+        if result_path and result_path.exists()
+        else None
+    )
     if result_path and result is None:
         missing_artifacts.append(
             {
@@ -458,6 +786,13 @@ def build_row(
     region_lifetime = summarize_region_lifetime(
         repo_path(row_cfg.get("region_lifetime_summary")),
         missing_artifacts,
+        result,
+    )
+    model_suite_evidence = summarize_model_suite_evidence(
+        result,
+        row_cfg,
+        result_path,
+        missing_artifacts,
     )
     op_contracts = route_contract_summary(matrix_row)
     status = status_from_result(
@@ -475,6 +810,8 @@ def build_row(
         model.setdefault("input_path", result.get("image") or result.get("input"))
         model.setdefault("model_checkpoint", result.get("checkpoint"))
         model.setdefault("variant", result.get("encoder"))
+        model.setdefault("model_id", result.get("model_id"))
+        model.setdefault("task", result.get("task"))
         if result.get("input_size") is not None:
             model.setdefault("resolution_or_shape", result.get("input_size"))
     elif matrix_row:
@@ -521,6 +858,7 @@ def build_row(
         "environment": {
             "missing_artifacts": missing_artifacts,
             "device_info": (result or {}).get("device_info") or {},
+            "model_suite_evidence": model_suite_evidence,
         },
         "timings": timing_summary(result, matrix_row),
         "phase_counters": phases,
@@ -545,10 +883,25 @@ def aggregate_rows(
     op_contracts = Counter()
     missing_artifacts = 0
     observed_reasons = Counter()
+    model_suite_evidence = Counter()
     for row in rows:
         missing_artifacts += len(row["environment"].get("missing_artifacts") or [])
         transition_contracts.update(row["transitions"].get("events_by_contract") or {})
         op_contracts.update(row["op_contracts"].get("by_contract") or {})
+        evidence = row["environment"].get("model_suite_evidence") or {}
+        kernel = evidence.get("kernel") or {}
+        model_suite_evidence["conv_aggregate_rows"] += int(
+            kernel.get("conv_aggregate_rows") or 0
+        )
+        model_suite_evidence["linear_aggregate_rows"] += int(
+            kernel.get("linear_aggregate_rows") or 0
+        )
+        model_suite_evidence["clone_requirement_rows"] += int(
+            kernel.get("clone_requirement_rows") or 0
+        )
+        model_suite_evidence["probe_sidecar_count"] += int(
+            (evidence.get("sidecars") or {}).get("present_count") or 0
+        )
         for event in row["transitions"].get("events_by_reason_phase") or []:
             observed_reasons[event["reason"]] += int(event["count"])
     missing_contract_buckets = sorted(
@@ -579,6 +932,7 @@ def aggregate_rows(
             "missing_contract_buckets": missing_contract_buckets,
             "missing_optional_artifacts": missing_artifacts,
             "unknown_transition_reasons": transition_unknown,
+            "model_suite_evidence_rows": dict(sorted(model_suite_evidence.items())),
         },
         "budgets": {
             "rows_with_cpu_fallback_budget_failure": sum(
@@ -622,8 +976,8 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
         "## Rows",
         "",
         "| row | status | timing valid | op contracts | transition contracts | "
-        "unknown transition reasons | missing artifacts |",
-        "|---|---|---:|---|---|---:|---:|",
+        "model-suite evidence | lifetime evidence | unknown transition reasons | missing artifacts |",
+        "|---|---|---:|---|---|---|---|---:|---:|",
     ]
     for row in artifact["rows"]:
         op_contracts = ", ".join(
@@ -632,13 +986,34 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
         transition_contracts = ", ".join(
             f"{name}:{count}" for name, count in row["transitions"]["events_by_contract"].items()
         ) or "-"
+        evidence = row["environment"].get("model_suite_evidence") or {}
+        kernel = evidence.get("kernel") or {}
+        suite_summary = (
+            "conv:{conv} linear:{linear} clone:{clone} sidecars:{sidecars}".format(
+                conv=kernel.get("conv_aggregate_rows", 0),
+                linear=kernel.get("linear_aggregate_rows", 0),
+                clone=kernel.get("clone_requirement_rows", 0),
+                sidecars=(evidence.get("sidecars") or {}).get("present_count", 0),
+            )
+        )
+        lifetime_summary = (
+            "dry:{dry} blockers:{blockers} retired:{retired}".format(
+                dry=row["region_lifetime"].get(
+                    "stack_subresource_lifetime_dry_run_rows", 0
+                ),
+                blockers=row["region_lifetime"].get("stack_retire_drain_blocker_rows", 0),
+                retired=row["region_lifetime"].get("retired_resource_aggregate_rows", 0),
+            )
+        )
         lines.append(
-            "| `{}` | `{}` | {} | {} | {} | {} | {} |".format(
+            "| `{}` | `{}` | {} | {} | {} | {} | {} | {} | {} |".format(
                 row["row_id"],
                 row["status"],
                 "yes" if row["timing_valid"] else "no",
                 op_contracts,
                 transition_contracts,
+                suite_summary,
+                lifetime_summary,
                 row["unknowns"]["unknown_transition_reasons"],
                 len(row["environment"].get("missing_artifacts") or []),
             )
@@ -852,6 +1227,133 @@ def validate_transition_contract_classification() -> None:
     )
 
 
+def validate_model_suite_ingestion() -> None:
+    fallback_delta = normalize_counter_delta(
+        {
+            "submit_origin_counters": [
+                100,
+                1,
+                2,
+                3,
+                4,
+                5,
+                66,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+            ]
+        }
+    )
+    if fallback_delta.get("tensor_cpu_readback_submits") != 66:
+        raise AssertionError("submit_origin_counters index 6 fallback was not used")
+
+    delta = {
+        "cpu_fallback_count": 0,
+        "sync_readback_count": 1,
+        "buffer_copy_counters": [3, 1024, 1, 1, 1],
+        "submit_origin_counters": [100, 1, 2, 3, 4, 5, 66, 7, 8, 9, 10, 11, 12, 13],
+        "submit_origin_phase_counters_delta": [
+            "submit_origin_phase origin=tensor_cpu_readback phase=timed_forward count=1173",
+            "submit_origin_phase origin=retire_queue_drain phase=timed_forward count=35",
+        ],
+        "retire_drain_counters": [9, 8, 0, 1, 2, 2048],
+        "conv_aggregate_snapshot_delta": ["conv_aggregate selected=FloatBufferConv count=2"],
+        "linear_aggregate_snapshot_delta": ["linear_aggregate kernel=mm_buffer_float count=4"],
+        "clone_requirement_snapshot_delta": ["clone_requirement reason=storage_offset count=1"],
+        "conv_plan_counters": [1, 2, 3],
+        "linear_plan_counters": [4, 5],
+        "pointwise_conv_route_counters": [6],
+        "stack_retire_drain_blocker_snapshot_delta": [
+            "stack_retire_drain_blocker callsite=context_flush_pending count=1"
+        ],
+        "stack_subresource_lifetime_dry_run_snapshot_delta": [
+            "stack_subresource_lifetime_dry_run class=metadata_uniform count=1"
+        ],
+        "retired_resource_aggregate_snapshot_delta": [
+            "retired_resource kind=buffer role=unknown count=1"
+        ],
+    }
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        result_path = tmp_path / "model_suite_result.json"
+        result_payload = {
+            "schema_version": 1,
+            "environment": {
+                "python": "agent_space/venvs/example/Scripts/python.exe",
+                "torch_version": "stale-runtime-for-collector-test",
+            },
+            "records": [
+                {
+                    "status": "ok",
+                    "task": "collector_self_test",
+                    "model_name": "example",
+                    "model_id": "example_model",
+                    "backend": "vulkan",
+                    "dtype": "float32",
+                    "device": "vulkan:0",
+                    "device_index": 0,
+                    "input": {"shape": [1, 3, 16, 16]},
+                    "timings": {"timed_forward": {"mean_s": 1.0}},
+                    "counters": {
+                        "vulkan_phase_counters": {
+                            "phases": [{"name": "timed_forward", "delta": delta}],
+                            "total": {"name": "total", "delta": delta},
+                        }
+                    },
+                    "output_sanity": {
+                        "fallback_readback_attribution": {
+                            "total_dispatches": 2,
+                            "vulkan_dispatches": 1,
+                            "categories": {"metadata": {"count": 1}},
+                        },
+                        "grid_sample_calls": [{"index": 0}],
+                        "paddleocr_postprocess_cpu_metadata_tensors": [{"shape": [1]}],
+                    },
+                }
+            ],
+        }
+        write_json(result_path, result_payload)
+        (tmp_path / "row.probe.jsonl").write_text(
+            json.dumps({"candidate_contract": "ExampleContract", "outcome": "recorded"})
+            + "\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "row.admission.jsonl").write_text(
+            json.dumps({"contract_name": "ExampleContract", "outcome": "admitted"})
+            + "\n",
+            encoding="utf-8",
+        )
+        write_json(tmp_path / "row.probe_summary.json", {"status": "ok"})
+        (tmp_path / "row.op_hits.log").write_text("aten::example\n", encoding="utf-8")
+        row = build_row({"row_id": "self_test", "result_json": str(result_path)}, {})
+
+    timed = row["phase_counters"]["timed_forward"]
+    if timed.get("tensor_cpu_readback_submits") != 1173:
+        raise AssertionError("named tensor_cpu_readback submit origin was not used")
+    if timed.get("retire_queue_drain_submits") != 35:
+        raise AssertionError("named retire_queue_drain submit origin was not used")
+    evidence = row["environment"]["model_suite_evidence"]
+    kernel = evidence["kernel"]
+    if kernel["conv_aggregate_rows"] != 1 or kernel["linear_aggregate_rows"] != 1:
+        raise AssertionError("conv/linear aggregate snapshots were not consumed")
+    if kernel["clone_requirement_rows"] != 1:
+        raise AssertionError("clone requirement snapshot was not consumed")
+    if evidence["sidecars"]["present_count"] != 4:
+        raise AssertionError("probe/admission/op-hit sidecars were not discovered")
+    if not row["region_lifetime"].get("embedded_region_lifetime_available"):
+        raise AssertionError("embedded region/lifetime evidence was not consumed")
+    if any(
+        item.get("name") == "region_lifetime_dry_run"
+        for item in row["environment"].get("missing_artifacts") or []
+    ):
+        raise AssertionError("embedded lifetime evidence was still reported missing")
+    print("validated model-suite collector ingestion")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Normalize Vulkan benchmark outputs into the five-model contract validation schema."
@@ -866,10 +1368,18 @@ def main() -> None:
         action="store_true",
         help="Validate reason-bucket transition contract classification.",
     )
+    parser.add_argument(
+        "--validate-model-suite-ingestion",
+        action="store_true",
+        help="Validate benchmark_model_suite wrapper and sidecar ingestion.",
+    )
     args = parser.parse_args()
 
     if args.validate_transition_contract_classification:
         validate_transition_contract_classification()
+        return
+    if args.validate_model_suite_ingestion:
+        validate_model_suite_ingestion()
         return
 
     if not args.config or not args.output_json:
