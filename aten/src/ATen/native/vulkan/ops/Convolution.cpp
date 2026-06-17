@@ -2359,16 +2359,18 @@ bool is_default_float_conv_clamp(const float output_min, const float output_max)
       output_max == +std::numeric_limits<float>::infinity();
 }
 
-bool is_gap_free_width_packed_nchw_buffer(const vTensor& tensor) {
+bool is_width_packed_nchw_buffer(const vTensor& tensor) {
   const IntArrayRef sizes = tensor.sizes();
   const IntArrayRef gpu_sizes = tensor.gpu_sizes();
+  const IntArrayRef physical_strides = tensor.physical_strides();
   return tensor.storage_type() == api::StorageType::BUFFER &&
       tensor.gpu_memory_layout() ==
       api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
       sizes.size() == 4 && gpu_sizes.size() == 4 &&
+      physical_strides.size() == 4 &&
       tensor.storage_offset() == 0 &&
-      tensor.has_direct_buffer_layout() &&
-      gpu_sizes[3] == sizes[3] &&
+      gpu_sizes[0] == sizes[0] && gpu_sizes[1] == sizes[1] &&
+      gpu_sizes[2] == sizes[2] && gpu_sizes[3] >= sizes[3] &&
       utils::supports_buffer_view_fast_path(tensor);
 }
 
@@ -2416,7 +2418,7 @@ bool can_select_pointwise_conv_as_linear_plan(
       input_sizes[1] != weight_sizes[1]) {
     return false;
   }
-  if (!is_gap_free_width_packed_nchw_buffer(v_input)) {
+  if (!is_width_packed_nchw_buffer(v_input)) {
     return false;
   }
   if (
@@ -2439,8 +2441,7 @@ bool can_select_pointwise_conv_as_linear_plan(
        !utils::supports_buffer_view_fast_path(v_bias))) {
     return false;
   }
-  const int64_t output_w = input_sizes[3];
-  return output_w % 4 == 0;
+  return true;
 }
 
 bool can_run_float_buffer_conv2d_add(
@@ -2572,7 +2573,7 @@ Tensor run_float_buffer_pointwise_conv2d_as_linear_impl(
   vTensor v_bias = packed_weight.bias_vtensor();
 
   const int64_t height = v_input.sizes()[2];
-  const int64_t spatial = height * v_input.sizes()[3];
+  const int64_t spatial = height * v_input.gpu_sizes()[3];
   const int64_t in_channels = v_input.sizes()[1];
   const int64_t out_channels = packed_weight.logical_weight_sizes()[0];
 

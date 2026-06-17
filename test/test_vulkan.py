@@ -13618,10 +13618,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             "aten::convolution.buffer_float_1x1_skip."
                             "small_spatial_pointwise.depth_vision_projection",
                             op_hits)
-                        if width % 4 == 0:
-                            self.assertIn(as_linear_hit, op_hits)
-                        else:
-                            self.assertNotIn(as_linear_hit, op_hits)
+                        self.assertIn(as_linear_hit, op_hits)
         finally:
             if previous_op_hit_log is None:
                 os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
@@ -13812,44 +13809,67 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             ((1, 2176, 14, 14), 512, False),
             ((1, 3328, 7, 7), 1024, False),
         )
-        for shape, out_channels, bias in cases:
-            with self.subTest(
-                    shape=shape,
-                    out_channels=out_channels,
-                    bias=bias):
-                x_cpu = torch.randn(*shape)
-                x_vulkan = x_cpu.to("vulkan")
-                module_cpu = torch.nn.Conv2d(
-                    shape[1],
-                    out_channels,
-                    kernel_size=1,
-                    bias=bias).eval()
-                module_vulkan = torch.nn.Conv2d(
-                    shape[1],
-                    out_channels,
-                    kernel_size=1,
-                    bias=bias).eval()
-                module_vulkan.load_state_dict(module_cpu.state_dict())
-                module_vulkan = module_vulkan.to("vulkan")
+        as_linear_hit = "aten::convolution.buffer_float_1x1_as_linear"
+        contract_hit = (
+            "aten::convolution.buffer_float_1x1_skip."
+            "small_spatial_pointwise.ocr_projection"
+        )
+        log_name = "large_pointwise_paddleocr_op_hit_test.log"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+        try:
+            for shape, out_channels, bias in cases:
+                with self.subTest(
+                        shape=shape,
+                        out_channels=out_channels,
+                        bias=bias):
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    x_cpu = torch.randn(*shape)
+                    x_vulkan = x_cpu.to("vulkan")
+                    module_cpu = torch.nn.Conv2d(
+                        shape[1],
+                        out_channels,
+                        kernel_size=1,
+                        bias=bias).eval()
+                    module_vulkan = torch.nn.Conv2d(
+                        shape[1],
+                        out_channels,
+                        kernel_size=1,
+                        bias=bias).eval()
+                    module_vulkan.load_state_dict(module_cpu.state_dict())
+                    module_vulkan = module_vulkan.to("vulkan")
 
-                with torch.inference_mode():
-                    expected = module_cpu(x_cpu)
-                    actual = None
-                    for _ in range(3):
-                        current = module_vulkan(x_vulkan).cpu()
-                        if actual is not None:
-                            self._assert_outputs_close(
-                                actual,
-                                current,
-                                atol=1e-5,
-                                rtol=1e-5)
-                        actual = current
+                    with torch.inference_mode():
+                        expected = module_cpu(x_cpu)
+                        actual = None
+                        for _ in range(3):
+                            current = module_vulkan(x_vulkan).cpu()
+                            if actual is not None:
+                                self._assert_outputs_close(
+                                    actual,
+                                    current,
+                                    atol=1e-5,
+                                    rtol=1e-5)
+                            actual = current
 
-                self._assert_outputs_close(
-                    expected,
-                    actual,
-                    atol=1e-4,
-                    rtol=1e-4)
+                    self._assert_outputs_close(
+                        expected,
+                        actual,
+                        atol=1e-4,
+                        rtol=1e-4)
+                    with open(log_path, "r", encoding="utf-8") as log_file:
+                        op_hits = log_file.read()
+                    self.assertIn(contract_hit, op_hits)
+                    self.assertIn(as_linear_hit, op_hits)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(log_path):
+                os.remove(log_path)
 
     def test_large_pointwise_conv2d_diffusion_small_spatial_matches_cpu(self):
         torch.manual_seed(0)
