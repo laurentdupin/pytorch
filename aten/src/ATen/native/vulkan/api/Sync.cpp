@@ -261,6 +261,8 @@ constexpr const char* kDryRunMissingStackActivationProof =
     "missing_stack_activation_proof";
 constexpr const char* kDryRunAttentionSubresource =
     "attention_subresource";
+constexpr const char* kDryRunAttentionScoreProbabilitySubresource =
+    "attention_score_probability_subresource";
 constexpr const char* kDryRunLayerNormStatBuffer =
     "layernorm_stat_buffer";
 constexpr const char* kDryRunMetadataUniform = "metadata_uniform";
@@ -527,6 +529,28 @@ bool is_layernorm_stat_resource(
   return provenance.shape.size() == 2u && provenance.shape.back() == 1;
 }
 
+bool is_attention_score_probability_subresource(
+    const VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance) {
+  if (
+      role != VulkanRetiredResourceRole::StackAttentionOutput ||
+      provenance.producer_role != VulkanRetiredResourceRole::StackAttentionOutput ||
+      provenance.phase != VulkanVisionStackPhase::Attention ||
+      provenance.source != VulkanStackRetireProvenanceSource::TensorAllocation) {
+    return false;
+  }
+  if (
+      !provenance.defined || provenance.requested_intermediate ||
+      provenance.escapes_stack || provenance.final_output ||
+      provenance.alias_or_view || provenance.aliases_runtime_input ||
+      provenance.aliases_runtime_output || !provenance.direct_buffer ||
+      !provenance.buffer_storage || provenance.image_storage) {
+    return false;
+  }
+  return provenance.shape.size() == 3u && provenance.shape[1] > 0 &&
+      provenance.shape[1] == provenance.shape[2] && provenance.dtype >= 0;
+}
+
 void note_dry_run_resource_class(
     VulkanStackSubresourceLifetimeDryRunCounters& counters,
     const char* const resource_class,
@@ -546,6 +570,11 @@ void note_dry_run_resource_class(
     counters.attention_subresource_count.fetch_add(
         1u, std::memory_order_relaxed);
     counters.attention_subresource_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  } else if (key == kDryRunAttentionScoreProbabilitySubresource) {
+    counters.attention_score_probability_subresource_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.attention_score_probability_subresource_bytes.fetch_add(
         bytes, std::memory_order_relaxed);
   } else if (key == kDryRunLayerNormStatBuffer) {
     counters.layernorm_stat_buffer_count.fetch_add(
@@ -970,6 +999,8 @@ void reset_stack_subresource_lifetime_dry_run_counters() {
   counters.missing_stack_activation_proof_count.store(
       0u, std::memory_order_relaxed);
   counters.attention_subresource_count.store(0u, std::memory_order_relaxed);
+  counters.attention_score_probability_subresource_count.store(
+      0u, std::memory_order_relaxed);
   counters.layernorm_stat_buffer_count.store(0u, std::memory_order_relaxed);
   counters.metadata_uniform_count.store(0u, std::memory_order_relaxed);
   counters.raw_no_provenance_count.store(0u, std::memory_order_relaxed);
@@ -981,6 +1012,8 @@ void reset_stack_subresource_lifetime_dry_run_counters() {
   counters.missing_stack_activation_proof_bytes.store(
       0u, std::memory_order_relaxed);
   counters.attention_subresource_bytes.store(0u, std::memory_order_relaxed);
+  counters.attention_score_probability_subresource_bytes.store(
+      0u, std::memory_order_relaxed);
   counters.layernorm_stat_buffer_bytes.store(0u, std::memory_order_relaxed);
   counters.metadata_uniform_bytes.store(0u, std::memory_order_relaxed);
   counters.raw_no_provenance_bytes.store(0u, std::memory_order_relaxed);
@@ -1829,6 +1862,9 @@ std::vector<int64_t> stack_subresource_lifetime_dry_run_counters_snapshot() {
           counters.attention_subresource_count.load(
               std::memory_order_relaxed)),
       static_cast<int64_t>(
+          counters.attention_score_probability_subresource_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
           counters.layernorm_stat_buffer_count.load(
               std::memory_order_relaxed)),
       static_cast<int64_t>(
@@ -1849,6 +1885,9 @@ std::vector<int64_t> stack_subresource_lifetime_dry_run_counters_snapshot() {
               std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.attention_subresource_bytes.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.attention_score_probability_subresource_bytes.load(
               std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.layernorm_stat_buffer_bytes.load(
@@ -2283,6 +2322,9 @@ const char* stack_subresource_lifetime_dry_run_resource_class(
               ProgramScratchArenaBackingStorage) {
     return kDryRunAllocatorOrScratchBacking;
   }
+  if (is_attention_score_probability_subresource(role, provenance)) {
+    return kDryRunAttentionScoreProbabilitySubresource;
+  }
   switch (role) {
     case VulkanRetiredResourceRole::StackQView:
     case VulkanRetiredResourceRole::StackKView:
@@ -2310,6 +2352,7 @@ bool stack_subresource_lifetime_dry_run_resource_is_safe(
     const char* const resource_class) {
   const std::string key(resource_class);
   return key == kDryRunProvenStackActivation ||
+      key == kDryRunAttentionScoreProbabilitySubresource ||
       key == kDryRunMetadataUniform;
 }
 

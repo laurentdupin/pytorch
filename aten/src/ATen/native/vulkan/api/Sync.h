@@ -427,6 +427,7 @@ struct VulkanStackSubresourceLifetimeDryRunCounters final {
   std::atomic<uint64_t> proven_stack_activation_count{0u};
   std::atomic<uint64_t> missing_stack_activation_proof_count{0u};
   std::atomic<uint64_t> attention_subresource_count{0u};
+  std::atomic<uint64_t> attention_score_probability_subresource_count{0u};
   std::atomic<uint64_t> layernorm_stat_buffer_count{0u};
   std::atomic<uint64_t> metadata_uniform_count{0u};
   std::atomic<uint64_t> raw_no_provenance_count{0u};
@@ -435,6 +436,7 @@ struct VulkanStackSubresourceLifetimeDryRunCounters final {
   std::atomic<uint64_t> proven_stack_activation_bytes{0u};
   std::atomic<uint64_t> missing_stack_activation_proof_bytes{0u};
   std::atomic<uint64_t> attention_subresource_bytes{0u};
+  std::atomic<uint64_t> attention_score_probability_subresource_bytes{0u};
   std::atomic<uint64_t> layernorm_stat_buffer_bytes{0u};
   std::atomic<uint64_t> metadata_uniform_bytes{0u};
   std::atomic<uint64_t> raw_no_provenance_bytes{0u};
