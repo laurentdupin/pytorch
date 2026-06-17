@@ -283,6 +283,16 @@ struct VulkanStackRetireProvenance final {
   bool alias_or_view = false;
 };
 
+struct VulkanStackRawResourceAllocationProof final {
+  bool has_generation = false;
+  bool has_byte_range = false;
+  uint64_t allocation_id = 0u;
+  uint64_t allocation_generation = 0u;
+  uint64_t byte_offset = 0u;
+  uint64_t byte_range = 0u;
+  uint64_t allocated_bytes = 0u;
+};
+
 struct VulkanStackLastUseProof final {
   VulkanVisionStackPhase producer_phase = VulkanVisionStackPhase::Unknown;
   int64_t producer_block_index = -1;
@@ -433,6 +443,7 @@ struct VulkanStackSubresourceLifetimeDryRunCounters final {
   std::atomic<uint64_t> metadata_uniform_count{0u};
   std::atomic<uint64_t> raw_no_provenance_count{0u};
   std::atomic<uint64_t> stack_internal_raw_missing_generation_count{0u};
+  std::atomic<uint64_t> stack_internal_raw_generation_range_count{0u};
   std::atomic<uint64_t> truly_unknown_raw_resource_count{0u};
   std::atomic<uint64_t> host_visible_or_requested_output_count{0u};
   std::atomic<uint64_t> allocator_or_scratch_backing_count{0u};
@@ -445,6 +456,7 @@ struct VulkanStackSubresourceLifetimeDryRunCounters final {
   std::atomic<uint64_t> metadata_uniform_bytes{0u};
   std::atomic<uint64_t> raw_no_provenance_bytes{0u};
   std::atomic<uint64_t> stack_internal_raw_missing_generation_bytes{0u};
+  std::atomic<uint64_t> stack_internal_raw_generation_range_bytes{0u};
   std::atomic<uint64_t> truly_unknown_raw_resource_bytes{0u};
   std::atomic<uint64_t> host_visible_or_requested_output_bytes{0u};
   std::atomic<uint64_t> allocator_or_scratch_backing_bytes{0u};
@@ -596,7 +608,8 @@ TORCH_API const char* stack_subresource_lifetime_dry_run_resource_class(
     VulkanRetiredResourceKind kind,
     VulkanRetiredResourceRole role,
     const VulkanStackRetireProvenance& provenance,
-    bool qkv_would_batch);
+    bool qkv_would_batch,
+    const VulkanStackRawResourceAllocationProof& allocation_proof);
 TORCH_API bool stack_subresource_lifetime_dry_run_resource_is_safe(
     const char* resource_class);
 TORCH_API bool stack_subresource_lifetime_dry_run_is_large_backing(
@@ -612,7 +625,8 @@ TORCH_API void note_stack_subresource_lifetime_dry_run_resource(
     const char* resource_class,
     bool safe_candidate,
     bool large_backing,
-    const VulkanStackRetireProvenance& provenance);
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof);
 TORCH_API void note_stack_subresource_lifetime_dry_run_group(
     VulkanSubmitPhase phase,
     VulkanRetireCallSite callsite,

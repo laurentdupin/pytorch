@@ -74,6 +74,35 @@ bool cpu_timeline_summary_logging_enabled() {
   return !cpu_timeline_summary_log_path().empty();
 }
 
+VulkanStackRawResourceAllocationProof stack_raw_allocation_proof(
+    const PendingRetireBuffer& pending) {
+  VulkanStackRawResourceAllocationProof proof;
+  proof.allocation_id = pending.buffer.allocation_id();
+  proof.allocation_generation =
+      vulkan_memory_allocation_generation(proof.allocation_id);
+  proof.byte_offset = static_cast<uint64_t>(pending.buffer.mem_offset());
+  proof.byte_range = static_cast<uint64_t>(pending.buffer.mem_range());
+  proof.allocated_bytes = pending.bytes;
+  proof.has_generation =
+      proof.allocation_id != 0u && proof.allocation_generation != 0u;
+  proof.has_byte_range = pending.buffer.has_memory() &&
+      pending.buffer.owns_memory() && proof.byte_range != 0u &&
+      proof.allocated_bytes != 0u;
+  return proof;
+}
+
+VulkanStackRawResourceAllocationProof stack_raw_allocation_proof(
+    const PendingRetireImage& pending) {
+  VulkanStackRawResourceAllocationProof proof;
+  proof.allocation_id = pending.image.allocation_id();
+  proof.allocation_generation =
+      vulkan_memory_allocation_generation(proof.allocation_id);
+  proof.allocated_bytes = pending.bytes;
+  proof.has_generation =
+      proof.allocation_id != 0u && proof.allocation_generation != 0u;
+  return proof;
+}
+
 VulkanRetireDrainReason retire_drain_reason_for_current_phase() {
   switch (current_submit_phase()) {
     case VulkanSubmitPhase::ModelSetup:
@@ -1134,12 +1163,15 @@ void Context::submit_pending_work_and_poll_retire(
             qkv_would_batch,
             pending.stack_provenance);
         if (record_subresource_lifetime_dry_run) {
+          const VulkanStackRawResourceAllocationProof allocation_proof =
+              stack_raw_allocation_proof(pending);
           const char* const resource_class =
               stack_subresource_lifetime_dry_run_resource_class(
                   pending.kind,
                   pending.role,
                   pending.stack_provenance,
-                  qkv_would_batch);
+                  qkv_would_batch,
+                  allocation_proof);
           const bool safe_candidate =
               stack_subresource_lifetime_dry_run_resource_is_safe(
                   resource_class);
@@ -1168,7 +1200,8 @@ void Context::submit_pending_work_and_poll_retire(
               resource_class,
               safe_candidate,
               large_backing,
-              pending.stack_provenance);
+              pending.stack_provenance,
+              allocation_proof);
         }
       };
   {

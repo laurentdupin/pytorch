@@ -599,6 +599,16 @@ void mark_vulkan_memory_residency_state(
   }
 }
 
+uint64_t vulkan_memory_allocation_generation(const uint64_t allocation_id) {
+  if (allocation_id == 0u) {
+    return 0u;
+  }
+  std::lock_guard<std::mutex> lock(vulkan_memory_residency_mutex());
+  const auto it = vulkan_memory_residency_records().find(allocation_id);
+  return it == vulkan_memory_residency_records().end() ? 0u
+                                                       : it->second.generation;
+}
+
 AllocationScope::AllocationScope(const char* label)
     : previous_(current_allocation_label()) {
   mutable_current_allocation_label() =
