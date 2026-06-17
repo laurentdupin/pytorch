@@ -237,13 +237,15 @@ Current MVP status:
   execution, materialization policy, and broader SDPA policy remain
   handwritten.
 - `AttentionProbabilityMaterializationContract`
-  `DecomposedAttentionProbabilityToValueBmm` now has proof-only
-  ShapeEnvelope sparse-rowset coverage and generated C++ metadata/row helpers
-  in `ExecutionContractsAttentionProbabilityMaterializationSpec.h`. It records
-  ten Lotus decomposed-attention probability/value-BMM rows, distinguishes nine
-  direct-safe rows from the one `[10,126,126]` row requiring Vulkan
-  clone/materialization in proof, and deliberately does not change production
-  softmax or BMM dispatch.
+  `DecomposedAttentionProbabilityToValueBmm` now has ShapeEnvelope
+  sparse-rowset coverage, generated C++ metadata/row helpers in
+  `ExecutionContractsAttentionProbabilityMaterializationSpec.h`, and
+  transition-log attribution for required probability materialization events.
+  It records nine direct-safe Lotus decomposed-attention probability/value-BMM
+  rows plus seven `vulkan_clone_probability_before_value_bmm` rows: the Lotus
+  `[10,126,126]` proof row and the six existing low-resolution
+  VisionSelfAttention rows. This deliberately does not remove the clone or
+  change production softmax/BMM dispatch.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

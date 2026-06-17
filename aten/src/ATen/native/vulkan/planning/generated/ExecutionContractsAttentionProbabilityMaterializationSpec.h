@@ -24,7 +24,7 @@ constexpr const char* kAttentionProbabilityMaterializationDecomposedAttentionPro
 constexpr const char* kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmGuardId = "attention_probability_materialization_adjacent_guards";
 constexpr const char* kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmFallbackPolicy = "unsupported_edges_do_not_match";
 constexpr const char* kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmMaterializationPolicy = "row_policy_vulkan_clone_required_or_direct_safe_recorded";
-constexpr std::int64_t kAttentionProbabilityMaterializationProbabilityRowsRowCount = 10;
+constexpr std::int64_t kAttentionProbabilityMaterializationProbabilityRowsRowCount = 16;
 
 struct AttentionProbabilityMaterializationProbabilityRowsRow final {
   const char* family;
@@ -119,6 +119,72 @@ constexpr AttentionProbabilityMaterializationProbabilityRowsRow kAttentionProbab
         "vulkan_clone_probability_before_value_bmm",
         "materialize_bh10_t126_s126_d64",
         ExecutionContractMetadata{kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmContractName, "MaterializationRequiredProbabilityValueBmm", "materialize_bh10_t126_s126_d64", kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmEvidenceId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmGuardId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmFallbackPolicy, "vulkan_clone_probability_before_value_bmm"}
+    },
+    {
+        "MaterializationRequiredProbabilityValueBmm",
+        6,
+        151,
+        151,
+        64,
+        false,
+        "vulkan_clone_probability_before_value_bmm",
+        "materialize_vision_bh6_t151_s151_d64",
+        ExecutionContractMetadata{kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmContractName, "MaterializationRequiredProbabilityValueBmm", "materialize_vision_bh6_t151_s151_d64", kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmEvidenceId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmGuardId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmFallbackPolicy, "vulkan_clone_probability_before_value_bmm"}
+    },
+    {
+        "MaterializationRequiredProbabilityValueBmm",
+        6,
+        261,
+        261,
+        64,
+        false,
+        "vulkan_clone_probability_before_value_bmm",
+        "materialize_vision_bh6_t261_s261_d64",
+        ExecutionContractMetadata{kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmContractName, "MaterializationRequiredProbabilityValueBmm", "materialize_vision_bh6_t261_s261_d64", kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmEvidenceId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmGuardId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmFallbackPolicy, "vulkan_clone_probability_before_value_bmm"}
+    },
+    {
+        "MaterializationRequiredProbabilityValueBmm",
+        12,
+        151,
+        151,
+        64,
+        false,
+        "vulkan_clone_probability_before_value_bmm",
+        "materialize_vision_bh12_t151_s151_d64",
+        ExecutionContractMetadata{kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmContractName, "MaterializationRequiredProbabilityValueBmm", "materialize_vision_bh12_t151_s151_d64", kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmEvidenceId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmGuardId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmFallbackPolicy, "vulkan_clone_probability_before_value_bmm"}
+    },
+    {
+        "MaterializationRequiredProbabilityValueBmm",
+        12,
+        261,
+        261,
+        64,
+        false,
+        "vulkan_clone_probability_before_value_bmm",
+        "materialize_vision_bh12_t261_s261_d64",
+        ExecutionContractMetadata{kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmContractName, "MaterializationRequiredProbabilityValueBmm", "materialize_vision_bh12_t261_s261_d64", kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmEvidenceId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmGuardId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmFallbackPolicy, "vulkan_clone_probability_before_value_bmm"}
+    },
+    {
+        "MaterializationRequiredProbabilityValueBmm",
+        16,
+        151,
+        151,
+        64,
+        false,
+        "vulkan_clone_probability_before_value_bmm",
+        "materialize_vision_bh16_t151_s151_d64",
+        ExecutionContractMetadata{kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmContractName, "MaterializationRequiredProbabilityValueBmm", "materialize_vision_bh16_t151_s151_d64", kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmEvidenceId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmGuardId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmFallbackPolicy, "vulkan_clone_probability_before_value_bmm"}
+    },
+    {
+        "MaterializationRequiredProbabilityValueBmm",
+        16,
+        261,
+        261,
+        64,
+        false,
+        "vulkan_clone_probability_before_value_bmm",
+        "materialize_vision_bh16_t261_s261_d64",
+        ExecutionContractMetadata{kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmContractName, "MaterializationRequiredProbabilityValueBmm", "materialize_vision_bh16_t261_s261_d64", kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmEvidenceId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmGuardId, kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmFallbackPolicy, "vulkan_clone_probability_before_value_bmm"}
     },
     {
         "DirectSafeProbabilityValueBmm",

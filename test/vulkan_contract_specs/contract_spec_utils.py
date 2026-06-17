@@ -4241,6 +4241,77 @@ def _validate_attention_probability_materialization_shape_envelope(
         "DecomposedAttentionProbabilityToValueBmm",
         f"{context} family",
     )
+    transition_contract = spec.get("transition_contract")
+    require_fields(
+        transition_contract,
+        (
+            "contract_type",
+            "producer_schema",
+            "consumer_schema",
+            "semantic_consumer_schema",
+            "reason",
+            "kind",
+            "outcome",
+            "physical_copy",
+            "host_transfer",
+            "sync_required",
+            "queue_submit_required",
+            "row_scope",
+            "copy_budget",
+        ),
+        f"{context} transition_contract",
+    )
+    _require_equal(
+        transition_contract["contract_type"],
+        "LayoutTransitionContract",
+        f"{context} transition contract type",
+    )
+    _require_equal(
+        transition_contract["producer_schema"],
+        "aten::_softmax",
+        f"{context} transition producer",
+    )
+    _require_equal(
+        transition_contract["consumer_schema"],
+        "clone.buffer_to_buffer",
+        f"{context} transition consumer",
+    )
+    _require_equal(
+        transition_contract["semantic_consumer_schema"],
+        "aten::bmm",
+        f"{context} transition semantic consumer",
+    )
+    _require_equal(
+        transition_contract["reason"],
+        "required_correctness_materialization",
+        f"{context} transition reason",
+    )
+    _require_equal(
+        transition_contract["kind"],
+        "semantic_materialization",
+        f"{context} transition kind",
+    )
+    _require_equal(
+        transition_contract["outcome"],
+        "classified",
+        f"{context} transition outcome",
+    )
+    for key, expected in (
+        ("physical_copy", True),
+        ("host_transfer", False),
+        ("sync_required", False),
+        ("queue_submit_required", True),
+    ):
+        _require_equal(
+            transition_contract[key],
+            expected,
+            f"{context} transition {key}",
+        )
+    _require_equal(
+        transition_contract["copy_budget"],
+        {"cpu_fallback": 0, "sync_readback": 0, "host_transfer": 0},
+        f"{context} transition budget",
+    )
     _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
 
     bounds = envelope["bounds"]
@@ -4332,9 +4403,14 @@ def _validate_attention_probability_materialization_shape_envelope(
         for row in rowset["rows"]
         if row["family"] == "MaterializationRequiredProbabilityValueBmm"
     ]
+    expected_materialization_required = [
+        case
+        for case in spec["positive_cases"]
+        if not case["expected_direct_consumer_safe"]
+    ]
     _require_equal(
         len(materialization_required),
-        1,
+        len(expected_materialization_required),
         f"{context} materialization-required rows",
     )
 

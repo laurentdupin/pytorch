@@ -89,17 +89,21 @@ position-add envelope observed in DAv2 token preparation:
 output; the benchmark owner path may call it only when this exact bounded
 pattern is present.
 
-`AttentionProbabilityMaterializationContract` is currently proof/spec-only,
-not a production admission path. The ShapeEnvelope sparse-rowset fixture
+`AttentionProbabilityMaterializationContract` is now the first formal
+transition-contract spec and log-attribution target, but not a production
+admission path. The ShapeEnvelope sparse-rowset fixture
 `test/vulkan_contract_specs/attention_probability_materialization_contract.json`
-records the Lotus decomposed-attention softmax-probability to value-BMM edge
-for ten observed rank-3 float rows. Nine rows are direct-safe evidence; the
-`[10,126,126]` probability row is marked
-`vulkan_clone_probability_before_value_bmm` because proof showed direct
-softmax-output consumption can be wrong while cloned/materialized and
-CPU-uploaded probabilities pass. The generated helper header is deterministic
-metadata/row coverage only; no production materialization policy consumes it
-yet.
+records softmax-probability to value-BMM materialization evidence for rank-3
+float rows. Nine Lotus-derived rows remain direct-safe evidence, while the
+Lotus `[10,126,126]` row and the six existing low-resolution
+`VisionSelfAttentionSDPAContract` probability rows `[BH,T,T]` with
+`BH in {6,12,16}`, `T in {151,261}`, and value dim `64` are marked
+`vulkan_clone_probability_before_value_bmm`. Transition logging now classifies
+matching `aten::_softmax -> clone.buffer_to_buffer` events as
+`required_correctness_materialization` / `semantic_materialization` with
+`producer_contract=AttentionProbabilityMaterializationContract` and
+`consumer_contract=DecomposedAttentionProbabilityToValueBmm`. The clone remains
+required and behavior is unchanged.
 
 `ExecutionContractDiagnostics.h/.cpp` define the first opt-in contract
 admission diagnostic surface. `PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG=<path>`
@@ -138,8 +142,9 @@ copies, host uploads, readbacks, fallback materialization, layout
 materialization, and metadata-view creation. The initial taxonomy lives in
 `docs/vulkan/TRANSITION_CONTRACTS.md`; unknown reasons are intentionally
 visible/countable while follow-up tasks add precise producer/consumer proof.
-This skeleton does not remove copies, defer submits, alter fallback/readback
-policy, or broaden accepted shapes.
+`AttentionProbabilityMaterializationContract` is the first named transition
+contract attached to real events. This skeleton does not remove copies, defer
+submits, alter fallback/readback policy, or broaden accepted shapes.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor

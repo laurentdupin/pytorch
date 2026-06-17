@@ -12,6 +12,7 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/TransitionPlanner.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsAttentionProbabilityMaterializationSpec.h>
 #include <ATen/vulkan/Context.h>
 #include <c10/util/irange.h>
 #include <algorithm>
@@ -299,6 +300,36 @@ utils::TransitionKind transition_kind_for_buffer_copy(
   return utils::TransitionKind::Unknown;
 }
 
+bool is_attention_probability_materialization_transition(
+    const VulkanBufferCopyDecision& decision) {
+  if (
+      decision.reason != VulkanBufferCopyReason::ExplicitCopy ||
+      decision.producer_label !=
+          utils::generated::
+              kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmWriterOp ||
+      decision.consumer_label != "clone.buffer_to_buffer" ||
+      decision.producer_role != "buffer_lastdim" ||
+      api::current_submit_phase() != api::VulkanSubmitPhase::StackOwner ||
+      decision.dtype != ScalarType::Float ||
+      decision.src_sizes.size() != 3 ||
+      decision.dst_sizes != decision.src_sizes ||
+      decision.src_sizes[1] != decision.src_sizes[2]) {
+    return false;
+  }
+
+  const auto* row =
+      utils::generated::attention_probability_materialization_probability_rows_find(
+          decision.src_sizes[0],
+          decision.src_sizes[1],
+          decision.src_sizes[2],
+          64,
+          false);
+  return row != nullptr &&
+      std::strcmp(
+          row->materialization_policy,
+          "vulkan_clone_probability_before_value_bmm") == 0;
+}
+
 const char* scalar_type_name(const ScalarType dtype) {
   switch (dtype) {
     case ScalarType::Float:
@@ -371,10 +402,23 @@ void log_buffer_copy_transition(const VulkanBufferCopyDecision& decision) {
   const std::string dst_layout = decision.dst_direct_buffer
       ? "direct_buffer"
       : "buffer_view_or_packed";
+  const bool attention_probability_transition =
+      is_attention_probability_materialization_transition(decision);
+  const utils::TransitionKind kind = attention_probability_transition
+      ? utils::TransitionKind::SemanticMaterialization
+      : transition_kind_for_buffer_copy(decision.reason);
+  const char* producer_contract = attention_probability_transition
+      ? utils::generated::
+            kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmContractName
+      : decision.producer_role.c_str();
+  const char* consumer_contract = attention_probability_transition
+      ? utils::generated::
+            kAttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmFamilyName
+      : decision.consumer_role.c_str();
   utils::log_vulkan_transition(utils::VulkanTransitionRequest{
       api::submit_phase_name(api::current_submit_phase()),
       transition_reason_for_buffer_copy(decision.reason),
-      transition_kind_for_buffer_copy(decision.reason),
+      kind,
       decision.bytes,
       false,
       true,
@@ -382,8 +426,8 @@ void log_buffer_copy_transition(const VulkanBufferCopyDecision& decision) {
       true,
       decision.producer_label.c_str(),
       decision.consumer_label.c_str(),
-      decision.producer_role.c_str(),
-      decision.consumer_role.c_str(),
+      producer_contract,
+      consumer_contract,
       {scalar_type_name(decision.dtype), src_sizes.c_str(), src_strides.c_str()},
       {src_layout.c_str(), "BUFFER", nullptr, nullptr},
       {scalar_type_name(decision.dtype), dst_sizes.c_str(), dst_strides.c_str()},

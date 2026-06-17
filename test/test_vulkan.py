@@ -597,9 +597,9 @@ class TestVulkanGovernance(TestCase):
             "validated 22 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=133", result.stdout)
+        self.assertIn("generated_cases=134", result.stdout)
         self.assertIn(
-            "attention_probability_materialization_contract.json:12",
+            "attention_probability_materialization_contract.json:13",
             result.stdout,
         )
         self.assertIn("batch_norm_inference_contract.json:3", result.stdout)
@@ -653,9 +653,9 @@ class TestVulkanGovernance(TestCase):
             "validated 22 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=257", result.stdout)
+        self.assertIn("generated_cases=263", result.stdout)
         self.assertIn(
-            "attention_probability_materialization_contract.json:10",
+            "attention_probability_materialization_contract.json:16",
             result.stdout,
         )
         self.assertIn("batch_norm_inference_contract.json:4", result.stdout)
@@ -710,10 +710,10 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn("legal_assignments=44", result.stdout)
-        self.assertIn("adjacent_negative_assignments=132", result.stdout)
+        self.assertIn("adjacent_negative_assignments=133", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
-            "adjacent=12",
+            "adjacent=13",
             result.stdout,
         )
         self.assertIn(
@@ -826,12 +826,12 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("legal_assignments=44", result.stdout)
         self.assertIn("legal_paths=394", result.stdout)
-        self.assertIn("adjacent_negative_axes=131", result.stdout)
-        self.assertIn("runtime_legal_cases=257", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=133", result.stdout)
+        self.assertIn("adjacent_negative_axes=132", result.stdout)
+        self.assertIn("runtime_legal_cases=263", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=134", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
-            "status=covered:paths=17/17:adjacent_axes=12",
+            "status=covered:paths=17/17:adjacent_axes=13",
             result.stdout,
         )
         self.assertIn(
@@ -942,7 +942,7 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_shape_envelope_runtime_iterator_uses_generated_cases(self):
         expected_generated_counts = {
-            "attention_probability_materialization_contract.json": (10, 12),
+            "attention_probability_materialization_contract.json": (16, 13),
             "batch_norm_inference_contract.json": (4, 3),
             "batch_norm_inference_materialized_contract.json": (1, 3),
             "channel_cat_contract.json": (5, 7),
@@ -1222,11 +1222,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn("validated 7 ShapeEnvelope sparse rowsets", result.stdout)
-        self.assertIn("rows=106", result.stdout)
-        self.assertIn("sparse_gap=195118", result.stdout)
+        self.assertIn("rows=112", result.stdout)
+        self.assertIn("sparse_gap=195984", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:"
-            "probability_rows:rows=10",
+            "probability_rows:rows=16",
             result.stdout,
         )
         self.assertIn(
@@ -3796,6 +3796,55 @@ class TestVulkanGovernance(TestCase):
             spec["route_label"],
             "proof::attention_probability_materialization",
         )
+        transition_contract = spec["transition_contract"]
+        _require_contract_spec_fields(
+            transition_contract,
+            (
+                "contract_type",
+                "producer_schema",
+                "consumer_schema",
+                "semantic_consumer_schema",
+                "reason",
+                "kind",
+                "outcome",
+                "physical_copy",
+                "host_transfer",
+                "sync_required",
+                "queue_submit_required",
+                "copy_budget",
+            ),
+            "AttentionProbabilityMaterializationContract transition contract",
+        )
+        self.assertEqual(
+            transition_contract["contract_type"],
+            "LayoutTransitionContract",
+        )
+        self.assertEqual(transition_contract["producer_schema"], "aten::_softmax")
+        self.assertEqual(
+            transition_contract["consumer_schema"],
+            "clone.buffer_to_buffer",
+        )
+        self.assertEqual(
+            transition_contract["semantic_consumer_schema"],
+            "aten::bmm",
+        )
+        self.assertEqual(
+            transition_contract["reason"],
+            "required_correctness_materialization",
+        )
+        self.assertEqual(
+            transition_contract["kind"],
+            "semantic_materialization",
+        )
+        self.assertEqual(transition_contract["outcome"], "classified")
+        self.assertTrue(transition_contract["physical_copy"])
+        self.assertFalse(transition_contract["host_transfer"])
+        self.assertFalse(transition_contract["sync_required"])
+        self.assertTrue(transition_contract["queue_submit_required"])
+        self.assertEqual(
+            transition_contract["copy_budget"],
+            {"cpu_fallback": 0, "sync_readback": 0, "host_transfer": 0},
+        )
 
         bounds = spec["bounds"]
         _require_contract_spec_fields(
@@ -3830,20 +3879,35 @@ class TestVulkanGovernance(TestCase):
         self.assertTrue(bounds["requires_strided_layout"])
 
         positive_cases = spec["positive_cases"]
-        self.assertEqual(len(positive_cases), 10)
+        self.assertEqual(len(positive_cases), 16)
         materialization_required = [
             case
             for case in positive_cases
             if not case["expected_direct_consumer_safe"]
         ]
-        self.assertEqual(len(materialization_required), 1)
+        self.assertEqual(len(materialization_required), 7)
+        materialization_required_by_name = {
+            case["name"]: case for case in materialization_required
+        }
+        for name in (
+            "materialize_bh10_t126_s126_d64",
+            "materialize_vision_bh6_t151_s151_d64",
+            "materialize_vision_bh6_t261_s261_d64",
+            "materialize_vision_bh12_t151_s151_d64",
+            "materialize_vision_bh12_t261_s261_d64",
+            "materialize_vision_bh16_t151_s151_d64",
+            "materialize_vision_bh16_t261_s261_d64",
+        ):
+            self.assertIn(name, materialization_required_by_name)
+            self.assertEqual(
+                materialization_required_by_name[name]["materialization_policy"],
+                "vulkan_clone_probability_before_value_bmm",
+            )
         self.assertEqual(
-            materialization_required[0]["probability_shape"],
+            materialization_required_by_name[
+                "materialize_bh10_t126_s126_d64"
+            ]["probability_shape"],
             [10, 126, 126],
-        )
-        self.assertEqual(
-            materialization_required[0]["materialization_policy"],
-            "vulkan_clone_probability_before_value_bmm",
         )
 
         for case in positive_cases:
@@ -6531,6 +6595,94 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and record.get("phase") == "readback"
                     and record.get("sync_required")
                     for record in records
+                )
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_transition_log_attaches_attention_probability_materialization_contract(self):
+        log_name = "vulkan_attention_probability_transition_contract_test.jsonl"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import json
+                import os
+                import torch
+
+                log_path = os.path.join(os.getcwd(), "vulkan_attention_probability_transition_contract_test.jsonl")
+                if os.path.exists(log_path):
+                    os.remove(log_path)
+                os.environ["PYTORCH_VULKAN_TRANSITION_LOG"] = log_path
+
+                torch.manual_seed(0)
+
+                def clone_softmax(shape):
+                    scores = torch.randn(*shape, dtype=torch.float32).to("vulkan")
+                    torch.ops.vulkan_prepack.set_submit_phase(4)
+                    try:
+                        probs = torch.ops.aten._softmax.default(scores, -1, False)
+                        cloned = probs.clone()
+                    finally:
+                        torch.ops.vulkan_prepack.reset_submit_phase()
+                    return float(cloned.cpu().sum())
+
+                clone_softmax((6, 151, 151))
+                clone_softmax((6, 152, 152))
+
+                with open(log_path, encoding="utf-8") as log_file:
+                    records = [
+                        json.loads(line)
+                        for line in log_file
+                        if line.strip()
+                    ]
+                print(json.dumps(records, sort_keys=True))
+            """
+
+            _, result = self._run_repo_python_subprocess(
+                script,
+                timeout=120,
+                error_prefix=(
+                    "Vulkan attention probability transition contract "
+                    "subprocess failed."
+                ),
+            )
+            records = json.loads(result.stdout.strip().splitlines()[-1])
+            matched = [
+                record for record in records
+                if record.get("producer_schema") == "aten::_softmax"
+                and record.get("consumer_schema") == "clone.buffer_to_buffer"
+                and record.get("source_sizes") == "[6,151,151]"
+            ]
+            self.assertTrue(matched)
+            self.assertTrue(
+                any(
+                    record.get("reason") == "required_correctness_materialization"
+                    and record.get("kind") == "semantic_materialization"
+                    and record.get("producer_contract")
+                    == "AttentionProbabilityMaterializationContract"
+                    and record.get("consumer_contract")
+                    == "DecomposedAttentionProbabilityToValueBmm"
+                    and record.get("physical_copy")
+                    and not record.get("host_transfer")
+                    for record in matched
+                )
+            )
+
+            adjacent = [
+                record for record in records
+                if record.get("source_sizes") == "[6,152,152]"
+                or record.get("destination_sizes") == "[6,152,152]"
+            ]
+            self.assertTrue(adjacent)
+            self.assertFalse(
+                any(
+                    record.get("producer_contract")
+                    == "AttentionProbabilityMaterializationContract"
+                    for record in adjacent
                 )
             )
         finally:
@@ -15820,7 +15972,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 direct_max_abs = torch.max(torch.abs(direct - expected)).item()
                 if case["expected_direct_consumer_safe"]:
                     self.assertEqual(direct, expected, rtol=1e-3, atol=1e-3)
-                else:
+                elif "expected_direct_min_max_abs" in case:
                     self.assertGreater(
                         direct_max_abs,
                         case["expected_direct_min_max_abs"],

@@ -67,6 +67,33 @@ transition. Events use `event="vulkan_transition"` and include:
 This log is separate from contract admission diagnostics, op-hit logs, tensor
 state logs, and phase counters. It is for attribution and proof planning only.
 
+## Current Transition Specs
+
+`AttentionProbabilityMaterializationContract` is the first transition contract
+spec tied to real model-corpus traffic. It covers the bounded
+softmax-probability materialization edge where `aten::_softmax` probabilities
+are cloned into a direct/materialized Vulkan buffer before value BMM. The
+transition reason is `required_correctness_materialization`, the kind is
+`semantic_materialization`, `physical_copy=true`, `host_transfer=false`, and
+the copy/readback budget is zero CPU fallback, zero sync readback, and zero host
+transfer.
+
+The checked-in spec remains in
+`test/vulkan_contract_specs/attention_probability_materialization_contract.json`
+and its generated helper remains
+`aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsAttentionProbabilityMaterializationSpec.h`.
+Rows with `materialization_policy ==
+vulkan_clone_probability_before_value_bmm` are the transition-contract rows.
+This includes the original Lotus proof row plus the six already-admitted
+`VisionSelfAttentionSDPAContract` low-resolution rows with probability scores
+`[BH,T,T]`, `BH in {6,12,16}`, `T in {151,261}`, and value dim `64`.
+
+The current production behavior is unchanged: the clone still happens. The
+transition log now attaches `producer_contract =
+AttentionProbabilityMaterializationContract` and `consumer_contract =
+DecomposedAttentionProbabilityToValueBmm` to matching events so future work can
+measure and review this edge as a named transition contract.
+
 ## Rollout
 
 The first wired sites classify existing copy and materialization observations:
