@@ -492,6 +492,24 @@ struct VulkanStackSubresourceLifetimeDryRunCounters final {
       attention_score_probability_range_non_escape_last_consumer_bytes{0u};
   std::atomic<uint64_t>
       attention_raw_auxiliary_range_non_escape_last_consumer_bytes{0u};
+  std::atomic<uint64_t>
+      stack_internal_temp_raw_generation_range_missing_last_consumer_count{0u};
+  std::atomic<uint64_t>
+      stack_qkv_output_raw_generation_range_non_escape_last_consumer_count{0u};
+  std::atomic<uint64_t>
+      stack_proj_output_raw_generation_range_non_escape_last_consumer_count{0u};
+  std::atomic<uint64_t>
+      stack_residual1_output_raw_generation_range_non_escape_last_consumer_count{
+          0u};
+  std::atomic<uint64_t>
+      stack_internal_temp_raw_generation_range_missing_last_consumer_bytes{0u};
+  std::atomic<uint64_t>
+      stack_qkv_output_raw_generation_range_non_escape_last_consumer_bytes{0u};
+  std::atomic<uint64_t>
+      stack_proj_output_raw_generation_range_non_escape_last_consumer_bytes{0u};
+  std::atomic<uint64_t>
+      stack_residual1_output_raw_generation_range_non_escape_last_consumer_bytes{
+          0u};
 };
 
 class VulkanSubmitPhaseScope final {

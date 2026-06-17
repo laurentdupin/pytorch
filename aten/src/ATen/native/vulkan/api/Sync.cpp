@@ -295,6 +295,18 @@ constexpr const char* kDryRunStackInternalRawMissingGeneration =
     "stack_internal_raw_missing_generation";
 constexpr const char* kDryRunStackInternalRawGenerationRange =
     "stack_internal_raw_generation_range";
+constexpr const char*
+    kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer =
+        "stack_internal_temp_raw_generation_range_missing_last_consumer";
+constexpr const char*
+    kDryRunStackQkvOutputRawGenerationRangeNonEscapeLastConsumer =
+        "stack_qkv_output_raw_generation_range_non_escape_last_consumer";
+constexpr const char*
+    kDryRunStackProjOutputRawGenerationRangeNonEscapeLastConsumer =
+        "stack_proj_output_raw_generation_range_non_escape_last_consumer";
+constexpr const char*
+    kDryRunStackResidual1OutputRawGenerationRangeNonEscapeLastConsumer =
+        "stack_residual1_output_raw_generation_range_non_escape_last_consumer";
 constexpr const char* kDryRunTrulyUnknownRawResource =
     "truly_unknown_raw_resource";
 constexpr const char* kDryRunHostVisibleOrRequestedOutput =
@@ -677,6 +689,72 @@ bool is_attention_non_escape_last_consumer_class(
       key == kDryRunAttentionRawAuxiliaryRangeNonEscapeLastConsumer;
 }
 
+const char* classify_stack_internal_raw_generation_range(
+    const VulkanRetiredResourceRole role,
+    const VulkanStackRawResourceAllocationProof& allocation_proof) {
+  if (
+      !allocation_proof.has_generation || !allocation_proof.has_byte_range ||
+      !inside_vision_stack_phase() || current_vision_stack_block_index() < 0) {
+    return kDryRunStackInternalRawGenerationRange;
+  }
+  switch (role) {
+    case VulkanRetiredResourceRole::StackInternalTemp:
+      return kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer;
+    case VulkanRetiredResourceRole::StackQkvOutput:
+      return kDryRunStackQkvOutputRawGenerationRangeNonEscapeLastConsumer;
+    case VulkanRetiredResourceRole::StackProjOutput:
+      return kDryRunStackProjOutputRawGenerationRangeNonEscapeLastConsumer;
+    case VulkanRetiredResourceRole::StackResidual1Output:
+      return kDryRunStackResidual1OutputRawGenerationRangeNonEscapeLastConsumer;
+    default:
+      return kDryRunStackInternalRawGenerationRange;
+  }
+}
+
+bool is_stack_raw_generation_range_evidence_class(
+    const char* const resource_class) {
+  const std::string key(resource_class);
+  return key ==
+      kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer ||
+      key == kDryRunStackQkvOutputRawGenerationRangeNonEscapeLastConsumer ||
+      key == kDryRunStackProjOutputRawGenerationRangeNonEscapeLastConsumer ||
+      key ==
+      kDryRunStackResidual1OutputRawGenerationRangeNonEscapeLastConsumer;
+}
+
+bool is_stack_raw_generation_range_non_escape_last_consumer_class(
+    const char* const resource_class) {
+  const std::string key(resource_class);
+  return key == kDryRunStackQkvOutputRawGenerationRangeNonEscapeLastConsumer ||
+      key == kDryRunStackProjOutputRawGenerationRangeNonEscapeLastConsumer ||
+      key ==
+      kDryRunStackResidual1OutputRawGenerationRangeNonEscapeLastConsumer;
+}
+
+const char* stack_raw_last_consumer_for_dry_run(
+    const VulkanRetiredResourceRole role,
+    const char* const resource_class) {
+  const std::string key(resource_class);
+  if (key == kDryRunStackQkvOutputRawGenerationRangeNonEscapeLastConsumer) {
+    return "attention";
+  }
+  if (key == kDryRunStackProjOutputRawGenerationRangeNonEscapeLastConsumer) {
+    return "residual1";
+  }
+  if (
+      key ==
+      kDryRunStackResidual1OutputRawGenerationRangeNonEscapeLastConsumer) {
+    return "norm2";
+  }
+  if (
+      key ==
+      kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer) {
+    return "missing";
+  }
+  return is_stack_temp_role(role) ? "unknown_stack_consumer"
+                                  : "not_stack_raw_resource";
+}
+
 const char* attention_substep_for_dry_run(
     const VulkanRetiredResourceKind kind,
     const char* const resource_class) {
@@ -813,6 +891,38 @@ void note_dry_run_resource_class(
         1u, std::memory_order_relaxed);
     counters.stack_internal_raw_generation_range_bytes.fetch_add(
         bytes, std::memory_order_relaxed);
+  } else if (
+      key ==
+      kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer) {
+    counters.stack_internal_temp_raw_generation_range_missing_last_consumer_count
+        .fetch_add(1u, std::memory_order_relaxed);
+    counters.stack_internal_temp_raw_generation_range_missing_last_consumer_bytes
+        .fetch_add(bytes, std::memory_order_relaxed);
+  } else if (
+      key == kDryRunStackQkvOutputRawGenerationRangeNonEscapeLastConsumer) {
+    counters
+        .stack_qkv_output_raw_generation_range_non_escape_last_consumer_count
+        .fetch_add(1u, std::memory_order_relaxed);
+    counters
+        .stack_qkv_output_raw_generation_range_non_escape_last_consumer_bytes
+        .fetch_add(bytes, std::memory_order_relaxed);
+  } else if (
+      key == kDryRunStackProjOutputRawGenerationRangeNonEscapeLastConsumer) {
+    counters
+        .stack_proj_output_raw_generation_range_non_escape_last_consumer_count
+        .fetch_add(1u, std::memory_order_relaxed);
+    counters
+        .stack_proj_output_raw_generation_range_non_escape_last_consumer_bytes
+        .fetch_add(bytes, std::memory_order_relaxed);
+  } else if (
+      key ==
+      kDryRunStackResidual1OutputRawGenerationRangeNonEscapeLastConsumer) {
+    counters
+        .stack_residual1_output_raw_generation_range_non_escape_last_consumer_count
+        .fetch_add(1u, std::memory_order_relaxed);
+    counters
+        .stack_residual1_output_raw_generation_range_non_escape_last_consumer_bytes
+        .fetch_add(bytes, std::memory_order_relaxed);
   } else if (key == kDryRunTrulyUnknownRawResource) {
     counters.truly_unknown_raw_resource_count.fetch_add(
         1u, std::memory_order_relaxed);
@@ -1300,6 +1410,24 @@ void reset_stack_subresource_lifetime_dry_run_counters() {
       .store(0u, std::memory_order_relaxed);
   counters.attention_raw_auxiliary_range_non_escape_last_consumer_bytes.store(
       0u, std::memory_order_relaxed);
+  counters.stack_internal_temp_raw_generation_range_missing_last_consumer_count
+      .store(0u, std::memory_order_relaxed);
+  counters.stack_qkv_output_raw_generation_range_non_escape_last_consumer_count
+      .store(0u, std::memory_order_relaxed);
+  counters.stack_proj_output_raw_generation_range_non_escape_last_consumer_count
+      .store(0u, std::memory_order_relaxed);
+  counters
+      .stack_residual1_output_raw_generation_range_non_escape_last_consumer_count
+      .store(0u, std::memory_order_relaxed);
+  counters.stack_internal_temp_raw_generation_range_missing_last_consumer_bytes
+      .store(0u, std::memory_order_relaxed);
+  counters.stack_qkv_output_raw_generation_range_non_escape_last_consumer_bytes
+      .store(0u, std::memory_order_relaxed);
+  counters.stack_proj_output_raw_generation_range_non_escape_last_consumer_bytes
+      .store(0u, std::memory_order_relaxed);
+  counters
+      .stack_residual1_output_raw_generation_range_non_escape_last_consumer_bytes
+      .store(0u, std::memory_order_relaxed);
   std::lock_guard<std::mutex> lock(stack_subresource_lifetime_dry_run_mutex());
   stack_subresource_lifetime_dry_run_rows().clear();
 }
@@ -2264,6 +2392,38 @@ std::vector<int64_t> stack_subresource_lifetime_dry_run_counters_snapshot() {
       static_cast<int64_t>(
           counters.attention_raw_auxiliary_range_non_escape_last_consumer_bytes
               .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters
+              .stack_internal_temp_raw_generation_range_missing_last_consumer_count
+              .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters
+              .stack_qkv_output_raw_generation_range_non_escape_last_consumer_count
+              .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters
+              .stack_proj_output_raw_generation_range_non_escape_last_consumer_count
+              .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters
+              .stack_residual1_output_raw_generation_range_non_escape_last_consumer_count
+              .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters
+              .stack_internal_temp_raw_generation_range_missing_last_consumer_bytes
+              .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters
+              .stack_qkv_output_raw_generation_range_non_escape_last_consumer_bytes
+              .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters
+              .stack_proj_output_raw_generation_range_non_escape_last_consumer_bytes
+              .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters
+              .stack_residual1_output_raw_generation_range_non_escape_last_consumer_bytes
+              .load(std::memory_order_relaxed)),
   };
 }
 
@@ -2693,7 +2853,8 @@ const char* stack_subresource_lifetime_dry_run_resource_class(
     if (
         is_stack_temp_role(role) && kind == VulkanRetiredResourceKind::Unknown) {
       if (allocation_proof.has_generation && allocation_proof.has_byte_range) {
-        return kDryRunStackInternalRawGenerationRange;
+        return classify_stack_internal_raw_generation_range(
+            role, allocation_proof);
       }
       return kDryRunStackInternalRawMissingGeneration;
     }
@@ -2751,6 +2912,11 @@ void note_stack_subresource_lifetime_dry_run_resource(
   note_dry_run_resource_class(counters, resource_class, bytes);
   const bool has_attention_non_escape_last_consumer_evidence =
       is_attention_non_escape_last_consumer_class(resource_class);
+  const bool has_raw_generation_range_evidence =
+      is_stack_raw_generation_range_evidence_class(resource_class);
+  const bool has_raw_non_escape_last_consumer_evidence =
+      is_stack_raw_generation_range_non_escape_last_consumer_class(
+          resource_class);
 
   std::ostringstream key;
   key << "resource=1 class=" << resource_class
@@ -2826,6 +2992,22 @@ void note_stack_subresource_lifetime_dry_run_resource(
               ? attention_last_consumer_for_dry_run(resource_class)
               : "missing")
       << " attention_retire_policy_eligible=0"
+      << " raw_stack_scope_evidence="
+      << (has_raw_generation_range_evidence ? "stack_scope_allocation_range"
+                                            : "missing")
+      << " raw_alias_escape_proof="
+      << (has_raw_generation_range_evidence ? "stack_scope_no_runtime_alias"
+                                            : "missing")
+      << " raw_non_escape_evidence="
+      << (has_raw_generation_range_evidence ? "stack_scope_allocation_range"
+                                            : "missing")
+      << " raw_last_consumer_evidence="
+      << stack_raw_last_consumer_for_dry_run(role, resource_class)
+      << " raw_last_use_proof="
+      << (has_raw_non_escape_last_consumer_evidence
+              ? "diagnostic_last_consumer"
+              : (has_raw_generation_range_evidence ? "missing" : "not_raw"))
+      << " raw_retire_policy_eligible=0"
       << " provenance_source="
       << stack_retire_provenance_source_name(provenance.source)
       << " provenance_loss_reason="
