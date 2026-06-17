@@ -429,6 +429,7 @@ struct VulkanStackSubresourceLifetimeDryRunCounters final {
   std::atomic<uint64_t> attention_subresource_count{0u};
   std::atomic<uint64_t> attention_score_probability_subresource_count{0u};
   std::atomic<uint64_t> layernorm_stat_buffer_count{0u};
+  std::atomic<uint64_t> layernorm_internal_stat_buffer_count{0u};
   std::atomic<uint64_t> metadata_uniform_count{0u};
   std::atomic<uint64_t> raw_no_provenance_count{0u};
   std::atomic<uint64_t> host_visible_or_requested_output_count{0u};
@@ -438,6 +439,7 @@ struct VulkanStackSubresourceLifetimeDryRunCounters final {
   std::atomic<uint64_t> attention_subresource_bytes{0u};
   std::atomic<uint64_t> attention_score_probability_subresource_bytes{0u};
   std::atomic<uint64_t> layernorm_stat_buffer_bytes{0u};
+  std::atomic<uint64_t> layernorm_internal_stat_buffer_bytes{0u};
   std::atomic<uint64_t> metadata_uniform_bytes{0u};
   std::atomic<uint64_t> raw_no_provenance_bytes{0u};
   std::atomic<uint64_t> host_visible_or_requested_output_bytes{0u};
