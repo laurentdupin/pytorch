@@ -462,64 +462,64 @@
             "tuple_id": "materialize_bh10_t126_s126_d64"
           },
           {
-            "family": "MaterializationRequiredProbabilityValueBmm",
+            "family": "DirectSafeProbabilityValueBmm",
             "batch_heads": 6,
             "query_sequence": 151,
             "key_value_sequence": 151,
             "value_dim": 64,
             "has_additive_bias": false,
-            "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-            "tuple_id": "materialize_vision_bh6_t151_s151_d64"
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_vision_bh6_t151_s151_d64"
           },
           {
-            "family": "MaterializationRequiredProbabilityValueBmm",
+            "family": "DirectSafeProbabilityValueBmm",
             "batch_heads": 6,
             "query_sequence": 261,
             "key_value_sequence": 261,
             "value_dim": 64,
             "has_additive_bias": false,
-            "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-            "tuple_id": "materialize_vision_bh6_t261_s261_d64"
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_vision_bh6_t261_s261_d64"
           },
           {
-            "family": "MaterializationRequiredProbabilityValueBmm",
+            "family": "DirectSafeProbabilityValueBmm",
             "batch_heads": 12,
             "query_sequence": 151,
             "key_value_sequence": 151,
             "value_dim": 64,
             "has_additive_bias": false,
-            "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-            "tuple_id": "materialize_vision_bh12_t151_s151_d64"
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_vision_bh12_t151_s151_d64"
           },
           {
-            "family": "MaterializationRequiredProbabilityValueBmm",
+            "family": "DirectSafeProbabilityValueBmm",
             "batch_heads": 12,
             "query_sequence": 261,
             "key_value_sequence": 261,
             "value_dim": 64,
             "has_additive_bias": false,
-            "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-            "tuple_id": "materialize_vision_bh12_t261_s261_d64"
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_vision_bh12_t261_s261_d64"
           },
           {
-            "family": "MaterializationRequiredProbabilityValueBmm",
+            "family": "DirectSafeProbabilityValueBmm",
             "batch_heads": 16,
             "query_sequence": 151,
             "key_value_sequence": 151,
             "value_dim": 64,
             "has_additive_bias": false,
-            "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-            "tuple_id": "materialize_vision_bh16_t151_s151_d64"
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_vision_bh16_t151_s151_d64"
           },
           {
-            "family": "MaterializationRequiredProbabilityValueBmm",
+            "family": "DirectSafeProbabilityValueBmm",
             "batch_heads": 16,
             "query_sequence": 261,
             "key_value_sequence": 261,
             "value_dim": 64,
             "has_additive_bias": false,
-            "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-            "tuple_id": "materialize_vision_bh16_t261_s261_d64"
+            "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+            "tuple_id": "direct_safe_vision_bh16_t261_s261_d64"
           },
           {
             "family": "DirectSafeProbabilityValueBmm",
@@ -903,7 +903,7 @@
       "expected_sync_readback": false
     },
     {
-      "name": "materialize_vision_bh6_t151_s151_d64",
+      "name": "direct_safe_vision_bh6_t151_s151_d64",
       "probability_shape": [
         6,
         151,
@@ -935,16 +935,16 @@
       "consumer_op": "aten::bmm",
       "softmax_dim": -1,
       "has_additive_bias": false,
-      "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-      "expected_contract_family": "MaterializationRequiredProbabilityValueBmm",
-      "expected_contract_tuple_id": "materialize_vision_bh6_t151_s151_d64",
-      "expected_direct_consumer_safe": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_vision_bh6_t151_s151_d64",
+      "expected_direct_consumer_safe": true,
       "expected_materialized_clone_pass": true,
       "expected_cpu_fallback": false,
       "expected_sync_readback": false
     },
     {
-      "name": "materialize_vision_bh6_t261_s261_d64",
+      "name": "direct_safe_vision_bh6_t261_s261_d64",
       "probability_shape": [
         6,
         261,
@@ -976,16 +976,16 @@
       "consumer_op": "aten::bmm",
       "softmax_dim": -1,
       "has_additive_bias": false,
-      "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-      "expected_contract_family": "MaterializationRequiredProbabilityValueBmm",
-      "expected_contract_tuple_id": "materialize_vision_bh6_t261_s261_d64",
-      "expected_direct_consumer_safe": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_vision_bh6_t261_s261_d64",
+      "expected_direct_consumer_safe": true,
       "expected_materialized_clone_pass": true,
       "expected_cpu_fallback": false,
       "expected_sync_readback": false
     },
     {
-      "name": "materialize_vision_bh12_t151_s151_d64",
+      "name": "direct_safe_vision_bh12_t151_s151_d64",
       "probability_shape": [
         12,
         151,
@@ -1017,16 +1017,16 @@
       "consumer_op": "aten::bmm",
       "softmax_dim": -1,
       "has_additive_bias": false,
-      "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-      "expected_contract_family": "MaterializationRequiredProbabilityValueBmm",
-      "expected_contract_tuple_id": "materialize_vision_bh12_t151_s151_d64",
-      "expected_direct_consumer_safe": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_vision_bh12_t151_s151_d64",
+      "expected_direct_consumer_safe": true,
       "expected_materialized_clone_pass": true,
       "expected_cpu_fallback": false,
       "expected_sync_readback": false
     },
     {
-      "name": "materialize_vision_bh12_t261_s261_d64",
+      "name": "direct_safe_vision_bh12_t261_s261_d64",
       "probability_shape": [
         12,
         261,
@@ -1058,16 +1058,16 @@
       "consumer_op": "aten::bmm",
       "softmax_dim": -1,
       "has_additive_bias": false,
-      "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-      "expected_contract_family": "MaterializationRequiredProbabilityValueBmm",
-      "expected_contract_tuple_id": "materialize_vision_bh12_t261_s261_d64",
-      "expected_direct_consumer_safe": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_vision_bh12_t261_s261_d64",
+      "expected_direct_consumer_safe": true,
       "expected_materialized_clone_pass": true,
       "expected_cpu_fallback": false,
       "expected_sync_readback": false
     },
     {
-      "name": "materialize_vision_bh16_t151_s151_d64",
+      "name": "direct_safe_vision_bh16_t151_s151_d64",
       "probability_shape": [
         16,
         151,
@@ -1099,16 +1099,16 @@
       "consumer_op": "aten::bmm",
       "softmax_dim": -1,
       "has_additive_bias": false,
-      "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-      "expected_contract_family": "MaterializationRequiredProbabilityValueBmm",
-      "expected_contract_tuple_id": "materialize_vision_bh16_t151_s151_d64",
-      "expected_direct_consumer_safe": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_vision_bh16_t151_s151_d64",
+      "expected_direct_consumer_safe": true,
       "expected_materialized_clone_pass": true,
       "expected_cpu_fallback": false,
       "expected_sync_readback": false
     },
     {
-      "name": "materialize_vision_bh16_t261_s261_d64",
+      "name": "direct_safe_vision_bh16_t261_s261_d64",
       "probability_shape": [
         16,
         261,
@@ -1140,10 +1140,10 @@
       "consumer_op": "aten::bmm",
       "softmax_dim": -1,
       "has_additive_bias": false,
-      "materialization_policy": "vulkan_clone_probability_before_value_bmm",
-      "expected_contract_family": "MaterializationRequiredProbabilityValueBmm",
-      "expected_contract_tuple_id": "materialize_vision_bh16_t261_s261_d64",
-      "expected_direct_consumer_safe": false,
+      "materialization_policy": "direct_safe_recorded_no_forced_materialization",
+      "expected_contract_family": "DirectSafeProbabilityValueBmm",
+      "expected_contract_tuple_id": "direct_safe_vision_bh16_t261_s261_d64",
+      "expected_direct_consumer_safe": true,
       "expected_materialized_clone_pass": true,
       "expected_cpu_fallback": false,
       "expected_sync_readback": false

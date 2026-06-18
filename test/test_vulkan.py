@@ -4053,30 +4053,44 @@ class TestVulkanGovernance(TestCase):
             for case in positive_cases
             if not case["expected_direct_consumer_safe"]
         ]
-        self.assertEqual(len(materialization_required), 7)
+        self.assertEqual(len(materialization_required), 1)
         materialization_required_by_name = {
             case["name"]: case for case in materialization_required
         }
-        for name in (
+        self.assertIn(
             "materialize_bh10_t126_s126_d64",
-            "materialize_vision_bh6_t151_s151_d64",
-            "materialize_vision_bh6_t261_s261_d64",
-            "materialize_vision_bh12_t151_s151_d64",
-            "materialize_vision_bh12_t261_s261_d64",
-            "materialize_vision_bh16_t151_s151_d64",
-            "materialize_vision_bh16_t261_s261_d64",
-        ):
-            self.assertIn(name, materialization_required_by_name)
-            self.assertEqual(
-                materialization_required_by_name[name]["materialization_policy"],
-                "vulkan_clone_probability_before_value_bmm",
-            )
+            materialization_required_by_name,
+        )
+        self.assertEqual(
+            materialization_required_by_name[
+                "materialize_bh10_t126_s126_d64"
+            ]["materialization_policy"],
+            "vulkan_clone_probability_before_value_bmm",
+        )
         self.assertEqual(
             materialization_required_by_name[
                 "materialize_bh10_t126_s126_d64"
             ]["probability_shape"],
             [10, 126, 126],
         )
+        direct_safe_by_name = {
+            case["name"]: case
+            for case in positive_cases
+            if case["expected_direct_consumer_safe"]
+        }
+        for name in (
+            "direct_safe_vision_bh6_t151_s151_d64",
+            "direct_safe_vision_bh6_t261_s261_d64",
+            "direct_safe_vision_bh12_t151_s151_d64",
+            "direct_safe_vision_bh12_t261_s261_d64",
+            "direct_safe_vision_bh16_t151_s151_d64",
+            "direct_safe_vision_bh16_t261_s261_d64",
+        ):
+            self.assertIn(name, direct_safe_by_name)
+            self.assertEqual(
+                direct_safe_by_name[name]["materialization_policy"],
+                "direct_safe_recorded_no_forced_materialization",
+            )
 
         for case in positive_cases:
             _require_contract_spec_fields(
@@ -6769,7 +6783,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
-    def test_transition_log_attaches_attention_probability_materialization_contract(self):
+    def test_transition_log_does_not_attach_direct_safe_attention_probability_clone(self):
         log_name = "vulkan_attention_probability_transition_contract_test.jsonl"
         log_path = os.path.join(REPO_ROOT, log_name)
         if os.path.exists(log_path):
@@ -6826,16 +6840,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and record.get("source_sizes") == "[6,151,151]"
             ]
             self.assertTrue(matched)
-            self.assertTrue(
+            self.assertFalse(
                 any(
-                    record.get("reason") == "required_correctness_materialization"
-                    and record.get("kind") == "semantic_materialization"
-                    and record.get("producer_contract")
+                    record.get("producer_contract")
                     == "AttentionProbabilityMaterializationContract"
-                    and record.get("consumer_contract")
-                    == "DecomposedAttentionProbabilityToValueBmm"
-                    and record.get("physical_copy")
-                    and not record.get("host_transfer")
                     for record in matched
                 )
             )
@@ -6843,7 +6851,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             adjacent = [
                 record for record in records
                 if record.get("source_sizes") == "[6,152,152]"
-                or record.get("destination_sizes") == "[6,152,152]"
+                or record.get("destination_sizes")
+                == "[6,152,152]"
             ]
             self.assertTrue(adjacent)
             self.assertFalse(
@@ -6856,6 +6865,157 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)
+
+    def test_vision_self_attention_sdpa_direct_safe_rows_skip_probability_clone(self):
+        transition_log_name = "vulkan_attention_probability_no_clone_test.jsonl"
+        op_hit_log_name = "vulkan_attention_probability_no_clone_test.log"
+        transition_log_path = os.path.join(REPO_ROOT, transition_log_name)
+        op_hit_log_path = os.path.join(REPO_ROOT, op_hit_log_name)
+        for path in (transition_log_path, op_hit_log_path):
+            if os.path.exists(path):
+                os.remove(path)
+
+        try:
+            script = """
+                import json
+                import os
+
+                transition_log_path = os.path.join(
+                    os.getcwd(),
+                    "vulkan_attention_probability_no_clone_test.jsonl",
+                )
+                op_hit_log_path = os.path.join(
+                    os.getcwd(),
+                    "vulkan_attention_probability_no_clone_test.log",
+                )
+                os.environ["PYTORCH_VULKAN_TRANSITION_LOG"] = transition_log_path
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = op_hit_log_path
+
+                import torch
+                import torch.nn.functional as F
+
+                def read_transition_records():
+                    if not os.path.exists(transition_log_path):
+                        return []
+                    with open(transition_log_path, encoding="utf-8") as log_file:
+                        return [
+                            json.loads(line)
+                            for line in log_file
+                            if line.strip()
+                        ]
+
+                def read_op_hits():
+                    if not os.path.exists(op_hit_log_path):
+                        return []
+                    with open(op_hit_log_path, encoding="utf-8") as log_file:
+                        return [
+                            line.split("op=", 1)[1].split()[0]
+                            for line in log_file
+                            if "op=" in line
+                        ]
+
+                rows = (
+                    (6, 151, 64),
+                    (6, 261, 64),
+                    (12, 151, 64),
+                    (12, 261, 64),
+                    (16, 151, 64),
+                    (16, 261, 64),
+                )
+                summary = []
+                for batch_heads, sequence, head_dim in rows:
+                    for path in (transition_log_path, op_hit_log_path):
+                        if os.path.exists(path):
+                            os.remove(path)
+                    torch.manual_seed(9100 + batch_heads + sequence)
+                    query = torch.randn(batch_heads, sequence, head_dim)
+                    key = torch.randn(batch_heads, sequence, head_dim)
+                    value = torch.randn(batch_heads, sequence, head_dim)
+                    expected = F.scaled_dot_product_attention(
+                        query,
+                        key,
+                        value,
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=1.0,
+                        enable_gqa=False,
+                    )
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        torch.ops.vulkan_prepack.reset_buffer_copy_counters()
+                        actual = F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            dropout_p=0.0,
+                            is_causal=False,
+                            scale=1.0,
+                            enable_gqa=False,
+                        ).cpu()
+                        fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+                        copy_counters = list(
+                            torch.ops.vulkan_prepack.buffer_copy_counters()
+                        )
+
+                    diff = torch.abs(actual - expected)
+                    records = read_transition_records()
+                    source_sizes = f"[{batch_heads},{sequence},{sequence}]"
+                    attention_contract_events = [
+                        record
+                        for record in records
+                        if record.get("producer_contract")
+                        == "AttentionProbabilityMaterializationContract"
+                    ]
+                    probability_clone_events = [
+                        record
+                        for record in records
+                        if record.get("producer_schema") == "aten::_softmax"
+                        and record.get("consumer_schema") == "clone.buffer_to_buffer"
+                        and record.get("source_sizes") == source_sizes
+                    ]
+                    summary.append(
+                        {
+                            "shape": [batch_heads, sequence, head_dim],
+                            "max_abs": float(diff.max().item()),
+                            "mean_abs": float(diff.mean().item()),
+                            "fallback_count": int(fallback_count),
+                            "buffer_copy_count": int(copy_counters[0]),
+                            "attention_contract_events": len(
+                                attention_contract_events
+                            ),
+                            "probability_clone_events": len(
+                                probability_clone_events
+                            ),
+                            "no_clone_hit": (
+                                "aten::scaled_dot_product_attention."
+                                "attention_probability_no_clone"
+                            )
+                            in read_op_hits(),
+                        }
+                    )
+                print(json.dumps(summary, sort_keys=True))
+            """
+
+            _, result = self._run_repo_python_subprocess(
+                script,
+                timeout=240,
+                error_prefix=(
+                    "Vulkan vision self-attention no-clone subprocess failed."
+                ),
+            )
+            summary = json.loads(result.stdout.strip().splitlines()[-1])
+            self.assertEqual(len(summary), 6)
+            for row in summary:
+                self.assertLessEqual(row["max_abs"], 1e-4, row)
+                self.assertEqual(row["fallback_count"], 0, row)
+                self.assertEqual(row["buffer_copy_count"], 0, row)
+                self.assertEqual(row["attention_contract_events"], 0, row)
+                self.assertEqual(row["probability_clone_events"], 0, row)
+                self.assertTrue(row["no_clone_hit"], row)
+        finally:
+            for path in (transition_log_path, op_hit_log_path):
+                if os.path.exists(path):
+                    os.remove(path)
 
     def test_repeated_linear_transpose_view_reuses_packed_weight(self):
         log_name = "vulkan_linear_transpose_view_packed_weight_cache_test.log"
@@ -15927,8 +16087,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     copy_counters = list(
                         torch.ops.vulkan_prepack.buffer_copy_counters()
                     )
-                    self.assertEqual(copy_counters[0], 1, copy_counters)
+                    self.assertEqual(copy_counters[0], 0, copy_counters)
                     op_hits = read_op_hits()
+                    self.assertIn(
+                        "aten::scaled_dot_product_attention."
+                        "attention_probability_no_clone",
+                        op_hits,
+                    )
                     self.assertIn("aten::_softmax.buffer_lastdim", op_hits)
                     self.assertIn(
                         "aten::_softmax."

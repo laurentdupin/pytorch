@@ -14,6 +14,7 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
 #include <ATen/native/vulkan/planning/RoutePolicy.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsAttentionProbabilityMaterializationSpec.h>
 #include <ATen/Functions.h>
 #include <c10/core/DispatchKeySet.h>
 #include <c10/core/InferenceMode.h>
@@ -365,38 +366,89 @@ AttentionNoCloneComparison compare_attention_outputs_cpu(
   return result;
 }
 
-const char* bounded_vision_attention_no_clone_tuple_id(
+struct AttentionProbabilityNoCloneDecision final {
+  bool direct_safe{false};
+  const char* tuple_id{nullptr};
+};
+
+bool is_zero_offset_float_vulkan_buffer_tensor(const Tensor& tensor) {
+  if (
+      !tensor.is_vulkan() || tensor.scalar_type() != kFloat ||
+      tensor.storage_offset() != 0) {
+    return false;
+  }
+  const vTensor& vtensor = convert(tensor);
+  return vtensor.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_view_fast_path(vtensor);
+}
+
+bool has_contiguous_rank3_shape(
+    const Tensor& tensor,
+    const int64_t dim0,
+    const int64_t dim1,
+    const int64_t dim2) {
+  return tensor.dim() == 3 && tensor.size(0) == dim0 &&
+      tensor.size(1) == dim1 && tensor.size(2) == dim2 &&
+      tensor.stride(0) == dim1 * dim2 && tensor.stride(1) == dim2 &&
+      tensor.stride(2) == 1;
+}
+
+AttentionProbabilityNoCloneDecision
+match_vision_attention_direct_safe_probability_value_bmm(
     const Tensor& query,
     const Tensor& key,
-    const Tensor& value) {
-  if (query.dim() != 3 || key.dim() != 3 || value.dim() != 3 ||
-      query.scalar_type() != kFloat || key.scalar_type() != kFloat ||
-      value.scalar_type() != kFloat || !query.is_vulkan() ||
-      !key.is_vulkan() || !value.is_vulkan() ||
+    const Tensor& value,
+    const Tensor& probability,
+    const utils::SDPAExecutionPolicyMatch& policy) {
+  AttentionProbabilityNoCloneDecision result;
+  if (
+      !policy.matched ||
+      policy.family !=
+          utils::SDPAExecutionPolicyFamily::VisionSelfAttentionCloneOnly ||
+      !policy.requires_materialized_math_path ||
+      policy.requires_score_pre_materialization ||
+      !policy.requires_post_softmax_clone ||
+      query.dim() != 3 || key.dim() != 3 || value.dim() != 3 ||
       !query.sizes().equals(key.sizes()) ||
       !query.sizes().equals(value.sizes()) ||
       query.size(2) != 64) {
-    return nullptr;
+    return result;
   }
 
   const int64_t batch_heads = query.size(0);
   const int64_t sequence = query.size(1);
-  if (sequence != 151 && sequence != 261) {
-    return nullptr;
+  constexpr int64_t kHeadDim = 64;
+  if (
+      !has_contiguous_rank3_shape(query, batch_heads, sequence, kHeadDim) ||
+      !has_contiguous_rank3_shape(key, batch_heads, sequence, kHeadDim) ||
+      !has_contiguous_rank3_shape(value, batch_heads, sequence, kHeadDim) ||
+      !has_contiguous_rank3_shape(
+          probability, batch_heads, sequence, sequence) ||
+      !is_zero_offset_float_vulkan_buffer_tensor(query) ||
+      !is_zero_offset_float_vulkan_buffer_tensor(key) ||
+      !is_zero_offset_float_vulkan_buffer_tensor(value) ||
+      !is_zero_offset_float_vulkan_buffer_tensor(probability)) {
+    return result;
   }
-  if (batch_heads == 6) {
-    return sequence == 151 ? "rank3_bh6_sequence151_dim64"
-                           : "rank3_bh6_sequence261_dim64";
+
+  const auto* const row =
+      utils::generated::attention_probability_materialization_probability_rows_find(
+          batch_heads,
+          sequence,
+          sequence,
+          kHeadDim,
+          false);
+  if (
+      row == nullptr ||
+      std::string_view(row->family) != "DirectSafeProbabilityValueBmm" ||
+      std::string_view(row->materialization_policy) !=
+          "direct_safe_recorded_no_forced_materialization") {
+    return result;
   }
-  if (batch_heads == 12) {
-    return sequence == 151 ? "rank3_bh12_sequence151_dim64"
-                           : "rank3_bh12_sequence261_dim64";
-  }
-  if (batch_heads == 16) {
-    return sequence == 151 ? "rank3_bh16_sequence151_dim64"
-                           : "rank3_bh16_sequence261_dim64";
-  }
-  return nullptr;
+
+  result.direct_safe = true;
+  result.tuple_id = row->tuple_id;
+  return result;
 }
 
 void maybe_log_attention_probability_no_clone_diagnostic(
@@ -405,7 +457,8 @@ void maybe_log_attention_probability_no_clone_diagnostic(
     const Tensor& value,
     const std::optional<Tensor>& scores,
     const Tensor& materialized_probs,
-    const Tensor& materialized_output) {
+    const Tensor& materialized_output,
+    const utils::SDPAExecutionPolicyMatch& policy) {
   if (!attention_no_clone_diagnostic_enabled()) {
     return;
   }
@@ -413,9 +466,10 @@ void maybe_log_attention_probability_no_clone_diagnostic(
     return;
   }
 
-  const char* const tuple_id =
-      bounded_vision_attention_no_clone_tuple_id(query, key, value);
-  if (tuple_id == nullptr) {
+  const AttentionProbabilityNoCloneDecision no_clone_decision =
+      match_vision_attention_direct_safe_probability_value_bmm(
+          query, key, value, materialized_probs, policy);
+  if (!no_clone_decision.direct_safe) {
     return;
   }
 
@@ -455,7 +509,7 @@ void maybe_log_attention_probability_no_clone_diagnostic(
       "execution_policy",
       "SDPAExecutionVisionSelfAttentionCloneOnly",
       first);
-  append_json_string_field(out, "tuple_id", tuple_id, first);
+  append_json_string_field(out, "tuple_id", no_clone_decision.tuple_id, first);
   append_json_string_field(out, "producer_route", "aten::_softmax", first);
   append_json_string_field(
       out, "materialized_consumer_route", "aten::bmm", first);
@@ -3865,8 +3919,18 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
     scores_for_softmax = attn;
   }
   attn = attn.softmax(-1);
-  if (attention_probability_policy.requires_post_softmax_clone) {
+  const AttentionProbabilityNoCloneDecision no_clone_decision =
+      match_vision_attention_direct_safe_probability_value_bmm(
+          query_3d, key_3d, value_3d, attn, attention_probability_policy);
+  if (
+      attention_probability_policy.requires_post_softmax_clone &&
+      !no_clone_decision.direct_safe) {
     attn = attn.clone();
+  } else if (
+      attention_probability_policy.requires_post_softmax_clone &&
+      no_clone_decision.direct_safe) {
+    utils::log_vulkan_op_hit(
+        "aten::scaled_dot_product_attention.attention_probability_no_clone");
   }
   Tensor output = at::bmm(attn, value_3d);
   maybe_log_attention_probability_no_clone_diagnostic(
@@ -3875,7 +3939,8 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
       value_3d,
       scores_for_softmax,
       attn,
-      output);
+      output,
+      attention_probability_policy);
 
   if (query.dim() == 3) {
     return std::make_tuple(output, attn);

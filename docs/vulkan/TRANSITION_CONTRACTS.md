@@ -83,16 +83,19 @@ The checked-in spec remains in
 and its generated helper remains
 `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsAttentionProbabilityMaterializationSpec.h`.
 Rows with `materialization_policy ==
-vulkan_clone_probability_before_value_bmm` are the transition-contract rows.
-This includes the original Lotus proof row plus the six already-admitted
-`VisionSelfAttentionSDPAContract` low-resolution rows with probability scores
-`[BH,T,T]`, `BH in {6,12,16}`, `T in {151,261}`, and value dim `64`.
+vulkan_clone_probability_before_value_bmm` are the remaining clone-required
+transition-contract rows. The original Lotus `[10,126,126]` proof row remains
+clone-required. The six already-admitted `VisionSelfAttentionSDPAContract`
+low-resolution rows with probability scores `[BH,T,T]`, `BH in {6,12,16}`,
+`T in {151,261}`, and value dim `64` are now recorded as
+`direct_safe_recorded_no_forced_materialization` and skip the probability clone
+only under the bounded VisionSelfAttention and transition-contract guards.
 
-The current production behavior is unchanged: the clone still happens. The
-transition log now attaches `producer_contract =
+The transition log attaches `producer_contract =
 AttentionProbabilityMaterializationContract` and `consumer_contract =
-DecomposedAttentionProbabilityToValueBmm` to matching events so future work can
-measure and review this edge as a named transition contract.
+DecomposedAttentionProbabilityToValueBmm` to remaining matching clone-required
+events so future work can measure and review this edge as a named transition
+contract.
 
 `HostUploadTransitionContract`, `MetadataViewTransitionContract`,
 `FinalReadbackContract`, `IntermediateReadbackTransitionContract`,

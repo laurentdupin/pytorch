@@ -94,16 +94,17 @@ transition-contract spec and log-attribution target, but not a production
 admission path. The ShapeEnvelope sparse-rowset fixture
 `test/vulkan_contract_specs/attention_probability_materialization_contract.json`
 records softmax-probability to value-BMM materialization evidence for rank-3
-float rows. Nine Lotus-derived rows remain direct-safe evidence, while the
-Lotus `[10,126,126]` row and the six existing low-resolution
+float rows. Nine Lotus-derived rows and the six existing low-resolution
 `VisionSelfAttentionSDPAContract` probability rows `[BH,T,T]` with
-`BH in {6,12,16}`, `T in {151,261}`, and value dim `64` are marked
-`vulkan_clone_probability_before_value_bmm`. Transition logging now classifies
-matching `aten::_softmax -> clone.buffer_to_buffer` events as
-`required_correctness_materialization` / `semantic_materialization` with
+`BH in {6,12,16}`, `T in {151,261}`, and value dim `64` are now direct-safe
+evidence. The vision rows skip the probability clone only when the existing
+VisionSelfAttention SDPA policy and the direct-safe transition row both match
+the live zero-offset Vulkan buffer layout. The Lotus `[10,126,126]` row remains
+marked `vulkan_clone_probability_before_value_bmm`. Transition logging
+classifies remaining matching `aten::_softmax -> clone.buffer_to_buffer` events
+as `required_correctness_materialization` / `semantic_materialization` with
 `producer_contract=AttentionProbabilityMaterializationContract` and
-`consumer_contract=DecomposedAttentionProbabilityToValueBmm`. The clone remains
-required and behavior is unchanged.
+`consumer_contract=DecomposedAttentionProbabilityToValueBmm`.
 
 `ExecutionContractDiagnostics.h/.cpp` define the first opt-in contract
 admission diagnostic surface. `PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG=<path>`

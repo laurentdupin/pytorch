@@ -242,10 +242,12 @@ Current MVP status:
   `ExecutionContractsAttentionProbabilityMaterializationSpec.h`, and
   transition-log attribution for required probability materialization events.
   It records nine direct-safe Lotus decomposed-attention probability/value-BMM
-  rows plus seven `vulkan_clone_probability_before_value_bmm` rows: the Lotus
-  `[10,126,126]` proof row and the six existing low-resolution
-  VisionSelfAttention rows. This deliberately does not remove the clone or
-  change production softmax/BMM dispatch.
+  rows, the six proven low-resolution VisionSelfAttention direct-safe rows,
+  and the remaining Lotus `[10,126,126]`
+  `vulkan_clone_probability_before_value_bmm` row. The vision rows now skip the
+  clone only under the existing VisionSelfAttention SDPA row and direct-safe
+  transition-row guard; all non-matching rows keep the clone/materialization
+  path.
 - `HostUploadTransitionContract`, `MetadataViewTransitionContract`,
   `FinalReadbackContract`, `IntermediateReadbackTransitionContract`,
   `SafeContiguousMaterializationContract`,

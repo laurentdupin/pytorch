@@ -266,22 +266,24 @@ condition and migration target.
 - Location: `test/vulkan_contract_specs/attention_probability_materialization_contract.json`
   and
   `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsAttentionProbabilityMaterializationSpec.h`
-- Status: proof-only, not production admission
+- Status: bounded transition-policy slice active for the six vision direct-safe
+  rows; Lotus `[10,126,126]` remains clone-required
 - Reason: Lotus decomposed-attention proof found ten rank-3 float
   softmax-probability/value-BMM rows. Nine are direct-safe evidence, while the
   `[10,126,126]` probability row requires explicit Vulkan clone/materialization
-  before value BMM in proof. The rowset now also records the six already-admitted
-  low-resolution VisionSelfAttention probability rows that require the same
-  explicit Vulkan clone before value BMM. The rowset prevents this evidence from
-  becoming a blanket softmax-to-BMM rule or a model-named route.
+  before value BMM in proof. The rowset also records the six already-admitted
+  low-resolution VisionSelfAttention probability rows; owner-path diagnostic
+  proof promoted those six rows to direct-safe no-clone under the existing
+  VisionSelfAttention SDPA and transition-row guards. The rowset prevents this
+  evidence from becoming a blanket softmax-to-BMM rule or a model-named route.
 - Generated spec coverage:
   `test/vulkan_contract_specs/attention_probability_materialization_contract.json`
   covers the `DecomposedAttentionProbabilityToValueBmm` layout-transition edge
   with ShapeEnvelope sparse-rowset rows, positive proof cases, adjacent
   negatives, and generated C++ metadata/row helpers. Runtime proof coverage
-  verifies cloned/materialized probabilities pass for the observed rows and
-  captures the current direct-consumer failure for materialization-required
-  rows.
+  verifies direct probabilities pass for direct-safe rows, cloned/materialized
+  probabilities remain valid for all observed rows, and the current
+  direct-consumer failure is preserved for materialization-required rows.
 - Expiry: a reviewed production `LayoutTransitionContract` materialization
   policy consumes the generated row metadata for required rows, or broader
   proof invalidates/removes the rowset.
