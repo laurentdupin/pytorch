@@ -1098,11 +1098,20 @@ def embedded_region_lifetime_summary(result: dict[str, Any] | None) -> dict[str,
         return None
     dry_run_rows = list_counter_field(total_delta, "stack_subresource_lifetime_dry_run_snapshot")
     retire_blocker_rows = list_counter_field(total_delta, "stack_retire_drain_blocker_snapshot")
+    submit_attribution_rows = list_counter_field(
+        total_delta, "region_lifetime_submit_attribution_snapshot"
+    )
     retired_resource_rows = list_counter_field(total_delta, "retired_resource_aggregate_snapshot")
     dry_run_counters = list_counter_field(
         total_delta, "stack_subresource_lifetime_dry_run_counters"
     )
-    if not (dry_run_rows or retire_blocker_rows or retired_resource_rows or dry_run_counters):
+    if not (
+        dry_run_rows
+        or retire_blocker_rows
+        or submit_attribution_rows
+        or retired_resource_rows
+        or dry_run_counters
+    ):
         return None
     return {
         "dry_run_enabled": bool(dry_run_rows or any(int_value(value) for value in dry_run_counters)),
@@ -1117,6 +1126,10 @@ def embedded_region_lifetime_summary(result: dict[str, Any] | None) -> dict[str,
         "stack_subresource_lifetime_dry_run_sample": sample_rows(dry_run_rows),
         "stack_retire_drain_blocker_rows": len(retire_blocker_rows),
         "stack_retire_drain_blocker_sample": sample_rows(retire_blocker_rows),
+        "region_lifetime_submit_attribution_rows": len(submit_attribution_rows),
+        "region_lifetime_submit_attribution_sample": sample_rows(
+            submit_attribution_rows
+        ),
         "retired_resource_aggregate_rows": len(retired_resource_rows),
         "retired_resource_aggregate_sample": sample_rows(retired_resource_rows),
     }
@@ -1919,6 +1932,13 @@ def validate_model_suite_ingestion() -> None:
         "stack_subresource_lifetime_dry_run_snapshot_delta": [
             "stack_subresource_lifetime_dry_run class=metadata_uniform count=1"
         ],
+        "region_lifetime_submit_attribution_snapshot_delta": [
+            (
+                "region_lifetime_submit_attribution group=1 "
+                "origin=retire_queue_drain phase=stack_owner "
+                "callsite=stack_owner_norm2 count=1 bytes=2048"
+            )
+        ],
         "retired_resource_aggregate_snapshot_delta": [
             "retired_resource kind=buffer role=unknown count=1"
         ],
@@ -2035,6 +2055,8 @@ def validate_model_suite_ingestion() -> None:
         )
     if not row["region_lifetime"].get("embedded_region_lifetime_available"):
         raise AssertionError("embedded region/lifetime evidence was not consumed")
+    if row["region_lifetime"].get("region_lifetime_submit_attribution_rows") != 1:
+        raise AssertionError("submit attribution evidence was not consumed")
     if any(
         item.get("name") == "region_lifetime_dry_run"
         for item in row["environment"].get("missing_artifacts") or []

@@ -18989,6 +18989,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         torch.ops.vulkan_prepack.reset_stack_temp_lifetime_safety_snapshot()
         torch.ops.vulkan_prepack.reset_stack_internal_temp_retire_batch_counters()
         torch.ops.vulkan_prepack.reset_stack_retire_drain_blocker_counters()
+        torch.ops.vulkan_prepack.reset_region_lifetime_submit_attribution()
         torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
         with torch.inference_mode():
             torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
@@ -19007,6 +19008,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         blocker = torch.ops.vulkan_prepack.stack_retire_drain_blocker_snapshot()
         blocker_counters = (
             torch.ops.vulkan_prepack.stack_retire_drain_blocker_counters()
+        )
+        submit_attribution = (
+            torch.ops.vulkan_prepack.region_lifetime_submit_attribution_snapshot()
         )
         dry_run = torch.ops.vulkan_prepack.stack_subresource_lifetime_dry_run_snapshot()
         dry_run_counters = (
@@ -19069,6 +19073,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertGreater(blocker_counters[14], 0)
         self.assertTrue(any("summary=1" in row for row in blocker))
         self.assertTrue(any("copresent_group=1" in row for row in blocker))
+        self.assertTrue(
+            any(
+                "group=1" in row
+                and "origin=retire_queue_drain" in row
+                and "phase=stack_owner" in row
+                and "signature=" in row
+                for row in submit_attribution
+            )
+        )
+        self.assertTrue(
+            any(
+                "resource=1" in row
+                and "origin=retire_queue_drain" in row
+                and "role=" in row
+                and "allocation_has_generation=" in row
+                for row in submit_attribution
+            )
+        )
         self.assertTrue(
             any(
                 "summary=1" in row

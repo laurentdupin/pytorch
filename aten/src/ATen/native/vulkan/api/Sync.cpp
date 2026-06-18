@@ -522,6 +522,17 @@ stack_retire_drain_blockers() {
   return blockers;
 }
 
+std::mutex& region_lifetime_submit_attribution_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::map<std::string, StackTempLifetimeSafetyValue>&
+region_lifetime_submit_attribution_rows() {
+  static std::map<std::string, StackTempLifetimeSafetyValue> rows;
+  return rows;
+}
+
 std::mutex& stack_subresource_lifetime_dry_run_mutex() {
   static std::mutex mutex;
   return mutex;
@@ -1320,6 +1331,11 @@ void reset_stack_retire_drain_blocker_counters() {
       0u, std::memory_order_relaxed);
   std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
   stack_retire_drain_blockers().clear();
+}
+
+void reset_region_lifetime_submit_attribution() {
+  std::lock_guard<std::mutex> lock(region_lifetime_submit_attribution_mutex());
+  region_lifetime_submit_attribution_rows().clear();
 }
 
 void reset_stack_subresource_lifetime_dry_run_counters() {
@@ -2231,6 +2247,23 @@ std::vector<std::string> stack_retire_drain_blocker_snapshot() {
   return rows;
 }
 
+std::vector<std::string> region_lifetime_submit_attribution_snapshot() {
+  std::vector<std::string> rows;
+  std::lock_guard<std::mutex> lock(region_lifetime_submit_attribution_mutex());
+  for (const auto& entry : region_lifetime_submit_attribution_rows()) {
+    std::ostringstream stream;
+    stream << "region_lifetime_submit_attribution " << entry.first
+           << " count=" << entry.second.count
+           << " bytes=" << entry.second.bytes
+           << " queue_submit=" << entry.second.queue_submit_count
+           << " blocking_wait=" << entry.second.blocking_wait_count
+           << " poll_only=" << entry.second.poll_only_count;
+    rows.emplace_back(stream.str());
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
 std::vector<int64_t> stack_subresource_lifetime_dry_run_counters_snapshot() {
   const auto& counters = stack_subresource_lifetime_dry_run_counters();
   return {
@@ -2800,6 +2833,104 @@ void note_stack_retire_drain_copresent_group(
   auto& value = stack_retire_drain_blockers()[key.str()];
   value.count += 1u;
   value.bytes += old_path_pending_bytes;
+  if (queue_submit) {
+    value.queue_submit_count += 1u;
+  } else {
+    value.poll_only_count += 1u;
+  }
+}
+
+void note_region_lifetime_submit_attribution_group(
+    const VulkanSubmitOrigin origin,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const bool queue_submit,
+    const bool had_pending_work,
+    const uint64_t pending_resource_count,
+    const uint64_t pending_bytes,
+    const std::string& signature,
+    const std::string& blockers) {
+  std::ostringstream key;
+  key << "group=1 origin=" << submit_origin_name(origin)
+      << " phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " queue_submit=" << (queue_submit ? 1 : 0)
+      << " had_pending_work=" << (had_pending_work ? 1 : 0)
+      << " pending_resources=" << pending_resource_count
+      << " blockers=" << blockers
+      << " signature=" << signature;
+  std::lock_guard<std::mutex> lock(region_lifetime_submit_attribution_mutex());
+  auto& value = region_lifetime_submit_attribution_rows()[key.str()];
+  value.count += 1u;
+  value.bytes += pending_bytes;
+  if (queue_submit) {
+    value.queue_submit_count += 1u;
+  } else {
+    value.poll_only_count += 1u;
+  }
+}
+
+void note_region_lifetime_submit_attribution_resource(
+    const VulkanSubmitOrigin origin,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const uint64_t bytes,
+    const char* const reason,
+    const VulkanStackTempLifetimeSafety safety,
+    const bool queue_submit,
+    const bool had_pending_work,
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof) {
+  std::ostringstream key;
+  key << "resource=1 origin=" << submit_origin_name(origin)
+      << " phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " kind=" << retired_resource_kind_name(kind)
+      << " role=" << retired_resource_role_name(role)
+      << " reason=" << (reason ? reason : "unknown")
+      << " safety=" << stack_temp_lifetime_safety_name(safety)
+      << " queue_submit=" << (queue_submit ? 1 : 0)
+      << " had_pending_work=" << (had_pending_work ? 1 : 0)
+      << " stack_phase=" << vision_stack_phase_name(provenance.phase)
+      << " block=" << provenance.block_index
+      << " lifetime=" << stack_tensor_lifetime_name(provenance.lifetime)
+      << " shape=" << format_sizes(provenance.shape)
+      << " dtype=" << provenance.dtype
+      << " stack_provenance=" << (provenance.defined ? 1 : 0)
+      << " last_use_proof=" << (provenance.has_last_use_proof ? 1 : 0)
+      << " expected_consumer_phase="
+      << vision_stack_phase_name(provenance.expected_consumer_phase)
+      << " expected_consumer_block="
+      << provenance.expected_consumer_block_index
+      << " final_consumer_before_stack_submit="
+      << (provenance.final_consumer_before_stack_submit ? 1 : 0)
+      << " internal_non_escaping="
+      << (provenance.internal_non_escaping ? 1 : 0)
+      << " requested_intermediate="
+      << (provenance.requested_intermediate ? 1 : 0)
+      << " final_output=" << (provenance.final_output ? 1 : 0)
+      << " alias_or_view=" << (provenance.alias_or_view ? 1 : 0)
+      << " aliases_runtime_input="
+      << (provenance.aliases_runtime_input ? 1 : 0)
+      << " aliases_runtime_output="
+      << (provenance.aliases_runtime_output ? 1 : 0)
+      << " provenance_source="
+      << stack_retire_provenance_source_name(provenance.source)
+      << " allocation_has_generation="
+      << (allocation_proof.has_generation ? 1 : 0)
+      << " allocation_generation="
+      << allocation_proof.allocation_generation
+      << " allocation_has_byte_range="
+      << (allocation_proof.has_byte_range ? 1 : 0)
+      << " allocation_byte_offset=" << allocation_proof.byte_offset
+      << " allocation_byte_range=" << allocation_proof.byte_range
+      << " allocation_allocated_bytes=" << allocation_proof.allocated_bytes;
+  std::lock_guard<std::mutex> lock(region_lifetime_submit_attribution_mutex());
+  auto& value = region_lifetime_submit_attribution_rows()[key.str()];
+  value.count += 1u;
+  value.bytes += bytes;
   if (queue_submit) {
     value.queue_submit_count += 1u;
   } else {

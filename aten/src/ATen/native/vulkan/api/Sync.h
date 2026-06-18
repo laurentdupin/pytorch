@@ -566,6 +566,8 @@ stack_retire_drain_blocker_counters();
 TORCH_API std::vector<int64_t> stack_retire_drain_blocker_counters_snapshot();
 TORCH_API std::vector<std::string> stack_retire_drain_blocker_snapshot();
 TORCH_API void reset_stack_retire_drain_blocker_counters();
+TORCH_API std::vector<std::string> region_lifetime_submit_attribution_snapshot();
+TORCH_API void reset_region_lifetime_submit_attribution();
 TORCH_API VulkanStackSubresourceLifetimeDryRunCounters&
 stack_subresource_lifetime_dry_run_counters();
 TORCH_API std::vector<int64_t>
@@ -650,6 +652,29 @@ TORCH_API void note_stack_retire_drain_copresent_group(
     bool skipped_no_old_path_pending,
     const std::string& signature,
     const std::string& blockers);
+TORCH_API void note_region_lifetime_submit_attribution_group(
+    VulkanSubmitOrigin origin,
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    bool queue_submit,
+    bool had_pending_work,
+    uint64_t pending_resource_count,
+    uint64_t pending_bytes,
+    const std::string& signature,
+    const std::string& blockers);
+TORCH_API void note_region_lifetime_submit_attribution_resource(
+    VulkanSubmitOrigin origin,
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    VulkanRetiredResourceKind kind,
+    VulkanRetiredResourceRole role,
+    uint64_t bytes,
+    const char* reason,
+    VulkanStackTempLifetimeSafety safety,
+    bool queue_submit,
+    bool had_pending_work,
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof);
 TORCH_API const char* stack_subresource_lifetime_dry_run_resource_class(
     VulkanRetiredResourceKind kind,
     VulkanRetiredResourceRole role,

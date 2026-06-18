@@ -177,6 +177,95 @@ VulkanRetireCallSite retire_call_site_for_current_phase() {
   }
 }
 
+template <typename PendingRetire>
+void append_region_lifetime_submit_signature(
+    const PendingRetire& pending,
+    const VulkanRetireCallSite default_callsite,
+    std::map<std::string, std::pair<uint64_t, uint64_t>>& resources,
+    std::set<std::string>& blockers) {
+  const bool qkv_would_batch =
+      is_qkv_stack_temp_retire_batch_candidate(pending.stack_provenance);
+  const char* const blocker_reason = stack_retire_drain_blocker_reason(
+      pending.kind, pending.role, pending.stack_provenance, qkv_would_batch);
+  const VulkanStackTempLifetimeSafety safety =
+      stack_retire_lifetime_safety_for_resource(
+          pending.role, pending.stack_provenance);
+  const VulkanRetireCallSite effective_callsite =
+      pending.callsite == VulkanRetireCallSite::Unknown ? default_callsite
+                                                        : pending.callsite;
+  std::ostringstream key;
+  key << retired_resource_kind_name(pending.kind) << ":"
+      << retired_resource_role_name(pending.role) << ":"
+      << retire_call_site_name(effective_callsite) << ":" << blocker_reason
+      << ":" << stack_temp_lifetime_safety_name(safety);
+  auto& value = resources[key.str()];
+  value.first += 1u;
+  value.second += pending.bytes;
+  blockers.insert(blocker_reason);
+}
+
+struct RegionLifetimeSubmitResourceAttribution final {
+  VulkanSubmitPhase phase = VulkanSubmitPhase::Unknown;
+  VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown;
+  VulkanRetiredResourceKind kind = VulkanRetiredResourceKind::Unknown;
+  VulkanRetiredResourceRole role = VulkanRetiredResourceRole::Unknown;
+  uint64_t bytes = 0u;
+  const char* reason = "unknown";
+  VulkanStackTempLifetimeSafety safety = VulkanStackTempLifetimeSafety::Unknown;
+  VulkanStackRetireProvenance provenance;
+  VulkanStackRawResourceAllocationProof allocation_proof;
+};
+
+template <typename PendingRetire>
+RegionLifetimeSubmitResourceAttribution
+make_region_lifetime_submit_resource_attribution(
+    const PendingRetire& pending,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite default_callsite) {
+  const bool qkv_would_batch =
+      is_qkv_stack_temp_retire_batch_candidate(pending.stack_provenance);
+  const VulkanRetireCallSite effective_callsite =
+      pending.callsite == VulkanRetireCallSite::Unknown ? default_callsite
+                                                        : pending.callsite;
+  return RegionLifetimeSubmitResourceAttribution{
+      phase,
+      effective_callsite,
+      pending.kind,
+      pending.role,
+      pending.bytes,
+      stack_retire_drain_blocker_reason(
+          pending.kind, pending.role, pending.stack_provenance, qkv_would_batch),
+      stack_retire_lifetime_safety_for_resource(
+          pending.role, pending.stack_provenance),
+      pending.stack_provenance,
+      stack_raw_allocation_proof(pending)};
+}
+
+std::string format_region_lifetime_submit_signature(
+    const std::map<std::string, std::pair<uint64_t, uint64_t>>& resources) {
+  std::ostringstream signature;
+  for (const auto& entry : resources) {
+    if (signature.tellp() > 0) {
+      signature << ",";
+    }
+    signature << entry.first << "#" << entry.second.first << "#"
+              << entry.second.second;
+  }
+  return signature.str();
+}
+
+std::string format_region_lifetime_submit_blockers(
+    const std::set<std::string>& blockers) {
+  std::ostringstream signature;
+  for (const auto& blocker : blockers) {
+    if (signature.tellp() > 0) {
+      signature << ",";
+    }
+    signature << blocker;
+  }
+  return signature.str();
+}
+
 struct CpuTimelineSummary final {
   uint64_t count{0u};
   uint64_t submitted{0u};
@@ -1083,6 +1172,8 @@ void Context::submit_pending_work_and_poll_retire(
   bool blocked_other_roles = false;
   std::map<std::string, std::pair<uint64_t, uint64_t>> copresent_resources;
   std::set<std::string> copresent_blockers;
+  std::vector<RegionLifetimeSubmitResourceAttribution>
+      region_lifetime_resource_attributions;
   const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
   const VulkanSubmitPhase phase = current_submit_phase();
   const bool record_subresource_lifetime_dry_run =
@@ -1118,6 +1209,9 @@ void Context::submit_pending_work_and_poll_retire(
         resource_value.first += 1u;
         resource_value.second += pending.bytes;
         copresent_blockers.insert(blocker_reason);
+        region_lifetime_resource_attributions.emplace_back(
+            make_region_lifetime_submit_resource_attribution(
+                pending, phase, effective_callsite));
         if (qkv_would_batch) {
           qkv_hypothetical_count++;
           qkv_hypothetical_bytes += pending.bytes;
@@ -1238,6 +1332,35 @@ void Context::submit_pending_work_and_poll_retire(
       skipped_no_old_path_pending && !had_pending_work;
   const bool submitted_for_retire_drain =
       should_submit_old_path_pending && had_pending_work;
+  const std::string region_lifetime_signature =
+      format_region_lifetime_submit_signature(copresent_resources);
+  const std::string region_lifetime_blockers =
+      format_region_lifetime_submit_blockers(copresent_blockers);
+  note_region_lifetime_submit_attribution_group(
+      VulkanSubmitOrigin::RetireQueueDrain,
+      phase,
+      callsite,
+      submitted_for_retire_drain,
+      had_pending_work,
+      pending_resource_count,
+      pending_bytes,
+      region_lifetime_signature,
+      region_lifetime_blockers);
+  for (const auto& attribution : region_lifetime_resource_attributions) {
+    note_region_lifetime_submit_attribution_resource(
+        VulkanSubmitOrigin::RetireQueueDrain,
+        attribution.phase,
+        attribution.callsite,
+        attribution.kind,
+        attribution.role,
+        attribution.bytes,
+        attribution.reason,
+        attribution.safety,
+        submitted_for_retire_drain,
+        had_pending_work,
+        attribution.provenance,
+        attribution.allocation_proof);
+  }
   note_vulkan_retire_drain(
       retire_drain_reason_for_current_phase(),
       callsite,
@@ -1263,21 +1386,6 @@ void Context::submit_pending_work_and_poll_retire(
       blocked_other_roles,
       skipped_no_old_path_pending,
       skipped_no_pending_command_work);
-  std::ostringstream copresent_signature;
-  for (const auto& entry : copresent_resources) {
-    if (copresent_signature.tellp() > 0) {
-      copresent_signature << ",";
-    }
-    copresent_signature << entry.first << "#" << entry.second.first << "#"
-                        << entry.second.second;
-  }
-  std::ostringstream blocker_signature;
-  for (const auto& blocker : copresent_blockers) {
-    if (blocker_signature.tellp() > 0) {
-      blocker_signature << ",";
-    }
-    blocker_signature << blocker;
-  }
   note_stack_retire_drain_copresent_group(
       phase,
       callsite,
@@ -1288,8 +1396,8 @@ void Context::submit_pending_work_and_poll_retire(
       pending_resource_count > 0u &&
           pending_resource_count == qkv_hypothetical_count,
       skipped_no_old_path_pending,
-      copresent_signature.str(),
-      blocker_signature.str());
+      region_lifetime_signature,
+      region_lifetime_blockers);
   if (record_subresource_lifetime_dry_run) {
     std::ostringstream dry_run_signature;
     for (const auto& entry : dry_run_resource_classes) {
@@ -1387,6 +1495,84 @@ VulkanSubmission Context::submit_cmd_to_gpu(
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
   const bool had_cmd = static_cast<bool>(cmd_);
+  if (had_cmd && origin == VulkanSubmitOrigin::ExplicitSynchronize) {
+    const VulkanSubmitPhase phase = current_submit_phase();
+    const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
+    uint64_t pending_resource_count = 0u;
+    const uint64_t pending_bytes = pending_retire_bytes();
+    std::map<std::string, std::pair<uint64_t, uint64_t>> resources;
+    std::set<std::string> blockers;
+    {
+      std::lock_guard<std::mutex> bufferlist_lock(
+          pending_retire_buffers_mutex_);
+      pending_resource_count += pending_retire_buffers_.size();
+      for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
+        append_region_lifetime_submit_signature(
+            pending, callsite, resources, blockers);
+      }
+    }
+    {
+      std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+      pending_resource_count += pending_retire_images_.size();
+      for (const PendingRetireImage& pending : pending_retire_images_) {
+        append_region_lifetime_submit_signature(
+            pending, callsite, resources, blockers);
+      }
+    }
+    note_region_lifetime_submit_attribution_group(
+        origin,
+        phase,
+        callsite,
+        /*queue_submit=*/true,
+        /*had_pending_work=*/true,
+        pending_resource_count,
+        pending_bytes,
+        format_region_lifetime_submit_signature(resources),
+        format_region_lifetime_submit_blockers(blockers));
+    {
+      std::lock_guard<std::mutex> bufferlist_lock(
+          pending_retire_buffers_mutex_);
+      for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
+        const auto attribution =
+            make_region_lifetime_submit_resource_attribution(
+                pending, phase, callsite);
+        note_region_lifetime_submit_attribution_resource(
+            origin,
+            attribution.phase,
+            attribution.callsite,
+            attribution.kind,
+            attribution.role,
+            attribution.bytes,
+            attribution.reason,
+            attribution.safety,
+            /*queue_submit=*/true,
+            /*had_pending_work=*/true,
+            attribution.provenance,
+            attribution.allocation_proof);
+      }
+    }
+    {
+      std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+      for (const PendingRetireImage& pending : pending_retire_images_) {
+        const auto attribution =
+            make_region_lifetime_submit_resource_attribution(
+                pending, phase, callsite);
+        note_region_lifetime_submit_attribution_resource(
+            origin,
+            attribution.phase,
+            attribution.callsite,
+            attribution.kind,
+            attribution.role,
+            attribution.bytes,
+            attribution.reason,
+            attribution.safety,
+            /*queue_submit=*/true,
+            /*had_pending_work=*/true,
+            attribution.provenance,
+            attribution.allocation_proof);
+      }
+    }
+  }
   VulkanSubmission submission{};
   if (cmd_) {
     cmd_.end();

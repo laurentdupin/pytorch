@@ -209,6 +209,14 @@ handling only to the fenced conv prepack upload path. Recent stability work
 keeps the prepack-retire drain policy scoped to float-buffer conv prepack
 uploads and preserves real tensor CPU readback behavior and diagnostics.
 
+`region_lifetime_submit_attribution_snapshot()` adds behavior-neutral
+submit-pressure attribution for `retire_queue_drain` and
+`explicit_synchronize` origins. It records phase, callsite, pending retire
+counts/bytes, resource-role signatures, stack lifetime/provenance fields, and
+allocation generation/range proof where available. The snapshot is diagnostic
+only: it does not defer submits, batch retire entries, change final readback
+semantics, or alter route/shape admission.
+
 `docs/vulkan/CAPABILITY_PROFILES.md` and
 `docs/vulkan/capability_profiles.json` define the first capability-profile
 harness. Profiles are reduced feature masks intersected with the live adapter;
