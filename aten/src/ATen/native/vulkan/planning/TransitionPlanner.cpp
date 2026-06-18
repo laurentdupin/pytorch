@@ -208,6 +208,8 @@ void log_vulkan_transition(const VulkanTransitionRequest& request) {
       "destination_storage",
       first_non_null(request.destination_physical.storage, "unknown"),
       first);
+  append_json_string(
+      out, "detail", first_non_null(request.detail, "unknown"), first);
   out << "}\n";
 }
 

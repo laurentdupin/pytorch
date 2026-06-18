@@ -41,6 +41,7 @@ struct VulkanTransitionRequest final {
   VulkanPhysicalTensorDesc source_physical;
   VulkanLogicalTensorDesc destination_logical;
   VulkanPhysicalTensorDesc destination_physical;
+  const char* detail = nullptr;
 };
 
 struct VulkanTransitionAdmission final {

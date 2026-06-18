@@ -33,12 +33,10 @@
   "bounds": {
     "producer_schema": [
       "vulkan_prepack::vision_context",
-      "vulkan_prepack::conv2d_context",
       "vulkan_tensor"
     ],
     "consumer_schema": [
       "cpu_tensor",
-      "vulkan_weight_cpu_materialization",
       "unpack_norm1_weight_readback",
       "unpack_norm1_bias_readback",
       "unpack_qkv_weight_readback",
@@ -69,19 +67,6 @@
       "name": "vision_context_unpack_readback",
       "producer_schema": "vulkan_prepack::vision_context",
       "consumer_schema": "unpack_qkv_weight_readback",
-      "reason": "fallback_materialization",
-      "kind": "fallback",
-      "host_transfer": true,
-      "physical_copy": true,
-      "sync_required": true,
-      "queue_submit_required": true,
-      "expected_contract_name": "FallbackMaterializationContract",
-      "expected_backend_behavior_change": false
-    },
-    {
-      "name": "conv_weight_cpu_materialization",
-      "producer_schema": "vulkan_prepack::conv2d_context",
-      "consumer_schema": "vulkan_weight_cpu_materialization",
       "reason": "fallback_materialization",
       "kind": "fallback",
       "host_transfer": true,

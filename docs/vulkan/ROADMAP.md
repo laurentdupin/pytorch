@@ -255,6 +255,9 @@ Current MVP status:
   mappings for matching reason logs only; they do not admit backend routes or
   change upload, metadata-view, copy, materialization, fallback, layout-repack,
   or readback behavior.
+- `ConvWeightLayoutRepackTransitionContract` refines the conv packed-context
+  weight CPU materialization edge as a specific value-bearing transition bucket
+  without removing the readback or changing conv route behavior.
 - Tensor provenance/value traces can carry optional contract-admission
   metadata for producers that pass an existing match. BatchNorm canaries
   distinguish direct `BufferFloat4D` admission and materialized

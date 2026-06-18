@@ -3,12 +3,14 @@
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
+#include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/planning/TransitionPlanner.h>
 
 #include <c10/util/Exception.h>
 #include <c10/util/irange.h>
 
 #include <atomic>
+#include <cstring>
 #include <cstdlib>
 #include <sstream>
 #include <string>
@@ -202,6 +204,36 @@ int64_t fallback_tensor_bytes(ArrayRef<Tensor> tensors) {
   return found ? bytes : -1;
 }
 
+std::string format_int_array(const IntArrayRef values) {
+  std::ostringstream out;
+  out << '[';
+  for (const auto i : c10::irange(values.size())) {
+    if (i != 0) {
+      out << ',';
+    }
+    out << values[i];
+  }
+  out << ']';
+  return out.str();
+}
+
+const Tensor* first_vulkan_tensor(ArrayRef<Tensor> tensors) {
+  for (const Tensor& tensor : tensors) {
+    if (tensor.defined() && tensor.is_vulkan()) {
+      return &tensor;
+    }
+  }
+  return nullptr;
+}
+
+bool is_conv_weight_layout_repack_transition(
+    const char* op_name,
+    const char* reason) {
+  return op_name != nullptr && reason != nullptr &&
+      std::strcmp(op_name, "vulkan_prepack::conv2d_context") == 0 &&
+      std::strcmp(reason, "vulkan_weight_cpu_materialization") == 0;
+}
+
 void log_fallback_transition(
     const char* op_name,
     const char* reason,
@@ -210,6 +242,38 @@ void log_fallback_transition(
   if (!utils::transition_logging_enabled()) {
     return;
   }
+  const Tensor* source_tensor = first_vulkan_tensor(tensors);
+  std::string source_dtype;
+  std::string source_sizes;
+  std::string source_strides;
+  std::string source_layout;
+  const char* source_storage = nullptr;
+  if (source_tensor != nullptr) {
+    std::ostringstream dtype_out;
+    dtype_out << source_tensor->scalar_type();
+    source_dtype = dtype_out.str();
+    source_sizes = format_int_array(source_tensor->sizes());
+    source_strides = format_int_array(source_tensor->strides());
+    source_layout = describe_tensor_state(*source_tensor);
+    source_storage = "vulkan_tensor";
+  }
+  const bool conv_weight_layout_repack =
+      is_conv_weight_layout_repack_transition(op_name, reason);
+  const char* producer_contract = conv_weight_layout_repack
+      ? "ConvWeightLayoutRepackTransitionContract"
+      : nullptr;
+  const char* consumer_contract = conv_weight_layout_repack
+      ? "LegacyConv2DWeightCPURepack"
+      : nullptr;
+  const char* destination_layout = conv_weight_layout_repack
+      ? "legacy_shader_packed_conv_weight"
+      : nullptr;
+  const char* destination_storage =
+      conv_weight_layout_repack ? "TEXTURE_2D" : nullptr;
+  const char* detail = conv_weight_layout_repack
+      ? "packer_path=pack_weights;actual_values_required=1;"
+        "explicit_unpack_preserved=1;pickle_unpack_preserved=1"
+      : nullptr;
   utils::log_vulkan_transition(utils::VulkanTransitionRequest{
       phase_name(fallback_phase_tls()),
       utils::TransitionReason::FallbackMaterialization,
@@ -221,12 +285,18 @@ void log_fallback_transition(
       kind == VulkanCpuFallbackKind::SyncReadback,
       op_name ? op_name : "unknown",
       reason ? reason : fallback_kind_name(kind),
-      nullptr,
-      nullptr,
+      producer_contract,
+      consumer_contract,
+      {source_dtype.empty() ? nullptr : source_dtype.c_str(),
+       source_sizes.empty() ? nullptr : source_sizes.c_str(),
+       source_strides.empty() ? nullptr : source_strides.c_str()},
+      {source_layout.empty() ? nullptr : source_layout.c_str(),
+       source_storage,
+       nullptr,
+       nullptr},
       {},
-      {},
-      {},
-      {},
+      {destination_layout, destination_storage, nullptr, nullptr},
+      detail,
   });
 }
 

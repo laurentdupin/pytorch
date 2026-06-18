@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "source_status": "schema_only",
+  "contract_name": "ConvWeightLayoutRepackTransitionContract",
+  "family": "LegacyConv2DWeightCPURepack",
+  "tuple_id": "legacy_conv2d_weight_cpu_repack_v0",
+  "writer_op": "vulkan_prepack::conv2d_context",
+  "route_label": "transition::conv_weight_layout_repack",
+  "metadata": {
+    "evidence_id": "conv_packed_context_readback_attribution",
+    "guard_id": "transition_conv_weight_layout_repack",
+    "fallback_policy": "classification_only_no_backend_admission",
+    "materialization_policy": "value_bearing_cpu_weight_repack_observed"
+  },
+  "transition_contract": {
+    "contract_type": "LayoutTransitionContract",
+    "producer_schema": "vulkan_prepack::conv2d_context",
+    "consumer_schema": "vulkan_weight_cpu_materialization",
+    "semantic_consumer_schema": "legacy_shader_packed_conv_weight",
+    "reason": "fallback_materialization",
+    "kind": "fallback",
+    "outcome": "classified",
+    "physical_copy": true,
+    "host_transfer": true,
+    "sync_required": true,
+    "queue_submit_required": true,
+    "collector_reason_bucket": false,
+    "collector_event_bucket": true,
+    "copy_budget": {
+      "cpu_fallback": "counted",
+      "sync_readback": "counted",
+      "host_transfer": "counted"
+    }
+  },
+  "bounds": {
+    "producer_schema": "vulkan_prepack::conv2d_context",
+    "consumer_schema": "vulkan_weight_cpu_materialization",
+    "reason": "fallback_materialization",
+    "kind": "fallback",
+    "outcome": "classified",
+    "host_transfer": true,
+    "physical_copy": true,
+    "sync_required": true,
+    "queue_submit_required": true,
+    "source_device": "vulkan",
+    "source_rank": 4,
+    "source_role": "raw_or_module_conv_weight",
+    "destination_layout_target": "legacy_shader_packed_conv_weight",
+    "destination_storage_target": "TEXTURE_2D",
+    "packer_path": [
+      "pack_weights",
+      "rearrange_weights_2d",
+      "rearrange_weights_dw"
+    ],
+    "actual_values_required": true,
+    "explicit_unpack_preserved": true,
+    "pickle_unpack_preserved": true,
+    "behavior_policy": "classification_only_no_vulkan_side_repack"
+  },
+  "positive_cases": [
+    {
+      "name": "legacy_conv2d_weight_cpu_repack",
+      "producer_schema": "vulkan_prepack::conv2d_context",
+      "consumer_schema": "vulkan_weight_cpu_materialization",
+      "reason": "fallback_materialization",
+      "kind": "fallback",
+      "host_transfer": true,
+      "physical_copy": true,
+      "sync_required": true,
+      "queue_submit_required": true,
+      "expected_contract_name": "ConvWeightLayoutRepackTransitionContract",
+      "expected_backend_behavior_change": false,
+      "expected_actual_values_required": true,
+      "expected_explicit_unpack_preserved": true,
+      "expected_pickle_unpack_preserved": true
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "vision_context_unpack_stays_generic_fallback",
+      "producer_schema": "vulkan_prepack::vision_context",
+      "consumer_schema": "unpack_qkv_weight_readback",
+      "reason": "fallback_materialization",
+      "kind": "fallback",
+      "host_transfer": true,
+      "physical_copy": true,
+      "violates": "producer_consumer_boundary",
+      "expected_contract_name": "FallbackMaterializationContract",
+      "expected_native_route": false
+    },
+    {
+      "name": "device_layout_repack_not_cpu_repack",
+      "producer_schema": "vulkan_prepack::conv2d_context",
+      "consumer_schema": "vulkan_weight_cpu_materialization",
+      "reason": "required_layout_repack",
+      "kind": "layout_materialization",
+      "host_transfer": false,
+      "physical_copy": true,
+      "violates": "host_transfer_and_reason",
+      "expected_native_route": false
+    }
+  ]
+}

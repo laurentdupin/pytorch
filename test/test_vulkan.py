@@ -447,6 +447,34 @@ class TestVulkanGovernance(TestCase):
                 self.assertEqual(case["expected_contract_name"], contract_name)
                 self.assertFalse(case["expected_backend_behavior_change"])
 
+        conv_repack = _load_vulkan_contract_spec(
+            "conv_weight_layout_repack_transition_contract.json"
+        )
+        self.assertEqual(
+            conv_repack["contract_name"],
+            "ConvWeightLayoutRepackTransitionContract",
+        )
+        transition_contract = conv_repack["transition_contract"]
+        self.assertEqual(
+            transition_contract["contract_type"],
+            "LayoutTransitionContract",
+        )
+        self.assertEqual(
+            transition_contract["producer_schema"],
+            "vulkan_prepack::conv2d_context",
+        )
+        self.assertEqual(
+            transition_contract["consumer_schema"],
+            "vulkan_weight_cpu_materialization",
+        )
+        self.assertEqual(transition_contract["reason"], "fallback_materialization")
+        self.assertEqual(transition_contract["kind"], "fallback")
+        self.assertFalse(transition_contract["collector_reason_bucket"])
+        self.assertTrue(transition_contract["collector_event_bucket"])
+        self.assertTrue(conv_repack["bounds"]["actual_values_required"])
+        self.assertTrue(conv_repack["bounds"]["explicit_unpack_preserved"])
+        self.assertTrue(conv_repack["bounds"]["pickle_unpack_preserved"])
+
         result = subprocess.run(
             [
                 sys.executable,
@@ -1099,7 +1127,7 @@ class TestVulkanGovernance(TestCase):
             "safe_view_reshape_contract.json": (2, 3),
             "sdpa_score_softmax_contract.json": (4, 3),
             "small_metadata_padded_conv2d_contract.json": (1, 7),
-            "small_spatial_pointwise_conv_contract.json": (147, 15),
+            "small_spatial_pointwise_conv_contract.json": (183, 22),
             "token_prefix_cat_add_contract.json": (30, 6),
             "transformer_gqa_sdpa_contract.json": (4, 8),
             "vision_self_attention_sdpa_contract.json": (6, 8),
@@ -1526,11 +1554,11 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
-        self.assertEqual(summary["specs"], 30)
+        self.assertEqual(summary["specs"], 31)
         self.assertEqual(summary["generated_shape_envelope"], 22)
         self.assertEqual(summary["json_spec_without_shape_envelope"], 0)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
-        self.assertEqual(summary["schema_only_spec"], 8)
+        self.assertEqual(summary["schema_only_spec"], 9)
         self.assertEqual(summary["live_contract_without_json_spec"], 0)
         self.assertEqual(summary["exact_row_debt"], 0)
 
@@ -1640,9 +1668,9 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated contract coverage census specs=30", result.stdout)
+        self.assertIn("validated contract coverage census specs=31", result.stdout)
         self.assertIn("generated_shape_envelope=22", result.stdout)
-        self.assertIn("schema_only_spec=8", result.stdout)
+        self.assertIn("schema_only_spec=9", result.stdout)
         self.assertIn("json_spec_without_shape_envelope=0", result.stdout)
         self.assertIn("live_contract_without_json_spec=0", result.stdout)
         self.assertIn("exact_row_debt=0", result.stdout)

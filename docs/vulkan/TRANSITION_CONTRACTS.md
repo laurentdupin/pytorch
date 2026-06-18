@@ -131,11 +131,20 @@ readbacks and are not eliminated or reclassified as acceptable route behavior.
 device-side physical copies with no host transfer or sync readback; the spec is
 only a collector bucket for existing safe contiguous materialization evidence.
 
-`FallbackMaterializationContract` covers `fallback_materialization` /
-`fallback` events such as visible owner-context unpack readbacks and conv
-prepack weight CPU materialization. These events remain counted fallback
-materialization, host transfers, and sync readbacks; the spec only gives the
-collector a source-of-truth bucket for reporting them.
+`FallbackMaterializationContract` covers generic `fallback_materialization` /
+`fallback` events such as visible owner-context unpack readbacks. These events
+remain counted fallback materialization, host transfers, and sync readbacks;
+the spec only gives the collector a source-of-truth bucket for reporting them.
+
+`ConvWeightLayoutRepackTransitionContract` is a more specific
+classification-only bucket for `vulkan_prepack::conv2d_context ->
+vulkan_weight_cpu_materialization` events. It records that the legacy conv2d
+image-packed path reads actual Vulkan weight values back to CPU so
+`pack_weights` can rearrange them into the shader-packed layout and upload the
+packed weights back to Vulkan. The transition log attaches the contract name
+and source tensor metadata where available, but the CPU readback remains
+visible and unchanged. Explicit `Conv2dPackedContext::unpack()` and pickle
+semantics must keep returning real tensors.
 
 `LayoutRepackTransitionContract` covers `required_layout_repack` /
 `layout_materialization` events such as `aten::cat -> buffer_to_buffer`

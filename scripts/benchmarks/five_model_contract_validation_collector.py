@@ -140,6 +140,42 @@ def load_transition_reason_bucket_contracts(
     return contracts
 
 
+def load_specific_transition_contracts(
+    spec_dir: Path = CONTRACT_SPEC_DIR,
+) -> dict[tuple[str, str, str], str]:
+    contracts: dict[tuple[str, str, str], str] = {}
+    if not spec_dir.exists():
+        return contracts
+    for path in sorted(spec_dir.glob("*.json")):
+        if path.name == GENERATED_CPP_MANIFEST_FILE:
+            continue
+        spec = load_json(path)
+        transition_contract = spec.get("transition_contract")
+        if not isinstance(transition_contract, dict):
+            continue
+        if not transition_contract.get("collector_event_bucket"):
+            continue
+        if transition_contract.get("contract_type") != "LayoutTransitionContract":
+            raise ValueError(f"{path.name} is not a LayoutTransitionContract")
+        reason = transition_contract.get("reason")
+        producer_schema = transition_contract.get("producer_schema")
+        consumer_schema = transition_contract.get("consumer_schema")
+        contract_name = spec.get("contract_name")
+        if not (reason and producer_schema and consumer_schema and contract_name):
+            raise ValueError(
+                f"{path.name} missing transition event match fields or contract_name"
+            )
+        key = (reason, producer_schema, consumer_schema)
+        previous = contracts.get(key)
+        if previous is not None and previous != contract_name:
+            raise ValueError(
+                f"duplicate transition event bucket {key}: "
+                f"{previous} and {contract_name}"
+            )
+        contracts[key] = contract_name
+    return contracts
+
+
 def repo_path(value: str | None) -> Path | None:
     if not value:
         return None
@@ -418,6 +454,7 @@ def summarize_transitions(
     transition_jsonl: Path | None,
     missing_artifacts: list[dict[str, str]],
     reason_bucket_contracts: dict[str, str] | None = None,
+    specific_transition_contracts: dict[tuple[str, str, str], str] | None = None,
 ) -> dict[str, Any]:
     if transition_jsonl is None or not transition_jsonl.exists():
         missing_artifacts.append(
@@ -442,6 +479,7 @@ def summarize_transitions(
         }
 
     reason_bucket_contracts = reason_bucket_contracts or {}
+    specific_transition_contracts = specific_transition_contracts or {}
     aggregates: dict[tuple[Any, ...], dict[str, Any]] = {}
     by_contract: Counter[str] = Counter()
     unknown_transition_reasons = 0
@@ -474,8 +512,15 @@ def summarize_transitions(
                     by_contract[contract] += 1
                     explicit_contract_counted = True
             if not explicit_contract_counted:
+                producer_schema = event.get("producer_schema") or "unknown"
+                consumer_schema = event.get("consumer_schema") or "unknown"
+                event_contract = specific_transition_contracts.get(
+                    (reason, producer_schema, consumer_schema)
+                )
                 reason_contract = reason_bucket_contracts.get(reason)
-                if reason_contract:
+                if event_contract:
+                    by_contract[event_contract] += 1
+                elif reason_contract:
                     by_contract[reason_contract] += 1
             key = (
                 event.get("phase") or "unknown",
@@ -1182,6 +1227,7 @@ def find_matrix_row(matrix: dict[str, Any] | None, match: dict[str, Any]) -> dic
 def build_row(
     row_cfg: dict[str, Any],
     reason_bucket_contracts: dict[str, str] | None = None,
+    specific_transition_contracts: dict[tuple[str, str, str], str] | None = None,
 ) -> dict[str, Any]:
     missing_artifacts: list[dict[str, str]] = []
     result_path = repo_path(row_cfg.get("result_json"))
@@ -1227,6 +1273,7 @@ def build_row(
         repo_path(row_cfg.get("transition_jsonl")),
         missing_artifacts,
         reason_bucket_contracts,
+        specific_transition_contracts,
     )
     region_lifetime = summarize_region_lifetime(
         repo_path(row_cfg.get("region_lifetime_summary")),
@@ -1607,6 +1654,7 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
 
 def validate_transition_contract_classification() -> None:
     reason_bucket_contracts = load_transition_reason_bucket_contracts()
+    specific_transition_contracts = load_specific_transition_contracts()
     required = {
         "fallback_materialization": "FallbackMaterializationContract",
         "required_final_readback": "FinalReadbackContract",
@@ -1619,6 +1667,19 @@ def validate_transition_contract_classification() -> None:
     for reason, contract_name in required.items():
         if reason_bucket_contracts.get(reason) != contract_name:
             raise AssertionError(f"{reason} is not covered by {contract_name}")
+    conv_weight_key = (
+        "fallback_materialization",
+        "vulkan_prepack::conv2d_context",
+        "vulkan_weight_cpu_materialization",
+    )
+    if (
+        specific_transition_contracts.get(conv_weight_key)
+        != "ConvWeightLayoutRepackTransitionContract"
+    ):
+        raise AssertionError(
+            "conv weight layout repack is not covered by "
+            "ConvWeightLayoutRepackTransitionContract"
+        )
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         transition_log = Path(tmp_dir) / "transition.jsonl"
@@ -1735,6 +1796,31 @@ def validate_transition_contract_classification() -> None:
                 "producer_contract": "unknown",
                 "consumer_contract": "unknown",
             },
+            {
+                "event": "vulkan_transition",
+                "phase": "model_setup",
+                "reason": "fallback_materialization",
+                "kind": "fallback",
+                "outcome": "classified",
+                "bytes": 4096,
+                "host_transfer": True,
+                "physical_copy": True,
+                "sync_required": True,
+                "queue_submit_required": True,
+                "producer_schema": "vulkan_prepack::conv2d_context",
+                "consumer_schema": "vulkan_weight_cpu_materialization",
+                "producer_contract": "unknown",
+                "consumer_contract": "unknown",
+                "source_dtype": "Float",
+                "source_sizes": "[8,4,3,3]",
+                "source_strides": "[36,9,3,1]",
+                "destination_layout": "legacy_shader_packed_conv_weight",
+                "destination_storage": "TEXTURE_2D",
+                "detail": (
+                    "packer_path=pack_weights;actual_values_required=1;"
+                    "explicit_unpack_preserved=1;pickle_unpack_preserved=1"
+                ),
+            },
         ]
         with transition_log.open("w", encoding="utf-8") as f:
             for event in events:
@@ -1745,11 +1831,13 @@ def validate_transition_contract_classification() -> None:
             transition_log,
             missing_artifacts,
             reason_bucket_contracts,
+            specific_transition_contracts,
         )
     if missing_artifacts:
         raise AssertionError(f"unexpected missing artifacts: {missing_artifacts}")
     expected_counts = {
         "FallbackMaterializationContract": 1,
+        "ConvWeightLayoutRepackTransitionContract": 1,
         "FinalReadbackContract": 1,
         "HostUploadTransitionContract": 1,
         "IntermediateReadbackTransitionContract": 1,
@@ -2087,12 +2175,15 @@ def main() -> None:
     config_path = repo_path(args.config)
     config = load_json(config_path)
     reason_bucket_contracts = load_transition_reason_bucket_contracts()
+    specific_transition_contracts = load_specific_transition_contracts()
     selected = set(args.rows or [])
     rows = []
     for row_cfg in config.get("rows", []):
         if selected and row_cfg["row_id"] not in selected:
             continue
-        rows.append(build_row(row_cfg, reason_bucket_contracts))
+        rows.append(
+            build_row(row_cfg, reason_bucket_contracts, specific_transition_contracts)
+        )
     if not rows:
         raise ValueError("no rows selected")
 

@@ -162,6 +162,14 @@ classification-only and do not change uploads, metadata-view creation, copies,
 submit policy, fallback, readback, materialization, layout repack, or route
 legality. The current DAv2 transition-reason census has no observed
 transition reason bucket left without a source-of-truth spec.
+`ConvWeightLayoutRepackTransitionContract` is the first specific
+producer/consumer refinement inside `fallback_materialization`: it classifies
+`vulkan_prepack::conv2d_context -> vulkan_weight_cpu_materialization` as a
+value-bearing legacy conv2d weight repack readback. The log now records source
+tensor metadata and a shader-packed destination target when transition logging
+is enabled, but the CPU materialization, readback counters, explicit
+`Conv2dPackedContext::unpack()`, pickle semantics, and route behavior are
+unchanged.
 
 `PointwiseConvInputLayoutTransitionContract` is a schema-only proof contract
 for pointwise-conv input descriptor-view legality. It records that
