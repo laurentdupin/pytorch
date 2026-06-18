@@ -156,7 +156,7 @@ class VulkanVisionStackShapePlan final {
 
 class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
  private:
-  c10::impl::GenericList unpacked_{c10::AnyType::get()};
+  c10::impl::GenericList unpack_sources_{c10::AnyType::get()};
   uint64_t cache_id_{0u};
   std::string allocation_label_;
   c10::intrusive_ptr<LayernormPackedContext> norm1_context_;
@@ -164,6 +164,7 @@ class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
   Tensor qkv_bias_;
   Tensor attention_bias_;
   int64_t num_heads_{0};
+  int64_t fc1_hidden_dim_{0};
   c10::intrusive_ptr<LinearPackedContext> proj_context_;
   Tensor ls1_gamma_;
   c10::intrusive_ptr<LayernormPackedContext> norm2_context_;
@@ -219,9 +220,7 @@ class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
 
   static VisionBackboneBlockContext pack(c10::impl::GenericList unpacked);
 
-  const c10::impl::GenericList unpack() const {
-    return unpacked_;
-  }
+  const c10::impl::GenericList unpack() const;
 
   const std::string& allocation_label() const {
     return allocation_label_;
@@ -249,6 +248,10 @@ class VisionBackboneBlockContext final : public torch::jit::CustomClassHolder {
 
   int64_t num_heads() const {
     return num_heads_;
+  }
+
+  int64_t fc1_hidden_dim() const {
+    return fc1_hidden_dim_;
   }
 
   const c10::intrusive_ptr<LinearPackedContext>& proj_context() const {

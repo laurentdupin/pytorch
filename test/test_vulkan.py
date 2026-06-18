@@ -17734,6 +17734,69 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self._assert_outputs_close(expected, actual, atol=5e-3, rtol=5e-3)
 
+    def test_vulkan_vision_backbone_context_lazy_unpack_readback(self):
+        torch.manual_seed(0)
+        embed_dim = 32
+        num_heads = 4
+        hidden_dim = 64
+        token_count = 17
+        norm_eps = 1.0e-6
+
+        def randn(*sizes):
+            return torch.randn(*sizes, dtype=torch.float32)
+
+        def to_vulkan(tensor):
+            return tensor.to("vulkan")
+
+        args = (
+            to_vulkan(randn(embed_dim)),
+            to_vulkan(randn(embed_dim)),
+            norm_eps,
+            to_vulkan(randn(embed_dim * 3, embed_dim)),
+            to_vulkan(randn(embed_dim * 3)),
+            num_heads,
+            to_vulkan(randn(embed_dim, embed_dim)),
+            to_vulkan(randn(embed_dim)),
+            to_vulkan(randn(embed_dim)),
+            to_vulkan(randn(embed_dim)),
+            to_vulkan(randn(embed_dim)),
+            norm_eps,
+            to_vulkan(randn(hidden_dim, embed_dim)),
+            to_vulkan(randn(hidden_dim)),
+            to_vulkan(randn(embed_dim, hidden_dim)),
+            to_vulkan(randn(embed_dim)),
+            to_vulkan(randn(embed_dim)),
+            "depth.dino.backbone.block.lazy_unpack",
+        )
+
+        torch.ops.vulkan_prepack.reset_vision_owner_context_counters()
+        context = torch.ops.vulkan_prepack.create_vision_backbone_block_context(
+            *args
+        )
+        counters = torch.ops.vulkan_prepack.vision_owner_context_counters()
+        self.assertEqual(counters[0], 1)
+        self.assertEqual(counters[2], 0)
+
+        with torch.inference_mode():
+            x = to_vulkan(randn(1, token_count, embed_dim))
+            y = torch.ops.vulkan_prepack.run_vision_backbone_block_context(
+                x,
+                context,
+            )
+            torch.ops.vulkan_prepack.synchronize()
+            self.assertEqual(tuple(y.shape), (1, token_count, embed_dim))
+
+        counters = torch.ops.vulkan_prepack.vision_owner_context_counters()
+        self.assertEqual(counters[2], 0)
+
+        state = context.__getstate__()[0]
+        counters = torch.ops.vulkan_prepack.vision_owner_context_counters()
+        self.assertEqual(counters[2], 14)
+        tensor_indices = (0, 1, 3, 4, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17)
+        for idx in tensor_indices:
+            self.assertEqual(state[idx].device.type, "cpu")
+        self.assertEqual(state[13].shape[0], hidden_dim)
+
     def test_vulkan_vision_backbone_stack_context_matches_sequential_owner(self):
         torch.manual_seed(0)
         embed_dim = 32

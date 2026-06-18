@@ -1977,6 +1977,19 @@ Tensor cpu_snapshot_for_unpack(const Tensor& tensor, const char* reason) {
   return tensor.cpu();
 }
 
+void append_optional_cpu_snapshot_for_unpack(
+    c10::impl::GenericList& unpacked,
+    const c10::impl::GenericList& unpack_sources,
+    const uint32_t index,
+    const char* reason) {
+  const auto tensor = get_optional_tensor(unpack_sources, index);
+  if (tensor.has_value()) {
+    unpacked.emplace_back(cpu_snapshot_for_unpack(*tensor, reason));
+  } else {
+    unpacked.emplace_back(std::optional<Tensor>{});
+  }
+}
+
 c10::intrusive_ptr<LayernormPackedContext> make_layernorm_context(
     const Tensor& weight,
     const Tensor& bias,
@@ -2138,10 +2151,7 @@ Tensor maybe_apply_layerscale(const Tensor& input, const Tensor& gamma) {
 
 int64_t vision_block_hidden_dim(
     const c10::intrusive_ptr<VisionBackboneBlockContext>& context) {
-  return context->unpack()
-      .get(VisionBackboneBlockContext::Unpacked::Fc1Weight)
-      .toTensor()
-      .size(0);
+  return context->fc1_hidden_dim();
 }
 
 std::string vision_backbone_program_base_label(const std::string& label) {
@@ -7863,6 +7873,7 @@ VisionBackboneBlockContext::VisionBackboneBlockContext(
       qkv_bias_(move_optional_to_vulkan_buffer(qkv_bias)),
       attention_bias_(move_optional_to_vulkan_buffer(attention_bias)),
       num_heads_(num_heads),
+      fc1_hidden_dim_(fc1_weight.size(0)),
       proj_context_(make_linear_context(
           proj_weight,
           proj_bias,
@@ -7878,69 +7889,123 @@ VisionBackboneBlockContext::VisionBackboneBlockContext(
       fc2_context_(
           make_linear_context(fc2_weight, fc2_bias, child_label(allocation_label_, "fc2"))),
       ls2_gamma_(move_optional_to_vulkan_buffer(ls2_gamma)) {
-  unpacked_.reserve(Unpacked::NumArgs);
-  unpacked_.emplace_back(
-      cpu_snapshot_for_unpack(norm1_weight, "unpack_norm1_weight_readback"));
-  unpacked_.emplace_back(
-      cpu_snapshot_for_unpack(norm1_bias, "unpack_norm1_bias_readback"));
-  unpacked_.emplace_back(norm1_eps);
-  unpacked_.emplace_back(
-      cpu_snapshot_for_unpack(qkv_weight, "unpack_qkv_weight_readback"));
+  unpack_sources_.reserve(Unpacked::NumArgs);
+  unpack_sources_.emplace_back(norm1_weight);
+  unpack_sources_.emplace_back(norm1_bias);
+  unpack_sources_.emplace_back(norm1_eps);
+  unpack_sources_.emplace_back(qkv_weight);
   if (qkv_bias.has_value()) {
-    unpacked_.emplace_back(
-        cpu_snapshot_for_unpack(*qkv_bias, "unpack_qkv_bias_readback"));
+    unpack_sources_.emplace_back(*qkv_bias);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
   if (attention_bias.has_value()) {
-    unpacked_.emplace_back(cpu_snapshot_for_unpack(
-        *attention_bias, "unpack_attention_bias_readback"));
+    unpack_sources_.emplace_back(*attention_bias);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(num_heads_);
-  unpacked_.emplace_back(
-      cpu_snapshot_for_unpack(proj_weight, "unpack_proj_weight_readback"));
+  unpack_sources_.emplace_back(num_heads_);
+  unpack_sources_.emplace_back(proj_weight);
   if (proj_bias.has_value()) {
-    unpacked_.emplace_back(
-        cpu_snapshot_for_unpack(*proj_bias, "unpack_proj_bias_readback"));
+    unpack_sources_.emplace_back(*proj_bias);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
   if (ls1_gamma.has_value()) {
-    unpacked_.emplace_back(
-        cpu_snapshot_for_unpack(*ls1_gamma, "unpack_ls1_gamma_readback"));
+    unpack_sources_.emplace_back(*ls1_gamma);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(
-      cpu_snapshot_for_unpack(norm2_weight, "unpack_norm2_weight_readback"));
-  unpacked_.emplace_back(
-      cpu_snapshot_for_unpack(norm2_bias, "unpack_norm2_bias_readback"));
-  unpacked_.emplace_back(norm2_eps);
-  unpacked_.emplace_back(
-      cpu_snapshot_for_unpack(fc1_weight, "unpack_fc1_weight_readback"));
+  unpack_sources_.emplace_back(norm2_weight);
+  unpack_sources_.emplace_back(norm2_bias);
+  unpack_sources_.emplace_back(norm2_eps);
+  unpack_sources_.emplace_back(fc1_weight);
   if (fc1_bias.has_value()) {
-    unpacked_.emplace_back(
-        cpu_snapshot_for_unpack(*fc1_bias, "unpack_fc1_bias_readback"));
+    unpack_sources_.emplace_back(*fc1_bias);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(
-      cpu_snapshot_for_unpack(fc2_weight, "unpack_fc2_weight_readback"));
+  unpack_sources_.emplace_back(fc2_weight);
   if (fc2_bias.has_value()) {
-    unpacked_.emplace_back(
-        cpu_snapshot_for_unpack(*fc2_bias, "unpack_fc2_bias_readback"));
+    unpack_sources_.emplace_back(*fc2_bias);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
   if (ls2_gamma.has_value()) {
-    unpacked_.emplace_back(
-        cpu_snapshot_for_unpack(*ls2_gamma, "unpack_ls2_gamma_readback"));
+    unpack_sources_.emplace_back(*ls2_gamma);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(allocation_label_);
+  unpack_sources_.emplace_back(allocation_label_);
+}
+
+const c10::impl::GenericList VisionBackboneBlockContext::unpack() const {
+  c10::impl::GenericList unpacked{c10::AnyType::get()};
+  unpacked.reserve(Unpacked::NumArgs);
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::Norm1Weight).toTensor(),
+      "unpack_norm1_weight_readback"));
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::Norm1Bias).toTensor(),
+      "unpack_norm1_bias_readback"));
+  unpacked.emplace_back(unpack_sources_.get(Unpacked::Norm1Eps).toDouble());
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::QkvWeight).toTensor(),
+      "unpack_qkv_weight_readback"));
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::QkvBias,
+      "unpack_qkv_bias_readback");
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::AttentionBias,
+      "unpack_attention_bias_readback");
+  unpacked.emplace_back(unpack_sources_.get(Unpacked::NumHeads).toInt());
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::ProjWeight).toTensor(),
+      "unpack_proj_weight_readback"));
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::ProjBias,
+      "unpack_proj_bias_readback");
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::Ls1Gamma,
+      "unpack_ls1_gamma_readback");
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::Norm2Weight).toTensor(),
+      "unpack_norm2_weight_readback"));
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::Norm2Bias).toTensor(),
+      "unpack_norm2_bias_readback"));
+  unpacked.emplace_back(unpack_sources_.get(Unpacked::Norm2Eps).toDouble());
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::Fc1Weight).toTensor(),
+      "unpack_fc1_weight_readback"));
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::Fc1Bias,
+      "unpack_fc1_bias_readback");
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::Fc2Weight).toTensor(),
+      "unpack_fc2_weight_readback"));
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::Fc2Bias,
+      "unpack_fc2_bias_readback");
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::Ls2Gamma,
+      "unpack_ls2_gamma_readback");
+  unpacked.emplace_back(allocation_label_);
+  return unpacked;
 }
 
 VisionBackboneBlockContext VisionBackboneBlockContext::pack(
