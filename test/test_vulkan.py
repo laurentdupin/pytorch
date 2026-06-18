@@ -13627,6 +13627,93 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_large_pointwise_conv2d_token_slice_layout_preserves_generic(self):
+        torch.manual_seed(2732)
+        cases = (
+            (384, 192, 20, 31),
+            (1024, 256, 50, 77),
+        )
+        as_linear_hit = "aten::convolution.buffer_float_1x1_as_linear"
+        contract_hit = (
+            "aten::convolution.buffer_float_1x1_skip."
+            "small_spatial_pointwise.depth_vision_projection"
+        )
+        log_name = "large_pointwise_token_slice_layout_op_hit_test.log"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+        try:
+            for input_channels, out_channels, height, width in cases:
+                with self.subTest(
+                        input_channels=input_channels,
+                        out_channels=out_channels,
+                        height=height,
+                        width=width):
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    token_count = height * width
+                    tokens_cpu = (
+                        torch.randn(1, token_count + 1, input_channels) * 0.05
+                    )
+                    x_cpu = tokens_cpu[:, 1:, :].transpose(1, 2).reshape(
+                        1,
+                        input_channels,
+                        height,
+                        width)
+                    tokens_vulkan = tokens_cpu.to("vulkan")
+                    x_vulkan = tokens_vulkan[:, 1:, :].transpose(1, 2).reshape(
+                        1,
+                        input_channels,
+                        height,
+                        width)
+                    module_cpu = torch.nn.Conv2d(
+                        input_channels,
+                        out_channels,
+                        kernel_size=1,
+                        bias=True).eval()
+                    module_vulkan = torch.nn.Conv2d(
+                        input_channels,
+                        out_channels,
+                        kernel_size=1,
+                        bias=True).eval()
+                    module_vulkan.load_state_dict(module_cpu.state_dict())
+                    module_vulkan = module_vulkan.to("vulkan")
+
+                    with torch.inference_mode():
+                        expected = module_cpu(x_cpu)
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = module_vulkan(x_vulkan).cpu()
+
+                    self._assert_outputs_close(
+                        expected,
+                        actual,
+                        atol=1e-4,
+                        rtol=1e-4)
+                    self.assertEqual(
+                        torch.ops.vulkan_prepack.cpu_fallback_count(),
+                        0)
+                    with open(log_path, "r", encoding="utf-8") as log_file:
+                        op_hits = log_file.read()
+                    self.assertIn(contract_hit, op_hits)
+                    self.assertNotIn(as_linear_hit, op_hits)
+                    self.assertIn(
+                        "pointwise_route selected=generic "
+                        "selected_plan=FloatBufferPointwise1x1",
+                        op_hits)
+                    self.assertIn("old_generic_retained=1", op_hits)
+                    self.assertIn(
+                        f"input=[1,{input_channels},{height},{width}]",
+                        op_hits)
+                    self.assertIn(f"input_offset={input_channels}", op_hits)
+                    self.assertIn("input_direct=0", op_hits)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_large_pointwise_conv2d_unaligned_width_hard_fails(self):
         log_name = "large_pointwise_conv2d_unaligned_width_hard_fail.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

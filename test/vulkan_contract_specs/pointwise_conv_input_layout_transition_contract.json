@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "source_status": "schema_only",
+  "contract_name": "PointwiseConvInputLayoutTransitionContract",
+  "family": "PointwiseConvDescriptorView",
+  "tuple_id": "pointwise_conv_input_layout_descriptor_view_v0",
+  "writer_op": "aten::convolution",
+  "route_label": "transition::pointwise_conv_input_layout",
+  "metadata": {
+    "evidence_id": "pointwise_as_linear_dav2_integrated_diagnostic",
+    "guard_id": "pointwise_conv_input_layout_descriptor_view_v0",
+    "fallback_policy": "classification_only_no_backend_admission",
+    "materialization_policy": "descriptor_view_or_generic_preservation_only"
+  },
+  "transition_contract": {
+    "contract_type": "LayoutTransitionContract",
+    "producer_schema": "logical_nchw_1x1_conv_input",
+    "consumer_schema": "aten::convolution.pointwise_1x1_as_linear_input",
+    "alternate_consumer_schema": "aten::convolution.buffer_float",
+    "reason": "descriptor_view_only",
+    "kind": "descriptor_view",
+    "outcome": "classified",
+    "physical_copy": false,
+    "host_transfer": false,
+    "sync_required": false,
+    "queue_submit_required": false,
+    "collector_reason_bucket": false,
+    "copy_budget": {
+      "cpu_fallback": 0,
+      "sync_readback": 0,
+      "host_transfer": 0
+    }
+  },
+  "bounds": {
+    "input_dtype": "float32",
+    "input_rank": 4,
+    "kernel": [
+      1,
+      1
+    ],
+    "stride": [
+      1,
+      1
+    ],
+    "padding": [
+      0,
+      0
+    ],
+    "dilation": [
+      1,
+      1
+    ],
+    "groups": 1,
+    "contract_gate": "SmallSpatialPointwiseConvContract",
+    "families": [
+      "DepthVisionProjection",
+      "OCRProjection"
+    ],
+    "layout_classes": [
+      "storage_offset_zero_spatial_contiguous_width_packed",
+      "nonzero_storage_offset_channel_contiguous_token_slice"
+    ],
+    "behavior_policy": "classification_only_no_route_change"
+  },
+  "positive_cases": [
+    {
+      "name": "offset_zero_spatial_contiguous_descriptor_view_as_linear",
+      "input_shape": [
+        1,
+        384,
+        20,
+        31
+      ],
+      "weight_shape": [
+        192,
+        384,
+        1,
+        1
+      ],
+      "storage_offset": 0,
+      "physical_layout_class": "storage_offset_zero_spatial_contiguous_width_packed",
+      "expected_classification": "descriptor_view_only",
+      "expected_selected_plan": "FloatBufferPointwise1x1AsLinear",
+      "expected_physical_copy": false,
+      "expected_backend_behavior_change": false
+    },
+    {
+      "name": "token_slice_384_20x31_generic_preserved_due_unproven_layout",
+      "input_shape": [
+        1,
+        384,
+        20,
+        31
+      ],
+      "weight_shape": [
+        192,
+        384,
+        1,
+        1
+      ],
+      "storage_offset": 384,
+      "physical_strides": [
+        384,
+        1,
+        11904,
+        384
+      ],
+      "physical_layout_class": "nonzero_storage_offset_channel_contiguous_token_slice",
+      "expected_classification": "generic_conv_preserved_due_unproven_layout",
+      "expected_selected_plan": "FloatBufferPointwise1x1",
+      "expected_as_linear": false,
+      "expected_physical_copy": false,
+      "expected_backend_behavior_change": false
+    },
+    {
+      "name": "token_slice_1024_50x77_generic_preserved_due_unproven_layout",
+      "input_shape": [
+        1,
+        1024,
+        50,
+        77
+      ],
+      "weight_shape": [
+        256,
+        1024,
+        1,
+        1
+      ],
+      "storage_offset": 1024,
+      "physical_strides": [
+        1024,
+        1,
+        78848,
+        1024
+      ],
+      "physical_layout_class": "nonzero_storage_offset_channel_contiguous_token_slice",
+      "expected_classification": "generic_conv_preserved_due_unproven_layout",
+      "expected_selected_plan": "FloatBufferPointwise1x1",
+      "expected_as_linear": false,
+      "expected_physical_copy": false,
+      "expected_backend_behavior_change": false
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "token_slice_as_linear_without_descriptor_proof",
+      "input_shape": [
+        1,
+        384,
+        20,
+        31
+      ],
+      "weight_shape": [
+        192,
+        384,
+        1,
+        1
+      ],
+      "storage_offset": 384,
+      "physical_layout_class": "nonzero_storage_offset_channel_contiguous_token_slice",
+      "attempted_selected_plan": "FloatBufferPointwise1x1AsLinear",
+      "violates": "descriptor_view_parity_proof",
+      "expected_native_route": false
+    },
+    {
+      "name": "adjacent_non_contract_384_20x30",
+      "input_shape": [
+        1,
+        384,
+        20,
+        30
+      ],
+      "weight_shape": [
+        192,
+        384,
+        1,
+        1
+      ],
+      "violates": "SmallSpatialPointwiseConvContract.shape_envelope",
+      "expected_contract_match": false,
+      "expected_reject_reason": "KnownBadLargePointwiseConv",
+      "expected_native_route": false
+    },
+    {
+      "name": "adjacent_non_contract_1024_50x75",
+      "input_shape": [
+        1,
+        1024,
+        50,
+        75
+      ],
+      "weight_shape": [
+        256,
+        1024,
+        1,
+        1
+      ],
+      "violates": "SmallSpatialPointwiseConvContract.shape_envelope",
+      "expected_contract_match": false,
+      "expected_reject_reason": "KnownBadLargePointwiseConv",
+      "expected_native_route": false
+    }
+  ]
+}

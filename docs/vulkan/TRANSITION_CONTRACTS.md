@@ -142,6 +142,15 @@ collector a source-of-truth bucket for reporting them.
 device-side repacks. These events remain physical device copies with no host
 transfer or sync readback; the spec does not remove or redirect the repack.
 
+`PointwiseConvInputLayoutTransitionContract` is a schema-only proof bucket for
+1x1 convolution input descriptor-view evidence behind
+`SmallSpatialPointwiseConvContract`. It distinguishes storage-offset-zero
+width-packed rows that may use the existing as-linear descriptor-view path from
+nonzero-storage-offset token-slice metadata views that currently stay on the
+generic pointwise path because descriptor-view parity is not proven. The spec
+does not broaden pointwise-conv admission, select as-linear for token slices,
+or add hidden materialization.
+
 ## Rollout
 
 The first wired sites classify existing copy and materialization observations:

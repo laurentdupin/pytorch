@@ -607,11 +607,79 @@ def summarize_probe_sidecars(
                 "top_level_keys": sorted(data.keys()) if isinstance(data, dict) else [],
             }
         else:
-            with path.open("r", encoding="utf-8", errors="replace") as f:
-                line_count = sum(1 for line in f if line.strip())
-            sidecars[name] = {"path": rel_path(path), "lines": line_count}
+            sidecars[name] = summarize_op_hit_log(path)
     sidecars["present_count"] = sum(1 for key in sidecars if key != "present_count")
     return sidecars
+
+
+def summarize_op_hit_log(path: Path) -> dict[str, Any]:
+    line_count = 0
+    pointwise_classes: Counter[str] = Counter()
+    pointwise_rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            line_count += 1
+            fields = key_value_fields(stripped)
+            if fields.get("op") not in {"pointwise_route", None}:
+                continue
+            if fields.get("op") is None and not stripped.startswith("pointwise_route"):
+                continue
+            contract = fields.get("contract")
+            family = fields.get("contract_family")
+            if contract != "SmallSpatialPointwiseConvContract" or family not in {
+                "DepthVisionProjection",
+                "OCRProjection",
+            }:
+                continue
+            selected = fields.get("selected") or PLAN_NOT_AVAILABLE
+            input_offset = int_field(fields, "input_offset")
+            old_generic_retained = fields.get("old_generic_retained") == "1"
+            if selected == "as_linear":
+                classification = "descriptor_view_only"
+            elif (
+                selected == "generic"
+                and old_generic_retained
+                and int_value(input_offset) > 0
+            ):
+                classification = "generic_conv_preserved_due_unproven_layout"
+            elif selected == "generic" and old_generic_retained:
+                classification = "generic_conv_preserved_due_unproven_layout"
+            else:
+                classification = "pointwise_input_layout_not_classified"
+            pointwise_classes[classification] += 1
+            if len(pointwise_rows) < 20:
+                pointwise_rows.append(
+                    {
+                        "classification": classification,
+                        "contract": contract,
+                        "contract_family": family,
+                        "contract_tuple": fields.get("contract_tuple")
+                        or PLAN_NOT_AVAILABLE,
+                        "selected": selected,
+                        "selected_plan": fields.get("selected_plan")
+                        or PLAN_NOT_AVAILABLE,
+                        "fallback_plan": fields.get("fallback_plan")
+                        or PLAN_NOT_AVAILABLE,
+                        "reject": fields.get("reject") or PLAN_NOT_AVAILABLE,
+                        "input": parse_int_list(fields.get("input")),
+                        "weight": parse_int_list(fields.get("weight")),
+                        "input_offset": input_offset,
+                        "input_direct": bool_field(fields, "input_direct"),
+                        "output_direct": bool_field(fields, "output_direct"),
+                    }
+                )
+    summary: dict[str, Any] = {"path": rel_path(path), "lines": line_count}
+    if pointwise_classes:
+        summary["pointwise_input_layout_transition_evidence"] = {
+            "contract_name": "PointwiseConvInputLayoutTransitionContract",
+            "schema_version": 0,
+            "classes": dict(sorted(pointwise_classes.items())),
+            "sample_rows": pointwise_rows,
+        }
+    return summary
 
 
 def summarize_model_suite_evidence(
@@ -1818,7 +1886,36 @@ def validate_model_suite_ingestion() -> None:
             encoding="utf-8",
         )
         write_json(tmp_path / "row.probe_summary.json", {"status": "ok"})
-        (tmp_path / "row.op_hits.log").write_text("aten::example\n", encoding="utf-8")
+        (tmp_path / "row.op_hits.log").write_text(
+            "\n".join(
+                [
+                    "aten::example",
+                    (
+                        "pointwise_route selected=as_linear "
+                        "selected_plan=FloatBufferPointwise1x1AsLinear "
+                        "fallback_plan=FloatBufferConv reject=KnownBadLargePointwiseConv "
+                        "contract=SmallSpatialPointwiseConvContract "
+                        "contract_family=OCRProjection contract_tuple=ocr_projection "
+                        "old_generic_retained=0 input=[1,512,14,14] "
+                        "output=[1,192,14,14] weight=[192,512,1,1] "
+                        "input_direct=1 output_direct=1 input_offset=0"
+                    ),
+                    (
+                        "pointwise_route selected=generic "
+                        "selected_plan=FloatBufferPointwise1x1 "
+                        "fallback_plan=FloatBufferConv reject=KnownBadLargePointwiseConv "
+                        "contract=SmallSpatialPointwiseConvContract "
+                        "contract_family=DepthVisionProjection "
+                        "contract_tuple=depth_vision_factorized_projection_108 "
+                        "old_generic_retained=1 input=[1,384,20,31] "
+                        "output=[1,192,20,31] weight=[192,384,1,1] "
+                        "input_direct=0 output_direct=1 input_offset=384"
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         row = build_row({"row_id": "self_test", "result_json": str(result_path)}, {})
 
     timed = row["phase_counters"]["timed_forward"]
@@ -1834,6 +1931,20 @@ def validate_model_suite_ingestion() -> None:
         raise AssertionError("clone requirement snapshot was not consumed")
     if evidence["sidecars"]["present_count"] != 4:
         raise AssertionError("probe/admission/op-hit sidecars were not discovered")
+    pointwise_layout_evidence = evidence["sidecars"]["op_hit_log"].get(
+        "pointwise_input_layout_transition_evidence"
+    )
+    if not pointwise_layout_evidence:
+        raise AssertionError("pointwise input layout evidence was not parsed")
+    expected_layout_classes = {
+        "descriptor_view_only": 1,
+        "generic_conv_preserved_due_unproven_layout": 1,
+    }
+    if pointwise_layout_evidence["classes"] != expected_layout_classes:
+        raise AssertionError(
+            "pointwise input layout classes were not normalized: "
+            f"{pointwise_layout_evidence['classes']}"
+        )
     if not row["region_lifetime"].get("embedded_region_lifetime_available"):
         raise AssertionError("embedded region/lifetime evidence was not consumed")
     if any(

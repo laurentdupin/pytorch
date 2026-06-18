@@ -163,6 +163,15 @@ submit policy, fallback, readback, materialization, layout repack, or route
 legality. The current DAv2 transition-reason census has no observed
 transition reason bucket left without a source-of-truth spec.
 
+`PointwiseConvInputLayoutTransitionContract` is a schema-only proof contract
+for pointwise-conv input descriptor-view legality. It records that
+storage-offset-zero width-packed rows can use the existing
+`FloatBufferPointwise1x1AsLinear` descriptor-view path, while nonzero
+storage-offset token-slice metadata views remain on the generic pointwise path
+until descriptor-view parity or an explicit layout transition is proven. This
+does not broaden `SmallSpatialPointwiseConvContract`, select as-linear for
+token-slice rows, or add materialization.
+
 The five-model validation collector now also emits
 `execution_plan_evidence` v0 for existing conv, pointwise-conv, and linear
 model-suite counter snapshots. This normalizes observed plan-key-like fields
