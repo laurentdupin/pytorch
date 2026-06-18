@@ -279,9 +279,9 @@
       {
         "name": "depth_vision_factorized_projection",
         "family": "DepthVisionProjection",
-        "tuple_id": "depth_vision_factorized_projection_108",
+        "tuple_id": "depth_vision_factorized_projection_144",
         "metadata": {
-          "evidence_id": "task272_cross_adapter_factorized_108_proof",
+          "evidence_id": "task_dav2_adjacent_pointwise_factorized_36_cross_gpu_isolated_proof",
           "guard_id": "small_spatial_pointwise_factorized_adjacent_guards",
           "fallback_policy": "unsupported_shapes_do_not_match",
           "materialization_policy": "native_buffer_kernel"
@@ -389,6 +389,10 @@
           },
           {
             "input_h": 20,
+            "input_w": 30
+          },
+          {
+            "input_h": 20,
             "input_w": 31
           },
           {
@@ -401,14 +405,18 @@
           },
           {
             "input_h": 50,
+            "input_w": 75
+          },
+          {
+            "input_h": 50,
             "input_w": 77
           }
         ],
-        "cardinality": 108,
-        "validated_corpus_count": 48,
+        "cardinality": 144,
+        "validated_corpus_count": 84,
         "extrapolated_shape_count": 60,
-        "expansion_ratio": 2.25,
-        "expansion_policy": "Factorize only observed Cin values, observed Cout values, and observed spatial pairs. Do not admit independent H/W values or min/max ranges. The 108-shape candidate is 2.25x the 48-shape validated corpus, below the 3x expansion cap."
+        "expansion_ratio": 1.7143,
+        "expansion_policy": "Factorize only observed Cin/Cout channel pairs and observed spatial pairs. Do not admit independent H/W values or min/max ranges. The 144-shape candidate is 1.7143x the 84-shape validated corpus after the isolated cross-GPU proof, below the 3x expansion cap."
       }
     ],
     "sparse_rowsets": [
@@ -2529,6 +2537,230 @@
       "out_channels": 192,
       "execution_storage": "texture",
       "violates": "execution_storage"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv",
+      "name": "factorized_spatial_pair_20x29_outside_approved_group",
+      "input_shape": [
+        1,
+        384,
+        20,
+        29
+      ],
+      "out_channels": 192,
+      "violates": "factorized_projection.spatial_pair"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv",
+      "name": "factorized_spatial_pair_20x32_outside_approved_group",
+      "input_shape": [
+        1,
+        384,
+        20,
+        32
+      ],
+      "out_channels": 192,
+      "violates": "factorized_projection.spatial_pair"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv",
+      "name": "factorized_spatial_pair_50x74_outside_approved_group",
+      "input_shape": [
+        1,
+        1024,
+        50,
+        74
+      ],
+      "out_channels": 256,
+      "violates": "factorized_projection.spatial_pair"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv",
+      "name": "factorized_spatial_pair_50x76_outside_approved_group",
+      "input_shape": [
+        1,
+        1024,
+        50,
+        76
+      ],
+      "out_channels": 256,
+      "violates": "factorized_projection.spatial_pair"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv",
+      "name": "factorized_channel_pair_384x640_outside_approved_group",
+      "input_shape": [
+        1,
+        384,
+        20,
+        30
+      ],
+      "out_channels": 640,
+      "violates": "factorized_projection.channel_pair"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv",
+      "name": "factorized_channel_pair_768x640_outside_approved_group",
+      "input_shape": [
+        1,
+        768,
+        20,
+        30
+      ],
+      "out_channels": 640,
+      "violates": "factorized_projection.channel_pair"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv",
+      "name": "factorized_channel_pair_1024x640_outside_approved_group",
+      "input_shape": [
+        1,
+        1024,
+        20,
+        30
+      ],
+      "out_channels": 640,
+      "violates": "factorized_projection.channel_pair"
     }
   ]
 }

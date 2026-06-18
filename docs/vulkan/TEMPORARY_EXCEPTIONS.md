@@ -401,10 +401,10 @@ condition and migration target.
   `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`. The generated
   helper owns the 39 correlated projection rows, per-row metadata,
   input/weight channel equality, and exact `(input_c, input_h, input_w,
-  output_c)` lookup. It also owns the cross-adapter proven 108-shape
+  output_c)` lookup. It also owns the cross-adapter proven 144-shape
   factorized depth-vision projection group: 18 approved channel pairs crossed
-  with six approved spatial pairs, including 48 original corpus shapes and 60
-  proven extrapolations. Naive min/max envelopes, independent H/W
+  with eight approved spatial pairs, including 84 validated corpus/proof
+  shapes and 60 proven extrapolations. Naive min/max envelopes, independent H/W
   cross-products, and wider 648/1296 channel/spatial cross-products remain
   rejected by `KnownBadLargePointwiseConv`. Route-policy hard-fail rescue,
   shader-family decisions, family op-hit labels, and match-result assembly

@@ -286,10 +286,10 @@ These files are diagnostic inputs. Production code must not depend on
   a family-specific source. The `SparseProjectionRows` slice has a JSON
   contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 39
   current projection rows plus a generated factorized depth-vision projection
-  group for the cross-adapter proven 108-shape set. That group is the product
-  of 18 approved `(input_c, output_c)` channel pairs and six approved
-  `(input_h, input_w)` spatial pairs, with 48 original corpus shapes and 60
-  proven factorized extrapolations; the expansion ratio is 2.25x and stays
+  group for the cross-adapter proven 144-shape set. That group is the product
+  of 18 approved `(input_c, output_c)` channel pairs and eight approved
+  `(input_h, input_w)` spatial pairs, with 84 validated corpus/proof shapes
+  and 60 proven factorized extrapolations; the expansion ratio is 1.7143x and stays
   below the 3x promotion cap. The generated helper provides contract identity,
   per-row metadata, input/weight channel equality, exact sparse-row lookup, and
   factorized correlation-group matching while route-policy hard-fail rescue,
@@ -690,7 +690,7 @@ These files are diagnostic inputs. Production code must not depend on
   `small_spatial_pointwise_conv_contract.json` for contract identity,
   per-row metadata, input/weight channel equality, the 39 correlated
   projection rows, exact lookup by input/output channel and spatial shape, and
-  the generated 108-shape factorized depth-vision projection helper. That
+  the generated 144-shape factorized depth-vision projection helper. That
   helper is constrained to approved channel-pair and spatial-pair correlation
   groups; broader min/max and independent cross-products remain guarded.
   Route-policy hard-fail rescue, shader-family decisions, family op-hit

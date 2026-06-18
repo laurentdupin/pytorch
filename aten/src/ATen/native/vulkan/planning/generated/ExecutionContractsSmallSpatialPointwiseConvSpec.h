@@ -423,15 +423,15 @@ constexpr bool small_spatial_pointwise_conv_sparse_projection_rows_input_weight_
 }
 
 constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionFamilyName = "DepthVisionProjection";
-constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionTupleId = "depth_vision_factorized_projection_108";
-constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionEvidenceId = "task272_cross_adapter_factorized_108_proof";
+constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionTupleId = "depth_vision_factorized_projection_144";
+constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionEvidenceId = "task_dav2_adjacent_pointwise_factorized_36_cross_gpu_isolated_proof";
 constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionGuardId = "small_spatial_pointwise_factorized_adjacent_guards";
 constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionFallbackPolicy = "unsupported_shapes_do_not_match";
 constexpr const char* kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionMaterializationPolicy = "native_buffer_kernel";
-constexpr std::int64_t kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionCardinality = 108;
-constexpr std::int64_t kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionValidatedCorpusCount = 48;
+constexpr std::int64_t kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionCardinality = 144;
+constexpr std::int64_t kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionValidatedCorpusCount = 84;
 constexpr std::int64_t kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionExtrapolatedShapeCount = 60;
-constexpr double kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionExpansionRatio = 2.25;
+constexpr double kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionExpansionRatio = 1.7143;
 
 struct SmallSpatialPointwiseConvDepthVisionFactorizedProjectionChannelPair final {
   std::int64_t input_c;
@@ -470,9 +470,11 @@ constexpr SmallSpatialPointwiseConvDepthVisionFactorizedProjectionChannelPair kS
 constexpr SmallSpatialPointwiseConvDepthVisionFactorizedProjectionSpatialPair kSmallSpatialPointwiseConvDepthVisionFactorizedProjectionSpatialPairs[] = {
     {10, 15},
     {13, 20},
+    {20, 30},
     {20, 31},
     {30, 46},
     {40, 61},
+    {50, 75},
     {50, 77}
 };
 

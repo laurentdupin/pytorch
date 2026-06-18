@@ -2734,7 +2734,7 @@ def _small_spatial_pointwise_conv_factorized_groups(envelope, context):
         )
         _require_equal(
             group["tuple_id"],
-            "depth_vision_factorized_projection_108",
+            "depth_vision_factorized_projection_144",
             f"{group_context} tuple id",
         )
         _validate_contract_metadata(group["metadata"], f"{group_context} metadata")
@@ -2745,8 +2745,8 @@ def _small_spatial_pointwise_conv_factorized_groups(envelope, context):
         _require_list(spatial_pairs, f"{group_context} spatial pairs")
         if len(channel_pairs) != 18:
             raise AssertionError(f"{group_context} expected 18 channel pairs")
-        if len(spatial_pairs) != 6:
-            raise AssertionError(f"{group_context} expected 6 spatial pairs")
+        if len(spatial_pairs) != 8:
+            raise AssertionError(f"{group_context} expected 8 spatial pairs")
 
         channel_keys = set()
         observed_pairs = 0
@@ -2785,12 +2785,12 @@ def _small_spatial_pointwise_conv_factorized_groups(envelope, context):
             len(channel_pairs) * len(spatial_pairs),
             f"{group_context} cardinality",
         )
-        _require_equal(group["cardinality"], 108, f"{group_context} cardinality")
+        _require_equal(group["cardinality"], 144, f"{group_context} cardinality")
         _require_equal(observed_pairs, 8, f"{group_context} observed pairs")
         _require_equal(extrapolated_pairs, 10, f"{group_context} extrapolated pairs")
         _require_equal(
             group["validated_corpus_count"],
-            48,
+            84,
             f"{group_context} validated corpus count",
         )
         _require_equal(
@@ -2800,7 +2800,7 @@ def _small_spatial_pointwise_conv_factorized_groups(envelope, context):
         )
         _require_equal(
             group["expansion_ratio"],
-            2.25,
+            1.7143,
             f"{group_context} expansion ratio",
         )
     return groups
@@ -3836,7 +3836,11 @@ def _validate_small_spatial_pointwise_conv_shape_envelope(
     factorized_keys = _small_spatial_pointwise_conv_factorized_keys(
         factorized_groups,
     )
-    _require_equal(len(factorized_keys), 108, f"{context} factorized keys")
+    _require_equal(
+        len(factorized_keys),
+        sum(group["cardinality"] for group in factorized_groups),
+        f"{context} factorized keys",
+    )
     overlap = row_keys & {
         ("DepthVisionProjection", input_c, input_h, input_w, output_c)
         for input_c, input_h, input_w, output_c in factorized_keys
@@ -3900,15 +3904,15 @@ def _validate_small_spatial_pointwise_conv_shape_envelope(
                     f"{case_context} unexpectedly matches factorized group"
                 )
 
+    factorized_group = spec["shape_envelope"]["factorized_groups"][0]
     generated_factorized_cases = [
         case
         for case in _generated_small_spatial_pointwise_conv_legal_cases(spec)
-        if case.get("expected_contract_tuple_id")
-        == "depth_vision_factorized_projection_108"
+        if case.get("expected_contract_tuple_id") == factorized_group["tuple_id"]
     ]
     _require_equal(
         len(generated_factorized_cases),
-        108,
+        factorized_group["cardinality"],
         f"{context} generated factorized positives",
     )
 

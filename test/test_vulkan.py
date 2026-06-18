@@ -736,7 +736,7 @@ class TestVulkanGovernance(TestCase):
             "validated 22 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=134", result.stdout)
+        self.assertIn("generated_cases=141", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:13",
             result.stdout,
@@ -764,7 +764,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("safe_view_reshape_contract.json:3", result.stdout)
         self.assertIn("sdpa_score_softmax_contract.json:3", result.stdout)
         self.assertIn("small_metadata_padded_conv2d_contract.json:7", result.stdout)
-        self.assertIn("small_spatial_pointwise_conv_contract.json:15", result.stdout)
+        self.assertIn("small_spatial_pointwise_conv_contract.json:22", result.stdout)
         self.assertIn("token_prefix_cat_add_contract.json:6", result.stdout)
         self.assertIn("transformer_gqa_sdpa_contract.json:8", result.stdout)
         self.assertIn("vision_self_attention_sdpa_contract.json:8", result.stdout)
@@ -792,7 +792,7 @@ class TestVulkanGovernance(TestCase):
             "validated 22 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=263", result.stdout)
+        self.assertIn("generated_cases=299", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:16",
             result.stdout,
@@ -820,7 +820,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("safe_view_reshape_contract.json:2", result.stdout)
         self.assertIn("sdpa_score_softmax_contract.json:4", result.stdout)
         self.assertIn("small_metadata_padded_conv2d_contract.json:1", result.stdout)
-        self.assertIn("small_spatial_pointwise_conv_contract.json:147", result.stdout)
+        self.assertIn("small_spatial_pointwise_conv_contract.json:183", result.stdout)
         self.assertIn("token_prefix_cat_add_contract.json:30", result.stdout)
         self.assertIn("transformer_gqa_sdpa_contract.json:4", result.stdout)
         self.assertIn("vision_self_attention_sdpa_contract.json:6", result.stdout)
@@ -966,8 +966,8 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("legal_assignments=44", result.stdout)
         self.assertIn("legal_paths=394", result.stdout)
         self.assertIn("adjacent_negative_axes=132", result.stdout)
-        self.assertIn("runtime_legal_cases=263", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=134", result.stdout)
+        self.assertIn("runtime_legal_cases=299", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=141", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "status=covered:paths=17/17:adjacent_axes=13",
@@ -1526,11 +1526,11 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
-        self.assertEqual(summary["specs"], 29)
+        self.assertEqual(summary["specs"], 30)
         self.assertEqual(summary["generated_shape_envelope"], 22)
         self.assertEqual(summary["json_spec_without_shape_envelope"], 0)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
-        self.assertEqual(summary["schema_only_spec"], 7)
+        self.assertEqual(summary["schema_only_spec"], 8)
         self.assertEqual(summary["live_contract_without_json_spec"], 0)
         self.assertEqual(summary["exact_row_debt"], 0)
 
@@ -1640,9 +1640,9 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated contract coverage census specs=29", result.stdout)
+        self.assertIn("validated contract coverage census specs=30", result.stdout)
         self.assertIn("generated_shape_envelope=22", result.stdout)
-        self.assertIn("schema_only_spec=7", result.stdout)
+        self.assertIn("schema_only_spec=8", result.stdout)
         self.assertIn("json_spec_without_shape_envelope=0", result.stdout)
         self.assertIn("live_contract_without_json_spec=0", result.stdout)
         self.assertIn("exact_row_debt=0", result.stdout)
@@ -3604,14 +3604,14 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(factorized_group["family"], "DepthVisionProjection")
         self.assertEqual(
             factorized_group["tuple_id"],
-            "depth_vision_factorized_projection_108",
+            "depth_vision_factorized_projection_144",
         )
         self.assertEqual(len(factorized_group["channel_pairs"]), 18)
-        self.assertEqual(len(factorized_group["spatial_pairs"]), 6)
-        self.assertEqual(factorized_group["cardinality"], 108)
-        self.assertEqual(factorized_group["validated_corpus_count"], 48)
+        self.assertEqual(len(factorized_group["spatial_pairs"]), 8)
+        self.assertEqual(factorized_group["cardinality"], 144)
+        self.assertEqual(factorized_group["validated_corpus_count"], 84)
         self.assertEqual(factorized_group["extrapolated_shape_count"], 60)
-        self.assertEqual(factorized_group["expansion_ratio"], 2.25)
+        self.assertEqual(factorized_group["expansion_ratio"], 1.7143)
 
         for case in spec["positive_cases"]:
             _require_contract_spec_fields(
@@ -13560,9 +13560,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         spatial_pairs = (
             (10, 15),
             (13, 20),
+            (20, 30),
             (20, 31),
             (30, 46),
             (40, 61),
+            (50, 75),
             (50, 77),
         )
         as_linear_hit = "aten::convolution.buffer_float_1x1_as_linear"
@@ -13630,7 +13632,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
     def test_large_pointwise_conv2d_token_slice_layout_preserves_generic(self):
         torch.manual_seed(2732)
         cases = (
+            (384, 192, 20, 30),
             (384, 192, 20, 31),
+            (1024, 256, 50, 75),
             (1024, 256, 50, 77),
         )
         as_linear_hit = "aten::convolution.buffer_float_1x1_as_linear"
@@ -13854,8 +13858,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         **kwargs)
 
             for shape, out_channels in (
+                ((1, 384, 20, 32), 192),
+                ((1, 1024, 50, 76), 256),
+            ):
+                with self.subTest(shape=shape, out_channels=out_channels):
+                    run_case(shape, out_channels)
+
+            for shape, out_channels in (
                 ((1, 384, 10, 15), 640),
-                ((1, 384, 11, 15), 192),
+                ((1, 384, 20, 30), 640),
+                ((1, 768, 20, 30), 640),
+                ((1, 1024, 20, 30), 640),
+                ((1, 384, 20, 29), 192),
+                ((1, 1024, 50, 74), 256),
                 ((1, 1024, 60, 93), 1024),
             ):
                 with self.subTest(shape=shape, out_channels=out_channels):
