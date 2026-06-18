@@ -181,6 +181,349 @@ VulkanAttentionPlanCounters& attention_plan_counters() {
   return counters;
 }
 
+std::string json_escape_attention_no_clone_diag(const std::string& value) {
+  std::ostringstream out;
+  for (const char ch : value) {
+    switch (ch) {
+      case '\\':
+        out << "\\\\";
+        break;
+      case '"':
+        out << "\\\"";
+        break;
+      case '\n':
+        out << "\\n";
+        break;
+      case '\r':
+        out << "\\r";
+        break;
+      case '\t':
+        out << "\\t";
+        break;
+      default:
+        out << ch;
+        break;
+    }
+  }
+  return out.str();
+}
+
+std::string format_int_array_json(const IntArrayRef values) {
+  std::ostringstream out;
+  out << '[';
+  for (const auto idx : c10::irange(values.size())) {
+    if (idx != 0u) {
+      out << ',';
+    }
+    out << values[idx];
+  }
+  out << ']';
+  return out.str();
+}
+
+const std::string& attention_no_clone_diagnostic_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv(
+        "PYTORCH_VULKAN_ATTENTION_PROBABILITY_NO_CLONE_DIAGNOSTIC_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
+bool attention_no_clone_diagnostic_enabled() {
+  return !attention_no_clone_diagnostic_log_path().empty();
+}
+
+std::mutex& attention_no_clone_diagnostic_log_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+void append_json_string_field(
+    std::ostringstream& out,
+    const char* key,
+    const std::string& value,
+    bool& first) {
+  if (!first) {
+    out << ',';
+  }
+  first = false;
+  out << '"' << key << "\":\"" << json_escape_attention_no_clone_diag(value)
+      << '"';
+}
+
+void append_json_i64_field(
+    std::ostringstream& out,
+    const char* key,
+    const int64_t value,
+    bool& first) {
+  if (!first) {
+    out << ',';
+  }
+  first = false;
+  out << '"' << key << "\":" << value;
+}
+
+void append_json_double_field(
+    std::ostringstream& out,
+    const char* key,
+    const double value,
+    bool& first) {
+  if (!first) {
+    out << ',';
+  }
+  first = false;
+  out << '"' << key << "\":" << value;
+}
+
+void append_json_bool_field(
+    std::ostringstream& out,
+    const char* key,
+    const bool value,
+    bool& first) {
+  if (!first) {
+    out << ',';
+  }
+  first = false;
+  out << '"' << key << "\":" << (value ? "true" : "false");
+}
+
+void append_json_raw_field(
+    std::ostringstream& out,
+    const char* key,
+    const std::string& value,
+    bool& first) {
+  if (!first) {
+    out << ',';
+  }
+  first = false;
+  out << '"' << key << "\":" << value;
+}
+
+void append_tensor_descriptor_field(
+    std::ostringstream& out,
+    const char* key,
+    const Tensor& tensor,
+    bool& first) {
+  if (!first) {
+    out << ',';
+  }
+  first = false;
+  out << '"' << key << "\":{";
+  bool tensor_first = true;
+  append_json_raw_field(
+      out, "shape", format_int_array_json(tensor.sizes()), tensor_first);
+  append_json_raw_field(
+      out, "strides", format_int_array_json(tensor.strides()), tensor_first);
+  append_json_i64_field(
+      out, "storage_offset", tensor.storage_offset(), tensor_first);
+  append_json_string_field(
+      out, "dtype", c10::toString(tensor.scalar_type()), tensor_first);
+  append_json_string_field(out, "device", tensor.device().str(), tensor_first);
+  append_json_bool_field(out, "is_vulkan", tensor.is_vulkan(), tensor_first);
+  append_json_bool_field(
+      out, "is_contiguous", tensor.is_contiguous(), tensor_first);
+  if (tensor.is_vulkan()) {
+    const vTensor& vtensor = convert(tensor);
+    append_json_string_field(
+        out,
+        "storage_type",
+        vtensor.storage_type() == api::StorageType::BUFFER ? "BUFFER"
+                                                           : "TEXTURE",
+        tensor_first);
+    append_json_bool_field(
+        out,
+        "supports_buffer_view_fast_path",
+        utils::supports_buffer_view_fast_path(vtensor),
+        tensor_first);
+  }
+  out << '}';
+}
+
+struct AttentionNoCloneComparison final {
+  double max_abs = 0.0;
+  double mean_abs = 0.0;
+  bool direct_has_nan = false;
+  bool direct_has_inf = false;
+  bool materialized_has_nan = false;
+  bool materialized_has_inf = false;
+};
+
+AttentionNoCloneComparison compare_attention_outputs_cpu(
+    const Tensor& direct_output,
+    const Tensor& materialized_output) {
+  Tensor direct_cpu = direct_output.detach().cpu();
+  Tensor materialized_cpu = materialized_output.detach().cpu();
+  Tensor diff = at::abs(at::sub(direct_cpu, materialized_cpu));
+  AttentionNoCloneComparison result;
+  result.max_abs = diff.numel() == 0 ? 0.0 : diff.max().item<double>();
+  result.mean_abs = diff.numel() == 0 ? 0.0 : diff.mean().item<double>();
+  result.direct_has_nan = at::isnan(direct_cpu).any().item<bool>();
+  result.direct_has_inf = at::isinf(direct_cpu).any().item<bool>();
+  result.materialized_has_nan = at::isnan(materialized_cpu).any().item<bool>();
+  result.materialized_has_inf = at::isinf(materialized_cpu).any().item<bool>();
+  return result;
+}
+
+const char* bounded_vision_attention_no_clone_tuple_id(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value) {
+  if (query.dim() != 3 || key.dim() != 3 || value.dim() != 3 ||
+      query.scalar_type() != kFloat || key.scalar_type() != kFloat ||
+      value.scalar_type() != kFloat || !query.is_vulkan() ||
+      !key.is_vulkan() || !value.is_vulkan() ||
+      !query.sizes().equals(key.sizes()) ||
+      !query.sizes().equals(value.sizes()) ||
+      query.size(2) != 64) {
+    return nullptr;
+  }
+
+  const int64_t batch_heads = query.size(0);
+  const int64_t sequence = query.size(1);
+  if (sequence != 151 && sequence != 261) {
+    return nullptr;
+  }
+  if (batch_heads == 6) {
+    return sequence == 151 ? "rank3_bh6_sequence151_dim64"
+                           : "rank3_bh6_sequence261_dim64";
+  }
+  if (batch_heads == 12) {
+    return sequence == 151 ? "rank3_bh12_sequence151_dim64"
+                           : "rank3_bh12_sequence261_dim64";
+  }
+  if (batch_heads == 16) {
+    return sequence == 151 ? "rank3_bh16_sequence151_dim64"
+                           : "rank3_bh16_sequence261_dim64";
+  }
+  return nullptr;
+}
+
+void maybe_log_attention_probability_no_clone_diagnostic(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const std::optional<Tensor>& scores,
+    const Tensor& materialized_probs,
+    const Tensor& materialized_output) {
+  if (!attention_no_clone_diagnostic_enabled()) {
+    return;
+  }
+  if (!scores.has_value()) {
+    return;
+  }
+
+  const char* const tuple_id =
+      bounded_vision_attention_no_clone_tuple_id(query, key, value);
+  if (tuple_id == nullptr) {
+    return;
+  }
+
+  const uint64_t fallback_before = vulkan_cpu_fallback_count();
+  const uint64_t readback_before = vulkan_sync_readback_count();
+  Tensor direct_probs = at::softmax(*scores, -1);
+  Tensor direct_output = at::bmm(direct_probs, value);
+  Tensor direct_repeat_probs = at::softmax(*scores, -1);
+  Tensor direct_repeat_output = at::bmm(direct_repeat_probs, value);
+  const uint64_t fallback_after_direct = vulkan_cpu_fallback_count();
+  const uint64_t readback_after_direct = vulkan_sync_readback_count();
+
+  const AttentionNoCloneComparison direct_vs_materialized =
+      compare_attention_outputs_cpu(direct_output, materialized_output);
+  const AttentionNoCloneComparison repeat =
+      compare_attention_outputs_cpu(direct_output, direct_repeat_output);
+  const uint64_t fallback_after_compare = vulkan_cpu_fallback_count();
+  const uint64_t readback_after_compare = vulkan_sync_readback_count();
+
+  std::ostringstream out;
+  out << '{';
+  bool first = true;
+  append_json_string_field(
+      out,
+      "event",
+      "vulkan_attention_probability_no_clone_diagnostic",
+      first);
+  append_json_string_field(
+      out, "contract", "AttentionProbabilityMaterializationContract", first);
+  append_json_string_field(
+      out,
+      "consumer_contract",
+      "DecomposedAttentionProbabilityToValueBmm",
+      first);
+  append_json_string_field(
+      out,
+      "execution_policy",
+      "SDPAExecutionVisionSelfAttentionCloneOnly",
+      first);
+  append_json_string_field(out, "tuple_id", tuple_id, first);
+  append_json_string_field(out, "producer_route", "aten::_softmax", first);
+  append_json_string_field(
+      out, "materialized_consumer_route", "aten::bmm", first);
+  append_json_string_field(out, "direct_consumer_route", "aten::bmm", first);
+  append_tensor_descriptor_field(out, "query", query, first);
+  append_tensor_descriptor_field(out, "key", key, first);
+  append_tensor_descriptor_field(out, "value", value, first);
+  append_tensor_descriptor_field(out, "scores", *scores, first);
+  append_tensor_descriptor_field(out, "direct_probability", direct_probs, first);
+  append_tensor_descriptor_field(
+      out, "materialized_probability", materialized_probs, first);
+  append_tensor_descriptor_field(out, "direct_output", direct_output, first);
+  append_tensor_descriptor_field(
+      out, "materialized_output", materialized_output, first);
+  append_json_double_field(
+      out,
+      "direct_vs_materialized_max_abs",
+      direct_vs_materialized.max_abs,
+      first);
+  append_json_double_field(
+      out,
+      "direct_vs_materialized_mean_abs",
+      direct_vs_materialized.mean_abs,
+      first);
+  append_json_double_field(out, "direct_repeat_max_abs", repeat.max_abs, first);
+  append_json_double_field(out, "direct_repeat_mean_abs", repeat.mean_abs, first);
+  append_json_bool_field(
+      out, "direct_has_nan", direct_vs_materialized.direct_has_nan, first);
+  append_json_bool_field(
+      out, "direct_has_inf", direct_vs_materialized.direct_has_inf, first);
+  append_json_bool_field(
+      out,
+      "materialized_has_nan",
+      direct_vs_materialized.materialized_has_nan,
+      first);
+  append_json_bool_field(
+      out,
+      "materialized_has_inf",
+      direct_vs_materialized.materialized_has_inf,
+      first);
+  append_json_i64_field(
+      out,
+      "direct_branch_cpu_fallback_delta",
+      static_cast<int64_t>(fallback_after_direct - fallback_before),
+      first);
+  append_json_i64_field(
+      out,
+      "direct_branch_sync_readback_delta",
+      static_cast<int64_t>(readback_after_direct - readback_before),
+      first);
+  append_json_i64_field(
+      out,
+      "diagnostic_compare_cpu_fallback_delta",
+      static_cast<int64_t>(fallback_after_compare - fallback_after_direct),
+      first);
+  append_json_i64_field(
+      out,
+      "diagnostic_compare_sync_readback_delta",
+      static_cast<int64_t>(readback_after_compare - readback_after_direct),
+      first);
+  out << "}\n";
+
+  std::lock_guard<std::mutex> lock(attention_no_clone_diagnostic_log_mutex());
+  std::ofstream log(
+      attention_no_clone_diagnostic_log_path(), std::ios::out | std::ios::app);
+  log << out.str();
+}
+
 const std::string& vulkan_attention_plan_log_path() {
   static const std::string path = []() {
     const char* const env = std::getenv("PYTORCH_VULKAN_ATTENTION_PLAN_LOG");
@@ -3517,11 +3860,22 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
   if (attention_probability_policy.requires_score_pre_materialization) {
     attn = prepare_buffer_math_input_direct(attn);
   }
+  std::optional<Tensor> scores_for_softmax;
+  if (attention_no_clone_diagnostic_enabled()) {
+    scores_for_softmax = attn;
+  }
   attn = attn.softmax(-1);
   if (attention_probability_policy.requires_post_softmax_clone) {
     attn = attn.clone();
   }
   Tensor output = at::bmm(attn, value_3d);
+  maybe_log_attention_probability_no_clone_diagnostic(
+      query_3d,
+      key_3d,
+      value_3d,
+      scores_for_softmax,
+      attn,
+      output);
 
   if (query.dim() == 3) {
     return std::make_tuple(output, attn);
