@@ -3555,17 +3555,6 @@ Tensor run_bfloat16_buffer_conv2d(
           false,
           output_padding,
           groups);
-  if (
-      patch_embed_float_buffer_route &&
-      should_force_image_conv_for_small_metadata_input(compute_input)) {
-    compute_input = utils::mark_tensor_execution(
-        utils::ensure_buffer_storage(
-            compute_input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
-        api::ExecutionLayout::BUFFER_DIRECT,
-        true);
-    utils::log_vulkan_op_hit(
-        "aten::convolution.buffer_float_patch_embed_route.materialize_input");
-  }
   const bool force_small_metadata_image_pack =
       should_force_image_conv_for_small_metadata_input(compute_input) &&
       !small_metadata_padded_conv2d_match.matched &&

@@ -427,8 +427,10 @@ condition and migration target.
 - Generated spec coverage: none yet. The current route predicate is handwritten
   and limited to float Vulkan tensors with input `[1,3,H,W]`, `(H,W)` in
   `{(140,210),(280,434)}`, weight `[C,3,14,14]`, `C in {384,768,1024}`,
-  stride `[14,14]`, zero padding, dilation `[1,1]`, and groups `1`. Adjacent
-  negatives remain on the legacy path.
+  stride `[14,14]`, zero padding, dilation `[1,1]`, and groups `1`. The proven
+  descriptor-view input leg requires zero storage offset, width-packed buffer
+  storage, and metadata strides compatible with `conv2d_buffer_float`.
+  Adjacent negatives remain on the legacy path.
 - Expiry: generated patch-embed conv execution-plan or transition-contract
   coverage exists with positive and adjacent negative tests, including input
   layout/materialization accounting.

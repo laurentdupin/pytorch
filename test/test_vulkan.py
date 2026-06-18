@@ -14378,9 +14378,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         "patch_embed_float_buffer_conv_route_op_hit_"
                         f"{height}_{width}_{out_channels}.log"
                     )
+                    transition_log_name = (
+                        "patch_embed_float_buffer_conv_route_transition_"
+                        f"{height}_{width}_{out_channels}.jsonl"
+                    )
                     log_path = os.path.join(REPO_ROOT, log_name)
                     op_hit_log_path = os.path.join(REPO_ROOT, op_hit_log_name)
-                    for path in (log_path, op_hit_log_path):
+                    transition_log_path = os.path.join(
+                        REPO_ROOT, transition_log_name)
+                    for path in (log_path, op_hit_log_path, transition_log_path):
                         if os.path.exists(path):
                             os.remove(path)
                     script = f"""
@@ -14462,6 +14468,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             extra_env={
                                 "PYTORCH_VULKAN_CONV_CACHE_LOG": log_name,
                                 "PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name,
+                                "PYTORCH_VULKAN_TRANSITION_LOG": (
+                                    transition_log_name),
                             },
                             timeout=180,
                             error_prefix=(
@@ -14485,7 +14493,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             "op=aten::convolution.buffer_float_patch_embed_route",
                             op_hit_log,
                         )
-                        self.assertIn(
+                        self.assertNotIn(
                             "op=aten::convolution.buffer_float_patch_embed_route.materialize_input",
                             op_hit_log,
                         )
@@ -14493,8 +14501,21 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             "op=aten::convolution.buffer_float_skip.small_metadata_input",
                             op_hit_log,
                         )
+                        if os.path.exists(transition_log_path):
+                            with open(
+                                    transition_log_path,
+                                    "r",
+                                    encoding="utf-8") as log_file:
+                                transition_log = log_file.read()
+                            self.assertNotIn(
+                                '"phase":"patch_embed"',
+                                transition_log,
+                            )
                     finally:
-                        for path in (log_path, op_hit_log_path):
+                        for path in (
+                                log_path,
+                                op_hit_log_path,
+                                transition_log_path):
                             if os.path.exists(path):
                                 os.remove(path)
 
