@@ -5,6 +5,7 @@ import contextlib
 import os
 import sys
 import time
+import traceback
 import types
 from pathlib import Path
 from typing import Any
@@ -553,6 +554,10 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         "attention_plan_counters",
         "linear_plan_counters",
         "linear_aggregate_snapshot",
+        "linear_pack_residency_snapshot",
+        "vulkan_memory_residency_snapshot",
+        "last_allocation_failure_snapshot",
+        "packed_weight_residency_snapshot",
         "conv_plan_counters",
         "pointwise_conv_route_counters",
         "conv_aggregate_snapshot",
@@ -595,6 +600,98 @@ def default_output_path(device: str, encoder: str) -> Path:
     return default_output_dir() / (
         f"benchmark_depth_anything_{device}_{encoder}_reconstructed_20260422.json"
     )
+
+
+def output_path_from_args(args: argparse.Namespace) -> Path:
+    return (
+        Path(args.out).resolve()
+        if args.out
+        else default_output_path(args.device, args.encoder).resolve()
+    )
+
+
+def _safe_phase_summary(vulkan_phase_tracker: Any) -> Any:
+    if vulkan_phase_tracker is None:
+        return None
+    try:
+        return vulkan_phase_tracker.summary()
+    except Exception as exc:
+        return {"error": repr(exc)}
+
+
+def install_failure_artifact_hook(
+    args: argparse.Namespace,
+    context: dict[str, Any],
+) -> Any:
+    original_hook = sys.excepthook
+
+    def failure_hook(exc_type: type[BaseException], exc: BaseException, tb: Any) -> None:
+        try:
+            torch_module = context.get("torch")
+            device_kind = str(context.get("device_kind", ""))
+            debug_counters = (
+                snapshot_vulkan_debug_counters(torch_module, device_kind)
+                if torch_module is not None
+                else {}
+            )
+            out_path = output_path_from_args(args)
+            result = {
+                "benchmark_name": "benchmark_depth_anything",
+                "benchmark_contract": "legacy_depth_anything_v2_repo_forward",
+                "status": "fail",
+                "timing_valid": False,
+                "performance_valid": False,
+                "failure": {
+                    "type": exc_type.__name__,
+                    "message": str(exc),
+                    "traceback": traceback.format_exception(exc_type, exc, tb),
+                },
+                "python_executable": sys.executable,
+                "python_version": sys.version,
+                "repo_root": str(REPO_ROOT),
+                "workspace_root": str(WORKSPACE_ROOT),
+                "depth_anything_repo": str(context.get("repo_path", "")),
+                "checkpoint": str(context.get("checkpoint", "")),
+                "device": args.device,
+                "encoder": args.encoder,
+                "input_size": args.input_size,
+                "image": str(context.get("image_path", "")),
+                "image_dir": str(context.get("image_dir", "")),
+                "warmup": args.warmup,
+                "repeats": args.repeats,
+                "torch_version": getattr(torch_module, "__version__", None),
+                "torch_vulkan_available": (
+                    bool(getattr(torch_module, "is_vulkan_available", lambda: False)())
+                    if torch_module is not None
+                    else None
+                ),
+                "skip_output_copy": bool(args.skip_output_copy),
+                "vulkan_model_probe": context.get("probe_summary"),
+                "vulkan_model_probe_disable_owner_programs": bool(
+                    context.get("disable_owner_programs", False)
+                ),
+                "vulkan_dav2_block_owner": context.get("vulkan_block_owner"),
+                "device_info": context.get("device_info"),
+                "vulkan_debug_counters": debug_counters,
+                "vulkan_phase_counters": _safe_phase_summary(
+                    context.get("vulkan_phase_tracker")
+                ),
+                "allocation_failure_snapshot": debug_counters.get(
+                    "last_allocation_failure_snapshot",
+                    [],
+                ),
+            }
+            write_json(out_path, result)
+        except Exception as hook_exc:
+            print(
+                f"Failed to write benchmark failure artifact: {hook_exc!r}",
+                file=sys.stderr,
+            )
+        finally:
+            original_hook(exc_type, exc, tb)
+
+    sys.excepthook = failure_hook
+    return original_hook
 
 
 def prepare_image_on_device(
@@ -750,14 +847,18 @@ def run() -> None:
         ),
     )
     args = parser.parse_args()
+    failure_context: dict[str, Any] = {}
+    original_excepthook = install_failure_artifact_hook(args, failure_context)
 
     repo_path = resolve_depth_anything_repo(args.repo)
     default_image_path = repo_path / "assets" / "examples" / "demo01.jpg"
     default_image_dir = repo_path / "assets" / "examples"
+    failure_context["repo_path"] = repo_path
 
     enable_local_pytorch_repo_imports()
     import torch
     import torch.nn.functional as F
+    failure_context["torch"] = torch
 
     ensure_torchvision_runtime_compat(torch)
     from depth_anything_v2.dpt import DepthAnythingV2
@@ -772,6 +873,15 @@ def run() -> None:
     image_path = Path(args.image).resolve() if args.image else default_image_path.resolve()
     image_dir = Path(args.image_dir).resolve() if args.image_dir else default_image_dir.resolve()
     image_paths = sorted(path for path in image_dir.glob("*.jpg") if path.is_file())
+    failure_context.update(
+        {
+            "checkpoint": checkpoint,
+            "device_kind": device_kind,
+            "device_info": device_info,
+            "image_path": image_path,
+            "image_dir": image_dir,
+        }
+    )
 
     if not checkpoint.exists():
         raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
@@ -793,6 +903,7 @@ def run() -> None:
         if device_kind == "vulkan"
         else None
     )
+    failure_context["vulkan_phase_tracker"] = vulkan_phase_tracker
 
     with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP), vulkan_fallback_phase(
         torch,
@@ -820,6 +931,12 @@ def run() -> None:
         }
     else:
         vulkan_block_owner = {"enabled": False, "limit": 0, "installed": 0}
+    failure_context.update(
+        {
+            "disable_owner_programs": disable_owner_programs,
+            "vulkan_block_owner": vulkan_block_owner,
+        }
+    )
     if device_kind == "vulkan":
         with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP):
             install_vulkan_fallback_phase_wrappers(torch, model)
@@ -1067,6 +1184,7 @@ def run() -> None:
         if probe_enabled and probe is not None:
             probe.__exit__(*sys.exc_info())
             probe_summary = probe.summary()
+            failure_context["probe_summary"] = probe_summary
 
     if legacy_forward_output_mode == OUTPUT_MODE_READBACK:
         legacy_end_to_end_durations = list(end_to_end_with_readback_durations)
@@ -1166,12 +1284,10 @@ def run() -> None:
         ),
     }
 
-    out_path = Path(args.out).resolve() if args.out else default_output_path(
-        args.device,
-        args.encoder,
-    )
+    out_path = output_path_from_args(args)
     write_json(out_path, result)
     print(out_path.read_text(encoding="utf-8"))
+    sys.excepthook = original_excepthook
 
 
 if __name__ == "__main__":

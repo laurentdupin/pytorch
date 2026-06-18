@@ -31,6 +31,8 @@ std::string swap_runtime_label(std::string label);
 void set_recent_op_label(std::string label);
 std::vector<std::string> vulkan_memory_residency_snapshot();
 void reset_vulkan_memory_residency_snapshot();
+std::vector<std::string> last_allocation_failure_snapshot();
+void reset_last_allocation_failure_snapshot();
 void mark_vulkan_memory_residency_state(uint64_t allocation_id, const char* state);
 uint64_t vulkan_memory_allocation_generation(uint64_t allocation_id);
 

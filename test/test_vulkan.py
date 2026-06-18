@@ -18694,6 +18694,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             any("packed_weight_residency_summary" in row for row in packed_rows)
         )
 
+    def test_vulkan_last_allocation_failure_snapshot_reset_and_json(self):
+        torch.ops.vulkan_prepack.reset_last_allocation_failure_snapshot()
+        rows = torch.ops.vulkan_prepack.last_allocation_failure_snapshot()
+        self.assertEqual(rows, [])
+        payload = {
+            "status": "ok",
+            "timing_valid": True,
+            "allocation_failure_snapshot": rows,
+        }
+        json.dumps(payload)
+
     def test_vulkan_linear_weight_cache_reuse_and_invalidation(self):
         torch.manual_seed(0)
         torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()

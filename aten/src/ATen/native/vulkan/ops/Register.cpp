@@ -529,6 +529,7 @@ void reset_fallback_counters_runtime() {
   api::reset_submit_phase();
   api::reset_stack_allocation_aggregate();
   api::reset_stack_dispatch_aggregate();
+  api::reset_last_allocation_failure_snapshot();
   reset_linear_plan_counters();
   reset_linear_aggregate();
   reset_conv_plan_counters();
@@ -1728,6 +1729,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def("reset_linear_pack_residency_snapshot() -> ()");
   m.def("vulkan_memory_residency_snapshot() -> str[]");
   m.def("reset_vulkan_memory_residency_snapshot() -> ()");
+  m.def("last_allocation_failure_snapshot() -> str[]");
+  m.def("reset_last_allocation_failure_snapshot() -> ()");
   m.def("packed_weight_residency_snapshot() -> str[]");
   m.def("reset_packed_weight_residency_snapshot() -> ()");
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -2073,6 +2076,12 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       "reset_vulkan_memory_residency_snapshot",
       TORCH_FN(api::reset_vulkan_memory_residency_snapshot));
+  m.impl(
+      "last_allocation_failure_snapshot",
+      TORCH_FN(api::last_allocation_failure_snapshot));
+  m.impl(
+      "reset_last_allocation_failure_snapshot",
+      TORCH_FN(api::reset_last_allocation_failure_snapshot));
   m.impl(
       "packed_weight_residency_snapshot",
       TORCH_FN(utils::packed_weight_residency_snapshot));

@@ -1,6 +1,8 @@
 #include <ATen/native/vulkan/api/Adapter.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Resource.h>
+#include <ATen/native/vulkan/api/Sync.h>
+#include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
@@ -36,6 +38,11 @@ struct VulkanMemoryResidencyRecord final {
   bool owns_memory{false};
 };
 
+struct LastAllocationFailureState final {
+  std::mutex mutex;
+  std::vector<std::string> rows;
+};
+
 std::mutex& vulkan_memory_residency_mutex() {
   static std::mutex mutex;
   return mutex;
@@ -56,6 +63,34 @@ std::atomic<uint64_t>& next_vulkan_memory_allocation_id() {
 std::atomic<uint64_t>& next_vulkan_memory_allocation_generation() {
   static std::atomic<uint64_t> generation{1u};
   return generation;
+}
+
+std::atomic<uint64_t>& vulkan_memory_live_bytes() {
+  static std::atomic<uint64_t> bytes{0u};
+  return bytes;
+}
+
+std::atomic<uint64_t>& vulkan_memory_high_water_bytes() {
+  static std::atomic<uint64_t> bytes{0u};
+  return bytes;
+}
+
+LastAllocationFailureState& last_allocation_failure_state() {
+  static LastAllocationFailureState state;
+  return state;
+}
+
+void update_vulkan_memory_high_water(const uint64_t live_bytes) {
+  auto& high_water = vulkan_memory_high_water_bytes();
+  uint64_t observed = high_water.load(std::memory_order_relaxed);
+  while (
+      live_bytes > observed &&
+      !high_water.compare_exchange_weak(
+          observed,
+          live_bytes,
+          std::memory_order_relaxed,
+          std::memory_order_relaxed)) {
+  }
 }
 
 std::string classify_allocation_role(const std::string& label) {
@@ -107,6 +142,10 @@ void record_vulkan_memory_allocation(
   record.owns_memory = owns_memory;
   std::lock_guard<std::mutex> lock(vulkan_memory_residency_mutex());
   vulkan_memory_residency_records()[id] = std::move(record);
+  const uint64_t live_bytes = vulkan_memory_live_bytes().fetch_add(
+                                  allocated_bytes, std::memory_order_relaxed) +
+      allocated_bytes;
+  update_vulkan_memory_high_water(live_bytes);
 }
 
 void erase_vulkan_memory_allocation(const uint64_t id) {
@@ -114,7 +153,21 @@ void erase_vulkan_memory_allocation(const uint64_t id) {
     return;
   }
   std::lock_guard<std::mutex> lock(vulkan_memory_residency_mutex());
-  vulkan_memory_residency_records().erase(id);
+  const auto it = vulkan_memory_residency_records().find(id);
+  if (it == vulkan_memory_residency_records().end()) {
+    return;
+  }
+  const uint64_t allocated_bytes = it->second.allocated_bytes;
+  vulkan_memory_residency_records().erase(it);
+  uint64_t observed = vulkan_memory_live_bytes().load(std::memory_order_relaxed);
+  while (
+      observed > 0u &&
+      !vulkan_memory_live_bytes().compare_exchange_weak(
+          observed,
+          observed > allocated_bytes ? observed - allocated_bytes : 0u,
+          std::memory_order_relaxed,
+          std::memory_order_relaxed)) {
+  }
 }
 
 std::string& mutable_current_allocation_label() {
@@ -156,6 +209,23 @@ std::string format_bytes(const uint64_t bytes) {
   stream.precision(2);
   stream << mib << " MiB";
   return stream.str();
+}
+
+const char* vk_result_name(const VkResult result) {
+  switch (result) {
+    case VK_SUCCESS:
+      return "VK_SUCCESS";
+    case VK_ERROR_OUT_OF_HOST_MEMORY:
+      return "VK_ERROR_OUT_OF_HOST_MEMORY";
+    case VK_ERROR_OUT_OF_DEVICE_MEMORY:
+      return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+    case VK_ERROR_TOO_MANY_OBJECTS:
+      return "VK_ERROR_TOO_MANY_OBJECTS";
+    case VK_ERROR_MEMORY_MAP_FAILED:
+      return "VK_ERROR_MEMORY_MAP_FAILED";
+    default:
+      return "VK_RESULT_OTHER";
+  }
 }
 
 const std::string& normalize_allocation_label(const std::string& label) {
@@ -371,6 +441,172 @@ std::string image_failure_requirements_details(
   return memory_requirements_summary(allocator, memory_requirements);
 }
 
+std::string format_int64_vector(
+    const char* name,
+    const std::vector<int64_t>& values) {
+  std::ostringstream stream;
+  stream << name << " values=[";
+  for (size_t idx = 0u; idx < values.size(); ++idx) {
+    if (idx > 0u) {
+      stream << ",";
+    }
+    stream << values[idx];
+  }
+  stream << "]";
+  return stream.str();
+}
+
+void append_limited_rows(
+    std::vector<std::string>& rows,
+    const char* prefix,
+    const std::vector<std::string>& source,
+    const size_t limit) {
+  const size_t count = std::min(limit, source.size());
+  for (size_t idx = 0u; idx < count; ++idx) {
+    std::ostringstream stream;
+    stream << prefix << " sample_index=" << idx << " " << source[idx];
+    rows.emplace_back(stream.str());
+  }
+  if (source.size() > count) {
+    std::ostringstream stream;
+    stream << prefix << "_truncated remaining=" << (source.size() - count);
+    rows.emplace_back(stream.str());
+  }
+}
+
+std::string live_residency_summary() {
+  size_t live_count = 0u;
+  uint64_t live_requested_bytes = 0u;
+  uint64_t live_allocated_bytes = 0u;
+  {
+    std::lock_guard<std::mutex> lock(vulkan_memory_residency_mutex());
+    live_count = vulkan_memory_residency_records().size();
+    for (const auto& entry : vulkan_memory_residency_records()) {
+      live_requested_bytes += entry.second.requested_bytes;
+      live_allocated_bytes += entry.second.allocated_bytes;
+    }
+  }
+  std::ostringstream stream;
+  stream << "allocation_failure_live_summary"
+         << " live_count=" << live_count
+         << " live_requested_bytes=" << live_requested_bytes
+         << " live_allocated_bytes=" << live_allocated_bytes
+         << " tracked_live_bytes="
+         << vulkan_memory_live_bytes().load(std::memory_order_relaxed)
+         << " tracked_high_water_bytes="
+         << vulkan_memory_high_water_bytes().load(std::memory_order_relaxed);
+  return stream.str();
+}
+
+void capture_last_allocation_failure(
+    const char* kind,
+    const VkResult result,
+    const uint64_t requested_bytes,
+    const std::string& details,
+    const VmaAllocator allocator,
+    const std::string& label) {
+  std::vector<std::string> rows;
+  rows.reserve(64u);
+
+  const std::string& normalized_label = normalize_allocation_label(label);
+  std::ostringstream header;
+  header << "allocation_failure"
+         << " kind=" << kind
+         << " result=" << static_cast<int32_t>(result)
+         << " result_name=" << vk_result_name(result)
+         << " requested_bytes=" << requested_bytes
+         << " label=" << normalized_label
+         << " runtime_label=" << current_runtime_label()
+         << " recent_op_label=" << recent_op_label();
+  if (!details.empty()) {
+    header << " details={" << details << "}";
+  }
+  rows.emplace_back(header.str());
+
+  rows.emplace_back(live_residency_summary());
+
+  std::ostringstream budgets;
+  budgets << "allocation_failure_heap_budgets " << heap_budgets_summary(allocator);
+  rows.emplace_back(budgets.str());
+
+  append_limited_rows(
+      rows,
+      "allocation_failure_top_live",
+      vulkan_memory_residency_snapshot(),
+      16u);
+  rows.emplace_back(format_int64_vector(
+      "allocation_failure_submit_origin_counters",
+      {
+          static_cast<int64_t>(vulkan_submit_origin_counters()
+                                   .total_queue_submits.load(
+                                       std::memory_order_relaxed)),
+          static_cast<int64_t>(vulkan_submit_origin_counters()
+                                   .tensor_cpu_readback.load(
+                                       std::memory_order_relaxed)),
+          static_cast<int64_t>(vulkan_submit_origin_counters()
+                                   .retire_queue_drain.load(
+                                       std::memory_order_relaxed)),
+          static_cast<int64_t>(vulkan_submit_origin_counters()
+                                   .conv_prepack_upload.load(
+                                       std::memory_order_relaxed)),
+      }));
+  rows.emplace_back(format_int64_vector(
+      "allocation_failure_retire_drain_counters",
+      retire_drain_counters_snapshot()));
+  append_limited_rows(
+      rows,
+      "allocation_failure_submit_origin_phase",
+      submit_origin_phase_snapshot(),
+      16u);
+  append_limited_rows(
+      rows,
+      "allocation_failure_retire_call_site",
+      retire_call_site_counters_snapshot(),
+      16u);
+  append_limited_rows(
+      rows,
+      "allocation_failure_retired_resource",
+      retired_resource_aggregate_snapshot(),
+      16u);
+  append_limited_rows(
+      rows,
+      "allocation_failure_stack_temp_lifetime",
+      stack_temp_lifetime_safety_snapshot(),
+      16u);
+  append_limited_rows(
+      rows,
+      "allocation_failure_stack_subresource_lifetime",
+      stack_subresource_lifetime_dry_run_snapshot(),
+      16u);
+  append_limited_rows(
+      rows,
+      "allocation_failure_stack_scratch_arena",
+      stack_scratch_arena_lifetime_snapshot(),
+      8u);
+  append_limited_rows(
+      rows,
+      "allocation_failure_stack_allocation",
+      stack_allocation_aggregate_snapshot(),
+      16u);
+  append_limited_rows(
+      rows,
+      "allocation_failure_stack_dispatch",
+      stack_dispatch_aggregate_snapshot(),
+      16u);
+  append_limited_rows(
+      rows,
+      "allocation_failure_packed_weight_residency",
+      ::at::native::vulkan::ops::utils::packed_weight_residency_snapshot(),
+      16u);
+  rows.emplace_back(
+      "allocation_failure_linear_pack_residency unavailable=1 "
+      "reason=resource_layer_does_not_depend_on_ops_mm");
+
+  LastAllocationFailureState& state = last_allocation_failure_state();
+  std::lock_guard<std::mutex> lock(state.mutex);
+  state.rows = std::move(rows);
+}
+
 void log_allocation_success(
     const char* kind,
     const uint64_t requested_bytes,
@@ -456,6 +692,9 @@ void log_allocation_failure(
     const std::string& details,
     const VmaAllocator allocator,
     const std::string& label) {
+  capture_last_allocation_failure(
+      kind, result, requested_bytes, details, allocator, label);
+
   if (!allocation_telemetry_enabled()) {
     return;
   }
@@ -585,6 +824,18 @@ std::vector<std::string> vulkan_memory_residency_snapshot() {
 }
 
 void reset_vulkan_memory_residency_snapshot() {}
+
+std::vector<std::string> last_allocation_failure_snapshot() {
+  LastAllocationFailureState& state = last_allocation_failure_state();
+  std::lock_guard<std::mutex> lock(state.mutex);
+  return state.rows;
+}
+
+void reset_last_allocation_failure_snapshot() {
+  LastAllocationFailureState& state = last_allocation_failure_state();
+  std::lock_guard<std::mutex> lock(state.mutex);
+  state.rows.clear();
+}
 
 void mark_vulkan_memory_residency_state(
     const uint64_t allocation_id,

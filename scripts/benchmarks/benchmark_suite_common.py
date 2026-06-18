@@ -85,6 +85,7 @@ VULKAN_COUNTER_NAMES = (
     "linear_aggregate_snapshot",
     "linear_pack_residency_snapshot",
     "vulkan_memory_residency_snapshot",
+    "last_allocation_failure_snapshot",
     "packed_weight_residency_snapshot",
     "conv_plan_counters",
     "pointwise_conv_route_counters",
