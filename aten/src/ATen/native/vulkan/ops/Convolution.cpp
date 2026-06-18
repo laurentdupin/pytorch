@@ -1531,6 +1531,87 @@ bool should_force_image_conv_for_small_metadata_input(const Tensor& input) {
       !v_input.has_direct_buffer_layout();
 }
 
+bool is_patch_embed_float_buffer_conv_shape(
+    const IntArrayRef input_sizes,
+    const IntArrayRef weight_sizes,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const bool transposed,
+    const bool quantized,
+    const IntArrayRef output_padding,
+    const int64_t groups,
+    const ScalarType dtype) {
+  if (
+      dtype != kFloat || input_sizes.size() != 4 || weight_sizes.size() != 4 ||
+      transposed || quantized || !output_padding_is_zero(output_padding) ||
+      stride.size() != 2 || padding.size() != 2 || dilation.size() != 2 ||
+      groups != 1) {
+    return false;
+  }
+
+  if (
+      input_sizes[0] != 1 || input_sizes[1] != 3 ||
+      weight_sizes[1] != 3 || weight_sizes[2] != 14 ||
+      weight_sizes[3] != 14) {
+    return false;
+  }
+
+  const bool observed_input_size =
+      (input_sizes[2] == 140 && input_sizes[3] == 210) ||
+      (input_sizes[2] == 280 && input_sizes[3] == 434);
+  const bool observed_output_channels =
+      weight_sizes[0] == 384 || weight_sizes[0] == 768 ||
+      weight_sizes[0] == 1024;
+  return observed_input_size && observed_output_channels && stride[0] == 14 &&
+      stride[1] == 14 && padding[0] == 0 && padding[1] == 0 &&
+      dilation[0] == 1 && dilation[1] == 1;
+}
+
+bool can_use_patch_embed_float_buffer_conv_route(
+    const Tensor& input,
+    const Tensor& weight,
+    const std::optional<Tensor>& bias,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const bool transposed,
+    const bool quantized,
+    const IntArrayRef output_padding,
+    const int64_t groups) {
+  if (
+      !input.is_vulkan() || !weight.is_vulkan() ||
+      input.scalar_type() != kFloat || weight.scalar_type() != kFloat ||
+      !is_patch_embed_float_buffer_conv_shape(
+          input.sizes(),
+          weight.sizes(),
+          stride,
+          padding,
+          dilation,
+          transposed,
+          quantized,
+          output_padding,
+          groups,
+          input.scalar_type())) {
+    return false;
+  }
+
+  if (bias && bias->defined()) {
+    if (!bias->is_vulkan() || bias->scalar_type() != kFloat) {
+      return false;
+    }
+  }
+
+  const vTensor& v_input = convert(input);
+  const vTensor& v_weight = convert(weight);
+  return v_input.storage_type() == api::StorageType::BUFFER &&
+      v_input.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      utils::supports_buffer_elementwise_compute(v_input) &&
+      v_weight.storage_type() == api::StorageType::BUFFER &&
+      v_weight.gpu_memory_layout() ==
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED;
+}
+
 utils::SmallMetadataPaddedConv2DTensorInfo
 small_metadata_padded_conv2d_tensor_info(const Tensor& input) {
   utils::SmallMetadataPaddedConv2DTensorInfo info;
@@ -2741,6 +2822,22 @@ Tensor run_float_buffer_conv2d_impl(
   plan_decision.pointwise = plan_decision.kh == 1 && plan_decision.kw == 1;
   plan_decision.large =
       plan_decision.cin >= 384 && plan_decision.cout >= 192;
+  if (
+      is_patch_embed_float_buffer_conv_shape(
+          v_input.sizes(),
+          packed_weight.logical_weight_sizes(),
+          stride,
+          padding,
+          dilation,
+          /*transposed=*/false,
+          /*quantized=*/false,
+          /*output_padding=*/{},
+          groups,
+          input.scalar_type())) {
+    plan_decision.contract_name = "PatchEmbedFloatBufferConvRoute";
+    plan_decision.contract_family = "ObservedPatchEmbedKernel14Stride14";
+    plan_decision.contract_tuple_id = "c384_768_1024_h140_280_w210_434";
+  }
   if (route_decision.hard_fail) {
     plan_decision.selected = VulkanConvPlanSelected::HardFailKnownBad;
     plan_decision.reject =
@@ -3446,11 +3543,40 @@ Tensor run_bfloat16_buffer_conv2d(
         convolution_request(utils::VulkanTensorRole::Input),
         utils::current_vulkan_device_policy());
   }
+  const bool patch_embed_float_buffer_route =
+      can_use_patch_embed_float_buffer_conv_route(
+          compute_input,
+          compute_weight,
+          compute_bias,
+          stride,
+          padding,
+          dilation,
+          transposed,
+          false,
+          output_padding,
+          groups);
+  if (
+      patch_embed_float_buffer_route &&
+      should_force_image_conv_for_small_metadata_input(compute_input)) {
+    compute_input = utils::mark_tensor_execution(
+        utils::ensure_buffer_storage(
+            compute_input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
+        api::ExecutionLayout::BUFFER_DIRECT,
+        true);
+    utils::log_vulkan_op_hit(
+        "aten::convolution.buffer_float_patch_embed_route.materialize_input");
+  }
   const bool force_small_metadata_image_pack =
       should_force_image_conv_for_small_metadata_input(compute_input) &&
-      !small_metadata_padded_conv2d_match.matched;
+      !small_metadata_padded_conv2d_match.matched &&
+      !patch_embed_float_buffer_route;
   const bool force_legacy_image_pack =
       force_small_metadata_image_pack || avoid_large_buffer_conv_3x3;
+  if (
+      patch_embed_float_buffer_route && !force_small_metadata_image_pack) {
+    utils::log_vulkan_op_hit(
+        "aten::convolution.buffer_float_patch_embed_route");
+  }
   if (force_legacy_image_pack) {
     utils::log_vulkan_op_hit(
         force_small_metadata_image_pack

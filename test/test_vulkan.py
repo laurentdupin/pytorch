@@ -14363,6 +14363,218 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_patch_embed_float_buffer_conv_route_matches_cpu(self):
+        for height, width in ((140, 210), (280, 434)):
+            for out_channels in (384, 768, 1024):
+                with self.subTest(
+                        height=height,
+                        width=width,
+                        out_channels=out_channels):
+                    log_name = (
+                        "patch_embed_float_buffer_conv_route_"
+                        f"{height}_{width}_{out_channels}.log"
+                    )
+                    op_hit_log_name = (
+                        "patch_embed_float_buffer_conv_route_op_hit_"
+                        f"{height}_{width}_{out_channels}.log"
+                    )
+                    log_path = os.path.join(REPO_ROOT, log_name)
+                    op_hit_log_path = os.path.join(REPO_ROOT, op_hit_log_name)
+                    for path in (log_path, op_hit_log_path):
+                        if os.path.exists(path):
+                            os.remove(path)
+                    script = f"""
+                        import json
+
+                        import torch
+                        import torch.nn.functional as F
+
+                        SUBMIT_ORIGIN_NAMES = {VULKAN_SUBMIT_ORIGIN_COUNTER_NAMES!r}
+
+                        def submit_origin_counters():
+                            return dict(zip(
+                                SUBMIT_ORIGIN_NAMES,
+                                torch.ops.vulkan_prepack.submit_origin_counters(),
+                            ))
+
+                        torch.manual_seed({6700 + height + width + out_channels})
+                        image = torch.randint(
+                            0,
+                            256,
+                            ({height}, {width}, 3),
+                            dtype=torch.uint8)
+                        mean = torch.tensor(
+                            [0.485, 0.456, 0.406],
+                            dtype=torch.float32)
+                        std = torch.tensor(
+                            [0.229, 0.224, 0.225],
+                            dtype=torch.float32)
+                        input_cpu = (
+                            (image.float() / 255.0 - mean) / std
+                        ).permute((2, 0, 1)).unsqueeze(0)
+                        input_vulkan = (
+                            (
+                                image.to("vulkan").float() / 255.0
+                                - mean.to("vulkan")
+                            )
+                            / std.to("vulkan")
+                        ).permute((2, 0, 1)).unsqueeze(0)
+                        weight_cpu = torch.randn({out_channels}, 3, 14, 14)
+                        bias_cpu = torch.randn({out_channels})
+                        expected = F.conv2d(
+                            input_cpu,
+                            weight_cpu,
+                            bias_cpu,
+                            stride=(14, 14),
+                        )
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        torch.ops.vulkan_prepack.reset_submit_origin_counters()
+                        with torch.inference_mode():
+                            actual_vulkan = F.conv2d(
+                                input_vulkan,
+                                weight_cpu.to("vulkan"),
+                                bias_cpu.to("vulkan"),
+                                stride=(14, 14),
+                            )
+                            fallback_before_cpu = (
+                                torch.ops.vulkan_prepack.cpu_fallback_count()
+                            )
+                            sync_before_cpu = (
+                                torch.ops.vulkan_prepack.sync_readback_count()
+                            )
+                            submit_before_cpu = submit_origin_counters()
+                            actual = actual_vulkan.cpu()
+
+                        torch.testing.assert_close(
+                            actual, expected, atol=2e-3, rtol=2e-3)
+                        print(json.dumps({{
+                            "max_abs": float(
+                                (actual - expected).abs().max().item()),
+                            "cpu_fallback": int(fallback_before_cpu),
+                            "sync_readback": int(sync_before_cpu),
+                            "tensor_cpu_readback": int(
+                                submit_before_cpu["tensor_cpu_readback"]),
+                        }}, sort_keys=True))
+                    """
+                    try:
+                        _, result = self._run_repo_python_subprocess(
+                            script,
+                            extra_env={
+                                "PYTORCH_VULKAN_CONV_CACHE_LOG": log_name,
+                                "PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name,
+                            },
+                            timeout=180,
+                            error_prefix=(
+                                "Vulkan patch-embed float-buffer route "
+                                "subprocess failed."
+                            ),
+                        )
+                        summary = json.loads(result.stdout.strip().splitlines()[-1])
+                        self.assertLessEqual(summary["max_abs"], 2e-3, summary)
+                        self.assertEqual(summary["cpu_fallback"], 0, summary)
+                        self.assertEqual(summary["sync_readback"], 0, summary)
+                        if os.path.exists(log_path):
+                            with open(log_path, "r", encoding="utf-8") as log_file:
+                                conv_pack_log = log_file.read()
+                            self.assertIn("vulkan_pack_weights=0", conv_pack_log)
+                            self.assertIn("vulkan_to_cpu_copies=0", conv_pack_log)
+                        self.assertTrue(os.path.exists(op_hit_log_path), summary)
+                        with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                            op_hit_log = log_file.read()
+                        self.assertIn(
+                            "op=aten::convolution.buffer_float_patch_embed_route",
+                            op_hit_log,
+                        )
+                        self.assertIn(
+                            "op=aten::convolution.buffer_float_patch_embed_route.materialize_input",
+                            op_hit_log,
+                        )
+                        self.assertNotIn(
+                            "op=aten::convolution.buffer_float_skip.small_metadata_input",
+                            op_hit_log,
+                        )
+                    finally:
+                        for path in (log_path, op_hit_log_path):
+                            if os.path.exists(path):
+                                os.remove(path)
+
+    def test_patch_embed_float_buffer_conv_route_adjacent_guards(self):
+        def make_normalized_image(height, width, channels=3):
+            image = torch.randint(
+                0, 256, (height, width, channels), dtype=torch.uint8)
+            mean = torch.linspace(0.1, 0.4, channels)
+            std = torch.linspace(0.5, 0.8, channels)
+            cpu = ((image.float() / 255.0 - mean) / std).permute(
+                (2, 0, 1)).unsqueeze(0)
+            vulkan = (
+                (image.to("vulkan").float() / 255.0 - mean.to("vulkan"))
+                / std.to("vulkan")
+            ).permute((2, 0, 1)).unsqueeze(0)
+            return cpu, vulkan
+
+        torch.manual_seed(6701)
+        cases = (
+            ("bad_height_width", (140, 224, 3), (384, 3, 14, 14),
+             (14, 14), 0, 1, 1),
+            ("bad_output_channels", (140, 210, 3), (512, 3, 14, 14),
+             (14, 14), 0, 1, 1),
+            ("bad_kernel", (140, 210, 3), (384, 3, 13, 14),
+             (14, 14), 0, 1, 1),
+            ("bad_stride", (140, 210, 3), (384, 3, 14, 14),
+             (7, 7), 0, 1, 1),
+            ("bad_input_channels", (140, 210, 4), (384, 4, 14, 14),
+             (14, 14), 0, 1, 1),
+            ("bad_padding", (140, 210, 3), (384, 3, 14, 14),
+             (14, 14), 1, 1, 1),
+            ("bad_dilation", (140, 210, 3), (384, 3, 14, 14),
+             (14, 14), 0, 2, 1),
+        )
+        for (
+                name,
+                image_shape,
+                weight_shape,
+                stride,
+                padding,
+                dilation,
+                groups) in cases:
+            with self.subTest(name=name):
+                input_cpu, input_vulkan = make_normalized_image(*image_shape)
+                weight_cpu = torch.randn(*weight_shape)
+                bias_cpu = torch.randn(weight_shape[0])
+                expected = F.conv2d(
+                    input_cpu,
+                    weight_cpu,
+                    bias_cpu,
+                    stride=stride,
+                    padding=padding,
+                    dilation=dilation,
+                    groups=groups,
+                )
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                torch.ops.vulkan_prepack.reset_submit_origin_counters()
+                with torch.inference_mode():
+                    actual_vulkan = F.conv2d(
+                        input_vulkan,
+                        weight_cpu.to("vulkan"),
+                        bias_cpu.to("vulkan"),
+                        stride=stride,
+                        padding=padding,
+                        dilation=dilation,
+                        groups=groups,
+                    )
+                    fallback_before_cpu = (
+                        torch.ops.vulkan_prepack.cpu_fallback_count())
+                    sync_before_cpu = (
+                        torch.ops.vulkan_prepack.sync_readback_count())
+                    submit_before_cpu = _vulkan_submit_origin_counters_by_name()
+                    actual = actual_vulkan.cpu()
+                torch.testing.assert_close(
+                    actual, expected, atol=2e-3, rtol=2e-3)
+                self.assertEqual(fallback_before_cpu, 0)
+                self.assertGreater(sync_before_cpu, 0)
+                self.assertGreater(
+                    submit_before_cpu["tensor_cpu_readback"], 0)
+
     def test_large_pointwise_conv_weight_roundtrip(self):
         torch.manual_seed(0)
 

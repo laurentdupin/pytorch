@@ -417,6 +417,25 @@ condition and migration target.
 - Migration target: generated `SmallSpatialPointwiseConvContract` or broader
   pointwise `KernelFamilyContract` tables with positive and negative tests.
 
+### Patch Embed Float-Buffer Conv Route
+
+- Location: `aten/src/ATen/native/vulkan/ops/Convolution.cpp`
+- Status: temporary, contract-named
+- Reason: a bounded patch-embed conv family can avoid the value-bearing legacy
+  conv weight CPU repack/readback by using the existing float-buffer conv route,
+  but broader kernel-14/stride-14 conv layout behavior is not proven yet.
+- Generated spec coverage: none yet. The current route predicate is handwritten
+  and limited to float Vulkan tensors with input `[1,3,H,W]`, `(H,W)` in
+  `{(140,210),(280,434)}`, weight `[C,3,14,14]`, `C in {384,768,1024}`,
+  stride `[14,14]`, zero padding, dilation `[1,1]`, and groups `1`. Adjacent
+  negatives remain on the legacy path.
+- Expiry: generated patch-embed conv execution-plan or transition-contract
+  coverage exists with positive and adjacent negative tests, including input
+  layout/materialization accounting.
+- Migration target: generated `PatchEmbedFloatBufferConvRoute` execution-plan
+  metadata or a `ConvWeightDeviceRepackTransitionContract` if the legacy packed
+  layout is migrated to device-side repack.
+
 ### No-Overlap ConvTranspose2D Exact Envelope
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

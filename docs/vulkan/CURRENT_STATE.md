@@ -172,6 +172,15 @@ is enabled, but the CPU materialization, readback counters, explicit
 `Conv2dPackedContext::unpack()`, pickle semantics, and route behavior are
 unchanged.
 
+`PatchEmbedFloatBufferConvRoute` is a bounded execution-plan slice for
+kernel-14/stride-14 float patch-embed conv rows with input `[1,3,H,W]`,
+`(H,W)` in `{(140,210),(280,434)}`, weight `[C,3,14,14]`, and
+`C in {384,768,1024}`. It uses the existing `conv2d_buffer_float` path to avoid
+the legacy value-bearing conv weight CPU repack/readback for those rows while
+preserving the legacy path for adjacent negatives. Non-direct normalized input
+views are still explicitly materialized as Vulkan buffers before the conv; this
+is visible as device-side layout materialization, not hidden host staging.
+
 `PointwiseConvInputLayoutTransitionContract` is a schema-only proof contract
 for pointwise-conv input descriptor-view legality. It records that
 storage-offset-zero width-packed rows can use the existing
