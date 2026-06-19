@@ -103,6 +103,16 @@ VulkanStackRawResourceAllocationProof stack_raw_allocation_proof(
   return proof;
 }
 
+const std::string& pending_retire_allocation_label(
+    const PendingRetireBuffer& pending) {
+  return pending.buffer.allocation_label();
+}
+
+const std::string& pending_retire_allocation_label(
+    const PendingRetireImage& pending) {
+  return pending.image.allocation_label();
+}
+
 VulkanRetireDrainReason retire_drain_reason_for_current_phase() {
   switch (current_submit_phase()) {
     case VulkanSubmitPhase::ModelSetup:
@@ -214,6 +224,7 @@ struct RegionLifetimeSubmitResourceAttribution final {
   VulkanStackTempLifetimeSafety safety = VulkanStackTempLifetimeSafety::Unknown;
   VulkanStackRetireProvenance provenance;
   VulkanStackRawResourceAllocationProof allocation_proof;
+  std::string allocation_label;
 };
 
 template <typename PendingRetire>
@@ -238,7 +249,8 @@ make_region_lifetime_submit_resource_attribution(
       stack_retire_lifetime_safety_for_resource(
           pending.role, pending.stack_provenance),
       pending.stack_provenance,
-      stack_raw_allocation_proof(pending)};
+      stack_raw_allocation_proof(pending),
+      pending_retire_allocation_label(pending)};
 }
 
 std::string format_region_lifetime_submit_signature(
@@ -1201,6 +1213,8 @@ void Context::submit_pending_work_and_poll_retire(
         const VulkanStackTempLifetimeSafety safety =
             stack_retire_lifetime_safety_for_resource(
                 pending.role, pending.stack_provenance);
+        const VulkanStackRawResourceAllocationProof allocation_proof =
+            stack_raw_allocation_proof(pending);
         std::ostringstream resource_key;
         resource_key << retired_resource_role_name(pending.role) << ":"
                      << blocker_reason << ":"
@@ -1255,10 +1269,9 @@ void Context::submit_pending_work_and_poll_retire(
             effective_callsite,
             pending.bytes,
             qkv_would_batch,
-            pending.stack_provenance);
+            pending.stack_provenance,
+            allocation_proof);
         if (record_subresource_lifetime_dry_run) {
-          const VulkanStackRawResourceAllocationProof allocation_proof =
-              stack_raw_allocation_proof(pending);
           const char* const resource_class =
               stack_subresource_lifetime_dry_run_resource_class(
                   pending.kind,
@@ -1359,7 +1372,8 @@ void Context::submit_pending_work_and_poll_retire(
         submitted_for_retire_drain,
         had_pending_work,
         attribution.provenance,
-        attribution.allocation_proof);
+        attribution.allocation_proof,
+        attribution.allocation_label);
   }
   note_vulkan_retire_drain(
       retire_drain_reason_for_current_phase(),
@@ -1548,7 +1562,8 @@ VulkanSubmission Context::submit_cmd_to_gpu(
             /*queue_submit=*/true,
             /*had_pending_work=*/true,
             attribution.provenance,
-            attribution.allocation_proof);
+            attribution.allocation_proof,
+            attribution.allocation_label);
       }
     }
     {
@@ -1569,7 +1584,8 @@ VulkanSubmission Context::submit_cmd_to_gpu(
             /*queue_submit=*/true,
             /*had_pending_work=*/true,
             attribution.provenance,
-            attribution.allocation_proof);
+            attribution.allocation_proof,
+            attribution.allocation_label);
       }
     }
   }

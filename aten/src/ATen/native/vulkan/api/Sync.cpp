@@ -1028,6 +1028,130 @@ const char* stack_provenance_loss_reason(
   return "no_matching_stack_plan_proof";
 }
 
+const char* stack_region_lifetime_missing_proof_reason(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const char* const resource_class,
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const bool safe_candidate,
+    const bool large_backing) {
+  const std::string key(resource_class ? resource_class : "");
+  if (safe_candidate && !large_backing) {
+    return "none";
+  }
+  if (large_backing) {
+    return "large_backing_excluded";
+  }
+  if (key == kDryRunHostVisibleOrRequestedOutput) {
+    return "host_visible_or_requested_output";
+  }
+  if (key == kDryRunAllocatorOrScratchBacking) {
+    return "allocator_or_scratch_backing";
+  }
+  if (key == kDryRunStackInternalRawMissingGeneration) {
+    return "missing_allocation_generation";
+  }
+  if (
+      key == kDryRunRawNoProvenance ||
+      key == kDryRunTrulyUnknownRawResource) {
+    if (!allocation_proof.has_generation) {
+      return "missing_allocation_generation";
+    }
+    if (!allocation_proof.has_byte_range) {
+      return "missing_byte_range";
+    }
+    return "truly_unknown_raw_resource";
+  }
+  if (!allocation_proof.has_byte_range && is_stack_temp_role(role)) {
+    return "missing_byte_range";
+  }
+  if (
+      key ==
+      kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer) {
+    return "missing_last_consumer";
+  }
+  if (is_stack_raw_generation_range_non_escape_last_consumer_class(
+          resource_class)) {
+    return "missing_formal_raw_last_use_proof";
+  }
+  if (key == kDryRunAttentionRawAuxiliaryRangeNonEscapeLastConsumer) {
+    return "missing_formal_attention_auxiliary_last_use_proof";
+  }
+  if (key == kDryRunAttentionScoreProbabilityRangeNonEscapeLastConsumer) {
+    return "missing_formal_attention_probability_last_use_proof";
+  }
+  if (
+      key == kDryRunAttentionRawAuxiliaryRangeMissingAliasEscapeProof ||
+      key == kDryRunAttentionScoreProbabilityRangeMissingAliasEscapeProof) {
+    return "missing_alias_escape_proof";
+  }
+  if (
+      key == kDryRunAttentionBufferGenerationRangeMissingStackProof ||
+      key == kDryRunAttentionRawGenerationRangeMissingStackProof) {
+    return "missing_stack_scope_proof";
+  }
+  if (
+      key == kDryRunAttentionProvenanceMissingLastUse ||
+      (!provenance.has_last_use_proof && is_stack_temp_role(role))) {
+    return "missing_last_use_proof";
+  }
+  if (
+      provenance.defined &&
+      (!provenance.internal_non_escaping || provenance.alias_or_view ||
+       provenance.aliases_runtime_input || provenance.aliases_runtime_output)) {
+    return "missing_non_escape_or_alias_proof";
+  }
+  const char* const provenance_loss =
+      stack_provenance_loss_reason(role, provenance);
+  if (std::string(provenance_loss) != "none") {
+    return provenance_loss;
+  }
+  (void)kind;
+  return "unsafe_resource_class";
+}
+
+const char* stack_region_lifetime_last_use_candidate(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const char* const resource_class,
+    const VulkanStackRetireProvenance& provenance) {
+  if (provenance.has_last_use_proof) {
+    return vision_stack_phase_name(provenance.expected_consumer_phase);
+  }
+  if (
+      is_attention_score_probability_range_class(resource_class) ||
+      is_attention_raw_auxiliary_range_class(resource_class)) {
+    return attention_last_consumer_for_dry_run(resource_class);
+  }
+  if (is_stack_raw_generation_range_evidence_class(resource_class)) {
+    return stack_raw_last_consumer_for_dry_run(role, resource_class);
+  }
+  if (kind == VulkanRetiredResourceKind::UniformBuffer) {
+    return "descriptor_consumer";
+  }
+  return "unknown";
+}
+
+const char* stack_region_lifetime_producer_substep(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const char* const resource_class,
+    const VulkanStackRetireProvenance& provenance) {
+  if (
+      is_attention_score_probability_range_class(resource_class) ||
+      is_attention_raw_auxiliary_range_class(resource_class)) {
+    return attention_producer_for_dry_run(resource_class);
+  }
+  if (provenance.phase != VulkanVisionStackPhase::Unknown) {
+    return vision_stack_phase_name(provenance.phase);
+  }
+  if (is_metadata_or_uniform_resource(kind, role)) {
+    return "metadata_or_uniform";
+  }
+  return "unknown";
+}
+
 bool is_stack_temp_role(const VulkanRetiredResourceRole role) {
   switch (role) {
     case VulkanRetiredResourceRole::StackInternalTemp:
@@ -2669,15 +2793,37 @@ void note_stack_retire_drain_blocker_resource(
     const VulkanRetireCallSite callsite,
     const uint64_t bytes,
     const bool qkv_would_batch,
-    const VulkanStackRetireProvenance& provenance) {
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof) {
   const char* reason =
       stack_drain_blocker_reason(kind, role, provenance, qkv_would_batch);
   const VulkanStackTempLifetimeSafety safety =
       classify_stack_temp_lifetime_safety(role, provenance);
+  const char* const resource_class =
+      stack_subresource_lifetime_dry_run_resource_class(
+          kind, role, provenance, qkv_would_batch, allocation_proof);
+  const bool safe_candidate =
+      stack_subresource_lifetime_dry_run_resource_is_safe(resource_class);
+  const bool large_backing =
+      stack_subresource_lifetime_dry_run_is_large_backing(
+          role, bytes, provenance);
+  const char* const missing_proof_reason =
+      stack_region_lifetime_missing_proof_reason(
+          kind,
+          role,
+          resource_class,
+          provenance,
+          allocation_proof,
+          safe_candidate,
+          large_backing);
   std::ostringstream key;
   key << "role=" << retired_resource_role_name(role)
       << " reason=" << reason
       << " safety=" << stack_temp_lifetime_safety_name(safety)
+      << " resource_class=" << resource_class
+      << " safe_candidate=" << (safe_candidate ? 1 : 0)
+      << " large_backing=" << (large_backing ? 1 : 0)
+      << " missing_proof_reason=" << missing_proof_reason
       << " phase=" << submit_phase_name(phase)
       << " callsite=" << retire_call_site_name(callsite)
       << " stack_phase=" << vision_stack_phase_name(provenance.phase)
@@ -2696,6 +2842,15 @@ void note_stack_retire_drain_blocker_resource(
       << stack_retire_provenance_source_name(provenance.source)
       << " provenance_source_id=" << provenance.source_identity
       << " provenance_source_generation=" << provenance.source_generation
+      << " allocation_id=" << allocation_proof.allocation_id
+      << " allocation_generation="
+      << allocation_proof.allocation_generation
+      << " allocation_has_generation="
+      << (allocation_proof.has_generation ? 1 : 0)
+      << " allocation_byte_offset=" << allocation_proof.byte_offset
+      << " allocation_byte_range=" << allocation_proof.byte_range
+      << " allocation_has_byte_range="
+      << (allocation_proof.has_byte_range ? 1 : 0)
       << " provenance_loss_reason="
       << stack_provenance_loss_reason(role, provenance);
   std::lock_guard<std::mutex> lock(stack_retire_drain_blocker_snapshot_mutex());
@@ -2882,7 +3037,32 @@ void note_region_lifetime_submit_attribution_resource(
     const bool queue_submit,
     const bool had_pending_work,
     const VulkanStackRetireProvenance& provenance,
-    const VulkanStackRawResourceAllocationProof& allocation_proof) {
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label) {
+  const bool qkv_would_batch =
+      is_qkv_stack_temp_retire_batch_candidate(provenance);
+  const char* const resource_class =
+      stack_subresource_lifetime_dry_run_resource_class(
+          kind, role, provenance, qkv_would_batch, allocation_proof);
+  const bool safe_candidate =
+      stack_subresource_lifetime_dry_run_resource_is_safe(resource_class);
+  const bool large_backing =
+      stack_subresource_lifetime_dry_run_is_large_backing(
+          role, bytes, provenance);
+  const char* const missing_proof_reason =
+      stack_region_lifetime_missing_proof_reason(
+          kind,
+          role,
+          resource_class,
+          provenance,
+          allocation_proof,
+          safe_candidate,
+          large_backing);
+  const bool capture_or_public_output =
+      provenance.escapes_stack || provenance.requested_intermediate ||
+      provenance.final_output ||
+      role == VulkanRetiredResourceRole::StackRequestedOutput ||
+      role == VulkanRetiredResourceRole::StackFinalOutput;
   std::ostringstream key;
   key << "resource=1 origin=" << submit_origin_name(origin)
       << " phase=" << submit_phase_name(phase)
@@ -2891,6 +3071,19 @@ void note_region_lifetime_submit_attribution_resource(
       << " role=" << retired_resource_role_name(role)
       << " reason=" << (reason ? reason : "unknown")
       << " safety=" << stack_temp_lifetime_safety_name(safety)
+      << " resource_class=" << resource_class
+      << " safe_candidate=" << (safe_candidate ? 1 : 0)
+      << " large_backing=" << (large_backing ? 1 : 0)
+      << " missing_proof_reason=" << missing_proof_reason
+      << " producer_substep="
+      << stack_region_lifetime_producer_substep(
+             kind, role, resource_class, provenance)
+      << " last_use_candidate="
+      << stack_region_lifetime_last_use_candidate(
+             kind, role, resource_class, provenance)
+      << " capture_or_public_output="
+      << (capture_or_public_output ? 1 : 0)
+      << " qkv_would_batch=" << (qkv_would_batch ? 1 : 0)
       << " queue_submit=" << (queue_submit ? 1 : 0)
       << " had_pending_work=" << (had_pending_work ? 1 : 0)
       << " stack_phase=" << vision_stack_phase_name(provenance.phase)
@@ -2918,6 +3111,11 @@ void note_region_lifetime_submit_attribution_resource(
       << (provenance.aliases_runtime_output ? 1 : 0)
       << " provenance_source="
       << stack_retire_provenance_source_name(provenance.source)
+      << " provenance_label="
+      << stack_retire_provenance_source_name(provenance.source)
+      << " allocation_label="
+      << (allocation_label.empty() ? "unknown" : allocation_label)
+      << " allocation_id=" << allocation_proof.allocation_id
       << " allocation_has_generation="
       << (allocation_proof.has_generation ? 1 : 0)
       << " allocation_generation="
@@ -2926,7 +3124,13 @@ void note_region_lifetime_submit_attribution_resource(
       << (allocation_proof.has_byte_range ? 1 : 0)
       << " allocation_byte_offset=" << allocation_proof.byte_offset
       << " allocation_byte_range=" << allocation_proof.byte_range
-      << " allocation_allocated_bytes=" << allocation_proof.allocated_bytes;
+      << " allocation_allocated_bytes=" << allocation_proof.allocated_bytes
+      << " diagnostic_stack_scope=" << (inside_vision_stack_phase() ? 1 : 0)
+      << " diagnostic_stack_phase="
+      << vision_stack_phase_name(current_vision_stack_phase())
+      << " diagnostic_stack_block=" << current_vision_stack_block_index()
+      << " provenance_loss_reason="
+      << stack_provenance_loss_reason(role, provenance);
   std::lock_guard<std::mutex> lock(region_lifetime_submit_attribution_mutex());
   auto& value = region_lifetime_submit_attribution_rows()[key.str()];
   value.count += 1u;

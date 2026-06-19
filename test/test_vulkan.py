@@ -19417,6 +19417,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and "origin=retire_queue_drain" in row
                 and "role=" in row
                 and "allocation_has_generation=" in row
+                and "allocation_id=" in row
+                and "allocation_label=" in row
+                and "resource_class=" in row
+                and "missing_proof_reason=" in row
+                and "producer_substep=" in row
+                and "last_use_candidate=" in row
+                and "capture_or_public_output=" in row
+                and "diagnostic_stack_phase=" in row
                 for row in submit_attribution
             )
         )
@@ -19448,6 +19456,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "reason=missing_proof" in row
                 and "provenance_source=" in row
                 and "provenance_loss_reason=" in row
+                and "resource_class=" in row
+                and "missing_proof_reason=" in row
+                and "allocation_id=" in row
                 for row in blocker
             )
         )

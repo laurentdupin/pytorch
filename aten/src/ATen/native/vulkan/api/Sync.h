@@ -623,7 +623,8 @@ TORCH_API void note_stack_retire_drain_blocker_resource(
     VulkanRetireCallSite callsite,
     uint64_t bytes,
     bool qkv_would_batch,
-    const VulkanStackRetireProvenance& provenance);
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof);
 TORCH_API void note_stack_retire_drain_blocker_summary(
     VulkanSubmitPhase phase,
     VulkanRetireCallSite callsite,
@@ -674,7 +675,8 @@ TORCH_API void note_region_lifetime_submit_attribution_resource(
     bool queue_submit,
     bool had_pending_work,
     const VulkanStackRetireProvenance& provenance,
-    const VulkanStackRawResourceAllocationProof& allocation_proof);
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label);
 TORCH_API const char* stack_subresource_lifetime_dry_run_resource_class(
     VulkanRetiredResourceKind kind,
     VulkanRetiredResourceRole role,
