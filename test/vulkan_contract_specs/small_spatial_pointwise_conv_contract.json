@@ -628,6 +628,14 @@
           {
             "family": "DepthVisionProjection",
             "input_c": 1024,
+            "input_h": 30,
+            "input_w": 45,
+            "output_c": 1024,
+            "tuple_id": "depth_projection_1024_30x45_1024"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 1024,
             "input_h": 40,
             "input_w": 62,
             "output_c": 256,
@@ -640,6 +648,14 @@
             "input_w": 62,
             "output_c": 512,
             "tuple_id": "depth_projection_1024_40x62_512"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 1024,
+            "input_h": 40,
+            "input_w": 62,
+            "output_c": 1024,
+            "tuple_id": "depth_projection_1024_40x62_1024"
           },
           {
             "family": "OCRProjection",
@@ -1637,6 +1653,38 @@
       "expected_cpu_fallback": false
     },
     {
+      "name": "depth_projection_1024_30x45_1024",
+      "input_shape": [
+        1,
+        1024,
+        30,
+        45
+      ],
+      "out_channels": 1024,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_1024_30x45_1024",
+      "expected_cpu_fallback": false
+    },
+    {
       "name": "depth_projection_1024_40x62_256",
       "input_shape": [
         1,
@@ -1698,6 +1746,38 @@
       "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
       "expected_contract_family": "DepthVisionProjection",
       "expected_contract_tuple_id": "depth_projection_1024_40x62_512",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_1024_40x62_1024",
+      "input_shape": [
+        1,
+        1024,
+        40,
+        62
+      ],
+      "out_channels": 1024,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_1024_40x62_1024",
       "expected_cpu_fallback": false
     },
     {
@@ -3667,14 +3747,14 @@
       "expected_native_route": false,
       "expected_cpu_fallback": false,
       "expected_error_regex": "KnownBadLargePointwiseConv",
-      "name": "exact_midres_unproven_channel_pair_1024x1024_30x45",
+      "name": "exact_midres_unproven_channel_pair_1024x768_30x45",
       "input_shape": [
         1,
         1024,
         30,
         45
       ],
-      "out_channels": 1024,
+      "out_channels": 768,
       "violates": "projection_rows.forbidden_cross_product"
     },
     {
@@ -3699,14 +3779,14 @@
       "expected_native_route": false,
       "expected_cpu_fallback": false,
       "expected_error_regex": "KnownBadLargePointwiseConv",
-      "name": "exact_midres_unproven_channel_pair_1024x1024_40x62",
+      "name": "exact_midres_unproven_channel_pair_1024x768_40x62",
       "input_shape": [
         1,
         1024,
         40,
         62
       ],
-      "out_channels": 1024,
+      "out_channels": 768,
       "violates": "projection_rows.forbidden_cross_product"
     }
   ]

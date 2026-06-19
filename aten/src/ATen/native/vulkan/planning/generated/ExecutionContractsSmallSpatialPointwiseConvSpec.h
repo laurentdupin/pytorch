@@ -24,7 +24,7 @@ constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId =
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsGuardId = "small_spatial_pointwise_conv_adjacent_guards";
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy = "unsupported_shapes_do_not_match";
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy = "native_buffer_kernel";
-constexpr std::int64_t kSmallSpatialPointwiseConvProjectionRowsRowCount = 53;
+constexpr std::int64_t kSmallSpatialPointwiseConvProjectionRowsRowCount = 55;
 
 struct SmallSpatialPointwiseConvProjectionRowsRow final {
   const char* family;
@@ -264,6 +264,15 @@ constexpr SmallSpatialPointwiseConvProjectionRowsRow kSmallSpatialPointwiseConvP
     {
         "DepthVisionProjection",
         1024,
+        30,
+        45,
+        1024,
+        "depth_projection_1024_30x45_1024",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "DepthVisionProjection", "depth_projection_1024_30x45_1024", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "DepthVisionProjection",
+        1024,
         40,
         62,
         256,
@@ -278,6 +287,15 @@ constexpr SmallSpatialPointwiseConvProjectionRowsRow kSmallSpatialPointwiseConvP
         512,
         "depth_projection_1024_40x62_512",
         ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "DepthVisionProjection", "depth_projection_1024_40x62_512", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "DepthVisionProjection",
+        1024,
+        40,
+        62,
+        1024,
+        "depth_projection_1024_40x62_1024",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "DepthVisionProjection", "depth_projection_1024_40x62_1024", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
     },
     {
         "OCRProjection",
