@@ -727,11 +727,15 @@ These files are diagnostic inputs. Production code must not depend on
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h` from
   `small_spatial_pointwise_conv_contract.json` for contract identity,
-  per-row metadata, input/weight channel equality, the 39 correlated
+  per-row metadata, input/weight channel equality, the 47 correlated
   projection rows, exact lookup by input/output channel and spatial shape, and
-  the generated 144-shape factorized depth-vision projection helper. That
-  helper is constrained to approved channel-pair and spatial-pair correlation
-  groups; broader min/max and independent cross-products remain guarded.
+  the generated 144-shape factorized depth-vision projection helper. The sparse
+  rows now include eight exact mid-resolution depth-vision projection rows for
+  spatial pairs `(30,45)` and `(40,62)` with only the proven channel/output
+  pairs. Those spatial pairs were not added to the 144-shape factorized helper.
+  That helper remains constrained to its approved channel-pair and spatial-pair
+  correlation groups; broader min/max and independent cross-products remain
+  guarded.
   Route-policy hard-fail rescue, shader-family decisions, family op-hit
   labels, and match result construction remain handwritten outside the bounded
   admission extension.

@@ -205,6 +205,10 @@
         "adjacent": "forbidden_cross_product"
       },
       {
+        "violates": "projection_rows.input_h",
+        "adjacent": "wrong_value"
+      },
+      {
         "violates": "projection_rows.input_w",
         "adjacent": "wrong_value"
       },
@@ -524,6 +528,70 @@
             "input_w": 30,
             "output_c": 384,
             "tuple_id": "depth_projection_384_45x30_384"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 30,
+            "input_w": 45,
+            "output_c": 192,
+            "tuple_id": "depth_projection_384_30x45_192"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 30,
+            "input_w": 45,
+            "output_c": 384,
+            "tuple_id": "depth_projection_384_30x45_384"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 40,
+            "input_w": 62,
+            "output_c": 192,
+            "tuple_id": "depth_projection_384_40x62_192"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 384,
+            "input_h": 40,
+            "input_w": 62,
+            "output_c": 384,
+            "tuple_id": "depth_projection_384_40x62_384"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 768,
+            "input_h": 30,
+            "input_w": 45,
+            "output_c": 192,
+            "tuple_id": "depth_projection_768_30x45_192"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 768,
+            "input_h": 40,
+            "input_w": 62,
+            "output_c": 192,
+            "tuple_id": "depth_projection_768_40x62_192"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 1024,
+            "input_h": 30,
+            "input_w": 45,
+            "output_c": 256,
+            "tuple_id": "depth_projection_1024_30x45_256"
+          },
+          {
+            "family": "DepthVisionProjection",
+            "input_c": 1024,
+            "input_h": 40,
+            "input_w": 62,
+            "output_c": 256,
+            "tuple_id": "depth_projection_1024_40x62_256"
           },
           {
             "family": "OCRProjection",
@@ -1134,6 +1202,262 @@
       "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
       "expected_contract_family": "DepthVisionProjection",
       "expected_contract_tuple_id": "depth_projection_384_45x30_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_30x45_192",
+      "input_shape": [
+        1,
+        384,
+        30,
+        45
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_30x45_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_30x45_384",
+      "input_shape": [
+        1,
+        384,
+        30,
+        45
+      ],
+      "out_channels": 384,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_30x45_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_40x62_192",
+      "input_shape": [
+        1,
+        384,
+        40,
+        62
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_40x62_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_384_40x62_384",
+      "input_shape": [
+        1,
+        384,
+        40,
+        62
+      ],
+      "out_channels": 384,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_384_40x62_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_768_30x45_192",
+      "input_shape": [
+        1,
+        768,
+        30,
+        45
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_768_30x45_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_768_40x62_192",
+      "input_shape": [
+        1,
+        768,
+        40,
+        62
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_768_40x62_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_1024_30x45_256",
+      "input_shape": [
+        1,
+        1024,
+        30,
+        45
+      ],
+      "out_channels": 256,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_1024_30x45_256",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "depth_projection_1024_40x62_256",
+      "input_shape": [
+        1,
+        1024,
+        40,
+        62
+      ],
+      "out_channels": 256,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "DepthVisionProjection",
+      "expected_contract_tuple_id": "depth_projection_1024_40x62_256",
       "expected_cpu_fallback": false
     },
     {
@@ -2761,6 +3085,197 @@
       ],
       "out_channels": 640,
       "violates": "factorized_projection.channel_pair"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "name": "exact_midres_spatial_pair_30x44_outside_sparse_rows",
+      "input_shape": [
+        1,
+        384,
+        30,
+        44
+      ],
+      "out_channels": 192,
+      "violates": "projection_rows.input_w"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "name": "exact_midres_spatial_pair_31x45_outside_sparse_rows",
+      "input_shape": [
+        1,
+        384,
+        31,
+        45
+      ],
+      "out_channels": 192,
+      "violates": "projection_rows.input_h",
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "name": "exact_midres_spatial_pair_39x62_outside_sparse_rows",
+      "input_shape": [
+        1,
+        384,
+        39,
+        62
+      ],
+      "out_channels": 192,
+      "violates": "projection_rows.input_h",
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "name": "exact_midres_spatial_pair_40x63_outside_sparse_rows",
+      "input_shape": [
+        1,
+        384,
+        40,
+        63
+      ],
+      "out_channels": 192,
+      "violates": "projection_rows.input_w",
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv",
+      "name": "exact_midres_unproven_channel_pair_768x384_30x45",
+      "input_shape": [
+        1,
+        768,
+        30,
+        45
+      ],
+      "out_channels": 384,
+      "violates": "projection_rows.forbidden_cross_product"
+    },
+    {
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv",
+      "name": "exact_midres_unproven_channel_pair_1024x512_40x62",
+      "input_shape": [
+        1,
+        1024,
+        40,
+        62
+      ],
+      "out_channels": 512,
+      "violates": "projection_rows.forbidden_cross_product"
     }
   ]
 }
