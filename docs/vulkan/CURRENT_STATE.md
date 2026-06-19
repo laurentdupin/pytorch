@@ -80,6 +80,20 @@ float rank-3 square score tensors with heads `{1, 5}` and sequence
 `{504, 640}`. `ExecutionContracts.cpp` now owns the shared metadata
 completeness helper rather than an SDPA-specific route-policy bucket.
 
+Contract admission now has proof-carrying governance in
+`docs/vulkan/CONTRACT_VALIDATION.md`. The checked-in accepted-row manifest
+`test/vulkan_contract_proofs/accepted_contract_rows_manifest.json` records the
+generated admission surface and dependency digests for JSON specs, generated
+C++ helpers, and known high-risk matcher/route/transition sources. The proof
+ledger `test/vulkan_contract_proofs/contract_proof_manifest.json` currently
+covers the highest-risk bounded contracts:
+`SmallSpatialPointwiseConvContract`, `PatchEmbedFloatBufferConvRoute`,
+`PatchEmbedFeatureMapToTokensContract`, `TokenPrefixCatAddContract`, and
+`AttentionProbabilityMaterializationContract`. The comparison tool
+`tools/vulkan_contract_codegen/compare_contract_admission.py` reports admitted
+row deltas, cardinality increases, exact-row debt changes, and stale dependency
+digests; it is governance-only and does not change runtime route behavior.
+
 `TokenPrefixCatAddContract` covers the bounded rank-3 prefix-token concat plus
 position-add envelope observed in DAv2 token preparation:
 `prefix=[1,1,C]`, `tokens=[1,N,C]`, `pos/out=[1,N+1,C]`,

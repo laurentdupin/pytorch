@@ -26,6 +26,12 @@ condition and migration target.
 - Metadata: each new exact row must carry contract/family/tuple/evidence/guard,
   fallback, and materialization metadata. Metadata is a migration guardrail, not
   an expiry condition by itself.
+- Proof ledger: high-risk exact rows are also tracked in
+  `test/vulkan_contract_proofs/contract_proof_manifest.json`. Changes to exact
+  rows in covered contracts must update the accepted-row manifest and proof
+  ledger through `tools/vulkan_contract_codegen/compare_contract_admission.py`
+  so row debt, dependency drift, and cardinality changes are reviewed rather
+  than silently accepted.
 - Expiry: generated positive and adjacent negative tests cover the family well
   enough to review a parameterized policy.
 - Migration target: generated `KernelFamilyContract` tables with positive and

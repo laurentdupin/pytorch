@@ -1620,6 +1620,101 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("ExecutionContractsTransformerGQASDPASpec.h", result.stdout)
         self.assertIn("ExecutionContractsVisionSelfAttentionSDPASpec.h", result.stdout)
 
+    def test_vulkan_contract_admission_compare_self_test(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "tools",
+                    "vulkan_contract_codegen",
+                    "compare_contract_admission.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--self-test",
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            msg=f"stdout={result.stdout}\nstderr={result.stderr}",
+        )
+        self.assertIn("validated contract admission compare self-test", result.stdout)
+
+    def test_vulkan_accepted_contract_row_manifest_is_current(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "tools",
+                    "vulkan_contract_codegen",
+                    "compare_contract_admission.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--validate-accepted-manifest",
+                "--accepted-manifest",
+                os.path.join(
+                    REPO_ROOT,
+                    "test",
+                    "vulkan_contract_proofs",
+                    "accepted_contract_rows_manifest.json",
+                ),
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            msg=f"stdout={result.stdout}\nstderr={result.stderr}",
+        )
+        self.assertIn("validated accepted contract row manifest", result.stdout)
+
+    def test_vulkan_contract_proof_manifest_is_current(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "tools",
+                    "vulkan_contract_codegen",
+                    "compare_contract_admission.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--validate-proof-manifest",
+                "--proof-manifest",
+                os.path.join(
+                    REPO_ROOT,
+                    "test",
+                    "vulkan_contract_proofs",
+                    "contract_proof_manifest.json",
+                ),
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            msg=f"stdout={result.stdout}\nstderr={result.stderr}",
+        )
+        self.assertIn("validated proof manifest", result.stdout)
+
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
         self.assertEqual(summary["specs"], 33)
