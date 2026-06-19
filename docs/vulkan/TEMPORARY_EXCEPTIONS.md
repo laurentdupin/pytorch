@@ -401,12 +401,12 @@ condition and migration target.
   positive and adjacent negative runtime cases plus generic ShapeEnvelope
   sparse-rowset helper output in
   `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`. The generated
-  helper owns the 47 correlated projection rows, per-row metadata,
+  helper owns the 51 correlated projection rows, per-row metadata,
   input/weight channel equality, and exact `(input_c, input_h, input_w,
   output_c)` lookup. It also owns the cross-adapter proven 144-shape
   factorized depth-vision projection group: 18 approved channel pairs crossed
   with eight approved spatial pairs, including 84 validated corpus/proof
-  shapes and 60 proven extrapolations. The eight newly admitted mid-resolution
+  shapes and 60 proven extrapolations. The twelve newly admitted mid-resolution
   depth-vision rows are exact sparse rows only; their `(30,45)` and `(40,62)`
   spatial pairs are not part of the factorized group. Naive min/max envelopes,
   independent H/W cross-products, and wider channel/spatial cross-products
