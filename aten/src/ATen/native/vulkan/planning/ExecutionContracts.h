@@ -288,6 +288,23 @@ struct TokenPrefixCatAddMatch final {
   int64_t total_tokens{0};
 };
 
+enum class PatchEmbedFeatureMapToTokensFamily : uint8_t {
+  None = 0u,
+  Kernel14Stride14ObservedFeatureMap,
+};
+
+struct PatchEmbedFeatureMapToTokensMatch final {
+  bool matched{false};
+  PatchEmbedFeatureMapToTokensFamily family{
+      PatchEmbedFeatureMapToTokensFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+  int64_t channels{0};
+  int64_t feature_h{0};
+  int64_t feature_w{0};
+  int64_t token_count{0};
+};
+
 enum class EmbeddingLookupFamily : uint8_t {
   None = 0u,
   SmallBoundedLookup,
@@ -683,6 +700,27 @@ bool matches_token_prefix_cat_add_contract(
     int64_t dim,
     bool inplace,
     bool alias_output);
+
+const char* patch_embed_feature_map_to_tokens_family_name(
+    PatchEmbedFeatureMapToTokensFamily family);
+
+PatchEmbedFeatureMapToTokensMatch match_patch_embed_feature_map_to_tokens_contract(
+    IntArrayRef feature_map_sizes,
+    ScalarType dtype,
+    bool is_vulkan,
+    bool has_buffer_storage,
+    bool is_width_packed,
+    bool has_zero_storage_offset,
+    bool supports_buffer_compute);
+
+bool matches_patch_embed_feature_map_to_tokens_contract(
+    IntArrayRef feature_map_sizes,
+    ScalarType dtype,
+    bool is_vulkan,
+    bool has_buffer_storage,
+    bool is_width_packed,
+    bool has_zero_storage_offset,
+    bool supports_buffer_compute);
 
 const char* embedding_lookup_family_name(EmbeddingLookupFamily family);
 

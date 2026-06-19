@@ -198,6 +198,17 @@
       ]
     },
     {
+      "spec_file": "patch_embed_feature_map_to_tokens_contract.json",
+      "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsPatchEmbedFeatureMapToTokensSpec.h",
+      "markers": [
+        "PatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapSpec",
+        "PatchEmbedFeatureMapToTokensFeatureMapRowsRow",
+        "kPatchEmbedFeatureMapToTokensFeatureMapRowsRowCount",
+        "patch_embed_feature_map_to_tokens_feature_map_rows_row_matches",
+        "patch_embed_feature_map_to_tokens_feature_map_rows_find"
+      ]
+    },
+    {
       "spec_file": "safe_view_reshape_alias_contract.json",
       "header": "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSafeViewReshapeAliasSpec.h",
       "markers": [

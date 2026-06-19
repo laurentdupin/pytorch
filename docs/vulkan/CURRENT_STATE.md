@@ -183,6 +183,17 @@ float-buffer conv metadata UBO instead of first materializing it to a direct
 buffer. This removes the route-local patch-embed input copy without adding
 host staging or a new shader.
 
+`PatchEmbedFeatureMapToTokensContract` is the bounded layout-transition
+contract for the Vulkan-resident patch-embed feature map produced by that
+route. It covers rank-4 float width-packed buffer feature maps
+`[1,C,H,W] -> [1,H*W,C]` for `C in {384,768,1024}` and feature spatial pairs
+`(H,W) in {(10,15),(20,31)}`. The benchmark token-preparation path may call the
+generic `vulkan_prepack::patch_embed_feature_map_to_tokens` wrapper only for
+that exact contract and only when patch-embed normalization is identity. The
+wrapper uses the existing buffer feature-map-to-tokens kernel and keeps
+unsupported ranks, dtypes, storage offsets, layout classes, channels, and
+spatial pairs guarded rather than falling back through CPU.
+
 `PointwiseConvInputLayoutTransitionContract` is a schema-only proof contract
 for pointwise-conv input descriptor-view legality. It records that
 storage-offset-zero width-packed rows can use the existing

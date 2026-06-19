@@ -1,0 +1,582 @@
+{
+  "schema_version": 1,
+  "contract_name": "PatchEmbedFeatureMapToTokensContract",
+  "family": "Kernel14Stride14ObservedFeatureMap",
+  "tuple_id": "patch_embed_feature_map_tokens_c384_768_1024_h10_20_w15_31",
+  "writer_op": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+  "route_label": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+  "metadata": {
+    "evidence_id": "task_patch_embed_feature_map_to_tokens_vulkan_resident",
+    "guard_id": "patch_embed_feature_map_to_tokens_observed_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_do_not_match",
+    "materialization_policy": "device_layout_transition_feature_map_to_tokens"
+  },
+  "bounds": {
+    "dtype": "float32",
+    "input_rank": 4,
+    "output_rank": 3,
+    "batch": 1,
+    "channels": [
+      384,
+      768,
+      1024
+    ],
+    "feature_heights": [
+      10,
+      20
+    ],
+    "feature_widths": [
+      15,
+      31
+    ],
+    "token_counts": [
+      150,
+      620
+    ],
+    "requires_vulkan": true,
+    "requires_buffer_storage": true,
+    "requires_width_packed_input": true,
+    "requires_zero_storage_offset": true,
+    "requires_buffer_compute": true
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "patch_embed_feature_map_to_tokens_observed_feature_maps",
+    "inputs": {
+      "feature_map": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "B",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "C",
+            "field": "channels",
+            "values": [
+              384,
+              768,
+              1024
+            ]
+          },
+          {
+            "symbol": "H",
+            "field": "feature_h",
+            "values": [
+              10,
+              20
+            ]
+          },
+          {
+            "symbol": "W",
+            "field": "feature_w",
+            "values": [
+              15,
+              31
+            ]
+          }
+        ]
+      }
+    },
+    "results": {
+      "tokens": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            3
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "B",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "T",
+            "field": "tokens",
+            "values": [
+              150,
+              620
+            ]
+          },
+          {
+            "symbol": "C",
+            "field": "channels",
+            "values": [
+              384,
+              768,
+              1024
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "source_storage": {
+        "values": [
+          "buffer"
+        ]
+      },
+      "source_memory_layout": {
+        "values": [
+          "width_packed"
+        ]
+      },
+      "storage_offset": {
+        "values": [
+          0
+        ]
+      },
+      "output_storage": {
+        "values": [
+          "buffer"
+        ]
+      }
+    },
+    "bounds": {
+      "dtype": "float32",
+      "input_rank": 4,
+      "output_rank": 3,
+      "batch": 1,
+      "channels": [
+        384,
+        768,
+        1024
+      ],
+      "feature_heights": [
+        10,
+        20
+      ],
+      "feature_widths": [
+        15,
+        31
+      ],
+      "token_counts": [
+        150,
+        620
+      ],
+      "requires_vulkan": true,
+      "requires_buffer_storage": true,
+      "requires_width_packed_input": true,
+      "requires_zero_storage_offset": true,
+      "requires_buffer_compute": true
+    },
+    "relationships": [],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "source_storage": "buffer",
+      "source_memory_layout": "width_packed",
+      "source_storage_offset": 0,
+      "output_storage": "buffer"
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "task_patch_embed_feature_map_to_tokens_vulkan_resident",
+      "guard_id": "patch_embed_feature_map_to_tokens_observed_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_do_not_match",
+      "materialization_policy": "device_layout_transition_feature_map_to_tokens"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_do_not_match",
+      "readback": "not_expected_for_matches",
+      "copy": "device_layout_transition_feature_map_to_tokens"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "feature_map.channels",
+        "adjacent": "wrong_value",
+        "value": 512
+      },
+      {
+        "violates": "feature_map.feature_h",
+        "adjacent": "wrong_value",
+        "value": 11
+      },
+      {
+        "violates": "feature_map.feature_w",
+        "adjacent": "wrong_value",
+        "value": 14
+      },
+      {
+        "violates": "feature_map.rank",
+        "adjacent": "wrong_value",
+        "value": 3
+      },
+      {
+        "violates": "feature_map.dtype",
+        "adjacent": "wrong_value",
+        "value": "float16"
+      },
+      {
+        "violates": "source_storage_offset",
+        "adjacent": "wrong_value",
+        "value": 1
+      }
+    ],
+    "fuzz_hints": {
+      "sparse_rowset": "feature_map_rows",
+      "prefer_sparse_rows": true,
+      "symbolic_dims": [
+        "B",
+        "C",
+        "H",
+        "W",
+        "T"
+      ]
+    },
+    "sparse_rowsets": [
+      {
+        "name": "feature_map_rows",
+        "fields": [
+          "family",
+          "channels",
+          "feature_h",
+          "feature_w",
+          "tokens",
+          "tuple_id"
+        ],
+        "identity_fields": [
+          "family",
+          "channels",
+          "feature_h",
+          "feature_w",
+          "tokens"
+        ],
+        "lookup_fields": [
+          "family",
+          "channels",
+          "feature_h",
+          "feature_w",
+          "tokens"
+        ],
+        "label_field": "tuple_id",
+        "rows": [
+          {
+            "family": "Kernel14Stride14ObservedFeatureMap",
+            "channels": 384,
+            "feature_h": 10,
+            "feature_w": 15,
+            "tokens": 150,
+            "tuple_id": "feature_c384_10x15_tokens150"
+          },
+          {
+            "family": "Kernel14Stride14ObservedFeatureMap",
+            "channels": 768,
+            "feature_h": 10,
+            "feature_w": 15,
+            "tokens": 150,
+            "tuple_id": "feature_c768_10x15_tokens150"
+          },
+          {
+            "family": "Kernel14Stride14ObservedFeatureMap",
+            "channels": 1024,
+            "feature_h": 10,
+            "feature_w": 15,
+            "tokens": 150,
+            "tuple_id": "feature_c1024_10x15_tokens150"
+          },
+          {
+            "family": "Kernel14Stride14ObservedFeatureMap",
+            "channels": 384,
+            "feature_h": 20,
+            "feature_w": 31,
+            "tokens": 620,
+            "tuple_id": "feature_c384_20x31_tokens620"
+          },
+          {
+            "family": "Kernel14Stride14ObservedFeatureMap",
+            "channels": 768,
+            "feature_h": 20,
+            "feature_w": 31,
+            "tokens": 620,
+            "tuple_id": "feature_c768_20x31_tokens620"
+          },
+          {
+            "family": "Kernel14Stride14ObservedFeatureMap",
+            "channels": 1024,
+            "feature_h": 20,
+            "feature_w": 31,
+            "tokens": 620,
+            "tuple_id": "feature_c1024_20x31_tokens620"
+          }
+        ],
+        "negative_axes": [
+          {
+            "violates": "feature_map.channels",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "Kernel14Stride14ObservedFeatureMap",
+              "channels": 512,
+              "feature_h": 10,
+              "feature_w": 15,
+              "tokens": 150
+            }
+          },
+          {
+            "violates": "feature_map.feature_h",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "Kernel14Stride14ObservedFeatureMap",
+              "channels": 384,
+              "feature_h": 11,
+              "feature_w": 15,
+              "tokens": 165
+            }
+          },
+          {
+            "violates": "feature_map.feature_w",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "Kernel14Stride14ObservedFeatureMap",
+              "channels": 384,
+              "feature_h": 10,
+              "feature_w": 14,
+              "tokens": 140
+            }
+          }
+        ],
+        "row_match": {
+          "arguments": [
+            {
+              "name": "family",
+              "field": "family",
+              "type": "string"
+            },
+            {
+              "name": "channels",
+              "field": "channels",
+              "type": "int64"
+            },
+            {
+              "name": "feature_h",
+              "field": "feature_h",
+              "type": "int64"
+            },
+            {
+              "name": "feature_w",
+              "field": "feature_w",
+              "type": "int64"
+            },
+            {
+              "name": "tokens",
+              "field": "tokens",
+              "type": "int64"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "positive_cases": [
+    {
+      "name": "feature_c384_10x15_tokens150",
+      "input_shape": [
+        1,
+        384,
+        10,
+        15
+      ],
+      "output_shape": [
+        1,
+        150,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "expected_contract_tuple_id": "feature_c384_10x15_tokens150",
+      "expected_native_route": true
+    },
+    {
+      "name": "feature_c768_10x15_tokens150",
+      "input_shape": [
+        1,
+        768,
+        10,
+        15
+      ],
+      "output_shape": [
+        1,
+        150,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "expected_contract_tuple_id": "feature_c768_10x15_tokens150",
+      "expected_native_route": true
+    },
+    {
+      "name": "feature_c1024_10x15_tokens150",
+      "input_shape": [
+        1,
+        1024,
+        10,
+        15
+      ],
+      "output_shape": [
+        1,
+        150,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "expected_contract_tuple_id": "feature_c1024_10x15_tokens150",
+      "expected_native_route": true
+    },
+    {
+      "name": "feature_c384_20x31_tokens620",
+      "input_shape": [
+        1,
+        384,
+        20,
+        31
+      ],
+      "output_shape": [
+        1,
+        620,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "expected_contract_tuple_id": "feature_c384_20x31_tokens620",
+      "expected_native_route": true
+    },
+    {
+      "name": "feature_c768_20x31_tokens620",
+      "input_shape": [
+        1,
+        768,
+        20,
+        31
+      ],
+      "output_shape": [
+        1,
+        620,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "expected_contract_tuple_id": "feature_c768_20x31_tokens620",
+      "expected_native_route": true
+    },
+    {
+      "name": "feature_c1024_20x31_tokens620",
+      "input_shape": [
+        1,
+        1024,
+        20,
+        31
+      ],
+      "output_shape": [
+        1,
+        620,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "expected_contract_tuple_id": "feature_c1024_20x31_tokens620",
+      "expected_native_route": true
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "unsupported_channels",
+      "input_shape": [
+        1,
+        512,
+        10,
+        15
+      ],
+      "violates": "feature_map.channels",
+      "dtype": "float32",
+      "expected_native_route": false
+    },
+    {
+      "name": "unsupported_height",
+      "input_shape": [
+        1,
+        384,
+        11,
+        15
+      ],
+      "violates": "feature_map.feature_h",
+      "dtype": "float32",
+      "expected_native_route": false
+    },
+    {
+      "name": "unsupported_width",
+      "input_shape": [
+        1,
+        384,
+        10,
+        14
+      ],
+      "violates": "feature_map.feature_w",
+      "dtype": "float32",
+      "expected_native_route": false
+    },
+    {
+      "name": "wrong_rank",
+      "input_shape": [
+        1,
+        150,
+        384
+      ],
+      "violates": "feature_map.rank",
+      "dtype": "float32",
+      "expected_native_route": false
+    },
+    {
+      "name": "wrong_dtype",
+      "input_shape": [
+        1,
+        384,
+        10,
+        15
+      ],
+      "violates": "feature_map.dtype",
+      "dtype": "float16",
+      "expected_native_route": false
+    },
+    {
+      "name": "nonzero_storage_offset",
+      "input_shape": [
+        1,
+        384,
+        10,
+        15
+      ],
+      "violates": "source_storage_offset",
+      "dtype": "float32",
+      "storage_offset": 384,
+      "expected_native_route": false
+    }
+  ]
+}

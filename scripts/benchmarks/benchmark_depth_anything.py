@@ -55,6 +55,16 @@ TOKEN_PREFIX_CAT_ADD_TOKEN_COUNTS = frozenset(
     (150, 260, 600, 620, 1350, 1380, 2400, 2440, 3750, 3850)
 )
 TOKEN_PREFIX_CAT_ADD_FEATURE_DIMS = frozenset((384, 768, 1024))
+PATCH_EMBED_FEATURE_MAP_TO_TOKENS_SHAPES = frozenset(
+    (
+        (384, 10, 15),
+        (768, 10, 15),
+        (1024, 10, 15),
+        (384, 20, 31),
+        (768, 20, 31),
+        (1024, 20, 31),
+    )
+)
 
 
 def ensure_torchvision_runtime_compat(torch_module: Any) -> None:
@@ -223,10 +233,17 @@ def try_prepare_tokens_with_fused_prefix_cat_add(
 ) -> Any | None:
     ops = getattr(getattr(torch_module, "ops", None), "vulkan_prepack", None)
     fused = getattr(ops, "token_prefix_cat_add", None) if ops is not None else None
-    if fused is None:
+    feature_map_to_tokens = (
+        getattr(ops, "patch_embed_feature_map_to_tokens", None)
+        if ops is not None
+        else None
+    )
+    if fused is None or feature_map_to_tokens is None:
         return None
 
     patch_embed = getattr(pretrained, "patch_embed", None)
+    patch_proj = getattr(patch_embed, "proj", None) if patch_embed is not None else None
+    patch_norm = getattr(patch_embed, "norm", None) if patch_embed is not None else None
     cls_token = getattr(pretrained, "cls_token", None)
     interpolate_pos_encoding = getattr(
         pretrained,
@@ -236,6 +253,7 @@ def try_prepare_tokens_with_fused_prefix_cat_add(
     register_tokens = getattr(pretrained, "register_tokens", None)
     if (
         patch_embed is None
+        or patch_proj is None
         or cls_token is None
         or interpolate_pos_encoding is None
         or register_tokens is not None
@@ -246,6 +264,8 @@ def try_prepare_tokens_with_fused_prefix_cat_add(
     if getattr(x.device, "type", None) != "vulkan" or x.dtype != torch_module.float32:
         return None
     if x.dim() != 4 or int(x.shape[0]) != 1:
+        return None
+    if patch_norm is not None and not isinstance(patch_norm, torch_module.nn.Identity):
         return None
 
     patch_size = getattr(patch_embed, "patch_size", None)
@@ -266,8 +286,33 @@ def try_prepare_tokens_with_fused_prefix_cat_add(
     expected_tokens = (height // patch_h) * (width // patch_w)
     if expected_tokens not in TOKEN_PREFIX_CAT_ADD_TOKEN_COUNTS:
         return None
+    expected_feature_h = height // patch_h
+    expected_feature_w = width // patch_w
+    expected_feature_dim = int(getattr(patch_proj, "out_channels", 0))
+    if (
+        expected_feature_dim,
+        expected_feature_h,
+        expected_feature_w,
+    ) not in PATCH_EMBED_FEATURE_MAP_TO_TOKENS_SHAPES:
+        return None
 
-    tokens = patch_embed(x)
+    with vulkan_submit_phase(torch_module, SUBMIT_PHASE_PATCH_EMBED):
+        feature_map = patch_proj(x)
+    if (
+        not isinstance(feature_map, torch_module.Tensor)
+        or getattr(feature_map.device, "type", None) != "vulkan"
+        or feature_map.dtype != torch_module.float32
+        or feature_map.dim() != 4
+        or int(feature_map.shape[0]) != 1
+        or (
+            int(feature_map.shape[1]),
+            int(feature_map.shape[2]),
+            int(feature_map.shape[3]),
+        )
+        not in PATCH_EMBED_FEATURE_MAP_TO_TOKENS_SHAPES
+    ):
+        return None
+    tokens = feature_map_to_tokens(feature_map)
     if (
         not isinstance(tokens, torch_module.Tensor)
         or getattr(tokens.device, "type", None) != "vulkan"

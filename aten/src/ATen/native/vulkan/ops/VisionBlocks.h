@@ -890,6 +890,8 @@ Tensor tokens_to_feature_map(
 
 Tensor feature_map_to_tokens(const Tensor& input);
 
+Tensor patch_embed_feature_map_to_tokens(const Tensor& input);
+
 Tensor token_prefix_cat_add(
     const Tensor& prefix,
     const Tensor& tokens,

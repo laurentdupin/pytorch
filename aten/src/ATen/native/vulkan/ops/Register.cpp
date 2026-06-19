@@ -1617,6 +1617,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::feature_map_to_tokens(Tensor X) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::patch_embed_feature_map_to_tokens(Tensor X) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::token_prefix_cat_add("
       "Tensor prefix, Tensor tokens, Tensor pos) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -2331,6 +2333,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::feature_map_to_tokens"),
       TORCH_FN(feature_map_to_tokens));
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::patch_embed_feature_map_to_tokens"),
+      TORCH_FN(patch_embed_feature_map_to_tokens));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::token_prefix_cat_add"),
       TORCH_FN(token_prefix_cat_add));
   m.impl(
@@ -2561,6 +2566,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::feature_map_to_tokens"),
       TORCH_FN(feature_map_to_tokens));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::patch_embed_feature_map_to_tokens"),
+      TORCH_FN(patch_embed_feature_map_to_tokens));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::token_prefix_cat_add"),
       TORCH_FN(token_prefix_cat_add));

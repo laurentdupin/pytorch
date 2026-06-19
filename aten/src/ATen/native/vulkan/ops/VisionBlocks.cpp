@@ -4439,7 +4439,7 @@ Tensor make_token_prefix_cat_add_dim1_view(
       "vulkan_prepack::token_prefix_cat_add");
 }
 
-TensorContractProvenance token_prefix_cat_add_contract_provenance(
+TensorContractProvenance tensor_contract_provenance_from_metadata(
     const utils::ExecutionContractMetadata* metadata) {
   TensorContractProvenance provenance;
   if (metadata != nullptr) {
@@ -11060,6 +11060,54 @@ Tensor feature_map_to_tokens(const Tensor& input_arg) {
   return feature_map_to_tokens_fallback(input_arg);
 }
 
+Tensor patch_embed_feature_map_to_tokens(const Tensor& input_arg) {
+  TORCH_CHECK(
+      input_arg.is_vulkan() && input_arg.scalar_type() == kFloat &&
+          input_arg.dim() == 4,
+      "vulkan_prepack::patch_embed_feature_map_to_tokens expects a rank-4 "
+      "float Vulkan tensor");
+
+  const vTensor& v_input = convert(input_arg);
+  const utils::PatchEmbedFeatureMapToTokensMatch match =
+      utils::match_patch_embed_feature_map_to_tokens_contract(
+          input_arg.sizes(),
+          input_arg.scalar_type(),
+          input_arg.is_vulkan(),
+          v_input.storage_type() == api::StorageType::BUFFER,
+          v_input.gpu_memory_layout() ==
+              api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+          v_input.storage_offset() == 0,
+          utils::supports_buffer_elementwise_compute(v_input));
+  TORCH_CHECK(
+      match.matched,
+      "vulkan_prepack::patch_embed_feature_map_to_tokens input is outside "
+      "PatchEmbedFeatureMapToTokensContract");
+
+  Tensor output = utils::create_buffer_tensor(
+      {
+          input_arg.size(0),
+          input_arg.size(2) * input_arg.size(3),
+          input_arg.size(1),
+      },
+      input_arg.scalar_type(),
+      /*persistent=*/false);
+  TORCH_CHECK(
+      run_feature_map_to_tokens_direct_out(input_arg, output),
+      "vulkan_prepack::patch_embed_feature_map_to_tokens could not run "
+      "the Vulkan feature-map-to-tokens transition");
+
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::patch_embed_feature_map_to_tokens");
+  const TensorContractProvenance provenance =
+      tensor_contract_provenance_from_metadata(match.metadata);
+  return record_tensor_write_and_return(
+      output,
+      "vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "feature_map_to_tokens_buffer",
+      {input_arg},
+      &provenance);
+}
+
 Tensor token_prefix_cat_add(
     const Tensor& prefix_arg,
     const Tensor& tokens_arg,
@@ -11104,7 +11152,7 @@ Tensor token_prefix_cat_add(
 
   utils::log_vulkan_op_hit("vulkan_prepack::token_prefix_cat_add");
   const TensorContractProvenance provenance =
-      token_prefix_cat_add_contract_provenance(match.metadata);
+      tensor_contract_provenance_from_metadata(match.metadata);
   return record_tensor_write_and_return(
       output,
       "vulkan_prepack::token_prefix_cat_add",

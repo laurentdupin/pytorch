@@ -430,7 +430,14 @@ condition and migration target.
   stride `[14,14]`, zero padding, dilation `[1,1]`, and groups `1`. The proven
   descriptor-view input leg requires zero storage offset, width-packed buffer
   storage, and metadata strides compatible with `conv2d_buffer_float`.
-  Adjacent negatives remain on the legacy path.
+  Adjacent negatives remain on the legacy path. The downstream
+  `PatchEmbedFeatureMapToTokensContract` layout-transition slice now has
+  generated spec coverage in
+  `test/vulkan_contract_specs/patch_embed_feature_map_to_tokens_contract.json`
+  and generated sparse-rowset helper output in
+  `generated/ExecutionContractsPatchEmbedFeatureMapToTokensSpec.h`; it covers
+  only `[1,C,H,W] -> [1,H*W,C]` for `C in {384,768,1024}` and feature spatial
+  pairs `(10,15)` and `(20,31)`.
 - Expiry: generated patch-embed conv execution-plan or transition-contract
   coverage exists with positive and adjacent negative tests, including input
   layout/materialization accounting.
