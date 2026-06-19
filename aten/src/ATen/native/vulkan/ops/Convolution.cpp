@@ -9,6 +9,7 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/RoutePolicy.h>
+#include <ATen/native/vulkan/planning/generated/ExecutionContractsPatchEmbedFloatBufferConvRouteSpec.h>
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
@@ -1531,6 +1532,24 @@ bool should_force_image_conv_for_small_metadata_input(const Tensor& input) {
       !v_input.has_direct_buffer_layout();
 }
 
+constexpr const char* kPatchEmbedFloatBufferConvRouteFamily =
+    "ObservedPatchEmbedKernel14Stride14";
+
+const char* patch_embed_float_buffer_conv_route_tuple_id(
+    const IntArrayRef input_sizes,
+    const IntArrayRef weight_sizes) {
+  if (input_sizes.size() != 4 || weight_sizes.size() != 4) {
+    return nullptr;
+  }
+  const auto* const row =
+      utils::generated::patch_embed_float_buffer_conv_route_input_rows_find(
+          kPatchEmbedFloatBufferConvRouteFamily,
+          weight_sizes[0],
+          input_sizes[2],
+          input_sizes[3]);
+  return row == nullptr ? nullptr : row->tuple_id;
+}
+
 bool is_patch_embed_float_buffer_conv_shape(
     const IntArrayRef input_sizes,
     const IntArrayRef weight_sizes,
@@ -1557,13 +1576,9 @@ bool is_patch_embed_float_buffer_conv_shape(
     return false;
   }
 
-  const bool observed_input_size =
-      (input_sizes[2] == 140 && input_sizes[3] == 210) ||
-      (input_sizes[2] == 280 && input_sizes[3] == 434);
-  const bool observed_output_channels =
-      weight_sizes[0] == 384 || weight_sizes[0] == 768 ||
-      weight_sizes[0] == 1024;
-  return observed_input_size && observed_output_channels && stride[0] == 14 &&
+  return patch_embed_float_buffer_conv_route_tuple_id(
+             input_sizes, weight_sizes) != nullptr &&
+      stride[0] == 14 &&
       stride[1] == 14 && padding[0] == 0 && padding[1] == 0 &&
       dilation[0] == 1 && dilation[1] == 1;
 }
@@ -2836,7 +2851,9 @@ Tensor run_float_buffer_conv2d_impl(
           input.scalar_type())) {
     plan_decision.contract_name = "PatchEmbedFloatBufferConvRoute";
     plan_decision.contract_family = "ObservedPatchEmbedKernel14Stride14";
-    plan_decision.contract_tuple_id = "c384_768_1024_h140_280_w210_434";
+    plan_decision.contract_tuple_id =
+        patch_embed_float_buffer_conv_route_tuple_id(
+            v_input.sizes(), packed_weight.logical_weight_sizes());
   }
   if (route_decision.hard_fail) {
     plan_decision.selected = VulkanConvPlanSelected::HardFailKnownBad;

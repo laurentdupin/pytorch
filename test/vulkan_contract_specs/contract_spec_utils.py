@@ -4738,6 +4738,156 @@ def _validate_patch_embed_feature_map_to_tokens_shape_envelope(
         _require_equal(case["expected_route_label"], spec["route_label"], case_context)
 
 
+def _validate_patch_embed_float_buffer_conv_route_shape_envelope(
+    file_name, spec, envelope
+):
+    context = f"{file_name} PatchEmbedFloatBufferConvRoute ShapeEnvelope"
+    _require_equal(
+        spec["contract_name"],
+        "PatchEmbedFloatBufferConvRoute",
+        f"{context} contract",
+    )
+    _require_equal(
+        spec["family"],
+        "ObservedPatchEmbedKernel14Stride14",
+        f"{context} family",
+    )
+    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
+
+    bounds = envelope["bounds"]
+    inputs = envelope["inputs"]
+    require_fields(inputs, ("input", "weight"), f"{context} inputs")
+    results = envelope.get("results", {})
+    require_fields(results, ("output",), f"{context} results")
+    for input_name in ("input", "weight"):
+        tensor = inputs[input_name]
+        _require_equal(
+            _single_value(tensor["dtype"], f"{context} {input_name} dtype"),
+            bounds["dtype"],
+            f"{context} {input_name} dtype",
+        )
+    _require_equal(
+        _single_value(inputs["input"]["rank"], f"{context} input rank"),
+        bounds["input_rank"],
+        f"{context} input rank",
+    )
+    _require_equal(
+        _single_value(inputs["weight"]["rank"], f"{context} weight rank"),
+        bounds["weight_rank"],
+        f"{context} weight rank",
+    )
+    output = results["output"]
+    _require_equal(
+        _single_value(output["dtype"], f"{context} output dtype"),
+        bounds["dtype"],
+        f"{context} output dtype",
+    )
+    _require_equal(
+        _single_value(output["rank"], f"{context} output rank"),
+        bounds["output_rank"],
+        f"{context} output rank",
+    )
+
+    input_dims = _dims_by_symbol(inputs["input"], context)
+    weight_dims = _dims_by_symbol(inputs["weight"], context)
+    output_dims = _dims_by_symbol(output, context)
+    _require_equal(input_dims["B"]["values"], [bounds["batch"]], context)
+    _require_equal(
+        input_dims["IC"]["values"],
+        [bounds["input_channels"]],
+        context,
+    )
+    _require_equal(input_dims["H"]["values"], bounds["input_heights"], context)
+    _require_equal(input_dims["W"]["values"], bounds["input_widths"], context)
+    _require_equal(weight_dims["OC"]["values"], bounds["output_channels"], context)
+    _require_equal(
+        weight_dims["IC"]["values"],
+        [bounds["input_channels"]],
+        context,
+    )
+    _require_equal(weight_dims["KH"]["values"], [bounds["kernel"][0]], context)
+    _require_equal(weight_dims["KW"]["values"], [bounds["kernel"][1]], context)
+    _require_equal(output_dims["B"]["values"], [bounds["batch"]], context)
+    _require_equal(output_dims["OC"]["values"], bounds["output_channels"], context)
+
+    attributes = envelope["attributes"]
+    expected_attributes = {
+        "stride_h": bounds["stride"][0],
+        "stride_w": bounds["stride"][1],
+        "padding_h": bounds["padding"][0],
+        "padding_w": bounds["padding"][1],
+        "dilation_h": bounds["dilation"][0],
+        "dilation_w": bounds["dilation"][1],
+        "groups": bounds["groups"],
+        "transposed": False,
+        "quantized": False,
+        "output_padding_h": 0,
+        "output_padding_w": 0,
+    }
+    for attr_name, expected_value in expected_attributes.items():
+        _require_equal(
+            _single_value(attributes[attr_name], f"{context} {attr_name}"),
+            expected_value,
+            f"{context} {attr_name}",
+        )
+
+    rowsets = envelope["sparse_rowsets"]
+    _require_equal(len(rowsets), 1, f"{context} rowset count")
+    rowset = rowsets[0]
+    _require_equal(rowset["name"], "input_rows", f"{context} rowset")
+    rows_by_tuple = {row["tuple_id"]: row for row in rowset["rows"]}
+    _require_equal(
+        len(rows_by_tuple),
+        len(spec["positive_cases"]),
+        f"{context} row count",
+    )
+    for row in rowset["rows"]:
+        _require_equal(row["family"], spec["family"], f"{context} row family")
+        if row["out_channels"] not in bounds["output_channels"]:
+            raise AssertionError(f"{context} row out_channels outside bounds")
+        if row["input_h"] not in bounds["input_heights"]:
+            raise AssertionError(f"{context} row input_h outside bounds")
+        if row["input_w"] not in bounds["input_widths"]:
+            raise AssertionError(f"{context} row input_w outside bounds")
+        _require_equal(
+            row["output_h"],
+            row["input_h"] // bounds["stride"][0],
+            f"{context} row output_h",
+        )
+        _require_equal(
+            row["output_w"],
+            row["input_w"] // bounds["stride"][1],
+            f"{context} row output_w",
+        )
+
+    for case in spec["positive_cases"]:
+        case_context = f"{context} positive {case['name']}"
+        tuple_id = case["expected_contract_tuple_id"]
+        if tuple_id not in rows_by_tuple:
+            raise AssertionError(f"{case_context} missing row")
+        row = rows_by_tuple[tuple_id]
+        _require_equal(
+            case["input_shape"],
+            [1, bounds["input_channels"], row["input_h"], row["input_w"]],
+            case_context,
+        )
+        _require_equal(
+            case["weight_shape"],
+            [row["out_channels"], bounds["input_channels"], *bounds["kernel"]],
+            case_context,
+        )
+        _require_equal(
+            case["output_shape"],
+            [1, row["out_channels"], row["output_h"], row["output_w"]],
+            case_context,
+        )
+        _require_equal(case["stride"], bounds["stride"], case_context)
+        _require_equal(case["padding"], bounds["padding"], case_context)
+        _require_equal(case["dilation"], bounds["dilation"], case_context)
+        _require_equal(case["groups"], bounds["groups"], case_context)
+        _require_equal(case["expected_route_label"], spec["route_label"], case_context)
+
+
 def validate_shape_envelope_spec(file_name, spec):
     envelope = spec.get("shape_envelope")
     if envelope is None:
@@ -5958,6 +6108,66 @@ _PATCH_EMBED_FEATURE_MAP_TO_TOKENS_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.output_storage",
 )
 
+_PATCH_EMBED_FLOAT_BUFFER_CONV_ROUTE_LEGAL_KEY_FIELDS = (
+    "input_shape",
+    "weight_shape",
+    "output_shape",
+    "stride",
+    "padding",
+    "dilation",
+    "groups",
+    "dtype",
+    "expected_route_label",
+    "expected_contract_tuple_id",
+)
+
+_PATCH_EMBED_FLOAT_BUFFER_CONV_ROUTE_ADJACENT_NEGATIVE_KEY_FIELDS = (
+    "violates",
+    "input_shape",
+    "weight_shape",
+    "stride",
+    "padding",
+    "dilation",
+    "groups",
+    "dtype",
+    "expected_native_route",
+)
+
+_PATCH_EMBED_FLOAT_BUFFER_CONV_ROUTE_ASSIGNMENT_COVERAGE_FIELDS = (
+    "inputs.input.dtype",
+    "inputs.input.rank",
+    "inputs.input.dims.B",
+    "inputs.input.dims.IC",
+    "inputs.input.dims.H",
+    "inputs.input.dims.W",
+    "inputs.weight.dtype",
+    "inputs.weight.rank",
+    "inputs.weight.dims.OC",
+    "inputs.weight.dims.IC",
+    "inputs.weight.dims.KH",
+    "inputs.weight.dims.KW",
+    "results.output.dtype",
+    "results.output.rank",
+    "results.output.dims.B",
+    "results.output.dims.OC",
+    "results.output.dims.OH",
+    "results.output.dims.OW",
+    "attributes.stride_h",
+    "attributes.stride_w",
+    "attributes.padding_h",
+    "attributes.padding_w",
+    "attributes.dilation_h",
+    "attributes.dilation_w",
+    "attributes.groups",
+    "attributes.transposed",
+    "attributes.quantized",
+    "attributes.output_padding_h",
+    "attributes.output_padding_w",
+    "attributes.input_storage",
+    "attributes.weight_storage",
+    "attributes.input_storage_offset",
+)
+
 _SMALL_SPATIAL_POINTWISE_CONV_LEGAL_KEY_FIELDS = (
     "input_shape",
     "out_channels",
@@ -6398,6 +6608,21 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         ),
         "adjacent_negative_key_fields": (
             _PATCH_EMBED_FEATURE_MAP_TO_TOKENS_ADJACENT_NEGATIVE_KEY_FIELDS
+        ),
+    },
+    "patch_embed_float_buffer_conv_route_observed_inputs": {
+        "validate": _validate_patch_embed_float_buffer_conv_route_shape_envelope,
+        "assignment_cases": _generated_shape_envelope_assignment_cases,
+        "legal_cases": _checked_in_shape_envelope_legal_cases,
+        "adjacent_negative_cases": (
+            _checked_in_shape_envelope_adjacent_negative_cases
+        ),
+        "legal_key_fields": _PATCH_EMBED_FLOAT_BUFFER_CONV_ROUTE_LEGAL_KEY_FIELDS,
+        "assignment_coverage_fields": (
+            _PATCH_EMBED_FLOAT_BUFFER_CONV_ROUTE_ASSIGNMENT_COVERAGE_FIELDS
+        ),
+        "adjacent_negative_key_fields": (
+            _PATCH_EMBED_FLOAT_BUFFER_CONV_ROUTE_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
     },
     "kv_cache_append_sequence_append": {

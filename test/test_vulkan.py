@@ -594,6 +594,9 @@ class TestVulkanGovernance(TestCase):
             "patch_embed_feature_map_to_tokens_contract.json": (
                 "patch_embed_feature_map_to_tokens_observed_feature_maps"
             ),
+            "patch_embed_float_buffer_conv_route_contract.json": (
+                "patch_embed_float_buffer_conv_route_observed_inputs"
+            ),
             "safe_view_reshape_alias_contract.json": (
                 "safe_reshape_alias_dense_buffer_direct"
             ),
@@ -643,7 +646,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 23 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 24 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:"
             "attention_probability_materialization_"
@@ -710,6 +713,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
+            "patch_embed_float_buffer_conv_route_contract.json:"
+            "patch_embed_float_buffer_conv_route_observed_inputs",
+            result.stdout,
+        )
+        self.assertIn(
             "safe_view_reshape_alias_contract.json:"
             "safe_reshape_alias_dense_buffer_direct",
             result.stdout,
@@ -764,10 +772,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 23 ShapeEnvelope adjacent-negative generators",
+            "validated 24 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=159", result.stdout)
+        self.assertIn("generated_cases=169", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:13",
             result.stdout,
@@ -792,7 +800,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
-            "patch_embed_feature_map_to_tokens_contract.json:6",
+            "patch_embed_feature_map_to_tokens_contract.json:7",
+            result.stdout,
+        )
+        self.assertIn(
+            "patch_embed_float_buffer_conv_route_contract.json:9",
             result.stdout,
         )
         self.assertIn("safe_view_reshape_alias_contract.json:4", result.stdout)
@@ -824,10 +836,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 23 ShapeEnvelope legal-case generators",
+            "validated 24 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=321", result.stdout)
+        self.assertIn("generated_cases=354", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:16",
             result.stdout,
@@ -852,7 +864,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
-            "patch_embed_feature_map_to_tokens_contract.json:6",
+            "patch_embed_feature_map_to_tokens_contract.json:18",
+            result.stdout,
+        )
+        self.assertIn(
+            "patch_embed_float_buffer_conv_route_contract.json:21",
             result.stdout,
         )
         self.assertIn("safe_view_reshape_alias_contract.json:2", result.stdout)
@@ -884,11 +900,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 23 ShapeEnvelope fuzz assignment generators",
+            "validated 24 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=46", result.stdout)
-        self.assertIn("adjacent_negative_assignments=140", result.stdout)
+        self.assertIn("legal_assignments=48", result.stdout)
+        self.assertIn("adjacent_negative_assignments=150", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "adjacent=13",
@@ -972,7 +988,12 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "patch_embed_feature_map_to_tokens_contract.json:"
-            "legal=2:adjacent=6",
+            "legal=2:adjacent=7",
+            result.stdout,
+        )
+        self.assertIn(
+            "patch_embed_float_buffer_conv_route_contract.json:"
+            "legal=2:adjacent=9",
             result.stdout,
         )
         self.assertIn(
@@ -1004,13 +1025,13 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 23 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 24 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=46", result.stdout)
-        self.assertIn("adjacent_negative_axes=139", result.stdout)
-        self.assertIn("runtime_legal_cases=321", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=159", result.stdout)
+        self.assertIn("legal_assignments=48", result.stdout)
+        self.assertIn("adjacent_negative_axes=149", result.stdout)
+        self.assertIn("runtime_legal_cases=354", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=169", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "status=covered:paths=17/17:adjacent_axes=13",
@@ -1113,7 +1134,12 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "patch_embed_feature_map_to_tokens_contract.json:legal=2:"
-            "status=covered:paths=15/15:adjacent_axes=6",
+            "status=covered:paths=15/15:adjacent_axes=7",
+            result.stdout,
+        )
+        self.assertIn(
+            "patch_embed_float_buffer_conv_route_contract.json:legal=2:"
+            "status=covered:paths=32/32:adjacent_axes=9",
             result.stdout,
         )
         self.assertIn(
@@ -1143,7 +1169,8 @@ class TestVulkanGovernance(TestCase):
             "linear_gelu_bridge_contract.json": (2, 11),
             "masked_tiny_sdpa_contract.json": (2, 7),
             "no_overlap_conv_transpose2d_contract.json": (3, 5),
-            "patch_embed_feature_map_to_tokens_contract.json": (6, 6),
+            "patch_embed_feature_map_to_tokens_contract.json": (18, 7),
+            "patch_embed_float_buffer_conv_route_contract.json": (21, 9),
             "safe_view_reshape_alias_contract.json": (2, 4),
             "safe_view_reshape_contract.json": (2, 3),
             "sdpa_score_softmax_contract.json": (4, 3),
@@ -1210,6 +1237,7 @@ class TestVulkanGovernance(TestCase):
                 "masked_tiny_sdpa_additive_float_mask",
                 "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer",
                 "patch_embed_feature_map_to_tokens_observed_feature_maps",
+                "patch_embed_float_buffer_conv_route_observed_inputs",
                 "small_metadata_padded_conv2d_materialized_buffer_input_2x2",
                 "small_spatial_pointwise_conv_sparse_projection_rows",
                 "token_prefix_cat_add_prefix1_observed_token_set",
@@ -1410,9 +1438,9 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 8 ShapeEnvelope sparse rowsets", result.stdout)
-        self.assertIn("rows=134", result.stdout)
-        self.assertIn("sparse_gap=245126", result.stdout)
+        self.assertIn("validated 9 ShapeEnvelope sparse rowsets", result.stdout)
+        self.assertIn("rows=167", result.stdout)
+        self.assertIn("sparse_gap=245714", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:"
             "probability_rows:rows=16",
@@ -1436,7 +1464,12 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "patch_embed_feature_map_to_tokens_contract.json:"
-            "feature_map_rows:rows=6",
+            "feature_map_rows:rows=18",
+            result.stdout,
+        )
+        self.assertIn(
+            "patch_embed_float_buffer_conv_route_contract.json:"
+            "input_rows:rows=21",
             result.stdout,
         )
         self.assertIn(
@@ -1523,7 +1556,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 23)
+        self.assertEqual(len(rows), 24)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
 
     def test_vulkan_generated_cpp_manifest_cli(self):
@@ -1546,7 +1579,7 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 23 generated ShapeEnvelope C++ helper headers",
+            "validated 24 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
@@ -1580,13 +1613,17 @@ class TestVulkanGovernance(TestCase):
             "ExecutionContractsPatchEmbedFeatureMapToTokensSpec.h",
             result.stdout,
         )
+        self.assertIn(
+            "ExecutionContractsPatchEmbedFloatBufferConvRouteSpec.h",
+            result.stdout,
+        )
         self.assertIn("ExecutionContractsTransformerGQASDPASpec.h", result.stdout)
         self.assertIn("ExecutionContractsVisionSelfAttentionSDPASpec.h", result.stdout)
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
-        self.assertEqual(summary["specs"], 32)
-        self.assertEqual(summary["generated_shape_envelope"], 23)
+        self.assertEqual(summary["specs"], 33)
+        self.assertEqual(summary["generated_shape_envelope"], 24)
         self.assertEqual(summary["json_spec_without_shape_envelope"], 0)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
         self.assertEqual(summary["schema_only_spec"], 9)
@@ -1699,8 +1736,8 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated contract coverage census specs=32", result.stdout)
-        self.assertIn("generated_shape_envelope=23", result.stdout)
+        self.assertIn("validated contract coverage census specs=33", result.stdout)
+        self.assertIn("generated_shape_envelope=24", result.stdout)
         self.assertIn("schema_only_spec=9", result.stdout)
         self.assertIn("json_spec_without_shape_envelope=0", result.stdout)
         self.assertIn("live_contract_without_json_spec=0", result.stdout)
@@ -14499,8 +14536,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.remove(log_path)
 
     def test_patch_embed_float_buffer_conv_route_matches_cpu(self):
-        for height, width in ((140, 210), (280, 434)):
-            for out_channels in (384, 768, 1024):
+        spec = _load_vulkan_contract_spec(
+            "patch_embed_float_buffer_conv_route_contract.json"
+        )
+        for case in spec["positive_cases"]:
+            height = case["input_shape"][2]
+            width = case["input_shape"][3]
+            out_channels = case["weight_shape"][0]
+            stride = tuple(case["stride"])
+            with self.subTest(case=case["name"]):
                 with self.subTest(
                         height=height,
                         width=width,
@@ -14566,7 +14610,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             input_cpu,
                             weight_cpu,
                             bias_cpu,
-                            stride=(14, 14),
+                            stride={stride!r},
                         )
                         torch.ops.vulkan_prepack.reset_fallback_counters()
                         torch.ops.vulkan_prepack.reset_submit_origin_counters()
@@ -14575,7 +14619,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                                 input_vulkan,
                                 weight_cpu.to("vulkan"),
                                 bias_cpu.to("vulkan"),
-                                stride=(14, 14),
+                                stride={stride!r},
                             )
                             fallback_before_cpu = (
                                 torch.ops.vulkan_prepack.cpu_fallback_count()
@@ -25650,7 +25694,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ),
             )
             result_json = json.loads(result.stdout.strip().splitlines()[-1])
-            self.assertEqual(result_json["cases"], 6)
+            self.assertEqual(result_json["cases"], 18)
             self.assertLessEqual(result_json["max_abs"], 2e-3)
             self.assertEqual(result_json["max_tensor_readback"], 0)
 
@@ -25661,7 +25705,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 log_text.count(
                     "op=vulkan_prepack::patch_embed_feature_map_to_tokens"
                 ),
-                6,
+                18,
             )
             self.assertIn("op=aten::feature_map_to_tokens.buffer_to_buffer", log_text)
             self.assertNotIn("op=aten::feature_map_to_tokens.fallback", log_text)
@@ -25748,7 +25792,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             ),
         )
         result_json = json.loads(result.stdout.strip().splitlines()[-1])
-        self.assertEqual(len(result_json["rejected"]), 6)
+        self.assertEqual(len(result_json["rejected"]), 7)
 
     def test_token_prefix_cat_add_observed_envelope_matches_reference(self):
         log_name = "token_prefix_cat_add_observed_envelope_op_hit_test.log"

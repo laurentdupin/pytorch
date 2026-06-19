@@ -1,0 +1,1873 @@
+{
+  "schema_version": 1,
+  "contract_name": "PatchEmbedFloatBufferConvRoute",
+  "family": "ObservedPatchEmbedKernel14Stride14",
+  "tuple_id": "patch_embed_float_buffer_conv_route_observed_sparse_rows",
+  "writer_op": "aten::convolution",
+  "route_label": "aten::convolution.buffer_float_patch_embed_route",
+  "metadata": {
+    "evidence_id": "task_patch_embed_float_buffer_route_after_51484c7",
+    "guard_id": "patch_embed_float_buffer_route_observed_adjacent_guards",
+    "fallback_policy": "unsupported_shapes_keep_legacy_conv_path",
+    "materialization_policy": "float_buffer_conv_route_no_weight_cpu_repack"
+  },
+  "bounds": {
+    "dtype": "float32",
+    "input_rank": 4,
+    "weight_rank": 4,
+    "output_rank": 4,
+    "batch": 1,
+    "input_channels": 3,
+    "output_channels": [
+      384,
+      768,
+      1024
+    ],
+    "input_heights": [
+      140,
+      182,
+      280,
+      420,
+      560
+    ],
+    "input_widths": [
+      210,
+      280,
+      420,
+      434,
+      644,
+      840,
+      868
+    ],
+    "kernel": [
+      14,
+      14
+    ],
+    "stride": [
+      14,
+      14
+    ],
+    "padding": [
+      0,
+      0
+    ],
+    "dilation": [
+      1,
+      1
+    ],
+    "groups": 1,
+    "requires_vulkan": true,
+    "requires_input_buffer_storage": true,
+    "requires_weight_buffer_storage": true,
+    "requires_zero_storage_offset": true,
+    "requires_buffer_compute": true
+  },
+  "shape_envelope": {
+    "version": 1,
+    "role": "patch_embed_float_buffer_conv_route_observed_inputs",
+    "inputs": {
+      "input": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "B",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "IC",
+            "field": "input_channels",
+            "values": [
+              3
+            ]
+          },
+          {
+            "symbol": "H",
+            "field": "input_h",
+            "values": [
+              140,
+              182,
+              280,
+              420,
+              560
+            ]
+          },
+          {
+            "symbol": "W",
+            "field": "input_w",
+            "values": [
+              210,
+              280,
+              420,
+              434,
+              644,
+              840,
+              868
+            ]
+          }
+        ]
+      },
+      "weight": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "OC",
+            "field": "out_channels",
+            "values": [
+              384,
+              768,
+              1024
+            ]
+          },
+          {
+            "symbol": "IC",
+            "field": "input_channels",
+            "values": [
+              3
+            ]
+          },
+          {
+            "symbol": "KH",
+            "field": "kernel_h",
+            "values": [
+              14
+            ]
+          },
+          {
+            "symbol": "KW",
+            "field": "kernel_w",
+            "values": [
+              14
+            ]
+          }
+        ]
+      }
+    },
+    "results": {
+      "output": {
+        "kind": "tensor",
+        "dtype": {
+          "values": [
+            "float32"
+          ]
+        },
+        "rank": {
+          "values": [
+            4
+          ]
+        },
+        "dims": [
+          {
+            "symbol": "B",
+            "field": "batch",
+            "values": [
+              1
+            ]
+          },
+          {
+            "symbol": "OC",
+            "field": "out_channels",
+            "values": [
+              384,
+              768,
+              1024
+            ]
+          },
+          {
+            "symbol": "OH",
+            "field": "output_h",
+            "values": [
+              10,
+              13,
+              20,
+              30,
+              40
+            ]
+          },
+          {
+            "symbol": "OW",
+            "field": "output_w",
+            "values": [
+              15,
+              20,
+              30,
+              31,
+              46,
+              60,
+              62
+            ]
+          }
+        ]
+      }
+    },
+    "attributes": {
+      "stride_h": {
+        "values": [
+          14
+        ]
+      },
+      "stride_w": {
+        "values": [
+          14
+        ]
+      },
+      "padding_h": {
+        "values": [
+          0
+        ]
+      },
+      "padding_w": {
+        "values": [
+          0
+        ]
+      },
+      "dilation_h": {
+        "values": [
+          1
+        ]
+      },
+      "dilation_w": {
+        "values": [
+          1
+        ]
+      },
+      "groups": {
+        "values": [
+          1
+        ]
+      },
+      "transposed": {
+        "values": [
+          false
+        ]
+      },
+      "quantized": {
+        "values": [
+          false
+        ]
+      },
+      "output_padding_h": {
+        "values": [
+          0
+        ]
+      },
+      "output_padding_w": {
+        "values": [
+          0
+        ]
+      },
+      "input_storage": {
+        "values": [
+          "buffer"
+        ]
+      },
+      "weight_storage": {
+        "values": [
+          "buffer"
+        ]
+      },
+      "input_storage_offset": {
+        "values": [
+          0
+        ]
+      }
+    },
+    "bounds": {
+      "dtype": "float32",
+      "input_rank": 4,
+      "weight_rank": 4,
+      "output_rank": 4,
+      "batch": 1,
+      "input_channels": 3,
+      "output_channels": [
+        384,
+        768,
+        1024
+      ],
+      "input_heights": [
+        140,
+        182,
+        280,
+        420,
+        560
+      ],
+      "input_widths": [
+        210,
+        280,
+        420,
+        434,
+        644,
+        840,
+        868
+      ],
+      "kernel": [
+        14,
+        14
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "requires_vulkan": true,
+      "requires_input_buffer_storage": true,
+      "requires_weight_buffer_storage": true,
+      "requires_zero_storage_offset": true,
+      "requires_buffer_compute": true
+    },
+    "relationships": [],
+    "aggregate_bounds": {},
+    "layout": {
+      "requires_vulkan": true,
+      "input_storage": "buffer",
+      "weight_storage": "buffer",
+      "input_storage_offset": 0,
+      "route": "float_buffer_conv"
+    },
+    "capability_requirements": {
+      "requires_buffer_compute": true
+    },
+    "metadata": {
+      "evidence_id": "task_patch_embed_float_buffer_route_after_51484c7",
+      "guard_id": "patch_embed_float_buffer_route_observed_adjacent_guards",
+      "fallback_policy": "unsupported_shapes_keep_legacy_conv_path",
+      "materialization_policy": "float_buffer_conv_route_no_weight_cpu_repack"
+    },
+    "policies": {
+      "fallback": "unsupported_shapes_keep_legacy_conv_path",
+      "readback": "not_expected_for_matches",
+      "copy": "float_buffer_conv_route_no_weight_cpu_repack"
+    },
+    "positive_cases": {
+      "source": "top_level_positive_cases",
+      "expected_native_route": true
+    },
+    "negative_axes": [
+      {
+        "violates": "input.spatial_pair",
+        "adjacent": "wrong_value",
+        "value": "140x224"
+      },
+      {
+        "violates": "weight.out_channels",
+        "adjacent": "wrong_value",
+        "value": 512
+      },
+      {
+        "violates": "input.channels",
+        "adjacent": "wrong_value",
+        "value": 4
+      },
+      {
+        "violates": "weight.kernel",
+        "adjacent": "wrong_value",
+        "value": "13x14"
+      },
+      {
+        "violates": "stride",
+        "adjacent": "wrong_value",
+        "value": "7x7"
+      },
+      {
+        "violates": "padding",
+        "adjacent": "wrong_value",
+        "value": "1x1"
+      },
+      {
+        "violates": "dilation",
+        "adjacent": "wrong_value",
+        "value": "2x2"
+      },
+      {
+        "violates": "groups",
+        "adjacent": "wrong_value",
+        "value": 2
+      },
+      {
+        "violates": "dtype",
+        "adjacent": "wrong_value",
+        "value": "float16"
+      }
+    ],
+    "fuzz_hints": {
+      "sparse_rowset": "input_rows",
+      "prefer_sparse_rows": true,
+      "symbolic_dims": [
+        "B",
+        "IC",
+        "H",
+        "W",
+        "OC",
+        "KH",
+        "KW",
+        "OH",
+        "OW"
+      ]
+    },
+    "sparse_rowsets": [
+      {
+        "name": "input_rows",
+        "fields": [
+          "family",
+          "out_channels",
+          "input_h",
+          "input_w",
+          "output_h",
+          "output_w",
+          "tuple_id"
+        ],
+        "identity_fields": [
+          "family",
+          "out_channels",
+          "input_h",
+          "input_w"
+        ],
+        "lookup_fields": [
+          "family",
+          "out_channels",
+          "input_h",
+          "input_w"
+        ],
+        "label_field": "tuple_id",
+        "rows": [
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 384,
+            "input_h": 140,
+            "input_w": 210,
+            "output_h": 10,
+            "output_w": 15,
+            "tuple_id": "patch_embed_conv_c384_140x210_to_10x15"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 768,
+            "input_h": 140,
+            "input_w": 210,
+            "output_h": 10,
+            "output_w": 15,
+            "tuple_id": "patch_embed_conv_c768_140x210_to_10x15"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 1024,
+            "input_h": 140,
+            "input_w": 210,
+            "output_h": 10,
+            "output_w": 15,
+            "tuple_id": "patch_embed_conv_c1024_140x210_to_10x15"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 384,
+            "input_h": 182,
+            "input_w": 280,
+            "output_h": 13,
+            "output_w": 20,
+            "tuple_id": "patch_embed_conv_c384_182x280_to_13x20"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 768,
+            "input_h": 182,
+            "input_w": 280,
+            "output_h": 13,
+            "output_w": 20,
+            "tuple_id": "patch_embed_conv_c768_182x280_to_13x20"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 1024,
+            "input_h": 182,
+            "input_w": 280,
+            "output_h": 13,
+            "output_w": 20,
+            "tuple_id": "patch_embed_conv_c1024_182x280_to_13x20"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 384,
+            "input_h": 280,
+            "input_w": 420,
+            "output_h": 20,
+            "output_w": 30,
+            "tuple_id": "patch_embed_conv_c384_280x420_to_20x30"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 768,
+            "input_h": 280,
+            "input_w": 420,
+            "output_h": 20,
+            "output_w": 30,
+            "tuple_id": "patch_embed_conv_c768_280x420_to_20x30"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 1024,
+            "input_h": 280,
+            "input_w": 420,
+            "output_h": 20,
+            "output_w": 30,
+            "tuple_id": "patch_embed_conv_c1024_280x420_to_20x30"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 384,
+            "input_h": 280,
+            "input_w": 434,
+            "output_h": 20,
+            "output_w": 31,
+            "tuple_id": "patch_embed_conv_c384_280x434_to_20x31"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 768,
+            "input_h": 280,
+            "input_w": 434,
+            "output_h": 20,
+            "output_w": 31,
+            "tuple_id": "patch_embed_conv_c768_280x434_to_20x31"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 1024,
+            "input_h": 280,
+            "input_w": 434,
+            "output_h": 20,
+            "output_w": 31,
+            "tuple_id": "patch_embed_conv_c1024_280x434_to_20x31"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 384,
+            "input_h": 420,
+            "input_w": 644,
+            "output_h": 30,
+            "output_w": 46,
+            "tuple_id": "patch_embed_conv_c384_420x644_to_30x46"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 768,
+            "input_h": 420,
+            "input_w": 644,
+            "output_h": 30,
+            "output_w": 46,
+            "tuple_id": "patch_embed_conv_c768_420x644_to_30x46"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 1024,
+            "input_h": 420,
+            "input_w": 644,
+            "output_h": 30,
+            "output_w": 46,
+            "tuple_id": "patch_embed_conv_c1024_420x644_to_30x46"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 384,
+            "input_h": 560,
+            "input_w": 840,
+            "output_h": 40,
+            "output_w": 60,
+            "tuple_id": "patch_embed_conv_c384_560x840_to_40x60"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 768,
+            "input_h": 560,
+            "input_w": 840,
+            "output_h": 40,
+            "output_w": 60,
+            "tuple_id": "patch_embed_conv_c768_560x840_to_40x60"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 1024,
+            "input_h": 560,
+            "input_w": 840,
+            "output_h": 40,
+            "output_w": 60,
+            "tuple_id": "patch_embed_conv_c1024_560x840_to_40x60"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 384,
+            "input_h": 560,
+            "input_w": 868,
+            "output_h": 40,
+            "output_w": 62,
+            "tuple_id": "patch_embed_conv_c384_560x868_to_40x62"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 768,
+            "input_h": 560,
+            "input_w": 868,
+            "output_h": 40,
+            "output_w": 62,
+            "tuple_id": "patch_embed_conv_c768_560x868_to_40x62"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 1024,
+            "input_h": 560,
+            "input_w": 868,
+            "output_h": 40,
+            "output_w": 62,
+            "tuple_id": "patch_embed_conv_c1024_560x868_to_40x62"
+          }
+        ],
+        "negative_axes": [
+          {
+            "violates": "input.spatial_pair",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "ObservedPatchEmbedKernel14Stride14",
+              "out_channels": 384,
+              "input_h": 140,
+              "input_w": 224
+            }
+          },
+          {
+            "violates": "weight.out_channels",
+            "kind": "adjacent_field",
+            "fields": {
+              "family": "ObservedPatchEmbedKernel14Stride14",
+              "out_channels": 512,
+              "input_h": 140,
+              "input_w": 210
+            }
+          }
+        ],
+        "row_match": {
+          "arguments": [
+            {
+              "name": "family",
+              "field": "family",
+              "type": "string"
+            },
+            {
+              "name": "out_channels",
+              "field": "out_channels",
+              "type": "int64"
+            },
+            {
+              "name": "input_h",
+              "field": "input_h",
+              "type": "int64"
+            },
+            {
+              "name": "input_w",
+              "field": "input_w",
+              "type": "int64"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "positive_cases": [
+    {
+      "name": "patch_embed_conv_c384_140x210_to_10x15",
+      "input_shape": [
+        1,
+        3,
+        140,
+        210
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "output_shape": [
+        1,
+        384,
+        10,
+        15
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c384_140x210_to_10x15",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c768_140x210_to_10x15",
+      "input_shape": [
+        1,
+        3,
+        140,
+        210
+      ],
+      "weight_shape": [
+        768,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        768
+      ],
+      "output_shape": [
+        1,
+        768,
+        10,
+        15
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c768_140x210_to_10x15",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c1024_140x210_to_10x15",
+      "input_shape": [
+        1,
+        3,
+        140,
+        210
+      ],
+      "weight_shape": [
+        1024,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        1024
+      ],
+      "output_shape": [
+        1,
+        1024,
+        10,
+        15
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c1024_140x210_to_10x15",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c384_182x280_to_13x20",
+      "input_shape": [
+        1,
+        3,
+        182,
+        280
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "output_shape": [
+        1,
+        384,
+        13,
+        20
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c384_182x280_to_13x20",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c768_182x280_to_13x20",
+      "input_shape": [
+        1,
+        3,
+        182,
+        280
+      ],
+      "weight_shape": [
+        768,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        768
+      ],
+      "output_shape": [
+        1,
+        768,
+        13,
+        20
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c768_182x280_to_13x20",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c1024_182x280_to_13x20",
+      "input_shape": [
+        1,
+        3,
+        182,
+        280
+      ],
+      "weight_shape": [
+        1024,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        1024
+      ],
+      "output_shape": [
+        1,
+        1024,
+        13,
+        20
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c1024_182x280_to_13x20",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c384_280x420_to_20x30",
+      "input_shape": [
+        1,
+        3,
+        280,
+        420
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "output_shape": [
+        1,
+        384,
+        20,
+        30
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c384_280x420_to_20x30",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c768_280x420_to_20x30",
+      "input_shape": [
+        1,
+        3,
+        280,
+        420
+      ],
+      "weight_shape": [
+        768,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        768
+      ],
+      "output_shape": [
+        1,
+        768,
+        20,
+        30
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c768_280x420_to_20x30",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c1024_280x420_to_20x30",
+      "input_shape": [
+        1,
+        3,
+        280,
+        420
+      ],
+      "weight_shape": [
+        1024,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        1024
+      ],
+      "output_shape": [
+        1,
+        1024,
+        20,
+        30
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c1024_280x420_to_20x30",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c384_280x434_to_20x31",
+      "input_shape": [
+        1,
+        3,
+        280,
+        434
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "output_shape": [
+        1,
+        384,
+        20,
+        31
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c384_280x434_to_20x31",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c768_280x434_to_20x31",
+      "input_shape": [
+        1,
+        3,
+        280,
+        434
+      ],
+      "weight_shape": [
+        768,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        768
+      ],
+      "output_shape": [
+        1,
+        768,
+        20,
+        31
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c768_280x434_to_20x31",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c1024_280x434_to_20x31",
+      "input_shape": [
+        1,
+        3,
+        280,
+        434
+      ],
+      "weight_shape": [
+        1024,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        1024
+      ],
+      "output_shape": [
+        1,
+        1024,
+        20,
+        31
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c1024_280x434_to_20x31",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c384_420x644_to_30x46",
+      "input_shape": [
+        1,
+        3,
+        420,
+        644
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "output_shape": [
+        1,
+        384,
+        30,
+        46
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c384_420x644_to_30x46",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c768_420x644_to_30x46",
+      "input_shape": [
+        1,
+        3,
+        420,
+        644
+      ],
+      "weight_shape": [
+        768,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        768
+      ],
+      "output_shape": [
+        1,
+        768,
+        30,
+        46
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c768_420x644_to_30x46",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c1024_420x644_to_30x46",
+      "input_shape": [
+        1,
+        3,
+        420,
+        644
+      ],
+      "weight_shape": [
+        1024,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        1024
+      ],
+      "output_shape": [
+        1,
+        1024,
+        30,
+        46
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c1024_420x644_to_30x46",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c384_560x840_to_40x60",
+      "input_shape": [
+        1,
+        3,
+        560,
+        840
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "output_shape": [
+        1,
+        384,
+        40,
+        60
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c384_560x840_to_40x60",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c768_560x840_to_40x60",
+      "input_shape": [
+        1,
+        3,
+        560,
+        840
+      ],
+      "weight_shape": [
+        768,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        768
+      ],
+      "output_shape": [
+        1,
+        768,
+        40,
+        60
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c768_560x840_to_40x60",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c1024_560x840_to_40x60",
+      "input_shape": [
+        1,
+        3,
+        560,
+        840
+      ],
+      "weight_shape": [
+        1024,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        1024
+      ],
+      "output_shape": [
+        1,
+        1024,
+        40,
+        60
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c1024_560x840_to_40x60",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c384_560x868_to_40x62",
+      "input_shape": [
+        1,
+        3,
+        560,
+        868
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "output_shape": [
+        1,
+        384,
+        40,
+        62
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c384_560x868_to_40x62",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c768_560x868_to_40x62",
+      "input_shape": [
+        1,
+        3,
+        560,
+        868
+      ],
+      "weight_shape": [
+        768,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        768
+      ],
+      "output_shape": [
+        1,
+        768,
+        40,
+        62
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c768_560x868_to_40x62",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c1024_560x868_to_40x62",
+      "input_shape": [
+        1,
+        3,
+        560,
+        868
+      ],
+      "weight_shape": [
+        1024,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        1024
+      ],
+      "output_shape": [
+        1,
+        1024,
+        40,
+        62
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c1024_560x868_to_40x62",
+      "expected_native_route": true
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "bad_height_width",
+      "input_shape": [
+        1,
+        3,
+        140,
+        224
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "input.spatial_pair",
+      "expected_native_route": false
+    },
+    {
+      "name": "bad_output_channels",
+      "input_shape": [
+        1,
+        3,
+        140,
+        210
+      ],
+      "weight_shape": [
+        512,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        512
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "weight.out_channels",
+      "expected_native_route": false
+    },
+    {
+      "name": "bad_input_channels",
+      "input_shape": [
+        1,
+        4,
+        140,
+        210
+      ],
+      "weight_shape": [
+        384,
+        4,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "input.channels",
+      "expected_native_route": false
+    },
+    {
+      "name": "bad_kernel",
+      "input_shape": [
+        1,
+        3,
+        140,
+        210
+      ],
+      "weight_shape": [
+        384,
+        3,
+        13,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "weight.kernel",
+      "expected_native_route": false
+    },
+    {
+      "name": "bad_stride",
+      "input_shape": [
+        1,
+        3,
+        140,
+        210
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "stride": [
+        7,
+        7
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "stride",
+      "expected_native_route": false
+    },
+    {
+      "name": "bad_padding",
+      "input_shape": [
+        1,
+        3,
+        140,
+        210
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        1,
+        1
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "padding",
+      "expected_native_route": false
+    },
+    {
+      "name": "bad_dilation",
+      "input_shape": [
+        1,
+        3,
+        140,
+        210
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        2,
+        2
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "dilation",
+      "expected_native_route": false
+    },
+    {
+      "name": "bad_groups",
+      "input_shape": [
+        1,
+        3,
+        140,
+        210
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 2,
+      "dtype": "float32",
+      "violates": "groups",
+      "expected_native_route": false
+    },
+    {
+      "name": "bad_dtype",
+      "input_shape": [
+        1,
+        3,
+        140,
+        210
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float16",
+      "violates": "dtype",
+      "expected_native_route": false
+    }
+  ]
+}

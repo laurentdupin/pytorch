@@ -426,21 +426,27 @@ condition and migration target.
 - Reason: a bounded patch-embed conv family can avoid the value-bearing legacy
   conv weight CPU repack/readback by using the existing float-buffer conv route,
   but broader kernel-14/stride-14 conv layout behavior is not proven yet.
-- Generated spec coverage: none yet. The current route predicate is handwritten
-  and limited to float Vulkan tensors with input `[1,3,H,W]`, `(H,W)` in
-  `{(140,210),(280,434)}`, weight `[C,3,14,14]`, `C in {384,768,1024}`,
-  stride `[14,14]`, zero padding, dilation `[1,1]`, and groups `1`. The proven
-  descriptor-view input leg requires zero storage offset, width-packed buffer
-  storage, and metadata strides compatible with `conv2d_buffer_float`.
-  Adjacent negatives remain on the legacy path. The downstream
-  `PatchEmbedFeatureMapToTokensContract` layout-transition slice now has
-  generated spec coverage in
+- Generated spec coverage:
+  `test/vulkan_contract_specs/patch_embed_float_buffer_conv_route_contract.json`
+  and generated sparse-rowset helper output in
+  `generated/ExecutionContractsPatchEmbedFloatBufferConvRouteSpec.h`. The
+  route predicate is limited to float Vulkan tensors with input `[1,3,H,W]`,
+  `(H,W)` in
+  `{(140,210),(182,280),(280,420),(280,434),(420,644),(560,840),(560,868)}`,
+  weight `[C,3,14,14]`, `C in {384,768,1024}`, stride `[14,14]`, zero
+  padding, dilation `[1,1]`, and groups `1`. The proven descriptor-view input
+  leg requires zero storage offset, width-packed buffer storage, and metadata
+  strides compatible with `conv2d_buffer_float`. Adjacent negatives remain on
+  the legacy path. The downstream `PatchEmbedFeatureMapToTokensContract`
+  layout-transition slice has generated spec coverage in
   `test/vulkan_contract_specs/patch_embed_feature_map_to_tokens_contract.json`
   and generated sparse-rowset helper output in
   `generated/ExecutionContractsPatchEmbedFeatureMapToTokensSpec.h`; it covers
   only `[1,C,H,W] -> [1,H*W,C]` for `C in {384,768,1024}` and feature spatial
-  pairs `(10,15)` and `(20,31)`.
-- Expiry: generated patch-embed conv execution-plan or transition-contract
+  pairs `(10,15)`, `(13,20)`, `(20,30)`, `(20,31)`, `(30,46)`, and `(40,60)`.
+  The observed `(40,62)` feature-map case remains guarded until token-prefix
+  count `2480` has a separate proof.
+- Expiry: broader patch-embed conv execution-plan or transition-contract
   coverage exists with positive and adjacent negative tests, including input
   layout/materialization accounting.
 - Migration target: generated `PatchEmbedFloatBufferConvRoute` execution-plan

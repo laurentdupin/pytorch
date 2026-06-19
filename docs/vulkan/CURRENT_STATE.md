@@ -174,7 +174,9 @@ unchanged.
 
 `PatchEmbedFloatBufferConvRoute` is a bounded execution-plan slice for
 kernel-14/stride-14 float patch-embed conv rows with input `[1,3,H,W]`,
-`(H,W)` in `{(140,210),(280,434)}`, weight `[C,3,14,14]`, and
+`(H,W)` in
+`{(140,210),(182,280),(280,420),(280,434),(420,644),(560,840),(560,868)}`,
+weight `[C,3,14,14]`, and
 `C in {384,768,1024}`. It uses the existing `conv2d_buffer_float` path to avoid
 the legacy value-bearing conv weight CPU repack/readback for those rows while
 preserving the legacy path for adjacent negatives. The route now consumes the
@@ -187,12 +189,15 @@ host staging or a new shader.
 contract for the Vulkan-resident patch-embed feature map produced by that
 route. It covers rank-4 float width-packed buffer feature maps
 `[1,C,H,W] -> [1,H*W,C]` for `C in {384,768,1024}` and feature spatial pairs
-`(H,W) in {(10,15),(20,31)}`. The benchmark token-preparation path may call the
-generic `vulkan_prepack::patch_embed_feature_map_to_tokens` wrapper only for
-that exact contract and only when patch-embed normalization is identity. The
-wrapper uses the existing buffer feature-map-to-tokens kernel and keeps
-unsupported ranks, dtypes, storage offsets, layout classes, channels, and
-spatial pairs guarded rather than falling back through CPU.
+`(H,W) in {(10,15),(13,20),(20,30),(20,31),(30,46),(40,60)}`. The
+benchmark token-preparation path may call the generic
+`vulkan_prepack::patch_embed_feature_map_to_tokens` wrapper only for that exact
+contract and only when patch-embed normalization is identity. The wrapper uses
+the existing buffer feature-map-to-tokens kernel and keeps unsupported ranks,
+dtypes, storage offsets, layout classes, channels, and spatial pairs guarded
+rather than falling back through CPU. The observed `(40,62)` feature-map case
+remains guarded because the downstream `TokenPrefixCatAddContract` does not
+yet cover token count `2480`.
 
 `PointwiseConvInputLayoutTransitionContract` is a schema-only proof contract
 for pointwise-conv input descriptor-view legality. It records that
