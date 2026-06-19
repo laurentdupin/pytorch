@@ -323,7 +323,7 @@ These files are diagnostic inputs. Production code must not depend on
 
 - `SmallSpatialPointwiseConvContract`: finite projection rows, now split into
   a family-specific source. The `SparseProjectionRows` slice has a JSON
-  contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 51
+  contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 53
   current projection rows plus a generated factorized depth-vision projection
   group for the cross-adapter proven 144-shape set. That group is the product
   of 18 approved `(input_c, output_c)` channel pairs and eight approved
@@ -727,10 +727,10 @@ These files are diagnostic inputs. Production code must not depend on
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h` from
   `small_spatial_pointwise_conv_contract.json` for contract identity,
-  per-row metadata, input/weight channel equality, the 51 correlated
+  per-row metadata, input/weight channel equality, the 53 correlated
   projection rows, exact lookup by input/output channel and spatial shape, and
   the generated 144-shape factorized depth-vision projection helper. The sparse
-  rows now include twelve exact mid-resolution depth-vision projection rows for
+  rows now include fourteen exact mid-resolution depth-vision projection rows for
   spatial pairs `(30,45)` and `(40,62)` with only the proven channel/output
   pairs. Those spatial pairs were not added to the 144-shape factorized helper.
   That helper remains constrained to its approved channel-pair and spatial-pair
