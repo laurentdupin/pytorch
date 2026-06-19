@@ -432,7 +432,7 @@ condition and migration target.
   `generated/ExecutionContractsPatchEmbedFloatBufferConvRouteSpec.h`. The
   route predicate is limited to float Vulkan tensors with input `[1,3,H,W]`,
   `(H,W)` in
-  `{(140,210),(182,280),(280,420),(280,434),(420,644),(560,840),(560,868)}`,
+  `{(140,210),(182,280),(280,420),(280,434),(420,630),(420,644),(560,840),(560,868)}`,
   weight `[C,3,14,14]`, `C in {384,768,1024}`, stride `[14,14]`, zero
   padding, dilation `[1,1]`, and groups `1`. The proven descriptor-view input
   leg requires zero storage offset, width-packed buffer storage, and metadata
@@ -443,7 +443,8 @@ condition and migration target.
   and generated sparse-rowset helper output in
   `generated/ExecutionContractsPatchEmbedFeatureMapToTokensSpec.h`; it covers
   only `[1,C,H,W] -> [1,H*W,C]` for `C in {384,768,1024}` and feature spatial
-  pairs `(10,15)`, `(13,20)`, `(20,30)`, `(20,31)`, `(30,46)`, and `(40,60)`.
+  pairs `(10,15)`, `(13,20)`, `(20,30)`, `(20,31)`, `(30,45)`, `(30,46)`, and
+  `(40,60)`.
   The observed `(40,62)` feature-map case remains guarded until token-prefix
   count `2480` has a separate proof.
 - Expiry: broader patch-embed conv execution-plan or transition-contract

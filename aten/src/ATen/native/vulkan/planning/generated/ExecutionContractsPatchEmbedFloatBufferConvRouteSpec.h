@@ -24,7 +24,7 @@ constexpr const char* kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14S
 constexpr const char* kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14GuardId = "patch_embed_float_buffer_route_observed_adjacent_guards";
 constexpr const char* kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14FallbackPolicy = "unsupported_shapes_keep_legacy_conv_path";
 constexpr const char* kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14MaterializationPolicy = "float_buffer_conv_route_no_weight_cpu_repack";
-constexpr std::int64_t kPatchEmbedFloatBufferConvRouteInputRowsRowCount = 21;
+constexpr std::int64_t kPatchEmbedFloatBufferConvRouteInputRowsRowCount = 24;
 
 struct PatchEmbedFloatBufferConvRouteInputRowsRow final {
   const char* family;
@@ -183,6 +183,36 @@ constexpr PatchEmbedFloatBufferConvRouteInputRowsRow kPatchEmbedFloatBufferConvR
         31,
         "patch_embed_conv_c1024_280x434_to_20x31",
         ExecutionContractMetadata{kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14ContractName, "ObservedPatchEmbedKernel14Stride14", "patch_embed_conv_c1024_280x434_to_20x31", kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14EvidenceId, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14GuardId, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14FallbackPolicy, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14MaterializationPolicy}
+    },
+    {
+        "ObservedPatchEmbedKernel14Stride14",
+        384,
+        420,
+        630,
+        30,
+        45,
+        "patch_embed_conv_c384_420x630_to_30x45",
+        ExecutionContractMetadata{kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14ContractName, "ObservedPatchEmbedKernel14Stride14", "patch_embed_conv_c384_420x630_to_30x45", kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14EvidenceId, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14GuardId, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14FallbackPolicy, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14MaterializationPolicy}
+    },
+    {
+        "ObservedPatchEmbedKernel14Stride14",
+        768,
+        420,
+        630,
+        30,
+        45,
+        "patch_embed_conv_c768_420x630_to_30x45",
+        ExecutionContractMetadata{kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14ContractName, "ObservedPatchEmbedKernel14Stride14", "patch_embed_conv_c768_420x630_to_30x45", kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14EvidenceId, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14GuardId, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14FallbackPolicy, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14MaterializationPolicy}
+    },
+    {
+        "ObservedPatchEmbedKernel14Stride14",
+        1024,
+        420,
+        630,
+        30,
+        45,
+        "patch_embed_conv_c1024_420x630_to_30x45",
+        ExecutionContractMetadata{kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14ContractName, "ObservedPatchEmbedKernel14Stride14", "patch_embed_conv_c1024_420x630_to_30x45", kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14EvidenceId, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14GuardId, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14FallbackPolicy, kPatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14MaterializationPolicy}
     },
     {
         "ObservedPatchEmbedKernel14Stride14",

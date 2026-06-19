@@ -33,6 +33,7 @@
       20,
       30,
       31,
+      45,
       46,
       60
     ],
@@ -41,6 +42,7 @@
       260,
       600,
       620,
+      1350,
       1380,
       2400
     ],
@@ -102,6 +104,7 @@
               20,
               30,
               31,
+              45,
               46,
               60
             ]
@@ -138,6 +141,7 @@
               260,
               600,
               620,
+              1350,
               1380,
               2400
             ]
@@ -198,6 +202,7 @@
         20,
         30,
         31,
+        45,
         46,
         60
       ],
@@ -206,6 +211,7 @@
         260,
         600,
         620,
+        1350,
         1380,
         2400
       ],
@@ -412,6 +418,30 @@
             "feature_w": 31,
             "tokens": 620,
             "tuple_id": "feature_c1024_20x31_tokens620"
+          },
+          {
+            "family": "Kernel14Stride14ObservedFeatureMap",
+            "channels": 384,
+            "feature_h": 30,
+            "feature_w": 45,
+            "tokens": 1350,
+            "tuple_id": "feature_c384_30x45_tokens1350"
+          },
+          {
+            "family": "Kernel14Stride14ObservedFeatureMap",
+            "channels": 768,
+            "feature_h": 30,
+            "feature_w": 45,
+            "tokens": 1350,
+            "tuple_id": "feature_c768_30x45_tokens1350"
+          },
+          {
+            "family": "Kernel14Stride14ObservedFeatureMap",
+            "channels": 1024,
+            "feature_h": 30,
+            "feature_w": 45,
+            "tokens": 1350,
+            "tuple_id": "feature_c1024_30x45_tokens1350"
           },
           {
             "family": "Kernel14Stride14ObservedFeatureMap",
@@ -755,6 +785,60 @@
       "dtype": "float32",
       "expected_route_label": "vulkan_prepack::patch_embed_feature_map_to_tokens",
       "expected_contract_tuple_id": "feature_c1024_20x31_tokens620",
+      "expected_native_route": true
+    },
+    {
+      "name": "feature_c384_30x45_tokens1350",
+      "input_shape": [
+        1,
+        384,
+        30,
+        45
+      ],
+      "output_shape": [
+        1,
+        1350,
+        384
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "expected_contract_tuple_id": "feature_c384_30x45_tokens1350",
+      "expected_native_route": true
+    },
+    {
+      "name": "feature_c768_30x45_tokens1350",
+      "input_shape": [
+        1,
+        768,
+        30,
+        45
+      ],
+      "output_shape": [
+        1,
+        1350,
+        768
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "expected_contract_tuple_id": "feature_c768_30x45_tokens1350",
+      "expected_native_route": true
+    },
+    {
+      "name": "feature_c1024_30x45_tokens1350",
+      "input_shape": [
+        1,
+        1024,
+        30,
+        45
+      ],
+      "output_shape": [
+        1,
+        1350,
+        1024
+      ],
+      "dtype": "float32",
+      "expected_route_label": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "expected_contract_tuple_id": "feature_c1024_30x45_tokens1350",
       "expected_native_route": true
     },
     {

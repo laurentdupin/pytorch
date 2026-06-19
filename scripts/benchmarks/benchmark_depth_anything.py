@@ -69,6 +69,9 @@ PATCH_EMBED_FEATURE_MAP_TO_TOKENS_SHAPES = frozenset(
         (384, 20, 31),
         (768, 20, 31),
         (1024, 20, 31),
+        (384, 30, 45),
+        (768, 30, 45),
+        (1024, 30, 45),
         (384, 30, 46),
         (768, 30, 46),
         (1024, 30, 46),
@@ -438,6 +441,41 @@ def vulkan_dav2_stack_not_chunked(self: Any, x: Any, n: Any = 1) -> Any:
     return self._vulkan_dav2_stack_owner(x, n)
 
 
+def install_vulkan_prepare_tokens_wrapper(torch_module: Any, pretrained: Any) -> None:
+    if pretrained is None or getattr(
+        pretrained, "_vulkan_prepare_tokens_wrapped", False
+    ):
+        return
+    prepare_tokens = getattr(pretrained, "prepare_tokens_with_masks", None)
+    if prepare_tokens is None:
+        return
+
+    original_prepare_tokens = prepare_tokens
+
+    def phase_prepare_tokens_with_masks(
+        self: Any, x: Any, *args: Any, **kwargs: Any
+    ) -> Any:
+        masks = kwargs.get("masks")
+        if args:
+            masks = args[0]
+        if masks is None:
+            fused_tokens = try_prepare_tokens_with_fused_prefix_cat_add(
+                torch_module,
+                self,
+                x,
+            )
+            if fused_tokens is not None:
+                return fused_tokens
+        return original_prepare_tokens(x, *args, **kwargs)
+
+    pretrained._vulkan_original_prepare_tokens_with_masks = original_prepare_tokens
+    pretrained.prepare_tokens_with_masks = types.MethodType(
+        phase_prepare_tokens_with_masks,
+        pretrained,
+    )
+    pretrained._vulkan_prepare_tokens_wrapped = True
+
+
 def install_vulkan_fallback_phase_wrappers(torch_module: Any, model: Any) -> None:
     pretrained = getattr(model, "pretrained", None)
     if pretrained is None or getattr(pretrained, "_vulkan_phase_wrapped", False):
@@ -480,6 +518,8 @@ def install_vulkan_fallback_phase_wrappers(torch_module: Any, model: Any) -> Non
             phase_interpolate_pos_encoding,
             pretrained,
         )
+
+    install_vulkan_prepare_tokens_wrapper(torch_module, pretrained)
 
     pretrained._vulkan_phase_wrapped = True
 
@@ -544,6 +584,11 @@ def prewarm_vulkan_dav2_patch_and_positional_setup(
     if pretrained is None or patch_embed is None:
         return
     if getattr(image_tensor.device, "type", None) != "vulkan":
+        return
+    prepare_tokens = getattr(pretrained, "prepare_tokens_with_masks", None)
+    if prepare_tokens is not None:
+        with vulkan_fallback_phase(torch_module, FALLBACK_PHASE_MODEL_SETUP):
+            prepare_tokens(image_tensor)
         return
 
     with vulkan_fallback_phase(torch_module, FALLBACK_PHASE_MODEL_SETUP):

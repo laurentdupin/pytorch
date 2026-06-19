@@ -24,7 +24,7 @@ constexpr const char* kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatu
 constexpr const char* kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapGuardId = "patch_embed_feature_map_to_tokens_observed_adjacent_guards";
 constexpr const char* kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapFallbackPolicy = "unsupported_shapes_do_not_match";
 constexpr const char* kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapMaterializationPolicy = "device_layout_transition_feature_map_to_tokens";
-constexpr std::int64_t kPatchEmbedFeatureMapToTokensFeatureMapRowsRowCount = 18;
+constexpr std::int64_t kPatchEmbedFeatureMapToTokensFeatureMapRowsRowCount = 21;
 
 struct PatchEmbedFeatureMapToTokensFeatureMapRowsRow final {
   const char* family;
@@ -170,6 +170,33 @@ constexpr PatchEmbedFeatureMapToTokensFeatureMapRowsRow kPatchEmbedFeatureMapToT
         620,
         "feature_c1024_20x31_tokens620",
         ExecutionContractMetadata{kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapContractName, "Kernel14Stride14ObservedFeatureMap", "feature_c1024_20x31_tokens620", kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapEvidenceId, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapGuardId, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapFallbackPolicy, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapMaterializationPolicy}
+    },
+    {
+        "Kernel14Stride14ObservedFeatureMap",
+        384,
+        30,
+        45,
+        1350,
+        "feature_c384_30x45_tokens1350",
+        ExecutionContractMetadata{kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapContractName, "Kernel14Stride14ObservedFeatureMap", "feature_c384_30x45_tokens1350", kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapEvidenceId, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapGuardId, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapFallbackPolicy, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapMaterializationPolicy}
+    },
+    {
+        "Kernel14Stride14ObservedFeatureMap",
+        768,
+        30,
+        45,
+        1350,
+        "feature_c768_30x45_tokens1350",
+        ExecutionContractMetadata{kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapContractName, "Kernel14Stride14ObservedFeatureMap", "feature_c768_30x45_tokens1350", kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapEvidenceId, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapGuardId, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapFallbackPolicy, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapMaterializationPolicy}
+    },
+    {
+        "Kernel14Stride14ObservedFeatureMap",
+        1024,
+        30,
+        45,
+        1350,
+        "feature_c1024_30x45_tokens1350",
+        ExecutionContractMetadata{kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapContractName, "Kernel14Stride14ObservedFeatureMap", "feature_c1024_30x45_tokens1350", kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapEvidenceId, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapGuardId, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapFallbackPolicy, kPatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapMaterializationPolicy}
     },
     {
         "Kernel14Stride14ObservedFeatureMap",

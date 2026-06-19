@@ -839,7 +839,7 @@ class TestVulkanGovernance(TestCase):
             "validated 24 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=354", result.stdout)
+        self.assertIn("generated_cases=360", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:16",
             result.stdout,
@@ -864,11 +864,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
-            "patch_embed_feature_map_to_tokens_contract.json:18",
+            "patch_embed_feature_map_to_tokens_contract.json:21",
             result.stdout,
         )
         self.assertIn(
-            "patch_embed_float_buffer_conv_route_contract.json:21",
+            "patch_embed_float_buffer_conv_route_contract.json:24",
             result.stdout,
         )
         self.assertIn("safe_view_reshape_alias_contract.json:2", result.stdout)
@@ -1169,8 +1169,8 @@ class TestVulkanGovernance(TestCase):
             "linear_gelu_bridge_contract.json": (2, 11),
             "masked_tiny_sdpa_contract.json": (2, 7),
             "no_overlap_conv_transpose2d_contract.json": (3, 5),
-            "patch_embed_feature_map_to_tokens_contract.json": (18, 7),
-            "patch_embed_float_buffer_conv_route_contract.json": (21, 9),
+            "patch_embed_feature_map_to_tokens_contract.json": (21, 7),
+            "patch_embed_float_buffer_conv_route_contract.json": (24, 9),
             "safe_view_reshape_alias_contract.json": (2, 4),
             "safe_view_reshape_contract.json": (2, 3),
             "sdpa_score_softmax_contract.json": (4, 3),
@@ -25694,7 +25694,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ),
             )
             result_json = json.loads(result.stdout.strip().splitlines()[-1])
-            self.assertEqual(result_json["cases"], 18)
+            self.assertEqual(result_json["cases"], 21)
             self.assertLessEqual(result_json["max_abs"], 2e-3)
             self.assertEqual(result_json["max_tensor_readback"], 0)
 
@@ -25705,7 +25705,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 log_text.count(
                     "op=vulkan_prepack::patch_embed_feature_map_to_tokens"
                 ),
-                18,
+                21,
             )
             self.assertIn("op=aten::feature_map_to_tokens.buffer_to_buffer", log_text)
             self.assertNotIn("op=aten::feature_map_to_tokens.fallback", log_text)
