@@ -38,6 +38,7 @@
       630,
       644,
       840,
+      854,
       868
     ],
     "kernel": [
@@ -116,6 +117,7 @@
               630,
               644,
               840,
+              854,
               868
             ]
           }
@@ -219,6 +221,7 @@
               45,
               46,
               60,
+              61,
               62
             ]
           }
@@ -324,6 +327,7 @@
         630,
         644,
         840,
+        854,
         868
       ],
       "kernel": [
@@ -652,6 +656,33 @@
             "output_h": 40,
             "output_w": 60,
             "tuple_id": "patch_embed_conv_c1024_560x840_to_40x60"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 384,
+            "input_h": 560,
+            "input_w": 854,
+            "output_h": 40,
+            "output_w": 61,
+            "tuple_id": "patch_embed_conv_c384_560x854_to_40x61"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 768,
+            "input_h": 560,
+            "input_w": 854,
+            "output_h": 40,
+            "output_w": 61,
+            "tuple_id": "patch_embed_conv_c768_560x854_to_40x61"
+          },
+          {
+            "family": "ObservedPatchEmbedKernel14Stride14",
+            "out_channels": 1024,
+            "input_h": 560,
+            "input_w": 854,
+            "output_h": 40,
+            "output_w": 61,
+            "tuple_id": "patch_embed_conv_c1024_560x854_to_40x61"
           },
           {
             "family": "ObservedPatchEmbedKernel14Stride14",
@@ -1590,6 +1621,129 @@
       "dtype": "float32",
       "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
       "expected_contract_tuple_id": "patch_embed_conv_c1024_560x840_to_40x60",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c384_560x854_to_40x61",
+      "input_shape": [
+        1,
+        3,
+        560,
+        854
+      ],
+      "weight_shape": [
+        384,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        384
+      ],
+      "output_shape": [
+        1,
+        384,
+        40,
+        61
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c384_560x854_to_40x61",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c768_560x854_to_40x61",
+      "input_shape": [
+        1,
+        3,
+        560,
+        854
+      ],
+      "weight_shape": [
+        768,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        768
+      ],
+      "output_shape": [
+        1,
+        768,
+        40,
+        61
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c768_560x854_to_40x61",
+      "expected_native_route": true
+    },
+    {
+      "name": "patch_embed_conv_c1024_560x854_to_40x61",
+      "input_shape": [
+        1,
+        3,
+        560,
+        854
+      ],
+      "weight_shape": [
+        1024,
+        3,
+        14,
+        14
+      ],
+      "bias_shape": [
+        1024
+      ],
+      "output_shape": [
+        1,
+        1024,
+        40,
+        61
+      ],
+      "stride": [
+        14,
+        14
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_patch_embed_route",
+      "expected_contract_tuple_id": "patch_embed_conv_c1024_560x854_to_40x61",
       "expected_native_route": true
     },
     {

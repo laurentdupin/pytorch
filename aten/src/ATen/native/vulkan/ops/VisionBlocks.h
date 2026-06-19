@@ -468,7 +468,7 @@ void prime_vision_backbone_block_context_graph(
 class VisionDecoderFusionBlockContext final
     : public torch::jit::CustomClassHolder {
  private:
-  c10::impl::GenericList unpacked_{c10::AnyType::get()};
+  c10::impl::GenericList unpack_sources_{c10::AnyType::get()};
   std::string allocation_label_;
   bool align_corners_{true};
   c10::intrusive_ptr<Conv2dPackedContext> res1_conv1_context_;
@@ -510,9 +510,7 @@ class VisionDecoderFusionBlockContext final
 
   static VisionDecoderFusionBlockContext pack(c10::impl::GenericList unpacked);
 
-  const c10::impl::GenericList unpack() const {
-    return unpacked_;
-  }
+  const c10::impl::GenericList unpack() const;
 
   const std::string& allocation_label() const {
     return allocation_label_;

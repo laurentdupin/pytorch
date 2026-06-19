@@ -2047,10 +2047,9 @@ std::vector<int64_t> conv2d_context_output_sizes(
       "Conv2dPackedContext output size computation expects a defined context "
       "and rank-4 input");
 
-  const Tensor weight =
-      context->unpack().get(Conv2dPackedContext::Unpacked::Weight).toTensor();
+  const auto& weight_sizes = context->packed_weight().logical_weight_sizes();
   TORCH_INTERNAL_ASSERT(
-      weight.dim() == 4,
+      weight_sizes.size() == 4,
       "Conv2dPackedContext output size computation expects rank-4 weight");
 
   const auto value_or_default =
@@ -2077,10 +2076,10 @@ std::vector<int64_t> conv2d_context_output_sizes(
   };
 
   const int64_t out_channels = context->transposed()
-      ? weight.size(1) * context->groups()
-      : weight.size(0);
-  const int64_t kernel_h = weight.size(2);
-  const int64_t kernel_w = weight.size(3);
+      ? weight_sizes[1] * context->groups()
+      : weight_sizes[0];
+  const int64_t kernel_h = weight_sizes[2];
+  const int64_t kernel_w = weight_sizes[3];
   const int64_t out_h = compute_output_extent(
       input_sizes[2],
       kernel_h,
@@ -3653,22 +3652,16 @@ maybe_lookup_vision_decoder_head_replay(
 
   const int64_t output_conv1_channels =
       context->output_conv1_context()
-          ->unpack()
-          .get(Conv2dPackedContext::Unpacked::Weight)
-          .toTensor()
-          .size(0);
+          ->packed_weight()
+          .logical_weight_sizes()[0];
   const int64_t output_conv2_channels =
       context->output_conv2_conv1_context()
-          ->unpack()
-          .get(Conv2dPackedContext::Unpacked::Weight)
-          .toTensor()
-          .size(0);
+          ->packed_weight()
+          .logical_weight_sizes()[0];
   const int64_t final_channels =
       context->output_conv2_conv2_context()
-          ->unpack()
-          .get(Conv2dPackedContext::Unpacked::Weight)
-          .toTensor()
-          .size(0);
+          ->packed_weight()
+          .logical_weight_sizes()[0];
   const std::vector<int64_t> output_sizes{
       layer1_sizes[0],
       final_channels,
@@ -8749,49 +8742,87 @@ VisionDecoderFusionBlockContext::VisionDecoderFusionBlockContext(
           out_conv_bias,
           {1, 1},
           {0, 0})) {
-  unpacked_.reserve(Unpacked::NumArgs);
-  unpacked_.emplace_back(cpu_snapshot_for_unpack(
-      res1_conv1_weight, "unpack_res1_conv1_weight_readback"));
+  unpack_sources_.reserve(Unpacked::NumArgs);
+  unpack_sources_.emplace_back(res1_conv1_weight);
   if (res1_conv1_bias.has_value()) {
-    unpacked_.emplace_back(cpu_snapshot_for_unpack(
-        *res1_conv1_bias, "unpack_res1_conv1_bias_readback"));
+    unpack_sources_.emplace_back(*res1_conv1_bias);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(cpu_snapshot_for_unpack(
-      res1_conv2_weight, "unpack_res1_conv2_weight_readback"));
+  unpack_sources_.emplace_back(res1_conv2_weight);
   if (res1_conv2_bias.has_value()) {
-    unpacked_.emplace_back(cpu_snapshot_for_unpack(
-        *res1_conv2_bias, "unpack_res1_conv2_bias_readback"));
+    unpack_sources_.emplace_back(*res1_conv2_bias);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(cpu_snapshot_for_unpack(
-      res2_conv1_weight, "unpack_res2_conv1_weight_readback"));
+  unpack_sources_.emplace_back(res2_conv1_weight);
   if (res2_conv1_bias.has_value()) {
-    unpacked_.emplace_back(cpu_snapshot_for_unpack(
-        *res2_conv1_bias, "unpack_res2_conv1_bias_readback"));
+    unpack_sources_.emplace_back(*res2_conv1_bias);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(cpu_snapshot_for_unpack(
-      res2_conv2_weight, "unpack_res2_conv2_weight_readback"));
+  unpack_sources_.emplace_back(res2_conv2_weight);
   if (res2_conv2_bias.has_value()) {
-    unpacked_.emplace_back(cpu_snapshot_for_unpack(
-        *res2_conv2_bias, "unpack_res2_conv2_bias_readback"));
+    unpack_sources_.emplace_back(*res2_conv2_bias);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(
-      cpu_snapshot_for_unpack(out_conv_weight, "unpack_out_conv_weight_readback"));
+  unpack_sources_.emplace_back(out_conv_weight);
   if (out_conv_bias.has_value()) {
-    unpacked_.emplace_back(
-        cpu_snapshot_for_unpack(*out_conv_bias, "unpack_out_conv_bias_readback"));
+    unpack_sources_.emplace_back(*out_conv_bias);
   } else {
-    unpacked_.emplace_back(std::optional<Tensor>{});
+    unpack_sources_.emplace_back(std::optional<Tensor>{});
   }
-  unpacked_.emplace_back(align_corners_);
-  unpacked_.emplace_back(allocation_label_);
+  unpack_sources_.emplace_back(align_corners_);
+  unpack_sources_.emplace_back(allocation_label_);
+}
+
+const c10::impl::GenericList VisionDecoderFusionBlockContext::unpack() const {
+  c10::impl::GenericList unpacked{c10::AnyType::get()};
+  unpacked.reserve(Unpacked::NumArgs);
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::Res1Conv1Weight).toTensor(),
+      "unpack_res1_conv1_weight_readback"));
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::Res1Conv1Bias,
+      "unpack_res1_conv1_bias_readback");
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::Res1Conv2Weight).toTensor(),
+      "unpack_res1_conv2_weight_readback"));
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::Res1Conv2Bias,
+      "unpack_res1_conv2_bias_readback");
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::Res2Conv1Weight).toTensor(),
+      "unpack_res2_conv1_weight_readback"));
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::Res2Conv1Bias,
+      "unpack_res2_conv1_bias_readback");
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::Res2Conv2Weight).toTensor(),
+      "unpack_res2_conv2_weight_readback"));
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::Res2Conv2Bias,
+      "unpack_res2_conv2_bias_readback");
+  unpacked.emplace_back(cpu_snapshot_for_unpack(
+      unpack_sources_.get(Unpacked::OutConvWeight).toTensor(),
+      "unpack_out_conv_weight_readback"));
+  append_optional_cpu_snapshot_for_unpack(
+      unpacked,
+      unpack_sources_,
+      Unpacked::OutConvBias,
+      "unpack_out_conv_bias_readback");
+  unpacked.emplace_back(unpack_sources_.get(Unpacked::AlignCorners).toBool());
+  unpacked.emplace_back(unpack_sources_.get(Unpacked::Label).toStringRef());
+  return unpacked;
 }
 
 VisionDecoderFusionBlockContext VisionDecoderFusionBlockContext::pack(
@@ -9962,22 +9993,16 @@ void prime_vision_decoder_head_context_graph(
 
   const int64_t output_conv1_channels =
       context->output_conv1_context()
-          ->unpack()
-          .get(Conv2dPackedContext::Unpacked::Weight)
-          .toTensor()
-          .size(0);
+          ->packed_weight()
+          .logical_weight_sizes()[0];
   const int64_t output_conv2_channels =
       context->output_conv2_conv1_context()
-          ->unpack()
-          .get(Conv2dPackedContext::Unpacked::Weight)
-          .toTensor()
-          .size(0);
+          ->packed_weight()
+          .logical_weight_sizes()[0];
   const int64_t final_channels =
       context->output_conv2_conv2_context()
-          ->unpack()
-          .get(Conv2dPackedContext::Unpacked::Weight)
-          .toTensor()
-          .size(0);
+          ->packed_weight()
+          .logical_weight_sizes()[0];
   const std::vector<int64_t> output_sizes{
       layer1.size(0), final_channels, output_size[0], output_size[1]};
 
