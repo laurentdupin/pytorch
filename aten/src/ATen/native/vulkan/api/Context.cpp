@@ -1197,6 +1197,10 @@ void Context::submit_pending_work_and_poll_retire(
   std::map<std::string, std::pair<uint64_t, uint64_t>>
       dry_run_resource_classes;
   std::set<std::string> dry_run_blockers;
+  std::string dry_run_budget_reject = "not_stack_owner_norm2";
+  bool dry_run_all_safe_group_eligible = false;
+  std::string dry_run_signature;
+  std::string dry_run_blocker_signature;
   const auto inspect_pending_resource =
       [&](const auto& pending) {
         const bool qkv_would_batch =
@@ -1339,13 +1343,59 @@ void Context::submit_pending_work_and_poll_retire(
       inspect_pending_resource(pending);
     }
   }
+  if (record_subresource_lifetime_dry_run) {
+    std::ostringstream dry_run_signature_stream;
+    for (const auto& entry : dry_run_resource_classes) {
+      if (dry_run_signature_stream.tellp() > 0) {
+        dry_run_signature_stream << ",";
+      }
+      dry_run_signature_stream << entry.first << "#" << entry.second.first
+                               << "#" << entry.second.second;
+    }
+    std::ostringstream dry_run_blocker_signature_stream;
+    for (const auto& blocker : dry_run_blockers) {
+      if (dry_run_blocker_signature_stream.tellp() > 0) {
+        dry_run_blocker_signature_stream << ",";
+      }
+      dry_run_blocker_signature_stream << blocker;
+    }
+    dry_run_signature = dry_run_signature_stream.str();
+    dry_run_blocker_signature = dry_run_blocker_signature_stream.str();
+    const bool all_safe_without_budget =
+        pending_resource_count > 0u &&
+        pending_resource_count == dry_run_safe_candidate_count &&
+        !dry_run_has_large_backing;
+    if (pending_resource_count == 0u) {
+      dry_run_budget_reject = "no_old_path_pending";
+    } else if (dry_run_has_large_backing) {
+      dry_run_budget_reject = "large_backing_excluded";
+    } else if (!all_safe_without_budget) {
+      dry_run_budget_reject = "unsafe_resource_class";
+    } else if (
+        dry_run_safe_candidate_bytes >
+        kStackSubresourceLifetimeDryRunBlockBudgetBytes) {
+      dry_run_budget_reject = "over_block_budget";
+    } else if (
+        dry_run_safe_candidate_bytes >
+        kStackSubresourceLifetimeDryRunScopeBudgetBytes) {
+      dry_run_budget_reject = "over_scope_budget";
+    } else {
+      dry_run_budget_reject = "none";
+    }
+    dry_run_all_safe_group_eligible = dry_run_budget_reject == "none";
+  }
   bool had_pending_work = false;
   const bool has_old_path_pending_retire = pending_resource_count > 0u;
   const bool should_defer_tiny_old_path_pending =
       should_defer_tiny_old_path_retire_drain(
           policy, pending_resource_count, pending_bytes);
-  const bool should_submit_old_path_pending =
+  const bool old_path_pending_would_submit =
       has_old_path_pending_retire && !should_defer_tiny_old_path_pending;
+  const bool should_coalesce_norm2_retire_submit =
+      record_subresource_lifetime_dry_run && dry_run_all_safe_group_eligible &&
+      old_path_pending_would_submit;
+  const bool should_submit_old_path_pending =
+      old_path_pending_would_submit && !should_coalesce_norm2_retire_submit;
   {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
     had_pending_work = has_pending_work_for_current_stream();
@@ -1359,6 +1409,8 @@ void Context::submit_pending_work_and_poll_retire(
       skipped_no_old_path_pending && !had_pending_work;
   const bool submitted_for_retire_drain =
       should_submit_old_path_pending && had_pending_work;
+  const bool coalesced_retire_drain_submit =
+      should_coalesce_norm2_retire_submit && had_pending_work;
   const std::string region_lifetime_signature =
       format_region_lifetime_submit_signature(copresent_resources);
   const std::string region_lifetime_blockers =
@@ -1427,44 +1479,9 @@ void Context::submit_pending_work_and_poll_retire(
       region_lifetime_signature,
       region_lifetime_blockers);
   if (record_subresource_lifetime_dry_run) {
-    std::ostringstream dry_run_signature;
-    for (const auto& entry : dry_run_resource_classes) {
-      if (dry_run_signature.tellp() > 0) {
-        dry_run_signature << ",";
-      }
-      dry_run_signature << entry.first << "#" << entry.second.first << "#"
-                        << entry.second.second;
-    }
-    std::ostringstream dry_run_blocker_signature;
-    for (const auto& blocker : dry_run_blockers) {
-      if (dry_run_blocker_signature.tellp() > 0) {
-        dry_run_blocker_signature << ",";
-      }
-      dry_run_blocker_signature << blocker;
-    }
-    std::string budget_reject = "none";
-    const bool all_safe_without_budget =
-        pending_resource_count > 0u &&
-        pending_resource_count == dry_run_safe_candidate_count &&
-        !dry_run_has_large_backing;
-    if (pending_resource_count == 0u) {
-      budget_reject = "no_old_path_pending";
-    } else if (dry_run_has_large_backing) {
-      budget_reject = "large_backing_excluded";
-    } else if (!all_safe_without_budget) {
-      budget_reject = "unsafe_resource_class";
-    } else if (
-        dry_run_safe_candidate_bytes >
-        kStackSubresourceLifetimeDryRunBlockBudgetBytes) {
-      budget_reject = "over_block_budget";
-    } else if (
-        dry_run_safe_candidate_bytes >
-        kStackSubresourceLifetimeDryRunScopeBudgetBytes) {
-      budget_reject = "over_scope_budget";
-    }
-    const bool all_safe_group_eligible = budget_reject == "none";
     const bool would_remove_submit_drain =
-        all_safe_group_eligible && submitted_for_retire_drain;
+        dry_run_all_safe_group_eligible &&
+        old_path_pending_would_submit && had_pending_work;
     note_stack_subresource_lifetime_dry_run_group(
         phase,
         callsite,
@@ -1473,12 +1490,12 @@ void Context::submit_pending_work_and_poll_retire(
         pending_bytes,
         dry_run_safe_candidate_count,
         dry_run_safe_candidate_bytes,
-        all_safe_group_eligible,
+        dry_run_all_safe_group_eligible,
         would_remove_submit_drain,
-        /*actual_removed_submit_drain=*/false,
-        budget_reject,
-        dry_run_signature.str(),
-        dry_run_blocker_signature.str());
+        coalesced_retire_drain_submit,
+        dry_run_budget_reject,
+        dry_run_signature,
+        dry_run_blocker_signature);
   }
   if (!had_pending_work) {
     std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
