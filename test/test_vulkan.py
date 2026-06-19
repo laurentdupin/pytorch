@@ -19421,6 +19421,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and "allocation_label=" in row
                 and "resource_class=" in row
                 and "missing_proof_reason=" in row
+                and "formal_last_use_proof=" in row
                 and "producer_substep=" in row
                 and "last_use_candidate=" in row
                 and "capture_or_public_output=" in row
@@ -19458,6 +19459,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and "provenance_loss_reason=" in row
                 and "resource_class=" in row
                 and "missing_proof_reason=" in row
+                and "formal_last_use_proof=" in row
                 and "allocation_id=" in row
                 for row in blocker
             )
@@ -19498,7 +19500,28 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "resource=1" in row
                 and "class=" in row
                 and "safe_candidate=" in row
+                and "formal_last_use_proof=" in row
                 for row in dry_run
+            )
+        )
+        self.assertTrue(
+            any(
+                "resource=1" in row
+                and "formal_last_use_proof=1" in row
+                and "safe_candidate=1" in row
+                for row in dry_run
+            )
+        )
+        self.assertFalse(
+            any(
+                "formal_last_use_proof=1" in row
+                and (
+                    "requested_intermediate=1" in row
+                    or "final_output=1" in row
+                    or "alias_or_view=1" in row
+                    or "capture_or_public_output=1" in row
+                )
+                for row in dry_run + submit_attribution + blocker
             )
         )
         self.assertTrue(

@@ -624,7 +624,8 @@ TORCH_API void note_stack_retire_drain_blocker_resource(
     uint64_t bytes,
     bool qkv_would_batch,
     const VulkanStackRetireProvenance& provenance,
-    const VulkanStackRawResourceAllocationProof& allocation_proof);
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label);
 TORCH_API void note_stack_retire_drain_blocker_summary(
     VulkanSubmitPhase phase,
     VulkanRetireCallSite callsite,
@@ -685,6 +686,13 @@ TORCH_API const char* stack_subresource_lifetime_dry_run_resource_class(
     const VulkanStackRawResourceAllocationProof& allocation_proof);
 TORCH_API bool stack_subresource_lifetime_dry_run_resource_is_safe(
     const char* resource_class);
+TORCH_API bool stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proof(
+    VulkanRetiredResourceKind kind,
+    VulkanRetiredResourceRole role,
+    const char* resource_class,
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label);
 TORCH_API bool stack_subresource_lifetime_dry_run_is_large_backing(
     VulkanRetiredResourceRole role,
     uint64_t bytes,
@@ -698,8 +706,10 @@ TORCH_API void note_stack_subresource_lifetime_dry_run_resource(
     const char* resource_class,
     bool safe_candidate,
     bool large_backing,
+    bool formal_last_use_proof,
     const VulkanStackRetireProvenance& provenance,
-    const VulkanStackRawResourceAllocationProof& allocation_proof);
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label);
 TORCH_API void note_stack_subresource_lifetime_dry_run_group(
     VulkanSubmitPhase phase,
     VulkanRetireCallSite callsite,

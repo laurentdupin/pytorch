@@ -1035,9 +1035,10 @@ const char* stack_region_lifetime_missing_proof_reason(
     const VulkanStackRetireProvenance& provenance,
     const VulkanStackRawResourceAllocationProof& allocation_proof,
     const bool safe_candidate,
-    const bool large_backing) {
+    const bool large_backing,
+    const bool formal_last_use_proof) {
   const std::string key(resource_class ? resource_class : "");
-  if (safe_candidate && !large_backing) {
+  if ((safe_candidate || formal_last_use_proof) && !large_backing) {
     return "none";
   }
   if (large_backing) {
@@ -1111,13 +1112,26 @@ const char* stack_region_lifetime_missing_proof_reason(
   return "unsafe_resource_class";
 }
 
+const char* stack_raw_producer_substep_for_label(
+    const std::string& allocation_label);
+const char* stack_raw_last_consumer_for_label(
+    const std::string& allocation_label);
+bool stack_subresource_lifetime_dry_run_is_formal_norm2_last_use_label(
+    const char* resource_class,
+    const std::string& allocation_label);
+
 const char* stack_region_lifetime_last_use_candidate(
     const VulkanRetiredResourceKind kind,
     const VulkanRetiredResourceRole role,
     const char* const resource_class,
-    const VulkanStackRetireProvenance& provenance) {
+    const VulkanStackRetireProvenance& provenance,
+    const std::string& allocation_label) {
   if (provenance.has_last_use_proof) {
     return vision_stack_phase_name(provenance.expected_consumer_phase);
+  }
+  if (stack_subresource_lifetime_dry_run_is_formal_norm2_last_use_label(
+          resource_class, allocation_label)) {
+    return stack_raw_last_consumer_for_label(allocation_label);
   }
   if (
       is_attention_score_probability_range_class(resource_class) ||
@@ -1137,7 +1151,12 @@ const char* stack_region_lifetime_producer_substep(
     const VulkanRetiredResourceKind kind,
     const VulkanRetiredResourceRole role,
     const char* const resource_class,
-    const VulkanStackRetireProvenance& provenance) {
+    const VulkanStackRetireProvenance& provenance,
+    const std::string& allocation_label) {
+  if (stack_subresource_lifetime_dry_run_is_formal_norm2_last_use_label(
+          resource_class, allocation_label)) {
+    return stack_raw_producer_substep_for_label(allocation_label);
+  }
   if (
       is_attention_score_probability_range_class(resource_class) ||
       is_attention_raw_auxiliary_range_class(resource_class)) {
@@ -2794,7 +2813,8 @@ void note_stack_retire_drain_blocker_resource(
     const uint64_t bytes,
     const bool qkv_would_batch,
     const VulkanStackRetireProvenance& provenance,
-    const VulkanStackRawResourceAllocationProof& allocation_proof) {
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label) {
   const char* reason =
       stack_drain_blocker_reason(kind, role, provenance, qkv_would_batch);
   const VulkanStackTempLifetimeSafety safety =
@@ -2802,8 +2822,17 @@ void note_stack_retire_drain_blocker_resource(
   const char* const resource_class =
       stack_subresource_lifetime_dry_run_resource_class(
           kind, role, provenance, qkv_would_batch, allocation_proof);
-  const bool safe_candidate =
+  const bool base_safe_candidate =
       stack_subresource_lifetime_dry_run_resource_is_safe(resource_class);
+  const bool formal_last_use_proof =
+      stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proof(
+          kind,
+          role,
+          resource_class,
+          provenance,
+          allocation_proof,
+          allocation_label);
+  const bool safe_candidate = base_safe_candidate || formal_last_use_proof;
   const bool large_backing =
       stack_subresource_lifetime_dry_run_is_large_backing(
           role, bytes, provenance);
@@ -2815,13 +2844,15 @@ void note_stack_retire_drain_blocker_resource(
           provenance,
           allocation_proof,
           safe_candidate,
-          large_backing);
+          large_backing,
+          formal_last_use_proof);
   std::ostringstream key;
   key << "role=" << retired_resource_role_name(role)
       << " reason=" << reason
       << " safety=" << stack_temp_lifetime_safety_name(safety)
       << " resource_class=" << resource_class
       << " safe_candidate=" << (safe_candidate ? 1 : 0)
+      << " formal_last_use_proof=" << (formal_last_use_proof ? 1 : 0)
       << " large_backing=" << (large_backing ? 1 : 0)
       << " missing_proof_reason=" << missing_proof_reason
       << " phase=" << submit_phase_name(phase)
@@ -3044,8 +3075,17 @@ void note_region_lifetime_submit_attribution_resource(
   const char* const resource_class =
       stack_subresource_lifetime_dry_run_resource_class(
           kind, role, provenance, qkv_would_batch, allocation_proof);
-  const bool safe_candidate =
+  const bool base_safe_candidate =
       stack_subresource_lifetime_dry_run_resource_is_safe(resource_class);
+  const bool formal_last_use_proof =
+      stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proof(
+          kind,
+          role,
+          resource_class,
+          provenance,
+          allocation_proof,
+          allocation_label);
+  const bool safe_candidate = base_safe_candidate || formal_last_use_proof;
   const bool large_backing =
       stack_subresource_lifetime_dry_run_is_large_backing(
           role, bytes, provenance);
@@ -3057,7 +3097,8 @@ void note_region_lifetime_submit_attribution_resource(
           provenance,
           allocation_proof,
           safe_candidate,
-          large_backing);
+          large_backing,
+          formal_last_use_proof);
   const bool capture_or_public_output =
       provenance.escapes_stack || provenance.requested_intermediate ||
       provenance.final_output ||
@@ -3073,14 +3114,15 @@ void note_region_lifetime_submit_attribution_resource(
       << " safety=" << stack_temp_lifetime_safety_name(safety)
       << " resource_class=" << resource_class
       << " safe_candidate=" << (safe_candidate ? 1 : 0)
+      << " formal_last_use_proof=" << (formal_last_use_proof ? 1 : 0)
       << " large_backing=" << (large_backing ? 1 : 0)
       << " missing_proof_reason=" << missing_proof_reason
       << " producer_substep="
       << stack_region_lifetime_producer_substep(
-             kind, role, resource_class, provenance)
+             kind, role, resource_class, provenance, allocation_label)
       << " last_use_candidate="
       << stack_region_lifetime_last_use_candidate(
-             kind, role, resource_class, provenance)
+             kind, role, resource_class, provenance, allocation_label)
       << " capture_or_public_output="
       << (capture_or_public_output ? 1 : 0)
       << " qkv_would_batch=" << (qkv_would_batch ? 1 : 0)
@@ -3215,6 +3257,114 @@ bool stack_subresource_lifetime_dry_run_resource_is_safe(
       key == kDryRunMetadataUniform;
 }
 
+bool stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proof(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const char* const resource_class,
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label) {
+  if (
+      current_submit_phase() != VulkanSubmitPhase::StackOwner ||
+      current_vision_stack_phase() != VulkanVisionStackPhase::Norm2 ||
+      current_vision_stack_block_index() < 0 ||
+      g_stack_last_use_proofs.empty()) {
+    return false;
+  }
+  if (
+      !allocation_proof.has_generation || !allocation_proof.has_byte_range ||
+      allocation_proof.byte_range == 0u || allocation_label.empty()) {
+    return false;
+  }
+  if (
+      role == VulkanRetiredResourceRole::StackRequestedOutput ||
+      role == VulkanRetiredResourceRole::StackFinalOutput ||
+      provenance.escapes_stack || provenance.requested_intermediate ||
+      provenance.final_output || provenance.alias_or_view ||
+      provenance.aliases_runtime_input || provenance.aliases_runtime_output) {
+    return false;
+  }
+
+  const std::string key(resource_class ? resource_class : "");
+  if (
+      key == kDryRunAttentionRawAuxiliaryRangeNonEscapeLastConsumer &&
+      role == VulkanRetiredResourceRole::StackAttentionOutput &&
+      kind == VulkanRetiredResourceKind::Unknown) {
+    return true;
+  }
+  if (
+      key == kDryRunStackResidual1OutputRawGenerationRangeNonEscapeLastConsumer &&
+      role == VulkanRetiredResourceRole::StackResidual1Output) {
+    return true;
+  }
+  if (
+      key == kDryRunStackProjOutputRawGenerationRangeNonEscapeLastConsumer &&
+      role == VulkanRetiredResourceRole::StackProjOutput) {
+    return true;
+  }
+  if (
+      key == kDryRunStackQkvOutputRawGenerationRangeNonEscapeLastConsumer &&
+      role == VulkanRetiredResourceRole::StackQkvOutput) {
+    return true;
+  }
+  if (
+      key == kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer &&
+      role == VulkanRetiredResourceRole::StackInternalTemp) {
+    const bool qkv_linear_auxiliary = allocation_label.size() >= 4u &&
+        allocation_label.compare(allocation_label.size() - 4u, 4u, ".qkv") ==
+            0;
+    if (
+        allocation_label == "transform_bias_rescale_qkv" ||
+        allocation_label == "attention_merge_heads" || qkv_linear_auxiliary) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const char* stack_raw_producer_substep_for_label(
+    const std::string& allocation_label) {
+  if (allocation_label == "transform_bias_rescale_qkv") {
+    return "qkv_transform";
+  }
+  if (allocation_label == "attention_merge_heads") {
+    return "attention_merge_heads";
+  }
+  if (
+      allocation_label.size() >= 4u &&
+      allocation_label.compare(allocation_label.size() - 4u, 4u, ".qkv") ==
+          0) {
+    return "qkv_linear";
+  }
+  return "unknown";
+}
+
+const char* stack_raw_last_consumer_for_label(
+    const std::string& allocation_label) {
+  if (
+      allocation_label == "transform_bias_rescale_qkv" ||
+      (allocation_label.size() >= 4u &&
+       allocation_label.compare(allocation_label.size() - 4u, 4u, ".qkv") ==
+           0)) {
+    return "qkv_transform";
+  }
+  if (allocation_label == "attention_merge_heads") {
+    return "attention";
+  }
+  return "unknown";
+}
+
+bool stack_subresource_lifetime_dry_run_is_formal_norm2_last_use_label(
+    const char* const resource_class,
+    const std::string& allocation_label) {
+  const std::string key(resource_class ? resource_class : "");
+  if (key != kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer) {
+    return false;
+  }
+  return std::string(stack_raw_producer_substep_for_label(allocation_label)) !=
+      "unknown";
+}
+
 bool stack_subresource_lifetime_dry_run_is_large_backing(
     const VulkanRetiredResourceRole role,
     const uint64_t bytes,
@@ -3241,8 +3391,10 @@ void note_stack_subresource_lifetime_dry_run_resource(
     const char* const resource_class,
     const bool safe_candidate,
     const bool large_backing,
+    const bool formal_last_use_proof,
     const VulkanStackRetireProvenance& provenance,
-    const VulkanStackRawResourceAllocationProof& allocation_proof) {
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label) {
   auto& counters = stack_subresource_lifetime_dry_run_counters();
   note_dry_run_resource_class(counters, resource_class, bytes);
   const bool has_attention_non_escape_last_consumer_evidence =
@@ -3252,11 +3404,19 @@ void note_stack_subresource_lifetime_dry_run_resource(
   const bool has_raw_non_escape_last_consumer_evidence =
       is_stack_raw_generation_range_non_escape_last_consumer_class(
           resource_class);
+  const bool has_stack_internal_label_last_consumer_evidence =
+      stack_subresource_lifetime_dry_run_is_formal_norm2_last_use_label(
+          resource_class, allocation_label);
+  const char* const raw_last_consumer =
+      has_stack_internal_label_last_consumer_evidence
+      ? stack_raw_last_consumer_for_label(allocation_label)
+      : stack_raw_last_consumer_for_dry_run(role, resource_class);
 
   std::ostringstream key;
   key << "resource=1 class=" << resource_class
       << " safe_candidate=" << (safe_candidate ? 1 : 0)
       << " large_backing=" << (large_backing ? 1 : 0)
+      << " formal_last_use_proof=" << (formal_last_use_proof ? 1 : 0)
       << " kind=" << retired_resource_kind_name(kind)
       << " role=" << retired_resource_role_name(role)
       << " phase=" << submit_phase_name(phase)
@@ -3268,6 +3428,8 @@ void note_stack_subresource_lifetime_dry_run_resource(
       << " dtype=" << provenance.dtype
       << " stack_provenance=" << (provenance.defined ? 1 : 0)
       << " allocation_id=" << allocation_proof.allocation_id
+      << " allocation_label="
+      << (allocation_label.empty() ? "unknown" : allocation_label)
       << " allocation_generation="
       << allocation_proof.allocation_generation
       << " allocation_has_generation="
@@ -3337,11 +3499,15 @@ void note_stack_subresource_lifetime_dry_run_resource(
       << (has_raw_generation_range_evidence ? "stack_scope_allocation_range"
                                             : "missing")
       << " raw_last_consumer_evidence="
-      << stack_raw_last_consumer_for_dry_run(role, resource_class)
+      << raw_last_consumer
+      << " raw_producer_substep="
+      << stack_raw_producer_substep_for_label(allocation_label)
       << " raw_last_use_proof="
-      << (has_raw_non_escape_last_consumer_evidence
+      << (formal_last_use_proof
+              ? "formal_last_consumer"
+              : (has_raw_non_escape_last_consumer_evidence
               ? "diagnostic_last_consumer"
-              : (has_raw_generation_range_evidence ? "missing" : "not_raw"))
+              : (has_raw_generation_range_evidence ? "missing" : "not_raw")))
       << " raw_retire_policy_eligible=0"
       << " provenance_source="
       << stack_retire_provenance_source_name(provenance.source)

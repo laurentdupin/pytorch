@@ -1215,6 +1215,8 @@ void Context::submit_pending_work_and_poll_retire(
                 pending.role, pending.stack_provenance);
         const VulkanStackRawResourceAllocationProof allocation_proof =
             stack_raw_allocation_proof(pending);
+        const std::string& allocation_label =
+            pending_retire_allocation_label(pending);
         std::ostringstream resource_key;
         resource_key << retired_resource_role_name(pending.role) << ":"
                      << blocker_reason << ":"
@@ -1270,7 +1272,8 @@ void Context::submit_pending_work_and_poll_retire(
             pending.bytes,
             qkv_would_batch,
             pending.stack_provenance,
-            allocation_proof);
+            allocation_proof,
+            allocation_label);
         if (record_subresource_lifetime_dry_run) {
           const char* const resource_class =
               stack_subresource_lifetime_dry_run_resource_class(
@@ -1279,9 +1282,18 @@ void Context::submit_pending_work_and_poll_retire(
                   pending.stack_provenance,
                   qkv_would_batch,
                   allocation_proof);
+          const bool formal_last_use_proof =
+              stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proof(
+                  pending.kind,
+                  pending.role,
+                  resource_class,
+                  pending.stack_provenance,
+                  allocation_proof,
+                  allocation_label);
           const bool safe_candidate =
               stack_subresource_lifetime_dry_run_resource_is_safe(
-                  resource_class);
+                  resource_class) ||
+              formal_last_use_proof;
           const bool large_backing =
               stack_subresource_lifetime_dry_run_is_large_backing(
                   pending.role, pending.bytes, pending.stack_provenance);
@@ -1307,8 +1319,10 @@ void Context::submit_pending_work_and_poll_retire(
               resource_class,
               safe_candidate,
               large_backing,
+              formal_last_use_proof,
               pending.stack_provenance,
-              allocation_proof);
+              allocation_proof,
+              allocation_label);
         }
       };
   {
