@@ -725,6 +725,216 @@ def _safe_phase_summary(vulkan_phase_tracker: Any) -> Any:
         return {"error": repr(exc)}
 
 
+def _parse_vulkan_snapshot_fields(row: Any) -> dict[str, str]:
+    if not isinstance(row, str):
+        return {}
+    fields: dict[str, str] = {}
+    for token in row.split():
+        if "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        fields[key] = value.rstrip(",")
+    return fields
+
+
+def _counter_as_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _field_bool(fields: dict[str, str], key: str) -> bool | str:
+    if key not in fields:
+        return "unknown"
+    return fields[key] == "1"
+
+
+def _phase_delta(phase_summary: Any, phase_name: str) -> dict[str, Any]:
+    if not isinstance(phase_summary, dict):
+        return {}
+    for phase in phase_summary.get("phases", []):
+        if isinstance(phase, dict) and phase.get("name") == phase_name:
+            delta = phase.get("delta")
+            return delta if isinstance(delta, dict) else {}
+    return {}
+
+
+def _bridge_snapshot_rows(
+    debug_counters: dict[str, Any],
+    phase_summary: Any,
+) -> tuple[str, list[Any]]:
+    timed_delta = _phase_delta(phase_summary, "timed_forward")
+    timed_rows = timed_delta.get("region_lifetime_submit_attribution_snapshot_delta")
+    if isinstance(timed_rows, list):
+        return "timed_forward", timed_rows
+    rows = debug_counters.get("region_lifetime_submit_attribution_snapshot")
+    if isinstance(rows, list):
+        return "total", rows
+    return "unavailable", []
+
+
+def _bridge_stack_capture_storage_rows(
+    debug_counters: dict[str, Any],
+    phase_summary: Any,
+) -> dict[str, dict[str, str]]:
+    timed_delta = _phase_delta(phase_summary, "timed_forward")
+    rows = timed_delta.get("stack_allocation_aggregate_snapshot_delta")
+    if not isinstance(rows, list):
+        rows = debug_counters.get("stack_allocation_aggregate_snapshot")
+    storage_rows: dict[str, dict[str, str]] = {}
+    if not isinstance(rows, list):
+        return storage_rows
+    for row in rows:
+        fields = _parse_vulkan_snapshot_fields(row)
+        if (
+            fields.get("phase") != "intermediate_capture"
+            or fields.get("role") != "vision_stack_capture"
+        ):
+            continue
+        block = fields.get("block")
+        if block is not None:
+            storage_rows[block] = fields
+    return storage_rows
+
+
+def _field_or_storage_bool(
+    fields: dict[str, str],
+    storage_fields: dict[str, str],
+    key: str,
+) -> bool | str:
+    value = _field_bool(fields, key)
+    return value if value != "unknown" else _field_bool(storage_fields, key)
+
+
+def build_stack_output_to_device_consumer_bridge_dry_run(
+    debug_counters: dict[str, Any],
+    phase_summary: Any,
+) -> dict[str, Any]:
+    """Summarize whether escaping stack captures have a proven device consumer."""
+    phase_name, rows = _bridge_snapshot_rows(debug_counters, phase_summary)
+    capture_storage_rows = _bridge_stack_capture_storage_rows(
+        debug_counters,
+        phase_summary,
+    )
+    plan_keys = debug_counters.get("stack_shape_plan_keys")
+    stack_plan_id = plan_keys[0] if isinstance(plan_keys, list) and plan_keys else None
+    captures: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in rows:
+        fields = _parse_vulkan_snapshot_fields(row)
+        if fields.get("resource_class") != "host_visible_or_requested_output":
+            continue
+        if fields.get("role") not in {"stack_residual2_output", "stack_requested_output"}:
+            continue
+        storage_fields = capture_storage_rows.get(fields.get("block", ""), {})
+        key = (
+            fields.get("block", "-1"),
+            fields.get("role", "unknown"),
+            fields.get("shape", "unknown"),
+        )
+        capture = captures.setdefault(
+            key,
+            {
+                "producer_stack_context_id": "not_exposed",
+                "stack_plan_id": stack_plan_id,
+                "captured_block": fields.get("block", "-1"),
+                "captured_substep": fields.get("producer_substep", "unknown"),
+                "output_role": fields.get("role", "unknown"),
+                "output_shape": fields.get("shape", "unknown"),
+                "captured_tensor_shape": storage_fields.get("shape", "unknown"),
+                "captured_tensor_strides": storage_fields.get("strides", "unknown"),
+                "output_dtype": fields.get("dtype", "unknown"),
+                "output_lifetime": fields.get("lifetime", "unknown"),
+                "direct_buffer": _field_or_storage_bool(
+                    fields,
+                    storage_fields,
+                    "direct_buffer",
+                ),
+                "buffer_storage": _field_or_storage_bool(
+                    fields,
+                    storage_fields,
+                    "buffer_storage",
+                ),
+                "image_storage": _field_or_storage_bool(
+                    fields,
+                    storage_fields,
+                    "image_storage",
+                ),
+                "allocation_label": fields.get("allocation_label", "unknown"),
+                "allocation_has_generation": _field_bool(
+                    fields,
+                    "allocation_has_generation",
+                ),
+                "allocation_has_byte_range": _field_bool(
+                    fields,
+                    "allocation_has_byte_range",
+                ),
+                "allocation_byte_offset": fields.get("allocation_byte_offset"),
+                "allocation_byte_range": fields.get("allocation_byte_range"),
+                "allocation_allocated_bytes": fields.get("allocation_allocated_bytes"),
+                "last_use_candidate": fields.get("last_use_candidate", "unknown"),
+                "expected_consumer_phase": fields.get("expected_consumer_phase", "unknown"),
+                "expected_consumer_block": fields.get("expected_consumer_block", "-1"),
+                "requested_intermediate": _field_bool(fields, "requested_intermediate"),
+                "final_output": _field_bool(fields, "final_output"),
+                "escapes_stack": _field_bool(fields, "escapes_stack"),
+                "alias_or_view": _field_bool(fields, "alias_or_view"),
+                "aliases_runtime_input": _field_bool(fields, "aliases_runtime_input"),
+                "aliases_runtime_output": _field_bool(fields, "aliases_runtime_output"),
+                "strip_token_or_view_relation": "not_observed_in_stack_region",
+                "downstream_device_consumer_id": "not_registered",
+                "downstream_device_consumer_context": "not_registered",
+                "consumer_in_same_planned_region": False,
+                "python_public_boundary_before_consumption": True,
+                "host_visible_boundary_before_consumption": _field_bool(
+                    fields,
+                    "capture_or_public_output",
+                ),
+                "capture_storage_observed": bool(storage_fields),
+                "accepted": False,
+                "reject_reason": "public_tensor_array_boundary_before_downstream_consumer",
+                "resource_records": 0,
+                "queue_submit_records": 0,
+                "bytes": 0,
+            },
+        )
+        capture["resource_records"] += _counter_as_int(fields.get("count", 1)) or 1
+        capture["queue_submit_records"] += _counter_as_int(fields.get("queue_submit"))
+        capture["bytes"] += _counter_as_int(fields.get("bytes"))
+    rejected: dict[str, int] = {}
+    accepted = 0
+    would_remove = 0
+    for capture in captures.values():
+        if (
+            capture["downstream_device_consumer_id"] != "not_registered"
+            and capture["consumer_in_same_planned_region"]
+            and not capture["python_public_boundary_before_consumption"]
+            and not capture["host_visible_boundary_before_consumption"]
+        ):
+            capture["accepted"] = True
+            capture["reject_reason"] = "none"
+            accepted += 1
+            would_remove += capture["queue_submit_records"]
+        else:
+            rejected[capture["reject_reason"]] = rejected.get(capture["reject_reason"], 0) + 1
+    return {
+        "contract_name": "StackOutputToDeviceConsumerBridgeContract",
+        "mode": "dry_run",
+        "phase_source": phase_name,
+        "behavior_changed": False,
+        "stack_plan_id": stack_plan_id,
+        "bridge_candidate_count": len(captures),
+        "proven_device_consumer_count": accepted,
+        "rejected_reasons": rejected,
+        "would_remove_phase_boundary_syncs": would_remove,
+        "captures": list(captures.values()),
+        "architecture_gap": (
+            "captured stack outputs are public Tensor[] results before a "
+            "downstream device consumer is registered in the same planned region"
+        ),
+    }
+
+
 def install_failure_artifact_hook(
     args: argparse.Namespace,
     context: dict[str, Any],
@@ -740,6 +950,7 @@ def install_failure_artifact_hook(
                 if torch_module is not None
                 else {}
             )
+            phase_counters = _safe_phase_summary(context.get("vulkan_phase_tracker"))
             out_path = output_path_from_args(args)
             result = {
                 "benchmark_name": "benchmark_depth_anything",
@@ -779,8 +990,14 @@ def install_failure_artifact_hook(
                 "vulkan_dav2_block_owner": context.get("vulkan_block_owner"),
                 "device_info": context.get("device_info"),
                 "vulkan_debug_counters": debug_counters,
-                "vulkan_phase_counters": _safe_phase_summary(
-                    context.get("vulkan_phase_tracker")
+                "vulkan_phase_counters": phase_counters,
+                "vulkan_stack_output_device_bridge_dry_run": (
+                    build_stack_output_to_device_consumer_bridge_dry_run(
+                        debug_counters,
+                        phase_counters,
+                    )
+                    if device_kind == "vulkan"
+                    else None
                 ),
                 "allocation_failure_snapshot": debug_counters.get(
                     "last_allocation_failure_snapshot",
@@ -1302,6 +1519,16 @@ def run() -> None:
         else forward_with_readback_durations
     )
 
+    debug_counters = snapshot_vulkan_debug_counters(
+        torch,
+        device_kind,
+    )
+    phase_counters = (
+        vulkan_phase_tracker.summary()
+        if vulkan_phase_tracker is not None
+        else None
+    )
+
     result = {
         "benchmark_name": "benchmark_depth_anything",
         "benchmark_contract": "legacy_depth_anything_v2_repo_forward",
@@ -1327,13 +1554,14 @@ def run() -> None:
         "skip_output_copy": bool(args.skip_output_copy),
         "vulkan_model_probe_disable_owner_programs": bool(disable_owner_programs),
         "vulkan_dav2_block_owner": vulkan_block_owner,
-        "vulkan_debug_counters": snapshot_vulkan_debug_counters(
-            torch,
-            device_kind,
-        ),
-        "vulkan_phase_counters": (
-            vulkan_phase_tracker.summary()
-            if vulkan_phase_tracker is not None
+        "vulkan_debug_counters": debug_counters,
+        "vulkan_phase_counters": phase_counters,
+        "vulkan_stack_output_device_bridge_dry_run": (
+            build_stack_output_to_device_consumer_bridge_dry_run(
+                debug_counters,
+                phase_counters,
+            )
+            if device_kind == "vulkan"
             else None
         ),
         "vulkan_model_probe": probe_summary,
