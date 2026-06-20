@@ -1,8 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-20 at local HEAD
-`992787a7dc1d` plus the behavior-neutral StackRegion boundary-submit-plan
-hook.
+Last refreshed: 2026-06-20 at local HEAD `d5ab31f775e4` plus
+behavior-neutral StackRegion visibility-binding diagnostics.
 
 ## Repo State Summary
 
@@ -39,6 +38,17 @@ sites. It records selected bridge-private boundary ids, same-region consumer
 registration, public-scope rejection, and live boundary match status while
 leaving `submits_removed=0` and `barriers_inserted=0`. It is the intended input
 for a later one-boundary canary; it is not submit elision by itself.
+
+The first block-2 bridge-private submit-skip canary was rejected and backed out:
+`ordering_required_bytes_after_proof=0` did not prove that the phase-boundary
+submit had no correctness role. Future canaries must fail closed while the
+proof producer reports `behavior_change_allowed=false`. Env opt-in cannot
+override that veto. A behavior-changing submit or barrier canary also needs
+proof-to-live-`VulkanBuffer` binding plus validated stage/access visibility, or
+an explicit no-visibility-dependency proof. Current `StackRegionBarrierPlan.v0`
+records are still dry-run: they can expose planned stage/access and insertion
+point metadata, but they report missing live Vulkan-buffer binding rather than
+executable barrier readiness.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.

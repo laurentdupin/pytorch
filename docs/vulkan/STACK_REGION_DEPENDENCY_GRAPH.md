@@ -117,7 +117,12 @@ when a stack-owner recording scope ends. The v0 schema is
   token does not insert a barrier or remove a submit by itself; it only proves
   that an insertion location is observable before the dispatch is recorded.
   The plan also records the boundary-level metadata still missing before any
-  submit can be removed.
+  submit can be removed. `behavior_change_allowed=false` is a hard veto for
+  every v0 record: env opt-in must not override it. A future barrier or submit
+  canary also needs proof-to-live-`VulkanBuffer` binding and validated
+  visibility dependency fields, or an explicit no-visibility-dependency proof.
+  Dry-run stage/access and insertion-point strings alone are not executable
+  barrier proof.
 - a nested `capture_output_boundary_contract` object with schema
   `CaptureOutputBoundaryContract.v0`. This is a capture-specific dry-run proof
   surface for requested intermediate capture edges such as
@@ -183,8 +188,10 @@ when a stack-owner recording scope ends. The v0 schema is
   proof-classified capture-activation bytes, public/host/final/requested
   blockers, block and scope budget status, and complete or incomplete reason
   for each bridge-private boundary. Public combined-scope capture remains
-  rejected. A recomputed complete boundary is canary-ready evidence only; the
-  object is dry-run and does not insert barriers or remove submits.
+  rejected. A recomputed complete boundary is dry-run completeness evidence
+  only; it is not canary-ready while `behavior_change_allowed=false` or while
+  live visibility proof is missing. The object is dry-run and does not insert
+  barriers or remove submits.
 - a nested `stack_region_boundary_submit_plan` object with schema
   `StackRegionBoundarySubmitPlan.v0`. This is the online submit-site hook for
   future one-boundary canaries. It records each live stack-owner phase-boundary
@@ -196,7 +203,9 @@ when a stack-owner recording scope ends. The v0 schema is
   or `rejected_public_scope_or_no_same_region_consumer`. It is diagnostic
   only: `barriers_inserted` and `submits_removed` remain zero until a later
   behavior CL consumes a current-run proof and explicitly enables one selected
-  boundary.
+  boundary. A current-run proof match is still rejected when the proof producer
+  reports `behavior_change_allowed=false`; the submit-plan records expose this
+  as `rejected_behavior_change_not_allowed`.
 
 This dump is diagnostic only. It does not insert barriers, skip submits, change
 routes, or change accepted shapes.
@@ -217,6 +226,13 @@ barrier immediately before a consumer dispatch only when the graph proves:
 Barrier insertion without a matching submit-reduction decision is not a
 performance win and should remain diagnostic-only.
 
+Before any barrier canary, the plan must bind the proof allocation id,
+generation, and byte range to the live `VulkanBuffer` or equivalent resource
+object used by the command recorder. If the graph can only report allocation
+ids from completed dry-run rows, the correct status is
+`missing_live_vulkan_buffer_binding`; do not treat such records as executable
+barrier records.
+
 ## Submit Plan Stage
 
 A phase-boundary submit may be skipped only when the boundary node is complete:
@@ -228,6 +244,9 @@ A phase-boundary submit may be skipped only when the boundary node is complete:
 - public, host-visible, final-output, debug, and explicit readback blockers are
   absent or handled by a separate contract
 - byte budgets are satisfied for the boundary and for the enclosing region
+- the proof producer sets `behavior_change_allowed=true`
+- either real barrier records were inserted and validated at the consumer
+  dispatch, or the boundary has an explicit no-visibility-dependency proof
 - capture parity and bridge output sanity pass for the guarded path
 
 The decision must emit counters for complete boundaries, skipped submits,

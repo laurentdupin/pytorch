@@ -1177,6 +1177,27 @@ bool barrier_plan_record_is_plannable(
       fields, BarrierPlanDispatchPosition{});
 }
 
+bool barrier_plan_stage_access_available(
+    const std::string& producer_access,
+    const std::string& consumer_access) {
+  return producer_access != "unknown" && consumer_access != "unknown" &&
+      stage_for_access(producer_access) != "unknown_stage" &&
+      stage_for_access(consumer_access) != "unknown_stage";
+}
+
+std::string barrier_plan_visibility_dependency_status(
+    const bool plannable,
+    const bool stage_access_available,
+    const BarrierPlanDispatchPosition& consumer_position) {
+  if (!stage_access_available) {
+    return "missing_stage_access";
+  }
+  if (!plannable && !consumer_position.insertion_point_available) {
+    return "missing_consumer_dispatch_live_position";
+  }
+  return "missing_live_vulkan_buffer_binding";
+}
+
 std::string boundary_key_for_dependency(
     const std::map<std::string, std::string>& fields) {
   std::ostringstream stream;
@@ -1238,6 +1259,11 @@ void append_barrier_plan_record(
                            ? "completed_graph_position_available_missing_pre_recording_position_api"
                            : "missing_completed_graph_and_pre_recording_position")
                     : "not_planned")));
+  const bool stage_access_available =
+      barrier_plan_stage_access_available(producer_access, consumer_access);
+  const std::string visibility_dependency_status =
+      barrier_plan_visibility_dependency_status(
+          plannable, stage_access_available, consumer_position);
   bool first = true;
   out << '{';
   append_json_string(
@@ -1428,6 +1454,13 @@ void append_barrier_plan_record(
   append_json_string(out, "src_access", producer_access, first);
   append_json_string(out, "dst_stage", stage_for_access(consumer_access), first);
   append_json_string(out, "dst_access", consumer_access, first);
+  append_json_bool(
+      out, "stage_access_available", stage_access_available, first);
+  append_json_string(
+      out,
+      "stage_access_status",
+      stage_access_available ? "available" : "missing_stage_access",
+      first);
   append_json_string(
       out,
       "descriptor_binding",
@@ -1454,6 +1487,34 @@ void append_barrier_plan_record(
       out,
       "could_theoretically_replace_phase_boundary_submit",
       plannable && field_or(fields, "queue_submit", "0") == "1",
+      first);
+  append_json_bool(out, "behavior_change_allowed", false, first);
+  append_json_bool(
+      out, "live_vulkan_buffer_binding_available", false, first);
+  append_json_string(
+      out,
+      "live_vulkan_buffer_binding_status",
+      "missing_live_vulkan_buffer_binding",
+      first);
+  append_json_string(
+      out,
+      "proof_to_live_buffer_binding_status",
+      "missing_live_vulkan_buffer_binding",
+      first);
+  append_json_bool(out, "visibility_dependency_validated", false, first);
+  append_json_string(
+      out, "visibility_dependency_status", visibility_dependency_status, first);
+  append_json_bool(out, "no_visibility_dependency_proof", false, first);
+  append_json_string(
+      out,
+      "no_visibility_dependency_proof_status",
+      "missing_explicit_no_visibility_dependency_proof",
+      first);
+  append_json_bool(out, "barrier_canary_ready", false, first);
+  append_json_string(
+      out,
+      "barrier_canary_reject_reason",
+      visibility_dependency_status,
       first);
   append_json_bool(out, "actual_barrier_inserted", false, first);
   append_json_bool(out, "actual_submit_removed", false, first);
@@ -1501,7 +1562,13 @@ void append_barrier_plan_json(
   uint64_t pre_recording_consumer_dispatch_position_api_missing_records = 0u;
   uint64_t pre_recording_command_buffer_dispatch_position_api_missing_records =
       0u;
+  uint64_t stage_access_available_records = 0u;
+  uint64_t stage_access_missing_records = 0u;
+  uint64_t live_vulkan_buffer_binding_missing_records = 0u;
+  uint64_t visibility_dependency_validated_records = 0u;
+  uint64_t barrier_canary_ready_records = 0u;
   std::map<std::string, uint64_t> rejection_reasons;
+  std::map<std::string, uint64_t> visibility_dependency_status_counts;
   for (const auto& row : dependency_edges) {
     const auto fields = parse_space_separated_fields(row);
     const uint64_t count = parsed_u64(fields, "count");
@@ -1512,9 +1579,25 @@ void append_barrier_plan_json(
         barrier_plan_record_is_plannable(fields, consumer_position);
     const std::string rejection =
         plannable ? "none" : barrier_plan_rejection_reason(fields, consumer_position);
+    const std::string producer_access = field_or(fields, "producer_access", "unknown");
+    const std::string consumer_access = field_or(fields, "consumer_access", "unknown");
+    const bool stage_access_available =
+        barrier_plan_stage_access_available(producer_access, consumer_access);
+    const std::string visibility_dependency_status =
+        barrier_plan_visibility_dependency_status(
+            plannable, stage_access_available, consumer_position);
     const auto strict_missing = missing_dependency_metadata_fields(fields);
     const auto plan_missing =
         barrier_plan_missing_dependency_metadata_fields(fields, consumer_position);
+    if (stage_access_available) {
+      stage_access_available_records += count;
+    } else {
+      stage_access_missing_records += count;
+    }
+    if (plannable) {
+      live_vulkan_buffer_binding_missing_records += count;
+    }
+    visibility_dependency_status_counts[visibility_dependency_status] += count;
     if (boundary_has_planned_non_capture_norm1_consumer(fields)) {
       consumer_dispatch_planned_records += count;
       const bool strict_missing_consumer =
@@ -1680,6 +1763,39 @@ void append_barrier_plan_json(
       "pre_recording_command_buffer_dispatch_position_api_missing_records",
       pre_recording_command_buffer_dispatch_position_api_missing_records,
       plan_first);
+  append_json_u64(
+      out,
+      "stage_access_available_records",
+      stage_access_available_records,
+      plan_first);
+  append_json_u64(
+      out, "stage_access_missing_records", stage_access_missing_records, plan_first);
+  append_json_u64(
+      out,
+      "live_vulkan_buffer_binding_available_records",
+      0u,
+      plan_first);
+  append_json_u64(
+      out,
+      "live_vulkan_buffer_binding_missing_records",
+      live_vulkan_buffer_binding_missing_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "visibility_dependency_validated_records",
+      visibility_dependency_validated_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "barrier_canary_ready_records",
+      barrier_canary_ready_records,
+      plan_first);
+  append_json_bool(out, "behavior_change_allowed", false, plan_first);
+  append_json_string(
+      out,
+      "behavior_change_veto_reason",
+      "rejected_behavior_change_not_allowed",
+      plan_first);
   append_json_u64(out, "barriers_inserted", 0u, plan_first);
   append_json_u64(out, "submits_removed", 0u, plan_first);
   append_json_string(
@@ -1692,6 +1808,13 @@ void append_barrier_plan_json(
   bool reject_first = true;
   for (const auto& item : rejection_reasons) {
     append_json_u64(out, item.first.c_str(), item.second, reject_first);
+  }
+  out << "}";
+  append_json_comma(out, plan_first);
+  out << "\"visibility_dependency_status_counts\":{";
+  bool visibility_first = true;
+  for (const auto& item : visibility_dependency_status_counts) {
+    append_json_u64(out, item.first.c_str(), item.second, visibility_first);
   }
   out << "}";
   append_json_string_array(
@@ -3326,6 +3449,24 @@ void append_phase_boundary_budget_recompute_record(
       proof.recomputed_incomplete_reason,
       first);
   append_json_bool(out, "behavior_change_allowed", false, first);
+  append_json_bool(out, "canary_ready", false, first);
+  append_json_string(
+      out,
+      "submit_skip_hard_veto_reason",
+      "rejected_behavior_change_not_allowed",
+      first);
+  append_json_bool(
+      out,
+      "requires_barrier_or_no_visibility_dependency_proof",
+      true,
+      first);
+  append_json_bool(out, "real_barrier_records_inserted", false, first);
+  append_json_bool(out, "no_visibility_dependency_proof", false, first);
+  append_json_string(
+      out,
+      "visibility_dependency_proof_status",
+      "missing_live_visibility_or_no_dependency_proof",
+      first);
   append_json_comma(out, first);
   out << "\"retire_only_resources_after_proof\":";
   append_resource_class_summary_object(out, proof.recomputed_retire_only_resources);
@@ -3442,10 +3583,28 @@ void append_phase_boundary_budget_recompute_json(
       recompute_first);
   append_json_u64(out, "barriers_inserted", 0u, recompute_first);
   append_json_u64(out, "submits_removed", 0u, recompute_first);
+  append_json_bool(out, "behavior_change_allowed", false, recompute_first);
   append_json_bool(
       out,
       "canary_ready",
-      recomputed_complete_boundaries > 0u,
+      false,
+      recompute_first);
+  append_json_string(
+      out,
+      "canary_blocked_reason",
+      "rejected_behavior_change_not_allowed",
+      recompute_first);
+  append_json_bool(
+      out,
+      "requires_barrier_or_no_visibility_dependency_proof",
+      true,
+      recompute_first);
+  append_json_bool(
+      out, "no_visibility_dependency_proof", false, recompute_first);
+  append_json_u64(
+      out,
+      "dry_run_complete_boundaries",
+      recomputed_complete_boundaries,
       recompute_first);
   append_json_comma(out, recompute_first);
   out << "\"incomplete_reasons\":";
@@ -4456,6 +4615,33 @@ void append_stack_region_boundary_submit_plan_record(
       out, "budget_reject", field_or(fields, "budget_reject", "missing"), first);
   append_json_string(
       out, "blockers", field_or(fields, "blockers", "missing"), first);
+  const bool live_boundary_match =
+      field_or(fields, "live_boundary_matches_selected", "0") == "1";
+  append_json_bool(out, "current_run_proof_matched", live_boundary_match, first);
+  append_json_bool(out, "behavior_change_allowed", false, first);
+  append_json_string(
+      out,
+      "submit_skip_planning_status",
+      live_boundary_match ? "rejected_behavior_change_not_allowed"
+                          : field_or(fields, "online_plan_status", "missing"),
+      first);
+  append_json_string(
+      out,
+      "submit_skip_hard_veto_reason",
+      "rejected_behavior_change_not_allowed",
+      first);
+  append_json_bool(
+      out,
+      "requires_barrier_or_no_visibility_dependency_proof",
+      true,
+      first);
+  append_json_bool(out, "real_barrier_records_inserted", false, first);
+  append_json_bool(out, "no_visibility_dependency_proof", false, first);
+  append_json_string(
+      out,
+      "visibility_dependency_proof_status",
+      "missing_live_visibility_or_no_dependency_proof",
+      first);
   append_json_u64(out, "barriers_inserted", 0u, first);
   append_json_u64(out, "submits_removed", 0u, first);
   append_json_comma(out, first);
@@ -4472,17 +4658,26 @@ void append_stack_region_boundary_submit_plan_json(
   uint64_t selected_live_match_records = 0u;
   uint64_t same_region_registration_records = 0u;
   uint64_t queue_submit_records = 0u;
+  uint64_t behavior_change_veto_records = 0u;
   std::map<std::string, uint64_t> status_counts;
+  std::map<std::string, uint64_t> submit_skip_status_counts;
   std::map<std::string, uint64_t> selected_boundary_counts;
   for (const auto& row : rows) {
     const auto fields = parse_space_separated_fields(row);
     const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
     candidate_records += count;
     status_counts[field_or(fields, "online_plan_status", "missing")] += count;
+    const bool live_boundary_match =
+        field_or(fields, "live_boundary_matches_selected", "0") == "1";
+    const std::string submit_skip_status =
+        live_boundary_match ? "rejected_behavior_change_not_allowed"
+                            : field_or(fields, "online_plan_status", "missing");
+    submit_skip_status_counts[submit_skip_status] += count;
     selected_boundary_counts[field_or(fields, "selected_boundary_id", "none")] +=
         count;
-    if (field_or(fields, "live_boundary_matches_selected", "0") == "1") {
+    if (live_boundary_match) {
       selected_live_match_records += count;
+      behavior_change_veto_records += count;
     }
     if (
         field_or(fields, "same_region_consumer_registration_present", "0") ==
@@ -4519,8 +4714,25 @@ void append_stack_region_boundary_submit_plan_json(
       plan_first);
   append_json_u64(
       out, "queue_submit_records", queue_submit_records, plan_first);
+  append_json_u64(
+      out,
+      "behavior_change_veto_records",
+      behavior_change_veto_records,
+      plan_first);
   append_json_u64(out, "barriers_inserted", 0u, plan_first);
   append_json_u64(out, "submits_removed", 0u, plan_first);
+  append_json_bool(out, "behavior_change_allowed", false, plan_first);
+  append_json_string(
+      out,
+      "submit_skip_hard_veto_reason",
+      "rejected_behavior_change_not_allowed",
+      plan_first);
+  append_json_bool(
+      out,
+      "requires_barrier_or_no_visibility_dependency_proof",
+      true,
+      plan_first);
+  append_json_bool(out, "no_visibility_dependency_proof", false, plan_first);
   append_json_string(
       out,
       "behavior_change_status",
@@ -4529,6 +4741,9 @@ void append_stack_region_boundary_submit_plan_json(
   append_json_comma(out, plan_first);
   out << "\"online_plan_status_counts\":";
   append_u64_map_object(out, status_counts);
+  append_json_comma(out, plan_first);
+  out << "\"submit_skip_planning_status_counts\":";
+  append_u64_map_object(out, submit_skip_status_counts);
   append_json_comma(out, plan_first);
   out << "\"selected_boundary_counts\":";
   append_u64_map_object(out, selected_boundary_counts);
@@ -8590,6 +8805,12 @@ void note_stack_region_boundary_submit_plan(
               !g_vision_stack_capture_indices.empty()
           ? 1
           : 0)
+      << " behavior_change_allowed=0"
+      << " submit_skip_hard_veto_reason=rejected_behavior_change_not_allowed"
+      << " requires_barrier_or_no_visibility_dependency_proof=1"
+      << " real_barrier_records_inserted=0"
+      << " no_visibility_dependency_proof=0"
+      << " visibility_dependency_proof_status=missing_live_visibility_or_no_dependency_proof"
       << " proof_source=current_graph_run_required"
       << " stale_proof_check=fail_closed_without_current_graph_match"
       << " queue_submit=" << (queue_submit ? 1 : 0)

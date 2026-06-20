@@ -19724,6 +19724,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertGreater(barrier_plan["candidate_records"], 0)
             self.assertEqual(barrier_plan["barriers_inserted"], 0)
             self.assertEqual(barrier_plan["submits_removed"], 0)
+            self.assertFalse(barrier_plan["behavior_change_allowed"])
+            self.assertEqual(
+                barrier_plan["behavior_change_veto_reason"],
+                "rejected_behavior_change_not_allowed",
+            )
             self.assertEqual(
                 barrier_plan["candidate_records"],
                 barrier_plan["plannable_records"] + barrier_plan["rejected_records"],
@@ -19767,6 +19772,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn(
                 "pre_recording_barrier_insertion_point_missing_records",
+                barrier_plan,
+            )
+            self.assertIn("stage_access_available_records", barrier_plan)
+            self.assertIn(
+                "live_vulkan_buffer_binding_missing_records",
+                barrier_plan,
+            )
+            self.assertEqual(
+                barrier_plan["live_vulkan_buffer_binding_available_records"],
+                0,
+            )
+            self.assertEqual(
+                barrier_plan["visibility_dependency_validated_records"], 0
+            )
+            self.assertEqual(barrier_plan["barrier_canary_ready_records"], 0)
+            self.assertIn(
+                "visibility_dependency_status_counts",
                 barrier_plan,
             )
             self.assertTrue(barrier_plan["records"])
@@ -19814,6 +19836,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "pre_recording_barrier_insertion_point_class",
                 barrier_plan["records"][0],
             )
+            self.assertFalse(barrier_plan["records"][0]["behavior_change_allowed"])
+            self.assertFalse(
+                barrier_plan["records"][0][
+                    "live_vulkan_buffer_binding_available"
+                ]
+            )
+            self.assertIn(
+                "proof_to_live_buffer_binding_status",
+                barrier_plan["records"][0],
+            )
+            self.assertIn(
+                "visibility_dependency_status",
+                barrier_plan["records"][0],
+            )
+            self.assertFalse(
+                barrier_plan["records"][0]["visibility_dependency_validated"]
+            )
+            self.assertFalse(barrier_plan["records"][0]["barrier_canary_ready"])
             self.assertIn("boundary_complete_dependency_proof", graph)
             boundary_proof = graph["boundary_complete_dependency_proof"]
             self.assertEqual(
@@ -19869,6 +19909,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertTrue(budget_recompute["dry_run_only"])
             self.assertEqual(budget_recompute["barriers_inserted"], 0)
             self.assertEqual(budget_recompute["submits_removed"], 0)
+            self.assertFalse(budget_recompute["behavior_change_allowed"])
+            self.assertFalse(budget_recompute["canary_ready"])
+            self.assertEqual(
+                budget_recompute["canary_blocked_reason"],
+                "rejected_behavior_change_not_allowed",
+            )
+            self.assertIn("dry_run_complete_boundaries", budget_recompute)
             self.assertIn(
                 "ordering_required_bytes_after_proof", budget_recompute
             )
@@ -27444,6 +27491,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(submit_plan["barriers_inserted"], 0)
             self.assertEqual(submit_plan["submits_removed"], 0)
+            self.assertFalse(submit_plan["behavior_change_allowed"])
+            self.assertEqual(
+                submit_plan["submit_skip_hard_veto_reason"],
+                "rejected_behavior_change_not_allowed",
+            )
+            self.assertFalse(submit_plan["no_visibility_dependency_proof"])
+            self.assertGreater(submit_plan["behavior_change_veto_records"], 0)
+            self.assertIn(
+                "submit_skip_planning_status_counts",
+                submit_plan,
+            )
             self.assertGreater(submit_plan["candidate_records"], 0)
             self.assertGreater(
                 submit_plan["same_region_consumer_registration_records"], 0
@@ -27458,6 +27516,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     == "planned_live_boundary_match_proof_pending"
                     and record["live_boundary_matches_selected"]
                     and record["same_region_consumer_registration_present"]
+                    and record["current_run_proof_matched"]
+                    and not record["behavior_change_allowed"]
+                    and record["submit_skip_planning_status"]
+                    == "rejected_behavior_change_not_allowed"
+                    and record["submit_skip_hard_veto_reason"]
+                    == "rejected_behavior_change_not_allowed"
+                    and not record["no_visibility_dependency_proof"]
                     and record["submits_removed"] == 0
                     and record["barriers_inserted"] == 0
                     for record in submit_plan["records"]
@@ -27470,6 +27535,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and "ordering_required_bytes_after_proof" in record
                     and "retire_only_bytes_after_proof" in record
                     and record["behavior_change_allowed"] is False
+                    and record["canary_ready"] is False
+                    and record["submit_skip_hard_veto_reason"]
+                    == "rejected_behavior_change_not_allowed"
                     for record in budget_recompute["records"]
                 )
             )
