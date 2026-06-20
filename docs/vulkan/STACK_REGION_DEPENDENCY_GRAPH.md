@@ -175,6 +175,16 @@ when a stack-owner recording scope ends. The v0 schema is
   `missing_stack_activation_proof` or `capture_sensitive_stack_activation` to
   the next explicit boundary blocker; it does not insert a barrier or remove a
   submit.
+- a nested `phase_boundary_budget_recompute` object with schema
+  `PhaseBoundaryBudgetRecompute.v0`. This recomputes bridge-private capture
+  boundary classes after `CaptureBoundaryDependencySet` and
+  `StackActivationCaptureProof` are applied. It reports pending bytes before
+  and after proof classification, ordering-required bytes, retire-only bytes,
+  proof-classified capture-activation bytes, public/host/final/requested
+  blockers, block and scope budget status, and complete or incomplete reason
+  for each bridge-private boundary. Public combined-scope capture remains
+  rejected. A recomputed complete boundary is canary-ready evidence only; the
+  object is dry-run and does not insert barriers or remove submits.
 
 This dump is diagnostic only. It does not insert barriers, skip submits, change
 routes, or change accepted shapes.

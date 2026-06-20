@@ -2433,6 +2433,18 @@ struct CaptureBoundaryDependencySetProof final {
   uint64_t stack_activation_capture_candidate_records = 0u;
   uint64_t stack_activation_capture_proof_complete_records = 0u;
   uint64_t stack_activation_capture_public_rejected_records = 0u;
+  uint64_t pending_bytes_before_proof_classification = 0u;
+  uint64_t pending_bytes_after_proof_classification = 0u;
+  uint64_t ordering_required_bytes_after_proof = 0u;
+  uint64_t retire_only_bytes_after_proof = 0u;
+  uint64_t proof_classified_capture_activation_bytes = 0u;
+  uint64_t peak_extra_live_bytes_estimate = 0u;
+  uint64_t block_budget_bytes = 0u;
+  uint64_t scope_budget_bytes = 0u;
+  bool recomputed_block_budget_ok = false;
+  bool recomputed_scope_budget_ok = false;
+  bool recomputed_bridge_private_boundary_complete = false;
+  std::string recomputed_incomplete_reason = "not_recomputed";
   std::map<std::string, uint64_t> boundary_reject_reasons;
   std::map<std::string, uint64_t> stack_activation_capture_reject_reasons;
   std::map<std::string, BoundaryResourceClassSummary> boundary_resources;
@@ -2440,6 +2452,14 @@ struct CaptureBoundaryDependencySetProof final {
       stack_activation_capture_before_blockers;
   std::map<std::string, BoundaryResourceClassSummary>
       stack_activation_capture_after_blockers;
+  std::map<std::string, BoundaryResourceClassSummary>
+      recomputed_retire_only_resources;
+  std::map<std::string, BoundaryResourceClassSummary>
+      recomputed_ordering_required_resources;
+  std::map<std::string, BoundaryResourceClassSummary>
+      recomputed_public_host_final_requested_blockers;
+  std::map<std::string, BoundaryResourceClassSummary>
+      recomputed_proof_classified_resources;
   std::map<std::string, BoundaryResourceClassSummary> remaining_full_boundary_blockers;
   std::vector<std::string> stack_activation_capture_edge_rows;
   std::vector<std::string> boundary_rows;
@@ -2824,7 +2844,57 @@ void append_capture_boundary_dependency_set_record(
       "stack_activation_capture_public_rejected_records",
       proof.stack_activation_capture_public_rejected_records,
       first);
-  append_json_bool(out, "full_boundary_complete", false, first);
+  append_json_u64(
+      out,
+      "pending_bytes_before_proof_classification",
+      proof.pending_bytes_before_proof_classification,
+      first);
+  append_json_u64(
+      out,
+      "pending_bytes_after_proof_classification",
+      proof.pending_bytes_after_proof_classification,
+      first);
+  append_json_u64(
+      out,
+      "ordering_required_bytes_after_proof",
+      proof.ordering_required_bytes_after_proof,
+      first);
+  append_json_u64(
+      out,
+      "retire_only_bytes_after_proof",
+      proof.retire_only_bytes_after_proof,
+      first);
+  append_json_u64(
+      out,
+      "proof_classified_capture_activation_bytes",
+      proof.proof_classified_capture_activation_bytes,
+      first);
+  append_json_u64(
+      out,
+      "peak_extra_live_bytes_estimate",
+      proof.peak_extra_live_bytes_estimate,
+      first);
+  append_json_u64(out, "block_budget_bytes", proof.block_budget_bytes, first);
+  append_json_u64(out, "scope_budget_bytes", proof.scope_budget_bytes, first);
+  append_json_bool(
+      out, "recomputed_block_budget_ok", proof.recomputed_block_budget_ok, first);
+  append_json_bool(
+      out, "recomputed_scope_budget_ok", proof.recomputed_scope_budget_ok, first);
+  append_json_bool(
+      out,
+      "recomputed_bridge_private_boundary_complete",
+      proof.recomputed_bridge_private_boundary_complete,
+      first);
+  append_json_string(
+      out,
+      "recomputed_incomplete_reason",
+      proof.recomputed_incomplete_reason,
+      first);
+  append_json_bool(
+      out,
+      "full_boundary_complete",
+      proof.recomputed_bridge_private_boundary_complete,
+      first);
   append_json_bool(out, "behavior_change_allowed", false, first);
   append_json_comma(out, first);
   out << "\"boundary_resources\":";
@@ -2837,6 +2907,21 @@ void append_capture_boundary_dependency_set_record(
   out << "\"stack_activation_capture_after_blockers\":";
   append_resource_class_summary_object(
       out, proof.stack_activation_capture_after_blockers);
+  append_json_comma(out, first);
+  out << "\"recomputed_retire_only_resources\":";
+  append_resource_class_summary_object(out, proof.recomputed_retire_only_resources);
+  append_json_comma(out, first);
+  out << "\"recomputed_ordering_required_resources\":";
+  append_resource_class_summary_object(
+      out, proof.recomputed_ordering_required_resources);
+  append_json_comma(out, first);
+  out << "\"recomputed_public_host_final_requested_blockers\":";
+  append_resource_class_summary_object(
+      out, proof.recomputed_public_host_final_requested_blockers);
+  append_json_comma(out, first);
+  out << "\"recomputed_proof_classified_resources\":";
+  append_resource_class_summary_object(
+      out, proof.recomputed_proof_classified_resources);
   append_json_comma(out, first);
   out << "\"remaining_full_boundary_blockers\":";
   append_resource_class_summary_object(out, proof.remaining_full_boundary_blockers);
@@ -3161,6 +3246,209 @@ void append_stack_activation_capture_proof_json(
   out << "]}";
 }
 
+void append_phase_boundary_budget_recompute_record(
+    std::ostream& out,
+    const CaptureBoundaryDependencySetProof& proof) {
+  bool first = true;
+  out << '{';
+  append_json_string(out, "boundary_id", proof.boundary_id, first);
+  append_json_string(out, "capture_block", proof.capture_block, first);
+  append_json_string(
+      out, "capture_scope", "bridge_private_capture", first);
+  append_json_u64(
+      out,
+      "pending_bytes_before_proof_classification",
+      proof.pending_bytes_before_proof_classification,
+      first);
+  append_json_u64(
+      out,
+      "pending_bytes_after_proof_classification",
+      proof.pending_bytes_after_proof_classification,
+      first);
+  append_json_u64(
+      out,
+      "ordering_required_bytes_after_proof",
+      proof.ordering_required_bytes_after_proof,
+      first);
+  append_json_u64(
+      out,
+      "retire_only_bytes_after_proof",
+      proof.retire_only_bytes_after_proof,
+      first);
+  append_json_u64(
+      out,
+      "proof_classified_capture_activation_bytes",
+      proof.proof_classified_capture_activation_bytes,
+      first);
+  append_json_u64(
+      out,
+      "peak_extra_live_bytes_estimate",
+      proof.peak_extra_live_bytes_estimate,
+      first);
+  append_json_u64(out, "block_budget_bytes", proof.block_budget_bytes, first);
+  append_json_bool(
+      out, "block_budget_ok", proof.recomputed_block_budget_ok, first);
+  append_json_u64(out, "scope_budget_bytes", proof.scope_budget_bytes, first);
+  append_json_bool(
+      out, "scope_budget_ok", proof.recomputed_scope_budget_ok, first);
+  append_json_bool(
+      out,
+      "bridge_private_capture_dependency_set_complete",
+      capture_boundary_dependency_set_bridge_private_complete(proof),
+      first);
+  append_json_bool(
+      out,
+      "stack_activation_capture_proof_complete",
+      stack_activation_capture_proof_complete(proof),
+      first);
+  append_json_bool(
+      out,
+      "recomputed_bridge_private_boundary_complete",
+      proof.recomputed_bridge_private_boundary_complete,
+      first);
+  append_json_string(
+      out,
+      "complete_or_incomplete_reason",
+      proof.recomputed_incomplete_reason,
+      first);
+  append_json_bool(out, "behavior_change_allowed", false, first);
+  append_json_comma(out, first);
+  out << "\"retire_only_resources_after_proof\":";
+  append_resource_class_summary_object(out, proof.recomputed_retire_only_resources);
+  append_json_comma(out, first);
+  out << "\"ordering_required_resources_after_proof\":";
+  append_resource_class_summary_object(
+      out, proof.recomputed_ordering_required_resources);
+  append_json_comma(out, first);
+  out << "\"public_host_final_requested_blockers_after_proof\":";
+  append_resource_class_summary_object(
+      out, proof.recomputed_public_host_final_requested_blockers);
+  append_json_comma(out, first);
+  out << "\"proof_classified_resources\":";
+  append_resource_class_summary_object(
+      out, proof.recomputed_proof_classified_resources);
+  out << '}';
+}
+
+void append_phase_boundary_budget_recompute_json(
+    std::ostream& out,
+    const std::map<std::string, CaptureBoundaryDependencySetProof>& proofs,
+    bool& first) {
+  uint64_t candidate_boundaries = 0u;
+  uint64_t recomputed_complete_boundaries = 0u;
+  uint64_t public_combined_rejected_records = 0u;
+  uint64_t pending_bytes_before = 0u;
+  uint64_t pending_bytes_after = 0u;
+  uint64_t ordering_required_bytes_after = 0u;
+  uint64_t retire_only_bytes_after = 0u;
+  uint64_t proof_classified_bytes = 0u;
+  uint64_t block_budget_ok_boundaries = 0u;
+  uint64_t scope_budget_ok_boundaries = 0u;
+  std::map<std::string, uint64_t> incomplete_reasons;
+  for (const auto& item : proofs) {
+    const auto& proof = item.second;
+    ++candidate_boundaries;
+    pending_bytes_before += proof.pending_bytes_before_proof_classification;
+    pending_bytes_after += proof.pending_bytes_after_proof_classification;
+    ordering_required_bytes_after += proof.ordering_required_bytes_after_proof;
+    retire_only_bytes_after += proof.retire_only_bytes_after_proof;
+    proof_classified_bytes += proof.proof_classified_capture_activation_bytes;
+    public_combined_rejected_records += proof.public_capture_records;
+    if (proof.recomputed_block_budget_ok) {
+      ++block_budget_ok_boundaries;
+    }
+    if (proof.recomputed_scope_budget_ok) {
+      ++scope_budget_ok_boundaries;
+    }
+    if (proof.recomputed_bridge_private_boundary_complete) {
+      ++recomputed_complete_boundaries;
+    } else {
+      incomplete_reasons[proof.recomputed_incomplete_reason] += 1u;
+    }
+  }
+
+  append_json_comma(out, first);
+  out << "\"phase_boundary_budget_recompute\":{";
+  bool recompute_first = true;
+  append_json_string(
+      out, "schema", "PhaseBoundaryBudgetRecompute.v0", recompute_first);
+  append_json_bool(out, "behavior_neutral", true, recompute_first);
+  append_json_bool(out, "dry_run_only", true, recompute_first);
+  append_json_string(
+      out,
+      "target_boundary_class",
+      "bridge_private_intermediate_capture",
+      recompute_first);
+  append_json_u64(
+      out, "candidate_boundaries", candidate_boundaries, recompute_first);
+  append_json_u64(
+      out,
+      "recomputed_bridge_private_complete_boundaries",
+      recomputed_complete_boundaries,
+      recompute_first);
+  append_json_u64(
+      out,
+      "public_combined_scope_rejected_records",
+      public_combined_rejected_records,
+      recompute_first);
+  append_json_u64(
+      out,
+      "pending_bytes_before_proof_classification",
+      pending_bytes_before,
+      recompute_first);
+  append_json_u64(
+      out,
+      "pending_bytes_after_proof_classification",
+      pending_bytes_after,
+      recompute_first);
+  append_json_u64(
+      out,
+      "ordering_required_bytes_after_proof",
+      ordering_required_bytes_after,
+      recompute_first);
+  append_json_u64(
+      out,
+      "retire_only_bytes_after_proof",
+      retire_only_bytes_after,
+      recompute_first);
+  append_json_u64(
+      out,
+      "proof_classified_capture_activation_bytes",
+      proof_classified_bytes,
+      recompute_first);
+  append_json_u64(
+      out,
+      "block_budget_ok_boundaries",
+      block_budget_ok_boundaries,
+      recompute_first);
+  append_json_u64(
+      out,
+      "scope_budget_ok_boundaries",
+      scope_budget_ok_boundaries,
+      recompute_first);
+  append_json_u64(out, "barriers_inserted", 0u, recompute_first);
+  append_json_u64(out, "submits_removed", 0u, recompute_first);
+  append_json_bool(
+      out,
+      "canary_ready",
+      recomputed_complete_boundaries > 0u,
+      recompute_first);
+  append_json_comma(out, recompute_first);
+  out << "\"incomplete_reasons\":";
+  append_u64_map_object(out, incomplete_reasons);
+  append_json_comma(out, recompute_first);
+  out << "\"records\":[";
+  bool first_record = true;
+  for (const auto& item : proofs) {
+    if (!first_record) {
+      out << ',';
+    }
+    first_record = false;
+    append_phase_boundary_budget_recompute_record(out, item.second);
+  }
+  out << "]}";
+}
+
 void append_capture_boundary_dependency_set_json(
     std::ostream& out,
     const std::vector<std::string>& capture_edges,
@@ -3397,11 +3685,38 @@ void append_capture_boundary_dependency_set_json(
     proof.boundary_resources.clear();
     proof.stack_activation_capture_before_blockers.clear();
     proof.stack_activation_capture_after_blockers.clear();
+    proof.recomputed_retire_only_resources.clear();
+    proof.recomputed_ordering_required_resources.clear();
+    proof.recomputed_public_host_final_requested_blockers.clear();
+    proof.recomputed_proof_classified_resources.clear();
     proof.remaining_full_boundary_blockers.clear();
+    proof.pending_bytes_before_proof_classification = 0u;
+    proof.pending_bytes_after_proof_classification = 0u;
+    proof.ordering_required_bytes_after_proof = 0u;
+    proof.retire_only_bytes_after_proof = 0u;
+    proof.proof_classified_capture_activation_bytes = 0u;
+    proof.peak_extra_live_bytes_estimate = 0u;
+    proof.block_budget_bytes = 0u;
+    proof.scope_budget_bytes = 0u;
+    proof.recomputed_block_budget_ok = false;
+    proof.recomputed_scope_budget_ok = false;
+    proof.recomputed_bridge_private_boundary_complete = false;
+    proof.recomputed_incomplete_reason = "not_recomputed";
     for (const auto& row : proof.boundary_rows) {
       const auto fields = parse_space_separated_fields(row);
       const uint64_t boundary_count =
           std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+      proof.pending_bytes_before_proof_classification +=
+          parsed_u64(fields, "bytes");
+      proof.pending_bytes_after_proof_classification +=
+          parsed_u64(fields, "bytes");
+      proof.peak_extra_live_bytes_estimate = std::max<uint64_t>(
+          proof.peak_extra_live_bytes_estimate,
+          parsed_u64(fields, "peak_extra_live_bytes_estimate"));
+      proof.block_budget_bytes = std::max<uint64_t>(
+          proof.block_budget_bytes, parsed_u64(fields, "block_budget_bytes"));
+      proof.scope_budget_bytes = std::max<uint64_t>(
+          proof.scope_budget_bytes, parsed_u64(fields, "scope_budget_bytes"));
       const auto signature = fields.find("signature");
       if (signature != fields.end()) {
         std::istringstream stream(signature->second);
@@ -3443,6 +3758,35 @@ void append_capture_boundary_dependency_set_json(
               resource_bytes);
           const bool activation_capture_complete =
               stack_activation_capture_proof_complete(proof);
+          if (signature_resource_class_is_retire_only(resource_class)) {
+            add_boundary_resource_class(
+                proof.recomputed_retire_only_resources,
+                resource_class,
+                resource_count,
+                resource_bytes);
+          } else if (
+              activation_capture_complete &&
+              (resource_class == kDryRunMissingStackActivationProof ||
+               resource_class == kDryRunCaptureSensitiveStackActivation)) {
+            add_boundary_resource_class(
+                proof.recomputed_proof_classified_resources,
+                resource_class,
+                resource_count,
+                resource_bytes);
+          } else {
+            add_boundary_resource_class(
+                proof.recomputed_ordering_required_resources,
+                resource_class,
+                resource_count,
+                resource_bytes);
+            if (signature_resource_class_is_public_blocker(resource_class)) {
+              add_boundary_resource_class(
+                  proof.recomputed_public_host_final_requested_blockers,
+                  resource_class,
+                  resource_count,
+                  resource_bytes);
+            }
+          }
           if (
               resource_class == kDryRunMissingStackActivationProof ||
               resource_class == kDryRunCaptureSensitiveStackActivation) {
@@ -3503,6 +3847,43 @@ void append_capture_boundary_dependency_set_json(
             parsed_u64(fields, "count");
       }
     }
+    for (const auto& item : proof.recomputed_retire_only_resources) {
+      proof.retire_only_bytes_after_proof += item.second.bytes;
+    }
+    for (const auto& item : proof.recomputed_ordering_required_resources) {
+      proof.ordering_required_bytes_after_proof += item.second.bytes;
+    }
+    for (const auto& item : proof.recomputed_proof_classified_resources) {
+      proof.proof_classified_capture_activation_bytes += item.second.bytes;
+    }
+    proof.recomputed_block_budget_ok =
+        proof.block_budget_bytes == 0u ||
+        proof.peak_extra_live_bytes_estimate <= proof.block_budget_bytes;
+    proof.recomputed_scope_budget_ok =
+        proof.scope_budget_bytes == 0u ||
+        proof.peak_extra_live_bytes_estimate <= proof.scope_budget_bytes;
+    if (proof.boundary_rows.empty()) {
+      proof.recomputed_incomplete_reason = "missing_phase_boundary_rows";
+    } else if (!capture_boundary_dependency_set_bridge_private_complete(proof)) {
+      proof.recomputed_incomplete_reason =
+          "bridge_private_capture_dependency_set_incomplete";
+    } else if (!stack_activation_capture_proof_complete(proof)) {
+      proof.recomputed_incomplete_reason =
+          "stack_activation_capture_proof_incomplete";
+    } else if (!proof.recomputed_public_host_final_requested_blockers.empty()) {
+      proof.recomputed_incomplete_reason =
+          "public_host_final_requested_blocker_after_recompute";
+    } else if (!proof.recomputed_ordering_required_resources.empty()) {
+      proof.recomputed_incomplete_reason =
+          "ordering_required_resource_after_recompute";
+    } else if (!proof.recomputed_block_budget_ok) {
+      proof.recomputed_incomplete_reason = "block_budget_exceeded";
+    } else if (!proof.recomputed_scope_budget_ok) {
+      proof.recomputed_incomplete_reason = "scope_budget_exceeded";
+    } else {
+      proof.recomputed_bridge_private_boundary_complete = true;
+      proof.recomputed_incomplete_reason = "none";
+    }
   }
 
   uint64_t candidate_boundaries = 0u;
@@ -3537,6 +3918,9 @@ void append_capture_boundary_dependency_set_json(
     if (capture_boundary_dependency_set_bridge_private_complete(proof)) {
       ++bridge_private_complete_boundaries;
     }
+    if (proof.recomputed_bridge_private_boundary_complete) {
+      ++full_boundary_complete_boundaries;
+    }
     for (const auto& resource : proof.remaining_full_boundary_blockers) {
       remaining_blockers[resource.first] += resource.second.count;
     }
@@ -3549,9 +3933,11 @@ void append_capture_boundary_dependency_set_json(
       if (
           reason.first == "budget_reject:unsafe_resource_class" &&
           stack_activation_capture_proof_complete(proof)) {
-        remaining_blockers
-            ["boundary:budget_reject:phase_boundary_budget_recompute_required"] +=
-            reason.second;
+        if (!proof.recomputed_bridge_private_boundary_complete) {
+          remaining_blockers
+              ["boundary:budget_reject:" + proof.recomputed_incomplete_reason] +=
+              reason.second;
+        }
         continue;
       }
       remaining_blockers["boundary:" + reason.first] += reason.second;
@@ -3665,6 +4051,7 @@ void append_capture_boundary_dependency_set_json(
       unsafe_resource_class_before_records,
       unsafe_resource_class_after_records,
       first);
+  append_phase_boundary_budget_recompute_json(out, proofs, first);
 }
 
 bool boundary_complete_proof_is_complete(const BoundaryCompleteProof& proof) {

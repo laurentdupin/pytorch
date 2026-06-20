@@ -19845,6 +19845,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertTrue(activation_capture_proof["dry_run_only"])
             self.assertEqual(activation_capture_proof["barriers_inserted"], 0)
             self.assertEqual(activation_capture_proof["submits_removed"], 0)
+            self.assertIn("phase_boundary_budget_recompute", graph)
+            budget_recompute = graph["phase_boundary_budget_recompute"]
+            self.assertEqual(
+                budget_recompute["schema"], "PhaseBoundaryBudgetRecompute.v0"
+            )
+            self.assertTrue(budget_recompute["behavior_neutral"])
+            self.assertTrue(budget_recompute["dry_run_only"])
+            self.assertEqual(budget_recompute["barriers_inserted"], 0)
+            self.assertEqual(budget_recompute["submits_removed"], 0)
+            self.assertIn(
+                "ordering_required_bytes_after_proof", budget_recompute
+            )
+            self.assertIn("retire_only_bytes_after_proof", budget_recompute)
             self.assertIn(
                 "consumer_dispatch_planned_records",
                 boundary_proof,
@@ -27353,7 +27366,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertGreater(
                 capture_dependency_set["bridge_private_complete_boundaries"], 0
             )
-            self.assertEqual(
+            self.assertGreaterEqual(
                 capture_dependency_set["full_boundary_complete_boundaries"], 0
             )
             self.assertTrue(capture_dependency_set["records"])
@@ -27361,7 +27374,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 any(
                     record["bridge_private_capture_dependency_set_complete"]
                     and not record["public_capture_dependency_set_complete"]
-                    and not record["full_boundary_complete"]
                     for record in capture_dependency_set["records"]
                 )
             )
@@ -27402,6 +27414,30 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 activation_capture_proof["unsafe_resource_class_after_records"],
                 0,
+            )
+            budget_recompute = graph["phase_boundary_budget_recompute"]
+            self.assertEqual(
+                budget_recompute["schema"], "PhaseBoundaryBudgetRecompute.v0"
+            )
+            self.assertEqual(budget_recompute["barriers_inserted"], 0)
+            self.assertEqual(budget_recompute["submits_removed"], 0)
+            self.assertTrue(budget_recompute["records"])
+            self.assertTrue(
+                all(
+                    "pending_bytes_before_proof_classification" in record
+                    and "pending_bytes_after_proof_classification" in record
+                    and "ordering_required_bytes_after_proof" in record
+                    and "retire_only_bytes_after_proof" in record
+                    and record["behavior_change_allowed"] is False
+                    for record in budget_recompute["records"]
+                )
+            )
+            self.assertTrue(
+                all(
+                    record["block_budget_ok"] and record["scope_budget_ok"]
+                    for record in budget_recompute["records"]
+                    if record["recomputed_bridge_private_boundary_complete"]
+                )
             )
             self.assertTrue(activation_capture_proof["records"])
             self.assertTrue(
