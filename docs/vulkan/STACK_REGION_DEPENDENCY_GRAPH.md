@@ -110,7 +110,11 @@ when a stack-owner recording scope ends. The v0 schema is
   required edge records, BarrierPlan-covered edge records, retire-only resource
   classes, ordering-required resource classes, public/host/final/requested
   blockers, phase-boundary lifetime rows, missing fields, and complete/not
-  complete status. It is proof-only and does not authorize a submit skip.
+  complete status. It also records planned non-capture next-block Norm1
+  consumer metadata separately from recorded consumer dispatch metadata, so the
+  proof can show when the `consumer_dispatch` gap shrinks without making the
+  edge eligible for a BarrierPlan. It is proof-only and does not authorize a
+  submit skip.
 
 This dump is diagnostic only. It does not insert barriers, skip submits, change
 routes, or change accepted shapes.

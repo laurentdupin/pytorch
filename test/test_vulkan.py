@@ -19674,11 +19674,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertGreater(boundary_proof["candidate_boundaries"], 0)
             self.assertEqual(boundary_proof["barriers_inserted"], 0)
             self.assertEqual(boundary_proof["submits_removed"], 0)
+            self.assertIn(
+                "consumer_dispatch_planned_records",
+                boundary_proof,
+            )
+            self.assertIn(
+                "consumer_dispatch_missing_reduced_records",
+                boundary_proof,
+            )
             self.assertTrue(boundary_proof["records"])
             self.assertIn("complete", boundary_proof["records"][0])
+            self.assertIn(
+                "consumer_dispatch_proofs",
+                boundary_proof["records"][0],
+            )
             self.assertTrue(
                 any(
                     edge["fields"].get("producer_phase") == "residual2"
+                    and "consumer_dispatch_proof" in edge["fields"]
                     for edge in graph["dependency_edges"]
                 )
             )

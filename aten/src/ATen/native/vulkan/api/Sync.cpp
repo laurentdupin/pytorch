@@ -683,6 +683,25 @@ std::string field_or(
   return it == fields.end() ? std::string(fallback) : it->second;
 }
 
+bool boundary_has_planned_non_capture_norm1_consumer(
+    const std::map<std::string, std::string>& fields) {
+  return field_or(fields, "consumer_dispatch_planned", "0") == "1" &&
+      field_or(fields, "consumer_dispatch_proof", "missing") ==
+      "planned_non_capture_residual2_to_norm1";
+}
+
+std::vector<std::string> boundary_complete_dependency_missing_fields(
+    const std::map<std::string, std::string>& fields) {
+  std::vector<std::string> missing = missing_dependency_metadata_fields(fields);
+  if (boundary_has_planned_non_capture_norm1_consumer(fields)) {
+    missing.erase(
+        std::remove(
+            missing.begin(), missing.end(), std::string("consumer_dispatch")),
+        missing.end());
+  }
+  return missing;
+}
+
 std::string stage_for_access(const std::string& access) {
   if (access.find("shader") != std::string::npos) {
     return "compute_shader";
@@ -942,8 +961,11 @@ struct BoundaryCompleteProof final {
   uint64_t rejected_edge_records = 0u;
   uint64_t queue_submit_records = 0u;
   uint64_t required_edge_bytes = 0u;
+  uint64_t consumer_dispatch_planned_records = 0u;
+  uint64_t consumer_dispatch_missing_reduced_records = 0u;
   std::map<std::string, uint64_t> edge_rejection_reasons;
   std::map<std::string, uint64_t> missing_fields;
+  std::map<std::string, uint64_t> consumer_dispatch_proofs;
   std::map<std::string, BoundaryResourceClassSummary> retire_only_resources;
   std::map<std::string, BoundaryResourceClassSummary> ordering_required_resources;
   std::map<std::string, BoundaryResourceClassSummary> public_blockers;
@@ -1147,8 +1169,21 @@ void append_boundary_complete_proof_record(
   append_json_u64(out, "rejected_edge_records", proof.rejected_edge_records, first);
   append_json_u64(out, "queue_submit_records", proof.queue_submit_records, first);
   append_json_u64(out, "required_edge_bytes", proof.required_edge_bytes, first);
+  append_json_u64(
+      out,
+      "consumer_dispatch_planned_records",
+      proof.consumer_dispatch_planned_records,
+      first);
+  append_json_u64(
+      out,
+      "consumer_dispatch_missing_reduced_records",
+      proof.consumer_dispatch_missing_reduced_records,
+      first);
   append_json_bool(out, "complete", complete, first);
   append_json_bool(out, "behavior_change_allowed", false, first);
+  append_json_comma(out, first);
+  out << "\"consumer_dispatch_proofs\":";
+  append_u64_map_object(out, proof.consumer_dispatch_proofs);
   append_json_comma(out, first);
   out << "\"edge_rejection_reasons\":";
   append_u64_map_object(out, proof.edge_rejection_reasons);
@@ -1201,6 +1236,14 @@ void append_boundary_complete_dependency_proof_json(
     proof.required_edge_records += count;
     proof.queue_submit_records += parsed_u64(fields, "queue_submit");
     proof.required_edge_bytes += parsed_u64(fields, "bytes");
+    if (boundary_has_planned_non_capture_norm1_consumer(fields)) {
+      proof.consumer_dispatch_planned_records += count;
+      proof.consumer_dispatch_proofs
+          [field_or(fields, "consumer_dispatch_proof", "missing")] += count;
+    } else {
+      proof.consumer_dispatch_proofs
+          [field_or(fields, "consumer_dispatch_proof", "missing")] += count;
+    }
     const bool plannable = barrier_plan_record_is_plannable(fields);
     if (plannable) {
       proof.covered_edge_records += count;
@@ -1208,7 +1251,13 @@ void append_boundary_complete_dependency_proof_json(
       proof.rejected_edge_records += count;
       proof.edge_rejection_reasons[barrier_plan_rejection_reason(fields)] +=
           count;
-      for (const auto& missing : missing_dependency_metadata_fields(fields)) {
+      const auto strict_missing = missing_dependency_metadata_fields(fields);
+      const auto boundary_missing =
+          boundary_complete_dependency_missing_fields(fields);
+      if (strict_missing.size() > boundary_missing.size()) {
+        proof.consumer_dispatch_missing_reduced_records += count;
+      }
+      for (const auto& missing : boundary_missing) {
         proof.missing_fields[missing] += count;
       }
     }
@@ -1245,12 +1294,17 @@ void append_boundary_complete_dependency_proof_json(
   uint64_t complete_boundaries = 0u;
   uint64_t required_edge_records = 0u;
   uint64_t covered_edge_records = 0u;
+  uint64_t consumer_dispatch_planned_records = 0u;
+  uint64_t consumer_dispatch_missing_reduced_records = 0u;
   std::map<std::string, uint64_t> blocker_reasons;
   for (const auto& item : proofs) {
     const auto& proof = item.second;
     ++candidate_boundaries;
     required_edge_records += proof.required_edge_records;
     covered_edge_records += proof.covered_edge_records;
+    consumer_dispatch_planned_records += proof.consumer_dispatch_planned_records;
+    consumer_dispatch_missing_reduced_records +=
+        proof.consumer_dispatch_missing_reduced_records;
     if (boundary_complete_proof_is_complete(proof)) {
       ++complete_boundaries;
     } else {
@@ -1292,6 +1346,16 @@ void append_boundary_complete_dependency_proof_json(
       out, "required_edge_records", required_edge_records, proof_first);
   append_json_u64(
       out, "barrier_plan_covered_edge_records", covered_edge_records, proof_first);
+  append_json_u64(
+      out,
+      "consumer_dispatch_planned_records",
+      consumer_dispatch_planned_records,
+      proof_first);
+  append_json_u64(
+      out,
+      "consumer_dispatch_missing_reduced_records",
+      consumer_dispatch_missing_reduced_records,
+      proof_first);
   append_json_u64(out, "barriers_inserted", 0u, proof_first);
   append_json_u64(out, "submits_removed", 0u, proof_first);
   append_json_comma(out, proof_first);
@@ -5436,6 +5500,18 @@ bool vision_stack_capture_dependency_reaches_block(
   return false;
 }
 
+bool vision_stack_capture_dependency_contains_block(const int64_t block_index) {
+  if (block_index < 0) {
+    return false;
+  }
+  for (const int64_t capture_index : g_vision_stack_capture_indices) {
+    if (capture_index == block_index) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void begin_stack_dispatch_dependency_recording_scope() {
   g_stack_dispatch_dependency_scope_id =
       g_next_stack_dispatch_dependency_scope_id.fetch_add(
@@ -5519,6 +5595,12 @@ void note_stack_owner_dispatch_dependency_dry_run(
           provenance.expected_consumer_block_index);
   const bool producer_dispatch_observed = producer_dispatch != nullptr;
   const bool consumer_dispatch_observed = consumer_dispatch != nullptr;
+  const bool consumer_dispatch_planned =
+      !consumer_dispatch_observed &&
+      provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1 &&
+      provenance.expected_consumer_block_index ==
+          provenance.block_index + 1 &&
+      !vision_stack_capture_dependency_contains_block(provenance.block_index);
   const bool producer_descriptor_known = true;
   const bool consumer_descriptor_known =
       provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1 ||
@@ -5569,6 +5651,13 @@ void note_stack_owner_dispatch_dependency_dry_run(
       << (consumer_dispatch ? consumer_dispatch->first_position : 0u)
       << " consumer_dispatch_last_position="
       << (consumer_dispatch ? consumer_dispatch->last_position : 0u)
+      << " consumer_dispatch_planned=" << (consumer_dispatch_planned ? 1 : 0)
+      << " consumer_dispatch_proof="
+      << (consumer_dispatch_observed
+              ? "recorded_dispatch"
+              : (consumer_dispatch_planned
+                     ? "planned_non_capture_residual2_to_norm1"
+                     : "missing"))
       << " command_buffer_sequence=" << scope_id
       << " producer_descriptor_role=internal_output"
       << " producer_descriptor_set=0"
