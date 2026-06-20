@@ -690,6 +690,75 @@ bool boundary_has_planned_non_capture_norm1_consumer(
       "planned_non_capture_residual2_to_norm1";
 }
 
+struct BarrierPlanDispatchPosition final {
+  bool known = false;
+  uint64_t first_position = 0u;
+  uint64_t last_position = 0u;
+  std::string source = "missing";
+};
+
+std::string barrier_plan_dispatch_position_key(
+    const std::string& scope_id,
+    const std::string& phase,
+    const std::string& block) {
+  return "scope=" + scope_id + ":phase=" + phase + ":block=" + block;
+}
+
+std::string barrier_plan_dispatch_position_key(
+    const std::map<std::string, std::string>& fields,
+    const char* phase_key,
+    const char* block_key) {
+  return barrier_plan_dispatch_position_key(
+      field_or(fields, "scope_id", "unknown"),
+      field_or(fields, phase_key, "unknown"),
+      field_or(fields, block_key, "unknown"));
+}
+
+std::map<std::string, BarrierPlanDispatchPosition>
+build_barrier_plan_dispatch_positions(const std::vector<std::string>& rows) {
+  std::map<std::string, BarrierPlanDispatchPosition> positions;
+  for (const auto& row : rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const std::string key =
+        barrier_plan_dispatch_position_key(fields, "phase", "block");
+    auto& position = positions[key];
+    position.known = true;
+    position.source = "completed_graph_dispatch_node";
+    const uint64_t first_position = parsed_u64(fields, "first_position");
+    const uint64_t last_position = parsed_u64(fields, "last_position");
+    if (position.first_position == 0u ||
+        (first_position != 0u && first_position < position.first_position)) {
+      position.first_position = first_position;
+    }
+    if (last_position > position.last_position) {
+      position.last_position = last_position;
+    }
+  }
+  return positions;
+}
+
+BarrierPlanDispatchPosition barrier_plan_consumer_dispatch_position(
+    const std::map<std::string, std::string>& fields,
+    const std::map<std::string, BarrierPlanDispatchPosition>& positions) {
+  if (field_or(fields, "consumer_dispatch_observed", "0") == "1") {
+    BarrierPlanDispatchPosition position;
+    position.known = true;
+    position.first_position =
+        parsed_u64(fields, "consumer_dispatch_first_position");
+    position.last_position =
+        parsed_u64(fields, "consumer_dispatch_last_position");
+    position.source = "recorded_dependency_edge";
+    return position;
+  }
+  if (!boundary_has_planned_non_capture_norm1_consumer(fields)) {
+    return {};
+  }
+  const std::string key = barrier_plan_dispatch_position_key(
+      fields, "consumer_phase", "consumer_block");
+  const auto it = positions.find(key);
+  return it == positions.end() ? BarrierPlanDispatchPosition{} : it->second;
+}
+
 std::vector<std::string> boundary_complete_dependency_missing_fields(
     const std::map<std::string, std::string>& fields) {
   std::vector<std::string> missing = missing_dependency_metadata_fields(fields);
@@ -703,18 +772,27 @@ std::vector<std::string> boundary_complete_dependency_missing_fields(
 }
 
 std::vector<std::string> barrier_plan_missing_dependency_metadata_fields(
-    const std::map<std::string, std::string>& fields) {
+    const std::map<std::string, std::string>& fields,
+    const BarrierPlanDispatchPosition& consumer_position) {
   std::vector<std::string> missing = missing_dependency_metadata_fields(fields);
   if (boundary_has_planned_non_capture_norm1_consumer(fields)) {
     missing.erase(
         std::remove(
             missing.begin(), missing.end(), std::string("consumer_dispatch")),
         missing.end());
-    if (field_or(fields, "consumer_dispatch_observed", "0") != "1") {
+    if (!consumer_position.known) {
       missing.emplace_back("consumer_dispatch_position");
+    } else if (consumer_position.source == "completed_graph_dispatch_node") {
+      missing.emplace_back("pre_recording_consumer_dispatch_position_api");
     }
   }
   return missing;
+}
+
+std::vector<std::string> barrier_plan_missing_dependency_metadata_fields(
+    const std::map<std::string, std::string>& fields) {
+  return barrier_plan_missing_dependency_metadata_fields(
+      fields, BarrierPlanDispatchPosition{});
 }
 
 std::string stage_for_access(const std::string& access) {
@@ -741,9 +819,10 @@ std::string dependency_node_id(
 }
 
 std::string barrier_plan_rejection_reason(
-    const std::map<std::string, std::string>& fields) {
+    const std::map<std::string, std::string>& fields,
+    const BarrierPlanDispatchPosition& consumer_position) {
   const std::vector<std::string> missing =
-      barrier_plan_missing_dependency_metadata_fields(fields);
+      barrier_plan_missing_dependency_metadata_fields(fields, consumer_position);
   if (!missing.empty()) {
     return "missing_" + missing.front();
   }
@@ -756,9 +835,21 @@ std::string barrier_plan_rejection_reason(
   return "none";
 }
 
+std::string barrier_plan_rejection_reason(
+    const std::map<std::string, std::string>& fields) {
+  return barrier_plan_rejection_reason(fields, BarrierPlanDispatchPosition{});
+}
+
+bool barrier_plan_record_is_plannable(
+    const std::map<std::string, std::string>& fields,
+    const BarrierPlanDispatchPosition& consumer_position) {
+  return barrier_plan_rejection_reason(fields, consumer_position) == "none";
+}
+
 bool barrier_plan_record_is_plannable(
     const std::map<std::string, std::string>& fields) {
-  return barrier_plan_rejection_reason(fields) == "none";
+  return barrier_plan_record_is_plannable(
+      fields, BarrierPlanDispatchPosition{});
 }
 
 std::string boundary_key_for_dependency(
@@ -781,15 +872,25 @@ void append_graph_row_object(
 void append_barrier_plan_record(
     std::ostream& out,
     const std::string& row,
+    const std::map<std::string, BarrierPlanDispatchPosition>& positions,
     const size_t index) {
   const auto fields = parse_space_separated_fields(row);
-  const bool plannable = barrier_plan_record_is_plannable(fields);
+  const BarrierPlanDispatchPosition consumer_position =
+      barrier_plan_consumer_dispatch_position(fields, positions);
+  const bool plannable =
+      barrier_plan_record_is_plannable(fields, consumer_position);
   const std::string producer_access = field_or(fields, "producer_access", "unknown");
   const std::string consumer_access = field_or(fields, "consumer_access", "unknown");
   const bool consumer_dispatch_observed =
       field_or(fields, "consumer_dispatch_observed", "0") == "1";
   const bool consumer_dispatch_planned =
       boundary_has_planned_non_capture_norm1_consumer(fields);
+  const std::string consumer_position_string =
+      consumer_position.known ? std::to_string(consumer_position.first_position)
+                              : field_or(
+                                    fields,
+                                    "consumer_dispatch_first_position",
+                                    "unknown");
   bool first = true;
   out << '{';
   append_json_string(
@@ -822,7 +923,14 @@ void append_barrier_plan_record(
       field_or(fields, "producer_dispatch_first_position", "unknown"), first);
   append_json_string(
       out, "consumer_dispatch_position",
-      field_or(fields, "consumer_dispatch_first_position", "unknown"), first);
+      consumer_position_string, first);
+  append_json_string(
+      out,
+      "consumer_dispatch_last_position",
+      consumer_position.known
+          ? std::to_string(consumer_position.last_position)
+          : field_or(fields, "consumer_dispatch_last_position", "unknown"),
+      first);
   append_json_bool(
       out, "consumer_dispatch_observed", consumer_dispatch_observed, first);
   append_json_bool(
@@ -837,15 +945,40 @@ void append_barrier_plan_record(
       "consumer_dispatch_position_status",
       consumer_dispatch_observed
           ? "recorded"
-          : (consumer_dispatch_planned
-                 ? "planned_missing_command_position"
-                 : "missing"),
+          : (consumer_dispatch_planned && consumer_position.known
+                 ? "completed_graph_observed"
+                 : (consumer_dispatch_planned
+                        ? "planned_missing_completed_graph_position"
+                        : "missing")),
+      first);
+  append_json_string(
+      out,
+      "consumer_dispatch_position_source",
+      consumer_position.source,
       first);
   append_json_string(
       out,
       "planned_consumer_dispatch_position",
-      consumer_dispatch_planned ? "missing_command_recording_position"
-                                : "not_planned",
+      consumer_dispatch_planned && consumer_position.known
+          ? std::to_string(consumer_position.first_position)
+          : (consumer_dispatch_planned ? "missing_completed_graph_position"
+                                       : "not_planned"),
+      first);
+  append_json_bool(
+      out,
+      "pre_recording_position_available",
+      consumer_position.source == "recorded_dependency_edge",
+      first);
+  append_json_string(
+      out,
+      "pre_recording_position_status",
+      consumer_position.source == "recorded_dependency_edge"
+          ? "recorded_dependency_edge"
+          : (consumer_dispatch_planned && consumer_position.known
+                 ? "missing_pre_recording_position_api"
+                 : (consumer_dispatch_planned
+                        ? "missing_completed_graph_and_pre_recording_position"
+                        : "not_planned")),
       first);
   append_json_string(
       out, "command_buffer_sequence",
@@ -896,12 +1029,12 @@ void append_barrier_plan_record(
   append_json_string(
       out,
       "rejection_reason",
-      plannable ? "none" : barrier_plan_rejection_reason(fields),
+      plannable ? "none" : barrier_plan_rejection_reason(fields, consumer_position),
       first);
   append_json_string_array(
       out,
       "missing_metadata_fields",
-      barrier_plan_missing_dependency_metadata_fields(fields),
+      barrier_plan_missing_dependency_metadata_fields(fields, consumer_position),
       first);
   append_json_comma(out, first);
   out << "\"source_edge_fields\":";
@@ -912,6 +1045,7 @@ void append_barrier_plan_record(
 void append_barrier_plan_json(
     std::ostream& out,
     const std::vector<std::string>& dependency_edges,
+    const std::map<std::string, BarrierPlanDispatchPosition>& positions,
     bool& first) {
   uint64_t candidate_records = 0u;
   uint64_t plannable_records = 0u;
@@ -919,16 +1053,22 @@ void append_barrier_plan_json(
   uint64_t phase_boundary_replace_candidate_records = 0u;
   uint64_t consumer_dispatch_planned_records = 0u;
   uint64_t consumer_dispatch_missing_reduced_records = 0u;
+  uint64_t consumer_dispatch_position_known_records = 0u;
   uint64_t consumer_dispatch_position_missing_records = 0u;
+  uint64_t pre_recording_consumer_dispatch_position_api_missing_records = 0u;
   std::map<std::string, uint64_t> rejection_reasons;
   for (const auto& row : dependency_edges) {
     const auto fields = parse_space_separated_fields(row);
     const uint64_t count = parsed_u64(fields, "count");
-    const bool plannable = barrier_plan_record_is_plannable(fields);
+    const BarrierPlanDispatchPosition consumer_position =
+        barrier_plan_consumer_dispatch_position(fields, positions);
+    const bool plannable =
+        barrier_plan_record_is_plannable(fields, consumer_position);
     const std::string rejection =
-        plannable ? "none" : barrier_plan_rejection_reason(fields);
+        plannable ? "none" : barrier_plan_rejection_reason(fields, consumer_position);
     const auto strict_missing = missing_dependency_metadata_fields(fields);
-    const auto plan_missing = barrier_plan_missing_dependency_metadata_fields(fields);
+    const auto plan_missing =
+        barrier_plan_missing_dependency_metadata_fields(fields, consumer_position);
     if (boundary_has_planned_non_capture_norm1_consumer(fields)) {
       consumer_dispatch_planned_records += count;
       const bool strict_missing_consumer =
@@ -946,11 +1086,23 @@ void append_barrier_plan_json(
               plan_missing.begin(),
               plan_missing.end(),
               std::string("consumer_dispatch_position")) != plan_missing.end();
+      const bool plan_missing_pre_recording_api =
+          std::find(
+              plan_missing.begin(),
+              plan_missing.end(),
+              std::string("pre_recording_consumer_dispatch_position_api")) !=
+          plan_missing.end();
       if (strict_missing_consumer && !plan_missing_consumer) {
         consumer_dispatch_missing_reduced_records += count;
       }
+      if (consumer_position.known) {
+        consumer_dispatch_position_known_records += count;
+      }
       if (plan_missing_position) {
         consumer_dispatch_position_missing_records += count;
+      }
+      if (plan_missing_pre_recording_api) {
+        pre_recording_consumer_dispatch_position_api_missing_records += count;
       }
     }
     candidate_records += count;
@@ -997,8 +1149,18 @@ void append_barrier_plan_json(
       plan_first);
   append_json_u64(
       out,
+      "consumer_dispatch_position_known_records",
+      consumer_dispatch_position_known_records,
+      plan_first);
+  append_json_u64(
+      out,
       "consumer_dispatch_position_missing_records",
       consumer_dispatch_position_missing_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "pre_recording_consumer_dispatch_position_api_missing_records",
+      pre_recording_consumer_dispatch_position_api_missing_records,
       plan_first);
   append_json_u64(out, "barriers_inserted", 0u, plan_first);
   append_json_u64(out, "submits_removed", 0u, plan_first);
@@ -1028,7 +1190,7 @@ void append_barrier_plan_json(
     if (i > 0) {
       out << ',';
     }
-    append_barrier_plan_record(out, dependency_edges[i], i);
+    append_barrier_plan_record(out, dependency_edges[i], positions, i);
   }
   out << "]}";
 }
@@ -1320,6 +1482,7 @@ void append_boundary_complete_dependency_proof_json(
     std::ostream& out,
     const std::vector<std::string>& dependency_edges,
     const std::vector<std::string>& boundary_nodes,
+    const std::map<std::string, BarrierPlanDispatchPosition>& positions,
     bool& first) {
   const std::map<std::string, bool> capture_source_blocks =
       capture_source_blocks_for_dependencies(dependency_edges);
@@ -1353,13 +1516,16 @@ void append_boundary_complete_dependency_proof_json(
     }
     proof.formal_last_use_proofs
         [field_or(fields, "formal_last_use_proof_source", "missing")] += count;
-    const bool plannable = barrier_plan_record_is_plannable(fields);
+    const BarrierPlanDispatchPosition consumer_position =
+        barrier_plan_consumer_dispatch_position(fields, positions);
+    const bool plannable =
+        barrier_plan_record_is_plannable(fields, consumer_position);
     if (plannable) {
       proof.covered_edge_records += count;
     } else {
       proof.rejected_edge_records += count;
-      proof.edge_rejection_reasons[barrier_plan_rejection_reason(fields)] +=
-          count;
+      proof.edge_rejection_reasons
+          [barrier_plan_rejection_reason(fields, consumer_position)] += count;
       const auto strict_missing = missing_dependency_metadata_fields(fields);
       const auto boundary_missing =
           boundary_complete_dependency_missing_fields(fields);
@@ -1585,6 +1751,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> resource_nodes;
   std::vector<std::string> boundary_nodes;
   split_lifetime_graph_rows(lifetime_rows, resource_nodes, boundary_nodes);
+  const auto barrier_plan_dispatch_positions =
+      build_barrier_plan_dispatch_positions(dispatch_nodes);
 
   uint64_t fully_proven_edge_records = 0u;
   uint64_t total_dependency_records = 0u;
@@ -1699,9 +1867,10 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       out, "allocation_nodes", allocation_rows, "allocation", first);
   append_graph_array(
       out, "phase_boundary_nodes", boundary_nodes, "phase_boundary", first);
-  append_barrier_plan_json(out, dependency_edges, first);
+  append_barrier_plan_json(
+      out, dependency_edges, barrier_plan_dispatch_positions, first);
   append_boundary_complete_dependency_proof_json(
-      out, dependency_edges, boundary_nodes, first);
+      out, dependency_edges, boundary_nodes, barrier_plan_dispatch_positions, first);
   append_graph_array(
       out, "region_lifetime_rows", region_rows, "region_lifetime", first);
   append_json_string_array(

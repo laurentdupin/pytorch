@@ -105,8 +105,11 @@ when a stack-owner recording scope ends. The v0 schema is
   the edge is not plannable. Planned non-capture next-block Norm1 consumers
   are recorded separately from observed consumer dispatches; they reduce the
   consumer-identity proof gap but still reject as missing consumer dispatch
-  position until command recording can provide an exact insertion point. The
-  plan also records the boundary-level metadata still missing before any
+  position until command recording can provide an exact insertion point. When
+  the completed graph contains the later dispatch node, the dry-run records
+  that completed-run position separately from a pre-recording insertion point;
+  completed-run position evidence is not sufficient to make the edge plannable.
+  The plan also records the boundary-level metadata still missing before any
   submit can be removed.
 - a nested `boundary_complete_dependency_proof` object with schema
   `BoundaryCompleteDependencyProof.v0`. The v0 proof is intentionally narrow:
