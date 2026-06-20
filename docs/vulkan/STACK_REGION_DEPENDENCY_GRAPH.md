@@ -104,6 +104,13 @@ when a stack-owner recording scope ends. The v0 schema is
   phase-boundary ordering requirement, and the precise rejection reason when
   the edge is not plannable. The plan also records the boundary-level metadata
   still missing before any submit can be removed.
+- a nested `boundary_complete_dependency_proof` object with schema
+  `BoundaryCompleteDependencyProof.v0`. The v0 proof is intentionally narrow:
+  it only groups non-capture `residual2 -> norm1` stack boundaries and records
+  required edge records, BarrierPlan-covered edge records, retire-only resource
+  classes, ordering-required resource classes, public/host/final/requested
+  blockers, phase-boundary lifetime rows, missing fields, and complete/not
+  complete status. It is proof-only and does not authorize a submit skip.
 
 This dump is diagnostic only. It does not insert barriers, skip submits, change
 routes, or change accepted shapes.

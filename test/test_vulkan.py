@@ -19660,6 +19660,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "planned_barrier_location",
                 barrier_plan["records"][0],
             )
+            self.assertIn("boundary_complete_dependency_proof", graph)
+            boundary_proof = graph["boundary_complete_dependency_proof"]
+            self.assertEqual(
+                boundary_proof["schema"], "BoundaryCompleteDependencyProof.v0"
+            )
+            self.assertTrue(boundary_proof["behavior_neutral"])
+            self.assertTrue(boundary_proof["dry_run_only"])
+            self.assertEqual(
+                boundary_proof["target_boundary_class"],
+                "non_capture_residual2_to_norm1",
+            )
+            self.assertGreater(boundary_proof["candidate_boundaries"], 0)
+            self.assertEqual(boundary_proof["barriers_inserted"], 0)
+            self.assertEqual(boundary_proof["submits_removed"], 0)
+            self.assertTrue(boundary_proof["records"])
+            self.assertIn("complete", boundary_proof["records"][0])
             self.assertTrue(
                 any(
                     edge["fields"].get("producer_phase") == "residual2"

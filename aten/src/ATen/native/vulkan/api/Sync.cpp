@@ -739,6 +739,11 @@ std::string boundary_key_for_dependency(
   return stream.str();
 }
 
+void append_graph_row_object(
+    std::ostream& out,
+    const std::string& row,
+    const char* kind);
+
 void append_barrier_plan_record(
     std::ostream& out,
     const std::string& row,
@@ -918,6 +923,389 @@ void append_barrier_plan_json(
       out << ',';
     }
     append_barrier_plan_record(out, dependency_edges[i], i);
+  }
+  out << "]}";
+}
+
+struct BoundaryResourceClassSummary final {
+  uint64_t count = 0u;
+  uint64_t bytes = 0u;
+};
+
+struct BoundaryCompleteProof final {
+  std::string boundary_id;
+  std::string boundary_phase = "block_entry";
+  std::string producer_block;
+  std::string consumer_block;
+  uint64_t required_edge_records = 0u;
+  uint64_t covered_edge_records = 0u;
+  uint64_t rejected_edge_records = 0u;
+  uint64_t queue_submit_records = 0u;
+  uint64_t required_edge_bytes = 0u;
+  std::map<std::string, uint64_t> edge_rejection_reasons;
+  std::map<std::string, uint64_t> missing_fields;
+  std::map<std::string, BoundaryResourceClassSummary> retire_only_resources;
+  std::map<std::string, BoundaryResourceClassSummary> ordering_required_resources;
+  std::map<std::string, BoundaryResourceClassSummary> public_blockers;
+  std::map<std::string, uint64_t> boundary_reject_reasons;
+  std::vector<std::string> boundary_rows;
+};
+
+int64_t parsed_i64(
+    const std::map<std::string, std::string>& fields,
+    const char* key,
+    const int64_t fallback = -1) {
+  const auto it = fields.find(key);
+  if (it == fields.end()) {
+    return fallback;
+  }
+  try {
+    return std::stoll(it->second);
+  } catch (...) {
+    return fallback;
+  }
+}
+
+bool signature_resource_class_is_retire_only(const std::string& resource_class) {
+  return resource_class == "attention_score_probability_subresource" ||
+      resource_class == "layernorm_internal_stat_buffer" ||
+      resource_class == "metadata_uniform" ||
+      resource_class == "proven_stack_activation";
+}
+
+bool signature_resource_class_is_public_blocker(
+    const std::string& resource_class) {
+  return resource_class.find("host_visible") != std::string::npos ||
+      resource_class.find("requested") != std::string::npos ||
+      resource_class.find("final_output") != std::string::npos ||
+      resource_class.find("public") != std::string::npos;
+}
+
+void add_boundary_resource_class(
+    std::map<std::string, BoundaryResourceClassSummary>& target,
+    const std::string& resource_class,
+    const uint64_t count,
+    const uint64_t bytes) {
+  auto& entry = target[resource_class];
+  entry.count += count;
+  entry.bytes += bytes;
+}
+
+void collect_boundary_signature_resources(
+    const std::map<std::string, std::string>& fields,
+    BoundaryCompleteProof& proof) {
+  const uint64_t boundary_count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+  const auto signature = fields.find("signature");
+  if (signature == fields.end()) {
+    proof.boundary_reject_reasons["missing_boundary_signature"] +=
+        parsed_u64(fields, "count");
+    return;
+  }
+
+  std::istringstream stream(signature->second);
+  std::string token;
+  while (std::getline(stream, token, ',')) {
+    if (token.empty()) {
+      continue;
+    }
+    const size_t first_hash = token.find('#');
+    const size_t second_hash =
+        first_hash == std::string::npos
+        ? std::string::npos
+        : token.find('#', first_hash + 1u);
+    if (first_hash == std::string::npos || second_hash == std::string::npos) {
+      proof.boundary_reject_reasons["malformed_boundary_signature"] +=
+          parsed_u64(fields, "count");
+      continue;
+    }
+    const std::string resource_class = token.substr(0, first_hash);
+    uint64_t resource_count = 0u;
+    uint64_t resource_bytes = 0u;
+    try {
+      resource_count = static_cast<uint64_t>(
+          std::stoull(token.substr(first_hash + 1u, second_hash - first_hash - 1u)));
+      resource_bytes =
+          static_cast<uint64_t>(std::stoull(token.substr(second_hash + 1u)));
+    } catch (...) {
+      proof.boundary_reject_reasons["malformed_boundary_signature"] +=
+          parsed_u64(fields, "count");
+      continue;
+    }
+    resource_count *= boundary_count;
+    resource_bytes *= boundary_count;
+    if (signature_resource_class_is_public_blocker(resource_class)) {
+      add_boundary_resource_class(
+          proof.public_blockers, resource_class, resource_count, resource_bytes);
+      add_boundary_resource_class(
+          proof.ordering_required_resources,
+          resource_class,
+          resource_count,
+          resource_bytes);
+    } else if (signature_resource_class_is_retire_only(resource_class)) {
+      add_boundary_resource_class(
+          proof.retire_only_resources,
+          resource_class,
+          resource_count,
+          resource_bytes);
+    } else {
+      add_boundary_resource_class(
+          proof.ordering_required_resources,
+          resource_class,
+          resource_count,
+          resource_bytes);
+    }
+  }
+}
+
+std::map<std::string, bool> capture_source_blocks_for_dependencies(
+    const std::vector<std::string>& dependency_edges) {
+  std::map<std::string, bool> capture_source_blocks;
+  for (const auto& row : dependency_edges) {
+    const auto fields = parse_space_separated_fields(row);
+    if (field_or(fields, "consumer_phase", "unknown") ==
+        "intermediate_capture") {
+      capture_source_blocks[field_or(fields, "producer_block", "unknown")] =
+          true;
+    }
+  }
+  return capture_source_blocks;
+}
+
+bool is_non_capture_residual2_to_norm1_boundary_candidate(
+    const std::map<std::string, std::string>& fields,
+    const std::map<std::string, bool>& capture_source_blocks) {
+  if (field_or(fields, "producer_phase", "unknown") != "residual2" ||
+      field_or(fields, "consumer_phase", "unknown") != "norm1" ||
+      field_or(fields, "role", "unknown") != "stack_residual2_output") {
+    return false;
+  }
+  const std::string producer_block = field_or(fields, "producer_block", "unknown");
+  if (capture_source_blocks.find(producer_block) != capture_source_blocks.end()) {
+    return false;
+  }
+  const int64_t producer = parsed_i64(fields, "producer_block");
+  const int64_t consumer = parsed_i64(fields, "consumer_block");
+  return producer >= 0 && consumer == producer + 1;
+}
+
+std::string boundary_complete_proof_key(
+    const std::map<std::string, std::string>& fields) {
+  std::ostringstream stream;
+  stream << "residual2_to_norm1:producer_block="
+         << field_or(fields, "producer_block", "unknown")
+         << ":consumer_block=" << field_or(fields, "consumer_block", "unknown");
+  return stream.str();
+}
+
+void append_resource_class_summary_object(
+    std::ostream& out,
+    const std::map<std::string, BoundaryResourceClassSummary>& classes) {
+  bool first = true;
+  out << '{';
+  for (const auto& item : classes) {
+    append_json_comma(out, first);
+    out << '"' << json_escape(item.first) << "\":{";
+    bool class_first = true;
+    append_json_u64(out, "count", item.second.count, class_first);
+    append_json_u64(out, "bytes", item.second.bytes, class_first);
+    out << '}';
+  }
+  out << '}';
+}
+
+void append_u64_map_object(
+    std::ostream& out,
+    const std::map<std::string, uint64_t>& values) {
+  bool first = true;
+  out << '{';
+  for (const auto& item : values) {
+    append_json_u64(out, item.first.c_str(), item.second, first);
+  }
+  out << '}';
+}
+
+bool boundary_complete_proof_is_complete(const BoundaryCompleteProof& proof) {
+  return proof.required_edge_records > 0u &&
+      proof.required_edge_records == proof.covered_edge_records &&
+      proof.rejected_edge_records == 0u && !proof.boundary_rows.empty() &&
+      proof.public_blockers.empty() && proof.boundary_reject_reasons.empty() &&
+      proof.ordering_required_resources.empty();
+}
+
+void append_boundary_complete_proof_record(
+    std::ostream& out,
+    const BoundaryCompleteProof& proof) {
+  const bool complete = boundary_complete_proof_is_complete(proof);
+  bool first = true;
+  out << '{';
+  append_json_string(out, "boundary_id", proof.boundary_id, first);
+  append_json_string(out, "boundary_phase", proof.boundary_phase, first);
+  append_json_string(out, "producer_block", proof.producer_block, first);
+  append_json_string(out, "consumer_block", proof.consumer_block, first);
+  append_json_u64(out, "required_edge_records", proof.required_edge_records, first);
+  append_json_u64(out, "barrier_plan_covered_edge_records", proof.covered_edge_records, first);
+  append_json_u64(out, "rejected_edge_records", proof.rejected_edge_records, first);
+  append_json_u64(out, "queue_submit_records", proof.queue_submit_records, first);
+  append_json_u64(out, "required_edge_bytes", proof.required_edge_bytes, first);
+  append_json_bool(out, "complete", complete, first);
+  append_json_bool(out, "behavior_change_allowed", false, first);
+  append_json_comma(out, first);
+  out << "\"edge_rejection_reasons\":";
+  append_u64_map_object(out, proof.edge_rejection_reasons);
+  append_json_comma(out, first);
+  out << "\"missing_fields\":";
+  append_u64_map_object(out, proof.missing_fields);
+  append_json_comma(out, first);
+  out << "\"retire_only_resources\":";
+  append_resource_class_summary_object(out, proof.retire_only_resources);
+  append_json_comma(out, first);
+  out << "\"ordering_required_resources\":";
+  append_resource_class_summary_object(out, proof.ordering_required_resources);
+  append_json_comma(out, first);
+  out << "\"public_host_final_requested_blockers\":";
+  append_resource_class_summary_object(out, proof.public_blockers);
+  append_json_comma(out, first);
+  out << "\"boundary_reject_reasons\":";
+  append_u64_map_object(out, proof.boundary_reject_reasons);
+  append_json_comma(out, first);
+  out << "\"phase_boundary_rows\":[";
+  for (size_t i = 0; i < proof.boundary_rows.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    append_graph_row_object(out, proof.boundary_rows[i], "phase_boundary");
+  }
+  out << "]}";
+}
+
+void append_boundary_complete_dependency_proof_json(
+    std::ostream& out,
+    const std::vector<std::string>& dependency_edges,
+    const std::vector<std::string>& boundary_nodes,
+    bool& first) {
+  const std::map<std::string, bool> capture_source_blocks =
+      capture_source_blocks_for_dependencies(dependency_edges);
+  std::map<std::string, BoundaryCompleteProof> proofs;
+  for (const auto& row : dependency_edges) {
+    const auto fields = parse_space_separated_fields(row);
+    if (!is_non_capture_residual2_to_norm1_boundary_candidate(
+            fields, capture_source_blocks)) {
+      continue;
+    }
+    const std::string key = boundary_complete_proof_key(fields);
+    auto& proof = proofs[key];
+    proof.boundary_id = key;
+    proof.producer_block = field_or(fields, "producer_block", "unknown");
+    proof.consumer_block = field_or(fields, "consumer_block", "unknown");
+    const uint64_t count = parsed_u64(fields, "count");
+    proof.required_edge_records += count;
+    proof.queue_submit_records += parsed_u64(fields, "queue_submit");
+    proof.required_edge_bytes += parsed_u64(fields, "bytes");
+    const bool plannable = barrier_plan_record_is_plannable(fields);
+    if (plannable) {
+      proof.covered_edge_records += count;
+    } else {
+      proof.rejected_edge_records += count;
+      proof.edge_rejection_reasons[barrier_plan_rejection_reason(fields)] +=
+          count;
+      for (const auto& missing : missing_dependency_metadata_fields(fields)) {
+        proof.missing_fields[missing] += count;
+      }
+    }
+  }
+
+  for (const auto& row : boundary_nodes) {
+    const auto fields = parse_space_separated_fields(row);
+    if (field_or(fields, "boundary_stack_phase", "unknown") != "block_entry") {
+      continue;
+    }
+    const std::string consumer_block = field_or(fields, "boundary_block", "unknown");
+    for (auto& item : proofs) {
+      auto& proof = item.second;
+      if (proof.consumer_block != consumer_block) {
+        continue;
+      }
+      proof.boundary_rows.emplace_back(row);
+      collect_boundary_signature_resources(fields, proof);
+      const std::string budget_reject =
+          field_or(fields, "budget_reject", "missing_budget_reject");
+      if (budget_reject != "none") {
+        proof.boundary_reject_reasons["budget_reject:" + budget_reject] +=
+            parsed_u64(fields, "count");
+      }
+      const std::string blockers = field_or(fields, "blockers", "none");
+      if (blockers != "none") {
+        proof.boundary_reject_reasons["blockers:" + blockers] +=
+            parsed_u64(fields, "count");
+      }
+    }
+  }
+
+  uint64_t candidate_boundaries = 0u;
+  uint64_t complete_boundaries = 0u;
+  uint64_t required_edge_records = 0u;
+  uint64_t covered_edge_records = 0u;
+  std::map<std::string, uint64_t> blocker_reasons;
+  for (const auto& item : proofs) {
+    const auto& proof = item.second;
+    ++candidate_boundaries;
+    required_edge_records += proof.required_edge_records;
+    covered_edge_records += proof.covered_edge_records;
+    if (boundary_complete_proof_is_complete(proof)) {
+      ++complete_boundaries;
+    } else {
+      if (proof.boundary_rows.empty()) {
+        blocker_reasons["missing_phase_boundary_group"] += 1u;
+      }
+      for (const auto& reason : proof.edge_rejection_reasons) {
+        blocker_reasons["edge:" + reason.first] += reason.second;
+      }
+      for (const auto& reason : proof.boundary_reject_reasons) {
+        blocker_reasons["boundary:" + reason.first] += reason.second;
+      }
+      for (const auto& resource : proof.ordering_required_resources) {
+        blocker_reasons["ordering_required_resource:" + resource.first] +=
+            resource.second.count;
+      }
+      for (const auto& resource : proof.public_blockers) {
+        blocker_reasons["public_host_final_requested:" + resource.first] +=
+            resource.second.count;
+      }
+    }
+  }
+
+  append_json_comma(out, first);
+  out << "\"boundary_complete_dependency_proof\":{";
+  bool proof_first = true;
+  append_json_string(
+      out, "schema", "BoundaryCompleteDependencyProof.v0", proof_first);
+  append_json_bool(out, "behavior_neutral", true, proof_first);
+  append_json_bool(out, "dry_run_only", true, proof_first);
+  append_json_string(
+      out,
+      "target_boundary_class",
+      "non_capture_residual2_to_norm1",
+      proof_first);
+  append_json_u64(out, "candidate_boundaries", candidate_boundaries, proof_first);
+  append_json_u64(out, "complete_boundaries", complete_boundaries, proof_first);
+  append_json_u64(
+      out, "required_edge_records", required_edge_records, proof_first);
+  append_json_u64(
+      out, "barrier_plan_covered_edge_records", covered_edge_records, proof_first);
+  append_json_u64(out, "barriers_inserted", 0u, proof_first);
+  append_json_u64(out, "submits_removed", 0u, proof_first);
+  append_json_comma(out, proof_first);
+  out << "\"blocker_reasons\":";
+  append_u64_map_object(out, blocker_reasons);
+  append_json_comma(out, proof_first);
+  out << "\"records\":[";
+  bool first_record = true;
+  for (const auto& item : proofs) {
+    if (!first_record) {
+      out << ',';
+    }
+    first_record = false;
+    append_boundary_complete_proof_record(out, item.second);
   }
   out << "]}";
 }
@@ -1124,6 +1512,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   append_graph_array(
       out, "phase_boundary_nodes", boundary_nodes, "phase_boundary", first);
   append_barrier_plan_json(out, dependency_edges, first);
+  append_boundary_complete_dependency_proof_json(
+      out, dependency_edges, boundary_nodes, first);
   append_graph_array(
       out, "region_lifetime_rows", region_rows, "region_lifetime", first);
   append_json_string_array(
