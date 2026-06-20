@@ -26927,6 +26927,35 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             "Depth Anything supported image-entry fixture mismatch",
         )
 
+    def test_vulkan_vision_stack_private_capture_debug_matches_public_fixture(self):
+        fixture = self._make_depth_anything_v2_supported_fixture()
+
+        with torch.inference_mode():
+            public_captures = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                fixture["tokens"],
+                fixture["stack_context"],
+                fixture["capture_indices"],
+            )
+            private_captures = (
+                torch.ops.vulkan_prepack
+                .run_vision_backbone_stack_private_capture_debug(
+                    fixture["tokens"],
+                    fixture["stack_context"],
+                    fixture["capture_indices"],
+                    True,
+                )
+            )
+
+        self.assertEqual(len(private_captures), len(public_captures))
+        for actual, expected in zip(private_captures, public_captures):
+            self.assertEqual(list(actual.shape), list(expected.shape))
+            self._assert_outputs_close(
+                actual.cpu(),
+                expected.cpu(),
+                atol=5e-3,
+                rtol=5e-3,
+            )
+
     def test_vulkan_vision_decoder_preprocess_head_compiled_session_skip_no_head_programs(self):
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         op_hit_log_name = "vulkan_vision_decoder_preprocess_head_skip_test.log"

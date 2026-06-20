@@ -395,6 +395,12 @@ std::vector<Tensor> run_vision_backbone_stack_context(
     const c10::intrusive_ptr<VisionBackboneStackContext>& context,
     IntArrayRef capture_indices);
 
+std::vector<Tensor> run_vision_backbone_stack_private_capture_debug(
+    const Tensor& input,
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context,
+    IntArrayRef capture_indices,
+    bool preserve_private_captures_in_plan);
+
 std::vector<int64_t> vision_owner_counters_snapshot();
 
 void reset_vision_owner_counters();

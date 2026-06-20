@@ -1496,6 +1496,11 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "Tensor X, __torch__.torch.classes.vulkan.VisionBackboneStackContext context, "
       "int[] capture_indices) -> Tensor[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_vision_backbone_stack_private_capture_debug("
+      "Tensor X, __torch__.torch.classes.vulkan.VisionBackboneStackContext context, "
+      "int[] capture_indices, bool preserve_private_captures_in_plan) "
+      "-> Tensor[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::prime_vision_backbone_block_context_graph("
       "Tensor X, __torch__.torch.classes.vulkan.VisionBackboneBlockContext context) -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -2562,6 +2567,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_vision_backbone_stack_context"),
       TORCH_FN(run_vision_backbone_stack_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_vision_backbone_stack_private_capture_debug"),
+      TORCH_FN(run_vision_backbone_stack_private_capture_debug));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::run_vision_decoder_fusion_block_context"),

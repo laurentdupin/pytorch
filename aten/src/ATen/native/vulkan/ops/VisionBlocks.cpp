@@ -8424,7 +8424,8 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
     const Tensor& input_arg,
     const c10::intrusive_ptr<VisionBackboneStackContext>& context,
     IntArrayRef capture_indices,
-    const bool private_device_consumer_bridge) {
+    const bool private_device_consumer_bridge,
+    const bool preserve_private_captures_in_plan) {
   recover_after_vulkan_failure_if_needed();
   api::VulkanVisionStackPhaseScope stack_entry_scope(
       api::VulkanVisionStackPhase::StackEntry);
@@ -8521,8 +8522,9 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
   }
 
   const std::vector<int64_t> plan_capture_indices =
-      private_device_consumer_bridge ? std::vector<int64_t>{}
-                                     : capture_indices_vec;
+      private_device_consumer_bridge && !preserve_private_captures_in_plan
+      ? std::vector<int64_t>{}
+      : capture_indices_vec;
   VulkanVisionStackShapePlan* stack_shape_plan = nullptr;
   {
     VulkanVisionStackShapePlan& plan =
@@ -8648,7 +8650,21 @@ std::vector<Tensor> run_vision_backbone_stack_context(
       input_arg,
       context,
       capture_indices,
-      /*private_device_consumer_bridge=*/false);
+      /*private_device_consumer_bridge=*/false,
+      /*preserve_private_captures_in_plan=*/false);
+}
+
+std::vector<Tensor> run_vision_backbone_stack_private_capture_debug(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context,
+    IntArrayRef capture_indices,
+    const bool preserve_private_captures_in_plan) {
+  return run_vision_backbone_stack_context_impl(
+      input_arg,
+      context,
+      capture_indices,
+      /*private_device_consumer_bridge=*/true,
+      preserve_private_captures_in_plan);
 }
 
 void prime_vision_backbone_block_context_graph(
@@ -10985,7 +11001,8 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
           input_arg,
           context,
           capture_indices,
-          /*private_device_consumer_bridge=*/true);
+          /*private_device_consumer_bridge=*/true,
+          /*preserve_private_captures_in_plan=*/false);
   TORCH_CHECK(
       captured.size() == 4u,
       "Vision stack capture decoder bridge expected four captured tensors");

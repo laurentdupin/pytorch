@@ -3494,12 +3494,20 @@ bool stack_subresource_lifetime_dry_run_has_formal_stack_owner_last_use_proof(
       phase_boundary_explicit_sync &&
       role == VulkanRetiredResourceRole::StackResidual2Output &&
       provenance.defined && provenance.has_last_use_proof &&
+      provenance.lifetime ==
+          VulkanStackTensorLifetimeClass::BlockOutputForNextBlock &&
       stack_phase_has_reached_consumer(
           current_vision_stack_phase(),
           current_vision_stack_block_index(),
           provenance.expected_consumer_phase,
           provenance.expected_consumer_block_index) &&
-      provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1) {
+      provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1 &&
+      provenance.final_consumer_before_stack_submit &&
+      !provenance.escapes_stack && !provenance.requested_intermediate &&
+      !provenance.final_output && !provenance.alias_or_view &&
+      !provenance.aliases_runtime_input &&
+      !provenance.aliases_runtime_output && provenance.direct_buffer &&
+      provenance.buffer_storage && !provenance.image_storage) {
     return true;
   }
   if (
