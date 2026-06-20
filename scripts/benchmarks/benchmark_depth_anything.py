@@ -1127,6 +1127,7 @@ def _field_or_storage_bool(
 
 
 STACK_OUTPUT_DEVICE_CONSUMER_BRIDGE_CONTRACT = "StackOutputToDeviceConsumerBridgeContract"
+STACK_OWNER_PLANNED_DEPENDENCY_CONTRACT = "StackOwnerPlannedDependencyContract"
 _BRIDGE_NOT_REGISTERED = "not_registered"
 _BRIDGE_PUBLIC_BOUNDARY_REJECT = (
     "public_tensor_array_boundary_before_downstream_consumer"
@@ -1404,6 +1405,237 @@ def build_stack_output_to_device_consumer_bridge_dry_run(
     }
 
 
+def _stack_owner_dependency_rows(
+    debug_counters: dict[str, Any],
+    phase_summary: Any,
+) -> tuple[str, list[Any]]:
+    timed_delta = _phase_delta(phase_summary, "timed_forward")
+    timed_rows = timed_delta.get("region_lifetime_submit_attribution_snapshot_delta")
+    if isinstance(timed_rows, list):
+        return "timed_forward", timed_rows
+    rows = debug_counters.get("region_lifetime_submit_attribution_snapshot")
+    if isinstance(rows, list):
+        return "total", rows
+    return "unavailable", []
+
+
+def _bridge_acceptance_by_block(
+    bridge_dry_run: Any,
+) -> dict[str, dict[str, Any]]:
+    accepted: dict[str, dict[str, Any]] = {}
+    if not isinstance(bridge_dry_run, dict):
+        return accepted
+    captures = bridge_dry_run.get("captures")
+    if not isinstance(captures, list):
+        return accepted
+    for capture in captures:
+        if not isinstance(capture, dict) or not capture.get("accepted"):
+            continue
+        block = capture.get("captured_block")
+        if block is not None:
+            accepted[str(block)] = capture
+    return accepted
+
+
+def _stack_owner_dependency_reject_reason(
+    fields: dict[str, str],
+    accepted_bridge_blocks: dict[str, dict[str, Any]],
+) -> str:
+    if fields.get("kind") != "buffer" or fields.get("role") != "stack_residual2_output":
+        return "not_residual2_buffer_edge"
+    if fields.get("stack_phase") != "residual2":
+        return "not_residual2_producer"
+    requested_or_final = _field_bool(fields, "requested_intermediate") is True or (
+        _field_bool(fields, "final_output") is True
+    )
+    bridge = accepted_bridge_blocks.get(str(fields.get("block")))
+    if fields.get("resource_class") != "capture_sensitive_stack_activation":
+        if not (
+            fields.get("resource_class") == "host_visible_or_requested_output"
+            and requested_or_final
+            and bridge
+        ):
+            return "unsupported_resource_class"
+    if _field_bool(fields, "stack_provenance") is not True:
+        return "missing_stack_provenance"
+    if _field_bool(fields, "last_use_proof") is not True:
+        return "missing_last_use_proof"
+    if _field_bool(fields, "allocation_has_generation") is not True:
+        return "missing_allocation_generation"
+    if _field_bool(fields, "allocation_has_byte_range") is not True:
+        return "missing_allocation_byte_range"
+    if _field_bool(fields, "direct_buffer") is False:
+        return "not_direct_buffer"
+    if _field_bool(fields, "buffer_storage") is False:
+        return "not_buffer_storage"
+    if _field_bool(fields, "aliases_runtime_input") is True:
+        return "aliases_runtime_input"
+    if _field_bool(fields, "aliases_runtime_output") is True:
+        return "aliases_runtime_output"
+    consumer = fields.get("expected_consumer_phase", "unknown")
+    if consumer not in {"norm1", "intermediate_capture"}:
+        return "unsupported_consumer_phase"
+    if _field_bool(fields, "final_consumer_before_stack_submit") is not True:
+        return "missing_final_consumer_before_stack_submit"
+    if requested_or_final:
+        if not bridge:
+            return "requested_or_final_output_without_same_region_bridge"
+        if bridge.get("python_public_boundary_before_consumption"):
+            return "bridge_has_python_public_boundary"
+        if bridge.get("host_visible_boundary_before_consumption") is not False:
+            return "bridge_has_host_visible_boundary"
+        if bridge.get("host_readback_before_consumption") is not False:
+            return "bridge_has_host_readback"
+    return "none"
+
+
+def build_stack_owner_planned_dependency_dry_run(
+    debug_counters: dict[str, Any],
+    phase_summary: Any,
+    bridge_dry_run: Any = None,
+) -> dict[str, Any]:
+    phase_name, rows = _stack_owner_dependency_rows(debug_counters, phase_summary)
+    accepted_bridge_blocks = _bridge_acceptance_by_block(bridge_dry_run)
+    candidates: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+    rejected: dict[str, int] = {}
+    edge_records = 0
+    proven_records = 0
+    queue_submit_records = 0
+    proven_queue_submit_records = 0
+    bytes_seen = 0
+    proven_bytes = 0
+    missing_runtime_identity_records = 0
+    for row in rows:
+        fields = _parse_vulkan_snapshot_fields(row)
+        if (
+            fields.get("origin") != "explicit_synchronize"
+            or fields.get("phase") != "stack_owner"
+            or fields.get("callsite") != "stack_owner_phase_boundary"
+            or fields.get("role") != "stack_residual2_output"
+        ):
+            continue
+        count = _counter_as_int(fields.get("count")) or 1
+        bytes_value = _counter_as_int(fields.get("bytes"))
+        queue_submit = _counter_as_int(fields.get("queue_submit"))
+        edge_records += count
+        queue_submit_records += queue_submit
+        bytes_seen += bytes_value
+        reject_reason = _stack_owner_dependency_reject_reason(
+            fields,
+            accepted_bridge_blocks,
+        )
+        key = (
+            fields.get("block", "-1"),
+            fields.get("stack_phase", "unknown"),
+            fields.get("expected_consumer_phase", "unknown"),
+            fields.get("expected_consumer_block", "-1"),
+            fields.get("shape", "unknown"),
+        )
+        candidate = candidates.setdefault(
+            key,
+            {
+                "producer_block": fields.get("block", "-1"),
+                "producer_substep": fields.get("producer_substep", "unknown"),
+                "producer_role": fields.get("role", "unknown"),
+                "producer_shape": fields.get("shape", "unknown"),
+                "producer_dtype": fields.get("dtype", "unknown"),
+                "resource_class": fields.get("resource_class", "unknown"),
+                "safety": fields.get("safety", "unknown"),
+                "missing_proof_reason": fields.get(
+                    "missing_proof_reason",
+                    "unknown",
+                ),
+                "consumer_phase": fields.get("expected_consumer_phase", "unknown"),
+                "consumer_block": fields.get("expected_consumer_block", "-1"),
+                "access_dependency": "compute_shader_write_to_compute_shader_read",
+                "source_resource_kind": fields.get("kind", "unknown"),
+                "source_allocation_label": fields.get("allocation_label", "unknown"),
+                "source_allocation_has_generation": _field_bool(
+                    fields,
+                    "allocation_has_generation",
+                ),
+                "source_allocation_has_byte_range": _field_bool(
+                    fields,
+                    "allocation_has_byte_range",
+                ),
+                "source_allocation_sample_id": fields.get("allocation_id"),
+                "source_allocation_sample_generation": fields.get(
+                    "allocation_generation"
+                ),
+                "source_byte_offset": fields.get("allocation_byte_offset"),
+                "source_byte_range": fields.get("allocation_byte_range"),
+                "direct_buffer": _field_bool(fields, "direct_buffer"),
+                "buffer_storage": _field_bool(fields, "buffer_storage"),
+                "last_use_proof": _field_bool(fields, "last_use_proof"),
+                "requested_intermediate": _field_bool(fields, "requested_intermediate"),
+                "final_output": _field_bool(fields, "final_output"),
+                "same_region_bridge_proven": str(fields.get("block", "-1"))
+                in accepted_bridge_blocks,
+                "accepted": False,
+                "accepted_records": 0,
+                "rejected_records": 0,
+                "reject_reasons": {},
+                "records": 0,
+                "queue_submit_records": 0,
+                "bytes": 0,
+            },
+        )
+        candidate["records"] += count
+        candidate["queue_submit_records"] += queue_submit
+        candidate["bytes"] += bytes_value
+        if reject_reason == "none":
+            candidate["accepted_records"] += count
+            proven_records += count
+            proven_queue_submit_records += queue_submit
+            proven_bytes += bytes_value
+        else:
+            candidate["rejected_records"] += count
+            candidate["reject_reasons"][reject_reason] = (
+                candidate["reject_reasons"].get(reject_reason, 0) + count
+            )
+            rejected[reject_reason] = rejected.get(reject_reason, 0) + count
+        if fields.get("allocation_id") in {None, "", "0"}:
+            missing_runtime_identity_records += count
+    for edge in candidates.values():
+        edge["accepted"] = (
+            edge["accepted_records"] > 0 and edge["rejected_records"] == 0
+        )
+    accepted_edges = [edge for edge in candidates.values() if edge["accepted"]]
+    replaceable_without_runtime_hook = bool(accepted_edges)
+    return {
+        "contract_name": STACK_OWNER_PLANNED_DEPENDENCY_CONTRACT,
+        "mode": "dry_run",
+        "phase_source": phase_name,
+        "behavior_changed": False,
+        "edge_candidates": edge_records,
+        "unique_edge_candidates": len(candidates),
+        "proven_edges": proven_records,
+        "unique_proven_edges": len(accepted_edges),
+        "rejected_reasons": rejected,
+        "candidate_queue_submit_records": queue_submit_records,
+        "proven_queue_submit_records": proven_queue_submit_records,
+        "would_replace_phase_boundary_syncs": 0,
+        "would_replace_phase_boundary_syncs_if_barrier_hook_existed": (
+            proven_queue_submit_records if replaceable_without_runtime_hook else 0
+        ),
+        "bytes": bytes_seen,
+        "proven_bytes": proven_bytes,
+        "missing_runtime_identity_records": missing_runtime_identity_records,
+        "barrier_strategy": (
+            "insert scoped COMPUTE shader-write to shader-read buffer barriers "
+            "for the source allocation/range before the proven consumer edge"
+        ),
+        "behavior_stop_reason": (
+            "no generic stack-owner API currently maps a proven logical edge to "
+            "a specific in-flight command-buffer boundary and barrier insertion "
+            "point independently of pending-retire group safety"
+            if accepted_edges
+            else "no edge has complete proof"
+        ),
+        "edges": list(candidates.values()),
+    }
+
+
 def install_failure_artifact_hook(
     args: argparse.Namespace,
     context: dict[str, Any],
@@ -1420,6 +1652,24 @@ def install_failure_artifact_hook(
                 else {}
             )
             phase_counters = _safe_phase_summary(context.get("vulkan_phase_tracker"))
+            bridge_dry_run = (
+                build_stack_output_to_device_consumer_bridge_dry_run(
+                    debug_counters,
+                    phase_counters,
+                    context.get("stack_output_device_consumer_registrations"),
+                )
+                if device_kind == "vulkan"
+                else None
+            )
+            planned_dependency_dry_run = (
+                build_stack_owner_planned_dependency_dry_run(
+                    debug_counters,
+                    phase_counters,
+                    bridge_dry_run,
+                )
+                if device_kind == "vulkan"
+                else None
+            )
             out_path = output_path_from_args(args)
             result = {
                 "benchmark_name": "benchmark_depth_anything",
@@ -1469,14 +1719,9 @@ def install_failure_artifact_hook(
                 "device_info": context.get("device_info"),
                 "vulkan_debug_counters": debug_counters,
                 "vulkan_phase_counters": phase_counters,
-                "vulkan_stack_output_device_bridge_dry_run": (
-                    build_stack_output_to_device_consumer_bridge_dry_run(
-                        debug_counters,
-                        phase_counters,
-                        context.get("stack_output_device_consumer_registrations"),
-                    )
-                    if device_kind == "vulkan"
-                    else None
+                "vulkan_stack_output_device_bridge_dry_run": bridge_dry_run,
+                "vulkan_stack_owner_planned_dependency_dry_run": (
+                    planned_dependency_dry_run
                 ),
                 "allocation_failure_snapshot": debug_counters.get(
                     "last_allocation_failure_snapshot",
@@ -2059,6 +2304,24 @@ def run() -> None:
         if vulkan_phase_tracker is not None
         else None
     )
+    bridge_dry_run = (
+        build_stack_output_to_device_consumer_bridge_dry_run(
+            debug_counters,
+            phase_counters,
+            failure_context.get("stack_output_device_consumer_registrations"),
+        )
+        if device_kind == "vulkan"
+        else None
+    )
+    planned_dependency_dry_run = (
+        build_stack_owner_planned_dependency_dry_run(
+            debug_counters,
+            phase_counters,
+            bridge_dry_run,
+        )
+        if device_kind == "vulkan"
+        else None
+    )
 
     result = {
         "benchmark_name": "benchmark_depth_anything",
@@ -2096,14 +2359,9 @@ def run() -> None:
         ),
         "vulkan_debug_counters": debug_counters,
         "vulkan_phase_counters": phase_counters,
-        "vulkan_stack_output_device_bridge_dry_run": (
-            build_stack_output_to_device_consumer_bridge_dry_run(
-                debug_counters,
-                phase_counters,
-                failure_context.get("stack_output_device_consumer_registrations"),
-            )
-            if device_kind == "vulkan"
-            else None
+        "vulkan_stack_output_device_bridge_dry_run": bridge_dry_run,
+        "vulkan_stack_owner_planned_dependency_dry_run": (
+            planned_dependency_dry_run
         ),
         "vulkan_model_probe": probe_summary,
         "performance_valid": not bool(probe_summary),
