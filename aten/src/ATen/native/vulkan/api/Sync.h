@@ -809,7 +809,21 @@ TORCH_API bool vision_stack_capture_dependency_active();
 TORCH_API bool vision_stack_capture_dependency_reaches_block(
     int64_t block_index);
 
+TORCH_API void begin_stack_dispatch_dependency_recording_scope();
+TORCH_API void end_stack_dispatch_dependency_recording_scope();
 TORCH_API void note_vulkan_stack_dispatch(const char* shader_name);
+TORCH_API void note_stack_owner_dispatch_dependency_dry_run(
+    VulkanRetiredResourceKind kind,
+    VulkanRetiredResourceRole role,
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    bool queue_submit,
+    uint64_t bytes,
+    const char* resource_class,
+    bool formal_last_use_proof,
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label);
 TORCH_API void note_vulkan_stack_allocation(
     const char* role,
     VulkanStackTensorLifetimeClass lifetime,
@@ -824,8 +838,11 @@ TORCH_API void note_vulkan_stack_allocation(
     uint64_t bytes);
 TORCH_API std::vector<std::string> stack_dispatch_aggregate_snapshot();
 TORCH_API std::vector<std::string> stack_allocation_aggregate_snapshot();
+TORCH_API std::vector<std::string>
+stack_dispatch_dependency_dry_run_snapshot();
 TORCH_API void reset_stack_dispatch_aggregate();
 TORCH_API void reset_stack_allocation_aggregate();
+TORCH_API void reset_stack_dispatch_dependency_dry_run();
 
 } // namespace api
 } // namespace vulkan

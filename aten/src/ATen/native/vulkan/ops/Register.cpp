@@ -534,6 +534,7 @@ void reset_fallback_counters_runtime() {
   api::reset_submit_phase();
   api::reset_stack_allocation_aggregate();
   api::reset_stack_dispatch_aggregate();
+  api::reset_stack_dispatch_dependency_dry_run();
   api::reset_last_allocation_failure_snapshot();
   reset_linear_plan_counters();
   reset_linear_aggregate();
@@ -1745,6 +1746,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_stack_dispatch_aggregate() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_dispatch_dependency_dry_run_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_stack_dispatch_dependency_dry_run() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::linear_plan_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::linear_aggregate_snapshot() -> str[]"));
@@ -2084,6 +2089,14 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_stack_dispatch_aggregate"),
       TORCH_FN(api::reset_stack_dispatch_aggregate));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::stack_dispatch_dependency_dry_run_snapshot"),
+      TORCH_FN(api::stack_dispatch_dependency_dry_run_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_stack_dispatch_dependency_dry_run"),
+      TORCH_FN(api::reset_stack_dispatch_dependency_dry_run));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vision_backbone_stack_context"),

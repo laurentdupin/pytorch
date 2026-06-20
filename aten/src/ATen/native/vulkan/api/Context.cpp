@@ -1633,6 +1633,19 @@ VulkanSubmission Context::submit_cmd_to_gpu(
           pending.stack_provenance,
           allocation_proof,
           allocation_label);
+      note_stack_owner_dispatch_dependency_dry_run(
+          pending.kind,
+          pending.role,
+          phase,
+          pending.callsite == VulkanRetireCallSite::Unknown ? callsite
+                                                            : pending.callsite,
+          /*queue_submit=*/true,
+          pending.bytes,
+          resource_class,
+          formal_last_use_proof,
+          pending.stack_provenance,
+          allocation_proof,
+          allocation_label);
     };
     {
       std::lock_guard<std::mutex> bufferlist_lock(

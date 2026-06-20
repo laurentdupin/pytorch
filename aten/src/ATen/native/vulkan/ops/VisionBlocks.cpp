@@ -1397,6 +1397,7 @@ class VulkanStackCommandRecordingScope final {
   explicit VulkanStackCommandRecordingScope(api::Context& context)
       : context_(context), active_(true) {
     context_.begin_stack_planned_recording();
+    api::begin_stack_dispatch_dependency_recording_scope();
     vulkan_stack_planned_recording_counters()
         .recording_scope_begin_count.fetch_add(
             1u,
@@ -1419,6 +1420,7 @@ class VulkanStackCommandRecordingScope final {
       }
       const api::StackPlannedRecordingStats stats =
           context_.end_stack_planned_recording_and_submit();
+      api::end_stack_dispatch_dependency_recording_scope();
       auto& counters = vulkan_stack_planned_recording_counters();
       counters.recording_scope_submit_count.fetch_add(
           1u,
@@ -1440,6 +1442,7 @@ class VulkanStackCommandRecordingScope final {
           std::memory_order_relaxed);
       active_ = false;
     } catch (...) {
+      api::end_stack_dispatch_dependency_recording_scope();
       active_ = false;
     }
   }
@@ -1449,6 +1452,7 @@ class VulkanStackCommandRecordingScope final {
       return;
     }
     context_.cancel_stack_planned_recording();
+    api::end_stack_dispatch_dependency_recording_scope();
     vulkan_stack_planned_recording_counters()
         .recording_scope_cancel_count.fetch_add(
             1u,

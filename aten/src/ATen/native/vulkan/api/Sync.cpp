@@ -26,6 +26,9 @@ thread_local VulkanRetiredResourceKind g_retired_resource_kind =
 thread_local VulkanRetiredResourceRole g_retired_resource_role =
     VulkanRetiredResourceRole::Unknown;
 thread_local std::vector<VulkanStackLastUseProof> g_stack_last_use_proofs;
+thread_local uint64_t g_stack_dispatch_dependency_scope_id = 0u;
+thread_local uint64_t g_stack_dispatch_dependency_position = 0u;
+std::atomic<uint64_t> g_next_stack_dispatch_dependency_scope_id{1u};
 
 struct RetiredResourceAggregateKey final {
   VulkanRetiredResourceKind kind = VulkanRetiredResourceKind::Unknown;
@@ -374,6 +377,129 @@ struct StackAllocationValue final {
 std::map<std::string, StackAllocationValue>& stack_allocation_aggregate() {
   static std::map<std::string, StackAllocationValue> aggregate;
   return aggregate;
+}
+
+struct StackDispatchDependencyDispatchValue final {
+  uint64_t count = 0u;
+  uint64_t first_position = 0u;
+  uint64_t last_position = 0u;
+};
+
+struct StackDispatchDependencyDryRunValue final {
+  uint64_t count = 0u;
+  uint64_t bytes = 0u;
+  uint64_t queue_submit_count = 0u;
+  uint64_t fully_proven_count = 0u;
+};
+
+std::map<std::string, StackDispatchDependencyDispatchValue>&
+stack_dispatch_dependency_dispatch_rows() {
+  static std::map<std::string, StackDispatchDependencyDispatchValue> rows;
+  return rows;
+}
+
+std::map<std::string, StackDispatchDependencyDryRunValue>&
+stack_dispatch_dependency_dry_run_rows() {
+  static std::map<std::string, StackDispatchDependencyDryRunValue> rows;
+  return rows;
+}
+
+std::string stack_dispatch_dependency_dispatch_key(
+    const uint64_t scope_id,
+    const VulkanVisionStackPhase phase,
+    const int64_t block,
+    const char* const shader_name) {
+  std::ostringstream key;
+  key << "dispatch=1"
+      << " scope_id=" << scope_id
+      << " phase=" << vision_stack_phase_name(phase)
+      << " block=" << block
+      << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown");
+  return key.str();
+}
+
+const StackDispatchDependencyDispatchValue* find_stack_dispatch_observation(
+    const uint64_t scope_id,
+    const VulkanVisionStackPhase phase,
+    const int64_t block) {
+  const std::string prefix =
+      "dispatch=1 scope_id=" + std::to_string(scope_id) +
+      " phase=" + vision_stack_phase_name(phase) +
+      " block=" + std::to_string(block) + " ";
+  for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
+    if (item.first.find(prefix) == 0u) {
+      return &item.second;
+    }
+  }
+  return nullptr;
+}
+
+const char* stack_dispatch_op_label(const VulkanVisionStackPhase phase) {
+  switch (phase) {
+    case VulkanVisionStackPhase::Norm1:
+      return "vision_block.norm1";
+    case VulkanVisionStackPhase::QkvLinear:
+      return "vision_block.qkv_linear";
+    case VulkanVisionStackPhase::QkvTransform:
+      return "vision_block.qkv_transform";
+    case VulkanVisionStackPhase::Attention:
+      return "vision_block.attention";
+    case VulkanVisionStackPhase::ProjLinear:
+      return "vision_block.proj_linear";
+    case VulkanVisionStackPhase::Residual1:
+      return "vision_block.residual1";
+    case VulkanVisionStackPhase::Norm2:
+      return "vision_block.norm2";
+    case VulkanVisionStackPhase::Fc1Gelu:
+      return "vision_block.fc1_gelu";
+    case VulkanVisionStackPhase::Fc2:
+      return "vision_block.fc2";
+    case VulkanVisionStackPhase::Residual2:
+      return "vision_block.residual2";
+    case VulkanVisionStackPhase::IntermediateCapture:
+      return "vision_stack.intermediate_capture";
+    default:
+      return "unknown";
+  }
+}
+
+const char* stack_dispatch_dependency_kind(
+    const VulkanVisionStackPhase consumer_phase) {
+  if (consumer_phase == VulkanVisionStackPhase::IntermediateCapture) {
+    return "write_to_capture_read";
+  }
+  return "compute_shader_write_to_compute_shader_read";
+}
+
+std::string stack_dispatch_dependency_reject_reason(
+    const bool residual2_candidate,
+    const bool has_allocation_generation,
+    const bool has_byte_range,
+    const bool has_formal_last_use_proof,
+    const bool producer_dispatch_observed,
+    const bool consumer_dispatch_observed,
+    const VulkanVisionStackPhase consumer_phase) {
+  if (!residual2_candidate) {
+    return "not_residual2_buffer_edge";
+  }
+  if (!has_allocation_generation) {
+    return "missing_allocation_generation";
+  }
+  if (!has_byte_range) {
+    return "missing_byte_range";
+  }
+  if (!has_formal_last_use_proof) {
+    return "missing_formal_last_use_proof";
+  }
+  if (!producer_dispatch_observed) {
+    return "missing_producer_dispatch";
+  }
+  if (!consumer_dispatch_observed) {
+    return consumer_phase == VulkanVisionStackPhase::IntermediateCapture
+        ? "capture_consumer_has_no_dispatch"
+        : "missing_consumer_dispatch";
+  }
+  return "none";
 }
 
 std::string format_sizes(const std::vector<int64_t>& values) {
@@ -4280,10 +4406,25 @@ bool vision_stack_capture_dependency_reaches_block(
   return false;
 }
 
+void begin_stack_dispatch_dependency_recording_scope() {
+  g_stack_dispatch_dependency_scope_id =
+      g_next_stack_dispatch_dependency_scope_id.fetch_add(
+          1u, std::memory_order_relaxed);
+  g_stack_dispatch_dependency_position = 0u;
+}
+
+void end_stack_dispatch_dependency_recording_scope() {
+  g_stack_dispatch_dependency_scope_id = 0u;
+  g_stack_dispatch_dependency_position = 0u;
+}
+
 void note_vulkan_stack_dispatch(const char* shader_name) {
   if (!inside_vision_stack_phase()) {
     return;
   }
+  const uint64_t scope_id = g_stack_dispatch_dependency_scope_id;
+  const uint64_t position =
+      scope_id == 0u ? 0u : ++g_stack_dispatch_dependency_position;
   std::ostringstream key;
   key << "stack_dispatch"
       << " phase=" << vision_stack_phase_name(g_vision_stack_phase)
@@ -4292,6 +4433,162 @@ void note_vulkan_stack_dispatch(const char* shader_name) {
       << " role=" << vision_stack_phase_name(g_vision_stack_phase);
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   stack_dispatch_aggregate()[key.str()] += 1u;
+  if (scope_id != 0u) {
+    auto& value = stack_dispatch_dependency_dispatch_rows()
+        [stack_dispatch_dependency_dispatch_key(
+            scope_id,
+            g_vision_stack_phase,
+            g_vision_stack_block_index,
+            shader_name)];
+    value.count += 1u;
+    if (value.first_position == 0u) {
+      value.first_position = position;
+    }
+    value.last_position = position;
+  }
+}
+
+void note_stack_owner_dispatch_dependency_dry_run(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const bool queue_submit,
+    const uint64_t bytes,
+    const char* const resource_class,
+    const bool formal_last_use_proof,
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label) {
+  if (
+      phase != VulkanSubmitPhase::StackOwner ||
+      !(callsite == VulkanRetireCallSite::StackOwnerPhaseBoundary ||
+        callsite == VulkanRetireCallSite::StackOwnerNorm1 ||
+        callsite == VulkanRetireCallSite::StackOwnerNorm2)) {
+    return;
+  }
+  const bool residual2_candidate =
+      kind == VulkanRetiredResourceKind::Buffer &&
+      role == VulkanRetiredResourceRole::StackResidual2Output &&
+      provenance.defined &&
+      provenance.phase == VulkanVisionStackPhase::Residual2 &&
+      provenance.expected_consumer_phase != VulkanVisionStackPhase::Unknown &&
+      provenance.expected_consumer_block_index >= 0;
+  if (!residual2_candidate) {
+    return;
+  }
+  const uint64_t scope_id = g_stack_dispatch_dependency_scope_id;
+  const StackDispatchDependencyDispatchValue* const producer_dispatch =
+      find_stack_dispatch_observation(
+          scope_id, provenance.phase, provenance.block_index);
+  const StackDispatchDependencyDispatchValue* const consumer_dispatch =
+      find_stack_dispatch_observation(
+          scope_id,
+          provenance.expected_consumer_phase,
+          provenance.expected_consumer_block_index);
+  const bool producer_dispatch_observed = producer_dispatch != nullptr;
+  const bool consumer_dispatch_observed = consumer_dispatch != nullptr;
+  const bool producer_descriptor_known = true;
+  const bool consumer_descriptor_known =
+      provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1 ||
+      provenance.expected_consumer_phase ==
+          VulkanVisionStackPhase::IntermediateCapture;
+  const bool fully_proven =
+      allocation_proof.has_generation && allocation_proof.has_byte_range &&
+      allocation_proof.byte_range > 0u && formal_last_use_proof &&
+      producer_dispatch_observed && consumer_dispatch_observed &&
+      producer_descriptor_known && consumer_descriptor_known;
+  const std::string reject_reason = stack_dispatch_dependency_reject_reason(
+      true,
+      allocation_proof.has_generation,
+      allocation_proof.has_byte_range && allocation_proof.byte_range > 0u,
+      formal_last_use_proof,
+      producer_dispatch_observed,
+      consumer_dispatch_observed,
+      provenance.expected_consumer_phase);
+
+  std::ostringstream key;
+  key << "stack_dispatch_dependency=1"
+      << " contract=StackOwnerDispatchDependencyContract"
+      << " phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " queue_submit=" << (queue_submit ? 1 : 0)
+      << " resource_class="
+      << (resource_class && resource_class[0] ? resource_class : "unknown")
+      << " resource_kind=" << retired_resource_kind_name(kind)
+      << " role=" << retired_resource_role_name(role)
+      << " dependency_kind="
+      << stack_dispatch_dependency_kind(provenance.expected_consumer_phase)
+      << " producer_op=" << stack_dispatch_op_label(provenance.phase)
+      << " producer_phase=" << vision_stack_phase_name(provenance.phase)
+      << " producer_block=" << provenance.block_index
+      << " consumer_op="
+      << stack_dispatch_op_label(provenance.expected_consumer_phase)
+      << " consumer_phase="
+      << vision_stack_phase_name(provenance.expected_consumer_phase)
+      << " consumer_block=" << provenance.expected_consumer_block_index
+      << " scope_id=" << scope_id
+      << " producer_dispatch_observed=" << (producer_dispatch_observed ? 1 : 0)
+      << " producer_dispatch_first_position="
+      << (producer_dispatch ? producer_dispatch->first_position : 0u)
+      << " producer_dispatch_last_position="
+      << (producer_dispatch ? producer_dispatch->last_position : 0u)
+      << " consumer_dispatch_observed=" << (consumer_dispatch_observed ? 1 : 0)
+      << " consumer_dispatch_first_position="
+      << (consumer_dispatch ? consumer_dispatch->first_position : 0u)
+      << " consumer_dispatch_last_position="
+      << (consumer_dispatch ? consumer_dispatch->last_position : 0u)
+      << " command_buffer_sequence=" << scope_id
+      << " producer_descriptor_role=internal_output"
+      << " producer_descriptor_set=0"
+      << " producer_descriptor_binding=0"
+      << " producer_access=shader_write"
+      << " consumer_descriptor_role="
+      << (provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1
+              ? "activation_input"
+              : (provenance.expected_consumer_phase ==
+                         VulkanVisionStackPhase::IntermediateCapture
+                     ? "requested_intermediate_output"
+                     : "unknown"))
+      << " consumer_descriptor_set=0"
+      << " consumer_descriptor_binding="
+      << (provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1
+              ? 1
+              : (provenance.expected_consumer_phase ==
+                         VulkanVisionStackPhase::IntermediateCapture
+                     ? 0
+                     : -1))
+      << " consumer_access=shader_read"
+      << " allocation_label="
+      << (allocation_label.empty() ? "unknown" : allocation_label)
+      << " allocation_id=" << allocation_proof.allocation_id
+      << " allocation_generation=" << allocation_proof.allocation_generation
+      << " allocation_has_generation="
+      << (allocation_proof.has_generation ? 1 : 0)
+      << " byte_offset=" << allocation_proof.byte_offset
+      << " byte_range=" << allocation_proof.byte_range
+      << " allocation_has_byte_range="
+      << (allocation_proof.has_byte_range ? 1 : 0)
+      << " producer_live_range_known="
+      << (allocation_proof.has_byte_range ? 1 : 0)
+      << " consumer_live_range_known="
+      << (allocation_proof.has_byte_range ? 1 : 0)
+      << " formal_last_use_proof=" << (formal_last_use_proof ? 1 : 0)
+      << " descriptor_binding_known="
+      << (producer_descriptor_known && consumer_descriptor_known ? 1 : 0)
+      << " fully_proven=" << (fully_proven ? 1 : 0)
+      << " reject_reason=" << reject_reason;
+
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  auto& value = stack_dispatch_dependency_dry_run_rows()[key.str()];
+  value.count += 1u;
+  value.bytes += bytes;
+  if (queue_submit) {
+    value.queue_submit_count += 1u;
+  }
+  if (fully_proven) {
+    value.fully_proven_count += 1u;
+  }
 }
 
 void note_vulkan_stack_allocation(
@@ -4357,6 +4654,30 @@ std::vector<std::string> stack_allocation_aggregate_snapshot() {
   return rows;
 }
 
+std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  std::vector<std::string> rows;
+  rows.reserve(
+      stack_dispatch_dependency_dispatch_rows().size() +
+      stack_dispatch_dependency_dry_run_rows().size());
+  for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " first_position=" << item.second.first_position
+        << " last_position=" << item.second.last_position;
+    rows.push_back(row.str());
+  }
+  for (const auto& item : stack_dispatch_dependency_dry_run_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " bytes=" << item.second.bytes
+        << " queue_submit=" << item.second.queue_submit_count
+        << " fully_proven_count=" << item.second.fully_proven_count;
+    rows.push_back(row.str());
+  }
+  return rows;
+}
+
 void reset_stack_dispatch_aggregate() {
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   stack_dispatch_aggregate().clear();
@@ -4365,6 +4686,12 @@ void reset_stack_dispatch_aggregate() {
 void reset_stack_allocation_aggregate() {
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   stack_allocation_aggregate().clear();
+}
+
+void reset_stack_dispatch_dependency_dry_run() {
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  stack_dispatch_dependency_dispatch_rows().clear();
+  stack_dispatch_dependency_dry_run_rows().clear();
 }
 
 void note_vulkan_queue_wait_idle() {

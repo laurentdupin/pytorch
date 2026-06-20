@@ -19547,6 +19547,66 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
         )
 
+    def test_vulkan_stack_dispatch_dependency_dry_run_snapshot(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=2,
+            label_prefix="vision.synthetic.stack.dispatch_dependency",
+        )
+
+        torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+        torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [1],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        rows = torch.ops.vulkan_prepack.stack_dispatch_dependency_dry_run_snapshot()
+        self.assertTrue(
+            any(
+                "dispatch=1" in row
+                and "scope_id=" in row
+                and "first_position=" in row
+                and "last_position=" in row
+                for row in rows
+            )
+        )
+        self.assertTrue(
+            any(
+                "stack_dispatch_dependency=1" in row
+                and "contract=StackOwnerDispatchDependencyContract" in row
+                and "producer_phase=residual2" in row
+                and "producer_dispatch_observed=1" in row
+                and "allocation_has_generation=1" in row
+                and "allocation_has_byte_range=1" in row
+                and "formal_last_use_proof=" in row
+                and "reject_reason=" in row
+                for row in rows
+            )
+        )
+        residual2_rows = [
+            row
+            for row in rows
+            if "stack_dispatch_dependency=1" in row
+            and "producer_phase=residual2" in row
+        ]
+        self.assertTrue(residual2_rows)
+        self.assertTrue(
+            any("consumer_phase=norm1" in row for row in residual2_rows)
+        )
+        self.assertTrue(
+            any("consumer_dispatch_observed=0" in row for row in residual2_rows)
+        )
+        self.assertTrue(any("fully_proven=0" in row for row in residual2_rows))
+        torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+        self.assertEqual(
+            torch.ops.vulkan_prepack.stack_dispatch_dependency_dry_run_snapshot(),
+            [],
+        )
+
     def test_vulkan_memory_and_linear_pack_residency_snapshots(self):
         torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
         weight = torch.randn(16, 8, dtype=torch.float32).to("vulkan")

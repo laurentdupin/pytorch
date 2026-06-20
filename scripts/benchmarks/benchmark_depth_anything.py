@@ -962,6 +962,7 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         "stack_scratch_arena_lifetime_snapshot",
         "stack_allocation_aggregate_snapshot",
         "stack_dispatch_aggregate_snapshot",
+        "stack_dispatch_dependency_dry_run_snapshot",
         "stack_attention_counters",
         "stack_execution_manifest",
         "stack_capture_readiness",
