@@ -397,6 +397,16 @@ std::map<std::string, StackAllocationValue>& stack_allocation_aggregate() {
   return aggregate;
 }
 
+struct StackOutputDeviceConsumerRegistrationValue final {
+  uint64_t count = 0u;
+};
+
+std::map<std::string, StackOutputDeviceConsumerRegistrationValue>&
+stack_output_device_consumer_registrations() {
+  static std::map<std::string, StackOutputDeviceConsumerRegistrationValue> rows;
+  return rows;
+}
+
 struct StackDispatchDependencyDispatchValue final {
   uint64_t count = 0u;
   uint64_t first_position = 0u;
@@ -753,6 +763,19 @@ bool dependency_is_requested_capture_edge(
           "requested_intermediate_output";
 }
 
+std::string stack_output_device_consumer_registration_key(
+    const std::string& captured_block,
+    const std::string& output_role) {
+  return "capture_block=" + captured_block + ":output_role=" + output_role;
+}
+
+std::string stack_output_device_consumer_registration_key(
+    const std::map<std::string, std::string>& fields) {
+  return stack_output_device_consumer_registration_key(
+      field_or(fields, "captured_block", "unknown"),
+      field_or(fields, "output_role", "unknown"));
+}
+
 VulkanVisionStackPhase vision_stack_phase_from_graph_name(
     const std::string& name) {
   if (name == "stack_entry") {
@@ -824,6 +847,28 @@ struct CaptureAllocationSummary final {
   uint64_t private_bridge_capture_bytes = 0u;
   std::string public_capture_shape = "missing";
   std::string private_bridge_capture_shape = "missing";
+};
+
+struct StackOutputDeviceConsumerRegistrationSummary final {
+  uint64_t count = 0u;
+  bool consumer_in_same_planned_region = false;
+  bool python_public_boundary_before_consumption = false;
+  bool host_visible_boundary_before_consumption = false;
+  bool host_visible_access_before_consumption = false;
+  bool host_readback_before_consumption = false;
+  std::string stack_context_id = "missing";
+  std::string stack_session_id = "missing";
+  std::string stack_plan_id = "missing";
+  std::string captured_substep = "missing";
+  std::string output_role = "missing";
+  std::string output_shape = "missing";
+  std::string output_layout = "missing";
+  std::string strip_or_view_relation = "missing";
+  std::string downstream_consumer_id = "missing";
+  std::string downstream_consumer_context = "missing";
+  std::string expected_consumer_input_index = "missing";
+  std::string expected_consumer_shape = "missing";
+  std::string expected_consumer_layout = "missing";
 };
 
 std::string barrier_plan_dispatch_position_key(
@@ -1653,6 +1698,62 @@ build_capture_allocation_summaries(const std::vector<std::string>& rows) {
   return summaries;
 }
 
+std::map<std::string, StackOutputDeviceConsumerRegistrationSummary>
+build_stack_output_device_consumer_registration_summaries(
+    const std::vector<std::string>& rows) {
+  std::map<std::string, StackOutputDeviceConsumerRegistrationSummary> summaries;
+  for (const auto& row : rows) {
+    const auto fields = parse_space_separated_fields(row);
+    if (
+        field_or(fields, "stack_output_device_consumer_registration", "0") !=
+        "1") {
+      continue;
+    }
+    auto& summary = summaries[stack_output_device_consumer_registration_key(
+        fields)];
+    summary.count += parsed_u64(fields, "count");
+    summary.consumer_in_same_planned_region =
+        summary.consumer_in_same_planned_region ||
+        field_or(fields, "consumer_in_same_planned_region", "0") == "1";
+    summary.python_public_boundary_before_consumption =
+        summary.python_public_boundary_before_consumption ||
+        field_or(fields, "python_public_boundary_before_consumption", "1") ==
+            "1";
+    summary.host_visible_boundary_before_consumption =
+        summary.host_visible_boundary_before_consumption ||
+        field_or(fields, "host_visible_boundary_before_consumption", "1") ==
+            "1";
+    summary.host_visible_access_before_consumption =
+        summary.host_visible_access_before_consumption ||
+        field_or(fields, "host_visible_access_before_consumption", "1") ==
+            "1";
+    summary.host_readback_before_consumption =
+        summary.host_readback_before_consumption ||
+        field_or(fields, "host_readback_before_consumption", "1") == "1";
+    summary.stack_context_id = field_or(fields, "stack_context_id", "missing");
+    summary.stack_session_id = field_or(fields, "stack_session_id", "missing");
+    summary.stack_plan_id = field_or(fields, "stack_plan_id", "missing");
+    summary.captured_substep =
+        field_or(fields, "captured_substep", "missing");
+    summary.output_role = field_or(fields, "output_role", "missing");
+    summary.output_shape = field_or(fields, "output_shape", "missing");
+    summary.output_layout = field_or(fields, "output_layout", "missing");
+    summary.strip_or_view_relation =
+        field_or(fields, "strip_or_view_relation", "missing");
+    summary.downstream_consumer_id =
+        field_or(fields, "downstream_consumer_id", "missing");
+    summary.downstream_consumer_context =
+        field_or(fields, "downstream_consumer_context", "missing");
+    summary.expected_consumer_input_index =
+        field_or(fields, "expected_consumer_input_index", "missing");
+    summary.expected_consumer_shape =
+        field_or(fields, "expected_consumer_shape", "missing");
+    summary.expected_consumer_layout =
+        field_or(fields, "expected_consumer_layout", "missing");
+  }
+  return summaries;
+}
+
 const char* capture_storage_class_name(
     const CaptureAllocationSummary& summary) {
   if (
@@ -1669,12 +1770,49 @@ const char* capture_storage_class_name(
   return "unknown_capture_storage";
 }
 
+bool capture_consumer_registration_accepts_same_region(
+    const StackOutputDeviceConsumerRegistrationSummary* const registration) {
+  return registration && registration->count > 0u &&
+      registration->consumer_in_same_planned_region &&
+      !registration->python_public_boundary_before_consumption &&
+      !registration->host_visible_boundary_before_consumption &&
+      !registration->host_visible_access_before_consumption &&
+      !registration->host_readback_before_consumption;
+}
+
+const char* capture_consumer_registration_reason(
+    const StackOutputDeviceConsumerRegistrationSummary* const registration) {
+  if (!registration || registration->count == 0u) {
+    return "downstream_device_consumer_registration_missing";
+  }
+  if (!registration->consumer_in_same_planned_region) {
+    return "downstream_device_consumer_not_in_same_planned_region";
+  }
+  if (registration->python_public_boundary_before_consumption) {
+    return "python_public_boundary_before_downstream_consumer";
+  }
+  if (registration->host_visible_boundary_before_consumption) {
+    return "host_visible_boundary_before_downstream_consumer";
+  }
+  if (registration->host_visible_access_before_consumption) {
+    return "host_visible_access_before_downstream_consumer";
+  }
+  if (registration->host_readback_before_consumption) {
+    return "host_readback_before_downstream_consumer";
+  }
+  return "same_region_device_consumer_registered";
+}
+
 const char* capture_boundary_sync_required_reason(
-    const CaptureAllocationSummary& summary) {
+    const CaptureAllocationSummary& summary,
+    const StackOutputDeviceConsumerRegistrationSummary* const registration) {
   if (summary.public_capture_count > 0u) {
     return "public_tensor_array_capture_requires_boundary_submit";
   }
   if (summary.private_bridge_capture_count > 0u) {
+    if (!capture_consumer_registration_accepts_same_region(registration)) {
+      return capture_consumer_registration_reason(registration);
+    }
     return "bridge_private_capture_needs_value_preservation_and_complete_boundary_proof";
   }
   return "capture_storage_mode_unknown";
@@ -1682,6 +1820,7 @@ const char* capture_boundary_sync_required_reason(
 
 void capture_output_missing_proof_fields(
     const CaptureAllocationSummary& summary,
+    const StackOutputDeviceConsumerRegistrationSummary* const registration,
     std::vector<std::string>& missing) {
   if (
       summary.public_capture_count > 0u &&
@@ -1692,7 +1831,9 @@ void capture_output_missing_proof_fields(
     missing.emplace_back("public_tensor_array_boundary_elision_contract");
   }
   if (summary.private_bridge_capture_count > 0u) {
-    missing.emplace_back("downstream_consumer_registration_in_stack_graph");
+    if (!capture_consumer_registration_accepts_same_region(registration)) {
+      missing.emplace_back("downstream_consumer_registration_in_stack_graph");
+    }
     missing.emplace_back("capture_value_preservation_proof");
   }
   if (
@@ -1707,6 +1848,8 @@ void append_capture_output_boundary_record(
     std::ostream& out,
     const std::string& row,
     const std::map<std::string, CaptureAllocationSummary>& summaries,
+    const std::map<std::string, StackOutputDeviceConsumerRegistrationSummary>&
+        registrations,
     const size_t index) {
   const auto fields = parse_space_separated_fields(row);
   const std::string capture_block = field_or(fields, "consumer_block", "unknown");
@@ -1714,8 +1857,26 @@ void append_capture_output_boundary_record(
   const CaptureAllocationSummary empty_summary;
   const CaptureAllocationSummary& summary =
       summary_it == summaries.end() ? empty_summary : summary_it->second;
+  const std::string registration_key =
+      stack_output_device_consumer_registration_key(
+          capture_block, field_or(fields, "role", "unknown"));
+  const auto registration_it = registrations.find(registration_key);
+  const StackOutputDeviceConsumerRegistrationSummary* const registration =
+      registration_it == registrations.end() ? nullptr : &registration_it->second;
+  const bool same_region_consumer_registered =
+      capture_consumer_registration_accepts_same_region(registration);
+  const bool allocation_generation_proven =
+      field_or(fields, "allocation_has_generation", "0") == "1";
+  const bool allocation_range_proven =
+      field_or(fields, "allocation_has_byte_range", "0") == "1";
+  const bool capture_specific_proof_complete =
+      same_region_consumer_registered &&
+      summary.private_bridge_capture_count > 0u &&
+      summary.public_capture_count == 0u && allocation_generation_proven &&
+      allocation_range_proven;
   std::vector<std::string> missing_proof_fields;
-  capture_output_missing_proof_fields(summary, missing_proof_fields);
+  capture_output_missing_proof_fields(
+      summary, registration, missing_proof_fields);
   bool first = true;
   out << '{';
   append_json_string(
@@ -1763,12 +1924,12 @@ void append_capture_output_boundary_record(
   append_json_bool(
       out,
       "allocation_generation_proven",
-      field_or(fields, "allocation_has_generation", "0") == "1",
+      allocation_generation_proven,
       first);
   append_json_bool(
       out,
       "allocation_range_proven",
-      field_or(fields, "allocation_has_byte_range", "0") == "1",
+      allocation_range_proven,
       first);
   append_json_bool(out, "requested_intermediate", true, first);
   append_json_bool(
@@ -1804,16 +1965,102 @@ void append_capture_output_boundary_record(
       field_or(fields, "resource_class", "unknown") ==
           "host_visible_or_requested_output",
       first);
+  append_json_bool(
+      out,
+      "same_region_consumer_registered",
+      same_region_consumer_registered,
+      first);
   append_json_string(
       out,
-      "downstream_same_region_consumer_registration",
-      "not_visible_to_stack_region_graph_v0",
+      "consumer_registration_accept_reject_reason",
+      capture_consumer_registration_reason(registration),
       first);
-  append_json_bool(out, "capture_specific_proof_complete", false, first);
+  append_json_u64(
+      out,
+      "downstream_consumer_registration_count",
+      registration ? registration->count : 0u,
+      first);
+  append_json_string(
+      out,
+      "consumer_context_id",
+      registration ? registration->downstream_consumer_context : "missing",
+      first);
+  append_json_string(
+      out,
+      "consumer_id",
+      registration ? registration->downstream_consumer_id : "missing",
+      first);
+  append_json_string(
+      out,
+      "consumer_expected_input_index",
+      registration ? registration->expected_consumer_input_index : "missing",
+      first);
+  append_json_string(
+      out,
+      "consumer_expected_shape",
+      registration ? registration->expected_consumer_shape : "missing",
+      first);
+  append_json_string(
+      out,
+      "consumer_expected_layout",
+      registration ? registration->expected_consumer_layout : "missing",
+      first);
+  append_json_string(
+      out,
+      "stack_context_id",
+      registration ? registration->stack_context_id : "missing",
+      first);
+  append_json_string(
+      out,
+      "stack_session_id",
+      registration ? registration->stack_session_id : "missing",
+      first);
+  append_json_string(
+      out,
+      "stack_plan_id",
+      registration ? registration->stack_plan_id : "missing",
+      first);
+  append_json_string(
+      out,
+      "capture_output_layout",
+      registration ? registration->output_layout : "missing",
+      first);
+  append_json_string(
+      out,
+      "strip_or_view_relation",
+      registration ? registration->strip_or_view_relation : "missing",
+      first);
+  append_json_bool(
+      out,
+      "consumer_in_same_planned_region",
+      registration && registration->consumer_in_same_planned_region,
+      first);
+  append_json_bool(
+      out,
+      "python_public_boundary_before_consumption",
+      !registration || registration->python_public_boundary_before_consumption,
+      first);
+  append_json_bool(
+      out,
+      "host_visible_boundary_before_consumption",
+      !registration || registration->host_visible_boundary_before_consumption,
+      first);
+  append_json_bool(
+      out,
+      "host_visible_access_before_consumption",
+      !registration || registration->host_visible_access_before_consumption,
+      first);
+  append_json_bool(
+      out,
+      "host_readback_before_consumption",
+      !registration || registration->host_readback_before_consumption,
+      first);
+  append_json_bool(
+      out, "capture_specific_proof_complete", capture_specific_proof_complete, first);
   append_json_string(
       out,
       "boundary_sync_required_reason",
-      capture_boundary_sync_required_reason(summary),
+      capture_boundary_sync_required_reason(summary, registration),
       first);
   append_json_string_array(
       out, "missing_capture_boundary_proof_fields", missing_proof_fields, first);
@@ -1827,6 +2074,8 @@ void append_capture_output_boundary_contract_json(
     std::ostream& out,
     const std::vector<std::string>& capture_edges,
     const std::map<std::string, CaptureAllocationSummary>& summaries,
+    const std::map<std::string, StackOutputDeviceConsumerRegistrationSummary>&
+        registrations,
     bool& first) {
   uint64_t candidate_records = 0u;
   uint64_t proof_complete_records = 0u;
@@ -1835,6 +2084,11 @@ void append_capture_output_boundary_contract_json(
   uint64_t mixed_capture_records = 0u;
   uint64_t unknown_capture_storage_records = 0u;
   uint64_t requested_intermediate_records = 0u;
+  uint64_t consumer_registration_records = 0u;
+  uint64_t same_region_consumer_registered_records = 0u;
+  uint64_t consumer_registration_missing_records = 0u;
+  uint64_t public_boundary_rejected_records = 0u;
+  uint64_t host_visible_rejected_records = 0u;
   std::map<std::string, uint64_t> boundary_sync_required_reasons;
   for (const auto& row : capture_edges) {
     const auto fields = parse_space_separated_fields(row);
@@ -1844,10 +2098,42 @@ void append_capture_output_boundary_contract_json(
     const CaptureAllocationSummary empty_summary;
     const CaptureAllocationSummary& summary =
         summary_it == summaries.end() ? empty_summary : summary_it->second;
+    const auto registration_it = registrations.find(
+        stack_output_device_consumer_registration_key(
+            capture_block, field_or(fields, "role", "unknown")));
+    const StackOutputDeviceConsumerRegistrationSummary* const registration =
+        registration_it == registrations.end() ? nullptr : &registration_it->second;
+    const bool same_region_consumer_registered =
+        capture_consumer_registration_accepts_same_region(registration);
+    const bool allocation_generation_proven =
+        field_or(fields, "allocation_has_generation", "0") == "1";
+    const bool allocation_range_proven =
+        field_or(fields, "allocation_has_byte_range", "0") == "1";
+    const bool capture_specific_proof_complete =
+        same_region_consumer_registered &&
+        summary.private_bridge_capture_count > 0u &&
+        summary.public_capture_count == 0u && allocation_generation_proven &&
+        allocation_range_proven;
     candidate_records += count;
     requested_intermediate_records += count;
+    if (registration && registration->count > 0u) {
+      consumer_registration_records += count;
+    } else {
+      consumer_registration_missing_records += count;
+    }
+    if (same_region_consumer_registered) {
+      same_region_consumer_registered_records += count;
+    }
+    if (
+        registration &&
+        (registration->host_visible_boundary_before_consumption ||
+         registration->host_visible_access_before_consumption ||
+         registration->host_readback_before_consumption)) {
+      host_visible_rejected_records += count;
+    }
     if (summary.public_capture_count > 0u) {
       public_tensor_array_records += count;
+      public_boundary_rejected_records += count;
     }
     if (summary.private_bridge_capture_count > 0u) {
       bridge_private_records += count;
@@ -1863,7 +2149,10 @@ void append_capture_output_boundary_contract_json(
       unknown_capture_storage_records += count;
     }
     boundary_sync_required_reasons
-        [capture_boundary_sync_required_reason(summary)] += count;
+        [capture_boundary_sync_required_reason(summary, registration)] += count;
+    if (capture_specific_proof_complete) {
+      proof_complete_records += count;
+    }
   }
 
   append_json_comma(out, first);
@@ -1876,6 +2165,31 @@ void append_capture_output_boundary_contract_json(
   append_json_u64(out, "candidate_records", candidate_records, contract_first);
   append_json_u64(
       out, "requested_intermediate_records", requested_intermediate_records, contract_first);
+  append_json_u64(
+      out,
+      "consumer_registration_records",
+      consumer_registration_records,
+      contract_first);
+  append_json_u64(
+      out,
+      "same_region_consumer_registered_records",
+      same_region_consumer_registered_records,
+      contract_first);
+  append_json_u64(
+      out,
+      "consumer_registration_missing_records",
+      consumer_registration_missing_records,
+      contract_first);
+  append_json_u64(
+      out,
+      "public_boundary_rejected_records",
+      public_boundary_rejected_records,
+      contract_first);
+  append_json_u64(
+      out,
+      "host_visible_rejected_records",
+      host_visible_rejected_records,
+      contract_first);
   append_json_u64(
       out, "public_tensor_array_records", public_tensor_array_records, contract_first);
   append_json_u64(
@@ -1907,7 +2221,8 @@ void append_capture_output_boundary_contract_json(
     if (i > 0) {
       out << ',';
     }
-    append_capture_output_boundary_record(out, capture_edges[i], summaries, i);
+    append_capture_output_boundary_record(
+        out, capture_edges[i], summaries, registrations, i);
   }
   out << "]}";
 }
@@ -2461,6 +2776,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       stack_dispatch_dependency_dry_run_snapshot();
   const std::vector<std::string> allocation_rows =
       stack_allocation_aggregate_snapshot();
+  const std::vector<std::string> consumer_registration_rows =
+      stack_output_device_consumer_registration_snapshot();
   const std::vector<std::string> lifetime_rows =
       stack_subresource_lifetime_dry_run_snapshot();
   const std::vector<std::string> region_rows =
@@ -2486,6 +2803,9 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       build_barrier_plan_insertion_points(insertion_point_nodes);
   const auto capture_allocation_summaries =
       build_capture_allocation_summaries(allocation_rows);
+  const auto consumer_registration_summaries =
+      build_stack_output_device_consumer_registration_summaries(
+          consumer_registration_rows);
 
   uint64_t fully_proven_edge_records = 0u;
   uint64_t total_dependency_records = 0u;
@@ -2581,6 +2901,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "capture_output_boundary_records",
       capture_output_boundary_records,
       summary_first);
+  append_json_u64(
+      out,
+      "stack_output_device_consumer_registration_rows",
+      consumer_registration_rows.size(),
+      summary_first);
   append_json_bool(out, "submit_elision_enabled", false, summary_first);
   append_json_string(
       out,
@@ -2621,8 +2946,18 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       out, "allocation_nodes", allocation_rows, "allocation", first);
   append_graph_array(
       out, "phase_boundary_nodes", boundary_nodes, "phase_boundary", first);
+  append_graph_array(
+      out,
+      "stack_output_device_consumer_registrations",
+      consumer_registration_rows,
+      "stack_output_device_consumer_registration",
+      first);
   append_capture_output_boundary_contract_json(
-      out, capture_edges, capture_allocation_summaries, first);
+      out,
+      capture_edges,
+      capture_allocation_summaries,
+      consumer_registration_summaries,
+      first);
   append_barrier_plan_json(
       out,
       dependency_edges,
@@ -6896,6 +7231,43 @@ void note_vulkan_stack_allocation(
   value.peak_live_estimate_bytes = std::max(value.peak_live_estimate_bytes, bytes);
 }
 
+void note_stack_output_device_consumer_registration(
+    const VulkanStackOutputDeviceConsumerRegistration& registration) {
+  std::ostringstream key;
+  key << "stack_output_device_consumer_registration=1"
+      << " captured_block=" << registration.captured_block_index
+      << " captured_substep=" << registration.captured_substep
+      << " output_role=" << registration.output_role
+      << " output_shape=" << format_sizes(registration.output_shape)
+      << " stack_context_id=" << registration.stack_context_id
+      << " stack_session_id=" << registration.stack_session_id
+      << " stack_plan_id=" << registration.stack_plan_id
+      << " output_layout=" << registration.output_layout
+      << " strip_or_view_relation=" << registration.strip_or_view_relation
+      << " downstream_consumer_id=" << registration.downstream_consumer_id
+      << " downstream_consumer_context="
+      << registration.downstream_consumer_context
+      << " expected_consumer_input_index="
+      << registration.expected_consumer_input_index
+      << " expected_consumer_shape="
+      << format_sizes(registration.expected_consumer_shape)
+      << " expected_consumer_layout="
+      << registration.expected_consumer_layout
+      << " consumer_in_same_planned_region="
+      << (registration.consumer_in_same_planned_region ? 1 : 0)
+      << " python_public_boundary_before_consumption="
+      << (registration.python_public_boundary_before_consumption ? 1 : 0)
+      << " host_visible_boundary_before_consumption="
+      << (registration.host_visible_boundary_before_consumption ? 1 : 0)
+      << " host_visible_access_before_consumption="
+      << (registration.host_visible_access_before_consumption ? 1 : 0)
+      << " host_readback_before_consumption="
+      << (registration.host_readback_before_consumption ? 1 : 0);
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  auto& value = stack_output_device_consumer_registrations()[key.str()];
+  value.count += 1u;
+}
+
 std::vector<std::string> stack_dispatch_aggregate_snapshot() {
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   std::vector<std::string> rows;
@@ -6918,6 +7290,19 @@ std::vector<std::string> stack_allocation_aggregate_snapshot() {
         << " bytes=" << item.second.bytes
         << " peak_live_estimate_bytes="
         << item.second.peak_live_estimate_bytes;
+    rows.push_back(row.str());
+  }
+  return rows;
+}
+
+std::vector<std::string>
+stack_output_device_consumer_registration_snapshot() {
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  std::vector<std::string> rows;
+  rows.reserve(stack_output_device_consumer_registrations().size());
+  for (const auto& item : stack_output_device_consumer_registrations()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count;
     rows.push_back(row.str());
   }
   return rows;
@@ -6971,6 +7356,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_dispatch_dependency_dispatch_rows().clear();
   stack_dispatch_dependency_insertion_point_rows().clear();
   stack_dispatch_dependency_dry_run_rows().clear();
+  stack_output_device_consumer_registrations().clear();
 }
 
 void note_vulkan_queue_wait_idle() {

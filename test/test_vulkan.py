@@ -19647,6 +19647,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn("pre_dispatch_insertion_point_nodes", graph)
             self.assertIn("dependency_edges", graph)
             self.assertIn("phase_boundary_nodes", graph)
+            self.assertIn("stack_output_device_consumer_registrations", graph)
             self.assertIn("capture_output_boundary_contract", graph)
             capture_contract = graph["capture_output_boundary_contract"]
             self.assertEqual(
@@ -19670,6 +19671,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 )
                 self.assertIn(
                     "missing_capture_boundary_proof_fields",
+                    capture_contract["records"][0],
+                )
+                self.assertIn(
+                    "same_region_consumer_registered",
+                    capture_contract["records"][0],
+                )
+                self.assertIn(
+                    "consumer_registration_accept_reject_reason",
                     capture_contract["records"][0],
                 )
             self.assertIn("barrier_plan", graph)
@@ -27206,6 +27215,81 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             torch.allclose(actual_image.cpu(), expected_image.cpu(), atol=1e-2, rtol=1e-2),
             "Depth Anything supported image-entry fixture mismatch",
         )
+
+    def test_vulkan_stack_capture_bridge_registration_in_graph_dump(self):
+        fixture = self._make_depth_anything_v2_supported_fixture()
+        graph_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_stack_capture_bridge_registration_graph_test.json",
+        )
+        if os.path.exists(graph_path):
+            os.remove(graph_path)
+        previous = os.environ.get("PYTORCH_VULKAN_STACK_DEP_GRAPH")
+        os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
+        try:
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            with torch.inference_mode():
+                (
+                    torch.ops.vulkan_prepack
+                    .run_vision_stack_captures_decoder_preprocess_bridge(
+                        fixture["tokens"],
+                        fixture["stack_context"],
+                        fixture["capture_indices"],
+                        [fixture["embed_dim"]],
+                        fixture["norm_context"],
+                        1,
+                        fixture["patch_h"],
+                        fixture["patch_w"],
+                        fixture["output_size"],
+                        fixture["preprocess_context"],
+                    )
+                )
+                torch.ops.vulkan_prepack.synchronize()
+
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            self.assertEqual(graph["schema"], "StackRegionDependencyGraph.v0")
+            self.assertGreater(
+                graph["summary"]["stack_output_device_consumer_registration_rows"],
+                0,
+            )
+            registrations = graph["stack_output_device_consumer_registrations"]
+            self.assertTrue(registrations)
+            self.assertTrue(
+                any(
+                    row["fields"].get("consumer_in_same_planned_region") == "1"
+                    and row["fields"].get("python_public_boundary_before_consumption")
+                    == "0"
+                    for row in registrations
+                )
+            )
+            capture_contract = graph["capture_output_boundary_contract"]
+            self.assertGreater(
+                capture_contract["consumer_registration_records"], 0
+            )
+            self.assertGreater(
+                capture_contract["same_region_consumer_registered_records"], 0
+            )
+            self.assertEqual(capture_contract["barriers_inserted"], 0)
+            self.assertEqual(capture_contract["submits_removed"], 0)
+            self.assertTrue(
+                any(
+                    record["same_region_consumer_registered"]
+                    and record["consumer_registration_accept_reject_reason"]
+                    == "same_region_device_consumer_registered"
+                    and record["python_public_boundary_before_consumption"] is False
+                    for record in capture_contract["records"]
+                )
+            )
+        finally:
+            if previous is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = previous
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
 
     def test_vulkan_vision_stack_private_capture_debug_matches_public_fixture(self):
         fixture = self._make_depth_anything_v2_supported_fixture()

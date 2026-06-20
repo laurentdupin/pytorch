@@ -123,12 +123,20 @@ when a stack-owner recording scope ends. The v0 schema is
   surface for requested intermediate capture edges such as
   `residual2 -> intermediate_capture`. It records producer block/substep/role,
   capture block/index/output role, allocation id/generation/range, requested
-  intermediate/public/private capture observations, and why the phase-boundary
-  submit remains required. Public `Tensor[]` captures stay unsafe. Private
-  bridge captures are classified separately, but they do not make a boundary
-  complete until downstream consumer registration is visible in the graph,
-  capture value preservation is proven, and the full boundary dependency set is
-  complete.
+  intermediate/public/private capture observations, same-region downstream
+  device-consumer registration when a generic bridge publishes it, public or
+  host-visible boundary status, and why the phase-boundary submit remains
+  required. Public `Tensor[]` captures stay unsafe. Private bridge captures are
+  classified separately, but they do not make a boundary complete until
+  downstream consumer registration is visible in the graph, capture value
+  preservation is proven, and the full boundary dependency set is complete.
+- `stack_output_device_consumer_registrations` rows record generic bridge
+  diagnostics for captured stack outputs. The v0 key is stack context/session,
+  capture block/substep/output role, output layout, strip/view relation,
+  downstream consumer context/id/input slot, expected consumer shape/layout,
+  and booleans for same planned region, Python public boundary, host-visible
+  boundary, host-visible access, and host readback before consumption. These
+  rows only feed graph proof diagnostics; they do not authorize sync removal.
 - a nested `boundary_complete_dependency_proof` object with schema
   `BoundaryCompleteDependencyProof.v0`. The v0 proof is intentionally narrow:
   it only groups non-capture `residual2 -> norm1` stack boundaries and records

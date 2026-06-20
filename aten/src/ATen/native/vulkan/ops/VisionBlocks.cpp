@@ -11025,6 +11025,55 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
       " exceeds input token count ",
       input_token_count);
 
+  const auto bridge_capture_shape = [&]() {
+    std::vector<int64_t> shape;
+    shape.reserve(input_arg.dim());
+    for (const int64_t dim : c10::irange(input_arg.dim())) {
+      shape.emplace_back(input_arg.size(dim));
+    }
+    return shape;
+  }();
+  const auto bridge_consumer_shape = [&]() {
+    std::vector<int64_t> shape;
+    if (input_arg.dim() == 2) {
+      shape = {input_token_count - strip_prefix_tokens, input_arg.size(1)};
+    } else {
+      shape = {
+          input_arg.size(0),
+          input_token_count - strip_prefix_tokens,
+          input_arg.size(2)};
+    }
+    return shape;
+  }();
+  for (const auto capture_slot : c10::irange(capture_indices.size())) {
+    const int64_t capture_index = capture_indices[capture_slot];
+    api::VulkanStackOutputDeviceConsumerRegistration registration;
+    registration.captured_block_index = capture_index;
+    registration.captured_substep = "residual2";
+    registration.output_role = "stack_residual2_output";
+    registration.output_shape = bridge_capture_shape;
+    registration.stack_context_id = "VisionBackboneStackContext";
+    registration.stack_session_id = "vision_stack_output_device_bridge";
+    registration.stack_plan_id = "missing_stack_plan_id";
+    registration.output_layout = "vulkan_buffer_token_sequence_with_prefix";
+    registration.strip_or_view_relation =
+        "strip_prefix_tokens_" + std::to_string(strip_prefix_tokens);
+    registration.downstream_consumer_id =
+        "vision_stack_output_bridge.decoder_preprocess_head";
+    registration.downstream_consumer_context =
+        "VisionDecoderPreprocessHeadContext";
+    registration.expected_consumer_input_index =
+        static_cast<int64_t>(capture_slot);
+    registration.expected_consumer_shape = bridge_consumer_shape;
+    registration.expected_consumer_layout = "vulkan_buffer_token_sequence";
+    registration.consumer_in_same_planned_region = true;
+    registration.python_public_boundary_before_consumption = false;
+    registration.host_visible_boundary_before_consumption = false;
+    registration.host_visible_access_before_consumption = false;
+    registration.host_readback_before_consumption = false;
+    api::note_stack_output_device_consumer_registration(registration);
+  }
+
   const Device output_device = input_arg.device();
   const ScalarType output_dtype = input_arg.scalar_type();
   std::vector<Tensor> captured =

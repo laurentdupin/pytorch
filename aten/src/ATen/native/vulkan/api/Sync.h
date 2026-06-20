@@ -330,6 +330,28 @@ struct VulkanStackPlannedDispatchPosition final {
   uint64_t planned_position = 0u;
 };
 
+struct VulkanStackOutputDeviceConsumerRegistration final {
+  int64_t captured_block_index = -1;
+  std::string captured_substep = "unknown";
+  std::string output_role = "unknown";
+  std::vector<int64_t> output_shape;
+  std::string stack_context_id = "unknown";
+  std::string stack_session_id = "unknown";
+  std::string stack_plan_id = "unknown";
+  std::string output_layout = "unknown";
+  std::string strip_or_view_relation = "unknown";
+  std::string downstream_consumer_id = "unknown";
+  std::string downstream_consumer_context = "unknown";
+  int64_t expected_consumer_input_index = -1;
+  std::vector<int64_t> expected_consumer_shape;
+  std::string expected_consumer_layout = "unknown";
+  bool consumer_in_same_planned_region = false;
+  bool python_public_boundary_before_consumption = true;
+  bool host_visible_boundary_before_consumption = true;
+  bool host_visible_access_before_consumption = true;
+  bool host_readback_before_consumption = true;
+};
+
 class TORCH_API VulkanStackPlannedDispatchPositionScope final {
  public:
   explicit VulkanStackPlannedDispatchPositionScope(
@@ -859,8 +881,12 @@ TORCH_API void note_vulkan_stack_allocation(
     bool escapes_stack,
     bool requested_intermediate,
     uint64_t bytes);
+TORCH_API void note_stack_output_device_consumer_registration(
+    const VulkanStackOutputDeviceConsumerRegistration& registration);
 TORCH_API std::vector<std::string> stack_dispatch_aggregate_snapshot();
 TORCH_API std::vector<std::string> stack_allocation_aggregate_snapshot();
+TORCH_API std::vector<std::string>
+stack_output_device_consumer_registration_snapshot();
 TORCH_API std::vector<std::string>
 stack_dispatch_dependency_dry_run_snapshot();
 TORCH_API void reset_stack_dispatch_aggregate();
