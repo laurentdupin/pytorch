@@ -430,6 +430,14 @@ struct StackRegionBoundarySubmitPlanValue final {
   uint64_t barrier_inserted_count = 0u;
 };
 
+struct StackRegionBarrierOnlyCanaryValue final {
+  uint64_t count = 0u;
+  uint64_t bytes = 0u;
+  uint64_t live_buffer_bound_count = 0u;
+  uint64_t submit_removed_count = 0u;
+  uint64_t barrier_inserted_count = 0u;
+};
+
 std::map<std::string, StackDispatchDependencyDispatchValue>&
 stack_dispatch_dependency_dispatch_rows() {
   static std::map<std::string, StackDispatchDependencyDispatchValue> rows;
@@ -457,6 +465,12 @@ stack_dispatch_dependency_dry_run_rows() {
 std::map<std::string, StackRegionBoundarySubmitPlanValue>&
 stack_region_boundary_submit_plan_rows() {
   static std::map<std::string, StackRegionBoundarySubmitPlanValue> rows;
+  return rows;
+}
+
+std::map<std::string, StackRegionBarrierOnlyCanaryValue>&
+stack_region_barrier_only_canary_rows() {
+  static std::map<std::string, StackRegionBarrierOnlyCanaryValue> rows;
   return rows;
 }
 
@@ -568,6 +582,82 @@ std::string stack_dispatch_dependency_live_buffer_binding_key(
   return key.str();
 }
 
+std::string stack_region_barrier_only_canary_key(
+    const uint64_t scope_id,
+    const VulkanVisionStackPhase phase,
+    const int64_t block,
+    const char* const shader_name,
+    const uint32_t binding_idx,
+    const uint64_t next_recorded_position,
+    const VulkanBuffer& buffer,
+    const bool live_buffer_bound,
+    const char* const status,
+    const char* const reject_reason) {
+  const uint64_t allocation_id = buffer.allocation_id();
+  const uint64_t allocation_generation =
+      vulkan_memory_allocation_generation(allocation_id);
+  std::ostringstream key;
+  key << "stack_region_barrier_only_canary=1"
+      << " contract=StackRegionBarrierOnlyCanary"
+      << " schema=StackRegionBarrierOnlyCanary.v0"
+      << " opt_in_env=PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
+      << " opt_in_target=non_capture_residual2_norm1_block1"
+      << " behavior_neutral=1"
+      << " default_behavior_unchanged=1"
+      << " selected_boundary_id=non_capture_boundary:producer_block=0:consumer_block=1"
+      << " selected_scope=non_capture_stack_boundary"
+      << " producer_phase=residual2"
+      << " producer_block=0"
+      << " consumer_phase=norm1"
+      << " consumer_block=1"
+      << " live_phase=" << vision_stack_phase_name(phase)
+      << " live_block=" << block
+      << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
+      << " descriptor_binding=" << binding_idx
+      << " command_buffer_sequence=" << scope_id
+      << " next_recorded_dispatch_position=" << next_recorded_position
+      << " allocation_id=" << allocation_id
+      << " allocation_generation=" << allocation_generation
+      << " allocation_has_generation="
+      << (allocation_id != 0u && allocation_generation != 0u ? 1 : 0)
+      << " byte_offset=" << static_cast<uint64_t>(buffer.mem_offset())
+      << " byte_range=" << static_cast<uint64_t>(buffer.mem_range())
+      << " allocation_has_byte_range="
+      << (buffer.has_memory() && buffer.mem_range() != 0u ? 1 : 0)
+      << " allocation_label="
+      << (buffer.allocation_label().empty() ? "unknown"
+                                            : buffer.allocation_label())
+      << " live_vulkan_buffer_binding_available="
+      << (live_buffer_bound ? 1 : 0)
+      << " live_vulkan_buffer_handle_present="
+      << (buffer.handle() != VK_NULL_HANDLE ? 1 : 0)
+      << " live_vulkan_buffer_handle_token="
+      << stack_live_buffer_binding_handle_token(buffer.handle())
+      << " live_vulkan_buffer_object_token="
+      << stack_live_buffer_binding_object_token(buffer)
+      << " src_stage=compute_shader"
+      << " src_access=shader_write"
+      << " dst_stage=compute_shader"
+      << " dst_access=shader_read"
+      << " current_run_proof_match=0"
+      << " current_run_proof_status="
+      << "missing_pre_dispatch_barrier_plan_proof_record"
+      << " proof_source=not_available_before_consumer_dispatch_recording"
+      << " barrier_only_status=" << status
+      << " reject_reason=" << reject_reason
+      << " capture_edge=0"
+      << " public_output=0"
+      << " final_output=0"
+      << " host_visible=0"
+      << " readback_edge=0"
+      << " behavior_change_allowed=0"
+      << " submit_skip_behavior_change_allowed=0"
+      << " barrier_behavior_allowed=0"
+      << " barriers_inserted=0"
+      << " submits_removed=0";
+  return key.str();
+}
+
 const StackDispatchDependencyDispatchValue* find_stack_dispatch_observation(
     const uint64_t scope_id,
     const VulkanVisionStackPhase phase,
@@ -668,6 +758,21 @@ std::string format_sizes(const std::vector<int64_t>& values) {
 const char* stack_region_dependency_graph_path() {
   const char* env = std::getenv("PYTORCH_VULKAN_STACK_DEP_GRAPH");
   return (env && *env) ? env : nullptr;
+}
+
+const char* stack_region_barrier_only_canary_target() {
+  const char* env = std::getenv("PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY");
+  return (env && *env) ? env : nullptr;
+}
+
+bool stack_region_barrier_only_canary_target_selected(
+    const char* const target) {
+  if (target == nullptr) {
+    return false;
+  }
+  const std::string value(target);
+  return value == "non_capture_residual2_norm1_block1" ||
+      value == "producer_block_0_consumer_block_1";
 }
 
 std::mutex& stack_region_dependency_graph_dump_mutex() {
@@ -5054,6 +5159,180 @@ void append_stack_region_boundary_submit_plan_json(
   out << "]}";
 }
 
+void append_stack_region_barrier_only_canary_record(
+    std::ostream& out,
+    const std::string& row,
+    const size_t index) {
+  const auto fields = parse_space_separated_fields(row);
+  bool first = true;
+  out << '{';
+  append_json_string(
+      out,
+      "canary_record_id",
+      "barrier_only_canary_" + std::to_string(index),
+      first);
+  append_json_string(
+      out,
+      "schema",
+      field_or(fields, "schema", "StackRegionBarrierOnlyCanary.v0"),
+      first);
+  append_json_string(
+      out,
+      "selected_boundary_id",
+      field_or(fields, "selected_boundary_id", "none"),
+      first);
+  append_json_string(
+      out, "selected_scope", field_or(fields, "selected_scope", "none"), first);
+  append_json_string(
+      out, "producer_phase", field_or(fields, "producer_phase", "none"), first);
+  append_json_u64(out, "producer_block", parsed_u64(fields, "producer_block"), first);
+  append_json_string(
+      out, "consumer_phase", field_or(fields, "consumer_phase", "none"), first);
+  append_json_u64(out, "consumer_block", parsed_u64(fields, "consumer_block"), first);
+  append_json_string(out, "live_phase", field_or(fields, "live_phase", "none"), first);
+  append_json_u64(out, "live_block", parsed_u64(fields, "live_block"), first);
+  append_json_string(out, "shader", field_or(fields, "shader", "unknown"), first);
+  append_json_u64(
+      out, "descriptor_binding", parsed_u64(fields, "descriptor_binding"), first);
+  append_json_u64(
+      out,
+      "next_recorded_dispatch_position",
+      parsed_u64(fields, "next_recorded_dispatch_position"),
+      first);
+  append_json_u64(out, "allocation_id", parsed_u64(fields, "allocation_id"), first);
+  append_json_u64(
+      out,
+      "allocation_generation",
+      parsed_u64(fields, "allocation_generation"),
+      first);
+  append_json_u64(out, "byte_offset", parsed_u64(fields, "byte_offset"), first);
+  append_json_u64(out, "byte_range", parsed_u64(fields, "byte_range"), first);
+  append_json_bool(
+      out,
+      "live_vulkan_buffer_binding_available",
+      field_or(fields, "live_vulkan_buffer_binding_available", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "live_vulkan_buffer_handle_token",
+      field_or(fields, "live_vulkan_buffer_handle_token", "missing"),
+      first);
+  append_json_string(
+      out,
+      "live_vulkan_buffer_object_token",
+      field_or(fields, "live_vulkan_buffer_object_token", "missing"),
+      first);
+  append_json_string(out, "src_stage", field_or(fields, "src_stage", "missing"), first);
+  append_json_string(out, "src_access", field_or(fields, "src_access", "missing"), first);
+  append_json_string(out, "dst_stage", field_or(fields, "dst_stage", "missing"), first);
+  append_json_string(out, "dst_access", field_or(fields, "dst_access", "missing"), first);
+  append_json_bool(
+      out,
+      "current_run_proof_match",
+      field_or(fields, "current_run_proof_match", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "current_run_proof_status",
+      field_or(fields, "current_run_proof_status", "missing"),
+      first);
+  append_json_string(
+      out,
+      "barrier_only_status",
+      field_or(fields, "barrier_only_status", "missing"),
+      first);
+  append_json_string(
+      out, "reject_reason", field_or(fields, "reject_reason", "missing"), first);
+  append_json_bool(out, "capture_edge", field_or(fields, "capture_edge", "0") == "1", first);
+  append_json_bool(out, "public_output", field_or(fields, "public_output", "0") == "1", first);
+  append_json_bool(out, "final_output", field_or(fields, "final_output", "0") == "1", first);
+  append_json_bool(out, "host_visible", field_or(fields, "host_visible", "0") == "1", first);
+  append_json_bool(out, "readback_edge", field_or(fields, "readback_edge", "0") == "1", first);
+  append_json_bool(out, "behavior_change_allowed", false, first);
+  append_json_u64(
+      out, "barriers_inserted", parsed_u64(fields, "barriers_inserted"), first);
+  append_json_u64(
+      out, "submits_removed", parsed_u64(fields, "submits_removed"), first);
+  append_json_u64(out, "count", parsed_u64(fields, "count"), first);
+  append_json_u64(out, "bytes", parsed_u64(fields, "bytes"), first);
+  append_json_comma(out, first);
+  out << "\"source_fields\":";
+  append_json_fields_object(out, fields);
+  out << '}';
+}
+
+void append_stack_region_barrier_only_canary_json(
+    std::ostream& out,
+    const std::vector<std::string>& rows,
+    bool& first) {
+  uint64_t candidate_records = 0u;
+  uint64_t live_buffer_bound_records = 0u;
+  uint64_t barriers_inserted = 0u;
+  uint64_t submits_removed = 0u;
+  std::map<std::string, uint64_t> status_counts;
+  std::map<std::string, uint64_t> reject_reason_counts;
+  for (const auto& row : rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    candidate_records += count;
+    live_buffer_bound_records +=
+        parsed_u64(fields, "live_buffer_bound_count");
+    barriers_inserted += parsed_u64(fields, "barriers_inserted");
+    submits_removed += parsed_u64(fields, "submit_removed");
+    status_counts[field_or(fields, "barrier_only_status", "missing")] += count;
+    reject_reason_counts[field_or(fields, "reject_reason", "missing")] += count;
+  }
+
+  append_json_comma(out, first);
+  out << "\"stack_region_barrier_only_canary\":{";
+  bool canary_first = true;
+  append_json_string(
+      out, "schema", "StackRegionBarrierOnlyCanary.v0", canary_first);
+  append_json_bool(out, "opt_in_only", true, canary_first);
+  append_json_bool(out, "default_behavior_unchanged", true, canary_first);
+  append_json_string(
+      out,
+      "opt_in_env",
+      "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY",
+      canary_first);
+  append_json_string(
+      out,
+      "selected_boundary_id",
+      "non_capture_boundary:producer_block=0:consumer_block=1",
+      canary_first);
+  append_json_string(
+      out, "target_boundary_class", "non_capture_residual2_to_norm1", canary_first);
+  append_json_u64(out, "candidate_records", candidate_records, canary_first);
+  append_json_u64(
+      out, "live_buffer_bound_records", live_buffer_bound_records, canary_first);
+  append_json_u64(out, "barriers_inserted", barriers_inserted, canary_first);
+  append_json_u64(out, "submits_removed", submits_removed, canary_first);
+  append_json_bool(out, "submit_skip_behavior_change_allowed", false, canary_first);
+  append_json_bool(out, "barrier_behavior_allowed", false, canary_first);
+  append_json_string(
+      out,
+      "fail_closed_reason",
+      candidate_records == 0u
+          ? "selected_boundary_not_observed"
+          : "missing_current_run_proof_match_at_consumer_recording",
+      canary_first);
+  append_json_comma(out, canary_first);
+  out << "\"status_counts\":";
+  append_u64_map_object(out, status_counts);
+  append_json_comma(out, canary_first);
+  out << "\"reject_reason_counts\":";
+  append_u64_map_object(out, reject_reason_counts);
+  append_json_comma(out, canary_first);
+  out << "\"records\":[";
+  for (size_t i = 0; i < rows.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    append_stack_region_barrier_only_canary_record(out, rows[i], i);
+  }
+  out << "]}";
+}
+
 void split_stack_graph_rows(
     const std::vector<std::string>& rows,
     std::vector<std::string>& dispatch_nodes,
@@ -5061,8 +5340,13 @@ void split_stack_graph_rows(
     std::vector<std::string>& live_buffer_binding_nodes,
     std::vector<std::string>& dependency_edges,
     std::vector<std::string>& capture_edges,
-    std::vector<std::string>& boundary_submit_plan_rows) {
+    std::vector<std::string>& boundary_submit_plan_rows,
+    std::vector<std::string>& barrier_only_canary_rows) {
   for (const auto& row : rows) {
+    if (row.find("stack_region_barrier_only_canary=1") != std::string::npos) {
+      barrier_only_canary_rows.emplace_back(row);
+      continue;
+    }
     if (row.find("stack_region_boundary_submit_plan=1") != std::string::npos) {
       boundary_submit_plan_rows.emplace_back(row);
       continue;
@@ -5119,6 +5403,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> dependency_edges;
   std::vector<std::string> capture_edges;
   std::vector<std::string> boundary_submit_plan_rows;
+  std::vector<std::string> barrier_only_canary_rows;
   split_stack_graph_rows(
       dispatch_dependency_rows,
       dispatch_nodes,
@@ -5126,7 +5411,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       live_buffer_binding_nodes,
       dependency_edges,
       capture_edges,
-      boundary_submit_plan_rows);
+      boundary_submit_plan_rows,
+      barrier_only_canary_rows);
 
   std::vector<std::string> resource_nodes;
   std::vector<std::string> boundary_nodes;
@@ -5254,6 +5540,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_region_boundary_submit_plan_rows",
       boundary_submit_plan_rows.size(),
       summary_first);
+  append_json_u64(
+      out,
+      "stack_region_barrier_only_canary_rows",
+      barrier_only_canary_rows.size(),
+      summary_first);
   append_json_bool(out, "submit_elision_enabled", false, summary_first);
   append_json_string(
       out,
@@ -5308,6 +5599,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       first);
   append_graph_array(
       out,
+      "stack_region_barrier_only_canary_live_rows",
+      barrier_only_canary_rows,
+      "stack_region_barrier_only_canary",
+      first);
+  append_graph_array(
+      out,
       "stack_output_device_consumer_registrations",
       consumer_registration_rows,
       "stack_output_device_consumer_registration",
@@ -5320,6 +5617,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       first);
   append_stack_region_boundary_submit_plan_json(
       out, boundary_submit_plan_rows, first);
+  append_stack_region_barrier_only_canary_json(
+      out, barrier_only_canary_rows, first);
   append_barrier_plan_json(
       out,
       dependency_edges,
@@ -9546,6 +9845,61 @@ void note_vulkan_stack_live_descriptor_binding(
   value.last_position = next_recorded_position;
 }
 
+void note_vulkan_stack_barrier_only_canary_descriptor(
+    const uint32_t binding_idx,
+    const char* shader_name,
+    const VulkanBuffer& buffer) {
+  const char* const target = stack_region_barrier_only_canary_target();
+  if (!stack_region_barrier_only_canary_target_selected(target)) {
+    return;
+  }
+  if (!inside_vision_stack_phase()) {
+    return;
+  }
+  const uint64_t scope_id = g_stack_dispatch_dependency_scope_id;
+  if (scope_id == 0u) {
+    return;
+  }
+  if (
+      g_vision_stack_phase != VulkanVisionStackPhase::Norm1 ||
+      g_vision_stack_block_index != 1 || binding_idx != 6u) {
+    return;
+  }
+  const uint64_t allocation_id = buffer.allocation_id();
+  const uint64_t allocation_generation =
+      vulkan_memory_allocation_generation(allocation_id);
+  const bool live_buffer_bound =
+      allocation_id != 0u && allocation_generation != 0u &&
+      buffer.has_memory() && buffer.mem_range() != 0u &&
+      buffer.handle() != VK_NULL_HANDLE;
+  const char* const status = live_buffer_bound
+      ? "fail_closed_missing_pre_dispatch_barrier_plan_proof"
+      : "fail_closed_missing_live_vulkan_buffer_binding";
+  const char* const reject_reason = live_buffer_bound
+      ? "missing_current_run_proof_match_at_consumer_recording"
+      : "missing_live_vulkan_buffer_binding";
+  const uint64_t next_recorded_position =
+      g_stack_dispatch_dependency_position + 1u;
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  auto& value = stack_region_barrier_only_canary_rows()
+      [stack_region_barrier_only_canary_key(
+          scope_id,
+          g_vision_stack_phase,
+          g_vision_stack_block_index,
+          shader_name,
+          binding_idx,
+          next_recorded_position,
+          buffer,
+          live_buffer_bound,
+          status,
+          reject_reason)];
+  value.count += 1u;
+  value.bytes += static_cast<uint64_t>(buffer.mem_range());
+  if (live_buffer_bound) {
+    value.live_buffer_bound_count += 1u;
+  }
+}
+
 void note_vulkan_stack_dispatch(const char* shader_name) {
   if (!inside_vision_stack_phase()) {
     return;
@@ -9901,7 +10255,8 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_dispatch_dependency_insertion_point_rows().size() +
       stack_dispatch_dependency_live_buffer_binding_rows().size() +
       stack_dispatch_dependency_dry_run_rows().size() +
-      stack_region_boundary_submit_plan_rows().size());
+      stack_region_boundary_submit_plan_rows().size() +
+      stack_region_barrier_only_canary_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
@@ -9942,6 +10297,15 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
         << " barriers_inserted=" << item.second.barrier_inserted_count;
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_region_barrier_only_canary_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " bytes=" << item.second.bytes
+        << " live_buffer_bound_count=" << item.second.live_buffer_bound_count
+        << " submit_removed=" << item.second.submit_removed_count
+        << " barriers_inserted=" << item.second.barrier_inserted_count;
+    rows.push_back(row.str());
+  }
   return rows;
 }
 
@@ -9962,6 +10326,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_dispatch_dependency_live_buffer_binding_rows().clear();
   stack_dispatch_dependency_dry_run_rows().clear();
   stack_region_boundary_submit_plan_rows().clear();
+  stack_region_barrier_only_canary_rows().clear();
   stack_output_device_consumer_registrations().clear();
 }
 

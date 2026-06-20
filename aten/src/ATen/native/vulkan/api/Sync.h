@@ -872,6 +872,10 @@ TORCH_API void note_vulkan_stack_live_descriptor_binding(
     uint32_t binding_idx,
     const char* shader_name,
     const VulkanBuffer& buffer);
+TORCH_API void note_vulkan_stack_barrier_only_canary_descriptor(
+    uint32_t binding_idx,
+    const char* shader_name,
+    const VulkanBuffer& buffer);
 TORCH_API void note_vulkan_stack_dispatch(const char* shader_name);
 TORCH_API void note_stack_owner_dispatch_dependency_dry_run(
     VulkanRetiredResourceKind kind,

@@ -19620,7 +19620,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         if os.path.exists(graph_path):
             os.remove(graph_path)
         previous = os.environ.get("PYTORCH_VULKAN_STACK_DEP_GRAPH")
+        previous_canary = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
+        )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
+        os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY", None)
         try:
             torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
             torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
@@ -19666,6 +19670,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_plan["behavior_change_status"],
                 "disabled_default_submit_preserved",
             )
+            self.assertIn("stack_region_barrier_only_canary", graph)
+            barrier_canary = graph["stack_region_barrier_only_canary"]
+            self.assertEqual(
+                barrier_canary["schema"],
+                "StackRegionBarrierOnlyCanary.v0",
+            )
+            self.assertTrue(barrier_canary["opt_in_only"])
+            self.assertTrue(barrier_canary["default_behavior_unchanged"])
+            self.assertEqual(barrier_canary["candidate_records"], 0)
+            self.assertEqual(barrier_canary["barriers_inserted"], 0)
+            self.assertEqual(barrier_canary["submits_removed"], 0)
+            self.assertFalse(barrier_canary["barrier_behavior_allowed"])
             self.assertIn("stack_region_boundary_submit_plan_live_rows", graph)
             self.assertIn("capture_output_boundary_contract", graph)
             capture_contract = graph["capture_output_boundary_contract"]
@@ -19988,6 +20004,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
             else:
                 os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = previous
+            if previous_canary is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
+                    previous_canary
+                )
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 

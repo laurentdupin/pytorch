@@ -215,6 +215,19 @@ when a stack-owner recording scope ends. The v0 schema is
   boundary. A current-run proof match is still rejected when the proof producer
   reports `behavior_change_allowed=false`; the submit-plan records expose this
   as `rejected_behavior_change_not_allowed`.
+- a nested `stack_region_barrier_only_canary` object with schema
+  `StackRegionBarrierOnlyCanary.v0`. This is an opt-in command-recording
+  diagnostic for exactly one non-capture `residual2 -> norm1` boundary, selected
+  with `PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY=non_capture_residual2_norm1_block1`
+  or `producer_block_0_consumer_block_1`. The hook runs at the consumer
+  descriptor-recording site, where the live `VulkanBuffer`, descriptor binding,
+  stage/access labels, and pre-dispatch insertion point are visible. It remains
+  fail-closed while no current-run BarrierPlan proof record is available before
+  that consumer dispatch is recorded: `barriers_inserted` and `submits_removed`
+  stay zero, and the reject reason is
+  `missing_current_run_proof_match_at_consumer_recording`. This flag is for
+  barrier-only preparation; it cannot override `behavior_change_allowed=false`
+  and cannot enable submit removal.
 
 This dump is diagnostic only. It does not insert barriers, skip submits, change
 routes, or change accepted shapes.
