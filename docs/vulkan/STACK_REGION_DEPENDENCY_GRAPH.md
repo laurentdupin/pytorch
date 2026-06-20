@@ -116,6 +116,15 @@ when a stack-owner recording scope ends. The v0 schema is
   a future barrier hook can match before recording the consumer dispatch. The
   token does not insert a barrier or remove a submit by itself; it only proves
   that an insertion location is observable before the dispatch is recorded.
+  `live_vulkan_buffer_binding_nodes` are also recorded by the
+  command-recording path for Vulkan buffer descriptor arguments. They carry the
+  stack scope, phase, block, shader label, descriptor binding, allocation
+  id/generation/range, allocation label, and opaque live `VkBuffer` and
+  wrapper-object tokens. BarrierPlan v0 joins these rows back to dependency
+  records by exact scope/consumer/binding/allocation/range. Exact matches are
+  reported as `live_buffer_bound`; allocation-only matches with a different
+  range stay rejected as `binding_range_mismatch`; missing rows remain
+  `missing_live_vulkan_buffer_binding`.
   The plan also records the boundary-level metadata still missing before any
   submit can be removed. `behavior_change_allowed=false` is a hard veto for
   every v0 record: env opt-in must not override it. A future barrier or submit

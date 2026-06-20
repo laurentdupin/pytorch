@@ -19642,9 +19642,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertGreater(
                 graph["summary"]["pre_dispatch_insertion_point_nodes"], 0
             )
+            self.assertGreater(
+                graph["summary"]["live_vulkan_buffer_binding_nodes"], 0
+            )
             self.assertGreater(graph["summary"]["dependency_edge_rows"], 0)
             self.assertIn("dispatch_nodes", graph)
             self.assertIn("pre_dispatch_insertion_point_nodes", graph)
+            self.assertIn("live_vulkan_buffer_binding_nodes", graph)
             self.assertIn("dependency_edges", graph)
             self.assertIn("phase_boundary_nodes", graph)
             self.assertIn("stack_output_device_consumer_registrations", graph)
@@ -19779,14 +19783,30 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "live_vulkan_buffer_binding_missing_records",
                 barrier_plan,
             )
+            self.assertIn(
+                "live_vulkan_buffer_binding_range_mismatch_records",
+                barrier_plan,
+            )
             self.assertEqual(
-                barrier_plan["live_vulkan_buffer_binding_available_records"],
-                0,
+                barrier_plan["plannable_records"],
+                barrier_plan["live_vulkan_buffer_binding_available_records"]
+                + barrier_plan["live_vulkan_buffer_binding_missing_records"]
+                + barrier_plan[
+                    "live_vulkan_buffer_binding_range_mismatch_records"
+                ],
             )
             self.assertEqual(
                 barrier_plan["visibility_dependency_validated_records"], 0
             )
             self.assertEqual(barrier_plan["barrier_canary_ready_records"], 0)
+            self.assertIn(
+                "barrier_canary_candidate_if_behavior_allowed_records",
+                barrier_plan,
+            )
+            self.assertIn(
+                "live_vulkan_buffer_binding_status_counts",
+                barrier_plan,
+            )
             self.assertIn(
                 "visibility_dependency_status_counts",
                 barrier_plan,
@@ -19844,6 +19864,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn(
                 "proof_to_live_buffer_binding_status",
+                barrier_plan["records"][0],
+            )
+            self.assertIn(
+                "live_vulkan_buffer_binding_source",
+                barrier_plan["records"][0],
+            )
+            self.assertIn(
+                "live_vulkan_buffer_handle_token",
                 barrier_plan["records"][0],
             )
             self.assertIn(

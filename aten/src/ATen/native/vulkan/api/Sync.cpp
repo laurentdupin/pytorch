@@ -2,6 +2,8 @@
 
 #ifdef USE_VULKAN_API
 
+#include <ATen/native/vulkan/api/Resource.h>
+
 #include <algorithm>
 #include <cstdlib>
 #include <cctype>
@@ -440,6 +442,12 @@ stack_dispatch_dependency_insertion_point_rows() {
   return rows;
 }
 
+std::map<std::string, StackDispatchDependencyDispatchValue>&
+stack_dispatch_dependency_live_buffer_binding_rows() {
+  static std::map<std::string, StackDispatchDependencyDispatchValue> rows;
+  return rows;
+}
+
 std::map<std::string, StackDispatchDependencyDryRunValue>&
 stack_dispatch_dependency_dry_run_rows() {
   static std::map<std::string, StackDispatchDependencyDryRunValue> rows;
@@ -498,6 +506,65 @@ std::string stack_dispatch_dependency_insertion_point_key(
       << " planned_position_space=stack_plan_logical_step"
       << " insertion_point_class=before_stack_plan_step_dispatch"
       << " insertion_point_token=" << token;
+  return key.str();
+}
+
+std::string stack_live_buffer_binding_handle_token(const VkBuffer handle) {
+  std::ostringstream stream;
+  stream << handle;
+  return stream.str();
+}
+
+std::string stack_live_buffer_binding_object_token(
+    const VulkanBuffer& buffer) {
+  std::ostringstream stream;
+  stream << static_cast<const void*>(&buffer);
+  return stream.str();
+}
+
+std::string stack_dispatch_dependency_live_buffer_binding_key(
+    const uint64_t scope_id,
+    const VulkanVisionStackPhase phase,
+    const int64_t block,
+    const char* const shader_name,
+    const uint32_t binding_idx,
+    const uint64_t next_recorded_position,
+    const VulkanBuffer& buffer) {
+  const uint64_t allocation_id = buffer.allocation_id();
+  const uint64_t allocation_generation =
+      vulkan_memory_allocation_generation(allocation_id);
+  const bool has_memory = buffer.has_memory();
+  const bool has_generation =
+      allocation_id != 0u && allocation_generation != 0u;
+  const bool has_byte_range = has_memory && buffer.mem_range() != 0u;
+  std::ostringstream key;
+  key << "live_vulkan_buffer_binding=1"
+      << " scope_id=" << scope_id
+      << " phase=" << vision_stack_phase_name(phase)
+      << " block=" << block
+      << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
+      << " descriptor_binding=" << binding_idx
+      << " command_buffer_sequence=" << scope_id
+      << " next_recorded_dispatch_position=" << next_recorded_position
+      << " allocation_id=" << allocation_id
+      << " allocation_generation=" << allocation_generation
+      << " allocation_has_generation=" << (has_generation ? 1 : 0)
+      << " byte_offset=" << static_cast<uint64_t>(buffer.mem_offset())
+      << " byte_range=" << static_cast<uint64_t>(buffer.mem_range())
+      << " allocation_has_byte_range=" << (has_byte_range ? 1 : 0)
+      << " allocated_bytes=" << static_cast<uint64_t>(buffer.allocated_size())
+      << " allocation_label="
+      << (buffer.allocation_label().empty() ? "unknown"
+                                            : buffer.allocation_label())
+      << " live_buffer_has_memory=" << (has_memory ? 1 : 0)
+      << " live_buffer_owns_memory=" << (buffer.owns_memory() ? 1 : 0)
+      << " live_vulkan_buffer_handle_present="
+      << (buffer.handle() != VK_NULL_HANDLE ? 1 : 0)
+      << " live_vulkan_buffer_handle_token="
+      << stack_live_buffer_binding_handle_token(buffer.handle())
+      << " live_vulkan_buffer_object_token="
+      << stack_live_buffer_binding_object_token(buffer)
+      << " binding_source=submit_compute_job_descriptor_argument";
   return key.str();
 }
 
@@ -854,6 +921,20 @@ struct BarrierPlanDispatchPosition final {
   std::string insertion_point_source = "missing";
 };
 
+struct BarrierPlanLiveBufferBinding final {
+  bool available = false;
+  uint64_t count = 0u;
+  uint64_t first_position = 0u;
+  uint64_t last_position = 0u;
+  std::string status = "missing_live_vulkan_buffer_binding";
+  std::string source = "missing";
+  std::string handle_token = "missing";
+  std::string object_token = "missing";
+  std::string allocation_label = "missing";
+  std::string descriptor_binding = "missing";
+  std::string shader = "missing";
+};
+
 struct CaptureAllocationSummary final {
   uint64_t public_capture_count = 0u;
   uint64_t public_capture_bytes = 0u;
@@ -934,6 +1015,50 @@ std::string barrier_plan_dispatch_position_key(
       field_or(fields, block_key, "unknown"));
 }
 
+std::string barrier_plan_live_buffer_binding_key(
+    const std::string& scope_id,
+    const std::string& phase,
+    const std::string& block,
+    const std::string& descriptor_binding,
+    const std::string& allocation_id,
+    const std::string& allocation_generation,
+    const std::string& byte_offset,
+    const std::string& byte_range) {
+  return "scope=" + scope_id + ":phase=" + phase + ":block=" + block +
+      ":binding=" + descriptor_binding + ":allocation=" + allocation_id +
+      ":generation=" + allocation_generation + ":offset=" + byte_offset +
+      ":range=" + byte_range;
+}
+
+std::string barrier_plan_live_buffer_binding_key(
+    const std::map<std::string, std::string>& fields,
+    const char* phase_key,
+    const char* block_key,
+    const char* descriptor_binding_key) {
+  return barrier_plan_live_buffer_binding_key(
+      field_or(fields, "scope_id", "unknown"),
+      field_or(fields, phase_key, "unknown"),
+      field_or(fields, block_key, "unknown"),
+      field_or(fields, descriptor_binding_key, "unknown"),
+      field_or(fields, "allocation_id", "unknown"),
+      field_or(fields, "allocation_generation", "unknown"),
+      field_or(fields, "byte_offset", "unknown"),
+      field_or(fields, "byte_range", "unknown"));
+}
+
+std::string barrier_plan_live_buffer_binding_allocation_key(
+    const std::map<std::string, std::string>& fields,
+    const char* phase_key,
+    const char* block_key,
+    const char* descriptor_binding_key) {
+  return "scope=" + field_or(fields, "scope_id", "unknown") + ":phase=" +
+      field_or(fields, phase_key, "unknown") + ":block=" +
+      field_or(fields, block_key, "unknown") + ":binding=" +
+      field_or(fields, descriptor_binding_key, "unknown") + ":allocation=" +
+      field_or(fields, "allocation_id", "unknown") + ":generation=" +
+      field_or(fields, "allocation_generation", "unknown");
+}
+
 std::map<std::string, BarrierPlanDispatchPosition>
 build_barrier_plan_dispatch_positions(const std::vector<std::string>& rows) {
   std::map<std::string, BarrierPlanDispatchPosition> positions;
@@ -993,6 +1118,54 @@ build_barrier_plan_insertion_points(const std::vector<std::string>& rows) {
     }
   }
   return positions;
+}
+
+std::map<std::string, BarrierPlanLiveBufferBinding>
+build_barrier_plan_live_buffer_bindings(
+    const std::vector<std::string>& rows,
+    std::map<std::string, uint64_t>& allocation_binding_counts) {
+  std::map<std::string, BarrierPlanLiveBufferBinding> bindings;
+  for (const auto& row : rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const std::string exact_key = barrier_plan_live_buffer_binding_key(
+        fields, "phase", "block", "descriptor_binding");
+    const std::string allocation_key =
+        barrier_plan_live_buffer_binding_allocation_key(
+            fields, "phase", "block", "descriptor_binding");
+    const uint64_t count = parsed_u64(fields, "count");
+    allocation_binding_counts[allocation_key] += count;
+    auto& binding = bindings[exact_key];
+    binding.available =
+        field_or(fields, "allocation_has_generation", "0") == "1" &&
+        field_or(fields, "allocation_has_byte_range", "0") == "1" &&
+        field_or(fields, "live_buffer_has_memory", "0") == "1" &&
+        field_or(fields, "live_vulkan_buffer_handle_present", "0") == "1";
+    binding.status =
+        binding.available ? "live_buffer_bound" : "missing_live_vulkan_buffer";
+    binding.source = field_or(fields, "binding_source", "missing");
+    binding.handle_token =
+        field_or(fields, "live_vulkan_buffer_handle_token", "missing");
+    binding.object_token =
+        field_or(fields, "live_vulkan_buffer_object_token", "missing");
+    binding.allocation_label = field_or(fields, "allocation_label", "missing");
+    binding.descriptor_binding =
+        field_or(fields, "descriptor_binding", "missing");
+    binding.shader = field_or(fields, "shader", "missing");
+    binding.count += count;
+    const uint64_t first_position =
+        parsed_u64(fields, "next_recorded_dispatch_first_position");
+    const uint64_t last_position =
+        parsed_u64(fields, "next_recorded_dispatch_last_position");
+    if (
+        binding.first_position == 0u ||
+        (first_position != 0u && first_position < binding.first_position)) {
+      binding.first_position = first_position;
+    }
+    if (last_position > binding.last_position) {
+      binding.last_position = last_position;
+    }
+  }
+  return bindings;
 }
 
 BarrierPlanDispatchPosition barrier_plan_consumer_dispatch_position(
@@ -1069,6 +1242,35 @@ BarrierPlanDispatchPosition barrier_plan_consumer_dispatch_position(
       kNoInsertionPoints;
   return barrier_plan_consumer_dispatch_position(
       fields, positions, kNoInsertionPoints);
+}
+
+BarrierPlanLiveBufferBinding barrier_plan_live_buffer_binding(
+    const std::map<std::string, std::string>& fields,
+    const std::map<std::string, BarrierPlanLiveBufferBinding>& bindings,
+    const std::map<std::string, uint64_t>& allocation_binding_counts) {
+  const std::string exact_key = barrier_plan_live_buffer_binding_key(
+      fields,
+      "consumer_phase",
+      "consumer_block",
+      "consumer_descriptor_binding");
+  const auto it = bindings.find(exact_key);
+  if (it != bindings.end()) {
+    return it->second;
+  }
+  const std::string allocation_key =
+      barrier_plan_live_buffer_binding_allocation_key(
+          fields,
+          "consumer_phase",
+          "consumer_block",
+          "consumer_descriptor_binding");
+  const auto allocation_it = allocation_binding_counts.find(allocation_key);
+  BarrierPlanLiveBufferBinding missing;
+  if (allocation_it != allocation_binding_counts.end() &&
+      allocation_it->second > 0u) {
+    missing.status = "binding_range_mismatch";
+    missing.count = allocation_it->second;
+  }
+  return missing;
 }
 
 std::vector<std::string> boundary_complete_dependency_missing_fields(
@@ -1188,14 +1390,18 @@ bool barrier_plan_stage_access_available(
 std::string barrier_plan_visibility_dependency_status(
     const bool plannable,
     const bool stage_access_available,
-    const BarrierPlanDispatchPosition& consumer_position) {
+    const BarrierPlanDispatchPosition& consumer_position,
+    const BarrierPlanLiveBufferBinding& live_binding) {
   if (!stage_access_available) {
     return "missing_stage_access";
   }
   if (!plannable && !consumer_position.insertion_point_available) {
     return "missing_consumer_dispatch_live_position";
   }
-  return "missing_live_vulkan_buffer_binding";
+  if (!live_binding.available) {
+    return live_binding.status;
+  }
+  return "live_buffer_bound_behavior_change_vetoed";
 }
 
 std::string boundary_key_for_dependency(
@@ -1220,10 +1426,15 @@ void append_barrier_plan_record(
     const std::string& row,
     const std::map<std::string, BarrierPlanDispatchPosition>& positions,
     const std::map<std::string, BarrierPlanDispatchPosition>& insertion_points,
+    const std::map<std::string, BarrierPlanLiveBufferBinding>& live_bindings,
+    const std::map<std::string, uint64_t>& live_allocation_binding_counts,
     const size_t index) {
   const auto fields = parse_space_separated_fields(row);
   const BarrierPlanDispatchPosition consumer_position =
       barrier_plan_consumer_dispatch_position(fields, positions, insertion_points);
+  const BarrierPlanLiveBufferBinding live_binding =
+      barrier_plan_live_buffer_binding(
+          fields, live_bindings, live_allocation_binding_counts);
   const bool plannable =
       barrier_plan_record_is_plannable(fields, consumer_position);
   const std::string producer_access = field_or(fields, "producer_access", "unknown");
@@ -1263,7 +1474,10 @@ void append_barrier_plan_record(
       barrier_plan_stage_access_available(producer_access, consumer_access);
   const std::string visibility_dependency_status =
       barrier_plan_visibility_dependency_status(
-          plannable, stage_access_available, consumer_position);
+          plannable, stage_access_available, consumer_position, live_binding);
+  const bool barrier_canary_candidate_if_behavior_allowed =
+      plannable && stage_access_available && live_binding.available &&
+      field_or(fields, "queue_submit", "0") == "1";
   bool first = true;
   out << '{';
   append_json_string(
@@ -1490,16 +1704,48 @@ void append_barrier_plan_record(
       first);
   append_json_bool(out, "behavior_change_allowed", false, first);
   append_json_bool(
-      out, "live_vulkan_buffer_binding_available", false, first);
+      out,
+      "live_vulkan_buffer_binding_available",
+      live_binding.available,
+      first);
   append_json_string(
       out,
       "live_vulkan_buffer_binding_status",
-      "missing_live_vulkan_buffer_binding",
+      live_binding.status,
       first);
   append_json_string(
       out,
       "proof_to_live_buffer_binding_status",
-      "missing_live_vulkan_buffer_binding",
+      live_binding.status,
+      first);
+  append_json_string(
+      out, "live_vulkan_buffer_binding_source", live_binding.source, first);
+  append_json_string(
+      out,
+      "live_vulkan_buffer_descriptor_binding",
+      live_binding.descriptor_binding,
+      first);
+  append_json_string(
+      out,
+      "live_vulkan_buffer_binding_dispatch_position",
+      live_binding.first_position == 0u
+          ? "missing"
+          : std::to_string(live_binding.first_position),
+      first);
+  append_json_string(
+      out,
+      "live_vulkan_buffer_handle_token",
+      live_binding.handle_token,
+      first);
+  append_json_string(
+      out,
+      "live_vulkan_buffer_object_token",
+      live_binding.object_token,
+      first);
+  append_json_string(
+      out,
+      "live_vulkan_buffer_allocation_label",
+      live_binding.allocation_label,
       first);
   append_json_bool(out, "visibility_dependency_validated", false, first);
   append_json_string(
@@ -1511,10 +1757,17 @@ void append_barrier_plan_record(
       "missing_explicit_no_visibility_dependency_proof",
       first);
   append_json_bool(out, "barrier_canary_ready", false, first);
+  append_json_bool(
+      out,
+      "barrier_canary_candidate_if_behavior_allowed",
+      barrier_canary_candidate_if_behavior_allowed,
+      first);
   append_json_string(
       out,
       "barrier_canary_reject_reason",
-      visibility_dependency_status,
+      barrier_canary_candidate_if_behavior_allowed
+          ? "rejected_behavior_change_not_allowed"
+          : visibility_dependency_status,
       first);
   append_json_bool(out, "actual_barrier_inserted", false, first);
   append_json_bool(out, "actual_submit_removed", false, first);
@@ -1544,6 +1797,8 @@ void append_barrier_plan_json(
     const std::vector<std::string>& dependency_edges,
     const std::map<std::string, BarrierPlanDispatchPosition>& positions,
     const std::map<std::string, BarrierPlanDispatchPosition>& insertion_points,
+    const std::map<std::string, BarrierPlanLiveBufferBinding>& live_bindings,
+    const std::map<std::string, uint64_t>& live_allocation_binding_counts,
     bool& first) {
   uint64_t candidate_records = 0u;
   uint64_t plannable_records = 0u;
@@ -1564,10 +1819,14 @@ void append_barrier_plan_json(
       0u;
   uint64_t stage_access_available_records = 0u;
   uint64_t stage_access_missing_records = 0u;
+  uint64_t live_vulkan_buffer_binding_available_records = 0u;
   uint64_t live_vulkan_buffer_binding_missing_records = 0u;
+  uint64_t live_vulkan_buffer_binding_range_mismatch_records = 0u;
   uint64_t visibility_dependency_validated_records = 0u;
   uint64_t barrier_canary_ready_records = 0u;
+  uint64_t barrier_canary_candidate_if_behavior_allowed_records = 0u;
   std::map<std::string, uint64_t> rejection_reasons;
+  std::map<std::string, uint64_t> live_binding_status_counts;
   std::map<std::string, uint64_t> visibility_dependency_status_counts;
   for (const auto& row : dependency_edges) {
     const auto fields = parse_space_separated_fields(row);
@@ -1575,6 +1834,9 @@ void append_barrier_plan_json(
     const BarrierPlanDispatchPosition consumer_position =
         barrier_plan_consumer_dispatch_position(
             fields, positions, insertion_points);
+    const BarrierPlanLiveBufferBinding live_binding =
+        barrier_plan_live_buffer_binding(
+            fields, live_bindings, live_allocation_binding_counts);
     const bool plannable =
         barrier_plan_record_is_plannable(fields, consumer_position);
     const std::string rejection =
@@ -1585,7 +1847,7 @@ void append_barrier_plan_json(
         barrier_plan_stage_access_available(producer_access, consumer_access);
     const std::string visibility_dependency_status =
         barrier_plan_visibility_dependency_status(
-            plannable, stage_access_available, consumer_position);
+            plannable, stage_access_available, consumer_position, live_binding);
     const auto strict_missing = missing_dependency_metadata_fields(fields);
     const auto plan_missing =
         barrier_plan_missing_dependency_metadata_fields(fields, consumer_position);
@@ -1595,8 +1857,18 @@ void append_barrier_plan_json(
       stage_access_missing_records += count;
     }
     if (plannable) {
-      live_vulkan_buffer_binding_missing_records += count;
+      if (live_binding.available) {
+        live_vulkan_buffer_binding_available_records += count;
+        if (stage_access_available && field_or(fields, "queue_submit", "0") == "1") {
+          barrier_canary_candidate_if_behavior_allowed_records += count;
+        }
+      } else if (live_binding.status == "binding_range_mismatch") {
+        live_vulkan_buffer_binding_range_mismatch_records += count;
+      } else {
+        live_vulkan_buffer_binding_missing_records += count;
+      }
     }
+    live_binding_status_counts[live_binding.status] += count;
     visibility_dependency_status_counts[visibility_dependency_status] += count;
     if (boundary_has_planned_non_capture_norm1_consumer(fields)) {
       consumer_dispatch_planned_records += count;
@@ -1773,12 +2045,17 @@ void append_barrier_plan_json(
   append_json_u64(
       out,
       "live_vulkan_buffer_binding_available_records",
-      0u,
+      live_vulkan_buffer_binding_available_records,
       plan_first);
   append_json_u64(
       out,
       "live_vulkan_buffer_binding_missing_records",
       live_vulkan_buffer_binding_missing_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "live_vulkan_buffer_binding_range_mismatch_records",
+      live_vulkan_buffer_binding_range_mismatch_records,
       plan_first);
   append_json_u64(
       out,
@@ -1789,6 +2066,11 @@ void append_barrier_plan_json(
       out,
       "barrier_canary_ready_records",
       barrier_canary_ready_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "barrier_canary_candidate_if_behavior_allowed_records",
+      barrier_canary_candidate_if_behavior_allowed_records,
       plan_first);
   append_json_bool(out, "behavior_change_allowed", false, plan_first);
   append_json_string(
@@ -1817,6 +2099,14 @@ void append_barrier_plan_json(
     append_json_u64(out, item.first.c_str(), item.second, visibility_first);
   }
   out << "}";
+  append_json_comma(out, plan_first);
+  out << "\"live_vulkan_buffer_binding_status_counts\":{";
+  bool live_binding_first = true;
+  for (const auto& item : live_binding_status_counts) {
+    append_json_u64(
+        out, item.first.c_str(), item.second, live_binding_first);
+  }
+  out << "}";
   append_json_string_array(
       out,
       "missing_boundary_plan_fields",
@@ -1832,7 +2122,13 @@ void append_barrier_plan_json(
       out << ',';
     }
     append_barrier_plan_record(
-        out, dependency_edges[i], positions, insertion_points, i);
+        out,
+        dependency_edges[i],
+        positions,
+        insertion_points,
+        live_bindings,
+        live_allocation_binding_counts,
+        i);
   }
   out << "]}";
 }
@@ -4762,6 +5058,7 @@ void split_stack_graph_rows(
     const std::vector<std::string>& rows,
     std::vector<std::string>& dispatch_nodes,
     std::vector<std::string>& insertion_point_nodes,
+    std::vector<std::string>& live_buffer_binding_nodes,
     std::vector<std::string>& dependency_edges,
     std::vector<std::string>& capture_edges,
     std::vector<std::string>& boundary_submit_plan_rows) {
@@ -4772,6 +5069,10 @@ void split_stack_graph_rows(
     }
     if (row.find("pre_dispatch_insertion_point=1") != std::string::npos) {
       insertion_point_nodes.emplace_back(row);
+      continue;
+    }
+    if (row.find("live_vulkan_buffer_binding=1") != std::string::npos) {
+      live_buffer_binding_nodes.emplace_back(row);
       continue;
     }
     if (row.find("dispatch=1") != std::string::npos) {
@@ -4814,6 +5115,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
 
   std::vector<std::string> dispatch_nodes;
   std::vector<std::string> insertion_point_nodes;
+  std::vector<std::string> live_buffer_binding_nodes;
   std::vector<std::string> dependency_edges;
   std::vector<std::string> capture_edges;
   std::vector<std::string> boundary_submit_plan_rows;
@@ -4821,6 +5123,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       dispatch_dependency_rows,
       dispatch_nodes,
       insertion_point_nodes,
+      live_buffer_binding_nodes,
       dependency_edges,
       capture_edges,
       boundary_submit_plan_rows);
@@ -4832,6 +5135,10 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       build_barrier_plan_dispatch_positions(dispatch_nodes);
   const auto barrier_plan_insertion_points =
       build_barrier_plan_insertion_points(insertion_point_nodes);
+  std::map<std::string, uint64_t> barrier_plan_live_allocation_bindings;
+  const auto barrier_plan_live_buffer_bindings =
+      build_barrier_plan_live_buffer_bindings(
+          live_buffer_binding_nodes, barrier_plan_live_allocation_bindings);
   const auto capture_allocation_summaries =
       build_capture_allocation_summaries(allocation_rows);
   const auto consumer_registration_summaries =
@@ -4906,6 +5213,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       insertion_point_nodes.size(),
       summary_first);
   append_json_u64(
+      out,
+      "live_vulkan_buffer_binding_nodes",
+      live_buffer_binding_nodes.size(),
+      summary_first);
+  append_json_u64(
       out, "dependency_edge_rows", dependency_edges.size(), summary_first);
   append_json_u64(
       out, "dependency_edge_records", total_dependency_records, summary_first);
@@ -4975,6 +5287,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "pre_dispatch_insertion_point",
       first);
   append_graph_array(
+      out,
+      "live_vulkan_buffer_binding_nodes",
+      live_buffer_binding_nodes,
+      "live_vulkan_buffer_binding",
+      first);
+  append_graph_array(
       out, "dependency_edges", dependency_edges, "dependency_edge", first);
   append_graph_array(out, "capture_edges", capture_edges, "capture_edge", first);
   append_graph_array(out, "resource_nodes", resource_nodes, "resource", first);
@@ -5007,6 +5325,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       dependency_edges,
       barrier_plan_dispatch_positions,
       barrier_plan_insertion_points,
+      barrier_plan_live_buffer_bindings,
+      barrier_plan_live_allocation_bindings,
       first);
   append_boundary_complete_dependency_proof_json(
       out,
@@ -9196,6 +9516,36 @@ void note_vulkan_stack_pre_dispatch_insertion_point(const char* shader_name) {
   value.last_position = next_recorded_position;
 }
 
+void note_vulkan_stack_live_descriptor_binding(
+    const uint32_t binding_idx,
+    const char* shader_name,
+    const VulkanBuffer& buffer) {
+  if (!inside_vision_stack_phase()) {
+    return;
+  }
+  const uint64_t scope_id = g_stack_dispatch_dependency_scope_id;
+  if (scope_id == 0u) {
+    return;
+  }
+  const uint64_t next_recorded_position =
+      g_stack_dispatch_dependency_position + 1u;
+  auto& rows = stack_dispatch_dependency_live_buffer_binding_rows();
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  auto& value = rows[stack_dispatch_dependency_live_buffer_binding_key(
+      scope_id,
+      g_vision_stack_phase,
+      g_vision_stack_block_index,
+      shader_name,
+      binding_idx,
+      next_recorded_position,
+      buffer)];
+  value.count += 1u;
+  if (value.first_position == 0u) {
+    value.first_position = next_recorded_position;
+  }
+  value.last_position = next_recorded_position;
+}
+
 void note_vulkan_stack_dispatch(const char* shader_name) {
   if (!inside_vision_stack_phase()) {
     return;
@@ -9379,7 +9729,7 @@ void note_stack_owner_dispatch_dependency_dry_run(
       << " consumer_descriptor_set=0"
       << " consumer_descriptor_binding="
       << (provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1
-              ? 1
+              ? 6
               : (provenance.expected_consumer_phase ==
                          VulkanVisionStackPhase::IntermediateCapture
                      ? 0
@@ -9549,6 +9899,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
   rows.reserve(
       stack_dispatch_dependency_dispatch_rows().size() +
       stack_dispatch_dependency_insertion_point_rows().size() +
+      stack_dispatch_dependency_live_buffer_binding_rows().size() +
       stack_dispatch_dependency_dry_run_rows().size() +
       stack_region_boundary_submit_plan_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
@@ -9559,6 +9910,14 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
     rows.push_back(row.str());
   }
   for (const auto& item : stack_dispatch_dependency_insertion_point_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " next_recorded_dispatch_first_position="
+        << item.second.first_position
+        << " next_recorded_dispatch_last_position=" << item.second.last_position;
+    rows.push_back(row.str());
+  }
+  for (const auto& item : stack_dispatch_dependency_live_buffer_binding_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
         << " next_recorded_dispatch_first_position="
@@ -9600,6 +9959,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   stack_dispatch_dependency_dispatch_rows().clear();
   stack_dispatch_dependency_insertion_point_rows().clear();
+  stack_dispatch_dependency_live_buffer_binding_rows().clear();
   stack_dispatch_dependency_dry_run_rows().clear();
   stack_region_boundary_submit_plan_rows().clear();
   stack_output_device_consumer_registrations().clear();

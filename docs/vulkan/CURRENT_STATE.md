@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-20 at local HEAD `d5ab31f775e4` plus
-behavior-neutral StackRegion visibility-binding diagnostics.
+Last refreshed: 2026-06-20 at local HEAD `9db01998a1b8` plus
+behavior-neutral StackRegion live-buffer binding diagnostics.
 
 ## Repo State Summary
 
@@ -53,6 +53,15 @@ executable barrier readiness.
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.
 `torch.backends.vulkan.is_available()` is not a valid availability signal here.
+
+`StackRegionBarrierPlan.v0` now has a behavior-neutral live descriptor binding
+surface for stack-region buffer consumers. It can join non-capture dependency
+records to descriptor-bound live Vulkan buffers by exact stack scope, consumer
+phase/block, descriptor binding, allocation id/generation, and byte range. This
+reduces the earlier `missing_live_vulkan_buffer_binding` blocker where the live
+descriptor object is observable, but canary execution remains blocked by
+`behavior_change_allowed=false` and by the absence of an executed, validated
+barrier path. This slice records `barriers_inserted=0` and `submits_removed=0`.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella

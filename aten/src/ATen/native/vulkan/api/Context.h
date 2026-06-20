@@ -704,6 +704,31 @@ inline void bind(
   };
 }
 
+inline void note_stack_live_descriptor_binding(
+    const uint32_t binding_idx,
+    const char* shader_name,
+    const VulkanBuffer& buffer) {
+  note_vulkan_stack_live_descriptor_binding(binding_idx, shader_name, buffer);
+}
+
+inline void note_stack_live_descriptor_binding(
+    const uint32_t,
+    const char*,
+    const VulkanImage&) {}
+
+template <size_t... Indices, typename... Arguments>
+inline void note_stack_live_descriptor_bindings(
+    const char* shader_name,
+    const std::index_sequence<Indices...>&,
+    Arguments&&... arguments) {
+  VK_UNUSED const int _[]{
+      0,
+      (note_stack_live_descriptor_binding(
+           Indices, shader_name, std::forward<Arguments>(arguments)),
+       0)...,
+  };
+}
+
 } // namespace detail
 
 template <class S, class D>
@@ -971,6 +996,11 @@ inline bool Context::submit_compute_job(
   // Factor out template parameter independent code to minimize code bloat.
   DescriptorSet descriptor_set =
       get_descriptor_set(shader, local_work_group_size);
+
+  detail::note_stack_live_descriptor_bindings(
+      shader.kernel_name.c_str(),
+      std::index_sequence_for<Arguments...>{},
+      std::forward<Arguments>(arguments)...);
 
   detail::bind(
       descriptor_set,
