@@ -1595,7 +1595,7 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge("
       "Tensor input, "
-      "__torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, "
+      "__torch__.torch.classes.vulkan.VisionBackboneStackContext context, "
       "int[] capture_indices, int[] normalized_shape, "
       "__torch__.torch.classes.vulkan.LayernormPackedContext norm_context, "
       "int strip_prefix_tokens, int patch_h, int patch_w, int[] output_size, "

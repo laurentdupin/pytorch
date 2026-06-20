@@ -856,7 +856,7 @@ std::vector<Tensor> run_vision_backbone_stack_norm_compiled_session_bridge(
 
 Tensor run_vision_stack_captures_decoder_preprocess_bridge(
     const Tensor& input,
-    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context,
     IntArrayRef capture_indices,
     IntArrayRef normalized_shape,
     const c10::intrusive_ptr<LayernormPackedContext>& norm_context,

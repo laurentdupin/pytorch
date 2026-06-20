@@ -8420,10 +8420,11 @@ Tensor run_vision_backbone_block_context(
   return restored;
 }
 
-std::vector<Tensor> run_vision_backbone_stack_context(
+std::vector<Tensor> run_vision_backbone_stack_context_impl(
     const Tensor& input_arg,
     const c10::intrusive_ptr<VisionBackboneStackContext>& context,
-    IntArrayRef capture_indices) {
+    IntArrayRef capture_indices,
+    const bool private_device_consumer_bridge) {
   recover_after_vulkan_failure_if_needed();
   api::VulkanVisionStackPhaseScope stack_entry_scope(
       api::VulkanVisionStackPhase::StackEntry);
@@ -8519,13 +8520,16 @@ std::vector<Tensor> run_vision_backbone_stack_context(
         " contexts");
   }
 
+  const std::vector<int64_t> plan_capture_indices =
+      private_device_consumer_bridge ? std::vector<int64_t>{}
+                                     : capture_indices_vec;
   VulkanVisionStackShapePlan* stack_shape_plan = nullptr;
   {
     VulkanVisionStackShapePlan& plan =
-        get_or_create_stack_shape_plan(*context, input_arg, capture_indices_vec);
+        get_or_create_stack_shape_plan(*context, input_arg, plan_capture_indices);
     stack_shape_plan = &plan;
     const VulkanStackPlanRuntimeBinding binding =
-        make_stack_plan_runtime_binding(input_arg, capture_indices_vec);
+        make_stack_plan_runtime_binding(input_arg, plan_capture_indices);
     std::string reason;
     if (validate_stack_plan_binding_impl(plan, binding, &reason)) {
       vulkan_stack_shape_plan_counters().binding_valid_count.fetch_add(
@@ -8588,35 +8592,41 @@ std::vector<Tensor> run_vision_backbone_stack_context(
             api::VulkanVisionStackPhase::IntermediateCapture);
         const uint64_t bytes = static_cast<uint64_t>(current.numel()) *
             static_cast<uint64_t>(current.element_size());
+        const bool public_capture = !private_device_consumer_bridge;
         api::note_vulkan_stack_allocation(
-            "vision_stack_capture",
-            block_idx + 1u == context->blocks().size()
-                ? api::VulkanStackTensorLifetimeClass::FinalStackOutput
-                : api::VulkanStackTensorLifetimeClass::
-                      RequestedIntermediateOutput,
+            public_capture ? "vision_stack_capture"
+                           : "vision_stack_private_device_capture",
+            public_capture
+                ? (block_idx + 1u == context->blocks().size()
+                       ? api::VulkanStackTensorLifetimeClass::FinalStackOutput
+                       : api::VulkanStackTensorLifetimeClass::
+                             RequestedIntermediateOutput)
+                : api::VulkanStackTensorLifetimeClass::InternalTemp,
             current.sizes().vec(),
             current.strides().vec(),
             static_cast<int64_t>(current.scalar_type()),
             current.is_vulkan(),
             current.is_vulkan(),
             false,
-            true,
-            true,
+            public_capture,
+            public_capture,
             bytes);
         note_stack_execution_manifest_row(
-            "vision_stack.intermediate_capture",
+            public_capture ? "vision_stack.intermediate_capture"
+                           : "vision_stack.private_device_capture",
             "none",
             {std::cref(current)},
             {std::cref(current)},
             false,
             false,
-            true,
-            true,
+            public_capture,
+            public_capture,
             false);
         outputs[capture_pos] = record_tensor_write_and_return(
             current,
             "vulkan_prepack::run_vision_backbone_stack_context",
-            "vision_stack_capture",
+            public_capture ? "vision_stack_capture"
+                           : "vision_stack_private_device_capture",
             {input_arg});
       }
     }
@@ -8628,6 +8638,17 @@ std::vector<Tensor> run_vision_backbone_stack_context(
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_vision_backbone_stack_context");
   return outputs;
+}
+
+std::vector<Tensor> run_vision_backbone_stack_context(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context,
+    IntArrayRef capture_indices) {
+  return run_vision_backbone_stack_context_impl(
+      input_arg,
+      context,
+      capture_indices,
+      /*private_device_consumer_bridge=*/false);
 }
 
 void prime_vision_backbone_block_context_graph(
@@ -10828,7 +10849,7 @@ std::vector<Tensor> run_vision_backbone_stack_norm_compiled_session_bridge(
 
 Tensor run_vision_stack_captures_decoder_preprocess_bridge(
     const Tensor& input_arg,
-    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context,
     IntArrayRef capture_indices,
     IntArrayRef normalized_shape,
     const c10::intrusive_ptr<LayernormPackedContext>& norm_context,
@@ -10839,7 +10860,10 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
     const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>&
         decoder_context) {
   TORCH_CHECK(
-      contexts.size() > 0,
+      context,
+      "Vision stack capture decoder bridge expects a defined stack context");
+  TORCH_CHECK(
+      context->blocks().size() > 0,
       "Vision stack capture decoder bridge expects at least one backbone context");
   TORCH_CHECK(
       capture_indices.size() == 4,
@@ -10862,10 +10886,9 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
       input_arg.dim() == 2 || input_arg.dim() == 3,
       "Vision stack capture decoder bridge expects rank-2 or rank-3 tokens");
 
-  for (const auto& context_ref : contexts) {
-    c10::intrusive_ptr<VisionBackboneBlockContext> context = context_ref;
+  for (const auto& context_ref : context->blocks()) {
     TORCH_CHECK(
-        static_cast<bool>(context),
+        static_cast<bool>(context_ref),
         "Vision stack capture decoder bridge expects defined backbone contexts");
   }
 
@@ -10881,15 +10904,17 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
   const Device output_device = input_arg.device();
   const ScalarType output_dtype = input_arg.scalar_type();
   std::vector<Tensor> captured =
-      run_vision_backbone_stack_norm_replay_bundle_bridge(
+      run_vision_backbone_stack_context_impl(
           input_arg,
-          contexts,
+          context,
           capture_indices,
-          normalized_shape,
-          norm_context);
+          /*private_device_consumer_bridge=*/true);
   TORCH_CHECK(
       captured.size() == 4u,
       "Vision stack capture decoder bridge expected four captured tensors");
+  for (Tensor& tensor : captured) {
+    tensor = run_layernorm_context(tensor, normalized_shape, norm_context);
+  }
   const auto strip_special_tokens = [&](const Tensor& tensor) {
     TORCH_CHECK(
         tensor.dim() == 2 || tensor.dim() == 3,

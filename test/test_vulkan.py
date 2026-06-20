@@ -5626,16 +5626,16 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
     def _make_depth_anything_v2_supported_fixture(self):
         torch.manual_seed(0)
-        embed_dim = 16
-        hidden_dim = 32
+        embed_dim = 384
+        hidden_dim = 768
         channels = 32
-        num_heads = 4
+        num_heads = 6
         norm_eps = 1.0e-6
-        patch_h = 8
-        patch_w = 8
+        patch_h = 10
+        patch_w = 15
         image_h = patch_h * 14
         image_w = patch_w * 14
-        output_size = [28, 28]
+        output_size = [28, 42]
 
         def randn(*shape):
             return 0.05 * torch.randn(*shape, dtype=torch.float32)
@@ -5684,6 +5684,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             make_backbone_context("depth.fixture.backbone.block2"),
             make_backbone_context("depth.fixture.backbone.block3"),
         ]
+        stack_context = torch.ops.vulkan_prepack.create_vision_backbone_stack_context(
+            contexts,
+            num_heads,
+            embed_dim // num_heads,
+            embed_dim,
+            hidden_dim,
+        )
         capture_indices = [0, 1, 2, 3]
         norm_context = torch.ops.vulkan_prepack.create_layernorm_context(
             randn(embed_dim),
@@ -5806,6 +5813,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             "patch_w": patch_w,
             "output_size": output_size,
             "contexts": contexts,
+            "stack_context": stack_context,
             "capture_indices": capture_indices,
             "norm_context": norm_context,
             "preprocess_context": preprocess_context,
@@ -26838,6 +26846,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
     def test_vulkan_depth_anything_v2_supported_fixture_gold(self):
         fixture = self._make_depth_anything_v2_supported_fixture()
 
+        with torch.inference_mode():
+            bridge = (
+                torch.ops.vulkan_prepack
+                .run_vision_stack_captures_decoder_preprocess_bridge
+            )
+            actual_generic = bridge(
+                fixture["tokens"],
+                fixture["stack_context"],
+                fixture["capture_indices"],
+                [fixture["embed_dim"]],
+                fixture["norm_context"],
+                1,
+                fixture["patch_h"],
+                fixture["patch_w"],
+                fixture["output_size"],
+                fixture["preprocess_context"],
+            )
+
         previous = torch.ops.vulkan_prepack.swap_runtime_label(
             "depth.fixture.capture.8x8"
         )
@@ -26846,22 +26872,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 expected_tokens = self._run_depth_anything_v2_supported_reference(
                     fixture["tokens"],
                     fixture,
-                )
-                bridge = (
-                    torch.ops.vulkan_prepack
-                    .run_vision_stack_captures_decoder_preprocess_bridge
-                )
-                actual_generic = bridge(
-                    fixture["tokens"],
-                    fixture["contexts"],
-                    fixture["capture_indices"],
-                    [fixture["embed_dim"]],
-                    fixture["norm_context"],
-                    1,
-                    fixture["patch_h"],
-                    fixture["patch_w"],
-                    fixture["output_size"],
-                    fixture["preprocess_context"],
                 )
                 actual_tokens = torch.ops.vulkan_prepack.run_depth_anything_v2_compiled_session_bridge(
                     fixture["tokens"],
@@ -26900,9 +26910,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         finally:
             torch.ops.vulkan_prepack.swap_runtime_label(previous)
 
-        self.assertEqual(list(actual_generic.shape), [1, 1, 28, 28])
-        self.assertEqual(list(actual_tokens.shape), [1, 1, 28, 28])
-        self.assertEqual(list(actual_image.shape), [1, 1, 28, 28])
+        expected_shape = [1, 1, *fixture["output_size"]]
+        self.assertEqual(list(actual_generic.shape), expected_shape)
+        self.assertEqual(list(actual_tokens.shape), expected_shape)
+        self.assertEqual(list(actual_image.shape), expected_shape)
         self.assertTrue(
             torch.allclose(actual_generic.cpu(), expected_tokens.cpu(), atol=1e-2, rtol=1e-2),
             "Vision stack capture decoder preprocess bridge fixture mismatch",
