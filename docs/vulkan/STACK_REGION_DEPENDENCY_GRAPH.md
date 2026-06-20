@@ -241,6 +241,20 @@ when a stack-owner recording scope ends. The v0 schema is
   insert the barrier-only canary before command recording reaches the consumer
   dispatch. It still does not remove submits; submit elision remains a separate
   canary.
+- a nested `stack_region_boundary_optimization_plan` object with schema
+  `StackRegionBoundaryOptimizationPlan.v0`. This is a generic eligibility table
+  derived from pre-dispatch proof records and any current-run barrier canary
+  records. It classifies each boundary record by boundary class, scope,
+  live-buffer binding, allocation/generation/range match, stage/access
+  availability, insertion point availability, barrier-only validation status,
+  `behavior_change_allowed`, and submit-elision eligibility. Public, capture,
+  final, host-visible, and readback boundaries must remain fail-closed. The
+  table is data-driven over proof predicates rather than model names or a
+  single benchmark route. A future submit-elision canary must use a separate
+  `PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY` opt-in and only after the
+  same current run has inserted the real barrier records for the selected
+  non-capture boundary. Without that future opt-in, eligible records report
+  `eligible_requires_submit_elision_opt_in` and `submits_removed=0`.
 
 This dump is diagnostic by default. It does not skip submits, change routes, or
 change accepted shapes. A real barrier is recorded only under the explicit
@@ -287,6 +301,13 @@ A phase-boundary submit may be skipped only when the boundary node is complete:
 
 The decision must emit counters for complete boundaries, skipped submits,
 inserted barriers, rejected boundaries, rejected edges, and budget failures.
+
+The first submit-elision canary is intentionally narrower than the planning
+table: it may remove at most one non-capture boundary submit selected from
+`StackRegionBoundaryOptimizationPlan.v0`, and only after the live submit site
+matches the same command-buffer scope and proof id that recorded the real
+barrier. Capture, public, final, host-visible, and readback scopes stay
+ineligible regardless of environment flags.
 
 ## Validation Gates
 

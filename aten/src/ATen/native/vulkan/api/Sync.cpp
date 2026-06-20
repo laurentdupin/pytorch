@@ -450,6 +450,20 @@ struct StackRegionPreDispatchProofTableValue final {
   uint64_t live_buffer_bound_count = 0u;
 };
 
+struct StackRegionBoundaryOptimizationPlanValue final {
+  uint64_t count = 0u;
+  uint64_t bytes = 0u;
+  uint64_t proof_complete_count = 0u;
+  uint64_t live_buffer_bound_count = 0u;
+  uint64_t stage_access_available_count = 0u;
+  uint64_t insertion_point_available_count = 0u;
+  uint64_t barrier_validated_count = 0u;
+  uint64_t behavior_change_allowed_count = 0u;
+  uint64_t submit_elision_eligible_count = 0u;
+  uint64_t barrier_inserted_count = 0u;
+  uint64_t submit_removed_count = 0u;
+};
+
 std::map<std::string, StackDispatchDependencyDispatchValue>&
 stack_dispatch_dependency_dispatch_rows() {
   static std::map<std::string, StackDispatchDependencyDispatchValue> rows;
@@ -489,6 +503,12 @@ stack_region_barrier_only_canary_rows() {
 std::map<std::string, StackRegionPreDispatchProofTableValue>&
 stack_region_pre_dispatch_proof_table_rows() {
   static std::map<std::string, StackRegionPreDispatchProofTableValue> rows;
+  return rows;
+}
+
+std::map<std::string, StackRegionBoundaryOptimizationPlanValue>&
+stack_region_boundary_optimization_plan_rows() {
+  static std::map<std::string, StackRegionBoundaryOptimizationPlanValue> rows;
   return rows;
 }
 
@@ -783,6 +803,210 @@ std::string stack_region_pre_dispatch_proof_table_key(
       << " barriers_inserted=0"
       << " submits_removed=0";
   return key.str();
+}
+
+const char* stack_region_boundary_optimization_status(
+    const StackRegionPreDispatchProof& proof,
+    const bool barrier_inserted,
+    const bool submit_elision_requested) {
+  if (!proof.selected_descriptor) {
+    return "not_selected_boundary";
+  }
+  if (proof.capture_between_producer_and_consumer) {
+    return "rejected_capture_or_public_boundary";
+  }
+  if (!proof.live_buffer_bound) {
+    return "missing_live_vulkan_buffer_binding";
+  }
+  if (!proof.producer_dispatch_observed) {
+    return "missing_producer_dispatch";
+  }
+  if (!proof.planned_consumer_position_available) {
+    return "missing_planned_consumer_position";
+  }
+  if (!proof.insertion_point_available) {
+    return "missing_pre_dispatch_insertion_point";
+  }
+  if (!proof.complete) {
+    return "missing_current_run_proof_match";
+  }
+  if (!barrier_inserted) {
+    return "missing_barrier_only_validation";
+  }
+  if (!submit_elision_requested) {
+    return "eligible_requires_submit_elision_opt_in";
+  }
+  return "submit_elision_eligible";
+}
+
+const char* stack_region_boundary_optimization_reject_reason(
+    const char* const status) {
+  const std::string value(status ? status : "");
+  if (value == "submit_elision_eligible" ||
+      value == "eligible_requires_submit_elision_opt_in") {
+    return "none";
+  }
+  if (value == "missing_barrier_only_validation") {
+    return "real_barrier_not_validated_for_current_run";
+  }
+  if (value == "rejected_capture_or_public_boundary") {
+    return "capture_public_final_host_or_readback_boundary_rejected";
+  }
+  if (value == "missing_live_vulkan_buffer_binding") {
+    return "missing_live_vulkan_buffer_binding";
+  }
+  if (value == "missing_producer_dispatch") {
+    return "missing_producer_dispatch";
+  }
+  if (value == "missing_planned_consumer_position") {
+    return "missing_planned_consumer_position";
+  }
+  if (value == "missing_pre_dispatch_insertion_point") {
+    return "missing_pre_dispatch_insertion_point";
+  }
+  if (value == "missing_current_run_proof_match") {
+    return "missing_current_run_proof_match";
+  }
+  return "not_selected_boundary";
+}
+
+std::string stack_region_boundary_optimization_plan_key(
+    const uint64_t scope_id,
+    const VulkanVisionStackPhase phase,
+    const int64_t block,
+    const char* const shader_name,
+    const uint32_t binding_idx,
+    const uint64_t next_recorded_position,
+    const VulkanBuffer& buffer,
+    const StackRegionPreDispatchProof& proof,
+    const bool barrier_inserted,
+    const bool submit_elision_requested,
+    const char* const status) {
+  const uint64_t allocation_id = buffer.allocation_id();
+  const uint64_t allocation_generation =
+      vulkan_memory_allocation_generation(allocation_id);
+  const bool submit_elision_eligible =
+      std::string(status ? status : "") == "submit_elision_eligible";
+  std::ostringstream key;
+  key << "stack_region_boundary_optimization_plan=1"
+      << " contract=StackRegionBoundaryOptimizationPlan"
+      << " schema=StackRegionBoundaryOptimizationPlan.v0"
+      << " opt_in_submit_env=PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
+      << " default_behavior_unchanged=1"
+      << " selected_boundary_id=" << proof.boundary_id
+      << " boundary_class=non_capture_residual2_to_norm1"
+      << " boundary_scope="
+      << (proof.capture_between_producer_and_consumer ? "capture_or_public"
+                                                      : "non_capture")
+      << " producer_phase=residual2"
+      << " producer_block=" << proof.producer_block
+      << " consumer_phase=norm1"
+      << " consumer_block=" << proof.consumer_block
+      << " live_phase=" << vision_stack_phase_name(phase)
+      << " live_block=" << block
+      << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
+      << " descriptor_binding=" << binding_idx
+      << " command_buffer_sequence=" << scope_id
+      << " next_recorded_dispatch_position=" << next_recorded_position
+      << " allocation_id=" << allocation_id
+      << " allocation_generation=" << allocation_generation
+      << " allocation_has_generation="
+      << (allocation_id != 0u && allocation_generation != 0u ? 1 : 0)
+      << " byte_offset=" << static_cast<uint64_t>(buffer.mem_offset())
+      << " byte_range=" << static_cast<uint64_t>(buffer.mem_range())
+      << " allocation_has_byte_range="
+      << (buffer.has_memory() && buffer.mem_range() != 0u ? 1 : 0)
+      << " live_vulkan_buffer_binding_available="
+      << (proof.live_buffer_bound ? 1 : 0)
+      << " live_vulkan_buffer_handle_present="
+      << (buffer.handle() != VK_NULL_HANDLE ? 1 : 0)
+      << " live_vulkan_buffer_handle_token="
+      << stack_live_buffer_binding_handle_token(buffer.handle())
+      << " live_vulkan_buffer_object_token="
+      << stack_live_buffer_binding_object_token(buffer)
+      << " src_stage=compute_shader"
+      << " src_access=shader_write"
+      << " dst_stage=compute_shader"
+      << " dst_access=shader_read"
+      << " stage_access_available=1"
+      << " insertion_point_available="
+      << (proof.insertion_point_available ? 1 : 0)
+      << " insertion_point_token=" << proof.insertion_point_token
+      << " allocation_generation_range_match="
+      << (proof.live_buffer_bound ? 1 : 0)
+      << " pre_dispatch_proof_complete=" << (proof.complete ? 1 : 0)
+      << " pre_dispatch_proof_status=" << proof.status
+      << " pre_dispatch_proof_missing_field=" << proof.missing_field
+      << " pre_dispatch_proof_id=" << proof.proof_id
+      << " barrier_only_validated=" << (barrier_inserted ? 1 : 0)
+      << " barrier_validation_source="
+      << (barrier_inserted ? "StackRegionBarrierOnlyCanary.v0"
+                           : "missing")
+      << " non_capture_boundary="
+      << (!proof.capture_between_producer_and_consumer ? 1 : 0)
+      << " capture_edge=0"
+      << " public_output=0"
+      << " final_output=0"
+      << " host_visible=0"
+      << " readback_edge=0"
+      << " behavior_change_allowed="
+      << (submit_elision_eligible ? 1 : 0)
+      << " submit_elision_requested=" << (submit_elision_requested ? 1 : 0)
+      << " submit_elision_eligible=" << (submit_elision_eligible ? 1 : 0)
+      << " submit_elision_status=" << status
+      << " fail_closed_reason="
+      << stack_region_boundary_optimization_reject_reason(status)
+      << " barriers_inserted=" << (barrier_inserted ? 1 : 0)
+      << " submits_removed=0";
+  return key.str();
+}
+
+void record_stack_region_boundary_optimization_plan_locked(
+    const uint64_t scope_id,
+    const VulkanVisionStackPhase phase,
+    const int64_t block,
+    const char* const shader_name,
+    const uint32_t binding_idx,
+    const uint64_t next_recorded_position,
+    const VulkanBuffer& buffer,
+    const StackRegionPreDispatchProof& proof,
+    const bool barrier_inserted,
+    const bool submit_elision_requested) {
+  const char* const status = stack_region_boundary_optimization_status(
+      proof, barrier_inserted, submit_elision_requested);
+  auto& value = stack_region_boundary_optimization_plan_rows()
+      [stack_region_boundary_optimization_plan_key(
+          scope_id,
+          phase,
+          block,
+          shader_name,
+          binding_idx,
+          next_recorded_position,
+          buffer,
+          proof,
+          barrier_inserted,
+          submit_elision_requested,
+          status)];
+  value.count += 1u;
+  value.bytes += static_cast<uint64_t>(buffer.mem_range());
+  if (proof.complete) {
+    value.proof_complete_count += 1u;
+  }
+  if (proof.live_buffer_bound) {
+    value.live_buffer_bound_count += 1u;
+  }
+  value.stage_access_available_count += 1u;
+  if (proof.insertion_point_available) {
+    value.insertion_point_available_count += 1u;
+  }
+  if (barrier_inserted) {
+    value.barrier_validated_count += 1u;
+    value.barrier_inserted_count += 1u;
+  }
+  if (std::string(status) == "submit_elision_eligible") {
+    value.behavior_change_allowed_count += 1u;
+    value.submit_elision_eligible_count += 1u;
+  }
 }
 
 const StackDispatchDependencyDispatchValue* find_stack_dispatch_observation(
@@ -5797,6 +6021,275 @@ void append_stack_region_pre_dispatch_proof_table_json(
   out << "]}";
 }
 
+void append_stack_region_boundary_optimization_plan_record(
+    std::ostream& out,
+    const std::string& row,
+    const size_t index) {
+  const auto fields = parse_space_separated_fields(row);
+  bool first = true;
+  out << '{';
+  append_json_string(
+      out,
+      "optimization_record_id",
+      "boundary_optimization_" + std::to_string(index),
+      first);
+  append_json_string(
+      out,
+      "schema",
+      field_or(fields, "schema", "StackRegionBoundaryOptimizationPlan.v0"),
+      first);
+  append_json_string(
+      out,
+      "selected_boundary_id",
+      field_or(fields, "selected_boundary_id", "none"),
+      first);
+  append_json_string(
+      out,
+      "boundary_class",
+      field_or(fields, "boundary_class", "unknown"),
+      first);
+  append_json_string(
+      out,
+      "boundary_scope",
+      field_or(fields, "boundary_scope", "unknown"),
+      first);
+  append_json_string(
+      out,
+      "producer_phase",
+      field_or(fields, "producer_phase", "unknown"),
+      first);
+  append_json_u64(
+      out, "producer_block", parsed_u64(fields, "producer_block"), first);
+  append_json_string(
+      out,
+      "consumer_phase",
+      field_or(fields, "consumer_phase", "unknown"),
+      first);
+  append_json_u64(
+      out, "consumer_block", parsed_u64(fields, "consumer_block"), first);
+  append_json_string(
+      out, "live_phase", field_or(fields, "live_phase", "unknown"), first);
+  append_json_u64(out, "live_block", parsed_u64(fields, "live_block"), first);
+  append_json_u64(
+      out, "descriptor_binding", parsed_u64(fields, "descriptor_binding"), first);
+  append_json_u64(
+      out,
+      "command_buffer_sequence",
+      parsed_u64(fields, "command_buffer_sequence"),
+      first);
+  append_json_u64(
+      out,
+      "next_recorded_dispatch_position",
+      parsed_u64(fields, "next_recorded_dispatch_position"),
+      first);
+  append_json_u64(out, "allocation_id", parsed_u64(fields, "allocation_id"), first);
+  append_json_u64(
+      out,
+      "allocation_generation",
+      parsed_u64(fields, "allocation_generation"),
+      first);
+  append_json_u64(out, "byte_offset", parsed_u64(fields, "byte_offset"), first);
+  append_json_u64(out, "byte_range", parsed_u64(fields, "byte_range"), first);
+  append_json_bool(
+      out,
+      "live_vulkan_buffer_binding_available",
+      field_or(fields, "live_vulkan_buffer_binding_available", "0") == "1",
+      first);
+  append_json_bool(
+      out,
+      "allocation_generation_range_match",
+      field_or(fields, "allocation_generation_range_match", "0") == "1",
+      first);
+  append_json_string(out, "src_stage", field_or(fields, "src_stage", "missing"), first);
+  append_json_string(out, "src_access", field_or(fields, "src_access", "missing"), first);
+  append_json_string(out, "dst_stage", field_or(fields, "dst_stage", "missing"), first);
+  append_json_string(out, "dst_access", field_or(fields, "dst_access", "missing"), first);
+  append_json_bool(
+      out,
+      "stage_access_available",
+      field_or(fields, "stage_access_available", "0") == "1",
+      first);
+  append_json_bool(
+      out,
+      "insertion_point_available",
+      field_or(fields, "insertion_point_available", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "insertion_point_token",
+      field_or(fields, "insertion_point_token", "missing"),
+      first);
+  append_json_bool(
+      out,
+      "pre_dispatch_proof_complete",
+      field_or(fields, "pre_dispatch_proof_complete", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "pre_dispatch_proof_status",
+      field_or(fields, "pre_dispatch_proof_status", "missing"),
+      first);
+  append_json_string(
+      out,
+      "pre_dispatch_proof_id",
+      field_or(fields, "pre_dispatch_proof_id", "missing"),
+      first);
+  append_json_bool(
+      out,
+      "barrier_only_validated",
+      field_or(fields, "barrier_only_validated", "0") == "1",
+      first);
+  append_json_bool(
+      out,
+      "non_capture_boundary",
+      field_or(fields, "non_capture_boundary", "0") == "1",
+      first);
+  append_json_bool(out, "capture_edge", field_or(fields, "capture_edge", "0") == "1", first);
+  append_json_bool(out, "public_output", field_or(fields, "public_output", "0") == "1", first);
+  append_json_bool(out, "final_output", field_or(fields, "final_output", "0") == "1", first);
+  append_json_bool(out, "host_visible", field_or(fields, "host_visible", "0") == "1", first);
+  append_json_bool(out, "readback_edge", field_or(fields, "readback_edge", "0") == "1", first);
+  append_json_bool(
+      out,
+      "behavior_change_allowed",
+      field_or(fields, "behavior_change_allowed", "0") == "1",
+      first);
+  append_json_bool(
+      out,
+      "submit_elision_requested",
+      field_or(fields, "submit_elision_requested", "0") == "1",
+      first);
+  append_json_bool(
+      out,
+      "submit_elision_eligible",
+      field_or(fields, "submit_elision_eligible", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "submit_elision_status",
+      field_or(fields, "submit_elision_status", "missing"),
+      first);
+  append_json_string(
+      out,
+      "fail_closed_reason",
+      field_or(fields, "fail_closed_reason", "missing"),
+      first);
+  append_json_u64(
+      out, "barriers_inserted", parsed_u64(fields, "barriers_inserted"), first);
+  append_json_u64(
+      out, "submits_removed", parsed_u64(fields, "submits_removed"), first);
+  append_json_u64(out, "count", parsed_u64(fields, "count"), first);
+  append_json_u64(out, "bytes", parsed_u64(fields, "bytes"), first);
+  append_json_comma(out, first);
+  out << "\"source_fields\":";
+  append_json_fields_object(out, fields);
+  out << '}';
+}
+
+void append_stack_region_boundary_optimization_plan_json(
+    std::ostream& out,
+    const std::vector<std::string>& rows,
+    bool& first) {
+  uint64_t candidate_records = 0u;
+  uint64_t non_capture_records = 0u;
+  uint64_t live_buffer_bound_records = 0u;
+  uint64_t stage_access_available_records = 0u;
+  uint64_t insertion_point_available_records = 0u;
+  uint64_t barrier_validated_records = 0u;
+  uint64_t behavior_change_allowed_records = 0u;
+  uint64_t submit_elision_eligible_records = 0u;
+  uint64_t barriers_inserted = 0u;
+  uint64_t submits_removed = 0u;
+  std::map<std::string, uint64_t> status_counts;
+  std::map<std::string, uint64_t> fail_closed_counts;
+  for (const auto& row : rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    candidate_records += count;
+    if (field_or(fields, "non_capture_boundary", "0") == "1") {
+      non_capture_records += count;
+    }
+    live_buffer_bound_records +=
+        parsed_u64(fields, "live_buffer_bound_count");
+    stage_access_available_records +=
+        parsed_u64(fields, "stage_access_available_count");
+    insertion_point_available_records +=
+        parsed_u64(fields, "insertion_point_available_count");
+    barrier_validated_records += parsed_u64(fields, "barrier_validated_count");
+    behavior_change_allowed_records +=
+        parsed_u64(fields, "behavior_change_allowed_count");
+    submit_elision_eligible_records +=
+        parsed_u64(fields, "submit_elision_eligible_count");
+    barriers_inserted += parsed_u64(fields, "barriers_inserted");
+    submits_removed += parsed_u64(fields, "submits_removed");
+    status_counts[field_or(fields, "submit_elision_status", "missing")] +=
+        count;
+    fail_closed_counts[field_or(fields, "fail_closed_reason", "missing")] +=
+        count;
+  }
+
+  append_json_comma(out, first);
+  out << "\"stack_region_boundary_optimization_plan\":{";
+  bool plan_first = true;
+  append_json_string(
+      out, "schema", "StackRegionBoundaryOptimizationPlan.v0", plan_first);
+  append_json_bool(out, "default_behavior_unchanged", true, plan_first);
+  append_json_bool(out, "opt_in_only", true, plan_first);
+  append_json_string(
+      out,
+      "submit_elision_env",
+      "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY",
+      plan_first);
+  append_json_u64(out, "candidate_records", candidate_records, plan_first);
+  append_json_u64(out, "non_capture_records", non_capture_records, plan_first);
+  append_json_u64(
+      out, "live_buffer_bound_records", live_buffer_bound_records, plan_first);
+  append_json_u64(
+      out,
+      "stage_access_available_records",
+      stage_access_available_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "insertion_point_available_records",
+      insertion_point_available_records,
+      plan_first);
+  append_json_u64(
+      out, "barrier_validated_records", barrier_validated_records, plan_first);
+  append_json_u64(
+      out,
+      "behavior_change_allowed_records",
+      behavior_change_allowed_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "submit_elision_eligible_records",
+      submit_elision_eligible_records,
+      plan_first);
+  append_json_u64(out, "barriers_inserted", barriers_inserted, plan_first);
+  append_json_u64(out, "submits_removed", submits_removed, plan_first);
+  append_json_u64(
+      out,
+      "submits_removed_outside_selected_boundary",
+      0u,
+      plan_first);
+  append_json_comma(out, plan_first);
+  out << "\"status_counts\":";
+  append_u64_map_object(out, status_counts);
+  append_json_comma(out, plan_first);
+  out << "\"fail_closed_reason_counts\":";
+  append_u64_map_object(out, fail_closed_counts);
+  append_json_comma(out, plan_first);
+  out << "\"records\":[";
+  for (size_t i = 0; i < rows.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    append_stack_region_boundary_optimization_plan_record(out, rows[i], i);
+  }
+  out << "]}";
+}
+
 void split_stack_graph_rows(
     const std::vector<std::string>& rows,
     std::vector<std::string>& dispatch_nodes,
@@ -5806,10 +6299,17 @@ void split_stack_graph_rows(
     std::vector<std::string>& capture_edges,
     std::vector<std::string>& boundary_submit_plan_rows,
     std::vector<std::string>& barrier_only_canary_rows,
-    std::vector<std::string>& pre_dispatch_proof_rows) {
+    std::vector<std::string>& pre_dispatch_proof_rows,
+    std::vector<std::string>& boundary_optimization_plan_rows) {
   for (const auto& row : rows) {
     if (row.find("stack_region_pre_dispatch_proof=1") != std::string::npos) {
       pre_dispatch_proof_rows.emplace_back(row);
+      continue;
+    }
+    if (
+        row.find("stack_region_boundary_optimization_plan=1") !=
+        std::string::npos) {
+      boundary_optimization_plan_rows.emplace_back(row);
       continue;
     }
     if (row.find("stack_region_barrier_only_canary=1") != std::string::npos) {
@@ -5874,6 +6374,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> boundary_submit_plan_rows;
   std::vector<std::string> barrier_only_canary_rows;
   std::vector<std::string> pre_dispatch_proof_rows;
+  std::vector<std::string> boundary_optimization_plan_rows;
   split_stack_graph_rows(
       dispatch_dependency_rows,
       dispatch_nodes,
@@ -5883,7 +6384,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       capture_edges,
       boundary_submit_plan_rows,
       barrier_only_canary_rows,
-      pre_dispatch_proof_rows);
+      pre_dispatch_proof_rows,
+      boundary_optimization_plan_rows);
 
   std::vector<std::string> resource_nodes;
   std::vector<std::string> boundary_nodes;
@@ -6021,6 +6523,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_region_pre_dispatch_proof_rows",
       pre_dispatch_proof_rows.size(),
       summary_first);
+  append_json_u64(
+      out,
+      "stack_region_boundary_optimization_plan_rows",
+      boundary_optimization_plan_rows.size(),
+      summary_first);
   append_json_bool(out, "submit_elision_enabled", false, summary_first);
   append_json_string(
       out,
@@ -6087,6 +6594,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       first);
   append_graph_array(
       out,
+      "stack_region_boundary_optimization_plan_rows",
+      boundary_optimization_plan_rows,
+      "stack_region_boundary_optimization_plan",
+      first);
+  append_graph_array(
+      out,
       "stack_output_device_consumer_registrations",
       consumer_registration_rows,
       "stack_output_device_consumer_registration",
@@ -6103,6 +6616,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       out, barrier_only_canary_rows, first);
   append_stack_region_pre_dispatch_proof_table_json(
       out, pre_dispatch_proof_rows, first);
+  append_stack_region_boundary_optimization_plan_json(
+      out, boundary_optimization_plan_rows, first);
   append_barrier_plan_json(
       out,
       dependency_edges,
@@ -10377,6 +10892,20 @@ void note_vulkan_stack_pre_dispatch_proof_table_descriptor(
   if (proof.live_buffer_bound) {
     value.live_buffer_bound_count += 1u;
   }
+  if (!stack_region_barrier_only_canary_target_selected(
+          stack_region_barrier_only_canary_target())) {
+    record_stack_region_boundary_optimization_plan_locked(
+        scope_id,
+        g_vision_stack_phase,
+        g_vision_stack_block_index,
+        shader_name,
+        binding_idx,
+        next_recorded_position,
+        buffer,
+        proof,
+        /*barrier_inserted=*/false,
+        /*submit_elision_requested=*/false);
+  }
 }
 
 bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
@@ -10463,6 +10992,17 @@ bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
   if (barrier_inserted) {
     value.barrier_inserted_count += 1u;
   }
+  record_stack_region_boundary_optimization_plan_locked(
+      scope_id,
+      g_vision_stack_phase,
+      g_vision_stack_block_index,
+      shader_name,
+      binding_idx,
+      next_recorded_position,
+      buffer,
+      proof,
+      barrier_inserted,
+      /*submit_elision_requested=*/false);
   return barrier_inserted;
 }
 
@@ -10823,7 +11363,8 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_dispatch_dependency_dry_run_rows().size() +
       stack_region_boundary_submit_plan_rows().size() +
       stack_region_barrier_only_canary_rows().size() +
-      stack_region_pre_dispatch_proof_table_rows().size());
+      stack_region_pre_dispatch_proof_table_rows().size() +
+      stack_region_boundary_optimization_plan_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
@@ -10883,6 +11424,25 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
         << " live_buffer_bound_count=" << item.second.live_buffer_bound_count;
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_region_boundary_optimization_plan_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " bytes=" << item.second.bytes
+        << " proof_complete_count=" << item.second.proof_complete_count
+        << " live_buffer_bound_count=" << item.second.live_buffer_bound_count
+        << " stage_access_available_count="
+        << item.second.stage_access_available_count
+        << " insertion_point_available_count="
+        << item.second.insertion_point_available_count
+        << " barrier_validated_count=" << item.second.barrier_validated_count
+        << " behavior_change_allowed_count="
+        << item.second.behavior_change_allowed_count
+        << " submit_elision_eligible_count="
+        << item.second.submit_elision_eligible_count
+        << " barriers_inserted=" << item.second.barrier_inserted_count
+        << " submits_removed=" << item.second.submit_removed_count;
+    rows.push_back(row.str());
+  }
   return rows;
 }
 
@@ -10905,6 +11465,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_boundary_submit_plan_rows().clear();
   stack_region_barrier_only_canary_rows().clear();
   stack_region_pre_dispatch_proof_table_rows().clear();
+  stack_region_boundary_optimization_plan_rows().clear();
   stack_output_device_consumer_registrations().clear();
 }
 

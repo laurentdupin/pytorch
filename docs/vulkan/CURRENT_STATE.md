@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-21 at local HEAD `8637b94a47dc` plus the first
-opt-in non-capture StackRegion barrier-only canary.
+Last refreshed: 2026-06-21 at local HEAD `755c6619d2b7` plus the
+behavior-neutral `StackRegionBoundaryOptimizationPlan.v0` slice.
 
 ## Repo State Summary
 
@@ -72,6 +72,17 @@ canary consumes this table under
 and records real compute-shader write-to-read buffer barriers at the consumer
 dispatch site while preserving the existing phase-boundary submit. It does not
 skip submits, change public capture semantics, or broaden shapes.
+
+`StackRegionBoundaryOptimizationPlan.v0` is the next data-driven eligibility
+table over the pre-dispatch proof rows. It classifies non-capture, capture,
+public, final, host-visible, and readback boundary records by live buffer
+binding, allocation/generation/range match, stage/access availability,
+insertion point availability, barrier-only validation, and submit-elision
+eligibility. Default behavior remains unchanged. Any submit-elision experiment
+must add and use a separate
+`PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY` opt-in, must consume real
+barrier insertion plus current-run proof match, and may select at most one
+non-capture boundary.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella

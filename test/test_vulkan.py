@@ -19623,8 +19623,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
         )
+        previous_submit_canary = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
+        )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
         os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY", None)
+        os.environ.pop("PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None)
         try:
             torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
             torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
@@ -19697,6 +19701,25 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(pre_dispatch_proof["barriers_inserted"], 0)
             self.assertEqual(pre_dispatch_proof["submits_removed"], 0)
+            self.assertIn("stack_region_boundary_optimization_plan", graph)
+            optimization_plan = graph["stack_region_boundary_optimization_plan"]
+            self.assertEqual(
+                optimization_plan["schema"],
+                "StackRegionBoundaryOptimizationPlan.v0",
+            )
+            self.assertTrue(optimization_plan["default_behavior_unchanged"])
+            self.assertTrue(optimization_plan["opt_in_only"])
+            self.assertGreater(optimization_plan["candidate_records"], 0)
+            self.assertGreater(optimization_plan["non_capture_records"], 0)
+            self.assertEqual(optimization_plan["barrier_validated_records"], 0)
+            self.assertEqual(
+                optimization_plan["behavior_change_allowed_records"], 0
+            )
+            self.assertEqual(
+                optimization_plan["submit_elision_eligible_records"], 0
+            )
+            self.assertEqual(optimization_plan["barriers_inserted"], 0)
+            self.assertEqual(optimization_plan["submits_removed"], 0)
             self.assertIn("stack_region_boundary_submit_plan_live_rows", graph)
             self.assertIn("capture_output_boundary_contract", graph)
             capture_contract = graph["capture_output_boundary_contract"]
@@ -20025,6 +20048,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
                     previous_canary
                 )
+            if previous_submit_canary is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None
+                )
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
+                    previous_submit_canary
+                )
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
@@ -20052,10 +20083,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
         )
+        previous_submit_canary = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
+        )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
         os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
             "non_capture_residual2_norm1_block1"
         )
+        os.environ.pop("PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None)
         try:
             torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
             torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
@@ -20105,6 +20140,27 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(first_record["src_access"], "shader_write")
             self.assertEqual(first_record["dst_stage"], "compute_shader")
             self.assertEqual(first_record["dst_access"], "shader_read")
+            optimization_plan = graph["stack_region_boundary_optimization_plan"]
+            self.assertGreater(optimization_plan["candidate_records"], 0)
+            self.assertEqual(
+                optimization_plan["candidate_records"],
+                optimization_plan["barrier_validated_records"],
+            )
+            self.assertEqual(
+                optimization_plan["behavior_change_allowed_records"], 0
+            )
+            self.assertEqual(
+                optimization_plan["submit_elision_eligible_records"], 0
+            )
+            self.assertEqual(
+                optimization_plan["barriers_inserted"],
+                optimization_plan["candidate_records"],
+            )
+            self.assertEqual(optimization_plan["submits_removed"], 0)
+            self.assertIn(
+                "eligible_requires_submit_elision_opt_in",
+                optimization_plan["status_counts"],
+            )
         finally:
             if previous is None:
                 os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
@@ -20115,6 +20171,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             else:
                 os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
                     previous_canary
+                )
+            if previous_submit_canary is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None
+                )
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
+                    previous_submit_canary
                 )
             if os.path.exists(graph_path):
                 os.remove(graph_path)
