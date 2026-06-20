@@ -2418,6 +2418,24 @@ struct BoundaryCompleteProof final {
   std::vector<std::string> boundary_rows;
 };
 
+struct CaptureBoundaryDependencySetProof final {
+  std::string boundary_id;
+  std::string capture_block;
+  uint64_t required_capture_edge_records = 0u;
+  uint64_t required_capture_edge_bytes = 0u;
+  uint64_t combined_capture_proof_complete_records = 0u;
+  uint64_t public_capture_records = 0u;
+  uint64_t public_capture_proof_complete_records = 0u;
+  uint64_t bridge_private_capture_records = 0u;
+  uint64_t bridge_private_capture_proof_complete_records = 0u;
+  uint64_t mixed_scope_rejected_records = 0u;
+  uint64_t queue_submit_records = 0u;
+  std::map<std::string, uint64_t> boundary_reject_reasons;
+  std::map<std::string, BoundaryResourceClassSummary> boundary_resources;
+  std::map<std::string, BoundaryResourceClassSummary> remaining_full_boundary_blockers;
+  std::vector<std::string> boundary_rows;
+};
+
 int64_t parsed_i64(
     const std::map<std::string, std::string>& fields,
     const char* key,
@@ -2564,6 +2582,15 @@ std::string boundary_complete_proof_key(
   return stream.str();
 }
 
+std::string capture_boundary_dependency_set_key(
+    const std::map<std::string, std::string>& fields) {
+  std::ostringstream stream;
+  stream << "capture_boundary:producer_block="
+         << field_or(fields, "producer_block", "unknown")
+         << ":capture_block=" << field_or(fields, "consumer_block", "unknown");
+  return stream.str();
+}
+
 void append_resource_class_summary_object(
     std::ostream& out,
     const std::map<std::string, BoundaryResourceClassSummary>& classes) {
@@ -2589,6 +2616,351 @@ void append_u64_map_object(
     append_json_u64(out, item.first.c_str(), item.second, first);
   }
   out << '}';
+}
+
+bool capture_boundary_dependency_set_bridge_private_complete(
+    const CaptureBoundaryDependencySetProof& proof) {
+  return proof.required_capture_edge_records > 0u &&
+      proof.bridge_private_capture_proof_complete_records ==
+      proof.required_capture_edge_records && !proof.boundary_rows.empty();
+}
+
+bool capture_boundary_dependency_set_combined_complete(
+    const CaptureBoundaryDependencySetProof& proof) {
+  return proof.required_capture_edge_records > 0u &&
+      proof.combined_capture_proof_complete_records ==
+      proof.required_capture_edge_records && !proof.boundary_rows.empty() &&
+      proof.mixed_scope_rejected_records == 0u && proof.public_capture_records == 0u;
+}
+
+void append_capture_boundary_dependency_set_record(
+    std::ostream& out,
+    const CaptureBoundaryDependencySetProof& proof) {
+  const bool bridge_private_complete =
+      capture_boundary_dependency_set_bridge_private_complete(proof);
+  const bool combined_complete =
+      capture_boundary_dependency_set_combined_complete(proof);
+  bool first = true;
+  out << '{';
+  append_json_string(out, "boundary_id", proof.boundary_id, first);
+  append_json_string(out, "capture_block", proof.capture_block, first);
+  append_json_string(out, "boundary_phase", "intermediate_capture", first);
+  append_json_u64(
+      out,
+      "required_capture_edge_records",
+      proof.required_capture_edge_records,
+      first);
+  append_json_u64(
+      out,
+      "required_capture_edge_bytes",
+      proof.required_capture_edge_bytes,
+      first);
+  append_json_u64(
+      out,
+      "combined_capture_proof_complete_records",
+      proof.combined_capture_proof_complete_records,
+      first);
+  append_json_u64(
+      out, "public_capture_records", proof.public_capture_records, first);
+  append_json_u64(
+      out,
+      "public_capture_proof_complete_records",
+      proof.public_capture_proof_complete_records,
+      first);
+  append_json_u64(
+      out,
+      "bridge_private_capture_records",
+      proof.bridge_private_capture_records,
+      first);
+  append_json_u64(
+      out,
+      "bridge_private_capture_proof_complete_records",
+      proof.bridge_private_capture_proof_complete_records,
+      first);
+  append_json_u64(
+      out,
+      "mixed_scope_rejected_records",
+      proof.mixed_scope_rejected_records,
+      first);
+  append_json_u64(out, "queue_submit_records", proof.queue_submit_records, first);
+  append_json_bool(
+      out, "combined_capture_dependency_set_complete", combined_complete, first);
+  append_json_bool(out, "public_capture_dependency_set_complete", false, first);
+  append_json_bool(
+      out,
+      "bridge_private_capture_dependency_set_complete",
+      bridge_private_complete,
+      first);
+  append_json_bool(out, "full_boundary_complete", false, first);
+  append_json_bool(out, "behavior_change_allowed", false, first);
+  append_json_comma(out, first);
+  out << "\"boundary_resources\":";
+  append_resource_class_summary_object(out, proof.boundary_resources);
+  append_json_comma(out, first);
+  out << "\"remaining_full_boundary_blockers\":";
+  append_resource_class_summary_object(out, proof.remaining_full_boundary_blockers);
+  append_json_comma(out, first);
+  out << "\"boundary_reject_reasons\":";
+  append_u64_map_object(out, proof.boundary_reject_reasons);
+  append_json_comma(out, first);
+  out << "\"phase_boundary_rows\":[";
+  for (size_t i = 0; i < proof.boundary_rows.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    append_graph_row_object(out, proof.boundary_rows[i], "phase_boundary");
+  }
+  out << "]}";
+}
+
+void append_capture_boundary_dependency_set_json(
+    std::ostream& out,
+    const std::vector<std::string>& capture_edges,
+    const std::vector<std::string>& boundary_nodes,
+    const std::map<std::string, CaptureAllocationSummary>& summaries,
+    const std::map<std::string, StackOutputDeviceConsumerRegistrationSummary>&
+        registrations,
+    bool& first) {
+  std::map<std::string, CaptureBoundaryDependencySetProof> proofs;
+  for (const auto& row : capture_edges) {
+    const auto fields = parse_space_separated_fields(row);
+    const std::string key = capture_boundary_dependency_set_key(fields);
+    auto& proof = proofs[key];
+    proof.boundary_id = key;
+    proof.capture_block = field_or(fields, "consumer_block", "unknown");
+    const uint64_t count = parsed_u64(fields, "count");
+    proof.required_capture_edge_records += count;
+    proof.required_capture_edge_bytes += parsed_u64(fields, "bytes");
+    proof.queue_submit_records += parsed_u64(fields, "queue_submit");
+
+    const auto summary_it = summaries.find(proof.capture_block);
+    const CaptureAllocationSummary empty_summary;
+    const CaptureAllocationSummary& summary =
+        summary_it == summaries.end() ? empty_summary : summary_it->second;
+    const auto registration_it = registrations.find(
+        stack_output_device_consumer_registration_key(
+            proof.capture_block, field_or(fields, "role", "unknown")));
+    const StackOutputDeviceConsumerRegistrationSummary* const registration =
+        registration_it == registrations.end() ? nullptr : &registration_it->second;
+    const bool allocation_generation_proven =
+        field_or(fields, "allocation_has_generation", "0") == "1";
+    const bool allocation_range_proven =
+        field_or(fields, "allocation_has_byte_range", "0") == "1";
+    if (summary.public_capture_count > 0u) {
+      proof.public_capture_records += count;
+    }
+    if (summary.private_bridge_capture_count > 0u) {
+      proof.bridge_private_capture_records += count;
+    }
+    if (
+        summary.public_capture_count > 0u &&
+        summary.private_bridge_capture_count > 0u) {
+      proof.mixed_scope_rejected_records += count;
+    }
+    if (capture_scope_fields_complete(
+            summary,
+            registration,
+            allocation_generation_proven,
+            allocation_range_proven)) {
+      proof.combined_capture_proof_complete_records += count;
+    }
+    const CaptureAllocationSummary public_summary =
+        capture_scope_summary(summary, CaptureOutputBoundaryScope::PublicCapture);
+    if (capture_scope_fields_complete(
+            public_summary,
+            registration,
+            allocation_generation_proven,
+            allocation_range_proven)) {
+      proof.public_capture_proof_complete_records += count;
+    }
+    const CaptureAllocationSummary bridge_private_summary =
+        capture_scope_summary(summary, CaptureOutputBoundaryScope::BridgePrivateCapture);
+    if (capture_scope_fields_complete(
+            bridge_private_summary,
+            registration,
+            allocation_generation_proven,
+            allocation_range_proven)) {
+      proof.bridge_private_capture_proof_complete_records += count;
+    }
+  }
+
+  for (const auto& row : boundary_nodes) {
+    const auto fields = parse_space_separated_fields(row);
+    if (field_or(fields, "boundary_stack_phase", "unknown") != "block_entry") {
+      continue;
+    }
+    const std::string boundary_block =
+        field_or(fields, "boundary_block", "unknown");
+    for (auto& item : proofs) {
+      auto& proof = item.second;
+      if (proof.capture_block != boundary_block) {
+        continue;
+      }
+      proof.boundary_rows.emplace_back(row);
+      const uint64_t boundary_count =
+          std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+      const auto signature = fields.find("signature");
+      if (signature != fields.end()) {
+        std::istringstream stream(signature->second);
+        std::string token;
+        while (std::getline(stream, token, ',')) {
+          if (token.empty()) {
+            continue;
+          }
+          const size_t first_hash = token.find('#');
+          const size_t second_hash =
+              first_hash == std::string::npos
+              ? std::string::npos
+              : token.find('#', first_hash + 1u);
+          if (first_hash == std::string::npos ||
+              second_hash == std::string::npos) {
+            proof.boundary_reject_reasons["malformed_boundary_signature"] +=
+                boundary_count;
+            continue;
+          }
+          const std::string resource_class = token.substr(0, first_hash);
+          uint64_t resource_count = 0u;
+          uint64_t resource_bytes = 0u;
+          try {
+            resource_count = static_cast<uint64_t>(std::stoull(token.substr(
+                first_hash + 1u, second_hash - first_hash - 1u)));
+            resource_bytes = static_cast<uint64_t>(
+                std::stoull(token.substr(second_hash + 1u)));
+          } catch (...) {
+            proof.boundary_reject_reasons["malformed_boundary_signature"] +=
+                boundary_count;
+            continue;
+          }
+          resource_count *= boundary_count;
+          resource_bytes *= boundary_count;
+          add_boundary_resource_class(
+              proof.boundary_resources,
+              resource_class,
+              resource_count,
+              resource_bytes);
+          if (
+              !signature_resource_class_is_retire_only(resource_class) &&
+              (resource_class != "capture_sensitive_stack_activation" ||
+               !capture_boundary_dependency_set_bridge_private_complete(proof))) {
+            add_boundary_resource_class(
+                proof.remaining_full_boundary_blockers,
+                resource_class,
+                resource_count,
+                resource_bytes);
+          }
+        }
+      } else {
+        proof.boundary_reject_reasons["missing_boundary_signature"] +=
+            boundary_count;
+      }
+      const std::string budget_reject =
+          field_or(fields, "budget_reject", "missing_budget_reject");
+      if (budget_reject != "none") {
+        proof.boundary_reject_reasons["budget_reject:" + budget_reject] +=
+            parsed_u64(fields, "count");
+      }
+      const std::string blockers = field_or(fields, "blockers", "none");
+      if (blockers != "none") {
+        proof.boundary_reject_reasons["blockers:" + blockers] +=
+            parsed_u64(fields, "count");
+      }
+    }
+  }
+
+  uint64_t candidate_boundaries = 0u;
+  uint64_t combined_complete_boundaries = 0u;
+  uint64_t public_complete_boundaries = 0u;
+  uint64_t bridge_private_complete_boundaries = 0u;
+  uint64_t full_boundary_complete_boundaries = 0u;
+  uint64_t required_capture_edge_records = 0u;
+  uint64_t bridge_private_complete_records = 0u;
+  std::map<std::string, uint64_t> remaining_blockers;
+  for (const auto& item : proofs) {
+    const auto& proof = item.second;
+    ++candidate_boundaries;
+    required_capture_edge_records += proof.required_capture_edge_records;
+    bridge_private_complete_records +=
+        proof.bridge_private_capture_proof_complete_records;
+    if (capture_boundary_dependency_set_combined_complete(proof)) {
+      ++combined_complete_boundaries;
+    }
+    if (
+        proof.public_capture_proof_complete_records ==
+            proof.required_capture_edge_records &&
+        proof.required_capture_edge_records > 0u) {
+      ++public_complete_boundaries;
+    }
+    if (capture_boundary_dependency_set_bridge_private_complete(proof)) {
+      ++bridge_private_complete_boundaries;
+    }
+    for (const auto& resource : proof.remaining_full_boundary_blockers) {
+      remaining_blockers[resource.first] += resource.second.count;
+    }
+    for (const auto& reason : proof.boundary_reject_reasons) {
+      remaining_blockers["boundary:" + reason.first] += reason.second;
+    }
+  }
+
+  append_json_comma(out, first);
+  out << "\"capture_boundary_dependency_set\":{";
+  bool proof_first = true;
+  append_json_string(
+      out, "schema", "CaptureBoundaryDependencySet.v0", proof_first);
+  append_json_bool(out, "behavior_neutral", true, proof_first);
+  append_json_bool(out, "dry_run_only", true, proof_first);
+  append_json_string(
+      out,
+      "target_boundary_class",
+      "bridge_private_intermediate_capture",
+      proof_first);
+  append_json_u64(
+      out, "candidate_boundaries", candidate_boundaries, proof_first);
+  append_json_u64(
+      out,
+      "combined_complete_boundaries",
+      combined_complete_boundaries,
+      proof_first);
+  append_json_u64(
+      out,
+      "public_complete_boundaries",
+      public_complete_boundaries,
+      proof_first);
+  append_json_u64(
+      out,
+      "bridge_private_complete_boundaries",
+      bridge_private_complete_boundaries,
+      proof_first);
+  append_json_u64(
+      out,
+      "full_boundary_complete_boundaries",
+      full_boundary_complete_boundaries,
+      proof_first);
+  append_json_u64(
+      out,
+      "required_capture_edge_records",
+      required_capture_edge_records,
+      proof_first);
+  append_json_u64(
+      out,
+      "bridge_private_capture_proof_complete_records",
+      bridge_private_complete_records,
+      proof_first);
+  append_json_u64(out, "barriers_inserted", 0u, proof_first);
+  append_json_u64(out, "submits_removed", 0u, proof_first);
+  append_json_comma(out, proof_first);
+  out << "\"remaining_full_boundary_blockers\":";
+  append_u64_map_object(out, remaining_blockers);
+  append_json_comma(out, proof_first);
+  out << "\"records\":[";
+  bool first_record = true;
+  for (const auto& item : proofs) {
+    if (!first_record) {
+      out << ',';
+    }
+    first_record = false;
+    append_capture_boundary_dependency_set_record(out, item.second);
+  }
+  out << "]}";
 }
 
 bool boundary_complete_proof_is_complete(const BoundaryCompleteProof& proof) {
@@ -3131,6 +3503,13 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       boundary_nodes,
       barrier_plan_dispatch_positions,
       barrier_plan_insertion_points,
+      first);
+  append_capture_boundary_dependency_set_json(
+      out,
+      capture_edges,
+      boundary_nodes,
+      capture_allocation_summaries,
+      consumer_registration_summaries,
       first);
   append_graph_array(
       out, "region_lifetime_rows", region_rows, "region_lifetime", first);

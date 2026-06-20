@@ -155,6 +155,15 @@ when a stack-owner recording scope ends. The v0 schema is
   non-capture `residual2 -> norm1` formal last-use metadata separately from
   runtime stack-lifetime proof metadata. It is proof-only and does not
   authorize a submit skip.
+- a nested `capture_boundary_dependency_set` object with schema
+  `CaptureBoundaryDependencySet.v0`. This joins capture-specific
+  `CaptureOutputBoundaryContract` records with matching phase-boundary rows.
+  It reports combined/public/bridge-private complete-boundary counts
+  separately. Public `Tensor[]` captures remain incomplete. Bridge-private
+  capture boundaries can become complete at capture-scope when every capture
+  edge has same-region consumer and allocation/range proof, but
+  `full_boundary_complete_boundaries` stays separate and remains zero until
+  all non-capture ordering resources and boundary blockers are proven.
 
 This dump is diagnostic only. It does not insert barriers, skip submits, change
 routes, or change accepted shapes.

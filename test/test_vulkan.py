@@ -19813,6 +19813,28 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertGreater(boundary_proof["candidate_boundaries"], 0)
             self.assertEqual(boundary_proof["barriers_inserted"], 0)
             self.assertEqual(boundary_proof["submits_removed"], 0)
+            self.assertIn("capture_boundary_dependency_set", graph)
+            capture_dependency_set = graph["capture_boundary_dependency_set"]
+            self.assertEqual(
+                capture_dependency_set["schema"],
+                "CaptureBoundaryDependencySet.v0",
+            )
+            self.assertTrue(capture_dependency_set["behavior_neutral"])
+            self.assertTrue(capture_dependency_set["dry_run_only"])
+            self.assertEqual(capture_dependency_set["barriers_inserted"], 0)
+            self.assertEqual(capture_dependency_set["submits_removed"], 0)
+            self.assertIn("public_complete_boundaries", capture_dependency_set)
+            self.assertIn(
+                "bridge_private_complete_boundaries",
+                capture_dependency_set,
+            )
+            self.assertIn(
+                "full_boundary_complete_boundaries",
+                capture_dependency_set,
+            )
+            self.assertEqual(
+                capture_dependency_set["full_boundary_complete_boundaries"], 0
+            )
             self.assertIn(
                 "consumer_dispatch_planned_records",
                 boundary_proof,
@@ -27310,6 +27332,27 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     for record in capture_contract[
                         "bridge_private_capture_scope_records"
                     ]
+                )
+            )
+            capture_dependency_set = graph["capture_boundary_dependency_set"]
+            self.assertEqual(capture_dependency_set["barriers_inserted"], 0)
+            self.assertEqual(capture_dependency_set["submits_removed"], 0)
+            self.assertEqual(
+                capture_dependency_set["public_complete_boundaries"], 0
+            )
+            self.assertGreater(
+                capture_dependency_set["bridge_private_complete_boundaries"], 0
+            )
+            self.assertEqual(
+                capture_dependency_set["full_boundary_complete_boundaries"], 0
+            )
+            self.assertTrue(capture_dependency_set["records"])
+            self.assertTrue(
+                any(
+                    record["bridge_private_capture_dependency_set_complete"]
+                    and not record["public_capture_dependency_set_complete"]
+                    and not record["full_boundary_complete"]
+                    for record in capture_dependency_set["records"]
                 )
             )
             self.assertTrue(
