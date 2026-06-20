@@ -10826,6 +10826,104 @@ std::vector<Tensor> run_vision_backbone_stack_norm_compiled_session_bridge(
       norm_context);
 }
 
+Tensor run_vision_stack_captures_decoder_preprocess_bridge(
+    const Tensor& input_arg,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& norm_context,
+    const int64_t strip_prefix_tokens,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>&
+        decoder_context) {
+  TORCH_CHECK(
+      contexts.size() > 0,
+      "Vision stack capture decoder bridge expects at least one backbone context");
+  TORCH_CHECK(
+      capture_indices.size() == 4,
+      "Vision stack capture decoder bridge expects exactly four capture indices");
+  TORCH_CHECK(
+      !normalized_shape.empty() && norm_context,
+      "Vision stack capture decoder bridge expects a defined output norm context "
+      "and normalized shape");
+  TORCH_CHECK(
+      strip_prefix_tokens >= 0,
+      "Vision stack capture decoder bridge expects non-negative strip tokens");
+  TORCH_CHECK(
+      patch_h > 0 && patch_w > 0,
+      "Vision stack capture decoder bridge expects positive patch sizes");
+  TORCH_CHECK(
+      output_size.size() == 2 && decoder_context,
+      "Vision stack capture decoder bridge expects a decoder context and a "
+      "rank-1 output size with 2 entries");
+  TORCH_CHECK(
+      input_arg.dim() == 2 || input_arg.dim() == 3,
+      "Vision stack capture decoder bridge expects rank-2 or rank-3 tokens");
+
+  for (const auto& context_ref : contexts) {
+    c10::intrusive_ptr<VisionBackboneBlockContext> context = context_ref;
+    TORCH_CHECK(
+        static_cast<bool>(context),
+        "Vision stack capture decoder bridge expects defined backbone contexts");
+  }
+
+  const int64_t input_token_count =
+      input_arg.dim() == 2 ? input_arg.size(0) : input_arg.size(1);
+  TORCH_CHECK(
+      strip_prefix_tokens <= input_token_count,
+      "Vision stack capture decoder bridge strip token count ",
+      strip_prefix_tokens,
+      " exceeds input token count ",
+      input_token_count);
+
+  const Device output_device = input_arg.device();
+  const ScalarType output_dtype = input_arg.scalar_type();
+  std::vector<Tensor> captured =
+      run_vision_backbone_stack_norm_replay_bundle_bridge(
+          input_arg,
+          contexts,
+          capture_indices,
+          normalized_shape,
+          norm_context);
+  TORCH_CHECK(
+      captured.size() == 4u,
+      "Vision stack capture decoder bridge expected four captured tensors");
+  const auto strip_special_tokens = [&](const Tensor& tensor) {
+    TORCH_CHECK(
+        tensor.dim() == 2 || tensor.dim() == 3,
+        "Vision stack capture decoder bridge expects rank-2 or rank-3 "
+        "captured tensors");
+    const int64_t token_dim = tensor.dim() == 2 ? 0 : 1;
+    TORCH_CHECK(
+        strip_prefix_tokens <= tensor.size(token_dim),
+        "Vision stack capture decoder bridge strip token count ",
+        strip_prefix_tokens,
+        " exceeds captured token count ",
+        tensor.size(token_dim));
+    return tensor.slice(token_dim, strip_prefix_tokens, tensor.size(token_dim));
+  };
+  Tensor output = run_vision_decoder_preprocess_head_context(
+      strip_special_tokens(captured[0]),
+      strip_special_tokens(captured[1]),
+      strip_special_tokens(captured[2]),
+      strip_special_tokens(captured[3]),
+      patch_h,
+      patch_w,
+      output_size,
+      decoder_context);
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge");
+  Tensor restored = maybe_restore_tensor(output, output_device, output_dtype);
+  record_tensor_write(
+      restored,
+      "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge",
+      "decoder_output",
+      {captured[0], captured[1], captured[2], captured[3]});
+  return restored;
+}
+
 Tensor run_depth_anything_v2_compiled_session_bridge(
     const Tensor& input_arg,
     const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,

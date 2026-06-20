@@ -1593,6 +1593,15 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "__torch__.torch.classes.vulkan.LayernormPackedContext norm_context) "
       "-> Tensor[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge("
+      "Tensor input, "
+      "__torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, "
+      "int[] capture_indices, int[] normalized_shape, "
+      "__torch__.torch.classes.vulkan.LayernormPackedContext norm_context, "
+      "int strip_prefix_tokens, int patch_h, int patch_w, int[] output_size, "
+      "__torch__.torch.classes.vulkan.VisionDecoderPreprocessHeadContext decoder_context) "
+      "-> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge("
       "Tensor input, "
       "__torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, "
@@ -2487,6 +2496,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::run_vision_backbone_stack_norm_replay_bundle_bridge"),
       TORCH_FN(run_vision_backbone_stack_norm_replay_bundle_bridge));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge"),
+      TORCH_FN(run_vision_stack_captures_decoder_preprocess_bridge));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge"),

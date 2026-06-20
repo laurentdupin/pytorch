@@ -854,6 +854,19 @@ std::vector<Tensor> run_vision_backbone_stack_norm_compiled_session_bridge(
     IntArrayRef normalized_shape,
     const c10::intrusive_ptr<LayernormPackedContext>& norm_context);
 
+Tensor run_vision_stack_captures_decoder_preprocess_bridge(
+    const Tensor& input,
+    const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,
+    IntArrayRef capture_indices,
+    IntArrayRef normalized_shape,
+    const c10::intrusive_ptr<LayernormPackedContext>& norm_context,
+    int64_t strip_prefix_tokens,
+    int64_t patch_h,
+    int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>&
+        decoder_context);
+
 Tensor run_depth_anything_v2_compiled_session_bridge(
     const Tensor& input,
     const c10::List<c10::intrusive_ptr<VisionBackboneBlockContext>>& contexts,

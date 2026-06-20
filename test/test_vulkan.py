@@ -26847,6 +26847,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     fixture["tokens"],
                     fixture,
                 )
+                bridge = (
+                    torch.ops.vulkan_prepack
+                    .run_vision_stack_captures_decoder_preprocess_bridge
+                )
+                actual_generic = bridge(
+                    fixture["tokens"],
+                    fixture["contexts"],
+                    fixture["capture_indices"],
+                    [fixture["embed_dim"]],
+                    fixture["norm_context"],
+                    1,
+                    fixture["patch_h"],
+                    fixture["patch_w"],
+                    fixture["output_size"],
+                    fixture["preprocess_context"],
+                )
                 actual_tokens = torch.ops.vulkan_prepack.run_depth_anything_v2_compiled_session_bridge(
                     fixture["tokens"],
                     fixture["contexts"],
@@ -26884,8 +26900,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         finally:
             torch.ops.vulkan_prepack.swap_runtime_label(previous)
 
+        self.assertEqual(list(actual_generic.shape), [1, 1, 28, 28])
         self.assertEqual(list(actual_tokens.shape), [1, 1, 28, 28])
         self.assertEqual(list(actual_image.shape), [1, 1, 28, 28])
+        self.assertTrue(
+            torch.allclose(actual_generic.cpu(), expected_tokens.cpu(), atol=1e-2, rtol=1e-2),
+            "Vision stack capture decoder preprocess bridge fixture mismatch",
+        )
         self.assertTrue(
             torch.allclose(actual_tokens.cpu(), expected_tokens.cpu(), atol=1e-2, rtol=1e-2),
             "Depth Anything supported token-entry fixture mismatch",
