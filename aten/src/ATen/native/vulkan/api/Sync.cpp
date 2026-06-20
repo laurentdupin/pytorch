@@ -3,7 +3,9 @@
 #ifdef USE_VULKAN_API
 
 #include <algorithm>
+#include <cstdlib>
 #include <cctype>
+#include <fstream>
 #include <map>
 #include <mutex>
 #include <sstream>
@@ -29,6 +31,8 @@ thread_local std::vector<VulkanStackLastUseProof> g_stack_last_use_proofs;
 thread_local uint64_t g_stack_dispatch_dependency_scope_id = 0u;
 thread_local uint64_t g_stack_dispatch_dependency_position = 0u;
 std::atomic<uint64_t> g_next_stack_dispatch_dependency_scope_id{1u};
+
+void maybe_write_stack_region_dependency_graph_dump();
 
 struct RetiredResourceAggregateKey final {
   VulkanRetiredResourceKind kind = VulkanRetiredResourceKind::Unknown;
@@ -513,6 +517,391 @@ std::string format_sizes(const std::vector<int64_t>& values) {
   }
   stream << ']';
   return stream.str();
+}
+
+const char* stack_region_dependency_graph_path() {
+  const char* env = std::getenv("PYTORCH_VULKAN_STACK_DEP_GRAPH");
+  return (env && *env) ? env : nullptr;
+}
+
+std::mutex& stack_region_dependency_graph_dump_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::string json_escape(const std::string& value) {
+  std::string escaped;
+  escaped.reserve(value.size());
+  for (const char c : value) {
+    switch (c) {
+      case '"':
+        escaped += "\\\"";
+        break;
+      case '\\':
+        escaped += "\\\\";
+        break;
+      case '\n':
+        escaped += "\\n";
+        break;
+      case '\r':
+        escaped += "\\r";
+        break;
+      case '\t':
+        escaped += "\\t";
+        break;
+      default:
+        escaped += c;
+        break;
+    }
+  }
+  return escaped;
+}
+
+void append_json_comma(std::ostream& out, bool& first) {
+  if (!first) {
+    out << ',';
+  }
+  first = false;
+}
+
+void append_json_string(
+    std::ostream& out,
+    const char* key,
+    const std::string& value,
+    bool& first) {
+  append_json_comma(out, first);
+  out << '"' << key << "\":\"" << json_escape(value) << '"';
+}
+
+void append_json_u64(
+    std::ostream& out,
+    const char* key,
+    const uint64_t value,
+    bool& first) {
+  append_json_comma(out, first);
+  out << '"' << key << "\":" << value;
+}
+
+void append_json_bool(
+    std::ostream& out,
+    const char* key,
+    const bool value,
+    bool& first) {
+  append_json_comma(out, first);
+  out << '"' << key << "\":" << (value ? "true" : "false");
+}
+
+std::map<std::string, std::string> parse_space_separated_fields(
+    const std::string& row) {
+  std::map<std::string, std::string> fields;
+  std::istringstream stream(row);
+  std::string token;
+  while (stream >> token) {
+    const size_t equals = token.find('=');
+    if (equals == std::string::npos || equals == 0u) {
+      continue;
+    }
+    fields[token.substr(0, equals)] = token.substr(equals + 1u);
+  }
+  return fields;
+}
+
+uint64_t parsed_u64(
+    const std::map<std::string, std::string>& fields,
+    const char* key) {
+  const auto it = fields.find(key);
+  if (it == fields.end()) {
+    return 0u;
+  }
+  try {
+    return static_cast<uint64_t>(std::stoull(it->second));
+  } catch (...) {
+    return 0u;
+  }
+}
+
+void append_json_fields_object(
+    std::ostream& out,
+    const std::map<std::string, std::string>& fields) {
+  bool first = true;
+  out << '{';
+  for (const auto& field : fields) {
+    append_json_string(out, field.first.c_str(), field.second, first);
+  }
+  out << '}';
+}
+
+void append_json_string_array(
+    std::ostream& out,
+    const char* key,
+    const std::vector<std::string>& values,
+    bool& first) {
+  append_json_comma(out, first);
+  out << '"' << key << "\":[";
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    out << '"' << json_escape(values[i]) << '"';
+  }
+  out << ']';
+}
+
+std::vector<std::string> missing_dependency_metadata_fields(
+    const std::map<std::string, std::string>& fields) {
+  std::vector<std::string> missing;
+  const auto has_true = [&fields](const char* key) {
+    const auto it = fields.find(key);
+    return it != fields.end() && it->second == "1";
+  };
+  if (!has_true("allocation_has_generation")) {
+    missing.emplace_back("allocation_generation");
+  }
+  if (!has_true("allocation_has_byte_range")) {
+    missing.emplace_back("byte_range");
+  }
+  if (!has_true("formal_last_use_proof")) {
+    missing.emplace_back("formal_last_use_proof");
+  }
+  if (!has_true("producer_dispatch_observed")) {
+    missing.emplace_back("producer_dispatch");
+  }
+  if (!has_true("consumer_dispatch_observed")) {
+    missing.emplace_back("consumer_dispatch");
+  }
+  if (!has_true("descriptor_binding_known")) {
+    missing.emplace_back("descriptor_binding");
+  }
+  return missing;
+}
+
+void append_graph_row_object(
+    std::ostream& out,
+    const std::string& row,
+    const char* kind) {
+  const auto fields = parse_space_separated_fields(row);
+  bool first = true;
+  out << '{';
+  append_json_string(out, "kind", kind, first);
+  append_json_string(out, "raw", row, first);
+  append_json_comma(out, first);
+  out << "\"fields\":";
+  append_json_fields_object(out, fields);
+  if (std::string(kind) == "dependency_edge") {
+    append_json_string_array(
+        out, "missing_metadata_fields", missing_dependency_metadata_fields(fields), first);
+  }
+  out << '}';
+}
+
+void append_graph_array(
+    std::ostream& out,
+    const char* key,
+    const std::vector<std::string>& rows,
+    const char* kind,
+    bool& first) {
+  append_json_comma(out, first);
+  out << '"' << key << "\":[";
+  for (size_t i = 0; i < rows.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    append_graph_row_object(out, rows[i], kind);
+  }
+  out << ']';
+}
+
+void split_stack_graph_rows(
+    const std::vector<std::string>& rows,
+    std::vector<std::string>& dispatch_nodes,
+    std::vector<std::string>& dependency_edges,
+    std::vector<std::string>& capture_edges) {
+  for (const auto& row : rows) {
+    if (row.find("dispatch=1") != std::string::npos) {
+      dispatch_nodes.emplace_back(row);
+      continue;
+    }
+    if (row.find("stack_dispatch_dependency=1") != std::string::npos) {
+      dependency_edges.emplace_back(row);
+      if (row.find("consumer_phase=intermediate_capture") != std::string::npos) {
+        capture_edges.emplace_back(row);
+      }
+    }
+  }
+}
+
+void split_lifetime_graph_rows(
+    const std::vector<std::string>& rows,
+    std::vector<std::string>& resource_nodes,
+    std::vector<std::string>& boundary_nodes) {
+  for (const auto& row : rows) {
+    if (row.find("resource=1") != std::string::npos) {
+      resource_nodes.emplace_back(row);
+    } else if (row.find("phase_boundary_group=1") != std::string::npos) {
+      boundary_nodes.emplace_back(row);
+    }
+  }
+}
+
+void write_stack_region_dependency_graph_json(std::ostream& out) {
+  const std::vector<std::string> dispatch_dependency_rows =
+      stack_dispatch_dependency_dry_run_snapshot();
+  const std::vector<std::string> allocation_rows =
+      stack_allocation_aggregate_snapshot();
+  const std::vector<std::string> lifetime_rows =
+      stack_subresource_lifetime_dry_run_snapshot();
+  const std::vector<std::string> region_rows =
+      region_lifetime_submit_attribution_snapshot();
+
+  std::vector<std::string> dispatch_nodes;
+  std::vector<std::string> dependency_edges;
+  std::vector<std::string> capture_edges;
+  split_stack_graph_rows(
+      dispatch_dependency_rows, dispatch_nodes, dependency_edges, capture_edges);
+
+  std::vector<std::string> resource_nodes;
+  std::vector<std::string> boundary_nodes;
+  split_lifetime_graph_rows(lifetime_rows, resource_nodes, boundary_nodes);
+
+  uint64_t fully_proven_edge_records = 0u;
+  uint64_t total_dependency_records = 0u;
+  uint64_t queue_submit_dependency_records = 0u;
+  std::map<std::string, uint64_t> reject_reasons;
+  for (const auto& row : dependency_edges) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = parsed_u64(fields, "count");
+    total_dependency_records += count;
+    queue_submit_dependency_records += parsed_u64(fields, "queue_submit");
+    fully_proven_edge_records += parsed_u64(fields, "fully_proven_count");
+    const auto it = fields.find("reject_reason");
+    reject_reasons[it == fields.end() ? "missing_reject_reason" : it->second] +=
+        count;
+  }
+
+  uint64_t complete_boundaries = 0u;
+  uint64_t queue_submit_boundaries = 0u;
+  std::map<std::string, uint64_t> boundary_reject_reasons;
+  for (const auto& row : boundary_nodes) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = parsed_u64(fields, "count");
+    queue_submit_boundaries += parsed_u64(fields, "queue_submit");
+    const auto eligible = fields.find("all_safe_group_eligible");
+    if (eligible != fields.end() && eligible->second == "1") {
+      complete_boundaries += count;
+    }
+    const auto reject = fields.find("budget_reject");
+    boundary_reject_reasons
+        [reject == fields.end() ? "missing_budget_reject" : reject->second] +=
+        count;
+  }
+
+  bool first = true;
+  out << "{";
+  append_json_string(out, "schema", "StackRegionDependencyGraph.v0", first);
+  append_json_bool(out, "behavior_neutral", true, first);
+  append_json_string(
+      out, "env_var", "PYTORCH_VULKAN_STACK_DEP_GRAPH", first);
+  append_json_comma(out, first);
+  out << "\"region\":{";
+  bool region_first = true;
+  append_json_string(out, "region_id", "missing_region_id", region_first);
+  append_json_string(
+      out, "stack_context_id", "missing_stack_context_id", region_first);
+  append_json_string(
+      out, "bridge_session_id", "missing_bridge_session_id", region_first);
+  append_json_string_array(
+      out,
+      "missing_fields",
+      {"region_id", "stack_context_id", "bridge_session_id"},
+      region_first);
+  out << "}";
+
+  append_json_comma(out, first);
+  out << "\"summary\":{";
+  bool summary_first = true;
+  append_json_u64(out, "dispatch_nodes", dispatch_nodes.size(), summary_first);
+  append_json_u64(
+      out, "dependency_edge_rows", dependency_edges.size(), summary_first);
+  append_json_u64(
+      out, "dependency_edge_records", total_dependency_records, summary_first);
+  append_json_u64(
+      out,
+      "queue_submit_dependency_records",
+      queue_submit_dependency_records,
+      summary_first);
+  append_json_u64(
+      out,
+      "fully_proven_dependency_records",
+      fully_proven_edge_records,
+      summary_first);
+  append_json_u64(out, "resource_nodes", resource_nodes.size(), summary_first);
+  append_json_u64(out, "allocation_nodes", allocation_rows.size(), summary_first);
+  append_json_u64(out, "boundary_nodes", boundary_nodes.size(), summary_first);
+  append_json_u64(
+      out, "complete_boundary_records", complete_boundaries, summary_first);
+  append_json_u64(
+      out, "queue_submit_boundary_records", queue_submit_boundaries, summary_first);
+  append_json_u64(out, "capture_edges", capture_edges.size(), summary_first);
+  append_json_bool(out, "submit_elision_enabled", false, summary_first);
+  append_json_string(
+      out,
+      "current_submit_sync_reason",
+      "phase_boundary_submit_required_until_complete_graph_proof",
+      summary_first);
+  out << "}";
+
+  append_json_comma(out, first);
+  out << "\"dependency_reject_reasons\":{";
+  bool reject_first = true;
+  for (const auto& item : reject_reasons) {
+    append_json_u64(out, item.first.c_str(), item.second, reject_first);
+  }
+  out << "}";
+
+  append_json_comma(out, first);
+  out << "\"boundary_reject_reasons\":{";
+  bool boundary_reject_first = true;
+  for (const auto& item : boundary_reject_reasons) {
+    append_json_u64(
+        out, item.first.c_str(), item.second, boundary_reject_first);
+  }
+  out << "}";
+
+  append_graph_array(out, "dispatch_nodes", dispatch_nodes, "dispatch", first);
+  append_graph_array(
+      out, "dependency_edges", dependency_edges, "dependency_edge", first);
+  append_graph_array(out, "capture_edges", capture_edges, "capture_edge", first);
+  append_graph_array(out, "resource_nodes", resource_nodes, "resource", first);
+  append_graph_array(
+      out, "allocation_nodes", allocation_rows, "allocation", first);
+  append_graph_array(
+      out, "phase_boundary_nodes", boundary_nodes, "phase_boundary", first);
+  append_graph_array(
+      out, "region_lifetime_rows", region_rows, "region_lifetime", first);
+  append_json_string_array(
+      out,
+      "unproven_or_missing_metadata_fields",
+      {"region_id",
+       "stack_context_id",
+       "bridge_session_id",
+       "complete_boundary_dependency_set",
+       "consumer_dispatch_for_capture_edges_when_not_recorded",
+       "boundary_specific_required_edge_set"},
+      first);
+  out << "}\n";
+}
+
+void maybe_write_stack_region_dependency_graph_dump() {
+  const char* const path = stack_region_dependency_graph_path();
+  if (path == nullptr) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(stack_region_dependency_graph_dump_mutex());
+  std::ofstream out(path, std::ios::out | std::ios::trunc);
+  if (!out) {
+    return;
+  }
+  write_stack_region_dependency_graph_json(out);
 }
 
 } // namespace
@@ -4162,6 +4551,9 @@ void note_stack_phase_boundary_lifetime_dry_run_group(
   std::ostringstream key;
   key << "phase_boundary_group=1 phase=" << submit_phase_name(phase)
       << " callsite=" << retire_call_site_name(callsite)
+      << " boundary_stack_phase="
+      << vision_stack_phase_name(current_vision_stack_phase())
+      << " boundary_block=" << current_vision_stack_block_index()
       << " queue_submit=" << (queue_submit ? 1 : 0)
       << " old_path_pending=" << old_path_pending_count
       << " safe_candidate_count=" << safe_candidate_count
@@ -4414,6 +4806,7 @@ void begin_stack_dispatch_dependency_recording_scope() {
 }
 
 void end_stack_dispatch_dependency_recording_scope() {
+  maybe_write_stack_region_dependency_graph_dump();
   g_stack_dispatch_dependency_scope_id = 0u;
   g_stack_dispatch_dependency_position = 0u;
 }

@@ -19607,6 +19607,60 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             [],
         )
 
+    def test_vulkan_stack_region_dependency_graph_dump(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=2,
+            label_prefix="vision.synthetic.stack.region_dependency_graph",
+        )
+
+        graph_path = os.path.join(
+            TEST_FILE_DIR, "vulkan_stack_region_dependency_graph_test.json"
+        )
+        if os.path.exists(graph_path):
+            os.remove(graph_path)
+        previous = os.environ.get("PYTORCH_VULKAN_STACK_DEP_GRAPH")
+        os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
+        try:
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            with torch.inference_mode():
+                torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                    x,
+                    stack_context,
+                    [1],
+                )
+                torch.ops.vulkan_prepack.synchronize()
+
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            self.assertEqual(graph["schema"], "StackRegionDependencyGraph.v0")
+            self.assertTrue(graph["behavior_neutral"])
+            self.assertFalse(graph["summary"]["submit_elision_enabled"])
+            self.assertGreater(graph["summary"]["dispatch_nodes"], 0)
+            self.assertGreater(graph["summary"]["dependency_edge_rows"], 0)
+            self.assertIn("dispatch_nodes", graph)
+            self.assertIn("dependency_edges", graph)
+            self.assertIn("phase_boundary_nodes", graph)
+            self.assertTrue(
+                any(
+                    edge["fields"].get("producer_phase") == "residual2"
+                    for edge in graph["dependency_edges"]
+                )
+            )
+            self.assertIn(
+                "complete_boundary_dependency_set",
+                graph["unproven_or_missing_metadata_fields"],
+            )
+        finally:
+            if previous is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = previous
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+
     def test_vulkan_memory_and_linear_pack_residency_snapshots(self):
         torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
         weight = torch.randn(16, 8, dtype=torch.float32).to("vulkan")

@@ -80,6 +80,26 @@ artifacts:
 - budget fields: per-boundary bytes and per-region live-byte estimate
 - accept/reject reason for each boundary and each graph edge
 
+The initial behavior-neutral implementation is enabled with
+`PYTORCH_VULKAN_STACK_DEP_GRAPH=<path>`. It writes one JSON object to the path
+when a stack-owner recording scope ends. The v0 schema is
+`StackRegionDependencyGraph.v0` and contains:
+
+- `summary` counters for dispatch nodes, dependency edges, resource nodes,
+  allocation nodes, boundary nodes, capture edges, fully proven edge records,
+  and queue-submit boundary records
+- `dispatch_nodes`, `dependency_edges`, `capture_edges`, `resource_nodes`,
+  `allocation_nodes`, `phase_boundary_nodes`, and `region_lifetime_rows`
+- per-row `fields` maps parsed from the existing stack dispatch, lifetime,
+  and region attribution diagnostics
+- explicit `missing_metadata_fields` on dependency edges
+- `unproven_or_missing_metadata_fields` for graph-level gaps such as region id,
+  stack context id, bridge/session id, complete boundary dependency sets, and
+  capture consumer dispatch positions
+
+This dump is diagnostic only. It does not insert barriers, skip submits, change
+routes, or change accepted shapes.
+
 ## Barrier Plan Stage
 
 The first behavior stage is barrier planning only. It may insert a device-side
