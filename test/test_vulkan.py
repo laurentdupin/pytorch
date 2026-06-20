@@ -19682,16 +19682,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "consumer_dispatch_missing_reduced_records",
                 boundary_proof,
             )
+            self.assertIn("formal_last_use_planned_records", boundary_proof)
+            self.assertIn(
+                "formal_last_use_missing_reduced_records",
+                boundary_proof,
+            )
             self.assertTrue(boundary_proof["records"])
             self.assertIn("complete", boundary_proof["records"][0])
             self.assertIn(
                 "consumer_dispatch_proofs",
                 boundary_proof["records"][0],
             )
+            self.assertIn(
+                "formal_last_use_proofs",
+                boundary_proof["records"][0],
+            )
             self.assertTrue(
                 any(
                     edge["fields"].get("producer_phase") == "residual2"
                     and "consumer_dispatch_proof" in edge["fields"]
+                    and "formal_last_use_proof_source" in edge["fields"]
                     for edge in graph["dependency_edges"]
                 )
             )

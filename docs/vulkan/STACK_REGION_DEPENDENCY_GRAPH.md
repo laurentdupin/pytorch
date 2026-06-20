@@ -113,8 +113,10 @@ when a stack-owner recording scope ends. The v0 schema is
   complete status. It also records planned non-capture next-block Norm1
   consumer metadata separately from recorded consumer dispatch metadata, so the
   proof can show when the `consumer_dispatch` gap shrinks without making the
-  edge eligible for a BarrierPlan. It is proof-only and does not authorize a
-  submit skip.
+  edge eligible for a BarrierPlan. The same boundary proof records planned
+  non-capture `residual2 -> norm1` formal last-use metadata separately from
+  runtime stack-lifetime proof metadata. It is proof-only and does not
+  authorize a submit skip.
 
 This dump is diagnostic only. It does not insert barriers, skip submits, change
 routes, or change accepted shapes.

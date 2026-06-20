@@ -963,9 +963,12 @@ struct BoundaryCompleteProof final {
   uint64_t required_edge_bytes = 0u;
   uint64_t consumer_dispatch_planned_records = 0u;
   uint64_t consumer_dispatch_missing_reduced_records = 0u;
+  uint64_t formal_last_use_planned_records = 0u;
+  uint64_t formal_last_use_missing_reduced_records = 0u;
   std::map<std::string, uint64_t> edge_rejection_reasons;
   std::map<std::string, uint64_t> missing_fields;
   std::map<std::string, uint64_t> consumer_dispatch_proofs;
+  std::map<std::string, uint64_t> formal_last_use_proofs;
   std::map<std::string, BoundaryResourceClassSummary> retire_only_resources;
   std::map<std::string, BoundaryResourceClassSummary> ordering_required_resources;
   std::map<std::string, BoundaryResourceClassSummary> public_blockers;
@@ -1179,11 +1182,24 @@ void append_boundary_complete_proof_record(
       "consumer_dispatch_missing_reduced_records",
       proof.consumer_dispatch_missing_reduced_records,
       first);
+  append_json_u64(
+      out,
+      "formal_last_use_planned_records",
+      proof.formal_last_use_planned_records,
+      first);
+  append_json_u64(
+      out,
+      "formal_last_use_missing_reduced_records",
+      proof.formal_last_use_missing_reduced_records,
+      first);
   append_json_bool(out, "complete", complete, first);
   append_json_bool(out, "behavior_change_allowed", false, first);
   append_json_comma(out, first);
   out << "\"consumer_dispatch_proofs\":";
   append_u64_map_object(out, proof.consumer_dispatch_proofs);
+  append_json_comma(out, first);
+  out << "\"formal_last_use_proofs\":";
+  append_u64_map_object(out, proof.formal_last_use_proofs);
   append_json_comma(out, first);
   out << "\"edge_rejection_reasons\":";
   append_u64_map_object(out, proof.edge_rejection_reasons);
@@ -1244,6 +1260,12 @@ void append_boundary_complete_dependency_proof_json(
       proof.consumer_dispatch_proofs
           [field_or(fields, "consumer_dispatch_proof", "missing")] += count;
     }
+    if (field_or(fields, "formal_last_use_planned", "0") == "1") {
+      proof.formal_last_use_planned_records += count;
+      proof.formal_last_use_missing_reduced_records += count;
+    }
+    proof.formal_last_use_proofs
+        [field_or(fields, "formal_last_use_proof_source", "missing")] += count;
     const bool plannable = barrier_plan_record_is_plannable(fields);
     if (plannable) {
       proof.covered_edge_records += count;
@@ -1296,6 +1318,8 @@ void append_boundary_complete_dependency_proof_json(
   uint64_t covered_edge_records = 0u;
   uint64_t consumer_dispatch_planned_records = 0u;
   uint64_t consumer_dispatch_missing_reduced_records = 0u;
+  uint64_t formal_last_use_planned_records = 0u;
+  uint64_t formal_last_use_missing_reduced_records = 0u;
   std::map<std::string, uint64_t> blocker_reasons;
   for (const auto& item : proofs) {
     const auto& proof = item.second;
@@ -1305,6 +1329,9 @@ void append_boundary_complete_dependency_proof_json(
     consumer_dispatch_planned_records += proof.consumer_dispatch_planned_records;
     consumer_dispatch_missing_reduced_records +=
         proof.consumer_dispatch_missing_reduced_records;
+    formal_last_use_planned_records += proof.formal_last_use_planned_records;
+    formal_last_use_missing_reduced_records +=
+        proof.formal_last_use_missing_reduced_records;
     if (boundary_complete_proof_is_complete(proof)) {
       ++complete_boundaries;
     } else {
@@ -1355,6 +1382,16 @@ void append_boundary_complete_dependency_proof_json(
       out,
       "consumer_dispatch_missing_reduced_records",
       consumer_dispatch_missing_reduced_records,
+      proof_first);
+  append_json_u64(
+      out,
+      "formal_last_use_planned_records",
+      formal_last_use_planned_records,
+      proof_first);
+  append_json_u64(
+      out,
+      "formal_last_use_missing_reduced_records",
+      formal_last_use_missing_reduced_records,
       proof_first);
   append_json_u64(out, "barriers_inserted", 0u, proof_first);
   append_json_u64(out, "submits_removed", 0u, proof_first);
@@ -5512,6 +5549,20 @@ bool vision_stack_capture_dependency_contains_block(const int64_t block_index) {
   return false;
 }
 
+bool vision_stack_capture_dependency_between_blocks(
+    const int64_t producer_block,
+    const int64_t consumer_block) {
+  if (producer_block < 0 || consumer_block < 0) {
+    return true;
+  }
+  for (const int64_t capture_index : g_vision_stack_capture_indices) {
+    if (capture_index > producer_block && capture_index < consumer_block) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void begin_stack_dispatch_dependency_recording_scope() {
   g_stack_dispatch_dependency_scope_id =
       g_next_stack_dispatch_dependency_scope_id.fetch_add(
@@ -5601,6 +5652,25 @@ void note_stack_owner_dispatch_dependency_dry_run(
       provenance.expected_consumer_block_index ==
           provenance.block_index + 1 &&
       !vision_stack_capture_dependency_contains_block(provenance.block_index);
+  const bool capture_between_producer_and_consumer =
+      vision_stack_capture_dependency_between_blocks(
+          provenance.block_index, provenance.expected_consumer_block_index);
+  const bool planned_formal_last_use_proof =
+      consumer_dispatch_planned && provenance.has_last_use_proof &&
+      provenance.lifetime ==
+          VulkanStackTensorLifetimeClass::BlockOutputForNextBlock &&
+      provenance.phase == VulkanVisionStackPhase::Residual2 &&
+      provenance.producer_role == role &&
+      provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1 &&
+      provenance.expected_consumer_block_index == provenance.block_index + 1 &&
+      provenance.final_consumer_before_stack_submit &&
+      !capture_between_producer_and_consumer && !provenance.escapes_stack &&
+      !provenance.requested_intermediate && !provenance.final_output &&
+      !provenance.alias_or_view && !provenance.aliases_runtime_input &&
+      !provenance.aliases_runtime_output && provenance.direct_buffer &&
+      provenance.buffer_storage && !provenance.image_storage;
+  const bool dependency_formal_last_use_proof =
+      formal_last_use_proof || planned_formal_last_use_proof;
   const bool producer_descriptor_known = true;
   const bool consumer_descriptor_known =
       provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1 ||
@@ -5608,14 +5678,14 @@ void note_stack_owner_dispatch_dependency_dry_run(
           VulkanVisionStackPhase::IntermediateCapture;
   const bool fully_proven =
       allocation_proof.has_generation && allocation_proof.has_byte_range &&
-      allocation_proof.byte_range > 0u && formal_last_use_proof &&
+      allocation_proof.byte_range > 0u && dependency_formal_last_use_proof &&
       producer_dispatch_observed && consumer_dispatch_observed &&
       producer_descriptor_known && consumer_descriptor_known;
   const std::string reject_reason = stack_dispatch_dependency_reject_reason(
       true,
       allocation_proof.has_generation,
       allocation_proof.has_byte_range && allocation_proof.byte_range > 0u,
-      formal_last_use_proof,
+      dependency_formal_last_use_proof,
       producer_dispatch_observed,
       consumer_dispatch_observed,
       provenance.expected_consumer_phase);
@@ -5693,7 +5763,20 @@ void note_stack_owner_dispatch_dependency_dry_run(
       << (allocation_proof.has_byte_range ? 1 : 0)
       << " consumer_live_range_known="
       << (allocation_proof.has_byte_range ? 1 : 0)
-      << " formal_last_use_proof=" << (formal_last_use_proof ? 1 : 0)
+      << " formal_last_use_proof="
+      << (dependency_formal_last_use_proof ? 1 : 0)
+      << " formal_last_use_runtime_proof="
+      << (formal_last_use_proof ? 1 : 0)
+      << " formal_last_use_planned="
+      << (planned_formal_last_use_proof ? 1 : 0)
+      << " formal_last_use_proof_source="
+      << (formal_last_use_proof
+              ? "runtime_stack_lifetime"
+              : (planned_formal_last_use_proof
+                     ? "planned_non_capture_residual2_to_norm1"
+                     : "missing"))
+      << " capture_between_producer_and_consumer="
+      << (capture_between_producer_and_consumer ? 1 : 0)
       << " descriptor_binding_known="
       << (producer_descriptor_known && consumer_descriptor_known ? 1 : 0)
       << " fully_proven=" << (fully_proven ? 1 : 0)
