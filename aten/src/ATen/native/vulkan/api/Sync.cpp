@@ -19,6 +19,7 @@ namespace {
 thread_local VulkanVisionStackPhase g_vision_stack_phase =
     VulkanVisionStackPhase::Unknown;
 thread_local int64_t g_vision_stack_block_index = -1;
+thread_local std::vector<int64_t> g_vision_stack_capture_indices;
 thread_local VulkanSubmitPhase g_submit_phase = VulkanSubmitPhase::Unknown;
 thread_local VulkanRetiredResourceKind g_retired_resource_kind =
     VulkanRetiredResourceKind::Unknown;
@@ -260,6 +261,8 @@ constexpr const char* kDryRunProvenStackActivation =
     "proven_stack_activation";
 constexpr const char* kDryRunMissingStackActivationProof =
     "missing_stack_activation_proof";
+constexpr const char* kDryRunCaptureSensitiveStackActivation =
+    "capture_sensitive_stack_activation";
 constexpr const char* kDryRunAttentionSubresource =
     "attention_subresource";
 constexpr const char* kDryRunAttentionScoreProbabilitySubresource =
@@ -1055,6 +1058,9 @@ const char* stack_region_lifetime_missing_proof_reason(
   if (key == kDryRunHostVisibleOrRequestedOutput) {
     return "host_visible_or_requested_output";
   }
+  if (key == kDryRunCaptureSensitiveStackActivation) {
+    return "capture_sensitive_output_dependency";
+  }
   if (key == kDryRunAllocatorOrScratchBacking) {
     return "allocator_or_scratch_backing";
   }
@@ -1249,30 +1255,42 @@ bool stack_phase_has_reached_consumer(
       current_order >= consumer_order;
 }
 
+bool stack_activation_phase_boundary_carry_candidate(
+    const VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance) {
+  return role == VulkanRetiredResourceRole::StackResidual2Output &&
+      provenance.defined && provenance.has_last_use_proof &&
+      provenance.lifetime ==
+          VulkanStackTensorLifetimeClass::BlockOutputForNextBlock &&
+      provenance.phase == VulkanVisionStackPhase::Residual2 &&
+      provenance.producer_role == role && provenance.block_index >= 0 &&
+      provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1 &&
+      provenance.expected_consumer_block_index == provenance.block_index + 1 &&
+      provenance.final_consumer_before_stack_submit &&
+      !provenance.escapes_stack && !provenance.requested_intermediate &&
+      !provenance.final_output && !provenance.alias_or_view &&
+      !provenance.aliases_runtime_input &&
+      !provenance.aliases_runtime_output && provenance.direct_buffer &&
+      provenance.buffer_storage && !provenance.image_storage &&
+      current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
+      current_vision_stack_block_index() ==
+      provenance.expected_consumer_block_index;
+}
+
 bool stack_activation_phase_boundary_carry_proof(
     const VulkanRetiredResourceRole role,
     const VulkanStackRetireProvenance& provenance) {
-  if (
-      role != VulkanRetiredResourceRole::StackResidual2Output ||
-      !provenance.defined || !provenance.has_last_use_proof ||
-      provenance.lifetime !=
-          VulkanStackTensorLifetimeClass::BlockOutputForNextBlock ||
-      provenance.phase != VulkanVisionStackPhase::Residual2 ||
-      provenance.producer_role != role ||
-      provenance.block_index < 0 ||
-      provenance.expected_consumer_phase != VulkanVisionStackPhase::Norm1 ||
-      provenance.expected_consumer_block_index != provenance.block_index + 1 ||
-      !provenance.final_consumer_before_stack_submit ||
-      provenance.escapes_stack || provenance.requested_intermediate ||
-      provenance.final_output || provenance.alias_or_view ||
-      provenance.aliases_runtime_input || provenance.aliases_runtime_output ||
-      !provenance.direct_buffer || !provenance.buffer_storage ||
-      provenance.image_storage) {
+  if (!stack_activation_phase_boundary_carry_candidate(role, provenance)) {
     return false;
   }
-  return current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
-      current_vision_stack_block_index() ==
-      provenance.expected_consumer_block_index;
+  if (!vision_stack_capture_dependency_active()) {
+    return false;
+  }
+  if (vision_stack_capture_dependency_reaches_block(
+          provenance.expected_consumer_block_index)) {
+    return false;
+  }
+  return true;
 }
 
 bool is_stack_temp_role(const VulkanRetiredResourceRole role) {
@@ -1415,6 +1433,16 @@ VulkanVisionStackBlockScope::VulkanVisionStackBlockScope(
 
 VulkanVisionStackBlockScope::~VulkanVisionStackBlockScope() {
   g_vision_stack_block_index = previous_;
+}
+
+VulkanVisionStackCaptureScope::VulkanVisionStackCaptureScope(
+    std::vector<int64_t> capture_indices)
+    : previous_(std::move(g_vision_stack_capture_indices)) {
+  g_vision_stack_capture_indices = std::move(capture_indices);
+}
+
+VulkanVisionStackCaptureScope::~VulkanVisionStackCaptureScope() {
+  g_vision_stack_capture_indices = std::move(previous_);
 }
 
 void reset_vulkan_sync_counters() {
@@ -3402,6 +3430,13 @@ const char* stack_subresource_lifetime_dry_run_resource_class(
     }
     return kDryRunRawNoProvenance;
   }
+  if (
+      stack_activation_phase_boundary_carry_candidate(role, provenance) &&
+      vision_stack_capture_dependency_active() &&
+      vision_stack_capture_dependency_reaches_block(
+          provenance.expected_consumer_block_index)) {
+    return kDryRunCaptureSensitiveStackActivation;
+  }
   if (is_stack_temp_role(role)) {
     return kDryRunMissingStackActivationProof;
   }
@@ -4226,6 +4261,23 @@ int64_t current_vision_stack_block_index() {
 
 bool inside_vision_stack_phase() {
   return g_vision_stack_phase != VulkanVisionStackPhase::Unknown;
+}
+
+bool vision_stack_capture_dependency_active() {
+  return !g_vision_stack_capture_indices.empty();
+}
+
+bool vision_stack_capture_dependency_reaches_block(
+    const int64_t block_index) {
+  if (block_index < 0) {
+    return true;
+  }
+  for (const int64_t capture_index : g_vision_stack_capture_indices) {
+    if (capture_index >= block_index) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void note_vulkan_stack_dispatch(const char* shader_name) {

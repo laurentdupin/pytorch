@@ -8520,6 +8520,7 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
         context->blocks().size(),
         " contexts");
   }
+  api::VulkanVisionStackCaptureScope capture_scope(capture_indices_vec);
 
   const std::vector<int64_t> plan_capture_indices =
       private_device_consumer_bridge && !preserve_private_captures_in_plan

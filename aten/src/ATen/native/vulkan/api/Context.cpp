@@ -1540,7 +1540,7 @@ VulkanSubmission Context::submit_cmd_to_gpu(
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
   const bool had_cmd = static_cast<bool>(cmd_);
-  constexpr bool kCoalescePhaseBoundaryExplicitSync = false;
+  constexpr bool kCoalescePhaseBoundaryExplicitSync = true;
   constexpr uint64_t kStackActivationPhaseBoundaryLifetimeBlockBudgetBytes =
       5u * 1024u * 1024u;
   constexpr uint64_t kStackActivationPhaseBoundaryLifetimeScopeBudgetBytes =

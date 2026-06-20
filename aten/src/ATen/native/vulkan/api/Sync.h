@@ -78,6 +78,19 @@ class TORCH_API VulkanVisionStackBlockScope final {
   int64_t previous_;
 };
 
+class TORCH_API VulkanVisionStackCaptureScope final {
+ public:
+  explicit VulkanVisionStackCaptureScope(std::vector<int64_t> capture_indices);
+  ~VulkanVisionStackCaptureScope();
+
+  VulkanVisionStackCaptureScope(const VulkanVisionStackCaptureScope&) = delete;
+  VulkanVisionStackCaptureScope& operator=(
+      const VulkanVisionStackCaptureScope&) = delete;
+
+ private:
+  std::vector<int64_t> previous_;
+};
+
 struct VulkanSyncCounters final {
   std::atomic<uint64_t> compute_dispatch_count{0u};
   std::atomic<uint64_t> submit_compute_job_count{0u};
@@ -792,6 +805,9 @@ TORCH_API const char* stack_tensor_lifetime_name(
 TORCH_API VulkanVisionStackPhase current_vision_stack_phase();
 TORCH_API int64_t current_vision_stack_block_index();
 TORCH_API bool inside_vision_stack_phase();
+TORCH_API bool vision_stack_capture_dependency_active();
+TORCH_API bool vision_stack_capture_dependency_reaches_block(
+    int64_t block_index);
 
 TORCH_API void note_vulkan_stack_dispatch(const char* shader_name);
 TORCH_API void note_vulkan_stack_allocation(
