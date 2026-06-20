@@ -164,6 +164,17 @@ when a stack-owner recording scope ends. The v0 schema is
   edge has same-region consumer and allocation/range proof, but
   `full_boundary_complete_boundaries` stays separate and remains zero until
   all non-capture ordering resources and boundary blockers are proven.
+- a nested `stack_activation_capture_proof` object with schema
+  `StackActivationCaptureProof.v0`. This is a bridge-private-only proof surface
+  for capture-sensitive residual2 activations at requested intermediate capture
+  boundaries. It records stack owner scope, producer block/substep/role,
+  allocation id/generation/range, same-region bridge registration,
+  capture-boundary dependency-set membership, direct-buffer storage, and
+  alias/runtime-alias flags. Public `Tensor[]` capture scope stays rejected.
+  A proof-complete activation record only moves the root blocker from
+  `missing_stack_activation_proof` or `capture_sensitive_stack_activation` to
+  the next explicit boundary blocker; it does not insert a barrier or remove a
+  submit.
 
 This dump is diagnostic only. It does not insert barriers, skip submits, change
 routes, or change accepted shapes.

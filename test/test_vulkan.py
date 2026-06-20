@@ -19835,6 +19835,16 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 capture_dependency_set["full_boundary_complete_boundaries"], 0
             )
+            self.assertIn("stack_activation_capture_proof", graph)
+            activation_capture_proof = graph["stack_activation_capture_proof"]
+            self.assertEqual(
+                activation_capture_proof["schema"],
+                "StackActivationCaptureProof.v0",
+            )
+            self.assertTrue(activation_capture_proof["behavior_neutral"])
+            self.assertTrue(activation_capture_proof["dry_run_only"])
+            self.assertEqual(activation_capture_proof["barriers_inserted"], 0)
+            self.assertEqual(activation_capture_proof["submits_removed"], 0)
             self.assertIn(
                 "consumer_dispatch_planned_records",
                 boundary_proof,
@@ -27362,6 +27372,55 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     == "same_region_device_consumer_registered"
                     and record["python_public_boundary_before_consumption"] is False
                     for record in capture_contract["records"]
+                )
+            )
+            activation_capture_proof = graph["stack_activation_capture_proof"]
+            self.assertEqual(
+                activation_capture_proof["schema"],
+                "StackActivationCaptureProof.v0",
+            )
+            self.assertEqual(activation_capture_proof["barriers_inserted"], 0)
+            self.assertEqual(activation_capture_proof["submits_removed"], 0)
+            self.assertGreater(
+                activation_capture_proof["bridge_private_capture_records"], 0
+            )
+            self.assertGreater(
+                activation_capture_proof["proof_complete_records"], 0
+            )
+            self.assertEqual(
+                activation_capture_proof[
+                    "missing_stack_activation_proof_after_records"
+                ],
+                0,
+            )
+            self.assertEqual(
+                activation_capture_proof[
+                    "capture_sensitive_stack_activation_after_records"
+                ],
+                0,
+            )
+            self.assertEqual(
+                activation_capture_proof["unsafe_resource_class_after_records"],
+                0,
+            )
+            self.assertTrue(activation_capture_proof["records"])
+            self.assertTrue(
+                any(
+                    record["capture_scope"] == "bridge_private_capture"
+                    and record["proof_complete"]
+                    and record["same_region_consumer_registered"]
+                    and not record["final_output"]
+                    and not record["alias_or_view"]
+                    and not record["aliases_runtime_input"]
+                    and not record["aliases_runtime_output"]
+                    for record in activation_capture_proof["records"]
+                )
+            )
+            self.assertTrue(
+                all(
+                    record["accept_reject_reason"].startswith("missing_")
+                    for record in activation_capture_proof["records"]
+                    if not record["proof_complete"]
                 )
             )
         finally:

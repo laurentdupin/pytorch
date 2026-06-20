@@ -2430,9 +2430,18 @@ struct CaptureBoundaryDependencySetProof final {
   uint64_t bridge_private_capture_proof_complete_records = 0u;
   uint64_t mixed_scope_rejected_records = 0u;
   uint64_t queue_submit_records = 0u;
+  uint64_t stack_activation_capture_candidate_records = 0u;
+  uint64_t stack_activation_capture_proof_complete_records = 0u;
+  uint64_t stack_activation_capture_public_rejected_records = 0u;
   std::map<std::string, uint64_t> boundary_reject_reasons;
+  std::map<std::string, uint64_t> stack_activation_capture_reject_reasons;
   std::map<std::string, BoundaryResourceClassSummary> boundary_resources;
+  std::map<std::string, BoundaryResourceClassSummary>
+      stack_activation_capture_before_blockers;
+  std::map<std::string, BoundaryResourceClassSummary>
+      stack_activation_capture_after_blockers;
   std::map<std::string, BoundaryResourceClassSummary> remaining_full_boundary_blockers;
+  std::vector<std::string> stack_activation_capture_edge_rows;
   std::vector<std::string> boundary_rows;
 };
 
@@ -2633,6 +2642,108 @@ bool capture_boundary_dependency_set_combined_complete(
       proof.mixed_scope_rejected_records == 0u && proof.public_capture_records == 0u;
 }
 
+bool stack_activation_capture_proof_complete(
+    const CaptureBoundaryDependencySetProof& proof) {
+  return proof.required_capture_edge_records > 0u &&
+      proof.stack_activation_capture_proof_complete_records ==
+      proof.required_capture_edge_records &&
+      capture_boundary_dependency_set_bridge_private_complete(proof);
+}
+
+bool field_is_true(
+    const std::map<std::string, std::string>& fields,
+    const char* key) {
+  return field_or(fields, key, "0") == "1";
+}
+
+std::vector<std::string> missing_stack_activation_capture_proof_fields(
+    const std::map<std::string, std::string>& fields,
+    const CaptureAllocationSummary& bridge_private_summary,
+    const StackOutputDeviceConsumerRegistrationSummary* const registration,
+    const bool capture_dependency_set_member,
+    const bool bridge_private_dependency_set_complete) {
+  std::vector<std::string> missing;
+  const auto missing_if_not_true = [&fields, &missing](const char* key) {
+    if (!field_is_true(fields, key)) {
+      missing.emplace_back(key);
+    }
+  };
+  if (bridge_private_summary.private_bridge_capture_count == 0u) {
+    missing.emplace_back("bridge_private_capture_scope");
+  }
+  if (!capture_consumer_registration_accepts_same_region(registration)) {
+    missing.emplace_back("same_region_device_consumer_registration");
+  }
+  if (!capture_dependency_set_member) {
+    missing.emplace_back("capture_boundary_dependency_set_membership");
+  }
+  if (!bridge_private_dependency_set_complete) {
+    missing.emplace_back("bridge_private_capture_dependency_set_complete");
+  }
+  if (field_or(fields, "producer_phase", "unknown") != "residual2") {
+    missing.emplace_back("producer_residual2_substep");
+  }
+  if (field_or(fields, "role", "unknown") != "stack_residual2_output") {
+    missing.emplace_back("stack_residual2_output_role");
+  }
+  if (field_or(fields, "consumer_phase", "unknown") != "intermediate_capture") {
+    missing.emplace_back("intermediate_capture_consumer");
+  }
+  if (field_or(fields, "producer_block", "unknown") !=
+      field_or(fields, "consumer_block", "unknown")) {
+    missing.emplace_back("same_block_capture_relation");
+  }
+  if (field_or(fields, "scope_id", "0") == "0") {
+    missing.emplace_back("stack_owner_scope_id");
+  }
+  if (!field_is_true(fields, "stack_provenance_defined")) {
+    missing.emplace_back("stack_provenance_defined");
+  }
+  missing_if_not_true("allocation_has_generation");
+  missing_if_not_true("allocation_has_byte_range");
+  if (parsed_u64(fields, "byte_range") == 0u) {
+    missing.emplace_back("nonzero_byte_range");
+  }
+  missing_if_not_true("producer_dispatch_observed");
+  missing_if_not_true("producer_live_range_known");
+  missing_if_not_true("consumer_live_range_known");
+  missing_if_not_true("descriptor_binding_known");
+  missing_if_not_true("direct_buffer");
+  missing_if_not_true("buffer_storage");
+  if (field_is_true(fields, "image_storage")) {
+    missing.emplace_back("non_image_storage");
+  }
+  if (field_is_true(fields, "final_output")) {
+    missing.emplace_back("not_final_output");
+  }
+  if (field_is_true(fields, "alias_or_view")) {
+    missing.emplace_back("no_alias_or_view");
+  }
+  if (field_is_true(fields, "aliases_runtime_input")) {
+    missing.emplace_back("no_runtime_input_alias");
+  }
+  if (field_is_true(fields, "aliases_runtime_output")) {
+    missing.emplace_back("no_runtime_output_alias");
+  }
+  if (
+      registration &&
+      (registration->python_public_boundary_before_consumption ||
+       registration->host_visible_boundary_before_consumption ||
+       registration->host_visible_access_before_consumption ||
+       registration->host_readback_before_consumption)) {
+    missing.emplace_back("no_public_or_host_visible_boundary");
+  }
+  return missing;
+}
+
+std::string stack_activation_capture_reject_reason(
+    const std::vector<std::string>& missing) {
+  if (missing.empty()) {
+    return "complete";
+  }
+  return "missing_" + missing.front();
+}
+
 void append_capture_boundary_dependency_set_record(
     std::ostream& out,
     const CaptureBoundaryDependencySetProof& proof) {
@@ -2640,6 +2751,8 @@ void append_capture_boundary_dependency_set_record(
       capture_boundary_dependency_set_bridge_private_complete(proof);
   const bool combined_complete =
       capture_boundary_dependency_set_combined_complete(proof);
+  const bool activation_capture_complete =
+      stack_activation_capture_proof_complete(proof);
   bool first = true;
   out << '{';
   append_json_string(out, "boundary_id", proof.boundary_id, first);
@@ -2691,14 +2804,45 @@ void append_capture_boundary_dependency_set_record(
       "bridge_private_capture_dependency_set_complete",
       bridge_private_complete,
       first);
+  append_json_bool(
+      out,
+      "stack_activation_capture_proof_complete",
+      activation_capture_complete,
+      first);
+  append_json_u64(
+      out,
+      "stack_activation_capture_candidate_records",
+      proof.stack_activation_capture_candidate_records,
+      first);
+  append_json_u64(
+      out,
+      "stack_activation_capture_proof_complete_records",
+      proof.stack_activation_capture_proof_complete_records,
+      first);
+  append_json_u64(
+      out,
+      "stack_activation_capture_public_rejected_records",
+      proof.stack_activation_capture_public_rejected_records,
+      first);
   append_json_bool(out, "full_boundary_complete", false, first);
   append_json_bool(out, "behavior_change_allowed", false, first);
   append_json_comma(out, first);
   out << "\"boundary_resources\":";
   append_resource_class_summary_object(out, proof.boundary_resources);
   append_json_comma(out, first);
+  out << "\"stack_activation_capture_before_blockers\":";
+  append_resource_class_summary_object(
+      out, proof.stack_activation_capture_before_blockers);
+  append_json_comma(out, first);
+  out << "\"stack_activation_capture_after_blockers\":";
+  append_resource_class_summary_object(
+      out, proof.stack_activation_capture_after_blockers);
+  append_json_comma(out, first);
   out << "\"remaining_full_boundary_blockers\":";
   append_resource_class_summary_object(out, proof.remaining_full_boundary_blockers);
+  append_json_comma(out, first);
+  out << "\"stack_activation_capture_reject_reasons\":";
+  append_u64_map_object(out, proof.stack_activation_capture_reject_reasons);
   append_json_comma(out, first);
   out << "\"boundary_reject_reasons\":";
   append_u64_map_object(out, proof.boundary_reject_reasons);
@@ -2709,6 +2853,310 @@ void append_capture_boundary_dependency_set_record(
       out << ',';
     }
     append_graph_row_object(out, proof.boundary_rows[i], "phase_boundary");
+  }
+  out << "]}";
+}
+
+void append_stack_activation_capture_edge_record(
+    std::ostream& out,
+    const std::string& row,
+    const CaptureBoundaryDependencySetProof& proof,
+    const std::map<std::string, CaptureAllocationSummary>& summaries,
+    const std::map<std::string, StackOutputDeviceConsumerRegistrationSummary>&
+        registrations,
+    const size_t index) {
+  const auto fields = parse_space_separated_fields(row);
+  const std::string capture_block = field_or(fields, "consumer_block", "unknown");
+  const auto summary_it = summaries.find(capture_block);
+  const CaptureAllocationSummary empty_summary;
+  const CaptureAllocationSummary& raw_summary =
+      summary_it == summaries.end() ? empty_summary : summary_it->second;
+  const CaptureAllocationSummary bridge_private_summary =
+      capture_scope_summary(raw_summary, CaptureOutputBoundaryScope::BridgePrivateCapture);
+  const auto registration_it = registrations.find(
+      stack_output_device_consumer_registration_key(
+          capture_block, field_or(fields, "role", "unknown")));
+  const StackOutputDeviceConsumerRegistrationSummary* const registration =
+      registration_it == registrations.end() ? nullptr : &registration_it->second;
+  const std::vector<std::string> missing =
+      missing_stack_activation_capture_proof_fields(
+          fields,
+          bridge_private_summary,
+          registration,
+          !proof.boundary_rows.empty(),
+          capture_boundary_dependency_set_bridge_private_complete(proof));
+  const bool proof_complete = missing.empty();
+  bool first = true;
+  out << '{';
+  append_json_string(
+      out,
+      "record_id",
+      "stack_activation_capture_edge_" + std::to_string(index),
+      first);
+  append_json_string(out, "contract", "StackActivationCaptureProof", first);
+  append_json_string(
+      out, "capture_scope", "bridge_private_capture", first);
+  append_json_string(
+      out, "boundary_id", proof.boundary_id, first);
+  append_json_string(
+      out, "producer_block", field_or(fields, "producer_block", "unknown"), first);
+  append_json_string(
+      out,
+      "producer_substep",
+      field_or(fields, "producer_phase", "unknown"),
+      first);
+  append_json_string(
+      out, "producer_role", field_or(fields, "role", "unknown"), first);
+  append_json_string(out, "capture_block", capture_block, first);
+  append_json_string(
+      out,
+      "capture_substep",
+      field_or(fields, "consumer_phase", "unknown"),
+      first);
+  append_json_string(
+      out,
+      "capture_output_role",
+      field_or(fields, "consumer_descriptor_role", "unknown"),
+      first);
+  append_json_string(out, "stack_owner_scope_id", field_or(fields, "scope_id", "0"), first);
+  append_json_string(
+      out,
+      "stack_context_id",
+      registration ? registration->stack_context_id : "missing",
+      first);
+  append_json_string(
+      out,
+      "stack_session_id",
+      registration ? registration->stack_session_id : "missing",
+      first);
+  append_json_string(
+      out,
+      "stack_plan_id",
+      registration ? registration->stack_plan_id : "missing",
+      first);
+  append_json_string(
+      out,
+      "allocation_id",
+      field_or(fields, "allocation_id", "unknown"),
+      first);
+  append_json_string(
+      out,
+      "allocation_generation",
+      field_or(fields, "allocation_generation", "unknown"),
+      first);
+  append_json_string(
+      out, "byte_offset", field_or(fields, "byte_offset", "unknown"), first);
+  append_json_string(
+      out, "byte_range", field_or(fields, "byte_range", "unknown"), first);
+  append_json_string(out, "bytes", field_or(fields, "bytes", "unknown"), first);
+  append_json_bool(
+      out,
+      "allocation_generation_proven",
+      field_is_true(fields, "allocation_has_generation"),
+      first);
+  append_json_bool(
+      out,
+      "allocation_range_proven",
+      field_is_true(fields, "allocation_has_byte_range"),
+      first);
+  append_json_bool(
+      out,
+      "same_region_consumer_registered",
+      capture_consumer_registration_accepts_same_region(registration),
+      first);
+  append_json_string(
+      out,
+      "consumer_registration_accept_reject_reason",
+      capture_consumer_registration_reason(registration),
+      first);
+  append_json_bool(
+      out,
+      "capture_boundary_dependency_set_member",
+      !proof.boundary_rows.empty(),
+      first);
+  append_json_bool(
+      out,
+      "bridge_private_capture_dependency_set_complete",
+      capture_boundary_dependency_set_bridge_private_complete(proof),
+      first);
+  append_json_bool(
+      out,
+      "public_tensor_array_capture_observed",
+      bridge_private_summary.public_capture_count > 0u,
+      first);
+  append_json_bool(
+      out,
+      "private_bridge_internal_capture_observed",
+      bridge_private_summary.private_bridge_capture_count > 0u,
+      first);
+  append_json_bool(
+      out,
+      "python_public_boundary_before_consumption",
+      !registration || registration->python_public_boundary_before_consumption,
+      first);
+  append_json_bool(
+      out,
+      "host_visible_boundary_before_consumption",
+      !registration || registration->host_visible_boundary_before_consumption,
+      first);
+  append_json_bool(
+      out,
+      "host_visible_access_before_consumption",
+      !registration || registration->host_visible_access_before_consumption,
+      first);
+  append_json_bool(
+      out,
+      "host_readback_before_consumption",
+      !registration || registration->host_readback_before_consumption,
+      first);
+  append_json_bool(
+      out,
+      "stack_provenance_defined",
+      field_is_true(fields, "stack_provenance_defined"),
+      first);
+  append_json_string(
+      out, "stack_lifetime", field_or(fields, "stack_lifetime", "missing"), first);
+  append_json_bool(out, "direct_buffer", field_is_true(fields, "direct_buffer"), first);
+  append_json_bool(out, "buffer_storage", field_is_true(fields, "buffer_storage"), first);
+  append_json_bool(out, "image_storage", field_is_true(fields, "image_storage"), first);
+  append_json_bool(out, "source_escapes_stack", field_is_true(fields, "escapes_stack"), first);
+  append_json_bool(out, "requested_intermediate", field_is_true(fields, "requested_intermediate"), first);
+  append_json_bool(out, "final_output", field_is_true(fields, "final_output"), first);
+  append_json_bool(out, "alias_or_view", field_is_true(fields, "alias_or_view"), first);
+  append_json_bool(
+      out,
+      "aliases_runtime_input",
+      field_is_true(fields, "aliases_runtime_input"),
+      first);
+  append_json_bool(
+      out,
+      "aliases_runtime_output",
+      field_is_true(fields, "aliases_runtime_output"),
+      first);
+  append_json_bool(out, "proof_complete", proof_complete, first);
+  append_json_string(
+      out,
+      "accept_reject_reason",
+      stack_activation_capture_reject_reason(missing),
+      first);
+  append_json_string_array(out, "missing_proof_fields", missing, first);
+  append_json_comma(out, first);
+  out << "\"source_edge_fields\":";
+  append_json_fields_object(out, fields);
+  out << '}';
+}
+
+void append_stack_activation_capture_proof_json(
+    std::ostream& out,
+    const std::map<std::string, CaptureBoundaryDependencySetProof>& proofs,
+    const std::map<std::string, CaptureAllocationSummary>& summaries,
+    const std::map<std::string, StackOutputDeviceConsumerRegistrationSummary>&
+        registrations,
+    const uint64_t missing_stack_activation_before_records,
+    const uint64_t missing_stack_activation_after_records,
+    const uint64_t capture_sensitive_before_records,
+    const uint64_t capture_sensitive_after_records,
+    const uint64_t unsafe_resource_class_before_records,
+    const uint64_t unsafe_resource_class_after_records,
+    bool& first) {
+  uint64_t candidate_records = 0u;
+  uint64_t bridge_private_records = 0u;
+  uint64_t proof_complete_records = 0u;
+  uint64_t public_scope_rejected_records = 0u;
+  uint64_t capture_dependency_member_records = 0u;
+  std::map<std::string, uint64_t> reject_reasons;
+  for (const auto& item : proofs) {
+    const auto& proof = item.second;
+    candidate_records += proof.stack_activation_capture_candidate_records;
+    bridge_private_records += proof.bridge_private_capture_records;
+    proof_complete_records +=
+        proof.stack_activation_capture_proof_complete_records;
+    public_scope_rejected_records +=
+        proof.stack_activation_capture_public_rejected_records;
+    if (!proof.boundary_rows.empty()) {
+      capture_dependency_member_records +=
+          proof.stack_activation_capture_candidate_records;
+    }
+    for (const auto& reason : proof.stack_activation_capture_reject_reasons) {
+      reject_reasons[reason.first] += reason.second;
+    }
+  }
+
+  append_json_comma(out, first);
+  out << "\"stack_activation_capture_proof\":{";
+  bool proof_first = true;
+  append_json_string(
+      out, "schema", "StackActivationCaptureProof.v0", proof_first);
+  append_json_bool(out, "behavior_neutral", true, proof_first);
+  append_json_bool(out, "dry_run_only", true, proof_first);
+  append_json_string(
+      out,
+      "target_boundary_class",
+      "bridge_private_capture_residual2_activation",
+      proof_first);
+  append_json_u64(out, "candidate_records", candidate_records, proof_first);
+  append_json_u64(
+      out, "bridge_private_capture_records", bridge_private_records, proof_first);
+  append_json_u64(
+      out,
+      "capture_dependency_set_member_records",
+      capture_dependency_member_records,
+      proof_first);
+  append_json_u64(
+      out, "proof_complete_records", proof_complete_records, proof_first);
+  append_json_u64(
+      out,
+      "public_scope_rejected_records",
+      public_scope_rejected_records,
+      proof_first);
+  append_json_u64(
+      out,
+      "missing_stack_activation_proof_before_records",
+      missing_stack_activation_before_records,
+      proof_first);
+  append_json_u64(
+      out,
+      "missing_stack_activation_proof_after_records",
+      missing_stack_activation_after_records,
+      proof_first);
+  append_json_u64(
+      out,
+      "capture_sensitive_stack_activation_before_records",
+      capture_sensitive_before_records,
+      proof_first);
+  append_json_u64(
+      out,
+      "capture_sensitive_stack_activation_after_records",
+      capture_sensitive_after_records,
+      proof_first);
+  append_json_u64(
+      out,
+      "unsafe_resource_class_before_records",
+      unsafe_resource_class_before_records,
+      proof_first);
+  append_json_u64(
+      out,
+      "unsafe_resource_class_after_records",
+      unsafe_resource_class_after_records,
+      proof_first);
+  append_json_u64(out, "barriers_inserted", 0u, proof_first);
+  append_json_u64(out, "submits_removed", 0u, proof_first);
+  append_json_comma(out, proof_first);
+  out << "\"reject_reasons\":";
+  append_u64_map_object(out, reject_reasons);
+  append_json_comma(out, proof_first);
+  out << "\"records\":[";
+  bool first_record = true;
+  size_t index = 0u;
+  for (const auto& item : proofs) {
+    for (const auto& row : item.second.stack_activation_capture_edge_rows) {
+      if (!first_record) {
+        out << ',';
+      }
+      first_record = false;
+      append_stack_activation_capture_edge_record(
+          out, row, item.second, summaries, registrations, index++);
+    }
   }
   out << "]}";
 }
@@ -2748,9 +3196,12 @@ void append_capture_boundary_dependency_set_json(
         field_or(fields, "allocation_has_byte_range", "0") == "1";
     if (summary.public_capture_count > 0u) {
       proof.public_capture_records += count;
+      proof.stack_activation_capture_public_rejected_records += count;
     }
     if (summary.private_bridge_capture_count > 0u) {
       proof.bridge_private_capture_records += count;
+      proof.stack_activation_capture_candidate_records += count;
+      proof.stack_activation_capture_edge_rows.emplace_back(row);
     }
     if (
         summary.public_capture_count > 0u &&
@@ -2838,10 +3289,30 @@ void append_capture_boundary_dependency_set_json(
               resource_class,
               resource_count,
               resource_bytes);
+          const bool activation_capture_complete =
+              stack_activation_capture_proof_complete(proof);
+          if (
+              resource_class == kDryRunMissingStackActivationProof ||
+              resource_class == kDryRunCaptureSensitiveStackActivation) {
+            add_boundary_resource_class(
+                proof.stack_activation_capture_before_blockers,
+                resource_class,
+                resource_count,
+                resource_bytes);
+            if (!activation_capture_complete) {
+              add_boundary_resource_class(
+                  proof.stack_activation_capture_after_blockers,
+                  resource_class,
+                  resource_count,
+                  resource_bytes);
+            }
+          }
           if (
               !signature_resource_class_is_retire_only(resource_class) &&
-              (resource_class != "capture_sensitive_stack_activation" ||
-               !capture_boundary_dependency_set_bridge_private_complete(proof))) {
+              (resource_class != kDryRunMissingStackActivationProof ||
+               !activation_capture_complete) &&
+              (resource_class != kDryRunCaptureSensitiveStackActivation ||
+               !activation_capture_complete)) {
             add_boundary_resource_class(
                 proof.remaining_full_boundary_blockers,
                 resource_class,
@@ -2858,6 +3329,173 @@ void append_capture_boundary_dependency_set_json(
       if (budget_reject != "none") {
         proof.boundary_reject_reasons["budget_reject:" + budget_reject] +=
             parsed_u64(fields, "count");
+        if (
+            budget_reject == "unsafe_resource_class" &&
+            stack_activation_capture_proof_complete(proof)) {
+          const uint64_t reject_count = parsed_u64(fields, "count");
+          add_boundary_resource_class(
+              proof.stack_activation_capture_before_blockers,
+              "unsafe_resource_class",
+              reject_count,
+              parsed_u64(fields, "bytes"));
+          add_boundary_resource_class(
+              proof.stack_activation_capture_after_blockers,
+              "phase_boundary_budget_recompute_required",
+              reject_count,
+              parsed_u64(fields, "bytes"));
+        }
+      }
+      const std::string blockers = field_or(fields, "blockers", "none");
+      if (blockers != "none") {
+        proof.boundary_reject_reasons["blockers:" + blockers] +=
+            parsed_u64(fields, "count");
+      }
+    }
+  }
+
+  for (auto& item : proofs) {
+    auto& proof = item.second;
+    proof.stack_activation_capture_proof_complete_records = 0u;
+    proof.stack_activation_capture_reject_reasons.clear();
+    for (const auto& row : proof.stack_activation_capture_edge_rows) {
+      const auto fields = parse_space_separated_fields(row);
+      const uint64_t count = parsed_u64(fields, "count");
+      const std::string capture_block =
+          field_or(fields, "consumer_block", "unknown");
+      const auto summary_it = summaries.find(capture_block);
+      const CaptureAllocationSummary empty_summary;
+      const CaptureAllocationSummary& raw_summary =
+          summary_it == summaries.end() ? empty_summary : summary_it->second;
+      const CaptureAllocationSummary bridge_private_summary =
+          capture_scope_summary(
+              raw_summary, CaptureOutputBoundaryScope::BridgePrivateCapture);
+      const auto registration_it = registrations.find(
+          stack_output_device_consumer_registration_key(
+              capture_block, field_or(fields, "role", "unknown")));
+      const StackOutputDeviceConsumerRegistrationSummary* const registration =
+          registration_it == registrations.end() ? nullptr : &registration_it->second;
+      const std::vector<std::string> activation_missing_fields =
+          missing_stack_activation_capture_proof_fields(
+              fields,
+              bridge_private_summary,
+              registration,
+              !proof.boundary_rows.empty(),
+              capture_boundary_dependency_set_bridge_private_complete(proof));
+      const std::string activation_reason =
+          stack_activation_capture_reject_reason(activation_missing_fields);
+      if (activation_reason == "complete") {
+        proof.stack_activation_capture_proof_complete_records += count;
+      } else {
+        proof.stack_activation_capture_reject_reasons[activation_reason] += count;
+      }
+    }
+  }
+
+  for (auto& item : proofs) {
+    auto& proof = item.second;
+    proof.boundary_reject_reasons.clear();
+    proof.boundary_resources.clear();
+    proof.stack_activation_capture_before_blockers.clear();
+    proof.stack_activation_capture_after_blockers.clear();
+    proof.remaining_full_boundary_blockers.clear();
+    for (const auto& row : proof.boundary_rows) {
+      const auto fields = parse_space_separated_fields(row);
+      const uint64_t boundary_count =
+          std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+      const auto signature = fields.find("signature");
+      if (signature != fields.end()) {
+        std::istringstream stream(signature->second);
+        std::string token;
+        while (std::getline(stream, token, ',')) {
+          if (token.empty()) {
+            continue;
+          }
+          const size_t first_hash = token.find('#');
+          const size_t second_hash =
+              first_hash == std::string::npos
+              ? std::string::npos
+              : token.find('#', first_hash + 1u);
+          if (first_hash == std::string::npos ||
+              second_hash == std::string::npos) {
+            proof.boundary_reject_reasons["malformed_boundary_signature"] +=
+                boundary_count;
+            continue;
+          }
+          const std::string resource_class = token.substr(0, first_hash);
+          uint64_t resource_count = 0u;
+          uint64_t resource_bytes = 0u;
+          try {
+            resource_count = static_cast<uint64_t>(std::stoull(token.substr(
+                first_hash + 1u, second_hash - first_hash - 1u)));
+            resource_bytes = static_cast<uint64_t>(
+                std::stoull(token.substr(second_hash + 1u)));
+          } catch (...) {
+            proof.boundary_reject_reasons["malformed_boundary_signature"] +=
+                boundary_count;
+            continue;
+          }
+          resource_count *= boundary_count;
+          resource_bytes *= boundary_count;
+          add_boundary_resource_class(
+              proof.boundary_resources,
+              resource_class,
+              resource_count,
+              resource_bytes);
+          const bool activation_capture_complete =
+              stack_activation_capture_proof_complete(proof);
+          if (
+              resource_class == kDryRunMissingStackActivationProof ||
+              resource_class == kDryRunCaptureSensitiveStackActivation) {
+            add_boundary_resource_class(
+                proof.stack_activation_capture_before_blockers,
+                resource_class,
+                resource_count,
+                resource_bytes);
+            if (!activation_capture_complete) {
+              add_boundary_resource_class(
+                  proof.stack_activation_capture_after_blockers,
+                  resource_class,
+                  resource_count,
+                  resource_bytes);
+            }
+          }
+          if (
+              !signature_resource_class_is_retire_only(resource_class) &&
+              (resource_class != kDryRunMissingStackActivationProof ||
+               !activation_capture_complete) &&
+              (resource_class != kDryRunCaptureSensitiveStackActivation ||
+               !activation_capture_complete)) {
+            add_boundary_resource_class(
+                proof.remaining_full_boundary_blockers,
+                resource_class,
+                resource_count,
+                resource_bytes);
+          }
+        }
+      } else {
+        proof.boundary_reject_reasons["missing_boundary_signature"] +=
+            boundary_count;
+      }
+      const std::string budget_reject =
+          field_or(fields, "budget_reject", "missing_budget_reject");
+      if (budget_reject != "none") {
+        proof.boundary_reject_reasons["budget_reject:" + budget_reject] +=
+            parsed_u64(fields, "count");
+        if (
+            budget_reject == "unsafe_resource_class" &&
+            stack_activation_capture_proof_complete(proof)) {
+          const uint64_t reject_count = parsed_u64(fields, "count");
+          add_boundary_resource_class(
+              proof.stack_activation_capture_before_blockers,
+              "unsafe_resource_class",
+              reject_count,
+              parsed_u64(fields, "bytes"));
+          add_boundary_resource_class(
+              proof.stack_activation_capture_after_blockers,
+              "phase_boundary_budget_recompute_required",
+              reject_count,
+              parsed_u64(fields, "bytes"));
+        }
       }
       const std::string blockers = field_or(fields, "blockers", "none");
       if (blockers != "none") {
@@ -2875,6 +3513,12 @@ void append_capture_boundary_dependency_set_json(
   uint64_t required_capture_edge_records = 0u;
   uint64_t bridge_private_complete_records = 0u;
   std::map<std::string, uint64_t> remaining_blockers;
+  uint64_t missing_stack_activation_before_records = 0u;
+  uint64_t missing_stack_activation_after_records = 0u;
+  uint64_t capture_sensitive_before_records = 0u;
+  uint64_t capture_sensitive_after_records = 0u;
+  uint64_t unsafe_resource_class_before_records = 0u;
+  uint64_t unsafe_resource_class_after_records = 0u;
   for (const auto& item : proofs) {
     const auto& proof = item.second;
     ++candidate_boundaries;
@@ -2897,7 +3541,55 @@ void append_capture_boundary_dependency_set_json(
       remaining_blockers[resource.first] += resource.second.count;
     }
     for (const auto& reason : proof.boundary_reject_reasons) {
+      if (
+          reason.first == "blockers:capture_sensitive_stack_activation" &&
+          stack_activation_capture_proof_complete(proof)) {
+        continue;
+      }
+      if (
+          reason.first == "budget_reject:unsafe_resource_class" &&
+          stack_activation_capture_proof_complete(proof)) {
+        remaining_blockers
+            ["boundary:budget_reject:phase_boundary_budget_recompute_required"] +=
+            reason.second;
+        continue;
+      }
       remaining_blockers["boundary:" + reason.first] += reason.second;
+    }
+    const auto before_missing =
+        proof.stack_activation_capture_before_blockers.find(
+            kDryRunMissingStackActivationProof);
+    if (before_missing != proof.stack_activation_capture_before_blockers.end()) {
+      missing_stack_activation_before_records += before_missing->second.count;
+    }
+    const auto after_missing =
+        proof.stack_activation_capture_after_blockers.find(
+            kDryRunMissingStackActivationProof);
+    if (after_missing != proof.stack_activation_capture_after_blockers.end()) {
+      missing_stack_activation_after_records += after_missing->second.count;
+    }
+    const auto before_capture =
+        proof.stack_activation_capture_before_blockers.find(
+            kDryRunCaptureSensitiveStackActivation);
+    if (before_capture != proof.stack_activation_capture_before_blockers.end()) {
+      capture_sensitive_before_records += before_capture->second.count;
+    }
+    const auto after_capture =
+        proof.stack_activation_capture_after_blockers.find(
+            kDryRunCaptureSensitiveStackActivation);
+    if (after_capture != proof.stack_activation_capture_after_blockers.end()) {
+      capture_sensitive_after_records += after_capture->second.count;
+    }
+    const auto before_unsafe =
+        proof.stack_activation_capture_before_blockers.find(
+            "unsafe_resource_class");
+    if (before_unsafe != proof.stack_activation_capture_before_blockers.end()) {
+      unsafe_resource_class_before_records += before_unsafe->second.count;
+    }
+    const auto after_unsafe =
+        proof.stack_activation_capture_after_blockers.find("unsafe_resource_class");
+    if (after_unsafe != proof.stack_activation_capture_after_blockers.end()) {
+      unsafe_resource_class_after_records += after_unsafe->second.count;
     }
   }
 
@@ -2961,6 +3653,18 @@ void append_capture_boundary_dependency_set_json(
     append_capture_boundary_dependency_set_record(out, item.second);
   }
   out << "]}";
+  append_stack_activation_capture_proof_json(
+      out,
+      proofs,
+      summaries,
+      registrations,
+      missing_stack_activation_before_records,
+      missing_stack_activation_after_records,
+      capture_sensitive_before_records,
+      capture_sensitive_after_records,
+      unsafe_resource_class_before_records,
+      unsafe_resource_class_after_records,
+      first);
 }
 
 bool boundary_complete_proof_is_complete(const BoundaryCompleteProof& proof) {
@@ -7641,6 +8345,22 @@ void note_stack_owner_dispatch_dependency_dry_run(
       << (resource_class && resource_class[0] ? resource_class : "unknown")
       << " resource_kind=" << retired_resource_kind_name(kind)
       << " role=" << retired_resource_role_name(role)
+      << " stack_provenance_defined=" << (provenance.defined ? 1 : 0)
+      << " stack_lifetime=" << stack_tensor_lifetime_name(provenance.lifetime)
+      << " direct_buffer=" << (provenance.direct_buffer ? 1 : 0)
+      << " buffer_storage=" << (provenance.buffer_storage ? 1 : 0)
+      << " image_storage=" << (provenance.image_storage ? 1 : 0)
+      << " escapes_stack=" << (provenance.escapes_stack ? 1 : 0)
+      << " requested_intermediate="
+      << (provenance.requested_intermediate ? 1 : 0)
+      << " final_output=" << (provenance.final_output ? 1 : 0)
+      << " alias_or_view=" << (provenance.alias_or_view ? 1 : 0)
+      << " aliases_runtime_input="
+      << (provenance.aliases_runtime_input ? 1 : 0)
+      << " aliases_runtime_output="
+      << (provenance.aliases_runtime_output ? 1 : 0)
+      << " final_consumer_before_stack_submit="
+      << (provenance.final_consumer_before_stack_submit ? 1 : 0)
       << " dependency_kind="
       << stack_dispatch_dependency_kind(provenance.expected_consumer_phase)
       << " producer_op=" << stack_dispatch_op_label(provenance.phase)
