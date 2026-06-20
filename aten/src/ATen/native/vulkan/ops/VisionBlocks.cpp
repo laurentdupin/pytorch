@@ -8892,11 +8892,12 @@ create_vision_decoder_fusion_block_context(
       std::move(label));
 }
 
-Tensor run_vision_decoder_fusion_block_context(
+Tensor run_vision_decoder_fusion_block_context_impl(
     const Tensor& input_arg,
     const std::optional<Tensor>& skip_arg,
     const std::optional<std::vector<int64_t>>& size,
-    const c10::intrusive_ptr<VisionDecoderFusionBlockContext>& context) {
+    const c10::intrusive_ptr<VisionDecoderFusionBlockContext>& context,
+    const bool private_region_output) {
   TORCH_CHECK(
       input_arg.dim() == 4,
       "Vision decoder fusion block context expects rank-4 input");
@@ -9174,10 +9175,28 @@ Tensor run_vision_decoder_fusion_block_context(
       target_sizes,
       context,
       outputs);
-  output = materialize_escaping_vulkan_output(
-      output, output_device.type() == kVulkan);
+  if (private_region_output) {
+    utils::log_vulkan_op_hit(
+        "vulkan_prepack::run_vision_decoder_fusion_block_context.private_region_output");
+  } else {
+    output = materialize_escaping_vulkan_output(
+        output, output_device.type() == kVulkan);
+  }
   utils::log_vulkan_op_hit("vulkan_prepack::run_vision_decoder_fusion_block_context");
   return maybe_restore_tensor(output, output_device, output_dtype);
+}
+
+Tensor run_vision_decoder_fusion_block_context(
+    const Tensor& input_arg,
+    const std::optional<Tensor>& skip_arg,
+    const std::optional<std::vector<int64_t>>& size,
+    const c10::intrusive_ptr<VisionDecoderFusionBlockContext>& context) {
+  return run_vision_decoder_fusion_block_context_impl(
+      input_arg,
+      skip_arg,
+      size,
+      context,
+      /*private_region_output=*/false);
 }
 
 void prime_vision_decoder_fusion_block_context_graph(
@@ -9453,7 +9472,16 @@ create_vision_decoder_preprocess_head_context(
       std::move(label));
 }
 
-Tensor run_vision_decoder_preprocess_head_context(
+Tensor run_vision_decoder_head_context_impl(
+    const Tensor& layer1_arg,
+    const Tensor& layer2_arg,
+    const Tensor& layer3_arg,
+    const Tensor& layer4_arg,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderHeadContext>& context,
+    const bool private_decoder_intermediates);
+
+Tensor run_vision_decoder_preprocess_head_context_impl(
     const Tensor& layer1_tokens_arg,
     const Tensor& layer2_tokens_arg,
     const Tensor& layer3_tokens_arg,
@@ -9461,7 +9489,8 @@ Tensor run_vision_decoder_preprocess_head_context(
     const int64_t patch_h,
     const int64_t patch_w,
     IntArrayRef output_size,
-    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>& context) {
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>& context,
+    const bool private_decoder_intermediates) {
   TORCH_CHECK(
       context,
       "Vision decoder preprocess head context must be defined");
@@ -9515,13 +9544,14 @@ Tensor run_vision_decoder_preprocess_head_context(
     layer4 = run_conv2d_context(layer4, context->resize4_context());
     layer4 = run_conv2d_context(layer4, context->layer4_rn_context());
 
-    Tensor output = run_vision_decoder_head_context(
+    Tensor output = run_vision_decoder_head_context_impl(
         layer1,
         layer2,
         layer3,
         layer4,
         output_size,
-        context->head_context());
+        context->head_context(),
+        private_decoder_intermediates);
     Tensor restored = maybe_restore_tensor(output, output_device, output_dtype);
     record_tensor_write(
         restored,
@@ -9746,13 +9776,14 @@ Tensor run_vision_decoder_preprocess_head_context(
     return fallback();
   }
 
-  Tensor output = run_vision_decoder_head_context(
+  Tensor output = run_vision_decoder_head_context_impl(
       layer1,
       layer2,
       layer3,
       layer4,
       output_size,
-      context->head_context());
+      context->head_context(),
+      private_decoder_intermediates);
   output = materialize_escaping_vulkan_output(
       output, output_device.type() == kVulkan);
   utils::log_vulkan_op_hit(
@@ -9760,13 +9791,35 @@ Tensor run_vision_decoder_preprocess_head_context(
   return maybe_restore_tensor(output, output_device, output_dtype);
 }
 
-Tensor run_vision_decoder_head_context(
+Tensor run_vision_decoder_preprocess_head_context(
+    const Tensor& layer1_tokens_arg,
+    const Tensor& layer2_tokens_arg,
+    const Tensor& layer3_tokens_arg,
+    const Tensor& layer4_tokens_arg,
+    const int64_t patch_h,
+    const int64_t patch_w,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderPreprocessHeadContext>& context) {
+  return run_vision_decoder_preprocess_head_context_impl(
+      layer1_tokens_arg,
+      layer2_tokens_arg,
+      layer3_tokens_arg,
+      layer4_tokens_arg,
+      patch_h,
+      patch_w,
+      output_size,
+      context,
+      /*private_decoder_intermediates=*/false);
+}
+
+Tensor run_vision_decoder_head_context_impl(
     const Tensor& layer1_arg,
     const Tensor& layer2_arg,
     const Tensor& layer3_arg,
     const Tensor& layer4_arg,
     IntArrayRef output_size,
-    const c10::intrusive_ptr<VisionDecoderHeadContext>& context) {
+    const c10::intrusive_ptr<VisionDecoderHeadContext>& context,
+    const bool private_decoder_intermediates) {
   TORCH_CHECK(context, "Vision decoder head context must be defined");
   TORCH_CHECK(
       layer1_arg.dim() == 4 && layer2_arg.dim() == 4 && layer3_arg.dim() == 4 &&
@@ -9797,23 +9850,30 @@ Tensor run_vision_decoder_head_context(
   }
 
   const auto fallback = [&]() -> Tensor {
-    Tensor path4 = run_vision_decoder_fusion_block_context(
+    Tensor path4 = run_vision_decoder_fusion_block_context_impl(
         layer4,
         std::nullopt,
         std::optional<std::vector<int64_t>>({layer3.size(2), layer3.size(3)}),
-        context->refinenet4_context());
-    Tensor path3 = run_vision_decoder_fusion_block_context(
+        context->refinenet4_context(),
+        private_decoder_intermediates);
+    Tensor path3 = run_vision_decoder_fusion_block_context_impl(
         path4,
         layer3,
         std::optional<std::vector<int64_t>>({layer2.size(2), layer2.size(3)}),
-        context->refinenet3_context());
-    Tensor path2 = run_vision_decoder_fusion_block_context(
+        context->refinenet3_context(),
+        private_decoder_intermediates);
+    Tensor path2 = run_vision_decoder_fusion_block_context_impl(
         path3,
         layer2,
         std::optional<std::vector<int64_t>>({layer1.size(2), layer1.size(3)}),
-        context->refinenet2_context());
-    Tensor path1 = run_vision_decoder_fusion_block_context(
-        path2, layer1, std::nullopt, context->refinenet1_context());
+        context->refinenet2_context(),
+        private_decoder_intermediates);
+    Tensor path1 = run_vision_decoder_fusion_block_context_impl(
+        path2,
+        layer1,
+        std::nullopt,
+        context->refinenet1_context(),
+        private_decoder_intermediates);
     Tensor output = run_vision_decoder_head_tail_context(
         prepare_decoder_buffer_tensor(path1), output_size, context);
     return maybe_restore_tensor(output, output_device, output_dtype);
@@ -9961,6 +10021,23 @@ Tensor run_vision_decoder_head_context(
       "vulkan_prepack::run_vision_decoder_head_context.replay");
   utils::log_vulkan_op_hit("vulkan_prepack::run_vision_decoder_head_context");
   return maybe_restore_tensor(output, output_device, output_dtype);
+}
+
+Tensor run_vision_decoder_head_context(
+    const Tensor& layer1_arg,
+    const Tensor& layer2_arg,
+    const Tensor& layer3_arg,
+    const Tensor& layer4_arg,
+    IntArrayRef output_size,
+    const c10::intrusive_ptr<VisionDecoderHeadContext>& context) {
+  return run_vision_decoder_head_context_impl(
+      layer1_arg,
+      layer2_arg,
+      layer3_arg,
+      layer4_arg,
+      output_size,
+      context,
+      /*private_decoder_intermediates=*/false);
 }
 
 void prime_vision_decoder_head_context_graph(
@@ -10929,7 +11006,7 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
         tensor.size(token_dim));
     return tensor.slice(token_dim, strip_prefix_tokens, tensor.size(token_dim));
   };
-  Tensor output = run_vision_decoder_preprocess_head_context(
+  Tensor output = run_vision_decoder_preprocess_head_context_impl(
       strip_special_tokens(captured[0]),
       strip_special_tokens(captured[1]),
       strip_special_tokens(captured[2]),
@@ -10937,7 +11014,8 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
       patch_h,
       patch_w,
       output_size,
-      decoder_context);
+      decoder_context,
+      /*private_decoder_intermediates=*/true);
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge");
   Tensor restored = maybe_restore_tensor(output, output_device, output_dtype);
