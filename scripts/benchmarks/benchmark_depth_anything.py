@@ -807,9 +807,116 @@ def _field_or_storage_bool(
     return value if value != "unknown" else _field_bool(storage_fields, key)
 
 
+STACK_OUTPUT_DEVICE_CONSUMER_BRIDGE_CONTRACT = "StackOutputToDeviceConsumerBridgeContract"
+_BRIDGE_NOT_REGISTERED = "not_registered"
+_BRIDGE_PUBLIC_BOUNDARY_REJECT = (
+    "public_tensor_array_boundary_before_downstream_consumer"
+)
+
+
+def stack_output_device_consumer_registration(
+    *,
+    captured_block: int | str,
+    captured_substep: str,
+    output_role: str,
+    output_shape: str,
+    downstream_device_consumer_id: str,
+    downstream_device_consumer_context: str,
+    expected_consumer_input_index: int | str,
+    expected_consumer_shape: str,
+    expected_consumer_layout: str,
+    stack_context_id: str = _BRIDGE_NOT_REGISTERED,
+    stack_session_id: str = _BRIDGE_NOT_REGISTERED,
+    stack_plan_id: str | None = None,
+    producer_allocation_id: str | None = None,
+    producer_allocation_generation: str | None = None,
+    producer_byte_offset: str | None = None,
+    producer_byte_range: str | None = None,
+    producer_layout: str = "unknown",
+    strip_token_or_view_relation: str = "unknown",
+    consumer_in_same_planned_region: bool = False,
+    python_public_boundary_before_consumption: bool = True,
+    host_visible_boundary_before_consumption: bool | str = "unknown",
+    host_visible_access_before_consumption: bool | str = "unknown",
+    host_readback_before_consumption: bool | str = "unknown",
+) -> dict[str, Any]:
+    """Build a dry-run stack-output to device-consumer registration record."""
+    return {
+        "contract_name": STACK_OUTPUT_DEVICE_CONSUMER_BRIDGE_CONTRACT,
+        "stack_context_id": stack_context_id,
+        "stack_session_id": stack_session_id,
+        "stack_plan_id": stack_plan_id,
+        "captured_block": str(captured_block),
+        "captured_substep": captured_substep,
+        "output_role": output_role,
+        "output_shape": output_shape,
+        "producer_allocation_id": producer_allocation_id,
+        "producer_allocation_generation": producer_allocation_generation,
+        "producer_byte_offset": producer_byte_offset,
+        "producer_byte_range": producer_byte_range,
+        "producer_layout": producer_layout,
+        "strip_token_or_view_relation": strip_token_or_view_relation,
+        "downstream_device_consumer_id": downstream_device_consumer_id,
+        "downstream_device_consumer_context": downstream_device_consumer_context,
+        "expected_consumer_input_index": expected_consumer_input_index,
+        "expected_consumer_shape": expected_consumer_shape,
+        "expected_consumer_layout": expected_consumer_layout,
+        "consumer_in_same_planned_region": bool(consumer_in_same_planned_region),
+        "python_public_boundary_before_consumption": bool(
+            python_public_boundary_before_consumption
+        ),
+        "host_visible_boundary_before_consumption": (
+            host_visible_boundary_before_consumption
+        ),
+        "host_visible_access_before_consumption": host_visible_access_before_consumption,
+        "host_readback_before_consumption": host_readback_before_consumption,
+    }
+
+
+def _bridge_registration_key(fields: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(fields.get("captured_block", "-1")),
+        str(fields.get("output_role", "unknown")),
+        str(fields.get("output_shape", "unknown")),
+    )
+
+
+def _normalize_stack_output_device_consumer_registrations(
+    registrations: Any,
+) -> dict[tuple[str, str, str], dict[str, Any]]:
+    normalized: dict[tuple[str, str, str], dict[str, Any]] = {}
+    if not isinstance(registrations, list):
+        return normalized
+    for registration in registrations:
+        if not isinstance(registration, dict):
+            continue
+        normalized[_bridge_registration_key(registration)] = dict(registration)
+    return normalized
+
+
+def _bridge_reject_reason(capture: dict[str, Any]) -> str:
+    if (
+        capture["downstream_device_consumer_id"] == _BRIDGE_NOT_REGISTERED
+        or capture["downstream_device_consumer_context"] == _BRIDGE_NOT_REGISTERED
+    ):
+        return _BRIDGE_PUBLIC_BOUNDARY_REJECT
+    if capture["python_public_boundary_before_consumption"]:
+        return _BRIDGE_PUBLIC_BOUNDARY_REJECT
+    if not capture["consumer_in_same_planned_region"]:
+        return "downstream_device_consumer_not_in_same_planned_region"
+    if capture["host_visible_boundary_before_consumption"] is not False:
+        return "host_visible_boundary_before_downstream_consumer"
+    if capture["host_visible_access_before_consumption"] is not False:
+        return "host_visible_access_before_downstream_consumer"
+    if capture["host_readback_before_consumption"] is not False:
+        return "host_readback_before_downstream_consumer"
+    return "none"
+
+
 def build_stack_output_to_device_consumer_bridge_dry_run(
     debug_counters: dict[str, Any],
     phase_summary: Any,
+    downstream_device_consumer_registrations: Any = None,
 ) -> dict[str, Any]:
     """Summarize whether escaping stack captures have a proven device consumer."""
     phase_name, rows = _bridge_snapshot_rows(debug_counters, phase_summary)
@@ -819,6 +926,9 @@ def build_stack_output_to_device_consumer_bridge_dry_run(
     )
     plan_keys = debug_counters.get("stack_shape_plan_keys")
     stack_plan_id = plan_keys[0] if isinstance(plan_keys, list) and plan_keys else None
+    registrations = _normalize_stack_output_device_consumer_registrations(
+        downstream_device_consumer_registrations
+    )
     captures: dict[tuple[str, str, str], dict[str, Any]] = {}
     for row in rows:
         fields = _parse_vulkan_snapshot_fields(row)
@@ -832,10 +942,18 @@ def build_stack_output_to_device_consumer_bridge_dry_run(
             fields.get("role", "unknown"),
             fields.get("shape", "unknown"),
         )
+        registration = registrations.get(key, {})
         capture = captures.setdefault(
             key,
             {
-                "producer_stack_context_id": "not_exposed",
+                "producer_stack_context_id": registration.get(
+                    "stack_context_id",
+                    "not_exposed",
+                ),
+                "producer_stack_session_id": registration.get(
+                    "stack_session_id",
+                    "not_exposed",
+                ),
                 "stack_plan_id": stack_plan_id,
                 "captured_block": fields.get("block", "-1"),
                 "captured_substep": fields.get("producer_substep", "unknown"),
@@ -881,18 +999,52 @@ def build_stack_output_to_device_consumer_bridge_dry_run(
                 "alias_or_view": _field_bool(fields, "alias_or_view"),
                 "aliases_runtime_input": _field_bool(fields, "aliases_runtime_input"),
                 "aliases_runtime_output": _field_bool(fields, "aliases_runtime_output"),
-                "strip_token_or_view_relation": "not_observed_in_stack_region",
-                "downstream_device_consumer_id": "not_registered",
-                "downstream_device_consumer_context": "not_registered",
-                "consumer_in_same_planned_region": False,
-                "python_public_boundary_before_consumption": True,
-                "host_visible_boundary_before_consumption": _field_bool(
-                    fields,
-                    "capture_or_public_output",
+                "strip_token_or_view_relation": registration.get(
+                    "strip_token_or_view_relation",
+                    "not_observed_in_stack_region",
+                ),
+                "downstream_device_consumer_id": registration.get(
+                    "downstream_device_consumer_id",
+                    _BRIDGE_NOT_REGISTERED,
+                ),
+                "downstream_device_consumer_context": registration.get(
+                    "downstream_device_consumer_context",
+                    _BRIDGE_NOT_REGISTERED,
+                ),
+                "expected_consumer_input_index": registration.get(
+                    "expected_consumer_input_index",
+                    "unknown",
+                ),
+                "expected_consumer_shape": registration.get(
+                    "expected_consumer_shape",
+                    "unknown",
+                ),
+                "expected_consumer_layout": registration.get(
+                    "expected_consumer_layout",
+                    "unknown",
+                ),
+                "consumer_in_same_planned_region": bool(
+                    registration.get("consumer_in_same_planned_region", False)
+                ),
+                "python_public_boundary_before_consumption": bool(
+                    registration.get("python_public_boundary_before_consumption", True)
+                ),
+                "host_visible_boundary_before_consumption": registration.get(
+                    "host_visible_boundary_before_consumption",
+                    _field_bool(fields, "capture_or_public_output"),
+                ),
+                "host_visible_access_before_consumption": registration.get(
+                    "host_visible_access_before_consumption",
+                    "unknown",
+                ),
+                "host_readback_before_consumption": registration.get(
+                    "host_readback_before_consumption",
+                    "unknown",
                 ),
                 "capture_storage_observed": bool(storage_fields),
+                "registration_observed": bool(registration),
                 "accepted": False,
-                "reject_reason": "public_tensor_array_boundary_before_downstream_consumer",
+                "reject_reason": _BRIDGE_PUBLIC_BOUNDARY_REJECT,
                 "resource_records": 0,
                 "queue_submit_records": 0,
                 "bytes": 0,
@@ -905,24 +1057,22 @@ def build_stack_output_to_device_consumer_bridge_dry_run(
     accepted = 0
     would_remove = 0
     for capture in captures.values():
-        if (
-            capture["downstream_device_consumer_id"] != "not_registered"
-            and capture["consumer_in_same_planned_region"]
-            and not capture["python_public_boundary_before_consumption"]
-            and not capture["host_visible_boundary_before_consumption"]
-        ):
+        reject_reason = _bridge_reject_reason(capture)
+        if reject_reason == "none":
             capture["accepted"] = True
             capture["reject_reason"] = "none"
             accepted += 1
             would_remove += capture["queue_submit_records"]
         else:
-            rejected[capture["reject_reason"]] = rejected.get(capture["reject_reason"], 0) + 1
+            capture["reject_reason"] = reject_reason
+            rejected[reject_reason] = rejected.get(reject_reason, 0) + 1
     return {
-        "contract_name": "StackOutputToDeviceConsumerBridgeContract",
+        "contract_name": STACK_OUTPUT_DEVICE_CONSUMER_BRIDGE_CONTRACT,
         "mode": "dry_run",
         "phase_source": phase_name,
         "behavior_changed": False,
         "stack_plan_id": stack_plan_id,
+        "registered_downstream_device_consumer_count": len(registrations),
         "bridge_candidate_count": len(captures),
         "proven_device_consumer_count": accepted,
         "rejected_reasons": rejected,
@@ -995,6 +1145,7 @@ def install_failure_artifact_hook(
                     build_stack_output_to_device_consumer_bridge_dry_run(
                         debug_counters,
                         phase_counters,
+                        context.get("stack_output_device_consumer_registrations"),
                     )
                     if device_kind == "vulkan"
                     else None
@@ -1560,6 +1711,7 @@ def run() -> None:
             build_stack_output_to_device_consumer_bridge_dry_run(
                 debug_counters,
                 phase_counters,
+                failure_context.get("stack_output_device_consumer_registrations"),
             )
             if device_kind == "vulkan"
             else None
