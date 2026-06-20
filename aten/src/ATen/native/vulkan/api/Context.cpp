@@ -1541,6 +1541,10 @@ VulkanSubmission Context::submit_cmd_to_gpu(
       cpu_timeline ? cpu_timeline_now_us() : 0u;
   const bool had_cmd = static_cast<bool>(cmd_);
   constexpr bool kCoalescePhaseBoundaryExplicitSync = true;
+  constexpr uint64_t kStackActivationPhaseBoundaryLifetimeBlockBudgetBytes =
+      5u * 1024u * 1024u;
+  constexpr uint64_t kStackActivationPhaseBoundaryLifetimeScopeBudgetBytes =
+      kStackSubresourceLifetimeDryRunScopeBudgetBytes;
   if (had_cmd && origin == VulkanSubmitOrigin::ExplicitSynchronize) {
     const VulkanSubmitPhase phase = current_submit_phase();
     const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
@@ -1676,11 +1680,11 @@ VulkanSubmission Context::submit_cmd_to_gpu(
         dry_run_budget_reject = "unsafe_resource_class";
       } else if (
           dry_run_safe_candidate_bytes >
-          kStackSubresourceLifetimeDryRunBlockBudgetBytes) {
+          kStackActivationPhaseBoundaryLifetimeBlockBudgetBytes) {
         dry_run_budget_reject = "over_block_budget";
       } else if (
           dry_run_safe_candidate_bytes >
-          kStackSubresourceLifetimeDryRunScopeBudgetBytes) {
+          kStackActivationPhaseBoundaryLifetimeScopeBudgetBytes) {
         dry_run_budget_reject = "over_scope_budget";
       } else {
         dry_run_budget_reject = "none";
@@ -1729,6 +1733,8 @@ VulkanSubmission Context::submit_cmd_to_gpu(
           dry_run_all_safe_group_eligible,
           /*actual_removed_explicit_synchronize=*/
           should_coalesce_phase_boundary_explicit_sync,
+          kStackActivationPhaseBoundaryLifetimeBlockBudgetBytes,
+          kStackActivationPhaseBoundaryLifetimeScopeBudgetBytes,
           dry_run_budget_reject,
           dry_run_signature,
           dry_run_blocker_signature);

@@ -754,6 +754,8 @@ TORCH_API void note_stack_phase_boundary_lifetime_dry_run_group(
     bool all_safe_group_eligible,
     bool would_remove_explicit_synchronize,
     bool actual_removed_explicit_synchronize,
+    uint64_t block_budget_bytes,
+    uint64_t scope_budget_bytes,
     const std::string& budget_reject,
     const std::string& signature,
     const std::string& blockers);

@@ -3954,6 +3954,8 @@ void note_stack_phase_boundary_lifetime_dry_run_group(
     const bool all_safe_group_eligible,
     const bool would_remove_explicit_synchronize,
     const bool actual_removed_explicit_synchronize,
+    const uint64_t block_budget_bytes,
+    const uint64_t scope_budget_bytes,
     const std::string& budget_reject,
     const std::string& signature,
     const std::string& blockers) {
@@ -4001,10 +4003,8 @@ void note_stack_phase_boundary_lifetime_dry_run_group(
       << " actual_removed_phase_boundary_sync="
       << (actual_removed_explicit_synchronize ? 1 : 0)
       << " peak_extra_live_bytes_estimate=" << safe_candidate_bytes
-      << " block_budget_bytes="
-      << kStackSubresourceLifetimeDryRunBlockBudgetBytes
-      << " scope_budget_bytes="
-      << kStackSubresourceLifetimeDryRunScopeBudgetBytes
+      << " block_budget_bytes=" << block_budget_bytes
+      << " scope_budget_bytes=" << scope_budget_bytes
       << " budget_reject=" << budget_reject
       << " blockers=" << blockers
       << " signature=" << signature;
