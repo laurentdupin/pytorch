@@ -11003,7 +11003,7 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
           context,
           capture_indices,
           /*private_device_consumer_bridge=*/true,
-          /*preserve_private_captures_in_plan=*/false);
+          /*preserve_private_captures_in_plan=*/true);
   TORCH_CHECK(
       captured.size() == 4u,
       "Vision stack capture decoder bridge expected four captured tensors");

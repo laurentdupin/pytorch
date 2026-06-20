@@ -106,6 +106,11 @@ def optional_layerscale_gamma(module: Any) -> Any:
     return gamma if gamma is not None else None
 
 
+def optional_module_bias(module: Any) -> Any:
+    bias = getattr(module, "bias", None)
+    return None if bias is None else bias.detach().to(dtype=module.weight.dtype).contiguous()
+
+
 def set_vulkan_fallback_phase(torch_module: Any, phase: int) -> None:
     ops = getattr(getattr(torch_module, "ops", None), "vulkan_prepack", None)
     setter = getattr(ops, "set_fallback_phase", None) if ops is not None else None
@@ -209,6 +214,138 @@ class VulkanDAv2OwnerContextCache:
             )
         self._cache[key] = context
         return context
+
+
+def create_vulkan_conv2d_context_from_module(torch_module: Any, module: Any) -> Any:
+    return torch_module.ops.vulkan_prepack.create_conv2d_context(
+        module.weight.detach().to(torch_module.float32).contiguous(),
+        optional_module_bias(module),
+        list(module.stride),
+        list(module.padding),
+        list(module.dilation),
+        int(module.groups),
+    )
+
+
+def create_vulkan_tconv2d_context_from_module(torch_module: Any, module: Any) -> Any:
+    return torch_module.ops.vulkan_prepack.create_tconv2d_context(
+        module.weight.detach().to(torch_module.float32).contiguous(),
+        optional_module_bias(module),
+        list(module.stride),
+        list(module.padding),
+        list(module.output_padding),
+        list(module.dilation),
+        int(module.groups),
+    )
+
+
+def create_vulkan_decoder_fusion_context_from_module(
+    torch_module: Any,
+    module: Any,
+    label: str,
+) -> Any:
+    residual_1 = getattr(module, "residual_1", None)
+    residual_2 = getattr(module, "residual_2", None)
+    if residual_1 is None:
+        residual_1 = getattr(module, "resConfUnit1")
+    if residual_2 is None:
+        residual_2 = getattr(module, "resConfUnit2")
+    return torch_module.ops.vulkan_prepack.create_vision_decoder_fusion_block_context(
+        residual_1.conv1.weight.detach().to(torch_module.float32).contiguous(),
+        optional_module_bias(residual_1.conv1),
+        residual_1.conv2.weight.detach().to(torch_module.float32).contiguous(),
+        optional_module_bias(residual_1.conv2),
+        residual_2.conv1.weight.detach().to(torch_module.float32).contiguous(),
+        optional_module_bias(residual_2.conv1),
+        residual_2.conv2.weight.detach().to(torch_module.float32).contiguous(),
+        optional_module_bias(residual_2.conv2),
+        module.out_conv.weight.detach().to(torch_module.float32).contiguous(),
+        optional_module_bias(module.out_conv),
+        bool(getattr(module, "align_corners", True)),
+        label,
+    )
+
+
+def create_vulkan_decoder_preprocess_head_context_from_model(
+    torch_module: Any,
+    model: Any,
+    label: str,
+) -> Any:
+    depth_head = getattr(model, "depth_head")
+    scratch = getattr(depth_head, "scratch")
+    head_context = torch_module.ops.vulkan_prepack.create_vision_decoder_head_context(
+        torch_module.zeros(1, dtype=torch_module.float32),
+        create_vulkan_decoder_fusion_context_from_module(
+            torch_module,
+            scratch.refinenet4,
+            f"{label}.refinenet4",
+        ),
+        create_vulkan_decoder_fusion_context_from_module(
+            torch_module,
+            scratch.refinenet3,
+            f"{label}.refinenet3",
+        ),
+        create_vulkan_decoder_fusion_context_from_module(
+            torch_module,
+            scratch.refinenet2,
+            f"{label}.refinenet2",
+        ),
+        create_vulkan_decoder_fusion_context_from_module(
+            torch_module,
+            scratch.refinenet1,
+            f"{label}.refinenet1",
+        ),
+        create_vulkan_conv2d_context_from_module(torch_module, scratch.output_conv1),
+        create_vulkan_conv2d_context_from_module(torch_module, scratch.output_conv2[0]),
+        create_vulkan_conv2d_context_from_module(torch_module, scratch.output_conv2[2]),
+        True,
+        f"{label}.head",
+    )
+    return torch_module.ops.vulkan_prepack.create_vision_decoder_preprocess_head_context(
+        torch_module.zeros(1, dtype=torch_module.float32),
+        create_vulkan_conv2d_context_from_module(torch_module, depth_head.projects[0]),
+        create_vulkan_conv2d_context_from_module(torch_module, depth_head.projects[1]),
+        create_vulkan_conv2d_context_from_module(torch_module, depth_head.projects[2]),
+        create_vulkan_conv2d_context_from_module(torch_module, depth_head.projects[3]),
+        create_vulkan_tconv2d_context_from_module(
+            torch_module,
+            depth_head.resize_layers[0],
+        ),
+        create_vulkan_tconv2d_context_from_module(
+            torch_module,
+            depth_head.resize_layers[1],
+        ),
+        create_vulkan_conv2d_context_from_module(
+            torch_module,
+            depth_head.resize_layers[3],
+        ),
+        create_vulkan_conv2d_context_from_module(torch_module, scratch.layer1_rn),
+        create_vulkan_conv2d_context_from_module(torch_module, scratch.layer2_rn),
+        create_vulkan_conv2d_context_from_module(torch_module, scratch.layer3_rn),
+        create_vulkan_conv2d_context_from_module(torch_module, scratch.layer4_rn),
+        head_context,
+        label,
+    )
+
+
+def create_vulkan_stack_output_device_bridge_contexts(
+    torch_module: Any,
+    model: Any,
+) -> dict[str, Any]:
+    pretrained = getattr(model, "pretrained")
+    norm = getattr(pretrained, "norm")
+    return {
+        "norm_context": torch_module.ops.vulkan_prepack.create_layernorm_context(
+            norm.weight,
+            norm.bias,
+            float(norm.eps),
+        ),
+        "decoder_context": create_vulkan_decoder_preprocess_head_context_from_model(
+            torch_module,
+            model,
+            "vision.stack_output_device_bridge",
+        ),
+    }
 
 
 class VulkanDAv2BlockOwner:
@@ -438,6 +575,188 @@ class VulkanDAv2BackboneStackOwner:
                 capture_indices,
             )
         return list(outputs)
+
+
+class VulkanStackOutputDeviceBridge:
+    def __init__(
+        self,
+        torch_module: Any,
+        model: Any,
+        stack_owner: VulkanDAv2BackboneStackOwner,
+        bridge_contexts: dict[str, Any],
+        label: str,
+    ) -> None:
+        self.torch = torch_module
+        self.model = model
+        self.pretrained = getattr(model, "pretrained")
+        self.stack_owner = stack_owner
+        self.original_forward = model.forward
+        self.capture_indices = [
+            int(index)
+            for index in getattr(model, "intermediate_layer_idx")[
+                getattr(model, "encoder")
+            ]
+        ]
+        hidden = int(getattr(self.pretrained, "embed_dim"))
+        self.normalized_shape = [hidden]
+        self.strip_prefix_tokens = 1 + int(
+            getattr(self.pretrained, "num_register_tokens", 0)
+        )
+        self.norm_context = bridge_contexts["norm_context"]
+        self.decoder_context = bridge_contexts["decoder_context"]
+        self.bridge_consumer_id = f"{label}.decoder_preprocess_head"
+        self.bridge_consumer_context = "VisionDecoderPreprocessHeadContext"
+
+    def registrations_for_input(self, x: Any) -> list[dict[str, Any]]:
+        if not isinstance(x, self.torch.Tensor) or x.dim() != 4:
+            return []
+        patch_h = int(x.shape[-2]) // 14
+        patch_w = int(x.shape[-1]) // 14
+        token_count = patch_h * patch_w + self.strip_prefix_tokens
+        hidden = self.normalized_shape[0]
+        return [
+            stack_output_device_consumer_registration(
+                captured_block=block,
+                captured_substep="residual2",
+                output_role="stack_residual2_output",
+                output_shape=f"[{token_count},{hidden}]",
+                downstream_device_consumer_id=self.bridge_consumer_id,
+                downstream_device_consumer_context=self.bridge_consumer_context,
+                expected_consumer_input_index=index,
+                expected_consumer_shape=f"[1,{patch_h * patch_w},{hidden}]",
+                expected_consumer_layout="vulkan_buffer_token_sequence",
+                stack_context_id="VisionBackboneStackContext",
+                stack_session_id="benchmark_forward_bridge_region",
+                stack_plan_id=None,
+                producer_layout="vulkan_buffer_token_sequence_with_prefix",
+                strip_token_or_view_relation=(
+                    f"strip_prefix_tokens={self.strip_prefix_tokens}"
+                ),
+                consumer_in_same_planned_region=True,
+                python_public_boundary_before_consumption=False,
+                host_visible_boundary_before_consumption=False,
+                host_visible_access_before_consumption=False,
+                host_readback_before_consumption=False,
+            )
+            for index, block in enumerate(self.capture_indices)
+        ]
+
+    def __call__(self, x: Any) -> Any:
+        if getattr(self.model, "training", False):
+            return self.original_forward(x)
+        if not isinstance(x, self.torch.Tensor):
+            return self.original_forward(x)
+        if getattr(x.device, "type", None) != "vulkan" or x.dim() != 4:
+            return self.original_forward(x)
+
+        patch_h = int(x.shape[-2]) // 14
+        patch_w = int(x.shape[-1]) // 14
+        if patch_h <= 0 or patch_w <= 0:
+            return self.original_forward(x)
+
+        tokens = try_prepare_tokens_with_fused_prefix_cat_add(
+            self.torch,
+            self.pretrained,
+            x,
+        )
+        if tokens is None:
+            tokens = self.pretrained.prepare_tokens_with_masks(x)
+
+        output_size = [patch_h * 14, patch_w * 14]
+        with vulkan_submit_phase(
+            self.torch,
+            SUBMIT_PHASE_STACK_OWNER,
+        ), vulkan_fallback_phase(self.torch, FALLBACK_PHASE_OWNER_FORWARD):
+            depth = (
+                self.torch.ops.vulkan_prepack
+                .run_vision_stack_captures_decoder_preprocess_bridge(
+                    tokens,
+                    self.stack_owner.stack_context,
+                    self.capture_indices,
+                    self.normalized_shape,
+                    self.norm_context,
+                    self.strip_prefix_tokens,
+                    patch_h,
+                    patch_w,
+                    output_size,
+                    self.decoder_context,
+                )
+            )
+        return self.torch.relu(depth).squeeze(1)
+
+
+def vulkan_stack_output_device_bridge_forward(self: Any, x: Any) -> Any:
+    return self._vulkan_stack_output_device_bridge(x)
+
+
+def install_vulkan_stack_output_device_bridge(
+    torch_module: Any,
+    model: Any,
+    bridge_contexts: dict[str, Any] | None,
+) -> dict[str, Any]:
+    pretrained = getattr(model, "pretrained", None)
+    stack_owner = (
+        getattr(pretrained, "_vulkan_dav2_stack_owner", None)
+        if pretrained is not None
+        else None
+    )
+    if pretrained is None or stack_owner is None:
+        return {"enabled": False, "reason": "missing_stack_owner"}
+    if bridge_contexts is None:
+        return {"enabled": False, "reason": "missing_bridge_contexts"}
+    if getattr(model, "_vulkan_stack_output_device_bridge_enabled", False):
+        return {"enabled": True, "already_installed": True}
+
+    bridge = VulkanStackOutputDeviceBridge(
+        torch_module,
+        model,
+        stack_owner,
+        bridge_contexts,
+        "vision.stack_output_device_bridge",
+    )
+    model._vulkan_stack_output_device_bridge = bridge
+    model._vulkan_original_forward_for_stack_output_device_bridge = model.forward
+    model.forward = types.MethodType(vulkan_stack_output_device_bridge_forward, model)
+    model._vulkan_stack_output_device_bridge_enabled = True
+    return {
+        "enabled": True,
+        "contract_name": STACK_OUTPUT_DEVICE_CONSUMER_BRIDGE_CONTRACT,
+        "backend_op": "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge",
+        "capture_indices": bridge.capture_indices,
+        "consumer_id": bridge.bridge_consumer_id,
+        "consumer_context": bridge.bridge_consumer_context,
+    }
+
+
+def validate_vulkan_stack_output_device_bridge_sanity(
+    model: Any,
+    image_tensor: Any,
+) -> dict[str, Any]:
+    bridge = getattr(model, "_vulkan_stack_output_device_bridge", None)
+    if bridge is None:
+        return {"enabled": False, "reason": "bridge_not_installed"}
+    with bridge.torch.inference_mode():
+        bridge_output = bridge(image_tensor)
+        reference_output = bridge.original_forward(image_tensor)
+    bridge_cpu = bridge_output.detach().cpu()
+    reference_cpu = reference_output.detach().cpu()
+    diff = (bridge_cpu - reference_cpu).abs()
+    return {
+        "enabled": True,
+        "max_abs": float(diff.max().item()) if diff.numel() else 0.0,
+        "mean_abs": float(diff.mean().item()) if diff.numel() else 0.0,
+        "finite": bool(bridge.torch.isfinite(bridge_cpu).all().item()),
+        "bridge_shape": list(bridge_output.shape),
+        "reference_shape": list(reference_output.shape),
+        "passed": bool(
+            bridge.torch.allclose(
+                bridge_cpu,
+                reference_cpu,
+                atol=5e-3,
+                rtol=5e-3,
+            )
+        ),
+    }
 
 
 def vulkan_dav2_stack_not_chunked(self: Any, x: Any, n: Any = 1) -> Any:
@@ -1138,6 +1457,15 @@ def install_failure_artifact_hook(
                     context.get("disable_owner_programs", False)
                 ),
                 "vulkan_dav2_block_owner": context.get("vulkan_block_owner"),
+                "vulkan_stack_output_device_bridge": context.get(
+                    "vulkan_stack_output_device_bridge"
+                ),
+                "vulkan_stack_output_device_bridge_sanity": context.get(
+                    "vulkan_stack_output_device_bridge_sanity"
+                ),
+                "stack_output_device_consumer_registrations": context.get(
+                    "stack_output_device_consumer_registrations"
+                ),
                 "device_info": context.get("device_info"),
                 "vulkan_debug_counters": debug_counters,
                 "vulkan_phase_counters": phase_counters,
@@ -1320,6 +1648,16 @@ def run() -> None:
             "probe runs without this flag keep owner programs enabled."
         ),
     )
+    parser.add_argument(
+        "--vulkan-stack-output-device-bridge",
+        action="store_true",
+        help=(
+            "Opt in to the generic Vulkan stack-capture to decoder/head bridge "
+            "path. The bridge keeps captures private to a same-region device "
+            "consumer and records StackOutputToDeviceConsumerBridgeContract "
+            "diagnostics."
+        ),
+    )
     args = parser.parse_args()
     failure_context: dict[str, Any] = {}
     original_excepthook = install_failure_artifact_hook(args, failure_context)
@@ -1387,6 +1725,11 @@ def run() -> None:
         state_dict = torch.load(checkpoint, map_location="cpu")
         model.load_state_dict(state_dict)
         model = model.eval()
+        vulkan_stack_output_device_bridge_contexts = (
+            create_vulkan_stack_output_device_bridge_contexts(torch, model)
+            if device_kind == "vulkan" and args.vulkan_stack_output_device_bridge
+            else None
+        )
         if str(device) != "cpu":
             model = model.to(device)
     probe_enabled = device_kind == "vulkan" and args.vulkan_model_probe != "off"
@@ -1415,6 +1758,31 @@ def run() -> None:
         with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP):
             install_vulkan_fallback_phase_wrappers(torch, model)
 
+    vulkan_stack_output_device_bridge: dict[str, Any] = {
+        "enabled": False,
+        "requested": bool(args.vulkan_stack_output_device_bridge),
+    }
+    if (
+        device_kind == "vulkan"
+        and args.vulkan_stack_output_device_bridge
+        and not disable_owner_programs
+    ):
+        with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP):
+            vulkan_stack_output_device_bridge = install_vulkan_stack_output_device_bridge(
+                torch,
+                model,
+                vulkan_stack_output_device_bridge_contexts,
+            )
+    elif args.vulkan_stack_output_device_bridge and disable_owner_programs:
+        vulkan_stack_output_device_bridge = {
+            "enabled": False,
+            "requested": True,
+            "reason": "disabled_by_owner_program_probe_option",
+        }
+    failure_context["vulkan_stack_output_device_bridge"] = (
+        vulkan_stack_output_device_bridge
+    )
+
     raw_image = cv2.imread(str(image_path))
     if raw_image is None:
         raise RuntimeError(f"Failed to load image: {image_path}")
@@ -1426,6 +1794,18 @@ def run() -> None:
             args.input_size,
             device,
         )
+    bridge = getattr(model, "_vulkan_stack_output_device_bridge", None)
+    if bridge is not None:
+        failure_context["stack_output_device_consumer_registrations"] = (
+            bridge.registrations_for_input(image_tensor)
+        )
+        with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP):
+            failure_context["vulkan_stack_output_device_bridge_sanity"] = (
+                validate_vulkan_stack_output_device_bridge_sanity(
+                    model,
+                    image_tensor,
+                )
+            )
     probe = None
     probe_summary: dict[str, Any] | None = None
     if probe_enabled:
@@ -1705,6 +2085,15 @@ def run() -> None:
         "skip_output_copy": bool(args.skip_output_copy),
         "vulkan_model_probe_disable_owner_programs": bool(disable_owner_programs),
         "vulkan_dav2_block_owner": vulkan_block_owner,
+        "vulkan_stack_output_device_bridge": failure_context.get(
+            "vulkan_stack_output_device_bridge",
+        ),
+        "vulkan_stack_output_device_bridge_sanity": failure_context.get(
+            "vulkan_stack_output_device_bridge_sanity",
+        ),
+        "stack_output_device_consumer_registrations": failure_context.get(
+            "stack_output_device_consumer_registrations",
+        ),
         "vulkan_debug_counters": debug_counters,
         "vulkan_phase_counters": phase_counters,
         "vulkan_stack_output_device_bridge_dry_run": (
