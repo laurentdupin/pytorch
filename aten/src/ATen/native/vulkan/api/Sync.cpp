@@ -2,6 +2,7 @@
 
 #ifdef USE_VULKAN_API
 
+#include <ATen/native/vulkan/api/Pipeline.h>
 #include <ATen/native/vulkan/api/Resource.h>
 
 #include <algorithm>
@@ -631,7 +632,8 @@ std::string stack_region_barrier_only_canary_key(
     const bool live_buffer_bound,
     const StackRegionPreDispatchProof& proof,
     const char* const status,
-    const char* const reject_reason) {
+    const char* const reject_reason,
+    const bool barrier_inserted) {
   const uint64_t allocation_id = buffer.allocation_id();
   const uint64_t allocation_generation =
       vulkan_memory_allocation_generation(allocation_id);
@@ -641,7 +643,7 @@ std::string stack_region_barrier_only_canary_key(
       << " schema=StackRegionBarrierOnlyCanary.v0"
       << " opt_in_env=PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
       << " opt_in_target=non_capture_residual2_norm1_block1"
-      << " behavior_neutral=1"
+      << " behavior_neutral=" << (barrier_inserted ? 0 : 1)
       << " default_behavior_unchanged=1"
       << " selected_boundary_id=non_capture_boundary:producer_block=0:consumer_block=1"
       << " selected_scope=non_capture_stack_boundary"
@@ -706,8 +708,8 @@ std::string stack_region_barrier_only_canary_key(
       << " readback_edge=0"
       << " behavior_change_allowed=0"
       << " submit_skip_behavior_change_allowed=0"
-      << " barrier_behavior_allowed=0"
-      << " barriers_inserted=0"
+      << " barrier_behavior_allowed=" << (barrier_inserted ? 1 : 0)
+      << " barriers_inserted=" << (barrier_inserted ? 1 : 0)
       << " submits_removed=0";
   return key.str();
 }
@@ -5488,7 +5490,21 @@ void append_stack_region_barrier_only_canary_record(
   append_json_bool(out, "final_output", field_or(fields, "final_output", "0") == "1", first);
   append_json_bool(out, "host_visible", field_or(fields, "host_visible", "0") == "1", first);
   append_json_bool(out, "readback_edge", field_or(fields, "readback_edge", "0") == "1", first);
-  append_json_bool(out, "behavior_change_allowed", false, first);
+  append_json_bool(
+      out,
+      "behavior_change_allowed",
+      field_or(fields, "behavior_change_allowed", "0") == "1",
+      first);
+  append_json_bool(
+      out,
+      "submit_skip_behavior_change_allowed",
+      field_or(fields, "submit_skip_behavior_change_allowed", "0") == "1",
+      first);
+  append_json_bool(
+      out,
+      "barrier_behavior_allowed",
+      field_or(fields, "barrier_behavior_allowed", "0") == "1",
+      first);
   append_json_u64(
       out, "barriers_inserted", parsed_u64(fields, "barriers_inserted"), first);
   append_json_u64(
@@ -5521,7 +5537,7 @@ void append_stack_region_barrier_only_canary_json(
     live_buffer_bound_records +=
         parsed_u64(fields, "live_buffer_bound_count");
     barriers_inserted += parsed_u64(fields, "barriers_inserted");
-    submits_removed += parsed_u64(fields, "submit_removed");
+    submits_removed += parsed_u64(fields, "submits_removed");
     status_counts[field_or(fields, "barrier_only_status", "missing")] += count;
     reject_reason_counts[field_or(fields, "reject_reason", "missing")] += count;
   }
@@ -5556,15 +5572,18 @@ void append_stack_region_barrier_only_canary_json(
   append_json_u64(out, "barriers_inserted", barriers_inserted, canary_first);
   append_json_u64(out, "submits_removed", submits_removed, canary_first);
   append_json_bool(out, "submit_skip_behavior_change_allowed", false, canary_first);
-  append_json_bool(out, "barrier_behavior_allowed", false, canary_first);
+  append_json_bool(
+      out, "barrier_behavior_allowed", barriers_inserted > 0u, canary_first);
   append_json_string(
       out,
       "fail_closed_reason",
-      candidate_records == 0u
+      barriers_inserted > 0u
+          ? "none"
+          : (candidate_records == 0u
           ? "selected_boundary_not_observed"
           : (pre_dispatch_proof_matched_records > 0u
                  ? "barrier_insertion_disabled_behavior_neutral_task"
-                 : "missing_current_run_proof_match_at_consumer_recording"),
+                 : "missing_current_run_proof_match_at_consumer_recording")),
       canary_first);
   append_json_comma(out, canary_first);
   out << "\"status_counts\":";
@@ -10360,25 +10379,26 @@ void note_vulkan_stack_pre_dispatch_proof_table_descriptor(
   }
 }
 
-void note_vulkan_stack_barrier_only_canary_descriptor(
+bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
     const uint32_t binding_idx,
     const char* shader_name,
-    const VulkanBuffer& buffer) {
+    const VulkanBuffer& buffer,
+    PipelineBarrier& pipeline_barrier) {
   const char* const target = stack_region_barrier_only_canary_target();
   if (!stack_region_barrier_only_canary_target_selected(target)) {
-    return;
+    return false;
   }
   if (!inside_vision_stack_phase()) {
-    return;
+    return false;
   }
   const uint64_t scope_id = g_stack_dispatch_dependency_scope_id;
   if (scope_id == 0u) {
-    return;
+    return false;
   }
   if (
       g_vision_stack_phase != VulkanVisionStackPhase::Norm1 ||
       g_vision_stack_block_index != 1 || binding_idx != 6u) {
-    return;
+    return false;
   }
   const uint64_t allocation_id = buffer.allocation_id();
   const uint64_t allocation_generation =
@@ -10398,13 +10418,22 @@ void note_vulkan_stack_barrier_only_canary_descriptor(
           next_recorded_position,
           shader_name,
           buffer);
-  const char* const status = proof.complete
-      ? "pre_dispatch_proof_matched_barrier_not_inserted"
+  const bool barrier_inserted = proof.complete;
+  if (barrier_inserted) {
+    pipeline_barrier.stage.src |= vk_stage(PipelineStage::COMPUTE);
+    pipeline_barrier.stage.dst |= vk_stage(PipelineStage::COMPUTE);
+    pipeline_barrier.buffers.emplace_back(
+        vk_access(PipelineStage::COMPUTE, MemoryAccessType::WRITE),
+        vk_access(PipelineStage::COMPUTE, MemoryAccessType::READ),
+        buffer);
+  }
+  const char* const status = barrier_inserted
+      ? "pre_dispatch_proof_matched_barrier_inserted_submit_preserved"
       : (live_buffer_bound
              ? "fail_closed_missing_pre_dispatch_barrier_plan_proof"
              : "fail_closed_missing_live_vulkan_buffer_binding");
-  const char* const reject_reason = proof.complete
-      ? "barrier_insertion_disabled_behavior_neutral_task"
+  const char* const reject_reason = barrier_inserted
+      ? "none"
       : (live_buffer_bound
              ? "missing_current_run_proof_match_at_consumer_recording"
              : "missing_live_vulkan_buffer_binding");
@@ -10421,7 +10450,8 @@ void note_vulkan_stack_barrier_only_canary_descriptor(
           live_buffer_bound,
           proof,
           status,
-          reject_reason)];
+          reject_reason,
+          barrier_inserted)];
   value.count += 1u;
   value.bytes += static_cast<uint64_t>(buffer.mem_range());
   if (proof.complete) {
@@ -10430,6 +10460,10 @@ void note_vulkan_stack_barrier_only_canary_descriptor(
   if (live_buffer_bound) {
     value.live_buffer_bound_count += 1u;
   }
+  if (barrier_inserted) {
+    value.barrier_inserted_count += 1u;
+  }
+  return barrier_inserted;
 }
 
 void note_vulkan_stack_dispatch(const char* shader_name) {

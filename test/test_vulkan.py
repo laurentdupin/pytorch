@@ -20028,6 +20028,97 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
+    def test_vulkan_stack_region_barrier_only_canary_inserts_real_barrier(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=2,
+            label_prefix="vision.synthetic.stack.real_barrier_canary",
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [1],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        graph_path = os.path.join(
+            TEST_FILE_DIR, "vulkan_stack_region_real_barrier_canary_test.json"
+        )
+        if os.path.exists(graph_path):
+            os.remove(graph_path)
+        previous = os.environ.get("PYTORCH_VULKAN_STACK_DEP_GRAPH")
+        previous_canary = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
+        os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
+            "non_capture_residual2_norm1_block1"
+        )
+        try:
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            with torch.inference_mode():
+                actual = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                    x,
+                    stack_context,
+                    [1],
+                )
+                torch.ops.vulkan_prepack.synchronize()
+
+            self.assertEqual(actual[0].cpu(), expected[0].cpu())
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+
+            barrier_canary = graph["stack_region_barrier_only_canary"]
+            self.assertGreater(barrier_canary["candidate_records"], 0)
+            self.assertEqual(
+                barrier_canary["candidate_records"],
+                barrier_canary["pre_dispatch_proof_matched_records"],
+            )
+            self.assertEqual(
+                barrier_canary["candidate_records"],
+                barrier_canary["live_buffer_bound_records"],
+            )
+            self.assertEqual(
+                barrier_canary["candidate_records"],
+                barrier_canary["barriers_inserted"],
+            )
+            self.assertEqual(barrier_canary["submits_removed"], 0)
+            self.assertTrue(barrier_canary["barrier_behavior_allowed"])
+            self.assertEqual(barrier_canary["fail_closed_reason"], "none")
+            self.assertIn(
+                "pre_dispatch_proof_matched_barrier_inserted_submit_preserved",
+                barrier_canary["status_counts"],
+            )
+            self.assertEqual(
+                barrier_canary["reject_reason_counts"],
+                {"none": barrier_canary["candidate_records"]},
+            )
+            first_record = barrier_canary["records"][0]
+            self.assertEqual(first_record["descriptor_binding"], 6)
+            self.assertGreater(first_record["barriers_inserted"], 0)
+            self.assertEqual(first_record["submits_removed"], 0)
+            self.assertEqual(first_record["src_stage"], "compute_shader")
+            self.assertEqual(first_record["src_access"], "shader_write")
+            self.assertEqual(first_record["dst_stage"], "compute_shader")
+            self.assertEqual(first_record["dst_access"], "shader_read")
+        finally:
+            if previous is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = previous
+            if previous_canary is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
+                    previous_canary
+                )
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+
     def test_vulkan_memory_and_linear_pack_residency_snapshots(self):
         torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
         weight = torch.randn(16, 8, dtype=torch.float32).to("vulkan")

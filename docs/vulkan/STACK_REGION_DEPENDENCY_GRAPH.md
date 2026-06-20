@@ -217,17 +217,19 @@ when a stack-owner recording scope ends. The v0 schema is
   as `rejected_behavior_change_not_allowed`.
 - a nested `stack_region_barrier_only_canary` object with schema
   `StackRegionBarrierOnlyCanary.v0`. This is an opt-in command-recording
-  diagnostic for exactly one non-capture `residual2 -> norm1` boundary, selected
-  with `PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY=non_capture_residual2_norm1_block1`
+  barrier canary for exactly one non-capture `residual2 -> norm1` boundary,
+  selected with
+  `PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY=non_capture_residual2_norm1_block1`
   or `producer_block_0_consumer_block_1`. The hook runs at the consumer
   descriptor-recording site, where the live `VulkanBuffer`, descriptor binding,
-  stage/access labels, and pre-dispatch insertion point are visible. It remains
-  fail-closed while no current-run BarrierPlan proof record is available before
-  that consumer dispatch is recorded: `barriers_inserted` and `submits_removed`
-  stay zero, and the reject reason is
-  `missing_current_run_proof_match_at_consumer_recording`. This flag is for
-  barrier-only preparation; it cannot override `behavior_change_allowed=false`
-  and cannot enable submit removal.
+  stage/access labels, and pre-dispatch insertion point are visible. When the
+  current-run `StackRegionPreDispatchProofTable.v0` row is complete, it records
+  one compute-shader write-to-read buffer barrier before the consumer dispatch
+  and reports `barriers_inserted > 0`. It keeps the existing phase-boundary
+  submit intact: `submits_removed` stays zero. If the current-run proof is
+  missing, it fails closed with
+  `missing_current_run_proof_match_at_consumer_recording`. This flag cannot
+  override `behavior_change_allowed=false` for submit elision.
 - a nested `stack_region_pre_dispatch_proof_table` object with schema
   `StackRegionPreDispatchProofTable.v0`. This is the narrow online proof table
   consumed by the barrier-only canary at the consumer descriptor-recording
@@ -236,12 +238,13 @@ when a stack-owner recording scope ends. The v0 schema is
   producer dispatch observation, planned next-block Norm1 consumer position,
   pre-dispatch insertion token, exact allocation id/generation/range, and no
   capture between producer and consumer. A complete table row lets the canary
-  report `pre_dispatch_proof_matched` before command recording reaches the
-  consumer dispatch. It still does not insert barriers or remove submits; those
-  remain separate behavior canaries.
+  insert the barrier-only canary before command recording reaches the consumer
+  dispatch. It still does not remove submits; submit elision remains a separate
+  canary.
 
-This dump is diagnostic only. It does not insert barriers, skip submits, change
-routes, or change accepted shapes.
+This dump is diagnostic by default. It does not skip submits, change routes, or
+change accepted shapes. A real barrier is recorded only under the explicit
+barrier-only canary flag above.
 
 ## Barrier Plan Stage
 

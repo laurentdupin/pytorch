@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-21 at local HEAD `684c84faa53e` plus
-behavior-neutral StackRegion pre-dispatch proof-table diagnostics.
+Last refreshed: 2026-06-21 at local HEAD `8637b94a47dc` plus the first
+opt-in non-capture StackRegion barrier-only canary.
 
 ## Repo State Summary
 
@@ -62,15 +62,16 @@ reduces the earlier `missing_live_vulkan_buffer_binding` blocker where the live
 descriptor object is observable, but canary execution remains blocked by
 `behavior_change_allowed=false` and by the absence of an executed, validated
 barrier path. This slice records `barriers_inserted=0` and `submits_removed=0`.
-`StackRegionPreDispatchProofTable.v0` now carries the first selected
-non-capture `residual2@0 -> norm1@1` proof into the live consumer descriptor
-recording site before dispatch recording. The table binds the proof to the live
-allocation id/generation/range, producer dispatch observation, planned consumer
-position, insertion token, and stage/access labels. It is still
-behavior-neutral: it does not insert barriers, skip submits, change public
-capture semantics, or broaden shapes. The next behavior canary must consume
-this table to insert one device-side barrier while preserving the phase-boundary
-submit.
+`StackRegionPreDispatchProofTable.v0` carries the first selected non-capture
+`residual2@0 -> norm1@1` proof into the live consumer descriptor recording site
+before dispatch recording. The table binds the proof to the live allocation
+id/generation/range, producer dispatch observation, planned consumer position,
+insertion token, and stage/access labels. The first explicit barrier-only
+canary consumes this table under
+`PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY=non_capture_residual2_norm1_block1`
+and records real compute-shader write-to-read buffer barriers at the consumer
+dispatch site while preserving the existing phase-boundary submit. It does not
+skip submits, change public capture semantics, or broaden shapes.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella

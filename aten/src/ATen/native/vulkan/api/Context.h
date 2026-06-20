@@ -732,15 +732,17 @@ inline void note_stack_pre_dispatch_proof_table_descriptor(
 inline void note_stack_barrier_only_canary_descriptor(
     const uint32_t binding_idx,
     const char* shader_name,
-    const VulkanBuffer& buffer) {
-  note_vulkan_stack_barrier_only_canary_descriptor(
-      binding_idx, shader_name, buffer);
+    const VulkanBuffer& buffer,
+    PipelineBarrier& pipeline_barrier) {
+  maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
+      binding_idx, shader_name, buffer, pipeline_barrier);
 }
 
 inline void note_stack_barrier_only_canary_descriptor(
     const uint32_t,
     const char*,
-    const VulkanImage&) {}
+    const VulkanImage&,
+    PipelineBarrier&) {}
 
 template <size_t... Indices, typename... Arguments>
 inline void note_stack_live_descriptor_bindings(
@@ -771,12 +773,16 @@ inline void note_stack_pre_dispatch_proof_table_descriptors(
 template <size_t... Indices, typename... Arguments>
 inline void note_stack_barrier_only_canary_descriptors(
     const char* shader_name,
+    PipelineBarrier& pipeline_barrier,
     const std::index_sequence<Indices...>&,
     Arguments&&... arguments) {
   VK_UNUSED const int _[]{
       0,
       (note_stack_barrier_only_canary_descriptor(
-           Indices, shader_name, std::forward<Arguments>(arguments)),
+           Indices,
+           shader_name,
+           std::forward<Arguments>(arguments),
+           pipeline_barrier),
        0)...,
   };
 }
@@ -1059,6 +1065,7 @@ inline bool Context::submit_compute_job(
       std::forward<Arguments>(arguments)...);
   detail::note_stack_barrier_only_canary_descriptors(
       shader.kernel_name.c_str(),
+      pipeline_barrier,
       std::index_sequence_for<Arguments...>{},
       std::forward<Arguments>(arguments)...);
 
