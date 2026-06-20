@@ -89,7 +89,8 @@ when a stack-owner recording scope ends. The v0 schema is
   allocation nodes, boundary nodes, capture edges, fully proven edge records,
   and queue-submit boundary records
 - `dispatch_nodes`, `dependency_edges`, `capture_edges`, `resource_nodes`,
-  `allocation_nodes`, `phase_boundary_nodes`, and `region_lifetime_rows`
+  `pre_dispatch_insertion_point_nodes`, `allocation_nodes`,
+  `phase_boundary_nodes`, and `region_lifetime_rows`
 - per-row `fields` maps parsed from the existing stack dispatch, lifetime,
   and region attribution diagnostics
 - explicit `missing_metadata_fields` on dependency edges
@@ -108,12 +109,13 @@ when a stack-owner recording scope ends. The v0 schema is
   position until command recording can provide an exact insertion point. The
   dry-run now also records the stack-plan logical position for planned
   consumers before command recording starts, and records the completed-run
-  command dispatch position when the graph later observes it. Those positions
-  are intentionally separate: a logical stack-plan step proves the future
-  consumer's order in the owner plan, but it is not yet an exact command-buffer
-  dispatch position where a barrier can be inserted. Planned logical position
-  evidence therefore narrows the remaining blocker to a pre-recording
-  command-buffer dispatch-position API rather than making the edge plannable.
+  command dispatch position when the graph later observes it.
+  `pre_dispatch_insertion_point_nodes` are recorded by the command-recording
+  path immediately before a stack dispatch is registered. They provide a
+  stable dry-run token of the form `stack_scope:*:before_phase:*:block:*` that
+  a future barrier hook can match before recording the consumer dispatch. The
+  token does not insert a barrier or remove a submit by itself; it only proves
+  that an insertion location is observable before the dispatch is recorded.
   The plan also records the boundary-level metadata still missing before any
   submit can be removed.
 - a nested `boundary_complete_dependency_proof` object with schema

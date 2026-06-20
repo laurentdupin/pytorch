@@ -977,6 +977,8 @@ inline bool Context::submit_compute_job(
       std::index_sequence_for<Arguments...>{},
       std::forward<Arguments>(arguments)...);
 
+  note_vulkan_stack_pre_dispatch_insertion_point(shader.kernel_name.c_str());
+
   // Factor out template parameter independent code to minimize code bloat.
   register_shader_dispatch(
       descriptor_set, pipeline_barrier, shader, global_work_group);

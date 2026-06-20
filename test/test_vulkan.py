@@ -19639,8 +19639,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertTrue(graph["behavior_neutral"])
             self.assertFalse(graph["summary"]["submit_elision_enabled"])
             self.assertGreater(graph["summary"]["dispatch_nodes"], 0)
+            self.assertGreater(
+                graph["summary"]["pre_dispatch_insertion_point_nodes"], 0
+            )
             self.assertGreater(graph["summary"]["dependency_edge_rows"], 0)
             self.assertIn("dispatch_nodes", graph)
+            self.assertIn("pre_dispatch_insertion_point_nodes", graph)
             self.assertIn("dependency_edges", graph)
             self.assertIn("phase_boundary_nodes", graph)
             self.assertIn("barrier_plan", graph)
@@ -19688,6 +19692,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "planned_completed_position_different_space_records",
                 barrier_plan,
             )
+            self.assertIn(
+                "pre_recording_barrier_insertion_point_available_records",
+                barrier_plan,
+            )
+            self.assertIn(
+                "pre_recording_barrier_insertion_point_missing_records",
+                barrier_plan,
+            )
             self.assertTrue(barrier_plan["records"])
             self.assertIn(
                 "planned_barrier_location",
@@ -19719,6 +19731,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn(
                 "barrier_insertion_location_class",
+                barrier_plan["records"][0],
+            )
+            self.assertIn(
+                "pre_recording_barrier_insertion_point_available",
+                barrier_plan["records"][0],
+            )
+            self.assertIn(
+                "pre_recording_barrier_insertion_point_token",
+                barrier_plan["records"][0],
+            )
+            self.assertIn(
+                "pre_recording_barrier_insertion_point_class",
                 barrier_plan["records"][0],
             )
             self.assertIn("boundary_complete_dependency_proof", graph)

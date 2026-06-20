@@ -832,6 +832,8 @@ TORCH_API bool vision_stack_capture_dependency_reaches_block(
 
 TORCH_API void begin_stack_dispatch_dependency_recording_scope();
 TORCH_API void end_stack_dispatch_dependency_recording_scope();
+TORCH_API void note_vulkan_stack_pre_dispatch_insertion_point(
+    const char* shader_name);
 TORCH_API void note_vulkan_stack_dispatch(const char* shader_name);
 TORCH_API void note_stack_owner_dispatch_dependency_dry_run(
     VulkanRetiredResourceKind kind,
