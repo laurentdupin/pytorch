@@ -228,6 +228,17 @@ when a stack-owner recording scope ends. The v0 schema is
   `missing_current_run_proof_match_at_consumer_recording`. This flag is for
   barrier-only preparation; it cannot override `behavior_change_allowed=false`
   and cannot enable submit removal.
+- a nested `stack_region_pre_dispatch_proof_table` object with schema
+  `StackRegionPreDispatchProofTable.v0`. This is the narrow online proof table
+  consumed by the barrier-only canary at the consumer descriptor-recording
+  point. The first row class covers only the generic non-capture
+  `residual2@0 -> norm1@1` boundary: it requires the live buffer binding,
+  producer dispatch observation, planned next-block Norm1 consumer position,
+  pre-dispatch insertion token, exact allocation id/generation/range, and no
+  capture between producer and consumer. A complete table row lets the canary
+  report `pre_dispatch_proof_matched` before command recording reaches the
+  consumer dispatch. It still does not insert barriers or remove submits; those
+  remain separate behavior canaries.
 
 This dump is diagnostic only. It does not insert barriers, skip submits, change
 routes, or change accepted shapes.

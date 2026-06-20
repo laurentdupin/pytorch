@@ -37,6 +37,9 @@ thread_local uint64_t g_stack_dispatch_dependency_position = 0u;
 std::atomic<uint64_t> g_next_stack_dispatch_dependency_scope_id{1u};
 
 void maybe_write_stack_region_dependency_graph_dump();
+const char* stack_region_dependency_graph_path();
+const char* stack_region_barrier_only_canary_target();
+bool stack_region_barrier_only_canary_target_selected(const char* target);
 
 struct RetiredResourceAggregateKey final {
   VulkanRetiredResourceKind kind = VulkanRetiredResourceKind::Unknown;
@@ -433,9 +436,17 @@ struct StackRegionBoundarySubmitPlanValue final {
 struct StackRegionBarrierOnlyCanaryValue final {
   uint64_t count = 0u;
   uint64_t bytes = 0u;
+  uint64_t pre_dispatch_proof_matched_count = 0u;
   uint64_t live_buffer_bound_count = 0u;
   uint64_t submit_removed_count = 0u;
   uint64_t barrier_inserted_count = 0u;
+};
+
+struct StackRegionPreDispatchProofTableValue final {
+  uint64_t count = 0u;
+  uint64_t bytes = 0u;
+  uint64_t proof_complete_count = 0u;
+  uint64_t live_buffer_bound_count = 0u;
 };
 
 std::map<std::string, StackDispatchDependencyDispatchValue>&
@@ -471,6 +482,12 @@ stack_region_boundary_submit_plan_rows() {
 std::map<std::string, StackRegionBarrierOnlyCanaryValue>&
 stack_region_barrier_only_canary_rows() {
   static std::map<std::string, StackRegionBarrierOnlyCanaryValue> rows;
+  return rows;
+}
+
+std::map<std::string, StackRegionPreDispatchProofTableValue>&
+stack_region_pre_dispatch_proof_table_rows() {
+  static std::map<std::string, StackRegionPreDispatchProofTableValue> rows;
   return rows;
 }
 
@@ -582,6 +599,27 @@ std::string stack_dispatch_dependency_live_buffer_binding_key(
   return key.str();
 }
 
+struct StackRegionPreDispatchProof final {
+  bool selected_descriptor = false;
+  bool live_buffer_bound = false;
+  bool producer_dispatch_observed = false;
+  bool planned_consumer_position_available = false;
+  bool insertion_point_available = false;
+  bool capture_between_producer_and_consumer = true;
+  bool complete = false;
+  int64_t producer_block = -1;
+  int64_t consumer_block = -1;
+  uint64_t producer_dispatch_first_position = 0u;
+  uint64_t producer_dispatch_last_position = 0u;
+  uint64_t planned_consumer_position = 0u;
+  uint64_t next_recorded_dispatch_position = 0u;
+  std::string boundary_id = "none";
+  std::string proof_id = "none";
+  std::string insertion_point_token = "missing";
+  std::string status = "not_selected_boundary";
+  std::string missing_field = "none";
+};
+
 std::string stack_region_barrier_only_canary_key(
     const uint64_t scope_id,
     const VulkanVisionStackPhase phase,
@@ -591,6 +629,7 @@ std::string stack_region_barrier_only_canary_key(
     const uint64_t next_recorded_position,
     const VulkanBuffer& buffer,
     const bool live_buffer_bound,
+    const StackRegionPreDispatchProof& proof,
     const char* const status,
     const char* const reject_reason) {
   const uint64_t allocation_id = buffer.allocation_id();
@@ -639,10 +678,25 @@ std::string stack_region_barrier_only_canary_key(
       << " src_access=shader_write"
       << " dst_stage=compute_shader"
       << " dst_access=shader_read"
-      << " current_run_proof_match=0"
-      << " current_run_proof_status="
-      << "missing_pre_dispatch_barrier_plan_proof_record"
-      << " proof_source=not_available_before_consumer_dispatch_recording"
+      << " current_run_proof_match=" << (proof.complete ? 1 : 0)
+      << " current_run_proof_status=" << proof.status
+      << " current_run_proof_id=" << proof.proof_id
+      << " pre_dispatch_proof_matched=" << (proof.complete ? 1 : 0)
+      << " pre_dispatch_proof_table_status=" << proof.status
+      << " pre_dispatch_proof_missing_field=" << proof.missing_field
+      << " proof_source=StackRegionPreDispatchProofTable.v0"
+      << " producer_dispatch_observed="
+      << (proof.producer_dispatch_observed ? 1 : 0)
+      << " producer_dispatch_first_position="
+      << proof.producer_dispatch_first_position
+      << " producer_dispatch_last_position="
+      << proof.producer_dispatch_last_position
+      << " planned_consumer_position_available="
+      << (proof.planned_consumer_position_available ? 1 : 0)
+      << " planned_consumer_position=" << proof.planned_consumer_position
+      << " insertion_point_available="
+      << (proof.insertion_point_available ? 1 : 0)
+      << " insertion_point_token=" << proof.insertion_point_token
       << " barrier_only_status=" << status
       << " reject_reason=" << reject_reason
       << " capture_edge=0"
@@ -653,6 +707,77 @@ std::string stack_region_barrier_only_canary_key(
       << " behavior_change_allowed=0"
       << " submit_skip_behavior_change_allowed=0"
       << " barrier_behavior_allowed=0"
+      << " barriers_inserted=0"
+      << " submits_removed=0";
+  return key.str();
+}
+
+std::string stack_region_pre_dispatch_proof_table_key(
+    const uint64_t scope_id,
+    const VulkanVisionStackPhase phase,
+    const int64_t block,
+    const char* const shader_name,
+    const uint32_t binding_idx,
+    const uint64_t next_recorded_position,
+    const VulkanBuffer& buffer,
+    const StackRegionPreDispatchProof& proof) {
+  const uint64_t allocation_id = buffer.allocation_id();
+  const uint64_t allocation_generation =
+      vulkan_memory_allocation_generation(allocation_id);
+  std::ostringstream key;
+  key << "stack_region_pre_dispatch_proof=1"
+      << " contract=StackRegionPreDispatchProofTable"
+      << " schema=StackRegionPreDispatchProofTable.v0"
+      << " behavior_neutral=1"
+      << " default_behavior_unchanged=1"
+      << " selected_boundary_id=" << proof.boundary_id
+      << " selected_scope=non_capture_stack_boundary"
+      << " producer_phase=residual2"
+      << " producer_block=" << proof.producer_block
+      << " consumer_phase=norm1"
+      << " consumer_block=" << proof.consumer_block
+      << " live_phase=" << vision_stack_phase_name(phase)
+      << " live_block=" << block
+      << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
+      << " descriptor_binding=" << binding_idx
+      << " command_buffer_sequence=" << scope_id
+      << " next_recorded_dispatch_position=" << next_recorded_position
+      << " allocation_id=" << allocation_id
+      << " allocation_generation=" << allocation_generation
+      << " allocation_has_generation="
+      << (allocation_id != 0u && allocation_generation != 0u ? 1 : 0)
+      << " byte_offset=" << static_cast<uint64_t>(buffer.mem_offset())
+      << " byte_range=" << static_cast<uint64_t>(buffer.mem_range())
+      << " allocation_has_byte_range="
+      << (buffer.has_memory() && buffer.mem_range() != 0u ? 1 : 0)
+      << " allocation_label="
+      << (buffer.allocation_label().empty() ? "unknown"
+                                            : buffer.allocation_label())
+      << " live_vulkan_buffer_binding_available="
+      << (proof.live_buffer_bound ? 1 : 0)
+      << " producer_dispatch_observed="
+      << (proof.producer_dispatch_observed ? 1 : 0)
+      << " producer_dispatch_first_position="
+      << proof.producer_dispatch_first_position
+      << " producer_dispatch_last_position="
+      << proof.producer_dispatch_last_position
+      << " planned_consumer_position_available="
+      << (proof.planned_consumer_position_available ? 1 : 0)
+      << " planned_consumer_position=" << proof.planned_consumer_position
+      << " insertion_point_available="
+      << (proof.insertion_point_available ? 1 : 0)
+      << " insertion_point_token=" << proof.insertion_point_token
+      << " capture_between_producer_and_consumer="
+      << (proof.capture_between_producer_and_consumer ? 1 : 0)
+      << " src_stage=compute_shader"
+      << " src_access=shader_write"
+      << " dst_stage=compute_shader"
+      << " dst_access=shader_read"
+      << " formal_last_use_proof_source=planned_non_capture_residual2_to_norm1"
+      << " pre_dispatch_proof_complete=" << (proof.complete ? 1 : 0)
+      << " pre_dispatch_proof_status=" << proof.status
+      << " pre_dispatch_proof_missing_field=" << proof.missing_field
+      << " pre_dispatch_proof_id=" << proof.proof_id
       << " barriers_inserted=0"
       << " submits_removed=0";
   return key.str();
@@ -672,6 +797,121 @@ const StackDispatchDependencyDispatchValue* find_stack_dispatch_observation(
     }
   }
   return nullptr;
+}
+
+std::string non_capture_residual2_to_norm1_boundary_id(
+    const int64_t producer_block,
+    const int64_t consumer_block) {
+  std::ostringstream stream;
+  stream << "non_capture_boundary:producer_block=" << producer_block
+         << ":consumer_block=" << consumer_block;
+  return stream.str();
+}
+
+bool stack_region_pre_dispatch_proof_table_enabled() {
+  return stack_region_dependency_graph_path() != nullptr ||
+      stack_region_barrier_only_canary_target_selected(
+             stack_region_barrier_only_canary_target());
+}
+
+bool is_selected_non_capture_residual2_norm1_descriptor(
+    const VulkanVisionStackPhase phase,
+    const int64_t block,
+    const uint32_t binding_idx) {
+  return phase == VulkanVisionStackPhase::Norm1 && block == 1 &&
+      binding_idx == 6u;
+}
+
+bool stack_region_pre_dispatch_capture_between_blocks(
+    const int64_t producer_block,
+    const int64_t consumer_block) {
+  if (producer_block < 0 || consumer_block < 0) {
+    return true;
+  }
+  for (const int64_t capture_index : g_vision_stack_capture_indices) {
+    if (capture_index > producer_block && capture_index < consumer_block) {
+      return true;
+    }
+  }
+  return false;
+}
+
+StackRegionPreDispatchProof evaluate_stack_region_pre_dispatch_proof(
+    const uint64_t scope_id,
+    const VulkanVisionStackPhase phase,
+    const int64_t block,
+    const uint32_t binding_idx,
+    const uint64_t next_recorded_position,
+    const char* const shader_name,
+    const VulkanBuffer& buffer) {
+  StackRegionPreDispatchProof proof;
+  proof.selected_descriptor =
+      is_selected_non_capture_residual2_norm1_descriptor(
+          phase, block, binding_idx);
+  if (!proof.selected_descriptor) {
+    return proof;
+  }
+  proof.producer_block = block - 1;
+  proof.consumer_block = block;
+  proof.boundary_id = non_capture_residual2_to_norm1_boundary_id(
+      proof.producer_block, proof.consumer_block);
+  proof.live_buffer_bound =
+      buffer.allocation_id() != 0u &&
+      vulkan_memory_allocation_generation(buffer.allocation_id()) != 0u &&
+      buffer.has_memory() && buffer.mem_range() != 0u &&
+      buffer.handle() != VK_NULL_HANDLE;
+  const StackDispatchDependencyDispatchValue* const producer_dispatch =
+      find_stack_dispatch_observation(
+          scope_id, VulkanVisionStackPhase::Residual2, proof.producer_block);
+  proof.producer_dispatch_observed = producer_dispatch != nullptr;
+  if (producer_dispatch) {
+    proof.producer_dispatch_first_position =
+        producer_dispatch->first_position;
+    proof.producer_dispatch_last_position = producer_dispatch->last_position;
+  }
+  const VulkanStackPlannedDispatchPosition* const planned_position =
+      find_stack_planned_dispatch_position(phase, block);
+  proof.planned_consumer_position_available = planned_position != nullptr;
+  if (planned_position) {
+    proof.planned_consumer_position = planned_position->planned_position;
+    proof.insertion_point_available = true;
+    proof.insertion_point_token = stack_dispatch_dependency_insertion_point_token(
+        scope_id, phase, block, planned_position->planned_position, shader_name);
+  }
+  proof.next_recorded_dispatch_position = next_recorded_position;
+  proof.capture_between_producer_and_consumer =
+      stack_region_pre_dispatch_capture_between_blocks(
+          proof.producer_block, proof.consumer_block);
+  if (!proof.live_buffer_bound) {
+    proof.status = "missing_live_vulkan_buffer_binding";
+    proof.missing_field = "live_vulkan_buffer_binding";
+  } else if (!proof.producer_dispatch_observed) {
+    proof.status = "missing_producer_dispatch_observation";
+    proof.missing_field = "producer_dispatch_observation";
+  } else if (!proof.planned_consumer_position_available) {
+    proof.status = "missing_planned_consumer_position";
+    proof.missing_field = "planned_consumer_position";
+  } else if (!proof.insertion_point_available) {
+    proof.status = "missing_pre_dispatch_insertion_point";
+    proof.missing_field = "pre_dispatch_insertion_point";
+  } else if (proof.capture_between_producer_and_consumer) {
+    proof.status = "capture_between_producer_and_consumer";
+    proof.missing_field = "non_capture_boundary";
+  } else {
+    proof.complete = true;
+    proof.status = "pre_dispatch_proof_matched";
+    proof.missing_field = "none";
+    std::ostringstream proof_id;
+    proof_id << "StackRegionPreDispatchProofTable.v0:" << proof.boundary_id
+             << ":scope=" << scope_id << ":binding=" << binding_idx
+             << ":allocation=" << buffer.allocation_id()
+             << ":generation="
+             << vulkan_memory_allocation_generation(buffer.allocation_id())
+             << ":offset=" << static_cast<uint64_t>(buffer.mem_offset())
+             << ":range=" << static_cast<uint64_t>(buffer.mem_range());
+    proof.proof_id = proof_id.str();
+  }
+  return proof;
 }
 
 const char* stack_dispatch_op_label(const VulkanVisionStackPhase phase) {
@@ -5266,6 +5506,7 @@ void append_stack_region_barrier_only_canary_json(
     const std::vector<std::string>& rows,
     bool& first) {
   uint64_t candidate_records = 0u;
+  uint64_t pre_dispatch_proof_matched_records = 0u;
   uint64_t live_buffer_bound_records = 0u;
   uint64_t barriers_inserted = 0u;
   uint64_t submits_removed = 0u;
@@ -5275,6 +5516,8 @@ void append_stack_region_barrier_only_canary_json(
     const auto fields = parse_space_separated_fields(row);
     const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
     candidate_records += count;
+    pre_dispatch_proof_matched_records +=
+        parsed_u64(fields, "pre_dispatch_proof_matched_count");
     live_buffer_bound_records +=
         parsed_u64(fields, "live_buffer_bound_count");
     barriers_inserted += parsed_u64(fields, "barriers_inserted");
@@ -5305,6 +5548,11 @@ void append_stack_region_barrier_only_canary_json(
   append_json_u64(out, "candidate_records", candidate_records, canary_first);
   append_json_u64(
       out, "live_buffer_bound_records", live_buffer_bound_records, canary_first);
+  append_json_u64(
+      out,
+      "pre_dispatch_proof_matched_records",
+      pre_dispatch_proof_matched_records,
+      canary_first);
   append_json_u64(out, "barriers_inserted", barriers_inserted, canary_first);
   append_json_u64(out, "submits_removed", submits_removed, canary_first);
   append_json_bool(out, "submit_skip_behavior_change_allowed", false, canary_first);
@@ -5314,7 +5562,9 @@ void append_stack_region_barrier_only_canary_json(
       "fail_closed_reason",
       candidate_records == 0u
           ? "selected_boundary_not_observed"
-          : "missing_current_run_proof_match_at_consumer_recording",
+          : (pre_dispatch_proof_matched_records > 0u
+                 ? "barrier_insertion_disabled_behavior_neutral_task"
+                 : "missing_current_run_proof_match_at_consumer_recording"),
       canary_first);
   append_json_comma(out, canary_first);
   out << "\"status_counts\":";
@@ -5333,6 +5583,201 @@ void append_stack_region_barrier_only_canary_json(
   out << "]}";
 }
 
+void append_stack_region_pre_dispatch_proof_table_record(
+    std::ostream& out,
+    const std::string& row,
+    const size_t index) {
+  const auto fields = parse_space_separated_fields(row);
+  bool first = true;
+  out << '{';
+  append_json_string(
+      out,
+      "proof_record_id",
+      "pre_dispatch_proof_" + std::to_string(index),
+      first);
+  append_json_string(
+      out,
+      "schema",
+      field_or(fields, "schema", "StackRegionPreDispatchProofTable.v0"),
+      first);
+  append_json_string(
+      out,
+      "selected_boundary_id",
+      field_or(fields, "selected_boundary_id", "none"),
+      first);
+  append_json_string(
+      out, "selected_scope", field_or(fields, "selected_scope", "none"), first);
+  append_json_string(
+      out,
+      "producer_phase",
+      field_or(fields, "producer_phase", "unknown"),
+      first);
+  append_json_u64(
+      out, "producer_block", parsed_u64(fields, "producer_block"), first);
+  append_json_string(
+      out,
+      "consumer_phase",
+      field_or(fields, "consumer_phase", "unknown"),
+      first);
+  append_json_u64(
+      out, "consumer_block", parsed_u64(fields, "consumer_block"), first);
+  append_json_string(
+      out, "live_phase", field_or(fields, "live_phase", "unknown"), first);
+  append_json_u64(out, "live_block", parsed_u64(fields, "live_block"), first);
+  append_json_string(out, "shader", field_or(fields, "shader", "unknown"), first);
+  append_json_u64(
+      out, "descriptor_binding", parsed_u64(fields, "descriptor_binding"), first);
+  append_json_u64(
+      out,
+      "next_recorded_dispatch_position",
+      parsed_u64(fields, "next_recorded_dispatch_position"),
+      first);
+  append_json_u64(out, "allocation_id", parsed_u64(fields, "allocation_id"), first);
+  append_json_u64(
+      out,
+      "allocation_generation",
+      parsed_u64(fields, "allocation_generation"),
+      first);
+  append_json_u64(out, "byte_offset", parsed_u64(fields, "byte_offset"), first);
+  append_json_u64(out, "byte_range", parsed_u64(fields, "byte_range"), first);
+  append_json_bool(
+      out,
+      "live_vulkan_buffer_binding_available",
+      field_or(fields, "live_vulkan_buffer_binding_available", "0") == "1",
+      first);
+  append_json_bool(
+      out,
+      "producer_dispatch_observed",
+      field_or(fields, "producer_dispatch_observed", "0") == "1",
+      first);
+  append_json_u64(
+      out,
+      "producer_dispatch_first_position",
+      parsed_u64(fields, "producer_dispatch_first_position"),
+      first);
+  append_json_u64(
+      out,
+      "producer_dispatch_last_position",
+      parsed_u64(fields, "producer_dispatch_last_position"),
+      first);
+  append_json_bool(
+      out,
+      "planned_consumer_position_available",
+      field_or(fields, "planned_consumer_position_available", "0") == "1",
+      first);
+  append_json_u64(
+      out,
+      "planned_consumer_position",
+      parsed_u64(fields, "planned_consumer_position"),
+      first);
+  append_json_bool(
+      out,
+      "insertion_point_available",
+      field_or(fields, "insertion_point_available", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "insertion_point_token",
+      field_or(fields, "insertion_point_token", "missing"),
+      first);
+  append_json_string(out, "src_stage", field_or(fields, "src_stage", "missing"), first);
+  append_json_string(out, "src_access", field_or(fields, "src_access", "missing"), first);
+  append_json_string(out, "dst_stage", field_or(fields, "dst_stage", "missing"), first);
+  append_json_string(out, "dst_access", field_or(fields, "dst_access", "missing"), first);
+  append_json_bool(
+      out,
+      "pre_dispatch_proof_complete",
+      field_or(fields, "pre_dispatch_proof_complete", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "pre_dispatch_proof_status",
+      field_or(fields, "pre_dispatch_proof_status", "missing"),
+      first);
+  append_json_string(
+      out,
+      "pre_dispatch_proof_missing_field",
+      field_or(fields, "pre_dispatch_proof_missing_field", "missing"),
+      first);
+  append_json_string(
+      out,
+      "pre_dispatch_proof_id",
+      field_or(fields, "pre_dispatch_proof_id", "missing"),
+      first);
+  append_json_u64(out, "barriers_inserted", parsed_u64(fields, "barriers_inserted"), first);
+  append_json_u64(out, "submits_removed", parsed_u64(fields, "submits_removed"), first);
+  append_json_u64(out, "count", parsed_u64(fields, "count"), first);
+  append_json_u64(out, "bytes", parsed_u64(fields, "bytes"), first);
+  append_json_comma(out, first);
+  out << "\"source_fields\":";
+  append_json_fields_object(out, fields);
+  out << '}';
+}
+
+void append_stack_region_pre_dispatch_proof_table_json(
+    std::ostream& out,
+    const std::vector<std::string>& rows,
+    bool& first) {
+  uint64_t candidate_records = 0u;
+  uint64_t proof_complete_records = 0u;
+  uint64_t live_buffer_bound_records = 0u;
+  std::map<std::string, uint64_t> status_counts;
+  std::map<std::string, uint64_t> missing_field_counts;
+  for (const auto& row : rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    candidate_records += count;
+    proof_complete_records += parsed_u64(fields, "proof_complete_count");
+    live_buffer_bound_records +=
+        parsed_u64(fields, "live_buffer_bound_count");
+    status_counts[field_or(fields, "pre_dispatch_proof_status", "missing")] +=
+        count;
+    missing_field_counts
+        [field_or(fields, "pre_dispatch_proof_missing_field", "missing")] +=
+        count;
+  }
+
+  append_json_comma(out, first);
+  out << "\"stack_region_pre_dispatch_proof_table\":{";
+  bool proof_first = true;
+  append_json_string(
+      out, "schema", "StackRegionPreDispatchProofTable.v0", proof_first);
+  append_json_bool(out, "behavior_neutral", true, proof_first);
+  append_json_bool(out, "default_behavior_unchanged", true, proof_first);
+  append_json_string(
+      out,
+      "target_boundary_class",
+      "non_capture_residual2_to_norm1",
+      proof_first);
+  append_json_string(
+      out,
+      "selected_boundary_id",
+      "non_capture_boundary:producer_block=0:consumer_block=1",
+      proof_first);
+  append_json_u64(out, "candidate_records", candidate_records, proof_first);
+  append_json_u64(
+      out, "proof_complete_records", proof_complete_records, proof_first);
+  append_json_u64(
+      out, "live_buffer_bound_records", live_buffer_bound_records, proof_first);
+  append_json_u64(out, "barriers_inserted", 0u, proof_first);
+  append_json_u64(out, "submits_removed", 0u, proof_first);
+  append_json_comma(out, proof_first);
+  out << "\"status_counts\":";
+  append_u64_map_object(out, status_counts);
+  append_json_comma(out, proof_first);
+  out << "\"missing_field_counts\":";
+  append_u64_map_object(out, missing_field_counts);
+  append_json_comma(out, proof_first);
+  out << "\"records\":[";
+  for (size_t i = 0; i < rows.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    append_stack_region_pre_dispatch_proof_table_record(out, rows[i], i);
+  }
+  out << "]}";
+}
+
 void split_stack_graph_rows(
     const std::vector<std::string>& rows,
     std::vector<std::string>& dispatch_nodes,
@@ -5341,8 +5786,13 @@ void split_stack_graph_rows(
     std::vector<std::string>& dependency_edges,
     std::vector<std::string>& capture_edges,
     std::vector<std::string>& boundary_submit_plan_rows,
-    std::vector<std::string>& barrier_only_canary_rows) {
+    std::vector<std::string>& barrier_only_canary_rows,
+    std::vector<std::string>& pre_dispatch_proof_rows) {
   for (const auto& row : rows) {
+    if (row.find("stack_region_pre_dispatch_proof=1") != std::string::npos) {
+      pre_dispatch_proof_rows.emplace_back(row);
+      continue;
+    }
     if (row.find("stack_region_barrier_only_canary=1") != std::string::npos) {
       barrier_only_canary_rows.emplace_back(row);
       continue;
@@ -5404,6 +5854,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> capture_edges;
   std::vector<std::string> boundary_submit_plan_rows;
   std::vector<std::string> barrier_only_canary_rows;
+  std::vector<std::string> pre_dispatch_proof_rows;
   split_stack_graph_rows(
       dispatch_dependency_rows,
       dispatch_nodes,
@@ -5412,7 +5863,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       dependency_edges,
       capture_edges,
       boundary_submit_plan_rows,
-      barrier_only_canary_rows);
+      barrier_only_canary_rows,
+      pre_dispatch_proof_rows);
 
   std::vector<std::string> resource_nodes;
   std::vector<std::string> boundary_nodes;
@@ -5545,6 +5997,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_region_barrier_only_canary_rows",
       barrier_only_canary_rows.size(),
       summary_first);
+  append_json_u64(
+      out,
+      "stack_region_pre_dispatch_proof_rows",
+      pre_dispatch_proof_rows.size(),
+      summary_first);
   append_json_bool(out, "submit_elision_enabled", false, summary_first);
   append_json_string(
       out,
@@ -5605,6 +6062,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       first);
   append_graph_array(
       out,
+      "stack_region_pre_dispatch_proof_table_rows",
+      pre_dispatch_proof_rows,
+      "stack_region_pre_dispatch_proof",
+      first);
+  append_graph_array(
+      out,
       "stack_output_device_consumer_registrations",
       consumer_registration_rows,
       "stack_output_device_consumer_registration",
@@ -5619,6 +6082,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       out, boundary_submit_plan_rows, first);
   append_stack_region_barrier_only_canary_json(
       out, barrier_only_canary_rows, first);
+  append_stack_region_pre_dispatch_proof_table_json(
+      out, pre_dispatch_proof_rows, first);
   append_barrier_plan_json(
       out,
       dependency_edges,
@@ -9845,6 +10310,56 @@ void note_vulkan_stack_live_descriptor_binding(
   value.last_position = next_recorded_position;
 }
 
+void note_vulkan_stack_pre_dispatch_proof_table_descriptor(
+    const uint32_t binding_idx,
+    const char* shader_name,
+    const VulkanBuffer& buffer) {
+  if (!stack_region_pre_dispatch_proof_table_enabled()) {
+    return;
+  }
+  if (!inside_vision_stack_phase()) {
+    return;
+  }
+  const uint64_t scope_id = g_stack_dispatch_dependency_scope_id;
+  if (scope_id == 0u) {
+    return;
+  }
+  if (!is_selected_non_capture_residual2_norm1_descriptor(
+          g_vision_stack_phase, g_vision_stack_block_index, binding_idx)) {
+    return;
+  }
+  const uint64_t next_recorded_position =
+      g_stack_dispatch_dependency_position + 1u;
+  const StackRegionPreDispatchProof proof =
+      evaluate_stack_region_pre_dispatch_proof(
+          scope_id,
+          g_vision_stack_phase,
+          g_vision_stack_block_index,
+          binding_idx,
+          next_recorded_position,
+          shader_name,
+          buffer);
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  auto& value = stack_region_pre_dispatch_proof_table_rows()
+      [stack_region_pre_dispatch_proof_table_key(
+          scope_id,
+          g_vision_stack_phase,
+          g_vision_stack_block_index,
+          shader_name,
+          binding_idx,
+          next_recorded_position,
+          buffer,
+          proof)];
+  value.count += 1u;
+  value.bytes += static_cast<uint64_t>(buffer.mem_range());
+  if (proof.complete) {
+    value.proof_complete_count += 1u;
+  }
+  if (proof.live_buffer_bound) {
+    value.live_buffer_bound_count += 1u;
+  }
+}
+
 void note_vulkan_stack_barrier_only_canary_descriptor(
     const uint32_t binding_idx,
     const char* shader_name,
@@ -9872,14 +10387,27 @@ void note_vulkan_stack_barrier_only_canary_descriptor(
       allocation_id != 0u && allocation_generation != 0u &&
       buffer.has_memory() && buffer.mem_range() != 0u &&
       buffer.handle() != VK_NULL_HANDLE;
-  const char* const status = live_buffer_bound
-      ? "fail_closed_missing_pre_dispatch_barrier_plan_proof"
-      : "fail_closed_missing_live_vulkan_buffer_binding";
-  const char* const reject_reason = live_buffer_bound
-      ? "missing_current_run_proof_match_at_consumer_recording"
-      : "missing_live_vulkan_buffer_binding";
   const uint64_t next_recorded_position =
       g_stack_dispatch_dependency_position + 1u;
+  const StackRegionPreDispatchProof proof =
+      evaluate_stack_region_pre_dispatch_proof(
+          scope_id,
+          g_vision_stack_phase,
+          g_vision_stack_block_index,
+          binding_idx,
+          next_recorded_position,
+          shader_name,
+          buffer);
+  const char* const status = proof.complete
+      ? "pre_dispatch_proof_matched_barrier_not_inserted"
+      : (live_buffer_bound
+             ? "fail_closed_missing_pre_dispatch_barrier_plan_proof"
+             : "fail_closed_missing_live_vulkan_buffer_binding");
+  const char* const reject_reason = proof.complete
+      ? "barrier_insertion_disabled_behavior_neutral_task"
+      : (live_buffer_bound
+             ? "missing_current_run_proof_match_at_consumer_recording"
+             : "missing_live_vulkan_buffer_binding");
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   auto& value = stack_region_barrier_only_canary_rows()
       [stack_region_barrier_only_canary_key(
@@ -9891,10 +10419,14 @@ void note_vulkan_stack_barrier_only_canary_descriptor(
           next_recorded_position,
           buffer,
           live_buffer_bound,
+          proof,
           status,
           reject_reason)];
   value.count += 1u;
   value.bytes += static_cast<uint64_t>(buffer.mem_range());
+  if (proof.complete) {
+    value.pre_dispatch_proof_matched_count += 1u;
+  }
   if (live_buffer_bound) {
     value.live_buffer_bound_count += 1u;
   }
@@ -10256,7 +10788,8 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_dispatch_dependency_live_buffer_binding_rows().size() +
       stack_dispatch_dependency_dry_run_rows().size() +
       stack_region_boundary_submit_plan_rows().size() +
-      stack_region_barrier_only_canary_rows().size());
+      stack_region_barrier_only_canary_rows().size() +
+      stack_region_pre_dispatch_proof_table_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
@@ -10301,9 +10834,19 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
         << " bytes=" << item.second.bytes
+        << " pre_dispatch_proof_matched_count="
+        << item.second.pre_dispatch_proof_matched_count
         << " live_buffer_bound_count=" << item.second.live_buffer_bound_count
         << " submit_removed=" << item.second.submit_removed_count
         << " barriers_inserted=" << item.second.barrier_inserted_count;
+    rows.push_back(row.str());
+  }
+  for (const auto& item : stack_region_pre_dispatch_proof_table_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " bytes=" << item.second.bytes
+        << " proof_complete_count=" << item.second.proof_complete_count
+        << " live_buffer_bound_count=" << item.second.live_buffer_bound_count;
     rows.push_back(row.str());
   }
   return rows;
@@ -10327,6 +10870,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_dispatch_dependency_dry_run_rows().clear();
   stack_region_boundary_submit_plan_rows().clear();
   stack_region_barrier_only_canary_rows().clear();
+  stack_region_pre_dispatch_proof_table_rows().clear();
   stack_output_device_consumer_registrations().clear();
 }
 

@@ -716,6 +716,19 @@ inline void note_stack_live_descriptor_binding(
     const char*,
     const VulkanImage&) {}
 
+inline void note_stack_pre_dispatch_proof_table_descriptor(
+    const uint32_t binding_idx,
+    const char* shader_name,
+    const VulkanBuffer& buffer) {
+  note_vulkan_stack_pre_dispatch_proof_table_descriptor(
+      binding_idx, shader_name, buffer);
+}
+
+inline void note_stack_pre_dispatch_proof_table_descriptor(
+    const uint32_t,
+    const char*,
+    const VulkanImage&) {}
+
 inline void note_stack_barrier_only_canary_descriptor(
     const uint32_t binding_idx,
     const char* shader_name,
@@ -737,6 +750,19 @@ inline void note_stack_live_descriptor_bindings(
   VK_UNUSED const int _[]{
       0,
       (note_stack_live_descriptor_binding(
+           Indices, shader_name, std::forward<Arguments>(arguments)),
+       0)...,
+  };
+}
+
+template <size_t... Indices, typename... Arguments>
+inline void note_stack_pre_dispatch_proof_table_descriptors(
+    const char* shader_name,
+    const std::index_sequence<Indices...>&,
+    Arguments&&... arguments) {
+  VK_UNUSED const int _[]{
+      0,
+      (note_stack_pre_dispatch_proof_table_descriptor(
            Indices, shader_name, std::forward<Arguments>(arguments)),
        0)...,
   };
@@ -1024,6 +1050,10 @@ inline bool Context::submit_compute_job(
       get_descriptor_set(shader, local_work_group_size);
 
   detail::note_stack_live_descriptor_bindings(
+      shader.kernel_name.c_str(),
+      std::index_sequence_for<Arguments...>{},
+      std::forward<Arguments>(arguments)...);
+  detail::note_stack_pre_dispatch_proof_table_descriptors(
       shader.kernel_name.c_str(),
       std::index_sequence_for<Arguments...>{},
       std::forward<Arguments>(arguments)...);

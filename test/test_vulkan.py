@@ -19682,6 +19682,21 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(barrier_canary["barriers_inserted"], 0)
             self.assertEqual(barrier_canary["submits_removed"], 0)
             self.assertFalse(barrier_canary["barrier_behavior_allowed"])
+            self.assertIn("stack_region_pre_dispatch_proof_table", graph)
+            pre_dispatch_proof = graph["stack_region_pre_dispatch_proof_table"]
+            self.assertEqual(
+                pre_dispatch_proof["schema"],
+                "StackRegionPreDispatchProofTable.v0",
+            )
+            self.assertTrue(pre_dispatch_proof["behavior_neutral"])
+            self.assertTrue(pre_dispatch_proof["default_behavior_unchanged"])
+            self.assertGreater(pre_dispatch_proof["candidate_records"], 0)
+            self.assertGreaterEqual(
+                pre_dispatch_proof["proof_complete_records"],
+                0,
+            )
+            self.assertEqual(pre_dispatch_proof["barriers_inserted"], 0)
+            self.assertEqual(pre_dispatch_proof["submits_removed"], 0)
             self.assertIn("stack_region_boundary_submit_plan_live_rows", graph)
             self.assertIn("capture_output_boundary_contract", graph)
             capture_contract = graph["capture_output_boundary_contract"]
