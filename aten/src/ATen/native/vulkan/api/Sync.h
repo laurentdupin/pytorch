@@ -510,6 +510,16 @@ struct VulkanStackSubresourceLifetimeDryRunCounters final {
   std::atomic<uint64_t>
       stack_residual1_output_raw_generation_range_non_escape_last_consumer_bytes{
           0u};
+  std::atomic<uint64_t> phase_boundary_total_groups{0u};
+  std::atomic<uint64_t> phase_boundary_all_safe_group_eligible{0u};
+  std::atomic<uint64_t> phase_boundary_would_remove_explicit_synchronizes{0u};
+  std::atomic<uint64_t> phase_boundary_actual_removed_explicit_synchronizes{0u};
+  std::atomic<uint64_t> phase_boundary_rejected_unsafe_resource_class{0u};
+  std::atomic<uint64_t> phase_boundary_rejected_over_block_budget{0u};
+  std::atomic<uint64_t> phase_boundary_rejected_over_scope_budget{0u};
+  std::atomic<uint64_t> phase_boundary_rejected_large_backing{0u};
+  std::atomic<uint64_t> phase_boundary_stack_activation_carry_proof_count{0u};
+  std::atomic<uint64_t> phase_boundary_stack_activation_carry_proof_bytes{0u};
 };
 
 class VulkanSubmitPhaseScope final {
@@ -693,6 +703,15 @@ TORCH_API bool stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proo
     const VulkanStackRetireProvenance& provenance,
     const VulkanStackRawResourceAllocationProof& allocation_proof,
     const std::string& allocation_label);
+TORCH_API bool
+stack_subresource_lifetime_dry_run_has_formal_stack_owner_last_use_proof(
+    VulkanRetiredResourceKind kind,
+    VulkanRetiredResourceRole role,
+    const char* resource_class,
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label,
+    VulkanRetireCallSite callsite);
 TORCH_API bool stack_subresource_lifetime_dry_run_is_large_backing(
     VulkanRetiredResourceRole role,
     uint64_t bytes,
@@ -721,6 +740,20 @@ TORCH_API void note_stack_subresource_lifetime_dry_run_group(
     bool all_safe_group_eligible,
     bool would_remove_submit_drain,
     bool actual_removed_submit_drain,
+    const std::string& budget_reject,
+    const std::string& signature,
+    const std::string& blockers);
+TORCH_API void note_stack_phase_boundary_lifetime_dry_run_group(
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    bool queue_submit,
+    uint64_t old_path_pending_count,
+    uint64_t old_path_pending_bytes,
+    uint64_t safe_candidate_count,
+    uint64_t safe_candidate_bytes,
+    bool all_safe_group_eligible,
+    bool would_remove_explicit_synchronize,
+    bool actual_removed_explicit_synchronize,
     const std::string& budget_reject,
     const std::string& signature,
     const std::string& blockers);

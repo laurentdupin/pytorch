@@ -3,6 +3,7 @@
 #ifdef USE_VULKAN_API
 
 #include <algorithm>
+#include <cctype>
 #include <map>
 #include <mutex>
 #include <sstream>
@@ -291,6 +292,10 @@ constexpr const char* kDryRunLayerNormInternalStatBuffer =
     "layernorm_internal_stat_buffer";
 constexpr const char* kDryRunMetadataUniform = "metadata_uniform";
 constexpr const char* kDryRunRawNoProvenance = "raw_no_provenance";
+constexpr const char* kDryRunNonStackSetupStagingPending =
+    "non_stack_setup_staging_pending";
+constexpr const char* kDryRunUnscopedRawBufferNoStackProof =
+    "unscoped_raw_buffer_no_stack_proof";
 constexpr const char* kDryRunStackInternalRawMissingGeneration =
     "stack_internal_raw_missing_generation";
 constexpr const char* kDryRunStackInternalRawGenerationRange =
@@ -887,7 +892,10 @@ void note_dry_run_resource_class(
         1u, std::memory_order_relaxed);
     counters.metadata_uniform_bytes.fetch_add(
         bytes, std::memory_order_relaxed);
-  } else if (key == kDryRunRawNoProvenance) {
+  } else if (
+      key == kDryRunRawNoProvenance ||
+      key == kDryRunNonStackSetupStagingPending ||
+      key == kDryRunUnscopedRawBufferNoStackProof) {
     counters.raw_no_provenance_count.fetch_add(
         1u, std::memory_order_relaxed);
     counters.raw_no_provenance_bytes.fetch_add(
@@ -1055,12 +1063,20 @@ const char* stack_region_lifetime_missing_proof_reason(
   }
   if (
       key == kDryRunRawNoProvenance ||
-      key == kDryRunTrulyUnknownRawResource) {
+      key == kDryRunTrulyUnknownRawResource ||
+      key == kDryRunNonStackSetupStagingPending ||
+      key == kDryRunUnscopedRawBufferNoStackProof) {
     if (!allocation_proof.has_generation) {
       return "missing_allocation_generation";
     }
     if (!allocation_proof.has_byte_range) {
       return "missing_byte_range";
+    }
+    if (key == kDryRunNonStackSetupStagingPending) {
+      return "non_stack_setup_staging_pending";
+    }
+    if (key == kDryRunUnscopedRawBufferNoStackProof) {
+      return "missing_stack_scope_proof";
     }
     return "truly_unknown_raw_resource";
   }
@@ -1116,6 +1132,10 @@ const char* stack_raw_producer_substep_for_label(
     const std::string& allocation_label);
 const char* stack_raw_last_consumer_for_label(
     const std::string& allocation_label);
+int64_t stack_raw_block_index_for_label(const std::string& allocation_label);
+VulkanVisionStackPhase stack_raw_last_consumer_phase_for_label(
+    VulkanRetiredResourceRole role,
+    const std::string& allocation_label);
 bool stack_subresource_lifetime_dry_run_is_formal_norm2_last_use_label(
     const char* resource_class,
     const std::string& allocation_label);
@@ -1169,6 +1189,90 @@ const char* stack_region_lifetime_producer_substep(
     return "metadata_or_uniform";
   }
   return "unknown";
+}
+
+int stack_phase_execution_order(const VulkanVisionStackPhase phase) {
+  switch (phase) {
+    case VulkanVisionStackPhase::BlockEntry:
+      return 0;
+    case VulkanVisionStackPhase::Norm1:
+      return 1;
+    case VulkanVisionStackPhase::QkvLinear:
+      return 2;
+    case VulkanVisionStackPhase::QkvTransform:
+      return 3;
+    case VulkanVisionStackPhase::Attention:
+      return 4;
+    case VulkanVisionStackPhase::ProjLinear:
+      return 5;
+    case VulkanVisionStackPhase::Residual1:
+      return 6;
+    case VulkanVisionStackPhase::Norm2:
+      return 7;
+    case VulkanVisionStackPhase::Fc1Gelu:
+      return 8;
+    case VulkanVisionStackPhase::Fc2:
+      return 9;
+    case VulkanVisionStackPhase::Residual2:
+      return 10;
+    case VulkanVisionStackPhase::IntermediateCapture:
+      return 11;
+    case VulkanVisionStackPhase::StackExit:
+      return 12;
+    case VulkanVisionStackPhase::StackEntry:
+      return -1;
+    case VulkanVisionStackPhase::Unknown:
+    default:
+      return -1;
+  }
+}
+
+bool stack_phase_has_reached_consumer(
+    const VulkanVisionStackPhase current_phase,
+    const int64_t current_block,
+    const VulkanVisionStackPhase consumer_phase,
+    const int64_t consumer_block) {
+  if (
+      current_phase == VulkanVisionStackPhase::Unknown || current_block < 0 ||
+      consumer_phase == VulkanVisionStackPhase::Unknown || consumer_block < 0) {
+    return false;
+  }
+  if (consumer_block < current_block) {
+    return true;
+  }
+  if (consumer_block > current_block) {
+    return false;
+  }
+  const int current_order = stack_phase_execution_order(current_phase);
+  const int consumer_order = stack_phase_execution_order(consumer_phase);
+  return current_order >= 0 && consumer_order >= 0 &&
+      current_order >= consumer_order;
+}
+
+bool stack_activation_phase_boundary_carry_proof(
+    const VulkanRetiredResourceRole role,
+    const VulkanStackRetireProvenance& provenance) {
+  if (
+      role != VulkanRetiredResourceRole::StackResidual2Output ||
+      !provenance.defined || !provenance.has_last_use_proof ||
+      provenance.lifetime !=
+          VulkanStackTensorLifetimeClass::BlockOutputForNextBlock ||
+      provenance.phase != VulkanVisionStackPhase::Residual2 ||
+      provenance.producer_role != role ||
+      provenance.block_index < 0 ||
+      provenance.expected_consumer_phase != VulkanVisionStackPhase::Norm1 ||
+      provenance.expected_consumer_block_index != provenance.block_index + 1 ||
+      !provenance.final_consumer_before_stack_submit ||
+      provenance.escapes_stack || provenance.requested_intermediate ||
+      provenance.final_output || provenance.alias_or_view ||
+      provenance.aliases_runtime_input || provenance.aliases_runtime_output ||
+      !provenance.direct_buffer || !provenance.buffer_storage ||
+      provenance.image_storage) {
+    return false;
+  }
+  return current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
+      current_vision_stack_block_index() ==
+      provenance.expected_consumer_block_index;
 }
 
 bool is_stack_temp_role(const VulkanRetiredResourceRole role) {
@@ -1587,6 +1691,25 @@ void reset_stack_subresource_lifetime_dry_run_counters() {
   counters
       .stack_residual1_output_raw_generation_range_non_escape_last_consumer_bytes
       .store(0u, std::memory_order_relaxed);
+  counters.phase_boundary_total_groups.store(0u, std::memory_order_relaxed);
+  counters.phase_boundary_all_safe_group_eligible.store(
+      0u, std::memory_order_relaxed);
+  counters.phase_boundary_would_remove_explicit_synchronizes.store(
+      0u, std::memory_order_relaxed);
+  counters.phase_boundary_actual_removed_explicit_synchronizes.store(
+      0u, std::memory_order_relaxed);
+  counters.phase_boundary_rejected_unsafe_resource_class.store(
+      0u, std::memory_order_relaxed);
+  counters.phase_boundary_rejected_over_block_budget.store(
+      0u, std::memory_order_relaxed);
+  counters.phase_boundary_rejected_over_scope_budget.store(
+      0u, std::memory_order_relaxed);
+  counters.phase_boundary_rejected_large_backing.store(
+      0u, std::memory_order_relaxed);
+  counters.phase_boundary_stack_activation_carry_proof_count.store(
+      0u, std::memory_order_relaxed);
+  counters.phase_boundary_stack_activation_carry_proof_bytes.store(
+      0u, std::memory_order_relaxed);
   std::lock_guard<std::mutex> lock(stack_subresource_lifetime_dry_run_mutex());
   stack_subresource_lifetime_dry_run_rows().clear();
 }
@@ -2600,6 +2723,36 @@ std::vector<int64_t> stack_subresource_lifetime_dry_run_counters_snapshot() {
           counters
               .stack_residual1_output_raw_generation_range_non_escape_last_consumer_bytes
               .load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.phase_boundary_total_groups.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.phase_boundary_all_safe_group_eligible.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.phase_boundary_would_remove_explicit_synchronizes.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.phase_boundary_actual_removed_explicit_synchronizes.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.phase_boundary_rejected_unsafe_resource_class.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.phase_boundary_rejected_over_block_budget.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.phase_boundary_rejected_over_scope_budget.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.phase_boundary_rejected_large_backing.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.phase_boundary_stack_activation_carry_proof_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.phase_boundary_stack_activation_carry_proof_bytes.load(
+              std::memory_order_relaxed)),
   };
 }
 
@@ -2825,13 +2978,14 @@ void note_stack_retire_drain_blocker_resource(
   const bool base_safe_candidate =
       stack_subresource_lifetime_dry_run_resource_is_safe(resource_class);
   const bool formal_last_use_proof =
-      stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proof(
+      stack_subresource_lifetime_dry_run_has_formal_stack_owner_last_use_proof(
           kind,
           role,
           resource_class,
           provenance,
           allocation_proof,
-          allocation_label);
+          allocation_label,
+          callsite);
   const bool safe_candidate = base_safe_candidate || formal_last_use_proof;
   const bool large_backing =
       stack_subresource_lifetime_dry_run_is_large_backing(
@@ -3078,13 +3232,14 @@ void note_region_lifetime_submit_attribution_resource(
   const bool base_safe_candidate =
       stack_subresource_lifetime_dry_run_resource_is_safe(resource_class);
   const bool formal_last_use_proof =
-      stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proof(
+      stack_subresource_lifetime_dry_run_has_formal_stack_owner_last_use_proof(
           kind,
           role,
           resource_class,
           provenance,
           allocation_proof,
-          allocation_label);
+          allocation_label,
+          callsite);
   const bool safe_candidate = base_safe_candidate || formal_last_use_proof;
   const bool large_backing =
       stack_subresource_lifetime_dry_run_is_large_backing(
@@ -3227,13 +3382,18 @@ const char* stack_subresource_lifetime_dry_run_resource_class(
     return kDryRunProvenStackActivation;
   }
   if (!provenance.defined) {
-    if (
-        is_stack_temp_role(role) && kind == VulkanRetiredResourceKind::Unknown) {
+    if (role == VulkanRetiredResourceRole::SetupStaging) {
+      return kDryRunNonStackSetupStagingPending;
+    }
+    if (is_stack_temp_role(role)) {
       if (allocation_proof.has_generation && allocation_proof.has_byte_range) {
         return classify_stack_internal_raw_generation_range(
             role, allocation_proof);
       }
       return kDryRunStackInternalRawMissingGeneration;
+    }
+    if (kind == VulkanRetiredResourceKind::Buffer) {
+      return kDryRunUnscopedRawBufferNoStackProof;
     }
     if (
         role == VulkanRetiredResourceRole::Unknown &&
@@ -3264,11 +3424,38 @@ bool stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proof(
     const VulkanStackRetireProvenance& provenance,
     const VulkanStackRawResourceAllocationProof& allocation_proof,
     const std::string& allocation_label) {
+  return stack_subresource_lifetime_dry_run_has_formal_stack_owner_last_use_proof(
+      kind,
+      role,
+      resource_class,
+      provenance,
+      allocation_proof,
+      allocation_label,
+      VulkanRetireCallSite::StackOwnerNorm2);
+}
+
+bool stack_subresource_lifetime_dry_run_has_formal_stack_owner_last_use_proof(
+    const VulkanRetiredResourceKind kind,
+    const VulkanRetiredResourceRole role,
+    const char* const resource_class,
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label,
+    const VulkanRetireCallSite callsite) {
   if (
       current_submit_phase() != VulkanSubmitPhase::StackOwner ||
-      current_vision_stack_phase() != VulkanVisionStackPhase::Norm2 ||
       current_vision_stack_block_index() < 0 ||
       g_stack_last_use_proofs.empty()) {
+    return false;
+  }
+  const bool norm2_retire_group =
+      current_vision_stack_phase() == VulkanVisionStackPhase::Norm2 ||
+      callsite == VulkanRetireCallSite::StackOwnerNorm2;
+  const bool phase_boundary_explicit_sync =
+      callsite == VulkanRetireCallSite::StackOwnerPhaseBoundary ||
+      callsite == VulkanRetireCallSite::StackOwnerNorm1 ||
+      callsite == VulkanRetireCallSite::StackOwnerNorm2;
+  if (!norm2_retire_group && !phase_boundary_explicit_sync) {
     return false;
   }
   if (
@@ -3286,6 +3473,63 @@ bool stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proof(
   }
 
   const std::string key(resource_class ? resource_class : "");
+  if (
+      phase_boundary_explicit_sync && provenance.defined &&
+      provenance.has_last_use_proof && provenance.internal_non_escaping &&
+      provenance.final_consumer_before_stack_submit &&
+      stack_phase_has_reached_consumer(
+          current_vision_stack_phase(),
+          current_vision_stack_block_index(),
+          provenance.expected_consumer_phase,
+          provenance.expected_consumer_block_index) &&
+      role == provenance.producer_role && is_stack_temp_role(role)) {
+    return true;
+  }
+  if (
+      phase_boundary_explicit_sync &&
+      stack_activation_phase_boundary_carry_proof(role, provenance)) {
+    return true;
+  }
+  if (
+      phase_boundary_explicit_sync &&
+      role == VulkanRetiredResourceRole::StackResidual2Output &&
+      provenance.defined && provenance.has_last_use_proof &&
+      stack_phase_has_reached_consumer(
+          current_vision_stack_phase(),
+          current_vision_stack_block_index(),
+          provenance.expected_consumer_phase,
+          provenance.expected_consumer_block_index) &&
+      provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1) {
+    return true;
+  }
+  if (
+      phase_boundary_explicit_sync && !provenance.defined &&
+      is_stack_temp_role(role)) {
+    const int64_t producer_block =
+        stack_raw_block_index_for_label(allocation_label);
+    const VulkanVisionStackPhase consumer_phase =
+        stack_raw_last_consumer_phase_for_label(role, allocation_label);
+    if (
+        producer_block >= 0 &&
+        consumer_phase != VulkanVisionStackPhase::Unknown &&
+        stack_phase_has_reached_consumer(
+            current_vision_stack_phase(),
+            current_vision_stack_block_index(),
+            consumer_phase,
+            producer_block)) {
+      const std::string key(resource_class ? resource_class : "");
+      if (
+          key == kDryRunStackInternalRawGenerationRange ||
+          key == kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer ||
+          is_stack_raw_generation_range_non_escape_last_consumer_class(
+              resource_class)) {
+        return true;
+      }
+    }
+  }
+  if (!norm2_retire_group) {
+    return false;
+  }
   if (
       key == kDryRunAttentionRawAuxiliaryRangeNonEscapeLastConsumer &&
       role == VulkanRetiredResourceRole::StackAttentionOutput &&
@@ -3336,6 +3580,24 @@ const char* stack_raw_producer_substep_for_label(
           0) {
     return "qkv_linear";
   }
+  if (
+      allocation_label.size() >= 5u &&
+      allocation_label.compare(allocation_label.size() - 5u, 5u, ".proj") ==
+          0) {
+    return "proj_linear";
+  }
+  if (
+      allocation_label.size() >= 4u &&
+      allocation_label.compare(allocation_label.size() - 4u, 4u, ".fc1") ==
+          0) {
+    return "fc1_gelu";
+  }
+  if (
+      allocation_label.size() >= 4u &&
+      allocation_label.compare(allocation_label.size() - 4u, 4u, ".fc2") ==
+          0) {
+    return "fc2";
+  }
   return "unknown";
 }
 
@@ -3351,7 +3613,71 @@ const char* stack_raw_last_consumer_for_label(
   if (allocation_label == "attention_merge_heads") {
     return "attention";
   }
+  if (
+      allocation_label.size() >= 5u &&
+      allocation_label.compare(allocation_label.size() - 5u, 5u, ".proj") ==
+          0) {
+    return "residual1";
+  }
+  if (
+      allocation_label.size() >= 4u &&
+      allocation_label.compare(allocation_label.size() - 4u, 4u, ".fc1") ==
+          0) {
+    return "fc2";
+  }
+  if (
+      allocation_label.size() >= 4u &&
+      allocation_label.compare(allocation_label.size() - 4u, 4u, ".fc2") ==
+          0) {
+    return "residual2";
+  }
   return "unknown";
+}
+
+int64_t stack_raw_block_index_for_label(const std::string& allocation_label) {
+  const std::string marker = ".block";
+  const size_t marker_pos = allocation_label.find(marker);
+  if (marker_pos == std::string::npos) {
+    return -1;
+  }
+  size_t digit_pos = marker_pos + marker.size();
+  if (
+      digit_pos >= allocation_label.size() ||
+      !std::isdigit(static_cast<unsigned char>(allocation_label[digit_pos]))) {
+    return -1;
+  }
+  int64_t block_index = 0;
+  while (
+      digit_pos < allocation_label.size() &&
+      std::isdigit(static_cast<unsigned char>(allocation_label[digit_pos]))) {
+    block_index =
+        block_index * 10 + (allocation_label[digit_pos] - static_cast<char>('0'));
+    ++digit_pos;
+  }
+  return block_index;
+}
+
+VulkanVisionStackPhase stack_raw_last_consumer_phase_for_label(
+    const VulkanRetiredResourceRole role,
+    const std::string& allocation_label) {
+  if (
+      role == VulkanRetiredResourceRole::StackQkvOutput ||
+      (role == VulkanRetiredResourceRole::StackInternalTemp &&
+       allocation_label.size() >= 4u &&
+       allocation_label.compare(allocation_label.size() - 4u, 4u, ".qkv") ==
+           0)) {
+    return VulkanVisionStackPhase::QkvTransform;
+  }
+  if (role == VulkanRetiredResourceRole::StackProjOutput) {
+    return VulkanVisionStackPhase::Residual1;
+  }
+  if (role == VulkanRetiredResourceRole::StackFc1GeluOutput) {
+    return VulkanVisionStackPhase::Fc2;
+  }
+  if (role == VulkanRetiredResourceRole::StackFc2Output) {
+    return VulkanVisionStackPhase::Residual2;
+  }
+  return VulkanVisionStackPhase::Unknown;
 }
 
 bool stack_subresource_lifetime_dry_run_is_formal_norm2_last_use_label(
@@ -3411,6 +3737,18 @@ void note_stack_subresource_lifetime_dry_run_resource(
       has_stack_internal_label_last_consumer_evidence
       ? stack_raw_last_consumer_for_label(allocation_label)
       : stack_raw_last_consumer_for_dry_run(role, resource_class);
+  const bool has_phase_boundary_stack_activation_carry_proof =
+      formal_last_use_proof &&
+      (callsite == VulkanRetireCallSite::StackOwnerPhaseBoundary ||
+       callsite == VulkanRetireCallSite::StackOwnerNorm1 ||
+       callsite == VulkanRetireCallSite::StackOwnerNorm2) &&
+      stack_activation_phase_boundary_carry_proof(role, provenance);
+  if (has_phase_boundary_stack_activation_carry_proof) {
+    counters.phase_boundary_stack_activation_carry_proof_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    counters.phase_boundary_stack_activation_carry_proof_bytes.fetch_add(
+        bytes, std::memory_order_relaxed);
+  }
 
   std::ostringstream key;
   key << "resource=1 class=" << resource_class
@@ -3448,6 +3786,8 @@ void note_stack_subresource_lifetime_dry_run_resource(
       << (provenance.final_consumer_before_stack_submit ? 1 : 0)
       << " internal_non_escaping="
       << (provenance.internal_non_escaping ? 1 : 0)
+      << " phase_boundary_stack_activation_carry_proof="
+      << (has_phase_boundary_stack_activation_carry_proof ? 1 : 0)
       << " requested_intermediate="
       << (provenance.requested_intermediate ? 1 : 0)
       << " final_output=" << (provenance.final_output ? 1 : 0)
@@ -3584,6 +3924,82 @@ void note_stack_subresource_lifetime_dry_run_group(
       << (would_remove_submit_drain ? 1 : 0)
       << " actual_removed_submit_drain="
       << (actual_removed_submit_drain ? 1 : 0)
+      << " peak_extra_live_bytes_estimate=" << safe_candidate_bytes
+      << " block_budget_bytes="
+      << kStackSubresourceLifetimeDryRunBlockBudgetBytes
+      << " scope_budget_bytes="
+      << kStackSubresourceLifetimeDryRunScopeBudgetBytes
+      << " budget_reject=" << budget_reject
+      << " blockers=" << blockers
+      << " signature=" << signature;
+  std::lock_guard<std::mutex> lock(stack_subresource_lifetime_dry_run_mutex());
+  auto& value = stack_subresource_lifetime_dry_run_rows()[key.str()];
+  value.count += 1u;
+  value.bytes += old_path_pending_bytes;
+  if (queue_submit) {
+    value.queue_submit_count += 1u;
+  } else {
+    value.poll_only_count += 1u;
+  }
+}
+
+void note_stack_phase_boundary_lifetime_dry_run_group(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const bool queue_submit,
+    const uint64_t old_path_pending_count,
+    const uint64_t old_path_pending_bytes,
+    const uint64_t safe_candidate_count,
+    const uint64_t safe_candidate_bytes,
+    const bool all_safe_group_eligible,
+    const bool would_remove_explicit_synchronize,
+    const bool actual_removed_explicit_synchronize,
+    const std::string& budget_reject,
+    const std::string& signature,
+    const std::string& blockers) {
+  auto& counters = stack_subresource_lifetime_dry_run_counters();
+  counters.phase_boundary_total_groups.fetch_add(
+      1u, std::memory_order_relaxed);
+  if (all_safe_group_eligible) {
+    counters.phase_boundary_all_safe_group_eligible.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (would_remove_explicit_synchronize) {
+    counters.phase_boundary_would_remove_explicit_synchronizes.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (actual_removed_explicit_synchronize) {
+    counters.phase_boundary_actual_removed_explicit_synchronizes.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  if (budget_reject == "unsafe_resource_class") {
+    counters.phase_boundary_rejected_unsafe_resource_class.fetch_add(
+        1u, std::memory_order_relaxed);
+  } else if (budget_reject == "over_block_budget") {
+    counters.phase_boundary_rejected_over_block_budget.fetch_add(
+        1u, std::memory_order_relaxed);
+  } else if (budget_reject == "over_scope_budget") {
+    counters.phase_boundary_rejected_over_scope_budget.fetch_add(
+        1u, std::memory_order_relaxed);
+  } else if (budget_reject == "large_backing_excluded") {
+    counters.phase_boundary_rejected_large_backing.fetch_add(
+        1u, std::memory_order_relaxed);
+  }
+  update_peak_atomic(
+      counters.peak_extra_live_bytes_estimate, safe_candidate_bytes);
+
+  std::ostringstream key;
+  key << "phase_boundary_group=1 phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " queue_submit=" << (queue_submit ? 1 : 0)
+      << " old_path_pending=" << old_path_pending_count
+      << " safe_candidate_count=" << safe_candidate_count
+      << " safe_candidate_bytes=" << safe_candidate_bytes
+      << " all_safe_group_eligible=" << (all_safe_group_eligible ? 1 : 0)
+      << " would_remove_explicit_synchronize="
+      << (would_remove_explicit_synchronize ? 1 : 0)
+      << " actual_removed_phase_boundary_sync="
+      << (actual_removed_explicit_synchronize ? 1 : 0)
       << " peak_extra_live_bytes_estimate=" << safe_candidate_bytes
       << " block_budget_bytes="
       << kStackSubresourceLifetimeDryRunBlockBudgetBytes

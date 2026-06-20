@@ -1540,84 +1540,211 @@ VulkanSubmission Context::submit_cmd_to_gpu(
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
   const bool had_cmd = static_cast<bool>(cmd_);
+  constexpr bool kCoalescePhaseBoundaryExplicitSync = true;
   if (had_cmd && origin == VulkanSubmitOrigin::ExplicitSynchronize) {
     const VulkanSubmitPhase phase = current_submit_phase();
     const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
     uint64_t pending_resource_count = 0u;
     const uint64_t pending_bytes = pending_retire_bytes();
+    uint64_t dry_run_safe_candidate_count = 0u;
+    uint64_t dry_run_safe_candidate_bytes = 0u;
+    bool dry_run_has_large_backing = false;
     std::map<std::string, std::pair<uint64_t, uint64_t>> resources;
+    std::map<std::string, std::pair<uint64_t, uint64_t>>
+        dry_run_resource_classes;
     std::set<std::string> blockers;
+    std::set<std::string> dry_run_blockers;
+    std::vector<RegionLifetimeSubmitResourceAttribution>
+        region_lifetime_resource_attributions;
+    std::string dry_run_budget_reject = "not_stack_owner_phase_boundary";
+    std::string dry_run_signature;
+    std::string dry_run_blocker_signature;
+    const bool record_phase_boundary_dry_run =
+        phase == VulkanSubmitPhase::StackOwner &&
+        (callsite == VulkanRetireCallSite::StackOwnerPhaseBoundary ||
+         callsite == VulkanRetireCallSite::StackOwnerNorm1 ||
+         callsite == VulkanRetireCallSite::StackOwnerNorm2);
+    const auto inspect_pending_resource = [&](const auto& pending) {
+      const bool qkv_would_batch =
+          is_qkv_stack_temp_retire_batch_candidate(pending.stack_provenance);
+      append_region_lifetime_submit_signature(
+          pending, callsite, resources, blockers);
+      region_lifetime_resource_attributions.emplace_back(
+          make_region_lifetime_submit_resource_attribution(
+              pending, phase, callsite));
+      if (!record_phase_boundary_dry_run) {
+        return;
+      }
+      const VulkanStackRawResourceAllocationProof allocation_proof =
+          stack_raw_allocation_proof(pending);
+      const std::string& allocation_label =
+          pending_retire_allocation_label(pending);
+      const char* const resource_class =
+          stack_subresource_lifetime_dry_run_resource_class(
+              pending.kind,
+              pending.role,
+              pending.stack_provenance,
+              qkv_would_batch,
+              allocation_proof);
+      const bool formal_last_use_proof =
+          stack_subresource_lifetime_dry_run_has_formal_stack_owner_last_use_proof(
+              pending.kind,
+              pending.role,
+              resource_class,
+              pending.stack_provenance,
+              allocation_proof,
+              allocation_label,
+              callsite);
+      const bool safe_candidate =
+          stack_subresource_lifetime_dry_run_resource_is_safe(
+              resource_class) ||
+          formal_last_use_proof;
+      const bool large_backing =
+          stack_subresource_lifetime_dry_run_is_large_backing(
+              pending.role, pending.bytes, pending.stack_provenance);
+      auto& class_value = dry_run_resource_classes[resource_class];
+      class_value.first += 1u;
+      class_value.second += pending.bytes;
+      if (safe_candidate && !large_backing) {
+        dry_run_safe_candidate_count++;
+        dry_run_safe_candidate_bytes += pending.bytes;
+      } else {
+        dry_run_blockers.insert(resource_class);
+      }
+      if (large_backing) {
+        dry_run_has_large_backing = true;
+        dry_run_blockers.insert("large_backing_excluded");
+      }
+      note_stack_subresource_lifetime_dry_run_resource(
+          pending.kind,
+          pending.role,
+          pending.phase,
+          pending.callsite == VulkanRetireCallSite::Unknown ? callsite
+                                                            : pending.callsite,
+          pending.bytes,
+          resource_class,
+          safe_candidate,
+          large_backing,
+          formal_last_use_proof,
+          pending.stack_provenance,
+          allocation_proof,
+          allocation_label);
+    };
     {
       std::lock_guard<std::mutex> bufferlist_lock(
           pending_retire_buffers_mutex_);
       pending_resource_count += pending_retire_buffers_.size();
       for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
-        append_region_lifetime_submit_signature(
-            pending, callsite, resources, blockers);
+        inspect_pending_resource(pending);
       }
     }
     {
       std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
       pending_resource_count += pending_retire_images_.size();
       for (const PendingRetireImage& pending : pending_retire_images_) {
-        append_region_lifetime_submit_signature(
-            pending, callsite, resources, blockers);
+        inspect_pending_resource(pending);
       }
     }
+    bool dry_run_all_safe_group_eligible = false;
+    if (record_phase_boundary_dry_run) {
+      std::ostringstream dry_run_signature_stream;
+      for (const auto& entry : dry_run_resource_classes) {
+        if (dry_run_signature_stream.tellp() > 0) {
+          dry_run_signature_stream << ",";
+        }
+        dry_run_signature_stream << entry.first << "#" << entry.second.first
+                                 << "#" << entry.second.second;
+      }
+      std::ostringstream dry_run_blocker_signature_stream;
+      for (const auto& blocker : dry_run_blockers) {
+        if (dry_run_blocker_signature_stream.tellp() > 0) {
+          dry_run_blocker_signature_stream << ",";
+        }
+        dry_run_blocker_signature_stream << blocker;
+      }
+      dry_run_signature = dry_run_signature_stream.str();
+      dry_run_blocker_signature = dry_run_blocker_signature_stream.str();
+      const bool all_safe_without_budget =
+          pending_resource_count > 0u &&
+          pending_resource_count == dry_run_safe_candidate_count &&
+          !dry_run_has_large_backing;
+      if (pending_resource_count == 0u) {
+        dry_run_budget_reject = "no_old_path_pending";
+      } else if (dry_run_has_large_backing) {
+        dry_run_budget_reject = "large_backing_excluded";
+      } else if (!all_safe_without_budget) {
+        dry_run_budget_reject = "unsafe_resource_class";
+      } else if (
+          dry_run_safe_candidate_bytes >
+          kStackSubresourceLifetimeDryRunBlockBudgetBytes) {
+        dry_run_budget_reject = "over_block_budget";
+      } else if (
+          dry_run_safe_candidate_bytes >
+          kStackSubresourceLifetimeDryRunScopeBudgetBytes) {
+        dry_run_budget_reject = "over_scope_budget";
+      } else {
+        dry_run_budget_reject = "none";
+      }
+      dry_run_all_safe_group_eligible = dry_run_budget_reject == "none";
+    }
+    const bool should_coalesce_phase_boundary_explicit_sync =
+        kCoalescePhaseBoundaryExplicitSync &&
+        dry_run_all_safe_group_eligible;
     note_region_lifetime_submit_attribution_group(
         origin,
         phase,
         callsite,
-        /*queue_submit=*/true,
+        /*queue_submit=*/!should_coalesce_phase_boundary_explicit_sync,
         /*had_pending_work=*/true,
         pending_resource_count,
         pending_bytes,
         format_region_lifetime_submit_signature(resources),
         format_region_lifetime_submit_blockers(blockers));
-    {
-      std::lock_guard<std::mutex> bufferlist_lock(
-          pending_retire_buffers_mutex_);
-      for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
-        const auto attribution =
-            make_region_lifetime_submit_resource_attribution(
-                pending, phase, callsite);
-        note_region_lifetime_submit_attribution_resource(
-            origin,
-            attribution.phase,
-            attribution.callsite,
-            attribution.kind,
-            attribution.role,
-            attribution.bytes,
-            attribution.reason,
-            attribution.safety,
-            /*queue_submit=*/true,
-            /*had_pending_work=*/true,
-            attribution.provenance,
-            attribution.allocation_proof,
-            attribution.allocation_label);
-      }
+    for (const auto& attribution : region_lifetime_resource_attributions) {
+      note_region_lifetime_submit_attribution_resource(
+          origin,
+          attribution.phase,
+          attribution.callsite,
+          attribution.kind,
+          attribution.role,
+          attribution.bytes,
+          attribution.reason,
+          attribution.safety,
+          /*queue_submit=*/!should_coalesce_phase_boundary_explicit_sync,
+          /*had_pending_work=*/true,
+          attribution.provenance,
+          attribution.allocation_proof,
+          attribution.allocation_label);
     }
-    {
-      std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
-      for (const PendingRetireImage& pending : pending_retire_images_) {
-        const auto attribution =
-            make_region_lifetime_submit_resource_attribution(
-                pending, phase, callsite);
-        note_region_lifetime_submit_attribution_resource(
-            origin,
-            attribution.phase,
-            attribution.callsite,
-            attribution.kind,
-            attribution.role,
-            attribution.bytes,
-            attribution.reason,
-            attribution.safety,
-            /*queue_submit=*/true,
-            /*had_pending_work=*/true,
-            attribution.provenance,
-            attribution.allocation_proof,
-            attribution.allocation_label);
+    if (record_phase_boundary_dry_run) {
+      note_stack_phase_boundary_lifetime_dry_run_group(
+          phase,
+          callsite,
+          /*queue_submit=*/!should_coalesce_phase_boundary_explicit_sync,
+          pending_resource_count,
+          pending_bytes,
+          dry_run_safe_candidate_count,
+          dry_run_safe_candidate_bytes,
+          dry_run_all_safe_group_eligible,
+          dry_run_all_safe_group_eligible,
+          /*actual_removed_explicit_synchronize=*/
+          should_coalesce_phase_boundary_explicit_sync,
+          dry_run_budget_reject,
+          dry_run_signature,
+          dry_run_blocker_signature);
+    }
+    if (should_coalesce_phase_boundary_explicit_sync) {
+      VulkanSubmission submission{};
+      poll_retire_queue();
+      if (cpu_timeline) {
+        std::ostringstream stream;
+        stream << "event=submit_cmd_to_gpu had_cmd=1"
+               << " coalesced_phase_boundary_sync=1"
+               << " duration_us=" << (cpu_timeline_now_us() - cpu_start_us)
+               << " fence=0 final_use=0";
+        append_cpu_timeline_log_line(stream.str());
       }
+      return submission;
     }
   }
   VulkanSubmission submission{};

@@ -533,7 +533,17 @@ class UniformParamsBuffer final {
         retire_phase_(current_submit_phase()),
         retire_callsite_(VulkanRetireCallSite::Unknown),
         vulkan_buffer_(
-            context_p_->adapter_ptr()->vma().create_params_buffer(block)) {}
+            context_p_->adapter_ptr()->vma().create_params_buffer(block)) {
+    if (retire_kind_ == VulkanRetiredResourceKind::Unknown) {
+      retire_kind_ = VulkanRetiredResourceKind::UniformBuffer;
+    }
+    if (
+        retire_role_ == VulkanRetiredResourceRole::Unknown &&
+        retire_phase_ == VulkanSubmitPhase::StackOwner) {
+      retire_role_ =
+          stack_retired_resource_role_for_phase(current_vision_stack_phase());
+    }
+  }
 
   UniformParamsBuffer(const UniformParamsBuffer&);
   UniformParamsBuffer& operator=(const UniformParamsBuffer&);
@@ -578,6 +588,10 @@ class StorageBuffer final {
   ScalarType dtype_;
   size_t numel_;
   size_t nbytes_;
+  VulkanRetiredResourceKind retire_kind_;
+  VulkanRetiredResourceRole retire_role_;
+  VulkanSubmitPhase retire_phase_;
+  VulkanRetireCallSite retire_callsite_;
   VulkanBuffer vulkan_buffer_;
 
  public:
@@ -592,11 +606,22 @@ class StorageBuffer final {
         dtype_(dtype),
         numel_(numel),
         nbytes_(element_size(dtype_) * numel_),
+        retire_kind_(VulkanRetiredResourceKind::Buffer),
+        retire_role_(current_retired_resource_role()),
+        retire_phase_(current_submit_phase()),
+        retire_callsite_(VulkanRetireCallSite::Unknown),
         vulkan_buffer_(context_p_->adapter_ptr()->vma().create_storage_buffer(
             nbytes_,
             gpuonly,
             true,
-            host_access)) {}
+            host_access)) {
+    if (
+        retire_role_ == VulkanRetiredResourceRole::Unknown &&
+        retire_phase_ == VulkanSubmitPhase::StackOwner) {
+      retire_role_ =
+          stack_retired_resource_role_for_phase(current_vision_stack_phase());
+    }
+  }
 
   StorageBuffer(const StorageBuffer&) = delete;
   StorageBuffer& operator=(const StorageBuffer&) = delete;
@@ -605,7 +630,12 @@ class StorageBuffer final {
   StorageBuffer& operator=(StorageBuffer&&) = default;
 
   ~StorageBuffer() {
-    context_p_->register_buffer_cleanup(vulkan_buffer_);
+    context_p_->register_buffer_cleanup(
+        vulkan_buffer_,
+        retire_kind_,
+        retire_role_,
+        retire_phase_,
+        retire_callsite_);
   }
 
   inline ScalarType dtype() {
