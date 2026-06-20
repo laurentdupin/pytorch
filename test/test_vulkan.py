@@ -19643,6 +19643,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn("dispatch_nodes", graph)
             self.assertIn("dependency_edges", graph)
             self.assertIn("phase_boundary_nodes", graph)
+            self.assertIn("barrier_plan", graph)
+            barrier_plan = graph["barrier_plan"]
+            self.assertEqual(barrier_plan["schema"], "StackRegionBarrierPlan.v0")
+            self.assertTrue(barrier_plan["behavior_neutral"])
+            self.assertTrue(barrier_plan["dry_run_only"])
+            self.assertGreater(barrier_plan["candidate_records"], 0)
+            self.assertEqual(barrier_plan["barriers_inserted"], 0)
+            self.assertEqual(barrier_plan["submits_removed"], 0)
+            self.assertEqual(
+                barrier_plan["candidate_records"],
+                barrier_plan["plannable_records"] + barrier_plan["rejected_records"],
+            )
+            self.assertTrue(barrier_plan["records"])
+            self.assertIn(
+                "planned_barrier_location",
+                barrier_plan["records"][0],
+            )
             self.assertTrue(
                 any(
                     edge["fields"].get("producer_phase") == "residual2"

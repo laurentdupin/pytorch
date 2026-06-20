@@ -96,6 +96,14 @@ when a stack-owner recording scope ends. The v0 schema is
 - `unproven_or_missing_metadata_fields` for graph-level gaps such as region id,
   stack context id, bridge/session id, complete boundary dependency sets, and
   capture consumer dispatch positions
+- a nested `barrier_plan` object with schema
+  `StackRegionBarrierPlan.v0`. This is a dry-run plan derived from dependency
+  edges. Each record names producer and consumer dispatch node ids, allocation
+  id/generation/range, dependency kind, source and destination stage/access,
+  descriptor binding, planned barrier location, whether the edge could cover a
+  phase-boundary ordering requirement, and the precise rejection reason when
+  the edge is not plannable. The plan also records the boundary-level metadata
+  still missing before any submit can be removed.
 
 This dump is diagnostic only. It does not insert barriers, skip submits, change
 routes, or change accepted shapes.

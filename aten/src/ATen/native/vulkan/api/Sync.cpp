@@ -675,6 +675,253 @@ std::vector<std::string> missing_dependency_metadata_fields(
   return missing;
 }
 
+std::string field_or(
+    const std::map<std::string, std::string>& fields,
+    const char* key,
+    const char* fallback) {
+  const auto it = fields.find(key);
+  return it == fields.end() ? std::string(fallback) : it->second;
+}
+
+std::string stage_for_access(const std::string& access) {
+  if (access.find("shader") != std::string::npos) {
+    return "compute_shader";
+  }
+  return "unknown_stage";
+}
+
+std::string dependency_node_id(
+    const std::map<std::string, std::string>& fields,
+    const char* dispatch_position_key,
+    const char* op_key,
+    const char* phase_key,
+    const char* block_key) {
+  std::ostringstream stream;
+  stream << "scope=" << field_or(fields, "scope_id", "unknown") << ":cmd="
+         << field_or(fields, "command_buffer_sequence", "unknown")
+         << ":pos=" << field_or(fields, dispatch_position_key, "unknown")
+         << ":op=" << field_or(fields, op_key, "unknown")
+         << ":phase=" << field_or(fields, phase_key, "unknown")
+         << ":block=" << field_or(fields, block_key, "unknown");
+  return stream.str();
+}
+
+std::string barrier_plan_rejection_reason(
+    const std::map<std::string, std::string>& fields) {
+  const std::vector<std::string> missing =
+      missing_dependency_metadata_fields(fields);
+  if (!missing.empty()) {
+    return "missing_" + missing.front();
+  }
+  if (field_or(fields, "queue_submit", "0") != "1") {
+    return "not_a_phase_boundary_submit_edge";
+  }
+  if (field_or(fields, "dependency_kind", "unknown") == "unknown") {
+    return "missing_dependency_kind";
+  }
+  return "none";
+}
+
+bool barrier_plan_record_is_plannable(
+    const std::map<std::string, std::string>& fields) {
+  return barrier_plan_rejection_reason(fields) == "none";
+}
+
+std::string boundary_key_for_dependency(
+    const std::map<std::string, std::string>& fields) {
+  std::ostringstream stream;
+  stream << field_or(fields, "callsite", "unknown") << ":scope="
+         << field_or(fields, "scope_id", "unknown") << ":"
+         << field_or(fields, "producer_phase", "unknown") << "@"
+         << field_or(fields, "producer_block", "unknown") << "->"
+         << field_or(fields, "consumer_phase", "unknown") << "@"
+         << field_or(fields, "consumer_block", "unknown");
+  return stream.str();
+}
+
+void append_barrier_plan_record(
+    std::ostream& out,
+    const std::string& row,
+    const size_t index) {
+  const auto fields = parse_space_separated_fields(row);
+  const bool plannable = barrier_plan_record_is_plannable(fields);
+  const std::string producer_access = field_or(fields, "producer_access", "unknown");
+  const std::string consumer_access = field_or(fields, "consumer_access", "unknown");
+  bool first = true;
+  out << '{';
+  append_json_string(
+      out,
+      "plan_record_id",
+      "barrier_plan_edge_" + std::to_string(index),
+      first);
+  append_json_string(
+      out,
+      "producer_dispatch_node_id",
+      dependency_node_id(
+          fields,
+          "producer_dispatch_first_position",
+          "producer_op",
+          "producer_phase",
+          "producer_block"),
+      first);
+  append_json_string(
+      out,
+      "consumer_dispatch_node_id",
+      dependency_node_id(
+          fields,
+          "consumer_dispatch_first_position",
+          "consumer_op",
+          "consumer_phase",
+          "consumer_block"),
+      first);
+  append_json_string(
+      out, "producer_dispatch_position",
+      field_or(fields, "producer_dispatch_first_position", "unknown"), first);
+  append_json_string(
+      out, "consumer_dispatch_position",
+      field_or(fields, "consumer_dispatch_first_position", "unknown"), first);
+  append_json_string(
+      out, "command_buffer_sequence",
+      field_or(fields, "command_buffer_sequence", "unknown"), first);
+  append_json_string(
+      out, "allocation_id", field_or(fields, "allocation_id", "unknown"), first);
+  append_json_string(
+      out,
+      "allocation_generation",
+      field_or(fields, "allocation_generation", "unknown"),
+      first);
+  append_json_string(
+      out, "byte_offset", field_or(fields, "byte_offset", "unknown"), first);
+  append_json_string(
+      out, "byte_range", field_or(fields, "byte_range", "unknown"), first);
+  append_json_string(
+      out,
+      "dependency_kind",
+      field_or(fields, "dependency_kind", "unknown"),
+      first);
+  append_json_string(out, "src_stage", stage_for_access(producer_access), first);
+  append_json_string(out, "src_access", producer_access, first);
+  append_json_string(out, "dst_stage", stage_for_access(consumer_access), first);
+  append_json_string(out, "dst_access", consumer_access, first);
+  append_json_string(
+      out,
+      "descriptor_binding",
+      field_or(fields, "consumer_descriptor_binding", "unknown"),
+      first);
+  append_json_string(
+      out,
+      "planned_barrier_location",
+      plannable ? "before_consumer_dispatch" : "not_plannable",
+      first);
+  append_json_bool(out, "plannable", plannable, first);
+  append_json_bool(
+      out,
+      "could_theoretically_replace_phase_boundary_submit",
+      plannable && field_or(fields, "queue_submit", "0") == "1",
+      first);
+  append_json_bool(out, "actual_barrier_inserted", false, first);
+  append_json_bool(out, "actual_submit_removed", false, first);
+  append_json_string(
+      out,
+      "boundary_key",
+      boundary_key_for_dependency(fields),
+      first);
+  append_json_string(
+      out,
+      "rejection_reason",
+      plannable ? "none" : barrier_plan_rejection_reason(fields),
+      first);
+  append_json_string_array(
+      out,
+      "missing_metadata_fields",
+      missing_dependency_metadata_fields(fields),
+      first);
+  append_json_comma(out, first);
+  out << "\"source_edge_fields\":";
+  append_json_fields_object(out, fields);
+  out << '}';
+}
+
+void append_barrier_plan_json(
+    std::ostream& out,
+    const std::vector<std::string>& dependency_edges,
+    bool& first) {
+  uint64_t candidate_records = 0u;
+  uint64_t plannable_records = 0u;
+  uint64_t rejected_records = 0u;
+  uint64_t phase_boundary_replace_candidate_records = 0u;
+  std::map<std::string, uint64_t> rejection_reasons;
+  for (const auto& row : dependency_edges) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = parsed_u64(fields, "count");
+    const bool plannable = barrier_plan_record_is_plannable(fields);
+    const std::string rejection =
+        plannable ? "none" : barrier_plan_rejection_reason(fields);
+    candidate_records += count;
+    if (plannable) {
+      plannable_records += count;
+      if (field_or(fields, "queue_submit", "0") == "1") {
+        phase_boundary_replace_candidate_records += count;
+      }
+    } else {
+      rejected_records += count;
+      rejection_reasons[rejection] += count;
+    }
+  }
+
+  append_json_comma(out, first);
+  out << "\"barrier_plan\":{";
+  bool plan_first = true;
+  append_json_string(out, "schema", "StackRegionBarrierPlan.v0", plan_first);
+  append_json_bool(out, "behavior_neutral", true, plan_first);
+  append_json_bool(out, "dry_run_only", true, plan_first);
+  append_json_string(out, "source_graph_schema", "StackRegionDependencyGraph.v0", plan_first);
+  append_json_string(
+      out,
+      "planning_stage",
+      "dispatch_dependency_edge_plan",
+      plan_first);
+  append_json_u64(out, "candidate_records", candidate_records, plan_first);
+  append_json_u64(out, "plannable_records", plannable_records, plan_first);
+  append_json_u64(out, "rejected_records", rejected_records, plan_first);
+  append_json_u64(
+      out,
+      "phase_boundary_replace_candidate_records",
+      phase_boundary_replace_candidate_records,
+      plan_first);
+  append_json_u64(out, "barriers_inserted", 0u, plan_first);
+  append_json_u64(out, "submits_removed", 0u, plan_first);
+  append_json_string(
+      out,
+      "why_submits_remain_required",
+      "barrier plan is per-edge dry-run only; boundary-level required-edge sets are not complete",
+      plan_first);
+  append_json_comma(out, plan_first);
+  out << "\"rejection_reasons\":{";
+  bool reject_first = true;
+  for (const auto& item : rejection_reasons) {
+    append_json_u64(out, item.first.c_str(), item.second, reject_first);
+  }
+  out << "}";
+  append_json_string_array(
+      out,
+      "missing_boundary_plan_fields",
+      {"complete_boundary_required_edge_set",
+       "boundary_to_barrier_record_coverage",
+       "retire_only_resource_classification",
+       "public_host_final_output_blocker_resolution"},
+      plan_first);
+  append_json_comma(out, plan_first);
+  out << "\"records\":[";
+  for (size_t i = 0; i < dependency_edges.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    append_barrier_plan_record(out, dependency_edges[i], i);
+  }
+  out << "]}";
+}
+
 void append_graph_row_object(
     std::ostream& out,
     const std::string& row,
@@ -876,6 +1123,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       out, "allocation_nodes", allocation_rows, "allocation", first);
   append_graph_array(
       out, "phase_boundary_nodes", boundary_nodes, "phase_boundary", first);
+  append_barrier_plan_json(out, dependency_edges, first);
   append_graph_array(
       out, "region_lifetime_rows", region_rows, "region_lifetime", first);
   append_json_string_array(
