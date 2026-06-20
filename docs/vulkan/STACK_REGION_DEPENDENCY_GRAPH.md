@@ -118,6 +118,17 @@ when a stack-owner recording scope ends. The v0 schema is
   that an insertion location is observable before the dispatch is recorded.
   The plan also records the boundary-level metadata still missing before any
   submit can be removed.
+- a nested `capture_output_boundary_contract` object with schema
+  `CaptureOutputBoundaryContract.v0`. This is a capture-specific dry-run proof
+  surface for requested intermediate capture edges such as
+  `residual2 -> intermediate_capture`. It records producer block/substep/role,
+  capture block/index/output role, allocation id/generation/range, requested
+  intermediate/public/private capture observations, and why the phase-boundary
+  submit remains required. Public `Tensor[]` captures stay unsafe. Private
+  bridge captures are classified separately, but they do not make a boundary
+  complete until downstream consumer registration is visible in the graph,
+  capture value preservation is proven, and the full boundary dependency set is
+  complete.
 - a nested `boundary_complete_dependency_proof` object with schema
   `BoundaryCompleteDependencyProof.v0`. The v0 proof is intentionally narrow:
   it only groups non-capture `residual2 -> norm1` stack boundaries and records

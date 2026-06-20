@@ -745,6 +745,14 @@ bool boundary_has_planned_non_capture_norm1_consumer(
       "planned_non_capture_residual2_to_norm1";
 }
 
+bool dependency_is_requested_capture_edge(
+    const std::map<std::string, std::string>& fields) {
+  return field_or(fields, "consumer_phase", "unknown") ==
+          "intermediate_capture" &&
+      field_or(fields, "consumer_descriptor_role", "unknown") ==
+          "requested_intermediate_output";
+}
+
 VulkanVisionStackPhase vision_stack_phase_from_graph_name(
     const std::string& name) {
   if (name == "stack_entry") {
@@ -807,6 +815,15 @@ struct BarrierPlanDispatchPosition final {
   std::string insertion_point_token = "missing";
   std::string insertion_point_class = "missing";
   std::string insertion_point_source = "missing";
+};
+
+struct CaptureAllocationSummary final {
+  uint64_t public_capture_count = 0u;
+  uint64_t public_capture_bytes = 0u;
+  uint64_t private_bridge_capture_count = 0u;
+  uint64_t private_bridge_capture_bytes = 0u;
+  std::string public_capture_shape = "missing";
+  std::string private_bridge_capture_shape = "missing";
 };
 
 std::string barrier_plan_dispatch_position_key(
@@ -1036,6 +1053,11 @@ std::string barrier_plan_rejection_reason(
   const std::vector<std::string> missing =
       barrier_plan_missing_dependency_metadata_fields(fields, consumer_position);
   if (!missing.empty()) {
+    if (
+        dependency_is_requested_capture_edge(fields) &&
+        missing.front() == "formal_last_use_proof") {
+      return "capture_output_boundary_contract_incomplete";
+    }
     return "missing_" + missing.front();
   }
   if (field_or(fields, "queue_submit", "0") != "1") {
@@ -1597,6 +1619,295 @@ void append_barrier_plan_json(
     }
     append_barrier_plan_record(
         out, dependency_edges[i], positions, insertion_points, i);
+  }
+  out << "]}";
+}
+
+void append_u64_map_object(
+    std::ostream& out,
+    const std::map<std::string, uint64_t>& values);
+
+std::map<std::string, CaptureAllocationSummary>
+build_capture_allocation_summaries(const std::vector<std::string>& rows) {
+  std::map<std::string, CaptureAllocationSummary> summaries;
+  for (const auto& row : rows) {
+    const auto fields = parse_space_separated_fields(row);
+    if (field_or(fields, "phase", "unknown") != "intermediate_capture") {
+      continue;
+    }
+    const std::string block = field_or(fields, "block", "unknown");
+    auto& summary = summaries[block];
+    const uint64_t count = parsed_u64(fields, "count");
+    const uint64_t bytes = parsed_u64(fields, "bytes");
+    const std::string role = field_or(fields, "role", "unknown");
+    if (role == "vision_stack_capture") {
+      summary.public_capture_count += count;
+      summary.public_capture_bytes += bytes;
+      summary.public_capture_shape = field_or(fields, "shape", "missing");
+    } else if (role == "vision_stack_private_device_capture") {
+      summary.private_bridge_capture_count += count;
+      summary.private_bridge_capture_bytes += bytes;
+      summary.private_bridge_capture_shape = field_or(fields, "shape", "missing");
+    }
+  }
+  return summaries;
+}
+
+const char* capture_storage_class_name(
+    const CaptureAllocationSummary& summary) {
+  if (
+      summary.public_capture_count > 0u &&
+      summary.private_bridge_capture_count > 0u) {
+    return "mixed_public_and_private_capture_observed";
+  }
+  if (summary.private_bridge_capture_count > 0u) {
+    return "bridge_private_internal_capture";
+  }
+  if (summary.public_capture_count > 0u) {
+    return "public_tensor_array_capture";
+  }
+  return "unknown_capture_storage";
+}
+
+const char* capture_boundary_sync_required_reason(
+    const CaptureAllocationSummary& summary) {
+  if (summary.public_capture_count > 0u) {
+    return "public_tensor_array_capture_requires_boundary_submit";
+  }
+  if (summary.private_bridge_capture_count > 0u) {
+    return "bridge_private_capture_needs_value_preservation_and_complete_boundary_proof";
+  }
+  return "capture_storage_mode_unknown";
+}
+
+void capture_output_missing_proof_fields(
+    const CaptureAllocationSummary& summary,
+    std::vector<std::string>& missing) {
+  if (
+      summary.public_capture_count > 0u &&
+      summary.private_bridge_capture_count > 0u) {
+    missing.emplace_back("scope_split_for_public_vs_private_capture_observations");
+  }
+  if (summary.public_capture_count > 0u) {
+    missing.emplace_back("public_tensor_array_boundary_elision_contract");
+  }
+  if (summary.private_bridge_capture_count > 0u) {
+    missing.emplace_back("downstream_consumer_registration_in_stack_graph");
+    missing.emplace_back("capture_value_preservation_proof");
+  }
+  if (
+      summary.public_capture_count == 0u &&
+      summary.private_bridge_capture_count == 0u) {
+    missing.emplace_back("capture_storage_mode");
+  }
+  missing.emplace_back("complete_boundary_dependency_set");
+}
+
+void append_capture_output_boundary_record(
+    std::ostream& out,
+    const std::string& row,
+    const std::map<std::string, CaptureAllocationSummary>& summaries,
+    const size_t index) {
+  const auto fields = parse_space_separated_fields(row);
+  const std::string capture_block = field_or(fields, "consumer_block", "unknown");
+  const auto summary_it = summaries.find(capture_block);
+  const CaptureAllocationSummary empty_summary;
+  const CaptureAllocationSummary& summary =
+      summary_it == summaries.end() ? empty_summary : summary_it->second;
+  std::vector<std::string> missing_proof_fields;
+  capture_output_missing_proof_fields(summary, missing_proof_fields);
+  bool first = true;
+  out << '{';
+  append_json_string(
+      out,
+      "record_id",
+      "capture_output_boundary_edge_" + std::to_string(index),
+      first);
+  append_json_string(out, "contract", "CaptureOutputBoundaryContract", first);
+  append_json_string(
+      out, "producer_block", field_or(fields, "producer_block", "unknown"), first);
+  append_json_string(
+      out,
+      "producer_substep",
+      field_or(fields, "producer_phase", "unknown"),
+      first);
+  append_json_string(
+      out, "producer_role", field_or(fields, "role", "unknown"), first);
+  append_json_string(out, "capture_block", capture_block, first);
+  append_json_string(out, "capture_index", capture_block, first);
+  append_json_string(
+      out,
+      "capture_substep",
+      field_or(fields, "consumer_phase", "unknown"),
+      first);
+  append_json_string(
+      out,
+      "capture_output_role",
+      field_or(fields, "consumer_descriptor_role", "unknown"),
+      first);
+  append_json_string(
+      out,
+      "allocation_id",
+      field_or(fields, "allocation_id", "unknown"),
+      first);
+  append_json_string(
+      out,
+      "allocation_generation",
+      field_or(fields, "allocation_generation", "unknown"),
+      first);
+  append_json_string(
+      out, "byte_offset", field_or(fields, "byte_offset", "unknown"), first);
+  append_json_string(
+      out, "byte_range", field_or(fields, "byte_range", "unknown"), first);
+  append_json_string(out, "bytes", field_or(fields, "bytes", "unknown"), first);
+  append_json_bool(
+      out,
+      "allocation_generation_proven",
+      field_or(fields, "allocation_has_generation", "0") == "1",
+      first);
+  append_json_bool(
+      out,
+      "allocation_range_proven",
+      field_or(fields, "allocation_has_byte_range", "0") == "1",
+      first);
+  append_json_bool(out, "requested_intermediate", true, first);
+  append_json_bool(
+      out,
+      "public_tensor_array_capture_observed",
+      summary.public_capture_count > 0u,
+      first);
+  append_json_bool(
+      out,
+      "private_bridge_internal_capture_observed",
+      summary.private_bridge_capture_count > 0u,
+      first);
+  append_json_string(
+      out, "capture_storage_class", capture_storage_class_name(summary), first);
+  append_json_u64(
+      out, "public_capture_observation_count", summary.public_capture_count, first);
+  append_json_u64(
+      out,
+      "private_bridge_capture_observation_count",
+      summary.private_bridge_capture_count,
+      first);
+  append_json_string(
+      out, "public_capture_shape", summary.public_capture_shape, first);
+  append_json_string(
+      out,
+      "private_bridge_capture_shape",
+      summary.private_bridge_capture_shape,
+      first);
+  append_json_bool(out, "final_output", false, first);
+  append_json_bool(
+      out,
+      "host_visible_or_requested_output",
+      field_or(fields, "resource_class", "unknown") ==
+          "host_visible_or_requested_output",
+      first);
+  append_json_string(
+      out,
+      "downstream_same_region_consumer_registration",
+      "not_visible_to_stack_region_graph_v0",
+      first);
+  append_json_bool(out, "capture_specific_proof_complete", false, first);
+  append_json_string(
+      out,
+      "boundary_sync_required_reason",
+      capture_boundary_sync_required_reason(summary),
+      first);
+  append_json_string_array(
+      out, "missing_capture_boundary_proof_fields", missing_proof_fields, first);
+  append_json_comma(out, first);
+  out << "\"source_edge_fields\":";
+  append_json_fields_object(out, fields);
+  out << '}';
+}
+
+void append_capture_output_boundary_contract_json(
+    std::ostream& out,
+    const std::vector<std::string>& capture_edges,
+    const std::map<std::string, CaptureAllocationSummary>& summaries,
+    bool& first) {
+  uint64_t candidate_records = 0u;
+  uint64_t proof_complete_records = 0u;
+  uint64_t public_tensor_array_records = 0u;
+  uint64_t bridge_private_records = 0u;
+  uint64_t mixed_capture_records = 0u;
+  uint64_t unknown_capture_storage_records = 0u;
+  uint64_t requested_intermediate_records = 0u;
+  std::map<std::string, uint64_t> boundary_sync_required_reasons;
+  for (const auto& row : capture_edges) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = parsed_u64(fields, "count");
+    const std::string capture_block = field_or(fields, "consumer_block", "unknown");
+    const auto summary_it = summaries.find(capture_block);
+    const CaptureAllocationSummary empty_summary;
+    const CaptureAllocationSummary& summary =
+        summary_it == summaries.end() ? empty_summary : summary_it->second;
+    candidate_records += count;
+    requested_intermediate_records += count;
+    if (summary.public_capture_count > 0u) {
+      public_tensor_array_records += count;
+    }
+    if (summary.private_bridge_capture_count > 0u) {
+      bridge_private_records += count;
+    }
+    if (
+        summary.public_capture_count > 0u &&
+        summary.private_bridge_capture_count > 0u) {
+      mixed_capture_records += count;
+    }
+    if (
+        summary.public_capture_count == 0u &&
+        summary.private_bridge_capture_count == 0u) {
+      unknown_capture_storage_records += count;
+    }
+    boundary_sync_required_reasons
+        [capture_boundary_sync_required_reason(summary)] += count;
+  }
+
+  append_json_comma(out, first);
+  out << "\"capture_output_boundary_contract\":{";
+  bool contract_first = true;
+  append_json_string(
+      out, "schema", "CaptureOutputBoundaryContract.v0", contract_first);
+  append_json_bool(out, "behavior_neutral", true, contract_first);
+  append_json_bool(out, "dry_run_only", true, contract_first);
+  append_json_u64(out, "candidate_records", candidate_records, contract_first);
+  append_json_u64(
+      out, "requested_intermediate_records", requested_intermediate_records, contract_first);
+  append_json_u64(
+      out, "public_tensor_array_records", public_tensor_array_records, contract_first);
+  append_json_u64(
+      out, "bridge_private_records", bridge_private_records, contract_first);
+  append_json_u64(out, "mixed_capture_records", mixed_capture_records, contract_first);
+  append_json_u64(
+      out,
+      "unknown_capture_storage_records",
+      unknown_capture_storage_records,
+      contract_first);
+  append_json_u64(
+      out, "proof_complete_records", proof_complete_records, contract_first);
+  append_json_u64(out, "barriers_inserted", 0u, contract_first);
+  append_json_u64(out, "submits_removed", 0u, contract_first);
+  append_json_comma(out, contract_first);
+  out << "\"boundary_sync_required_reasons\":";
+  append_u64_map_object(out, boundary_sync_required_reasons);
+  append_json_string_array(
+      out,
+      "proof_complete_blockers",
+      {"public_tensor_array_boundary_elision_contract",
+       "downstream_consumer_registration_in_stack_graph",
+       "capture_value_preservation_proof",
+       "complete_boundary_dependency_set"},
+      contract_first);
+  append_json_comma(out, contract_first);
+  out << "\"records\":[";
+  for (size_t i = 0; i < capture_edges.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    append_capture_output_boundary_record(out, capture_edges[i], summaries, i);
   }
   out << "]}";
 }
@@ -2173,10 +2484,13 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       build_barrier_plan_dispatch_positions(dispatch_nodes);
   const auto barrier_plan_insertion_points =
       build_barrier_plan_insertion_points(insertion_point_nodes);
+  const auto capture_allocation_summaries =
+      build_capture_allocation_summaries(allocation_rows);
 
   uint64_t fully_proven_edge_records = 0u;
   uint64_t total_dependency_records = 0u;
   uint64_t queue_submit_dependency_records = 0u;
+  uint64_t capture_output_boundary_records = 0u;
   std::map<std::string, uint64_t> reject_reasons;
   for (const auto& row : dependency_edges) {
     const auto fields = parse_space_separated_fields(row);
@@ -2187,6 +2501,10 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
     const auto it = fields.find("reject_reason");
     reject_reasons[it == fields.end() ? "missing_reject_reason" : it->second] +=
         count;
+  }
+  for (const auto& row : capture_edges) {
+    capture_output_boundary_records +=
+        parsed_u64(parse_space_separated_fields(row), "count");
   }
 
   uint64_t complete_boundaries = 0u;
@@ -2258,6 +2576,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   append_json_u64(
       out, "queue_submit_boundary_records", queue_submit_boundaries, summary_first);
   append_json_u64(out, "capture_edges", capture_edges.size(), summary_first);
+  append_json_u64(
+      out,
+      "capture_output_boundary_records",
+      capture_output_boundary_records,
+      summary_first);
   append_json_bool(out, "submit_elision_enabled", false, summary_first);
   append_json_string(
       out,
@@ -2298,6 +2621,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       out, "allocation_nodes", allocation_rows, "allocation", first);
   append_graph_array(
       out, "phase_boundary_nodes", boundary_nodes, "phase_boundary", first);
+  append_capture_output_boundary_contract_json(
+      out, capture_edges, capture_allocation_summaries, first);
   append_barrier_plan_json(
       out,
       dependency_edges,
@@ -2320,6 +2645,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
        "stack_context_id",
        "bridge_session_id",
        "complete_boundary_dependency_set",
+       "capture_output_boundary_value_preservation",
+       "capture_output_downstream_consumer_registration_in_graph",
        "consumer_dispatch_for_capture_edges_when_not_recorded",
        "boundary_specific_required_edge_set"},
       first);

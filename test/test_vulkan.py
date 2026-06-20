@@ -19647,6 +19647,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn("pre_dispatch_insertion_point_nodes", graph)
             self.assertIn("dependency_edges", graph)
             self.assertIn("phase_boundary_nodes", graph)
+            self.assertIn("capture_output_boundary_contract", graph)
+            capture_contract = graph["capture_output_boundary_contract"]
+            self.assertEqual(
+                capture_contract["schema"], "CaptureOutputBoundaryContract.v0"
+            )
+            self.assertTrue(capture_contract["behavior_neutral"])
+            self.assertTrue(capture_contract["dry_run_only"])
+            self.assertEqual(capture_contract["barriers_inserted"], 0)
+            self.assertEqual(capture_contract["submits_removed"], 0)
+            self.assertIn("candidate_records", capture_contract)
+            self.assertEqual(capture_contract["proof_complete_records"], 0)
+            self.assertIn("records", capture_contract)
+            if capture_contract["records"]:
+                self.assertIn(
+                    "capture_storage_class",
+                    capture_contract["records"][0],
+                )
+                self.assertIn(
+                    "boundary_sync_required_reason",
+                    capture_contract["records"][0],
+                )
+                self.assertIn(
+                    "missing_capture_boundary_proof_fields",
+                    capture_contract["records"][0],
+                )
             self.assertIn("barrier_plan", graph)
             barrier_plan = graph["barrier_plan"]
             self.assertEqual(barrier_plan["schema"], "StackRegionBarrierPlan.v0")
