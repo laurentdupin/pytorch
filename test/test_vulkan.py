@@ -19648,6 +19648,21 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn("dependency_edges", graph)
             self.assertIn("phase_boundary_nodes", graph)
             self.assertIn("stack_output_device_consumer_registrations", graph)
+            self.assertIn("stack_region_boundary_submit_plan", graph)
+            submit_plan = graph["stack_region_boundary_submit_plan"]
+            self.assertEqual(
+                submit_plan["schema"],
+                "StackRegionBoundarySubmitPlan.v0",
+            )
+            self.assertTrue(submit_plan["behavior_neutral"])
+            self.assertTrue(submit_plan["dry_run_only"])
+            self.assertEqual(submit_plan["barriers_inserted"], 0)
+            self.assertEqual(submit_plan["submits_removed"], 0)
+            self.assertEqual(
+                submit_plan["behavior_change_status"],
+                "disabled_default_submit_preserved",
+            )
+            self.assertIn("stack_region_boundary_submit_plan_live_rows", graph)
             self.assertIn("capture_output_boundary_contract", graph)
             capture_contract = graph["capture_output_boundary_contract"]
             self.assertEqual(
@@ -27422,6 +27437,32 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(budget_recompute["barriers_inserted"], 0)
             self.assertEqual(budget_recompute["submits_removed"], 0)
             self.assertTrue(budget_recompute["records"])
+            submit_plan = graph["stack_region_boundary_submit_plan"]
+            self.assertEqual(
+                submit_plan["schema"],
+                "StackRegionBoundarySubmitPlan.v0",
+            )
+            self.assertEqual(submit_plan["barriers_inserted"], 0)
+            self.assertEqual(submit_plan["submits_removed"], 0)
+            self.assertGreater(submit_plan["candidate_records"], 0)
+            self.assertGreater(
+                submit_plan["same_region_consumer_registration_records"], 0
+            )
+            self.assertGreater(
+                submit_plan["selected_live_boundary_match_records"], 0
+            )
+            self.assertTrue(
+                any(
+                    record["selected_scope"] == "bridge_private_capture"
+                    and record["online_plan_status"]
+                    == "planned_live_boundary_match_proof_pending"
+                    and record["live_boundary_matches_selected"]
+                    and record["same_region_consumer_registration_present"]
+                    and record["submits_removed"] == 0
+                    and record["barriers_inserted"] == 0
+                    for record in submit_plan["records"]
+                )
+            )
             self.assertTrue(
                 all(
                     "pending_bytes_before_proof_classification" in record

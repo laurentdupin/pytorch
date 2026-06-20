@@ -185,6 +185,18 @@ when a stack-owner recording scope ends. The v0 schema is
   for each bridge-private boundary. Public combined-scope capture remains
   rejected. A recomputed complete boundary is canary-ready evidence only; the
   object is dry-run and does not insert barriers or remove submits.
+- a nested `stack_region_boundary_submit_plan` object with schema
+  `StackRegionBoundarySubmitPlan.v0`. This is the online submit-site hook for
+  future one-boundary canaries. It records each live stack-owner phase-boundary
+  submit with the live boundary id, the selected bridge-private boundary id,
+  the selected proof id/version, same-region consumer registration status,
+  public-scope rejection status, queue-submit status, and fail-closed online
+  plan status such as `not_planned`,
+  `planned_live_boundary_match_proof_pending`, `rejected_boundary_mismatch`,
+  or `rejected_public_scope_or_no_same_region_consumer`. It is diagnostic
+  only: `barriers_inserted` and `submits_removed` remain zero until a later
+  behavior CL consumes a current-run proof and explicitly enables one selected
+  boundary.
 
 This dump is diagnostic only. It does not insert barriers, skip submits, change
 routes, or change accepted shapes.

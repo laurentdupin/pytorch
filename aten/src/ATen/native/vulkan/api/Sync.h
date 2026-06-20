@@ -815,6 +815,16 @@ TORCH_API void note_stack_phase_boundary_lifetime_dry_run_group(
     const std::string& budget_reject,
     const std::string& signature,
     const std::string& blockers);
+TORCH_API void note_stack_region_boundary_submit_plan(
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    bool queue_submit,
+    uint64_t old_path_pending_count,
+    uint64_t old_path_pending_bytes,
+    uint64_t safe_candidate_count,
+    uint64_t safe_candidate_bytes,
+    const std::string& budget_reject,
+    const std::string& blockers);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();

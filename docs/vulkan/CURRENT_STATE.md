@@ -1,7 +1,8 @@
 # Vulkan Current State
 
 Last refreshed: 2026-06-20 at local HEAD
-`15379cf97be5`.
+`992787a7dc1d` plus the behavior-neutral StackRegion boundary-submit-plan
+hook.
 
 ## Repo State Summary
 
@@ -31,6 +32,13 @@ elision work must start from that graph, prove all ordering edges for a
 boundary, insert device-side dependencies at the consumer dispatch point, and
 only then consider skipping the matching host/queue phase-boundary submit. See
 `docs/vulkan/STACK_REGION_DEPENDENCY_GRAPH.md`.
+
+`StackRegionBoundarySubmitPlan.v0` is now the behavior-neutral online hook that
+connects current-run graph proof ids to live stack-owner phase-boundary submit
+sites. It records selected bridge-private boundary ids, same-region consumer
+registration, public-scope rejection, and live boundary match status while
+leaving `submits_removed=0` and `barriers_inserted=0`. It is the intended input
+for a later one-boundary canary; it is not submit elision by itself.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.

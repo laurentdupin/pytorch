@@ -420,6 +420,14 @@ struct StackDispatchDependencyDryRunValue final {
   uint64_t fully_proven_count = 0u;
 };
 
+struct StackRegionBoundarySubmitPlanValue final {
+  uint64_t count = 0u;
+  uint64_t bytes = 0u;
+  uint64_t queue_submit_count = 0u;
+  uint64_t submit_removed_count = 0u;
+  uint64_t barrier_inserted_count = 0u;
+};
+
 std::map<std::string, StackDispatchDependencyDispatchValue>&
 stack_dispatch_dependency_dispatch_rows() {
   static std::map<std::string, StackDispatchDependencyDispatchValue> rows;
@@ -435,6 +443,12 @@ stack_dispatch_dependency_insertion_point_rows() {
 std::map<std::string, StackDispatchDependencyDryRunValue>&
 stack_dispatch_dependency_dry_run_rows() {
   static std::map<std::string, StackDispatchDependencyDryRunValue> rows;
+  return rows;
+}
+
+std::map<std::string, StackRegionBoundarySubmitPlanValue>&
+stack_region_boundary_submit_plan_rows() {
+  static std::map<std::string, StackRegionBoundarySubmitPlanValue> rows;
   return rows;
 }
 
@@ -4358,13 +4372,189 @@ void append_graph_array(
   out << ']';
 }
 
+void append_stack_region_boundary_submit_plan_record(
+    std::ostream& out,
+    const std::string& row,
+    const size_t index) {
+  const auto fields = parse_space_separated_fields(row);
+  bool first = true;
+  out << '{';
+  append_json_string(
+      out,
+      "plan_record_id",
+      "boundary_submit_plan_" + std::to_string(index),
+      first);
+  append_json_string(
+      out,
+      "schema",
+      field_or(fields, "schema", "StackRegionBoundarySubmitPlan.v0"),
+      first);
+  append_json_string(
+      out,
+      "live_boundary_id",
+      field_or(fields, "live_boundary_id", "none"),
+      first);
+  append_json_string(
+      out,
+      "selected_boundary_id",
+      field_or(fields, "selected_boundary_id", "none"),
+      first);
+  append_json_string(
+      out,
+      "selected_scope",
+      field_or(fields, "selected_scope", "none"),
+      first);
+  append_json_string(
+      out,
+      "selected_proof_id",
+      field_or(fields, "selected_proof_id", "none"),
+      first);
+  append_json_string(
+      out,
+      "selected_proof_version",
+      field_or(fields, "selected_proof_version", "none"),
+      first);
+  append_json_string(
+      out,
+      "online_plan_status",
+      field_or(fields, "online_plan_status", "missing"),
+      first);
+  append_json_bool(
+      out,
+      "live_boundary_matches_selected",
+      field_or(fields, "live_boundary_matches_selected", "0") == "1",
+      first);
+  append_json_bool(
+      out,
+      "same_region_consumer_registration_present",
+      field_or(fields, "same_region_consumer_registration_present", "0") ==
+          "1",
+      first);
+  append_json_bool(
+      out,
+      "public_scope_rejected",
+      field_or(fields, "public_scope_rejected", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "stale_proof_check",
+      field_or(fields, "stale_proof_check", "missing"),
+      first);
+  append_json_bool(
+      out, "queue_submit", field_or(fields, "queue_submit", "0") == "1", first);
+  append_json_u64(
+      out,
+      "old_path_pending",
+      parsed_u64(fields, "old_path_pending"),
+      first);
+  append_json_u64(
+      out,
+      "safe_candidate_bytes",
+      parsed_u64(fields, "safe_candidate_bytes"),
+      first);
+  append_json_string(
+      out, "budget_reject", field_or(fields, "budget_reject", "missing"), first);
+  append_json_string(
+      out, "blockers", field_or(fields, "blockers", "missing"), first);
+  append_json_u64(out, "barriers_inserted", 0u, first);
+  append_json_u64(out, "submits_removed", 0u, first);
+  append_json_comma(out, first);
+  out << "\"source_fields\":";
+  append_json_fields_object(out, fields);
+  out << '}';
+}
+
+void append_stack_region_boundary_submit_plan_json(
+    std::ostream& out,
+    const std::vector<std::string>& rows,
+    bool& first) {
+  uint64_t candidate_records = 0u;
+  uint64_t selected_live_match_records = 0u;
+  uint64_t same_region_registration_records = 0u;
+  uint64_t queue_submit_records = 0u;
+  std::map<std::string, uint64_t> status_counts;
+  std::map<std::string, uint64_t> selected_boundary_counts;
+  for (const auto& row : rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    candidate_records += count;
+    status_counts[field_or(fields, "online_plan_status", "missing")] += count;
+    selected_boundary_counts[field_or(fields, "selected_boundary_id", "none")] +=
+        count;
+    if (field_or(fields, "live_boundary_matches_selected", "0") == "1") {
+      selected_live_match_records += count;
+    }
+    if (
+        field_or(fields, "same_region_consumer_registration_present", "0") ==
+        "1") {
+      same_region_registration_records += count;
+    }
+    if (field_or(fields, "queue_submit", "0") == "1") {
+      queue_submit_records += count;
+    }
+  }
+
+  append_json_comma(out, first);
+  out << "\"stack_region_boundary_submit_plan\":{";
+  bool plan_first = true;
+  append_json_string(
+      out, "schema", "StackRegionBoundarySubmitPlan.v0", plan_first);
+  append_json_bool(out, "behavior_neutral", true, plan_first);
+  append_json_bool(out, "dry_run_only", true, plan_first);
+  append_json_string(
+      out,
+      "planning_stage",
+      "online_phase_boundary_submit_hook",
+      plan_first);
+  append_json_u64(out, "candidate_records", candidate_records, plan_first);
+  append_json_u64(
+      out,
+      "selected_live_boundary_match_records",
+      selected_live_match_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "same_region_consumer_registration_records",
+      same_region_registration_records,
+      plan_first);
+  append_json_u64(
+      out, "queue_submit_records", queue_submit_records, plan_first);
+  append_json_u64(out, "barriers_inserted", 0u, plan_first);
+  append_json_u64(out, "submits_removed", 0u, plan_first);
+  append_json_string(
+      out,
+      "behavior_change_status",
+      "disabled_default_submit_preserved",
+      plan_first);
+  append_json_comma(out, plan_first);
+  out << "\"online_plan_status_counts\":";
+  append_u64_map_object(out, status_counts);
+  append_json_comma(out, plan_first);
+  out << "\"selected_boundary_counts\":";
+  append_u64_map_object(out, selected_boundary_counts);
+  append_json_comma(out, plan_first);
+  out << "\"records\":[";
+  for (size_t i = 0; i < rows.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    append_stack_region_boundary_submit_plan_record(out, rows[i], i);
+  }
+  out << "]}";
+}
+
 void split_stack_graph_rows(
     const std::vector<std::string>& rows,
     std::vector<std::string>& dispatch_nodes,
     std::vector<std::string>& insertion_point_nodes,
     std::vector<std::string>& dependency_edges,
-    std::vector<std::string>& capture_edges) {
+    std::vector<std::string>& capture_edges,
+    std::vector<std::string>& boundary_submit_plan_rows) {
   for (const auto& row : rows) {
+    if (row.find("stack_region_boundary_submit_plan=1") != std::string::npos) {
+      boundary_submit_plan_rows.emplace_back(row);
+      continue;
+    }
     if (row.find("pre_dispatch_insertion_point=1") != std::string::npos) {
       insertion_point_nodes.emplace_back(row);
       continue;
@@ -4411,12 +4601,14 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> insertion_point_nodes;
   std::vector<std::string> dependency_edges;
   std::vector<std::string> capture_edges;
+  std::vector<std::string> boundary_submit_plan_rows;
   split_stack_graph_rows(
       dispatch_dependency_rows,
       dispatch_nodes,
       insertion_point_nodes,
       dependency_edges,
-      capture_edges);
+      capture_edges,
+      boundary_submit_plan_rows);
 
   std::vector<std::string> resource_nodes;
   std::vector<std::string> boundary_nodes;
@@ -4530,6 +4722,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_output_device_consumer_registration_rows",
       consumer_registration_rows.size(),
       summary_first);
+  append_json_u64(
+      out,
+      "stack_region_boundary_submit_plan_rows",
+      boundary_submit_plan_rows.size(),
+      summary_first);
   append_json_bool(out, "submit_elision_enabled", false, summary_first);
   append_json_string(
       out,
@@ -4572,6 +4769,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       out, "phase_boundary_nodes", boundary_nodes, "phase_boundary", first);
   append_graph_array(
       out,
+      "stack_region_boundary_submit_plan_live_rows",
+      boundary_submit_plan_rows,
+      "stack_region_boundary_submit_plan",
+      first);
+  append_graph_array(
+      out,
       "stack_output_device_consumer_registrations",
       consumer_registration_rows,
       "stack_output_device_consumer_registration",
@@ -4582,6 +4785,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       capture_allocation_summaries,
       consumer_registration_summaries,
       first);
+  append_stack_region_boundary_submit_plan_json(
+      out, boundary_submit_plan_rows, first);
   append_barrier_plan_json(
       out,
       dependency_edges,
@@ -8241,6 +8446,168 @@ void note_stack_subresource_lifetime_dry_run_group(
   }
 }
 
+int64_t parsed_i64_or(
+    const std::map<std::string, std::string>& fields,
+    const char* key,
+    const int64_t fallback) {
+  const auto it = fields.find(key);
+  if (it == fields.end()) {
+    return fallback;
+  }
+  try {
+    return static_cast<int64_t>(std::stoll(it->second));
+  } catch (...) {
+    return fallback;
+  }
+}
+
+std::string capture_boundary_id_for_block(const int64_t block) {
+  std::ostringstream stream;
+  stream << "capture_boundary:producer_block=" << block
+         << ":capture_block=" << block;
+  return stream.str();
+}
+
+struct StackRegionBoundarySubmitPlanSelection final {
+  bool has_same_region_registration = false;
+  int64_t selected_capture_block = -1;
+  std::string selected_boundary_id = "none";
+  std::string selected_proof_id = "none";
+  std::string selected_registration_key = "none";
+};
+
+StackRegionBoundarySubmitPlanSelection
+select_stack_region_boundary_submit_plan_locked() {
+  StackRegionBoundarySubmitPlanSelection selection;
+  for (const auto& item : stack_output_device_consumer_registrations()) {
+    const auto fields = parse_space_separated_fields(item.first);
+    if (
+        field_or(fields, "consumer_in_same_planned_region", "0") != "1" ||
+        field_or(fields, "python_public_boundary_before_consumption", "1") !=
+            "0" ||
+        field_or(fields, "host_visible_boundary_before_consumption", "1") !=
+            "0" ||
+        field_or(fields, "host_visible_access_before_consumption", "1") !=
+            "0" ||
+        field_or(fields, "host_readback_before_consumption", "1") != "0" ||
+        field_or(fields, "output_role", "unknown") !=
+            "stack_residual2_output") {
+      continue;
+    }
+    const int64_t block = parsed_i64_or(fields, "captured_block", -1);
+    if (block <= 0) {
+      continue;
+    }
+    if (
+        !selection.has_same_region_registration ||
+        block < selection.selected_capture_block) {
+      selection.has_same_region_registration = true;
+      selection.selected_capture_block = block;
+      selection.selected_boundary_id = capture_boundary_id_for_block(block);
+      selection.selected_proof_id =
+          "PhaseBoundaryBudgetRecompute.v0:" + selection.selected_boundary_id;
+      selection.selected_registration_key =
+          stack_output_device_consumer_registration_key(
+              std::to_string(block), "stack_residual2_output");
+    }
+  }
+  return selection;
+}
+
+void note_stack_region_boundary_submit_plan(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const bool queue_submit,
+    const uint64_t old_path_pending_count,
+    const uint64_t old_path_pending_bytes,
+    const uint64_t safe_candidate_count,
+    const uint64_t safe_candidate_bytes,
+    const std::string& budget_reject,
+    const std::string& blockers) {
+  if (
+      phase != VulkanSubmitPhase::StackOwner ||
+      !(callsite == VulkanRetireCallSite::StackOwnerPhaseBoundary ||
+        callsite == VulkanRetireCallSite::StackOwnerNorm1 ||
+        callsite == VulkanRetireCallSite::StackOwnerNorm2)) {
+    return;
+  }
+  const int64_t live_block = current_vision_stack_block_index();
+  bool live_capture_boundary = false;
+  if (live_block >= 0) {
+    for (const int64_t capture_index : g_vision_stack_capture_indices) {
+      if (capture_index == live_block) {
+        live_capture_boundary = true;
+        break;
+      }
+    }
+  }
+  const std::string live_boundary_id =
+      live_capture_boundary ? capture_boundary_id_for_block(live_block) : "none";
+
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  const StackRegionBoundarySubmitPlanSelection selection =
+      select_stack_region_boundary_submit_plan_locked();
+  std::string online_status = "not_planned";
+  if (!selection.has_same_region_registration) {
+    online_status = !g_vision_stack_capture_indices.empty()
+        ? "rejected_public_scope_or_no_same_region_consumer"
+        : "not_planned";
+  } else if (live_boundary_id == selection.selected_boundary_id) {
+    online_status = "planned_live_boundary_match_proof_pending";
+  } else if (live_capture_boundary) {
+    online_status = "rejected_boundary_mismatch";
+  } else {
+    online_status = "not_selected_boundary";
+  }
+
+  std::ostringstream key;
+  key << "stack_region_boundary_submit_plan=1"
+      << " contract=StackRegionBoundarySubmitPlan"
+      << " schema=StackRegionBoundarySubmitPlan.v0"
+      << " behavior_neutral=1"
+      << " dry_run_only=1"
+      << " phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " live_boundary_stack_phase="
+      << vision_stack_phase_name(current_vision_stack_phase())
+      << " live_boundary_block=" << live_block
+      << " live_boundary_id=" << live_boundary_id
+      << " selected_boundary_id=" << selection.selected_boundary_id
+      << " selected_scope="
+      << (selection.has_same_region_registration ? "bridge_private_capture"
+                                                 : "none")
+      << " selected_proof_id=" << selection.selected_proof_id
+      << " selected_proof_version=PhaseBoundaryBudgetRecompute.v0"
+      << " selected_registration_key="
+      << selection.selected_registration_key
+      << " online_plan_status=" << online_status
+      << " live_boundary_matches_selected="
+      << (live_boundary_id == selection.selected_boundary_id ? 1 : 0)
+      << " same_region_consumer_registration_present="
+      << (selection.has_same_region_registration ? 1 : 0)
+      << " public_scope_rejected="
+      << (!selection.has_same_region_registration &&
+              !g_vision_stack_capture_indices.empty()
+          ? 1
+          : 0)
+      << " proof_source=current_graph_run_required"
+      << " stale_proof_check=fail_closed_without_current_graph_match"
+      << " queue_submit=" << (queue_submit ? 1 : 0)
+      << " old_path_pending=" << old_path_pending_count
+      << " safe_candidate_count=" << safe_candidate_count
+      << " safe_candidate_bytes=" << safe_candidate_bytes
+      << " budget_reject=" << budget_reject
+      << " blockers=" << blockers
+      << " barriers_inserted=0"
+      << " submits_removed=0";
+  auto& value = stack_region_boundary_submit_plan_rows()[key.str()];
+  value.count += 1u;
+  value.bytes += old_path_pending_bytes;
+  if (queue_submit) {
+    value.queue_submit_count += 1u;
+  }
+}
+
 void note_stack_phase_boundary_lifetime_dry_run_group(
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
@@ -8961,7 +9328,8 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
   rows.reserve(
       stack_dispatch_dependency_dispatch_rows().size() +
       stack_dispatch_dependency_insertion_point_rows().size() +
-      stack_dispatch_dependency_dry_run_rows().size());
+      stack_dispatch_dependency_dry_run_rows().size() +
+      stack_region_boundary_submit_plan_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
@@ -8985,6 +9353,15 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
         << " fully_proven_count=" << item.second.fully_proven_count;
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_region_boundary_submit_plan_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " bytes=" << item.second.bytes
+        << " queue_submit=" << item.second.queue_submit_count
+        << " submit_removed=" << item.second.submit_removed_count
+        << " barriers_inserted=" << item.second.barrier_inserted_count;
+    rows.push_back(row.str());
+  }
   return rows;
 }
 
@@ -9003,6 +9380,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_dispatch_dependency_dispatch_rows().clear();
   stack_dispatch_dependency_insertion_point_rows().clear();
   stack_dispatch_dependency_dry_run_rows().clear();
+  stack_region_boundary_submit_plan_rows().clear();
   stack_output_device_consumer_registrations().clear();
 }
 

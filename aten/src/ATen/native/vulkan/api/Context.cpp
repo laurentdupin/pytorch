@@ -1751,6 +1751,16 @@ VulkanSubmission Context::submit_cmd_to_gpu(
           dry_run_budget_reject,
           dry_run_signature,
           dry_run_blocker_signature);
+      note_stack_region_boundary_submit_plan(
+          phase,
+          callsite,
+          /*queue_submit=*/!should_coalesce_phase_boundary_explicit_sync,
+          pending_resource_count,
+          pending_bytes,
+          dry_run_safe_candidate_count,
+          dry_run_safe_candidate_bytes,
+          dry_run_budget_reject,
+          dry_run_blocker_signature);
     }
     if (should_coalesce_phase_boundary_explicit_sync) {
       VulkanSubmission submission{};
