@@ -1,13 +1,40 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-16 at local HEAD
-`3f979df120e5b53bd8a31a30fbf1e618bddd844f`.
+Last refreshed: 2026-06-20 at local HEAD
+`15379cf97be5`.
 
 ## Repo State Summary
 
 The Vulkan backend planning direction is now repo-local in `docs/vulkan`.
 Ignored `agent_space` artifacts remain evidence inputs, not production
 dependencies.
+
+## DAv2 Stack Region Policy Lock
+
+The unsafe sub-50 ms DAv2 `vits_140` path is rejected. Retire-time or
+lifetime-only removal of native-layernorm phase-boundary submits corrupted
+capture-sensitive stack outputs and must not be pursued as the next
+optimization. The old coalescing proof showed that consumer existence and
+retire lifetime proof are not sufficient: the missing contract is dispatch
+ordering at the producer-consumer edge before command recording.
+
+The current safe DAv2 bridge baseline is approximately 102-113 ms for
+`vits_140`. The opt-in generic stack-captures-to-decoder bridge is correct,
+copy-free, CPU-fallback-free, and sync-readback-free, but it remains limited by
+stack-owner explicit synchronizes and submits. The bridge must remain guarded;
+public `Tensor[]` capture behavior remains the safe default when a same-region
+consumer is not registered.
+
+The next architecture direction is a dispatch-level
+`StackRegionDependencyGraph` built before command recording. Future submit
+elision work must start from that graph, prove all ordering edges for a
+boundary, insert device-side dependencies at the consumer dispatch point, and
+only then consider skipping the matching host/queue phase-boundary submit. See
+`docs/vulkan/STACK_REGION_DEPENDENCY_GRAPH.md`.
+
+Vulkan availability checks in this tree should use
+`torch.is_vulkan_available()` or `torch.vulkan.is_available()`.
+`torch.backends.vulkan.is_available()` is not a valid availability signal here.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella
