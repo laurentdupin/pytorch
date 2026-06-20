@@ -702,6 +702,21 @@ std::vector<std::string> boundary_complete_dependency_missing_fields(
   return missing;
 }
 
+std::vector<std::string> barrier_plan_missing_dependency_metadata_fields(
+    const std::map<std::string, std::string>& fields) {
+  std::vector<std::string> missing = missing_dependency_metadata_fields(fields);
+  if (boundary_has_planned_non_capture_norm1_consumer(fields)) {
+    missing.erase(
+        std::remove(
+            missing.begin(), missing.end(), std::string("consumer_dispatch")),
+        missing.end());
+    if (field_or(fields, "consumer_dispatch_observed", "0") != "1") {
+      missing.emplace_back("consumer_dispatch_position");
+    }
+  }
+  return missing;
+}
+
 std::string stage_for_access(const std::string& access) {
   if (access.find("shader") != std::string::npos) {
     return "compute_shader";
@@ -728,7 +743,7 @@ std::string dependency_node_id(
 std::string barrier_plan_rejection_reason(
     const std::map<std::string, std::string>& fields) {
   const std::vector<std::string> missing =
-      missing_dependency_metadata_fields(fields);
+      barrier_plan_missing_dependency_metadata_fields(fields);
   if (!missing.empty()) {
     return "missing_" + missing.front();
   }
@@ -771,6 +786,10 @@ void append_barrier_plan_record(
   const bool plannable = barrier_plan_record_is_plannable(fields);
   const std::string producer_access = field_or(fields, "producer_access", "unknown");
   const std::string consumer_access = field_or(fields, "consumer_access", "unknown");
+  const bool consumer_dispatch_observed =
+      field_or(fields, "consumer_dispatch_observed", "0") == "1";
+  const bool consumer_dispatch_planned =
+      boundary_has_planned_non_capture_norm1_consumer(fields);
   bool first = true;
   out << '{';
   append_json_string(
@@ -804,6 +823,30 @@ void append_barrier_plan_record(
   append_json_string(
       out, "consumer_dispatch_position",
       field_or(fields, "consumer_dispatch_first_position", "unknown"), first);
+  append_json_bool(
+      out, "consumer_dispatch_observed", consumer_dispatch_observed, first);
+  append_json_bool(
+      out, "consumer_dispatch_planned", consumer_dispatch_planned, first);
+  append_json_string(
+      out,
+      "consumer_dispatch_proof",
+      field_or(fields, "consumer_dispatch_proof", "missing"),
+      first);
+  append_json_string(
+      out,
+      "consumer_dispatch_position_status",
+      consumer_dispatch_observed
+          ? "recorded"
+          : (consumer_dispatch_planned
+                 ? "planned_missing_command_position"
+                 : "missing"),
+      first);
+  append_json_string(
+      out,
+      "planned_consumer_dispatch_position",
+      consumer_dispatch_planned ? "missing_command_recording_position"
+                                : "not_planned",
+      first);
   append_json_string(
       out, "command_buffer_sequence",
       field_or(fields, "command_buffer_sequence", "unknown"), first);
@@ -858,7 +901,7 @@ void append_barrier_plan_record(
   append_json_string_array(
       out,
       "missing_metadata_fields",
-      missing_dependency_metadata_fields(fields),
+      barrier_plan_missing_dependency_metadata_fields(fields),
       first);
   append_json_comma(out, first);
   out << "\"source_edge_fields\":";
@@ -874,6 +917,9 @@ void append_barrier_plan_json(
   uint64_t plannable_records = 0u;
   uint64_t rejected_records = 0u;
   uint64_t phase_boundary_replace_candidate_records = 0u;
+  uint64_t consumer_dispatch_planned_records = 0u;
+  uint64_t consumer_dispatch_missing_reduced_records = 0u;
+  uint64_t consumer_dispatch_position_missing_records = 0u;
   std::map<std::string, uint64_t> rejection_reasons;
   for (const auto& row : dependency_edges) {
     const auto fields = parse_space_separated_fields(row);
@@ -881,6 +927,32 @@ void append_barrier_plan_json(
     const bool plannable = barrier_plan_record_is_plannable(fields);
     const std::string rejection =
         plannable ? "none" : barrier_plan_rejection_reason(fields);
+    const auto strict_missing = missing_dependency_metadata_fields(fields);
+    const auto plan_missing = barrier_plan_missing_dependency_metadata_fields(fields);
+    if (boundary_has_planned_non_capture_norm1_consumer(fields)) {
+      consumer_dispatch_planned_records += count;
+      const bool strict_missing_consumer =
+          std::find(
+              strict_missing.begin(),
+              strict_missing.end(),
+              std::string("consumer_dispatch")) != strict_missing.end();
+      const bool plan_missing_consumer =
+          std::find(
+              plan_missing.begin(),
+              plan_missing.end(),
+              std::string("consumer_dispatch")) != plan_missing.end();
+      const bool plan_missing_position =
+          std::find(
+              plan_missing.begin(),
+              plan_missing.end(),
+              std::string("consumer_dispatch_position")) != plan_missing.end();
+      if (strict_missing_consumer && !plan_missing_consumer) {
+        consumer_dispatch_missing_reduced_records += count;
+      }
+      if (plan_missing_position) {
+        consumer_dispatch_position_missing_records += count;
+      }
+    }
     candidate_records += count;
     if (plannable) {
       plannable_records += count;
@@ -912,6 +984,21 @@ void append_barrier_plan_json(
       out,
       "phase_boundary_replace_candidate_records",
       phase_boundary_replace_candidate_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "consumer_dispatch_planned_records",
+      consumer_dispatch_planned_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "consumer_dispatch_missing_reduced_records",
+      consumer_dispatch_missing_reduced_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "consumer_dispatch_position_missing_records",
+      consumer_dispatch_position_missing_records,
       plan_first);
   append_json_u64(out, "barriers_inserted", 0u, plan_first);
   append_json_u64(out, "submits_removed", 0u, plan_first);

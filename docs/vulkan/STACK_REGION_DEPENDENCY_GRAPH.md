@@ -102,8 +102,12 @@ when a stack-owner recording scope ends. The v0 schema is
   id/generation/range, dependency kind, source and destination stage/access,
   descriptor binding, planned barrier location, whether the edge could cover a
   phase-boundary ordering requirement, and the precise rejection reason when
-  the edge is not plannable. The plan also records the boundary-level metadata
-  still missing before any submit can be removed.
+  the edge is not plannable. Planned non-capture next-block Norm1 consumers
+  are recorded separately from observed consumer dispatches; they reduce the
+  consumer-identity proof gap but still reject as missing consumer dispatch
+  position until command recording can provide an exact insertion point. The
+  plan also records the boundary-level metadata still missing before any
+  submit can be removed.
 - a nested `boundary_complete_dependency_proof` object with schema
   `BoundaryCompleteDependencyProof.v0`. The v0 proof is intentionally narrow:
   it only groups non-capture `residual2 -> norm1` stack boundaries and records

@@ -19655,9 +19655,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 barrier_plan["candidate_records"],
                 barrier_plan["plannable_records"] + barrier_plan["rejected_records"],
             )
+            self.assertIn("consumer_dispatch_planned_records", barrier_plan)
+            self.assertIn(
+                "consumer_dispatch_missing_reduced_records",
+                barrier_plan,
+            )
+            self.assertIn(
+                "consumer_dispatch_position_missing_records",
+                barrier_plan,
+            )
             self.assertTrue(barrier_plan["records"])
             self.assertIn(
                 "planned_barrier_location",
+                barrier_plan["records"][0],
+            )
+            self.assertIn(
+                "consumer_dispatch_position_status",
                 barrier_plan["records"][0],
             )
             self.assertIn("boundary_complete_dependency_proof", graph)
