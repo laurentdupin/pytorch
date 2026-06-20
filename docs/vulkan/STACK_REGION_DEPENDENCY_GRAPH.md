@@ -126,10 +126,15 @@ when a stack-owner recording scope ends. The v0 schema is
   intermediate/public/private capture observations, same-region downstream
   device-consumer registration when a generic bridge publishes it, public or
   host-visible boundary status, and why the phase-boundary submit remains
-  required. Public `Tensor[]` captures stay unsafe. Private bridge captures are
-  classified separately, but they do not make a boundary complete until
-  downstream consumer registration is visible in the graph, capture value
-  preservation is proven, and the full boundary dependency set is complete.
+  required. Public `Tensor[]` captures stay unsafe. The contract emits a
+  combined view plus public-only and bridge-private-only scope records so a
+  bridge run that also evaluates a public reference path can keep public
+  rejection visible without contaminating bridge-private proof diagnostics.
+  `mixed_scope_rejected_records` counts combined records that observed both
+  scopes. `bridge_private_proof_complete_records` means the capture-specific
+  bridge scope has same-region registration and allocation/range proof; it does
+  not make a boundary complete until the full boundary dependency set is
+  complete.
 - `stack_output_device_consumer_registrations` rows record generic bridge
   diagnostics for captured stack outputs. The v0 key is stack context/session,
   capture block/substep/output role, output layout, strip/view relation,

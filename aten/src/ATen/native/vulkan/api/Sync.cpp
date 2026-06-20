@@ -871,6 +871,38 @@ struct StackOutputDeviceConsumerRegistrationSummary final {
   std::string expected_consumer_layout = "missing";
 };
 
+enum class CaptureOutputBoundaryScope : uint8_t {
+  Combined,
+  PublicCapture,
+  BridgePrivateCapture,
+};
+
+const char* capture_output_boundary_scope_name(
+    const CaptureOutputBoundaryScope scope) {
+  switch (scope) {
+    case CaptureOutputBoundaryScope::Combined:
+      return "combined";
+    case CaptureOutputBoundaryScope::PublicCapture:
+      return "public_capture";
+    case CaptureOutputBoundaryScope::BridgePrivateCapture:
+      return "bridge_private_capture";
+  }
+  return "unknown";
+}
+
+const char* capture_output_boundary_record_prefix(
+    const CaptureOutputBoundaryScope scope) {
+  switch (scope) {
+    case CaptureOutputBoundaryScope::Combined:
+      return "capture_output_boundary_edge_";
+    case CaptureOutputBoundaryScope::PublicCapture:
+      return "capture_output_boundary_public_edge_";
+    case CaptureOutputBoundaryScope::BridgePrivateCapture:
+      return "capture_output_boundary_bridge_private_edge_";
+  }
+  return "capture_output_boundary_unknown_edge_";
+}
+
 std::string barrier_plan_dispatch_position_key(
     const std::string& scope_id,
     const std::string& phase,
@@ -1754,6 +1786,25 @@ build_stack_output_device_consumer_registration_summaries(
   return summaries;
 }
 
+CaptureAllocationSummary capture_scope_summary(
+    const CaptureAllocationSummary& summary,
+    const CaptureOutputBoundaryScope scope) {
+  if (scope == CaptureOutputBoundaryScope::Combined) {
+    return summary;
+  }
+  CaptureAllocationSummary scoped;
+  if (scope == CaptureOutputBoundaryScope::PublicCapture) {
+    scoped.public_capture_count = summary.public_capture_count;
+    scoped.public_capture_bytes = summary.public_capture_bytes;
+    scoped.public_capture_shape = summary.public_capture_shape;
+  } else if (scope == CaptureOutputBoundaryScope::BridgePrivateCapture) {
+    scoped.private_bridge_capture_count = summary.private_bridge_capture_count;
+    scoped.private_bridge_capture_bytes = summary.private_bridge_capture_bytes;
+    scoped.private_bridge_capture_shape = summary.private_bridge_capture_shape;
+  }
+  return scoped;
+}
+
 const char* capture_storage_class_name(
     const CaptureAllocationSummary& summary) {
   if (
@@ -1803,15 +1854,30 @@ const char* capture_consumer_registration_reason(
   return "same_region_device_consumer_registered";
 }
 
+bool capture_scope_fields_complete(
+    const CaptureAllocationSummary& summary,
+    const StackOutputDeviceConsumerRegistrationSummary* const registration,
+    const bool allocation_generation_proven,
+    const bool allocation_range_proven) {
+  return capture_consumer_registration_accepts_same_region(registration) &&
+      summary.private_bridge_capture_count > 0u &&
+      summary.public_capture_count == 0u && allocation_generation_proven &&
+      allocation_range_proven;
+}
+
 const char* capture_boundary_sync_required_reason(
     const CaptureAllocationSummary& summary,
-    const StackOutputDeviceConsumerRegistrationSummary* const registration) {
+    const StackOutputDeviceConsumerRegistrationSummary* const registration,
+    const bool capture_scope_fields_complete) {
   if (summary.public_capture_count > 0u) {
     return "public_tensor_array_capture_requires_boundary_submit";
   }
   if (summary.private_bridge_capture_count > 0u) {
     if (!capture_consumer_registration_accepts_same_region(registration)) {
       return capture_consumer_registration_reason(registration);
+    }
+    if (capture_scope_fields_complete) {
+      return "capture_scope_complete_boundary_dependency_set_required";
     }
     return "bridge_private_capture_needs_value_preservation_and_complete_boundary_proof";
   }
@@ -1821,6 +1887,7 @@ const char* capture_boundary_sync_required_reason(
 void capture_output_missing_proof_fields(
     const CaptureAllocationSummary& summary,
     const StackOutputDeviceConsumerRegistrationSummary* const registration,
+    const bool capture_scope_fields_complete,
     std::vector<std::string>& missing) {
   if (
       summary.public_capture_count > 0u &&
@@ -1834,7 +1901,9 @@ void capture_output_missing_proof_fields(
     if (!capture_consumer_registration_accepts_same_region(registration)) {
       missing.emplace_back("downstream_consumer_registration_in_stack_graph");
     }
-    missing.emplace_back("capture_value_preservation_proof");
+    if (!capture_scope_fields_complete) {
+      missing.emplace_back("capture_value_preservation_proof");
+    }
   }
   if (
       summary.public_capture_count == 0u &&
@@ -1850,13 +1919,15 @@ void append_capture_output_boundary_record(
     const std::map<std::string, CaptureAllocationSummary>& summaries,
     const std::map<std::string, StackOutputDeviceConsumerRegistrationSummary>&
         registrations,
+    const CaptureOutputBoundaryScope scope,
     const size_t index) {
   const auto fields = parse_space_separated_fields(row);
   const std::string capture_block = field_or(fields, "consumer_block", "unknown");
   const auto summary_it = summaries.find(capture_block);
   const CaptureAllocationSummary empty_summary;
-  const CaptureAllocationSummary& summary =
+  const CaptureAllocationSummary& raw_summary =
       summary_it == summaries.end() ? empty_summary : summary_it->second;
+  const CaptureAllocationSummary summary = capture_scope_summary(raw_summary, scope);
   const std::string registration_key =
       stack_output_device_consumer_registration_key(
           capture_block, field_or(fields, "role", "unknown"));
@@ -1869,22 +1940,25 @@ void append_capture_output_boundary_record(
       field_or(fields, "allocation_has_generation", "0") == "1";
   const bool allocation_range_proven =
       field_or(fields, "allocation_has_byte_range", "0") == "1";
-  const bool capture_specific_proof_complete =
-      same_region_consumer_registered &&
-      summary.private_bridge_capture_count > 0u &&
-      summary.public_capture_count == 0u && allocation_generation_proven &&
-      allocation_range_proven;
+  const bool capture_specific_proof_complete = capture_scope_fields_complete(
+      summary, registration, allocation_generation_proven, allocation_range_proven);
   std::vector<std::string> missing_proof_fields;
   capture_output_missing_proof_fields(
-      summary, registration, missing_proof_fields);
+      summary,
+      registration,
+      capture_specific_proof_complete,
+      missing_proof_fields);
   bool first = true;
   out << '{';
   append_json_string(
       out,
       "record_id",
-      "capture_output_boundary_edge_" + std::to_string(index),
+      std::string(capture_output_boundary_record_prefix(scope)) +
+          std::to_string(index),
       first);
   append_json_string(out, "contract", "CaptureOutputBoundaryContract", first);
+  append_json_string(
+      out, "capture_scope", capture_output_boundary_scope_name(scope), first);
   append_json_string(
       out, "producer_block", field_or(fields, "producer_block", "unknown"), first);
   append_json_string(
@@ -2060,7 +2134,8 @@ void append_capture_output_boundary_record(
   append_json_string(
       out,
       "boundary_sync_required_reason",
-      capture_boundary_sync_required_reason(summary, registration),
+      capture_boundary_sync_required_reason(
+          summary, registration, capture_specific_proof_complete),
       first);
   append_json_string_array(
       out, "missing_capture_boundary_proof_fields", missing_proof_fields, first);
@@ -2082,6 +2157,10 @@ void append_capture_output_boundary_contract_json(
   uint64_t public_tensor_array_records = 0u;
   uint64_t bridge_private_records = 0u;
   uint64_t mixed_capture_records = 0u;
+  uint64_t public_capture_records = 0u;
+  uint64_t bridge_private_capture_records = 0u;
+  uint64_t mixed_scope_rejected_records = 0u;
+  uint64_t bridge_private_proof_complete_records = 0u;
   uint64_t unknown_capture_storage_records = 0u;
   uint64_t requested_intermediate_records = 0u;
   uint64_t consumer_registration_records = 0u;
@@ -2109,11 +2188,15 @@ void append_capture_output_boundary_contract_json(
         field_or(fields, "allocation_has_generation", "0") == "1";
     const bool allocation_range_proven =
         field_or(fields, "allocation_has_byte_range", "0") == "1";
-    const bool capture_specific_proof_complete =
-        same_region_consumer_registered &&
-        summary.private_bridge_capture_count > 0u &&
-        summary.public_capture_count == 0u && allocation_generation_proven &&
-        allocation_range_proven;
+    const bool capture_specific_proof_complete = capture_scope_fields_complete(
+        summary, registration, allocation_generation_proven, allocation_range_proven);
+    const CaptureAllocationSummary bridge_private_summary =
+        capture_scope_summary(summary, CaptureOutputBoundaryScope::BridgePrivateCapture);
+    const bool bridge_private_proof_complete = capture_scope_fields_complete(
+        bridge_private_summary,
+        registration,
+        allocation_generation_proven,
+        allocation_range_proven);
     candidate_records += count;
     requested_intermediate_records += count;
     if (registration && registration->count > 0u) {
@@ -2133,25 +2216,31 @@ void append_capture_output_boundary_contract_json(
     }
     if (summary.public_capture_count > 0u) {
       public_tensor_array_records += count;
+      public_capture_records += count;
       public_boundary_rejected_records += count;
     }
     if (summary.private_bridge_capture_count > 0u) {
       bridge_private_records += count;
+      bridge_private_capture_records += count;
     }
     if (
         summary.public_capture_count > 0u &&
         summary.private_bridge_capture_count > 0u) {
       mixed_capture_records += count;
+      mixed_scope_rejected_records += count;
     }
     if (
         summary.public_capture_count == 0u &&
         summary.private_bridge_capture_count == 0u) {
       unknown_capture_storage_records += count;
     }
-    boundary_sync_required_reasons
-        [capture_boundary_sync_required_reason(summary, registration)] += count;
+    boundary_sync_required_reasons[capture_boundary_sync_required_reason(
+        summary, registration, capture_specific_proof_complete)] += count;
     if (capture_specific_proof_complete) {
       proof_complete_records += count;
+    }
+    if (bridge_private_proof_complete) {
+      bridge_private_proof_complete_records += count;
     }
   }
 
@@ -2196,12 +2285,29 @@ void append_capture_output_boundary_contract_json(
       out, "bridge_private_records", bridge_private_records, contract_first);
   append_json_u64(out, "mixed_capture_records", mixed_capture_records, contract_first);
   append_json_u64(
+      out, "public_capture_records", public_capture_records, contract_first);
+  append_json_u64(
+      out,
+      "bridge_private_capture_records",
+      bridge_private_capture_records,
+      contract_first);
+  append_json_u64(
+      out,
+      "mixed_scope_rejected_records",
+      mixed_scope_rejected_records,
+      contract_first);
+  append_json_u64(
       out,
       "unknown_capture_storage_records",
       unknown_capture_storage_records,
       contract_first);
   append_json_u64(
       out, "proof_complete_records", proof_complete_records, contract_first);
+  append_json_u64(
+      out,
+      "bridge_private_proof_complete_records",
+      bridge_private_proof_complete_records,
+      contract_first);
   append_json_u64(out, "barriers_inserted", 0u, contract_first);
   append_json_u64(out, "submits_removed", 0u, contract_first);
   append_json_comma(out, contract_first);
@@ -2222,7 +2328,62 @@ void append_capture_output_boundary_contract_json(
       out << ',';
     }
     append_capture_output_boundary_record(
-        out, capture_edges[i], summaries, registrations, i);
+        out,
+        capture_edges[i],
+        summaries,
+        registrations,
+        CaptureOutputBoundaryScope::Combined,
+        i);
+  }
+  out << "]";
+  append_json_comma(out, contract_first);
+  out << "\"public_capture_scope_records\":[";
+  bool public_first = true;
+  for (size_t i = 0; i < capture_edges.size(); ++i) {
+    const auto fields = parse_space_separated_fields(capture_edges[i]);
+    const auto summary_it =
+        summaries.find(field_or(fields, "consumer_block", "unknown"));
+    if (
+        summary_it == summaries.end() ||
+        summary_it->second.public_capture_count == 0u) {
+      continue;
+    }
+    if (!public_first) {
+      out << ',';
+    }
+    public_first = false;
+    append_capture_output_boundary_record(
+        out,
+        capture_edges[i],
+        summaries,
+        registrations,
+        CaptureOutputBoundaryScope::PublicCapture,
+        i);
+  }
+  out << "]";
+  append_json_comma(out, contract_first);
+  out << "\"bridge_private_capture_scope_records\":[";
+  bool private_first = true;
+  for (size_t i = 0; i < capture_edges.size(); ++i) {
+    const auto fields = parse_space_separated_fields(capture_edges[i]);
+    const auto summary_it =
+        summaries.find(field_or(fields, "consumer_block", "unknown"));
+    if (
+        summary_it == summaries.end() ||
+        summary_it->second.private_bridge_capture_count == 0u) {
+      continue;
+    }
+    if (!private_first) {
+      out << ',';
+    }
+    private_first = false;
+    append_capture_output_boundary_record(
+        out,
+        capture_edges[i],
+        summaries,
+        registrations,
+        CaptureOutputBoundaryScope::BridgePrivateCapture,
+        i);
   }
   out << "]}";
 }

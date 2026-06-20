@@ -19658,9 +19658,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(capture_contract["barriers_inserted"], 0)
             self.assertEqual(capture_contract["submits_removed"], 0)
             self.assertIn("candidate_records", capture_contract)
+            self.assertIn("public_capture_records", capture_contract)
+            self.assertIn("bridge_private_capture_records", capture_contract)
+            self.assertIn("mixed_scope_rejected_records", capture_contract)
+            self.assertIn(
+                "bridge_private_proof_complete_records",
+                capture_contract,
+            )
             self.assertEqual(capture_contract["proof_complete_records"], 0)
             self.assertIn("records", capture_contract)
+            self.assertIn("public_capture_scope_records", capture_contract)
+            self.assertIn("bridge_private_capture_scope_records", capture_contract)
             if capture_contract["records"]:
+                self.assertIn(
+                    "capture_scope",
+                    capture_contract["records"][0],
+                )
                 self.assertIn(
                     "capture_storage_class",
                     capture_contract["records"][0],
@@ -19680,6 +19693,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 self.assertIn(
                     "consumer_registration_accept_reject_reason",
                     capture_contract["records"][0],
+                )
+            if capture_contract["public_capture_scope_records"]:
+                self.assertEqual(
+                    capture_contract["public_capture_scope_records"][0][
+                        "capture_scope"
+                    ],
+                    "public_capture",
                 )
             self.assertIn("barrier_plan", graph)
             barrier_plan = graph["barrier_plan"]
@@ -27274,6 +27294,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(capture_contract["barriers_inserted"], 0)
             self.assertEqual(capture_contract["submits_removed"], 0)
+            self.assertEqual(capture_contract["public_capture_records"], 0)
+            self.assertEqual(capture_contract["mixed_scope_rejected_records"], 0)
+            self.assertGreater(capture_contract["bridge_private_capture_records"], 0)
+            self.assertGreater(
+                capture_contract["bridge_private_proof_complete_records"], 0
+            )
+            self.assertTrue(capture_contract["bridge_private_capture_scope_records"])
+            self.assertTrue(
+                all(
+                    record["capture_scope"] == "bridge_private_capture"
+                    and record["capture_specific_proof_complete"]
+                    and record["boundary_sync_required_reason"]
+                    == "capture_scope_complete_boundary_dependency_set_required"
+                    for record in capture_contract[
+                        "bridge_private_capture_scope_records"
+                    ]
+                )
+            )
             self.assertTrue(
                 any(
                     record["same_region_consumer_registered"]
