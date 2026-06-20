@@ -28,6 +28,8 @@ thread_local VulkanRetiredResourceKind g_retired_resource_kind =
 thread_local VulkanRetiredResourceRole g_retired_resource_role =
     VulkanRetiredResourceRole::Unknown;
 thread_local std::vector<VulkanStackLastUseProof> g_stack_last_use_proofs;
+thread_local std::vector<VulkanStackPlannedDispatchPosition>
+    g_stack_planned_dispatch_positions;
 thread_local uint64_t g_stack_dispatch_dependency_scope_id = 0u;
 thread_local uint64_t g_stack_dispatch_dependency_position = 0u;
 std::atomic<uint64_t> g_next_stack_dispatch_dependency_scope_id{1u};
@@ -362,6 +364,18 @@ const VulkanStackLastUseProof* find_stack_last_use_proof(
   return nullptr;
 }
 
+const VulkanStackPlannedDispatchPosition* find_stack_planned_dispatch_position(
+    const VulkanVisionStackPhase phase,
+    const int64_t block_index) {
+  for (const VulkanStackPlannedDispatchPosition& position :
+       g_stack_planned_dispatch_positions) {
+    if (position.phase == phase && position.block_index == block_index) {
+      return &position;
+    }
+  }
+  return nullptr;
+}
+
 std::mutex& stack_aggregate_mutex() {
   static std::mutex mutex;
   return mutex;
@@ -690,11 +704,62 @@ bool boundary_has_planned_non_capture_norm1_consumer(
       "planned_non_capture_residual2_to_norm1";
 }
 
+VulkanVisionStackPhase vision_stack_phase_from_graph_name(
+    const std::string& name) {
+  if (name == "stack_entry") {
+    return VulkanVisionStackPhase::StackEntry;
+  }
+  if (name == "block_entry") {
+    return VulkanVisionStackPhase::BlockEntry;
+  }
+  if (name == "norm1") {
+    return VulkanVisionStackPhase::Norm1;
+  }
+  if (name == "qkv_linear") {
+    return VulkanVisionStackPhase::QkvLinear;
+  }
+  if (name == "qkv_transform") {
+    return VulkanVisionStackPhase::QkvTransform;
+  }
+  if (name == "attention") {
+    return VulkanVisionStackPhase::Attention;
+  }
+  if (name == "proj_linear") {
+    return VulkanVisionStackPhase::ProjLinear;
+  }
+  if (name == "residual1") {
+    return VulkanVisionStackPhase::Residual1;
+  }
+  if (name == "norm2") {
+    return VulkanVisionStackPhase::Norm2;
+  }
+  if (name == "fc1_gelu") {
+    return VulkanVisionStackPhase::Fc1Gelu;
+  }
+  if (name == "fc2") {
+    return VulkanVisionStackPhase::Fc2;
+  }
+  if (name == "residual2") {
+    return VulkanVisionStackPhase::Residual2;
+  }
+  if (name == "intermediate_capture") {
+    return VulkanVisionStackPhase::IntermediateCapture;
+  }
+  if (name == "stack_exit") {
+    return VulkanVisionStackPhase::StackExit;
+  }
+  return VulkanVisionStackPhase::Unknown;
+}
+
 struct BarrierPlanDispatchPosition final {
-  bool known = false;
-  uint64_t first_position = 0u;
-  uint64_t last_position = 0u;
-  std::string source = "missing";
+  bool completed_position_known = false;
+  uint64_t completed_first_position = 0u;
+  uint64_t completed_last_position = 0u;
+  std::string completed_position_source = "missing";
+  bool planned_position_known = false;
+  uint64_t planned_position = 0u;
+  std::string planned_position_source = "missing";
+  std::string planned_position_space = "missing";
 };
 
 std::string barrier_plan_dispatch_position_key(
@@ -722,16 +787,18 @@ build_barrier_plan_dispatch_positions(const std::vector<std::string>& rows) {
     const std::string key =
         barrier_plan_dispatch_position_key(fields, "phase", "block");
     auto& position = positions[key];
-    position.known = true;
-    position.source = "completed_graph_dispatch_node";
+    position.completed_position_known = true;
+    position.completed_position_source = "completed_graph_dispatch_node";
     const uint64_t first_position = parsed_u64(fields, "first_position");
     const uint64_t last_position = parsed_u64(fields, "last_position");
-    if (position.first_position == 0u ||
-        (first_position != 0u && first_position < position.first_position)) {
-      position.first_position = first_position;
+    if (
+        position.completed_first_position == 0u ||
+        (first_position != 0u &&
+         first_position < position.completed_first_position)) {
+      position.completed_first_position = first_position;
     }
-    if (last_position > position.last_position) {
-      position.last_position = last_position;
+    if (last_position > position.completed_last_position) {
+      position.completed_last_position = last_position;
     }
   }
   return positions;
@@ -742,21 +809,44 @@ BarrierPlanDispatchPosition barrier_plan_consumer_dispatch_position(
     const std::map<std::string, BarrierPlanDispatchPosition>& positions) {
   if (field_or(fields, "consumer_dispatch_observed", "0") == "1") {
     BarrierPlanDispatchPosition position;
-    position.known = true;
-    position.first_position =
+    position.completed_position_known = true;
+    position.completed_first_position =
         parsed_u64(fields, "consumer_dispatch_first_position");
-    position.last_position =
+    position.completed_last_position =
         parsed_u64(fields, "consumer_dispatch_last_position");
-    position.source = "recorded_dependency_edge";
+    position.completed_position_source = "recorded_dependency_edge";
+    position.planned_position_known = true;
+    position.planned_position = position.completed_first_position;
+    position.planned_position_source = "recorded_dependency_edge";
+    position.planned_position_space = "command_recording_dispatch_sequence";
     return position;
   }
   if (!boundary_has_planned_non_capture_norm1_consumer(fields)) {
     return {};
   }
+  BarrierPlanDispatchPosition position;
   const std::string key = barrier_plan_dispatch_position_key(
       fields, "consumer_phase", "consumer_block");
   const auto it = positions.find(key);
-  return it == positions.end() ? BarrierPlanDispatchPosition{} : it->second;
+  if (it != positions.end()) {
+    position.completed_position_known = it->second.completed_position_known;
+    position.completed_first_position = it->second.completed_first_position;
+    position.completed_last_position = it->second.completed_last_position;
+    position.completed_position_source = it->second.completed_position_source;
+  }
+  const VulkanVisionStackPhase consumer_phase =
+      vision_stack_phase_from_graph_name(
+          field_or(fields, "consumer_phase", "unknown"));
+  const int64_t consumer_block =
+      static_cast<int64_t>(parsed_u64(fields, "consumer_block"));
+  if (const VulkanStackPlannedDispatchPosition* const planned_position =
+          find_stack_planned_dispatch_position(consumer_phase, consumer_block)) {
+    position.planned_position_known = true;
+    position.planned_position = planned_position->planned_position;
+    position.planned_position_source = "pre_recording_stack_shape_plan";
+    position.planned_position_space = "stack_plan_logical_step";
+  }
+  return position;
 }
 
 std::vector<std::string> boundary_complete_dependency_missing_fields(
@@ -780,10 +870,17 @@ std::vector<std::string> barrier_plan_missing_dependency_metadata_fields(
         std::remove(
             missing.begin(), missing.end(), std::string("consumer_dispatch")),
         missing.end());
-    if (!consumer_position.known) {
+    if (
+        !consumer_position.completed_position_known &&
+        !consumer_position.planned_position_known) {
       missing.emplace_back("consumer_dispatch_position");
-    } else if (consumer_position.source == "completed_graph_dispatch_node") {
+    } else if (!consumer_position.planned_position_known) {
       missing.emplace_back("pre_recording_consumer_dispatch_position_api");
+    } else if (
+        consumer_position.planned_position_space !=
+        "command_recording_dispatch_sequence") {
+      missing.emplace_back(
+          "pre_recording_command_buffer_dispatch_position_api");
     }
   }
   return missing;
@@ -886,11 +983,31 @@ void append_barrier_plan_record(
   const bool consumer_dispatch_planned =
       boundary_has_planned_non_capture_norm1_consumer(fields);
   const std::string consumer_position_string =
-      consumer_position.known ? std::to_string(consumer_position.first_position)
-                              : field_or(
-                                    fields,
-                                    "consumer_dispatch_first_position",
-                                    "unknown");
+      consumer_position.completed_position_known
+      ? std::to_string(consumer_position.completed_first_position)
+      : (consumer_position.planned_position_known
+             ? std::to_string(consumer_position.planned_position)
+             : field_or(fields, "consumer_dispatch_first_position", "unknown"));
+  const bool planned_completed_agree =
+      consumer_position.planned_position_known &&
+      consumer_position.completed_position_known &&
+      consumer_position.planned_position_space ==
+          "command_recording_dispatch_sequence" &&
+      consumer_position.planned_position ==
+          consumer_position.completed_first_position;
+  const std::string pre_recording_position_status =
+      consumer_position.planned_position_source == "recorded_dependency_edge"
+      ? "recorded_dependency_edge"
+      : (consumer_position.planned_position_known
+             ? (consumer_position.planned_position_space ==
+                        "command_recording_dispatch_sequence"
+                    ? "pre_recording_command_position_available"
+                    : "pre_recording_logical_position_available_missing_command_buffer_position_api")
+             : (consumer_dispatch_planned
+                    ? (consumer_position.completed_position_known
+                           ? "completed_graph_position_available_missing_pre_recording_position_api"
+                           : "missing_completed_graph_and_pre_recording_position")
+                    : "not_planned"));
   bool first = true;
   out << '{';
   append_json_string(
@@ -927,8 +1044,8 @@ void append_barrier_plan_record(
   append_json_string(
       out,
       "consumer_dispatch_last_position",
-      consumer_position.known
-          ? std::to_string(consumer_position.last_position)
+      consumer_position.completed_position_known
+          ? std::to_string(consumer_position.completed_last_position)
           : field_or(fields, "consumer_dispatch_last_position", "unknown"),
       first);
   append_json_bool(
@@ -945,7 +1062,8 @@ void append_barrier_plan_record(
       "consumer_dispatch_position_status",
       consumer_dispatch_observed
           ? "recorded"
-          : (consumer_dispatch_planned && consumer_position.known
+          : (consumer_dispatch_planned &&
+             consumer_position.completed_position_known
                  ? "completed_graph_observed"
                  : (consumer_dispatch_planned
                         ? "planned_missing_completed_graph_position"
@@ -954,31 +1072,82 @@ void append_barrier_plan_record(
   append_json_string(
       out,
       "consumer_dispatch_position_source",
-      consumer_position.source,
+      consumer_position.completed_position_source,
+      first);
+  append_json_bool(
+      out,
+      "completed_consumer_dispatch_position_available",
+      consumer_position.completed_position_known,
+      first);
+  append_json_string(
+      out,
+      "completed_consumer_dispatch_position",
+      consumer_position.completed_position_known
+          ? std::to_string(consumer_position.completed_first_position)
+          : "missing",
+      first);
+  append_json_string(
+      out,
+      "completed_consumer_dispatch_position_space",
+      consumer_position.completed_position_known
+          ? "command_recording_dispatch_sequence"
+          : "missing",
+      first);
+  append_json_string(
+      out,
+      "completed_consumer_dispatch_position_source",
+      consumer_position.completed_position_source,
       first);
   append_json_string(
       out,
       "planned_consumer_dispatch_position",
-      consumer_dispatch_planned && consumer_position.known
-          ? std::to_string(consumer_position.first_position)
-          : (consumer_dispatch_planned ? "missing_completed_graph_position"
+      consumer_position.planned_position_known
+          ? std::to_string(consumer_position.planned_position)
+          : (consumer_dispatch_planned ? "missing_pre_recording_position"
                                        : "not_planned"),
       first);
   append_json_bool(
       out,
       "pre_recording_position_available",
-      consumer_position.source == "recorded_dependency_edge",
+      consumer_position.planned_position_known,
+      first);
+  append_json_bool(
+      out,
+      "planned_consumer_dispatch_position_available",
+      consumer_position.planned_position_known,
+      first);
+  append_json_string(
+      out,
+      "planned_consumer_dispatch_position_space",
+      consumer_position.planned_position_space,
+      first);
+  append_json_string(
+      out,
+      "planned_consumer_dispatch_position_source",
+      consumer_position.planned_position_source,
+      first);
+  append_json_bool(
+      out,
+      "planned_completed_position_agree",
+      planned_completed_agree,
+      first);
+  append_json_string(
+      out,
+      "planned_completed_position_agreement_status",
+      !consumer_position.planned_position_known ||
+              !consumer_position.completed_position_known
+          ? "missing_position"
+          : (planned_completed_agree
+                 ? "agree"
+                 : (consumer_position.planned_position_space !=
+                            "command_recording_dispatch_sequence"
+                        ? "different_position_spaces"
+                        : "mismatch")),
       first);
   append_json_string(
       out,
       "pre_recording_position_status",
-      consumer_position.source == "recorded_dependency_edge"
-          ? "recorded_dependency_edge"
-          : (consumer_dispatch_planned && consumer_position.known
-                 ? "missing_pre_recording_position_api"
-                 : (consumer_dispatch_planned
-                        ? "missing_completed_graph_and_pre_recording_position"
-                        : "not_planned")),
+      pre_recording_position_status,
       first);
   append_json_string(
       out, "command_buffer_sequence",
@@ -1012,6 +1181,15 @@ void append_barrier_plan_record(
       out,
       "planned_barrier_location",
       plannable ? "before_consumer_dispatch" : "not_plannable",
+      first);
+  append_json_string(
+      out,
+      "barrier_insertion_location_class",
+      plannable
+          ? "before_consumer_dispatch"
+          : (consumer_position.planned_position_known
+                 ? "before_planned_consumer_logical_step_dry_run_only"
+                 : "missing_pre_recording_position"),
       first);
   append_json_bool(out, "plannable", plannable, first);
   append_json_bool(
@@ -1055,7 +1233,13 @@ void append_barrier_plan_json(
   uint64_t consumer_dispatch_missing_reduced_records = 0u;
   uint64_t consumer_dispatch_position_known_records = 0u;
   uint64_t consumer_dispatch_position_missing_records = 0u;
+  uint64_t planned_consumer_dispatch_position_known_records = 0u;
+  uint64_t completed_consumer_dispatch_position_known_records = 0u;
+  uint64_t planned_completed_position_agree_records = 0u;
+  uint64_t planned_completed_position_different_space_records = 0u;
   uint64_t pre_recording_consumer_dispatch_position_api_missing_records = 0u;
+  uint64_t pre_recording_command_buffer_dispatch_position_api_missing_records =
+      0u;
   std::map<std::string, uint64_t> rejection_reasons;
   for (const auto& row : dependency_edges) {
     const auto fields = parse_space_separated_fields(row);
@@ -1092,17 +1276,51 @@ void append_barrier_plan_json(
               plan_missing.end(),
               std::string("pre_recording_consumer_dispatch_position_api")) !=
           plan_missing.end();
+      const bool plan_missing_pre_recording_command_buffer_api =
+          std::find(
+              plan_missing.begin(),
+              plan_missing.end(),
+              std::string(
+                  "pre_recording_command_buffer_dispatch_position_api")) !=
+          plan_missing.end();
       if (strict_missing_consumer && !plan_missing_consumer) {
         consumer_dispatch_missing_reduced_records += count;
       }
-      if (consumer_position.known) {
+      if (
+          consumer_position.completed_position_known ||
+          consumer_position.planned_position_known) {
         consumer_dispatch_position_known_records += count;
+      }
+      if (consumer_position.planned_position_known) {
+        planned_consumer_dispatch_position_known_records += count;
+      }
+      if (consumer_position.completed_position_known) {
+        completed_consumer_dispatch_position_known_records += count;
+      }
+      if (
+          consumer_position.planned_position_known &&
+          consumer_position.completed_position_known &&
+          consumer_position.planned_position_space ==
+              "command_recording_dispatch_sequence" &&
+          consumer_position.planned_position ==
+              consumer_position.completed_first_position) {
+        planned_completed_position_agree_records += count;
+      } else if (
+          consumer_position.planned_position_known &&
+          consumer_position.completed_position_known &&
+          consumer_position.planned_position_space !=
+              "command_recording_dispatch_sequence") {
+        planned_completed_position_different_space_records += count;
       }
       if (plan_missing_position) {
         consumer_dispatch_position_missing_records += count;
       }
       if (plan_missing_pre_recording_api) {
         pre_recording_consumer_dispatch_position_api_missing_records += count;
+      }
+      if (plan_missing_pre_recording_command_buffer_api) {
+        pre_recording_command_buffer_dispatch_position_api_missing_records +=
+            count;
       }
     }
     candidate_records += count;
@@ -1159,8 +1377,33 @@ void append_barrier_plan_json(
       plan_first);
   append_json_u64(
       out,
+      "planned_consumer_dispatch_position_known_records",
+      planned_consumer_dispatch_position_known_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "completed_consumer_dispatch_position_known_records",
+      completed_consumer_dispatch_position_known_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "planned_completed_position_agree_records",
+      planned_completed_position_agree_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "planned_completed_position_different_space_records",
+      planned_completed_position_different_space_records,
+      plan_first);
+  append_json_u64(
+      out,
       "pre_recording_consumer_dispatch_position_api_missing_records",
       pre_recording_consumer_dispatch_position_api_missing_records,
+      plan_first);
+  append_json_u64(
+      out,
+      "pre_recording_command_buffer_dispatch_position_api_missing_records",
+      pre_recording_command_buffer_dispatch_position_api_missing_records,
       plan_first);
   append_json_u64(out, "barriers_inserted", 0u, plan_first);
   append_json_u64(out, "submits_removed", 0u, plan_first);
@@ -2923,6 +3166,18 @@ VulkanStackLastUseProofScope::VulkanStackLastUseProofScope(
 
 VulkanStackLastUseProofScope::~VulkanStackLastUseProofScope() {
   g_stack_last_use_proofs = std::move(previous_);
+}
+
+VulkanStackPlannedDispatchPositionScope::
+    VulkanStackPlannedDispatchPositionScope(
+        std::vector<VulkanStackPlannedDispatchPosition> positions)
+    : previous_(std::move(g_stack_planned_dispatch_positions)) {
+  g_stack_planned_dispatch_positions = std::move(positions);
+}
+
+VulkanStackPlannedDispatchPositionScope::
+    ~VulkanStackPlannedDispatchPositionScope() {
+  g_stack_planned_dispatch_positions = std::move(previous_);
 }
 
 VulkanVisionStackPhaseScope::VulkanVisionStackPhaseScope(

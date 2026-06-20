@@ -1033,6 +1033,25 @@ std::vector<api::VulkanStackLastUseProof> build_stack_last_use_proofs(
   return proofs;
 }
 
+std::vector<api::VulkanStackPlannedDispatchPosition>
+build_stack_planned_dispatch_positions(const VulkanVisionStackShapePlan& plan) {
+  std::vector<api::VulkanStackPlannedDispatchPosition> positions;
+  positions.reserve(plan.steps.size());
+  for (const VulkanStackPlanStep& step : plan.steps) {
+    const api::VulkanVisionStackPhase phase =
+        vision_phase_for_stack_plan_step(step.kind);
+    if (phase == api::VulkanVisionStackPhase::Unknown) {
+      continue;
+    }
+    api::VulkanStackPlannedDispatchPosition position;
+    position.phase = phase;
+    position.block_index = step.block_index;
+    position.planned_position = static_cast<uint64_t>(step.ordinal);
+    positions.emplace_back(std::move(position));
+  }
+  return positions;
+}
+
 std::unique_ptr<VulkanVisionStackShapePlan> build_stack_shape_plan(
     const VisionBackboneStackContext& context,
     const VulkanVisionStackShapeKey& key) {
@@ -8549,6 +8568,13 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
 
   auto& planned_counters = vulkan_stack_planned_recording_counters();
   planned_counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
+  std::unique_ptr<api::VulkanStackPlannedDispatchPositionScope>
+      planned_dispatch_position_scope;
+  if (stack_shape_plan) {
+    planned_dispatch_position_scope =
+        std::make_unique<api::VulkanStackPlannedDispatchPositionScope>(
+            build_stack_planned_dispatch_positions(*stack_shape_plan));
+  }
   std::unique_ptr<VulkanStackCommandRecordingScope> planned_recording_scope;
   if (stack_shape_plan &&
       stack_plan_ready_for_planned_recording(*stack_shape_plan)) {

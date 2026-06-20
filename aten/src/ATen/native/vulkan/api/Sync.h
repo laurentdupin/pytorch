@@ -324,6 +324,27 @@ struct VulkanStackLastUseProof final {
   bool aliases_runtime_output = false;
 };
 
+struct VulkanStackPlannedDispatchPosition final {
+  VulkanVisionStackPhase phase = VulkanVisionStackPhase::Unknown;
+  int64_t block_index = -1;
+  uint64_t planned_position = 0u;
+};
+
+class TORCH_API VulkanStackPlannedDispatchPositionScope final {
+ public:
+  explicit VulkanStackPlannedDispatchPositionScope(
+      std::vector<VulkanStackPlannedDispatchPosition>);
+  ~VulkanStackPlannedDispatchPositionScope();
+
+  VulkanStackPlannedDispatchPositionScope(
+      const VulkanStackPlannedDispatchPositionScope&) = delete;
+  VulkanStackPlannedDispatchPositionScope& operator=(
+      const VulkanStackPlannedDispatchPositionScope&) = delete;
+
+ private:
+  std::vector<VulkanStackPlannedDispatchPosition> previous_;
+};
+
 class TORCH_API VulkanStackLastUseProofScope final {
  public:
   explicit VulkanStackLastUseProofScope(std::vector<VulkanStackLastUseProof>);
