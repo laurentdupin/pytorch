@@ -20219,6 +20219,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_epoch_ordering,
             )
             self.assertIn(
+                "raw_buffer_provenance_records",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_provenance_class_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_provenance_label_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_provenance_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
                 "proven_nonescaping_or_retire_only_count",
                 submit_epoch_ordering,
             )

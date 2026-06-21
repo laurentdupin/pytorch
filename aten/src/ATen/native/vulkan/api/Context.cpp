@@ -278,6 +278,83 @@ std::string format_region_lifetime_submit_blockers(
   return signature.str();
 }
 
+std::string stack_region_diagnostic_token(const std::string& value) {
+  if (value.empty()) {
+    return "none";
+  }
+  std::string token;
+  token.reserve(value.size());
+  for (const char c : value) {
+    if (
+        c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '#' ||
+        c == ',' || c == '|' || c == '=') {
+      token.push_back('_');
+    } else {
+      token.push_back(c);
+    }
+  }
+  return token.empty() ? "none" : token;
+}
+
+bool stack_region_raw_provenance_diagnostic_class(
+    const char* const resource_class) {
+  const std::string key(resource_class ? resource_class : "");
+  return key == "unscoped_raw_buffer_no_stack_proof" ||
+      key == "stack_internal_raw_generation_range" ||
+      key == "stack_internal_temp_raw_generation_range_missing_last_consumer" ||
+      key == "stack_qkv_output_raw_generation_range_non_escape_last_consumer" ||
+      key == "stack_proj_output_raw_generation_range_non_escape_last_consumer" ||
+      key ==
+      "stack_residual1_output_raw_generation_range_non_escape_last_consumer" ||
+      key == "raw_no_provenance" ||
+      key == "truly_unknown_raw_resource" ||
+      key == "non_stack_setup_staging_pending" ||
+      key == "capture_sensitive_stack_activation" ||
+      key == "missing_stack_activation_proof" ||
+      key == "host_visible_or_requested_output";
+}
+
+const char* stack_region_raw_provenance_status(
+    const bool safe_candidate,
+    const bool large_backing,
+    const bool formal_last_use_proof,
+    const VulkanStackRetireProvenance& provenance,
+    const VulkanStackRawResourceAllocationProof& allocation_proof) {
+  if (safe_candidate && !large_backing) {
+    return formal_last_use_proof ? "formal_last_use_proven"
+                                 : "retire_only_or_nonescaping_proven";
+  }
+  if (large_backing) {
+    return "large_backing_blocked";
+  }
+  if (!provenance.defined) {
+    if (allocation_proof.has_generation && allocation_proof.has_byte_range) {
+      return "missing_stack_scope_proof_with_allocation_range";
+    }
+    if (allocation_proof.has_generation) {
+      return "missing_stack_scope_proof_with_generation_only";
+    }
+    return "missing_stack_scope_and_allocation_proof";
+  }
+  if (
+      provenance.requested_intermediate || provenance.escapes_stack ||
+      provenance.final_output) {
+    return "public_or_host_visible_blocker";
+  }
+  if (
+      provenance.alias_or_view || provenance.aliases_runtime_input ||
+      provenance.aliases_runtime_output) {
+    return "alias_or_escape_uncertain";
+  }
+  if (!provenance.has_last_use_proof) {
+    return "missing_last_use_proof";
+  }
+  if (!provenance.internal_non_escaping) {
+    return "missing_non_escape_proof";
+  }
+  return "ordering_required_unproven";
+}
+
 struct CpuTimelineSummary final {
   uint64_t count{0u};
   uint64_t submitted{0u};
@@ -1567,6 +1644,8 @@ VulkanSubmission Context::submit_cmd_to_gpu(
         dry_run_resource_classes;
     std::map<std::string, std::pair<uint64_t, uint64_t>>
         dry_run_allocation_ranges;
+    std::map<std::string, std::pair<uint64_t, uint64_t>>
+        dry_run_raw_provenance;
     std::set<std::string> blockers;
     std::set<std::string> dry_run_blockers;
     std::vector<RegionLifetimeSubmitResourceAttribution>
@@ -1574,6 +1653,7 @@ VulkanSubmission Context::submit_cmd_to_gpu(
     std::string dry_run_budget_reject = "not_stack_owner_phase_boundary";
     std::string dry_run_signature;
     std::string dry_run_allocation_signature;
+    std::string dry_run_raw_provenance_signature;
     std::string dry_run_blocker_signature;
     const bool record_phase_boundary_dry_run =
         phase == VulkanSubmitPhase::StackOwner &&
@@ -1632,6 +1712,60 @@ VulkanSubmission Context::submit_cmd_to_gpu(
             dry_run_allocation_ranges[allocation_key.str()];
         allocation_value.first += 1u;
         allocation_value.second += pending.bytes;
+      }
+      if (stack_region_raw_provenance_diagnostic_class(resource_class)) {
+        const VulkanStackRetireProvenance& provenance =
+            pending.stack_provenance;
+        const std::string allocation_status =
+            allocation_proof.has_generation && allocation_proof.has_byte_range
+            ? "generation_and_range"
+            : (allocation_proof.has_generation ? "generation_only"
+                                               : "missing_allocation_proof");
+        std::ostringstream allocation_key;
+        if (allocation_proof.has_generation && allocation_proof.has_byte_range) {
+          allocation_key << allocation_proof.allocation_id << "-"
+                         << allocation_proof.allocation_generation << "-"
+                         << allocation_proof.byte_offset << "-"
+                         << allocation_proof.byte_range;
+        } else {
+          allocation_key << allocation_status;
+        }
+        const std::string raw_status = stack_region_raw_provenance_status(
+            safe_candidate,
+            large_backing,
+            formal_last_use_proof,
+            provenance,
+            allocation_proof);
+        std::ostringstream raw_key;
+        raw_key
+            << stack_region_diagnostic_token(resource_class) << "|"
+            << retired_resource_kind_name(pending.kind) << "|"
+            << retired_resource_role_name(pending.role) << "|"
+            << stack_region_diagnostic_token(allocation_label) << "|"
+            << (provenance.defined ? vision_stack_phase_name(provenance.phase)
+                                   : "missing") << "|"
+            << (provenance.defined ? provenance.block_index : -1) << "|"
+            << (provenance.defined
+                    ? vision_stack_phase_name(provenance.expected_consumer_phase)
+                    : "missing")
+            << "|"
+            << (provenance.defined ? provenance.expected_consumer_block_index
+                                   : -1)
+            << "|"
+            << (provenance.defined ? "stack_provenance_present"
+                                   : "stack_provenance_missing")
+            << "|"
+            << (provenance.has_last_use_proof ? "last_use_present"
+                                              : "last_use_missing")
+            << "|"
+            << (provenance.internal_non_escaping ? "non_escape_present"
+                                                 : "non_escape_missing")
+            << "|" << allocation_status << "|"
+            << stack_region_diagnostic_token(allocation_key.str()) << "|"
+            << raw_status;
+        auto& raw_value = dry_run_raw_provenance[raw_key.str()];
+        raw_value.first += 1u;
+        raw_value.second += pending.bytes;
       }
       if (safe_candidate && !large_backing) {
         dry_run_safe_candidate_count++;
@@ -1715,6 +1849,17 @@ VulkanSubmission Context::submit_cmd_to_gpu(
                                             << entry.second.second;
       }
       dry_run_allocation_signature = dry_run_allocation_signature_stream.str();
+      std::ostringstream dry_run_raw_provenance_signature_stream;
+      for (const auto& entry : dry_run_raw_provenance) {
+        if (dry_run_raw_provenance_signature_stream.tellp() > 0) {
+          dry_run_raw_provenance_signature_stream << ",";
+        }
+        dry_run_raw_provenance_signature_stream << entry.first << "#"
+                                                << entry.second.first << "#"
+                                                << entry.second.second;
+      }
+      dry_run_raw_provenance_signature =
+          dry_run_raw_provenance_signature_stream.str();
       const bool all_safe_without_budget =
           pending_resource_count > 0u &&
           pending_resource_count == dry_run_safe_candidate_count &&
@@ -1805,6 +1950,7 @@ VulkanSubmission Context::submit_cmd_to_gpu(
           dry_run_budget_reject,
           dry_run_signature,
           dry_run_allocation_signature,
+          dry_run_raw_provenance_signature,
           dry_run_blocker_signature);
     }
     if (should_coalesce_phase_boundary_explicit_sync) {

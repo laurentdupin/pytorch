@@ -5913,6 +5913,11 @@ void append_stack_region_boundary_submit_plan_record(
       field_or(
           fields, "unmatched_pending_allocation_class_summary", "missing"),
       first);
+  append_json_string(
+      out,
+      "raw_buffer_provenance_signature",
+      field_or(fields, "raw_buffer_provenance_signature", "missing"),
+      first);
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",
@@ -7144,6 +7149,20 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> barrier_pending_match_status_counts;
   std::map<std::string, uint64_t> unmatched_allocation_class_counts;
   std::map<std::string, uint64_t> unmatched_allocation_class_bytes;
+  uint64_t raw_buffer_provenance_records = 0u;
+  uint64_t raw_buffer_provenance_bytes = 0u;
+  std::map<std::string, uint64_t> raw_provenance_class_counts;
+  std::map<std::string, uint64_t> raw_provenance_class_bytes;
+  std::map<std::string, uint64_t> raw_provenance_role_counts;
+  std::map<std::string, uint64_t> raw_provenance_role_bytes;
+  std::map<std::string, uint64_t> raw_provenance_label_counts;
+  std::map<std::string, uint64_t> raw_provenance_label_bytes;
+  std::map<std::string, uint64_t> raw_provenance_producer_counts;
+  std::map<std::string, uint64_t> raw_provenance_consumer_counts;
+  std::map<std::string, uint64_t> raw_provenance_stack_status_counts;
+  std::map<std::string, uint64_t> raw_provenance_allocation_status_counts;
+  std::map<std::string, uint64_t> raw_provenance_status_counts;
+  std::map<std::string, uint64_t> raw_provenance_status_bytes;
   const auto accumulate_class_summary = [&](
                                             const std::string& summary,
                                             const uint64_t count_multiplier) {
@@ -7168,6 +7187,54 @@ void append_stack_region_submit_epoch_ordering_json(
           parsed_u64_or(parts[2], 0u) * count_multiplier;
     }
   };
+  const auto accumulate_raw_provenance_summary =
+      [&](
+          const std::string& summary,
+          const uint64_t count_multiplier) {
+        if (summary.empty() || summary == "none" || summary == "missing") {
+          return;
+        }
+        std::istringstream entries(summary);
+        std::string entry;
+        while (std::getline(entries, entry, ',')) {
+          std::vector<std::string> parts;
+          std::istringstream split_hash(entry);
+          std::string hash_part;
+          while (std::getline(split_hash, hash_part, '#')) {
+            parts.emplace_back(hash_part);
+          }
+          if (parts.size() != 3u) {
+            continue;
+          }
+          std::vector<std::string> fields;
+          std::istringstream split_pipe(parts[0]);
+          std::string pipe_part;
+          while (std::getline(split_pipe, pipe_part, '|')) {
+            fields.emplace_back(pipe_part);
+          }
+          if (fields.size() != 14u) {
+            continue;
+          }
+          const uint64_t count =
+              parsed_u64_or(parts[1], 0u) * count_multiplier;
+          const uint64_t bytes =
+              parsed_u64_or(parts[2], 0u) * count_multiplier;
+          raw_buffer_provenance_records += count;
+          raw_buffer_provenance_bytes += bytes;
+          raw_provenance_class_counts[fields[0]] += count;
+          raw_provenance_class_bytes[fields[0]] += bytes;
+          raw_provenance_role_counts[fields[2]] += count;
+          raw_provenance_role_bytes[fields[2]] += bytes;
+          raw_provenance_label_counts[fields[3]] += count;
+          raw_provenance_label_bytes[fields[3]] += bytes;
+          raw_provenance_producer_counts[fields[4] + "@" + fields[5]] += count;
+          raw_provenance_consumer_counts[fields[6] + "@" + fields[7]] += count;
+          raw_provenance_stack_status_counts[fields[8]] += count;
+          raw_provenance_allocation_status_counts[fields[11]] += count;
+          raw_provenance_status_counts[fields[13]] += count;
+          raw_provenance_status_bytes[fields[13]] += bytes;
+        }
+      };
   const auto count_row = [&](
                              const std::string& row,
                              const bool optimization_record,
@@ -7222,6 +7289,9 @@ void append_stack_region_submit_epoch_ordering_json(
         parsed_u64(fields, "unmatched_pending_allocation_bytes") * count;
     accumulate_class_summary(
         field_or(fields, "unmatched_pending_allocation_class_summary", "none"),
+        count);
+    accumulate_raw_provenance_summary(
+        field_or(fields, "raw_buffer_provenance_signature", "none"),
         count);
     proven_nonescaping_or_retire_only_count +=
         parsed_u64(fields, "proven_nonescaping_or_retire_only_count") * count;
@@ -7459,6 +7529,52 @@ void append_stack_region_submit_epoch_ordering_json(
   append_json_comma(out, ordering_first);
   out << "\"unmatched_pending_allocation_class_bytes\":";
   append_u64_map_object(out, unmatched_allocation_class_bytes);
+  append_json_u64(
+      out,
+      "raw_buffer_provenance_records",
+      raw_buffer_provenance_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_provenance_bytes",
+      raw_buffer_provenance_bytes,
+      ordering_first);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_class_counts\":";
+  append_u64_map_object(out, raw_provenance_class_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_class_bytes\":";
+  append_u64_map_object(out, raw_provenance_class_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_role_counts\":";
+  append_u64_map_object(out, raw_provenance_role_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_role_bytes\":";
+  append_u64_map_object(out, raw_provenance_role_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_label_counts\":";
+  append_u64_map_object(out, raw_provenance_label_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_label_bytes\":";
+  append_u64_map_object(out, raw_provenance_label_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_producer_counts\":";
+  append_u64_map_object(out, raw_provenance_producer_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_consumer_counts\":";
+  append_u64_map_object(out, raw_provenance_consumer_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_stack_status_counts\":";
+  append_u64_map_object(out, raw_provenance_stack_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_allocation_status_counts\":";
+  append_u64_map_object(out, raw_provenance_allocation_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_status_counts\":";
+  append_u64_map_object(out, raw_provenance_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_provenance_status_bytes\":";
+  append_u64_map_object(out, raw_provenance_status_bytes);
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",
@@ -12212,6 +12328,7 @@ void note_stack_region_boundary_submit_plan(
     const std::string& budget_reject,
     const std::string& resource_signature,
     const std::string& allocation_signature,
+    const std::string& raw_provenance_signature,
     const std::string& blockers) {
   if (
       phase != VulkanSubmitPhase::StackOwner ||
@@ -12400,6 +12517,8 @@ void note_stack_region_boundary_submit_plan(
       << barrier_coverage.unmatched_pending_classes
       << " unmatched_pending_allocation_class_summary="
       << barrier_coverage.unmatched_pending_class_summary
+      << " raw_buffer_provenance_signature="
+      << (raw_provenance_signature.empty() ? "none" : raw_provenance_signature)
       << " proven_nonescaping_or_retire_only_count="
       << safe_candidate_count
       << " proven_nonescaping_or_retire_only_bytes="
