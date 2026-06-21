@@ -7812,6 +7812,8 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, BoundarySubmitLevelProofAggregate>
       submit_level_proof_by_boundary_id;
   std::map<std::string, BoundarySubmitLevelProofAggregate>
+      submit_level_proof_by_boundary_instance_id;
+  std::map<std::string, BoundarySubmitLevelProofAggregate>
       submit_level_proof_by_submit_key;
   std::map<std::string, std::set<std::string>>
       submit_level_submit_keys_by_boundary_id;
@@ -7876,6 +7878,10 @@ void append_stack_region_submit_epoch_ordering_json(
             submit_level_key_field(fields, "phase_boundary_submit_epoch_before") +
             ",submit_epoch_after=" +
             submit_level_key_field(fields, "phase_boundary_submit_epoch_after");
+      };
+  const auto submit_level_boundary_instance_key =
+      [](const std::string& boundary_id, const std::string& instance_id) {
+        return boundary_id + ":stack_region_instance_id=" + instance_id;
       };
   const auto submit_level_reject_reason_for_fields =
       [](const std::map<std::string, std::string>& fields) {
@@ -8194,6 +8200,70 @@ void append_stack_region_submit_epoch_ordering_json(
     for (const auto& reason : proof.side_effect_reason_counts) {
       boundary_proof.side_effect_reason_counts[reason.first] += reason.second;
     }
+    if (proof.stack_region_instance_ids.size() == 1u) {
+      const std::string& instance_id = *proof.stack_region_instance_ids.begin();
+      auto& instance_proof = submit_level_proof_by_boundary_instance_id
+          [submit_level_boundary_instance_key(proof.boundary_id, instance_id)];
+      instance_proof.boundary_id = proof.boundary_id;
+      instance_proof.boundary_class = proof.boundary_class;
+      instance_proof.records += proof.records;
+      instance_proof.bytes += proof.bytes;
+      instance_proof.complete_records +=
+          proof.final_complete ? proof.records : 0u;
+      instance_proof.complete_bytes += proof.final_complete ? proof.bytes : 0u;
+      instance_proof.command_buffer_id_available_records +=
+          proof.command_buffer_id_available_records;
+      instance_proof.submit_epoch_available_records +=
+          proof.submit_epoch_available_records;
+      instance_proof.pending_dispatch_count_observed_records +=
+          proof.pending_dispatch_count_observed_records;
+      instance_proof.pending_resource_set_observed_records +=
+          proof.pending_resource_set_observed_records;
+      instance_proof.pending_write_set_observed_records +=
+          proof.pending_write_set_observed_records;
+      instance_proof.same_batch_proven_records +=
+          proof.same_batch_proven_records;
+      instance_proof.pending_dispatch_complete_records +=
+          proof.pending_dispatch_complete_records;
+      instance_proof.no_unmodeled_side_effect_records +=
+          proof.no_unmodeled_side_effect_records;
+      instance_proof.writes_covered_records += proof.writes_covered_records;
+      instance_proof.pending_dispatch_count += proof.pending_dispatch_count;
+      instance_proof.pending_resource_count += proof.pending_resource_count;
+      instance_proof.pending_resource_bytes += proof.pending_resource_bytes;
+      instance_proof.descriptor_update_side_effect_count +=
+          proof.descriptor_update_side_effect_count;
+      instance_proof.retire_side_effect_count +=
+          proof.retire_side_effect_count;
+      instance_proof.retire_side_effect_bytes +=
+          proof.retire_side_effect_bytes;
+      instance_proof.real_barrier_records += proof.real_barrier_records;
+      instance_proof.matched_barrier_records += proof.matched_barrier_records;
+      instance_proof.covered_by_barrier_count +=
+          proof.covered_by_barrier_count;
+      instance_proof.covered_by_barrier_bytes +=
+          proof.covered_by_barrier_bytes;
+      instance_proof.unknown_unmodeled_side_effect_count +=
+          proof.unknown_unmodeled_side_effect_count;
+      instance_proof.unknown_resource_side_effect_count +=
+          proof.unknown_resource_side_effect_count;
+      instance_proof.unknown_resource_side_effect_bytes +=
+          proof.unknown_resource_side_effect_bytes;
+      instance_proof.submit_keys.insert(proof.submit_key);
+      instance_proof.stack_region_instance_ids.insert(instance_id);
+      instance_proof.topology_signatures.insert(
+          proof.topology_signatures.begin(),
+          proof.topology_signatures.end());
+      instance_proof.reject_reason_counts[proof.final_reject_reason] +=
+          proof.records;
+      for (const auto& status : proof.candidate_status_counts) {
+        instance_proof.candidate_status_counts[status.first] += status.second;
+      }
+      for (const auto& reason : proof.side_effect_reason_counts) {
+        instance_proof.side_effect_reason_counts[reason.first] +=
+            reason.second;
+      }
+    }
   }
   for (auto& item : submit_level_proof_by_boundary_id) {
     auto& proof = item.second;
@@ -8209,6 +8279,24 @@ void append_stack_region_submit_epoch_ordering_json(
       proof.reject_reason_counts.clear();
       proof.reject_reason_counts
           ["current_run_topology_cardinality_mismatch_after_refinement"] =
+          proof.records;
+    }
+  }
+  for (auto& item : submit_level_proof_by_boundary_instance_id) {
+    auto& proof = item.second;
+    if (proof.submit_keys.size() != 1u) {
+      proof.complete_records = 0u;
+      proof.complete_bytes = 0u;
+      proof.reject_reason_counts.clear();
+      proof.reject_reason_counts
+          ["ambiguous_live_candidate_submit_key_for_instance"] =
+          proof.records;
+    } else if (proof.topology_signatures.size() > 1u) {
+      proof.complete_records = 0u;
+      proof.complete_bytes = 0u;
+      proof.reject_reason_counts.clear();
+      proof.reject_reason_counts
+          ["current_run_topology_cardinality_mismatch_for_instance"] =
           proof.records;
     }
   }
@@ -8252,10 +8340,16 @@ void append_stack_region_submit_epoch_ordering_json(
   const auto accumulate_raw_provenance_summary =
       [&](
           const std::string& summary,
-          const uint64_t count_multiplier) {
+          const uint64_t count_multiplier,
+          const std::map<std::string, std::string>& source_fields) {
         if (summary.empty() || summary == "none" || summary == "missing") {
           return;
         }
+        const std::string source_stack_region_instance_id =
+            field_or(source_fields, "stack_region_instance_id", "missing");
+        const bool source_stack_region_instance_available =
+            field_or(source_fields, "stack_region_instance_id_available", "0") ==
+            "1";
         std::istringstream entries(summary);
         std::string entry;
         while (std::getline(entries, entry, ',')) {
@@ -9138,24 +9232,48 @@ void append_stack_region_submit_epoch_ordering_json(
             const std::string boundary_id =
                 "non_capture_boundary:producer_block=" + fields[5] +
                 ":consumer_block=" + fields[7];
-            const auto submit_level_it =
+            const std::string boundary_instance_key =
+                submit_level_boundary_instance_key(
+                    boundary_id, source_stack_region_instance_id);
+            const auto submit_level_instance_it =
+                submit_level_proof_by_boundary_instance_id.find(
+                    boundary_instance_key);
+            const auto submit_level_boundary_it =
                 submit_level_proof_by_boundary_id.find(boundary_id);
-            const bool submit_level_proof_present =
-                submit_level_it != submit_level_proof_by_boundary_id.end() &&
-                submit_level_it->second.records > 0u;
+            const bool submit_level_instance_proof_present =
+                source_stack_region_instance_available &&
+                submit_level_instance_it !=
+                    submit_level_proof_by_boundary_instance_id.end() &&
+                submit_level_instance_it->second.records > 0u;
+            const bool submit_level_boundary_proof_present =
+                submit_level_boundary_it !=
+                    submit_level_proof_by_boundary_id.end() &&
+                submit_level_boundary_it->second.records > 0u;
+            const BoundarySubmitLevelProofAggregate* const submit_level_proof =
+                submit_level_instance_proof_present
+                ? &submit_level_instance_it->second
+                : (submit_level_boundary_proof_present
+                       ? &submit_level_boundary_it->second
+                       : nullptr);
+            const std::string submit_level_join_scope =
+                submit_level_instance_proof_present
+                ? "stack_region_instance"
+                : (submit_level_boundary_proof_present
+                       ? "boundary_wide_fallback"
+                       : "missing");
             const bool submit_level_proof_complete =
-                submit_level_proof_present &&
-                submit_level_it->second.complete_records ==
-                    submit_level_it->second.records &&
-                submit_level_it->second.topology_signatures.size() == 1u;
+                submit_level_proof &&
+                submit_level_proof->complete_records ==
+                    submit_level_proof->records &&
+                submit_level_proof->topology_signatures.size() == 1u;
             std::string submit_level_reject_reason =
-                submit_level_proof_present
+                submit_level_proof
                 ? "submit_level_equivalence_proof_incomplete"
                 : "missing_submit_level_equivalence_proof";
-            if (submit_level_proof_present) {
+            if (submit_level_proof) {
               uint64_t reject_count = 0u;
               for (const auto& reason :
-                   submit_level_it->second.reject_reason_counts) {
+                   submit_level_proof->reject_reason_counts) {
                 if (reason.first != "none" && reason.second > reject_count) {
                   submit_level_reject_reason = reason.first;
                   reject_count = reason.second;
@@ -9166,12 +9284,13 @@ void append_stack_region_submit_epoch_ordering_json(
               }
             }
             uint64_t submit_level_instance_id_count = 0u;
-            std::string submit_level_instance_id = "missing";
-            if (submit_level_proof_present) {
+            std::string submit_level_instance_id =
+                source_stack_region_instance_id;
+            if (submit_level_proof) {
               submit_level_instance_id_count =
-                  submit_level_it->second.stack_region_instance_ids.size();
+                  submit_level_proof->stack_region_instance_ids.size();
               submit_level_instance_id = submit_level_instance_id_count == 1u
-                  ? *submit_level_it->second.stack_region_instance_ids.begin()
+                  ? *submit_level_proof->stack_region_instance_ids.begin()
                   : (submit_level_instance_id_count == 0u ? "missing"
                                                           : "ambiguous");
             }
@@ -9280,12 +9399,20 @@ void append_stack_region_submit_epoch_ordering_json(
                 << old_carry_fail_closed_reason
                 << " stack_region_instance_id="
                 << submit_level_instance_id
+                << " source_stack_region_instance_id="
+                << source_stack_region_instance_id
+                << " stack_region_instance_id_available="
+                << (source_stack_region_instance_available ? "1" : "0")
                 << " stack_region_instance_id_count="
                 << submit_level_instance_id_count
+                << " submit_level_join_scope="
+                << submit_level_join_scope
+                << " submit_level_instance_proof_present="
+                << (submit_level_instance_proof_present ? "1" : "0")
                 << " behavior_change_allowed=0"
                 << " barrier_ready=" << (boundary_barrier_ready ? "1" : "0")
                 << " submit_level_equivalence_proof_present="
-                << (submit_level_proof_present ? "1" : "0")
+                << (submit_level_proof ? "1" : "0")
                 << " submit_level_equivalence_proof_complete="
                 << (submit_level_proof_complete ? "1" : "0")
                 << " submit_level_reject_reason="
@@ -9379,7 +9506,8 @@ void append_stack_region_submit_epoch_ordering_json(
         count);
     accumulate_raw_provenance_summary(
         field_or(fields, "raw_buffer_provenance_signature", "none"),
-        count);
+        count,
+        fields);
     proven_nonescaping_or_retire_only_count +=
         parsed_u64(fields, "proven_nonescaping_or_retire_only_count") * count;
     proven_nonescaping_or_retire_only_bytes +=

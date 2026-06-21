@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-21 at local HEAD `438c53415df1` plus the
-behavior-neutral stack-region instance submit-key slice.
+Last refreshed: 2026-06-21 at local HEAD `7e1143ea2775` plus the
+behavior-neutral instance-specific typed boundary proof join slice.
 
 ## Repo State Summary
 
@@ -113,6 +113,17 @@ instance id, command-buffer ids, submit epochs, callsite, phase, and descriptor
 binding. This separates repeated stack/forward instances from the same run.
 Boundary-wide rollups still reject if more than one live submit key maps to the
 same selected boundary without an instance-specific join.
+`StackBoundaryProofRecord.v0` rows now carry the source
+`stack_region_instance_id` from the live submit row that produced their raw
+provenance and prefer an instance-specific
+`StackBoundarySubmitLevelEquivalenceProof.v0` join. In the current one-image
+`vits_140` bridge diagnostic run, the selected non-capture boundary has one
+typed barrier-ready row per stack-region instance, but no instance is
+submit-equivalence complete. The remaining blocker is submit-level side-effect
+completion: descriptor updates and command-buffer bookkeeping are still modeled
+as pending dispatch side effects, retire entries remain pending, and a
+capture-sensitive activation resource remains unmodeled for the selected
+submit.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella

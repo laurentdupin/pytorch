@@ -266,7 +266,11 @@ when a stack-owner recording scope ends. The v0 schema is
   reason. Legacy `stack_carry_visibility_*` histograms may still be emitted for
   continuity, but readiness summaries such as barrier-ready records,
   submit-elision-ready records, top reject reason, and highest-leverage missing
-  proof field are generated from the typed rows.
+  proof field are generated from the typed rows. Rows also carry the source
+  `stack_region_instance_id` from the live submit record that emitted their raw
+  provenance. Submit-level proof joins prefer the matching
+  `boundary_id + stack_region_instance_id` aggregate and only fall back to the
+  boundary-wide aggregate as an explicit fail-closed diagnostic.
 - a nested `submit_level_equivalence_proof` object inside
   `stack_boundary_proof_records`, with schema
   `StackBoundarySubmitLevelEquivalenceProof.v0`. This is the submit-site
@@ -284,8 +288,9 @@ when a stack-owner recording scope ends. The v0 schema is
   descriptor binding, callsite, submit phase, command-buffer ids, and submit
   epochs. This separates repeated stack/forward instances in the same run. A
   boundary-wide rollup remains fail-closed unless exactly one live submit key
-  maps to that boundary, or a later slice performs an explicit instance-specific
-  join.
+  maps to that boundary. Instance-specific joins are available to typed rows,
+  but they remain behavior-neutral and still require the submit-level side
+  effect booleans to be complete.
 - a nested `boundary_submit_equivalence_proof` object inside
   `stack_boundary_proof_records`, with schema
   `StackBoundarySubmitEquivalenceProof.v0`. This rolls the typed rows up to the
