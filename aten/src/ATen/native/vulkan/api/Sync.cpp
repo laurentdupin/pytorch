@@ -6209,6 +6209,33 @@ void append_stack_region_boundary_submit_plan_record(
       "retire_side_effect_bytes",
       parsed_u64(fields, "retire_side_effect_bytes"),
       first);
+  append_json_string(
+      out,
+      "retire_entry_classification_status",
+      field_or(fields, "retire_entry_classification_status", "missing"),
+      first);
+  append_json_u64(
+      out,
+      "retire_entry_proven_retire_only_or_nonescaping_count",
+      parsed_u64(
+          fields, "retire_entry_proven_retire_only_or_nonescaping_count"),
+      first);
+  append_json_u64(
+      out,
+      "retire_entry_proven_retire_only_or_nonescaping_bytes",
+      parsed_u64(
+          fields, "retire_entry_proven_retire_only_or_nonescaping_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "retire_entry_unknown_or_ordering_required_count",
+      parsed_u64(fields, "retire_entry_unknown_or_ordering_required_count"),
+      first);
+  append_json_u64(
+      out,
+      "retire_entry_unknown_or_ordering_required_bytes",
+      parsed_u64(fields, "retire_entry_unknown_or_ordering_required_bytes"),
+      first);
   append_json_u64(
       out,
       "unknown_pending_dispatch_count",
@@ -6238,6 +6265,25 @@ void append_stack_region_boundary_submit_plan_record(
       out,
       "capture_sensitive_stack_activation_bytes",
       parsed_u64(fields, "capture_sensitive_stack_activation_bytes"),
+      first);
+  append_json_string(
+      out,
+      "capture_sensitive_resource_classification_status",
+      field_or(
+          fields, "capture_sensitive_resource_classification_status", "missing"),
+      first);
+  append_json_string(
+      out,
+      "capture_sensitive_resource_relation_to_typed_boundary",
+      field_or(
+          fields,
+          "capture_sensitive_resource_relation_to_typed_boundary",
+          "missing"),
+      first);
+  append_json_string(
+      out,
+      "top_submit_side_effect_blocker",
+      field_or(fields, "top_submit_side_effect_blocker", "missing"),
       first);
   append_json_u64(
       out,
@@ -7793,6 +7839,12 @@ void append_stack_region_submit_epoch_ordering_json(
     uint64_t descriptor_update_side_effect_count = 0u;
     uint64_t retire_side_effect_count = 0u;
     uint64_t retire_side_effect_bytes = 0u;
+    uint64_t retire_entry_proven_safe_count = 0u;
+    uint64_t retire_entry_proven_safe_bytes = 0u;
+    uint64_t retire_entry_unknown_or_ordering_required_count = 0u;
+    uint64_t retire_entry_unknown_or_ordering_required_bytes = 0u;
+    uint64_t capture_sensitive_resource_count = 0u;
+    uint64_t capture_sensitive_resource_bytes = 0u;
     uint64_t real_barrier_records = 0u;
     uint64_t matched_barrier_records = 0u;
     uint64_t covered_by_barrier_count = 0u;
@@ -7808,6 +7860,9 @@ void append_stack_region_submit_epoch_ordering_json(
     std::map<std::string, uint64_t> reject_reason_counts;
     std::map<std::string, uint64_t> candidate_status_counts;
     std::map<std::string, uint64_t> side_effect_reason_counts;
+    std::map<std::string, uint64_t> retire_entry_classification_counts;
+    std::map<std::string, uint64_t> capture_sensitive_resource_status_counts;
+    std::map<std::string, uint64_t> top_submit_side_effect_blocker_counts;
   };
   std::map<std::string, BoundarySubmitLevelProofAggregate>
       submit_level_proof_by_boundary_id;
@@ -7956,6 +8011,26 @@ void append_stack_region_submit_epoch_ordering_json(
         parsed_u64(fields, "retire_side_effect_count") * count;
     proof.retire_side_effect_bytes +=
         parsed_u64(fields, "retire_side_effect_bytes") * count;
+    proof.retire_entry_proven_safe_count +=
+        parsed_u64(
+            fields, "retire_entry_proven_retire_only_or_nonescaping_count") *
+        count;
+    proof.retire_entry_proven_safe_bytes +=
+        parsed_u64(
+            fields, "retire_entry_proven_retire_only_or_nonescaping_bytes") *
+        count;
+    proof.retire_entry_unknown_or_ordering_required_count +=
+        parsed_u64(
+            fields, "retire_entry_unknown_or_ordering_required_count") *
+        count;
+    proof.retire_entry_unknown_or_ordering_required_bytes +=
+        parsed_u64(
+            fields, "retire_entry_unknown_or_ordering_required_bytes") *
+        count;
+    proof.capture_sensitive_resource_count +=
+        parsed_u64(fields, "capture_sensitive_stack_activation_count") * count;
+    proof.capture_sensitive_resource_bytes +=
+        parsed_u64(fields, "capture_sensitive_stack_activation_bytes") * count;
     proof.real_barrier_records +=
         parsed_u64(fields, "real_barrier_records") * count;
     proof.matched_barrier_records +=
@@ -8018,6 +8093,18 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "unknown_unmodeled_side_effect_reason",
         "missing_unmodeled_side_effect_reason")] += count;
+    proof.retire_entry_classification_counts[field_or(
+        fields,
+        "retire_entry_classification_status",
+        "missing_retire_entry_classification_status")] += count;
+    proof.capture_sensitive_resource_status_counts[field_or(
+        fields,
+        "capture_sensitive_resource_classification_status",
+        "missing_capture_sensitive_resource_classification_status")] += count;
+    proof.top_submit_side_effect_blocker_counts[field_or(
+        fields,
+        "top_submit_side_effect_blocker",
+        "missing_top_submit_side_effect_blocker")] += count;
     const std::string topology_signature =
         "pending_dispatch=" +
         field_or(fields, "pending_dispatch_count", "0") +
@@ -8075,6 +8162,15 @@ void append_stack_region_submit_epoch_ordering_json(
         candidate_status_count = status.second;
       }
     }
+    std::string top_submit_side_effect_blocker =
+        "missing_top_submit_side_effect_blocker";
+    uint64_t top_submit_side_effect_blocker_count = 0u;
+    for (const auto& blocker : proof.top_submit_side_effect_blocker_counts) {
+      if (blocker.second > top_submit_side_effect_blocker_count) {
+        top_submit_side_effect_blocker = blocker.first;
+        top_submit_side_effect_blocker_count = blocker.second;
+      }
+    }
     const std::string topology_signature =
         proof.topology_signatures.empty()
         ? "missing_current_run_topology_signature"
@@ -8111,6 +8207,20 @@ void append_stack_region_submit_epoch_ordering_json(
         << proof.descriptor_update_side_effect_count
         << " retire_side_effect_count=" << proof.retire_side_effect_count
         << " retire_side_effect_bytes=" << proof.retire_side_effect_bytes
+        << " retire_entry_proven_retire_only_or_nonescaping_count="
+        << proof.retire_entry_proven_safe_count
+        << " retire_entry_proven_retire_only_or_nonescaping_bytes="
+        << proof.retire_entry_proven_safe_bytes
+        << " retire_entry_unknown_or_ordering_required_count="
+        << proof.retire_entry_unknown_or_ordering_required_count
+        << " retire_entry_unknown_or_ordering_required_bytes="
+        << proof.retire_entry_unknown_or_ordering_required_bytes
+        << " capture_sensitive_resource_count="
+        << proof.capture_sensitive_resource_count
+        << " capture_sensitive_resource_bytes="
+        << proof.capture_sensitive_resource_bytes
+        << " top_submit_side_effect_blocker="
+        << top_submit_side_effect_blocker
         << " real_barrier_records=" << proof.real_barrier_records
         << " matched_barrier_records=" << proof.matched_barrier_records
         << " covered_by_barrier_count=" << proof.covered_by_barrier_count
@@ -8177,6 +8287,18 @@ void append_stack_region_submit_epoch_ordering_json(
         proof.descriptor_update_side_effect_count;
     boundary_proof.retire_side_effect_count += proof.retire_side_effect_count;
     boundary_proof.retire_side_effect_bytes += proof.retire_side_effect_bytes;
+    boundary_proof.retire_entry_proven_safe_count +=
+        proof.retire_entry_proven_safe_count;
+    boundary_proof.retire_entry_proven_safe_bytes +=
+        proof.retire_entry_proven_safe_bytes;
+    boundary_proof.retire_entry_unknown_or_ordering_required_count +=
+        proof.retire_entry_unknown_or_ordering_required_count;
+    boundary_proof.retire_entry_unknown_or_ordering_required_bytes +=
+        proof.retire_entry_unknown_or_ordering_required_bytes;
+    boundary_proof.capture_sensitive_resource_count +=
+        proof.capture_sensitive_resource_count;
+    boundary_proof.capture_sensitive_resource_bytes +=
+        proof.capture_sensitive_resource_bytes;
     boundary_proof.real_barrier_records += proof.real_barrier_records;
     boundary_proof.matched_barrier_records += proof.matched_barrier_records;
     boundary_proof.covered_by_barrier_count += proof.covered_by_barrier_count;
@@ -8199,6 +8321,18 @@ void append_stack_region_submit_epoch_ordering_json(
     }
     for (const auto& reason : proof.side_effect_reason_counts) {
       boundary_proof.side_effect_reason_counts[reason.first] += reason.second;
+    }
+    for (const auto& status : proof.retire_entry_classification_counts) {
+      boundary_proof.retire_entry_classification_counts[status.first] +=
+          status.second;
+    }
+    for (const auto& status : proof.capture_sensitive_resource_status_counts) {
+      boundary_proof.capture_sensitive_resource_status_counts[status.first] +=
+          status.second;
+    }
+    for (const auto& blocker : proof.top_submit_side_effect_blocker_counts) {
+      boundary_proof.top_submit_side_effect_blocker_counts[blocker.first] +=
+          blocker.second;
     }
     if (proof.stack_region_instance_ids.size() == 1u) {
       const std::string& instance_id = *proof.stack_region_instance_ids.begin();
@@ -8237,6 +8371,18 @@ void append_stack_region_submit_epoch_ordering_json(
           proof.retire_side_effect_count;
       instance_proof.retire_side_effect_bytes +=
           proof.retire_side_effect_bytes;
+      instance_proof.retire_entry_proven_safe_count +=
+          proof.retire_entry_proven_safe_count;
+      instance_proof.retire_entry_proven_safe_bytes +=
+          proof.retire_entry_proven_safe_bytes;
+      instance_proof.retire_entry_unknown_or_ordering_required_count +=
+          proof.retire_entry_unknown_or_ordering_required_count;
+      instance_proof.retire_entry_unknown_or_ordering_required_bytes +=
+          proof.retire_entry_unknown_or_ordering_required_bytes;
+      instance_proof.capture_sensitive_resource_count +=
+          proof.capture_sensitive_resource_count;
+      instance_proof.capture_sensitive_resource_bytes +=
+          proof.capture_sensitive_resource_bytes;
       instance_proof.real_barrier_records += proof.real_barrier_records;
       instance_proof.matched_barrier_records += proof.matched_barrier_records;
       instance_proof.covered_by_barrier_count +=
@@ -8262,6 +8408,19 @@ void append_stack_region_submit_epoch_ordering_json(
       for (const auto& reason : proof.side_effect_reason_counts) {
         instance_proof.side_effect_reason_counts[reason.first] +=
             reason.second;
+      }
+      for (const auto& status : proof.retire_entry_classification_counts) {
+        instance_proof.retire_entry_classification_counts[status.first] +=
+            status.second;
+      }
+      for (const auto& status :
+           proof.capture_sensitive_resource_status_counts) {
+        instance_proof.capture_sensitive_resource_status_counts[status.first] +=
+            status.second;
+      }
+      for (const auto& blocker : proof.top_submit_side_effect_blocker_counts) {
+        instance_proof.top_submit_side_effect_blocker_counts[blocker.first] +=
+            blocker.second;
       }
     }
   }
@@ -9692,12 +9851,19 @@ void append_stack_region_submit_epoch_ordering_json(
   uint64_t submit_level_descriptor_update_side_effect_count = 0u;
   uint64_t submit_level_retire_side_effect_count = 0u;
   uint64_t submit_level_retire_side_effect_bytes = 0u;
+  uint64_t submit_level_retire_entry_proven_safe_count = 0u;
+  uint64_t submit_level_retire_entry_proven_safe_bytes = 0u;
+  uint64_t submit_level_retire_entry_unknown_or_ordering_required_count = 0u;
+  uint64_t submit_level_retire_entry_unknown_or_ordering_required_bytes = 0u;
+  uint64_t submit_level_capture_sensitive_resource_count = 0u;
+  uint64_t submit_level_capture_sensitive_resource_bytes = 0u;
   uint64_t submit_level_real_barrier_records = 0u;
   uint64_t submit_level_matched_barrier_records = 0u;
   uint64_t submit_level_covered_by_barrier_count = 0u;
   uint64_t submit_level_covered_by_barrier_bytes = 0u;
   std::map<std::string, uint64_t> submit_level_reject_reason_counts;
   std::map<std::string, uint64_t> submit_level_candidate_status_counts;
+  std::map<std::string, uint64_t> submit_level_top_side_effect_blocker_counts;
   for (const auto& row : submit_level_equivalence_proof_rows) {
     const auto fields = parse_space_separated_fields(row);
     const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
@@ -9720,6 +9886,20 @@ void append_stack_region_submit_epoch_ordering_json(
         parsed_u64(fields, "retire_side_effect_count");
     submit_level_retire_side_effect_bytes +=
         parsed_u64(fields, "retire_side_effect_bytes");
+    submit_level_retire_entry_proven_safe_count +=
+        parsed_u64(
+            fields, "retire_entry_proven_retire_only_or_nonescaping_count");
+    submit_level_retire_entry_proven_safe_bytes +=
+        parsed_u64(
+            fields, "retire_entry_proven_retire_only_or_nonescaping_bytes");
+    submit_level_retire_entry_unknown_or_ordering_required_count +=
+        parsed_u64(fields, "retire_entry_unknown_or_ordering_required_count");
+    submit_level_retire_entry_unknown_or_ordering_required_bytes +=
+        parsed_u64(fields, "retire_entry_unknown_or_ordering_required_bytes");
+    submit_level_capture_sensitive_resource_count +=
+        parsed_u64(fields, "capture_sensitive_resource_count");
+    submit_level_capture_sensitive_resource_bytes +=
+        parsed_u64(fields, "capture_sensitive_resource_bytes");
     submit_level_real_barrier_records +=
         parsed_u64(fields, "real_barrier_records");
     submit_level_matched_barrier_records +=
@@ -9735,9 +9915,15 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "submit_equivalence_candidate_status",
         "missing_submit_level_candidate_status")] += count;
+    submit_level_top_side_effect_blocker_counts[field_or(
+        fields,
+        "top_submit_side_effect_blocker",
+        "missing_top_submit_side_effect_blocker")] += count;
   }
   const std::string submit_level_top_reject_reason =
       top_count_key(submit_level_reject_reason_counts);
+  const std::string submit_level_top_side_effect_blocker =
+      top_count_key(submit_level_top_side_effect_blocker_counts);
   struct BoundaryEpochProofAggregate final {
     uint64_t records = 0u;
     uint64_t bytes = 0u;
@@ -10862,6 +11048,36 @@ void append_stack_region_submit_epoch_ordering_json(
       submit_level_first);
   append_json_u64(
       out,
+      "retire_entry_proven_retire_only_or_nonescaping_count",
+      submit_level_retire_entry_proven_safe_count,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "retire_entry_proven_retire_only_or_nonescaping_bytes",
+      submit_level_retire_entry_proven_safe_bytes,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "retire_entry_unknown_or_ordering_required_count",
+      submit_level_retire_entry_unknown_or_ordering_required_count,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "retire_entry_unknown_or_ordering_required_bytes",
+      submit_level_retire_entry_unknown_or_ordering_required_bytes,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "capture_sensitive_resource_count",
+      submit_level_capture_sensitive_resource_count,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "capture_sensitive_resource_bytes",
+      submit_level_capture_sensitive_resource_bytes,
+      submit_level_first);
+  append_json_u64(
+      out,
       "real_barrier_records",
       submit_level_real_barrier_records,
       submit_level_first);
@@ -10891,6 +11107,11 @@ void append_stack_region_submit_epoch_ordering_json(
       out,
       "highest_leverage_missing_submit_level_proof_field",
       submit_level_top_reject_reason,
+      submit_level_first);
+  append_json_string(
+      out,
+      "top_submit_side_effect_blocker",
+      submit_level_top_side_effect_blocker,
       submit_level_first);
   append_json_comma(out, submit_level_first);
   out << "\"reject_reason_counts\":";
@@ -15990,6 +16211,30 @@ void note_stack_region_boundary_submit_plan(
   const uint64_t upload_side_effect_count = 0u;
   const uint64_t retire_side_effect_count = old_path_pending_count;
   const uint64_t retire_side_effect_bytes = old_path_pending_bytes;
+  const uint64_t retire_entries_proven_safe_count =
+      std::min(retire_side_effect_count, safe_candidate_count);
+  const uint64_t retire_entries_proven_safe_bytes =
+      std::min(retire_side_effect_bytes, safe_candidate_bytes);
+  const uint64_t retire_entries_unknown_count =
+      retire_side_effect_count - retire_entries_proven_safe_count;
+  const uint64_t retire_entries_unknown_bytes =
+      retire_side_effect_bytes - retire_entries_proven_safe_bytes;
+  const bool capture_sensitive_resource_pending =
+      side_effect_coverage.capture_sensitive_stack_activation_count > 0u;
+  const std::string retire_entry_classification_status =
+      retire_entries_unknown_count == 0u
+      ? "retire_entries_all_proven_retire_only_or_nonescaping"
+      : "retire_entries_partially_unclassified_fail_closed";
+  const std::string capture_sensitive_resource_classification_status =
+      capture_sensitive_resource_pending
+      ? "capture_sensitive_activation_submit_site_relation_unproven"
+      : "no_capture_sensitive_activation_pending";
+  const std::string top_submit_side_effect_blocker =
+      capture_sensitive_resource_pending
+      ? "capture_sensitive_activation_submit_site_relation_unproven"
+      : (retire_entries_unknown_count > 0u
+             ? "retire_entry_unknown_or_ordering_required"
+             : "descriptor_updates_and_command_buffer_bookkeeping_pending");
   const uint64_t known_harmless_count =
       side_effect_coverage.metadata_or_bookkeeping_count;
   const uint64_t known_harmless_bytes =
@@ -16124,6 +16369,16 @@ void note_stack_region_boundary_submit_plan(
       << side_effect_coverage.allocator_side_effect_bytes
       << " retire_side_effect_count=" << retire_side_effect_count
       << " retire_side_effect_bytes=" << retire_side_effect_bytes
+      << " retire_entry_classification_status="
+      << retire_entry_classification_status
+      << " retire_entry_proven_retire_only_or_nonescaping_count="
+      << retire_entries_proven_safe_count
+      << " retire_entry_proven_retire_only_or_nonescaping_bytes="
+      << retire_entries_proven_safe_bytes
+      << " retire_entry_unknown_or_ordering_required_count="
+      << retire_entries_unknown_count
+      << " retire_entry_unknown_or_ordering_required_bytes="
+      << retire_entries_unknown_bytes
       << " unknown_pending_dispatch_count="
       << unknown_pending_dispatch_count
       << " unknown_resource_side_effect_count="
@@ -16136,6 +16391,14 @@ void note_stack_region_boundary_submit_plan(
       << side_effect_coverage.capture_sensitive_stack_activation_count
       << " capture_sensitive_stack_activation_bytes="
       << side_effect_coverage.capture_sensitive_stack_activation_bytes
+      << " capture_sensitive_resource_classification_status="
+      << capture_sensitive_resource_classification_status
+      << " capture_sensitive_resource_relation_to_typed_boundary="
+      << (capture_sensitive_resource_pending
+              ? "relation_requires_stack_boundary_proof_record_join"
+              : "none")
+      << " top_submit_side_effect_blocker="
+      << top_submit_side_effect_blocker
       << " missing_stack_activation_proof_count="
       << side_effect_coverage.missing_stack_activation_proof_count
       << " missing_stack_activation_proof_bytes="

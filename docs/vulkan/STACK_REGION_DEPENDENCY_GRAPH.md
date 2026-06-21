@@ -291,6 +291,12 @@ when a stack-owner recording scope ends. The v0 schema is
   maps to that boundary. Instance-specific joins are available to typed rows,
   but they remain behavior-neutral and still require the submit-level side
   effect booleans to be complete.
+  Submit-level rows also classify per-instance side effects without changing
+  execution: retire entries are split into proven
+  retire-only/nonescaping entries and unknown-or-ordering-required entries, and
+  the remaining capture-sensitive activation resource reports whether it has a
+  typed boundary relation. Unknown or unjoined side effects remain hard blockers
+  for submit equivalence.
 - a nested `boundary_submit_equivalence_proof` object inside
   `stack_boundary_proof_records`, with schema
   `StackBoundarySubmitEquivalenceProof.v0`. This rolls the typed rows up to the

@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-21 at local HEAD `7e1143ea2775` plus the
-behavior-neutral instance-specific typed boundary proof join slice.
+Last refreshed: 2026-06-21 at local HEAD `3d37e7a2778` plus the
+behavior-neutral per-instance submit side-effect classification slice.
 
 ## Repo State Summary
 
@@ -124,6 +124,14 @@ completion: descriptor updates and command-buffer bookkeeping are still modeled
 as pending dispatch side effects, retire entries remain pending, and a
 capture-sensitive activation resource remains unmodeled for the selected
 submit.
+The submit-level proof rows now classify those per-instance side effects
+directly: retire entries are split into
+`retire_entry_proven_retire_only_or_nonescaping_*` and
+`retire_entry_unknown_or_ordering_required_*`, while the remaining
+capture-sensitive activation is kept fail-closed as
+`capture_sensitive_activation_submit_site_relation_unproven` until it can be
+joined to a typed boundary row at the live submit site. This is diagnostics
+only; no submit elision or new barrier behavior is enabled.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella
