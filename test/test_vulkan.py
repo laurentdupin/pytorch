@@ -20360,7 +20360,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_epoch_ordering,
             )
             self.assertIn(
+                "stack_carry_visibility_producer_binding_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "stack_carry_visibility_next_consumer_binding_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
                 "stack_carry_visibility_barrier_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "stack_carry_visibility_barrier_target_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "stack_carry_visibility_barrier_planning_status_counts",
                 submit_epoch_ordering,
             )
             self.assertIn(
