@@ -20193,6 +20193,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_epoch_ordering["pending_dispatch_count_observed_records"],
                 0,
             )
+            self.assertIn("covered_by_barrier_count", submit_epoch_ordering)
+            self.assertIn(
+                "proven_nonescaping_or_retire_only_count",
+                submit_epoch_ordering,
+            )
+            self.assertGreater(
+                submit_epoch_ordering[
+                    "descriptor_update_side_effect_count"
+                ],
+                0,
+            )
+            self.assertGreater(
+                submit_epoch_ordering["retire_side_effect_count"],
+                0,
+            )
+            self.assertGreater(
+                submit_epoch_ordering["unknown_unmodeled_side_effect_count"],
+                0,
+            )
+            self.assertIn(
+                "incomplete_unmodeled_side_effects",
+                submit_epoch_ordering[
+                    "submit_equivalence_candidate_status_counts"
+                ],
+            )
             self.assertIn(
                 "missing_submit_epoch_and_pending_dispatch_set",
                 submit_epoch_ordering["fail_closed_reason_counts"],

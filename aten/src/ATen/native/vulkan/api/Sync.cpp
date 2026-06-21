@@ -486,6 +486,7 @@ struct StackRegionOptimizationEligibilitySummary final {
   uint64_t eligible_records = 0u;
   uint64_t eligible_boundary_count = 0u;
   uint64_t barrier_validated_count = 0u;
+  uint64_t barrier_validated_bytes = 0u;
 };
 
 std::map<std::string, StackDispatchDependencyDispatchValue>&
@@ -1570,6 +1571,14 @@ uint64_t parsed_u64(
   }
 }
 
+uint64_t parsed_u64_or(const std::string& value, const uint64_t fallback) {
+  try {
+    return static_cast<uint64_t>(std::stoull(value));
+  } catch (...) {
+    return fallback;
+  }
+}
+
 void append_json_fields_object(
     std::ostream& out,
     const std::map<std::string, std::string>& fields) {
@@ -1654,6 +1663,7 @@ stack_region_boundary_optimization_eligibility_summary_locked(
         field_or(fields, "selected_boundary_id", "none"));
     summary.eligible_records += std::max<uint64_t>(item.second.count, 1u);
     summary.barrier_validated_count += item.second.barrier_validated_count;
+    summary.barrier_validated_bytes += item.second.bytes;
   }
   summary.eligible_boundary_count = eligible_boundary_ids.size();
   return summary;
@@ -5807,6 +5817,11 @@ void append_stack_region_boundary_submit_plan_record(
       "pending_dispatch_labels",
       field_or(fields, "pending_dispatch_labels", "missing"),
       first);
+  append_json_string(
+      out,
+      "pending_dispatch_classes",
+      field_or(fields, "pending_dispatch_classes", "missing"),
+      first);
   append_json_u64(
       out,
       "pending_resource_count",
@@ -5826,6 +5841,106 @@ void append_stack_region_boundary_submit_plan_record(
       out,
       "pending_write_set_summary",
       field_or(fields, "pending_write_set_summary", "missing"),
+      first);
+  append_json_string(
+      out,
+      "pending_write_resource_classes",
+      field_or(fields, "pending_write_resource_classes", "missing"),
+      first);
+  append_json_u64(
+      out,
+      "covered_by_barrier_count",
+      parsed_u64(fields, "covered_by_barrier_count"),
+      first);
+  append_json_u64(
+      out,
+      "covered_by_barrier_bytes",
+      parsed_u64(fields, "covered_by_barrier_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "proven_nonescaping_or_retire_only_count",
+      parsed_u64(fields, "proven_nonescaping_or_retire_only_count"),
+      first);
+  append_json_u64(
+      out,
+      "proven_nonescaping_or_retire_only_bytes",
+      parsed_u64(fields, "proven_nonescaping_or_retire_only_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "known_harmless_metadata_or_bookkeeping_count",
+      parsed_u64(fields, "known_harmless_metadata_or_bookkeeping_count"),
+      first);
+  append_json_u64(
+      out,
+      "known_harmless_metadata_or_bookkeeping_bytes",
+      parsed_u64(fields, "known_harmless_metadata_or_bookkeeping_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "descriptor_update_side_effect_count",
+      parsed_u64(fields, "descriptor_update_side_effect_count"),
+      first);
+  append_json_u64(
+      out,
+      "upload_side_effect_count",
+      parsed_u64(fields, "upload_side_effect_count"),
+      first);
+  append_json_u64(
+      out,
+      "allocator_side_effect_count",
+      parsed_u64(fields, "allocator_side_effect_count"),
+      first);
+  append_json_u64(
+      out,
+      "allocator_side_effect_bytes",
+      parsed_u64(fields, "allocator_side_effect_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "retire_side_effect_count",
+      parsed_u64(fields, "retire_side_effect_count"),
+      first);
+  append_json_u64(
+      out,
+      "retire_side_effect_bytes",
+      parsed_u64(fields, "retire_side_effect_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "unknown_pending_dispatch_count",
+      parsed_u64(fields, "unknown_pending_dispatch_count"),
+      first);
+  append_json_u64(
+      out,
+      "unknown_resource_side_effect_count",
+      parsed_u64(fields, "unknown_resource_side_effect_count"),
+      first);
+  append_json_u64(
+      out,
+      "unknown_resource_side_effect_bytes",
+      parsed_u64(fields, "unknown_resource_side_effect_bytes"),
+      first);
+  append_json_string(
+      out,
+      "unknown_resource_classes",
+      field_or(fields, "unknown_resource_classes", "missing"),
+      first);
+  append_json_u64(
+      out,
+      "unknown_unmodeled_side_effect_count",
+      parsed_u64(fields, "unknown_unmodeled_side_effect_count"),
+      first);
+  append_json_string(
+      out,
+      "unknown_unmodeled_side_effect_reason",
+      field_or(fields, "unknown_unmodeled_side_effect_reason", "missing"),
+      first);
+  append_json_string(
+      out,
+      "submit_equivalence_candidate_status",
+      field_or(fields, "submit_equivalence_candidate_status", "missing"),
       first);
   append_json_string(
       out,
@@ -6745,7 +6860,25 @@ void append_stack_region_submit_epoch_ordering_json(
   uint64_t pending_dispatch_count_observed_records = 0u;
   uint64_t pending_resource_set_observed_records = 0u;
   uint64_t pending_write_set_observed_records = 0u;
+  uint64_t covered_by_barrier_count = 0u;
+  uint64_t covered_by_barrier_bytes = 0u;
+  uint64_t proven_nonescaping_or_retire_only_count = 0u;
+  uint64_t proven_nonescaping_or_retire_only_bytes = 0u;
+  uint64_t known_harmless_metadata_or_bookkeeping_count = 0u;
+  uint64_t known_harmless_metadata_or_bookkeeping_bytes = 0u;
+  uint64_t descriptor_update_side_effect_count = 0u;
+  uint64_t upload_side_effect_count = 0u;
+  uint64_t allocator_side_effect_count = 0u;
+  uint64_t allocator_side_effect_bytes = 0u;
+  uint64_t retire_side_effect_count = 0u;
+  uint64_t retire_side_effect_bytes = 0u;
+  uint64_t unknown_pending_dispatch_count = 0u;
+  uint64_t unknown_resource_side_effect_count = 0u;
+  uint64_t unknown_resource_side_effect_bytes = 0u;
+  uint64_t unknown_unmodeled_side_effect_count = 0u;
   std::map<std::string, uint64_t> fail_closed_reasons;
+  std::map<std::string, uint64_t> candidate_status_counts;
+  std::map<std::string, uint64_t> unmodeled_reason_counts;
   const auto count_row = [&](
                              const std::string& row,
                              const bool optimization_record,
@@ -6779,6 +6912,40 @@ void append_stack_region_submit_epoch_ordering_json(
         "missing") {
       pending_write_set_observed_records += count;
     }
+    covered_by_barrier_count +=
+        parsed_u64(fields, "covered_by_barrier_count") * count;
+    covered_by_barrier_bytes +=
+        parsed_u64(fields, "covered_by_barrier_bytes") * count;
+    proven_nonescaping_or_retire_only_count +=
+        parsed_u64(fields, "proven_nonescaping_or_retire_only_count") * count;
+    proven_nonescaping_or_retire_only_bytes +=
+        parsed_u64(fields, "proven_nonescaping_or_retire_only_bytes") * count;
+    known_harmless_metadata_or_bookkeeping_count +=
+        parsed_u64(fields, "known_harmless_metadata_or_bookkeeping_count") *
+        count;
+    known_harmless_metadata_or_bookkeeping_bytes +=
+        parsed_u64(fields, "known_harmless_metadata_or_bookkeeping_bytes") *
+        count;
+    descriptor_update_side_effect_count +=
+        parsed_u64(fields, "descriptor_update_side_effect_count") * count;
+    upload_side_effect_count +=
+        parsed_u64(fields, "upload_side_effect_count") * count;
+    allocator_side_effect_count +=
+        parsed_u64(fields, "allocator_side_effect_count") * count;
+    allocator_side_effect_bytes +=
+        parsed_u64(fields, "allocator_side_effect_bytes") * count;
+    retire_side_effect_count +=
+        parsed_u64(fields, "retire_side_effect_count") * count;
+    retire_side_effect_bytes +=
+        parsed_u64(fields, "retire_side_effect_bytes") * count;
+    unknown_pending_dispatch_count +=
+        parsed_u64(fields, "unknown_pending_dispatch_count") * count;
+    unknown_resource_side_effect_count +=
+        parsed_u64(fields, "unknown_resource_side_effect_count") * count;
+    unknown_resource_side_effect_bytes +=
+        parsed_u64(fields, "unknown_resource_side_effect_bytes") * count;
+    unknown_unmodeled_side_effect_count +=
+        parsed_u64(fields, "unknown_unmodeled_side_effect_count") * count;
     if (field_or(fields, "same_command_buffer_or_same_submit_batch_proven", "0") ==
         "1") {
       same_batch_proven_records += count;
@@ -6806,6 +6973,16 @@ void append_stack_region_submit_epoch_ordering_json(
             fields,
             "submit_equivalence_fail_closed_reason",
             "missing_submit_equivalence_reason")] += count;
+    candidate_status_counts
+        [field_or(
+            fields,
+            "submit_equivalence_candidate_status",
+            "missing_submit_equivalence_candidate_status")] += count;
+    unmodeled_reason_counts
+        [field_or(
+            fields,
+            "unknown_unmodeled_side_effect_reason",
+            "missing_unmodeled_side_effect_reason")] += count;
   };
   for (const auto& row : optimization_rows) {
     count_row(row, true, false);
@@ -6858,6 +7035,80 @@ void append_stack_region_submit_epoch_ordering_json(
       pending_write_set_observed_records,
       ordering_first);
   append_json_u64(
+      out, "covered_by_barrier_count", covered_by_barrier_count, ordering_first);
+  append_json_u64(
+      out, "covered_by_barrier_bytes", covered_by_barrier_bytes, ordering_first);
+  append_json_u64(
+      out,
+      "proven_nonescaping_or_retire_only_count",
+      proven_nonescaping_or_retire_only_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "proven_nonescaping_or_retire_only_bytes",
+      proven_nonescaping_or_retire_only_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "known_harmless_metadata_or_bookkeeping_count",
+      known_harmless_metadata_or_bookkeeping_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "known_harmless_metadata_or_bookkeeping_bytes",
+      known_harmless_metadata_or_bookkeeping_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "descriptor_update_side_effect_count",
+      descriptor_update_side_effect_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "upload_side_effect_count",
+      upload_side_effect_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "allocator_side_effect_count",
+      allocator_side_effect_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "allocator_side_effect_bytes",
+      allocator_side_effect_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "retire_side_effect_count",
+      retire_side_effect_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "retire_side_effect_bytes",
+      retire_side_effect_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unknown_pending_dispatch_count",
+      unknown_pending_dispatch_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unknown_resource_side_effect_count",
+      unknown_resource_side_effect_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unknown_resource_side_effect_bytes",
+      unknown_resource_side_effect_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unknown_unmodeled_side_effect_count",
+      unknown_unmodeled_side_effect_count,
+      ordering_first);
+  append_json_u64(
       out,
       "same_command_buffer_or_same_submit_batch_proven_records",
       same_batch_proven_records,
@@ -6892,6 +7143,12 @@ void append_stack_region_submit_epoch_ordering_json(
   append_json_comma(out, ordering_first);
   out << "\"fail_closed_reason_counts\":";
   append_u64_map_object(out, fail_closed_reasons);
+  append_json_comma(out, ordering_first);
+  out << "\"submit_equivalence_candidate_status_counts\":";
+  append_u64_map_object(out, candidate_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"unmodeled_side_effect_reason_counts\":";
+  append_u64_map_object(out, unmodeled_reason_counts);
   out << "}";
 }
 
@@ -10976,6 +11233,69 @@ select_stack_region_boundary_submit_plan_locked() {
   return selection;
 }
 
+struct StackRegionPendingSideEffectCoverage final {
+  uint64_t metadata_or_bookkeeping_count = 0u;
+  uint64_t metadata_or_bookkeeping_bytes = 0u;
+  uint64_t allocator_side_effect_count = 0u;
+  uint64_t allocator_side_effect_bytes = 0u;
+  uint64_t unknown_resource_count = 0u;
+  uint64_t unknown_resource_bytes = 0u;
+  std::string unknown_resource_classes = "none";
+};
+
+StackRegionPendingSideEffectCoverage
+classify_stack_region_pending_side_effects(
+    const std::string& resource_signature) {
+  StackRegionPendingSideEffectCoverage coverage;
+  if (resource_signature.empty()) {
+    return coverage;
+  }
+  std::ostringstream unknown_classes;
+  std::istringstream entries(resource_signature);
+  std::string entry;
+  while (std::getline(entries, entry, ',')) {
+    std::istringstream parts(entry);
+    std::string resource_class;
+    std::string count_text;
+    std::string bytes_text;
+    if (
+        !std::getline(parts, resource_class, '#') ||
+        !std::getline(parts, count_text, '#') ||
+        !std::getline(parts, bytes_text, '#')) {
+      continue;
+    }
+    const uint64_t count = parsed_u64_or(count_text, 0u);
+    const uint64_t bytes = parsed_u64_or(bytes_text, 0u);
+    if (
+        resource_class == kDryRunMetadataUniform ||
+        resource_class == kDryRunLayerNormInternalStatBuffer ||
+        resource_class == kDryRunLayerNormStatBuffer) {
+      coverage.metadata_or_bookkeeping_count += count;
+      coverage.metadata_or_bookkeeping_bytes += bytes;
+      continue;
+    }
+    if (resource_class == kDryRunAllocatorOrScratchBacking) {
+      coverage.allocator_side_effect_count += count;
+      coverage.allocator_side_effect_bytes += bytes;
+      continue;
+    }
+    if (!stack_subresource_lifetime_dry_run_resource_is_safe(
+            resource_class.c_str())) {
+      coverage.unknown_resource_count += count;
+      coverage.unknown_resource_bytes += bytes;
+      if (unknown_classes.tellp() > 0) {
+        unknown_classes << ",";
+      }
+      unknown_classes << resource_class;
+    }
+  }
+  const std::string unknown = unknown_classes.str();
+  if (!unknown.empty()) {
+    coverage.unknown_resource_classes = unknown;
+  }
+  return coverage;
+}
+
 void note_stack_region_boundary_submit_plan(
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
@@ -11058,6 +11378,30 @@ void note_stack_region_boundary_submit_plan(
   const StackRegionOptimizationEligibilitySummary eligibility_summary =
       stack_region_boundary_optimization_eligibility_summary_locked(
           selected_boundary_id);
+  const StackRegionPendingSideEffectCoverage side_effect_coverage =
+      classify_stack_region_pending_side_effects(resource_signature);
+  const uint64_t unknown_pending_dispatch_count = pending_dispatch_count;
+  const uint64_t descriptor_update_side_effect_count = pending_dispatch_count;
+  const uint64_t upload_side_effect_count = 0u;
+  const uint64_t retire_side_effect_count = old_path_pending_count;
+  const uint64_t retire_side_effect_bytes = old_path_pending_bytes;
+  const uint64_t known_harmless_count =
+      side_effect_coverage.metadata_or_bookkeeping_count;
+  const uint64_t known_harmless_bytes =
+      side_effect_coverage.metadata_or_bookkeeping_bytes;
+  const uint64_t unmodeled_side_effect_count =
+      unknown_pending_dispatch_count +
+      side_effect_coverage.unknown_resource_count +
+      descriptor_update_side_effect_count + upload_side_effect_count +
+      side_effect_coverage.allocator_side_effect_count +
+      retire_side_effect_count;
+  std::string unmodeled_side_effect_reason =
+      "pending_dispatch_descriptor_updates_and_retire_queue_not_fully_modeled";
+  if (side_effect_coverage.unknown_resource_count > 0u) {
+    unmodeled_side_effect_reason += ":unknown_resource_classes=";
+    unmodeled_side_effect_reason +=
+        side_effect_coverage.unknown_resource_classes;
+  }
   const char* const live_submit_eligibility_status =
       stack_region_live_submit_eligibility_status(
           live_boundary_id == selected_boundary_id, eligibility_summary);
@@ -11112,12 +11456,50 @@ void note_stack_region_boundary_submit_plan(
       << " submit_equivalence_fail_closed_reason=pending_dispatch_set_incomplete_or_unmodeled_side_effects"
       << " pending_dispatch_count=" << pending_dispatch_count
       << " pending_dispatch_labels=stack_owner_phase_boundary_pending_command_buffer"
+      << " pending_dispatch_classes=stack_owner_phase_boundary_pending_command_buffer#"
+      << pending_dispatch_count
       << " pending_resource_count=" << old_path_pending_count
       << " pending_resource_bytes=" << old_path_pending_bytes
       << " pending_resource_set_summary="
       << (resource_signature.empty() ? "none" : resource_signature)
       << " pending_write_set_summary="
       << (resource_signature.empty() ? "none" : resource_signature)
+      << " pending_write_resource_classes="
+      << (resource_signature.empty() ? "none" : resource_signature)
+      << " covered_by_barrier_count="
+      << eligibility_summary.barrier_validated_count
+      << " covered_by_barrier_bytes="
+      << eligibility_summary.barrier_validated_bytes
+      << " proven_nonescaping_or_retire_only_count="
+      << safe_candidate_count
+      << " proven_nonescaping_or_retire_only_bytes="
+      << safe_candidate_bytes
+      << " known_harmless_metadata_or_bookkeeping_count="
+      << known_harmless_count
+      << " known_harmless_metadata_or_bookkeeping_bytes="
+      << known_harmless_bytes
+      << " descriptor_update_side_effect_count="
+      << descriptor_update_side_effect_count
+      << " upload_side_effect_count=" << upload_side_effect_count
+      << " allocator_side_effect_count="
+      << side_effect_coverage.allocator_side_effect_count
+      << " allocator_side_effect_bytes="
+      << side_effect_coverage.allocator_side_effect_bytes
+      << " retire_side_effect_count=" << retire_side_effect_count
+      << " retire_side_effect_bytes=" << retire_side_effect_bytes
+      << " unknown_pending_dispatch_count="
+      << unknown_pending_dispatch_count
+      << " unknown_resource_side_effect_count="
+      << side_effect_coverage.unknown_resource_count
+      << " unknown_resource_side_effect_bytes="
+      << side_effect_coverage.unknown_resource_bytes
+      << " unknown_resource_classes="
+      << side_effect_coverage.unknown_resource_classes
+      << " unknown_unmodeled_side_effect_count="
+      << unmodeled_side_effect_count
+      << " unknown_unmodeled_side_effect_reason="
+      << unmodeled_side_effect_reason
+      << " submit_equivalence_candidate_status=incomplete_unmodeled_side_effects"
       << " unmodeled_side_effects=descriptor_updates_uploads_retire_entries_allocator_actions_not_fully_modeled"
       << " selected_boundary_id=" << selected_boundary_id
       << " selected_scope=" << selected_scope
