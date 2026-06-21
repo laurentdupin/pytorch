@@ -7286,6 +7286,10 @@ void append_stack_region_submit_epoch_ordering_json(
   uint64_t unscoped_raw_buffer_producer_registered_bytes = 0u;
   uint64_t unscoped_raw_buffer_producer_registration_missing_count = 0u;
   uint64_t unscoped_raw_buffer_producer_registration_missing_bytes = 0u;
+  uint64_t raw_buffer_registered_blocking_count = 0u;
+  uint64_t raw_buffer_registered_blocking_bytes = 0u;
+  uint64_t unscoped_raw_buffer_registered_blocking_count = 0u;
+  uint64_t unscoped_raw_buffer_registered_blocking_bytes = 0u;
   std::map<std::string, uint64_t> raw_provenance_class_counts;
   std::map<std::string, uint64_t> raw_provenance_class_bytes;
   std::map<std::string, uint64_t> raw_provenance_role_counts;
@@ -7314,6 +7318,18 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> raw_provenance_producer_owner_class_bytes;
   std::map<std::string, uint64_t> raw_provenance_producer_registration_missing_label_counts;
   std::map<std::string, uint64_t> raw_provenance_producer_registration_missing_label_bytes;
+  std::map<std::string, uint64_t> raw_provenance_ownership_status_counts;
+  std::map<std::string, uint64_t> raw_provenance_ownership_status_bytes;
+  std::map<std::string, uint64_t> raw_provenance_non_escape_status_counts;
+  std::map<std::string, uint64_t> raw_provenance_non_escape_status_bytes;
+  std::map<std::string, uint64_t> raw_provenance_last_use_status_counts;
+  std::map<std::string, uint64_t> raw_provenance_last_use_status_bytes;
+  std::map<std::string, uint64_t> raw_provenance_retire_only_status_counts;
+  std::map<std::string, uint64_t> raw_provenance_retire_only_status_bytes;
+  std::map<std::string, uint64_t> raw_provenance_execution_side_effect_status_counts;
+  std::map<std::string, uint64_t> raw_provenance_execution_side_effect_status_bytes;
+  std::map<std::string, uint64_t> raw_provenance_registered_blocker_class_counts;
+  std::map<std::string, uint64_t> raw_provenance_registered_blocker_class_bytes;
   std::map<std::string, std::string> live_binding_sources_by_range;
   std::map<std::string, std::string> raw_producer_sources_by_range;
   std::map<std::string, std::string> raw_producer_owner_by_range;
@@ -7452,6 +7468,14 @@ void append_stack_region_submit_epoch_ordering_json(
               raw_producer_sources_by_range.find(fields[12]);
           const bool producer_registered =
               has_range && producer_it != raw_producer_sources_by_range.end();
+          const auto owner_it = raw_producer_owner_by_range.find(fields[12]);
+          const std::string producer_owner_class =
+              owner_it == raw_producer_owner_by_range.end()
+              ? "unknown_owner_scope"
+              : owner_it->second;
+          const bool raw_proof_complete =
+              fields[13] == "formal_last_use_proven" ||
+              fields[13] == "retire_only_or_nonescaping_proven";
           if (has_range) {
             raw_buffer_live_binding_candidate_count += count;
             raw_buffer_live_binding_candidate_bytes += bytes;
@@ -7503,20 +7527,15 @@ void append_stack_region_submit_epoch_ordering_json(
                 ? "explicit_public_or_host_blocker"
                 : "explicit_non_stack_setup_blocker";
           } else if (producer_registered) {
-            const auto owner_it = raw_producer_owner_by_range.find(fields[12]);
-            const std::string owner_class =
-                owner_it == raw_producer_owner_by_range.end()
-                ? "unknown_owner_scope"
-                : owner_it->second;
-            if (owner_class == "stack_phase_active") {
+            if (producer_owner_class == "stack_phase_active") {
               producer_status = "producer_registered_stack_phase_active";
             } else if (
-                owner_class == "stack_region_scope_outside_stack_phase" ||
-                owner_class == "stack_owner_outside_stack_phase") {
+                producer_owner_class == "stack_region_scope_outside_stack_phase" ||
+                producer_owner_class == "stack_owner_outside_stack_phase") {
               producer_status = "producer_registered_stack_owner_context";
             } else if (
-                owner_class == "setup_or_patch" ||
-                owner_class == "downstream_decoder") {
+                producer_owner_class == "setup_or_patch" ||
+                producer_owner_class == "downstream_decoder") {
               producer_status =
                   "producer_registered_non_stack_or_downstream_context";
             } else {
@@ -7528,8 +7547,10 @@ void append_stack_region_submit_epoch_ordering_json(
                 [producer_it->second] += count;
             raw_provenance_producer_registration_source_bytes
                 [producer_it->second] += bytes;
-            raw_provenance_producer_owner_class_counts[owner_class] += count;
-            raw_provenance_producer_owner_class_bytes[owner_class] += bytes;
+            raw_provenance_producer_owner_class_counts[producer_owner_class] +=
+                count;
+            raw_provenance_producer_owner_class_bytes[producer_owner_class] +=
+                bytes;
             if (fields[0] == "unscoped_raw_buffer_no_stack_proof") {
               unscoped_raw_buffer_producer_registered_count += count;
               unscoped_raw_buffer_producer_registered_bytes += bytes;
@@ -7551,6 +7572,126 @@ void append_stack_region_submit_epoch_ordering_json(
               [producer_status] += count;
           raw_provenance_producer_registration_status_bytes
               [producer_status] += bytes;
+
+          std::string ownership_status = "ownership_not_bindable";
+          if (explicit_blocker) {
+            ownership_status = fields[0] == "host_visible_or_requested_output"
+                ? "public_host_or_requested_output"
+                : "non_stack_setup_or_staging";
+          } else if (fields[8] == "stack_provenance_present") {
+            ownership_status = "stack_owned_by_retire_provenance";
+          } else if (producer_registered) {
+            if (producer_owner_class == "stack_phase_active") {
+              ownership_status =
+                  "producer_stack_phase_active_needs_retire_provenance_join";
+            } else if (
+                producer_owner_class == "stack_region_scope_outside_stack_phase" ||
+                producer_owner_class == "stack_owner_outside_stack_phase") {
+              ownership_status =
+                  "producer_stack_owner_context_needs_stack_scope_proof";
+            } else if (producer_owner_class == "setup_or_patch") {
+              ownership_status = "producer_setup_or_patch_non_stack_scope";
+            } else if (producer_owner_class == "downstream_decoder") {
+              ownership_status = "producer_downstream_decoder_non_stack_scope";
+            } else if (producer_owner_class == "readback") {
+              ownership_status = "producer_readback_or_host_scope";
+            } else {
+              ownership_status = "producer_registered_unknown_owner_scope";
+            }
+          } else if (has_range) {
+            ownership_status = "missing_raw_resource_producer_registration";
+          }
+
+          std::string non_escape_status = "non_escape_not_bindable";
+          if (fields[10] == "non_escape_present") {
+            non_escape_status = "nonescape_proven_by_stack_provenance";
+          } else if (fields[0] == "host_visible_or_requested_output") {
+            non_escape_status = "escape_or_public_blocker";
+          } else if (fields[8] == "stack_provenance_present") {
+            non_escape_status = "nonescape_missing_on_stack_provenance";
+          } else if (producer_registered) {
+            non_escape_status = "nonescape_missing_registered_raw_resource";
+          } else if (has_range) {
+            non_escape_status = "nonescape_missing_unregistered_raw_resource";
+          }
+
+          std::string last_use_status = "last_use_not_bindable";
+          if (fields[9] == "last_use_present") {
+            last_use_status = "formal_last_use_present";
+          } else if (fields[0] == "host_visible_or_requested_output") {
+            last_use_status = "last_use_blocked_by_public_or_host";
+          } else if (producer_registered) {
+            last_use_status = "producer_registered_formal_last_use_missing";
+          } else if (has_range) {
+            last_use_status = "formal_last_use_missing_unregistered_raw_resource";
+          }
+
+          std::string retire_only_status = "retire_only_not_bindable";
+          if (fields[13] == "retire_only_or_nonescaping_proven") {
+            retire_only_status = "retire_only_or_nonescaping_proven";
+          } else if (fields[13] == "formal_last_use_proven") {
+            retire_only_status = "formal_last_use_proven";
+          } else if (explicit_blocker) {
+            retire_only_status = "not_retire_only_explicit_blocker";
+          } else if (producer_registered) {
+            retire_only_status = "retire_only_not_proven_registered_resource";
+          } else if (has_range) {
+            retire_only_status = "retire_only_not_proven_unregistered_resource";
+          }
+
+          std::string execution_side_effect_status =
+              "execution_side_effect_not_bindable";
+          if (raw_proof_complete) {
+            execution_side_effect_status =
+                "covered_by_existing_retire_or_last_use_proof";
+          } else if (fields[0] == "non_stack_setup_staging_pending") {
+            execution_side_effect_status = "non_stack_setup_staging_side_effect";
+          } else if (fields[0] == "host_visible_or_requested_output") {
+            execution_side_effect_status =
+                "public_or_host_execution_order_blocker";
+          } else if (
+              producer_registered &&
+              (producer_owner_class == "stack_phase_active" ||
+               producer_owner_class == "stack_region_scope_outside_stack_phase" ||
+               producer_owner_class == "stack_owner_outside_stack_phase")) {
+            execution_side_effect_status =
+                "stack_context_ordering_required_until_last_use_proof";
+          } else if (
+              producer_registered &&
+              (producer_owner_class == "setup_or_patch" ||
+               producer_owner_class == "downstream_decoder")) {
+            execution_side_effect_status =
+                "non_stack_or_downstream_context_pending_side_effect";
+          } else if (producer_registered) {
+            execution_side_effect_status =
+                "unknown_owner_execution_order_side_effect";
+          } else if (has_range) {
+            execution_side_effect_status =
+                "unregistered_raw_execution_order_side_effect";
+          }
+
+          raw_provenance_ownership_status_counts[ownership_status] += count;
+          raw_provenance_ownership_status_bytes[ownership_status] += bytes;
+          raw_provenance_non_escape_status_counts[non_escape_status] += count;
+          raw_provenance_non_escape_status_bytes[non_escape_status] += bytes;
+          raw_provenance_last_use_status_counts[last_use_status] += count;
+          raw_provenance_last_use_status_bytes[last_use_status] += bytes;
+          raw_provenance_retire_only_status_counts[retire_only_status] += count;
+          raw_provenance_retire_only_status_bytes[retire_only_status] += bytes;
+          raw_provenance_execution_side_effect_status_counts
+              [execution_side_effect_status] += count;
+          raw_provenance_execution_side_effect_status_bytes
+              [execution_side_effect_status] += bytes;
+          if (producer_registered && !explicit_blocker && !raw_proof_complete) {
+            raw_buffer_registered_blocking_count += count;
+            raw_buffer_registered_blocking_bytes += bytes;
+            raw_provenance_registered_blocker_class_counts[fields[0]] += count;
+            raw_provenance_registered_blocker_class_bytes[fields[0]] += bytes;
+            if (fields[0] == "unscoped_raw_buffer_no_stack_proof") {
+              unscoped_raw_buffer_registered_blocking_count += count;
+              unscoped_raw_buffer_registered_blocking_bytes += bytes;
+            }
+          }
         }
       };
   const auto count_row = [&](
@@ -7967,6 +8108,26 @@ void append_stack_region_submit_epoch_ordering_json(
       "unscoped_raw_buffer_producer_registration_missing_bytes",
       unscoped_raw_buffer_producer_registration_missing_bytes,
       ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_registered_blocking_count",
+      raw_buffer_registered_blocking_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_registered_blocking_bytes",
+      raw_buffer_registered_blocking_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_registered_blocking_count",
+      unscoped_raw_buffer_registered_blocking_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_registered_blocking_bytes",
+      unscoped_raw_buffer_registered_blocking_bytes,
+      ordering_first);
   append_json_comma(out, ordering_first);
   out << "\"raw_buffer_provenance_class_counts\":";
   append_u64_map_object(out, raw_provenance_class_counts);
@@ -8053,6 +8214,44 @@ void append_stack_region_submit_epoch_ordering_json(
   out << "\"raw_buffer_producer_registration_missing_label_bytes\":";
   append_u64_map_object(
       out, raw_provenance_producer_registration_missing_label_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_ownership_status_counts\":";
+  append_u64_map_object(out, raw_provenance_ownership_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_ownership_status_bytes\":";
+  append_u64_map_object(out, raw_provenance_ownership_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_non_escape_status_counts\":";
+  append_u64_map_object(out, raw_provenance_non_escape_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_non_escape_status_bytes\":";
+  append_u64_map_object(out, raw_provenance_non_escape_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_last_use_status_counts\":";
+  append_u64_map_object(out, raw_provenance_last_use_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_last_use_status_bytes\":";
+  append_u64_map_object(out, raw_provenance_last_use_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_retire_only_status_counts\":";
+  append_u64_map_object(out, raw_provenance_retire_only_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_retire_only_status_bytes\":";
+  append_u64_map_object(out, raw_provenance_retire_only_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_execution_side_effect_status_counts\":";
+  append_u64_map_object(
+      out, raw_provenance_execution_side_effect_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_execution_side_effect_status_bytes\":";
+  append_u64_map_object(
+      out, raw_provenance_execution_side_effect_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_registered_blocker_class_counts\":";
+  append_u64_map_object(out, raw_provenance_registered_blocker_class_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_registered_blocker_class_bytes\":";
+  append_u64_map_object(out, raw_provenance_registered_blocker_class_bytes);
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",

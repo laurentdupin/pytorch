@@ -20292,6 +20292,30 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_epoch_ordering,
             )
             self.assertIn(
+                "raw_buffer_ownership_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_non_escape_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_last_use_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_retire_only_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_execution_side_effect_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_registered_blocker_class_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
                 "proven_nonescaping_or_retire_only_count",
                 submit_epoch_ordering,
             )
