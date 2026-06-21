@@ -472,10 +472,18 @@ struct StackRegionBoundaryOptimizationPlanValue final {
 
 struct StackRegionSubmitElisionCanaryValue final {
   uint64_t count = 0u;
+  uint64_t candidate_records = 0u;
   uint64_t eligible_records = 0u;
   uint64_t eligible_boundary_count = 0u;
   uint64_t barrier_validated_count = 0u;
   uint64_t submit_removed_count = 0u;
+};
+
+struct StackRegionOptimizationEligibilitySummary final {
+  uint64_t candidate_records = 0u;
+  uint64_t eligible_records = 0u;
+  uint64_t eligible_boundary_count = 0u;
+  uint64_t barrier_validated_count = 0u;
 };
 
 std::map<std::string, StackDispatchDependencyDispatchValue>&
@@ -1033,6 +1041,7 @@ std::string stack_region_submit_elision_canary_key(
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
     const char* const status,
+    const uint64_t candidate_records,
     const uint64_t eligible_records,
     const uint64_t eligible_boundary_count,
     const uint64_t barrier_validated_count,
@@ -1068,6 +1077,8 @@ std::string stack_region_submit_elision_canary_key(
       << " live_consumer_block=" << (live_selected_boundary ? 1 : -1)
       << " live_descriptor_binding=" << (live_selected_boundary ? 6u : 0u)
       << " status=" << (status ? status : "missing")
+      << " live_submit_eligibility_status=" << (status ? status : "missing")
+      << " candidate_records=" << candidate_records
       << " eligible_records=" << eligible_records
       << " eligible_boundary_count=" << eligible_boundary_count
       << " barrier_validated_count=" << barrier_validated_count
@@ -1080,6 +1091,7 @@ void record_stack_region_submit_elision_canary_locked(
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
     const char* const status,
+    const uint64_t candidate_records,
     const uint64_t eligible_records,
     const uint64_t eligible_boundary_count,
     const uint64_t barrier_validated_count,
@@ -1089,11 +1101,13 @@ void record_stack_region_submit_elision_canary_locked(
           phase,
           callsite,
           status,
+          candidate_records,
           eligible_records,
           eligible_boundary_count,
           barrier_validated_count,
           submit_removed)];
   value.count += 1u;
+  value.candidate_records += candidate_records;
   value.eligible_records += eligible_records;
   value.eligible_boundary_count += eligible_boundary_count;
   value.barrier_validated_count += barrier_validated_count;
@@ -1507,6 +1521,52 @@ std::string field_or(
     const char* fallback) {
   const auto it = fields.find(key);
   return it == fields.end() ? std::string(fallback) : it->second;
+}
+
+StackRegionOptimizationEligibilitySummary
+stack_region_boundary_optimization_eligibility_summary_locked(
+    const std::string& selected_boundary_id) {
+  StackRegionOptimizationEligibilitySummary summary;
+  std::set<std::string> eligible_boundary_ids;
+  for (const auto& item : stack_region_boundary_optimization_plan_rows()) {
+    const auto fields = parse_space_separated_fields(item.first);
+    if (field_or(fields, "selected_boundary_id", "none") !=
+        selected_boundary_id) {
+      continue;
+    }
+    summary.candidate_records += std::max<uint64_t>(item.second.count, 1u);
+    if (
+        field_or(fields, "submit_elision_eligible", "0") != "1" ||
+        parsed_u64(fields, "barriers_inserted") == 0u) {
+      continue;
+    }
+    eligible_boundary_ids.insert(
+        field_or(fields, "selected_boundary_id", "none"));
+    summary.eligible_records += std::max<uint64_t>(item.second.count, 1u);
+    summary.barrier_validated_count += item.second.barrier_validated_count;
+  }
+  summary.eligible_boundary_count = eligible_boundary_ids.size();
+  return summary;
+}
+
+const char* stack_region_live_submit_eligibility_status(
+    const bool live_boundary_matches_selected,
+    const StackRegionOptimizationEligibilitySummary& summary) {
+  if (!live_boundary_matches_selected) {
+    return "live_boundary_not_selected";
+  }
+  if (summary.candidate_records == 0u) {
+    return "live_boundary_identity_matched_eligibility_missing";
+  }
+  if (summary.eligible_records == 0u) {
+    return summary.barrier_validated_count == 0u
+        ? "live_boundary_identity_matched_barrier_validation_missing"
+        : "live_boundary_identity_matched_eligibility_missing";
+  }
+  if (summary.eligible_boundary_count != 1u) {
+    return "rejected_broad_match";
+  }
+  return "live_boundary_eligible_but_behavior_disabled";
 }
 
 bool boundary_has_planned_non_capture_norm1_consumer(
@@ -6409,8 +6469,13 @@ void split_stack_graph_rows(
     std::vector<std::string>& boundary_submit_plan_rows,
     std::vector<std::string>& barrier_only_canary_rows,
     std::vector<std::string>& pre_dispatch_proof_rows,
-    std::vector<std::string>& boundary_optimization_plan_rows) {
+    std::vector<std::string>& boundary_optimization_plan_rows,
+    std::vector<std::string>& submit_elision_canary_rows) {
   for (const auto& row : rows) {
+    if (row.find("stack_region_submit_elision_canary=1") != std::string::npos) {
+      submit_elision_canary_rows.emplace_back(row);
+      continue;
+    }
     if (row.find("stack_region_pre_dispatch_proof=1") != std::string::npos) {
       pre_dispatch_proof_rows.emplace_back(row);
       continue;
@@ -6484,6 +6549,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> barrier_only_canary_rows;
   std::vector<std::string> pre_dispatch_proof_rows;
   std::vector<std::string> boundary_optimization_plan_rows;
+  std::vector<std::string> submit_elision_canary_rows;
   split_stack_graph_rows(
       dispatch_dependency_rows,
       dispatch_nodes,
@@ -6494,7 +6560,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       boundary_submit_plan_rows,
       barrier_only_canary_rows,
       pre_dispatch_proof_rows,
-      boundary_optimization_plan_rows);
+      boundary_optimization_plan_rows,
+      submit_elision_canary_rows);
 
   std::vector<std::string> resource_nodes;
   std::vector<std::string> boundary_nodes;
@@ -6637,6 +6704,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_region_boundary_optimization_plan_rows",
       boundary_optimization_plan_rows.size(),
       summary_first);
+  append_json_u64(
+      out,
+      "stack_region_submit_elision_canary_rows",
+      submit_elision_canary_rows.size(),
+      summary_first);
   append_json_bool(out, "submit_elision_enabled", false, summary_first);
   append_json_string(
       out,
@@ -6706,6 +6778,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_region_boundary_optimization_plan_rows",
       boundary_optimization_plan_rows,
       "stack_region_boundary_optimization_plan",
+      first);
+  append_graph_array(
+      out,
+      "stack_region_submit_elision_canary_rows",
+      submit_elision_canary_rows,
+      "stack_region_submit_elision_canary",
       first);
   append_graph_array(
       out,
@@ -10530,9 +10608,15 @@ void note_stack_region_boundary_submit_plan(
   const std::string selected_proof_version = non_capture_submit_target
       ? "StackRegionBoundaryOptimizationPlan.v0"
       : "PhaseBoundaryBudgetRecompute.v0";
+  const StackRegionOptimizationEligibilitySummary eligibility_summary =
+      stack_region_boundary_optimization_eligibility_summary_locked(
+          selected_boundary_id);
+  const char* const live_submit_eligibility_status =
+      stack_region_live_submit_eligibility_status(
+          live_boundary_id == selected_boundary_id, eligibility_summary);
   std::string online_status = "not_planned";
   if (non_capture_submit_target && live_boundary_id == selected_boundary_id) {
-    online_status = "planned_live_boundary_match_submit_elision_target";
+    online_status = live_submit_eligibility_status;
   } else if (!selection.has_same_region_registration) {
     online_status = !g_vision_stack_capture_indices.empty()
         ? "rejected_public_scope_or_no_same_region_consumer"
@@ -10570,6 +10654,16 @@ void note_stack_region_boundary_submit_plan(
       << " selected_registration_key="
       << selection.selected_registration_key
       << " online_plan_status=" << online_status
+      << " live_submit_eligibility_status="
+      << live_submit_eligibility_status
+      << " live_submit_candidate_records="
+      << eligibility_summary.candidate_records
+      << " live_submit_eligible_records="
+      << eligibility_summary.eligible_records
+      << " live_submit_eligible_boundary_count="
+      << eligibility_summary.eligible_boundary_count
+      << " live_submit_barrier_validated_records="
+      << eligibility_summary.barrier_validated_count
       << " live_boundary_matches_selected="
       << (live_boundary_id == selected_boundary_id ? 1 : 0)
       << " same_region_consumer_registration_present="
@@ -10617,46 +10711,29 @@ bool maybe_elide_stack_region_boundary_submit_canary(
   }
   const std::string selected_boundary_id =
       non_capture_residual2_to_norm1_boundary_id(0, 1);
-  std::set<std::string> eligible_boundary_ids;
-  uint64_t eligible_records = 0u;
-  uint64_t barrier_validated_records = 0u;
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   uint64_t already_removed = 0u;
   for (const auto& item : stack_region_boundary_optimization_plan_rows()) {
     already_removed += item.second.submit_removed_count;
   }
-  for (const auto& item : stack_region_boundary_optimization_plan_rows()) {
-    const auto fields = parse_space_separated_fields(item.first);
-    if (
-        field_or(fields, "submit_elision_eligible", "0") != "1" ||
-        field_or(fields, "behavior_change_allowed", "0") != "1" ||
-        field_or(fields, "boundary_scope", "unknown") != "non_capture" ||
-        field_or(fields, "non_capture_boundary", "0") != "1" ||
-        field_or(fields, "capture_edge", "1") != "0" ||
-        field_or(fields, "public_output", "1") != "0" ||
-        field_or(fields, "final_output", "1") != "0" ||
-        field_or(fields, "host_visible", "1") != "0" ||
-        field_or(fields, "readback_edge", "1") != "0" ||
-        parsed_u64(fields, "barriers_inserted") == 0u) {
-      continue;
-    }
-    eligible_boundary_ids.insert(
-        field_or(fields, "selected_boundary_id", "none"));
-    eligible_records += std::max<uint64_t>(item.second.count, 1u);
-    barrier_validated_records += item.second.barrier_validated_count;
-  }
-  const uint64_t eligible_boundary_count = eligible_boundary_ids.size();
+  const StackRegionOptimizationEligibilitySummary eligibility_summary =
+      stack_region_boundary_optimization_eligibility_summary_locked(
+          selected_boundary_id);
   const bool live_boundary_matches_selected =
       current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
       current_vision_stack_block_index() == 1;
+  const char* const live_submit_status =
+      stack_region_live_submit_eligibility_status(
+          live_boundary_matches_selected, eligibility_summary);
   if (already_removed != 0u) {
     record_stack_region_submit_elision_canary_locked(
         phase,
         callsite,
         "already_removed_one_submit",
-        eligible_records,
-        eligible_boundary_count,
-        barrier_validated_records,
+        eligibility_summary.candidate_records,
+        eligibility_summary.eligible_records,
+        eligibility_summary.eligible_boundary_count,
+        eligibility_summary.barrier_validated_count,
         /*submit_removed=*/false);
     return false;
   }
@@ -10664,57 +10741,35 @@ bool maybe_elide_stack_region_boundary_submit_canary(
     record_stack_region_submit_elision_canary_locked(
         phase,
         callsite,
-        "live_boundary_not_selected",
-        eligible_records,
-        eligible_boundary_count,
-        barrier_validated_records,
+        live_submit_status,
+        eligibility_summary.candidate_records,
+        eligibility_summary.eligible_records,
+        eligibility_summary.eligible_boundary_count,
+        eligibility_summary.barrier_validated_count,
         /*submit_removed=*/false);
     return false;
   }
-  if (
-      eligible_records == 0u || eligible_boundary_ids.size() != 1u ||
-      *eligible_boundary_ids.begin() != selected_boundary_id) {
-    const char* const mismatch_status = eligible_records == 0u
-        ? (live_boundary_matches_selected
-               ? "live_boundary_matched_no_eligible_plan_records_at_submit"
-               : "no_eligible_plan_records")
-        : "eligible_boundary_mismatch";
+  if (std::string(live_submit_status) !=
+      "live_boundary_eligible_but_behavior_disabled") {
     record_stack_region_submit_elision_canary_locked(
         phase,
         callsite,
-        mismatch_status,
-        eligible_records,
-        eligible_boundary_count,
-        barrier_validated_records,
+        live_submit_status,
+        eligibility_summary.candidate_records,
+        eligibility_summary.eligible_records,
+        eligibility_summary.eligible_boundary_count,
+        eligibility_summary.barrier_validated_count,
         /*submit_removed=*/false);
     return false;
-  }
-  for (auto& item : stack_region_boundary_optimization_plan_rows()) {
-    const auto fields = parse_space_separated_fields(item.first);
-    if (
-        field_or(fields, "selected_boundary_id", "none") ==
-            selected_boundary_id &&
-        field_or(fields, "submit_elision_eligible", "0") == "1" &&
-        field_or(fields, "behavior_change_allowed", "0") == "1" &&
-        parsed_u64(fields, "barriers_inserted") > 0u) {
-      record_stack_region_submit_elision_canary_locked(
-          phase,
-          callsite,
-          "live_boundary_matched_diagnostic_only_submit_preserved",
-          eligible_records,
-          eligible_boundary_count,
-          barrier_validated_records,
-          /*submit_removed=*/false);
-      return false;
-    }
   }
   record_stack_region_submit_elision_canary_locked(
       phase,
       callsite,
-      "eligible_plan_record_not_found_at_live_site",
-      eligible_records,
-      eligible_boundary_count,
-      barrier_validated_records,
+      live_submit_status,
+      eligibility_summary.candidate_records,
+      eligibility_summary.eligible_records,
+      eligibility_summary.eligible_boundary_count,
+      eligibility_summary.barrier_validated_count,
       /*submit_removed=*/false);
   return false;
 }
@@ -11722,6 +11777,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
   for (const auto& item : stack_region_submit_elision_canary_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
+        << " candidate_records=" << item.second.candidate_records
         << " eligible_records=" << item.second.eligible_records
         << " eligible_boundary_count=" << item.second.eligible_boundary_count
         << " barrier_validated_count=" << item.second.barrier_validated_count

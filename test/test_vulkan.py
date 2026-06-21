@@ -20227,11 +20227,21 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     [1],
                 )
                 torch.ops.vulkan_prepack.synchronize()
+                actual_second = (
+                    torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                        x,
+                        stack_context,
+                        [1],
+                    )
+                )
+                torch.ops.vulkan_prepack.synchronize()
 
             self.assertEqual(actual[0].cpu(), expected[0].cpu())
+            self.assertEqual(actual_second[0].cpu(), expected[0].cpu())
             self.assertTrue(os.path.exists(graph_path))
             with open(graph_path, encoding="utf-8") as handle:
                 graph = json.load(handle)
+            self.assertIn("stack_region_submit_elision_canary_rows", graph)
             optimization_plan = graph["stack_region_boundary_optimization_plan"]
             self.assertGreater(optimization_plan["candidate_records"], 0)
             self.assertEqual(
@@ -20254,12 +20264,16 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertTrue(submit_rows)
             self.assertTrue(
                 any(
-                    "status=live_boundary_matched_no_eligible_plan_records_at_submit"
+                    "status=live_boundary_eligible_but_behavior_disabled"
                     in row
                     and "live_boundary_id=non_capture_boundary:producer_block=0:consumer_block=1"
                     in row
                     and "live_boundary_scope=non_capture" in row
                     and "live_descriptor_binding=6" in row
+                    and "live_submit_eligibility_status=live_boundary_eligible_but_behavior_disabled"
+                    in row
+                    and "candidate_records=" in row
+                    and "eligible_records=" in row
                     and "submits_removed=0" in row
                     for row in submit_rows
                 )
