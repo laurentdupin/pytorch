@@ -20501,6 +20501,38 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertFalse(
                 boundary_equivalence["boundary_complete_submit_equivalence"]
             )
+            self.assertIn(
+                "command_buffer_submit_epoch_proof_complete",
+                boundary_equivalence,
+            )
+            self.assertIn(
+                "selected_boundary_epoch_candidate_records",
+                boundary_equivalence,
+            )
+            self.assertIn(
+                "selected_boundary_producer_command_buffer_ids",
+                boundary_equivalence,
+            )
+            self.assertIn(
+                "selected_boundary_barrier_command_buffer_ids",
+                boundary_equivalence,
+            )
+            self.assertIn(
+                "selected_boundary_consumer_command_buffer_ids",
+                boundary_equivalence,
+            )
+            self.assertIn(
+                "selected_boundary_producer_submit_epochs",
+                boundary_equivalence,
+            )
+            self.assertIn(
+                "selected_boundary_consumer_submit_epochs",
+                boundary_equivalence,
+            )
+            self.assertIn(
+                "command_buffer_submit_epoch_reject_reason_counts",
+                boundary_equivalence,
+            )
             self.assertIn("reject_reason", boundary_equivalence)
             self.assertTrue(stack_boundary_records["records"])
             self.assertEqual(

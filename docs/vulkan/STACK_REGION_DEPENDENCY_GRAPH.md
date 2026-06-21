@@ -273,11 +273,14 @@ when a stack-owner recording scope ends. The v0 schema is
   selected boundary scope. It reports the selected boundary id/class, total
   rows, submit-ready rows, non-ready rows, outside-boundary rows, barrier-covered
   bytes, old-carry retire-only/nonescaping bytes, public/host/final/alias
-  blockers, same-command-buffer or submit-epoch status, and a fail-closed
-  reject reason. Row-level submit readiness is not enough to skip a submit:
-  boundary-level submit equivalence remains false unless the selected boundary
-  also has linked command-buffer/submit-epoch proof for the submit being
-  considered.
+  blockers, same-command-buffer or submit-epoch status, producer/barrier/
+  consumer command-buffer ids, producer/consumer submit epochs, and a
+  fail-closed reject reason. The command-buffer/epoch aggregate is joined from
+  generic `StackRegionBoundaryOptimizationPlan.v0` rows for the same selected
+  boundary id and must cover every selected submit-ready typed row before it is
+  marked complete. Row-level submit readiness is not enough to skip a submit:
+  boundary-level submit equivalence remains false unless this selected-boundary
+  command-buffer/submit-epoch proof is complete for the submit being considered.
 
 This dump is diagnostic by default. It does not skip submits, change routes, or
 change accepted shapes. A real barrier is recorded only under the explicit

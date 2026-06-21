@@ -8997,6 +8997,116 @@ void append_stack_region_submit_epoch_ordering_json(
       top_count_key(stack_boundary_proof_reject_reason_counts);
   const std::string stack_boundary_highest_leverage_missing_field =
       top_count_key(stack_boundary_proof_missing_field_counts);
+  struct BoundaryEpochProofAggregate final {
+    uint64_t records = 0u;
+    uint64_t bytes = 0u;
+    uint64_t command_buffer_available_records = 0u;
+    uint64_t submit_epoch_available_records = 0u;
+    uint64_t same_command_buffer_records = 0u;
+    uint64_t same_command_buffer_bytes = 0u;
+    uint64_t same_submit_epoch_records = 0u;
+    uint64_t same_submit_epoch_bytes = 0u;
+    uint64_t complete_records = 0u;
+    uint64_t complete_bytes = 0u;
+    std::map<std::string, uint64_t> fail_reason_counts;
+    std::set<std::string> producer_command_buffer_ids;
+    std::set<std::string> barrier_command_buffer_ids;
+    std::set<std::string> consumer_command_buffer_ids;
+    std::set<std::string> producer_submit_epochs;
+    std::set<std::string> consumer_submit_epochs;
+  };
+  std::map<std::string, BoundaryEpochProofAggregate>
+      boundary_epoch_proof_by_id;
+  const auto has_live_id = [](const std::string& value) {
+    return !value.empty() && value != "0" && value != "missing" &&
+        value.find("missing_") != 0;
+  };
+  const auto set_to_vector = [](const std::set<std::string>& values) {
+    return std::vector<std::string>(values.begin(), values.end());
+  };
+  const auto note_boundary_epoch_row = [&](
+                                           const std::string& row) {
+    const auto fields = parse_space_separated_fields(row);
+    const std::string boundary_id =
+        field_or(fields, "selected_boundary_id", "none");
+    if (boundary_id == "none" || boundary_id.empty()) {
+      return;
+    }
+    const uint64_t count = std::max<uint64_t>(
+        parsed_u64(fields, "count"), static_cast<uint64_t>(1u));
+    const uint64_t bytes = parsed_u64(fields, "bytes");
+    auto& proof = boundary_epoch_proof_by_id[boundary_id];
+    proof.records += count;
+    proof.bytes += bytes;
+    const std::string producer_command_buffer_id =
+        field_or(fields, "producer_command_buffer_id", "missing");
+    const std::string barrier_command_buffer_id =
+        field_or(fields, "barrier_command_buffer_id", "missing");
+    const std::string consumer_command_buffer_id =
+        field_or(fields, "consumer_command_buffer_id", "missing");
+    const std::string producer_submit_epoch =
+        field_or(fields, "producer_submit_epoch", "missing");
+    const std::string consumer_submit_epoch =
+        field_or(fields, "consumer_submit_epoch", "missing");
+    const bool command_buffer_available =
+        field_or(fields, "command_buffer_id_available", "0") == "1" &&
+        has_live_id(producer_command_buffer_id) &&
+        has_live_id(barrier_command_buffer_id) &&
+        has_live_id(consumer_command_buffer_id);
+    const bool submit_epoch_available =
+        field_or(fields, "submit_epoch_available", "0") == "1" &&
+        has_live_id(producer_submit_epoch) &&
+        has_live_id(consumer_submit_epoch);
+    const bool same_command_buffer =
+        command_buffer_available &&
+        producer_command_buffer_id == barrier_command_buffer_id &&
+        producer_command_buffer_id == consumer_command_buffer_id;
+    const bool same_submit_epoch =
+        submit_epoch_available && producer_submit_epoch == consumer_submit_epoch;
+    const bool real_barrier_validated =
+        parsed_u64(fields, "barriers_inserted") > 0u ||
+        field_or(fields, "barrier_only_validated", "0") == "1";
+    if (command_buffer_available) {
+      proof.command_buffer_available_records += count;
+      proof.producer_command_buffer_ids.insert(producer_command_buffer_id);
+      proof.barrier_command_buffer_ids.insert(barrier_command_buffer_id);
+      proof.consumer_command_buffer_ids.insert(consumer_command_buffer_id);
+    }
+    if (submit_epoch_available) {
+      proof.submit_epoch_available_records += count;
+      proof.producer_submit_epochs.insert(producer_submit_epoch);
+      proof.consumer_submit_epochs.insert(consumer_submit_epoch);
+    }
+    if (same_command_buffer) {
+      proof.same_command_buffer_records += count;
+      proof.same_command_buffer_bytes += bytes;
+    }
+    if (same_submit_epoch) {
+      proof.same_submit_epoch_records += count;
+      proof.same_submit_epoch_bytes += bytes;
+    }
+    std::string fail_reason = "none";
+    if (!command_buffer_available) {
+      fail_reason = "missing_boundary_scope_command_buffer_id";
+    } else if (!same_command_buffer) {
+      fail_reason = "inconsistent_boundary_scope_command_buffer_ids";
+    } else if (!submit_epoch_available) {
+      fail_reason = "missing_boundary_scope_submit_epoch";
+    } else if (!same_submit_epoch) {
+      fail_reason = "inconsistent_boundary_scope_submit_epochs";
+    } else if (!real_barrier_validated) {
+      fail_reason = "missing_same_run_real_barrier_validation";
+    }
+    if (fail_reason == "none") {
+      proof.complete_records += count;
+      proof.complete_bytes += bytes;
+    } else {
+      proof.fail_reason_counts[fail_reason] += count;
+    }
+  };
+  for (const auto& row : optimization_rows) {
+    note_boundary_epoch_row(row);
+  }
   std::map<std::string, uint64_t> boundary_proof_total_records;
   std::map<std::string, uint64_t> boundary_proof_total_bytes;
   std::map<std::string, uint64_t> boundary_proof_submit_ready_records;
@@ -9091,6 +9201,43 @@ void append_stack_region_submit_epoch_ordering_json(
       single_submit_ready_boundary
       ? boundary_proof_class_by_id[selected_submit_equivalence_boundary]
       : "none";
+  const auto selected_epoch_it = single_submit_ready_boundary
+      ? boundary_epoch_proof_by_id.find(selected_submit_equivalence_boundary)
+      : boundary_epoch_proof_by_id.end();
+  const BoundaryEpochProofAggregate empty_boundary_epoch_proof;
+  const BoundaryEpochProofAggregate& selected_boundary_epoch_proof =
+      selected_epoch_it != boundary_epoch_proof_by_id.end()
+      ? selected_epoch_it->second
+      : empty_boundary_epoch_proof;
+  const uint64_t selected_boundary_epoch_candidate_records =
+      selected_boundary_epoch_proof.records;
+  const uint64_t selected_boundary_epoch_candidate_bytes =
+      selected_boundary_epoch_proof.bytes;
+  const uint64_t selected_boundary_command_buffer_available_records =
+      selected_boundary_epoch_proof.command_buffer_available_records;
+  const uint64_t selected_boundary_submit_epoch_available_records =
+      selected_boundary_epoch_proof.submit_epoch_available_records;
+  const uint64_t selected_boundary_same_command_buffer_records =
+      selected_boundary_epoch_proof.same_command_buffer_records;
+  const uint64_t selected_boundary_same_command_buffer_bytes =
+      selected_boundary_epoch_proof.same_command_buffer_bytes;
+  const uint64_t selected_boundary_same_submit_epoch_records =
+      selected_boundary_epoch_proof.same_submit_epoch_records;
+  const uint64_t selected_boundary_same_submit_epoch_bytes =
+      selected_boundary_epoch_proof.same_submit_epoch_bytes;
+  const uint64_t selected_boundary_epoch_complete_records =
+      selected_boundary_epoch_proof.complete_records;
+  const uint64_t selected_boundary_epoch_complete_bytes =
+      selected_boundary_epoch_proof.complete_bytes;
+  const std::string selected_boundary_epoch_fail_reason =
+      top_count_key(selected_boundary_epoch_proof.fail_reason_counts);
+  const bool selected_boundary_command_epoch_complete =
+      single_submit_ready_boundary &&
+      selected_boundary_epoch_candidate_records ==
+          selected_boundary_submit_ready_records &&
+      selected_boundary_epoch_complete_records ==
+          selected_boundary_submit_ready_records &&
+      selected_boundary_submit_ready_records > 0u;
   const uint64_t outside_selected_boundary_records =
       stack_boundary_proof_record_count > selected_boundary_total_records
       ? stack_boundary_proof_record_count - selected_boundary_total_records
@@ -9103,13 +9250,32 @@ void append_stack_region_submit_epoch_ordering_json(
       single_submit_ready_boundary && selected_boundary_total_records > 0u &&
       selected_boundary_non_ready_records == 0u &&
       selected_boundary_blocker_records == 0u;
-  const std::string selected_boundary_epoch_status =
-      same_batch_proven_records > 0u
-      ? "submit_epoch_proof_present_but_not_linked_to_stack_boundary_record"
-      : "missing_selected_boundary_command_buffer_or_submit_epoch_proof";
-  const bool boundary_complete_submit_equivalence = false;
-  std::string boundary_submit_equivalence_reject_reason =
+  std::string selected_boundary_epoch_status =
       "missing_selected_boundary_command_buffer_or_submit_epoch_proof";
+  if (selected_boundary_command_epoch_complete) {
+    selected_boundary_epoch_status =
+        "selected_boundary_command_buffer_submit_epoch_proof_complete";
+  } else if (selected_boundary_epoch_candidate_records == 0u) {
+    selected_boundary_epoch_status =
+        "missing_selected_boundary_command_buffer_or_submit_epoch_proof";
+  } else if (
+      selected_boundary_epoch_candidate_records !=
+      selected_boundary_submit_ready_records) {
+    selected_boundary_epoch_status =
+        "selected_boundary_epoch_record_count_mismatch";
+  } else if (selected_boundary_epoch_fail_reason != "none") {
+    selected_boundary_epoch_status = selected_boundary_epoch_fail_reason;
+  } else {
+    selected_boundary_epoch_status =
+        "selected_boundary_command_buffer_or_submit_epoch_incomplete";
+  }
+  const bool boundary_complete_submit_equivalence =
+      selected_boundary_pending_set_complete &&
+      selected_boundary_command_epoch_complete;
+  std::string boundary_submit_equivalence_reject_reason =
+      boundary_complete_submit_equivalence
+      ? "none"
+      : "missing_selected_boundary_command_buffer_or_submit_epoch_proof";
   if (submit_ready_boundary_count == 0u) {
     boundary_submit_equivalence_reject_reason =
         "no_submit_ready_boundary";
@@ -9122,6 +9288,8 @@ void append_stack_region_submit_epoch_ordering_json(
   } else if (selected_boundary_blocker_records != 0u) {
     boundary_submit_equivalence_reject_reason =
         "selected_boundary_has_public_host_final_or_alias_blockers";
+  } else if (!selected_boundary_command_epoch_complete) {
+    boundary_submit_equivalence_reject_reason = selected_boundary_epoch_status;
   }
 
   append_json_comma(out, first);
@@ -9980,6 +10148,90 @@ void append_stack_region_submit_epoch_ordering_json(
       "same_command_buffer_or_submit_epoch_status",
       selected_boundary_epoch_status,
       boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_epoch_candidate_records",
+      selected_boundary_epoch_candidate_records,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_epoch_candidate_bytes",
+      selected_boundary_epoch_candidate_bytes,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_command_buffer_available_records",
+      selected_boundary_command_buffer_available_records,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_submit_epoch_available_records",
+      selected_boundary_submit_epoch_available_records,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_same_command_buffer_records",
+      selected_boundary_same_command_buffer_records,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_same_command_buffer_bytes",
+      selected_boundary_same_command_buffer_bytes,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_same_submit_epoch_records",
+      selected_boundary_same_submit_epoch_records,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_same_submit_epoch_bytes",
+      selected_boundary_same_submit_epoch_bytes,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_epoch_complete_records",
+      selected_boundary_epoch_complete_records,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_epoch_complete_bytes",
+      selected_boundary_epoch_complete_bytes,
+      boundary_equivalence_first);
+  append_json_bool(
+      out,
+      "command_buffer_submit_epoch_proof_complete",
+      selected_boundary_command_epoch_complete,
+      boundary_equivalence_first);
+  append_json_string_array(
+      out,
+      "selected_boundary_producer_command_buffer_ids",
+      set_to_vector(selected_boundary_epoch_proof.producer_command_buffer_ids),
+      boundary_equivalence_first);
+  append_json_string_array(
+      out,
+      "selected_boundary_barrier_command_buffer_ids",
+      set_to_vector(selected_boundary_epoch_proof.barrier_command_buffer_ids),
+      boundary_equivalence_first);
+  append_json_string_array(
+      out,
+      "selected_boundary_consumer_command_buffer_ids",
+      set_to_vector(selected_boundary_epoch_proof.consumer_command_buffer_ids),
+      boundary_equivalence_first);
+  append_json_string_array(
+      out,
+      "selected_boundary_producer_submit_epochs",
+      set_to_vector(selected_boundary_epoch_proof.producer_submit_epochs),
+      boundary_equivalence_first);
+  append_json_string_array(
+      out,
+      "selected_boundary_consumer_submit_epochs",
+      set_to_vector(selected_boundary_epoch_proof.consumer_submit_epochs),
+      boundary_equivalence_first);
+  append_json_comma(out, boundary_equivalence_first);
+  out << "\"command_buffer_submit_epoch_reject_reason_counts\":";
+  append_u64_map_object(
+      out, selected_boundary_epoch_proof.fail_reason_counts);
   append_json_bool(
       out,
       "typed_pending_set_complete",
