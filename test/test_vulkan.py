@@ -20195,6 +20195,30 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn("covered_by_barrier_count", submit_epoch_ordering)
             self.assertIn(
+                "unmatched_pending_allocation_class_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "pending_dispatch_descriptor_update_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "pending_dispatch_command_buffer_bookkeeping_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "genuinely_unknown_pending_dispatch_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "ordering_resource_missing_proof_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "genuinely_unknown_resource_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
                 "proven_nonescaping_or_retire_only_count",
                 submit_epoch_ordering,
             )

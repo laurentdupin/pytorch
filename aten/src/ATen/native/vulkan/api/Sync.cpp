@@ -5907,6 +5907,12 @@ void append_stack_region_boundary_submit_plan_record(
       "unmatched_pending_allocation_classes",
       field_or(fields, "unmatched_pending_allocation_classes", "missing"),
       first);
+  append_json_string(
+      out,
+      "unmatched_pending_allocation_class_summary",
+      field_or(
+          fields, "unmatched_pending_allocation_class_summary", "missing"),
+      first);
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",
@@ -5926,6 +5932,21 @@ void append_stack_region_boundary_submit_plan_record(
       out,
       "known_harmless_metadata_or_bookkeeping_bytes",
       parsed_u64(fields, "known_harmless_metadata_or_bookkeeping_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "pending_dispatch_descriptor_update_count",
+      parsed_u64(fields, "pending_dispatch_descriptor_update_count"),
+      first);
+  append_json_u64(
+      out,
+      "pending_dispatch_command_buffer_bookkeeping_count",
+      parsed_u64(fields, "pending_dispatch_command_buffer_bookkeeping_count"),
+      first);
+  append_json_u64(
+      out,
+      "genuinely_unknown_pending_dispatch_count",
+      parsed_u64(fields, "genuinely_unknown_pending_dispatch_count"),
       first);
   append_json_u64(
       out,
@@ -5976,6 +5997,156 @@ void append_stack_region_boundary_submit_plan_record(
       out,
       "unknown_resource_classes",
       field_or(fields, "unknown_resource_classes", "missing"),
+      first);
+  append_json_u64(
+      out,
+      "capture_sensitive_stack_activation_count",
+      parsed_u64(fields, "capture_sensitive_stack_activation_count"),
+      first);
+  append_json_u64(
+      out,
+      "capture_sensitive_stack_activation_bytes",
+      parsed_u64(fields, "capture_sensitive_stack_activation_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "missing_stack_activation_proof_count",
+      parsed_u64(fields, "missing_stack_activation_proof_count"),
+      first);
+  append_json_u64(
+      out,
+      "missing_stack_activation_proof_bytes",
+      parsed_u64(fields, "missing_stack_activation_proof_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "host_visible_or_requested_output_count",
+      parsed_u64(fields, "host_visible_or_requested_output_count"),
+      first);
+  append_json_u64(
+      out,
+      "host_visible_or_requested_output_bytes",
+      parsed_u64(fields, "host_visible_or_requested_output_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "non_stack_setup_staging_count",
+      parsed_u64(fields, "non_stack_setup_staging_count"),
+      first);
+  append_json_u64(
+      out,
+      "non_stack_setup_staging_bytes",
+      parsed_u64(fields, "non_stack_setup_staging_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_no_stack_proof_count",
+      parsed_u64(fields, "unscoped_raw_buffer_no_stack_proof_count"),
+      first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_no_stack_proof_bytes",
+      parsed_u64(fields, "unscoped_raw_buffer_no_stack_proof_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "stack_internal_raw_generation_range_count",
+      parsed_u64(fields, "stack_internal_raw_generation_range_count"),
+      first);
+  append_json_u64(
+      out,
+      "stack_internal_raw_generation_range_bytes",
+      parsed_u64(fields, "stack_internal_raw_generation_range_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "stack_internal_temp_missing_last_consumer_count",
+      parsed_u64(fields, "stack_internal_temp_missing_last_consumer_count"),
+      first);
+  append_json_u64(
+      out,
+      "stack_internal_temp_missing_last_consumer_bytes",
+      parsed_u64(fields, "stack_internal_temp_missing_last_consumer_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "stack_raw_non_escape_last_consumer_count",
+      parsed_u64(fields, "stack_raw_non_escape_last_consumer_count"),
+      first);
+  append_json_u64(
+      out,
+      "stack_raw_non_escape_last_consumer_bytes",
+      parsed_u64(fields, "stack_raw_non_escape_last_consumer_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "attention_non_escape_last_consumer_count",
+      parsed_u64(fields, "attention_non_escape_last_consumer_count"),
+      first);
+  append_json_u64(
+      out,
+      "attention_non_escape_last_consumer_bytes",
+      parsed_u64(fields, "attention_non_escape_last_consumer_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "attention_missing_proof_count",
+      parsed_u64(fields, "attention_missing_proof_count"),
+      first);
+  append_json_u64(
+      out,
+      "attention_missing_proof_bytes",
+      parsed_u64(fields, "attention_missing_proof_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "raw_no_provenance_count",
+      parsed_u64(fields, "raw_no_provenance_count"),
+      first);
+  append_json_u64(
+      out,
+      "raw_no_provenance_bytes",
+      parsed_u64(fields, "raw_no_provenance_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "truly_unknown_raw_resource_count",
+      parsed_u64(fields, "truly_unknown_raw_resource_count"),
+      first);
+  append_json_u64(
+      out,
+      "truly_unknown_raw_resource_bytes",
+      parsed_u64(fields, "truly_unknown_raw_resource_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "ordering_resource_missing_proof_count",
+      parsed_u64(fields, "ordering_resource_missing_proof_count"),
+      first);
+  append_json_u64(
+      out,
+      "ordering_resource_missing_proof_bytes",
+      parsed_u64(fields, "ordering_resource_missing_proof_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "setup_or_unscoped_resource_count",
+      parsed_u64(fields, "setup_or_unscoped_resource_count"),
+      first);
+  append_json_u64(
+      out,
+      "setup_or_unscoped_resource_bytes",
+      parsed_u64(fields, "setup_or_unscoped_resource_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "genuinely_unknown_resource_count",
+      parsed_u64(fields, "genuinely_unknown_resource_count"),
+      first);
+  append_json_u64(
+      out,
+      "genuinely_unknown_resource_bytes",
+      parsed_u64(fields, "genuinely_unknown_resource_bytes"),
       first);
   append_json_u64(
       out,
@@ -6924,6 +7095,9 @@ void append_stack_region_submit_epoch_ordering_json(
   uint64_t proven_nonescaping_or_retire_only_bytes = 0u;
   uint64_t known_harmless_metadata_or_bookkeeping_count = 0u;
   uint64_t known_harmless_metadata_or_bookkeeping_bytes = 0u;
+  uint64_t pending_dispatch_descriptor_update_count = 0u;
+  uint64_t pending_dispatch_command_buffer_bookkeeping_count = 0u;
+  uint64_t genuinely_unknown_pending_dispatch_count = 0u;
   uint64_t descriptor_update_side_effect_count = 0u;
   uint64_t upload_side_effect_count = 0u;
   uint64_t allocator_side_effect_count = 0u;
@@ -6933,11 +7107,67 @@ void append_stack_region_submit_epoch_ordering_json(
   uint64_t unknown_pending_dispatch_count = 0u;
   uint64_t unknown_resource_side_effect_count = 0u;
   uint64_t unknown_resource_side_effect_bytes = 0u;
+  uint64_t capture_sensitive_stack_activation_count = 0u;
+  uint64_t capture_sensitive_stack_activation_bytes = 0u;
+  uint64_t missing_stack_activation_proof_count = 0u;
+  uint64_t missing_stack_activation_proof_bytes = 0u;
+  uint64_t host_visible_or_requested_output_count = 0u;
+  uint64_t host_visible_or_requested_output_bytes = 0u;
+  uint64_t non_stack_setup_staging_count = 0u;
+  uint64_t non_stack_setup_staging_bytes = 0u;
+  uint64_t unscoped_raw_buffer_no_stack_proof_count = 0u;
+  uint64_t unscoped_raw_buffer_no_stack_proof_bytes = 0u;
+  uint64_t stack_internal_raw_generation_range_count = 0u;
+  uint64_t stack_internal_raw_generation_range_bytes = 0u;
+  uint64_t stack_internal_temp_missing_last_consumer_count = 0u;
+  uint64_t stack_internal_temp_missing_last_consumer_bytes = 0u;
+  uint64_t stack_raw_non_escape_last_consumer_count = 0u;
+  uint64_t stack_raw_non_escape_last_consumer_bytes = 0u;
+  uint64_t attention_non_escape_last_consumer_count = 0u;
+  uint64_t attention_non_escape_last_consumer_bytes = 0u;
+  uint64_t attention_missing_proof_count = 0u;
+  uint64_t attention_missing_proof_bytes = 0u;
+  uint64_t raw_no_provenance_count = 0u;
+  uint64_t raw_no_provenance_bytes = 0u;
+  uint64_t truly_unknown_raw_resource_count = 0u;
+  uint64_t truly_unknown_raw_resource_bytes = 0u;
+  uint64_t ordering_resource_missing_proof_count = 0u;
+  uint64_t ordering_resource_missing_proof_bytes = 0u;
+  uint64_t setup_or_unscoped_resource_count = 0u;
+  uint64_t setup_or_unscoped_resource_bytes = 0u;
+  uint64_t genuinely_unknown_resource_count = 0u;
+  uint64_t genuinely_unknown_resource_bytes = 0u;
   uint64_t unknown_unmodeled_side_effect_count = 0u;
   std::map<std::string, uint64_t> fail_closed_reasons;
   std::map<std::string, uint64_t> candidate_status_counts;
   std::map<std::string, uint64_t> unmodeled_reason_counts;
   std::map<std::string, uint64_t> barrier_pending_match_status_counts;
+  std::map<std::string, uint64_t> unmatched_allocation_class_counts;
+  std::map<std::string, uint64_t> unmatched_allocation_class_bytes;
+  const auto accumulate_class_summary = [&](
+                                            const std::string& summary,
+                                            const uint64_t count_multiplier) {
+    if (summary.empty() || summary == "none" || summary == "missing") {
+      return;
+    }
+    std::istringstream entries(summary);
+    std::string entry;
+    while (std::getline(entries, entry, ',')) {
+      std::vector<std::string> parts;
+      std::istringstream part_stream(entry);
+      std::string part;
+      while (std::getline(part_stream, part, '#')) {
+        parts.emplace_back(part);
+      }
+      if (parts.size() != 3u || parts[0].empty()) {
+        continue;
+      }
+      unmatched_allocation_class_counts[parts[0]] +=
+          parsed_u64_or(parts[1], 0u) * count_multiplier;
+      unmatched_allocation_class_bytes[parts[0]] +=
+          parsed_u64_or(parts[2], 0u) * count_multiplier;
+    }
+  };
   const auto count_row = [&](
                              const std::string& row,
                              const bool optimization_record,
@@ -6990,6 +7220,9 @@ void append_stack_region_submit_epoch_ordering_json(
         parsed_u64(fields, "unmatched_pending_allocation_count") * count;
     unmatched_pending_allocation_bytes +=
         parsed_u64(fields, "unmatched_pending_allocation_bytes") * count;
+    accumulate_class_summary(
+        field_or(fields, "unmatched_pending_allocation_class_summary", "none"),
+        count);
     proven_nonescaping_or_retire_only_count +=
         parsed_u64(fields, "proven_nonescaping_or_retire_only_count") * count;
     proven_nonescaping_or_retire_only_bytes +=
@@ -6999,6 +7232,15 @@ void append_stack_region_submit_epoch_ordering_json(
         count;
     known_harmless_metadata_or_bookkeeping_bytes +=
         parsed_u64(fields, "known_harmless_metadata_or_bookkeeping_bytes") *
+        count;
+    pending_dispatch_descriptor_update_count +=
+        parsed_u64(fields, "pending_dispatch_descriptor_update_count") * count;
+    pending_dispatch_command_buffer_bookkeeping_count +=
+        parsed_u64(
+            fields, "pending_dispatch_command_buffer_bookkeeping_count") *
+        count;
+    genuinely_unknown_pending_dispatch_count +=
+        parsed_u64(fields, "genuinely_unknown_pending_dispatch_count") *
         count;
     descriptor_update_side_effect_count +=
         parsed_u64(fields, "descriptor_update_side_effect_count") * count;
@@ -7018,6 +7260,72 @@ void append_stack_region_submit_epoch_ordering_json(
         parsed_u64(fields, "unknown_resource_side_effect_count") * count;
     unknown_resource_side_effect_bytes +=
         parsed_u64(fields, "unknown_resource_side_effect_bytes") * count;
+    capture_sensitive_stack_activation_count +=
+        parsed_u64(fields, "capture_sensitive_stack_activation_count") * count;
+    capture_sensitive_stack_activation_bytes +=
+        parsed_u64(fields, "capture_sensitive_stack_activation_bytes") * count;
+    missing_stack_activation_proof_count +=
+        parsed_u64(fields, "missing_stack_activation_proof_count") * count;
+    missing_stack_activation_proof_bytes +=
+        parsed_u64(fields, "missing_stack_activation_proof_bytes") * count;
+    host_visible_or_requested_output_count +=
+        parsed_u64(fields, "host_visible_or_requested_output_count") * count;
+    host_visible_or_requested_output_bytes +=
+        parsed_u64(fields, "host_visible_or_requested_output_bytes") * count;
+    non_stack_setup_staging_count +=
+        parsed_u64(fields, "non_stack_setup_staging_count") * count;
+    non_stack_setup_staging_bytes +=
+        parsed_u64(fields, "non_stack_setup_staging_bytes") * count;
+    unscoped_raw_buffer_no_stack_proof_count +=
+        parsed_u64(fields, "unscoped_raw_buffer_no_stack_proof_count") *
+        count;
+    unscoped_raw_buffer_no_stack_proof_bytes +=
+        parsed_u64(fields, "unscoped_raw_buffer_no_stack_proof_bytes") *
+        count;
+    stack_internal_raw_generation_range_count +=
+        parsed_u64(fields, "stack_internal_raw_generation_range_count") *
+        count;
+    stack_internal_raw_generation_range_bytes +=
+        parsed_u64(fields, "stack_internal_raw_generation_range_bytes") *
+        count;
+    stack_internal_temp_missing_last_consumer_count +=
+        parsed_u64(fields, "stack_internal_temp_missing_last_consumer_count") *
+        count;
+    stack_internal_temp_missing_last_consumer_bytes +=
+        parsed_u64(fields, "stack_internal_temp_missing_last_consumer_bytes") *
+        count;
+    stack_raw_non_escape_last_consumer_count +=
+        parsed_u64(fields, "stack_raw_non_escape_last_consumer_count") * count;
+    stack_raw_non_escape_last_consumer_bytes +=
+        parsed_u64(fields, "stack_raw_non_escape_last_consumer_bytes") * count;
+    attention_non_escape_last_consumer_count +=
+        parsed_u64(fields, "attention_non_escape_last_consumer_count") * count;
+    attention_non_escape_last_consumer_bytes +=
+        parsed_u64(fields, "attention_non_escape_last_consumer_bytes") * count;
+    attention_missing_proof_count +=
+        parsed_u64(fields, "attention_missing_proof_count") * count;
+    attention_missing_proof_bytes +=
+        parsed_u64(fields, "attention_missing_proof_bytes") * count;
+    raw_no_provenance_count +=
+        parsed_u64(fields, "raw_no_provenance_count") * count;
+    raw_no_provenance_bytes +=
+        parsed_u64(fields, "raw_no_provenance_bytes") * count;
+    truly_unknown_raw_resource_count +=
+        parsed_u64(fields, "truly_unknown_raw_resource_count") * count;
+    truly_unknown_raw_resource_bytes +=
+        parsed_u64(fields, "truly_unknown_raw_resource_bytes") * count;
+    ordering_resource_missing_proof_count +=
+        parsed_u64(fields, "ordering_resource_missing_proof_count") * count;
+    ordering_resource_missing_proof_bytes +=
+        parsed_u64(fields, "ordering_resource_missing_proof_bytes") * count;
+    setup_or_unscoped_resource_count +=
+        parsed_u64(fields, "setup_or_unscoped_resource_count") * count;
+    setup_or_unscoped_resource_bytes +=
+        parsed_u64(fields, "setup_or_unscoped_resource_bytes") * count;
+    genuinely_unknown_resource_count +=
+        parsed_u64(fields, "genuinely_unknown_resource_count") * count;
+    genuinely_unknown_resource_bytes +=
+        parsed_u64(fields, "genuinely_unknown_resource_bytes") * count;
     unknown_unmodeled_side_effect_count +=
         parsed_u64(fields, "unknown_unmodeled_side_effect_count") * count;
     if (field_or(fields, "same_command_buffer_or_same_submit_batch_proven", "0") ==
@@ -7145,6 +7453,12 @@ void append_stack_region_submit_epoch_ordering_json(
       "unmatched_pending_allocation_bytes",
       unmatched_pending_allocation_bytes,
       ordering_first);
+  append_json_comma(out, ordering_first);
+  out << "\"unmatched_pending_allocation_class_counts\":";
+  append_u64_map_object(out, unmatched_allocation_class_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"unmatched_pending_allocation_class_bytes\":";
+  append_u64_map_object(out, unmatched_allocation_class_bytes);
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",
@@ -7164,6 +7478,21 @@ void append_stack_region_submit_epoch_ordering_json(
       out,
       "known_harmless_metadata_or_bookkeeping_bytes",
       known_harmless_metadata_or_bookkeeping_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "pending_dispatch_descriptor_update_count",
+      pending_dispatch_descriptor_update_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "pending_dispatch_command_buffer_bookkeeping_count",
+      pending_dispatch_command_buffer_bookkeeping_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "genuinely_unknown_pending_dispatch_count",
+      genuinely_unknown_pending_dispatch_count,
       ordering_first);
   append_json_u64(
       out,
@@ -7209,6 +7538,156 @@ void append_stack_region_submit_epoch_ordering_json(
       out,
       "unknown_resource_side_effect_bytes",
       unknown_resource_side_effect_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "capture_sensitive_stack_activation_count",
+      capture_sensitive_stack_activation_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "capture_sensitive_stack_activation_bytes",
+      capture_sensitive_stack_activation_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "missing_stack_activation_proof_count",
+      missing_stack_activation_proof_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "missing_stack_activation_proof_bytes",
+      missing_stack_activation_proof_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "host_visible_or_requested_output_count",
+      host_visible_or_requested_output_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "host_visible_or_requested_output_bytes",
+      host_visible_or_requested_output_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "non_stack_setup_staging_count",
+      non_stack_setup_staging_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "non_stack_setup_staging_bytes",
+      non_stack_setup_staging_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_no_stack_proof_count",
+      unscoped_raw_buffer_no_stack_proof_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_no_stack_proof_bytes",
+      unscoped_raw_buffer_no_stack_proof_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "stack_internal_raw_generation_range_count",
+      stack_internal_raw_generation_range_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "stack_internal_raw_generation_range_bytes",
+      stack_internal_raw_generation_range_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "stack_internal_temp_missing_last_consumer_count",
+      stack_internal_temp_missing_last_consumer_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "stack_internal_temp_missing_last_consumer_bytes",
+      stack_internal_temp_missing_last_consumer_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "stack_raw_non_escape_last_consumer_count",
+      stack_raw_non_escape_last_consumer_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "stack_raw_non_escape_last_consumer_bytes",
+      stack_raw_non_escape_last_consumer_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "attention_non_escape_last_consumer_count",
+      attention_non_escape_last_consumer_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "attention_non_escape_last_consumer_bytes",
+      attention_non_escape_last_consumer_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "attention_missing_proof_count",
+      attention_missing_proof_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "attention_missing_proof_bytes",
+      attention_missing_proof_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_no_provenance_count",
+      raw_no_provenance_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_no_provenance_bytes",
+      raw_no_provenance_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "truly_unknown_raw_resource_count",
+      truly_unknown_raw_resource_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "truly_unknown_raw_resource_bytes",
+      truly_unknown_raw_resource_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "ordering_resource_missing_proof_count",
+      ordering_resource_missing_proof_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "ordering_resource_missing_proof_bytes",
+      ordering_resource_missing_proof_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "setup_or_unscoped_resource_count",
+      setup_or_unscoped_resource_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "setup_or_unscoped_resource_bytes",
+      setup_or_unscoped_resource_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "genuinely_unknown_resource_count",
+      genuinely_unknown_resource_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "genuinely_unknown_resource_bytes",
+      genuinely_unknown_resource_bytes,
       ordering_first);
   append_json_u64(
       out,
@@ -11348,6 +11827,36 @@ struct StackRegionPendingSideEffectCoverage final {
   uint64_t metadata_or_bookkeeping_bytes = 0u;
   uint64_t allocator_side_effect_count = 0u;
   uint64_t allocator_side_effect_bytes = 0u;
+  uint64_t capture_sensitive_stack_activation_count = 0u;
+  uint64_t capture_sensitive_stack_activation_bytes = 0u;
+  uint64_t missing_stack_activation_proof_count = 0u;
+  uint64_t missing_stack_activation_proof_bytes = 0u;
+  uint64_t host_visible_or_requested_output_count = 0u;
+  uint64_t host_visible_or_requested_output_bytes = 0u;
+  uint64_t non_stack_setup_staging_count = 0u;
+  uint64_t non_stack_setup_staging_bytes = 0u;
+  uint64_t unscoped_raw_buffer_no_stack_proof_count = 0u;
+  uint64_t unscoped_raw_buffer_no_stack_proof_bytes = 0u;
+  uint64_t stack_internal_raw_generation_range_count = 0u;
+  uint64_t stack_internal_raw_generation_range_bytes = 0u;
+  uint64_t stack_internal_temp_missing_last_consumer_count = 0u;
+  uint64_t stack_internal_temp_missing_last_consumer_bytes = 0u;
+  uint64_t stack_raw_non_escape_last_consumer_count = 0u;
+  uint64_t stack_raw_non_escape_last_consumer_bytes = 0u;
+  uint64_t attention_non_escape_last_consumer_count = 0u;
+  uint64_t attention_non_escape_last_consumer_bytes = 0u;
+  uint64_t attention_missing_proof_count = 0u;
+  uint64_t attention_missing_proof_bytes = 0u;
+  uint64_t raw_no_provenance_count = 0u;
+  uint64_t raw_no_provenance_bytes = 0u;
+  uint64_t truly_unknown_raw_resource_count = 0u;
+  uint64_t truly_unknown_raw_resource_bytes = 0u;
+  uint64_t ordering_resource_missing_proof_count = 0u;
+  uint64_t ordering_resource_missing_proof_bytes = 0u;
+  uint64_t setup_or_unscoped_resource_count = 0u;
+  uint64_t setup_or_unscoped_resource_bytes = 0u;
+  uint64_t genuinely_unknown_resource_count = 0u;
+  uint64_t genuinely_unknown_resource_bytes = 0u;
   uint64_t unknown_resource_count = 0u;
   uint64_t unknown_resource_bytes = 0u;
   std::string unknown_resource_classes = "none";
@@ -11365,6 +11874,7 @@ struct StackRegionPendingBarrierCoverage final {
   uint64_t unmatched_pending_count = 0u;
   uint64_t unmatched_pending_bytes = 0u;
   std::string unmatched_pending_classes = "none";
+  std::string unmatched_pending_class_summary = "none";
   std::string status = "no_pending_allocation_signature";
 };
 
@@ -11375,6 +11885,14 @@ classify_stack_region_pending_side_effects(
   if (resource_signature.empty()) {
     return coverage;
   }
+  const auto accumulate = [](
+                              uint64_t& dst_count,
+                              uint64_t& dst_bytes,
+                              const uint64_t count,
+                              const uint64_t bytes) {
+    dst_count += count;
+    dst_bytes += bytes;
+  };
   std::ostringstream unknown_classes;
   std::istringstream entries(resource_signature);
   std::string entry;
@@ -11406,6 +11924,163 @@ classify_stack_region_pending_side_effects(
     }
     if (!stack_subresource_lifetime_dry_run_resource_is_safe(
             resource_class.c_str())) {
+      if (resource_class == kDryRunCaptureSensitiveStackActivation) {
+        accumulate(
+            coverage.capture_sensitive_stack_activation_count,
+            coverage.capture_sensitive_stack_activation_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.ordering_resource_missing_proof_count,
+            coverage.ordering_resource_missing_proof_bytes,
+            count,
+            bytes);
+      } else if (resource_class == kDryRunMissingStackActivationProof) {
+        accumulate(
+            coverage.missing_stack_activation_proof_count,
+            coverage.missing_stack_activation_proof_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.ordering_resource_missing_proof_count,
+            coverage.ordering_resource_missing_proof_bytes,
+            count,
+            bytes);
+      } else if (resource_class == kDryRunHostVisibleOrRequestedOutput) {
+        accumulate(
+            coverage.host_visible_or_requested_output_count,
+            coverage.host_visible_or_requested_output_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.ordering_resource_missing_proof_count,
+            coverage.ordering_resource_missing_proof_bytes,
+            count,
+            bytes);
+      } else if (resource_class == kDryRunNonStackSetupStagingPending) {
+        accumulate(
+            coverage.non_stack_setup_staging_count,
+            coverage.non_stack_setup_staging_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.setup_or_unscoped_resource_count,
+            coverage.setup_or_unscoped_resource_bytes,
+            count,
+            bytes);
+      } else if (resource_class == kDryRunUnscopedRawBufferNoStackProof) {
+        accumulate(
+            coverage.unscoped_raw_buffer_no_stack_proof_count,
+            coverage.unscoped_raw_buffer_no_stack_proof_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.setup_or_unscoped_resource_count,
+            coverage.setup_or_unscoped_resource_bytes,
+            count,
+            bytes);
+      } else if (resource_class == kDryRunStackInternalRawGenerationRange) {
+        accumulate(
+            coverage.stack_internal_raw_generation_range_count,
+            coverage.stack_internal_raw_generation_range_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.ordering_resource_missing_proof_count,
+            coverage.ordering_resource_missing_proof_bytes,
+            count,
+            bytes);
+      } else if (
+          resource_class ==
+          kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer) {
+        accumulate(
+            coverage.stack_internal_temp_missing_last_consumer_count,
+            coverage.stack_internal_temp_missing_last_consumer_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.ordering_resource_missing_proof_count,
+            coverage.ordering_resource_missing_proof_bytes,
+            count,
+            bytes);
+      } else if (
+          is_stack_raw_generation_range_non_escape_last_consumer_class(
+              resource_class.c_str())) {
+        accumulate(
+            coverage.stack_raw_non_escape_last_consumer_count,
+            coverage.stack_raw_non_escape_last_consumer_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.ordering_resource_missing_proof_count,
+            coverage.ordering_resource_missing_proof_bytes,
+            count,
+            bytes);
+      } else if (
+          resource_class ==
+              kDryRunAttentionRawAuxiliaryRangeNonEscapeLastConsumer ||
+          resource_class ==
+              kDryRunAttentionScoreProbabilityRangeNonEscapeLastConsumer) {
+        accumulate(
+            coverage.attention_non_escape_last_consumer_count,
+            coverage.attention_non_escape_last_consumer_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.ordering_resource_missing_proof_count,
+            coverage.ordering_resource_missing_proof_bytes,
+            count,
+            bytes);
+      } else if (
+          resource_class ==
+              kDryRunAttentionRawAuxiliaryRangeMissingAliasEscapeProof ||
+          resource_class ==
+              kDryRunAttentionScoreProbabilityRangeMissingAliasEscapeProof ||
+          resource_class ==
+              kDryRunAttentionBufferGenerationRangeMissingStackProof ||
+          resource_class ==
+              kDryRunAttentionRawGenerationRangeMissingStackProof ||
+          resource_class == kDryRunAttentionProvenanceMissingLastUse ||
+          resource_class == kDryRunAttentionUnknownSubresource) {
+        accumulate(
+            coverage.attention_missing_proof_count,
+            coverage.attention_missing_proof_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.ordering_resource_missing_proof_count,
+            coverage.ordering_resource_missing_proof_bytes,
+            count,
+            bytes);
+      } else if (resource_class == kDryRunRawNoProvenance) {
+        accumulate(
+            coverage.raw_no_provenance_count,
+            coverage.raw_no_provenance_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.genuinely_unknown_resource_count,
+            coverage.genuinely_unknown_resource_bytes,
+            count,
+            bytes);
+      } else if (resource_class == kDryRunTrulyUnknownRawResource) {
+        accumulate(
+            coverage.truly_unknown_raw_resource_count,
+            coverage.truly_unknown_raw_resource_bytes,
+            count,
+            bytes);
+        accumulate(
+            coverage.genuinely_unknown_resource_count,
+            coverage.genuinely_unknown_resource_bytes,
+            count,
+            bytes);
+      } else {
+        accumulate(
+            coverage.genuinely_unknown_resource_count,
+            coverage.genuinely_unknown_resource_bytes,
+            count,
+            bytes);
+      }
       coverage.unknown_resource_count += count;
       coverage.unknown_resource_bytes += bytes;
       if (unknown_classes.tellp() > 0) {
@@ -11425,6 +12100,7 @@ StackRegionPendingBarrierCoverage classify_stack_region_pending_barrier_coverage
     const std::string& allocation_signature) {
   StackRegionPendingBarrierCoverage coverage;
   std::map<std::string, std::pair<uint64_t, uint64_t>> real_barriers;
+  std::map<std::string, std::pair<uint64_t, uint64_t>> unmatched_by_class;
   for (const auto& item : stack_region_barrier_only_canary_rows()) {
     const auto fields = parse_space_separated_fields(item.first);
     if (parsed_u64(fields, "barriers_inserted") == 0u) {
@@ -11480,6 +12156,9 @@ StackRegionPendingBarrierCoverage classify_stack_region_pending_barrier_coverage
     if (barrier_it == real_barriers.end()) {
       coverage.unmatched_pending_count += count;
       coverage.unmatched_pending_bytes += bytes;
+      auto& unmatched_class_value = unmatched_by_class[resource_class];
+      unmatched_class_value.first += count;
+      unmatched_class_value.second += bytes;
       if (unmatched_classes.tellp() > 0) {
         unmatched_classes << ",";
       }
@@ -11494,6 +12173,17 @@ StackRegionPendingBarrierCoverage classify_stack_region_pending_barrier_coverage
   const std::string unmatched = unmatched_classes.str();
   if (!unmatched.empty()) {
     coverage.unmatched_pending_classes = unmatched;
+  }
+  if (!unmatched_by_class.empty()) {
+    std::ostringstream summary;
+    for (const auto& item : unmatched_by_class) {
+      if (summary.tellp() > 0) {
+        summary << ",";
+      }
+      summary << item.first << "#" << item.second.first << "#"
+              << item.second.second;
+    }
+    coverage.unmatched_pending_class_summary = summary.str();
   }
   if (coverage.covered_count > 0u) {
     coverage.status = coverage.unmatched_pending_count == 0u
@@ -11594,7 +12284,13 @@ void note_stack_region_boundary_submit_plan(
       classify_stack_region_pending_side_effects(resource_signature);
   const StackRegionPendingBarrierCoverage barrier_coverage =
       classify_stack_region_pending_barrier_coverage(allocation_signature);
-  const uint64_t unknown_pending_dispatch_count = pending_dispatch_count;
+  const uint64_t pending_dispatch_descriptor_update_count =
+      pending_dispatch_count;
+  const uint64_t pending_dispatch_command_buffer_bookkeeping_count =
+      pending_dispatch_count;
+  const uint64_t genuinely_unknown_pending_dispatch_count = 0u;
+  const uint64_t unknown_pending_dispatch_count =
+      genuinely_unknown_pending_dispatch_count;
   const uint64_t descriptor_update_side_effect_count = pending_dispatch_count;
   const uint64_t upload_side_effect_count = 0u;
   const uint64_t retire_side_effect_count = old_path_pending_count;
@@ -11610,7 +12306,7 @@ void note_stack_region_boundary_submit_plan(
       side_effect_coverage.allocator_side_effect_count +
       retire_side_effect_count;
   std::string unmodeled_side_effect_reason =
-      "pending_dispatch_descriptor_updates_and_retire_queue_not_fully_modeled";
+      "descriptor_updates_and_retire_queue_not_fully_modeled";
   if (side_effect_coverage.unknown_resource_count > 0u) {
     unmodeled_side_effect_reason += ":unknown_resource_classes=";
     unmodeled_side_effect_reason +=
@@ -11702,6 +12398,8 @@ void note_stack_region_boundary_submit_plan(
       << barrier_coverage.unmatched_pending_bytes
       << " unmatched_pending_allocation_classes="
       << barrier_coverage.unmatched_pending_classes
+      << " unmatched_pending_allocation_class_summary="
+      << barrier_coverage.unmatched_pending_class_summary
       << " proven_nonescaping_or_retire_only_count="
       << safe_candidate_count
       << " proven_nonescaping_or_retire_only_bytes="
@@ -11710,6 +12408,12 @@ void note_stack_region_boundary_submit_plan(
       << known_harmless_count
       << " known_harmless_metadata_or_bookkeeping_bytes="
       << known_harmless_bytes
+      << " pending_dispatch_descriptor_update_count="
+      << pending_dispatch_descriptor_update_count
+      << " pending_dispatch_command_buffer_bookkeeping_count="
+      << pending_dispatch_command_buffer_bookkeeping_count
+      << " genuinely_unknown_pending_dispatch_count="
+      << genuinely_unknown_pending_dispatch_count
       << " descriptor_update_side_effect_count="
       << descriptor_update_side_effect_count
       << " upload_side_effect_count=" << upload_side_effect_count
@@ -11727,6 +12431,66 @@ void note_stack_region_boundary_submit_plan(
       << side_effect_coverage.unknown_resource_bytes
       << " unknown_resource_classes="
       << side_effect_coverage.unknown_resource_classes
+      << " capture_sensitive_stack_activation_count="
+      << side_effect_coverage.capture_sensitive_stack_activation_count
+      << " capture_sensitive_stack_activation_bytes="
+      << side_effect_coverage.capture_sensitive_stack_activation_bytes
+      << " missing_stack_activation_proof_count="
+      << side_effect_coverage.missing_stack_activation_proof_count
+      << " missing_stack_activation_proof_bytes="
+      << side_effect_coverage.missing_stack_activation_proof_bytes
+      << " host_visible_or_requested_output_count="
+      << side_effect_coverage.host_visible_or_requested_output_count
+      << " host_visible_or_requested_output_bytes="
+      << side_effect_coverage.host_visible_or_requested_output_bytes
+      << " non_stack_setup_staging_count="
+      << side_effect_coverage.non_stack_setup_staging_count
+      << " non_stack_setup_staging_bytes="
+      << side_effect_coverage.non_stack_setup_staging_bytes
+      << " unscoped_raw_buffer_no_stack_proof_count="
+      << side_effect_coverage.unscoped_raw_buffer_no_stack_proof_count
+      << " unscoped_raw_buffer_no_stack_proof_bytes="
+      << side_effect_coverage.unscoped_raw_buffer_no_stack_proof_bytes
+      << " stack_internal_raw_generation_range_count="
+      << side_effect_coverage.stack_internal_raw_generation_range_count
+      << " stack_internal_raw_generation_range_bytes="
+      << side_effect_coverage.stack_internal_raw_generation_range_bytes
+      << " stack_internal_temp_missing_last_consumer_count="
+      << side_effect_coverage.stack_internal_temp_missing_last_consumer_count
+      << " stack_internal_temp_missing_last_consumer_bytes="
+      << side_effect_coverage.stack_internal_temp_missing_last_consumer_bytes
+      << " stack_raw_non_escape_last_consumer_count="
+      << side_effect_coverage.stack_raw_non_escape_last_consumer_count
+      << " stack_raw_non_escape_last_consumer_bytes="
+      << side_effect_coverage.stack_raw_non_escape_last_consumer_bytes
+      << " attention_non_escape_last_consumer_count="
+      << side_effect_coverage.attention_non_escape_last_consumer_count
+      << " attention_non_escape_last_consumer_bytes="
+      << side_effect_coverage.attention_non_escape_last_consumer_bytes
+      << " attention_missing_proof_count="
+      << side_effect_coverage.attention_missing_proof_count
+      << " attention_missing_proof_bytes="
+      << side_effect_coverage.attention_missing_proof_bytes
+      << " raw_no_provenance_count="
+      << side_effect_coverage.raw_no_provenance_count
+      << " raw_no_provenance_bytes="
+      << side_effect_coverage.raw_no_provenance_bytes
+      << " truly_unknown_raw_resource_count="
+      << side_effect_coverage.truly_unknown_raw_resource_count
+      << " truly_unknown_raw_resource_bytes="
+      << side_effect_coverage.truly_unknown_raw_resource_bytes
+      << " ordering_resource_missing_proof_count="
+      << side_effect_coverage.ordering_resource_missing_proof_count
+      << " ordering_resource_missing_proof_bytes="
+      << side_effect_coverage.ordering_resource_missing_proof_bytes
+      << " setup_or_unscoped_resource_count="
+      << side_effect_coverage.setup_or_unscoped_resource_count
+      << " setup_or_unscoped_resource_bytes="
+      << side_effect_coverage.setup_or_unscoped_resource_bytes
+      << " genuinely_unknown_resource_count="
+      << side_effect_coverage.genuinely_unknown_resource_count
+      << " genuinely_unknown_resource_bytes="
+      << side_effect_coverage.genuinely_unknown_resource_bytes
       << " unknown_unmodeled_side_effect_count="
       << unmodeled_side_effect_count
       << " unknown_unmodeled_side_effect_reason="
