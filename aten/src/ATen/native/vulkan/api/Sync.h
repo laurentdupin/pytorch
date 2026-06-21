@@ -828,6 +828,9 @@ TORCH_API void note_stack_region_boundary_submit_plan(
     uint64_t safe_candidate_bytes,
     const std::string& budget_reject,
     const std::string& blockers);
+TORCH_API bool maybe_elide_stack_region_boundary_submit_canary(
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();

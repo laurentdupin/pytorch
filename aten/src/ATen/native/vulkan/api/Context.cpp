@@ -1704,9 +1704,13 @@ VulkanSubmission Context::submit_cmd_to_gpu(
       }
       dry_run_all_safe_group_eligible = dry_run_budget_reject == "none";
     }
+    const bool should_elide_stack_region_boundary_submit =
+        record_phase_boundary_dry_run &&
+        maybe_elide_stack_region_boundary_submit_canary(phase, callsite);
     const bool should_coalesce_phase_boundary_explicit_sync =
-        kCoalescePhaseBoundaryExplicitSync &&
-        dry_run_all_safe_group_eligible;
+        (kCoalescePhaseBoundaryExplicitSync &&
+         dry_run_all_safe_group_eligible) ||
+        should_elide_stack_region_boundary_submit;
     note_region_lifetime_submit_attribution_group(
         origin,
         phase,

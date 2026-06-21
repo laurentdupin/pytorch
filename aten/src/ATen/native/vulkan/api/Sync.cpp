@@ -11,6 +11,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <tuple>
 
@@ -41,6 +42,11 @@ void maybe_write_stack_region_dependency_graph_dump();
 const char* stack_region_dependency_graph_path();
 const char* stack_region_barrier_only_canary_target();
 bool stack_region_barrier_only_canary_target_selected(const char* target);
+const char* stack_region_submit_elision_canary_target();
+bool stack_region_submit_elision_canary_target_selected(const char* target);
+std::string non_capture_residual2_to_norm1_boundary_id(
+    int64_t producer_block,
+    int64_t consumer_block);
 
 struct RetiredResourceAggregateKey final {
   VulkanRetiredResourceKind kind = VulkanRetiredResourceKind::Unknown;
@@ -464,6 +470,14 @@ struct StackRegionBoundaryOptimizationPlanValue final {
   uint64_t submit_removed_count = 0u;
 };
 
+struct StackRegionSubmitElisionCanaryValue final {
+  uint64_t count = 0u;
+  uint64_t eligible_records = 0u;
+  uint64_t eligible_boundary_count = 0u;
+  uint64_t barrier_validated_count = 0u;
+  uint64_t submit_removed_count = 0u;
+};
+
 std::map<std::string, StackDispatchDependencyDispatchValue>&
 stack_dispatch_dependency_dispatch_rows() {
   static std::map<std::string, StackDispatchDependencyDispatchValue> rows;
@@ -509,6 +523,12 @@ stack_region_pre_dispatch_proof_table_rows() {
 std::map<std::string, StackRegionBoundaryOptimizationPlanValue>&
 stack_region_boundary_optimization_plan_rows() {
   static std::map<std::string, StackRegionBoundaryOptimizationPlanValue> rows;
+  return rows;
+}
+
+std::map<std::string, StackRegionSubmitElisionCanaryValue>&
+stack_region_submit_elision_canary_rows() {
+  static std::map<std::string, StackRegionSubmitElisionCanaryValue> rows;
   return rows;
 }
 
@@ -1009,6 +1029,61 @@ void record_stack_region_boundary_optimization_plan_locked(
   }
 }
 
+std::string stack_region_submit_elision_canary_key(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const char* const status,
+    const uint64_t eligible_records,
+    const uint64_t eligible_boundary_count,
+    const uint64_t barrier_validated_count,
+    const bool submit_removed) {
+  std::ostringstream key;
+  key << "stack_region_submit_elision_canary=1"
+      << " contract=StackRegionBoundaryOptimizationPlan"
+      << " schema=StackRegionSubmitElisionCanary.v0"
+      << " opt_in_env=PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
+      << " selected_boundary_id="
+      << non_capture_residual2_to_norm1_boundary_id(0, 1)
+      << " boundary_class=non_capture_residual2_to_norm1"
+      << " phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " live_phase=" << vision_stack_phase_name(current_vision_stack_phase())
+      << " live_block=" << current_vision_stack_block_index()
+      << " status=" << (status ? status : "missing")
+      << " eligible_records=" << eligible_records
+      << " eligible_boundary_count=" << eligible_boundary_count
+      << " barrier_validated_count=" << barrier_validated_count
+      << " barriers_inserted=" << barrier_validated_count
+      << " submits_removed=" << (submit_removed ? 1 : 0);
+  return key.str();
+}
+
+void record_stack_region_submit_elision_canary_locked(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const char* const status,
+    const uint64_t eligible_records,
+    const uint64_t eligible_boundary_count,
+    const uint64_t barrier_validated_count,
+    const bool submit_removed) {
+  auto& value = stack_region_submit_elision_canary_rows()
+      [stack_region_submit_elision_canary_key(
+          phase,
+          callsite,
+          status,
+          eligible_records,
+          eligible_boundary_count,
+          barrier_validated_count,
+          submit_removed)];
+  value.count += 1u;
+  value.eligible_records += eligible_records;
+  value.eligible_boundary_count += eligible_boundary_count;
+  value.barrier_validated_count += barrier_validated_count;
+  if (submit_removed) {
+    value.submit_removed_count += 1u;
+  }
+}
+
 const StackDispatchDependencyDispatchValue* find_stack_dispatch_observation(
     const uint64_t scope_id,
     const VulkanVisionStackPhase phase,
@@ -1232,6 +1307,22 @@ const char* stack_region_barrier_only_canary_target() {
 }
 
 bool stack_region_barrier_only_canary_target_selected(
+    const char* const target) {
+  if (target == nullptr) {
+    return false;
+  }
+  const std::string value(target);
+  return value == "non_capture_residual2_norm1_block1" ||
+      value == "producer_block_0_consumer_block_1";
+}
+
+const char* stack_region_submit_elision_canary_target() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY");
+  return (env && *env) ? env : nullptr;
+}
+
+bool stack_region_submit_elision_canary_target_selected(
     const char* const target) {
   if (target == nullptr) {
     return false;
@@ -10447,6 +10538,117 @@ void note_stack_region_boundary_submit_plan(
   }
 }
 
+bool maybe_elide_stack_region_boundary_submit_canary(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite) {
+  const char* const target = stack_region_submit_elision_canary_target();
+  if (
+      !stack_region_submit_elision_canary_target_selected(target) ||
+      phase != VulkanSubmitPhase::StackOwner ||
+      !(callsite == VulkanRetireCallSite::StackOwnerPhaseBoundary ||
+        callsite == VulkanRetireCallSite::StackOwnerNorm1 ||
+        callsite == VulkanRetireCallSite::StackOwnerNorm2)) {
+    return false;
+  }
+  const std::string selected_boundary_id =
+      non_capture_residual2_to_norm1_boundary_id(0, 1);
+  std::set<std::string> eligible_boundary_ids;
+  uint64_t eligible_records = 0u;
+  uint64_t barrier_validated_records = 0u;
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  uint64_t already_removed = 0u;
+  for (const auto& item : stack_region_boundary_optimization_plan_rows()) {
+    already_removed += item.second.submit_removed_count;
+  }
+  for (const auto& item : stack_region_boundary_optimization_plan_rows()) {
+    const auto fields = parse_space_separated_fields(item.first);
+    if (
+        field_or(fields, "submit_elision_eligible", "0") != "1" ||
+        field_or(fields, "behavior_change_allowed", "0") != "1" ||
+        field_or(fields, "boundary_scope", "unknown") != "non_capture" ||
+        field_or(fields, "non_capture_boundary", "0") != "1" ||
+        field_or(fields, "capture_edge", "1") != "0" ||
+        field_or(fields, "public_output", "1") != "0" ||
+        field_or(fields, "final_output", "1") != "0" ||
+        field_or(fields, "host_visible", "1") != "0" ||
+        field_or(fields, "readback_edge", "1") != "0" ||
+        parsed_u64(fields, "barriers_inserted") == 0u) {
+      continue;
+    }
+    eligible_boundary_ids.insert(
+        field_or(fields, "selected_boundary_id", "none"));
+    eligible_records += std::max<uint64_t>(item.second.count, 1u);
+    barrier_validated_records += item.second.barrier_validated_count;
+  }
+  const uint64_t eligible_boundary_count = eligible_boundary_ids.size();
+  if (already_removed != 0u) {
+    record_stack_region_submit_elision_canary_locked(
+        phase,
+        callsite,
+        "already_removed_one_submit",
+        eligible_records,
+        eligible_boundary_count,
+        barrier_validated_records,
+        /*submit_removed=*/false);
+    return false;
+  }
+  if (
+      current_vision_stack_phase() != VulkanVisionStackPhase::Norm1 ||
+      current_vision_stack_block_index() != 1) {
+    record_stack_region_submit_elision_canary_locked(
+        phase,
+        callsite,
+        "live_boundary_not_selected",
+        eligible_records,
+        eligible_boundary_count,
+        barrier_validated_records,
+        /*submit_removed=*/false);
+    return false;
+  }
+  if (
+      eligible_records == 0u || eligible_boundary_ids.size() != 1u ||
+      *eligible_boundary_ids.begin() != selected_boundary_id) {
+    record_stack_region_submit_elision_canary_locked(
+        phase,
+        callsite,
+        eligible_records == 0u ? "no_eligible_plan_records"
+                               : "eligible_boundary_mismatch",
+        eligible_records,
+        eligible_boundary_count,
+        barrier_validated_records,
+        /*submit_removed=*/false);
+    return false;
+  }
+  for (auto& item : stack_region_boundary_optimization_plan_rows()) {
+    const auto fields = parse_space_separated_fields(item.first);
+    if (
+        field_or(fields, "selected_boundary_id", "none") ==
+            selected_boundary_id &&
+        field_or(fields, "submit_elision_eligible", "0") == "1" &&
+        field_or(fields, "behavior_change_allowed", "0") == "1" &&
+        parsed_u64(fields, "barriers_inserted") > 0u) {
+      record_stack_region_submit_elision_canary_locked(
+          phase,
+          callsite,
+          "live_boundary_matched_diagnostic_only_submit_preserved",
+          eligible_records,
+          eligible_boundary_count,
+          barrier_validated_records,
+          /*submit_removed=*/false);
+      return false;
+    }
+  }
+  record_stack_region_submit_elision_canary_locked(
+      phase,
+      callsite,
+      "eligible_plan_record_not_found_at_live_site",
+      eligible_records,
+      eligible_boundary_count,
+      barrier_validated_records,
+      /*submit_removed=*/false);
+  return false;
+}
+
 void note_stack_phase_boundary_lifetime_dry_run_group(
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
@@ -10917,6 +11119,9 @@ bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
   if (!stack_region_barrier_only_canary_target_selected(target)) {
     return false;
   }
+  const bool submit_elision_requested =
+      stack_region_submit_elision_canary_target_selected(
+          stack_region_submit_elision_canary_target());
   if (!inside_vision_stack_phase()) {
     return false;
   }
@@ -11002,7 +11207,7 @@ bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
       buffer,
       proof,
       barrier_inserted,
-      /*submit_elision_requested=*/false);
+      submit_elision_requested);
   return barrier_inserted;
 }
 
@@ -11364,7 +11569,8 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_region_boundary_submit_plan_rows().size() +
       stack_region_barrier_only_canary_rows().size() +
       stack_region_pre_dispatch_proof_table_rows().size() +
-      stack_region_boundary_optimization_plan_rows().size());
+      stack_region_boundary_optimization_plan_rows().size() +
+      stack_region_submit_elision_canary_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
@@ -11443,6 +11649,15 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
         << " submits_removed=" << item.second.submit_removed_count;
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_region_submit_elision_canary_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " eligible_records=" << item.second.eligible_records
+        << " eligible_boundary_count=" << item.second.eligible_boundary_count
+        << " barrier_validated_count=" << item.second.barrier_validated_count
+        << " submits_removed=" << item.second.submit_removed_count;
+    rows.push_back(row.str());
+  }
   return rows;
 }
 
@@ -11466,6 +11681,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_barrier_only_canary_rows().clear();
   stack_region_pre_dispatch_proof_table_rows().clear();
   stack_region_boundary_optimization_plan_rows().clear();
+  stack_region_submit_elision_canary_rows().clear();
   stack_output_device_consumer_registrations().clear();
 }
 
