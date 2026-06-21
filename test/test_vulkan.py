@@ -20162,6 +20162,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 optimization_plan["status_counts"],
             )
             self.assertIn("stack_region_submit_epoch_ordering", graph)
+            self.assertIn("raw_resource_producer_nodes", graph)
+            self.assertGreaterEqual(
+                graph["summary"]["raw_resource_producer_rows"],
+                0,
+            )
             submit_epoch_ordering = graph["stack_region_submit_epoch_ordering"]
             self.assertEqual(
                 submit_epoch_ordering["schema"],
@@ -20260,6 +20265,30 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn(
                 "raw_buffer_unbound_label_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_producer_registration_candidate_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_producer_registered_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "unscoped_raw_buffer_producer_registered_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_producer_registration_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_producer_registration_source_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_producer_owner_class_counts",
                 submit_epoch_ordering,
             )
             self.assertIn(

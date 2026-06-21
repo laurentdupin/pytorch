@@ -481,6 +481,12 @@ struct StackRegionSubmitElisionCanaryValue final {
   uint64_t submit_removed_count = 0u;
 };
 
+struct StackRawResourceProducerRegistrationValue final {
+  uint64_t count = 0u;
+  uint64_t byte_range = 0u;
+  uint64_t allocated_bytes = 0u;
+};
+
 struct StackRegionOptimizationEligibilitySummary final {
   uint64_t candidate_records = 0u;
   uint64_t eligible_records = 0u;
@@ -543,6 +549,27 @@ stack_region_submit_elision_canary_rows() {
   return rows;
 }
 
+std::map<std::string, StackRawResourceProducerRegistrationValue>&
+stack_raw_resource_producer_registration_rows() {
+  static std::map<std::string, StackRawResourceProducerRegistrationValue> rows;
+  return rows;
+}
+
+std::string stack_region_row_token(const std::string& value) {
+  if (value.empty()) {
+    return "none";
+  }
+  std::string token = value;
+  for (char& c : token) {
+    if (
+        c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '|' ||
+        c == '#' || c == ',') {
+      c = '_';
+    }
+  }
+  return token;
+}
+
 std::string stack_dispatch_dependency_dispatch_key(
     const uint64_t scope_id,
     const VulkanVisionStackPhase phase,
@@ -554,6 +581,90 @@ std::string stack_dispatch_dependency_dispatch_key(
       << " phase=" << vision_stack_phase_name(phase)
       << " block=" << block
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown");
+  return key.str();
+}
+
+const char* stack_raw_resource_owner_class(
+    const VulkanSubmitPhase submit_phase,
+    const bool inside_stack_phase,
+    const uint64_t scope_id) {
+  if (inside_stack_phase) {
+    return "stack_phase_active";
+  }
+  if (scope_id != 0u) {
+    return "stack_region_scope_outside_stack_phase";
+  }
+  switch (submit_phase) {
+    case VulkanSubmitPhase::StackOwner:
+    case VulkanSubmitPhase::StackOwnerNorm:
+    case VulkanSubmitPhase::StackOwnerAttention:
+    case VulkanSubmitPhase::StackOwnerLinear:
+    case VulkanSubmitPhase::StackOwnerResidual:
+      return "stack_owner_outside_stack_phase";
+    case VulkanSubmitPhase::Decoder:
+    case VulkanSubmitPhase::DecoderConv:
+    case VulkanSubmitPhase::DecoderUpsample:
+    case VulkanSubmitPhase::DecoderPointwise:
+      return "downstream_decoder";
+    case VulkanSubmitPhase::ModelSetup:
+    case VulkanSubmitPhase::PatchEmbed:
+    case VulkanSubmitPhase::PositionalEmbeddingSetup:
+      return "setup_or_patch";
+    case VulkanSubmitPhase::Readback:
+      return "readback";
+    case VulkanSubmitPhase::ExplicitSynchronize:
+    case VulkanSubmitPhase::Retire:
+    case VulkanSubmitPhase::Profiling:
+    case VulkanSubmitPhase::Shutdown:
+    case VulkanSubmitPhase::TestHarness:
+    case VulkanSubmitPhase::Unknown:
+      break;
+  }
+  return "unknown_owner_scope";
+}
+
+std::string stack_raw_resource_producer_registration_key(
+    const uint64_t allocation_id,
+    const uint64_t allocation_generation,
+    const uint64_t byte_offset,
+    const uint64_t byte_range,
+    const uint64_t allocated_bytes,
+    const char* const kind,
+    const std::string& allocation_label,
+    const std::string& allocation_role,
+    const bool owns_memory) {
+  const bool inside_stack = inside_vision_stack_phase();
+  const VulkanSubmitPhase submit_phase = current_submit_phase();
+  const uint64_t scope_id = g_stack_dispatch_dependency_scope_id;
+  std::ostringstream key;
+  key << "raw_resource_producer=1"
+      << " allocation_id=" << allocation_id
+      << " allocation_generation=" << allocation_generation
+      << " byte_offset=" << byte_offset
+      << " byte_range=" << byte_range
+      << " allocated_bytes=" << allocated_bytes
+      << " kind=" << (kind && kind[0] ? kind : "unknown")
+      << " allocation_label="
+      << stack_region_row_token(
+             allocation_label.empty() ? "unlabeled" : allocation_label)
+      << " allocation_role="
+      << stack_region_row_token(
+             allocation_role.empty() ? "unknown" : allocation_role)
+      << " owns_memory=" << (owns_memory ? 1 : 0)
+      << " submit_phase=" << submit_phase_name(submit_phase)
+      << " stack_scope_id=" << scope_id
+      << " stack_scope_active=" << (scope_id != 0u ? 1 : 0)
+      << " inside_stack_phase=" << (inside_stack ? 1 : 0)
+      << " stack_phase=" << vision_stack_phase_name(g_vision_stack_phase)
+      << " stack_block=" << g_vision_stack_block_index
+      << " owner_class="
+      << stack_raw_resource_owner_class(submit_phase, inside_stack, scope_id)
+      << " runtime_label="
+      << stack_region_row_token(
+             current_runtime_label().empty() ? "none" : current_runtime_label())
+      << " recent_op_label="
+      << stack_region_row_token(
+             recent_op_label().empty() ? "none" : recent_op_label());
   return key.str();
 }
 
@@ -7073,6 +7184,7 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::vector<std::string>& optimization_rows,
     const std::vector<std::string>& boundary_submit_plan_rows,
     const std::vector<std::string>& live_buffer_binding_rows,
+    const std::vector<std::string>& raw_resource_producer_rows,
     const std::vector<std::string>& submit_rows,
     bool& first) {
   uint64_t optimization_records = 0u;
@@ -7158,12 +7270,22 @@ void append_stack_region_submit_epoch_ordering_json(
   uint64_t raw_buffer_live_bound_bytes = 0u;
   uint64_t raw_buffer_live_binding_missing_count = 0u;
   uint64_t raw_buffer_live_binding_missing_bytes = 0u;
+  uint64_t raw_buffer_producer_registration_candidate_count = 0u;
+  uint64_t raw_buffer_producer_registration_candidate_bytes = 0u;
+  uint64_t raw_buffer_producer_registered_count = 0u;
+  uint64_t raw_buffer_producer_registered_bytes = 0u;
+  uint64_t raw_buffer_producer_registration_missing_count = 0u;
+  uint64_t raw_buffer_producer_registration_missing_bytes = 0u;
   uint64_t unscoped_raw_buffer_binding_candidate_count = 0u;
   uint64_t unscoped_raw_buffer_binding_candidate_bytes = 0u;
   uint64_t unscoped_raw_buffer_live_bound_count = 0u;
   uint64_t unscoped_raw_buffer_live_bound_bytes = 0u;
   uint64_t unscoped_raw_buffer_live_binding_missing_count = 0u;
   uint64_t unscoped_raw_buffer_live_binding_missing_bytes = 0u;
+  uint64_t unscoped_raw_buffer_producer_registered_count = 0u;
+  uint64_t unscoped_raw_buffer_producer_registered_bytes = 0u;
+  uint64_t unscoped_raw_buffer_producer_registration_missing_count = 0u;
+  uint64_t unscoped_raw_buffer_producer_registration_missing_bytes = 0u;
   std::map<std::string, uint64_t> raw_provenance_class_counts;
   std::map<std::string, uint64_t> raw_provenance_class_bytes;
   std::map<std::string, uint64_t> raw_provenance_role_counts;
@@ -7184,7 +7306,17 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> raw_provenance_unbound_label_bytes;
   std::map<std::string, uint64_t> raw_provenance_explicit_blocker_counts;
   std::map<std::string, uint64_t> raw_provenance_explicit_blocker_bytes;
+  std::map<std::string, uint64_t> raw_provenance_producer_registration_status_counts;
+  std::map<std::string, uint64_t> raw_provenance_producer_registration_status_bytes;
+  std::map<std::string, uint64_t> raw_provenance_producer_registration_source_counts;
+  std::map<std::string, uint64_t> raw_provenance_producer_registration_source_bytes;
+  std::map<std::string, uint64_t> raw_provenance_producer_owner_class_counts;
+  std::map<std::string, uint64_t> raw_provenance_producer_owner_class_bytes;
+  std::map<std::string, uint64_t> raw_provenance_producer_registration_missing_label_counts;
+  std::map<std::string, uint64_t> raw_provenance_producer_registration_missing_label_bytes;
   std::map<std::string, std::string> live_binding_sources_by_range;
+  std::map<std::string, std::string> raw_producer_sources_by_range;
+  std::map<std::string, std::string> raw_producer_owner_by_range;
   for (const auto& row : live_buffer_binding_rows) {
     const auto fields = parse_space_separated_fields(row);
     const std::string allocation_id = field_or(fields, "allocation_id", "0");
@@ -7208,6 +7340,36 @@ void append_stack_region_submit_epoch_ordering_json(
     } else if (it->second.find(source) == std::string::npos) {
       it->second += "|" + source;
     }
+  }
+  for (const auto& row : raw_resource_producer_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const std::string allocation_id = field_or(fields, "allocation_id", "0");
+    const std::string generation =
+        field_or(fields, "allocation_generation", "0");
+    const std::string offset = field_or(fields, "byte_offset", "0");
+    const std::string range = field_or(fields, "byte_range", "0");
+    if (allocation_id == "0" || generation == "0" || range == "0") {
+      continue;
+    }
+    const std::string key = allocation_id + "-" + generation + "-" + offset +
+        "-" + range;
+    const std::string owner_class =
+        field_or(fields, "owner_class", "unknown_owner_scope");
+    const std::string source =
+        field_or(fields, "allocation_label", "unlabeled") + ":" +
+        field_or(fields, "allocation_role", "unknown") + ":" +
+        field_or(fields, "submit_phase", "unknown") + ":" + owner_class + ":" +
+        field_or(fields, "stack_phase", "unknown") + "@" +
+        field_or(fields, "stack_block", "-1") + ":" +
+        field_or(fields, "runtime_label", "none") + ":" +
+        field_or(fields, "recent_op_label", "none");
+    const auto it = raw_producer_sources_by_range.find(key);
+    if (it == raw_producer_sources_by_range.end()) {
+      raw_producer_sources_by_range[key] = source;
+    } else if (it->second.find(source) == std::string::npos) {
+      it->second += "|" + source;
+    }
+    raw_producer_owner_by_range[key] = owner_class;
   }
   const auto accumulate_class_summary = [&](
                                             const std::string& summary,
@@ -7286,9 +7448,15 @@ void append_stack_region_submit_epoch_ordering_json(
           const auto binding_it = live_binding_sources_by_range.find(fields[12]);
           const bool live_bound = has_range &&
               binding_it != live_binding_sources_by_range.end();
+          const auto producer_it =
+              raw_producer_sources_by_range.find(fields[12]);
+          const bool producer_registered =
+              has_range && producer_it != raw_producer_sources_by_range.end();
           if (has_range) {
             raw_buffer_live_binding_candidate_count += count;
             raw_buffer_live_binding_candidate_bytes += bytes;
+            raw_buffer_producer_registration_candidate_count += count;
+            raw_buffer_producer_registration_candidate_bytes += bytes;
             if (fields[0] == "unscoped_raw_buffer_no_stack_proof") {
               unscoped_raw_buffer_binding_candidate_count += count;
               unscoped_raw_buffer_binding_candidate_bytes += bytes;
@@ -7328,6 +7496,61 @@ void append_stack_region_submit_epoch_ordering_json(
           }
           raw_provenance_binding_status_counts[binding_status] += count;
           raw_provenance_binding_status_bytes[binding_status] += bytes;
+
+          std::string producer_status = "not_bindable_missing_allocation_range";
+          if (explicit_blocker) {
+            producer_status = fields[0] == "host_visible_or_requested_output"
+                ? "explicit_public_or_host_blocker"
+                : "explicit_non_stack_setup_blocker";
+          } else if (producer_registered) {
+            const auto owner_it = raw_producer_owner_by_range.find(fields[12]);
+            const std::string owner_class =
+                owner_it == raw_producer_owner_by_range.end()
+                ? "unknown_owner_scope"
+                : owner_it->second;
+            if (owner_class == "stack_phase_active") {
+              producer_status = "producer_registered_stack_phase_active";
+            } else if (
+                owner_class == "stack_region_scope_outside_stack_phase" ||
+                owner_class == "stack_owner_outside_stack_phase") {
+              producer_status = "producer_registered_stack_owner_context";
+            } else if (
+                owner_class == "setup_or_patch" ||
+                owner_class == "downstream_decoder") {
+              producer_status =
+                  "producer_registered_non_stack_or_downstream_context";
+            } else {
+              producer_status = "producer_registered_unknown_owner_scope";
+            }
+            raw_buffer_producer_registered_count += count;
+            raw_buffer_producer_registered_bytes += bytes;
+            raw_provenance_producer_registration_source_counts
+                [producer_it->second] += count;
+            raw_provenance_producer_registration_source_bytes
+                [producer_it->second] += bytes;
+            raw_provenance_producer_owner_class_counts[owner_class] += count;
+            raw_provenance_producer_owner_class_bytes[owner_class] += bytes;
+            if (fields[0] == "unscoped_raw_buffer_no_stack_proof") {
+              unscoped_raw_buffer_producer_registered_count += count;
+              unscoped_raw_buffer_producer_registered_bytes += bytes;
+            }
+          } else if (has_range) {
+            producer_status = "missing_raw_resource_producer_registration";
+            raw_buffer_producer_registration_missing_count += count;
+            raw_buffer_producer_registration_missing_bytes += bytes;
+            raw_provenance_producer_registration_missing_label_counts
+                [fields[3]] += count;
+            raw_provenance_producer_registration_missing_label_bytes
+                [fields[3]] += bytes;
+            if (fields[0] == "unscoped_raw_buffer_no_stack_proof") {
+              unscoped_raw_buffer_producer_registration_missing_count += count;
+              unscoped_raw_buffer_producer_registration_missing_bytes += bytes;
+            }
+          }
+          raw_provenance_producer_registration_status_counts
+              [producer_status] += count;
+          raw_provenance_producer_registration_status_bytes
+              [producer_status] += bytes;
         }
       };
   const auto count_row = [&](
@@ -7694,6 +7917,56 @@ void append_stack_region_submit_epoch_ordering_json(
       "unscoped_raw_buffer_live_binding_missing_bytes",
       unscoped_raw_buffer_live_binding_missing_bytes,
       ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_producer_registration_candidate_count",
+      raw_buffer_producer_registration_candidate_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_producer_registration_candidate_bytes",
+      raw_buffer_producer_registration_candidate_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_producer_registered_count",
+      raw_buffer_producer_registered_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_producer_registered_bytes",
+      raw_buffer_producer_registered_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_producer_registration_missing_count",
+      raw_buffer_producer_registration_missing_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_producer_registration_missing_bytes",
+      raw_buffer_producer_registration_missing_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_producer_registered_count",
+      unscoped_raw_buffer_producer_registered_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_producer_registered_bytes",
+      unscoped_raw_buffer_producer_registered_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_producer_registration_missing_count",
+      unscoped_raw_buffer_producer_registration_missing_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_producer_registration_missing_bytes",
+      unscoped_raw_buffer_producer_registration_missing_bytes,
+      ordering_first);
   append_json_comma(out, ordering_first);
   out << "\"raw_buffer_provenance_class_counts\":";
   append_u64_map_object(out, raw_provenance_class_counts);
@@ -7754,6 +8027,32 @@ void append_stack_region_submit_epoch_ordering_json(
   append_json_comma(out, ordering_first);
   out << "\"raw_buffer_explicit_blocker_bytes\":";
   append_u64_map_object(out, raw_provenance_explicit_blocker_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_producer_registration_status_counts\":";
+  append_u64_map_object(out, raw_provenance_producer_registration_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_producer_registration_status_bytes\":";
+  append_u64_map_object(out, raw_provenance_producer_registration_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_producer_registration_source_counts\":";
+  append_u64_map_object(out, raw_provenance_producer_registration_source_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_producer_registration_source_bytes\":";
+  append_u64_map_object(out, raw_provenance_producer_registration_source_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_producer_owner_class_counts\":";
+  append_u64_map_object(out, raw_provenance_producer_owner_class_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_producer_owner_class_bytes\":";
+  append_u64_map_object(out, raw_provenance_producer_owner_class_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_producer_registration_missing_label_counts\":";
+  append_u64_map_object(
+      out, raw_provenance_producer_registration_missing_label_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_producer_registration_missing_label_bytes\":";
+  append_u64_map_object(
+      out, raw_provenance_producer_registration_missing_label_bytes);
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",
@@ -8047,10 +8346,15 @@ void split_stack_graph_rows(
     std::vector<std::string>& barrier_only_canary_rows,
     std::vector<std::string>& pre_dispatch_proof_rows,
     std::vector<std::string>& boundary_optimization_plan_rows,
-    std::vector<std::string>& submit_elision_canary_rows) {
+    std::vector<std::string>& submit_elision_canary_rows,
+    std::vector<std::string>& raw_resource_producer_rows) {
   for (const auto& row : rows) {
     if (row.find("stack_region_submit_elision_canary=1") != std::string::npos) {
       submit_elision_canary_rows.emplace_back(row);
+      continue;
+    }
+    if (row.find("raw_resource_producer=1") != std::string::npos) {
+      raw_resource_producer_rows.emplace_back(row);
       continue;
     }
     if (row.find("stack_region_pre_dispatch_proof=1") != std::string::npos) {
@@ -8127,6 +8431,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> pre_dispatch_proof_rows;
   std::vector<std::string> boundary_optimization_plan_rows;
   std::vector<std::string> submit_elision_canary_rows;
+  std::vector<std::string> raw_resource_producer_rows;
   split_stack_graph_rows(
       dispatch_dependency_rows,
       dispatch_nodes,
@@ -8138,7 +8443,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       barrier_only_canary_rows,
       pre_dispatch_proof_rows,
       boundary_optimization_plan_rows,
-      submit_elision_canary_rows);
+      submit_elision_canary_rows,
+      raw_resource_producer_rows);
 
   std::vector<std::string> resource_nodes;
   std::vector<std::string> boundary_nodes;
@@ -8286,6 +8592,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_region_submit_elision_canary_rows",
       submit_elision_canary_rows.size(),
       summary_first);
+  append_json_u64(
+      out,
+      "raw_resource_producer_rows",
+      raw_resource_producer_rows.size(),
+      summary_first);
   append_json_bool(out, "submit_elision_enabled", false, summary_first);
   append_json_string(
       out,
@@ -8364,6 +8675,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       first);
   append_graph_array(
       out,
+      "raw_resource_producer_nodes",
+      raw_resource_producer_rows,
+      "raw_resource_producer",
+      first);
+  append_graph_array(
+      out,
       "stack_output_device_consumer_registrations",
       consumer_registration_rows,
       "stack_output_device_consumer_registration",
@@ -8387,6 +8704,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       boundary_optimization_plan_rows,
       boundary_submit_plan_rows,
       live_buffer_binding_nodes,
+      raw_resource_producer_rows,
       submit_elision_canary_rows,
       first);
   append_barrier_plan_json(
@@ -13764,6 +14082,38 @@ void note_vulkan_stack_allocation(
   value.peak_live_estimate_bytes = std::max(value.peak_live_estimate_bytes, bytes);
 }
 
+void note_stack_raw_resource_producer_registration(
+    const uint64_t allocation_id,
+    const uint64_t allocation_generation,
+    const uint64_t byte_offset,
+    const uint64_t byte_range,
+    const uint64_t allocated_bytes,
+    const char* kind,
+    const std::string& allocation_label,
+    const std::string& allocation_role,
+    const bool owns_memory) {
+  if (
+      stack_region_dependency_graph_path() == nullptr || allocation_id == 0u ||
+      allocation_generation == 0u || byte_range == 0u) {
+    return;
+  }
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  auto& value = stack_raw_resource_producer_registration_rows()
+      [stack_raw_resource_producer_registration_key(
+          allocation_id,
+          allocation_generation,
+          byte_offset,
+          byte_range,
+          allocated_bytes,
+          kind,
+          allocation_label,
+          allocation_role,
+          owns_memory)];
+  value.count += 1u;
+  value.byte_range += byte_range;
+  value.allocated_bytes += allocated_bytes;
+}
+
 void note_stack_output_device_consumer_registration(
     const VulkanStackOutputDeviceConsumerRegistration& registration) {
   std::ostringstream key;
@@ -13853,7 +14203,8 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_region_barrier_only_canary_rows().size() +
       stack_region_pre_dispatch_proof_table_rows().size() +
       stack_region_boundary_optimization_plan_rows().size() +
-      stack_region_submit_elision_canary_rows().size());
+      stack_region_submit_elision_canary_rows().size() +
+      stack_raw_resource_producer_registration_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
@@ -13942,6 +14293,13 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
         << " submits_removed=" << item.second.submit_removed_count;
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_raw_resource_producer_registration_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " observed_byte_range=" << item.second.byte_range
+        << " observed_allocated_bytes=" << item.second.allocated_bytes;
+    rows.push_back(row.str());
+  }
   return rows;
 }
 
@@ -13966,6 +14324,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_pre_dispatch_proof_table_rows().clear();
   stack_region_boundary_optimization_plan_rows().clear();
   stack_region_submit_elision_canary_rows().clear();
+  stack_raw_resource_producer_registration_rows().clear();
   stack_output_device_consumer_registrations().clear();
 }
 

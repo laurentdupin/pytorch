@@ -131,21 +131,37 @@ void record_vulkan_memory_allocation(
   }
   VulkanMemoryResidencyRecord record;
   record.id = id;
-  record.generation = next_vulkan_memory_allocation_generation().fetch_add(
-      1u, std::memory_order_relaxed);
+  const uint64_t generation =
+      next_vulkan_memory_allocation_generation().fetch_add(
+          1u, std::memory_order_relaxed);
+  record.generation = generation;
   record.kind = kind;
   record.state = "live";
   record.requested_bytes = requested_bytes;
   record.allocated_bytes = allocated_bytes;
-  record.label = label.empty() ? "unlabeled" : label;
-  record.role = classify_allocation_role(record.label);
+  const std::string normalized_label = label.empty() ? "unlabeled" : label;
+  const std::string allocation_role = classify_allocation_role(normalized_label);
+  record.label = normalized_label;
+  record.role = allocation_role;
   record.owns_memory = owns_memory;
-  std::lock_guard<std::mutex> lock(vulkan_memory_residency_mutex());
-  vulkan_memory_residency_records()[id] = std::move(record);
+  {
+    std::lock_guard<std::mutex> lock(vulkan_memory_residency_mutex());
+    vulkan_memory_residency_records()[id] = std::move(record);
+  }
   const uint64_t live_bytes = vulkan_memory_live_bytes().fetch_add(
                                   allocated_bytes, std::memory_order_relaxed) +
       allocated_bytes;
   update_vulkan_memory_high_water(live_bytes);
+  note_stack_raw_resource_producer_registration(
+      id,
+      generation,
+      /*byte_offset=*/0u,
+      requested_bytes,
+      allocated_bytes,
+      kind,
+      normalized_label,
+      allocation_role,
+      owns_memory);
 }
 
 void erase_vulkan_memory_allocation(const uint64_t id) {

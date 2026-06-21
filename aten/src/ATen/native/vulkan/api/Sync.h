@@ -920,6 +920,16 @@ TORCH_API void note_vulkan_stack_allocation(
     bool escapes_stack,
     bool requested_intermediate,
     uint64_t bytes);
+TORCH_API void note_stack_raw_resource_producer_registration(
+    uint64_t allocation_id,
+    uint64_t allocation_generation,
+    uint64_t byte_offset,
+    uint64_t byte_range,
+    uint64_t allocated_bytes,
+    const char* kind,
+    const std::string& allocation_label,
+    const std::string& allocation_role,
+    bool owns_memory);
 TORCH_API void note_stack_output_device_consumer_registration(
     const VulkanStackOutputDeviceConsumerRegistration& registration);
 TORCH_API std::vector<std::string> stack_dispatch_aggregate_snapshot();
