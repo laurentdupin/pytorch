@@ -7714,6 +7714,267 @@ void append_stack_region_submit_epoch_ordering_json(
     }
     raw_producer_owner_by_range[key] = owner_class;
   }
+  struct BoundarySubmitLevelProofAggregate final {
+    uint64_t records = 0u;
+    uint64_t bytes = 0u;
+    uint64_t complete_records = 0u;
+    uint64_t complete_bytes = 0u;
+    uint64_t command_buffer_id_available_records = 0u;
+    uint64_t submit_epoch_available_records = 0u;
+    uint64_t pending_dispatch_count_observed_records = 0u;
+    uint64_t pending_resource_set_observed_records = 0u;
+    uint64_t pending_write_set_observed_records = 0u;
+    uint64_t same_batch_proven_records = 0u;
+    uint64_t pending_dispatch_complete_records = 0u;
+    uint64_t no_unmodeled_side_effect_records = 0u;
+    uint64_t writes_covered_records = 0u;
+    uint64_t pending_dispatch_count = 0u;
+    uint64_t pending_resource_count = 0u;
+    uint64_t pending_resource_bytes = 0u;
+    uint64_t descriptor_update_side_effect_count = 0u;
+    uint64_t retire_side_effect_count = 0u;
+    uint64_t retire_side_effect_bytes = 0u;
+    uint64_t real_barrier_records = 0u;
+    uint64_t matched_barrier_records = 0u;
+    uint64_t covered_by_barrier_count = 0u;
+    uint64_t covered_by_barrier_bytes = 0u;
+    uint64_t unknown_unmodeled_side_effect_count = 0u;
+    uint64_t unknown_resource_side_effect_count = 0u;
+    uint64_t unknown_resource_side_effect_bytes = 0u;
+    std::set<std::string> topology_signatures;
+    std::map<std::string, uint64_t> reject_reason_counts;
+    std::map<std::string, uint64_t> candidate_status_counts;
+    std::map<std::string, uint64_t> side_effect_reason_counts;
+  };
+  std::map<std::string, BoundarySubmitLevelProofAggregate>
+      submit_level_proof_by_boundary_id;
+  std::vector<std::string> submit_level_equivalence_proof_rows;
+  const auto submit_level_reject_reason_for_fields =
+      [](const std::map<std::string, std::string>& fields) {
+        const std::string candidate_status = field_or(
+            fields,
+            "submit_equivalence_candidate_status",
+            "missing_submit_equivalence_candidate_status");
+        if (
+            candidate_status != "submit_equivalence_complete" &&
+            candidate_status != "complete") {
+          return std::string("submit_equivalence_candidate_status_incomplete");
+        }
+        if (
+            field_or(fields, "removed_submit_pending_dispatch_set_complete", "0") !=
+            "1") {
+          return std::string("removed_submit_pending_dispatch_set_incomplete");
+        }
+        if (
+            field_or(
+                fields,
+                "removed_submit_has_no_unmodeled_execution_side_effects",
+                "0") != "1") {
+          return std::string("removed_submit_has_unmodeled_side_effects");
+        }
+        if (
+            field_or(
+                fields,
+                "all_pending_writes_covered_by_barrier_or_nonescaping",
+                "0") != "1") {
+          return std::string("pending_writes_not_covered_by_barrier_or_nonescaping");
+        }
+        if (
+            field_or(fields, "same_command_buffer_or_same_submit_batch_proven", "0") !=
+            "1") {
+          return std::string("same_command_buffer_or_submit_batch_not_proven");
+        }
+        return std::string("none");
+      };
+  for (const auto& row : boundary_submit_plan_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const std::string boundary_id =
+        field_or(fields, "live_boundary_id", "none");
+    if (boundary_id == "none" || boundary_id.empty()) {
+      continue;
+    }
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    const uint64_t bytes = parsed_u64(fields, "pending_resource_bytes");
+    auto& proof = submit_level_proof_by_boundary_id[boundary_id];
+    proof.records += count;
+    proof.bytes += bytes;
+    const uint64_t pending_dispatch_count =
+        parsed_u64(fields, "pending_dispatch_count") * count;
+    const uint64_t pending_resource_count =
+        parsed_u64(fields, "pending_resource_count") * count;
+    const uint64_t pending_resource_bytes =
+        parsed_u64(fields, "pending_resource_bytes") * count;
+    proof.pending_dispatch_count += pending_dispatch_count;
+    proof.pending_resource_count += pending_resource_count;
+    proof.pending_resource_bytes += pending_resource_bytes;
+    proof.descriptor_update_side_effect_count +=
+        parsed_u64(fields, "descriptor_update_side_effect_count") * count;
+    proof.retire_side_effect_count +=
+        parsed_u64(fields, "retire_side_effect_count") * count;
+    proof.retire_side_effect_bytes +=
+        parsed_u64(fields, "retire_side_effect_bytes") * count;
+    proof.real_barrier_records +=
+        parsed_u64(fields, "real_barrier_records") * count;
+    proof.matched_barrier_records +=
+        parsed_u64(fields, "matched_barrier_records") * count;
+    proof.covered_by_barrier_count +=
+        parsed_u64(fields, "covered_by_barrier_count") * count;
+    proof.covered_by_barrier_bytes +=
+        parsed_u64(fields, "covered_by_barrier_bytes") * count;
+    proof.unknown_unmodeled_side_effect_count +=
+        parsed_u64(fields, "unknown_unmodeled_side_effect_count") * count;
+    proof.unknown_resource_side_effect_count +=
+        parsed_u64(fields, "unknown_resource_side_effect_count") * count;
+    proof.unknown_resource_side_effect_bytes +=
+        parsed_u64(fields, "unknown_resource_side_effect_bytes") * count;
+    if (field_or(fields, "command_buffer_id_available", "0") == "1") {
+      proof.command_buffer_id_available_records += count;
+    }
+    if (field_or(fields, "submit_epoch_available", "0") == "1") {
+      proof.submit_epoch_available_records += count;
+    }
+    if (parsed_u64(fields, "pending_dispatch_count") > 0u) {
+      proof.pending_dispatch_count_observed_records += count;
+    }
+    if (parsed_u64(fields, "pending_resource_count") > 0u) {
+      proof.pending_resource_set_observed_records += count;
+    }
+    if (field_or(fields, "pending_write_set_summary", "none") != "none") {
+      proof.pending_write_set_observed_records += count;
+    }
+    if (
+        field_or(fields, "same_command_buffer_or_same_submit_batch_proven", "0") ==
+        "1") {
+      proof.same_batch_proven_records += count;
+    }
+    if (
+        field_or(fields, "removed_submit_pending_dispatch_set_complete", "0") ==
+        "1") {
+      proof.pending_dispatch_complete_records += count;
+    }
+    if (
+        field_or(
+            fields,
+            "removed_submit_has_no_unmodeled_execution_side_effects",
+            "0") == "1") {
+      proof.no_unmodeled_side_effect_records += count;
+    }
+    if (
+        field_or(
+            fields,
+            "all_pending_writes_covered_by_barrier_or_nonescaping",
+            "0") == "1") {
+      proof.writes_covered_records += count;
+    }
+    const std::string candidate_status = field_or(
+        fields,
+        "submit_equivalence_candidate_status",
+        "missing_submit_equivalence_candidate_status");
+    proof.candidate_status_counts[candidate_status] += count;
+    proof.side_effect_reason_counts[field_or(
+        fields,
+        "unknown_unmodeled_side_effect_reason",
+        "missing_unmodeled_side_effect_reason")] += count;
+    const std::string topology_signature =
+        "pending_dispatch=" +
+        field_or(fields, "pending_dispatch_count", "0") +
+        ":pending_resources=" +
+        field_or(fields, "pending_resource_count", "0") + ":bytes=" +
+        field_or(fields, "pending_resource_bytes", "0") + ":descriptor=" +
+        field_or(fields, "descriptor_update_side_effect_count", "0") +
+        ":retire=" + field_or(fields, "retire_side_effect_count", "0") +
+        ":real_barrier=" + field_or(fields, "real_barrier_records", "0") +
+        ":matched_barrier=" +
+        field_or(fields, "matched_barrier_records", "0");
+    proof.topology_signatures.insert(topology_signature);
+    std::string reject_reason =
+        submit_level_reject_reason_for_fields(fields);
+    if (proof.topology_signatures.size() > 1u) {
+      reject_reason = "current_run_topology_cardinality_mismatch";
+    }
+    proof.reject_reason_counts[reject_reason] += count;
+    if (reject_reason == "none") {
+      proof.complete_records += count;
+      proof.complete_bytes += bytes;
+    }
+  }
+  for (auto& item : submit_level_proof_by_boundary_id) {
+    auto& proof = item.second;
+    if (proof.topology_signatures.size() > 1u) {
+      proof.complete_records = 0u;
+      proof.complete_bytes = 0u;
+      proof.reject_reason_counts.clear();
+      proof.reject_reason_counts["current_run_topology_cardinality_mismatch"] =
+          proof.records;
+    }
+    std::string reject_reason = "none";
+    uint64_t reject_count = 0u;
+    for (const auto& reason : proof.reject_reason_counts) {
+      if (reason.first != "none" && reason.second > reject_count) {
+        reject_reason = reason.first;
+        reject_count = reason.second;
+      }
+    }
+    const bool complete =
+        proof.records > 0u && proof.complete_records == proof.records &&
+        proof.topology_signatures.size() == 1u;
+    if (!complete && reject_reason == "none") {
+      reject_reason = "submit_level_equivalence_proof_incomplete";
+    }
+    const std::string topology_signature =
+        proof.topology_signatures.empty()
+        ? "missing_current_run_topology_signature"
+        : *proof.topology_signatures.begin();
+    std::ostringstream row;
+    row << "schema=StackBoundarySubmitLevelEquivalenceProof.v0"
+        << " boundary_id=" << item.first
+        << " behavior_neutral=1"
+        << " default_behavior_unchanged=1"
+        << " submit_records=" << proof.records
+        << " submit_bytes=" << proof.bytes
+        << " current_run_topology_signature=" << topology_signature
+        << " topology_signature_count=" << proof.topology_signatures.size()
+        << " pending_dispatch_count=" << proof.pending_dispatch_count
+        << " pending_resource_count=" << proof.pending_resource_count
+        << " pending_resource_bytes=" << proof.pending_resource_bytes
+        << " descriptor_update_side_effect_count="
+        << proof.descriptor_update_side_effect_count
+        << " retire_side_effect_count=" << proof.retire_side_effect_count
+        << " retire_side_effect_bytes=" << proof.retire_side_effect_bytes
+        << " real_barrier_records=" << proof.real_barrier_records
+        << " matched_barrier_records=" << proof.matched_barrier_records
+        << " covered_by_barrier_count=" << proof.covered_by_barrier_count
+        << " covered_by_barrier_bytes=" << proof.covered_by_barrier_bytes
+        << " unknown_unmodeled_side_effect_count="
+        << proof.unknown_unmodeled_side_effect_count
+        << " unknown_resource_side_effect_count="
+        << proof.unknown_resource_side_effect_count
+        << " unknown_resource_side_effect_bytes="
+        << proof.unknown_resource_side_effect_bytes
+        << " command_buffer_id_available_records="
+        << proof.command_buffer_id_available_records
+        << " submit_epoch_available_records="
+        << proof.submit_epoch_available_records
+        << " pending_dispatch_count_observed_records="
+        << proof.pending_dispatch_count_observed_records
+        << " pending_resource_set_observed_records="
+        << proof.pending_resource_set_observed_records
+        << " pending_write_set_observed_records="
+        << proof.pending_write_set_observed_records
+        << " same_command_buffer_or_same_submit_batch_proven_records="
+        << proof.same_batch_proven_records
+        << " removed_submit_pending_dispatch_set_complete_records="
+        << proof.pending_dispatch_complete_records
+        << " removed_submit_has_no_unmodeled_execution_side_effect_records="
+        << proof.no_unmodeled_side_effect_records
+        << " all_pending_writes_covered_by_barrier_or_nonescaping_records="
+        << proof.writes_covered_records
+        << " submit_equivalence_proof_complete=" << (complete ? "1" : "0")
+        << " reject_reason=" << reject_reason
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    submit_level_equivalence_proof_rows.emplace_back(row.str());
+  }
   const auto accumulate_class_summary = [&](
                                             const std::string& summary,
                                             const uint64_t count_multiplier) {
@@ -8635,16 +8896,52 @@ void append_stack_region_submit_epoch_ordering_json(
             stack_carry_visibility_submit_equivalence_blocker_bytes
                 [fail_closed_reason] += bytes;
 
+            const std::string boundary_class =
+                "non_capture_residual2_to_norm1";
+            const std::string boundary_id =
+                "non_capture_boundary:producer_block=" + fields[5] +
+                ":consumer_block=" + fields[7];
+            const auto submit_level_it =
+                submit_level_proof_by_boundary_id.find(boundary_id);
+            const bool submit_level_proof_present =
+                submit_level_it != submit_level_proof_by_boundary_id.end() &&
+                submit_level_it->second.records > 0u;
+            const bool submit_level_proof_complete =
+                submit_level_proof_present &&
+                submit_level_it->second.complete_records ==
+                    submit_level_it->second.records &&
+                submit_level_it->second.topology_signatures.size() == 1u;
+            std::string submit_level_reject_reason =
+                submit_level_proof_present
+                ? "submit_level_equivalence_proof_incomplete"
+                : "missing_submit_level_equivalence_proof";
+            if (submit_level_proof_present) {
+              uint64_t reject_count = 0u;
+              for (const auto& reason :
+                   submit_level_it->second.reject_reason_counts) {
+                if (reason.first != "none" && reason.second > reject_count) {
+                  submit_level_reject_reason = reason.first;
+                  reject_count = reason.second;
+                }
+              }
+              if (submit_level_proof_complete) {
+                submit_level_reject_reason = "none";
+              }
+            }
             const bool boundary_barrier_ready =
                 actual_norm1_input_barrier_matched;
             const bool boundary_submit_elision_ready =
                 boundary_barrier_ready &&
                 old_carry_retire_only_eligible ==
                     "old_carry_retire_only_eligible" &&
-                fail_closed_reason == "none";
+                fail_closed_reason == "none" &&
+                submit_level_proof_complete;
             std::string boundary_reject_reason =
                 boundary_submit_elision_ready ? "none" : fail_closed_reason;
             if (boundary_reject_reason == "none" &&
+                !submit_level_proof_complete) {
+              boundary_reject_reason = submit_level_reject_reason;
+            } else if (boundary_reject_reason == "none" &&
                 !boundary_submit_elision_ready) {
               boundary_reject_reason =
                   boundary_barrier_ready
@@ -8662,13 +8959,10 @@ void append_stack_region_submit_epoch_ordering_json(
               highest_missing_field = "actual_norm1_input_visibility_barrier";
             } else if (fail_closed_reason != "none") {
               highest_missing_field = fail_closed_reason;
+            } else if (!submit_level_proof_complete) {
+              highest_missing_field = submit_level_reject_reason;
             }
 
-            const std::string boundary_class =
-                "non_capture_residual2_to_norm1";
-            const std::string boundary_id =
-                "non_capture_boundary:producer_block=" + fields[5] +
-                ":consumer_block=" + fields[7];
             stack_boundary_proof_record_count += count;
             stack_boundary_proof_record_bytes += bytes;
             stack_boundary_proof_boundary_class_counts[boundary_class] += count;
@@ -8739,6 +9033,18 @@ void append_stack_region_submit_epoch_ordering_json(
                 << old_carry_fail_closed_reason
                 << " behavior_change_allowed=0"
                 << " barrier_ready=" << (boundary_barrier_ready ? "1" : "0")
+                << " submit_level_equivalence_proof_present="
+                << (submit_level_proof_present ? "1" : "0")
+                << " submit_level_equivalence_proof_complete="
+                << (submit_level_proof_complete ? "1" : "0")
+                << " submit_level_reject_reason="
+                << submit_level_reject_reason
+                << " removed_submit_pending_dispatch_set_complete="
+                << (submit_level_proof_complete ? "1" : "0")
+                << " removed_submit_has_no_unmodeled_execution_side_effects="
+                << (submit_level_proof_complete ? "1" : "0")
+                << " all_pending_writes_covered_by_barrier_or_nonescaping="
+                << (submit_level_proof_complete ? "1" : "0")
                 << " submit_equivalence_candidate_status="
                 << (boundary_submit_elision_ready
                         ? "submit_elision_ready"
@@ -8997,6 +9303,62 @@ void append_stack_region_submit_epoch_ordering_json(
       top_count_key(stack_boundary_proof_reject_reason_counts);
   const std::string stack_boundary_highest_leverage_missing_field =
       top_count_key(stack_boundary_proof_missing_field_counts);
+  uint64_t submit_level_equivalence_candidate_records = 0u;
+  uint64_t submit_level_equivalence_candidate_bytes = 0u;
+  uint64_t submit_level_equivalence_complete_records = 0u;
+  uint64_t submit_level_equivalence_complete_bytes = 0u;
+  uint64_t submit_level_pending_dispatch_count = 0u;
+  uint64_t submit_level_pending_resource_count = 0u;
+  uint64_t submit_level_pending_resource_bytes = 0u;
+  uint64_t submit_level_descriptor_update_side_effect_count = 0u;
+  uint64_t submit_level_retire_side_effect_count = 0u;
+  uint64_t submit_level_retire_side_effect_bytes = 0u;
+  uint64_t submit_level_real_barrier_records = 0u;
+  uint64_t submit_level_matched_barrier_records = 0u;
+  uint64_t submit_level_covered_by_barrier_count = 0u;
+  uint64_t submit_level_covered_by_barrier_bytes = 0u;
+  std::map<std::string, uint64_t> submit_level_reject_reason_counts;
+  std::map<std::string, uint64_t> submit_level_candidate_status_counts;
+  for (const auto& row : submit_level_equivalence_proof_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    const uint64_t bytes = parsed_u64(fields, "bytes");
+    submit_level_equivalence_candidate_records += count;
+    submit_level_equivalence_candidate_bytes += bytes;
+    if (field_or(fields, "submit_equivalence_proof_complete", "0") == "1") {
+      submit_level_equivalence_complete_records += count;
+      submit_level_equivalence_complete_bytes += bytes;
+    }
+    submit_level_pending_dispatch_count +=
+        parsed_u64(fields, "pending_dispatch_count");
+    submit_level_pending_resource_count +=
+        parsed_u64(fields, "pending_resource_count");
+    submit_level_pending_resource_bytes +=
+        parsed_u64(fields, "pending_resource_bytes");
+    submit_level_descriptor_update_side_effect_count +=
+        parsed_u64(fields, "descriptor_update_side_effect_count");
+    submit_level_retire_side_effect_count +=
+        parsed_u64(fields, "retire_side_effect_count");
+    submit_level_retire_side_effect_bytes +=
+        parsed_u64(fields, "retire_side_effect_bytes");
+    submit_level_real_barrier_records +=
+        parsed_u64(fields, "real_barrier_records");
+    submit_level_matched_barrier_records +=
+        parsed_u64(fields, "matched_barrier_records");
+    submit_level_covered_by_barrier_count +=
+        parsed_u64(fields, "covered_by_barrier_count");
+    submit_level_covered_by_barrier_bytes +=
+        parsed_u64(fields, "covered_by_barrier_bytes");
+    submit_level_reject_reason_counts[field_or(
+        fields, "reject_reason", "missing_submit_level_reject_reason")] +=
+        count;
+    submit_level_candidate_status_counts[field_or(
+        fields,
+        "submit_equivalence_proof_complete",
+        "missing_submit_level_candidate_status")] += count;
+  }
+  const std::string submit_level_top_reject_reason =
+      top_count_key(submit_level_reject_reason_counts);
   struct BoundaryEpochProofAggregate final {
     uint64_t records = 0u;
     uint64_t bytes = 0u;
@@ -10058,6 +10420,117 @@ void append_stack_region_submit_epoch_ordering_json(
   append_json_comma(out, stack_boundary_first);
   out << "\"missing_proof_field_bytes\":";
   append_u64_map_object(out, stack_boundary_proof_missing_field_bytes);
+  append_json_comma(out, stack_boundary_first);
+  out << "\"submit_level_equivalence_proof\":{";
+  bool submit_level_first = true;
+  append_json_string(
+      out,
+      "schema",
+      "StackBoundarySubmitLevelEquivalenceProof.v0",
+      submit_level_first);
+  append_json_bool(out, "behavior_neutral", true, submit_level_first);
+  append_json_bool(
+      out, "default_behavior_unchanged", true, submit_level_first);
+  append_json_u64(
+      out,
+      "candidate_submit_records",
+      submit_level_equivalence_candidate_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "candidate_submit_bytes",
+      submit_level_equivalence_candidate_bytes,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "complete_submit_records",
+      submit_level_equivalence_complete_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "complete_submit_bytes",
+      submit_level_equivalence_complete_bytes,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "pending_dispatch_count",
+      submit_level_pending_dispatch_count,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "pending_resource_count",
+      submit_level_pending_resource_count,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "pending_resource_bytes",
+      submit_level_pending_resource_bytes,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "descriptor_update_side_effect_count",
+      submit_level_descriptor_update_side_effect_count,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "retire_side_effect_count",
+      submit_level_retire_side_effect_count,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "retire_side_effect_bytes",
+      submit_level_retire_side_effect_bytes,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "real_barrier_records",
+      submit_level_real_barrier_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "matched_barrier_records",
+      submit_level_matched_barrier_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "covered_by_barrier_count",
+      submit_level_covered_by_barrier_count,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "covered_by_barrier_bytes",
+      submit_level_covered_by_barrier_bytes,
+      submit_level_first);
+  append_json_bool(
+      out,
+      "submit_equivalence_proof_complete",
+      submit_level_equivalence_candidate_records > 0u &&
+          submit_level_equivalence_complete_records ==
+              submit_level_equivalence_candidate_records,
+      submit_level_first);
+  append_json_string(
+      out,
+      "highest_leverage_missing_submit_level_proof_field",
+      submit_level_top_reject_reason,
+      submit_level_first);
+  append_json_comma(out, submit_level_first);
+  out << "\"reject_reason_counts\":";
+  append_u64_map_object(out, submit_level_reject_reason_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"candidate_status_counts\":";
+  append_u64_map_object(out, submit_level_candidate_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"records\":[";
+  for (size_t i = 0u; i < submit_level_equivalence_proof_rows.size(); ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        submit_level_equivalence_proof_rows[i],
+        "submit_level_equivalence_proof");
+  }
+  out << "]}";
   append_json_comma(out, stack_boundary_first);
   out << "\"boundary_submit_equivalence_proof\":{";
   bool boundary_equivalence_first = true;
@@ -15064,7 +15537,9 @@ void note_stack_region_boundary_submit_plan(
   const int64_t live_block = current_vision_stack_block_index();
   const bool non_capture_submit_target =
       stack_region_submit_elision_canary_target_selected(
-          stack_region_submit_elision_canary_target());
+          stack_region_submit_elision_canary_target()) ||
+      stack_region_barrier_only_canary_target_selected(
+          stack_region_barrier_only_canary_target());
   const std::string non_capture_selected_boundary_id =
       non_capture_residual2_to_norm1_boundary_id(0, 1);
   const bool live_selected_non_capture_boundary =

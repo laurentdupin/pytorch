@@ -267,6 +267,18 @@ when a stack-owner recording scope ends. The v0 schema is
   continuity, but readiness summaries such as barrier-ready records,
   submit-elision-ready records, top reject reason, and highest-leverage missing
   proof field are generated from the typed rows.
+- a nested `submit_level_equivalence_proof` object inside
+  `stack_boundary_proof_records`, with schema
+  `StackBoundarySubmitLevelEquivalenceProof.v0`. This is the submit-site
+  aggregate that must stay complete before any typed row can be considered
+  submit-elision-ready. It records the current-run topology signature,
+  pending dispatch/resource/write-set counts and bytes, descriptor/update and
+  retire side-effect counts, real-barrier-to-pending-allocation matches, and
+  the booleans `removed_submit_pending_dispatch_set_complete`,
+  `removed_submit_has_no_unmodeled_execution_side_effects`, and
+  `all_pending_writes_covered_by_barrier_or_nonescaping`. Any false boolean,
+  incomplete candidate status, or topology/cardinality mismatch forces the
+  typed boundary rows to fail closed with a non-`none` reject reason.
 - a nested `boundary_submit_equivalence_proof` object inside
   `stack_boundary_proof_records`, with schema
   `StackBoundarySubmitEquivalenceProof.v0`. This rolls the typed rows up to the
