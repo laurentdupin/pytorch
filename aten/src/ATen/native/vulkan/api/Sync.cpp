@@ -7072,6 +7072,7 @@ void append_stack_region_submit_epoch_ordering_json(
     std::ostream& out,
     const std::vector<std::string>& optimization_rows,
     const std::vector<std::string>& boundary_submit_plan_rows,
+    const std::vector<std::string>& live_buffer_binding_rows,
     const std::vector<std::string>& submit_rows,
     bool& first) {
   uint64_t optimization_records = 0u;
@@ -7151,6 +7152,18 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> unmatched_allocation_class_bytes;
   uint64_t raw_buffer_provenance_records = 0u;
   uint64_t raw_buffer_provenance_bytes = 0u;
+  uint64_t raw_buffer_live_binding_candidate_count = 0u;
+  uint64_t raw_buffer_live_binding_candidate_bytes = 0u;
+  uint64_t raw_buffer_live_bound_count = 0u;
+  uint64_t raw_buffer_live_bound_bytes = 0u;
+  uint64_t raw_buffer_live_binding_missing_count = 0u;
+  uint64_t raw_buffer_live_binding_missing_bytes = 0u;
+  uint64_t unscoped_raw_buffer_binding_candidate_count = 0u;
+  uint64_t unscoped_raw_buffer_binding_candidate_bytes = 0u;
+  uint64_t unscoped_raw_buffer_live_bound_count = 0u;
+  uint64_t unscoped_raw_buffer_live_bound_bytes = 0u;
+  uint64_t unscoped_raw_buffer_live_binding_missing_count = 0u;
+  uint64_t unscoped_raw_buffer_live_binding_missing_bytes = 0u;
   std::map<std::string, uint64_t> raw_provenance_class_counts;
   std::map<std::string, uint64_t> raw_provenance_class_bytes;
   std::map<std::string, uint64_t> raw_provenance_role_counts;
@@ -7163,6 +7176,39 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> raw_provenance_allocation_status_counts;
   std::map<std::string, uint64_t> raw_provenance_status_counts;
   std::map<std::string, uint64_t> raw_provenance_status_bytes;
+  std::map<std::string, uint64_t> raw_provenance_binding_status_counts;
+  std::map<std::string, uint64_t> raw_provenance_binding_status_bytes;
+  std::map<std::string, uint64_t> raw_provenance_live_binding_source_counts;
+  std::map<std::string, uint64_t> raw_provenance_live_binding_source_bytes;
+  std::map<std::string, uint64_t> raw_provenance_unbound_label_counts;
+  std::map<std::string, uint64_t> raw_provenance_unbound_label_bytes;
+  std::map<std::string, uint64_t> raw_provenance_explicit_blocker_counts;
+  std::map<std::string, uint64_t> raw_provenance_explicit_blocker_bytes;
+  std::map<std::string, std::string> live_binding_sources_by_range;
+  for (const auto& row : live_buffer_binding_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const std::string allocation_id = field_or(fields, "allocation_id", "0");
+    const std::string generation =
+        field_or(fields, "allocation_generation", "0");
+    const std::string offset = field_or(fields, "byte_offset", "0");
+    const std::string range = field_or(fields, "byte_range", "0");
+    if (allocation_id == "0" || generation == "0" || range == "0") {
+      continue;
+    }
+    const std::string key = allocation_id + "-" + generation + "-" + offset +
+        "-" + range;
+    const std::string source =
+        field_or(fields, "phase", "unknown") + "@" +
+        field_or(fields, "block", "-1") + ":" +
+        field_or(fields, "shader", "unknown") + ":binding" +
+        field_or(fields, "descriptor_binding", "unknown");
+    const auto it = live_binding_sources_by_range.find(key);
+    if (it == live_binding_sources_by_range.end()) {
+      live_binding_sources_by_range[key] = source;
+    } else if (it->second.find(source) == std::string::npos) {
+      it->second += "|" + source;
+    }
+  }
   const auto accumulate_class_summary = [&](
                                             const std::string& summary,
                                             const uint64_t count_multiplier) {
@@ -7233,6 +7279,55 @@ void append_stack_region_submit_epoch_ordering_json(
           raw_provenance_allocation_status_counts[fields[11]] += count;
           raw_provenance_status_counts[fields[13]] += count;
           raw_provenance_status_bytes[fields[13]] += bytes;
+          const bool has_range = fields[11] == "generation_and_range";
+          const bool explicit_blocker =
+              fields[0] == "host_visible_or_requested_output" ||
+              fields[0] == "non_stack_setup_staging_pending";
+          const auto binding_it = live_binding_sources_by_range.find(fields[12]);
+          const bool live_bound = has_range &&
+              binding_it != live_binding_sources_by_range.end();
+          if (has_range) {
+            raw_buffer_live_binding_candidate_count += count;
+            raw_buffer_live_binding_candidate_bytes += bytes;
+            if (fields[0] == "unscoped_raw_buffer_no_stack_proof") {
+              unscoped_raw_buffer_binding_candidate_count += count;
+              unscoped_raw_buffer_binding_candidate_bytes += bytes;
+            }
+          }
+          std::string binding_status = "not_bindable_missing_allocation_range";
+          if (explicit_blocker) {
+            binding_status = fields[0] == "host_visible_or_requested_output"
+                ? "explicit_public_or_host_blocker"
+                : "explicit_non_stack_setup_blocker";
+            raw_provenance_explicit_blocker_counts[binding_status] += count;
+            raw_provenance_explicit_blocker_bytes[binding_status] += bytes;
+          } else if (live_bound) {
+            binding_status = fields[8] == "stack_provenance_present"
+                ? "bound_to_live_stack_dispatch_descriptor"
+                : "bound_to_live_descriptor_without_stack_scope_proof";
+            raw_buffer_live_bound_count += count;
+            raw_buffer_live_bound_bytes += bytes;
+            raw_provenance_live_binding_source_counts[binding_it->second] +=
+                count;
+            raw_provenance_live_binding_source_bytes[binding_it->second] +=
+                bytes;
+            if (fields[0] == "unscoped_raw_buffer_no_stack_proof") {
+              unscoped_raw_buffer_live_bound_count += count;
+              unscoped_raw_buffer_live_bound_bytes += bytes;
+            }
+          } else if (has_range) {
+            binding_status = "allocation_range_not_seen_in_live_descriptor_rows";
+            raw_buffer_live_binding_missing_count += count;
+            raw_buffer_live_binding_missing_bytes += bytes;
+            raw_provenance_unbound_label_counts[fields[3]] += count;
+            raw_provenance_unbound_label_bytes[fields[3]] += bytes;
+            if (fields[0] == "unscoped_raw_buffer_no_stack_proof") {
+              unscoped_raw_buffer_live_binding_missing_count += count;
+              unscoped_raw_buffer_live_binding_missing_bytes += bytes;
+            }
+          }
+          raw_provenance_binding_status_counts[binding_status] += count;
+          raw_provenance_binding_status_bytes[binding_status] += bytes;
         }
       };
   const auto count_row = [&](
@@ -7539,6 +7634,66 @@ void append_stack_region_submit_epoch_ordering_json(
       "raw_buffer_provenance_bytes",
       raw_buffer_provenance_bytes,
       ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_live_binding_candidate_count",
+      raw_buffer_live_binding_candidate_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_live_binding_candidate_bytes",
+      raw_buffer_live_binding_candidate_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_live_bound_count",
+      raw_buffer_live_bound_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_live_bound_bytes",
+      raw_buffer_live_bound_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_live_binding_missing_count",
+      raw_buffer_live_binding_missing_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "raw_buffer_live_binding_missing_bytes",
+      raw_buffer_live_binding_missing_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_binding_candidate_count",
+      unscoped_raw_buffer_binding_candidate_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_binding_candidate_bytes",
+      unscoped_raw_buffer_binding_candidate_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_live_bound_count",
+      unscoped_raw_buffer_live_bound_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_live_bound_bytes",
+      unscoped_raw_buffer_live_bound_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_live_binding_missing_count",
+      unscoped_raw_buffer_live_binding_missing_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unscoped_raw_buffer_live_binding_missing_bytes",
+      unscoped_raw_buffer_live_binding_missing_bytes,
+      ordering_first);
   append_json_comma(out, ordering_first);
   out << "\"raw_buffer_provenance_class_counts\":";
   append_u64_map_object(out, raw_provenance_class_counts);
@@ -7575,6 +7730,30 @@ void append_stack_region_submit_epoch_ordering_json(
   append_json_comma(out, ordering_first);
   out << "\"raw_buffer_provenance_status_bytes\":";
   append_u64_map_object(out, raw_provenance_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_binding_status_counts\":";
+  append_u64_map_object(out, raw_provenance_binding_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_binding_status_bytes\":";
+  append_u64_map_object(out, raw_provenance_binding_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_live_binding_source_counts\":";
+  append_u64_map_object(out, raw_provenance_live_binding_source_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_live_binding_source_bytes\":";
+  append_u64_map_object(out, raw_provenance_live_binding_source_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_unbound_label_counts\":";
+  append_u64_map_object(out, raw_provenance_unbound_label_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_unbound_label_bytes\":";
+  append_u64_map_object(out, raw_provenance_unbound_label_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_explicit_blocker_counts\":";
+  append_u64_map_object(out, raw_provenance_explicit_blocker_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"raw_buffer_explicit_blocker_bytes\":";
+  append_u64_map_object(out, raw_provenance_explicit_blocker_bytes);
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",
@@ -8207,6 +8386,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       out,
       boundary_optimization_plan_rows,
       boundary_submit_plan_rows,
+      live_buffer_binding_nodes,
       submit_elision_canary_rows,
       first);
   append_barrier_plan_json(

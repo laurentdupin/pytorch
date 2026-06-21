@@ -20235,6 +20235,34 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_epoch_ordering,
             )
             self.assertIn(
+                "raw_buffer_live_binding_candidate_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_live_bound_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "unscoped_raw_buffer_binding_candidate_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "unscoped_raw_buffer_live_bound_count",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_binding_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_live_binding_source_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "raw_buffer_unbound_label_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
                 "proven_nonescaping_or_retire_only_count",
                 submit_epoch_ordering,
             )
