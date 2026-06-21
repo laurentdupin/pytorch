@@ -16,6 +16,7 @@ namespace vulkan {
 namespace api {
 
 class VulkanBuffer;
+class VulkanImage;
 struct PipelineBarrier;
 
 enum class VulkanForcedSyncReason : uint8_t {
@@ -886,6 +887,10 @@ TORCH_API void note_vulkan_stack_live_descriptor_binding(
     uint32_t binding_idx,
     const char* shader_name,
     const VulkanBuffer& buffer);
+TORCH_API void note_vulkan_stack_live_image_descriptor_binding(
+    uint32_t binding_idx,
+    const char* shader_name,
+    const VulkanImage& image);
 TORCH_API void note_vulkan_stack_pre_dispatch_proof_table_descriptor(
     uint32_t binding_idx,
     const char* shader_name,

@@ -715,9 +715,12 @@ inline void note_stack_live_descriptor_binding(
 }
 
 inline void note_stack_live_descriptor_binding(
-    const uint32_t,
-    const char*,
-    const VulkanImage&) {}
+    const uint32_t binding_idx,
+    const char* shader_name,
+    const VulkanImage& image) {
+  note_vulkan_stack_live_image_descriptor_binding(
+      binding_idx, shader_name, image);
+}
 
 inline void note_stack_pre_dispatch_proof_table_descriptor(
     const uint32_t binding_idx,

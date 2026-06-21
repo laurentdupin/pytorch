@@ -513,6 +513,12 @@ stack_dispatch_dependency_live_buffer_binding_rows() {
   return rows;
 }
 
+std::map<std::string, StackDispatchDependencyDispatchValue>&
+stack_dispatch_dependency_live_image_binding_rows() {
+  static std::map<std::string, StackDispatchDependencyDispatchValue> rows;
+  return rows;
+}
+
 std::map<std::string, StackDispatchDependencyDryRunValue>&
 stack_dispatch_dependency_dry_run_rows() {
   static std::map<std::string, StackDispatchDependencyDryRunValue> rows;
@@ -716,6 +722,18 @@ std::string stack_live_buffer_binding_object_token(
   return stream.str();
 }
 
+std::string stack_live_image_binding_handle_token(const VkImage handle) {
+  std::ostringstream stream;
+  stream << handle;
+  return stream.str();
+}
+
+std::string stack_live_image_binding_object_token(const VulkanImage& image) {
+  std::ostringstream stream;
+  stream << static_cast<const void*>(&image);
+  return stream.str();
+}
+
 bool stack_command_buffer_diagnostic_available() {
   return g_stack_command_buffer_recording_id != 0u;
 }
@@ -794,6 +812,78 @@ std::string stack_dispatch_dependency_live_buffer_binding_key(
       << stack_live_buffer_binding_handle_token(buffer.handle())
       << " live_vulkan_buffer_object_token="
       << stack_live_buffer_binding_object_token(buffer)
+      << " binding_source=submit_compute_job_descriptor_argument";
+  return key.str();
+}
+
+std::string stack_dispatch_dependency_live_image_binding_key(
+    const uint64_t scope_id,
+    const VulkanVisionStackPhase phase,
+    const int64_t block,
+    const char* const shader_name,
+    const uint32_t binding_idx,
+    const uint64_t next_recorded_position,
+    const VulkanImage& image) {
+  const uint64_t allocation_id = image.allocation_id();
+  const uint64_t allocation_generation =
+      vulkan_memory_allocation_generation(allocation_id);
+  const bool has_memory = image.has_memory();
+  const bool has_generation =
+      allocation_id != 0u && allocation_generation != 0u;
+  const uint64_t command_buffer_recording_id =
+      stack_command_buffer_recording_id_or_scope(scope_id);
+  const VkExtent3D extents = image.extents();
+  std::ostringstream key;
+  key << "live_vulkan_image_binding=1"
+      << " scope_id=" << scope_id
+      << " phase=" << vision_stack_phase_name(phase)
+      << " block=" << block
+      << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
+      << " descriptor_binding=" << binding_idx
+      << " command_buffer_sequence=" << scope_id
+      << " command_buffer_id_source="
+      << (stack_command_buffer_diagnostic_available()
+              ? "context_command_buffer_recording"
+              : "stack_dispatch_dependency_scope")
+      << " command_buffer_id_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " producer_command_buffer_id=" << command_buffer_recording_id
+      << " barrier_command_buffer_id=missing_live_image_binding_barrier_api"
+      << " consumer_command_buffer_id=" << command_buffer_recording_id
+      << " submit_epoch_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " producer_submit_epoch=" << stack_submit_epoch_before_field()
+      << " consumer_submit_epoch=" << stack_submit_epoch_before_field()
+      << " same_command_buffer_or_same_submit_batch_proven=0"
+      << " removed_submit_pending_dispatch_set_complete=0"
+      << " removed_submit_has_no_unmodeled_execution_side_effects=0"
+      << " all_pending_writes_covered_by_barrier_or_nonescaping=0"
+      << " submit_equivalence_fail_closed_reason=missing_submit_epoch_and_pending_dispatch_set"
+      << " next_recorded_dispatch_position=" << next_recorded_position
+      << " allocation_id=" << allocation_id
+      << " allocation_generation=" << allocation_generation
+      << " allocation_has_generation=" << (has_generation ? 1 : 0)
+      << " byte_offset=0"
+      << " byte_range=" << static_cast<uint64_t>(image.allocated_size())
+      << " allocation_has_byte_range=" << (has_memory ? 1 : 0)
+      << " allocated_bytes=" << static_cast<uint64_t>(image.allocated_size())
+      << " allocation_label="
+      << (image.allocation_label().empty() ? "unknown"
+                                           : image.allocation_label())
+      << " live_image_has_memory=" << (has_memory ? 1 : 0)
+      << " live_image_owns_memory=" << (image.owns_memory() ? 1 : 0)
+      << " live_vulkan_image_handle_present="
+      << (image.handle() != VK_NULL_HANDLE ? 1 : 0)
+      << " live_vulkan_image_handle_token="
+      << stack_live_image_binding_handle_token(image.handle())
+      << " live_vulkan_image_object_token="
+      << stack_live_image_binding_object_token(image)
+      << " live_vulkan_image_view_present="
+      << (image.image_view() != VK_NULL_HANDLE ? 1 : 0)
+      << " image_layout=" << static_cast<uint64_t>(image.layout())
+      << " image_extent_x=" << static_cast<uint64_t>(extents.width)
+      << " image_extent_y=" << static_cast<uint64_t>(extents.height)
+      << " image_extent_z=" << static_cast<uint64_t>(extents.depth)
       << " binding_source=submit_compute_job_descriptor_argument";
   return key.str();
 }
@@ -7184,6 +7274,7 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::vector<std::string>& optimization_rows,
     const std::vector<std::string>& boundary_submit_plan_rows,
     const std::vector<std::string>& live_buffer_binding_rows,
+    const std::vector<std::string>& live_image_binding_rows,
     const std::vector<std::string>& raw_resource_producer_rows,
     const std::vector<std::string>& consumer_registration_rows,
     const std::vector<std::string>& barrier_only_canary_rows,
@@ -7370,6 +7461,16 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> stack_carry_visibility_next_consumer_binding_status_bytes;
   std::map<std::string, uint64_t> stack_carry_visibility_next_consumer_binding_source_counts;
   std::map<std::string, uint64_t> stack_carry_visibility_next_consumer_binding_source_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_norm1_buffer_binding_status_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_norm1_buffer_binding_status_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_norm1_buffer_binding_source_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_norm1_buffer_binding_source_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_norm1_image_binding_status_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_norm1_image_binding_status_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_norm1_image_binding_source_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_norm1_image_binding_source_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_consumer_relationship_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_consumer_relationship_bytes;
   std::map<std::string, uint64_t> stack_carry_visibility_barrier_status_counts;
   std::map<std::string, uint64_t> stack_carry_visibility_barrier_status_bytes;
   std::map<std::string, uint64_t> stack_carry_visibility_barrier_source_counts;
@@ -7389,6 +7490,9 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> stack_carry_visibility_fail_closed_reason_counts;
   std::map<std::string, uint64_t> stack_carry_visibility_fail_closed_reason_bytes;
   std::map<std::string, std::string> live_binding_sources_by_range;
+  std::map<std::string, std::string> live_buffer_binding_sources_by_phase_block;
+  std::map<std::string, std::string> live_image_binding_sources_by_allocation;
+  std::map<std::string, std::string> live_image_binding_sources_by_phase_block;
   std::map<std::string, std::string> raw_producer_sources_by_range;
   std::map<std::string, std::string> raw_producer_owner_by_range;
   std::map<std::string, std::string> barrier_sources_by_range;
@@ -7488,6 +7592,49 @@ void append_stack_region_submit_epoch_ordering_json(
     } else if (it->second.find(source) == std::string::npos) {
       it->second += "|" + source;
     }
+    const std::string phase_block =
+        field_or(fields, "phase", "unknown") + "@" +
+        field_or(fields, "block", "-1");
+    const auto phase_block_it =
+        live_buffer_binding_sources_by_phase_block.find(phase_block);
+    if (phase_block_it == live_buffer_binding_sources_by_phase_block.end()) {
+      live_buffer_binding_sources_by_phase_block[phase_block] = source;
+    } else if (phase_block_it->second.find(source) == std::string::npos) {
+      phase_block_it->second += "|" + source;
+    }
+  }
+  for (const auto& row : live_image_binding_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const std::string allocation_id = field_or(fields, "allocation_id", "0");
+    const std::string generation =
+        field_or(fields, "allocation_generation", "0");
+    if (allocation_id == "0" || generation == "0") {
+      continue;
+    }
+    const std::string key = allocation_id + "-" + generation;
+    const std::string source =
+        field_or(fields, "phase", "unknown") + "@" +
+        field_or(fields, "block", "-1") + ":" +
+        field_or(fields, "shader", "unknown") + ":binding" +
+        field_or(fields, "descriptor_binding", "unknown") + ":image_bytes" +
+        field_or(fields, "allocated_bytes", "0") + ":layout" +
+        field_or(fields, "image_layout", "unknown");
+    const auto it = live_image_binding_sources_by_allocation.find(key);
+    if (it == live_image_binding_sources_by_allocation.end()) {
+      live_image_binding_sources_by_allocation[key] = source;
+    } else if (it->second.find(source) == std::string::npos) {
+      it->second += "|" + source;
+    }
+    const std::string phase_block =
+        field_or(fields, "phase", "unknown") + "@" +
+        field_or(fields, "block", "-1");
+    const auto phase_block_it =
+        live_image_binding_sources_by_phase_block.find(phase_block);
+    if (phase_block_it == live_image_binding_sources_by_phase_block.end()) {
+      live_image_binding_sources_by_phase_block[phase_block] = source;
+    } else if (phase_block_it->second.find(source) == std::string::npos) {
+      phase_block_it->second += "|" + source;
+    }
   }
   for (const auto& row : raw_resource_producer_rows) {
     const auto fields = parse_space_separated_fields(row);
@@ -7543,6 +7690,19 @@ void append_stack_region_submit_epoch_ordering_json(
           parsed_u64_or(parts[2], 0u) * count_multiplier;
     }
   };
+  const auto allocation_generation_key =
+      [](const std::string& allocation_range_key) {
+        const size_t first_dash = allocation_range_key.find('-');
+        if (first_dash == std::string::npos) {
+          return std::string();
+        }
+        const size_t second_dash =
+            allocation_range_key.find('-', first_dash + 1u);
+        if (second_dash == std::string::npos) {
+          return std::string();
+        }
+        return allocation_range_key.substr(0u, second_dash);
+      };
   const auto accumulate_raw_provenance_summary =
       [&](
           const std::string& summary,
@@ -7950,6 +8110,85 @@ void append_stack_region_submit_epoch_ordering_json(
               stack_carry_visibility_next_consumer_binding_source_bytes
                   [binding_it->second] += bytes;
             }
+            const auto buffer_consumer_it =
+                live_buffer_binding_sources_by_phase_block.find(consumer);
+            const bool next_consumer_buffer_observed =
+                buffer_consumer_it !=
+                live_buffer_binding_sources_by_phase_block.end();
+            const std::string norm1_buffer_binding_status =
+                next_consumer_binding_matched
+                ? "next_norm1_buffer_descriptor_same_allocation_range"
+                : (next_consumer_buffer_observed
+                       ? "next_norm1_buffer_descriptor_observed_different_allocation_or_range"
+                       : "next_norm1_buffer_descriptor_missing");
+            stack_carry_visibility_norm1_buffer_binding_status_counts
+                [norm1_buffer_binding_status] += count;
+            stack_carry_visibility_norm1_buffer_binding_status_bytes
+                [norm1_buffer_binding_status] += bytes;
+            if (next_consumer_buffer_observed) {
+              stack_carry_visibility_norm1_buffer_binding_source_counts
+                  [buffer_consumer_it->second] += count;
+              stack_carry_visibility_norm1_buffer_binding_source_bytes
+                  [buffer_consumer_it->second] += bytes;
+            }
+            const std::string allocation_generation =
+                allocation_generation_key(fields[12]);
+            const auto image_allocation_it =
+                live_image_binding_sources_by_allocation.find(
+                    allocation_generation);
+            const bool next_consumer_image_same_allocation =
+                !allocation_generation.empty() &&
+                image_allocation_it !=
+                    live_image_binding_sources_by_allocation.end() &&
+                image_allocation_it->second.find(consumer_source_prefix) !=
+                    std::string::npos;
+            const auto image_consumer_it =
+                live_image_binding_sources_by_phase_block.find(consumer);
+            const bool next_consumer_image_observed =
+                image_consumer_it !=
+                live_image_binding_sources_by_phase_block.end();
+            std::string norm1_image_binding_status =
+                "next_norm1_image_descriptor_missing";
+            if (next_consumer_image_same_allocation) {
+              norm1_image_binding_status =
+                  "next_norm1_image_descriptor_same_allocation";
+            } else if (next_consumer_image_observed) {
+              norm1_image_binding_status =
+                  "next_norm1_image_descriptor_observed_different_allocation_or_range";
+            }
+            stack_carry_visibility_norm1_image_binding_status_counts
+                [norm1_image_binding_status] += count;
+            stack_carry_visibility_norm1_image_binding_status_bytes
+                [norm1_image_binding_status] += bytes;
+            if (next_consumer_image_same_allocation) {
+              stack_carry_visibility_norm1_image_binding_source_counts
+                  [image_allocation_it->second] += count;
+              stack_carry_visibility_norm1_image_binding_source_bytes
+                  [image_allocation_it->second] += bytes;
+            } else if (next_consumer_image_observed) {
+              stack_carry_visibility_norm1_image_binding_source_counts
+                  [image_consumer_it->second] += count;
+              stack_carry_visibility_norm1_image_binding_source_bytes
+                  [image_consumer_it->second] += bytes;
+            }
+            std::string consumer_relationship = "consumer_descriptor_unknown";
+            if (next_consumer_binding_matched) {
+              consumer_relationship = "same_buffer_allocation_range";
+            } else if (next_consumer_buffer_observed) {
+              consumer_relationship =
+                  "different_allocation_buffer_descriptor_or_materialization";
+            } else if (next_consumer_image_same_allocation) {
+              consumer_relationship = "same_allocation_image_view";
+            } else if (next_consumer_image_observed) {
+              consumer_relationship =
+                  "different_allocation_image_descriptor_or_materialization";
+            } else if (producer_binding_matched) {
+              consumer_relationship = "producer_descriptor_only_consumer_unseen";
+            }
+            stack_carry_visibility_consumer_relationship_counts
+                [consumer_relationship] += count;
+            stack_carry_visibility_consumer_relationship_bytes
+                [consumer_relationship] += bytes;
 
             const auto barrier_it = barrier_sources_by_range.find(fields[12]);
             const bool barrier_matched = has_range &&
@@ -7983,7 +8222,13 @@ void append_stack_region_submit_epoch_ordering_json(
                 ? (barrier_matched
                        ? "carry_range_barrier_already_covered"
                        : "carry_range_barrier_candidate_missing_real_barrier")
-                : "missing_next_norm1_consumer_descriptor_binding_for_carry_range";
+                : (next_consumer_buffer_observed
+                       ? "norm1_buffer_consumer_different_allocation_chain"
+                       : (next_consumer_image_same_allocation
+                              ? "carry_range_consumed_as_image_requires_image_barrier_plan"
+                              : (next_consumer_image_observed
+                                     ? "norm1_image_consumer_different_allocation_chain"
+                                     : "missing_next_norm1_consumer_descriptor_binding_for_carry_range")));
             stack_carry_visibility_barrier_planning_status_counts
                 [barrier_planning_status] += count;
             stack_carry_visibility_barrier_planning_status_bytes
@@ -8038,6 +8283,17 @@ void append_stack_region_submit_epoch_ordering_json(
             if (escape_blocker !=
                 "no_public_final_host_or_alias_blocker_in_raw_provenance") {
               fail_closed_reason = escape_blocker;
+            } else if (next_consumer_buffer_observed &&
+                       !next_consumer_binding_matched) {
+              fail_closed_reason =
+                  "next_norm1_consumes_different_buffer_allocation_or_descriptor_chain";
+            } else if (next_consumer_image_same_allocation) {
+              fail_closed_reason =
+                  "missing_image_visibility_barrier_for_carry_range";
+            } else if (next_consumer_image_observed &&
+                       !next_consumer_image_same_allocation) {
+              fail_closed_reason =
+                  "next_norm1_consumes_different_allocation_or_image_descriptor_chain";
             } else if (!next_consumer_binding_matched) {
               fail_closed_reason =
                   "missing_next_norm1_consumer_descriptor_binding_for_carry_range";
@@ -8770,6 +9026,46 @@ void append_stack_region_submit_epoch_ordering_json(
   append_u64_map_object(
       out, stack_carry_visibility_next_consumer_binding_source_bytes);
   append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_norm1_buffer_binding_status_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_norm1_buffer_binding_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_norm1_buffer_binding_status_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_norm1_buffer_binding_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_norm1_buffer_binding_source_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_norm1_buffer_binding_source_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_norm1_buffer_binding_source_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_norm1_buffer_binding_source_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_norm1_image_binding_status_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_norm1_image_binding_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_norm1_image_binding_status_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_norm1_image_binding_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_norm1_image_binding_source_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_norm1_image_binding_source_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_norm1_image_binding_source_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_norm1_image_binding_source_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_consumer_relationship_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_consumer_relationship_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_consumer_relationship_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_consumer_relationship_bytes);
+  append_json_comma(out, ordering_first);
   out << "\"stack_carry_visibility_barrier_status_counts\":";
   append_u64_map_object(out, stack_carry_visibility_barrier_status_counts);
   append_json_comma(out, ordering_first);
@@ -9118,6 +9414,7 @@ void split_stack_graph_rows(
     std::vector<std::string>& dispatch_nodes,
     std::vector<std::string>& insertion_point_nodes,
     std::vector<std::string>& live_buffer_binding_nodes,
+    std::vector<std::string>& live_image_binding_nodes,
     std::vector<std::string>& dependency_edges,
     std::vector<std::string>& capture_edges,
     std::vector<std::string>& boundary_submit_plan_rows,
@@ -9161,6 +9458,10 @@ void split_stack_graph_rows(
       live_buffer_binding_nodes.emplace_back(row);
       continue;
     }
+    if (row.find("live_vulkan_image_binding=1") != std::string::npos) {
+      live_image_binding_nodes.emplace_back(row);
+      continue;
+    }
     if (row.find("dispatch=1") != std::string::npos) {
       dispatch_nodes.emplace_back(row);
       continue;
@@ -9202,6 +9503,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> dispatch_nodes;
   std::vector<std::string> insertion_point_nodes;
   std::vector<std::string> live_buffer_binding_nodes;
+  std::vector<std::string> live_image_binding_nodes;
   std::vector<std::string> dependency_edges;
   std::vector<std::string> capture_edges;
   std::vector<std::string> boundary_submit_plan_rows;
@@ -9215,6 +9517,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       dispatch_nodes,
       insertion_point_nodes,
       live_buffer_binding_nodes,
+      live_image_binding_nodes,
       dependency_edges,
       capture_edges,
       boundary_submit_plan_rows,
@@ -9312,6 +9615,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       out,
       "live_vulkan_buffer_binding_nodes",
       live_buffer_binding_nodes.size(),
+      summary_first);
+  append_json_u64(
+      out,
+      "live_vulkan_image_binding_nodes",
+      live_image_binding_nodes.size(),
       summary_first);
   append_json_u64(
       out, "dependency_edge_rows", dependency_edges.size(), summary_first);
@@ -9414,6 +9722,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "live_vulkan_buffer_binding",
       first);
   append_graph_array(
+      out,
+      "live_vulkan_image_binding_nodes",
+      live_image_binding_nodes,
+      "live_vulkan_image_binding",
+      first);
+  append_graph_array(
       out, "dependency_edges", dependency_edges, "dependency_edge", first);
   append_graph_array(out, "capture_edges", capture_edges, "capture_edge", first);
   append_graph_array(out, "resource_nodes", resource_nodes, "resource", first);
@@ -9482,6 +9796,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       boundary_optimization_plan_rows,
       boundary_submit_plan_rows,
       live_buffer_binding_nodes,
+      live_image_binding_nodes,
       raw_resource_producer_rows,
       consumer_registration_rows,
       barrier_only_canary_rows,
@@ -14427,6 +14742,36 @@ void note_vulkan_stack_live_descriptor_binding(
   value.last_position = next_recorded_position;
 }
 
+void note_vulkan_stack_live_image_descriptor_binding(
+    const uint32_t binding_idx,
+    const char* shader_name,
+    const VulkanImage& image) {
+  if (!inside_vision_stack_phase()) {
+    return;
+  }
+  const uint64_t scope_id = g_stack_dispatch_dependency_scope_id;
+  if (scope_id == 0u) {
+    return;
+  }
+  const uint64_t next_recorded_position =
+      g_stack_dispatch_dependency_position + 1u;
+  auto& rows = stack_dispatch_dependency_live_image_binding_rows();
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  auto& value = rows[stack_dispatch_dependency_live_image_binding_key(
+      scope_id,
+      g_vision_stack_phase,
+      g_vision_stack_block_index,
+      shader_name,
+      binding_idx,
+      next_recorded_position,
+      image)];
+  value.count += 1u;
+  if (value.first_position == 0u) {
+    value.first_position = next_recorded_position;
+  }
+  value.last_position = next_recorded_position;
+}
+
 void note_vulkan_stack_pre_dispatch_proof_table_descriptor(
     const uint32_t binding_idx,
     const char* shader_name,
@@ -14978,6 +15323,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_dispatch_dependency_dispatch_rows().size() +
       stack_dispatch_dependency_insertion_point_rows().size() +
       stack_dispatch_dependency_live_buffer_binding_rows().size() +
+      stack_dispatch_dependency_live_image_binding_rows().size() +
       stack_dispatch_dependency_dry_run_rows().size() +
       stack_region_boundary_submit_plan_rows().size() +
       stack_region_barrier_only_canary_rows().size() +
@@ -15001,6 +15347,14 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
     rows.push_back(row.str());
   }
   for (const auto& item : stack_dispatch_dependency_live_buffer_binding_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " next_recorded_dispatch_first_position="
+        << item.second.first_position
+        << " next_recorded_dispatch_last_position=" << item.second.last_position;
+    rows.push_back(row.str());
+  }
+  for (const auto& item : stack_dispatch_dependency_live_image_binding_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
         << " next_recorded_dispatch_first_position="
@@ -15098,6 +15452,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_dispatch_dependency_dispatch_rows().clear();
   stack_dispatch_dependency_insertion_point_rows().clear();
   stack_dispatch_dependency_live_buffer_binding_rows().clear();
+  stack_dispatch_dependency_live_image_binding_rows().clear();
   stack_dispatch_dependency_dry_run_rows().clear();
   stack_region_boundary_submit_plan_rows().clear();
   stack_region_barrier_only_canary_rows().clear();
