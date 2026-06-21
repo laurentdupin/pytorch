@@ -107,7 +107,11 @@ retire side effects, real-barrier-to-pending-allocation matches, and the
 required submit-level proof booleans. A typed row or boundary cannot report
 submit-elision readiness while the submit-level proof is incomplete, while any
 required boolean is false, or while topology/cardinality differs from the
-current run.
+current run. Submit-level rows are keyed by live submit identity rather than
+boundary id alone. The key includes generic boundary fields, command-buffer ids,
+submit epochs, callsite, phase, and descriptor binding; the boundary rollup
+still rejects if more than one live submit key maps to the same selected
+boundary.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella
