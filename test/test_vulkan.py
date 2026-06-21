@@ -20177,8 +20177,28 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 0,
             )
+            self.assertGreater(
+                submit_epoch_ordering["boundary_submit_plan_records"],
+                0,
+            )
+            self.assertGreater(
+                submit_epoch_ordering["command_buffer_id_available_records"],
+                0,
+            )
+            self.assertGreater(
+                submit_epoch_ordering["submit_epoch_available_records"],
+                0,
+            )
+            self.assertGreater(
+                submit_epoch_ordering["pending_dispatch_count_observed_records"],
+                0,
+            )
             self.assertIn(
                 "missing_submit_epoch_and_pending_dispatch_set",
+                submit_epoch_ordering["fail_closed_reason_counts"],
+            )
+            self.assertIn(
+                "pending_dispatch_set_incomplete_or_unmodeled_side_effects",
                 submit_epoch_ordering["fail_closed_reason_counts"],
             )
         finally:

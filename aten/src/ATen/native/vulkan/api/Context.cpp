@@ -587,6 +587,8 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       cmd_mutex_{},
       cmd_(VK_NULL_HANDLE, 0u, nullptr),
       submit_count_{0u},
+      command_buffer_recording_id_{0u},
+      next_command_buffer_recording_id_{1u},
       stack_planned_recording_active_{false},
       stack_planned_recording_owner_{},
       stack_planned_recording_stats_{},
@@ -924,6 +926,7 @@ void Context::synchronize_device() {
     cmd_.invalidate();
   }
   submit_count_ = 0u;
+  command_buffer_recording_id_ = 0u;
   clear_pending_retire_resources_locked();
 }
 
@@ -1540,6 +1543,12 @@ VulkanSubmission Context::submit_cmd_to_gpu(
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
   const bool had_cmd = static_cast<bool>(cmd_);
+  const uint64_t command_buffer_recording_id = command_buffer_recording_id_;
+  const uint64_t submit_epoch_before =
+      current_stream().last_submitted_value.load(std::memory_order_relaxed);
+  const uint64_t submit_epoch_after = had_cmd ? submit_epoch_before + 1u
+                                              : submit_epoch_before;
+  const uint64_t pending_dispatch_count = submit_count_;
   constexpr bool kCoalescePhaseBoundaryExplicitSync = true;
   constexpr uint64_t kStackActivationPhaseBoundaryLifetimeBlockBudgetBytes =
       5u * 1024u * 1024u;
@@ -1763,7 +1772,13 @@ VulkanSubmission Context::submit_cmd_to_gpu(
           pending_bytes,
           dry_run_safe_candidate_count,
           dry_run_safe_candidate_bytes,
+          command_buffer_recording_id,
+          submit_epoch_before,
+          should_coalesce_phase_boundary_explicit_sync ? submit_epoch_before
+                                                       : submit_epoch_after,
+          pending_dispatch_count,
           dry_run_budget_reject,
+          dry_run_signature,
           dry_run_blocker_signature);
     }
     if (should_coalesce_phase_boundary_explicit_sync) {
@@ -1792,6 +1807,7 @@ VulkanSubmission Context::submit_cmd_to_gpu(
     last_submission_ = submission;
 
     submit_count_ = 0u;
+    command_buffer_recording_id_ = 0u;
     retire_deferred_cleanup(submission, origin);
   }
   poll_retire_queue();
@@ -2107,6 +2123,7 @@ void Context::retire_after_fence_wait() {
   }
 
   submit_count_ = 0u;
+  command_buffer_recording_id_ = 0u;
   clear_pending_retire_resources_locked();
   dump_gpu_profile_log("retire_after_fence_wait");
   if (cpu_timeline) {
@@ -2139,6 +2156,7 @@ void Context::flush_after_fence_wait() {
   }
 
   submit_count_ = 0u;
+  command_buffer_recording_id_ = 0u;
   clear_pending_retire_resources_locked();
   dump_gpu_profile_log("flush_after_fence_wait");
   if (cpu_timeline) {

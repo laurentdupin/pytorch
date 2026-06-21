@@ -137,6 +137,8 @@ class TORCH_API Context final {
   std::mutex cmd_mutex_;
   CommandBuffer cmd_;
   uint32_t submit_count_;
+  uint64_t command_buffer_recording_id_;
+  uint64_t next_command_buffer_recording_id_;
   std::atomic<bool> stack_planned_recording_active_;
   std::thread::id stack_planned_recording_owner_;
   StackPlannedRecordingStats stack_planned_recording_stats_;
@@ -449,6 +451,7 @@ class TORCH_API Context final {
     if (!cmd_) {
       cmd_ = command_pool_.get_new_cmd(reusable);
       cmd_.begin();
+      command_buffer_recording_id_ = next_command_buffer_recording_id_++;
     }
   }
 
@@ -1054,6 +1057,13 @@ inline bool Context::submit_compute_job(
   // Factor out template parameter independent code to minimize code bloat.
   DescriptorSet descriptor_set =
       get_descriptor_set(shader, local_work_group_size);
+
+  if (!external_recording) {
+    const uint64_t submit_epoch_before =
+        current_stream().last_submitted_value.load(std::memory_order_relaxed);
+    set_stack_region_command_buffer_diagnostic_context(
+        command_buffer_recording_id_, submit_epoch_before);
+  }
 
   detail::note_stack_live_descriptor_bindings(
       shader.kernel_name.c_str(),

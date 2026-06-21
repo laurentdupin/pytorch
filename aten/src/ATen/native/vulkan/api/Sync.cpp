@@ -36,6 +36,8 @@ thread_local std::vector<VulkanStackPlannedDispatchPosition>
     g_stack_planned_dispatch_positions;
 thread_local uint64_t g_stack_dispatch_dependency_scope_id = 0u;
 thread_local uint64_t g_stack_dispatch_dependency_position = 0u;
+thread_local uint64_t g_stack_command_buffer_recording_id = 0u;
+thread_local uint64_t g_stack_submit_epoch_before = 0u;
 std::atomic<uint64_t> g_next_stack_dispatch_dependency_scope_id{1u};
 
 void maybe_write_stack_region_dependency_graph_dump();
@@ -602,6 +604,22 @@ std::string stack_live_buffer_binding_object_token(
   return stream.str();
 }
 
+bool stack_command_buffer_diagnostic_available() {
+  return g_stack_command_buffer_recording_id != 0u;
+}
+
+uint64_t stack_command_buffer_recording_id_or_scope(const uint64_t scope_id) {
+  return stack_command_buffer_diagnostic_available()
+      ? g_stack_command_buffer_recording_id
+      : scope_id;
+}
+
+std::string stack_submit_epoch_before_field() {
+  return stack_command_buffer_diagnostic_available()
+      ? std::to_string(g_stack_submit_epoch_before)
+      : "missing_submit_epoch_api";
+}
+
 std::string stack_dispatch_dependency_live_buffer_binding_key(
     const uint64_t scope_id,
     const VulkanVisionStackPhase phase,
@@ -617,6 +635,8 @@ std::string stack_dispatch_dependency_live_buffer_binding_key(
   const bool has_generation =
       allocation_id != 0u && allocation_generation != 0u;
   const bool has_byte_range = has_memory && buffer.mem_range() != 0u;
+  const uint64_t command_buffer_recording_id =
+      stack_command_buffer_recording_id_or_scope(scope_id);
   std::ostringstream key;
   key << "live_vulkan_buffer_binding=1"
       << " scope_id=" << scope_id
@@ -625,12 +645,19 @@ std::string stack_dispatch_dependency_live_buffer_binding_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
-      << " command_buffer_id_source=stack_dispatch_dependency_scope"
-      << " producer_command_buffer_id=" << scope_id
+      << " command_buffer_id_source="
+      << (stack_command_buffer_diagnostic_available()
+              ? "context_command_buffer_recording"
+              : "stack_dispatch_dependency_scope")
+      << " command_buffer_id_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " producer_command_buffer_id=" << command_buffer_recording_id
       << " barrier_command_buffer_id=missing_live_buffer_binding_barrier_api"
-      << " consumer_command_buffer_id=" << scope_id
-      << " producer_submit_epoch=missing_submit_epoch_api"
-      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " consumer_command_buffer_id=" << command_buffer_recording_id
+      << " submit_epoch_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " producer_submit_epoch=" << stack_submit_epoch_before_field()
+      << " consumer_submit_epoch=" << stack_submit_epoch_before_field()
       << " same_command_buffer_or_same_submit_batch_proven=0"
       << " removed_submit_pending_dispatch_set_complete=0"
       << " removed_submit_has_no_unmodeled_execution_side_effects=0"
@@ -696,6 +723,8 @@ std::string stack_region_barrier_only_canary_key(
   const uint64_t allocation_id = buffer.allocation_id();
   const uint64_t allocation_generation =
       vulkan_memory_allocation_generation(allocation_id);
+  const uint64_t command_buffer_recording_id =
+      stack_command_buffer_recording_id_or_scope(scope_id);
   std::ostringstream key;
   key << "stack_region_barrier_only_canary=1"
       << " contract=StackRegionBarrierOnlyCanary"
@@ -715,12 +744,20 @@ std::string stack_region_barrier_only_canary_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
-      << " command_buffer_id_source=stack_dispatch_dependency_scope"
-      << " producer_command_buffer_id=" << scope_id
-      << " barrier_command_buffer_id=" << (barrier_inserted ? scope_id : 0u)
-      << " consumer_command_buffer_id=" << scope_id
-      << " producer_submit_epoch=missing_submit_epoch_api"
-      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " command_buffer_id_source="
+      << (stack_command_buffer_diagnostic_available()
+              ? "context_command_buffer_recording"
+              : "stack_dispatch_dependency_scope")
+      << " command_buffer_id_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " producer_command_buffer_id=" << command_buffer_recording_id
+      << " barrier_command_buffer_id="
+      << (barrier_inserted ? command_buffer_recording_id : 0u)
+      << " consumer_command_buffer_id=" << command_buffer_recording_id
+      << " submit_epoch_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " producer_submit_epoch=" << stack_submit_epoch_before_field()
+      << " consumer_submit_epoch=" << stack_submit_epoch_before_field()
       << " same_command_buffer_or_same_submit_batch_proven=0"
       << " removed_submit_pending_dispatch_set_complete=0"
       << " removed_submit_has_no_unmodeled_execution_side_effects=0"
@@ -796,6 +833,8 @@ std::string stack_region_pre_dispatch_proof_table_key(
   const uint64_t allocation_id = buffer.allocation_id();
   const uint64_t allocation_generation =
       vulkan_memory_allocation_generation(allocation_id);
+  const uint64_t command_buffer_recording_id =
+      stack_command_buffer_recording_id_or_scope(scope_id);
   std::ostringstream key;
   key << "stack_region_pre_dispatch_proof=1"
       << " contract=StackRegionPreDispatchProofTable"
@@ -813,12 +852,19 @@ std::string stack_region_pre_dispatch_proof_table_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
-      << " command_buffer_id_source=stack_dispatch_dependency_scope"
-      << " producer_command_buffer_id=" << scope_id
+      << " command_buffer_id_source="
+      << (stack_command_buffer_diagnostic_available()
+              ? "context_command_buffer_recording"
+              : "stack_dispatch_dependency_scope")
+      << " command_buffer_id_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " producer_command_buffer_id=" << command_buffer_recording_id
       << " barrier_command_buffer_id=missing_pre_dispatch_barrier_api"
-      << " consumer_command_buffer_id=" << scope_id
-      << " producer_submit_epoch=missing_submit_epoch_api"
-      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " consumer_command_buffer_id=" << command_buffer_recording_id
+      << " submit_epoch_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " producer_submit_epoch=" << stack_submit_epoch_before_field()
+      << " consumer_submit_epoch=" << stack_submit_epoch_before_field()
       << " same_command_buffer_or_same_submit_batch_proven=0"
       << " removed_submit_pending_dispatch_set_complete=0"
       << " removed_submit_has_no_unmodeled_execution_side_effects=0"
@@ -946,6 +992,8 @@ std::string stack_region_boundary_optimization_plan_key(
   const uint64_t allocation_id = buffer.allocation_id();
   const uint64_t allocation_generation =
       vulkan_memory_allocation_generation(allocation_id);
+  const uint64_t command_buffer_recording_id =
+      stack_command_buffer_recording_id_or_scope(scope_id);
   const bool submit_elision_eligible =
       std::string(status ? status : "") == "submit_elision_eligible";
   std::ostringstream key;
@@ -968,12 +1016,20 @@ std::string stack_region_boundary_optimization_plan_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
-      << " command_buffer_id_source=stack_dispatch_dependency_scope"
-      << " producer_command_buffer_id=" << scope_id
-      << " barrier_command_buffer_id=" << (barrier_inserted ? scope_id : 0u)
-      << " consumer_command_buffer_id=" << scope_id
-      << " producer_submit_epoch=missing_submit_epoch_api"
-      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " command_buffer_id_source="
+      << (stack_command_buffer_diagnostic_available()
+              ? "context_command_buffer_recording"
+              : "stack_dispatch_dependency_scope")
+      << " command_buffer_id_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " producer_command_buffer_id=" << command_buffer_recording_id
+      << " barrier_command_buffer_id="
+      << (barrier_inserted ? command_buffer_recording_id : 0u)
+      << " consumer_command_buffer_id=" << command_buffer_recording_id
+      << " submit_epoch_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " producer_submit_epoch=" << stack_submit_epoch_before_field()
+      << " consumer_submit_epoch=" << stack_submit_epoch_before_field()
       << " same_command_buffer_or_same_submit_batch_proven=0"
       << " removed_submit_pending_dispatch_set_complete=0"
       << " removed_submit_has_no_unmodeled_execution_side_effects=0"
@@ -5691,6 +5747,124 @@ void append_stack_region_boundary_submit_plan_record(
       first);
   append_json_bool(
       out, "queue_submit", field_or(fields, "queue_submit", "0") == "1", first);
+  append_json_string(
+      out,
+      "command_buffer_id_source",
+      field_or(fields, "command_buffer_id_source", "missing"),
+      first);
+  append_json_bool(
+      out,
+      "command_buffer_id_available",
+      field_or(fields, "command_buffer_id_available", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "producer_command_buffer_id",
+      field_or(fields, "producer_command_buffer_id", "missing"),
+      first);
+  append_json_string(
+      out,
+      "barrier_command_buffer_id",
+      field_or(fields, "barrier_command_buffer_id", "missing"),
+      first);
+  append_json_string(
+      out,
+      "consumer_command_buffer_id",
+      field_or(fields, "consumer_command_buffer_id", "missing"),
+      first);
+  append_json_bool(
+      out,
+      "submit_epoch_available",
+      field_or(fields, "submit_epoch_available", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "producer_submit_epoch",
+      field_or(fields, "producer_submit_epoch", "missing"),
+      first);
+  append_json_string(
+      out,
+      "consumer_submit_epoch",
+      field_or(fields, "consumer_submit_epoch", "missing"),
+      first);
+  append_json_string(
+      out,
+      "phase_boundary_submit_epoch_before",
+      field_or(fields, "phase_boundary_submit_epoch_before", "missing"),
+      first);
+  append_json_string(
+      out,
+      "phase_boundary_submit_epoch_after",
+      field_or(fields, "phase_boundary_submit_epoch_after", "missing"),
+      first);
+  append_json_u64(
+      out,
+      "pending_dispatch_count",
+      parsed_u64(fields, "pending_dispatch_count"),
+      first);
+  append_json_string(
+      out,
+      "pending_dispatch_labels",
+      field_or(fields, "pending_dispatch_labels", "missing"),
+      first);
+  append_json_u64(
+      out,
+      "pending_resource_count",
+      parsed_u64(fields, "pending_resource_count"),
+      first);
+  append_json_u64(
+      out,
+      "pending_resource_bytes",
+      parsed_u64(fields, "pending_resource_bytes"),
+      first);
+  append_json_string(
+      out,
+      "pending_resource_set_summary",
+      field_or(fields, "pending_resource_set_summary", "missing"),
+      first);
+  append_json_string(
+      out,
+      "pending_write_set_summary",
+      field_or(fields, "pending_write_set_summary", "missing"),
+      first);
+  append_json_string(
+      out,
+      "unmodeled_side_effects",
+      field_or(fields, "unmodeled_side_effects", "missing"),
+      first);
+  append_json_bool(
+      out,
+      "same_command_buffer_or_same_submit_batch_proven",
+      field_or(fields, "same_command_buffer_or_same_submit_batch_proven", "0") ==
+          "1",
+      first);
+  append_json_bool(
+      out,
+      "removed_submit_pending_dispatch_set_complete",
+      field_or(fields, "removed_submit_pending_dispatch_set_complete", "0") ==
+          "1",
+      first);
+  append_json_bool(
+      out,
+      "removed_submit_has_no_unmodeled_execution_side_effects",
+      field_or(
+          fields,
+          "removed_submit_has_no_unmodeled_execution_side_effects",
+          "0") == "1",
+      first);
+  append_json_bool(
+      out,
+      "all_pending_writes_covered_by_barrier_or_nonescaping",
+      field_or(
+          fields,
+          "all_pending_writes_covered_by_barrier_or_nonescaping",
+          "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "submit_equivalence_fail_closed_reason",
+      field_or(fields, "submit_equivalence_fail_closed_reason", "missing"),
+      first);
   append_json_u64(
       out,
       "old_path_pending",
@@ -6300,6 +6474,46 @@ void append_stack_region_boundary_optimization_plan_record(
       "command_buffer_sequence",
       parsed_u64(fields, "command_buffer_sequence"),
       first);
+  append_json_string(
+      out,
+      "command_buffer_id_source",
+      field_or(fields, "command_buffer_id_source", "missing"),
+      first);
+  append_json_bool(
+      out,
+      "command_buffer_id_available",
+      field_or(fields, "command_buffer_id_available", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "producer_command_buffer_id",
+      field_or(fields, "producer_command_buffer_id", "missing"),
+      first);
+  append_json_string(
+      out,
+      "barrier_command_buffer_id",
+      field_or(fields, "barrier_command_buffer_id", "missing"),
+      first);
+  append_json_string(
+      out,
+      "consumer_command_buffer_id",
+      field_or(fields, "consumer_command_buffer_id", "missing"),
+      first);
+  append_json_bool(
+      out,
+      "submit_epoch_available",
+      field_or(fields, "submit_epoch_available", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "producer_submit_epoch",
+      field_or(fields, "producer_submit_epoch", "missing"),
+      first);
+  append_json_string(
+      out,
+      "consumer_submit_epoch",
+      field_or(fields, "consumer_submit_epoch", "missing"),
+      first);
   append_json_u64(
       out,
       "next_recorded_dispatch_position",
@@ -6516,24 +6730,54 @@ void append_stack_region_boundary_optimization_plan_json(
 void append_stack_region_submit_epoch_ordering_json(
     std::ostream& out,
     const std::vector<std::string>& optimization_rows,
+    const std::vector<std::string>& boundary_submit_plan_rows,
     const std::vector<std::string>& submit_rows,
     bool& first) {
   uint64_t optimization_records = 0u;
   uint64_t submit_records = 0u;
+  uint64_t boundary_submit_plan_records = 0u;
   uint64_t same_batch_proven_records = 0u;
   uint64_t pending_dispatch_complete_records = 0u;
   uint64_t no_unmodeled_side_effect_records = 0u;
   uint64_t writes_covered_records = 0u;
+  uint64_t command_buffer_id_available_records = 0u;
+  uint64_t submit_epoch_available_records = 0u;
+  uint64_t pending_dispatch_count_observed_records = 0u;
+  uint64_t pending_resource_set_observed_records = 0u;
+  uint64_t pending_write_set_observed_records = 0u;
   std::map<std::string, uint64_t> fail_closed_reasons;
   const auto count_row = [&](
                              const std::string& row,
-                             const bool optimization_record) {
+                             const bool optimization_record,
+                             const bool boundary_submit_record) {
     const auto fields = parse_space_separated_fields(row);
     const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
     if (optimization_record) {
       optimization_records += count;
+    } else if (boundary_submit_record) {
+      boundary_submit_plan_records += count;
+      submit_records += count;
     } else {
       submit_records += count;
+    }
+    if (field_or(fields, "command_buffer_id_available", "0") == "1") {
+      command_buffer_id_available_records += count;
+    }
+    if (field_or(fields, "submit_epoch_available", "0") == "1") {
+      submit_epoch_available_records += count;
+    }
+    if (field_or(fields, "pending_dispatch_count", "missing") != "missing") {
+      pending_dispatch_count_observed_records += count;
+    }
+    if (
+        field_or(fields, "pending_resource_set_summary", "missing") !=
+        "missing") {
+      pending_resource_set_observed_records += count;
+    }
+    if (
+        field_or(fields, "pending_write_set_summary", "missing") !=
+        "missing") {
+      pending_write_set_observed_records += count;
     }
     if (field_or(fields, "same_command_buffer_or_same_submit_batch_proven", "0") ==
         "1") {
@@ -6564,10 +6808,13 @@ void append_stack_region_submit_epoch_ordering_json(
             "missing_submit_equivalence_reason")] += count;
   };
   for (const auto& row : optimization_rows) {
-    count_row(row, true);
+    count_row(row, true, false);
+  }
+  for (const auto& row : boundary_submit_plan_rows) {
+    count_row(row, false, true);
   }
   for (const auto& row : submit_rows) {
-    count_row(row, false);
+    count_row(row, false, false);
   }
 
   append_json_comma(out, first);
@@ -6580,6 +6827,36 @@ void append_stack_region_submit_epoch_ordering_json(
   append_json_u64(
       out, "optimization_plan_records", optimization_records, ordering_first);
   append_json_u64(out, "live_submit_records", submit_records, ordering_first);
+  append_json_u64(
+      out,
+      "boundary_submit_plan_records",
+      boundary_submit_plan_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "command_buffer_id_available_records",
+      command_buffer_id_available_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "submit_epoch_available_records",
+      submit_epoch_available_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "pending_dispatch_count_observed_records",
+      pending_dispatch_count_observed_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "pending_resource_set_observed_records",
+      pending_resource_set_observed_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "pending_write_set_observed_records",
+      pending_write_set_observed_records,
+      ordering_first);
   append_json_u64(
       out,
       "same_command_buffer_or_same_submit_batch_proven_records",
@@ -6967,6 +7244,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   append_stack_region_submit_epoch_ordering_json(
       out,
       boundary_optimization_plan_rows,
+      boundary_submit_plan_rows,
       submit_elision_canary_rows,
       first);
   append_barrier_plan_json(
@@ -10706,7 +10984,12 @@ void note_stack_region_boundary_submit_plan(
     const uint64_t old_path_pending_bytes,
     const uint64_t safe_candidate_count,
     const uint64_t safe_candidate_bytes,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
     const std::string& budget_reject,
+    const std::string& resource_signature,
     const std::string& blockers) {
   if (
       phase != VulkanSubmitPhase::StackOwner ||
@@ -10811,16 +11094,31 @@ void note_stack_region_boundary_submit_plan(
       << " live_producer_block=" << live_producer_block
       << " live_consumer_block=" << live_consumer_block
       << " live_descriptor_binding=" << live_descriptor_binding
-      << " producer_command_buffer_id=missing_live_submit_command_buffer_api"
-      << " barrier_command_buffer_id=missing_live_submit_command_buffer_api"
-      << " consumer_command_buffer_id=missing_live_submit_command_buffer_api"
-      << " producer_submit_epoch=missing_submit_epoch_api"
-      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " command_buffer_id_source=context_command_buffer_recording"
+      << " command_buffer_id_available="
+      << (command_buffer_recording_id != 0u ? 1 : 0)
+      << " producer_command_buffer_id=" << command_buffer_recording_id
+      << " barrier_command_buffer_id=missing_live_submit_barrier_command_buffer_api"
+      << " consumer_command_buffer_id=" << command_buffer_recording_id
+      << " submit_epoch_available=1"
+      << " producer_submit_epoch=" << submit_epoch_before
+      << " consumer_submit_epoch=" << submit_epoch_after
+      << " phase_boundary_submit_epoch_before=" << submit_epoch_before
+      << " phase_boundary_submit_epoch_after=" << submit_epoch_after
       << " same_command_buffer_or_same_submit_batch_proven=0"
       << " removed_submit_pending_dispatch_set_complete=0"
       << " removed_submit_has_no_unmodeled_execution_side_effects=0"
       << " all_pending_writes_covered_by_barrier_or_nonescaping=0"
-      << " submit_equivalence_fail_closed_reason=missing_submit_epoch_and_pending_dispatch_set"
+      << " submit_equivalence_fail_closed_reason=pending_dispatch_set_incomplete_or_unmodeled_side_effects"
+      << " pending_dispatch_count=" << pending_dispatch_count
+      << " pending_dispatch_labels=stack_owner_phase_boundary_pending_command_buffer"
+      << " pending_resource_count=" << old_path_pending_count
+      << " pending_resource_bytes=" << old_path_pending_bytes
+      << " pending_resource_set_summary="
+      << (resource_signature.empty() ? "none" : resource_signature)
+      << " pending_write_set_summary="
+      << (resource_signature.empty() ? "none" : resource_signature)
+      << " unmodeled_side_effects=descriptor_updates_uploads_retire_entries_allocator_actions_not_fully_modeled"
       << " selected_boundary_id=" << selected_boundary_id
       << " selected_scope=" << selected_scope
       << " selected_proof_id=" << selected_proof_id
@@ -11282,6 +11580,15 @@ void end_stack_dispatch_dependency_recording_scope() {
   maybe_write_stack_region_dependency_graph_dump();
   g_stack_dispatch_dependency_scope_id = 0u;
   g_stack_dispatch_dependency_position = 0u;
+  g_stack_command_buffer_recording_id = 0u;
+  g_stack_submit_epoch_before = 0u;
+}
+
+void set_stack_region_command_buffer_diagnostic_context(
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before) {
+  g_stack_command_buffer_recording_id = command_buffer_recording_id;
+  g_stack_submit_epoch_before = submit_epoch_before;
 }
 
 void note_vulkan_stack_pre_dispatch_insertion_point(const char* shader_name) {

@@ -826,7 +826,12 @@ TORCH_API void note_stack_region_boundary_submit_plan(
     uint64_t old_path_pending_bytes,
     uint64_t safe_candidate_count,
     uint64_t safe_candidate_bytes,
+    uint64_t command_buffer_recording_id,
+    uint64_t submit_epoch_before,
+    uint64_t submit_epoch_after,
+    uint64_t pending_dispatch_count,
     const std::string& budget_reject,
+    const std::string& resource_signature,
     const std::string& blockers);
 TORCH_API bool maybe_elide_stack_region_boundary_submit_canary(
     VulkanSubmitPhase phase,
@@ -870,6 +875,9 @@ TORCH_API bool vision_stack_capture_dependency_reaches_block(
 
 TORCH_API void begin_stack_dispatch_dependency_recording_scope();
 TORCH_API void end_stack_dispatch_dependency_recording_scope();
+TORCH_API void set_stack_region_command_buffer_diagnostic_context(
+    uint64_t command_buffer_recording_id,
+    uint64_t submit_epoch_before);
 TORCH_API void note_vulkan_stack_pre_dispatch_insertion_point(
     const char* shader_name);
 TORCH_API void note_vulkan_stack_live_descriptor_binding(
