@@ -7185,6 +7185,7 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::vector<std::string>& boundary_submit_plan_rows,
     const std::vector<std::string>& live_buffer_binding_rows,
     const std::vector<std::string>& raw_resource_producer_rows,
+    const std::vector<std::string>& consumer_registration_rows,
     const std::vector<std::string>& submit_rows,
     bool& first) {
   uint64_t optimization_records = 0u;
@@ -7330,9 +7331,63 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> raw_provenance_execution_side_effect_status_bytes;
   std::map<std::string, uint64_t> raw_provenance_registered_blocker_class_counts;
   std::map<std::string, uint64_t> raw_provenance_registered_blocker_class_bytes;
+  uint64_t capture_sensitive_activation_records = 0u;
+  uint64_t capture_sensitive_activation_bytes = 0u;
+  std::map<std::string, uint64_t> capture_sensitive_activation_producer_counts;
+  std::map<std::string, uint64_t> capture_sensitive_activation_producer_bytes;
+  std::map<std::string, uint64_t> capture_sensitive_activation_consumer_counts;
+  std::map<std::string, uint64_t> capture_sensitive_activation_consumer_bytes;
+  std::map<std::string, uint64_t> capture_sensitive_activation_capture_relationship_counts;
+  std::map<std::string, uint64_t> capture_sensitive_activation_capture_relationship_bytes;
+  std::map<std::string, uint64_t> capture_sensitive_activation_non_escape_status_counts;
+  std::map<std::string, uint64_t> capture_sensitive_activation_non_escape_status_bytes;
+  std::map<std::string, uint64_t> capture_sensitive_activation_last_use_status_counts;
+  std::map<std::string, uint64_t> capture_sensitive_activation_last_use_status_bytes;
+  std::map<std::string, uint64_t> capture_sensitive_activation_retire_only_status_counts;
+  std::map<std::string, uint64_t> capture_sensitive_activation_retire_only_status_bytes;
+  std::map<std::string, uint64_t> capture_sensitive_activation_ordering_status_counts;
+  std::map<std::string, uint64_t> capture_sensitive_activation_ordering_status_bytes;
+  std::map<std::string, uint64_t> capture_sensitive_activation_capture_proof_status_counts;
+  std::map<std::string, uint64_t> capture_sensitive_activation_capture_proof_status_bytes;
+  std::map<std::string, uint64_t> capture_sensitive_activation_blocker_reason_counts;
+  std::map<std::string, uint64_t> capture_sensitive_activation_blocker_reason_bytes;
+  std::map<std::string, uint64_t> capture_sensitive_activation_producer_registration_source_counts;
+  std::map<std::string, uint64_t> capture_sensitive_activation_producer_registration_source_bytes;
   std::map<std::string, std::string> live_binding_sources_by_range;
   std::map<std::string, std::string> raw_producer_sources_by_range;
   std::map<std::string, std::string> raw_producer_owner_by_range;
+  std::set<std::string> bridge_private_registered_capture_blocks;
+  bool public_or_host_capture_registration_seen = false;
+  bool any_capture_registration_seen = false;
+  for (const auto& row : consumer_registration_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    if (
+        field_or(fields, "stack_output_device_consumer_registration", "0") !=
+        "1") {
+      continue;
+    }
+    any_capture_registration_seen = true;
+    const bool same_region =
+        field_or(fields, "consumer_in_same_planned_region", "0") == "1";
+    const bool public_boundary =
+        field_or(fields, "python_public_boundary_before_consumption", "1") ==
+        "1";
+    const bool host_boundary =
+        field_or(fields, "host_visible_boundary_before_consumption", "1") ==
+        "1";
+    const bool host_access =
+        field_or(fields, "host_visible_access_before_consumption", "1") ==
+        "1";
+    const bool host_readback =
+        field_or(fields, "host_readback_before_consumption", "1") == "1";
+    if (same_region && !public_boundary && !host_boundary && !host_access &&
+        !host_readback) {
+      bridge_private_registered_capture_blocks.insert(
+          field_or(fields, "captured_block", "-1"));
+    } else {
+      public_or_host_capture_registration_seen = true;
+    }
+  }
   for (const auto& row : live_buffer_binding_rows) {
     const auto fields = parse_space_separated_fields(row);
     const std::string allocation_id = field_or(fields, "allocation_id", "0");
@@ -7682,6 +7737,87 @@ void append_stack_region_submit_epoch_ordering_json(
               [execution_side_effect_status] += count;
           raw_provenance_execution_side_effect_status_bytes
               [execution_side_effect_status] += bytes;
+          if (fields[0] == "capture_sensitive_stack_activation") {
+            capture_sensitive_activation_records += count;
+            capture_sensitive_activation_bytes += bytes;
+            const std::string producer = fields[4] + "@" + fields[5];
+            const std::string consumer = fields[6] + "@" + fields[7];
+            capture_sensitive_activation_producer_counts[producer] += count;
+            capture_sensitive_activation_producer_bytes[producer] += bytes;
+            capture_sensitive_activation_consumer_counts[consumer] += count;
+            capture_sensitive_activation_consumer_bytes[consumer] += bytes;
+
+            std::string capture_relationship =
+                "capture_relationship_unregistered_or_none";
+            if (
+                bridge_private_registered_capture_blocks.find(fields[5]) !=
+                bridge_private_registered_capture_blocks.end()) {
+              capture_relationship =
+                  "bridge_private_same_region_capture_registered";
+            } else if (public_or_host_capture_registration_seen) {
+              capture_relationship =
+                  "public_or_host_visible_capture_registration_seen";
+            } else if (any_capture_registration_seen) {
+              capture_relationship =
+                  "capture_registration_present_but_block_unmatched";
+            }
+            capture_sensitive_activation_capture_relationship_counts
+                [capture_relationship] += count;
+            capture_sensitive_activation_capture_relationship_bytes
+                [capture_relationship] += bytes;
+
+            capture_sensitive_activation_non_escape_status_counts
+                [non_escape_status] += count;
+            capture_sensitive_activation_non_escape_status_bytes
+                [non_escape_status] += bytes;
+            capture_sensitive_activation_last_use_status_counts
+                [last_use_status] += count;
+            capture_sensitive_activation_last_use_status_bytes
+                [last_use_status] += bytes;
+            capture_sensitive_activation_retire_only_status_counts
+                [retire_only_status] += count;
+            capture_sensitive_activation_retire_only_status_bytes
+                [retire_only_status] += bytes;
+
+            const std::string ordering_status = raw_proof_complete
+                ? "ordering_or_retire_proof_complete"
+                : (fields[9] == "last_use_present"
+                       ? "ordering_required_until_non_escape_or_visibility_proof"
+                       : "ordering_required_until_formal_last_use_proof");
+            capture_sensitive_activation_ordering_status_counts
+                [ordering_status] += count;
+            capture_sensitive_activation_ordering_status_bytes
+                [ordering_status] += bytes;
+
+            const std::string capture_proof_status = raw_proof_complete
+                ? "covered_by_existing_raw_proof"
+                : (capture_relationship ==
+                           "bridge_private_same_region_capture_registered" &&
+                       fields[9] == "last_use_present"
+                       ? "stack_activation_capture_proof_missing_submit_pending_join"
+                       : "stack_activation_capture_proof_not_applicable_or_missing_scope");
+            capture_sensitive_activation_capture_proof_status_counts
+                [capture_proof_status] += count;
+            capture_sensitive_activation_capture_proof_status_bytes
+                [capture_proof_status] += bytes;
+
+            std::string blocker_reason = fields[13];
+            if (!raw_proof_complete && fields[10] != "non_escape_present") {
+              blocker_reason = "missing_non_escape_or_visibility_proof";
+            } else if (!raw_proof_complete && fields[9] != "last_use_present") {
+              blocker_reason = "missing_formal_last_use_proof";
+            }
+            capture_sensitive_activation_blocker_reason_counts
+                [blocker_reason] += count;
+            capture_sensitive_activation_blocker_reason_bytes
+                [blocker_reason] += bytes;
+            if (producer_registered) {
+              capture_sensitive_activation_producer_registration_source_counts
+                  [producer_it->second] += count;
+              capture_sensitive_activation_producer_registration_source_bytes
+                  [producer_it->second] += bytes;
+            }
+          }
           if (producer_registered && !explicit_blocker && !raw_proof_complete) {
             raw_buffer_registered_blocking_count += count;
             raw_buffer_registered_blocking_bytes += bytes;
@@ -8252,6 +8388,88 @@ void append_stack_region_submit_epoch_ordering_json(
   append_json_comma(out, ordering_first);
   out << "\"raw_buffer_registered_blocker_class_bytes\":";
   append_u64_map_object(out, raw_provenance_registered_blocker_class_bytes);
+  append_json_u64(
+      out,
+      "capture_sensitive_activation_records",
+      capture_sensitive_activation_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "capture_sensitive_activation_bytes",
+      capture_sensitive_activation_bytes,
+      ordering_first);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_producer_counts\":";
+  append_u64_map_object(out, capture_sensitive_activation_producer_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_producer_bytes\":";
+  append_u64_map_object(out, capture_sensitive_activation_producer_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_consumer_counts\":";
+  append_u64_map_object(out, capture_sensitive_activation_consumer_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_consumer_bytes\":";
+  append_u64_map_object(out, capture_sensitive_activation_consumer_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_capture_relationship_counts\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_capture_relationship_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_capture_relationship_bytes\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_capture_relationship_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_non_escape_status_counts\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_non_escape_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_non_escape_status_bytes\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_non_escape_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_last_use_status_counts\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_last_use_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_last_use_status_bytes\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_last_use_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_retire_only_status_counts\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_retire_only_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_retire_only_status_bytes\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_retire_only_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_ordering_status_counts\":";
+  append_u64_map_object(out, capture_sensitive_activation_ordering_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_ordering_status_bytes\":";
+  append_u64_map_object(out, capture_sensitive_activation_ordering_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_capture_proof_status_counts\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_capture_proof_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_capture_proof_status_bytes\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_capture_proof_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_blocker_reason_counts\":";
+  append_u64_map_object(out, capture_sensitive_activation_blocker_reason_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_blocker_reason_bytes\":";
+  append_u64_map_object(out, capture_sensitive_activation_blocker_reason_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_producer_registration_source_counts\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_producer_registration_source_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"capture_sensitive_activation_producer_registration_source_bytes\":";
+  append_u64_map_object(
+      out, capture_sensitive_activation_producer_registration_source_bytes);
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",
@@ -8904,6 +9122,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       boundary_submit_plan_rows,
       live_buffer_binding_nodes,
       raw_resource_producer_rows,
+      consumer_registration_rows,
       submit_elision_canary_rows,
       first);
   append_barrier_plan_json(

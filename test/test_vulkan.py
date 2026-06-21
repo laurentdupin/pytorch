@@ -20316,6 +20316,38 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_epoch_ordering,
             )
             self.assertIn(
+                "capture_sensitive_activation_records",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "capture_sensitive_activation_capture_relationship_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "capture_sensitive_activation_non_escape_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "capture_sensitive_activation_last_use_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "capture_sensitive_activation_retire_only_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "capture_sensitive_activation_ordering_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "capture_sensitive_activation_capture_proof_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
+                "capture_sensitive_activation_blocker_reason_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
                 "proven_nonescaping_or_retire_only_count",
                 submit_epoch_ordering,
             )
