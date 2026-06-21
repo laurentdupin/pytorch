@@ -1037,18 +1037,36 @@ std::string stack_region_submit_elision_canary_key(
     const uint64_t eligible_boundary_count,
     const uint64_t barrier_validated_count,
     const bool submit_removed) {
+  const int64_t live_block = current_vision_stack_block_index();
+  const bool live_selected_boundary =
+      stack_region_submit_elision_canary_target_selected(
+          stack_region_submit_elision_canary_target()) &&
+      current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
+      live_block == 1;
+  const std::string selected_boundary_id =
+      non_capture_residual2_to_norm1_boundary_id(0, 1);
   std::ostringstream key;
   key << "stack_region_submit_elision_canary=1"
       << " contract=StackRegionBoundaryOptimizationPlan"
       << " schema=StackRegionSubmitElisionCanary.v0"
       << " opt_in_env=PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
-      << " selected_boundary_id="
-      << non_capture_residual2_to_norm1_boundary_id(0, 1)
+      << " selected_boundary_id=" << selected_boundary_id
       << " boundary_class=non_capture_residual2_to_norm1"
       << " phase=" << submit_phase_name(phase)
       << " callsite=" << retire_call_site_name(callsite)
       << " live_phase=" << vision_stack_phase_name(current_vision_stack_phase())
-      << " live_block=" << current_vision_stack_block_index()
+      << " live_block=" << live_block
+      << " live_boundary_id="
+      << (live_selected_boundary ? selected_boundary_id : "none")
+      << " live_boundary_scope="
+      << (live_selected_boundary ? "non_capture" : "none")
+      << " live_boundary_class="
+      << (live_selected_boundary ? "non_capture_residual2_to_norm1" : "none")
+      << " live_boundary_proof_source="
+      << (live_selected_boundary ? "StackRegionBoundarySubmitPlan.v0" : "none")
+      << " live_producer_block=" << (live_selected_boundary ? 0 : -1)
+      << " live_consumer_block=" << (live_selected_boundary ? 1 : -1)
+      << " live_descriptor_binding=" << (live_selected_boundary ? 6u : 0u)
       << " status=" << (status ? status : "missing")
       << " eligible_records=" << eligible_records
       << " eligible_boundary_count=" << eligible_boundary_count
@@ -10456,8 +10474,17 @@ void note_stack_region_boundary_submit_plan(
     return;
   }
   const int64_t live_block = current_vision_stack_block_index();
+  const bool non_capture_submit_target =
+      stack_region_submit_elision_canary_target_selected(
+          stack_region_submit_elision_canary_target());
+  const std::string non_capture_selected_boundary_id =
+      non_capture_residual2_to_norm1_boundary_id(0, 1);
+  const bool live_selected_non_capture_boundary =
+      non_capture_submit_target &&
+      current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
+      live_block == 1;
   bool live_capture_boundary = false;
-  if (live_block >= 0) {
+  if (!live_selected_non_capture_boundary && live_block >= 0) {
     for (const int64_t capture_index : g_vision_stack_capture_indices) {
       if (capture_index == live_block) {
         live_capture_boundary = true;
@@ -10465,18 +10492,52 @@ void note_stack_region_boundary_submit_plan(
       }
     }
   }
-  const std::string live_boundary_id =
-      live_capture_boundary ? capture_boundary_id_for_block(live_block) : "none";
+  const std::string live_boundary_id = live_selected_non_capture_boundary
+      ? non_capture_selected_boundary_id
+      : (live_capture_boundary ? capture_boundary_id_for_block(live_block)
+                               : "none");
+  const std::string live_boundary_scope = live_selected_non_capture_boundary
+      ? "non_capture"
+      : (live_capture_boundary ? "bridge_or_public_capture" : "none");
+  const std::string live_boundary_class = live_selected_non_capture_boundary
+      ? "non_capture_residual2_to_norm1"
+      : (live_capture_boundary ? "capture_boundary" : "none");
+  const std::string live_boundary_proof_source =
+      live_selected_non_capture_boundary ? "StackRegionBoundarySubmitPlan.v0"
+                                         : "none";
+  const int64_t live_producer_block = live_selected_non_capture_boundary
+      ? 0
+      : (live_capture_boundary ? live_block : -1);
+  const int64_t live_consumer_block =
+      live_selected_non_capture_boundary ? 1 : -1;
+  const uint32_t live_descriptor_binding =
+      live_selected_non_capture_boundary ? 6u : 0u;
 
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   const StackRegionBoundarySubmitPlanSelection selection =
       select_stack_region_boundary_submit_plan_locked();
+  const std::string selected_boundary_id = non_capture_submit_target
+      ? non_capture_selected_boundary_id
+      : selection.selected_boundary_id;
+  const std::string selected_scope =
+      non_capture_submit_target
+      ? "non_capture"
+      : (selection.has_same_region_registration ? "bridge_private_capture"
+                                                : "none");
+  const std::string selected_proof_id = non_capture_submit_target
+      ? "StackRegionBoundaryOptimizationPlan.v0:" + selected_boundary_id
+      : selection.selected_proof_id;
+  const std::string selected_proof_version = non_capture_submit_target
+      ? "StackRegionBoundaryOptimizationPlan.v0"
+      : "PhaseBoundaryBudgetRecompute.v0";
   std::string online_status = "not_planned";
-  if (!selection.has_same_region_registration) {
+  if (non_capture_submit_target && live_boundary_id == selected_boundary_id) {
+    online_status = "planned_live_boundary_match_submit_elision_target";
+  } else if (!selection.has_same_region_registration) {
     online_status = !g_vision_stack_capture_indices.empty()
         ? "rejected_public_scope_or_no_same_region_consumer"
         : "not_planned";
-  } else if (live_boundary_id == selection.selected_boundary_id) {
+  } else if (live_boundary_id == selected_boundary_id) {
     online_status = "planned_live_boundary_match_proof_pending";
   } else if (live_capture_boundary) {
     online_status = "rejected_boundary_mismatch";
@@ -10496,17 +10557,21 @@ void note_stack_region_boundary_submit_plan(
       << vision_stack_phase_name(current_vision_stack_phase())
       << " live_boundary_block=" << live_block
       << " live_boundary_id=" << live_boundary_id
-      << " selected_boundary_id=" << selection.selected_boundary_id
-      << " selected_scope="
-      << (selection.has_same_region_registration ? "bridge_private_capture"
-                                                 : "none")
-      << " selected_proof_id=" << selection.selected_proof_id
-      << " selected_proof_version=PhaseBoundaryBudgetRecompute.v0"
+      << " live_boundary_scope=" << live_boundary_scope
+      << " live_boundary_class=" << live_boundary_class
+      << " live_boundary_proof_source=" << live_boundary_proof_source
+      << " live_producer_block=" << live_producer_block
+      << " live_consumer_block=" << live_consumer_block
+      << " live_descriptor_binding=" << live_descriptor_binding
+      << " selected_boundary_id=" << selected_boundary_id
+      << " selected_scope=" << selected_scope
+      << " selected_proof_id=" << selected_proof_id
+      << " selected_proof_version=" << selected_proof_version
       << " selected_registration_key="
       << selection.selected_registration_key
       << " online_plan_status=" << online_status
       << " live_boundary_matches_selected="
-      << (live_boundary_id == selection.selected_boundary_id ? 1 : 0)
+      << (live_boundary_id == selected_boundary_id ? 1 : 0)
       << " same_region_consumer_registration_present="
       << (selection.has_same_region_registration ? 1 : 0)
       << " public_scope_rejected="
@@ -10581,6 +10646,9 @@ bool maybe_elide_stack_region_boundary_submit_canary(
     barrier_validated_records += item.second.barrier_validated_count;
   }
   const uint64_t eligible_boundary_count = eligible_boundary_ids.size();
+  const bool live_boundary_matches_selected =
+      current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
+      current_vision_stack_block_index() == 1;
   if (already_removed != 0u) {
     record_stack_region_submit_elision_canary_locked(
         phase,
@@ -10592,9 +10660,7 @@ bool maybe_elide_stack_region_boundary_submit_canary(
         /*submit_removed=*/false);
     return false;
   }
-  if (
-      current_vision_stack_phase() != VulkanVisionStackPhase::Norm1 ||
-      current_vision_stack_block_index() != 1) {
+  if (!live_boundary_matches_selected) {
     record_stack_region_submit_elision_canary_locked(
         phase,
         callsite,
@@ -10608,11 +10674,15 @@ bool maybe_elide_stack_region_boundary_submit_canary(
   if (
       eligible_records == 0u || eligible_boundary_ids.size() != 1u ||
       *eligible_boundary_ids.begin() != selected_boundary_id) {
+    const char* const mismatch_status = eligible_records == 0u
+        ? (live_boundary_matches_selected
+               ? "live_boundary_matched_no_eligible_plan_records_at_submit"
+               : "no_eligible_plan_records")
+        : "eligible_boundary_mismatch";
     record_stack_region_submit_elision_canary_locked(
         phase,
         callsite,
-        eligible_records == 0u ? "no_eligible_plan_records"
-                               : "eligible_boundary_mismatch",
+        mismatch_status,
         eligible_records,
         eligible_boundary_count,
         barrier_validated_records,

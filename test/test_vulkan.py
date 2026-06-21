@@ -20183,6 +20183,110 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
+    def test_vulkan_stack_region_live_boundary_identity_diagnostic(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=2,
+            label_prefix="vision.synthetic.stack.live_boundary_identity",
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [1],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        graph_path = os.path.join(
+            TEST_FILE_DIR, "vulkan_stack_region_live_boundary_identity_test.json"
+        )
+        if os.path.exists(graph_path):
+            os.remove(graph_path)
+        previous = os.environ.get("PYTORCH_VULKAN_STACK_DEP_GRAPH")
+        previous_canary = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
+        )
+        previous_submit_canary = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
+        os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
+            "non_capture_residual2_norm1_block1"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
+            "non_capture_residual2_norm1_block1"
+        )
+        try:
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            with torch.inference_mode():
+                actual = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                    x,
+                    stack_context,
+                    [1],
+                )
+                torch.ops.vulkan_prepack.synchronize()
+
+            self.assertEqual(actual[0].cpu(), expected[0].cpu())
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            optimization_plan = graph["stack_region_boundary_optimization_plan"]
+            self.assertGreater(optimization_plan["candidate_records"], 0)
+            self.assertEqual(
+                optimization_plan["candidate_records"],
+                optimization_plan["submit_elision_eligible_records"],
+            )
+            self.assertEqual(
+                optimization_plan["candidate_records"],
+                optimization_plan["barrier_validated_records"],
+            )
+            self.assertEqual(optimization_plan["submits_removed"], 0)
+            rows = (
+                torch.ops.vulkan_prepack.stack_dispatch_dependency_dry_run_snapshot()
+            )
+            submit_rows = [
+                row
+                for row in rows
+                if "stack_region_submit_elision_canary=1" in row
+            ]
+            self.assertTrue(submit_rows)
+            self.assertTrue(
+                any(
+                    "status=live_boundary_matched_no_eligible_plan_records_at_submit"
+                    in row
+                    and "live_boundary_id=non_capture_boundary:producer_block=0:consumer_block=1"
+                    in row
+                    and "live_boundary_scope=non_capture" in row
+                    and "live_descriptor_binding=6" in row
+                    and "submits_removed=0" in row
+                    for row in submit_rows
+                )
+            )
+            self.assertFalse(any("submits_removed=1" in row for row in submit_rows))
+        finally:
+            if previous is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = previous
+            if previous_canary is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
+                    previous_canary
+                )
+            if previous_submit_canary is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None
+                )
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
+                    previous_submit_canary
+                )
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+
     def test_vulkan_memory_and_linear_pack_residency_snapshots(self):
         torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
         weight = torch.randn(16, 8, dtype=torch.float32).to("vulkan")
