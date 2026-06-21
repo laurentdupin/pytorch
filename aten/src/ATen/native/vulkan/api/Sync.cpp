@@ -7503,6 +7503,20 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> stack_carry_visibility_transition_chain_status_bytes;
   std::map<std::string, uint64_t> stack_carry_visibility_submit_equivalence_blocker_counts;
   std::map<std::string, uint64_t> stack_carry_visibility_submit_equivalence_blocker_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_final_consumer_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_final_consumer_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_later_descriptor_status_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_later_descriptor_status_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_later_descriptor_source_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_later_descriptor_source_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_escape_status_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_escape_status_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_non_escape_proof_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_non_escape_proof_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_retire_only_eligible_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_retire_only_eligible_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_fail_closed_reason_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_old_carry_fail_closed_reason_bytes;
   std::map<std::string, std::string> live_binding_sources_by_range;
   std::map<std::string, std::string> live_buffer_binding_sources_by_phase_block;
   std::map<std::string, std::string> live_buffer_binding_ranges_by_phase_block;
@@ -8379,6 +8393,105 @@ void append_stack_region_submit_epoch_ordering_json(
                 count;
             stack_carry_visibility_escape_blocker_bytes[escape_blocker] +=
                 bytes;
+
+            std::string old_carry_later_descriptor_source = "none";
+            bool old_carry_later_descriptor_observed = false;
+            if (live_bound) {
+              std::istringstream old_carry_sources(binding_it->second);
+              std::string source;
+              while (std::getline(old_carry_sources, source, '|')) {
+                if (source.empty()) {
+                  continue;
+                }
+                if (source.rfind(producer_source_prefix, 0u) == 0u) {
+                  continue;
+                }
+                old_carry_later_descriptor_observed = true;
+                if (old_carry_later_descriptor_source == "none") {
+                  old_carry_later_descriptor_source = source;
+                } else if (
+                    old_carry_later_descriptor_source.find(source) ==
+                    std::string::npos) {
+                  old_carry_later_descriptor_source += "|" + source;
+                }
+              }
+            }
+            std::string old_carry_later_descriptor_status =
+                "old_carry_no_live_descriptor_binding_observed";
+            if (old_carry_later_descriptor_observed) {
+              old_carry_later_descriptor_status =
+                  "old_carry_later_descriptor_binding_observed";
+            } else if (live_bound) {
+              old_carry_later_descriptor_status =
+                  "old_carry_only_producer_phase_descriptors_observed";
+            }
+            stack_carry_visibility_old_carry_later_descriptor_status_counts
+                [old_carry_later_descriptor_status] += count;
+            stack_carry_visibility_old_carry_later_descriptor_status_bytes
+                [old_carry_later_descriptor_status] += bytes;
+            if (old_carry_later_descriptor_observed) {
+              stack_carry_visibility_old_carry_later_descriptor_source_counts
+                  [old_carry_later_descriptor_source] += count;
+              stack_carry_visibility_old_carry_later_descriptor_source_bytes
+                  [old_carry_later_descriptor_source] += bytes;
+            }
+
+            const std::string old_carry_final_consumer =
+                consumer + ":" +
+                (fields[9] == "last_use_present"
+                     ? "formal_last_use_present"
+                     : "formal_last_use_missing");
+            stack_carry_visibility_old_carry_final_consumer_counts
+                [old_carry_final_consumer] += count;
+            stack_carry_visibility_old_carry_final_consumer_bytes
+                [old_carry_final_consumer] += bytes;
+            stack_carry_visibility_old_carry_escape_status_counts
+                [escape_blocker] += count;
+            stack_carry_visibility_old_carry_escape_status_bytes
+                [escape_blocker] += bytes;
+            const std::string old_carry_non_escape_proof =
+                fields[10] == "non_escape_present"
+                ? "old_carry_non_escape_proven"
+                : "old_carry_non_escape_proof_missing";
+            stack_carry_visibility_old_carry_non_escape_proof_counts
+                [old_carry_non_escape_proof] += count;
+            stack_carry_visibility_old_carry_non_escape_proof_bytes
+                [old_carry_non_escape_proof] += bytes;
+
+            std::string old_carry_retire_only_eligible =
+                "old_carry_retire_only_not_eligible";
+            std::string old_carry_fail_closed_reason = "none";
+            if (actual_norm1_input_same_range) {
+              old_carry_fail_closed_reason =
+                  "old_carry_is_actual_norm1_input_visibility_target";
+            } else if (
+                escape_blocker !=
+                "no_public_final_host_or_alias_blocker_in_raw_provenance") {
+              old_carry_fail_closed_reason = escape_blocker;
+            } else if (old_carry_later_descriptor_observed) {
+              old_carry_fail_closed_reason =
+                  "old_carry_later_descriptor_binding_observed";
+            } else if (fields[9] != "last_use_present") {
+              old_carry_fail_closed_reason =
+                  "old_carry_formal_last_use_missing";
+            } else if (fields[10] != "non_escape_present") {
+              old_carry_fail_closed_reason =
+                  "old_carry_non_escape_proof_missing";
+            } else if (!raw_proof_complete) {
+              old_carry_fail_closed_reason =
+                  "old_carry_retire_only_contract_status_missing";
+            } else {
+              old_carry_retire_only_eligible =
+                  "old_carry_retire_only_eligible";
+            }
+            stack_carry_visibility_old_carry_retire_only_eligible_counts
+                [old_carry_retire_only_eligible] += count;
+            stack_carry_visibility_old_carry_retire_only_eligible_bytes
+                [old_carry_retire_only_eligible] += bytes;
+            stack_carry_visibility_old_carry_fail_closed_reason_counts
+                [old_carry_fail_closed_reason] += count;
+            stack_carry_visibility_old_carry_fail_closed_reason_bytes
+                [old_carry_fail_closed_reason] += bytes;
 
             std::string retire_after_consumer =
                 "retire_only_after_consumer_not_proven";
@@ -9341,6 +9454,62 @@ void append_stack_region_submit_epoch_ordering_json(
   out << "\"stack_carry_visibility_submit_equivalence_blocker_bytes\":";
   append_u64_map_object(
       out, stack_carry_visibility_submit_equivalence_blocker_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_final_consumer_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_final_consumer_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_final_consumer_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_final_consumer_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_later_descriptor_status_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_later_descriptor_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_later_descriptor_status_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_later_descriptor_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_later_descriptor_source_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_later_descriptor_source_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_later_descriptor_source_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_later_descriptor_source_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_escape_status_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_escape_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_escape_status_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_escape_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_non_escape_proof_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_non_escape_proof_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_non_escape_proof_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_non_escape_proof_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_retire_only_eligible_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_retire_only_eligible_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_retire_only_eligible_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_retire_only_eligible_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_fail_closed_reason_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_fail_closed_reason_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_old_carry_fail_closed_reason_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_old_carry_fail_closed_reason_bytes);
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",
