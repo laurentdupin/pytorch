@@ -625,6 +625,17 @@ std::string stack_dispatch_dependency_live_buffer_binding_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
+      << " command_buffer_id_source=stack_dispatch_dependency_scope"
+      << " producer_command_buffer_id=" << scope_id
+      << " barrier_command_buffer_id=missing_live_buffer_binding_barrier_api"
+      << " consumer_command_buffer_id=" << scope_id
+      << " producer_submit_epoch=missing_submit_epoch_api"
+      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " same_command_buffer_or_same_submit_batch_proven=0"
+      << " removed_submit_pending_dispatch_set_complete=0"
+      << " removed_submit_has_no_unmodeled_execution_side_effects=0"
+      << " all_pending_writes_covered_by_barrier_or_nonescaping=0"
+      << " submit_equivalence_fail_closed_reason=missing_submit_epoch_and_pending_dispatch_set"
       << " next_recorded_dispatch_position=" << next_recorded_position
       << " allocation_id=" << allocation_id
       << " allocation_generation=" << allocation_generation
@@ -704,6 +715,17 @@ std::string stack_region_barrier_only_canary_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
+      << " command_buffer_id_source=stack_dispatch_dependency_scope"
+      << " producer_command_buffer_id=" << scope_id
+      << " barrier_command_buffer_id=" << (barrier_inserted ? scope_id : 0u)
+      << " consumer_command_buffer_id=" << scope_id
+      << " producer_submit_epoch=missing_submit_epoch_api"
+      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " same_command_buffer_or_same_submit_batch_proven=0"
+      << " removed_submit_pending_dispatch_set_complete=0"
+      << " removed_submit_has_no_unmodeled_execution_side_effects=0"
+      << " all_pending_writes_covered_by_barrier_or_nonescaping=0"
+      << " submit_equivalence_fail_closed_reason=missing_submit_epoch_and_pending_dispatch_set"
       << " next_recorded_dispatch_position=" << next_recorded_position
       << " allocation_id=" << allocation_id
       << " allocation_generation=" << allocation_generation
@@ -791,6 +813,17 @@ std::string stack_region_pre_dispatch_proof_table_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
+      << " command_buffer_id_source=stack_dispatch_dependency_scope"
+      << " producer_command_buffer_id=" << scope_id
+      << " barrier_command_buffer_id=missing_pre_dispatch_barrier_api"
+      << " consumer_command_buffer_id=" << scope_id
+      << " producer_submit_epoch=missing_submit_epoch_api"
+      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " same_command_buffer_or_same_submit_batch_proven=0"
+      << " removed_submit_pending_dispatch_set_complete=0"
+      << " removed_submit_has_no_unmodeled_execution_side_effects=0"
+      << " all_pending_writes_covered_by_barrier_or_nonescaping=0"
+      << " submit_equivalence_fail_closed_reason=missing_submit_epoch_and_pending_dispatch_set"
       << " next_recorded_dispatch_position=" << next_recorded_position
       << " allocation_id=" << allocation_id
       << " allocation_generation=" << allocation_generation
@@ -935,6 +968,17 @@ std::string stack_region_boundary_optimization_plan_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
+      << " command_buffer_id_source=stack_dispatch_dependency_scope"
+      << " producer_command_buffer_id=" << scope_id
+      << " barrier_command_buffer_id=" << (barrier_inserted ? scope_id : 0u)
+      << " consumer_command_buffer_id=" << scope_id
+      << " producer_submit_epoch=missing_submit_epoch_api"
+      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " same_command_buffer_or_same_submit_batch_proven=0"
+      << " removed_submit_pending_dispatch_set_complete=0"
+      << " removed_submit_has_no_unmodeled_execution_side_effects=0"
+      << " all_pending_writes_covered_by_barrier_or_nonescaping=0"
+      << " submit_equivalence_fail_closed_reason=missing_submit_epoch_and_pending_dispatch_set"
       << " next_recorded_dispatch_position=" << next_recorded_position
       << " allocation_id=" << allocation_id
       << " allocation_generation=" << allocation_generation
@@ -1076,6 +1120,16 @@ std::string stack_region_submit_elision_canary_key(
       << " live_producer_block=" << (live_selected_boundary ? 0 : -1)
       << " live_consumer_block=" << (live_selected_boundary ? 1 : -1)
       << " live_descriptor_binding=" << (live_selected_boundary ? 6u : 0u)
+      << " producer_command_buffer_id=missing_live_submit_command_buffer_api"
+      << " barrier_command_buffer_id=missing_live_submit_command_buffer_api"
+      << " consumer_command_buffer_id=missing_live_submit_command_buffer_api"
+      << " producer_submit_epoch=missing_submit_epoch_api"
+      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " same_command_buffer_or_same_submit_batch_proven=0"
+      << " removed_submit_pending_dispatch_set_complete=0"
+      << " removed_submit_has_no_unmodeled_execution_side_effects=0"
+      << " all_pending_writes_covered_by_barrier_or_nonescaping=0"
+      << " submit_equivalence_fail_closed_reason=missing_submit_epoch_and_pending_dispatch_set"
       << " status=" << (status ? status : "missing")
       << " live_submit_eligibility_status=" << (status ? status : "missing")
       << " candidate_records=" << candidate_records
@@ -6459,6 +6513,111 @@ void append_stack_region_boundary_optimization_plan_json(
   out << "]}";
 }
 
+void append_stack_region_submit_epoch_ordering_json(
+    std::ostream& out,
+    const std::vector<std::string>& optimization_rows,
+    const std::vector<std::string>& submit_rows,
+    bool& first) {
+  uint64_t optimization_records = 0u;
+  uint64_t submit_records = 0u;
+  uint64_t same_batch_proven_records = 0u;
+  uint64_t pending_dispatch_complete_records = 0u;
+  uint64_t no_unmodeled_side_effect_records = 0u;
+  uint64_t writes_covered_records = 0u;
+  std::map<std::string, uint64_t> fail_closed_reasons;
+  const auto count_row = [&](
+                             const std::string& row,
+                             const bool optimization_record) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    if (optimization_record) {
+      optimization_records += count;
+    } else {
+      submit_records += count;
+    }
+    if (field_or(fields, "same_command_buffer_or_same_submit_batch_proven", "0") ==
+        "1") {
+      same_batch_proven_records += count;
+    }
+    if (field_or(fields, "removed_submit_pending_dispatch_set_complete", "0") ==
+        "1") {
+      pending_dispatch_complete_records += count;
+    }
+    if (
+        field_or(
+            fields,
+            "removed_submit_has_no_unmodeled_execution_side_effects",
+            "0") == "1") {
+      no_unmodeled_side_effect_records += count;
+    }
+    if (
+        field_or(
+            fields,
+            "all_pending_writes_covered_by_barrier_or_nonescaping",
+            "0") == "1") {
+      writes_covered_records += count;
+    }
+    fail_closed_reasons
+        [field_or(
+            fields,
+            "submit_equivalence_fail_closed_reason",
+            "missing_submit_equivalence_reason")] += count;
+  };
+  for (const auto& row : optimization_rows) {
+    count_row(row, true);
+  }
+  for (const auto& row : submit_rows) {
+    count_row(row, false);
+  }
+
+  append_json_comma(out, first);
+  out << "\"stack_region_submit_epoch_ordering\":{";
+  bool ordering_first = true;
+  append_json_string(
+      out, "schema", "StackRegionSubmitEpochOrdering.v0", ordering_first);
+  append_json_bool(out, "behavior_neutral", true, ordering_first);
+  append_json_bool(out, "default_behavior_unchanged", true, ordering_first);
+  append_json_u64(
+      out, "optimization_plan_records", optimization_records, ordering_first);
+  append_json_u64(out, "live_submit_records", submit_records, ordering_first);
+  append_json_u64(
+      out,
+      "same_command_buffer_or_same_submit_batch_proven_records",
+      same_batch_proven_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "removed_submit_pending_dispatch_set_complete_records",
+      pending_dispatch_complete_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "removed_submit_has_no_unmodeled_execution_side_effect_records",
+      no_unmodeled_side_effect_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "all_pending_writes_covered_by_barrier_or_nonescaping_records",
+      writes_covered_records,
+      ordering_first);
+  append_json_bool(
+      out,
+      "submit_equivalence_proof_complete",
+      same_batch_proven_records > 0u &&
+          same_batch_proven_records ==
+              optimization_records + submit_records &&
+          pending_dispatch_complete_records ==
+              optimization_records + submit_records &&
+          no_unmodeled_side_effect_records ==
+              optimization_records + submit_records &&
+          writes_covered_records == optimization_records + submit_records,
+      ordering_first);
+  append_json_comma(out, ordering_first);
+  out << "\"fail_closed_reason_counts\":";
+  append_u64_map_object(out, fail_closed_reasons);
+  out << "}";
+}
+
 void split_stack_graph_rows(
     const std::vector<std::string>& rows,
     std::vector<std::string>& dispatch_nodes,
@@ -6805,6 +6964,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       out, pre_dispatch_proof_rows, first);
   append_stack_region_boundary_optimization_plan_json(
       out, boundary_optimization_plan_rows, first);
+  append_stack_region_submit_epoch_ordering_json(
+      out,
+      boundary_optimization_plan_rows,
+      submit_elision_canary_rows,
+      first);
   append_barrier_plan_json(
       out,
       dependency_edges,
@@ -10647,6 +10811,16 @@ void note_stack_region_boundary_submit_plan(
       << " live_producer_block=" << live_producer_block
       << " live_consumer_block=" << live_consumer_block
       << " live_descriptor_binding=" << live_descriptor_binding
+      << " producer_command_buffer_id=missing_live_submit_command_buffer_api"
+      << " barrier_command_buffer_id=missing_live_submit_command_buffer_api"
+      << " consumer_command_buffer_id=missing_live_submit_command_buffer_api"
+      << " producer_submit_epoch=missing_submit_epoch_api"
+      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " same_command_buffer_or_same_submit_batch_proven=0"
+      << " removed_submit_pending_dispatch_set_complete=0"
+      << " removed_submit_has_no_unmodeled_execution_side_effects=0"
+      << " all_pending_writes_covered_by_barrier_or_nonescaping=0"
+      << " submit_equivalence_fail_closed_reason=missing_submit_epoch_and_pending_dispatch_set"
       << " selected_boundary_id=" << selected_boundary_id
       << " selected_scope=" << selected_scope
       << " selected_proof_id=" << selected_proof_id

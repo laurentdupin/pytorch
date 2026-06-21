@@ -20161,6 +20161,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "eligible_requires_submit_elision_opt_in",
                 optimization_plan["status_counts"],
             )
+            self.assertIn("stack_region_submit_epoch_ordering", graph)
+            submit_epoch_ordering = graph["stack_region_submit_epoch_ordering"]
+            self.assertEqual(
+                submit_epoch_ordering["schema"],
+                "StackRegionSubmitEpochOrdering.v0",
+            )
+            self.assertTrue(submit_epoch_ordering["behavior_neutral"])
+            self.assertFalse(
+                submit_epoch_ordering["submit_equivalence_proof_complete"]
+            )
+            self.assertEqual(
+                submit_epoch_ordering[
+                    "same_command_buffer_or_same_submit_batch_proven_records"
+                ],
+                0,
+            )
+            self.assertIn(
+                "missing_submit_epoch_and_pending_dispatch_set",
+                submit_epoch_ordering["fail_closed_reason_counts"],
+            )
         finally:
             if previous is None:
                 os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
