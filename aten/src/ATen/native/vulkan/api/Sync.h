@@ -832,6 +832,7 @@ TORCH_API void note_stack_region_boundary_submit_plan(
     uint64_t pending_dispatch_count,
     const std::string& budget_reject,
     const std::string& resource_signature,
+    const std::string& allocation_signature,
     const std::string& blockers);
 TORCH_API bool maybe_elide_stack_region_boundary_submit_canary(
     VulkanSubmitPhase phase,

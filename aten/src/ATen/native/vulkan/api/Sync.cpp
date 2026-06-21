@@ -5857,6 +5857,56 @@ void append_stack_region_boundary_submit_plan_record(
       "covered_by_barrier_bytes",
       parsed_u64(fields, "covered_by_barrier_bytes"),
       first);
+  append_json_string(
+      out,
+      "barrier_pending_match_status",
+      field_or(fields, "barrier_pending_match_status", "missing"),
+      first);
+  append_json_u64(
+      out,
+      "real_barrier_records",
+      parsed_u64(fields, "real_barrier_records"),
+      first);
+  append_json_u64(
+      out,
+      "real_barrier_bytes",
+      parsed_u64(fields, "real_barrier_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "matched_barrier_records",
+      parsed_u64(fields, "matched_barrier_records"),
+      first);
+  append_json_u64(
+      out,
+      "matched_barrier_bytes",
+      parsed_u64(fields, "matched_barrier_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "pending_allocation_records",
+      parsed_u64(fields, "pending_allocation_records"),
+      first);
+  append_json_u64(
+      out,
+      "pending_allocation_bytes",
+      parsed_u64(fields, "pending_allocation_bytes"),
+      first);
+  append_json_u64(
+      out,
+      "unmatched_pending_allocation_count",
+      parsed_u64(fields, "unmatched_pending_allocation_count"),
+      first);
+  append_json_u64(
+      out,
+      "unmatched_pending_allocation_bytes",
+      parsed_u64(fields, "unmatched_pending_allocation_bytes"),
+      first);
+  append_json_string(
+      out,
+      "unmatched_pending_allocation_classes",
+      field_or(fields, "unmatched_pending_allocation_classes", "missing"),
+      first);
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",
@@ -6862,6 +6912,14 @@ void append_stack_region_submit_epoch_ordering_json(
   uint64_t pending_write_set_observed_records = 0u;
   uint64_t covered_by_barrier_count = 0u;
   uint64_t covered_by_barrier_bytes = 0u;
+  uint64_t real_barrier_records = 0u;
+  uint64_t real_barrier_bytes = 0u;
+  uint64_t matched_barrier_records = 0u;
+  uint64_t matched_barrier_bytes = 0u;
+  uint64_t pending_allocation_records = 0u;
+  uint64_t pending_allocation_bytes = 0u;
+  uint64_t unmatched_pending_allocation_count = 0u;
+  uint64_t unmatched_pending_allocation_bytes = 0u;
   uint64_t proven_nonescaping_or_retire_only_count = 0u;
   uint64_t proven_nonescaping_or_retire_only_bytes = 0u;
   uint64_t known_harmless_metadata_or_bookkeeping_count = 0u;
@@ -6879,6 +6937,7 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> fail_closed_reasons;
   std::map<std::string, uint64_t> candidate_status_counts;
   std::map<std::string, uint64_t> unmodeled_reason_counts;
+  std::map<std::string, uint64_t> barrier_pending_match_status_counts;
   const auto count_row = [&](
                              const std::string& row,
                              const bool optimization_record,
@@ -6916,6 +6975,21 @@ void append_stack_region_submit_epoch_ordering_json(
         parsed_u64(fields, "covered_by_barrier_count") * count;
     covered_by_barrier_bytes +=
         parsed_u64(fields, "covered_by_barrier_bytes") * count;
+    real_barrier_records +=
+        parsed_u64(fields, "real_barrier_records") * count;
+    real_barrier_bytes += parsed_u64(fields, "real_barrier_bytes") * count;
+    matched_barrier_records +=
+        parsed_u64(fields, "matched_barrier_records") * count;
+    matched_barrier_bytes +=
+        parsed_u64(fields, "matched_barrier_bytes") * count;
+    pending_allocation_records +=
+        parsed_u64(fields, "pending_allocation_records") * count;
+    pending_allocation_bytes +=
+        parsed_u64(fields, "pending_allocation_bytes") * count;
+    unmatched_pending_allocation_count +=
+        parsed_u64(fields, "unmatched_pending_allocation_count") * count;
+    unmatched_pending_allocation_bytes +=
+        parsed_u64(fields, "unmatched_pending_allocation_bytes") * count;
     proven_nonescaping_or_retire_only_count +=
         parsed_u64(fields, "proven_nonescaping_or_retire_only_count") * count;
     proven_nonescaping_or_retire_only_bytes +=
@@ -6983,6 +7057,11 @@ void append_stack_region_submit_epoch_ordering_json(
             fields,
             "unknown_unmodeled_side_effect_reason",
             "missing_unmodeled_side_effect_reason")] += count;
+    barrier_pending_match_status_counts
+        [field_or(
+            fields,
+            "barrier_pending_match_status",
+            "missing_barrier_pending_match_status")] += count;
   };
   for (const auto& row : optimization_rows) {
     count_row(row, true, false);
@@ -7038,6 +7117,34 @@ void append_stack_region_submit_epoch_ordering_json(
       out, "covered_by_barrier_count", covered_by_barrier_count, ordering_first);
   append_json_u64(
       out, "covered_by_barrier_bytes", covered_by_barrier_bytes, ordering_first);
+  append_json_u64(
+      out, "real_barrier_records", real_barrier_records, ordering_first);
+  append_json_u64(
+      out, "real_barrier_bytes", real_barrier_bytes, ordering_first);
+  append_json_u64(
+      out, "matched_barrier_records", matched_barrier_records, ordering_first);
+  append_json_u64(
+      out, "matched_barrier_bytes", matched_barrier_bytes, ordering_first);
+  append_json_u64(
+      out,
+      "pending_allocation_records",
+      pending_allocation_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "pending_allocation_bytes",
+      pending_allocation_bytes,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unmatched_pending_allocation_count",
+      unmatched_pending_allocation_count,
+      ordering_first);
+  append_json_u64(
+      out,
+      "unmatched_pending_allocation_bytes",
+      unmatched_pending_allocation_bytes,
+      ordering_first);
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",
@@ -7149,6 +7256,9 @@ void append_stack_region_submit_epoch_ordering_json(
   append_json_comma(out, ordering_first);
   out << "\"unmodeled_side_effect_reason_counts\":";
   append_u64_map_object(out, unmodeled_reason_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"barrier_pending_match_status_counts\":";
+  append_u64_map_object(out, barrier_pending_match_status_counts);
   out << "}";
 }
 
@@ -11243,6 +11353,21 @@ struct StackRegionPendingSideEffectCoverage final {
   std::string unknown_resource_classes = "none";
 };
 
+struct StackRegionPendingBarrierCoverage final {
+  uint64_t pending_allocation_records = 0u;
+  uint64_t pending_allocation_bytes = 0u;
+  uint64_t real_barrier_records = 0u;
+  uint64_t real_barrier_bytes = 0u;
+  uint64_t covered_count = 0u;
+  uint64_t covered_bytes = 0u;
+  uint64_t matched_barrier_records = 0u;
+  uint64_t matched_barrier_bytes = 0u;
+  uint64_t unmatched_pending_count = 0u;
+  uint64_t unmatched_pending_bytes = 0u;
+  std::string unmatched_pending_classes = "none";
+  std::string status = "no_pending_allocation_signature";
+};
+
 StackRegionPendingSideEffectCoverage
 classify_stack_region_pending_side_effects(
     const std::string& resource_signature) {
@@ -11296,6 +11421,92 @@ classify_stack_region_pending_side_effects(
   return coverage;
 }
 
+StackRegionPendingBarrierCoverage classify_stack_region_pending_barrier_coverage(
+    const std::string& allocation_signature) {
+  StackRegionPendingBarrierCoverage coverage;
+  std::map<std::string, std::pair<uint64_t, uint64_t>> real_barriers;
+  for (const auto& item : stack_region_barrier_only_canary_rows()) {
+    const auto fields = parse_space_separated_fields(item.first);
+    if (parsed_u64(fields, "barriers_inserted") == 0u) {
+      continue;
+    }
+    const std::string allocation_id = field_or(fields, "allocation_id", "0");
+    const std::string allocation_generation =
+        field_or(fields, "allocation_generation", "0");
+    const std::string byte_offset = field_or(fields, "byte_offset", "0");
+    const std::string byte_range = field_or(fields, "byte_range", "0");
+    if (
+        allocation_id == "0" || allocation_generation == "0" ||
+        byte_range == "0") {
+      continue;
+    }
+    const std::string key =
+        allocation_id + "#" + allocation_generation + "#" + byte_offset +
+        "#" + byte_range;
+    auto& value = real_barriers[key];
+    value.first += std::max<uint64_t>(item.second.barrier_inserted_count, 1u);
+    value.second += item.second.bytes;
+    coverage.real_barrier_records +=
+        std::max<uint64_t>(item.second.barrier_inserted_count, 1u);
+    coverage.real_barrier_bytes += item.second.bytes;
+  }
+  if (allocation_signature.empty()) {
+    coverage.status = real_barriers.empty()
+        ? "no_pending_or_barrier_allocation_records"
+        : "missing_pending_allocation_signature";
+    return coverage;
+  }
+  std::ostringstream unmatched_classes;
+  std::istringstream entries(allocation_signature);
+  std::string entry;
+  while (std::getline(entries, entry, ',')) {
+    std::vector<std::string> parts;
+    std::istringstream part_stream(entry);
+    std::string part;
+    while (std::getline(part_stream, part, '#')) {
+      parts.emplace_back(part);
+    }
+    if (parts.size() != 7u) {
+      continue;
+    }
+    const std::string key =
+        parts[0] + "#" + parts[1] + "#" + parts[2] + "#" + parts[3];
+    const std::string& resource_class = parts[4];
+    const uint64_t count = parsed_u64_or(parts[5], 0u);
+    const uint64_t bytes = parsed_u64_or(parts[6], 0u);
+    coverage.pending_allocation_records += count;
+    coverage.pending_allocation_bytes += bytes;
+    const auto barrier_it = real_barriers.find(key);
+    if (barrier_it == real_barriers.end()) {
+      coverage.unmatched_pending_count += count;
+      coverage.unmatched_pending_bytes += bytes;
+      if (unmatched_classes.tellp() > 0) {
+        unmatched_classes << ",";
+      }
+      unmatched_classes << resource_class;
+      continue;
+    }
+    coverage.covered_count += count;
+    coverage.covered_bytes += bytes;
+    coverage.matched_barrier_records += barrier_it->second.first;
+    coverage.matched_barrier_bytes += barrier_it->second.second;
+  }
+  const std::string unmatched = unmatched_classes.str();
+  if (!unmatched.empty()) {
+    coverage.unmatched_pending_classes = unmatched;
+  }
+  if (coverage.covered_count > 0u) {
+    coverage.status = coverage.unmatched_pending_count == 0u
+        ? "all_pending_allocations_matched_real_barriers"
+        : "partial_pending_allocation_barrier_coverage";
+  } else if (coverage.real_barrier_records > 0u) {
+    coverage.status = "real_barriers_do_not_match_pending_allocations";
+  } else {
+    coverage.status = "no_real_barrier_records";
+  }
+  return coverage;
+}
+
 void note_stack_region_boundary_submit_plan(
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
@@ -11310,6 +11521,7 @@ void note_stack_region_boundary_submit_plan(
     const uint64_t pending_dispatch_count,
     const std::string& budget_reject,
     const std::string& resource_signature,
+    const std::string& allocation_signature,
     const std::string& blockers) {
   if (
       phase != VulkanSubmitPhase::StackOwner ||
@@ -11380,6 +11592,8 @@ void note_stack_region_boundary_submit_plan(
           selected_boundary_id);
   const StackRegionPendingSideEffectCoverage side_effect_coverage =
       classify_stack_region_pending_side_effects(resource_signature);
+  const StackRegionPendingBarrierCoverage barrier_coverage =
+      classify_stack_region_pending_barrier_coverage(allocation_signature);
   const uint64_t unknown_pending_dispatch_count = pending_dispatch_count;
   const uint64_t descriptor_update_side_effect_count = pending_dispatch_count;
   const uint64_t upload_side_effect_count = 0u;
@@ -11467,9 +11681,27 @@ void note_stack_region_boundary_submit_plan(
       << " pending_write_resource_classes="
       << (resource_signature.empty() ? "none" : resource_signature)
       << " covered_by_barrier_count="
-      << eligibility_summary.barrier_validated_count
+      << barrier_coverage.covered_count
       << " covered_by_barrier_bytes="
-      << eligibility_summary.barrier_validated_bytes
+      << barrier_coverage.covered_bytes
+      << " barrier_pending_match_status=" << barrier_coverage.status
+      << " real_barrier_records="
+      << barrier_coverage.real_barrier_records
+      << " real_barrier_bytes=" << barrier_coverage.real_barrier_bytes
+      << " matched_barrier_records="
+      << barrier_coverage.matched_barrier_records
+      << " matched_barrier_bytes="
+      << barrier_coverage.matched_barrier_bytes
+      << " pending_allocation_records="
+      << barrier_coverage.pending_allocation_records
+      << " pending_allocation_bytes="
+      << barrier_coverage.pending_allocation_bytes
+      << " unmatched_pending_allocation_count="
+      << barrier_coverage.unmatched_pending_count
+      << " unmatched_pending_allocation_bytes="
+      << barrier_coverage.unmatched_pending_bytes
+      << " unmatched_pending_allocation_classes="
+      << barrier_coverage.unmatched_pending_classes
       << " proven_nonescaping_or_retire_only_count="
       << safe_candidate_count
       << " proven_nonescaping_or_retire_only_bytes="

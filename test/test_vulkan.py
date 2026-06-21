@@ -20219,6 +20219,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
             )
             self.assertIn(
+                "barrier_pending_match_status_counts",
+                submit_epoch_ordering,
+            )
+            self.assertIn(
                 "missing_submit_epoch_and_pending_dispatch_set",
                 submit_epoch_ordering["fail_closed_reason_counts"],
             )

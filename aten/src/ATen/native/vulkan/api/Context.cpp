@@ -1565,12 +1565,15 @@ VulkanSubmission Context::submit_cmd_to_gpu(
     std::map<std::string, std::pair<uint64_t, uint64_t>> resources;
     std::map<std::string, std::pair<uint64_t, uint64_t>>
         dry_run_resource_classes;
+    std::map<std::string, std::pair<uint64_t, uint64_t>>
+        dry_run_allocation_ranges;
     std::set<std::string> blockers;
     std::set<std::string> dry_run_blockers;
     std::vector<RegionLifetimeSubmitResourceAttribution>
         region_lifetime_resource_attributions;
     std::string dry_run_budget_reject = "not_stack_owner_phase_boundary";
     std::string dry_run_signature;
+    std::string dry_run_allocation_signature;
     std::string dry_run_blocker_signature;
     const bool record_phase_boundary_dry_run =
         phase == VulkanSubmitPhase::StackOwner &&
@@ -1618,6 +1621,18 @@ VulkanSubmission Context::submit_cmd_to_gpu(
       auto& class_value = dry_run_resource_classes[resource_class];
       class_value.first += 1u;
       class_value.second += pending.bytes;
+      if (allocation_proof.has_generation && allocation_proof.has_byte_range) {
+        std::ostringstream allocation_key;
+        allocation_key << allocation_proof.allocation_id << "#"
+                       << allocation_proof.allocation_generation << "#"
+                       << allocation_proof.byte_offset << "#"
+                       << allocation_proof.byte_range << "#"
+                       << resource_class;
+        auto& allocation_value =
+            dry_run_allocation_ranges[allocation_key.str()];
+        allocation_value.first += 1u;
+        allocation_value.second += pending.bytes;
+      }
       if (safe_candidate && !large_backing) {
         dry_run_safe_candidate_count++;
         dry_run_safe_candidate_bytes += pending.bytes;
@@ -1690,6 +1705,16 @@ VulkanSubmission Context::submit_cmd_to_gpu(
       }
       dry_run_signature = dry_run_signature_stream.str();
       dry_run_blocker_signature = dry_run_blocker_signature_stream.str();
+      std::ostringstream dry_run_allocation_signature_stream;
+      for (const auto& entry : dry_run_allocation_ranges) {
+        if (dry_run_allocation_signature_stream.tellp() > 0) {
+          dry_run_allocation_signature_stream << ",";
+        }
+        dry_run_allocation_signature_stream << entry.first << "#"
+                                            << entry.second.first << "#"
+                                            << entry.second.second;
+      }
+      dry_run_allocation_signature = dry_run_allocation_signature_stream.str();
       const bool all_safe_without_budget =
           pending_resource_count > 0u &&
           pending_resource_count == dry_run_safe_candidate_count &&
@@ -1779,6 +1804,7 @@ VulkanSubmission Context::submit_cmd_to_gpu(
           pending_dispatch_count,
           dry_run_budget_reject,
           dry_run_signature,
+          dry_run_allocation_signature,
           dry_run_blocker_signature);
     }
     if (should_coalesce_phase_boundary_explicit_sync) {
