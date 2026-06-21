@@ -8997,6 +8997,132 @@ void append_stack_region_submit_epoch_ordering_json(
       top_count_key(stack_boundary_proof_reject_reason_counts);
   const std::string stack_boundary_highest_leverage_missing_field =
       top_count_key(stack_boundary_proof_missing_field_counts);
+  std::map<std::string, uint64_t> boundary_proof_total_records;
+  std::map<std::string, uint64_t> boundary_proof_total_bytes;
+  std::map<std::string, uint64_t> boundary_proof_submit_ready_records;
+  std::map<std::string, uint64_t> boundary_proof_submit_ready_bytes;
+  std::map<std::string, uint64_t> boundary_proof_barrier_ready_bytes;
+  std::map<std::string, uint64_t> boundary_proof_old_carry_retire_only_bytes;
+  std::map<std::string, uint64_t> boundary_proof_blocker_records;
+  std::map<std::string, std::string> boundary_proof_class_by_id;
+  for (const auto& row : stack_boundary_proof_record_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const std::string boundary_id =
+        field_or(fields, "boundary_id", "missing_boundary_id");
+    const uint64_t count = std::max<uint64_t>(
+        parsed_u64(fields, "count"), static_cast<uint64_t>(1u));
+    const uint64_t bytes = parsed_u64(fields, "bytes");
+    boundary_proof_total_records[boundary_id] += count;
+    boundary_proof_total_bytes[boundary_id] += bytes;
+    boundary_proof_class_by_id[boundary_id] =
+        field_or(fields, "boundary_class", "missing_boundary_class");
+    if (field_or(fields, "submit_elision_ready", "0") == "1") {
+      boundary_proof_submit_ready_records[boundary_id] += count;
+      boundary_proof_submit_ready_bytes[boundary_id] += bytes;
+    }
+    if (field_or(fields, "barrier_ready", "0") == "1") {
+      boundary_proof_barrier_ready_bytes[boundary_id] += bytes;
+    }
+    if (
+        field_or(
+            fields,
+            "old_carry_retire_only_eligibility",
+            "old_carry_retire_only_not_eligible") ==
+        "old_carry_retire_only_eligible") {
+      boundary_proof_old_carry_retire_only_bytes[boundary_id] += bytes;
+    }
+    if (
+        field_or(
+            fields,
+            "public_host_final_readback_alias_blocker_status",
+            "missing_blocker_status") !=
+        "no_public_final_host_or_alias_blocker_in_raw_provenance") {
+      boundary_proof_blocker_records[boundary_id] += count;
+    }
+  }
+  std::string selected_submit_equivalence_boundary = "none";
+  uint64_t submit_ready_boundary_count = 0u;
+  for (const auto& item : boundary_proof_submit_ready_records) {
+    if (item.second == 0u) {
+      continue;
+    }
+    ++submit_ready_boundary_count;
+    selected_submit_equivalence_boundary = item.first;
+  }
+  const bool single_submit_ready_boundary = submit_ready_boundary_count == 1u;
+  const uint64_t selected_boundary_total_records =
+      single_submit_ready_boundary
+      ? boundary_proof_total_records[selected_submit_equivalence_boundary]
+      : 0u;
+  const uint64_t selected_boundary_total_bytes =
+      single_submit_ready_boundary
+      ? boundary_proof_total_bytes[selected_submit_equivalence_boundary]
+      : 0u;
+  const uint64_t selected_boundary_submit_ready_records =
+      single_submit_ready_boundary
+      ? boundary_proof_submit_ready_records[selected_submit_equivalence_boundary]
+      : 0u;
+  const uint64_t selected_boundary_submit_ready_bytes =
+      single_submit_ready_boundary
+      ? boundary_proof_submit_ready_bytes[selected_submit_equivalence_boundary]
+      : 0u;
+  const uint64_t selected_boundary_non_ready_records =
+      selected_boundary_total_records > selected_boundary_submit_ready_records
+      ? selected_boundary_total_records - selected_boundary_submit_ready_records
+      : 0u;
+  const uint64_t selected_boundary_non_ready_bytes =
+      selected_boundary_total_bytes > selected_boundary_submit_ready_bytes
+      ? selected_boundary_total_bytes - selected_boundary_submit_ready_bytes
+      : 0u;
+  const uint64_t selected_boundary_blocker_records =
+      single_submit_ready_boundary
+      ? boundary_proof_blocker_records[selected_submit_equivalence_boundary]
+      : 0u;
+  const uint64_t selected_boundary_barrier_bytes =
+      single_submit_ready_boundary
+      ? boundary_proof_barrier_ready_bytes[selected_submit_equivalence_boundary]
+      : 0u;
+  const uint64_t selected_boundary_retire_only_bytes =
+      single_submit_ready_boundary
+      ? boundary_proof_old_carry_retire_only_bytes
+            [selected_submit_equivalence_boundary]
+      : 0u;
+  const std::string selected_boundary_class =
+      single_submit_ready_boundary
+      ? boundary_proof_class_by_id[selected_submit_equivalence_boundary]
+      : "none";
+  const uint64_t outside_selected_boundary_records =
+      stack_boundary_proof_record_count > selected_boundary_total_records
+      ? stack_boundary_proof_record_count - selected_boundary_total_records
+      : stack_boundary_proof_record_count;
+  const uint64_t outside_selected_boundary_bytes =
+      stack_boundary_proof_record_bytes > selected_boundary_total_bytes
+      ? stack_boundary_proof_record_bytes - selected_boundary_total_bytes
+      : stack_boundary_proof_record_bytes;
+  const bool selected_boundary_pending_set_complete =
+      single_submit_ready_boundary && selected_boundary_total_records > 0u &&
+      selected_boundary_non_ready_records == 0u &&
+      selected_boundary_blocker_records == 0u;
+  const std::string selected_boundary_epoch_status =
+      same_batch_proven_records > 0u
+      ? "submit_epoch_proof_present_but_not_linked_to_stack_boundary_record"
+      : "missing_selected_boundary_command_buffer_or_submit_epoch_proof";
+  const bool boundary_complete_submit_equivalence = false;
+  std::string boundary_submit_equivalence_reject_reason =
+      "missing_selected_boundary_command_buffer_or_submit_epoch_proof";
+  if (submit_ready_boundary_count == 0u) {
+    boundary_submit_equivalence_reject_reason =
+        "no_submit_ready_boundary";
+  } else if (!single_submit_ready_boundary) {
+    boundary_submit_equivalence_reject_reason =
+        "multiple_submit_ready_boundaries";
+  } else if (selected_boundary_non_ready_records != 0u) {
+    boundary_submit_equivalence_reject_reason =
+        "selected_boundary_has_non_submit_ready_rows";
+  } else if (selected_boundary_blocker_records != 0u) {
+    boundary_submit_equivalence_reject_reason =
+        "selected_boundary_has_public_host_final_or_alias_blockers";
+  }
 
   append_json_comma(out, first);
   out << "\"stack_region_submit_epoch_ordering\":{";
@@ -9764,6 +9890,112 @@ void append_stack_region_submit_epoch_ordering_json(
   append_json_comma(out, stack_boundary_first);
   out << "\"missing_proof_field_bytes\":";
   append_u64_map_object(out, stack_boundary_proof_missing_field_bytes);
+  append_json_comma(out, stack_boundary_first);
+  out << "\"boundary_submit_equivalence_proof\":{";
+  bool boundary_equivalence_first = true;
+  append_json_string(
+      out,
+      "schema",
+      "StackBoundarySubmitEquivalenceProof.v0",
+      boundary_equivalence_first);
+  append_json_bool(
+      out, "behavior_neutral", true, boundary_equivalence_first);
+  append_json_bool(
+      out,
+      "default_behavior_unchanged",
+      true,
+      boundary_equivalence_first);
+  append_json_string(
+      out,
+      "selected_boundary_id",
+      selected_submit_equivalence_boundary,
+      boundary_equivalence_first);
+  append_json_string(
+      out,
+      "selected_boundary_class",
+      selected_boundary_class,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "submit_ready_boundary_count",
+      submit_ready_boundary_count,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_total_records",
+      selected_boundary_total_records,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_total_bytes",
+      selected_boundary_total_bytes,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_submit_ready_records",
+      selected_boundary_submit_ready_records,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_submit_ready_bytes",
+      selected_boundary_submit_ready_bytes,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_non_submit_ready_records",
+      selected_boundary_non_ready_records,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "selected_boundary_non_submit_ready_bytes",
+      selected_boundary_non_ready_bytes,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "outside_selected_boundary_records",
+      outside_selected_boundary_records,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "outside_selected_boundary_bytes",
+      outside_selected_boundary_bytes,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "pending_bytes_covered_by_barrier",
+      selected_boundary_barrier_bytes,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "pending_bytes_old_carry_retire_only_nonescaping",
+      selected_boundary_retire_only_bytes,
+      boundary_equivalence_first);
+  append_json_u64(
+      out,
+      "public_host_final_alias_blocker_records",
+      selected_boundary_blocker_records,
+      boundary_equivalence_first);
+  append_json_string(
+      out,
+      "same_command_buffer_or_submit_epoch_status",
+      selected_boundary_epoch_status,
+      boundary_equivalence_first);
+  append_json_bool(
+      out,
+      "typed_pending_set_complete",
+      selected_boundary_pending_set_complete,
+      boundary_equivalence_first);
+  append_json_bool(
+      out,
+      "boundary_complete_submit_equivalence",
+      boundary_complete_submit_equivalence,
+      boundary_equivalence_first);
+  append_json_string(
+      out,
+      "reject_reason",
+      boundary_submit_equivalence_reject_reason,
+      boundary_equivalence_first);
+  out << "}";
   append_json_comma(out, stack_boundary_first);
   out << "\"records\":[";
   for (size_t i = 0u; i < stack_boundary_proof_record_rows.size(); ++i) {

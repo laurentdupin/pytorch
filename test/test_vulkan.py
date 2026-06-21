@@ -20485,6 +20485,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn("reject_reason_counts", stack_boundary_records)
             self.assertIn("missing_proof_field_counts", stack_boundary_records)
+            self.assertIn(
+                "boundary_submit_equivalence_proof",
+                stack_boundary_records,
+            )
+            boundary_equivalence = stack_boundary_records[
+                "boundary_submit_equivalence_proof"
+            ]
+            self.assertEqual(
+                boundary_equivalence["schema"],
+                "StackBoundarySubmitEquivalenceProof.v0",
+            )
+            self.assertTrue(boundary_equivalence["behavior_neutral"])
+            self.assertTrue(boundary_equivalence["default_behavior_unchanged"])
+            self.assertFalse(
+                boundary_equivalence["boundary_complete_submit_equivalence"]
+            )
+            self.assertIn("reject_reason", boundary_equivalence)
             self.assertTrue(stack_boundary_records["records"])
             self.assertEqual(
                 stack_boundary_records["records"][0]["fields"]["schema"],

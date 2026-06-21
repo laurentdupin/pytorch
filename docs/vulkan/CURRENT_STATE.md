@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-21 at local HEAD `7da77f3624dd` plus the
-behavior-neutral `StackBoundaryProofRecord.v0` consolidation slice.
+Last refreshed: 2026-06-21 at local HEAD `90dd04797764` plus the
+behavior-neutral `StackBoundarySubmitEquivalenceProof.v0` slice.
 
 ## Repo State Summary
 
@@ -91,9 +91,14 @@ readiness should be decided from these rows: they report the candidate boundary,
 producer and consumer roles, produced/actual/old-carry ranges, live descriptor
 status, formal last-use and non-escape proof status, blocker status, barrier
 status, `behavior_change_allowed=false`, and the fail-closed reject reason.
-The current proof remains behavior-neutral: submit-elision-ready records are
-zero, and the highest-leverage missing proof is the old residual2 carry
-non-escape/retire-only proof after actual Norm1 input separation.
+The current typed proof can now make the first non-capture boundary rows
+submit-elision-ready after proving old residual2 carry non-escape and
+retire-only status. `StackBoundarySubmitEquivalenceProof.v0` rolls those rows
+up at boundary scope and remains behavior-neutral: it reports the selected
+boundary row set, barrier-covered bytes, old-carry retire-only bytes, and
+public/host/final/alias blockers, but keeps boundary-complete submit
+equivalence fail-closed until command-buffer/submit-epoch proof is linked to
+the selected typed boundary.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella

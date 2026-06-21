@@ -267,6 +267,17 @@ when a stack-owner recording scope ends. The v0 schema is
   continuity, but readiness summaries such as barrier-ready records,
   submit-elision-ready records, top reject reason, and highest-leverage missing
   proof field are generated from the typed rows.
+- a nested `boundary_submit_equivalence_proof` object inside
+  `stack_boundary_proof_records`, with schema
+  `StackBoundarySubmitEquivalenceProof.v0`. This rolls the typed rows up to the
+  selected boundary scope. It reports the selected boundary id/class, total
+  rows, submit-ready rows, non-ready rows, outside-boundary rows, barrier-covered
+  bytes, old-carry retire-only/nonescaping bytes, public/host/final/alias
+  blockers, same-command-buffer or submit-epoch status, and a fail-closed
+  reject reason. Row-level submit readiness is not enough to skip a submit:
+  boundary-level submit equivalence remains false unless the selected boundary
+  also has linked command-buffer/submit-epoch proof for the submit being
+  considered.
 
 This dump is diagnostic by default. It does not skip submits, change routes, or
 change accepted shapes. A real barrier is recorded only under the explicit
