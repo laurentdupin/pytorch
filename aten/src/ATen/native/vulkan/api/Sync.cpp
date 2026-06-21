@@ -775,6 +775,8 @@ std::string stack_dispatch_dependency_live_buffer_binding_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
+      << " stack_region_instance_id=" << scope_id
+      << " stack_region_instance_id_source=stack_dispatch_dependency_scope"
       << " command_buffer_id_source="
       << (stack_command_buffer_diagnostic_available()
               ? "context_command_buffer_recording"
@@ -841,6 +843,8 @@ std::string stack_dispatch_dependency_live_image_binding_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
+      << " stack_region_instance_id=" << scope_id
+      << " stack_region_instance_id_source=stack_dispatch_dependency_scope"
       << " command_buffer_id_source="
       << (stack_command_buffer_diagnostic_available()
               ? "context_command_buffer_recording"
@@ -946,6 +950,8 @@ std::string stack_region_barrier_only_canary_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
+      << " stack_region_instance_id=" << scope_id
+      << " stack_region_instance_id_source=stack_dispatch_dependency_scope"
       << " command_buffer_id_source="
       << (stack_command_buffer_diagnostic_available()
               ? "context_command_buffer_recording"
@@ -1054,6 +1060,8 @@ std::string stack_region_pre_dispatch_proof_table_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
+      << " stack_region_instance_id=" << scope_id
+      << " stack_region_instance_id_source=stack_dispatch_dependency_scope"
       << " command_buffer_id_source="
       << (stack_command_buffer_diagnostic_available()
               ? "context_command_buffer_recording"
@@ -1218,6 +1226,8 @@ std::string stack_region_boundary_optimization_plan_key(
       << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
       << " descriptor_binding=" << binding_idx
       << " command_buffer_sequence=" << scope_id
+      << " stack_region_instance_id=" << scope_id
+      << " stack_region_instance_id_source=stack_dispatch_dependency_scope"
       << " command_buffer_id_source="
       << (stack_command_buffer_diagnostic_available()
               ? "context_command_buffer_recording"
@@ -5907,6 +5917,21 @@ void append_stack_region_boundary_submit_plan_record(
       first);
   append_json_string(
       out,
+      "stack_region_instance_id",
+      field_or(fields, "stack_region_instance_id", "missing"),
+      first);
+  append_json_bool(
+      out,
+      "stack_region_instance_id_available",
+      field_or(fields, "stack_region_instance_id_available", "0") == "1",
+      first);
+  append_json_string(
+      out,
+      "stack_region_instance_id_source",
+      field_or(fields, "stack_region_instance_id_source", "missing"),
+      first);
+  append_json_string(
+      out,
       "live_boundary_id",
       field_or(fields, "live_boundary_id", "none"),
       first);
@@ -6599,6 +6624,16 @@ void append_stack_region_barrier_only_canary_record(
   append_json_string(out, "shader", field_or(fields, "shader", "unknown"), first);
   append_json_u64(
       out, "descriptor_binding", parsed_u64(fields, "descriptor_binding"), first);
+  append_json_string(
+      out,
+      "stack_region_instance_id",
+      field_or(fields, "stack_region_instance_id", "missing"),
+      first);
+  append_json_string(
+      out,
+      "stack_region_instance_id_source",
+      field_or(fields, "stack_region_instance_id_source", "missing"),
+      first);
   append_json_u64(
       out,
       "next_recorded_dispatch_position",
@@ -6809,6 +6844,16 @@ void append_stack_region_pre_dispatch_proof_table_record(
   append_json_string(out, "shader", field_or(fields, "shader", "unknown"), first);
   append_json_u64(
       out, "descriptor_binding", parsed_u64(fields, "descriptor_binding"), first);
+  append_json_string(
+      out,
+      "stack_region_instance_id",
+      field_or(fields, "stack_region_instance_id", "missing"),
+      first);
+  append_json_string(
+      out,
+      "stack_region_instance_id_source",
+      field_or(fields, "stack_region_instance_id_source", "missing"),
+      first);
   append_json_u64(
       out,
       "next_recorded_dispatch_position",
@@ -7011,6 +7056,16 @@ void append_stack_region_boundary_optimization_plan_record(
   append_json_u64(out, "live_block", parsed_u64(fields, "live_block"), first);
   append_json_u64(
       out, "descriptor_binding", parsed_u64(fields, "descriptor_binding"), first);
+  append_json_string(
+      out,
+      "stack_region_instance_id",
+      field_or(fields, "stack_region_instance_id", "missing"),
+      first);
+  append_json_string(
+      out,
+      "stack_region_instance_id_source",
+      field_or(fields, "stack_region_instance_id_source", "missing"),
+      first);
   append_json_u64(
       out,
       "command_buffer_sequence",
@@ -7748,6 +7803,7 @@ void append_stack_region_submit_epoch_ordering_json(
     bool final_complete = false;
     std::string final_reject_reason = "none";
     std::set<std::string> submit_keys;
+    std::set<std::string> stack_region_instance_ids;
     std::set<std::string> topology_signatures;
     std::map<std::string, uint64_t> reject_reason_counts;
     std::map<std::string, uint64_t> candidate_status_counts;
@@ -7779,6 +7835,8 @@ void append_stack_region_submit_epoch_ordering_json(
             submit_level_key_field(fields, "live_consumer_block") +
             ":stack_phase=" +
             submit_level_key_field(fields, "live_boundary_stack_phase") +
+            ":instance=" +
+            submit_level_key_field(fields, "stack_region_instance_id") +
             ":descriptor=" +
             submit_level_key_field(fields, "live_descriptor_binding") +
             ":callsite=" + submit_level_key_field(fields, "callsite") +
@@ -7804,6 +7862,8 @@ void append_stack_region_submit_epoch_ordering_json(
             submit_level_key_field(fields, "live_consumer_block") +
             ",stack_phase=" +
             submit_level_key_field(fields, "live_boundary_stack_phase") +
+            ",stack_region_instance_id=" +
+            submit_level_key_field(fields, "stack_region_instance_id") +
             ",descriptor_binding=" +
             submit_level_key_field(fields, "live_descriptor_binding") +
             ",callsite=" + submit_level_key_field(fields, "callsite") +
@@ -7870,6 +7930,8 @@ void append_stack_region_submit_epoch_ordering_json(
     proof.submit_key = submit_key;
     proof.submit_key_fields = submit_level_key_fields_for_fields(fields);
     proof.submit_keys.insert(submit_key);
+    proof.stack_region_instance_ids.insert(
+        submit_level_key_field(fields, "stack_region_instance_id"));
     submit_level_submit_keys_by_boundary_id[boundary_id].insert(submit_key);
     proof.records += count;
     proof.bytes += bytes;
@@ -8013,13 +8075,21 @@ void append_stack_region_submit_epoch_ordering_json(
         : *proof.topology_signatures.begin();
     const uint64_t boundary_submit_key_count =
         submit_level_submit_keys_by_boundary_id[proof.boundary_id].size();
+    const uint64_t stack_region_instance_id_count =
+        proof.stack_region_instance_ids.size();
+    const std::string stack_region_instance_id =
+        stack_region_instance_id_count == 1u
+        ? *proof.stack_region_instance_ids.begin()
+        : (stack_region_instance_id_count == 0u ? "missing" : "ambiguous");
     std::ostringstream row;
     row << "schema=StackBoundarySubmitLevelEquivalenceProof.v0"
         << " boundary_id=" << proof.boundary_id
         << " boundary_class=" << proof.boundary_class
         << " submit_key=" << proof.submit_key
         << " submit_key_fields=" << proof.submit_key_fields
-        << " submit_grouping=live_boundary_submit_key"
+        << " submit_grouping=live_boundary_submit_key_with_stack_region_instance"
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " stack_region_instance_id_count=" << stack_region_instance_id_count
         << " boundary_submit_key_count=" << boundary_submit_key_count
         << " submit_equivalence_candidate_status=" << candidate_status
         << " behavior_neutral=1"
@@ -8112,6 +8182,9 @@ void append_stack_region_submit_epoch_ordering_json(
     boundary_proof.unknown_resource_side_effect_bytes +=
         proof.unknown_resource_side_effect_bytes;
     boundary_proof.submit_keys.insert(proof.submit_key);
+    boundary_proof.stack_region_instance_ids.insert(
+        proof.stack_region_instance_ids.begin(),
+        proof.stack_region_instance_ids.end());
     boundary_proof.topology_signatures.insert(proof.topology_signatures.begin(), proof.topology_signatures.end());
     boundary_proof.reject_reason_counts[proof.final_reject_reason] +=
         proof.records;
@@ -9092,6 +9165,16 @@ void append_stack_region_submit_epoch_ordering_json(
                 submit_level_reject_reason = "none";
               }
             }
+            uint64_t submit_level_instance_id_count = 0u;
+            std::string submit_level_instance_id = "missing";
+            if (submit_level_proof_present) {
+              submit_level_instance_id_count =
+                  submit_level_it->second.stack_region_instance_ids.size();
+              submit_level_instance_id = submit_level_instance_id_count == 1u
+                  ? *submit_level_it->second.stack_region_instance_ids.begin()
+                  : (submit_level_instance_id_count == 0u ? "missing"
+                                                          : "ambiguous");
+            }
             const bool boundary_barrier_ready =
                 actual_norm1_input_barrier_matched;
             const bool boundary_submit_elision_ready =
@@ -9195,6 +9278,10 @@ void append_stack_region_submit_epoch_ordering_json(
                         : "missing_old_carry_retire_only_proof")
                 << " old_carry_reject_reason="
                 << old_carry_fail_closed_reason
+                << " stack_region_instance_id="
+                << submit_level_instance_id
+                << " stack_region_instance_id_count="
+                << submit_level_instance_id_count
                 << " behavior_change_allowed=0"
                 << " barrier_ready=" << (boundary_barrier_ready ? "1" : "0")
                 << " submit_level_equivalence_proof_present="
@@ -15816,6 +15903,10 @@ void note_stack_region_boundary_submit_plan(
       << " schema=StackRegionBoundarySubmitPlan.v0"
       << " behavior_neutral=1"
       << " dry_run_only=1"
+      << " stack_region_instance_id=" << g_stack_dispatch_dependency_scope_id
+      << " stack_region_instance_id_available="
+      << (g_stack_dispatch_dependency_scope_id != 0u ? 1 : 0)
+      << " stack_region_instance_id_source=stack_dispatch_dependency_scope"
       << " phase=" << submit_phase_name(phase)
       << " callsite=" << retire_call_site_name(callsite)
       << " live_boundary_stack_phase="
@@ -16876,6 +16967,8 @@ void note_stack_owner_dispatch_dependency_dry_run(
                      ? "planned_non_capture_residual2_to_norm1"
                      : "missing"))
       << " command_buffer_sequence=" << scope_id
+      << " stack_region_instance_id=" << scope_id
+      << " stack_region_instance_id_source=stack_dispatch_dependency_scope"
       << " producer_descriptor_role=internal_output"
       << " producer_descriptor_set=0"
       << " producer_descriptor_binding=0"

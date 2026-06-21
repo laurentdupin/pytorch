@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-21 at local HEAD `95e464b83f4c` plus the
-behavior-neutral submit-level equivalence side-effect proof slice.
+Last refreshed: 2026-06-21 at local HEAD `438c53415df1` plus the
+behavior-neutral stack-region instance submit-key slice.
 
 ## Repo State Summary
 
@@ -108,10 +108,11 @@ required submit-level proof booleans. A typed row or boundary cannot report
 submit-elision readiness while the submit-level proof is incomplete, while any
 required boolean is false, or while topology/cardinality differs from the
 current run. Submit-level rows are keyed by live submit identity rather than
-boundary id alone. The key includes generic boundary fields, command-buffer ids,
-submit epochs, callsite, phase, and descriptor binding; the boundary rollup
-still rejects if more than one live submit key maps to the same selected
-boundary.
+boundary id alone. The key includes generic boundary fields, stack-region
+instance id, command-buffer ids, submit epochs, callsite, phase, and descriptor
+binding. This separates repeated stack/forward instances from the same run.
+Boundary-wide rollups still reject if more than one live submit key maps to the
+same selected boundary without an instance-specific join.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella

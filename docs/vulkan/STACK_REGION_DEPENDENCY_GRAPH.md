@@ -280,10 +280,12 @@ when a stack-owner recording scope ends. The v0 schema is
   incomplete candidate status, or topology/cardinality mismatch forces the
   typed boundary rows to fail closed with a non-`none` reject reason. Submit
   rows are keyed by a generic live submit key, not only by boundary id: boundary
-  id/class, producer and consumer blocks, stack phase, descriptor binding,
-  callsite, submit phase, command-buffer ids, and submit epochs. A boundary
-  rollup remains fail-closed unless exactly one live submit key maps to that
-  boundary in the current run.
+  id/class, producer and consumer blocks, stack phase, stack-region instance id,
+  descriptor binding, callsite, submit phase, command-buffer ids, and submit
+  epochs. This separates repeated stack/forward instances in the same run. A
+  boundary-wide rollup remains fail-closed unless exactly one live submit key
+  maps to that boundary, or a later slice performs an explicit instance-specific
+  join.
 - a nested `boundary_submit_equivalence_proof` object inside
   `stack_boundary_proof_records`, with schema
   `StackBoundarySubmitEquivalenceProof.v0`. This rolls the typed rows up to the
